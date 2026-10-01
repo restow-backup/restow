@@ -170,7 +170,7 @@ RUN --mount=type=cache,id=go-mod,target=/go/pkg/mod \
 # signing public key in /srv/agent/install. Assembled here as
 # a rootfs tree and copied into the runtime image in one step. The server's
 # restic is a link to the copy for the image's own architecture.
-FROM --platform=$BUILDPLATFORM alpine:3.22 AS agent-dist
+FROM --platform=$BUILDPLATFORM alpine:3.24 AS agent-dist
 ARG RESTOW_VERSION=
 ARG TARGETARCH
 COPY --from=agent-build /out /agent
