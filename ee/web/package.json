@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@restow/i18n": "workspace:*",
-    "@tanstack/react-query": "^5.62.7",
+    "@tanstack/react-query": "^5.104.0",
     "@tanstack/react-router": "^1.95.0",
     "@tanstack/react-table": "^8",
     "lucide-react": "^0.469.0",
