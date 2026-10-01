@@ -1,0 +1,465 @@
+{
+  "nav": {
+    "tenants": "Alle Mandanten",
+    "members": "Mitglieder"
+  },
+  "list": {
+    "title": "Mandanten",
+    "subtitle": "Die Kunden, die diese Installation schützt: Postfächer, letzte Sicherung und nachgewiesene Wiederherstellbarkeit je Mandant.",
+    "searchLabel": "Mandanten durchsuchen",
+    "searchPlaceholder": "Nach Name oder Kurzname suchen",
+    "count": "{count, plural, one {# Mandant} other {# Mandanten}}",
+    "matches": "{count, number} von {total, plural, one {# Mandant} other {# Mandanten}}",
+    "noMatches": "Kein Mandant passt zu „{query}“.",
+    "current": "Aktuell",
+    "error": "Die Mandanten konnten nicht geladen werden.",
+    "columns": {
+      "tenant": "Mandant",
+      "mailboxes": "Postfächer",
+      "lastBackup": "Letzte Sicherung",
+      "readiness": "Wiederherstellbarkeit",
+      "actions": "Aktionen"
+    },
+    "empty": {
+      "title": "Noch keine Mandanten",
+      "description": "Ein Mandant ist ein Kunde. Seine Quellen, Sicherungen, sein Archiv, seine Schlüssel und Nutzer bleiben streng von allen anderen Mandanten getrennt. Legen Sie den ersten Mandanten an, um Postfächer zu schützen."
+    }
+  },
+  "overview": {
+    "mailboxes": "Geschützte Postfächer",
+    "usage": "{count, plural, one {# Postfach geschützt} other {# Postfächer geschützt}}",
+    "usageUnavailable": "Die Postfachnutzung ist derzeit nicht verfügbar.",
+    "tenantsLabel": "Mandanten",
+    "tenants": "{count, plural, one {# Mandant} other {# Mandanten}}",
+    "single": "Diese Installation verwaltet einen Mandanten."
+  },
+  "mailboxes": {
+    "count": "{count, number}",
+    "ofCap": "{used, number} von {cap, number}",
+    "capHint": "Vereinbarte Obergrenze",
+    "overCap": "Über der vereinbarten Obergrenze",
+    "unknown": "Unbekannt",
+    "unknownHint": "Die Postfachnutzung ist derzeit nicht verfügbar.",
+    "notTracked": "Wird während der Löschung nicht gezählt"
+  },
+  "readiness": {
+    "green": "Bereit",
+    "yellow": "Eingeschränkt",
+    "red": "Nicht bereit",
+    "none": "Nichts geschützt",
+    "loading": "Wiederherstellbarkeit wird geprüft …",
+    "unavailable": "Nicht verfügbar",
+    "unavailableHint": "Die Wiederherstellbarkeit dieses Mandanten konnte nicht gelesen werden.",
+    "nothingProtected": "Noch keine Objekte geschützt",
+    "notReadyCount": "{count, number} von {total, number} nicht nachweislich wiederherstellbar",
+    "allReady": "{count, plural, one {Das geschützte Objekt ist nachweislich wiederherstellbar} other {Alle # Objekte nachweislich wiederherstellbar}}",
+    "deleting": "Wird während der Löschung nicht geprüft"
+  },
+  "lastBackup": {
+    "never": "Noch keine Sicherung",
+    "unavailable": "Nicht verfügbar",
+    "notTracked": "Wird während der Löschung nicht erfasst"
+  },
+  "status": {
+    "active": "Aktiv",
+    "suspended": "Gesperrt",
+    "deleting": "Wird gelöscht"
+  },
+  "actions": {
+    "create": "Neuer Mandant",
+    "createFirst": "Ersten Mandanten anlegen",
+    "enter": "Zum Mandanten wechseln",
+    "open": "Details öffnen",
+    "moreFor": "Weitere Aktionen für {name}",
+    "edit": "Mandant bearbeiten",
+    "suspend": "Mandant sperren",
+    "resume": "Mandant entsperren",
+    "delete": "Mandant löschen",
+    "backToList": "Alle Mandanten",
+    "invite": "Einladen",
+    "inviteFirst": "Erste Person einladen",
+    "copyLink": "Link kopieren"
+  },
+  "create": {
+    "title": "Neuer Mandant",
+    "description": "Ein Mandant ist ein Kunde. Er erhält einen eigenen Schlüssel, und seine Daten bleiben von allen anderen Mandanten getrennt.",
+    "name": "Name",
+    "namePlaceholder": "z. B. Beispiel GmbH",
+    "slug": "Kurzname",
+    "slugPlaceholder": "z. B. beispiel-gmbh",
+    "slugHint": "Kurzer Name für Exporte und Integrationen: Kleinbuchstaben, Ziffern und Bindestriche. Er lässt sich später nicht ändern.",
+    "submit": "Mandant anlegen"
+  },
+  "edit": {
+    "title": "Mandant bearbeiten",
+    "description": "Der Kurzname {slug} bleibt unverändert, weil Exporte und Integrationen ihn verwenden.",
+    "name": "Name",
+    "cap": "Postfach-Obergrenze",
+    "capPlaceholder": "Keine Obergrenze",
+    "capHint": "Optional. Die mit diesem Kunden vereinbarte Zahl an Postfächern, nur zur Orientierung. Bei Überschreitung wird nichts blockiert; das Provider-Dashboard weist nur darauf hin.",
+    "submit": "Änderungen speichern"
+  },
+  "suspend": {
+    "title": "{name} sperren?",
+    "description": "Aufträge dieses Mandanten laufen nicht mehr, und seine Nutzer können sich nicht mehr anmelden. Gespeicherte Sicherungen bleiben erhalten, Provider-Admins behalten den Zugriff. Sie können den Mandanten jederzeit wieder entsperren.",
+    "confirm": "Mandant sperren"
+  },
+  "resume": {
+    "title": "{name} entsperren?",
+    "description": "Aufträge laufen wieder nach Zeitplan, und die Nutzer des Mandanten können sich anmelden.",
+    "confirm": "Mandant entsperren"
+  },
+  "delete": {
+    "title": "{name} löschen?",
+    "description": "Das Löschen eines Mandanten lässt sich nicht rückgängig machen.",
+    "points": {
+      "access": "Jede Anmeldung an diesem Mandanten endet sofort: Alle Mitgliedschaften und offenen Einladungen werden entfernt.",
+      "data": "Die gespeicherten Daten des Mandanten entfernt anschließend ein eigener, protokollierter Löschauftrag.",
+      "audit": "Das Audit-Log behält jeden Eintrag zu diesem Mandanten."
+    },
+    "confirmLabel": "Geben Sie {slug} zur Bestätigung ein",
+    "confirm": "Mandant löschen"
+  },
+  "detail": {
+    "created": "angelegt am {date}",
+    "error": "Der Mandant konnte nicht geladen werden.",
+    "notFound": {
+      "title": "Mandant nicht gefunden",
+      "description": "Diesen Mandanten gibt es nicht. Er wurde möglicherweise entfernt, oder der Link ist unvollständig."
+    },
+    "suspended": {
+      "title": "Dieser Mandant ist gesperrt",
+      "description": "Aufträge laufen nicht, und seine Nutzer können sich nicht anmelden. Gespeicherte Sicherungen bleiben erhalten."
+    },
+    "deleting": {
+      "title": "Dieser Mandant wird gelöscht",
+      "description": "Anmeldungen sind beendet, und der Löschauftrag entfernt seine Daten. Weitere Änderungen sind nicht möglich."
+    },
+    "overview": {
+      "readiness": "Wiederherstellbarkeit",
+      "mailboxes": "Geschützte Postfächer",
+      "noCap": "Keine Obergrenze vereinbart",
+      "lastBackup": "Letzte Sicherung",
+      "encryption": "Verschlüsselung",
+      "keyVersion": "Mandantenschlüssel, Version {version, number}",
+      "noKey": "Noch kein Schlüssel",
+      "keyHint": "AES-256-GCM mit eigenem Schlüssel"
+    },
+    "danger": {
+      "title": "Diesen Mandanten löschen",
+      "description": "Beendet jede Anmeldung am Mandanten und entfernt seine Daten. Das lässt sich nicht rückgängig machen."
+    }
+  },
+  "members": {
+    "title": "Mitglieder",
+    "description": "Personen, die sich an diesem Mandanten anmelden können, mit ihrer Rolle.",
+    "providerNote": "Provider-Admins haben Zugriff auf jeden Mandanten und erscheinen hier nicht.",
+    "error": "Die Mitglieder konnten nicht geladen werden.",
+    "noMembersYet": "Noch hat niemand eine Einladung angenommen.",
+    "you": "Sie",
+    "selfHint": "Ihren eigenen Zugriff können Sie nicht ändern.",
+    "roleOf": "Rolle von {name}",
+    "removeOf": "{name} entfernen",
+    "empty": {
+      "title": "Noch hat niemand Zugriff",
+      "description": "Laden Sie zuerst den Administrator des Kunden ein. Er verwaltet dann Quellen, Schutz und Wiederherstellungen und lädt seine Kollegen selbst ein."
+    },
+    "columns": {
+      "person": "Person",
+      "role": "Rolle",
+      "joined": "Mitglied seit",
+      "actions": "Aktionen"
+    },
+    "roles": {
+      "tenant_admin": "Mandanten-Admin",
+      "tenant_user": "Nutzer"
+    },
+    "roleHints": {
+      "tenant_admin": "Verwaltet Quellen, Schutz, Mitglieder und Wiederherstellungen für alle im Mandanten.",
+      "tenant_user": "Stellt nur das eigene Postfach und OneDrive wieder her."
+    },
+    "invitations": {
+      "title": "{count, plural, one {Offene Einladung} other {Offene Einladungen}}",
+      "pending": "Wartet auf Annahme",
+      "expired": "Abgelaufen",
+      "copyFor": "Einladungslink für {email} kopieren",
+      "cancelFor": "Einladung für {email} zurückziehen",
+      "columns": {
+        "email": "E-Mail-Adresse",
+        "expires": "Gültig bis"
+      }
+    },
+    "remove": {
+      "title": "{name} entfernen?",
+      "description": "Die Person verliert sofort den Zugriff auf diesen Mandanten. Ihr Konto bleibt bestehen, und das Audit-Log behält jeden Eintrag zu ihren Aktionen.",
+      "confirm": "Zugriff entfernen"
+    },
+    "cancelInvitation": {
+      "title": "Einladung zurückziehen?",
+      "description": "Der Einladungslink für {email} funktioniert ab sofort nicht mehr.",
+      "confirm": "Einladung zurückziehen",
+      "keep": "Einladung behalten"
+    }
+  },
+  "invite": {
+    "title": "Zu {tenant} einladen",
+    "email": "E-Mail-Adresse",
+    "emailPlaceholder": "z. B. name@beispiel.de",
+    "role": "Rolle",
+    "invited": {
+      "another": "Weitere Person einladen",
+      "done": "Fertig"
+    }
+  },
+  "invitation": {
+    "pageTitle": "Einladung",
+    "error": "Die Einladung konnte nicht geladen werden.",
+    "heading": "Sie sind zu {tenant} eingeladen",
+    "headingGeneric": "Sie sind zu einem Mandanten eingeladen",
+    "lead": "Nehmen Sie an, um Zugriff als {role, select, tenant_admin {Mandanten-Admin} other {Nutzer}} zu erhalten.",
+    "leadGeneric": "Nehmen Sie an, um Zugriff mit der Rolle zu erhalten, die Ihr Administrator für Sie gewählt hat.",
+    "fields": {
+      "account": "Ihr Konto",
+      "role": "Rolle",
+      "invitedBy": "Eingeladen von",
+      "expires": "Gültig bis"
+    },
+    "accept": "Einladung annehmen",
+    "decline": "Ablehnen",
+    "answerFailed": "Ihre Antwort konnte nicht gespeichert werden. Bitte versuchen Sie es erneut.",
+    "accepted": "Sie haben jetzt Zugriff auf {tenant}.",
+    "acceptedGeneric": "Einladung angenommen. Sie haben jetzt Zugriff auf den Mandanten.",
+    "declined": "Einladung abgelehnt.",
+    "switchAccount": "Mit anderem Konto anmelden",
+    "declineConfirm": {
+      "title": "Einladung ablehnen?",
+      "description": "Die Einladung lässt sich danach nicht mehr verwenden. Wenn Sie es sich anders überlegen, bitten Sie Ihren Administrator um eine neue.",
+      "confirm": "Einladung ablehnen"
+    },
+    "blocked": {
+      "wrongRecipient": {
+        "title": "Diese Einladung gilt einer anderen Adresse",
+        "description": "Sie sind als {email} angemeldet, die Einladung ging aber an eine andere E-Mail-Adresse. Melden Sie sich mit der eingeladenen Adresse an, um sie anzunehmen."
+      },
+      "invalid": {
+        "title": "Diese Einladung ist nicht mehr gültig",
+        "description": "Sie wurde bereits angenommen, abgelehnt oder zurückgezogen, oder sie ist abgelaufen. Bitten Sie Ihren Administrator um eine neue Einladung."
+      },
+      "emailUnverified": {
+        "title": "E-Mail-Adresse nicht bestätigt",
+        "description": "Ihre E-Mail-Adresse muss bestätigt sein, bevor Sie auf diese Einladung antworten können. Wenden Sie sich an Ihren Administrator."
+      }
+    }
+  },
+  "membersPage": {
+    "title": "Mitglieder",
+    "subtitle": "Wer sich an {tenant} anmelden kann, und mit welcher Rolle.",
+    "subtitleNoTenant": "Wer sich an einem Mandanten anmelden kann, und mit welcher Rolle.",
+    "noTenant": {
+      "title": "Kein Mandant ausgewählt",
+      "description": "Wählen Sie oben im Umschalter einen Mandanten, um seine Mitglieder zu verwalten."
+    },
+    "forbidden": {
+      "title": "Nur Mandanten-Admins verwalten Mitglieder",
+      "description": "In diesem Mandanten hat Ihr Konto die Rolle Nutzer. Wenden Sie sich an einen Mandanten-Admin, wenn Sie mehr Zugriff brauchen."
+    }
+  },
+  "validation": {
+    "nameTooLong": "Höchstens {max, number} Zeichen.",
+    "slugTooShort": "Mindestens {min, number} Zeichen.",
+    "slugTooLong": "Höchstens {max, number} Zeichen.",
+    "slugFormat": "Nur Kleinbuchstaben, Ziffern und einzelne Bindestriche zwischen Wörtern.",
+    "slugTaken": "Dieser Kurzname ist bereits vergeben. Wählen Sie einen anderen.",
+    "capInteger": "Geben Sie eine ganze Zahl an Postfächern ein, oder lassen Sie das Feld leer.",
+    "tooLong": "Höchstens {max, number} Zeichen.",
+    "countryCodeFormat": "Geben Sie einen zweistelligen Ländercode an (z. B. DE).",
+    "timeZoneFormat": "Geben Sie eine gültige IANA-Zeitzone an (z. B. Europe/Berlin).",
+    "onePrimaryContact": "Markieren Sie genau einen Ansprechpartner als primär.",
+    "atLeastOneContact": "Fügen Sie mindestens einen Ansprechpartner hinzu.",
+    "duplicateEmail": "Diese E-Mail-Adresse ist mehrfach vorhanden.",
+    "customerNumberTaken": "Diese Kundennummer ist bereits vergeben. Wählen Sie eine andere."
+  },
+  "errors": {
+    "featureUnavailable": "Diese Installation verwaltet einen Mandanten. Ein weiterer Mandant kann nicht angelegt werden.",
+    "setupRequired": "Schließen Sie die Einrichtung der Installation ab, bevor Sie Mandanten anlegen.",
+    "alreadyMember": "Diese Person ist bereits Mitglied des Mandanten.",
+    "alreadyInvited": "Für diese Adresse gibt es bereits eine offene Einladung. Kopieren Sie deren Link aus der Liste, oder ziehen Sie sie zuerst zurück.",
+    "memberGone": "Diesen Eintrag gibt es nicht mehr. Die Liste wurde aktualisiert."
+  },
+  "toasts": {
+    "created": "{name} wurde angelegt.",
+    "updated": "Änderungen gespeichert.",
+    "suspended": "{name} ist gesperrt.",
+    "resumed": "{name} ist wieder aktiv.",
+    "deleted": "{name} wird gelöscht.",
+    "entered": "Sie arbeiten jetzt in {name}.",
+    "memberAdded": "{email} hat jetzt Zugriff als {role, select, tenant_admin {Mandanten-Admin} other {Nutzer}}.",
+    "roleChanged": "{name} ist jetzt {role, select, tenant_admin {Mandanten-Admin} other {Nutzer}}.",
+    "memberRemoved": "{name} hat keinen Zugriff mehr.",
+    "invitationCanceled": "Die Einladung für {email} wurde zurückgezogen.",
+    "copied": "Link kopiert.",
+    "copyFailed": "Der Link konnte nicht kopiert werden. Markieren und kopieren Sie ihn von Hand."
+  },
+  "wizard": {
+    "title": "Neuer Mandant",
+    "description": "Neuen Kunden Schritt für Schritt anlegen: Organisation, Ansprechpartner, Benachrichtigungsempfänger und einzuladende Administratoren.",
+    "steps": {
+      "organisation": "Organisation",
+      "contacts": "Ansprechpartner",
+      "notifications": "Benachrichtigungen",
+      "admins": "Administratoren",
+      "source": "Quelle",
+      "review": "Prüfen"
+    },
+    "back": "Zurück",
+    "next": "Weiter",
+    "create": "Mandant anlegen",
+    "cancel": "Abbrechen",
+    "close": "Schließen",
+    "cancelConfirm": {
+      "title": "Diesen neuen Mandanten verwerfen?",
+      "description": "Nichts von dem, was Sie hier eingegeben haben, wurde bereits gespeichert.",
+      "confirm": "Verwerfen",
+      "keep": "Weiter bearbeiten"
+    },
+    "organisation": {
+      "title": "Organisation",
+      "description": "Name, Adresse und Spracheinstellung des neuen Kunden.",
+      "name": "Name",
+      "namePlaceholder": "z. B. Beispiel GmbH",
+      "slug": "Kurzname",
+      "slugPlaceholder": "z. B. beispiel-gmbh",
+      "slugHint": "Kurzname für Exporte und Integrationen: Kleinbuchstaben, Ziffern und Bindestriche. Kann später nicht mehr geändert werden.",
+      "customerNumber": "Kundennummer",
+      "customerNumberPlaceholder": "z. B. K-1001",
+      "customerNumberHint": "Ihre eigene interne Nummer für diesen Kunden. Optional, muss aber installationsweit eindeutig sein.",
+      "vatId": "USt-IdNr.",
+      "vatIdPlaceholder": "z. B. DE123456789",
+      "address": "Adresse",
+      "addressLine1": "Adresse",
+      "addressLine1Placeholder": "Straße und Hausnummer",
+      "addressLine2": "Adresse, Zeile 2",
+      "addressLine2Placeholder": "Etage, c/o (optional)",
+      "postalCode": "Postleitzahl",
+      "city": "Ort",
+      "countryCode": "Ländercode",
+      "countryCodePlaceholder": "z. B. DE",
+      "language": "Sprache",
+      "timeZone": "Zeitzone",
+      "timeZoneHint": "IANA-Name, z. B. Europe/Berlin. Optional; wird noch für keine Zeitplanung verwendet."
+    },
+    "contacts": {
+      "title": "Ansprechpartner",
+      "description": "Wen man bei diesem Kunden erreicht. Genau einer ist der primäre Ansprechpartner.",
+      "name": "Name",
+      "namePlaceholder": "Vollständiger Name",
+      "role": "Funktion",
+      "rolePlaceholder": "z. B. IT-Ansprechpartner",
+      "email": "E-Mail-Adresse",
+      "phone": "Telefon",
+      "primary": "Primärer Ansprechpartner",
+      "add": "Ansprechpartner hinzufügen",
+      "remove": "{name} entfernen",
+      "removeUnnamed": "Diesen Ansprechpartner entfernen"
+    },
+    "notifications": {
+      "title": "Benachrichtigungsempfänger",
+      "description": "Wer betriebliche E-Mails erhält, und worüber.",
+      "deliveryNotice": "Jede gewählte Kategorie wird beim Anlegen des Mandanten zu einer Regel unter Alarme: fehlgeschlagene Aufträge und gefährdete Wiederherstellbarkeit als Alarm, der Wochenbericht montags um 07:00, sofern Berichte auf dieser Installation verfügbar sind. Dort können Sie die Regeln jederzeit ändern oder ergänzen.",
+      "categories": {
+        "jobFailures": "Fehlgeschlagene Jobs",
+        "weeklyReport": "Wochenbericht",
+        "readinessRed": "Wiederherstellbarkeit wird rot",
+        "licenseUpdates": "Lizenz- und Update-Hinweise"
+      },
+      "email": "E-Mail-Adresse",
+      "name": "Name",
+      "namePlaceholder": "Optional",
+      "add": "Empfänger hinzufügen",
+      "remove": "{email} entfernen",
+      "removeUnnamed": "Diesen Empfänger entfernen",
+      "empty": "Noch keine Benachrichtigungsempfänger.",
+      "noCategories": "Keine Kategorien ausgewählt",
+      "testMail": {
+        "title": "Testmail senden",
+        "recipient": "Testmail senden an",
+        "recipientPlaceholder": "z. B. name@beispiel.de",
+        "send": "Testmail senden",
+        "success": "Testmail an {recipient} über {transport, select, graph {Microsoft Graph} other {SMTP}} gesendet.",
+        "notConfigured": "Für diese Installation ist noch kein Mailversand eingerichtet. Richten Sie ihn unter Einstellungen → Mail ein und versuchen Sie es dann erneut.",
+        "openMailSettings": "Einstellungen → Mail öffnen",
+        "testFailure": {
+          "timeout": "Der Mailserver hat nicht rechtzeitig geantwortet.",
+          "graphAppMissing": "Für Graph sendMail ist keine Microsoft-365-App-Registrierung eingerichtet.",
+          "graphTenantMissing": "Für Graph sendMail ist kein Microsoft-365-Mandant eingerichtet.",
+          "transportError": "Die Testmail konnte nicht gesendet werden: {detail}"
+        }
+      }
+    },
+    "admins": {
+      "title": "Einzuladende Administratoren",
+      "description": "Wer diesen Mandanten verwalten soll. Ein bestehendes Konto bei {appName} erhält sofort Zugriff; alle anderen erhalten eine Einladung, die Sie selbst weitergeben. Es wird nichts automatisch per E-Mail verschickt.",
+      "email": "E-Mail-Adresse",
+      "role": "Rolle",
+      "add": "Administrator hinzufügen",
+      "remove": "{email} entfernen",
+      "removeUnnamed": "Diesen Administrator entfernen",
+      "empty": "Vorerst wird niemand eingeladen. Sie können Administratoren später über die Mitglieder des Mandanten einladen."
+    },
+    "source": {
+      "title": "Erste Quelle",
+      "description": "Verbinden Sie das Microsoft-365-Konto oder ein IMAP-Postfach des Kunden, sobald der Mandant angelegt ist.",
+      "notice": "Sobald der Mandant angelegt ist, führt Sie der nächste Schritt direkt zu seiner Quellen-Seite, um eine zu verbinden."
+    },
+    "review": {
+      "title": "Prüfen",
+      "description": "Alles noch einmal prüfen, bevor der Mandant angelegt wird.",
+      "organisation": "Organisation",
+      "contacts": "Ansprechpartner",
+      "notifications": "Benachrichtigungsempfänger",
+      "admins": "Einzuladende Administratoren",
+      "noCustomerNumber": "Keine Kundennummer",
+      "noVatId": "Keine USt-IdNr.",
+      "noAddress": "Keine Adresse",
+      "noTimeZone": "Keine Zeitzone gesetzt",
+      "noneYet": "Noch keine"
+    },
+    "success": {
+      "title": "{name} wurde angelegt",
+      "description": "Der Mandant ist bereit. Verbinden Sie seine erste Quelle, oder öffnen Sie ihn, um weitere Personen einzuladen und Einstellungen anzupassen.",
+      "connectSource": "Jetzt eine Quelle verbinden",
+      "openTenant": "Mandant öffnen",
+      "admins": {
+        "title": "Administratoren",
+        "memberBadge": "Hinzugefügt, kann sich sofort anmelden",
+        "expires": "Eingeladen, gültig bis {date}",
+        "invitedHint": "Für eine Einladung wurde keine E-Mail verschickt. Kopieren Sie jeden Link oben, oder öffnen Sie später die Mitglieder-Seite des Mandanten, um ihn erneut zu kopieren.",
+        "noSignInNotice": "Die Anmeldung mit Microsoft ist in dieser Version nicht verfügbar. Eine eingeladene Person kann nur annehmen, wenn sie sich bereits anmelden kann; falls nicht, legen Sie zuerst über Mitglieder ein Konto für sie an."
+      },
+      "adminInviteFailed": "{count, plural, one {# Administrator konnte} other {# Administratoren konnten}} nicht eingeladen werden: {emails}. Laden Sie sie über die Mitglieder des Mandanten ein."
+    }
+  },
+  "customerPanel": {
+    "title": "Kundendaten",
+    "description": "Interne Kundennummer, Adresse und Spracheinstellung dieses Mandanten, eingerichtet im Mandanten-Assistenten.",
+    "edit": "Kundendaten bearbeiten",
+    "customerNumber": "Kundennummer",
+    "vatId": "USt-IdNr.",
+    "address": "Adresse",
+    "language": "Sprache",
+    "timeZone": "Zeitzone",
+    "noneSet": "Nicht gesetzt",
+    "saved": "Kundendaten gespeichert.",
+    "contactsTitle": "Ansprechpartner",
+    "contactsDescription": "Wen man bei diesem Kunden erreicht.",
+    "editContacts": "Ansprechpartner bearbeiten",
+    "noContacts": "Noch keine Ansprechpartner.",
+    "addContact": "Ansprechpartner hinzufügen",
+    "primaryBadge": "Primär",
+    "contactsSaved": "Ansprechpartner gespeichert.",
+    "notificationsTitle": "Alarme",
+    "notificationsDescription": "Wer wann was erfährt, ist als Regeln eingerichtet. Die im Assistenten gewählten Empfänger wurden dort zu Regeln.",
+    "recipientsSaved": "Benachrichtigungsempfänger gespeichert.",
+    "openAlerts": "Alarme öffnen"
+  }
+}

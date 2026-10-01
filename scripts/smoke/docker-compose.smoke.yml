@@ -1,0 +1,45 @@
+# Overlay for the release smoke (scripts/smoke/run.mjs). Layered over
+# deploy/release/docker-compose.yml, it adds what the checks need around the
+# stack under test and changes nothing about the Restow services themselves:
+#
+#   dovecot  a test IMAP server (the public demo's image, plain IMAP on the
+#            internal network) that holds the synthetic mailboxes
+#   garage   an S3-compatible object store for the S3 storage-target check
+#   api/worker/scheduler  a bind-mounted directory that stands in for an NFS
+#            or SMB share, and the test-only settings from the generated .env
+#
+# Every ${VARIABLE} is set by run.mjs in the generated .env; nothing here is a
+# secret and the file is never used outside the smoke.
+
+services:
+  api:
+    volumes:
+      - ${SMOKE_NFS_DIR:?}:/mnt/nfs-sim
+  worker:
+    volumes:
+      - ${SMOKE_NFS_DIR:?}:/mnt/nfs-sim
+
+  dovecot:
+    build:
+      context: ${SMOKE_REPO_ROOT:?}/deploy/demo/dovecot
+    image: restow-smoke/dovecot:local
+    environment:
+      RESTOW_DEMO_MAILBOXES: ${SMOKE_IMAP_MAILBOXES:?}
+      RESTOW_DEMO_IMAP_PASSWORD: ${SMOKE_IMAP_PASSWORD:?}
+    ports:
+      # Loopback only: the checks seed and read the mailboxes from the host.
+      - "127.0.0.1:${SMOKE_IMAP_PORT:?}:143"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "143"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: "no"
+
+  garage:
+    image: ${SMOKE_GARAGE_IMAGE:-dxflrs/garage:v2.4.1}
+    volumes:
+      - ${SMOKE_GARAGE_CONFIG:?}:/etc/garage.toml:ro
+    ports:
+      - "127.0.0.1:${SMOKE_S3_PORT:?}:3900"
+    restart: "no"

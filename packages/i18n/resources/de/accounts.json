@@ -1,0 +1,113 @@
+{
+  "invite": {
+    "description": "Die Person erhält einen Link, um ein Passwort zu wählen und sich anzumelden. Ein Microsoft-Konto ist nicht nötig.",
+    "submit": "Anmelde-Link senden",
+    "submitNoMail": "Anmelde-Link erstellen",
+    "invited": {
+      "title": "Anmelde-Link bereit",
+      "lead": "Diesen Link an die eingeladene Person weitergeben, oder später erneut aus der Mitgliederliste versenden.",
+      "summary": "{email} wurde als {role, select, tenant_admin {Mandanten-Admin} other {Nutzer}} hinzugefügt.",
+      "reusedSummary": "{email} hatte bereits ein Konto bei {appName}. Es wurde zu diesem Mandanten hinzugefügt, mit diesem Link kann ein Passwort gewählt werden.",
+      "alreadySignedIn": "{email} kann sich bereits anmelden und wurde nun als {role, select, tenant_admin {Mandanten-Admin} other {Nutzer}} zu diesem Mandanten hinzugefügt. Es gibt nichts zu versenden. Die Anmeldung ist sofort möglich.",
+      "microsoftHint": "Diese Installation bietet auch Microsoft-Anmeldung, aber nur für bereits verknüpfte Konten. Dieses ist nicht verknüpft, daher meldet sich {email} stattdessen mit dem Passwort aus diesem Link an."
+    },
+    "added": {
+      "title": "Zum Mandanten hinzugefügt",
+      "lead": "Diese Person kann sich bereits anmelden. Es gibt nichts zu versenden. Die Anmeldung ist sofort möglich."
+    }
+  },
+  "provision": {
+    "mail": {
+      "sent": "Eine Nachricht mit diesem Link wurde an {email} gesendet.",
+      "notConfigured": "Es ist kein Mail-Dienst eingerichtet, daher wurde der Link nicht per E-Mail verschickt. Bitte kopieren und selbst weitergeben.",
+      "failed": "Der Mailversand ist fehlgeschlagen. Bitte den Link stattdessen kopieren und selbst weitergeben."
+    },
+    "expires": "Der Link ist gültig bis {date}.",
+    "expiresUnknown": "Der Link ist zeitlich begrenzt gültig.",
+    "linkLabel": "Anmelde-Link",
+    "copyLink": "Anmelde-Link kopieren",
+    "linkHint": "Der Link funktioniert einmalig. Ein neu ausgestellter Link macht diesen ungültig.",
+    "linkDialog": {
+      "title": "Neuer Anmelde-Link",
+      "description": "Der vorherige Link für {email} funktioniert nicht mehr; stattdessen diesen weitergeben."
+    },
+    "errors": {
+      "crossTenant": "Dieses Konto gehört bereits zu einem anderen Mandanten. Nur eine Provider-Administratorin/ein Provider-Administrator kann es hier zusätzlich hinzufügen.",
+      "providerAdminTarget": "Dieses Konto verwaltet die gesamte Installation und erreicht bereits jeden Mandanten.",
+      "notPending": "Diese Person kann sich bereits anmelden; es gibt keinen Link zum erneuten Ausstellen."
+    }
+  },
+  "pending": {
+    "title": "Ausstehende Anmelde-Einrichtung",
+    "description": "Zum Mandanten hinzugefügt, aber noch kein Passwort gesetzt.",
+    "error": "Ausstehende Konten konnten nicht geladen werden.",
+    "search": "Ausstehende Konten durchsuchen",
+    "linkExpiresAt": "Läuft ab",
+    "columns": {
+      "status": "Link"
+    },
+    "resend": "Erneut senden",
+    "copyNewLink": "Neuen Link kopieren",
+    "linkStatus": {
+      "valid": "Link aktiv",
+      "expired": "Link abgelaufen",
+      "used": "Passwort gesetzt",
+      "invalid": "Noch kein Link"
+    },
+    "reissueConfirm": {
+      "title": "Neuen Anmelde-Link ausstellen?",
+      "description": "{email} hat bereits einen aktiven Link. Ein neu ausgestellter Link macht diesen sofort ungültig.",
+      "confirm": "Neuen Link ausstellen"
+    }
+  },
+  "setPassword": {
+    "pageTitle": "Passwort wählen",
+    "error": "Dieser Link konnte nicht geprüft werden.",
+    "title": "Passwort wählen",
+    "lead": "Ein Passwort setzen, um sich bei {appName} anzumelden. Direkt danach ist eine Authenticator-App erforderlich.",
+    "leadWithEmail": "Ein Passwort für {email} setzen, um sich bei {appName} anzumelden. Direkt danach ist eine Authenticator-App erforderlich.",
+    "password": {
+      "label": "Neues Passwort",
+      "placeholder": "Mindestens 12 Zeichen"
+    },
+    "confirm": {
+      "label": "Passwort bestätigen",
+      "placeholder": "Erneut eingeben"
+    },
+    "submit": "Passwort setzen",
+    "done": {
+      "title": "Passwort gesetzt",
+      "description": "Die Anmeldung ist jetzt möglich. Direkt danach wird eine Authenticator-App eingerichtet.",
+      "signIn": "Anmelden"
+    },
+    "linkStatus": {
+      "used": {
+        "title": "Dieser Link wurde bereits verwendet",
+        "description": "Mit diesem Link wurde bereits ein Passwort gesetzt. Stattdessen anmelden, oder eine Administratorin/einen Administrator um einen neuen Link bitten.",
+        "descriptionWithEmail": "Für {email} wurde mit diesem Link bereits ein Passwort gesetzt. Stattdessen anmelden, oder eine Administratorin/einen Administrator um einen neuen Link bitten."
+      },
+      "expired": {
+        "title": "Dieser Link ist abgelaufen",
+        "description": "Anmelde-Links sind 72 Stunden gültig. Eine Administratorin/einen Administrator um einen neuen Link bitten.",
+        "descriptionWithEmail": "Der Link für {email} ist älter als 72 Stunden. Eine Administratorin/einen Administrator um einen neuen Link bitten."
+      },
+      "invalid": {
+        "title": "Dieser Link ist ungültig",
+        "description": "Er könnte falsch eingegeben oder bereits entfernt worden sein. Eine Administratorin/einen Administrator um einen neuen Link bitten.",
+        "descriptionWithEmail": "Er könnte falsch eingegeben oder bereits entfernt worden sein. Eine Administratorin/einen Administrator um einen neuen Link bitten."
+      }
+    },
+    "rateLimited": "Zu viele Versuche. Bitte kurz warten und erneut versuchen.",
+    "linkError": {
+      "used": "Dieser Link wurde bereits verwendet. Bitte einen neuen Link anfordern.",
+      "expired": "Dieser Link ist abgelaufen. Bitte einen neuen Link anfordern.",
+      "invalid": "Dieser Link ist ungültig."
+    }
+  },
+  "mail": {
+    "subject": "Passwort setzen für {tenant} auf {appName}",
+    "body": "Sie wurden zu {tenant} auf {appName} hinzugefügt. Diesen Link innerhalb von {hours} Stunden öffnen, um ein Passwort zu wählen und sich anzumelden: {url}",
+    "providerSubject": "Sie wurden zum Provider-Team auf {appName} hinzugefügt",
+    "providerBody": "Sie wurden zum Provider-Team auf {appName} hinzugefügt. Öffnen Sie diesen Link innerhalb von {hours} Stunden, um ein Passwort zu wählen und sich anzumelden; danach richten Sie eine Authenticator-App ein: {url}"
+  }
+}

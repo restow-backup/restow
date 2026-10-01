@@ -1,0 +1,418 @@
+{
+  "nav": {
+    "explorer": "Restore-Explorer"
+  },
+  "explorer": {
+    "title": "Restore-Explorer",
+    "subtitle": "Durchsuchen Sie einen beliebigen Sicherungsstand eines Kontos und stellen Sie Ordner, Dateien und E-Mails wieder her oder laden Sie sie herunter.",
+    "kinds": {
+      "folder": "Ordner",
+      "file": "Datei",
+      "mail": "E-Mail",
+      "event": "Termin",
+      "contact": "Kontakt"
+    },
+    "areas": {
+      "mail": "E-Mail",
+      "calendar": "Kalender",
+      "contacts": "Kontakte"
+    },
+    "deleted": "In der Quelle gelöscht",
+    "deletedShort": "Gelöscht",
+    "empty": "Dieser Ordner ist zu diesem Sicherungsstand leer.",
+    "emptyDescription": "Möglicherweise gab es ihn zu diesem Sicherungsstand noch nicht, oder sein Inhalt wurde verschoben. Wählen Sie einen anderen Sicherungsstand oder wechseln Sie eine Ebene nach oben.",
+    "emptyRoot": "Dieser Sicherungsstand enthält keine Elemente.",
+    "loadError": "Der Ordner konnte nicht geladen werden.",
+    "rootLocation": "Oberste Ebene",
+    "shown": "{shown} von {total} angezeigt",
+    "accounts": {
+      "title": "Konten",
+      "searchLabel": "Konten durchsuchen",
+      "searchPlaceholder": "Postfächer, OneDrives und IMAP-Konten durchsuchen …",
+      "typeAll": "Alle Konten",
+      "typeLabel": "Kontotyp",
+      "types": {
+        "mailbox": "Postfächer",
+        "onedrive": "OneDrives",
+        "imap": "IMAP-Konten"
+      },
+      "empty": "Kein passendes Konto",
+      "emptyDescription": "Versuchen Sie eine andere Suche oder einen anderen Typ.",
+      "lastBackup": "Letzte Sicherung",
+      "lastImport": "Letzter Import",
+      "protected": "Geschützt",
+      "excluded": "Nicht geschützt",
+      "imported": "Importiert"
+    },
+    "object": {
+      "own": "Ihr Konto",
+      "orphaned": "In der Quelle entfernt",
+      "loadError": "Die geschützten Postfächer und Laufwerke konnten nicht geladen werden.",
+      "none": "Noch kein geschütztes Konto",
+      "noneDescription": "Schützen Sie zunächst ein Postfach, OneDrive oder IMAP-Konto. Es erscheint hier, sobald es geschützt ist, auch vor der ersten abgeschlossenen Sicherung.",
+      "noneAction": "Geschützte Objekte öffnen",
+      "kinds": {
+        "mailbox": "Postfach",
+        "onedrive": "OneDrive",
+        "imap": "IMAP-Konto"
+      }
+    },
+    "restorePoint": {
+      "fieldLabel": "Sicherungsstand",
+      "listLabel": "Sicherungsstände",
+      "item": "Sicherungsstand #{sequence} vom {date}",
+      "latest": "Neueste",
+      "current": "Aktuell",
+      "none": "Noch kein Sicherungsstand",
+      "noneDescription": "Für dieses Postfach oder Laufwerk gibt es noch keinen Sicherungsstand.",
+      "loadError": "Die Sicherungsstände dieses Postfachs oder Laufwerks konnten nicht geladen werden."
+    },
+    "tree": {
+      "label": "Ordner",
+      "expand": "{name} aufklappen",
+      "collapse": "{name} zuklappen",
+      "loadError": "Die Ordner konnten nicht geladen werden.",
+      "noSubfolders": "Keine Unterordner",
+      "noFolders": "Keine Ordner",
+      "more": "{count, plural, one {# weiterer Ordner} other {# weitere Ordner}} in der Liste"
+    },
+    "breadcrumb": {
+      "label": "Ordnerpfad"
+    },
+    "sort": {
+      "label": "Sortieren nach",
+      "date": "Datum",
+      "name": "Name"
+    },
+    "columns": {
+      "name": "Name",
+      "subject": "Betreff",
+      "from": "Von",
+      "to": "An",
+      "toMore": "+{count} weitere",
+      "date": "Datum",
+      "size": "Größe"
+    },
+    "flags": {
+      "attachments": "Mit Anhängen",
+      "flagged": "Gekennzeichnet",
+      "protected": "Rechteverwaltet oder verschlüsselt"
+    },
+    "actions": {
+      "select": "{name} auswählen",
+      "selectAll": "Alles in dieser Liste auswählen",
+      "deselectAll": "Auswahl in dieser Liste aufheben",
+      "up": "Eine Ebene nach oben",
+      "loadMore": "Mehr laden",
+      "restore": "Wiederherstellen …",
+      "download": "Herunterladen"
+    },
+    "selection": {
+      "region": "Auswahl",
+      "count": "{count, plural, one {# Eintrag ausgewählt} other {# Einträge ausgewählt}}",
+      "folders": "{count, plural, one {# Ordner} other {# Ordner}}",
+      "items": "{count, plural, one {# Element} other {# Elemente}}",
+      "clear": "Auswahl aufheben",
+      "covered": "{name} ist über einen ausgewählten Ordner enthalten"
+    },
+    "search": {
+      "label": "Diesen Sicherungsstand durchsuchen",
+      "placeholder": "Name, Betreff oder Pfad …",
+      "clear": "Suche löschen",
+      "results": "{count, plural, =0 {Keine Treffer} one {# Treffer} other {# Treffer}} für „{query}“",
+      "none": "Nichts gefunden für „{query}“",
+      "noneDescription": "Die Suche umfasst Namen, Pfade und E-Mail-Betreffe an diesem Sicherungsstand.",
+      "loadError": "Die Suche ist fehlgeschlagen.",
+      "scope": "Durchsucht wurden Namen, Pfade und Betreffe an diesem Sicherungsstand.",
+      "truncated": "Es werden nur die ersten {shown} Treffer angezeigt. Verfeinern Sie die Suche, um sie einzugrenzen."
+    },
+    "whole": {
+      "trigger": "Gesamter Sicherungsstand",
+      "label": "Alles an diesem Sicherungsstand",
+      "restore": "Alles wiederherstellen …",
+      "download": "Alles herunterladen"
+    }
+  },
+  "details": {
+    "title": "Details",
+    "empty": "Wählen Sie eine E-Mail, Datei oder einen Ordner, um Details und Versionen zu sehen.",
+    "deletedHint": "Die Quelle hatte dieses Element an diesem Sicherungsstand bereits gelöscht. Hier lässt es sich trotzdem wiederherstellen.",
+    "folderHint": "Die Wiederherstellung eines Ordners umfasst alles, was darin liegt.",
+    "openFolder": "Ordner öffnen",
+    "reveal": "Im Ordner zeigen",
+    "restore": "Wiederherstellen …",
+    "download": "Herunterladen",
+    "location": "Ablageort",
+    "size": "Größe",
+    "modified": "Geändert",
+    "contentType": "Inhaltstyp",
+    "path": "Pfad in der Sicherung",
+    "mail": {
+      "subject": "Betreff",
+      "noSubject": "(kein Betreff)",
+      "from": "Von",
+      "to": "An",
+      "cc": "Cc",
+      "date": "Datum",
+      "sent": "Gesendet"
+    },
+    "protection": {
+      "notice": "{kind, select, purview {Rechteverwaltet durch Microsoft Purview} smime {S/MIME-verschlüsselt} other {Geschützt}}: Zum Öffnen der EML sind die Rechte der Empfängerin oder des Empfängers nötig; die Wiederherstellung ins Postfach funktioniert.",
+      "downloadHint": "{kind, select, purview {Rechteverwaltet durch Microsoft Purview} smime {S/MIME-verschlüsselt} other {Geschützt}}: Die heruntergeladene EML lässt sich nur mit den Rechten der Empfängerin oder des Empfängers öffnen; die Wiederherstellung ins Postfach funktioniert."
+    },
+    "reading": {
+      "plainText": "Nur-Text-Nachricht",
+      "attachmentsCount": "Anhänge ({count})",
+      "attachmentsEmpty": "Keine Anhänge",
+      "attachmentsUnnamed": "Unbenannter Anhang",
+      "download": "{name} herunterladen",
+      "downloadSize": "{name} · {size}",
+      "print": "Drucken",
+      "loadError": "Die Nachricht konnte nicht geladen werden.",
+      "simplified": {
+        "title": "Vereinfachte Ansicht",
+        "description": "Die formatierte Ansicht dieser Nachricht war zu aufwendig für die Vorschau. Stattdessen wird der Text der Nachricht gezeigt; Bilder und Layout fehlen. Laden Sie die Nachricht herunter, um alles zu sehen."
+      },
+      "unavailable": {
+        "rightsProtected": "Diese Nachricht ist rechteverwaltet und kann hier nicht angezeigt werden.",
+        "smimeEncrypted": "Diese Nachricht ist S/MIME-verschlüsselt und kann hier nicht angezeigt werden.",
+        "tooLarge": "Diese Nachricht ist zu groß, um hier angezeigt zu werden. Laden Sie sie herunter oder stellen Sie sie ins Postfach wieder her.",
+        "unsupportedFormat": "Diese Nachricht wurde in einem Format gespeichert, das hier nicht angezeigt werden kann. Laden Sie sie herunter oder stellen Sie sie ins Postfach wieder her.",
+        "unreadable": "Diese Nachricht konnte nicht innerhalb der Zeit und des Speichers gelesen werden, die die Vorschau nutzen darf. Laden Sie sie herunter oder stellen Sie sie ins Postfach wieder her."
+      }
+    }
+  },
+  "versions": {
+    "title": "Versionsverlauf",
+    "description": "So sah dieses Element an jedem Sicherungsstand aus. Unveränderter Inhalt über aufeinanderfolgende Sicherungsstände wird einmal angezeigt.",
+    "loadError": "Der Versionsverlauf konnte nicht geladen werden.",
+    "sequence": "Sicherungsstand #{sequence}",
+    "shown": "Angezeigt",
+    "deleted": "Gelöscht",
+    "deletedHint": "Zu diesem Sicherungsstand war das Element in der Quelle gelöscht; stellen Sie es aus einer früheren Version wieder her.",
+    "seenOnce": "In einem Sicherungsstand",
+    "seenIn": "Unverändert in {count, number} Sicherungsständen seit {first}",
+    "modified": "geändert {date}",
+    "onlyOne": "Für dieses Element sind keine weiteren Versionen bekannt.",
+    "show": "Anzeigen",
+    "restore": "Wiederherstellen …",
+    "download": "Herunterladen",
+    "stored": {
+      "title": "Frühere Versionen aus OneDrive",
+      "description": "Der eigene Versionsverlauf von OneDrive, mit diesem Sicherungsstand erfasst. Diese Versionen lassen sich herunterladen.",
+      "version": "Version {version}",
+      "download": "Version {version} herunterladen"
+    }
+  },
+  "dialog": {
+    "title": "Wiederherstellen",
+    "titleDownload": "Herunterladen",
+    "source": "Aus {object}, {restorePoint}",
+    "everything": "Alles an diesem Sicherungsstand",
+    "andMore": "{count, plural, other {und # weitere}}",
+    "restoreFolderName": "Wiederhergestellt {stamp}",
+    "target": {
+      "label": "Wiederherstellen nach",
+      "original": "Ursprünglicher Ort",
+      "originalDescription": "Zurück nach {object}, dorthin, woher die Elemente stammen.",
+      "originalGone": "Das ursprüngliche Konto existiert in der Quelle nicht mehr.",
+      "demoDownloadOnly": "In dieser Demo ist nur die Wiederherstellung als Download möglich.",
+      "other": "Anderes Konto",
+      "otherDescription": "In ein anderes Postfach, Laufwerk oder IMAP-Konto dieses Mandanten.",
+      "otherRequiresAdmin": "Nur Mandanten-Admins können in ein anderes Konto wiederherstellen.",
+      "download": "Als ZIP herunterladen",
+      "downloadDescription": "E-Mails als .eml, Dateien unverändert, mit Prüfsummenliste. Der Link ist 24 Stunden gültig.",
+      "onlyDownload": "Frühere OneDrive-Versionen werden als Download bereitgestellt.",
+      "account": "Zielkonto",
+      "accountPlaceholder": "Adresse, Benutzer oder Konto",
+      "accountHint": {
+        "mailbox": "Die Adresse des Zielpostfachs im selben Microsoft-365-Mandanten.",
+        "onedrive": "Der Benutzer (UPN) oder die Laufwerks-ID des Ziel-OneDrive; mit :/Ordner stellen Sie in einen Unterordner wieder her.",
+        "imap": "Die Anmeldung eines IMAP-Kontos dieses Mandanten."
+      }
+    },
+    "mode": {
+      "label": "Wenn ein Element bereits existiert",
+      "rename": "Beide behalten",
+      "renameDescriptionMail": "Vorhandenes bleibt unberührt: Alles wird in den neuen Ordner „{folder}“ wiederhergestellt.",
+      "renameDescriptionFiles": "Vorhandenes bleibt unberührt: Eine bereits vorhandene Datei wird unter einem neuen Namen wiederhergestellt.",
+      "skip": "Vorhandene überspringen",
+      "skipDescription": "Noch vorhandene Elemente bleiben, wie sie sind; nur fehlende werden wiederhergestellt."
+    },
+    "reason": {
+      "impersonationTitle": "Wiederherstellung im Auftrag der Besitzerin oder des Besitzers",
+      "impersonation": "Diese Daten gehören {owner}. Die Wiederherstellung wird als Admin-Wiederherstellung in deren Auftrag protokolliert.",
+      "label": "Begründung",
+      "placeholder": "Ticketnummer oder warum diese Wiederherstellung nötig ist",
+      "help": "Wird im manipulationssicheren Audit-Log gespeichert."
+    },
+    "submit": "Wiederherstellung starten",
+    "submitDownload": "Download vorbereiten",
+    "started": {
+      "restore": "Wiederherstellung gestartet",
+      "download": "Download wird vorbereitet",
+      "description": "Den Fortschritt sehen Sie auf der Seite des Wiederherstellungsauftrags."
+    },
+    "errors": {
+      "title": "Die Wiederherstellung konnte nicht gestartet werden",
+      "targetUnavailable": "Dieses Ziel steht für diese Wiederherstellung nicht zur Verfügung.",
+      "accountRequired": "Geben Sie das Konto an, in das wiederhergestellt werden soll.",
+      "reasonRequired": "Geben Sie eine Begründung mit mindestens 3 Zeichen an.",
+      "targetUnknown": "Dieses Konto ist in diesem Mandanten nicht bekannt. IMAP-Wiederherstellungen sind nur in Konten dieses Mandanten möglich.",
+      "selectionUnknown": "Einige ausgewählte Einträge gibt es an diesem Sicherungsstand nicht mehr. Laden Sie den Ordner neu und wählen Sie erneut aus.",
+      "originalGone": "Das ursprüngliche Konto existiert nicht mehr. Stellen Sie in ein anderes Konto wieder her oder laden Sie die Daten herunter.",
+      "queueUnavailable": "Die Auftragswarteschlange ist nicht verfügbar. Stellen Sie sicher, dass der Worker von {appName} läuft, und versuchen Sie es erneut.",
+      "snapshotGone": "Dieser Sicherungsstand ist nicht mehr verfügbar. Wählen Sie einen anderen."
+    }
+  },
+  "jobs": {
+    "title": "Letzte Wiederherstellungen",
+    "subtitle": "Alle Wiederherstellungen und Downloads, mit Fortschritt und dem Ergebnis jedes Elements.",
+    "newRestore": "Neue Wiederherstellung",
+    "empty": "Noch keine Wiederherstellungen",
+    "emptyDescription": "Wiederherstellungen und Downloads, die Sie im Explorer starten, erscheinen hier mit ihrem Fortschritt.",
+    "loadError": "Die Wiederherstellungen konnten nicht geladen werden.",
+    "progressLabel": "Fortschritt der Wiederherstellung",
+    "progress": "{done} von {total}",
+    "outcome": "{restored} wiederhergestellt · {skipped} übersprungen · {failed} fehlgeschlagen",
+    "snapshot": "Sicherung #{sequence} vom {date}",
+    "adminRestore": "Admin-Wiederherstellung",
+    "actorUnknown": "Unbekannter Benutzer",
+    "objectGone": "Entferntes Postfach oder Laufwerk",
+    "columns": {
+      "requested": "Angefordert",
+      "object": "Postfach oder Laufwerk",
+      "what": "Was und wohin",
+      "status": "Status",
+      "actions": "Aktionen"
+    },
+    "status": {
+      "queued": "Wartend",
+      "active": "Läuft",
+      "completed": "Abgeschlossen",
+      "completedWithIssues": "Mit Problemen abgeschlossen",
+      "failed": "Fehlgeschlagen",
+      "cancelled": "Abgebrochen",
+      "unknown": "Unbekannt"
+    },
+    "selection": {
+      "all": "Alles"
+    },
+    "target": {
+      "original": "Ursprünglicher Ort",
+      "other": "Nach {ref}",
+      "download": "Download"
+    },
+    "mode": {
+      "rename": "beide behalten",
+      "replace": "vorhandene ersetzen",
+      "skip": "vorhandene überspringen"
+    },
+    "download": {
+      "action": "ZIP herunterladen",
+      "until": "Verfügbar bis {date}"
+    },
+    "cancel": {
+      "action": "Abbrechen",
+      "title": "Diese Wiederherstellung abbrechen?",
+      "description": "Die Wiederherstellung stoppt beim nächsten Element. Bereits Wiederhergestelltes bleibt erhalten.",
+      "keep": "Weiterlaufen lassen",
+      "confirm": "Wiederherstellung abbrechen",
+      "done": "Die Wiederherstellung wurde abgebrochen.",
+      "failed": "Die Wiederherstellung konnte nicht abgebrochen werden."
+    }
+  },
+  "job": {
+    "title": "Restore-Auftrag",
+    "subtitle": "Fortschritt, Ergebnis und jedes Element dieser Wiederherstellung.",
+    "back": "Letzte Wiederherstellungen",
+    "loadError": "Der Wiederherstellungsauftrag konnte nicht geladen werden.",
+    "progress": {
+      "title": "Fortschritt",
+      "queued": "In der Warteschlange. Wiederherstellungen laufen vor Prüfungen und Sicherungen.",
+      "running": "Die Wiederherstellung läuft.",
+      "waiting": "Wartet auf einen freien Worker.",
+      "counting": "Ermittelt, was wiederhergestellt wird …",
+      "failed": "{count, plural, one {# Element fehlgeschlagen} other {# Elemente fehlgeschlagen}}",
+      "eta": "noch etwa {minutes, plural, one {# Minute} other {# Minuten}}"
+    },
+    "outcome": {
+      "title": "Ergebnis",
+      "finishedAt": "Beendet {date}",
+      "notFinished": "Die Wiederherstellung wurde nicht beendet.",
+      "restored": "Wiederhergestellt",
+      "skipped": "Übersprungen",
+      "failures": "Fehlgeschlagen",
+      "unverified": "Nicht bestätigt",
+      "folders": "Ordner",
+      "bytes": "Datenmenge",
+      "failed": "Die Wiederherstellung ist fehlgeschlagen",
+      "failedUnknown": "Es wurde kein Grund gemeldet.",
+      "cancelled": "Die Wiederherstellung wurde abgebrochen",
+      "cancelledDescription": "Alles, was vor dem Abbruch wiederhergestellt wurde, bleibt erhalten.",
+      "noResult": "Die Wiederherstellung wurde ohne Ergebnismeldung beendet.",
+      "downloadExpired": "Der Download ist abgelaufen",
+      "downloadExpiredDescription": "Der Link war bis {date} gültig. Starten Sie den Download im Explorer erneut, um einen neuen zu erhalten."
+    },
+    "request": {
+      "title": "Anforderung",
+      "object": "Postfach oder Laufwerk",
+      "snapshot": "Zeitpunkt",
+      "snapshotPruned": "Die Sicherung wurde inzwischen durch die Aufbewahrungsregel entfernt.",
+      "selection": "Auswahl",
+      "target": "Ziel",
+      "mode": "Wenn ein Element existiert",
+      "actor": "Angefordert von",
+      "reason": "Begründung",
+      "requested": "Angefordert",
+      "started": "Gestartet",
+      "finished": "Beendet"
+    }
+  },
+  "items": {
+    "title": "Elemente",
+    "description": "Was mit jedem Element geschehen ist, mit Grund, wann immer es nicht einfach wiederhergestellt wurde.",
+    "pending": "Das Ergebnis je Element wird angezeigt, sobald die Wiederherstellung beendet ist.",
+    "none": "Für diese Wiederherstellung wurde kein Ergebnis je Element erfasst.",
+    "liveFailures": "Bisher nicht wiederherstellbare Elemente:",
+    "failuresOnly": "Nicht wiederherstellbare Elemente:",
+    "emptyFilter": "Keine Elemente in dieser Gruppe.",
+    "truncated": "Die {shown} Elemente, die Aufmerksamkeit brauchen, stehen zuerst; insgesamt wurden {total} Ergebnisse gemeldet.",
+    "unverified": "Nicht bestätigt",
+    "restoredAs": "Wiederhergestellt als {target}",
+    "columns": {
+      "item": "Element",
+      "outcome": "Ergebnis"
+    },
+    "filters": {
+      "attention": "Braucht Aufmerksamkeit",
+      "failed": "Fehlgeschlagen",
+      "skipped": "Übersprungen",
+      "unverified": "Nicht bestätigt",
+      "restored": "Wiederhergestellt",
+      "all": "Alle"
+    },
+    "status": {
+      "restored": "Wiederhergestellt",
+      "skipped": "Übersprungen",
+      "failed": "Fehlgeschlagen"
+    },
+    "codes": {
+      "restored": "Wiederhergestellt.",
+      "unverified": "Wiederhergestellt, aber die Bestätigung des Ziels stimmte nicht mit der Sicherung überein.",
+      "exists": "Das Ziel enthält dieses Element bereits.",
+      "not_restorable": "Die Sicherung enthält für diese Art von Element keinen wiederherstellbaren Inhalt.",
+      "parent_not_restored": "Gehört zu einer E-Mail, die nicht wiederhergestellt wurde.",
+      "wrong_target": "Diese Art von Element lässt sich in dieses Ziel nicht wiederherstellen.",
+      "data_missing": "Daten dieses Elements fehlen im Speicher.",
+      "integrity": "Die Daten haben die Integritätsprüfung nicht bestanden und wurden nicht wiederhergestellt.",
+      "target_rejected": "Der Zieldienst hat das Element abgelehnt.",
+      "error": "Das Element konnte nicht wiederhergestellt werden."
+    }
+  },
+  "tabs": {
+    "label": "Ansichten des Restore-Explorers",
+    "browse": "Durchsuchen",
+    "recent": "Letzte Wiederherstellungen"
+  }
+}

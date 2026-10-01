@@ -1,0 +1,113 @@
+{
+  "invite": {
+    "description": "They get a link to choose a password and sign in. No Microsoft account is needed.",
+    "submit": "Send sign-in link",
+    "submitNoMail": "Create sign-in link",
+    "invited": {
+      "title": "Sign-in link ready",
+      "lead": "Share this link with the invited person, or send it again from the members list later.",
+      "summary": "{email} is added as {role, select, tenant_admin {tenant admin} other {user}}.",
+      "reusedSummary": "{email} already had an account on {appName}. It is added to this tenant, and can choose a password with this link.",
+      "alreadySignedIn": "{email} already has a way to sign in and is now added to this tenant as {role, select, tenant_admin {tenant admin} other {user}}. There is nothing to send. They can sign in right away.",
+      "microsoftHint": "Microsoft sign-in is available on this installation, but only for accounts already linked to Microsoft. This one is not, so {email} signs in with the password from this link instead."
+    },
+    "added": {
+      "title": "Added to this tenant",
+      "lead": "This person already has a way to sign in. There is nothing to send. They can sign in right away."
+    }
+  },
+  "provision": {
+    "mail": {
+      "sent": "A message with this link was sent to {email}.",
+      "notConfigured": "No mail transport is configured, so the link was not emailed. Copy it and pass it on yourself.",
+      "failed": "Sending the mail failed. Copy the link and pass it on yourself instead."
+    },
+    "expires": "The link is valid until {date}.",
+    "expiresUnknown": "The link is valid for a limited time.",
+    "linkLabel": "Sign-in link",
+    "copyLink": "Copy sign-in link",
+    "linkHint": "The link works once. Reissuing a new one invalidates this one.",
+    "linkDialog": {
+      "title": "New sign-in link",
+      "description": "The previous link for {email} no longer works; share this one instead."
+    },
+    "errors": {
+      "crossTenant": "This account already belongs to a different tenant. Only a provider administrator can add it here too.",
+      "providerAdminTarget": "This account administers the whole installation and already reaches every tenant.",
+      "notPending": "This person already has a working way to sign in; there is no link to reissue."
+    }
+  },
+  "pending": {
+    "title": "Pending sign-in setup",
+    "description": "Added to the tenant, but no password has been set yet.",
+    "error": "Pending accounts could not be loaded.",
+    "search": "Search pending accounts",
+    "linkExpiresAt": "Expires",
+    "columns": {
+      "status": "Link"
+    },
+    "resend": "Resend",
+    "copyNewLink": "Copy new link",
+    "linkStatus": {
+      "valid": "Link active",
+      "expired": "Link expired",
+      "used": "Password set",
+      "invalid": "No link yet"
+    },
+    "reissueConfirm": {
+      "title": "Issue a new sign-in link?",
+      "description": "{email} already has an active link. Issuing a new one stops that one from working immediately.",
+      "confirm": "Issue new link"
+    }
+  },
+  "setPassword": {
+    "pageTitle": "Choose a password",
+    "error": "This link could not be checked.",
+    "title": "Choose a password",
+    "lead": "Set a password to sign in to {appName}. An authenticator app is required right after.",
+    "leadWithEmail": "Set a password for {email} to sign in to {appName}. An authenticator app is required right after.",
+    "password": {
+      "label": "New password",
+      "placeholder": "At least 12 characters"
+    },
+    "confirm": {
+      "label": "Confirm password",
+      "placeholder": "Type it again"
+    },
+    "submit": "Set password",
+    "done": {
+      "title": "Password set",
+      "description": "You can now sign in. You will be asked to set up an authenticator app right after.",
+      "signIn": "Sign in"
+    },
+    "linkStatus": {
+      "used": {
+        "title": "This link has already been used",
+        "description": "A password was already set with this link. Sign in instead, or ask an administrator for a new link.",
+        "descriptionWithEmail": "A password was already set for {email} with this link. Sign in instead, or ask an administrator for a new link."
+      },
+      "expired": {
+        "title": "This link has expired",
+        "description": "Sign-in links are valid for 72 hours. Ask an administrator to send a new one.",
+        "descriptionWithEmail": "The link for {email} is more than 72 hours old. Ask an administrator to send a new one."
+      },
+      "invalid": {
+        "title": "This link is not valid",
+        "description": "It may be mistyped or already removed. Ask an administrator to send a new one.",
+        "descriptionWithEmail": "It may be mistyped or already removed. Ask an administrator to send a new one."
+      }
+    },
+    "rateLimited": "Too many attempts. Wait a moment and try again.",
+    "linkError": {
+      "used": "This link has already been used. Ask an administrator for a new one.",
+      "expired": "This link has expired. Ask an administrator for a new one.",
+      "invalid": "This link is not valid."
+    }
+  },
+  "mail": {
+    "subject": "Set your password for {tenant} on {appName}",
+    "body": "You have been added to {tenant} on {appName}. Open this link within {hours} hours to choose a password and sign in: {url}",
+    "providerSubject": "You have been added to the provider team on {appName}",
+    "providerBody": "You have been added to the provider team on {appName}. Open this link within {hours} hours to choose a password and sign in; you will then set up an authenticator app: {url}"
+  }
+}

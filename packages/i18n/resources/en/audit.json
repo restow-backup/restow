@@ -1,0 +1,506 @@
+{
+  "nav": "Audit log",
+  "title": "Audit log",
+  "subtitle": {
+    "provider": "Every recorded action of all tenants and of the installation itself. Each entry is chained to the one before it and sealed daily, so later changes are detectable.",
+    "tenant": "Every recorded action in {tenant}. Each entry is chained to the one before it and sealed daily, so later changes are detectable."
+  },
+  "noTenant": {
+    "title": "No tenant selected",
+    "description": "Select a tenant in the top bar to see its audit log."
+  },
+  "notAdmin": {
+    "title": "Tenant admin role required",
+    "description": "The audit log of {tenant} is visible to its tenant admins only."
+  },
+  "chain": {
+    "installation": "Installation",
+    "status": {
+      "verifying": "Verifying chain …",
+      "intact": "Chain intact",
+      "broken": "Chain broken",
+      "empty": "No entries yet",
+      "error": "Verification failed"
+    },
+    "verifyNow": "Verify now",
+    "openDetails": "Show verification details",
+    "dialog": {
+      "title": "Chain verification",
+      "description": "Every entry must link to the entry before it, reproduce its own hash and agree with the daily anchors.",
+      "checked": "Checked {when} in {duration}.",
+      "noChains": "There is nothing to verify yet."
+    },
+    "verifiedEntries": "{count, plural, one {# entry verified} other {# entries verified}}",
+    "anchors": "{verified, number} of {total, plural, one {# daily anchor} other {# daily anchors}} confirmed",
+    "latestAnchor": "Latest anchor: {date}, {count, plural, one {# entry} other {# entries}}",
+    "noAnchor": "No daily anchor yet. The first one is written once the first day with entries is over.",
+    "newest": "Newest entry {when}",
+    "emptyChain": "No entries recorded yet.",
+    "break": {
+      "hash_mismatch": "Entry {position, number} was changed after it was written: its content no longer reproduces its hash.",
+      "link_mismatch": "Entry {position, number} does not link to the entry before it: entries were removed, inserted or reordered.",
+      "anchor_mismatch": "The chain no longer matches the anchor of {date}: sealed with {anchored, plural, one {# entry} other {# entries}}, now {found, plural, =0 {none} one {# entry} other {# entries}}."
+    },
+    "showEntry": "Show entry",
+    "alert": {
+      "title": "The audit chain is broken",
+      "single": "{chain}: {problem}",
+      "multiple": "{count, plural, one {# chain is} other {# chains are}} broken. The verification details show where.",
+      "hint": "Entries from the break on can no longer be vouched for. Keep the database as it is and check who had write access to it."
+    },
+    "error": "The chain could not be verified."
+  },
+  "filters": {
+    "tenant": "Tenant",
+    "allTenants": "All tenants",
+    "installation": "Installation",
+    "action": "Action",
+    "allActions": "All actions",
+    "allOfCategory": "All {category} events",
+    "actionSearch": "Search actions or categories …",
+    "actionEmpty": "No matching action",
+    "actor": "Actor",
+    "actorPlaceholder": "Email, name or user ID",
+    "target": "Target",
+    "targetPlaceholder": "Mailbox, source, ID …",
+    "from": "From",
+    "to": "To",
+    "clear": "Clear filters"
+  },
+  "table": {
+    "caption": "Audit entries, newest first",
+    "time": "Time",
+    "action": "Action",
+    "actor": "Actor",
+    "target": "Target",
+    "tenant": "Tenant",
+    "ip": "IP address",
+    "onBehalfOf": "for {subject}",
+    "hashMismatch": "Hash does not match",
+    "loadMore": "Load older entries",
+    "empty": {
+      "title": "No entries yet",
+      "description": "Actions such as restores, tenant changes and connected sources appear here as soon as they happen."
+    },
+    "emptyFiltered": {
+      "title": "No matching entries",
+      "description": "No entry matches these filters."
+    },
+    "loadError": "The audit log could not be loaded."
+  },
+  "entry": {
+    "title": "Audit entry",
+    "loadError": "This entry could not be loaded.",
+    "hashValid": "Hash matches",
+    "hashInvalid": "Hash does not match",
+    "hashInvalidHint": "The stored fields no longer reproduce this entry's hash: it was changed after it was written.",
+    "time": "Time",
+    "action": "Action",
+    "actor": "Actor",
+    "actorUserId": "User ID",
+    "onBehalfOf": "On behalf of",
+    "targetName": "Target name",
+    "target": "Target",
+    "targetType": "Target type",
+    "tenant": "Tenant",
+    "ip": "IP address",
+    "details": "Details",
+    "noDetails": "No further details recorded.",
+    "integrity": "Integrity",
+    "chainHash": "Chain hash",
+    "prevHash": "Previous hash",
+    "firstEntry": "First entry of the chain",
+    "entryId": "Entry ID",
+    "notRecorded": "Not recorded",
+    "copy": "Copy {label}",
+    "copied": "Copied"
+  },
+  "actor": {
+    "system": "System",
+    "apiKey": "API key {id}",
+    "user": "User {id}",
+    "adminConsent": "Microsoft admin consent"
+  },
+  "categories": {
+    "account": "Accounts",
+    "api": "Integration API",
+    "api_key": "API keys",
+    "archive": "Archive",
+    "audit": "Audit",
+    "auth": "Sign-in",
+    "backup": "Backup",
+    "directory": "Directory",
+    "export": "Export",
+    "impersonation": "Impersonation",
+    "import": "Import",
+    "job": "Jobs",
+    "legal_hold": "Legal hold",
+    "license": "License",
+    "restore": "Restore",
+    "retention": "Retention",
+    "retention_policy": "Retention",
+    "schedule": "Schedules",
+    "scrub": "Storage check",
+    "settings": "Settings",
+    "setup": "Setup",
+    "snapshot": "Backup contents",
+    "source": "Sources",
+    "stats": "Statistics",
+    "storage": "Storage",
+    "tenant": "Tenants",
+    "verify": "Verification",
+    "webhook": "Webhooks",
+    "provider_team": "Provider team",
+    "access": "Access",
+    "report": "Alerts",
+    "update": "Updates",
+    "endpoint": "Servers and clients"
+  },
+  "events": {
+    "account": {
+      "provisioned": "Account provisioned",
+      "password_link_issued": "Set-password link issued",
+      "password_set": "Password set",
+      "access_recovered": "Administrator access recovered on the server's command line"
+    },
+    "api": {
+      "archive": {
+        "report": {
+          "read": "Archive report read via API"
+        }
+      },
+      "job": {
+        "events": {
+          "opened": "Job progress stream opened via API"
+        },
+        "read": "Job read via API"
+      },
+      "jobs": {
+        "read": "Jobs read via API"
+      },
+      "objects": {
+        "read": "Protected objects read via API"
+      },
+      "provider": {
+        "tenants": {
+          "read": "Tenant contacts read via API"
+        },
+        "users": {
+          "read": "Users of all tenants read via API"
+        }
+      },
+      "users": {
+        "read": "Users read via API"
+      },
+      "verify": {
+        "read": "Verification report read via API"
+      },
+      "endpoints": {
+        "read": "Endpoints read through the API"
+      }
+    },
+    "api_key": {
+      "created": "API key created",
+      "revoked": "API key revoked"
+    },
+    "archive": {
+      "searched": "Archive searched",
+      "item": {
+        "read": "Archive item read",
+        "deleted": "Archive item deleted by retention"
+      },
+      "legal_hold": {
+        "created": "Legal hold placed",
+        "released": "Legal hold released"
+      },
+      "journal": {
+        "address_created": "Journal address issued",
+        "address_rotated": "Journal address rotated"
+      }
+    },
+    "backup": {
+      "requested": "Backup started manually",
+      "first_queued": "First backup queued"
+    },
+    "directory": {
+      "account": {
+        "credential_set": "Mailbox credential set",
+        "credential_tested": "Mailbox credential tested",
+        "deleted": "Account removed"
+      },
+      "accounts": {
+        "imported": "Accounts imported"
+      },
+      "protection": {
+        "changed": "Protection changed",
+        "bulk_changed": "Protection changed in bulk"
+      },
+      "rules": {
+        "updated": "Protection rules changed"
+      },
+      "sync": {
+        "requested": "Directory sync started"
+      }
+    },
+    "export": {
+      "cancelled": "Export cancelled",
+      "downloaded": "Export downloaded",
+      "requested": "Export requested"
+    },
+    "import": {
+      "cancelled": "Import cancelled",
+      "requested": "Import requested",
+      "upload": {
+        "cancelled": "Import upload cancelled",
+        "completed": "Import upload completed",
+        "created": "Import upload started"
+      }
+    },
+    "job": {
+      "cancelled": "Job cancelled",
+      "retried": "Job retried"
+    },
+    "license": {
+      "installed": "License installed",
+      "removed": "License removed"
+    },
+    "restore": {
+      "cancelled": "Restore cancelled",
+      "downloaded": "Restore downloaded",
+      "requested": "Restore requested"
+    },
+    "retention_policy": {
+      "created": "Retention policy created",
+      "updated": "Retention policy changed",
+      "deleted": "Retention policy deleted"
+    },
+    "schedule": {
+      "created": "Schedule created",
+      "updated": "Schedule changed",
+      "deleted": "Schedule deleted",
+      "recommended": {
+        "applied": "Recommended schedules applied"
+      }
+    },
+    "scrub": {
+      "requested": "Storage check started"
+    },
+    "settings": {
+      "disclaimer_accepted": "Operator responsibility notice accepted",
+      "mail": {
+        "removed": "Mail delivery removed",
+        "tested": "Mail delivery tested"
+      },
+      "microsoft_app": {
+        "removed": "Microsoft 365 app registration removed",
+        "saved": "Microsoft 365 app registration saved",
+        "tested": "Microsoft 365 app registration tested"
+      },
+      "updated": "Settings changed"
+    },
+    "setup": {
+      "completed": "Installation set up"
+    },
+    "snapshot": {
+      "mail": {
+        "attachment_downloaded": "Mail attachment downloaded",
+        "previewed": "Mail preview opened"
+      },
+      "searched": "Backup contents searched",
+      "tree": {
+        "read": "Backup folder opened"
+      },
+      "versions": {
+        "read": "Version history opened"
+      }
+    },
+    "source": {
+      "consent": {
+        "denied": "Admin consent declined",
+        "granted": "Admin consent granted",
+        "link_created": "Consent link created",
+        "rejected": "Consent callback rejected",
+        "sign_in_started": "Admin consent returned, confirming sign-in started"
+      },
+      "created": "Source added",
+      "deleted": "Source deleted",
+      "imap": {
+        "probed": "IMAP server probed"
+      },
+      "tested": "Connection tested",
+      "updated": "Source changed",
+      "verified": "Permissions verified"
+    },
+    "stats": {
+      "exported": "Statistics exported",
+      "report_generated": "Statistics report generated"
+    },
+    "storage": {
+      "default": {
+        "tested": "Default storage tested"
+      },
+      "migration": {
+        "started": "Storage migration started",
+        "verify_failed": "Storage migration failed verification",
+        "switched": "Storage migration switched the primary",
+        "cancelled": "Storage migration cancelled"
+      },
+      "target": {
+        "created": "Repository added",
+        "deleted": "Repository removed",
+        "probed": "Repository probed",
+        "promoted": "Repository made primary",
+        "tested": "Repository tested",
+        "updated": "Repository changed"
+      }
+    },
+    "tenant": {
+      "created": "Tenant created",
+      "deleted": "Tenant deleted",
+      "customer": {
+        "updated": "Tenant customer data changed"
+      },
+      "contacts": {
+        "updated": "Tenant contacts changed"
+      },
+      "notification_recipients": {
+        "updated": "Tenant notification recipients changed"
+      },
+      "key": {
+        "created": "Tenant key created"
+      },
+      "member": {
+        "added": "Member added",
+        "invitation_canceled": "Invitation withdrawn",
+        "invitation_declined": "Invitation declined",
+        "invited": "Member invited",
+        "joined": "Invitation accepted",
+        "removed": "Member removed",
+        "role_changed": "Member role changed"
+      },
+      "updated": "Tenant changed"
+    },
+    "verify": {
+      "report": {
+        "viewed": "Verification report viewed"
+      },
+      "requested": "Verification started"
+    },
+    "webhook": {
+      "created": "Webhook created",
+      "deleted": "Webhook deleted",
+      "delivery": {
+        "redelivered": "Webhook delivery sent again"
+      },
+      "secret": {
+        "rotated": "Webhook secret rotated"
+      },
+      "tested": "Webhook test event sent",
+      "updated": "Webhook changed"
+    },
+    "provider_team": {
+      "member_invited": "Team member invited",
+      "member_updated": "Team member's role changed",
+      "member_removed": "Team member removed",
+      "link_reissued": "Team invitation link reissued"
+    },
+    "access": {
+      "denied": "Action refused"
+    },
+    "report": {
+      "rule": {
+        "created": "Report rule created",
+        "updated": "Report rule changed",
+        "deleted": "Report rule deleted"
+      },
+      "test_sent": "Report rule test sent"
+    },
+    "update": {
+      "check": "Update check",
+      "scheduled": "Update announced",
+      "cancelled": "Announced update cancelled",
+      "started": "Update started",
+      "succeeded": "Update completed",
+      "failed": "Update failed",
+      "acknowledged": "Update result acknowledged",
+      "settings": {
+        "updated": "Update settings changed"
+      }
+    },
+    "endpoint": {
+      "token": {
+        "created": "Enrollment token created",
+        "revoked": "Enrollment token revoked"
+      },
+      "enrolled": "Machine enrolled",
+      "revoked": "Machine revoked",
+      "config": {
+        "changed": "Machine configuration changed"
+      },
+      "backup": {
+        "requested": "Backup requested"
+      },
+      "restore": {
+        "requested": "Restore on the machine requested",
+        "finished": "Restore on the machine finished"
+      },
+      "restore_test": {
+        "requested": "Restore test requested"
+      },
+      "uninstall": {
+        "requested": "Agent uninstall requested"
+      },
+      "updates": {
+        "paused": "Automatic agent updates paused",
+        "resumed": "Automatic agent updates resumed"
+      },
+      "snapshot": {
+        "browsed": "Backed-up files browsed",
+        "downloaded": "Backed-up files downloaded"
+      },
+      "repository": {
+        "denied": "Machine tried to change its backups",
+        "password": {
+          "revealed": "Repository password shown"
+        }
+      }
+    }
+  },
+  "targetTypes": {
+    "api_key": "API key",
+    "app_registration": "App registration",
+    "archive_item": "Archive item",
+    "email": "Email address",
+    "export_job": "Export",
+    "imap": "IMAP account",
+    "import_upload": "Import upload",
+    "installation": "Installation",
+    "invitation": "Invitation",
+    "job": "Job",
+    "legal_hold": "Legal hold",
+    "mail_import": "Import",
+    "mailbox": "Mailbox",
+    "manifest_object": "Backed-up item",
+    "member": "Member",
+    "onedrive": "OneDrive",
+    "protected_object": "Protected object",
+    "restore_job": "Restore",
+    "retention_policy": "Retention policy",
+    "schedule": "Schedule",
+    "settings": "Settings",
+    "snapshot": "Snapshot",
+    "source": "Source",
+    "stats": "Statistics",
+    "storage_location": "Storage location",
+    "storage_target": "Repository",
+    "tenant": "Tenant",
+    "user": "User",
+    "verify_report": "Verification report",
+    "webhook": "Webhook",
+    "route": "Route",
+    "report_rule": "Report rule",
+    "update": "Update",
+    "endpoint": "Server or client",
+    "endpoint_enrollment_token": "Enrollment token"
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "test": {
+    "subject": "{appName}: Testbenachrichtigung",
+    "body": "Dies ist eine Testbenachrichtigung von {appName}. Sie ist angekommen, der Mailversand ist also richtig eingerichtet. Sie müssen nichts weiter tun."
+  }
+}

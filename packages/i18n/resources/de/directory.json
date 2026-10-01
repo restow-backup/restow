@@ -1,0 +1,369 @@
+{
+  "nav": "Geschützte Objekte",
+  "title": "Geschützte Objekte",
+  "subtitle": "Postfächer, OneDrives und IMAP-Konten im Schutzumfang und die Regeln, die darüber entscheiden.",
+  "tenantScope": "Postfächer, OneDrives und IMAP-Konten von {tenant} und die Regeln, die über den Schutz entscheiden.",
+  "noTenant": {
+    "title": "Kein Mandant gewählt",
+    "description": "Wählen Sie oben einen Mandanten, um seine geschützten Objekte zu sehen."
+  },
+  "tabs": {
+    "objects": "Objekte",
+    "sources": "Quellen und Regeln",
+    "attention": "Braucht Aufmerksamkeit"
+  },
+  "kind": {
+    "mailbox": "Postfach",
+    "onedrive": "OneDrive",
+    "imap": "IMAP-Konto"
+  },
+  "status": {
+    "active": "Geschützt",
+    "excluded": "Ausgeschlossen",
+    "orphaned": "Verwaist",
+    "not_selected": "Nicht ausgewählt",
+    "needs_credential": "Braucht Aufmerksamkeit"
+  },
+  "statusHint": {
+    "active": "Im Schutzumfang: Für dieses Objekt laufen Sicherungen.",
+    "excluded": "Per Regel oder Einzelentscheidung ausgeschlossen: Es laufen keine neuen Sicherungen.",
+    "orphaned": "Nicht mehr im Verzeichnis oder nicht mehr bereitgestellt. Vorhandene Sicherungen bleiben, bis die Aufbewahrung sie entfernt.",
+    "not_selected": "Der Schutzumfang ist \"Nur ausgewählte Objekte\", und niemand hat dieses Objekt ausgewählt: Es laufen keine neuen Sicherungen. Vorhandene Sicherungen bleiben, bis die Aufbewahrung sie entfernt.",
+    "needs_credential": "Im Schutzumfang, aber für dieses Konto ist noch kein eigenes, funktionierendes Passwort gesetzt: Erst wenn unter Login eines gesetzt und erfolgreich getestet wurde, kann eine Sicherung laufen."
+  },
+  "override": {
+    "include": "Immer eingeschlossen",
+    "exclude": "Immer ausgeschlossen",
+    "includeHint": "Ein Admin hat entschieden, dieses Objekt unabhängig von den Regeln zu schützen.",
+    "excludeHint": "Ein Admin hat entschieden, dieses Objekt unabhängig von den Regeln auszulassen."
+  },
+  "sharedOrBlocked": {
+    "label": "Geteilt oder gesperrt",
+    "hint": "Für dieses Konto ist die Anmeldung deaktiviert: ein geteiltes Postfach, ein Ressourcenpostfach oder ein gesperrter Nutzer. Microsoft Graph unterscheidet diese Fälle nicht."
+  },
+  "readiness": {
+    "green": "Restore bestätigt",
+    "yellow": "Restore eingeschränkt",
+    "red": "Restore fehlgeschlagen",
+    "unverified": "Nicht geprüft",
+    "none": "Keine Sicherung",
+    "needs_credential": "Braucht Aufmerksamkeit",
+    "checked": "Geprüft {when}",
+    "unverifiedHint": "Es gibt Sicherungen, aber noch keine Testwiederherstellung hat sie bestätigt. Eine ungeprüfte Sicherung gilt nicht als Schutz.",
+    "noneHint": "Geprüft werden kann erst, wenn die erste Sicherung abgeschlossen ist.",
+    "needsCredentialHint": "Für dieses Konto ist gerade kein eigenes, funktionierendes Passwort gesetzt: Es ist derzeit nicht geschützt, unabhängig davon, was ein früherer Sicherungsstand einmal bestätigt hat."
+  },
+  "backup": {
+    "never": "Noch keine Sicherung",
+    "running": "Sicherung läuft",
+    "failed": "Letzter Lauf fehlgeschlagen",
+    "failedHint": "Der letzte Sicherungslauf ist {when} fehlgeschlagen. Den Grund zeigt die Ansicht des Laufs.",
+    "failedWhen": "Der letzte Sicherungslauf ist {when} fehlgeschlagen.",
+    "openJob": "Lauf öffnen",
+    "snapshots": "{count, plural, one {# Snapshot} other {# Snapshots}}",
+    "now": "Jetzt sichern",
+    "perObject": "Je Objekt sichern"
+  },
+  "credential": {
+    "status": {
+      "missing": "Nicht geschützt",
+      "untested": "Nicht getestet",
+      "ok": "Anmeldung funktioniert",
+      "failed": "Anmeldung fehlgeschlagen"
+    },
+    "hint": {
+      "missing": "Dieses Konto hat noch kein eigenes Passwort; es ist nicht geschützt, bis eines gesetzt ist.",
+      "untested": "Ein Passwort ist gesetzt, wurde aber noch nicht gegen den Server geprüft.",
+      "ok": "Der letzte Anmeldetest war erfolgreich.",
+      "failed": "Der letzte Anmeldetest ist fehlgeschlagen; siehe Grund unten."
+    },
+    "checked": "Getestet {when}",
+    "setAction": "Passwort setzen",
+    "testAction": "Anmeldung testen",
+    "setTitle": "Passwort für {name} setzen",
+    "setDescription": "Wird verschlüsselt mit dem Mandantenschlüssel gespeichert und nie wieder angezeigt. Nur sinnvoll bei einer Quelle mit einem Passwort je Postfach.",
+    "passwordLabel": "Passwort",
+    "setConfirm": "Passwort speichern",
+    "setDone": "Das Passwort für {name} wurde gespeichert.",
+    "testing": "Anmeldung für {name} wird getestet.",
+    "testOk": "Die Anmeldung für {name} funktioniert.",
+    "testFailed": "Die Anmeldung für {name} ist fehlgeschlagen.",
+    "probeReasons": {
+      "blocked_address": "Dieser Server liegt in einem Loopback-, privaten oder Link-Local-Netzwerk, mit dem {appName} sich von hier aus nicht verbindet.",
+      "auth": "Der Server hat Benutzername oder Passwort abgelehnt.",
+      "timeout": "Der Server hat nicht rechtzeitig geantwortet.",
+      "tls": "Der TLS-Handshake ist fehlgeschlagen.",
+      "starttls_unavailable": "Der Server bietet auf diesem Port kein STARTTLS an.",
+      "dns": "Der Hostname konnte nicht aufgelöst werden.",
+      "refused": "Die Verbindung wurde abgelehnt.",
+      "unknown": "Die Verbindung ist aus unerwartetem Grund fehlgeschlagen."
+    }
+  },
+  "errors": {
+    "imapNotPerMailbox": "Die Quelle dieses Kontos meldet jedes Postfach mit ihrer eigenen gespeicherten Anmeldung an; es hat kein eigenes Passwort zum Setzen oder Testen.",
+    "imapCredentialNotConfigured": "Dieses Postfach hat noch kein Passwort; zuerst eines setzen."
+  },
+  "objects": {
+    "search": "Name, Adresse oder ID suchen",
+    "protectedCount": "{active} von {total} geschützt",
+    "filters": {
+      "kind": "Typ",
+      "status": "Status",
+      "source": "Quelle",
+      "shared": "Geteilt oder gesperrt",
+      "allKinds": "Alle Typen",
+      "allStatuses": "Alle Status",
+      "allSources": "Alle Quellen",
+      "sharedAll": "Geteilte und persönliche",
+      "sharedOnly": "Nur geteilte oder gesperrte",
+      "sharedExcluded": "Nicht geteilt oder gesperrt",
+      "reset": "Filter zurücksetzen"
+    },
+    "columns": {
+      "name": "Name",
+      "kind": "Typ",
+      "status": "Status",
+      "lastBackup": "Letzte Sicherung",
+      "readiness": "Wiederherstellbarkeit",
+      "credential": "Anmeldung",
+      "actions": "Aktionen"
+    },
+    "sortBy": "Nach {column} sortieren",
+    "empty": {
+      "title": "Noch keine geschützten Objekte",
+      "description": "Verbinden Sie einen Microsoft-365-Tenant und starten Sie einen Verzeichnisabgleich, oder fügen Sie einer IMAP-Quelle Konten hinzu.",
+      "filtered": "Kein Objekt passt zu den aktuellen Filtern."
+    },
+    "range": "{from}–{to} von {total}",
+    "page": "Seite {page} von {pages}",
+    "pageSize": "Zeilen pro Seite",
+    "previous": "Vorherige Seite",
+    "next": "Nächste Seite",
+    "error": "Die geschützten Objekte konnten nicht geladen werden"
+  },
+  "actions": {
+    "menu": "Aktionen für {name}",
+    "include": "Immer einschließen",
+    "exclude": "Von der Sicherung ausschließen",
+    "reset": "Wieder den Regeln folgen",
+    "remove": "Konto entfernen",
+    "done": {
+      "include": "{name} ist jetzt immer eingeschlossen.",
+      "exclude": "{name} ist von der Sicherung ausgeschlossen.",
+      "reset": "{name} folgt wieder den Regeln.",
+      "remove": "{name} wurde entfernt."
+    },
+    "failed": "Die Änderung konnte nicht gespeichert werden.",
+    "excludeConfirm": {
+      "title": "{name} von der Sicherung ausschließen?",
+      "description": "Für dieses Objekt laufen keine neuen Sicherungen. Vorhandene Sicherungen bleiben, bis die Aufbewahrung sie entfernt.",
+      "confirm": "Ausschließen"
+    },
+    "removeConfirm": {
+      "title": "{name} entfernen?",
+      "description": "Das Konto verschwindet aus der Liste. Es hat keine Sicherungen, daher wird sonst nichts entfernt.",
+      "confirm": "Entfernen"
+    }
+  },
+  "bulk": {
+    "selected": "{count, plural, one {# ausgewählt} other {# ausgewählt}}",
+    "selectAllMatching": "Alle {count, plural, one {# passenden Objekt} other {# passenden Objekte}} auswählen",
+    "clear": "Auswahl aufheben",
+    "selectPage": "Alle Zeilen dieser Seite auswählen",
+    "include": "Einschließen",
+    "exclude": "Ausschließen",
+    "reset": "Wieder den Regeln folgen",
+    "confirm": {
+      "include": {
+        "title": "{count, plural, one {# Objekt einschließen?} other {# Objekte einschließen?}}",
+        "description": "{count, plural, one {Das Objekt ist} other {Die Objekte sind}} ab jetzt unabhängig von den Regeln immer geschützt, bis ein Admin diese Entscheidung ändert.",
+        "confirm": "Einschließen"
+      },
+      "exclude": {
+        "title": "{count, plural, one {# Objekt von der Sicherung ausschließen?} other {# Objekte von der Sicherung ausschließen?}}",
+        "description": "Für {count, plural, one {das Objekt} other {die Objekte}} laufen keine neuen Sicherungen. Vorhandene Sicherungen bleiben, bis die Aufbewahrung sie entfernt.",
+        "confirm": "Ausschließen"
+      },
+      "reset": {
+        "title": "{count, plural, one {Für # Objekt wieder den Regeln folgen?} other {Für # Objekte wieder den Regeln folgen?}}",
+        "description": "Einzelentscheidungen werden entfernt; die Schutzregeln der Quelle entscheiden nach dem nächsten Verzeichnisabgleich wieder über {count, plural, one {das Objekt} other {die Objekte}}.",
+        "confirm": "Den Regeln folgen"
+      }
+    },
+    "done": {
+      "include": "{count, plural, one {# Objekt eingeschlossen.} other {# Objekte eingeschlossen.}}",
+      "exclude": "{count, plural, one {# Objekt von der Sicherung ausgeschlossen.} other {# Objekte von der Sicherung ausgeschlossen.}}",
+      "reset": "{count, plural, one {# Objekt folgt wieder den Regeln.} other {# Objekte folgen wieder den Regeln.}}"
+    },
+    "failed": "Die Sammeländerung konnte nicht gespeichert werden."
+  },
+  "sync": {
+    "now": "Jetzt abgleichen",
+    "full": "Vollständiger Abgleich",
+    "fullHint": "Liest das ganze Verzeichnis statt nur der Änderungen. Läuft ohnehin einmal täglich.",
+    "menu": "Weitere Abgleichoptionen",
+    "queued": "Abgleich eingereiht",
+    "running": "Abgleich läuft",
+    "fullPending": "Vollständiger Abgleich angefordert",
+    "lastRun": "Letzter Abgleich {when}",
+    "never": "Noch nicht abgeglichen",
+    "lastFull": "Letzter vollständiger Abgleich {when}",
+    "failedAt": "Letzter Abgleich {when} fehlgeschlagen",
+    "mode": {
+      "initial": "Vollständiger Abgleich",
+      "incremental": "Nur Änderungen",
+      "resync": "Vollständiger Abgleich nach abgelaufenem Delta-Link"
+    },
+    "summary": "{users, plural, =0 {Keine geänderten Nutzer} one {# Nutzer gelesen} other {# Nutzer gelesen}}: {created} hinzugefügt, {updated} aktualisiert, {orphaned} verwaist",
+    "rescoped": "{count, plural, one {# Objekt durch die Regeln neu eingeordnet} other {# Objekte durch die Regeln neu eingeordnet}}",
+    "removedUsers": "{count, plural, one {# Nutzer hat das Verzeichnis verlassen} other {# Nutzer haben das Verzeichnis verlassen}}",
+    "warnings": {
+      "title": "{count, plural, one {# Warnung} other {# Warnungen}}",
+      "show": "Warnungen anzeigen",
+      "hide": "Warnungen ausblenden",
+      "more": "{count, plural, one {# weitere Warnung ist nicht aufgeführt} other {# weitere Warnungen sind nicht aufgeführt}}",
+      "group_unresolved": "Die Schutzgruppe konnte nicht gelesen werden ({status}). Ihre Mitglieder bleiben ausgeschlossen, bis das wieder gelingt.",
+      "mailbox_probe_failed": "Das Postfach von {user} konnte nicht geprüft werden ({status}); entschieden hat die Adresse.",
+      "drive_probe_failed": "Das OneDrive von {user} konnte nicht geprüft werden ({status}); es bleibt unverändert.",
+      "user_fetch_failed": "Der Nutzer {user} konnte nicht gelesen werden ({status}); der nächste Abgleich holt ihn nach."
+    },
+    "result": {
+      "queued": "Verzeichnisabgleich eingereiht.",
+      "alreadyQueued": "Ein Verzeichnisabgleich ist bereits eingereiht oder läuft.",
+      "notQueued": {
+        "source_disabled": "Die Quelle ist pausiert; die Änderung greift, sobald sie fortgesetzt wird.",
+        "consent_outstanding": "Die Änderung greift nach dem Admin-Consent und dem ersten Abgleich.",
+        "queue_unavailable": "Es konnte kein Abgleich eingereiht werden, weil der Worker nicht läuft; der nächste geplante Abgleich übernimmt die Änderung."
+      }
+    },
+    "failed": "Der Abgleich konnte nicht gestartet werden."
+  },
+  "sources": {
+    "empty": {
+      "title": "Noch keine Quellen",
+      "description": "Verbinden Sie unter Quellen einen Microsoft-365-Tenant oder einen IMAP-Server; seine Postfächer und Konten erscheinen dann hier.",
+      "action": "Zu den Quellen"
+    },
+    "kind": {
+      "m365": "Microsoft 365",
+      "imap": "IMAP"
+    },
+    "health": {
+      "disabled": "Pausiert",
+      "consent_outstanding": "Consent ausstehend",
+      "syncing": "Abgleich läuft",
+      "error": "Abgleich fehlgeschlagen",
+      "never_synced": "Noch nicht abgeglichen",
+      "healthy": "Abgeglichen",
+      "manual": "Manuelle Liste"
+    },
+    "counts": "{active} geschützt, {excluded} ausgeschlossen, {orphaned} verwaist",
+    "m365Kinds": "{mailbox, plural, one {# Postfach} other {# Postfächer}}, {onedrive, plural, one {# OneDrive} other {# OneDrives}}",
+    "imapKinds": "{count, plural, one {# Konto} other {# Konten}}",
+    "consentHint": "Erteilen Sie unter Quellen den Admin-Consent für diesen Tenant, bevor der erste Abgleich laufen kann.",
+    "disabledHint": "Die Quelle ist pausiert. Setzen Sie sie unter Quellen fort, um wieder abzugleichen.",
+    "manualHint": "IMAP-Server haben kein Verzeichnis. Fügen Sie Konten von Hand oder aus einer CSV-Datei hinzu.",
+    "openSource": "Quelle öffnen",
+    "showObjects": "Objekte anzeigen",
+    "error": "Die Quellen konnten nicht geladen werden",
+    "rules": {
+      "title": "Regeln",
+      "all": "Alle im Verzeichnis",
+      "group": "Mitglieder von {group}",
+      "groupUnnamed": "Mitglieder der Gruppe {id}",
+      "selected": "Nur ausgewählte Objekte",
+      "shared": "Geteilte und gesperrte Postfächer eingeschlossen",
+      "sharedOff": "Geteilte und gesperrte Postfächer ausgelassen",
+      "exclusions": "{count, plural, =0 {Keine Ausschlüsse} one {# Ausschluss} other {# Ausschlüsse}}",
+      "overrides": "{count, plural, =0 {Keine Einzelentscheidungen} one {# Einzelentscheidung} other {# Einzelentscheidungen}}",
+      "edit": "Regeln bearbeiten"
+    },
+    "addAccounts": "Konten hinzufügen"
+  },
+  "rules": {
+    "title": "Schutzregeln",
+    "description": "Welche Postfächer und OneDrives von {source} {appName} schützt. Beim Speichern wird ein Abgleich eingereiht, der die Regeln anwendet.",
+    "precedence": "Einzelentscheidungen an einzelnen Objekten haben Vorrang vor diesen Regeln.",
+    "selectedHint": "Wählen Sie im Reiter Objekte, was geschützt werden soll: Markieren Sie die gewünschten Postfächer oder OneDrives und wählen Sie \"Einschließen\", dort oder als Sammelaktion. Ein Wechsel des Schutzumfangs löscht nie eine Sicherung: Ein Objekt, das den Schutzumfang verlässt, wird nur nicht mehr neu gesichert und behält seine vorhandenen Sicherungsstände.",
+    "mode": {
+      "label": "Schutzumfang",
+      "all": "Alle im Verzeichnis",
+      "allHint": "Jeder Nutzer mit Postfach oder OneDrive, einschließlich geteilter Postfächer und Ressourcenpostfächer. Empfohlen.",
+      "group": "Mitglieder einer Gruppe",
+      "groupHint": "Nur direkte und verschachtelte Mitglieder der Gruppe. Alle anderen sind ausgeschlossen.",
+      "selected": "Nur ausgewählte Objekte",
+      "selectedHint": "Niemand ist geschützt, bis ein Admin ein Postfach oder OneDrive aus der Objektliste ausdrücklich einschließt. Ein neues Objekt eines bereits eingeschlossenen Nutzers (zum Beispiel ein von Microsoft bei der ersten Nutzung angelegtes OneDrive) wird nicht automatisch mit eingeschlossen."
+    },
+    "group": {
+      "label": "Gruppe",
+      "search": "Gruppen nach Namen suchen oder Objekt-ID einfügen",
+      "empty": "Keine Gruppe beginnt mit diesem Namen.",
+      "change": "Andere Gruppe wählen",
+      "required": "Wählen Sie für diesen Schutzumfang eine Gruppe.",
+      "error": "Die Gruppen konnten nicht geladen werden.",
+      "unnamed": "Gruppe {id}",
+      "kind": {
+        "microsoft365": "Microsoft 365",
+        "security": "Sicherheit",
+        "mail_security": "E-Mail-aktivierte Sicherheit",
+        "distribution": "Verteilerliste"
+      }
+    },
+    "shared": {
+      "label": "Geteilte und gesperrte Postfächer einschließen",
+      "hint": "Konten mit deaktivierter Anmeldung: geteilte Postfächer und Ressourcenpostfächer, aber auch gesperrte Nutzer. Microsoft Graph unterscheidet diese Fälle nicht."
+    },
+    "exclude": {
+      "label": "Ausschlussliste",
+      "hint": "Ein Eintrag pro Zeile: Adresse, Benutzerprinzipalname oder Objekt-ID. Gilt vor dem Schutzumfang.",
+      "placeholder": "scanner@example.com\nraum-berlin@example.com",
+      "count": "{count, plural, =0 {Keine Einträge} one {# Eintrag} other {# Einträge}}"
+    },
+    "save": "Regeln speichern",
+    "saved": "Regeln gespeichert.",
+    "failed": "Die Regeln konnten nicht gespeichert werden."
+  },
+  "accounts": {
+    "title": "IMAP-Konten hinzufügen",
+    "description": "Konten von {source}. Mit Kopfzeile wird eine Passwort-Spalte akzeptiert, für eine Quelle mit einem Passwort je Postfach; sie wird beim Eintreffen versiegelt und nie wieder angezeigt.",
+    "format": "Ein Konto pro Zeile: Login, Name, Adresse. Eine Kopfzeile (login, name, email, password) in beliebiger Reihenfolge wird erkannt; Komma, Semikolon und Tabulator funktionieren. Eine Passwort-Spalte gilt nur mit Kopfzeile.",
+    "passwordColumnHint": "Diese Quelle hat ein Passwort je Postfach, daher wird eine Passwort-Spalte beim Eintreffen versiegelt.",
+    "passwordColumnIgnoredHint": "Diese Quelle nutzt ein gemeinsames Login für alle Postfächer, daher wird eine Passwort-Spalte hier ignoriert.",
+    "text": "Konten",
+    "placeholder": "anna@example.com\nbuchhaltung@example.com;Buchhaltung",
+    "file": "CSV-Datei wählen",
+    "fileLoaded": "{name} geladen",
+    "fileError": "Die Datei konnte nicht gelesen werden.",
+    "check": "Liste prüfen",
+    "singlePassword": {
+      "label": "Passwort",
+      "hint": "Wird nur genutzt, weil diese Quelle ein Passwort je Postfach hat. Mehrere Konten auf einmal hinzufügen braucht weiterhin die eigene Passwort-Spalte der CSV-Kopfzeile."
+    },
+    "add": "{count, plural, one {# Konto hinzufügen} other {# Konten hinzufügen}}",
+    "summary": "{created, plural, =0 {Keine neuen Konten} one {# neues Konto} other {# neue Konten}}, {existing, plural, =0 {keines bereits vorhanden} one {# bereits vorhanden} other {# bereits vorhanden}}",
+    "done": "{created, plural, =0 {Keine neuen Konten hinzugefügt} one {# Konto hinzugefügt} other {# Konten hinzugefügt}}.",
+    "nothing": "Keine gültigen Konten gefunden.",
+    "empty": "Fügen Sie Konten ein oder wählen Sie eine Datei, dann prüfen Sie die Liste.",
+    "state": {
+      "new": "Neu",
+      "existing": "Bereits vorhanden"
+    },
+    "columns": {
+      "login": "Login",
+      "email": "Adresse",
+      "displayName": "Name",
+      "password": "Passwort",
+      "passwordSet": "Gesetzt",
+      "state": "Status"
+    },
+    "issues": {
+      "title": "{count, plural, one {# Zeile übersprungen} other {# Zeilen übersprungen}}",
+      "line": "Zeile {line}:",
+      "entry": "Eintrag:",
+      "missing_login": "kein Login",
+      "duplicate_login": "doppelter Login {value}",
+      "invalid_email": "ungültige Adresse {value}"
+    },
+    "failed": "Die Konten konnten nicht hinzugefügt werden."
+  }
+}

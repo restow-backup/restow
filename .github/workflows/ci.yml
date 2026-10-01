@@ -1,0 +1,600 @@
+name: CI
+
+# Every push to a branch and every pull request; the release workflow calls it
+# too, so a tag can only be released when the same checks pass on its commit.
+# Pin policy: every third-party action is pinned to a full commit SHA with its
+# version in a comment; every container image a step runs is pinned by digest.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_call:
+
+# Cancel superseded runs on the same ref to save CI minutes. When the release
+# workflow calls this file, github.workflow is "Release", so the group never
+# collides with a push run of CI itself.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.24.3@sha256:e1b35e12a8c6fa8901f060459cfb6b2fc4c484d3afbe3b029733a3bbfab07055
+  ACTIONLINT_IMAGE: rhysd/actionlint:1.7.12@sha256:b1934ee5f1c509618f2508e6eb47ee0d3520686341fec936f3b79331f9315667
+
+jobs:
+  lint:
+    name: Lint (biome, ee boundary)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm
+        # Reads the pinned version from package.json (packageManager).
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint (biome), ee/ import direction, the former product name and shipped test files
+        # biome check over the whole repository, then scripts/ci/check-ee-boundary.mjs
+        # (the core never imports from ee/), the former-name guard (no tracked file
+        # or path names the product before its rename) and check-package-files.mjs
+        # (no test file or test data in the packages `pnpm deploy` copies into the image).
+        run: pnpm lint
+
+  typecheck:
+    name: Typecheck
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the library packages (consumers resolve their types from dist)
+        run: pnpm build:libs
+
+      - name: Typecheck every workspace
+        run: pnpm -r typecheck
+
+  test:
+    name: Unit and Postgres tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    # The Postgres suites (docs/TESTING.md) need a real server and a superuser:
+    # every suite creates its own scratch database, and the Row Level Security
+    # suites create and drop login roles.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: restow
+          # Throwaway password of a database that lives only as long as this job.
+          POSTGRES_PASSWORD: restow-ci
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready --username restow --dbname postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      RESTOW_TEST_DATABASE_URL: postgres://restow:restow-ci@localhost:5432/postgres
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install the pinned restic (the endpoint tests run it)
+        # agent/tools.env pins the version and the SHA-256; the endpoint suites of
+        # apps/api and apps/worker start restic, and the Postgres guard below
+        # refuses a suite that skipped itself for lack of it.
+        run: sh scripts/ci/install-restic.sh
+
+      - name: Self-test the CI and release tooling
+        # The Postgres suite guard, the edge header checker, the ee/ import guard,
+        # the former-name guard, the license check, the release gate (every
+        # scripts/ci/*.test.mjs) and the smoke's own helpers.
+        run: >-
+          node --test
+          scripts/ci/*.test.mjs
+          scripts/smoke/run.test.mjs
+          scripts/smoke/lib/*.test.mjs
+
+      - name: Test
+        # Root script builds the library packages first (consumers resolve their
+        # runtime entry from dist), then runs every workspace's vitest suite,
+        # Postgres suites included. Each workspace also writes a JSON report to
+        # test-results/vitest.json for the guard below.
+        run: pnpm test:ci
+
+      - name: Assert no Postgres suite was skipped
+        # A suite without RESTOW_TEST_DATABASE_URL skips itself and still looks
+        # green; this fails the job unless every Postgres test ran and passed.
+        run: pnpm test:pg-guard
+
+  i18n:
+    name: i18n completeness (de and en)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --filter @restow/i18n...
+
+      - name: Every key of en exists in de and the other way round
+        # packages/i18n/src/keys.test.ts compares the key sets of every
+        # namespace in both languages; no-em-dash.test.ts and icu.test.ts guard
+        # the wording and the message syntax.
+        run: pnpm --filter @restow/i18n test
+
+  build:
+    name: Build (all packages, web bundle)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm -r build
+
+  docker:
+    name: Docker image build, full and Community (no push)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Self-test the build scripts (strip-ee, the image tree check)
+        # scripts/docker/strip-ee.mjs turns the workspace into the Community build (it
+        # fails when a loader is missing), check-image-tree.mjs is the check the
+        # Dockerfile and the release smoke run on the images (docs/CI.md).
+        run: node --test scripts/docker/*.test.mjs
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Build the application image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: runtime
+          push: false
+          load: true
+          tags: restow:ci
+          build-args: |
+            RESTOW_REVISION=${{ github.sha }}
+          cache-from: type=gha,scope=ci-app
+          cache-to: type=gha,scope=ci-app,mode=max
+
+      - name: Build the web edge image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: web
+          push: false
+          load: true
+          tags: restow-web:ci
+          cache-from: type=gha,scope=ci-app
+          cache-to: type=gha,scope=ci-app,mode=max
+
+      - name: Build the Community application image (the core without ee/)
+        # The Dockerfile strips ee/ before the build and stops when any ee/ code
+        # reaches /prod or the web bundle.
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: runtime-community
+          push: false
+          load: true
+          tags: restow-community:ci
+          build-args: |
+            RESTOW_REVISION=${{ github.sha }}
+          cache-from: type=gha,scope=ci-app
+          cache-to: type=gha,scope=ci-app,mode=max
+
+      - name: Build the Community web edge image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: web-community
+          push: false
+          load: true
+          tags: restow-web-community:ci
+          cache-from: type=gha,scope=ci-app
+          cache-to: type=gha,scope=ci-app,mode=max
+
+      - name: The images carry their tools
+        # restic and the standalone restore tool must be in both application images, the
+        # agent binaries with their checksums must sit where the api serves them from
+        # (when agent/ exists in this commit).
+        run: |
+          for image in restow:ci restow-community:ci; do
+            docker run --rm --entrypoint restow-restore "$image" --help > /dev/null
+            if [ -f agent/go.mod ]; then
+              docker run --rm --entrypoint restic "$image" version
+              docker run --rm --entrypoint sh "$image" -c \
+                'set -eu; for d in /srv/agent/*/*/; do (cd "$d" && sha256sum -c SHA256SUMS); done; ls /srv/agent/install'
+            else
+              echo "::notice::agent/ does not exist in this commit; the agent binaries are not checked."
+            fi
+          done
+
+      - name: Every image carries the license texts
+        # LICENSE, NOTICE, THIRD_PARTY_NOTICES.md and licenses/* in /usr/share/doc/restow of
+        # all four images, ee/LICENSE (as ee-LICENSE) only in the two full images, and the
+        # notices as text for the browser in both web images.
+        run: |
+          set -eu
+          for image in restow:ci restow-community:ci restow-web:ci restow-web-community:ci; do
+            docker run --rm --entrypoint sh "$image" -c \
+              'set -eu; for f in LICENSE NOTICE THIRD_PARTY_NOTICES.md restic-LICENSE go-LICENSE msgreader-LICENSE shadcn-ui-LICENSE; do test -s "/usr/share/doc/restow/$f" || { echo "$f is missing" >&2; exit 1; }; done'
+          done
+          for image in restow:ci restow-web:ci; do
+            docker run --rm --entrypoint test "$image" -s /usr/share/doc/restow/ee-LICENSE
+          done
+          for image in restow-community:ci restow-web-community:ci; do
+            if docker run --rm --entrypoint test "$image" -e /usr/share/doc/restow/ee-LICENSE; then
+              echo "::error::$image carries ee-LICENSE but holds no ee/ code"
+              exit 1
+            fi
+          done
+          for image in restow-web:ci restow-web-community:ci; do
+            docker run --rm --entrypoint test "$image" -s /srv/licenses/THIRD_PARTY_NOTICES.txt
+          done
+
+      - name: No @tutao/oxmsg in the images, and the import folder exists
+        # @tutao/oxmsg is a devDependency (license ambiguous: MIT or GPL-3.0); the
+        # production install (pnpm deploy --prod) must never carry it.
+        run: |
+          for image in restow:ci restow-community:ci; do
+            docker run --rm --entrypoint sh "$image" -c \
+              'set -eu; if find /prod \( -path "*/@tutao/*" -o -name "oxmsg*" \) | grep -q .; then echo "@tutao/oxmsg is in the image" >&2; exit 1; fi; test -d /var/lib/restow/import'
+          done
+
+      - name: The OCI labels are set, with the license of each build, and the variant marker
+        run: |
+          set -eu
+          check_labels() {
+            image="$1"
+            expected="$2"
+            docker image inspect "$image" --format '{{json .Config.Labels}}' | tee labels.json
+            echo
+            for key in title description source licenses revision; do
+              grep -q "org.opencontainers.image.$key" labels.json \
+                || { echo "::error::$image: missing OCI label $key"; exit 1; }
+            done
+            licenses="$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.licenses"}}')"
+            if [ "$licenses" != "$expected" ]; then
+              echo "::error::$image is labelled licenses=\"$licenses\", expected \"$expected\""
+              exit 1
+            fi
+          }
+          check_labels restow:ci "Apache-2.0 AND LicenseRef-Restow-Enterprise"
+          check_labels restow-web:ci "Apache-2.0 AND LicenseRef-Restow-Enterprise"
+          check_labels restow-community:ci "Apache-2.0"
+          check_labels restow-web-community:ci "Apache-2.0"
+          env_of() { docker image inspect "$1" --format '{{range .Config.Env}}{{println .}}{{end}}'; }
+          env_of restow:ci | grep -qx 'RESTOW_IMAGE_VARIANT=full' \
+            || { echo "::error::restow:ci does not say RESTOW_IMAGE_VARIANT=full"; exit 1; }
+          env_of restow-community:ci | grep -qx 'RESTOW_IMAGE_VARIANT=community' \
+            || { echo "::error::restow-community:ci does not say RESTOW_IMAGE_VARIANT=community"; exit 1; }
+          for image in restow:ci restow-community:ci; do
+            env_of "$image" | grep -qx "RESTOW_REVISION=$GITHUB_SHA" \
+              || { echo "::error::$image does not carry RESTOW_REVISION=$GITHUB_SHA"; exit 1; }
+          done
+
+      - name: No ee/ code in the Community images, no license signing code in any image
+        # scripts/docker/check-image-tree.mjs, the same check the Dockerfile runs while
+        # building and the release smoke runs on the published images (docs/CI.md):
+        # the full images carry the ee/ modules in the api and the worker, the
+        # Community images none of ee/, and no image carries license signing code.
+        run: |
+          set -eu
+          tree() {
+            image="$1"
+            shift
+            docker run --rm --network none -v "$PWD/scripts/docker:/check:ro" \
+              --entrypoint node "$image" /check/check-image-tree.mjs "$@"
+          }
+          tree restow:ci --variant full /prod
+          tree restow:ci --variant full --require-ee /prod/api /prod/worker
+          tree restow-community:ci --variant community /prod
+          for pair in restow-web:ci:full restow-web-community:ci:community; do
+            image="${pair%:*}"
+            variant="${pair##*:}"
+            container="$(docker create "$image")"
+            rm -rf "$RUNNER_TEMP/srv"
+            docker cp "$container:/srv" "$RUNNER_TEMP/srv"
+            docker rm "$container" > /dev/null
+            node scripts/docker/check-image-tree.mjs --variant "$variant" "$RUNNER_TEMP/srv"
+          done
+
+  audit:
+    name: Dependency audit (high, critical)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Audit dependencies (fails on high or critical advisories)
+        # Reads pnpm-lock.yaml against the npm advisory database; no install
+        # needed. The release smoke check allows no high or critical advisory.
+        run: pnpm audit --audit-level high
+
+  licenses:
+    name: Dependency licenses
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Dependency licenses (allowlist, no copyleft in ee/)
+        # Every production dependency against the allowlist in
+        # scripts/ci/license-policy.json: fails on GPL, LGPL, AGPL, SSPL, EUPL and on
+        # any license the policy does not know, with the list of packages. The
+        # dependencies of the ee/ workspaces must also be free of any copyleft (MPL
+        # is not allowed there), and the license field of every package.json is
+        # checked (Apache-2.0 for the core, ee/LICENSE for ee/).
+        run: node scripts/ci/check-licenses.mjs
+
+      - name: Set up Go (for the agent's module check)
+        # Older commits have no agent/ folder; the check then has nothing to do.
+        if: hashFiles('agent/go.mod') != ''
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: agent/go.mod
+          cache: false
+
+      - name: The Go agent has no third-party Go modules
+        # `go list` over the module graph and the packages of all four targets;
+        # fails as soon as agent/ depends on a module other than its own.
+        run: node scripts/ci/check-go-deps.mjs
+
+      - name: Third-party notices are up to date
+        # THIRD_PARTY_NOTICES.md carries name, version, license, copyright lines and the
+        # license texts of every shipped dependency, read from the installed packages and,
+        # for the Go modules compiled into restic, from licenses/restic-deps/. The same run
+        # writes agent/THIRD_PARTY_NOTICES.txt, which ships with the agent to endpoints. The
+        # generator's output is the same on macOS and Linux, so a diff means a committed
+        # file is stale (run node scripts/third-party-notices.mjs and commit both).
+        run: |
+          node scripts/third-party-notices.mjs
+          git diff --exit-code THIRD_PARTY_NOTICES.md agent/THIRD_PARTY_NOTICES.txt
+
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: gitleaks
+        # The container image, pinned by digest (the GitHub action needs a paid
+        # license for organisation repositories). Uses .gitleaks.toml. A pull
+        # request is scanned over its own commits, every other run over the
+        # whole history.
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          range=()
+          if [ -n "$BASE_SHA" ]; then
+            range=(--log-opts "$BASE_SHA..$HEAD_SHA")
+          fi
+          docker run --rm -v "$PWD:/repo" \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0='*' \
+            "$GITLEAKS_IMAGE" detect --source /repo --config /repo/.gitleaks.toml \
+            --redact --verbose --no-banner "${range[@]}"
+
+  agent:
+    name: Go agent (vet, test, cross-compile)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Is there an agent in this commit?
+        id: detect
+        # Older commits have no agent/ folder; the job then passes and says so.
+        run: |
+          if [ -f agent/go.mod ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::agent/ does not exist in this commit; nothing to check."
+          fi
+
+      - name: Set up Go
+        if: steps.detect.outputs.present == 'true'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: agent/go.mod
+          # The agent has no third-party Go dependencies and so no go.sum to key a cache on.
+          cache: false
+
+      - name: Static checks and unit tests (gofmt, go vet for the four targets, go test -race, ShellCheck)
+        if: steps.detect.outputs.present == 'true'
+        run: sh agent/scripts/test.sh
+
+      - name: Integration tests (the agent against the real restic and an append-only REST server)
+        if: steps.detect.outputs.present == 'true'
+        run: sh agent/scripts/integration.sh
+
+      - name: Install script test (linux.sh in a container, signature checks, enroll, repeat, tampered download, 0.1.0 move, uninstall)
+        if: steps.detect.outputs.present == 'true'
+        run: sh agent/scripts/test-install.sh
+
+      - name: Cross-compile every target with restic (agent/build.sh)
+        if: steps.detect.outputs.present == 'true'
+        run: sh agent/build.sh --out "$RUNNER_TEMP/agent-dist"
+
+      - name: The Go modules inside restic are the ones whose licenses are vendored
+        # The build information of the four pinned restic binaries just fetched must list
+        # exactly the modules, versions and hashes of licenses/restic-deps/modules.json, the
+        # source of the notices; a new restic pin needs `node scripts/restic-licenses.mjs
+        # vendor` first. Reads the binaries directly (no Go, no network).
+        if: steps.detect.outputs.present == 'true' && hashFiles('scripts/restic-licenses.mjs') != ''
+        run: node scripts/restic-licenses.mjs check "$RUNNER_TEMP"/agent-dist/*/restic
+
+  shellcheck:
+    name: Shell scripts (shellcheck, server installer tests)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: shellcheck
+        # shellcheck is part of the GitHub-hosted runner image. Covers the agent
+        # installer (agent/install/*.sh), the server installer (deploy/install/install.sh)
+        # and every other script in the repository.
+        run: |
+          mapfile -t scripts < <(git ls-files '*.sh')
+          echo "checking ${#scripts[@]} scripts"
+          shellcheck --external-sources --source-path=SCRIPTDIR --severity=style "${scripts[@]}"
+
+      - name: Server install script tests (deploy/install/test.sh)
+        # Options, preflight decisions, the generated .env (secrets, mode 0600, never
+        # overwritten, nothing in the log) and whole dry runs against stub commands. No
+        # root, no Docker, no network; the VM tests are manual (docs/CI.md).
+        run: bash deploy/install/test.sh
+
+  actionlint:
+    name: Workflows (actionlint)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: actionlint
+        # The container image includes shellcheck and pyflakes for the run: steps.
+        run: docker run --rm -v "$PWD:/repo" -w /repo "$ACTIONLINT_IMAGE" -color
+
+  passed:
+    name: CI passed
+    # One check to require in the branch protection rule instead of a dozen. It
+    # fails when any job above failed or was cancelled.
+    if: always()
+    needs:
+      - lint
+      - typecheck
+      - test
+      - i18n
+      - build
+      - docker
+      - audit
+      - licenses
+      - secrets
+      - agent
+      - shellcheck
+      - actionlint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Every job succeeded
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "job results: $RESULTS"
+          for result in $RESULTS; do
+            if [ "$result" != "success" ]; then
+              echo "::error::at least one job did not succeed"
+              exit 1
+            fi
+          done

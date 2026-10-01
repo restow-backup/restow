@@ -1,0 +1,913 @@
+{
+  "nav": {
+    "inventory": "Inventar",
+    "fileRestore": "Datei-Restore"
+  },
+  "areas": {
+    "agents": {
+      "title": "Inventar",
+      "subtitle": "Alle Server und Clients mit Backup-Agent: Verbindung, Agent-Version und Wiederherstellbarkeit."
+    },
+    "servers": {
+      "title": "Server",
+      "subtitle": "Server, die ein Agent dateiweise sichert."
+    },
+    "clients": {
+      "title": "Clients",
+      "subtitle": "Laptops und Desktops, die ein Agent sichert, sobald sie online sind."
+    }
+  },
+  "profile": {
+    "server": "Server",
+    "client": "Client"
+  },
+  "os": {
+    "linux": "Linux",
+    "darwin": "macOS",
+    "windows": "Windows"
+  },
+  "status": {
+    "online": "Online",
+    "offline": "Offline",
+    "never": "Noch nie verbunden",
+    "revoked": "Gesperrt"
+  },
+  "activity": {
+    "backup": "Sicherung läuft",
+    "restore": "Wiederherstellung läuft",
+    "verify_sample": "Wiederherstellungstest läuft",
+    "busy": "Arbeitet"
+  },
+  "readiness": {
+    "state": {
+      "green": "Bereit",
+      "yellow": "Achtung",
+      "red": "Nicht wiederherstellbar",
+      "unverified": "Nicht geprüft",
+      "no_backup": "Noch keine Sicherung"
+    },
+    "overdue": "Überfällig",
+    "overdueHint": "Die neueste Sicherung wurde seit über einer Woche nicht durch einen Wiederherstellungstest geprüft."
+  },
+  "runKind": {
+    "backup": "Sicherung",
+    "restore": "Wiederherstellung auf den Rechner",
+    "verify_sample": "Wiederherstellungstest auf dem Rechner"
+  },
+  "runStatus": {
+    "running": "Läuft",
+    "succeeded": "Erfolgreich",
+    "partial": "Teilweise",
+    "failed": "Fehlgeschlagen",
+    "interrupted": "Unterbrochen",
+    "incomplete": "Nicht abgeschlossen, wird wiederholt",
+    "incompleteFinal": "Nicht abgeschlossen"
+  },
+  "attention": {
+    "none": "Nichts zu tun",
+    "more": "+{count} weitere",
+    "silent": {
+      "label": "Meldet sich nicht",
+      "hint": "Der Rechner hat sich länger als die Alarmgrenze nicht gemeldet.",
+      "message": "{hours, plural, one {Der Server hat sich seit mehr als # Stunde nicht gemeldet. Er sollte sich alle paar Minuten melden. Möglicherweise ist er ausgeschaltet, offline oder der Agent wurde beendet.} other {Der Server hat sich seit mehr als # Stunden nicht gemeldet. Er sollte sich alle paar Minuten melden. Möglicherweise ist er ausgeschaltet, offline oder der Agent wurde beendet.}}"
+    },
+    "backup_overdue": {
+      "label": "Sicherung überfällig",
+      "hint": "Es gab länger als die Alarmgrenze keine erfolgreiche Sicherung.",
+      "message": "{days, plural, one {Seit mehr als # Tag gab es keine erfolgreiche Sicherung. Der Client war möglicherweise aus oder offline, oder seine Sicherungen schlagen immer wieder fehl.} other {Seit mehr als # Tagen gab es keine erfolgreiche Sicherung. Der Client war möglicherweise aus oder offline, oder seine Sicherungen schlagen immer wieder fehl.}}"
+    },
+    "last_backup_failed": {
+      "label": "Letzte Sicherung fehlgeschlagen",
+      "hint": "Der letzte Sicherungslauf ist fehlgeschlagen. Er hat nichts Neues gesichert.",
+      "message": "Der letzte Sicherungslauf ist fehlgeschlagen und hat nichts Neues gesichert. Öffnen Sie den Lauf unter Läufe, um Protokoll und Fehler zu lesen."
+    },
+    "restore_test_failed": {
+      "label": "Wiederherstellungstest fehlgeschlagen",
+      "hint": "Dateien der neuesten Sicherung kamen im Wiederherstellungstest nicht unversehrt zurück.",
+      "message": "Ein Wiederherstellungstest der neuesten Sicherung ist fehlgeschlagen: Stichproben-Dateien ließen sich nicht zurücklesen oder stimmten nicht überein. Bis ein Test besteht, gilt diese Sicherung als nicht wiederherstellbar. Die Abweichungen stehen unter Berichte."
+    },
+    "repository_damaged": {
+      "label": "Repository beschädigt",
+      "hint": "Eine Repository-Prüfung hat Schäden in den gespeicherten Sicherungsdaten gefunden.",
+      "message": "Eine Repository-Prüfung hat Schäden in den gespeicherten Sicherungsdaten dieses Rechners gefunden. Wiederherstellungen können fehlschlagen. Details stehen unter Berichte; prüfen Sie außerdem das Speicherziel."
+    },
+    "never_seen": {
+      "label": "Noch nie verbunden",
+      "hint": "Der Agent hat sich noch nie bei {appName} gemeldet.",
+      "message": "Der Agent hat sich noch nie bei {appName} gemeldet. Prüfen Sie, ob der Installationsbefehl auf dem Rechner gelaufen ist und der Rechner diese Adresse erreicht."
+    }
+  },
+  "list": {
+    "refresh": "Liste aktualisieren",
+    "honesty": "Dateibasierte Sicherung mit restic: Einzelne Dateien und Ordner werden gesichert und wiederhergestellt. Es gibt keine Festplatten-Abbilder und keine Bare-Metal-Wiederherstellung. Eine Wiederherstellung überschreibt nie etwas: Sie landet in einem neuen Ordner auf dem Rechner oder wird als ZIP heruntergeladen.",
+    "new": {
+      "server": "Neuer Server",
+      "client": "Neuer Client"
+    },
+    "search": "Name oder Hostname suchen",
+    "unknown": "Unbekannt",
+    "noBackupYet": "Noch keine Sicherung",
+    "backupRunning": "Sicherung läuft",
+    "backupFailed": "Fehlgeschlagen",
+    "backupPartial": "Teilweise",
+    "columns": {
+      "name": "Name",
+      "profile": "Typ",
+      "system": "System",
+      "status": "Status",
+      "lastBackup": "Letzte Sicherung",
+      "lastSeen": "Letzter Kontakt",
+      "readiness": "Wiederherstellbarkeit",
+      "attention": "Handlungsbedarf",
+      "agentVersion": "Agent-Version"
+    },
+    "errors": {
+      "load": "Die Rechner konnten nicht geladen werden"
+    },
+    "noTenant": {
+      "title": "Kein Mandant ausgewählt",
+      "description": "Wählen Sie oben einen Mandanten, um seine Server und Clients zu sehen."
+    },
+    "empty": {
+      "agents": {
+        "title": "Noch keine Rechner",
+        "description": "Fügen Sie einen Server oder Client hinzu: {appName} erzeugt einen einmaligen Befehl, der den Backup-Agent auf dem Rechner installiert."
+      },
+      "servers": {
+        "title": "Noch keine Server",
+        "description": "Fügen Sie einen Linux-Server hinzu: {appName} erzeugt einen einmaligen Befehl, der den Backup-Agent installiert und den Server verbindet. Danach wird er täglich gesichert."
+      },
+      "clients": {
+        "title": "Noch keine Clients",
+        "description": "Fügen Sie einen Laptop oder Desktop hinzu: {appName} erzeugt einen einmaligen Befehl, der den Backup-Agent installiert. Der Client wird gesichert, sobald er online ist."
+      }
+    }
+  },
+  "pending": {
+    "title": "Offene Anmeldungen",
+    "description": "Installationsbefehle, die erstellt, aber noch von keinem Rechner verwendet wurden. Jeder funktioniert nur einmal und läuft nach 24 Stunden ab. Ein Befehl lässt sich nicht erneut anzeigen; erstellen Sie bei Verlust einen neuen.",
+    "unnamed": "Ohne Namen",
+    "created": "Erstellt",
+    "expires": "läuft ab",
+    "revoke": "Widerrufen",
+    "revokeFor": "Installationsbefehl {name} widerrufen",
+    "revoked": "Der Installationsbefehl wurde widerrufen.",
+    "confirm": {
+      "title": "Diesen Installationsbefehl widerrufen?",
+      "description": "Ein Rechner, der ihn noch nicht verwendet hat, kann sich damit nicht mehr anmelden. Bereits angemeldete Rechner sind nicht betroffen.",
+      "action": "Befehl widerrufen"
+    },
+    "showAll": "Auch verwendete, abgelaufene und widerrufene Befehle anzeigen",
+    "state": {
+      "valid": "Offen",
+      "used": "Verwendet",
+      "expired": "Abgelaufen",
+      "revoked": "Widerrufen"
+    }
+  },
+  "enroll": {
+    "title": {
+      "server": "Neuer Server",
+      "client": "Neuer Client"
+    },
+    "description": {
+      "choose": {
+        "server": "Wählen Sie das Betriebssystem des Servers. {appName} erzeugt dann einen einmaligen Befehl, der den Backup-Agent installiert und den Server mit dieser Installation verbindet.",
+        "client": "Wählen Sie das Betriebssystem des Clients. {appName} erzeugt dann einen einmaligen Befehl, der den Backup-Agent installiert und den Client mit dieser Installation verbindet."
+      },
+      "command": "Führen Sie den Befehl auf dem Rechner aus. Dieses Fenster zeigt, sobald der Rechner verbunden ist."
+    },
+    "os": {
+      "legend": "Betriebssystem",
+      "planned": "Geplant",
+      "hint": {
+        "linux": "Mit systemd, auf x86-64 oder ARM64",
+        "darwin": "Intel oder Apple Silicon",
+        "windows": "Auf der Roadmap, noch nicht verfügbar"
+      },
+      "windowsNote": "Windows steht auf der Roadmap und lässt sich noch nicht wählen. Diese Version sichert Linux- und macOS-Rechner."
+    },
+    "label": {
+      "field": "Name (optional)",
+      "placeholder": {
+        "server": "Zum Beispiel: Mailserver",
+        "client": "Zum Beispiel: Laptop Buchhaltung"
+      },
+      "hint": "Wird in den Listen statt des Hostnamens angezeigt. Sie können ihn später ändern."
+    },
+    "honesty": "Der Agent sichert Dateien und Ordner. Er erstellt keine Festplatten-Abbilder; eine Bare-Metal-Wiederherstellung ist nicht möglich.",
+    "cancel": "Abbrechen",
+    "create": "Installationsbefehl erstellen",
+    "createAnother": "Neuen Befehl erstellen",
+    "done": "Fertig",
+    "command": {
+      "heading": {
+        "linux": "Auf dem Linux-Rechner ausführen",
+        "darwin": "Auf dem Mac ausführen"
+      },
+      "intro": {
+        "linux": "Öffnen Sie ein Terminal auf dem {kind} und fügen Sie den Befehl ein. Er braucht Root-Rechte (sudo) und curl und fragt nach dem Token unten.",
+        "darwin": "Öffnen Sie das Terminal auf dem {kind} und fügen Sie den Befehl ein. Er braucht ein Administratorkonto (sudo) und fragt nach dem Token unten."
+      },
+      "kind": {
+        "server": "Server",
+        "client": "Client"
+      },
+      "copy": "Installationsbefehl kopieren",
+      "tokenIntro": "Wenn das Installationsskript nach dem Token fragt, fügen Sie dieses ein (die Eingabe bleibt verborgen):",
+      "copyToken": "Token kopieren",
+      "validity": "24 Stunden gültig und nur einmal verwendbar.",
+      "expiresAt": "Läuft ab: {time}",
+      "secretNote": "Das Token ist ein einmaliges Geheimnis. Es steht nicht im Befehl und landet deshalb weder in der Shell-Historie noch in der Prozessliste des Rechners. Es wird nur jetzt angezeigt und lässt sich nach dem Schließen dieses Fensters nicht mehr anzeigen."
+    },
+    "warnings": {
+      "insecure": {
+        "title": "Diese Adresse ist nicht verschlüsselt",
+        "description": "Die Adresse {url} verwendet unverschlüsseltes http. Das einmalige Token und die Geheimnisse des Agents würden unverschlüsselt übertragen. Verwenden Sie eine https-Adresse (öffentliche URL in den Einstellungen setzen), bevor Sie einen Rechner außerhalb eines vertrauenswürdigen Netzes verbinden."
+      },
+      "notConfigured": {
+        "title": "Keine öffentliche URL gesetzt",
+        "description": "Die Adresse {url} im Befehl stammt aus diesem Browser, weil keine öffentliche URL konfiguriert ist. Der Rechner muss genau diese Adresse erreichen können.",
+        "link": "Öffentliche URL in den Einstellungen setzen"
+      }
+    },
+    "status": {
+      "waiting": {
+        "title": "Warte darauf, dass sich der Rechner verbindet",
+        "description": "Dieses Fenster prüft alle paar Sekunden. Sie können es auch schließen: Der Rechner erscheint in der Liste, sobald er verbunden ist."
+      },
+      "connected": {
+        "title": "Verbunden",
+        "description": {
+          "server": "Der Server ist angemeldet. Er wird nach seinem Zeitplan gesichert; Sie können auch sofort die erste Sicherung starten.",
+          "client": "Der Client ist angemeldet. Er wird gesichert, sobald er online ist; Sie können auch sofort die erste Sicherung starten."
+        },
+        "open": {
+          "server": "Server öffnen",
+          "client": "Client öffnen"
+        }
+      },
+      "expired": {
+        "title": "Der Befehl ist abgelaufen",
+        "description": "Er wurde nicht innerhalb von 24 Stunden verwendet und funktioniert nicht mehr. Erstellen Sie einen neuen Befehl, um den Rechner zu verbinden."
+      },
+      "revoked": {
+        "title": "Der Befehl wurde widerrufen",
+        "description": "Er funktioniert nicht mehr. Erstellen Sie einen neuen Befehl, um den Rechner zu verbinden."
+      }
+    },
+    "script": {
+      "heading": "Was das Skript tut",
+      "steps": {
+        "download": {
+          "linux": "Lädt restow-agent und restic von diesem Server herunter, nicht aus dem Internet.",
+          "darwin": "Lädt restow-agent und restic von diesem Server herunter, nicht aus dem Internet."
+        },
+        "verify": {
+          "linux": "Prüft die Signatur des Maintainers über das Release und die SHA-256-Prüfsumme beider Programme, bevor es irgendetwas ausführt.",
+          "darwin": "Prüft die Signatur des Maintainers über das Release und die SHA-256-Prüfsumme beider Programme, bevor es irgendetwas ausführt."
+        },
+        "service": {
+          "linux": "Installiert beide nach /opt/restow-agent, einen Ordner, den nur root ändern kann, und richtet den Agenten als Systemdienst ein (systemd-Unit restow-agent).",
+          "darwin": "Installiert beide nach /Library/Application Support/Restow, einen Ordner, den nur root ändern kann, und richtet den Agenten als Systemdienst ein (LaunchDaemon com.restowbackup.agent)."
+        },
+        "enroll": {
+          "linux": "Meldet den Rechner mit dem einmaligen Token an. Der Agent verbindet sich nur ausgehend mit {appName}; auf dem Rechner wird kein Port geöffnet.",
+          "darwin": "Meldet den Rechner mit dem einmaligen Token an. Der Agent verbindet sich nur ausgehend mit {appName}; auf dem Rechner wird kein Port geöffnet."
+        }
+      },
+      "repair": "Wird der Befehl erneut ausgeführt, repariert er die Installation, statt sie doppelt anzulegen.",
+      "hooks": "Befehle vor und nach der Sicherung (Hooks) bleiben auf dem Rechner aus, solange Sie sie dort nicht erlauben: Hängen Sie -s -- --hooks=scripts (nur Skripte in /etc/restow-agent/hooks.d) oder -s -- --hooks=any an sudo sh an."
+    },
+    "uninstall": {
+      "heading": "Agent später entfernen",
+      "intro": "Führen Sie einen dieser Befehle auf dem Rechner aus, um den Agent zu entfernen. Bereits vorhandene Sicherungen bleiben in {appName} wiederherstellbar.",
+      "agent": "Bei installiertem Agent",
+      "script": "Mit dem Skript, auch wenn der Agent defekt oder entfernt ist",
+      "copyAgent": "Deinstallationsbefehl kopieren",
+      "copyScript": "Deinstallationsbefehl mit Skript kopieren",
+      "remote": "Sie können auch aus {appName} deinstallieren: Rechner öffnen, dann Einstellungen, dann Agent deinstallieren."
+    },
+    "unattended": {
+      "heading": "Unbeaufsichtigte Installation (RMM, Skripte)",
+      "intro": "Ohne Terminal für die Eingabe liest das Skript das Token aus einer Datei. Legen Sie das Token in {tokenFile} ab (Modus 0600, Eigentümer root) und führen Sie dann aus:",
+      "copy": "Befehl für die unbeaufsichtigte Installation kopieren",
+      "cleanup": "Löschen Sie die Token-Datei nach der Installation. Das Token gilt einmal und läuft nach 24 Stunden ab."
+    }
+  },
+  "detail": {
+    "title": "Rechner",
+    "refresh": "Diesen Rechner aktualisieren",
+    "back": "Zum Inventar",
+    "loadError": "Der Rechner konnte nicht geladen werden",
+    "notFound": "Rechner nicht gefunden",
+    "notFoundDescription": "Diesen Rechner gibt es im gewählten Mandanten nicht. Er gehört möglicherweise zu einem anderen Mandanten, oder der Link ist falsch.",
+    "revokedBanner": "Dieser Rechner ist gesperrt. Er nimmt keine neuen Sicherungen oder Aufgaben an, und seine Einstellungen lassen sich nicht ändern. Vorhandene Sicherungen bleiben wiederherstellbar: Sie können sie durchsuchen und Dateien als ZIP herunterladen.",
+    "tabs": {
+      "overview": "Übersicht",
+      "snapshots": "Snapshots",
+      "settings": "Einstellungen"
+    }
+  },
+  "actions": {
+    "backup": {
+      "label": "Jetzt sichern",
+      "queued": "Sicherung angefordert",
+      "queuedNote": "Der Rechner startet sie bei seinem nächsten Kontakt, meist innerhalb weniger Minuten.",
+      "already": "Für diesen Rechner wartet bereits eine Sicherung.",
+      "failed": "Die Sicherung konnte nicht angefordert werden"
+    },
+    "test": {
+      "label": "Wiederherstellungstest starten",
+      "queued": "Wiederherstellungstest eingeplant",
+      "queuedNote": "{appName} liest Stichproben-Dateien der neuesten Sicherung zurück und vergleicht ihre Prüfsummen. Das Ergebnis erscheint unter Berichte.",
+      "already": "Für diesen Rechner ist bereits ein Wiederherstellungstest eingeplant oder aktiv.",
+      "failed": "Der Wiederherstellungstest konnte nicht gestartet werden",
+      "needsBackup": "Ein Wiederherstellungstest braucht zuerst eine erfolgreiche Sicherung."
+    }
+  },
+  "facts": {
+    "title": "Dieser Rechner",
+    "profile": "Typ",
+    "system": "System",
+    "osVersion": "Betriebssystem-Version",
+    "agentVersion": "Agent-Version",
+    "connection": "Verbindung",
+    "lastSuccess": "Letzte erfolgreiche Sicherung",
+    "noSuccess": "Noch keine erfolgreiche Sicherung",
+    "lastBackup": "Letzter Sicherungslauf",
+    "outcome": {
+      "partial": "einige Dateien ließen sich nicht lesen",
+      "failed": "fehlgeschlagen",
+      "interrupted": "unterbrochen, setzt sich automatisch fort"
+    },
+    "nextRun": "Nächste Sicherung",
+    "nextRunUnknown": "Noch nicht gemeldet",
+    "noNextRun": "Keine, der Rechner ist gesperrt",
+    "config": "Konfiguration",
+    "configApplied": "Version {version}, auf dem Rechner angewendet",
+    "configPending": "Version {version} ist gespeichert; der Rechner läuft noch mit Version {applied} und holt die Änderung bei seinem nächsten Kontakt ab",
+    "configNone": "keine",
+    "added": "Hinzugefügt",
+    "revoked": "Gesperrt",
+    "never": "Nie",
+    "configRevoked": "Version {version}"
+  },
+  "repository": {
+    "title": "Repository",
+    "description": "Das restic-Repository, das die Sicherungen dieses Rechners in Ihrem Speicherziel enthält.",
+    "size": "Größe im Speicher",
+    "snapshots": "Vorhandene Snapshots",
+    "measured": "Gemessen",
+    "notMeasured": "Noch nicht gemessen; erscheint mit der ersten Sicherung",
+    "lastRetention": "Letzter Aufbewahrungslauf",
+    "lastCheck": "Letzte Repository-Prüfung",
+    "lastRestoreTest": "Letzter Wiederherstellungstest",
+    "retention": "Aufbewahrt werden {daily} tägliche, {weekly} wöchentliche und {monthly} monatliche Snapshots. Ältere entfernt nur der Server; der Agent kann Sicherungen hinzufügen, aber nie löschen.",
+    "ofBudget": "{used} von {budget} ({percent} %)",
+    "budget": "Speicherbudget",
+    "budgetUnlimited": "Unbegrenzt",
+    "budgetOwn": "{budget}, für diesen Rechner festgelegt",
+    "budgetDefault": "{budget}, Standard der Installation",
+    "tenant": "Alle Server und Clients",
+    "tenantOf": "{used} von {budget}",
+    "refused": "Zuletzt abgelehnter Upload",
+    "quota": {
+      "near": "Das Repository belegt mehr als 90 Prozent seines Speicherbudgets. Erhöhen Sie das Budget in den Einstellungen oder bewahren Sie weniger Snapshots auf, bevor neue Sicherungen abgelehnt werden.",
+      "exceeded": "Das Speicherbudget ist ausgeschöpft: Neue Sicherungen dieses Rechners werden abgelehnt, bis das Budget erhöht wird oder die Aufbewahrung Platz schafft. Wiederherstellungen funktionieren weiter."
+    }
+  },
+  "tasks": {
+    "title": "Wartet auf den Rechner",
+    "description": "Diese Anfragen holt der Rechner bei seinem nächsten Kontakt ab. Eine Anfrage, die der Rechner nicht rechtzeitig abholt, läuft ab und wird als fehlgeschlagen markiert.",
+    "kind": {
+      "backup_now": "Jetzt sichern",
+      "restore": "Wiederherstellung",
+      "verify_sample": "Wiederherstellungstest",
+      "update_config": "Neue Einstellungen anwenden",
+      "uninstall": "Agent deinstallieren"
+    },
+    "restore": "{count, plural, one {# Element in einen neuen Ordner wiederherstellen} other {# Elemente in einen neuen Ordner wiederherstellen}}",
+    "status": {
+      "pending": "Wartet auf Abholung",
+      "delivered": "An den Rechner übergeben",
+      "done": "Erledigt",
+      "failed": "Fehlgeschlagen"
+    },
+    "retryFrom": "Wiederholt einen nicht abgeschlossenen Test; wird ab {time} abgeholt",
+    "recentTitle": "Letzte Anfragen",
+    "recentDescription": "Die letzten abgeschlossenen Anfragen an diesen Rechner und wie sie endeten.",
+    "reason": {
+      "expired": "Der Rechner hat sie nicht rechtzeitig abgeholt.",
+      "revoked": "Der Rechner wurde gesperrt, bevor er sie abholen konnte.",
+      "agentStopped": "Der Agent hat sich während dieser Anfrage nicht mehr gemeldet."
+    }
+  },
+  "runs": {
+    "title": "Läufe",
+    "description": "Was der Agent auf diesem Rechner getan hat: Sicherungen, Wiederherstellungen und Wiederherstellungstests, neueste zuerst. Ein Lauf zeigt sein Protokoll und die Dateien, die er nicht lesen konnte.",
+    "empty": "Noch kein Lauf gemeldet. Der erste erscheint, sobald der Rechner eine Sicherung gestartet hat.",
+    "unknown": "Unbekannt",
+    "columns": {
+      "kind": "Lauf",
+      "status": "Ergebnis",
+      "started": "Gestartet",
+      "duration": "Dauer",
+      "dataAdded": "Neue Daten"
+    },
+    "openFor": "Details von {kind} vom {time} öffnen",
+    "showOlder": "Ältere Läufe anzeigen",
+    "loadingOlder": "Ältere Läufe werden geladen",
+    "olderError": "Ältere Läufe konnten nicht geladen werden",
+    "sheet": {
+      "title": "Lauf",
+      "description": "Ergebnis, Fehler und das Ende des Protokolls dieses Laufs.",
+      "error": "Der Lauf konnte nicht geladen werden"
+    },
+    "facts": {
+      "status": "Ergebnis",
+      "started": "Gestartet",
+      "finished": "Beendet",
+      "notFinished": "Läuft noch",
+      "duration": "Dauer",
+      "snapshot": "Snapshot",
+      "filesProcessed": "Verarbeitete Dateien",
+      "bytesProcessed": "Verarbeitete Daten",
+      "filesNew": "Neue Dateien",
+      "filesChanged": "Geänderte Dateien",
+      "filesUnmodified": "Unveränderte Dateien",
+      "dataAdded": "Dem Repository hinzugefügte Daten"
+    },
+    "progress": {
+      "heading": "Fortschritt",
+      "label": "Fortschritt des Laufs",
+      "none": "Der Rechner hat noch keinen Fortschritt gemeldet.",
+      "files": "{done} Dateien",
+      "filesOf": "{done} von {total} Dateien",
+      "bytesOf": "{done} von {total}",
+      "updated": "Zuletzt aktualisiert"
+    },
+    "partialNote": "Die Sicherung ist abgeschlossen und ein Snapshot existiert, aber einige Dateien ließen sich nicht lesen, zum Beispiel weil sie geöffnet, gesperrt oder nicht lesbar waren. Diese Dateien fehlen in diesem Snapshot. Die Liste unten zeigt, welche.",
+    "failedNote": "Dieser Lauf ist fehlgeschlagen. Fehler und Protokoll unten zeigen, warum; er hat nichts Neues gesichert.",
+    "errors": {
+      "heading": "{count, plural, one {# Fehler} other {# Fehler}}",
+      "none": "Der Lauf hat keine Fehler gemeldet.",
+      "more": "{count, plural, one {# weiterer Fehler wird hier nicht angezeigt.} other {# weitere Fehler werden hier nicht angezeigt.}}",
+      "noneYet": "Bisher wurden keine Fehler gemeldet."
+    },
+    "log": {
+      "heading": "Ende des Protokolls",
+      "note": "Die letzten Zeilen des Lauf-Protokolls, wie sie der Agent meldet. Geheimnisse sind nie enthalten.",
+      "running": "Das Protokoll wird gemeldet, wenn der Lauf endet.",
+      "empty": "Der Agent hat für diesen Lauf kein Protokoll gesendet."
+    },
+    "interruptedNote": "Der Agent wurde während dieses Laufs neu gestartet und nimmt die Arbeit von selbst wieder auf. Das ist kein Fehler; Sie müssen nichts tun.",
+    "incompleteNote": "Dieser Wiederherstellungstest konnte nicht abgeschlossen werden und sagt daher nichts über die Sicherung aus: Nichts wurde bewertet, kein Alarm ging hinaus, und der letzte Wiederherstellungstest bleibt, wie er war. Der Rechner bekommt den Test nach einer Wartezeit erneut, solange diese Sicherung seine neueste ist; sonst bringt die nächste Sicherung einen neuen Test.",
+    "incompleteNoteFinal": "Dieser Wiederherstellungstest konnte nicht abgeschlossen werden und sagt daher nichts über die Sicherung aus: Nichts wurde bewertet, und kein Alarm ging hinaus. Der Rechner ist gesperrt und bekommt keine weiteren Tests.",
+    "errorCount": "{count, plural, one {# Fehler} other {# Fehler}}"
+  },
+  "reports": {
+    "title": "Berichte",
+    "description": "Was {appName} über das Repository herausgefunden hat: Wiederherstellungstests, Repository-Prüfungen und Aufbewahrungsläufe.",
+    "empty": "Noch kein Bericht. Wiederherstellungstests, Repository-Prüfungen und Aufbewahrungsläufe erscheinen hier.",
+    "kind": {
+      "restore_test": "Wiederherstellungstest",
+      "repository_check": "Repository-Prüfung",
+      "retention": "Aufbewahrungslauf"
+    },
+    "origin": {
+      "server": "Vom Server zurückgelesen",
+      "agent": "Auf dem Rechner wiederhergestellt"
+    },
+    "snapshot": "Snapshot {id}",
+    "noRating": "Ohne Bewertung",
+    "errorMessage": "Grund: {message}",
+    "restoreTest": {
+      "matched": "{matched} von {files} Stichproben-Dateien stimmten mit ihrer Prüfsumme überein",
+      "noResult": "Der Test wurde nicht abgeschlossen"
+    },
+    "check": {
+      "headline": "Repository-Prüfung",
+      "subset": "{percent} % der gespeicherten Daten geprüft"
+    },
+    "retention": {
+      "headline": "Aufbewahrungslauf",
+      "removed": "{count, plural, one {# Snapshot entfernt} other {# Snapshots entfernt}}",
+      "kept": "{kept} Snapshots behalten",
+      "size": "Größe des Repositorys danach: {size}",
+      "unrecorded": "{count, plural, one {# Snapshot, den keine Sicherung gemeldet hat, wurde behalten} other {# Snapshots, die keine Sicherung gemeldet hat, wurden behalten}}"
+    },
+    "mismatches": {
+      "show": "{count, plural, one {# Abweichung anzeigen} other {# Abweichungen anzeigen}}",
+      "expected": "Erwartet",
+      "actual": "Gefunden",
+      "missing": "Datei ließ sich nicht zurücklesen",
+      "reason": "Grund"
+    }
+  },
+  "snapshots": {
+    "title": "Wiederherstellungspunkte",
+    "description": "{count, plural, one {# Snapshot im Repository. Wählen Sie einen, um seine Dateien zu durchsuchen.} other {# Snapshots im Repository. Wählen Sie einen, um seine Dateien zu durchsuchen.}}",
+    "files": "{count, plural, one {# Datei} other {# Dateien}}",
+    "errorTitle": "Die Snapshots konnten nicht gelesen werden",
+    "busyTitle": "Das Repository ist beschäftigt",
+    "empty": {
+      "title": "Noch kein Snapshot",
+      "description": "Jede erfolgreiche Sicherung erzeugt einen Snapshot. Sobald der Rechner seine erste Sicherung abgeschlossen hat, erscheinen hier seine Wiederherstellungspunkte."
+    },
+    "flags": {
+      "unrecorded": "Von keiner Sicherung gemeldet",
+      "future_time": "In der Zukunft datiert",
+      "hint": "Die Aufbewahrung behält diesen Snapshot. Prüfen Sie den Rechner: Er könnte kompromittiert sein."
+    }
+  },
+  "browser": {
+    "title": "Dateien in Snapshot {id}",
+    "auditNote": "Durchsuchen und Herunterladen werden im Audit-Log protokolliert.",
+    "pathBar": "Ordnerpfad",
+    "root": "Snapshot-Wurzel",
+    "pick": {
+      "title": "Snapshot wählen",
+      "description": "Wählen Sie links einen Wiederherstellungspunkt, um seine Ordner und Dateien zu durchsuchen."
+    },
+    "columns": {
+      "name": "Name",
+      "size": "Größe",
+      "modified": "Geändert"
+    },
+    "selectAll": "Alles in diesem Ordner auswählen",
+    "select": "{name} auswählen",
+    "coveredBy": "{name} ist durch einen ausgewählten Ordner enthalten",
+    "emptyFolder": "Dieser Ordner ist leer.",
+    "symlink": "Verknüpfung",
+    "special": "Spezialdatei, nicht wiederherstellbar",
+    "errorTitle": "Der Ordner konnte nicht gelesen werden",
+    "busyTitle": "Das Repository ist beschäftigt",
+    "revokedNote": "Dieser Rechner ist gesperrt, daher lassen sich keine Dateien auf ihm wiederherstellen. Als ZIP herunterladen ist weiterhin möglich.",
+    "selection": {
+      "none": "Nichts ausgewählt",
+      "count": "{count, plural, one {# Element ausgewählt} other {# Elemente ausgewählt}}",
+      "folderNote": "Ein ausgewählter Ordner schließt alles darin ein.",
+      "clear": "Auswahl aufheben",
+      "downloadZip": "Als ZIP herunterladen",
+      "download": {
+        "too_many": "Ein ZIP enthält höchstens {max, number} ausgewählte Einträge. Wählen Sie weniger aus oder wählen Sie einen übergeordneten Ordner.",
+        "preparing": "ZIP wird vorbereitet",
+        "failed": "Das ZIP konnte nicht vorbereitet werden"
+      },
+      "restore": {
+        "action": "Auf den Rechner wiederherstellen",
+        "too_many": "Eine Wiederherstellung nimmt höchstens {max} ausgewählte Elemente. Wählen Sie weniger aus oder wählen Sie einen übergeordneten Ordner."
+      },
+      "manyNote": "Jede einzelne Datei wird für sich gelesen. Eine Auswahl von mehr als {count} einzelnen Dateien kann daher lange dauern. Wählen Sie stattdessen den Ordner, der sie enthält."
+    },
+    "selectAllLoaded": "Alles auswählen, was in diesem Ordner bisher geladen ist",
+    "shown": "{count, plural, one {# Eintrag angezeigt} other {# Einträge angezeigt}}",
+    "loadMore": "Mehr laden",
+    "loadingMore": "Weitere Einträge werden geladen",
+    "loadMoreError": "Weitere Einträge konnten nicht geladen werden.",
+    "loadMoreRetry": "Erneut versuchen"
+  },
+  "restore": {
+    "title": "Auf den Rechner wiederherstellen",
+    "description": "Der Agent von {name} stellt die ausgewählten Dateien und Ordner wieder her.",
+    "selection": "{count, plural, one {# Element} other {# Elemente}} aus Snapshot {id} vom {time}",
+    "moreItems": "{count, plural, one {und # weiteres} other {und # weitere}}",
+    "target": {
+      "label": "Zielordner (optional)",
+      "placeholder": "/srv/restore",
+      "hint": "Ein absoluter Pfad auf dem Rechner. Ohne Angabe legt der Agent einen neuen Ordner namens Restow-Restore mit Datum und Uhrzeit im ersten gesicherten Ordner an.",
+      "errors": {
+        "notAbsolute": "Geben Sie einen absoluten Pfad an, der mit einem Schrägstrich beginnt.",
+        "controlCharacters": "Der Pfad enthält Steuerzeichen.",
+        "tooLong": "Der Pfad ist zu lang."
+      }
+    },
+    "neverOverwrites": "Eine Wiederherstellung überschreibt nie vorhandene Dateien. Alles wird in einen neuen Ordner geschrieben, die Dateien, die jetzt auf dem Rechner liegen, bleiben unberührt.",
+    "timing": "Der Rechner startet die Wiederherstellung bei seinem nächsten Kontakt, meist innerhalb weniger Minuten. Sie können sie unter Läufe in der Übersicht verfolgen.",
+    "offline": {
+      "server": "Der Server ist gerade nicht verbunden. Die Wiederherstellung wartet und startet, sobald er sich meldet.",
+      "client": "Der Client ist gerade nicht verbunden. Die Wiederherstellung wartet und startet, sobald er wieder online ist."
+    },
+    "cancel": "Abbrechen",
+    "close": "Schließen",
+    "submit": "Wiederherstellung anfordern",
+    "showOverview": "Übersicht anzeigen",
+    "requested": {
+      "title": "Wiederherstellung angefordert",
+      "description": "Die Anfrage wartet auf den Rechner. Sobald der Agent sie abholt, erscheint der Lauf unter Läufe in der Übersicht, mit dem Ordner, in den wiederhergestellt wurde."
+    },
+    "toast": {
+      "requested": "Wiederherstellung angefordert"
+    }
+  },
+  "settings": {
+    "revokedNote": "Dieser Rechner ist gesperrt. Seine Einstellungen lassen sich nicht mehr ändern.",
+    "general": {
+      "title": "Allgemein",
+      "name": "Name",
+      "nameHint": "Wird statt des Hostnamens {hostname} angezeigt. Leer lassen, um den Hostnamen anzuzeigen."
+    },
+    "files": {
+      "title": "Was gesichert wird",
+      "description": "Ordner, die der Agent sichert, und Muster, die er auslässt."
+    },
+    "paths": {
+      "label": "Zu sichernde Ordner",
+      "placeholder": "/home",
+      "row": "Ordner {index}",
+      "remove": "{path} entfernen",
+      "add": "Ordner hinzufügen",
+      "hint": "Absolute Pfade auf dem Rechner, zum Beispiel /home oder /srv. Alles unterhalb eines Ordners ist eingeschlossen."
+    },
+    "excludes": {
+      "label": "Ausschlussmuster",
+      "hint": "Ein Muster pro Zeile, zum Beispiel *.tmp oder node_modules. Passende Dateien werden nicht gesichert."
+    },
+    "schedule": {
+      "title": "Zeitplan",
+      "description": "Wann der Agent eine Sicherung startet.",
+      "kind": "Ausführung",
+      "kinds": {
+        "daily": "Täglich zu einer festen Uhrzeit",
+        "interval": "In einem festen Abstand",
+        "on_connect": "Sobald der Rechner online ist"
+      },
+      "timeOfDay": "Uhrzeit",
+      "timeHint": "In der unten gewählten Zeitzone.",
+      "minutes": {
+        "interval": "Alle … Minuten",
+        "on_connect": "Höchstens einmal alle … Minuten"
+      },
+      "minutesHint": {
+        "interval": "Mindestens {min} Minuten.",
+        "on_connect": "Eine Sicherung startet, wenn der Rechner online ist und die letzte älter ist als dieser Wert. Leer: Standard des Agents von {default} Minuten (4 Stunden)."
+      },
+      "timeZone": "Zeitzone",
+      "timeZoneHint": "Die Zeitzone, in der der Zeitplan gelesen wird.",
+      "defaults": "Standardmäßig werden Server täglich um 22:00 Uhr gesichert und Clients, sobald sie online sind, höchstens alle 4 Stunden."
+    },
+    "limits": {
+      "title": "Begrenzungen",
+      "description": "Verhindert, dass Sicherungen den Rechner oder sein Netz stören.",
+      "bandwidth": "Upload-Begrenzung (kbit/s)",
+      "bandwidthHint": "Leer bedeutet unbegrenzt. 1000 kbit/s sind etwa 1 Mbit/s.",
+      "unlimited": "Unbegrenzt",
+      "acPower": "Nur am Netzstrom sichern",
+      "acPowerHint": "Ein Laptop im Akkubetrieb überspringt die Sicherung, bis er am Strom hängt."
+    },
+    "hooks": {
+      "title": "Befehle vor und nach der Sicherung",
+      "description": "Befehle, die der Agent rund um jede Sicherung ausführt, zum Beispiel einen Datenbank-Dump, damit die Dateien konsistent sind. Sie laufen als root, deshalb entscheidet der Rechner, ob er sie ausführt.",
+      "warningTitle": "Diese Befehle laufen mit vollen Rechten",
+      "warningRoot": "Der Agent führt sie als Root (Administrator) auf dem Rechner aus, vor und nach jeder Sicherung. Tragen Sie nur Befehle ein, denen Sie vertrauen und die Sie verstehen.",
+      "warningFailure": "Schlägt der Befehl vor der Sicherung fehl, schlägt auch die Sicherung fehl, damit ein defekter Dump nicht als gültig gesichert wird.",
+      "warningAudit": "Das Audit-Log protokolliert, dass sich die Befehle geändert haben, und einen Fingerabdruck davon, nicht ihren Text.",
+      "stepUp": "Liegt Ihre Anmeldung länger als 10 Minuten zurück, bestätigen Sie beim Setzen oder Ändern eines Hooks zuerst, dass Sie es sind. Das Entfernen aller Hooks erfordert das nicht.",
+      "pre": "Vor der Sicherung",
+      "preHint": "Läuft zuerst. Leer lassen für keinen Befehl.",
+      "prePlaceholder": "pg_dumpall -U postgres > /var/backups/all.sql",
+      "post": "Nach der Sicherung",
+      "postHint": "Läuft nach der Sicherung. Leer lassen für keinen Befehl.",
+      "policy": {
+        "unknown": {
+          "title": "Der Rechner hat noch nicht gemeldet, ob er Hooks zulässt",
+          "description": "Der Agent meldet es beim nächsten Kontakt. Bis dahin lassen sich hier keine Hooks einstellen."
+        },
+        "off": {
+          "title": "Hooks sind auf diesem Rechner ausgeschaltet",
+          "description": "Hooks laufen als root, deshalb kann nur ein Administrator des Rechners sie erlauben, und zwar auf dem Rechner selbst. Dazu dient dort einer dieser Befehle:"
+        },
+        "scripts": {
+          "title": "Dieser Rechner führt nur eigene Skripte aus",
+          "description": "Geben Sie den Namen eines Skripts ein, das ein Administrator auf dem Rechner in /etc/restow-agent/hooks.d abgelegt hat, keinen Befehl. Der Agent startet es direkt, ohne Shell.",
+          "available": "Skripte auf dem Rechner: {scripts}",
+          "none": "In /etc/restow-agent/hooks.d auf dem Rechner liegen noch keine Skripte."
+        },
+        "any": {
+          "title": "Dieser Rechner führt beliebige Befehle aus {appName} aus",
+          "description": "Ein Administrator des Rechners hat Hooks jeder Art erlaubt. Wer die Einstellungen dieses Rechners in {appName} ändern darf, kann darauf Befehle als root ausführen."
+        }
+      },
+      "scriptHint": "Der Name eines Skripts in /etc/restow-agent/hooks.d. Leer lassen für keins.",
+      "scriptPlaceholder": "db-dump",
+      "hidden": {
+        "set": "Ein Befehl ist eingestellt (Fingerabdruck {fingerprint}). Nur Administratoren, die die Einstellungen ändern dürfen, sehen ihn.",
+        "none": "Keiner."
+      },
+      "ignored": {
+        "title": "Die Befehle unten werden nicht ausgeführt",
+        "description": "Sie wurden eingestellt, bevor der Rechner über Hooks entschieden hat. Der Rechner überspringt sie und markiert jede Sicherung als unvollständig, bis sie entfernt oder auf dem Rechner erlaubt sind.",
+        "clear": "Befehle entfernen"
+      }
+    },
+    "retention": {
+      "title": "Aufbewahrung",
+      "description": "Wie viele Snapshots aufbewahrt werden.",
+      "keepDaily": "Tägliche Snapshots",
+      "keepWeekly": "Wöchentliche Snapshots",
+      "keepMonthly": "Monatliche Snapshots",
+      "default": "Standard: {count}",
+      "note": "Der Server wendet diese Regeln an und entfernt ältere Snapshots; der Agent kann Sicherungen nur hinzufügen, nie löschen. Ein niedrigerer Wert entfernt ältere Snapshots beim nächsten Aufbewahrungslauf endgültig."
+    },
+    "alerts": {
+      "title": "Alarme",
+      "description": "Wann {appName} meldet, dass dieser Rechner Aufmerksamkeit braucht.",
+      "hours": "Stunden ohne Kontakt",
+      "hoursHint": "Alarm, wenn sich der Server länger als diesen Wert nicht gemeldet hat. Standard: {count}.",
+      "days": "Tage ohne erfolgreiche Sicherung",
+      "daysHint": "Alarm, wenn der Client länger als diesen Wert keine erfolgreiche Sicherung hatte. Standard: {count}."
+    },
+    "errors": {
+      "tooLong": "Zu lang, höchstens {max} Zeichen.",
+      "controlCharacters": "Enthält Steuerzeichen: {value}",
+      "notAbsolute": "Kein absoluter Pfad: {value}",
+      "noPaths": "Fügen Sie mindestens einen zu sichernden Ordner hinzu.",
+      "tooManyPaths": "Höchstens {max} Ordner sind erlaubt.",
+      "tooManyExcludes": "Höchstens {max} Muster sind erlaubt.",
+      "timeOfDay": "Geben Sie eine Uhrzeit als HH:MM an, zum Beispiel 22:00.",
+      "required": "Dieses Feld ist erforderlich.",
+      "integer": "Geben Sie eine ganze Zahl ein.",
+      "range": "Geben Sie eine Zahl von {min} bis {max} ein.",
+      "notScriptName": "Geben Sie den Namen eines Skripts ein (Buchstaben, Ziffern, Punkt, Bindestrich, Unterstrich), keinen Befehl."
+    },
+    "sections": {
+      "displayName": "Name",
+      "schedule": "Zeitplan",
+      "paths": "Ordner",
+      "excludes": "Ausschlussmuster",
+      "hooks": "Befehle",
+      "bandwidthKbps": "Upload-Begrenzung",
+      "onlyOnAcPower": "Netzstrom",
+      "retention": "Aufbewahrung",
+      "staleAfterHours": "Alarme",
+      "staleAfterDays": "Alarme",
+      "quotaGib": "Speicherbudget"
+    },
+    "save": {
+      "unsaved": "Nicht gespeicherte Änderungen",
+      "clean": "Keine Änderungen",
+      "fix": "Korrigieren Sie die markierten Felder vor dem Speichern.",
+      "action": "Änderungen speichern",
+      "discard": "Änderungen verwerfen"
+    },
+    "toast": {
+      "saved": "Einstellungen gespeichert",
+      "appliedLater": "Der Rechner wendet sie bei seinem nächsten Kontakt an.",
+      "unchanged": "Nichts geändert"
+    },
+    "quota": {
+      "title": "Speicherbudget",
+      "description": "Wie viel das Repository dieses Rechners im Speicherziel höchstens belegen darf. Uploads darüber hinaus werden abgelehnt; Wiederherstellungen funktionieren weiter.",
+      "label": "Budget in GiB",
+      "hintDefault": "Leer lassen für den Standard der Installation von {size}.",
+      "hintUnlimited": "Leer lassen für unbegrenzt (die Installation legt keinen Standard fest).",
+      "tenantNote": "Alle Server und Clients dieses Mandanten teilen sich ein Budget von {size}."
+    }
+  },
+  "repositoryKey": {
+    "title": "Wiederherstellung ohne {appName}",
+    "description": "Die Sicherung dieses Rechners ist ein gewöhnliches restic-Repository.",
+    "body": "Mit dem Repository-Passwort und Zugriff auf das Speicherziel lässt sich die Sicherung allein mit restic wiederherstellen, auch wenn der Server von {appName} nicht mehr existiert. Der Server legt das Passwort außerdem versiegelt neben das Repository, sodass Master-Key und Speicher genügen: Der Befehl restow-restore endpoint-password stellt es wieder her. Bewahren Sie das Passwort trotzdem sicher auf, zum Beispiel in einem Passwortmanager.",
+    "show": "Repository-Passwort anzeigen",
+    "dialog": {
+      "title": "Repository-Passwort",
+      "description": "Bestätigen Sie, dass Sie das Passwort des Repositorys dieses Rechners sehen möchten.",
+      "shownDescription": "Kopieren Sie das Passwort jetzt. Es wird wieder ausgeblendet, sobald Sie dieses Fenster schließen.",
+      "warningTitle": "Sorgfältig behandeln",
+      "audit": "Das Anzeigen des Passworts wird im Audit-Log protokolliert.",
+      "power": "Das Passwort entschlüsselt die gesamte Sicherung dieses Rechners. Wer es besitzt und das Speicherziel lesen kann, kann jede gesicherte Datei lesen.",
+      "stepUp": "Liegt Ihre Anmeldung länger als 10 Minuten zurück, bestätigen Sie zuerst, dass Sie es sind.",
+      "cancel": "Abbrechen",
+      "confirm": "Passwort anzeigen",
+      "password": "Passwort",
+      "copyPassword": "Repository-Passwort kopieren",
+      "hideNote": "Wird nicht in diesem Browser gespeichert. Das Schließen des Fensters blendet es aus.",
+      "example": "Beispielbefehl",
+      "copyCommand": "Beispielbefehl kopieren",
+      "exampleNote": "Ersetzen Sie /path/to/storage durch den Ordner Ihres Speicherziels und führen Sie restic mit diesem Passwort aus. Der Befehl stellt den neuesten Snapshot nach /restore wieder her. Bei Objektspeicher verwenden Sie stattdessen die restic-Repository-Adresse Ihres Buckets.",
+      "hide": "Ausblenden und schließen"
+    }
+  },
+  "danger": {
+    "title": "Rechner entfernen",
+    "description": "Vorhandene Sicherungen bleiben in beiden Fällen wiederherstellbar.",
+    "uninstall": {
+      "title": "Agent deinstallieren",
+      "description": "Der Rechner entfernt den Agent bei seinem nächsten Kontakt selbst und wird dabei gesperrt. Nutzen Sie das, wenn der Rechner nicht mehr gesichert werden soll.",
+      "action": "Agent deinstallieren",
+      "queued": "Die Deinstallation wartet auf den Rechner.",
+      "confirm": {
+        "title": "Agent auf {name} deinstallieren?",
+        "description": "Der Agent entfernt sich bei seinem nächsten Kontakt vom Rechner. Danach ist der Rechner gesperrt und wird nicht mehr gesichert. Vorhandene Sicherungen bleiben wiederherstellbar.",
+        "offline": "Ist der Rechner aus oder offline, wartet dies, bis er sich meldet. Um ihn sofort zu stoppen, sperren Sie ihn stattdessen.",
+        "action": "Agent deinstallieren"
+      },
+      "toast": {
+        "queued": "Deinstallation angefordert",
+        "already": "Für diesen Rechner wartet bereits eine Deinstallation."
+      }
+    },
+    "revoke": {
+      "title": "Sperren",
+      "description": "Weist den Rechner sofort ab: keine Sicherungen und keine Aufgaben mehr. Der Agent bleibt auf dem Rechner installiert, bis Sie ihn dort entfernen.",
+      "action": "Rechner sperren",
+      "confirm": {
+        "title": "{name} sperren?",
+        "description": "Ab jetzt wird der Rechner abgewiesen: Er wird nicht mehr gesichert und nimmt keine Aufgaben an. Der Agent bleibt installiert und versucht es weiter, bis Sie ihn auf dem Rechner deinstallieren. Vorhandene Sicherungen bleiben wiederherstellbar.",
+        "irreversible": "Das lässt sich nicht rückgängig machen. Um den Rechner wieder zu sichern, melden Sie ihn neu an.",
+        "action": "Rechner sperren"
+      },
+      "toast": "Der Rechner wurde gesperrt."
+    }
+  },
+  "errors": {
+    "resticBusy": "Der Server liest gerade andere Sicherungen. Versuchen Sie es gleich noch einmal.",
+    "repositoryLocked": "Das Repository ist mit einer Sicherung oder Wartung beschäftigt. Versuchen Sie es in Kürze noch einmal.",
+    "repositoryUnavailable": "Das Repository dieses Rechners konnte im Speicherziel nicht geöffnet werden. Prüfen Sie, ob das Speicherziel erreichbar ist.",
+    "resticFailed": "Das Lesen des Repositorys ist fehlgeschlagen. Die Einzelheiten stehen im Server-Log.",
+    "resticUnavailable": "Das Programm restic ist auf dem Server nicht verfügbar, daher lassen sich Snapshots nicht lesen.",
+    "unsupportedOs": "Dieses Betriebssystem wird noch nicht unterstützt. Diese Version sichert Linux- und macOS-Rechner.",
+    "revoked": "Dieser Rechner ist gesperrt und nimmt keine Änderungen oder Aufgaben an.",
+    "nothingToTest": "Es gibt noch keine erfolgreiche Sicherung, die getestet werden könnte.",
+    "instanceUnknown": "Die Adresse dieser Installation ist unbekannt. Setzen Sie die öffentliche URL in den Einstellungen und versuchen Sie es erneut.",
+    "queueNotReady": "Der Worker ist noch nicht gestartet. Versuchen Sie es gleich noch einmal.",
+    "pathNotFound": "Ein ausgewählter Pfad ist nicht Teil dieses Snapshots.",
+    "tokenSettled": "Dieser Installationsbefehl wurde bereits verwendet oder widerrufen.",
+    "downloadGone": "Dieser Download ist nicht mehr verfügbar. Bereiten Sie ihn erneut vor.",
+    "downloadTooLarge": "Die Auswahl ist für einen Download zu groß. Wählen Sie weniger Einträge oder einen übergeordneten Ordner.",
+    "invalidCursor": "Die Ordneransicht ist veraltet. Öffnen Sie den Ordner erneut.",
+    "hooksNotAllowed": "Dieser Rechner lässt keine Hooks aus {appName} zu. Ein Administrator des Rechners kann sie dort mit sudo restow-agent hooks scripts oder sudo restow-agent hooks any erlauben.",
+    "hookNotAScript": "Dieser Rechner führt nur Skripte aus /etc/restow-agent/hooks.d aus. Geben Sie den Namen eines Skripts dort ein, keinen Befehl.",
+    "recentSignIn": "Bestätigen Sie zuerst, dass Sie es sind: Das Setzen oder Ändern eines Hooks und das Anzeigen des Repository-Passworts erfordern eine Anmeldung aus den letzten 10 Minuten."
+  },
+  "readinessSection": {
+    "overdue": "Überfällig",
+    "notChecked": "Nicht geprüft",
+    "open": "Öffnen",
+    "openFor": "{name} öffnen",
+    "result": {
+      "green": "Der Restore-Test der neuesten Sicherung hat jede geprüfte Datei bestätigt.",
+      "yellow": "Der Restore-Test wurde bestanden, aber die neueste Sicherung ist unvollständig: einige Dateien ließen sich nicht lesen.",
+      "red": "Der Restore-Test der neuesten Sicherung ist fehlgeschlagen, oder eine Repository-Prüfung hat Schäden gefunden.",
+      "unverified": "Eine Sicherung ist vorhanden, wurde aber nie geprüft.",
+      "noBackup": "Nichts zu prüfen, bis die erste Sicherung abgeschlossen ist.",
+      "noBackupOverdue": "Keine Sicherung innerhalb von 24 Stunden nach Beginn des Schutzes."
+    }
+  },
+  "runErrors": {
+    "interrupted": "Unterbrochen, setzt sich automatisch fort",
+    "no_paths": "Keiner der eingestellten Ordner existiert auf dem Rechner",
+    "pre_hook_failed": "Der Befehl vor der Sicherung ist fehlgeschlagen, daher lief die Sicherung nicht",
+    "post_hook_failed": "Der Befehl nach der Sicherung ist fehlgeschlagen",
+    "hooks_not_allowed": "Der Befehl vor oder nach der Sicherung wurde nicht ausgeführt: Der Rechner lässt Hooks aus {appName} nicht zu",
+    "timeout": "Der Lauf hat zu lange gedauert und wurde abgebrochen",
+    "target_not_empty": "Der Zielordner war nicht leer, daher wurde nichts wiederhergestellt und nichts überschrieben",
+    "invalid_task": "Der Rechner konnte die Anfrage nicht ausführen",
+    "hash_mismatch": "Eine Datei weicht von der beim Backup festgehaltenen Prüfsumme ab",
+    "missing": "Eine Datei wurde im Snapshot nicht gefunden",
+    "not_regular": "Der Eintrag ist keine reguläre Datei und ließ sich daher nicht vergleichen",
+    "read_error": "Eine Datei ließ sich nicht lesen",
+    "restic_exit": "restic wurde mit Exit-Code {code} beendet",
+    "unknown": "Fehlercode {code}",
+    "detail": "Meldung des Agents",
+    "agent_stopped": "Der Agent hat sich während des Laufs nicht mehr gemeldet"
+  },
+  "agentUpdates": {
+    "title": "Automatische Agent-Updates",
+    "description": "Agenten aktualisieren sich selbst auf die neueste Version, die diese Installation mitbringt, und nur auf vom Maintainer signierte Releases. Pausieren Sie die Updates, um alle Rechner dieses Mandanten auf ihrer Version zu halten, etwa um ein Update zuerst zu testen.",
+    "label": "Agenten automatisch aktualisieren",
+    "on": "Ein: Die Rechner installieren neue signierte Agent-Releases selbst.",
+    "paused": "Pausiert für alle Rechner dieses Mandanten, auch für später hinzugefügte.",
+    "toast": {
+      "on": "Automatische Agent-Updates sind eingeschaltet",
+      "paused": "Automatische Agent-Updates sind pausiert"
+    }
+  },
+  "inventory": {
+    "title": "Inventar",
+    "subtitle": "Alle Rechner mit Backup-Agent: Verbindung, Agent-Version und Wiederherstellbarkeit.",
+    "filterLabel": "Rechner filtern",
+    "chips": {
+      "agents": "Alle",
+      "servers": "Server",
+      "clients": "Clients"
+    }
+  },
+  "fileRestore": {
+    "title": "Datei-Restore",
+    "subtitle": "Dateien aus einem Sicherungsstand eines Rechners wiederherstellen oder herunterladen.",
+    "machine": "Rechner",
+    "choose": "Rechner wählen",
+    "noTenant": "Wählen Sie oben einen Mandanten, um Dateien seiner Rechner wiederherzustellen.",
+    "pick": {
+      "title": "Rechner wählen",
+      "description": "Wählen Sie oben einen Rechner. Danach wählen Sie einen Sicherungsstand, durchsuchen ihn und stellen Dateien wieder her."
+    },
+    "empty": {
+      "title": "Noch keine Rechner",
+      "description": "Fügen Sie im Inventar einen Server oder Client hinzu. Sobald er gesichert ist, stellen Sie hier Dateien wieder her.",
+      "action": "Zum Inventar"
+    }
+  }
+}

@@ -1,0 +1,1 @@
+CREATE INDEX "archive_items_tenant_capture_received_idx" ON "archive_items" USING btree ("tenant_id","captured_via","received_at");

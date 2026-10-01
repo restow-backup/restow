@@ -1,0 +1,321 @@
+import type { Failure, ItemCauseCount } from "@/features/failures/api";
+import { apiFetch } from "@/lib/api";
+import type { Role } from "@/lib/api";
+
+/**
+ * GET /api/v1/dashboard: the whole start page in one response (see
+ * apps/api/src/features/dashboard/dto.ts for the server side). `widgets`
+ * holds exactly the widgets that apply to the viewer; a key that is absent
+ * does not apply and renders nothing. Each widget carries its data or the
+ * fact that it failed, so one failing source never blanks the page.
+ */
+
+export type WidgetResult<T> = { state: "ok"; data: T } | { state: "error" };
+
+export type Readiness = "green" | "yellow" | "red";
+export type TenantStatus = "active" | "suspended" | "deleting";
+export type JobStatus = "queued" | "active" | "completed" | "failed" | "cancelled";
+export type ObjectKind = "mailbox" | "onedrive" | "imap";
+
+export interface LastBackupWidget {
+  lastSuccess: {
+    mail: string | null;
+    onedrive: string | null;
+    imap: string | null;
+    archive: string | null;
+  };
+  protectedKinds: Record<ObjectKind, number>;
+}
+
+export interface ProtectedObjectsWidget {
+  total: number;
+  active: number;
+  excluded: number;
+  orphaned: number;
+  failed: number;
+  withItemFailures: number;
+  runningBackups: number;
+}
+
+export interface ReadinessWidget {
+  overall: Readiness | null;
+  total: number;
+  green: number;
+  yellow: number;
+  red: number;
+  unverified: number;
+  noBackup: number;
+  overdue: number;
+  running: number;
+  lastCheckedAt: string | null;
+}
+
+export interface StorageWidget {
+  logicalBytes: number;
+  physicalBytes: number;
+  target: {
+    source: "tenant" | "installation_default";
+    status: "ok" | "error" | "unverified" | "misconfigured";
+  };
+}
+
+export interface RecentJob {
+  id: string;
+  queue: string;
+  status: JobStatus;
+  object: { kind: ObjectKind; displayName: string | null } | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  progress: { total: number; done: number; failed: number } | null;
+  throttledUntil: string | null;
+  /** Why the job failed (classified); null when it did not or only text exists. */
+  failure?: Failure | null;
+  /** The causes behind a finished job's failed items, most frequent first. */
+  itemCauses?: ItemCauseCount[];
+}
+
+export interface RecentJobsWidget {
+  items: RecentJob[];
+}
+
+export interface BackupDay {
+  date: string;
+  succeeded: number;
+  withItemFailures: number;
+  failed: number;
+}
+
+export interface BackupTrendWidget {
+  days: number;
+  series: BackupDay[];
+}
+
+export interface VerificationDay {
+  date: string;
+  green: number;
+  yellow: number;
+  red: number;
+}
+
+export interface VerificationHistoryWidget {
+  days: number;
+  series: VerificationDay[];
+  lastCheckedAt: string | null;
+}
+
+export interface StoragePoint {
+  date: string;
+  bytes: number;
+}
+
+export interface StorageGrowthWidget {
+  days: number;
+  series: StoragePoint[];
+  growthBytes: number;
+  forecast: {
+    method: "linear";
+    basisDays: number;
+    slopeBytesPerDay: number;
+    points: StoragePoint[];
+  } | null;
+}
+
+export interface RetentionWidget {
+  policy: { name: string; keepDays: number | null; keepLast: number } | null;
+  scopedPolicies: number;
+  activeHolds: number;
+  snapshots: { active: number; pruned: number; oldestAt: string | null };
+  lastRun: { at: string; status: "completed" | "failed" } | null;
+}
+
+export const SETUP_ITEM_IDS = [
+  "storage",
+  "source",
+  "objects",
+  "schedules",
+  "firstBackup",
+  "firstVerification",
+  "notificationMail",
+] as const;
+export type SetupItemId = (typeof SETUP_ITEM_IDS)[number];
+
+export interface SetupItem {
+  id: SetupItemId;
+  state: "done" | "open" | "attention";
+  reason: string | null;
+  actionable: boolean;
+}
+
+export interface SetupWidget {
+  complete: boolean;
+  done: number;
+  total: number;
+  items: SetupItem[];
+}
+
+/**
+ * Protected mailboxes: of the whole installation for a provider admin
+ * (`installation`), of the active tenant for everyone else (`tenant`).
+ */
+export interface MailboxUsageWidget {
+  scope: "installation" | "tenant";
+  /** Protected mailboxes in the scope. */
+  used: number;
+  /** The viewer's tenant; `cap` is the number the provider agreed with the customer, never enforced. */
+  tenant: { used: number; cap: number | null };
+}
+
+/**
+ * Servers and clients backed up by the agent. They also count in the
+ * readiness widget's totals. The server answers with zeros for a tenant
+ * without endpoints; the page shows the card only when `protected > 0`.
+ */
+export interface EndpointsWidget {
+  /** Machines under protection: endpoints that are not revoked. */
+  protected: number;
+  servers: number;
+  clients: number;
+  /** The protected machines by the rating of their newest backup (as the verify page rates them). */
+  readiness: {
+    green: number;
+    yellow: number;
+    red: number;
+    unverified: number;
+    noBackup: number;
+  };
+  /** Red, unverified and without a backup: not proven restorable. */
+  notReady: number;
+  /** Machines whose newest backup run failed (a restart of the agent is no failure). */
+  failedLastBackup: number;
+  /** Machines with at least one reason to look at them. */
+  needingAttention: number;
+  /** Newest good backup of any protected machine. */
+  lastSuccessAt: string | null;
+}
+
+/** Every widget the page knows, by id. */
+export interface WidgetData {
+  setup: SetupWidget;
+  lastBackup: LastBackupWidget;
+  readiness: ReadinessWidget;
+  protectedObjects: ProtectedObjectsWidget;
+  storage: StorageWidget;
+  mailboxUsage: MailboxUsageWidget;
+  endpoints: EndpointsWidget;
+  backupTrend: BackupTrendWidget;
+  verificationHistory: VerificationHistoryWidget;
+  storageGrowth: StorageGrowthWidget;
+  retention: RetentionWidget;
+  recentJobs: RecentJobsWidget;
+}
+
+export type WidgetId = keyof WidgetData;
+
+export type TenantWidgets = { [K in WidgetId]?: WidgetResult<WidgetData[K]> };
+
+interface ProviderTenantRowBase {
+  id: string;
+  name: string;
+  slug: string;
+  status: TenantStatus;
+  /** Protected mailboxes, known for every tenant (counted with the mailbox usage). */
+  mailboxes: number;
+  mailboxCap: number | null;
+}
+
+/** A tenant whose figures were read. */
+export interface LoadedTenantRow extends ProviderTenantRowBase {
+  loaded: true;
+  readiness: Readiness | null;
+  protectedObjects: number;
+  unverified: number;
+  noBackup: number;
+  notRestorable: number;
+  failures24h: number;
+  failuresPrevious24h: number;
+  lastBackupAt: string | null;
+  physicalBytes: number;
+  storageError: boolean;
+}
+
+/** A tenant whose figures could not be read: every figure is unknown (null), never zero. */
+export interface UnavailableTenantRow extends ProviderTenantRowBase {
+  loaded: false;
+  readiness: null;
+  protectedObjects: null;
+  unverified: null;
+  noBackup: null;
+  notRestorable: null;
+  failures24h: null;
+  failuresPrevious24h: null;
+  lastBackupAt: null;
+  physicalBytes: null;
+  storageError: null;
+}
+
+export type ProviderTenantRow = LoadedTenantRow | UnavailableTenantRow;
+
+export type ProviderAlertKind =
+  | "unavailable"
+  | "storage_error"
+  | "not_restorable"
+  | "failed_jobs"
+  | "over_cap"
+  | "unverified"
+  | "no_backup"
+  | "stale_backup";
+
+export interface ProviderAlert {
+  tenantId: string;
+  tenantName: string;
+  kind: ProviderAlertKind;
+  severity: "destructive" | "warning";
+  count: number | null;
+  since: string | null;
+}
+
+/**
+ * Provider-wide figures. Sums over tenant figures leave out the
+ * `unavailableTenants` whose figures could not be read.
+ */
+export interface ProviderKpis {
+  tenants: number;
+  suspendedTenants: number;
+  unavailableTenants: number;
+  tenantsNotReady: number;
+  protectedObjects: number;
+  unverifiedObjects: number;
+  failures24h: number;
+  failuresPrevious24h: number;
+  mailboxes: number;
+  physicalBytes: number;
+}
+
+export interface ProviderView {
+  kpis: ProviderKpis;
+  tenants: ProviderTenantRow[];
+  alerts: ProviderAlert[];
+}
+
+export interface Dashboard {
+  generatedAt: string;
+  viewer: { role: Role; isProviderAdmin: boolean; canAdminister: boolean };
+  tenant: { id: string; name: string; slug: string; status: TenantStatus };
+  widgets: TenantWidgets;
+  provider: WidgetResult<ProviderView> | null;
+}
+
+export const dashboardKeys = {
+  page: (tenantId: string | null, provider: boolean) =>
+    ["tenant", tenantId, "dashboard", { provider }] as const,
+};
+
+/**
+ * The start page of the active tenant; `provider` adds the provider view.
+ * The response always carries the active tenant's widgets as well.
+ */
+export function fetchDashboard(provider: boolean): Promise<Dashboard> {
+  const query = provider ? "?provider=true" : "";
+  return apiFetch<Dashboard>(`/dashboard${query}`);
+}

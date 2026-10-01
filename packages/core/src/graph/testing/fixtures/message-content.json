@@ -1,0 +1,37 @@
+{
+  "mime": "Received: from mail.contoso.example (10.0.0.5) by outlook.office365.com\r\nFrom: Alice Example <alice@contoso.example>\r\nTo: Bob Example <bob@contoso.example>\r\nSubject: Quarterly numbers\r\nDate: Tue, 1 Sep 2026 10:15:00 +0200\r\nMessage-ID: <msg1@contoso.example>\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"----=_Part_1\"\r\n\r\n------=_Part_1\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nNumbers attached.\r\n\r\n------=_Part_1\r\nContent-Type: text/csv; name=\"q3.csv\"\r\nContent-Disposition: attachment; filename=\"q3.csv\"\r\nContent-Transfer-Encoding: base64\r\n\r\ncSxyZXZlbnVlCjEsMTAwMAo=\r\n------=_Part_1--\r\n",
+  "tooLarge": {
+    "error": {
+      "code": "ErrorMessageSizeExceeded",
+      "message": "The message exceeds the maximum supported size for MIME retrieval.",
+      "innerError": { "request-id": "6c2a2d3e-3333-4c1a-9d3b-000000000003" }
+    }
+  },
+  "messageJson": {
+    "id": "AAMkMsgBig",
+    "internetMessageId": "<big@contoso.example>",
+    "subject": "Video from the launch",
+    "from": { "emailAddress": { "name": "Alice Example", "address": "alice@contoso.example" } },
+    "toRecipients": [
+      { "emailAddress": { "name": "Bob Example", "address": "bob@contoso.example" } }
+    ],
+    "receivedDateTime": "2026-09-05T12:00:00Z",
+    "isRead": false,
+    "hasAttachments": true,
+    "parentFolderId": "AAMkFolderInbox",
+    "body": { "contentType": "html", "content": "<p>See attachment.</p>" }
+  },
+  "attachments": {
+    "value": [
+      {
+        "@odata.type": "#microsoft.graph.fileAttachment",
+        "id": "AAMkAtt1",
+        "name": "launch.mp4",
+        "contentType": "video/mp4",
+        "size": 190000000,
+        "isInline": false,
+        "lastModifiedDateTime": "2026-09-05T12:00:00Z"
+      }
+    ]
+  }
+}

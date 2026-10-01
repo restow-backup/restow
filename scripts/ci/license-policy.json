@@ -1,0 +1,73 @@
+{
+  "$comment": "Dependency license policy (scripts/ci/check-licenses.mjs). Every production dependency must be covered by 'allowed'; a package whose SPDX expression names a license under 'denied', or a license listed nowhere, fails CI. An 'A OR B' expression passes when one alternative is allowed (that one is elected), 'A AND B' needs both. The packages under ee/ must additionally have copyleft 'none', so a license with copyleft 'file' or 'font' is not allowed there. A package with a wrong or missing license field whose license was checked by hand goes under 'overrides' as \"name@version\": {\"license\": \"<SPDX expression>\", \"reason\": \"...\"}; the entry applies to that exact version only. Third-party programs that Restow redistributes as separate binaries are checked module by module under 'redistributedBinaries' (the Go modules compiled into restic, licenses/restic-deps/modules.json): every module needs a license of 'allowed' with copyleft 'none', or an entry under that binary's 'exceptions'; such an exception allows nothing for Restow's own dependencies and nothing in ee/.",
+  "allowed": {
+    "MIT": {
+      "copyleft": "none",
+      "reason": "Permissive; the large majority of the npm dependencies."
+    },
+    "BSD-2-Clause": {
+      "copyleft": "none",
+      "reason": "Permissive; also the license of restic, which ships as a separate binary."
+    },
+    "BSD-3-Clause": {
+      "copyleft": "none",
+      "reason": "Permissive; also the license of the Go standard library linked into the agent."
+    },
+    "Apache-2.0": {
+      "copyleft": "none",
+      "reason": "Permissive with a patent grant; the license of the Restow core itself. NOTICE files of shipped Apache-2.0 dependencies are reproduced in NOTICE."
+    },
+    "ISC": {
+      "copyleft": "none",
+      "reason": "Permissive, functionally equivalent to MIT."
+    },
+    "MPL-2.0": {
+      "copyleft": "file",
+      "reason": "Weak, file-level copyleft: accepted in the core for unmodified npm dependencies (today only lightningcss, an optional peer of the build tooling that is not used at run time); modified MPL files would have to be published under the MPL. Not allowed in ee/. The MPL-2.0 module inside the redistributed restic binary is allowed separately, by name, under 'redistributedBinaries'."
+    },
+    "OFL-1.1": {
+      "copyleft": "font",
+      "reason": "SIL Open Font License for font files: accepted in the core when a font package is bundled (none is today; the app ships no web fonts). A derived font must stay under the OFL, so it is not allowed in ee/."
+    },
+    "CC0-1.0": {
+      "copyleft": "none",
+      "reason": "Public-domain dedication without conditions."
+    },
+    "Unlicense": {
+      "copyleft": "none",
+      "reason": "Public-domain dedication (isbot)."
+    },
+    "0BSD": {
+      "copyleft": "none",
+      "reason": "Permissive without an attribution condition (tslib)."
+    },
+    "MIT-0": {
+      "copyleft": "none",
+      "reason": "MIT without the attribution condition (nodemailer, smtp-server)."
+    },
+    "BlueOak-1.0.0": {
+      "copyleft": "none",
+      "reason": "Permissive with a patent grant (isexe, jackspeak, minipass, path-scurry, package-json-from-dist)."
+    }
+  },
+  "denied": {
+    "GPL": "Strong copyleft: the combined work would have to be released under the GPL.",
+    "LGPL": "Library copyleft: relinking and replacement duties that a bundled web app and a container image cannot meet cleanly.",
+    "AGPL": "Network copyleft: it would reach every installation that offers Restow over a network.",
+    "SSPL": "Server Side Public License: not an open-source license, it demands the source of the whole service stack.",
+    "EUPL": "Copyleft. A dual-licensed package that offers a permissive alternative (for example MIT OR EUPL-1.1+) is accepted under that alternative."
+  },
+  "overrides": {},
+  "redistributedBinaries": {
+    "$comment": "Programs Restow ships unmodified as separate binaries, in the images and to every endpoint, with the Go modules compiled into them. 'modules' is the vendored list (scripts/restic-licenses.mjs, checked against the pinned binaries in CI). A module passes with a license of 'allowed' whose copyleft is 'none', or when it is named under 'exceptions' with exactly the license it has. An exception covers that module inside that binary only.",
+    "restic": {
+      "modules": "licenses/restic-deps/modules.json",
+      "exceptions": {
+        "github.com/hashicorp/golang-lru/v2": {
+          "license": "MPL-2.0",
+          "reason": "An LRU cache that restic uses, compiled unmodified into its release binary (restic 0.19.1: v2.0.7). MPL-2.0 is file-level copyleft: the executable may be passed on under any terms as long as its recipients are told where the source code of the MPL-covered files is (MPL 2.0, section 3.2); THIRD_PARTY_NOTICES.md and agent/THIRD_PARTY_NOTICES.txt say so in the module's entry. Allowed for this module in the restic binary only, never for Restow's own dependencies and never in ee/."
+        }
+      }
+    }
+  }
+}

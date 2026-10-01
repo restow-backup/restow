@@ -1,0 +1,27 @@
+{
+  "name": "@restow/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Restow pg-boss worker: one handler per job queue (backup, restore, verify, archive, directory, retention, scrub).",
+  "license": "Apache-2.0",
+  "main": "./dist/apps/worker/src/index.js",
+  "files": ["dist", "!**/*.test.*", "!**/testing", "!**/testdata", "!**/fixtures"],
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/apps/worker/src/index.js",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@restow/core": "workspace:*",
+    "@restow/db": "workspace:*",
+    "drizzle-orm": "^0.45.3",
+    "imapflow": "^1.0.171",
+    "pg-boss": "^10.1.5"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
+  }
+}

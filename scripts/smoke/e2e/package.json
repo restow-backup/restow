@@ -1,0 +1,11 @@
+{
+  "name": "restow-smoke-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser checks of the release smoke, run inside the Playwright container (scripts/smoke/run.mjs). The version matches the container image tag pinned in scripts/smoke/images.json.",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "playwright-core": "1.63.0"
+  }
+}

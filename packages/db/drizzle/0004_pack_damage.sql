@@ -1,0 +1,1 @@
+ALTER TABLE "packs" ADD COLUMN "damaged_at" timestamp with time zone;

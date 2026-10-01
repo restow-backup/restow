@@ -1,0 +1,70 @@
+name: Bug report
+description: Something does not work as documented.
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting. Please do **not** report security problems here; use
+        [private vulnerability reporting](https://github.com/restow-backup/restow/security) instead.
+        Remove names, addresses, tenant IDs and secrets from logs before posting.
+  - type: input
+    id: version
+    attributes:
+      label: Restow version
+      description: Shown in the sidebar footer of the web interface, or `docker compose images`.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: edition
+    attributes:
+      label: Edition
+      options: ["Community", "Business", "Service Provider"]
+    validations:
+      required: true
+  - type: dropdown
+    id: storage
+    attributes:
+      label: Storage target
+      options: ["Local disk", "S3-compatible (name the provider below)", "NFS", "SMB", "Several targets"]
+    validations:
+      required: true
+  - type: input
+    id: storage-detail
+    attributes:
+      label: Storage provider or details
+      placeholder: "e.g. Hetzner Object Storage, Garage, Wasabi; NFS server version"
+  - type: dropdown
+    id: source
+    attributes:
+      label: Affected source
+      options: ["Microsoft 365 (Exchange Online)", "Microsoft 365 (OneDrive)", "IMAP", "Archive / journaling", "Not source-specific"]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: "1. …\n2. …\n3. …"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log excerpt
+      description: "`docker compose logs --since 30m api worker scheduler`, the part around the problem. Redact personal data and secrets."
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Host OS, Docker and Compose versions, public or local mode, anything unusual (proxy, custom Compose file).

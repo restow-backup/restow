@@ -1,0 +1,243 @@
+{
+  "nav": "Exporte",
+  "adminExport": "Admin-Export",
+  "actorUnknown": "Unbekannter Benutzer",
+  "action": {
+    "export": "Exportieren …",
+    "exportFolder": "Diesen Ordner exportieren …",
+    "exportEverything": "Alles exportieren …",
+    "exportResults": "Ergebnisse exportieren …",
+    "exportSelected": "Auswahl exportieren ({count}) …",
+    "exportAll": "Alle Ergebnisse exportieren …"
+  },
+  "origin": {
+    "archive": "Archiv",
+    "objectGone": "Entferntes Postfach"
+  },
+  "selection": {
+    "folders": "{count, plural, one {# Ordner} other {# Ordner}}",
+    "items": "{count, plural, one {# Element} other {# Elemente}}",
+    "allSnapshot": "Alles am Sicherungsstand",
+    "allArchive": "Alle Suchergebnisse"
+  },
+  "status": {
+    "queued": "Wartend",
+    "active": "Läuft",
+    "completed": "Abgeschlossen",
+    "completedWithIssues": "Mit Problemen abgeschlossen",
+    "failed": "Fehlgeschlagen",
+    "cancelled": "Abgebrochen",
+    "unknown": "Unbekannt"
+  },
+  "phase": {
+    "preparing": "Der Export wird vorbereitet",
+    "collecting": "Die E-Mails werden zusammengestellt",
+    "writing": "Die E-Mails werden in die Datei geschrieben",
+    "finishing": "Die Datei und ihre Prüfsummenliste werden abgeschlossen"
+  },
+  "formats": {
+    "planned": "Für eine spätere Version geplant",
+    "unavailable": "Auf diesem Server nicht verfügbar.",
+    "eml_zip": {
+      "label": "EML-Dateien in einer ZIP-Datei",
+      "short": "EML (ZIP)",
+      "description": "Jede E-Mail als eigene .eml-Datei, in der Ordnerstruktur abgelegt, dazu eine Prüfsummenliste. Outlook, Thunderbird, Apple Mail und die meisten anderen Mailprogramme öffnen diese Dateien."
+    },
+    "mbox": {
+      "label": "MBOX",
+      "short": "MBOX",
+      "description": "Das gängige Postfachformat von Thunderbird und vielen Migrationswerkzeugen. Eine .mbox-Datei pro Ordner in einer ZIP-Datei, bei einem einzelnen Ordner eine einzelne .mbox-Datei."
+    },
+    "msg_zip": {
+      "label": "MSG-Dateien in einer ZIP-Datei",
+      "short": "MSG (ZIP)",
+      "description": "Outlook-Nachrichtendateien in der Ordnerstruktur. Sie werden aus der E-Mail neu aufgebaut, nicht aus den Originalbytes. Einzelheiten können deshalb vom Original abweichen."
+    },
+    "pst": {
+      "label": "PST (Outlook-Datendatei)",
+      "short": "PST",
+      "description": "Noch nicht verfügbar.",
+      "alternative": "Outlook kann den EML-Export per Drag-and-drop öffnen, oder Sie importieren die MBOX-Datei mit gängigen Werkzeugen."
+    }
+  },
+  "expiry": {
+    "days": "Der Download-Link läuft in {days, plural, one {# Tag} other {# Tagen}}{hours, plural, =0 {} one { und # Stunde} other { und # Stunden}} ab.",
+    "hours": "Der Download-Link läuft in {hours, plural, one {# Stunde} other {# Stunden}}{minutes, plural, =0 {} one { und # Minute} other { und # Minuten}} ab.",
+    "minutes": "Der Download-Link läuft in {minutes, plural, one {# Minute} other {# Minuten}} ab.",
+    "soon": "Der Download-Link läuft in weniger als einer Minute ab."
+  },
+  "expiryShort": {
+    "days": "in {days} Tg. {hours} Std.",
+    "hours": "in {hours} Std. {minutes} Min.",
+    "minutes": "in {minutes} Min.",
+    "soon": "in unter einer Minute"
+  },
+  "download": {
+    "action": "Herunterladen",
+    "until": "Verfügbar bis {date}"
+  },
+  "cancel": {
+    "action": "Abbrechen",
+    "title": "Diesen Export abbrechen?",
+    "description": "Der Export stoppt bei der nächsten E-Mail, es bleibt keine Datei erhalten. Sie können ihn jederzeit erneut starten.",
+    "keep": "Weiterlaufen lassen",
+    "confirm": "Export abbrechen",
+    "done": "Der Export wurde abgebrochen.",
+    "failed": "Der Export konnte nicht abgebrochen werden."
+  },
+  "page": {
+    "title": "Export",
+    "description": "Die Datei wird im Hintergrund erstellt. Solange der Link gültig ist, laden Sie sie hier herunter.",
+    "back": "Alle Exporte",
+    "loadError": "Der Export konnte nicht geladen werden."
+  },
+  "progress": {
+    "title": "Export läuft",
+    "queued": "Wartet auf einen freien Worker. Der Export startet in Kürze.",
+    "running": "Die E-Mails werden in die Datei geschrieben.",
+    "label": "Fortschritt des Exports",
+    "count": "{done} von {total} E-Mails",
+    "failed": "{count, plural, one {# E-Mail fehlgeschlagen} other {# E-Mails fehlgeschlagen}}",
+    "eta": "noch etwa {minutes, plural, one {# Minute} other {# Minuten}}",
+    "waiting": "Wartet auf den Start …",
+    "counting": "E-Mails werden gezählt …",
+    "leaveHint": "Sie können diese Seite verlassen. Der Export läuft weiter und bleibt unter Exporte aufgelistet."
+  },
+  "result": {
+    "title": "Ergebnis",
+    "finishedAt": "Beendet am {date}",
+    "notFinished": "Der Export wurde nicht beendet.",
+    "failed": "Der Export ist fehlgeschlagen",
+    "failedUnknown": "Es wurden keine weiteren Einzelheiten gemeldet. Starten Sie den Export erneut oder prüfen Sie das Worker-Log.",
+    "cancelled": "Der Export wurde abgebrochen",
+    "cancelledDescription": "Es wurde keine Datei behalten. Starten Sie einen neuen Export, wenn Sie einen brauchen.",
+    "fileNameUnknown": "Exportdatei",
+    "messages": "Exportierte E-Mails",
+    "folders": "Ordner",
+    "mailData": "Maildaten",
+    "failedMessages": "Nicht exportiert",
+    "noReport": "Der Export wurde ohne Bericht beendet. Die Datei ist vollständig, die Zahlen wurden aber nicht erfasst.",
+    "checksum": "SHA-256-Prüfsumme der Datei",
+    "copyChecksum": "Prüfsumme kopieren",
+    "checksumHint": "Vergleichen Sie sie mit der Prüfsumme der heruntergeladenen Datei, um zu belegen, dass sich nichts verändert hat.",
+    "expired": {
+      "title": "Der Download-Link ist abgelaufen",
+      "description": "Die Datei wurde mit dem Ablauf des Links ({date}) vom Server gelöscht. Starten Sie den Export erneut, um eine neue Datei zu erhalten."
+    }
+  },
+  "skipped": {
+    "title": "Bewusst ausgelassen: Ein Export enthält nur E-Mails",
+    "calendar": "{count, plural, one {# Kalendereintrag wurde ausgelassen.} other {# Kalendereinträge wurden ausgelassen.}}",
+    "contacts": "{count, plural, one {# Kontakt wurde ausgelassen.} other {# Kontakte wurden ausgelassen.}}",
+    "other": "{count, plural, one {# weiteres Element, das keine E-Mail ist, wurde ausgelassen.} other {# weitere Elemente, die keine E-Mails sind, wurden ausgelassen.}}"
+  },
+  "failures": {
+    "title": "E-Mails, die nicht exportiert werden konnten",
+    "description": "Diese E-Mails fehlen in der Datei. Der Grund stammt vom Export.",
+    "descriptionLive": "Diese E-Mails konnten bisher nicht exportiert werden. Der Export läuft mit den übrigen weiter.",
+    "truncated": "Angezeigt werden {shown} von {total}."
+  },
+  "request": {
+    "title": "Anfrage",
+    "source": "Aus",
+    "selection": "Was",
+    "format": "Format",
+    "actor": "Angefordert von",
+    "reason": "Begründung",
+    "requested": "Angefordert",
+    "finished": "Beendet"
+  },
+  "list": {
+    "title": "Exporte",
+    "subtitle": "Alle Exporte, die Sie gestartet haben, mit Live-Fortschritt. Fertige Dateien können 24 Stunden lang heruntergeladen werden.",
+    "empty": "Noch keine Exporte",
+    "emptyDescription": "Exportieren Sie E-Mails als EML- oder MBOX-Dateien aus dem Restore-Explorer oder dem Archiv. Ihre Exporte erscheinen hier.",
+    "fromBackups": "Aus Sicherungen exportieren",
+    "fromArchive": "Aus dem Archiv exportieren",
+    "loadError": "Die Exporte konnten nicht geladen werden.",
+    "expired": "Abgelaufen",
+    "columns": {
+      "created": "Angefordert",
+      "origin": "Aus",
+      "format": "Format",
+      "status": "Status",
+      "size": "Größe",
+      "expires": "Link gültig",
+      "actions": "Aktionen"
+    }
+  },
+  "dialog": {
+    "title": "E-Mails exportieren",
+    "source": {
+      "snapshot": "Aus {object}, {restorePoint}",
+      "archive": "Aus dem Archiv"
+    },
+    "scope": {
+      "everything": "Alle E-Mails an diesem Sicherungsstand",
+      "andMore": "{count, plural, other {und # weitere}}",
+      "archive": {
+        "items": "{count, plural, one {# archivierte E-Mail ausgewählt} other {# archivierte E-Mails ausgewählt}}",
+        "filterCount": "{count, plural, one {Alle E-Mails der aktuellen Suche (# Treffer)} other {Alle E-Mails der aktuellen Suche (# Treffer)}}",
+        "filterUnknown": "Alle E-Mails der aktuellen Suche",
+        "wholeArchive": "Es ist kein Filter gesetzt: Das gesamte Archiv wird exportiert.",
+        "filter": {
+          "q": "Suche: „{q}“",
+          "mailbox": "Postfach: {mailbox}",
+          "from": "Absender: {from}",
+          "dateFrom": "Von: {date}",
+          "dateTo": "Bis: {date}",
+          "hasAttachment": "Nur E-Mails mit Anhang"
+        }
+      }
+    },
+    "formats": {
+      "label": "Format",
+      "loading": "Die verfügbaren Formate werden geladen",
+      "loadError": "Die verfügbaren Formate konnten nicht geladen werden"
+    },
+    "mailOnly": {
+      "mailbox": "Es werden nur E-Mails exportiert. Kalendereinträge und Kontakte bleiben außen vor.",
+      "general": "Es werden nur E-Mails exportiert."
+    },
+    "fileName": {
+      "label": "Dateiname (optional)",
+      "help": "Ohne Endung: {appName} ergänzt .zip oder .mbox. Leer lassen, um den vorgeschlagenen Namen zu verwenden."
+    },
+    "fileNameBase": {
+      "mail": "E-Mail-Export",
+      "archive": "Archiv-Export"
+    },
+    "reason": {
+      "impersonationTitle": "Export im Auftrag der Besitzerin oder des Besitzers",
+      "impersonation": "Diese Daten gehören {owner}. Der Export wird als Admin-Export in deren Auftrag protokolliert.",
+      "label": "Begründung",
+      "placeholder": "Ticketnummer oder warum dieser Export nötig ist",
+      "help": "Wird im manipulationssicheren Audit-Log gespeichert."
+    },
+    "submit": "Export starten",
+    "started": {
+      "title": "Export gestartet",
+      "description": "Die Datei wird erstellt. Den Fortschritt sehen Sie auf der Exportseite."
+    },
+    "errors": {
+      "title": "Der Export konnte nicht gestartet werden",
+      "emptyScope": "Es gibt nichts zu exportieren. Wählen Sie mindestens eine E-Mail aus oder ändern Sie die Suche.",
+      "formatUnavailable": "Dieses Format ist nicht verfügbar. Wählen Sie ein anderes.",
+      "fileName": {
+        "forbidden": "Der Dateiname darf nicht mit einem Punkt beginnen und keine Schrägstriche, Doppelpunkte oder andere Sonderzeichen enthalten.",
+        "tooLong": "Der Dateiname darf höchstens 120 Zeichen lang sein."
+      },
+      "reasonRequired": "Geben Sie eine Begründung mit mindestens 3 Zeichen ein.",
+      "notMail": "Es können nur E-Mails exportiert werden. OneDrive-Dateien gehören nicht zu einem Export.",
+      "selectionUnknown": "Einige ausgewählte Einträge gibt es an diesem Sicherungsstand nicht mehr. Laden Sie den Ordner neu und wählen Sie erneut aus.",
+      "quotaExceeded": "Die fertigen Exporte dieser Organisation belegen den gesamten Platz, den Exporte nutzen dürfen. Ältere Exporte werden beim Ablauf automatisch gelöscht. Fordern Sie diesen Export danach erneut an oder exportieren Sie weniger Post auf einmal.",
+      "queueUnavailable": "Die Job-Warteschlange ist nicht erreichbar. Stellen Sie sicher, dass der Worker von {appName} läuft, und versuchen Sie es erneut.",
+      "snapshotGone": "Dieser Sicherungsstand ist nicht mehr verfügbar. Wählen Sie einen anderen.",
+      "archiveGone": "Einige der ausgewählten Archiv-E-Mails sind nicht mehr verfügbar. Suchen Sie erneut und wählen Sie erneut aus."
+    }
+  },
+  "archive": {
+    "selectAll": "Alle E-Mails auf dieser Seite auswählen",
+    "selectRow": "E-Mail {subject} auswählen"
+  }
+}

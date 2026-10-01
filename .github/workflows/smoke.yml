@@ -1,0 +1,84 @@
+name: Smoke
+
+# The release smoke (scripts/smoke, its eleven checks, "The release smoke" in
+# docs/CI.md) on any commit, without publishing anything: it builds the images
+# from the checkout and runs every check, once for the full build and once for
+# the Community build (--variant community, docs/CI.md "Two build targets"). Nightly on main, so a
+# regression shows up the day it lands, and on demand before a tag is pushed,
+# so the Verification section of the patch notes can name a real run. The
+# Microsoft 365 check runs only when the dev tenant secrets exist (docs/CI.md).
+
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Only these checks and what they need, for example 5,7 (empty: all)"
+        required: false
+        default: ""
+  schedule:
+    - cron: "23 3 * * *"
+
+concurrency:
+  group: smoke-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Smoke ${{ matrix.variant }} (build and all checks)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [full, community]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up pnpm
+        # pnpm audit (check 9) reads the lockfile; no install is needed.
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Run the smoke checks
+        env:
+          ONLY: ${{ inputs.only }}
+          VARIANT: ${{ matrix.variant }}
+          # The Microsoft 365 check runs for the full build only.
+          M365_TEST_TENANT_ID: ${{ matrix.variant == 'full' && secrets.M365_TEST_TENANT_ID || '' }}
+          M365_TEST_CLIENT_ID: ${{ matrix.variant == 'full' && secrets.M365_TEST_CLIENT_ID || '' }}
+          M365_TEST_CLIENT_SECRET: ${{ matrix.variant == 'full' && secrets.M365_TEST_CLIENT_SECRET || '' }}
+          M365_TEST_MAILBOX: ${{ matrix.variant == 'full' && secrets.M365_TEST_MAILBOX || '' }}
+          M365_TEST_RESTORE_MAILBOX: ${{ matrix.variant == 'full' && secrets.M365_TEST_RESTORE_MAILBOX || '' }}
+        run: |
+          args=(--variant "$VARIANT" --report smoke-report.md)
+          if [ -n "$ONLY" ]; then
+            args+=(--only "$ONLY")
+          fi
+          node scripts/smoke/run.mjs "${args[@]}"
+
+      - name: Put the report on the run summary
+        if: always()
+        run: |
+          if [ -f smoke-report.md ]; then
+            cat smoke-report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload the report and the logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: smoke-report-${{ matrix.variant }}
+          path: |
+            smoke-report.md
+            smoke-out/logs${{ matrix.variant == 'community' && '-community' || '' }}
+            smoke-out/run${{ matrix.variant == 'community' && '-community' || '' }}/e2e
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,0 +1,317 @@
+{
+  "nav": "Statistics",
+  "title": "Statistics",
+  "description": {
+    "tenant": "Backups, restores, storage and recoverability of {tenant} over time.",
+    "provider": "Backups, restores, storage and recoverability across all tenants.",
+    "loading": "Backups, restores, storage and recoverability over time."
+  },
+  "period": {
+    "label": "Period",
+    "presetsLabel": "Preset periods",
+    "presets": {
+      "7d": "7 days",
+      "30d": "30 days",
+      "90d": "90 days",
+      "12m": "12 months"
+    },
+    "custom": "Custom",
+    "customActive": "Custom period: {range}",
+    "customTitle": "Custom period",
+    "customHint": "Select the first and the last day. Days after today cannot be selected.",
+    "pickStart": "Select the first day.",
+    "pickEnd": "Now select the last day.",
+    "apply": "Apply",
+    "cancel": "Cancel",
+    "summary": "Showing {range}, one value {granularity}.",
+    "comparison": "Changes compare with {range}.",
+    "granularity": {
+      "day": "per day",
+      "week": "per week",
+      "month": "per month"
+    }
+  },
+  "scope": {
+    "label": "Scope",
+    "tenant": "Tenant",
+    "provider": "All tenants"
+  },
+  "actions": {
+    "refresh": "Refresh figures",
+    "exportPdf": "Export PDF",
+    "exportLabel": "Export",
+    "exportCsv": "Download as CSV",
+    "exportMenu": "Export options for {chart}"
+  },
+  "download": {
+    "pdfPreparing": "Preparing the PDF report …",
+    "csvPreparing": "Preparing the CSV export …",
+    "done": "Download ready",
+    "failed": "The download failed"
+  },
+  "noTenant": {
+    "title": "No tenant selected",
+    "description": "Select a tenant in the top bar to see its statistics.",
+    "providerAction": "Show all tenants"
+  },
+  "notAdmin": {
+    "title": "Statistics are for administrators",
+    "description": "Your role in {tenant} does not include the statistics. An administrator of the tenant can open them."
+  },
+  "error": {
+    "title": "The statistics could not be loaded",
+    "stale": "The figures could not be refreshed. What is shown is from the last successful load.",
+    "retry": "Retry"
+  },
+  "unavailable": {
+    "title": "Not available",
+    "reasons": {
+      "missing": "This server version does not report this figure yet.",
+      "no_tenants": "There are no tenants yet.",
+      "no_protected_objects": "Nothing is protected yet. Add a source and choose what it protects.",
+      "no_backups_yet": "No backup has run yet. The figures appear after the first backup.",
+      "no_microsoft_365_source": "Throttling only happens with Microsoft 365, and there is no Microsoft 365 source here."
+    }
+  },
+  "kpi": {
+    "sectionLabel": "Key figures",
+    "none": "No value in this period.",
+    "points": "{value} pp",
+    "backupSuccessRate": {
+      "label": "Backup success rate",
+      "hint": "Share of backup runs that completed"
+    },
+    "failedItems": {
+      "label": "Failed items",
+      "hint": "Items a run could not process"
+    },
+    "verifiedShare": {
+      "label": "Verified by restore check",
+      "hint": "Share of protected objects with a passed restore check"
+    },
+    "protectedObjects": {
+      "label": "Protected objects",
+      "hint": "Mailboxes, OneDrives, IMAP accounts, servers and clients in scope"
+    },
+    "restores": {
+      "label": "Restores",
+      "hint": "Restores run in this period"
+    },
+    "throttlingWaitSeconds": {
+      "label": "Throttling waits",
+      "hint": "Time Microsoft 365 made {appName} wait"
+    },
+    "logicalBytes": {
+      "label": "Backed up (logical)",
+      "hint": "Size of the protected data before deduplication"
+    },
+    "physicalBytes": {
+      "label": "Stored (physical)",
+      "hint": "Space the data takes in the chunk store"
+    },
+    "dedup": {
+      "label": "Saved by deduplication",
+      "hint": "Backed-up to stored data {factor} : 1",
+      "hintNone": "Nothing stored yet to compare"
+    }
+  },
+  "charts": {
+    "sectionLabel": "Trends",
+    "weekOf": "Week of {date}",
+    "backups": {
+      "title": "Backup outcomes",
+      "description": "Backup runs {granularity}, by result.",
+      "series": {
+        "succeeded": "Succeeded",
+        "failed": "Failed",
+        "cancelled": "Cancelled"
+      },
+      "empty": {
+        "title": "No backup runs",
+        "description": "No backup ran in this period."
+      },
+      "summary": "In this period {succeeded} backup runs succeeded, {failed} failed and {cancelled} were cancelled."
+    },
+    "restores": {
+      "title": "Restores",
+      "description": "Restore runs {granularity}, by result.",
+      "series": {
+        "completed": "Completed",
+        "failed": "Failed"
+      },
+      "empty": {
+        "title": "No restores",
+        "description": "No restore ran in this period."
+      },
+      "summary": "In this period {completed} restores completed and {failed} failed."
+    },
+    "readiness": {
+      "title": "Recovery readiness",
+      "description": "Protected objects by the result of their last restore check, {granularity}.",
+      "empty": {
+        "title": "No protected objects",
+        "description": "There were no protected objects in this period."
+      },
+      "summary": "At the end of the period {green} objects were ready, {yellow} needed attention, {red} were not restorable and {unverified} were not verified."
+    },
+    "volume": {
+      "title": "Logical and physical volume",
+      "description": "Protected data before deduplication and the space it takes in the store, {granularity}.",
+      "series": {
+        "logical": "Logical",
+        "physical": "Physical"
+      },
+      "empty": {
+        "title": "No data backed up",
+        "description": "No data was backed up in this period."
+      },
+      "dedup": "Deduplication saves {savings} of the backed-up data (ratio {factor} : 1).",
+      "dedupShare": "Deduplication saves {savings} of the backed-up data.",
+      "summary": "At the end of the period {logical} of protected data took {physical} in the store."
+    },
+    "storage": {
+      "title": "Storage growth",
+      "description": "Space used in the chunk store, {granularity}.",
+      "series": {
+        "bytes": "Stored"
+      },
+      "empty": {
+        "title": "The store is empty",
+        "description": "Nothing was stored in this period."
+      },
+      "summary": "The store went from {first} to {last} in this period."
+    },
+    "jobDurations": {
+      "title": "Job durations",
+      "description": "Typical (p50) and slow (p95) run time per job type in this period.",
+      "series": {
+        "p50": "Median (p50)",
+        "p95": "95th percentile (p95)"
+      },
+      "empty": {
+        "title": "No finished jobs",
+        "description": "No job finished in this period."
+      },
+      "tooltipLabel": "{kind} · {runs}",
+      "runs": "{count, plural, one {# run} other {# runs}}",
+      "summary": "The slowest job type was {kind}: typically {p50}, slow runs {p95}."
+    },
+    "throttling": {
+      "title": "Throttling waits",
+      "description": "How long Microsoft 365 made {appName} wait, and how often, {granularity}.",
+      "series": {
+        "wait": "Wait time",
+        "events": "Throttling events"
+      },
+      "empty": {
+        "title": "No throttling",
+        "description": "Microsoft 365 did not throttle {appName} in this period."
+      },
+      "summary": "In this period Microsoft 365 made {appName} wait {wait} in total, across {events} throttling events."
+    }
+  },
+  "tables": {
+    "sectionLabel": "Details",
+    "failures": {
+      "title": "Failures by cause",
+      "description": "Items that could not be processed in this period, grouped by the reason the source gave.",
+      "columns": {
+        "cause": "Cause",
+        "count": "Items",
+        "lastAt": "Last seen"
+      },
+      "search": "Search causes",
+      "actions": {
+        "jobs": "Open jobs",
+        "copy": "Copy cause"
+      },
+      "copied": "Cause copied to the clipboard",
+      "empty": {
+        "title": "No failures",
+        "description": "Every item in this period was processed."
+      },
+      "unknownCause": "Unknown reason"
+    },
+    "largest": {
+      "title": "Largest objects",
+      "description": "Protected objects by backed-up size before deduplication.",
+      "columns": {
+        "name": "Object",
+        "kind": "Type",
+        "logicalBytes": "Size (logical)",
+        "lastBackupAt": "Last backup",
+        "state": "State",
+        "tenant": "Tenant"
+      },
+      "search": "Search objects",
+      "actions": {
+        "browse": "Browse backups",
+        "object": "Show in protected objects"
+      },
+      "empty": {
+        "title": "No objects backed up",
+        "description": "Objects appear here after their first backup."
+      }
+    },
+    "tenants": {
+      "title": "Tenants",
+      "description": "Key figures per tenant in this period, most failed items first.",
+      "columns": {
+        "name": "Tenant",
+        "objects": "Objects",
+        "successRate": "Success rate",
+        "logicalBytes": "Logical",
+        "physicalBytes": "Physical",
+        "readiness": "Readiness",
+        "failures": "Failed items"
+      },
+      "noRuns": "No runs",
+      "search": "Search tenants",
+      "actions": {
+        "stats": "Show statistics of this tenant",
+        "tenant": "Open tenant"
+      },
+      "empty": {
+        "title": "No tenants yet",
+        "description": "Tenants appear here once the first one is created."
+      },
+      "nothingProtected": "Nothing protected"
+    }
+  },
+  "readiness": {
+    "green": "Ready",
+    "yellow": "Attention",
+    "red": "Not restorable",
+    "unverified": "Not verified",
+    "unknown": "Unknown"
+  },
+  "jobKinds": {
+    "backup": "Backup",
+    "restore": "Restore",
+    "verify": "Restore check",
+    "health_check": "Full check",
+    "archive": "Archive sync",
+    "directory": "Directory sync",
+    "retention": "Retention",
+    "scrub": "Storage check",
+    "storage_migration": "Storage migration"
+  },
+  "objectKinds": {
+    "mailbox": "Mailbox",
+    "onedrive": "OneDrive",
+    "imap": "IMAP mailbox",
+    "unknown": "Unknown"
+  },
+  "objectStates": {
+    "active": "Active",
+    "excluded": "Excluded",
+    "orphaned": "Orphaned",
+    "failed": "Failed",
+    "green": "Ready",
+    "yellow": "Attention",
+    "red": "Not restorable",
+    "unverified": "Not verified",
+    "none": "Unknown",
+    "no_backup": "No backup yet"
+  }
+}

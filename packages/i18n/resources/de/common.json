@@ -1,0 +1,215 @@
+{
+  "app": {
+    "name": "{appName}",
+    "tagline": "{appName}. Backup, dessen Wiederherstellbarkeit du belegen kannst."
+  },
+  "actions": {
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "next": "Weiter",
+    "back": "Zurück",
+    "confirm": "Bestätigen",
+    "close": "Schließen",
+    "retry": "Erneut versuchen",
+    "continue": "Fortfahren",
+    "finish": "Abschließen",
+    "refresh": "Aktualisieren",
+    "openMenu": "Menü öffnen",
+    "closeMenu": "Menü schließen",
+    "collapseSidebar": "Seitenleiste einklappen",
+    "expandSidebar": "Seitenleiste ausklappen",
+    "showPassword": "Passwort anzeigen",
+    "hidePassword": "Passwort verbergen",
+    "backHome": "Zur Übersicht",
+    "previous": "Zurück",
+    "goBack": "Zurück"
+  },
+  "theme": {
+    "label": "Darstellung",
+    "light": "Hell",
+    "dark": "Dunkel",
+    "system": "System"
+  },
+  "language": {
+    "label": "Sprache",
+    "de": "Deutsch",
+    "en": "Englisch"
+  },
+  "nav": {
+    "label": "Hauptnavigation",
+    "groups": {
+      "daily": "Täglich",
+      "mail": "Mail & SaaS",
+      "endpoints": "Server & Endpunkte",
+      "tenants": "Mandanten",
+      "admin": "Verwaltung",
+      "other": "Weitere"
+    },
+    "groupMenu": "{group}, Einträge anzeigen",
+    "items": {
+      "jobs": "Jobs",
+      "setup": "Einrichtung",
+      "resources": "Auslastung"
+    },
+    "breadcrumb": "Navigationspfad",
+    "notifications": "Benachrichtigungen",
+    "pagination": "Seitennavigation",
+    "stage": {
+      "alpha": "Alpha"
+    },
+    "soon": {
+      "badge": "Bald",
+      "spoken": ", kommt bald",
+      "hint": "kommt bald",
+      "release": "Kommt mit Version {version}",
+      "notYet": "Diese Funktion gibt es in dieser Version noch nicht. Der Menüeintrag zeigt schon heute, wo sie zu finden sein wird.",
+      "roadmap": "Roadmap auf der Website",
+      "roadmapUrl": "https://restowbackup.com/de/roadmap/",
+      "newTab": "(öffnet in einem neuen Tab)"
+    },
+    "setup": {
+      "tabsLabel": "Einrichtung von {tenant}",
+      "tabs": {
+        "protection": "Schutz",
+        "sources": "Quellen",
+        "schedules": "Zeitpläne",
+        "retention": "Aufbewahrung",
+        "imports": "Importe"
+      },
+      "openTenantPage": "Mandantenseite öffnen",
+      "openTenantPageFor": "Mandantenseite öffnen: {name}",
+      "tenantPage": "Mandantenseite"
+    }
+  },
+  "tenant": {
+    "label": "Mandant",
+    "placeholder": "Mandant wählen",
+    "none": "Kein Mandant",
+    "noneDescription": "Diesem Konto ist noch kein Mandant zugeordnet.",
+    "switch": "Mandant wechseln",
+    "current": "Aktueller Mandant",
+    "count": "{count, plural, one {# Mandant} other {# Mandanten}}",
+    "switchCurrent": "Mandant wechseln, aktuell: {name}",
+    "search": "Mandanten suchen …",
+    "empty": "Kein passender Mandant.",
+    "switched": "Sie arbeiten jetzt in {name}.",
+    "closedHint": "nur der Provider kann ihn öffnen",
+    "status": {
+      "active": "Aktiv",
+      "suspended": "Gesperrt",
+      "deleting": "Wird gelöscht"
+    },
+    "notice": {
+      "suspended": {
+        "title": "{name} ist gesperrt",
+        "provider": "Aufträge und Anmeldungen dieses Mandanten ruhen, bis Sie ihn auf seiner Mandantenseite wieder aktivieren.",
+        "member": "Seine Seiten können erst wieder geladen werden, wenn Ihr Service Provider den Mandanten reaktiviert."
+      },
+      "deleting": {
+        "title": "{name} wird gelöscht",
+        "provider": "Seine Daten werden entfernt; in diesem Mandanten lässt sich nichts mehr ändern.",
+        "member": "Seine Seiten sind nicht mehr verfügbar."
+      }
+    }
+  },
+  "roles": {
+    "provider_admin": "Provider-Admin",
+    "tenant_admin": "Mandanten-Admin",
+    "tenant_user": "Nutzer"
+  },
+  "user": {
+    "menu": "Benutzermenü",
+    "signedInAs": "Angemeldet als",
+    "security": "Anmeldesicherheit",
+    "signOut": "Abmelden",
+    "signingOut": "Abmelden …",
+    "menuFor": "Benutzermenü von {name}",
+    "roleIn": "in {tenant}"
+  },
+  "loading": {
+    "label": "Wird geladen …",
+    "session": "Sitzung wird geprüft …"
+  },
+  "errors": {
+    "title": "Etwas ist schiefgelaufen",
+    "generic": "Die Aktion konnte nicht ausgeführt werden. Bitte versuchen Sie es erneut.",
+    "network": "Der Server von {appName} ist nicht erreichbar. Prüfen Sie, ob API und Datenbank laufen.",
+    "unauthorized": "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.",
+    "forbidden": "Sie haben keine Berechtigung für diese Aktion.",
+    "featureUnavailable": "Diese Funktion ist auf dieser Installation nicht verfügbar.",
+    "demoReadOnly": "Dies ist eine öffentliche Demo: Durchsuchen, Backups, Verifizierung und die Wiederherstellung als Download funktionieren; das Ändern von Quellen, Einstellungen, Benutzern oder Zugangsdaten sowie die Wiederherstellung zurück in das Postfach nicht.",
+    "notFound": "Die angeforderte Ressource wurde nicht gefunden.",
+    "conflict": "Die Aktion steht im Widerspruch zum aktuellen Zustand.",
+    "validation": "Die Eingaben sind unvollständig oder ungültig.",
+    "server": "Der Server hat einen internen Fehler gemeldet.",
+    "pageTitle": "Diese Seite konnte nicht angezeigt werden",
+    "shellTitle": "{appName} konnte nicht geladen werden",
+    "details": "Technische Details",
+    "forbiddenTitle": "Kein Zugriff",
+    "roleInTenant": "Ihre Rolle in {tenant}: {role}.",
+    "providerRole": "Ihre Rolle im Provider-Team erlaubt das nicht.",
+    "providerScope": "Dieser Mandant gehört nicht zu Ihren Mandanten im Provider-Team."
+  },
+  "notFound": {
+    "title": "Seite nicht gefunden",
+    "description": "Unter dieser Adresse gibt es nichts. Der Link ist veraltet oder die Seite wurde verschoben."
+  },
+  "validation": {
+    "required": "Dieses Feld ist erforderlich.",
+    "email": "Bitte geben Sie eine gültige E-Mail-Adresse ein.",
+    "url": "Bitte geben Sie eine vollständige URL mit https:// ein.",
+    "httpsRequired": "Die öffentliche URL muss mit https:// beginnen.",
+    "port": "Bitte geben Sie einen Port zwischen 1 und 65535 ein.",
+    "minLength": "Mindestens {min} Zeichen.",
+    "passwordMismatch": "Die Passwörter stimmen nicht überein.",
+    "totp": "Bitte geben Sie den 6-stelligen Code ein.",
+    "emailInUse": "Mit dieser E-Mail-Adresse gibt es bereits ein Konto. Wählen Sie eine andere."
+  },
+  "time": {
+    "never": "Noch nie",
+    "unknown": "Unbekannt"
+  },
+  "shell": {
+    "skipToContent": "Zum Inhalt springen",
+    "version": "Version {version}",
+    "versionUntagged": "Build ohne Release-Version",
+    "updateAvailable": "Update verfügbar: {version}"
+  },
+  "search": {
+    "button": "Suchen …",
+    "open": "Seiten und Aktionen suchen",
+    "title": "Befehlspalette",
+    "description": "Zu einer Seite oder einem Konto wechseln, den Mandanten wechseln oder Einstellungen ändern.",
+    "placeholder": "Seiten, Aktionen und Konten suchen …",
+    "empty": "Keine passende Seite und keine passende Aktion.",
+    "current": "Aktuelle Einstellung",
+    "groups": {
+      "objects": "Geschützte Objekte",
+      "tenants": "Mandant wechseln",
+      "preferences": "Darstellung und Sprache",
+      "account": "Konto"
+    },
+    "objectKinds": {
+      "mailbox": "Postfach",
+      "onedrive": "OneDrive",
+      "imap": "IMAP-Konto"
+    },
+    "switchTo": "Zu {name} wechseln",
+    "theme": "Darstellung: {theme}",
+    "language": "Sprache: {language}"
+  },
+  "keys": {
+    "ctrl": "Strg"
+  },
+  "soon": {
+    "mailJobs": {
+      "description": "Jobs für Mail & SaaS legen fest, was gesichert wird, wann, in welches Repository und wie lange, für viele Postfächer, OneDrives und IMAP-Konten zugleich. Vergangene Läufe stehen im Verlauf."
+    },
+    "endpointJobs": {
+      "description": "Jobs für Server und Clients legen Pfade, Hooks, Zeitplan, Repository und Aufbewahrung für viele Rechner zugleich fest, mit Abweichungen je Rechner."
+    },
+    "resources": {
+      "description": "Zeigt, wie ausgelastet diese Installation ist, was in der Warteschlange wartet und ob ein weiterer Worker oder ein größerer Server hilft."
+    }
+  }
+}

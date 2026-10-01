@@ -1,0 +1,74 @@
+# Keep the Docker build context small and free of host artifacts and secrets.
+# Everything the image needs is installed and built inside the Dockerfile.
+
+# Dependencies (reinstalled in the image)
+node_modules
+**/node_modules
+
+# Build output (recompiled in the image)
+**/dist
+# Download caches and test builds of the agent (agent/.gitignore); the image builds it itself
+agent/.cache
+**/*.tsbuildinfo
+
+# Version control
+.git
+
+# Secrets and environment — never bake real values into an image, at any depth
+# (deploy/demo/.env holds the public demo's secrets). .env.example is excluded
+# too; the image does not need it. Mirrors the .gitignore secret patterns
+# (security review finding M3): the seed image is built from the `build`
+# stage, which `COPY . .`s the whole context, and deploy/demo/build-images.sh
+# saves that stage to a tarball that gets loaded onto the demo host, so
+# anything not excluded here ships in it, not just in git history.
+.env
+.env.*
+**/.env
+**/.env.*
+*.key
+*.pem
+*.pfx
+*.p12
+*.p8
+*.jks
+id_rsa*
+id_ed25519*
+secrets/
+keys/
+license-signing.key
+# The journal receiver's certificate and key: mounted at run time, never baked in
+journal-tls
+
+# Local runtime data and volumes (root-level only — anchored so they never match
+# source directories such as packages/core/src/storage)
+/data
+/storage
+/pgdata
+/minio-data
+
+# Logs, coverage, test reports and OS/editor cruft
+*.log
+coverage
+**/test-results
+.DS_Store
+
+# Local compose overrides
+docker-compose.override.yml
+docker-compose.override.yaml
+compose.override.yml
+compose.override.yaml
+
+# Image tarballs written by deploy/demo/build-images.sh: never part of a build
+# context (the demo seed image copies the whole context in its build stage)
+deploy/demo/images
+
+# Internal-only files, not part of the public repository (see .gitignore)
+internal
+work
+CLAUDE.md
+.claude
+
+# Working files and reports of the release smoke (scripts/smoke/run.mjs)
+smoke-out
+smoke-report.md
+smoke-report-*.md

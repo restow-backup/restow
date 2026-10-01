@@ -1,0 +1,439 @@
+{
+  "nav": "Importe",
+  "title": "Mail-Dateien importieren",
+  "subtitle": "Übernehmen Sie EML-, MSG-, MBOX- und ZIP-Dateien als importiertes Postfach in {appName}. Die Nachrichten lassen sich wie jede Sicherung durchsuchen, ansehen und wiederherstellen.",
+  "loadError": "Die Import-Einstellungen konnten nicht geladen werden",
+  "noTenant": {
+    "title": "Kein Mandant ausgewählt",
+    "description": "Wählen Sie oben einen Mandanten aus, um Mail-Dateien dorthin zu importieren."
+  },
+  "actions": {
+    "backToSources": "Alle Quellen",
+    "history": "Importe",
+    "next": "Weiter",
+    "start": "Import starten"
+  },
+  "steps": {
+    "label": "Import-Schritte",
+    "source": "Quelle",
+    "files": "Dateien",
+    "target": "Ziel",
+    "review": "Prüfen",
+    "done": "abgeschlossen"
+  },
+  "blockers": {
+    "origin": "Wählen Sie, woher die Dateien kommen.",
+    "uploadDisabled": "Uploads sind auf diesem Server abgeschaltet.",
+    "folderDisabled": "Der Import-Ordner des Servers ist nicht verfügbar.",
+    "noFiles": "Fügen Sie mindestens eine Datei zum Import hinzu.",
+    "name": "Geben Sie einen Namen für das neue Postfach ein.",
+    "mailbox": "Wählen Sie das Postfach, dem die Nachrichten hinzugefügt werden.",
+    "uploading": "Warten Sie, bis alle Uploads abgeschlossen sind."
+  },
+  "formats": {
+    "eml": "EML",
+    "msg": "MSG",
+    "mbox": "MBOX",
+    "zip": "ZIP",
+    "pst": "PST/OST",
+    "unknown": "Nicht erkannt"
+  },
+  "source": {
+    "title": "Woher kommen die Dateien?",
+    "description": "{appName} liest die Dateien, baut die Ordnerstruktur nach und legt die Nachrichten als neuen Sicherungsstand eines importierten Postfachs ab.",
+    "upload": {
+      "title": "Von diesem Computer hochladen",
+      "description": "Wählen Sie Dateien im nächsten Schritt aus oder ziehen Sie sie hinein. Große Dateien werden in Teilen gesendet und setzen nach einer Unterbrechung dort fort, wo sie aufgehört haben.",
+      "disabled": "Uploads sind auf diesem Server abgeschaltet."
+    },
+    "folder": {
+      "title": "Import-Ordner auf dem Server",
+      "description": "Verwenden Sie Dateien, die bereits auf dem Server von {appName} liegen, in {path}. Am besten für sehr große Archive, die Sie nicht durch den Browser senden möchten.",
+      "disabled": {
+        "title": "Der Import-Ordner ist nicht verfügbar",
+        "description": "Unter {path} ist kein lesbarer Ordner eingebunden. Binden Sie dort in den Containern api und worker ein Verzeichnis ein (schreibgeschützt genügt) oder setzen Sie IMPORT_DIR auf den Pfad, den Sie verwenden, und laden Sie diese Seite neu. Tragen Sie zum Beispiel bei den Volumes beider Container ein:"
+      },
+      "mountExample": "- ./import:{path}:ro"
+    },
+    "info": {
+      "title": "Was sich importieren lässt",
+      "supported": "Unterstützt werden EML (einzelne Nachrichten), MSG (Outlook-Nachrichten), MBOX und ZIP-Archive davon sowie Ordner oder ZIP-Dateien mit EML- oder MSG-Nachrichten, etwa MailStore-Exporte.",
+      "mailstore": "Das eigene Archivformat von MailStore kann nicht gelesen werden. Exportieren Sie die Postfächer in MailStore als EML- oder MSG-Dateien (Ordner oder ZIP) und importieren Sie diesen Export.",
+      "pst": "PST- und OST-Dateien sind für eine spätere Version geplant. Exportieren Sie das Postfach bis dahin aus Outlook als MSG- oder EML-Dateien oder wandeln Sie es in MBOX um und importieren Sie diese.",
+      "calendar": "Importiert wird nur E-Mail. Kalendereinträge und Kontakte werden nicht importiert; ein Outlook-Element, das ein Kontakt oder ein Termin ist, wird als keine E-Mail-Nachricht aufgeführt.",
+      "msg": "MSG-Nachrichten werden aus den in der Datei gespeicherten Eigenschaften als EML neu aufgebaut. Text, HTML, Empfänger und Anhänge bleiben erhalten, das Ergebnis ist aber nicht Byte für Byte das ursprüngliche Transportformat."
+    }
+  },
+  "files": {
+    "title": "Dateien auswählen",
+    "descriptionUpload": "Fügen Sie die zu importierenden Dateien hinzu. Sie werden in verschlüsselten Teilen an den Server von {appName} gesendet, sodass Sie schon zum nächsten Schritt weitergehen können, während der Upload läuft.",
+    "descriptionFolder": "Wählen Sie die Dateien und Ordner des Import-Ordners aus. Ein ausgewählter Ordner bringt alles mit, was darin liegt.",
+    "status": {
+      "imported": "Importiert",
+      "partial": "Teilweise importiert",
+      "failed": "Fehlgeschlagen",
+      "refused": "Nicht importiert"
+    },
+    "table": {
+      "title": "Dateien",
+      "description": "Was jede Datei enthielt und was daraus geworden ist. Mit der SHA-256-Prüfsumme lässt sich prüfen, ob es die Datei ist, die Sie importieren wollten.",
+      "file": "Datei",
+      "status": "Ergebnis",
+      "messages": "Nachrichten",
+      "folders": "Ordner",
+      "attachments": "Anhänge",
+      "duplicates": "Duplikate",
+      "skipped": "Übersprungen",
+      "failed": "Fehlgeschlagen",
+      "sha256": "SHA-256",
+      "format": "Format",
+      "size": "Größe",
+      "origin": "Quelle",
+      "origins": {
+        "upload": "Upload",
+        "folder": "Import-Ordner"
+      },
+      "none": "Keine Dateien.",
+      "noHash": "nicht gelesen"
+    }
+  },
+  "upload": {
+    "dropTitle": "Mail-Dateien hier ablegen",
+    "dropActive": "Zum Hinzufügen loslassen",
+    "pick": "Dateien auswählen",
+    "limit": "Bis zu {size} pro Datei. Ein unterbrochener Upload setzt dort fort, wo er aufgehört hat.",
+    "folderDropped": "{count, plural, one {Ein Ordner wurde übersprungen} other {# Ordner wurden übersprungen}}: Ordner lassen sich nicht hochladen. Fügen Sie die Dateien selbst hinzu oder packen Sie den Ordner zuerst in eine ZIP-Datei.",
+    "duplicates": "{count, plural, one {Diese Datei ist bereits in der Liste.} other {# Dateien sind bereits in der Liste.}}",
+    "list": {
+      "title": "Zu importierende Dateien",
+      "removeAll": "Alle entfernen"
+    },
+    "overall": {
+      "label": "Upload-Fortschritt",
+      "files": "{done} von {total} Dateien",
+      "bytes": "{sent} von {total} ({percent} %)",
+      "speed": "{speed} pro Sekunde",
+      "eta": "noch etwa {duration}"
+    },
+    "item": {
+      "status": {
+        "queued": "Wartet",
+        "opening": "Wird vorbereitet",
+        "completing": "Datei wird geprüft",
+        "ready": "Bereit zum Import"
+      },
+      "progressLabel": "Upload von {name}",
+      "sent": "{percent} % ({sent} von {total})",
+      "retrying": "Verbindungsproblem, neuer Versuch in {seconds} s (Versuch {attempt})",
+      "resumed": "Fortgesetzt",
+      "retry": "Erneut versuchen",
+      "remove": "{name} entfernen"
+    },
+    "errors": {
+      "network": "Der Server war auch nach mehreren Versuchen nicht erreichbar. Prüfen Sie die Verbindung und versuchen Sie es erneut: Der Upload setzt dort fort, wo er aufgehört hat.",
+      "server": "Der Server hat auch nach mehreren Versuchen einen Fehler gemeldet. Versuchen Sie es gleich noch einmal.",
+      "unauthorized": "Ihre Sitzung ist abgelaufen. Melden Sie sich erneut an; der Upload kann dann dort fortsetzen, wo er aufgehört hat.",
+      "forbidden": "Sie dürfen für diesen Mandanten keine Dateien hochladen.",
+      "tooLarge": "Diese Datei ist größer als das Limit von {limit}. Teilen Sie sie auf oder legen Sie sie in den Import-Ordner des Servers.",
+      "empty": "Diese Datei ist leer.",
+      "gone": "Der Upload existiert auf dem Server nicht mehr, möglicherweise ist er abgelaufen. Entfernen Sie die Datei und fügen Sie sie erneut hinzu.",
+      "stagingFull": "Der Platz für Dateien, die auf einen Import warten, ist voll. Warten Sie, bis ein Import abgeschlossen ist, oder entfernen Sie einen Upload, und versuchen Sie es dann erneut. Große Dateien können auch in den Importordner auf dem Server gelegt werden.",
+      "conflict": "Der Server nimmt für diesen Upload keine Daten mehr an. Entfernen Sie die Datei und fügen Sie sie erneut hinzu.",
+      "corrupt": "Die Daten kamen wiederholt beschädigt an. Prüfen Sie die Verbindung (ein Proxy könnte die Daten verändern) und versuchen Sie es erneut.",
+      "invalid": "Der Server hat diese Datei abgelehnt.",
+      "unreadable": "Der Browser konnte die Datei nicht lesen. Sie wurde seit der Auswahl möglicherweise verschoben, gelöscht oder geändert.",
+      "unknown": "Der Upload ist aus einem unbekannten Grund fehlgeschlagen."
+    },
+    "refusal": {
+      "pst_not_supported": {
+        "title": "PST- und OST-Dateien lassen sich noch nicht importieren",
+        "description": "Der Import von PST- und OST-Dateien ist für eine spätere Version geplant. Exportieren Sie das Postfach aus Outlook als MSG- oder EML-Dateien oder wandeln Sie es in MBOX um und importieren Sie diese."
+      },
+      "unrecognised": {
+        "title": "Das ist keine unterstützte Mail-Datei",
+        "description": "{appName} hat den Inhalt der Datei geprüft und weder eine EML-Nachricht, eine MSG-Nachricht, eine MBOX-Datei noch ein ZIP-Archiv gefunden. Der Dateiname spielt keine Rolle, nur der Inhalt."
+      },
+      "notImported": "Die Datei ist nicht Teil des Imports."
+    },
+    "unfinished": {
+      "title": "Unvollständige Uploads",
+      "description": "Uploads eines früheren Besuchs, die noch nicht verwendet wurden. Um einen unterbrochenen Upload fortzusetzen, fügen Sie dieselbe Datei erneut hinzu: Sie wird an Name und Größe erkannt, und nur die fehlenden Teile werden gesendet.",
+      "complete": "vollständig",
+      "received": "{percent} % empfangen",
+      "expires": "aufbewahrt bis {date}",
+      "pickAgain": "Fügen Sie diese Datei erneut hinzu, um fortzusetzen.",
+      "use": "Diese Datei verwenden",
+      "discard": "Verwerfen"
+    }
+  },
+  "folder": {
+    "root": "Import-Ordner",
+    "empty": "Dieser Ordner ist leer.",
+    "loadError": "Der Import-Ordner konnte nicht gelesen werden",
+    "notEnabled": {
+      "title": "Der Import-Ordner ist nicht verfügbar",
+      "description": "Der Server hat keinen lesbaren Import-Ordner. Bitten Sie den Betreiber, einen einzubinden."
+    },
+    "gone": {
+      "title": "Dieser Ordner existiert nicht mehr",
+      "description": "Er wurde auf dem Server verschoben oder entfernt.",
+      "toRoot": "Zurück zum Import-Ordner"
+    },
+    "columns": {
+      "select": "Auswählen",
+      "name": "Name",
+      "format": "Format",
+      "size": "Größe",
+      "modified": "Geändert"
+    },
+    "directory": "Ordner",
+    "select": "{name} auswählen",
+    "covered": "Enthalten im ausgewählten Ordner {folder}",
+    "reasons": {
+      "pst": "PST- und OST-Dateien sind für eine spätere Version geplant.",
+      "unknown": "Nicht als Mail-Datei erkannt.",
+      "other": "Diese Art von Datei lässt sich nicht importieren."
+    },
+    "truncated": "Es werden nur die ersten {count} Einträge angezeigt. Öffnen Sie einen Unterordner oder wählen Sie diesen Ordner als Ganzes aus.",
+    "nothingSelected": "Noch nichts ausgewählt.",
+    "selected": {
+      "title": "Ausgewählt",
+      "count": "{count, plural, one {# Eintrag} other {# Einträge}}",
+      "clear": "Auswahl leeren",
+      "remove": "{name} entfernen"
+    }
+  },
+  "target": {
+    "title": "Wohin sollen die Nachrichten?",
+    "description": "Ein importiertes Postfach ist ein Postfach in {appName}, das nur importierte Mails enthält. Jeder Import fügt ihm einen neuen Sicherungsstand hinzu und entfernt nie, was schon darin liegt.",
+    "new": {
+      "title": "Neues importiertes Postfach anlegen",
+      "description": "Für eine eigene Sammlung, zum Beispiel ein Postfach pro ehemaligem Mitarbeiter oder pro Archiv.",
+      "name": "Name des Postfachs",
+      "placeholder": "zum Beispiel Mailarchiv 2019",
+      "hint": "1 bis {max} Zeichen. Unter diesem Namen finden Sie das Postfach im Restore-Explorer.",
+      "errors": {
+        "empty": "Geben Sie einen Namen ein.",
+        "tooLong": "Der Name darf höchstens {max} Zeichen lang sein."
+      }
+    },
+    "existing": {
+      "title": "Zu einem vorhandenen importierten Postfach hinzufügen",
+      "description": "Die neuen Nachrichten kommen zu dem hinzu, was das Postfach schon enthält. Nachrichten, die schon vorhanden sind, werden übersprungen.",
+      "none": "Es gibt noch kein importiertes Postfach.",
+      "select": "Importiertes Postfach",
+      "placeholder": "Postfach auswählen",
+      "hint": "Dieselbe Nachricht wird erkannt und übersprungen, ein doppelter Import einer Datei schadet also nicht.",
+      "error": "Wählen Sie ein Postfach aus."
+    },
+    "archive": {
+      "title": "Zusätzlich ins Archiv übernehmen (Aufbewahrung und Suche gelten)",
+      "description": "Jede importierte Nachricht wird zusätzlich ins Archiv geschrieben und als aus einer Datei importiert gekennzeichnet. Aufbewahrungsregeln, Legal Holds und die Volltextsuche gelten dann wie für jede archivierte Mail. Lassen Sie das aus, wenn die Mails nur wiederherstellbar sein müssen."
+    }
+  },
+  "review": {
+    "title": "Prüfen und starten",
+    "description": "Prüfen Sie die Angaben. Der Import läuft im Hintergrund: Sie können diese Seite verlassen und ihn unter Importe verfolgen.",
+    "facts": {
+      "source": "Quelle",
+      "files": "Dateien",
+      "target": "Ziel",
+      "archive": "Archiv"
+    },
+    "source": {
+      "upload": "Von diesem Computer hochgeladen",
+      "folder": "Import-Ordner auf dem Server"
+    },
+    "filesSummary": "{count, plural, one {# Datei} other {# Dateien}}, {size}",
+    "target": {
+      "new": "Neues importiertes Postfach: {name}",
+      "existing": "Hinzugefügt zu: {name}"
+    },
+    "archive": {
+      "yes": "Zusätzlich ins Archiv übernommen",
+      "no": "Nicht ins Archiv übernommen"
+    },
+    "uploading": "{count, plural, one {# Datei wird} other {# Dateien werden}} noch hochgeladen. Sie können den Import starten, sobald alle Uploads abgeschlossen sind.",
+    "note": "Nachrichten, die schon im Postfach sind, werden als Duplikate übersprungen. Kalendereinträge und Kontakte werden nicht importiert. Dateien, die sich nicht lesen lassen, stehen im Bericht; alles andere wird importiert."
+  },
+  "status": {
+    "queued": "Wartet",
+    "active": "Läuft",
+    "completed": "Abgeschlossen",
+    "completedWithIssues": "Mit Problemen abgeschlossen",
+    "failed": "Fehlgeschlagen",
+    "cancelled": "Abgebrochen",
+    "unknown": "Unbekannt"
+  },
+  "phase": {
+    "starting": "Startet",
+    "prepare": "Bereitet vor",
+    "import": "Importiert Nachrichten",
+    "manifest": "Schreibt den Sicherungsstand",
+    "archive": "Übernimmt ins Archiv",
+    "other": "Arbeitet"
+  },
+  "job": {
+    "title": "Import",
+    "subtitle": "Fortschritt und Bericht dieses Imports.",
+    "back": "Alle Importe",
+    "loadError": "Der Import konnte nicht geladen werden",
+    "notFound": {
+      "title": "Import nicht gefunden",
+      "description": "Dieser Import existiert nicht oder gehört zu einem anderen Mandanten."
+    },
+    "openExplorer": "Im Restore-Explorer öffnen",
+    "downloadReport": "Bericht als JSON herunterladen",
+    "progress": {
+      "title": "Import läuft",
+      "queued": "Wartet darauf, dass ein Worker ihn aufnimmt.",
+      "running": "Der Import läuft.",
+      "phase": "Phase: {phase}",
+      "label": "Import-Fortschritt",
+      "waiting": "Wartet auf den Start.",
+      "counting": "Ermittelt, was in den Dateien steckt.",
+      "read": "{done} von {total} gelesen ({percent} %)",
+      "messages": "{count, plural, one {# Nachricht bisher importiert} other {# Nachrichten bisher importiert}}",
+      "file": "Datei {current} von {total}",
+      "failed": "{count, plural, one {# Element fehlgeschlagen} other {# Elemente fehlgeschlagen}}",
+      "duplicates": "{count, plural, one {# Duplikat übersprungen} other {# Duplikate übersprungen}}",
+      "stored": "{size} gespeichert",
+      "eta": "noch etwa {duration}",
+      "archive": "{done} von {total} Nachrichten ans Archiv übergeben"
+    },
+    "outcome": {
+      "title": "Ergebnis",
+      "finishedAt": "Beendet {date}",
+      "notFinished": "Der Import wurde nicht beendet.",
+      "failed": "Der Import ist fehlgeschlagen",
+      "failedUnknown": "Es wurden keine weiteren Einzelheiten gemeldet.",
+      "cancelled": "Der Import wurde abgebrochen",
+      "cancelledDescription": "Er wurde vor dem Ende gestoppt. Dafür hochgeladene Dateien wurden vom Server entfernt, frühere Importe in das Postfach sind nicht betroffen.",
+      "completedSnapshot": "Die Nachrichten liegen in einem neuen Sicherungsstand des Postfachs.",
+      "completedNoSnapshot": "Es wurde nichts Neues gespeichert, zum Beispiel weil jede Nachricht schon im Postfach war.",
+      "allAlreadyImported": "{count, plural, one {Die einzige Nachricht in den Dateien war bereits importiert. Es wurde nichts Neues gespeichert.} other {Alle # Nachrichten in den Dateien waren bereits importiert. Es wurde nichts Neues gespeichert.}}",
+      "nothingStored": "Es wurde nichts gespeichert, weil sich keine der Dateien lesen ließ. Die Liste unten nennt die Gründe."
+    },
+    "request": {
+      "title": "Auftrag",
+      "mailbox": "Postfach",
+      "files": "Dateien",
+      "filesValue": "{count, plural, one {# Datei} other {# Dateien}}",
+      "archive": "Archiv",
+      "actor": "Gestartet von",
+      "requested": "Angefordert",
+      "started": "Gestartet",
+      "finished": "Beendet",
+      "duration": "Dauer"
+    }
+  },
+  "report": {
+    "messages": "Nachrichten",
+    "folders": "Ordner",
+    "attachments": "Anhänge",
+    "duplicates": "Duplikate übersprungen",
+    "failed": "Nicht lesbare Elemente",
+    "skipped": "Übersprungene Elemente",
+    "bytes": "Nachrichtendaten",
+    "rebuilt": "Aus MSG neu aufgebaut"
+  },
+  "notes": {
+    "title": "Gut zu wissen",
+    "calendar_contacts_not_imported": "Kalendereinträge und Kontakte werden nicht importiert, nur E-Mail. Outlook-Elemente, die Kontakte oder Termine sind, werden als keine E-Mail-Nachricht aufgeführt.",
+    "msg_reconstructed": "Einige Nachrichten stammen aus MSG-Dateien und wurden aus den gespeicherten Eigenschaften als EML neu aufgebaut. Inhalt und Anhänge bleiben erhalten, es ist aber nicht Byte für Byte das ursprüngliche Transportformat.",
+    "metadata_unavailable": "Einige Nachrichten sind Byte für Byte gespeichert, aber ihr Betreff, Absender und Text konnten nicht in angemessener Zeit oder mit dem Speicher gelesen werden, den der Import zulässt. Sie erscheinen deshalb ohne diese Angaben, und die Archivsuche findet ihren Text nicht. Die Nachrichten selbst sind vollständig.",
+    "item_list_truncated": "Die Liste der Elemente ist begrenzt, es gibt also mehr Elemente als angezeigt werden.",
+    "report_recovered": "Dieser Bericht wurde aus den Aufzeichnungen des Auftrags neu aufgebaut, nachdem der Import unterbrochen wurde, zum Beispiel durch einen Neustart. Einzelne Angaben, etwa die Liste der fehlgeschlagenen oder übersprungenen Elemente, können fehlen.",
+    "other": "Der Import hat einen Hinweis gemeldet, den diese Version von {appName} nicht kennt (Code: {code})."
+  },
+  "archive": {
+    "title": "Archiv",
+    "description": "Das Ergebnis der Übernahme der importierten Nachrichten ins Archiv.",
+    "ingested": "Übernommen",
+    "already": "Bereits archiviert",
+    "failed": "Fehlgeschlagen",
+    "pending": "Die Nachrichten werden ans Archiv übergeben, sobald der Import fertig ist.",
+    "none": "Es wurde kein Archiv-Ergebnis gemeldet."
+  },
+  "items": {
+    "title": "Elemente, die nicht importiert wurden",
+    "description": "Elemente, die sich nicht lesen ließen oder übersprungen wurden, fehlgeschlagene zuerst. Der Grund wird in Ihrer Sprache erklärt, danach folgt der Originaltext des Lesers.",
+    "filters": {
+      "failed": "Fehlgeschlagen",
+      "skipped": "Übersprungen",
+      "all": "Alle"
+    },
+    "outcome": {
+      "failed": "Fehlgeschlagen",
+      "skipped": "Übersprungen"
+    },
+    "columns": {
+      "item": "Element",
+      "reason": "Grund"
+    },
+    "codes": {
+      "unreadable": "Das Element ist beschädigt oder ließ sich nicht auswerten.",
+      "unsupported": "Ein Format oder Container, den {appName} nicht liest, zum Beispiel ein verschlüsseltes oder verschachteltes Archiv.",
+      "not_mail": "Das ist keine E-Mail-Nachricht, zum Beispiel eine Indexdatei, ein Bild oder ein Outlook-Kontakt oder -Termin.",
+      "pst_not_supported": "PST- und OST-Dateien sind für eine spätere Version geplant.",
+      "too_large": "Die Nachricht ist größer als das Limit für eine einzelne Nachricht.",
+      "empty": "Das Element hat keinen Inhalt.",
+      "limit": "Eine Sicherheitsgrenze des ZIP-Lesers wurde erreicht: Anzahl der Einträge, entpackte Größe oder Kompressionsverhältnis.",
+      "duplicate": "Die Nachricht ist bereits im Postfach.",
+      "other": "Aus einem anderen Grund nicht importiert."
+    },
+    "copy": "Liste kopieren",
+    "copied": "Kopiert",
+    "copyFailed": "Die Liste konnte nicht kopiert werden. Markieren Sie sie und kopieren Sie sie von Hand.",
+    "none": "Keine Elemente anzuzeigen.",
+    "pending": "Fehler erscheinen hier, während der Import läuft.",
+    "liveFailures": "Elemente, die der Import bisher nicht lesen konnte:",
+    "noneNeeded": "Jedes Element wurde importiert. Es gibt nichts zu melden.",
+    "noneListed": "Der Bericht führt keine einzelnen Elemente auf.",
+    "omitted": "{count, plural, one {# weiteres Element wird} other {# weitere Elemente werden}} nicht aufgeführt. Die Liste zeigt die ersten {listed}."
+  },
+  "cancel": {
+    "action": "Import abbrechen",
+    "title": "Diesen Import abbrechen?",
+    "description": "Der Import stoppt, sobald der Worker die nächste Prüfung erreicht. Dafür hochgeladene Dateien werden vom Server entfernt, frühere Importe in das Postfach sind nicht betroffen.",
+    "keep": "Weiterlaufen lassen",
+    "confirm": "Import abbrechen",
+    "done": "Der Import wurde abgebrochen.",
+    "failed": "Der Import konnte nicht abgebrochen werden"
+  },
+  "list": {
+    "title": "Importe",
+    "subtitle": "Jeder Import von Mail-Dateien in diesen Mandanten, neueste zuerst.",
+    "new": "Mail-Dateien importieren",
+    "loadError": "Die Importe konnten nicht geladen werden",
+    "empty": {
+      "title": "Noch keine Importe",
+      "description": "Importieren Sie EML-, MSG-, MBOX- oder ZIP-Dateien, damit alte Mails in {appName} durchsuchbar und wiederherstellbar bleiben."
+    },
+    "columns": {
+      "created": "Gestartet",
+      "name": "Postfach",
+      "status": "Status",
+      "files": "Dateien",
+      "messages": "Nachrichten",
+      "failed": "Fehlgeschlagen",
+      "open": "Öffnen"
+    },
+    "archive": "Zusätzlich ins Archiv übernommen",
+    "open": "Import {name} öffnen"
+  },
+  "sourcePanel": {
+    "title": "Importierte Mail-Dateien",
+    "description": "Mail, die aus EML-, MSG-, MBOX- und ZIP-Dateien übernommen wurde. Von hier wird nichts gesichert, deshalb gibt es keine Verbindung einzurichten oder zu testen.",
+    "mailboxes": "{count, plural, one {importiertes Postfach} other {importierte Postfächer}}",
+    "history": "Importe anzeigen"
+  },
+  "errors": {
+    "formatNotSupported": "Eine der Dateien ist eine PST- oder OST-Datei oder hat ein anderes Format, das sich nicht importieren lässt. Der Import von PST und OST ist für eine spätere Version geplant.",
+    "fileTooLarge": "Eine Datei ist größer als das Limit dieses Servers.",
+    "nameTaken": "Ein importiertes Postfach mit diesem Namen gibt es schon. Wählen Sie einen anderen Namen oder fügen Sie die Nachrichten dem vorhandenen Postfach hinzu.",
+    "uploadNotReady": "Einer der Uploads ist noch nicht vollständig. Warten Sie, bis jeder Upload bereit ist.",
+    "alreadyQueued": "Für dieses Postfach wartet bereits ein Import. Er startet, sobald der laufende beendet ist.",
+    "folderDisabled": "Der Import-Ordner des Servers ist nicht verfügbar."
+  }
+}

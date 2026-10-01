@@ -1,0 +1,21 @@
+# Own-VM variant (deploy/demo/README.md, "Option A"): publish 80/443
+# publicly, so Caddy can obtain its own certificate for RESTOW_DEMO_APP_DOMAIN
+# (a real domain, automatic HTTPS). The base docker-compose.yml binds `web`
+# to the Docker bridge gateway address ONLY (security review finding 7) —
+# this override is the explicit opt-in to expose it, meant for a dedicated
+# demo VM, never for a shared/production host.
+#
+# Usage (images prebuilt and loaded first, see deploy/demo/build-images.sh):
+#   docker compose -f docker-compose.yml -f docker-compose.override.public.yml \
+#     --env-file .env up -d --no-build
+#
+# Or set RESTOW_DEMO_COMPOSE_FILES=docker-compose.yml:docker-compose.override.public.yml
+# in .env so deploy/demo/reset.sh picks it up automatically (see the README).
+#
+# Requires Docker Compose v2.24+ (the `!override` merge tag).
+
+services:
+  web:
+    ports: !override
+      - "80:80"
+      - "443:443"

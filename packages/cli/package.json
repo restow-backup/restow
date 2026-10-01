@@ -1,0 +1,33 @@
+{
+  "name": "@restow/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "restow-restore: the standalone restore tool. Reconstructs files from a Restow chunk store and a snapshot manifest without a running Restow server.",
+  "license": "Apache-2.0",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "bin": {
+    "restow-restore": "./dist/restow-restore.js"
+  },
+  "files": ["dist", "README.md", "!**/*.test.*"],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "start": "tsx src/restow-restore.ts"
+  },
+  "dependencies": {
+    "@restow/core": "workspace:*",
+    "commander": "^12.1.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
+  }
+}

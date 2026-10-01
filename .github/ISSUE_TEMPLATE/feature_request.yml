@@ -1,0 +1,27 @@
+name: Feature request
+description: Suggest something Restow does not do yet.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check the [roadmap](https://docs.restowbackup.com/roadmap/) first; some things
+        are already planned or deliberately out of scope.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: Describe the situation, not the solution first.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like Restow to do?
+    validations:
+      required: true
+  - type: dropdown
+    id: role
+    attributes:
+      label: You are
+      options: ["Running Restow for my own organization", "An IT service provider running it for customers", "Evaluating"]

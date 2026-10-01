@@ -1,0 +1,85 @@
+{
+  "nav": "Lizenz",
+  "edition": {
+    "label": "Edition",
+    "community": "Community",
+    "business": "Business",
+    "service_provider": "Service Provider",
+    "badge": {
+      "key": "Mit Schlüssel",
+      "environment": "Aus der Umgebung"
+    }
+  },
+  "locked": {
+    "business": "Verfügbar in Business",
+    "service_provider": "Verfügbar in Service Provider"
+  },
+  "about": {
+    "title": "Lizenz",
+    "description": "Edition und Lizenzschlüssel dieser Installation.",
+    "requiredEdition": "Diese Funktion gehört zu {edition}. Geben Sie unten einen Lizenzschlüssel ein, um sie freizuschalten.",
+    "loadError": "Lizenzstatus nicht verfügbar",
+    "terms": "Lizenzbedingungen",
+    "termsLink": "Lizenzbedingungen ansehen",
+    "opensInNewTab": "(öffnet in einem neuen Tab)"
+  },
+  "key": {
+    "title": "Lizenzschlüssel",
+    "description": "Business und Service Provider werden mit einem signierten Schlüssel freigeschaltet, der an diese Installation gebunden ist.",
+    "none": "Keiner installiert",
+    "licensee": "Lizenznehmer",
+    "keyId": "Schlüssel-ID",
+    "issuedAt": "Ausgestellt",
+    "installedAt": "Installiert",
+    "installationId": "Installations-ID",
+    "installationIdHint": "Geben Sie diese ID an, wenn Sie einen Schlüssel anfordern.",
+    "verification": "Prüfschlüssel",
+    "verificationSource": {
+      "embedded": "im Programm hinterlegt",
+      "environment": "aus RESTOW_LICENSE_PUBLIC_KEY"
+    },
+    "remove": "Schlüssel entfernen",
+    "copy": "Installations-ID kopieren"
+  },
+  "install": {
+    "title": "Schlüssel installieren",
+    "replaceTitle": "Anderen Schlüssel installieren",
+    "label": "Lizenzschlüssel",
+    "placeholder": "restow-license-v1.…",
+    "hint": "Fügen Sie den vollständigen Schlüssel ein. Zeilenumbrüche aus E-Mails stören nicht.",
+    "submit": "Prüfen und installieren",
+    "offline": "Die Prüfung läuft offline gegen den öffentlichen Prüfschlüssel. {appName} baut dafür keine Verbindung nach außen auf.",
+    "required": "Fügen Sie den Lizenzschlüssel ein.",
+    "unavailable": {
+      "title": "Schlüssel können nicht geprüft werden",
+      "unconfigured": "Dieses Build enthält keinen öffentlichen Prüfschlüssel. Verwenden Sie ein offizielles Release-Image oder setzen Sie RESTOW_LICENSE_PUBLIC_KEY.",
+      "invalid": "RESTOW_LICENSE_PUBLIC_KEY ist gesetzt, enthält aber keinen lesbaren Ed25519-Schlüssel. Korrigieren Sie den Wert und starten Sie die API neu.",
+      "not_configured": "Die Installation ist noch nicht eingerichtet. Schließen Sie zuerst den Einrichtungsassistenten ab."
+    }
+  },
+  "remove": {
+    "title": "Lizenzschlüssel entfernen?",
+    "description": "Ohne Schlüssel läuft diese Installation als {edition, select, community {Community} business {Business} other {Service Provider}}. Der Vorgang wird im Audit-Log festgehalten.",
+    "confirm": "Entfernen"
+  },
+  "toasts": {
+    "installed": "Schlüssel installiert. Edition: {edition, select, community {Community} business {Business} other {Service Provider}}.",
+    "removed": "Lizenzschlüssel entfernt."
+  },
+  "errors": {
+    "malformed": "Das ist kein Lizenzschlüssel. Fügen Sie den vollständigen Schlüssel so ein, wie er ausgestellt wurde.",
+    "bad_signature": "Die Signatur passt nicht. Der Schlüssel wurde verändert oder nicht für den Prüfschlüssel dieser Installation ausgestellt.",
+    "invalid_payload": "Der Schlüssel ist signiert, sein Inhalt aber unvollständig oder widersprüchlich. Bitte wenden Sie sich an den Aussteller.",
+    "installation_mismatch": "Dieser Schlüssel gilt für die Installation {keyInstallation}, diese Installation hat die ID {installation}. Fordern Sie einen Schlüssel für diese ID an.",
+    "unavailable": "Diese Installation kann Lizenzschlüssel derzeit nicht prüfen.",
+    "notConfigured": "Die Installation ist noch nicht eingerichtet.",
+    "notInstalled": "Es ist kein Lizenzschlüssel installiert."
+  },
+  "tenants": {
+    "blocked": {
+      "title": "Ein weiterer Mandant erfordert die Service-Provider-Edition",
+      "description": "Die {edition, select, community {Community} business {Business} other {Service Provider}}-Edition verwaltet genau einen Mandanten, und diese Installation hat ihn bereits. Für mehrere Mandanten ist ein Service-Provider-Lizenzschlüssel nötig.",
+      "action": "Lizenz öffnen"
+    }
+  }
+}

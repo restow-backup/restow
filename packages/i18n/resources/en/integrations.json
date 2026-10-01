@@ -1,0 +1,369 @@
+{
+  "nav": "Integrations",
+  "title": "Integrations",
+  "subtitle": "API keys and webhooks connect {appName} to RMM, PSA and ticket systems.",
+  "tenantScope": "API keys and webhooks of {tenant}. Integrations see this tenant only.",
+  "tabs": {
+    "apiKeys": "API keys",
+    "webhooks": "Webhooks"
+  },
+  "noTenant": {
+    "title": "No tenant selected",
+    "description": "Select a tenant in the top bar to manage its API keys and webhooks."
+  },
+  "noTenantAccess": {
+    "title": "Tenant admin role required",
+    "description": "Only tenant admins can manage the API keys and webhooks of {tenant}."
+  },
+  "apiKeys": {
+    "title": "API keys",
+    "description": "Integrations authenticate with 'Authorization: Bearer <key>'. A key acts only on this tenant and only with the scopes it was given.",
+    "create": "Create API key",
+    "showRevoked": "Show revoked keys",
+    "rateLimit": "Each key may send 600 requests per 10 minutes.",
+    "empty": {
+      "title": "No API keys yet",
+      "description": "Create one key per connected system, so you can revoke one without touching the others."
+    },
+    "columns": {
+      "name": "Name",
+      "key": "Key",
+      "scopes": "Scopes",
+      "lastUsed": "Last used",
+      "expires": "Expires",
+      "status": "Status",
+      "actions": "Actions"
+    },
+    "createdBy": "by {name}",
+    "neverUsed": "Never used",
+    "noExpiry": "No expiry",
+    "expiresSoon": "Expires soon",
+    "moreScopes": "+{count}",
+    "allScopes": "All scopes",
+    "status": {
+      "active": "Active",
+      "expired": "Expired",
+      "revoked": "Revoked"
+    },
+    "revoke": "Revoke",
+    "revokeLabel": "Revoke {name}",
+    "revokeConfirm": {
+      "title": "Revoke API key?",
+      "description": "Every integration using \"{name}\" ({prefix}…) stops working immediately. Revoking cannot be undone; the key stays listed for the audit trail.",
+      "confirm": "Revoke key"
+    },
+    "loadError": "The API keys could not be loaded."
+  },
+  "providerKeys": {
+    "title": "Provider keys",
+    "description": "Provider keys work across all tenants: requests name the tenant in the X-Restow-Tenant header, and the provider overviews list every tenant.",
+    "create": "Create provider key",
+    "empty": {
+      "title": "No provider keys yet",
+      "description": "A provider key lets your RMM or PSA read the status of every tenant with one key."
+    },
+    "unavailable": {
+      "title": "Not available on this installation",
+      "description": "Provider keys are not available on this installation. Existing provider keys can still be revoked."
+    },
+    "loadError": "The provider keys could not be loaded."
+  },
+  "createKey": {
+    "title": "Create API key",
+    "providerTitle": "Create provider key",
+    "description": "Give the key a name and only the scopes the integration needs.",
+    "providerDescription": "The key works across all tenants. Give it only the scopes the integration needs.",
+    "name": "Name",
+    "namePlaceholder": "e.g. RMM or ticket system",
+    "nameHint": "Shown in the key list and the audit log.",
+    "scopes": "Scopes",
+    "scopesHint": "Scopes are not implied: a key that changes protection also needs read access if it reads users.",
+    "expiry": "Expiry",
+    "expiryHint": "An expired key stops working; create a new one before then.",
+    "expiryOptions": {
+      "never": "No expiry",
+      "30": "30 days",
+      "90": "90 days",
+      "180": "180 days",
+      "365": "1 year"
+    },
+    "submit": "Create key",
+    "errors": {
+      "nameRequired": "Give the key a name.",
+      "nameTooLong": "At most 100 characters.",
+      "scopesRequired": "Choose at least one scope."
+    }
+  },
+  "scopes": {
+    "groups": {
+      "read": "Read",
+      "act": "Act",
+      "manage": "Configure"
+    },
+    "status_read": {
+      "label": "Status",
+      "description": "Summary, storage, latest verify report."
+    },
+    "jobs_read": {
+      "label": "Jobs",
+      "description": "Jobs with progress, failures and duration."
+    },
+    "items_read": {
+      "label": "Protected objects",
+      "description": "Mailboxes, OneDrives and IMAP accounts with their last snapshot."
+    },
+    "users_read": {
+      "label": "Users",
+      "description": "The user and mailbox directory, for PSA sync and billing."
+    },
+    "archive_read": {
+      "label": "Archive",
+      "description": "Journaling status, chain verification and proof reports."
+    },
+    "restore_write": {
+      "label": "Backups and restores",
+      "description": "Start backups and restores."
+    },
+    "verify_write": {
+      "label": "Test restores",
+      "description": "Start verify runs (sampled test restores)."
+    },
+    "users_write": {
+      "label": "Protection",
+      "description": "Include or exclude users, e.g. on on- and offboarding."
+    },
+    "webhooks_manage": {
+      "label": "Webhooks",
+      "description": "Create, change and delete webhooks of this tenant."
+    }
+  },
+  "reveal": {
+    "keyTitle": "Copy the API key now",
+    "keyDescription": "This is the only time the key is shown. {appName} keeps only a fingerprint, so a lost key cannot be recovered, only replaced.",
+    "keyLabel": "API key",
+    "keyUsage": "Send it with every request as: Authorization: Bearer <key>",
+    "secretTitle": "Copy the signing secret now",
+    "secretDescription": "This is the only time the secret is shown. Store it in the receiving system to verify the X-Restow-Signature header.",
+    "secretLabel": "Signing secret",
+    "copy": "Copy",
+    "copied": "Copied to the clipboard.",
+    "copyFailed": "Copying failed. Select the text and copy it manually.",
+    "acknowledge": "I have stored it in a safe place.",
+    "done": "Done"
+  },
+  "events": {
+    "job_failed": {
+      "label": "Job failed",
+      "description": "A backup, restore, verify or archive job failed for good, after its retries."
+    },
+    "job_completed": {
+      "label": "Job completed",
+      "description": "A job finished successfully."
+    },
+    "verify_completed": {
+      "label": "Verify completed",
+      "description": "A test restore finished, with its recovery readiness."
+    },
+    "webhook_test": {
+      "label": "Test event",
+      "description": "Sent with \"Send test event\"."
+    },
+    "report_alert": {
+      "label": "Alert from a rule",
+      "description": "Sent by an alert rule under Alerts that names this webhook."
+    },
+    "report_summary": {
+      "label": "Report from a rule",
+      "description": "Sent by a report rule under Alerts that names this webhook."
+    },
+    "unknown": {
+      "label": "Other event",
+      "description": "An event this version of {appName} does not describe."
+    }
+  },
+  "webhooks": {
+    "title": "Webhooks",
+    "description": "{appName} calls these URLs when something happens, e.g. so your ticket system opens a ticket when a backup fails.",
+    "create": "Add webhook",
+    "empty": {
+      "title": "No webhooks yet",
+      "description": "Add a webhook to have {appName} notify your RMM, PSA or ticket system about failed jobs and other events."
+    },
+    "columns": {
+      "webhook": "Webhook",
+      "events": "Events",
+      "health": "Status",
+      "lastDelivery": "Last delivery",
+      "actions": "Actions"
+    },
+    "unnamed": "Unnamed webhook",
+    "insecure": "Unencrypted",
+    "insecureHint": "Plain http: the payload travels unencrypted. The signature still proves it came from {appName}.",
+    "eventCount": "{count, plural, one {# event} other {# events}}",
+    "health": {
+      "paused": "Paused",
+      "failing": "Failing",
+      "retrying": "Retrying",
+      "healthy": "Delivering",
+      "idle": "No deliveries yet"
+    },
+    "stats": {
+      "pending": "{count, plural, one {# queued} other {# queued}}",
+      "failed": "{count, plural, one {# failed} other {# failed}} in 24 h",
+      "delivered": "{count, plural, one {# delivered} other {# delivered}} in 24 h"
+    },
+    "noDeliveries": "None yet",
+    "open": "Open {name}",
+    "actions": "Actions for {name}",
+    "edit": "Edit",
+    "pause": "Pause",
+    "activate": "Activate",
+    "delete": "Delete",
+    "deleteConfirm": {
+      "title": "Delete webhook?",
+      "description": "{appName} stops calling {url}. The delivery log and the signing secret are deleted with it.",
+      "confirm": "Delete webhook"
+    },
+    "loadError": "The webhooks could not be loaded."
+  },
+  "webhookForm": {
+    "createTitle": "Add webhook",
+    "editTitle": "Edit webhook",
+    "description": "{appName} sends a signed JSON POST to the URL for each chosen event.",
+    "name": "Name",
+    "namePlaceholder": "e.g. RMM alerts",
+    "nameHint": "Optional; helps to tell webhooks apart.",
+    "url": "URL",
+    "urlPlaceholder": "https://rmm.example.com/hooks/restow",
+    "urlHint": "Local and private network addresses are refused unless the operator allows them.",
+    "events": "Events",
+    "eventsHint": "{appName} calls the URL for these events only.",
+    "active": "Active",
+    "activeHint": "A paused webhook receives nothing; queued retries end.",
+    "submitCreate": "Add webhook",
+    "submitEdit": "Save changes",
+    "errors": {
+      "nameTooLong": "At most 100 characters.",
+      "urlRequired": "Enter the URL {appName} should call.",
+      "urlTooLong": "At most 2048 characters.",
+      "url": "Enter a complete URL, e.g. https://rmm.example.com/hooks/restow.",
+      "scheme": "Only http:// and https:// URLs can receive webhooks.",
+      "credentials": "Remove the user name and password from the URL; the signature authenticates {appName}.",
+      "eventsRequired": "Choose at least one event."
+    }
+  },
+  "detail": {
+    "back": "Back to webhooks",
+    "notFound": {
+      "title": "Webhook not found",
+      "description": "It may have been deleted, or it belongs to another tenant."
+    },
+    "sendTest": "Send test event",
+    "rotateSecret": "Rotate secret",
+    "rotateConfirm": {
+      "title": "Rotate the signing secret?",
+      "description": "A new secret is created and shown once. From the next delivery on, requests are signed with it; the receiving system must be updated.",
+      "confirm": "Rotate secret"
+    },
+    "configuration": "Configuration",
+    "url": "URL",
+    "events": "Events",
+    "noEvents": "No events subscribed. Edit the webhook and choose at least one, otherwise it receives nothing.",
+    "status": "Status",
+    "created": "Created",
+    "updated": "Last changed",
+    "secret": "Signing secret",
+    "secretConfigured": "Stored encrypted",
+    "secretMissing": "Missing: rotate the secret to create one",
+    "pausedNotice": {
+      "title": "This webhook is paused",
+      "description": "It receives no events and no test events until it is activated."
+    }
+  },
+  "deliveries": {
+    "title": "Delivery log",
+    "description": "Every delivery with its attempts. Failed attempts are retried for about a day; finished deliveries are kept for 30 days.",
+    "filter": {
+      "label": "Status",
+      "all": "All",
+      "pending": "Queued",
+      "delivered": "Delivered",
+      "failed": "Failed"
+    },
+    "columns": {
+      "event": "Event",
+      "status": "Status",
+      "attempts": "Attempts",
+      "created": "Created",
+      "result": "Result"
+    },
+    "status": {
+      "pending": "Queued",
+      "delivered": "Delivered",
+      "failed": "Failed"
+    },
+    "attempts": "{attempts} of {max}",
+    "deliveredAt": "Delivered {time}",
+    "nextAttempt": "Next attempt {time}",
+    "waiting": "Waiting for the first attempt",
+    "empty": "No deliveries yet. Send a test event to try the webhook.",
+    "emptyFiltered": "No deliveries with this status.",
+    "loadMore": "Load older deliveries",
+    "open": "Details of the delivery from {time}",
+    "loadError": "The delivery log could not be loaded.",
+    "detailTitle": "Delivery",
+    "detailDescription": "{event}, created {time}",
+    "deliveryId": "Delivery ID",
+    "eventId": "Event ID",
+    "eventIdHint": "The same for retries and redeliveries; receivers deduplicate by it.",
+    "lastError": "Last error",
+    "technicalDetail": "Technical detail",
+    "payload": "Payload",
+    "payloadHint": "The JSON body, as signed and sent.",
+    "redeliver": "Send again",
+    "redeliverHint": "Sends the same event as a new delivery.",
+    "errors": {
+      "http_error": "The receiver answered with HTTP {status}.",
+      "redirect": "The receiver redirected (HTTP {status}). Redirects are not followed; use the final URL.",
+      "timeout": "The receiver did not answer within 10 seconds.",
+      "connection_failed": "The connection to the receiver failed.",
+      "dns_failed": "The host name could not be resolved.",
+      "tls_failed": "The receiver's TLS certificate was not accepted.",
+      "blocked_address": "The URL points to an address {appName} does not call: loopback and private networks need the operator's approval, link-local (cloud metadata) and reserved ranges are always refused.",
+      "invalid_url": "The URL is not valid.",
+      "secret_missing": "The webhook has no signing secret. Rotate the secret to create one.",
+      "webhook_disabled": "The webhook was paused before this delivery went out.",
+      "internal": "{appName} could not prepare this delivery. It is retried.",
+      "unknown": "The delivery failed."
+    }
+  },
+  "signature": {
+    "title": "Verifying requests",
+    "description": "Every request is a JSON POST signed with the webhook's secret. Check the signature before trusting a request.",
+    "signatureHeader": "HMAC-SHA-256 of the raw request body under the signing secret, hex encoded and prefixed with sha256=. Compare in constant time.",
+    "eventHeader": "The event name, e.g. job.failed.",
+    "deliveryHeader": "The delivery ID; the body's id identifies the event across retries.",
+    "attemptHeader": "The attempt number, from 1.",
+    "retries": "Any answer other than 2xx counts as a failure and is retried after 1 min, 5 min, 15 min, 1 h, 3 h, 6 h and 12 h. HTTP 410 ends the delivery at once."
+  },
+  "toasts": {
+    "keyCreated": "API key created.",
+    "keyRevoked": "API key revoked.",
+    "webhookCreated": "Webhook added.",
+    "webhookUpdated": "Webhook saved.",
+    "webhookPaused": "Webhook paused.",
+    "webhookActivated": "Webhook activated.",
+    "webhookDeleted": "Webhook deleted.",
+    "secretRotated": "Signing secret rotated.",
+    "testQueued": "Test event queued. It appears in the delivery log in a few seconds.",
+    "redelivered": "The event is being sent again."
+  },
+  "problems": {
+    "keyLimit": "The limit of 50 active API keys is reached. Revoke unused keys first.",
+    "webhookLimit": "The limit of 20 webhooks per tenant is reached.",
+    "featureUnavailable": "This is not available on this installation.",
+    "webhookPaused": "The webhook is paused. Activate it first.",
+    "deliveryPending": "This delivery is still being attempted. Wait until it has finished.",
+    "masterKeyMissing": "Secrets cannot be stored: the server has no RESTOW_MASTER_KEY configured."
+  }
+}

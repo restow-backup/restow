@@ -1,0 +1,243 @@
+{
+  "nav": "Exports",
+  "adminExport": "Admin export",
+  "actorUnknown": "Unknown user",
+  "action": {
+    "export": "Export …",
+    "exportFolder": "Export this folder …",
+    "exportEverything": "Export everything …",
+    "exportResults": "Export results …",
+    "exportSelected": "Export selected ({count}) …",
+    "exportAll": "Export all results …"
+  },
+  "origin": {
+    "archive": "Archive",
+    "objectGone": "Removed mailbox"
+  },
+  "selection": {
+    "folders": "{count, plural, one {# folder} other {# folders}}",
+    "items": "{count, plural, one {# item} other {# items}}",
+    "allSnapshot": "Everything at the restore point",
+    "allArchive": "All search results"
+  },
+  "status": {
+    "queued": "Queued",
+    "active": "Running",
+    "completed": "Completed",
+    "completedWithIssues": "Completed with issues",
+    "failed": "Failed",
+    "cancelled": "Cancelled",
+    "unknown": "Unknown"
+  },
+  "phase": {
+    "preparing": "Preparing the export",
+    "collecting": "Collecting the mails",
+    "writing": "Writing the mails into the file",
+    "finishing": "Finishing the file and its checksum list"
+  },
+  "formats": {
+    "planned": "Planned for a later release",
+    "unavailable": "Not available on this server.",
+    "eml_zip": {
+      "label": "EML files in a ZIP",
+      "short": "EML (ZIP)",
+      "description": "Every mail as its own .eml file, sorted into the folder structure, plus a checksum list. Outlook, Thunderbird, Apple Mail and most other mail programs open these files."
+    },
+    "mbox": {
+      "label": "MBOX",
+      "short": "MBOX",
+      "description": "The common mailbox format of Thunderbird and many migration tools. One .mbox file per folder inside a ZIP, or a single .mbox file when you export one folder."
+    },
+    "msg_zip": {
+      "label": "MSG files in a ZIP",
+      "short": "MSG (ZIP)",
+      "description": "Outlook message files in the folder structure. They are rebuilt from the mail, not from the original bytes, so details can differ from the original."
+    },
+    "pst": {
+      "label": "PST (Outlook data file)",
+      "short": "PST",
+      "description": "Not available yet.",
+      "alternative": "Outlook can open the EML export by drag and drop, or import the MBOX file with common tools."
+    }
+  },
+  "expiry": {
+    "days": "The download link expires in {days, plural, one {# day} other {# days}}{hours, plural, =0 {} one { and # hour} other { and # hours}}.",
+    "hours": "The download link expires in {hours, plural, one {# hour} other {# hours}}{minutes, plural, =0 {} one { and # minute} other { and # minutes}}.",
+    "minutes": "The download link expires in {minutes, plural, one {# minute} other {# minutes}}.",
+    "soon": "The download link expires in less than a minute."
+  },
+  "expiryShort": {
+    "days": "in {days} d {hours} h",
+    "hours": "in {hours} h {minutes} min",
+    "minutes": "in {minutes} min",
+    "soon": "in under a minute"
+  },
+  "download": {
+    "action": "Download",
+    "until": "Available until {date}"
+  },
+  "cancel": {
+    "action": "Cancel",
+    "title": "Cancel this export?",
+    "description": "The export stops at the next mail and no file is kept. You can start it again at any time.",
+    "keep": "Keep running",
+    "confirm": "Cancel export",
+    "done": "The export was cancelled.",
+    "failed": "The export could not be cancelled."
+  },
+  "page": {
+    "title": "Export",
+    "description": "The file is prepared in the background. You can download it here as long as the link is valid.",
+    "back": "All exports",
+    "loadError": "The export could not be loaded."
+  },
+  "progress": {
+    "title": "Export in progress",
+    "queued": "Waiting for a free worker. The export starts shortly.",
+    "running": "The mails are being written into the file.",
+    "label": "Export progress",
+    "count": "{done} of {total} mails",
+    "failed": "{count, plural, one {# mail failed} other {# mails failed}}",
+    "eta": "about {minutes, plural, one {# minute} other {# minutes}} left",
+    "waiting": "Waiting to start …",
+    "counting": "Counting the mails …",
+    "leaveHint": "You can leave this page. The export keeps running and stays listed under Exports."
+  },
+  "result": {
+    "title": "Result",
+    "finishedAt": "Finished {date}",
+    "notFinished": "The export did not finish.",
+    "failed": "The export failed",
+    "failedUnknown": "No further details were reported. Start the export again, or check the worker log.",
+    "cancelled": "The export was cancelled",
+    "cancelledDescription": "No file was kept. Start a new export when you need one.",
+    "fileNameUnknown": "Export file",
+    "messages": "Mails exported",
+    "folders": "Folders",
+    "mailData": "Mail data",
+    "failedMessages": "Not exported",
+    "noReport": "The export finished without a report. The file is complete, but the numbers were not recorded.",
+    "checksum": "SHA-256 checksum of the file",
+    "copyChecksum": "Copy checksum",
+    "checksumHint": "Compare it with the checksum of the downloaded file to prove that nothing changed.",
+    "expired": {
+      "title": "The download link has expired",
+      "description": "The file was deleted from the server when the link expired ({date}). Start the export again to get a new file."
+    }
+  },
+  "skipped": {
+    "title": "Left out on purpose: exports contain mail only",
+    "calendar": "{count, plural, one {# calendar item was left out.} other {# calendar items were left out.}}",
+    "contacts": "{count, plural, one {# contact was left out.} other {# contacts were left out.}}",
+    "other": "{count, plural, one {# other item that is not mail was left out.} other {# other items that are not mail were left out.}}"
+  },
+  "failures": {
+    "title": "Mails that could not be exported",
+    "description": "These mails are missing in the file. The reason comes from the export.",
+    "descriptionLive": "These mails could not be exported so far. The export continues with the others.",
+    "truncated": "Showing {shown} of {total}."
+  },
+  "request": {
+    "title": "Request",
+    "source": "From",
+    "selection": "What",
+    "format": "Format",
+    "actor": "Requested by",
+    "reason": "Reason",
+    "requested": "Requested",
+    "finished": "Finished"
+  },
+  "list": {
+    "title": "Exports",
+    "subtitle": "Every export you started, with live progress. Finished files can be downloaded for 24 hours.",
+    "empty": "No exports yet",
+    "emptyDescription": "Export mail as EML or MBOX files from the restore explorer or the archive. Your exports appear here.",
+    "fromBackups": "Export from backups",
+    "fromArchive": "Export from the archive",
+    "loadError": "The exports could not be loaded.",
+    "expired": "Expired",
+    "columns": {
+      "created": "Requested",
+      "origin": "From",
+      "format": "Format",
+      "status": "Status",
+      "size": "Size",
+      "expires": "Link valid",
+      "actions": "Actions"
+    }
+  },
+  "dialog": {
+    "title": "Export mail",
+    "source": {
+      "snapshot": "From {object}, {restorePoint}",
+      "archive": "From the archive"
+    },
+    "scope": {
+      "everything": "All mail at this restore point",
+      "andMore": "{count, plural, other {and # more}}",
+      "archive": {
+        "items": "{count, plural, one {# archived mail selected} other {# archived mails selected}}",
+        "filterCount": "{count, plural, one {All mails of the current search (# result)} other {All mails of the current search (# results)}}",
+        "filterUnknown": "All mails of the current search",
+        "wholeArchive": "No filter is set: the whole archive is exported.",
+        "filter": {
+          "q": "Search: “{q}”",
+          "mailbox": "Mailbox: {mailbox}",
+          "from": "Sender: {from}",
+          "dateFrom": "From: {date}",
+          "dateTo": "Until: {date}",
+          "hasAttachment": "Only mails with attachments"
+        }
+      }
+    },
+    "formats": {
+      "label": "Format",
+      "loading": "Loading the available formats",
+      "loadError": "The available formats could not be loaded"
+    },
+    "mailOnly": {
+      "mailbox": "Only mail is exported. Calendar items and contacts are left out.",
+      "general": "Only mail is exported."
+    },
+    "fileName": {
+      "label": "File name (optional)",
+      "help": "Without extension: {appName} adds .zip or .mbox. Leave empty to use the suggested name."
+    },
+    "fileNameBase": {
+      "mail": "Mail export",
+      "archive": "Archive export"
+    },
+    "reason": {
+      "impersonationTitle": "Export on behalf of the owner",
+      "impersonation": "This data belongs to {owner}. The export is recorded as an admin export on their behalf.",
+      "label": "Reason",
+      "placeholder": "Ticket number or why this export is needed",
+      "help": "Written to the tamper-evident audit log."
+    },
+    "submit": "Start export",
+    "started": {
+      "title": "Export started",
+      "description": "The file is being prepared. Follow the progress on the export page."
+    },
+    "errors": {
+      "title": "The export could not be started",
+      "emptyScope": "There is nothing to export. Select at least one mail or change the search.",
+      "formatUnavailable": "This format is not available. Choose another one.",
+      "fileName": {
+        "forbidden": "The file name cannot start with a dot or contain slashes, colons or other special characters.",
+        "tooLong": "The file name can have at most 120 characters."
+      },
+      "reasonRequired": "Enter a reason of at least 3 characters.",
+      "notMail": "Only mail can be exported. OneDrive files are not part of an export.",
+      "selectionUnknown": "Some selected entries no longer exist at this restore point. Reload the folder and select again.",
+      "quotaExceeded": "The finished exports of this organization use all the space that exports may take. Older exports are deleted automatically when they expire. Request this export again after that, or export less mail at once.",
+      "queueUnavailable": "The job queue is not available. Make sure the {appName} worker is running, then try again.",
+      "snapshotGone": "This restore point is no longer available. Choose another one.",
+      "archiveGone": "Some of the selected archive mails are no longer available. Search again and select again."
+    }
+  },
+  "archive": {
+    "selectAll": "Select all mails on this page",
+    "selectRow": "Select the mail {subject}"
+  }
+}

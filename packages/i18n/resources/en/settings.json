@@ -1,0 +1,560 @@
+{
+  "nav": "Settings",
+  "title": "Settings",
+  "subtitle": "Operating mode, public address, notification mail and the Microsoft 365 app registration of this installation.",
+  "loadError": "The settings could not be loaded",
+  "forbidden": "Only provider administrators can change the settings of this installation.",
+  "sections": {
+    "label": "Settings sections",
+    "general": "General",
+    "mail": "Mail",
+    "microsoft365": "Microsoft 365",
+    "updates": "Updates",
+    "about": "About",
+    "danger": "Danger zone"
+  },
+  "account": {
+    "title": "Sign-in security",
+    "description": "How you sign in to {appName}: passkeys, the authenticator app for the emergency password, and your other sessions."
+  },
+  "form": {
+    "unsaved": "You have unsaved changes.",
+    "saved": "All changes are saved.",
+    "discard": "Discard changes"
+  },
+  "toasts": {
+    "saved": "Settings saved.",
+    "mailRemoved": "The mail configuration was removed.",
+    "passkeyAdded": "Passkey added.",
+    "passkeyRemoved": "Passkey removed.",
+    "authenticatorEnabled": "Authenticator app set up.",
+    "backupCodesRenewed": "New recovery codes created. The previous ones no longer work.",
+    "sessionsRevoked": "All other sessions were signed out."
+  },
+  "general": {
+    "mode": {
+      "title": "Operating mode",
+      "description": "How browsers reach this installation. The mode decides whether passkeys are available.",
+      "local": "Local mode",
+      "localDescription": "Reachable via IP address or localhost, without a public domain. Admins sign in with the emergency password and an authenticator code.",
+      "public": "Public mode",
+      "publicDescription": "Reachable via your own domain over HTTPS. Passkeys are available."
+    },
+    "publicUrl": {
+      "label": "Public URL",
+      "placeholder": "https://restow.example.com",
+      "hint": "Exactly the address browsers open, without a path. It defines the passkey domain and the Entra redirect URI."
+    },
+    "environment": {
+      "title": "The server still runs with a different address",
+      "description": "RESTOW_PUBLIC_URL is set to {url}. Sign-in and passkeys follow that value until you change it in the .env file and restart {appName}."
+    },
+    "localConfirm": {
+      "title": "Switch to local mode?",
+      "description": "Without a public URL, passkeys stop working. Admins then sign in with the emergency password and an authenticator code only.",
+      "confirm": "Switch to local mode"
+    },
+    "installation": {
+      "title": "Installation",
+      "updatedAt": "Settings last changed"
+    }
+  },
+  "readiness": {
+    "title": "Passkey readiness",
+    "description": "Passkeys bind to a domain served over HTTPS. {appName} checks the configuration, and the server tries to reach its own public address with full certificate validation.",
+    "ready": "Passkeys are offered on this installation.",
+    "notReady": "Passkeys are not offered. Admins sign in with the emergency password and an authenticator code.",
+    "preview": "Passkey readiness after saving",
+    "reasons": {
+      "mode_not_public": "Local mode binds no domain, which passkeys require.",
+      "no_public_url": "No valid public URL is set.",
+      "not_https": "The public URL is not served over HTTPS.",
+      "origin_mismatch": "Your browser is on a different address than the public URL."
+    },
+    "rpId": "Passkey domain",
+    "origin": "Origin",
+    "recheck": "Check again",
+    "checkedAt": "Checked {time}",
+    "checkFailed": "The check could not be run",
+    "probe": {
+      "label": "Server-side HTTPS check",
+      "url": "Requested",
+      "detail": "Detail",
+      "badge": {
+        "ok": "Trusted",
+        "skipped": "Not run",
+        "unreachable": "Unreachable",
+        "timeout": "No answer",
+        "certificate_invalid": "Certificate not trusted",
+        "unexpected_response": "Unexpected answer"
+      },
+      "status": {
+        "ok": "The public address answers over HTTPS with a trusted certificate.",
+        "skipped": "Runs only in public mode with an HTTPS public URL, not for localhost.",
+        "unreachable": "The server could not reach its own public address. A firewall or missing hairpin routing can cause this even when browsers reach it without problems.",
+        "timeout": "The public address did not answer within 8 seconds.",
+        "certificate_invalid": "The certificate is not trusted, for example because it is self-signed or expired. Browsers refuse passkeys on such connections.",
+        "unexpected_response": "Something other than {appName} answers at this address. Check the reverse proxy and the DNS records."
+      }
+    }
+  },
+  "mail": {
+    "title": "Notification mail",
+    "description": "{appName} sends reports, alerts and invitations through this transport. The journal intake for the archive is separate and only receives.",
+    "notConfigured": {
+      "title": "No mail transport configured",
+      "description": "{appName} cannot send reports, alerts or invitations until a transport is set up."
+    },
+    "transport": {
+      "label": "Transport",
+      "smtp": "SMTP server",
+      "graph": "Microsoft Graph (Mail.Send)"
+    },
+    "smtp": {
+      "host": "SMTP server",
+      "hostPlaceholder": "smtp.example.com",
+      "port": "Port",
+      "security": "Connection security",
+      "securityOptions": {
+        "starttls": "STARTTLS (port 587)",
+        "tls": "TLS / implicit (port 465)",
+        "none": "Unencrypted (internal relay only)"
+      },
+      "securityNoneWarning": "Without encryption, the password and every message travel in plain text. Use this only for a relay inside your own network.",
+      "username": "Username",
+      "usernameHint": "Leave empty if the server does not require authentication.",
+      "password": "Password",
+      "passwordHint": "Stored encrypted and never shown again.",
+      "passwordKeep": "A password is stored. Leave empty to keep it.",
+      "passwordAgain": "Server or username changed. Enter the password for them.",
+      "from": "Sender address",
+      "fromPlaceholder": "restow@example.com"
+    },
+    "graph": {
+      "hint": "Sends as the {appName} app registration through Microsoft Graph. Requires the Mail.Send application permission with admin consent; an application access policy can restrict it to the sender mailbox.",
+      "appMissing": {
+        "title": "App registration not configured",
+        "description": "No Microsoft 365 app registration is set up. Graph sends as that app; set it up under Settings → Microsoft 365, and grant it Mail.Send."
+      },
+      "passwordRemoved": "Saving with Microsoft Graph deletes the stored SMTP password.",
+      "sender": "Sender mailbox",
+      "senderPlaceholder": "restow@contoso.com",
+      "tenantId": "Entra tenant",
+      "tenantIdPlaceholder": "contoso.onmicrosoft.com",
+      "tenantIdHint": "Tenant ID or a verified domain of the tenant the sender mailbox belongs to.",
+      "tenantIdDefault": "Leave empty to use {tenant} from the server configuration."
+    },
+    "test": {
+      "title": "Test message",
+      "description": "Sends a test notification with the values shown above, including unsaved changes.",
+      "recipient": "Recipient",
+      "send": "Send test message",
+      "successTitle": "Test message sent",
+      "success": "Handed over for {recipient} in {duration}. Check the inbox, including the spam folder.",
+      "failed": "The test message could not be sent",
+      "detail": "Response of the mail system",
+      "reasons": {
+        "timeout": "No answer within 20 seconds. Check host, port and firewall.",
+        "graph_app_missing": "No Microsoft 365 app registration is set up (Settings → Microsoft 365).",
+        "graph_tenant_missing": "No Entra tenant is set for the sender mailbox.",
+        "transport_error": "The mail system refused the connection or the message."
+      }
+    }
+  },
+  "microsoftApp": {
+    "title": "Microsoft 365 app registration",
+    "description": "The multi-tenant backup app in your own Microsoft Entra directory. Customers grant it admin consent; {appName} then backs up and restores their mailboxes and OneDrives with it.",
+    "loadError": "The app registration could not be loaded.",
+    "status": {
+      "title": "Status",
+      "badge": {
+        "ready": "Set up",
+        "none": "Not set up",
+        "unusable": "Not usable"
+      },
+      "source": {
+        "environment": "From the server environment",
+        "database": "Saved in {appName}",
+        "none": "Not set up yet. Follow the four steps below."
+      },
+      "environmentNote": "The values come from the server environment (ENTRA_CLIENT_ID with ENTRA_CLIENT_SECRET or ENTRA_CLIENT_CERT_PATH). They take precedence and can only be changed there. To manage the registration here instead, remove those variables and restart {appName}.",
+      "environmentPartial": "Some ENTRA_CLIENT_* values are set in the server environment, but not enough to use them. They are ignored; the registration entered here is used.",
+      "problems": {
+        "certificate_unreadable": "The certificate file named in ENTRA_CLIENT_CERT_PATH cannot be read on this server.",
+        "certificate_invalid": "The certificate lacks its private key or the certificate itself. Upload it again.",
+        "document_unreadable": "The saved registration cannot be opened with the current master key (RESTOW_MASTER_KEY). Enter it again.",
+        "authority_host_invalid": "The saved login host is no longer accepted. Enter the registration again and choose one of Microsoft's login hosts."
+      },
+      "clientId": "Application (client) ID",
+      "tenantId": "Directory (tenant) ID",
+      "credential": "Credential",
+      "kinds": {
+        "secret": "Client secret",
+        "certificate": "Certificate"
+      },
+      "expires": "Expires",
+      "expiryUnknown": "Not recorded",
+      "thumbprint": "Certificate thumbprint",
+      "authorityHost": "Login host",
+      "updated": "Last changed",
+      "updatedBy": "by {who}",
+      "notSet": "Not set"
+    },
+    "expiry": {
+      "expired": "Expired",
+      "today": "Expires today",
+      "soon": "{days, plural, one {Expires in # day} other {Expires in # days}}",
+      "valid": "Valid until {date}",
+      "warning": "Create the next credential now: add it in Entra, enter it here, then delete the old one. Never the other way round."
+    },
+    "steps": {
+      "label": "Set up in four steps",
+      "step": "Step {number}",
+      "register": {
+        "title": "Register the app",
+        "description": "Once, in your own Microsoft Entra directory. The same app serves every customer.",
+        "path": "In the Microsoft Entra admin center, open:",
+        "pathItems": {
+          "identity": "Identity",
+          "applications": "Applications",
+          "appRegistrations": "App registrations",
+          "newRegistration": "New registration"
+        },
+        "name": "Name: for example {appName}. Customers see it when they grant consent.",
+        "accountTypes": "Supported account types:",
+        "accountTypesValue": "Accounts in any organizational directory (Any Microsoft Entra ID tenant - Multitenant)",
+        "redirect": "Redirect URI: select the platform Web and enter exactly this value:",
+        "redirectLabel": "Redirect URI (admin consent)",
+        "redirectMissing": "No public URL is set yet. Set it under Settings → General; the redirect URI is derived from it.",
+        "register": "Select Register. The overview page then shows the two values you enter in step 4:",
+        "openAdminCenter": "Open the Microsoft Entra admin center"
+      },
+      "permissions": {
+        "title": "API permissions",
+        "description": "Under API permissions → Add a permission → Microsoft Graph → Application permissions, add exactly these permissions:",
+        "columns": {
+          "permission": "Permission",
+          "type": "Type",
+          "purpose": "Used for",
+          "requirement": "Needed"
+        },
+        "types": {
+          "application": "Application",
+          "delegated": "Delegated"
+        },
+        "required": "Required",
+        "optional": "Optional",
+        "delegated": "Then add openid and profile under Delegated permissions. They grant no data access; they only let a customer's admin confirm who they are after the consent.",
+        "copyList": "Copy list",
+        "consent": "Finally select this button on the API permissions page:",
+        "consentLabel": "Grant admin consent for <your organization>",
+        "consentHint": "This consents in your own directory. Customers consent through the link {appName} creates for each Microsoft 365 source.",
+        "pitfallTitle": "Mail.ReadWrite, not Mail.Read",
+        "pitfall": "The most common mistake: with Mail.Read the backup runs, but every restore fails with 403. The same applies to Calendars.ReadWrite and Contacts.ReadWrite.",
+        "sites": "Sites.ReadWrite.All is deliberately not requested: SharePoint is not part of this version, and it would widen the consent needlessly.",
+        "mailSend": "Mail.Send only when notifications are sent through Microsoft Graph instead of SMTP."
+      },
+      "credentials": {
+        "title": "Credentials",
+        "description": "{appName} signs in as the app with a certificate (recommended) or a client secret. Set up one of them.",
+        "certificate": {
+          "title": "Certificate",
+          "recommended": "Recommended",
+          "create": "Create a key pair, for example with OpenSSL:",
+          "copyCommand": "Copy commands",
+          "upload": "Under Certificates & secrets → Certificates → Upload certificate, upload restow-entra.crt (the public part only).",
+          "enter": "In step 4, upload restow-entra.pem (private key and certificate). The private key is stored encrypted and never shown again.",
+          "benefit": "No secret in plain text, and renewable without downtime."
+        },
+        "secret": {
+          "title": "Client secret",
+          "create": "Under Certificates & secrets → Client secrets, select New client secret. Choose at most 24 months; Microsoft allows no longer term.",
+          "valueTitle": "Copy the Value, not the Secret ID",
+          "value": "Right after creating the secret, copy the Value column. Entra shows it only once; the Secret ID next to it is not the secret.",
+          "rotate": "{appName} warns 60 days before the secret expires. To rotate, create a new secret, enter it here, and only then delete the old one in Entra."
+        },
+        "portal": {
+          "certificatesAndSecrets": "Certificates & secrets",
+          "certificates": "Certificates",
+          "uploadCertificate": "Upload certificate",
+          "clientSecrets": "Client secrets",
+          "newClientSecret": "New client secret",
+          "value": "Value",
+          "secretId": "Secret ID"
+        }
+      },
+      "enter": {
+        "title": "Enter in {appName}",
+        "description": "Stored encrypted with the master key of this installation. The secret and the private key are never shown again.",
+        "readOnly": "The server environment provides the registration; there is nothing to enter here."
+      }
+    },
+    "form": {
+      "clientId": "Application (client) ID",
+      "clientIdPlaceholder": "00000000-0000-0000-0000-000000000000",
+      "tenantId": "Directory (tenant) ID",
+      "tenantIdPlaceholder": "contoso.onmicrosoft.com",
+      "tenantIdHint": "Your own directory, used for the connection test. A GUID or a verified domain.",
+      "credential": "Credential",
+      "kinds": {
+        "secret": "Client secret",
+        "certificate": "Certificate"
+      },
+      "clientSecret": "Client secret (Value)",
+      "secretStored": "Stored. Leave empty to keep it",
+      "secretHint": "The Value column from Certificates & secrets, not the Secret ID.",
+      "secretKeep": "A secret is stored. Leave the field empty to keep it.",
+      "secretAgain": "The Application ID or login host changed. Enter the secret for it.",
+      "expiresAt": "Expires on",
+      "expiresAtHint": "As shown in Entra. {appName} warns 60 days before.",
+      "certificatePem": "Private key and certificate (PEM)",
+      "certificateHint": "An unencrypted RSA key and the matching certificate, one after the other.",
+      "certificateKeep": "A certificate is stored ({thumbprint}). Upload or paste a new one to replace it.",
+      "certificateAgain": "The Application ID or login host changed. Upload the certificate for it.",
+      "uploadPem": "Upload PEM file",
+      "uploadFailed": "The file could not be read.",
+      "advanced": "Sovereign clouds",
+      "authorityHost": "Login host",
+      "authorityHostPlaceholder": "https://login.microsoftonline.us",
+      "authorityHostHint": "Only for national clouds. Leave empty for the global Microsoft cloud."
+    },
+    "validation": {
+      "guid": "Enter the Application (client) ID: 32 hexadecimal digits with hyphens.",
+      "tenantId": "Enter a directory ID (GUID) or a verified domain such as contoso.onmicrosoft.com.",
+      "secretIsId": "This is the Secret ID. Copy the Value column instead; Entra shows it only right after creating the secret.",
+      "credentialRequired": "Enter a client secret or upload a certificate.",
+      "credentialConflict": "Enter either a client secret or a certificate, not both.",
+      "certificateMissing": "The certificate (BEGIN CERTIFICATE) is missing.",
+      "privateKeyMissing": "The private key (BEGIN PRIVATE KEY) is missing.",
+      "privateKeyEncrypted": "The private key is protected by a password. Export it without one (OpenSSL option -nodes).",
+      "certificateInvalid": "The certificate cannot be read.",
+      "privateKeyInvalid": "The private key cannot be read.",
+      "unsupportedKeyType": "Only RSA keys are supported.",
+      "keyMismatch": "The private key does not belong to this certificate.",
+      "certificateExpired": "The certificate has expired.",
+      "certificateNotYetValid": "The certificate is not valid yet.",
+      "date": "Enter a valid date.",
+      "authorityHost": "Enter one of Microsoft's login hosts, for example https://login.microsoftonline.us.",
+      "tooLong": "This value is too long."
+    },
+    "test": {
+      "title": "Test connection",
+      "description": "Requests a Microsoft Graph token as the app in your directory and compares the granted application permissions with what {appName} needs.",
+      "tenantId": "Directory (tenant) ID to test in",
+      "run": "Test connection",
+      "needsSave": "Save the registration first; the test uses the saved values.",
+      "unsaved": "The test uses the saved registration, not the unsaved changes above.",
+      "success": "The connection works and every required permission is granted.",
+      "failed": "The test found a problem",
+      "tokenOk": "Token acquired in {tenant}.",
+      "checkedAt": "Last tested",
+      "reasons": {
+        "invalid_secret": "Entra rejected the client secret. Usually the Secret ID was entered instead of the Value. Create a new secret and copy its Value.",
+        "secret_expired": "The client secret has expired. Create a new one under Certificates & secrets and enter it here.",
+        "app_not_found": "This directory has no app with this Application (client) ID. Check both IDs from the app's overview page.",
+        "tenant_not_found": "This directory does not exist. Check the Directory (tenant) ID.",
+        "credential_missing": "Entra expected a client secret or certificate and accepted none. Enter the credential again.",
+        "invalid_certificate": "Entra does not accept the certificate. Upload the matching .crt under Certificates & secrets → Certificates.",
+        "consent_missing": "No application permission is granted yet. Select Grant admin consent on the API permissions page.",
+        "permissions_missing": "Required permissions are missing. Add them under API permissions and grant admin consent again.",
+        "network": "Microsoft Entra could not be reached from this server. Check the outbound connection (DNS, firewall, proxy).",
+        "other": "Entra refused the sign-in. The error code below helps with the diagnosis."
+      },
+      "code": "Error code: {code}",
+      "details": "Answer of Microsoft Entra",
+      "missing": "{count, plural, one {# required permission is missing.} other {# required permissions are missing.}}",
+      "readOnly": "{granted} was granted instead of {expected}: backups would run, restores would fail with 403.",
+      "unexpected": "Also granted, not used by {appName}: {list}",
+      "states": {
+        "granted": "Granted",
+        "read_only": "Read-only",
+        "missing": "Missing"
+      }
+    },
+    "remove": {
+      "title": "Remove the app registration",
+      "description": "{appName} can no longer reach Microsoft 365: backups, restores and directory syncs of every tenant stop until a registration is entered again.",
+      "action": "Remove registration",
+      "confirmTitle": "Remove the app registration?",
+      "confirmDescription": "The client secret or certificate is deleted and cannot be recovered. Backups and restores of every Microsoft 365 source stop.",
+      "confirm": "Remove"
+    },
+    "toasts": {
+      "saved": "App registration saved.",
+      "removed": "App registration removed."
+    },
+    "copy": "Copy {label}",
+    "inline": {
+      "title": "Set up the Microsoft 365 app registration first",
+      "description": "Tenants can be connected once the backup app is registered in Microsoft Entra and entered here. Changes apply right away, without a restart.",
+      "openSettings": "Open in the settings"
+    }
+  },
+  "security": {
+    "passkeys": {
+      "title": "Your passkeys",
+      "description": "Sign in without a password using Touch ID, Windows Hello, your phone or a security key. Passkeys are bound to {domain}.",
+      "descriptionNoDomain": "Sign in without a password using Touch ID, Windows Hello, your phone or a security key.",
+      "add": "Add passkey",
+      "openGeneral": "Open operating mode",
+      "unsupported": "This browser cannot create passkeys. Use a current browser to add one.",
+      "empty": "You have no passkey yet. Until you add one, you sign in with the emergency password and an authenticator code.",
+      "emptyNoAuthenticator": "You have no passkey and no authenticator app yet. Add a passkey here or set up the authenticator app below.",
+      "emptySso": "You have no passkey yet. Until you add one, you sign in with your Microsoft account.",
+      "emptyNotReady": "You have no passkey. Passkeys can be added once passkey readiness is reached.",
+      "notReadyMember": "Passkeys are not available on this installation yet. Your administrator enables them by running {appName} on its own HTTPS domain.",
+      "loadError": "Your passkeys could not be loaded",
+      "unnamed": "Passkey",
+      "createdAt": "Added {date}",
+      "createdUnknown": "Date added unknown",
+      "synced": "Synced",
+      "deviceBound": "This device only",
+      "remove": "Remove",
+      "removeLabel": "Remove passkey {name}",
+      "addDialog": {
+        "title": "Add a passkey",
+        "description": "Give the passkey a name you will recognise later, then confirm on your device.",
+        "name": "Name",
+        "nameHint": "Only for you, to tell your passkeys apart.",
+        "namePlaceholder": "MacBook Touch ID",
+        "defaultName": "Passkey on {device}",
+        "defaultNameGeneric": "My passkey",
+        "confirm": "Create passkey"
+      },
+      "removeDialog": {
+        "title": "Remove passkey?",
+        "description": "“{name}” can no longer be used to sign in. Without a passkey you sign in with the emergency password and an authenticator code.",
+        "descriptionSso": "“{name}” can no longer be used to sign in. Without a passkey you sign in with your Microsoft account.",
+        "confirm": "Remove passkey"
+      },
+      "errors": {
+        "cancelled": "The passkey dialog was cancelled or timed out. Nothing was changed.",
+        "alreadyRegistered": "This authenticator already holds a passkey for your account.",
+        "domain": "This browser address does not match the passkey domain. Open {appName} via its public URL and try again.",
+        "userVerification": "The authenticator cannot verify you with a PIN or biometrics, which {appName} requires.",
+        "verificationFailed": "The server could not verify the new passkey. Please try again.",
+        "generic": "The passkey action failed. Please try again."
+      }
+    },
+    "authenticator": {
+      "title": "Authenticator app",
+      "description": "Your emergency password works only together with a six-digit code from an app on your phone. {appName} asks for it right after the password.",
+      "statusOn": "On",
+      "statusOff": "Not set up",
+      "enabledDescription": "{appName} asks for a code from your authenticator app every time you sign in with your password. If your phone is lost, sign in with a recovery code instead, then move the authenticator to your new phone.",
+      "requiredDescription": "Your emergency password cannot be used without an authenticator app: {appName} accepts it only together with a code from the app. Set it up so you can still sign in when your passkey is not at hand.",
+      "setUp": "Set up authenticator app",
+      "replace": "Move to a new phone",
+      "newCodes": "New recovery codes",
+      "loadError": "Your sign-in methods could not be loaded",
+      "setup": {
+        "title": "Set up your authenticator app",
+        "replaceTitle": "Move the authenticator to a new phone",
+        "description": "Any app for time-based codes (TOTP) works.",
+        "passwordLead": "Confirm with your password. {appName} then creates the key for your authenticator app.",
+        "replaceWarning": "Your current authenticator stops working as soon as you continue. Keep the new phone at hand and finish the setup right away.",
+        "password": "Password",
+        "continue": "Continue",
+        "steps": {
+          "open": "Open an authenticator app on your phone, for example Microsoft Authenticator, Google Authenticator, 1Password or Bitwarden, and add an account.",
+          "scan": "Scan this QR code with the app.",
+          "enter": "Enter the six-digit code the app now shows."
+        },
+        "qrLabel": "QR code with the key for your authenticator app",
+        "manualTitle": "Cannot scan the code?",
+        "manualHint": "Add the account by hand with this key: time-based, six digits, every 30 seconds.",
+        "account": "Account",
+        "key": "Key",
+        "copyKey": "Copy key",
+        "keyCopied": "Key copied.",
+        "keyCopyFailed": "The key could not be copied. Select and copy it by hand.",
+        "code": "Code from the app",
+        "codePlaceholder": "123456",
+        "codeHint": "If the code is refused, check that your phone sets its time automatically.",
+        "confirm": "Verify and turn on"
+      },
+      "codes": {
+        "enabled": "The authenticator app is set up. From now on {appName} asks for a code after your password.",
+        "title": "Recovery codes",
+        "lead": "Each code works once, in place of a code from the app, for example when your phone is lost. Keep them in your password manager or print them: {appName} shows them only now.",
+        "listLabel": "Recovery codes",
+        "copy": "Copy codes",
+        "copied": "Recovery codes copied.",
+        "copyFailed": "The codes could not be copied. Select and copy them by hand.",
+        "download": "Download as text file",
+        "fileName": "restow-recovery-codes.txt",
+        "fileTitle": "{appName} recovery codes",
+        "fileNote": "Each code works once. Keep this file somewhere safe and offline.",
+        "acknowledge": "I have stored the recovery codes somewhere safe.",
+        "done": "Done"
+      },
+      "regenerate": {
+        "title": "New recovery codes",
+        "description": "Creates ten new recovery codes. The previous codes stop working immediately.",
+        "passwordLead": "Confirm with your password to create the new codes.",
+        "confirm": "Create new codes"
+      },
+      "errors": {
+        "password": "The password is not correct.",
+        "code": "The code is not correct or has expired. Check the time on your phone and enter the current code.",
+        "tooManyAttempts": "Too many attempts. Please wait a minute and try again.",
+        "alreadyEnabled": "An authenticator app is already set up for this account.",
+        "notEnabled": "The setup was not started or has expired. Please start again.",
+        "generic": "The authenticator setup failed. Please try again."
+      }
+    },
+    "sessions": {
+      "title": "Sessions",
+      "description": "Sign out every other browser and device where your account is signed in. This browser stays signed in.",
+      "revoke": "Sign out other sessions",
+      "confirmTitle": "Sign out all other sessions?",
+      "confirmDescription": "Every other browser and device signed in with your account is signed out immediately."
+    }
+  },
+  "danger": {
+    "title": "Danger zone",
+    "description": "These actions take effect immediately and cannot be undone.",
+    "removeMail": {
+      "title": "Remove mail configuration",
+      "description": "Deletes the notification transport and destroys the stored SMTP password. {appName} sends no reports, alerts or invitations until a new transport is set up.",
+      "notConfigured": "No mail transport is configured, so there is nothing to remove.",
+      "action": "Remove mail configuration",
+      "confirmTitle": "Remove the mail configuration?",
+      "confirmDescription": "Notifications stop right away. The stored SMTP password is deleted and cannot be recovered.",
+      "confirm": "Remove"
+    }
+  },
+  "validation": {
+    "originOnly": "Enter the address only, without a path, for example https://restow.example.com.",
+    "domainRequired": "Use a domain name. Passkeys cannot be bound to an IP address.",
+    "passwordRequired": "Enter the password for this server and username.",
+    "usernameRequired": "A password needs a username.",
+    "tenantId": "Enter a tenant ID or a verified domain such as contoso.onmicrosoft.com.",
+    "host": "Enter a host name or an IP address."
+  },
+  "errors": {
+    "setupIncomplete": "The setup is not complete yet. Finish the setup wizard first.",
+    "mailNotConfigured": "No mail transport is configured yet.",
+    "masterKey": "The server has no valid master key (RESTOW_MASTER_KEY), so it cannot store the password encrypted.",
+    "microsoftAppManaged": "The app registration is set in the server environment and can only be changed there.",
+    "microsoftAppNotConfigured": "Save the app registration before testing it."
+  },
+  "about": {
+    "title": "About {appName}",
+    "description": "Version, source code and licenses of this installation.",
+    "product": "Product",
+    "version": "Version",
+    "developmentBuild": "Development build",
+    "commit": "Commit",
+    "commitUnknown": "Unknown",
+    "license": "License",
+    "licenseName": "Apache-2.0",
+    "source": "Source code",
+    "sourceRelease": "Source code of version {version}",
+    "sourceRepository": "Source code repository",
+    "thirdParty": "Third-party licenses",
+    "thirdPartyLink": "Third-party notices",
+    "thirdPartyGitHub": "on GitHub",
+    "opensInNewTab": "(opens in a new tab)"
+  }
+}

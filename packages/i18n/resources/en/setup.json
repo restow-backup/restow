@@ -1,0 +1,203 @@
+{
+  "title": "Initial setup",
+  "subtitle": "Six steps and {appName} is ready to run.",
+  "stepIndicator": "Step {current} of {total}",
+  "step": {
+    "token": "Setup token",
+    "disclaimer": "Operator notice",
+    "mode": "Operating mode",
+    "admin": "First admin account",
+    "mail": "Mail transport",
+    "review": "Review"
+  },
+  "token": {
+    "title": "Confirm that you run this server",
+    "description": "Only someone with access to the server can set up {appName}. The setup token proves it.",
+    "whereLog": "When the api container started, it wrote a one-time setup token to its log. Show it on the server with:",
+    "whereEnvironment": "This server takes its setup token from the RESTOW_SETUP_TOKEN variable in its environment (.env). Enter that value.",
+    "restart": "Each restart of the api issues a new token. Use the one printed last.",
+    "label": "Setup token",
+    "placeholder": "XXXXX-XXXXX-XXXXX-XXXXX",
+    "hint": "Upper or lower case and dashes do not matter.",
+    "checking": "Checking …",
+    "error": {
+      "required": "Enter the setup token.",
+      "invalid": "This is not the setup token of this server. Copy it again from the log.",
+      "changed": "The setup token has changed, probably because the api restarted. Enter the token it printed last. Your entries are kept.",
+      "failed": "The token could not be checked. Try again."
+    }
+  },
+  "disclaimer": {
+    "title": "Your responsibility as operator",
+    "description": "Please read this notice. {appName} cannot be used until you accept it.",
+    "intro": "{appName} is a tool for backup and archiving. It writes your data to storage that you operate and helps you get it back. It does not run that storage for you, and it cannot make your infrastructure safe. What happens on the hardware and storage layer is your responsibility as operator.",
+    "points": {
+      "strategy": {
+        "title": "No replacement for a backup strategy",
+        "body": "{appName} does not replace a backup strategy. Follow the 3-2-1 rule: three copies of your data, on two kinds of media, one of them off site or offline. Keep an independent copy that {appName} cannot reach or delete. Especially during the beta, {appName} must never be your only backup."
+      },
+      "storage": {
+        "title": "Hardware and storage",
+        "body": "You are responsible for the servers, disks, networks and storage targets underneath, and for their redundancy, capacity and health. If a storage target fails, runs full, is lost or is not backed up separately, {appName} cannot repair that or bring the data back."
+      },
+      "immutability": {
+        "title": "Ransomware and deletion",
+        "body": "Data is only immutable if the storage makes it so. Without WORM or Object Lock configured on the storage target, anyone who can reach it, ransomware and a compromised account included, can change or delete your backups and archive. Protecting the storage against ransomware and deletion is your responsibility."
+      },
+      "keys": {
+        "title": "Encryption keys",
+        "body": "Your data is encrypted with keys derived from the master key of this installation. You are responsible for keeping that key safe and stored apart from the data. If the master key is lost, the data cannot be decrypted by anyone and cannot be recovered."
+      },
+      "security": {
+        "title": "Network and access",
+        "body": "You are responsible for the security of the server, the network, the accounts and the credentials that reach {appName} and its storage: updates, firewall, HTTPS, strong sign-in, and who may access what."
+      },
+      "restore": {
+        "title": "Test your restores",
+        "body": "Test restores regularly and check the results, in addition to the verification {appName} runs itself. A backup you have never restored is one you cannot rely on."
+      },
+      "gobd": {
+        "title": "Archive and GoBD",
+        "body": "The archive features are designed for GoBD-compliant use. Whether your whole procedure is compliant, including process documentation, retention periods, access rights, organizational measures and the storage behind the archive, is your responsibility. {appName} does not give legal or tax advice."
+      },
+      "warranty": {
+        "title": "No warranty",
+        "body": "{appName} is provided under its license terms and without warranty beyond them and beyond what mandatory law requires."
+      }
+    },
+    "accept": "I have read this notice and accept it. I understand that, as operator of this installation, I am responsible for the points above.",
+    "required": "Tick the box to continue.",
+    "version": "Version {version}",
+    "continue": "Continue",
+    "accepted": "You have accepted this notice.",
+    "failed": "Your acceptance could not be saved.",
+    "serverRequired": "The notice has to be accepted before the setup can be saved.",
+    "versionChanged": "The notice was updated. Reload the page to read the current version.",
+    "reload": "Reload",
+    "existing": {
+      "title": "Operator responsibility notice",
+      "description": "This installation was set up before this notice existed, or the notice was updated. Please read it and accept it to keep using {appName}.",
+      "needAdministrator": "An owner or administrator of the provider team has to accept this notice first. Ask one of them to sign in and accept it, or sign out.",
+      "accept": "Accept and continue",
+      "signOut": "Sign out"
+    }
+  },
+  "mode": {
+    "title": "How do you run {appName}?",
+    "description": "You can change the mode later in the settings.",
+    "local": "Local mode",
+    "localDescription": "Reachable via IP address or localhost, without a public domain. Sign-in with the emergency password.",
+    "public": "Public mode",
+    "publicDescription": "Reachable via your own domain with HTTPS. Passkeys are available.",
+    "publicUrl": {
+      "label": "Public URL",
+      "placeholder": "https://restow.example.com",
+      "hint": "Exactly the address browsers open. It defines the passkey domain and the Entra redirect URI."
+    },
+    "passkey": {
+      "title": "Passkey readiness",
+      "ready": "Passkeys are offered on this installation.",
+      "notReady": "Passkeys are not offered yet. Until then the emergency sign-in with password applies.",
+      "checking": "Checking the connection …",
+      "reasons": {
+        "mode_not_public": "Local mode does not bind a domain, which WebAuthn requires.",
+        "no_public_url": "No valid public URL is set.",
+        "not_https": "The public URL is not served over HTTPS.",
+        "origin_mismatch": "The browser reports a different origin than the configured URL."
+      },
+      "rpId": "Passkey domain",
+      "origin": "Origin"
+    }
+  },
+  "admin": {
+    "title": "First admin account",
+    "description": "This account is the provider admin: it sets up {appName} and creates tenants.",
+    "name": {
+      "label": "Name",
+      "placeholder": "First and last name"
+    },
+    "email": {
+      "label": "Email",
+      "placeholder": "admin@example.com"
+    },
+    "password": {
+      "label": "Emergency password",
+      "placeholder": "At least 12 characters",
+      "hint": "The password is the emergency path. Use a password manager. Right after signing in you set up an authenticator app; from then on {appName} asks for its code together with the password."
+    },
+    "confirm": {
+      "label": "Repeat password",
+      "placeholder": "Enter it again"
+    },
+    "strength": {
+      "label": "Password strength",
+      "tooShort": "Too short",
+      "weak": "Weak",
+      "fair": "Fair",
+      "strong": "Strong",
+      "veryStrong": "Very strong"
+    },
+    "passkeyHint": "Once passkey readiness is reached, you can add a passkey under Sign-in security in the user menu."
+  },
+  "mail": {
+    "title": "How does {appName} send notifications?",
+    "description": "Used for reports, alerts and invitations. The journal intake for the archive is separate from this.",
+    "transport": {
+      "label": "Transport",
+      "smtp": "SMTP server",
+      "graph": "Microsoft Graph (Mail.Send)"
+    },
+    "smtp": {
+      "host": "SMTP server",
+      "hostPlaceholder": "smtp.example.com",
+      "port": "Port",
+      "security": "Connection security",
+      "securityOptions": {
+        "starttls": "STARTTLS (port 587)",
+        "tls": "TLS / implicit (port 465)",
+        "none": "Unencrypted (internal only)"
+      },
+      "username": "Username",
+      "usernameHint": "Leave empty if the server does not require authentication.",
+      "password": "Password",
+      "passwordHint": "Stored encrypted and never shown in plain text.",
+      "from": "Sender address",
+      "fromPlaceholder": "restow@example.com"
+    },
+    "graph": {
+      "sender": "Sender mailbox",
+      "senderPlaceholder": "restow@example.com",
+      "tenantId": "Entra tenant ID (optional)",
+      "tenantIdPlaceholder": "00000000-0000-0000-0000-000000000000",
+      "hint": "Uses the Microsoft app registration as an application. Requires the Mail.Send application permission with admin consent; see https://docs.restowbackup.com/administrators/setup-wizard/."
+    },
+    "sendTest": {
+      "label": "Send a test message to the admin account",
+      "hint": "Shows right away whether the transport works. A failure does not block the setup."
+    }
+  },
+  "review": {
+    "title": "Review",
+    "description": "Check your entries and finish the setup.",
+    "mode": "Operating mode",
+    "publicUrl": "Public URL",
+    "admin": "First admin account",
+    "mail": "Mail transport",
+    "sendTest": "Test message",
+    "yes": "Yes",
+    "no": "No",
+    "finish": "Finish setup",
+    "submitting": "Saving setup …",
+    "signingIn": "Signing in …"
+  },
+  "result": {
+    "success": "Setup complete. Welcome to {appName}.",
+    "testSendOk": "The test message was sent.",
+    "testSendFailed": "The test message could not be sent: {error}",
+    "signInFailed": "The setup is saved, but the automatic sign-in did not work. Please sign in manually.",
+    "alreadyConfigured": "This installation is already set up.",
+    "failed": "The setup could not be saved.",
+    "administratorExists": "An earlier, unfinished setup already created an administrator. Continue with that administrator's email and password.",
+    "configurationIncomplete": "The server configuration is incomplete. Set {settings} in the server environment and restart {appName}, then finish the setup."
+  }
+}

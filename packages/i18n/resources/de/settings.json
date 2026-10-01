@@ -1,0 +1,560 @@
+{
+  "nav": "Einstellungen",
+  "title": "Einstellungen",
+  "subtitle": "Betriebsmodus, öffentliche Adresse, Benachrichtigungs-Mail und die Microsoft-365-App-Registrierung dieser Installation.",
+  "loadError": "Die Einstellungen konnten nicht geladen werden",
+  "forbidden": "Nur Provider-Admins können die Einstellungen dieser Installation ändern.",
+  "sections": {
+    "label": "Bereiche der Einstellungen",
+    "general": "Allgemein",
+    "mail": "Mail",
+    "microsoft365": "Microsoft 365",
+    "updates": "Updates",
+    "about": "Über",
+    "danger": "Gefahrenzone"
+  },
+  "account": {
+    "title": "Anmeldesicherheit",
+    "description": "Wie Sie sich bei {appName} anmelden: Passkeys, die Authenticator-App für das Notfall-Passwort und Ihre anderen Sitzungen."
+  },
+  "form": {
+    "unsaved": "Es gibt ungespeicherte Änderungen.",
+    "saved": "Alle Änderungen sind gespeichert.",
+    "discard": "Änderungen verwerfen"
+  },
+  "toasts": {
+    "saved": "Einstellungen gespeichert.",
+    "mailRemoved": "Die Mail-Konfiguration wurde entfernt.",
+    "passkeyAdded": "Passkey hinzugefügt.",
+    "passkeyRemoved": "Passkey entfernt.",
+    "authenticatorEnabled": "Authenticator-App eingerichtet.",
+    "backupCodesRenewed": "Neue Wiederherstellungscodes erstellt. Die bisherigen gelten nicht mehr.",
+    "sessionsRevoked": "Alle anderen Sitzungen wurden abgemeldet."
+  },
+  "general": {
+    "mode": {
+      "title": "Betriebsmodus",
+      "description": "Wie Browser diese Installation erreichen. Der Modus entscheidet, ob Passkeys verfügbar sind.",
+      "local": "Lokaler Modus",
+      "localDescription": "Erreichbar über IP-Adresse oder localhost, ohne öffentliche Domain. Admins melden sich mit dem Notfall-Passwort und einem Authenticator-Code an.",
+      "public": "Öffentlicher Modus",
+      "publicDescription": "Erreichbar über eine eigene Domain mit HTTPS. Passkeys sind verfügbar."
+    },
+    "publicUrl": {
+      "label": "Öffentliche URL",
+      "placeholder": "https://restow.example.com",
+      "hint": "Genau die Adresse, die Browser aufrufen, ohne Pfad. Sie bestimmt die Passkey-Domain und die Entra-Redirect-URI."
+    },
+    "environment": {
+      "title": "Der Server läuft noch mit einer anderen Adresse",
+      "description": "RESTOW_PUBLIC_URL ist auf {url} gesetzt. Anmeldung und Passkeys folgen diesem Wert, bis Sie ihn in der .env-Datei ändern und {appName} neu starten."
+    },
+    "localConfirm": {
+      "title": "In den lokalen Modus wechseln?",
+      "description": "Ohne öffentliche URL funktionieren Passkeys nicht mehr. Admins melden sich dann nur noch mit dem Notfall-Passwort und einem Authenticator-Code an.",
+      "confirm": "In den lokalen Modus wechseln"
+    },
+    "installation": {
+      "title": "Installation",
+      "updatedAt": "Einstellungen zuletzt geändert"
+    }
+  },
+  "readiness": {
+    "title": "Passkey-Bereitschaft",
+    "description": "Passkeys binden sich an eine Domain, die per HTTPS ausgeliefert wird. {appName} prüft die Konfiguration, und der Server versucht, seine eigene öffentliche Adresse mit vollständiger Zertifikatsprüfung zu erreichen.",
+    "ready": "Passkeys werden auf dieser Installation angeboten.",
+    "notReady": "Passkeys werden nicht angeboten. Admins melden sich mit dem Notfall-Passwort und einem Authenticator-Code an.",
+    "preview": "Passkey-Bereitschaft nach dem Speichern",
+    "reasons": {
+      "mode_not_public": "Der lokale Modus bindet keine Domain, die Passkeys aber voraussetzen.",
+      "no_public_url": "Es ist keine gültige öffentliche URL gesetzt.",
+      "not_https": "Die öffentliche URL wird nicht über HTTPS ausgeliefert.",
+      "origin_mismatch": "Ihr Browser ist unter einer anderen Adresse als der öffentlichen URL unterwegs."
+    },
+    "rpId": "Passkey-Domain",
+    "origin": "Origin",
+    "recheck": "Erneut prüfen",
+    "checkedAt": "Geprüft {time}",
+    "checkFailed": "Die Prüfung konnte nicht ausgeführt werden",
+    "probe": {
+      "label": "Serverseitige HTTPS-Prüfung",
+      "url": "Abgefragt",
+      "detail": "Detail",
+      "badge": {
+        "ok": "Vertrauenswürdig",
+        "skipped": "Nicht ausgeführt",
+        "unreachable": "Nicht erreichbar",
+        "timeout": "Keine Antwort",
+        "certificate_invalid": "Zertifikat nicht vertrauenswürdig",
+        "unexpected_response": "Unerwartete Antwort"
+      },
+      "status": {
+        "ok": "Die öffentliche Adresse antwortet per HTTPS mit einem vertrauenswürdigen Zertifikat.",
+        "skipped": "Läuft nur im öffentlichen Modus mit einer HTTPS-URL, nicht für localhost.",
+        "unreachable": "Der Server konnte seine eigene öffentliche Adresse nicht erreichen. Eine Firewall oder fehlendes Hairpin-Routing kann die Ursache sein, auch wenn Browser die Adresse problemlos erreichen.",
+        "timeout": "Die öffentliche Adresse hat nicht innerhalb von 8 Sekunden geantwortet.",
+        "certificate_invalid": "Das Zertifikat ist nicht vertrauenswürdig, zum Beispiel weil es selbstsigniert oder abgelaufen ist. Browser verweigern Passkeys auf solchen Verbindungen.",
+        "unexpected_response": "Unter dieser Adresse antwortet etwas anderes als {appName}. Prüfen Sie den Reverse Proxy und die DNS-Einträge."
+      }
+    }
+  },
+  "mail": {
+    "title": "Benachrichtigungs-Mail",
+    "description": "Über diesen Transport verschickt {appName} Berichte, Warnungen und Einladungen. Der Journal-Empfang für das Archiv ist davon getrennt und empfängt nur.",
+    "notConfigured": {
+      "title": "Kein Mail-Transport eingerichtet",
+      "description": "{appName} kann keine Berichte, Warnungen oder Einladungen verschicken, bis ein Transport eingerichtet ist."
+    },
+    "transport": {
+      "label": "Transport",
+      "smtp": "SMTP-Server",
+      "graph": "Microsoft Graph (Mail.Send)"
+    },
+    "smtp": {
+      "host": "SMTP-Server",
+      "hostPlaceholder": "smtp.example.com",
+      "port": "Port",
+      "security": "Verbindungssicherheit",
+      "securityOptions": {
+        "starttls": "STARTTLS (Port 587)",
+        "tls": "TLS / implizit (Port 465)",
+        "none": "Unverschlüsselt (nur interner Relay)"
+      },
+      "securityNoneWarning": "Ohne Verschlüsselung gehen das Passwort und jede Nachricht im Klartext über das Netz. Nutzen Sie das nur für einen Relay im eigenen Netzwerk.",
+      "username": "Benutzername",
+      "usernameHint": "Leer lassen, wenn der Server keine Anmeldung verlangt.",
+      "password": "Passwort",
+      "passwordHint": "Wird verschlüsselt gespeichert und nie wieder angezeigt.",
+      "passwordKeep": "Ein Passwort ist gespeichert. Leer lassen, um es zu behalten.",
+      "passwordAgain": "Server oder Benutzername geändert. Geben Sie das Passwort dafür ein.",
+      "from": "Absenderadresse",
+      "fromPlaceholder": "restow@example.com"
+    },
+    "graph": {
+      "hint": "Versendet über die App-Registrierung von {appName} per Microsoft Graph. Benötigt die Anwendungsberechtigung Mail.Send mit Admin-Consent; eine Application Access Policy kann sie auf das Absenderpostfach beschränken.",
+      "appMissing": {
+        "title": "App-Registrierung nicht eingerichtet",
+        "description": "Es ist keine Microsoft-365-App-Registrierung eingerichtet. Graph versendet als diese App; richten Sie sie unter Einstellungen → Microsoft 365 ein und erteilen Sie ihr Mail.Send."
+      },
+      "passwordRemoved": "Beim Speichern mit Microsoft Graph wird das gespeicherte SMTP-Passwort gelöscht.",
+      "sender": "Absenderpostfach",
+      "senderPlaceholder": "restow@contoso.com",
+      "tenantId": "Entra-Tenant",
+      "tenantIdPlaceholder": "contoso.onmicrosoft.com",
+      "tenantIdHint": "Tenant-ID oder eine verifizierte Domain des Tenants, zu dem das Absenderpostfach gehört.",
+      "tenantIdDefault": "Leer lassen, um {tenant} aus der Serverkonfiguration zu verwenden."
+    },
+    "test": {
+      "title": "Testnachricht",
+      "description": "Verschickt eine Testbenachrichtigung mit den Werten oben, einschließlich ungespeicherter Änderungen.",
+      "recipient": "Empfänger",
+      "send": "Testnachricht senden",
+      "successTitle": "Testnachricht verschickt",
+      "success": "Für {recipient} in {duration} übergeben. Prüfen Sie den Posteingang und auch den Spam-Ordner.",
+      "failed": "Die Testnachricht konnte nicht verschickt werden",
+      "detail": "Antwort des Mailsystems",
+      "reasons": {
+        "timeout": "Keine Antwort innerhalb von 20 Sekunden. Prüfen Sie Host, Port und Firewall.",
+        "graph_app_missing": "Es ist keine Microsoft-365-App-Registrierung eingerichtet (Einstellungen → Microsoft 365).",
+        "graph_tenant_missing": "Für das Absenderpostfach ist kein Entra-Tenant gesetzt.",
+        "transport_error": "Das Mailsystem hat die Verbindung oder die Nachricht abgelehnt."
+      }
+    }
+  },
+  "microsoftApp": {
+    "title": "Microsoft-365-App-Registrierung",
+    "description": "Die mandantenübergreifende Backup-App in Ihrem eigenen Microsoft-Entra-Verzeichnis. Kunden erteilen ihr den Admin-Consent; damit sichert und restauriert {appName} deren Postfächer und OneDrives.",
+    "loadError": "Die App-Registrierung konnte nicht geladen werden.",
+    "status": {
+      "title": "Status",
+      "badge": {
+        "ready": "Eingerichtet",
+        "none": "Nicht eingerichtet",
+        "unusable": "Nicht nutzbar"
+      },
+      "source": {
+        "environment": "Aus der Server-Umgebung",
+        "database": "In {appName} gespeichert",
+        "none": "Noch nicht eingerichtet. Folgen Sie den vier Schritten unten."
+      },
+      "environmentNote": "Die Werte stammen aus der Server-Umgebung (ENTRA_CLIENT_ID mit ENTRA_CLIENT_SECRET oder ENTRA_CLIENT_CERT_PATH). Sie haben Vorrang und lassen sich nur dort ändern. Um die Registrierung stattdessen hier zu verwalten, entfernen Sie diese Variablen und starten {appName} neu.",
+      "environmentPartial": "In der Server-Umgebung sind einzelne ENTRA_CLIENT_*-Werte gesetzt, aber nicht genug, um sie zu nutzen. Sie werden ignoriert; es gilt die hier eingetragene Registrierung.",
+      "problems": {
+        "certificate_unreadable": "Die in ENTRA_CLIENT_CERT_PATH genannte Zertifikatsdatei lässt sich auf diesem Server nicht lesen.",
+        "certificate_invalid": "Dem Zertifikat fehlt der private Schlüssel oder das Zertifikat selbst. Laden Sie es erneut hoch.",
+        "document_unreadable": "Die gespeicherte Registrierung lässt sich mit dem aktuellen Master-Key (RESTOW_MASTER_KEY) nicht öffnen. Tragen Sie sie erneut ein.",
+        "authority_host_invalid": "Der gespeicherte Anmelde-Host wird nicht mehr akzeptiert. Tragen Sie die Registrierung erneut ein und wählen Sie einen Anmelde-Host von Microsoft."
+      },
+      "clientId": "Anwendungs-ID (Client)",
+      "tenantId": "Verzeichnis-ID (Mandant)",
+      "credential": "Zugangsdaten",
+      "kinds": {
+        "secret": "Geheimer Clientschlüssel",
+        "certificate": "Zertifikat"
+      },
+      "expires": "Läuft ab",
+      "expiryUnknown": "Nicht hinterlegt",
+      "thumbprint": "Zertifikat-Fingerabdruck",
+      "authorityHost": "Anmelde-Host",
+      "updated": "Zuletzt geändert",
+      "updatedBy": "von {who}",
+      "notSet": "Nicht gesetzt"
+    },
+    "expiry": {
+      "expired": "Abgelaufen",
+      "today": "Läuft heute ab",
+      "soon": "{days, plural, one {Läuft in # Tag ab} other {Läuft in # Tagen ab}}",
+      "valid": "Gültig bis {date}",
+      "warning": "Legen Sie jetzt die nächsten Zugangsdaten an: in Entra hinzufügen, hier eintragen, erst dann die alten löschen. Nie umgekehrt."
+    },
+    "steps": {
+      "label": "Einrichtung in vier Schritten",
+      "step": "Schritt {number}",
+      "register": {
+        "title": "App registrieren",
+        "description": "Einmalig, in Ihrem eigenen Microsoft-Entra-Verzeichnis. Dieselbe App dient allen Kunden.",
+        "path": "Öffnen Sie im Microsoft Entra Admin Center:",
+        "pathItems": {
+          "identity": "Identität",
+          "applications": "Anwendungen",
+          "appRegistrations": "App-Registrierungen",
+          "newRegistration": "Neue Registrierung"
+        },
+        "name": "Name: zum Beispiel {appName}. Kunden sehen ihn, wenn sie zustimmen.",
+        "accountTypes": "Unterstützte Kontotypen:",
+        "accountTypesValue": "Konten in einem beliebigen Organisationsverzeichnis (beliebiges Microsoft Entra ID-Verzeichnis - mandantenübergreifend)",
+        "redirect": "Umleitungs-URI: Plattform Web wählen und genau diesen Wert eintragen:",
+        "redirectLabel": "Umleitungs-URI (Admin-Consent)",
+        "redirectMissing": "Es ist noch keine öffentliche URL gesetzt. Legen Sie sie unter Einstellungen → Allgemein fest; die Umleitungs-URI leitet sich daraus ab.",
+        "register": "Wählen Sie Registrieren. Die Übersichtsseite zeigt dann die beiden Werte, die Sie in Schritt 4 eintragen:",
+        "openAdminCenter": "Microsoft Entra Admin Center öffnen"
+      },
+      "permissions": {
+        "title": "API-Berechtigungen",
+        "description": "Unter API-Berechtigungen → Berechtigung hinzufügen → Microsoft Graph → Anwendungsberechtigungen genau diese Berechtigungen hinzufügen:",
+        "columns": {
+          "permission": "Berechtigung",
+          "type": "Typ",
+          "purpose": "Wofür",
+          "requirement": "Nötig"
+        },
+        "types": {
+          "application": "Anwendung",
+          "delegated": "Delegiert"
+        },
+        "required": "Pflicht",
+        "optional": "Optional",
+        "delegated": "Anschließend unter Delegierte Berechtigungen openid und profile hinzufügen. Sie geben keinen Datenzugriff; sie erlauben nur, dass sich der Admin eines Kunden nach dem Consent bestätigend anmeldet.",
+        "copyList": "Liste kopieren",
+        "consent": "Zum Schluss auf der Seite API-Berechtigungen diese Schaltfläche wählen:",
+        "consentLabel": "Administratorzustimmung für <Ihre Organisation> erteilen",
+        "consentHint": "Das stimmt im eigenen Verzeichnis zu. Kunden stimmen über den Link zu, den {appName} je Microsoft-365-Quelle erzeugt.",
+        "pitfallTitle": "Mail.ReadWrite, nicht Mail.Read",
+        "pitfall": "Der häufigste Fehler: Mit Mail.Read läuft das Backup, aber jeder Restore scheitert mit 403. Dasselbe gilt für Calendars.ReadWrite und Contacts.ReadWrite.",
+        "sites": "Sites.ReadWrite.All wird bewusst nicht angefragt: SharePoint ist nicht Teil dieser Version, und es würde den Consent unnötig ausweiten.",
+        "mailSend": "Mail.Send nur, wenn Benachrichtigungen über Microsoft Graph statt SMTP versendet werden."
+      },
+      "credentials": {
+        "title": "Zugangsdaten",
+        "description": "{appName} meldet sich als App mit einem Zertifikat (empfohlen) oder einem geheimen Clientschlüssel an. Richten Sie eines von beiden ein.",
+        "certificate": {
+          "title": "Zertifikat",
+          "recommended": "Empfohlen",
+          "create": "Schlüsselpaar erzeugen, zum Beispiel mit OpenSSL:",
+          "copyCommand": "Befehle kopieren",
+          "upload": "Unter Zertifikate & Geheimnisse → Zertifikate → Zertifikat hochladen die Datei restow-entra.crt hochladen (nur der öffentliche Teil).",
+          "enter": "In Schritt 4 restow-entra.pem hochladen (privater Schlüssel und Zertifikat). Der private Schlüssel wird verschlüsselt gespeichert und nie wieder angezeigt.",
+          "benefit": "Kein Geheimnis im Klartext, und ohne Unterbrechung erneuerbar."
+        },
+        "secret": {
+          "title": "Geheimer Clientschlüssel",
+          "create": "Unter Zertifikate & Geheimnisse → Geheime Clientschlüssel die Option Neuer geheimer Clientschlüssel wählen. Höchstens 24 Monate; längere Laufzeiten lässt Microsoft nicht zu.",
+          "valueTitle": "Den Wert kopieren, nicht die Geheime ID",
+          "value": "Direkt nach dem Anlegen die Spalte Wert kopieren. Entra zeigt ihn nur einmal; die Geheime ID daneben ist nicht das Geheimnis.",
+          "rotate": "{appName} warnt 60 Tage vor Ablauf. Zum Wechseln einen neuen Schlüssel anlegen, hier eintragen und erst dann den alten in Entra löschen."
+        },
+        "portal": {
+          "certificatesAndSecrets": "Zertifikate & Geheimnisse",
+          "certificates": "Zertifikate",
+          "uploadCertificate": "Zertifikat hochladen",
+          "clientSecrets": "Geheime Clientschlüssel",
+          "newClientSecret": "Neuer geheimer Clientschlüssel",
+          "value": "Wert",
+          "secretId": "Geheime ID"
+        }
+      },
+      "enter": {
+        "title": "In {appName} eintragen",
+        "description": "Verschlüsselt gespeichert mit dem Master-Key dieser Installation. Geheimer Schlüssel und privater Schlüssel werden nie wieder angezeigt.",
+        "readOnly": "Die Server-Umgebung liefert die Registrierung; hier ist nichts einzutragen."
+      }
+    },
+    "form": {
+      "clientId": "Anwendungs-ID (Client)",
+      "clientIdPlaceholder": "00000000-0000-0000-0000-000000000000",
+      "tenantId": "Verzeichnis-ID (Mandant)",
+      "tenantIdPlaceholder": "contoso.onmicrosoft.com",
+      "tenantIdHint": "Ihr eigenes Verzeichnis, für den Verbindungstest. Eine GUID oder eine verifizierte Domain.",
+      "credential": "Zugangsdaten",
+      "kinds": {
+        "secret": "Geheimer Clientschlüssel",
+        "certificate": "Zertifikat"
+      },
+      "clientSecret": "Geheimer Clientschlüssel (Wert)",
+      "secretStored": "Gespeichert. Leer lassen, um ihn zu behalten",
+      "secretHint": "Die Spalte Wert unter Zertifikate & Geheimnisse, nicht die Geheime ID.",
+      "secretKeep": "Ein Schlüssel ist gespeichert. Lassen Sie das Feld leer, um ihn zu behalten.",
+      "secretAgain": "Anwendungs-ID oder Anmelde-Host wurden geändert. Tragen Sie den Schlüssel dafür ein.",
+      "expiresAt": "Läuft ab am",
+      "expiresAtHint": "Wie in Entra angezeigt. {appName} warnt 60 Tage vorher.",
+      "certificatePem": "Privater Schlüssel und Zertifikat (PEM)",
+      "certificateHint": "Ein unverschlüsselter RSA-Schlüssel und das passende Zertifikat, hintereinander.",
+      "certificateKeep": "Ein Zertifikat ist gespeichert ({thumbprint}). Laden Sie ein neues hoch oder fügen Sie es ein, um es zu ersetzen.",
+      "certificateAgain": "Anwendungs-ID oder Anmelde-Host wurden geändert. Laden Sie das Zertifikat dafür hoch.",
+      "uploadPem": "PEM-Datei hochladen",
+      "uploadFailed": "Die Datei konnte nicht gelesen werden.",
+      "advanced": "Nationale Clouds",
+      "authorityHost": "Anmelde-Host",
+      "authorityHostPlaceholder": "https://login.microsoftonline.us",
+      "authorityHostHint": "Nur für nationale Clouds. Für die globale Microsoft-Cloud leer lassen."
+    },
+    "validation": {
+      "guid": "Tragen Sie die Anwendungs-ID (Client) ein: 32 Hexadezimalzeichen mit Bindestrichen.",
+      "tenantId": "Tragen Sie eine Verzeichnis-ID (GUID) oder eine verifizierte Domain wie contoso.onmicrosoft.com ein.",
+      "secretIsId": "Das ist die Geheime ID. Kopieren Sie stattdessen die Spalte Wert; Entra zeigt sie nur direkt nach dem Anlegen.",
+      "credentialRequired": "Tragen Sie einen geheimen Clientschlüssel ein oder laden Sie ein Zertifikat hoch.",
+      "credentialConflict": "Entweder einen geheimen Clientschlüssel oder ein Zertifikat, nicht beides.",
+      "certificateMissing": "Das Zertifikat (BEGIN CERTIFICATE) fehlt.",
+      "privateKeyMissing": "Der private Schlüssel (BEGIN PRIVATE KEY) fehlt.",
+      "privateKeyEncrypted": "Der private Schlüssel ist mit einem Passwort geschützt. Exportieren Sie ihn ohne (OpenSSL-Option -nodes).",
+      "certificateInvalid": "Das Zertifikat lässt sich nicht lesen.",
+      "privateKeyInvalid": "Der private Schlüssel lässt sich nicht lesen.",
+      "unsupportedKeyType": "Nur RSA-Schlüssel werden unterstützt.",
+      "keyMismatch": "Der private Schlüssel gehört nicht zu diesem Zertifikat.",
+      "certificateExpired": "Das Zertifikat ist abgelaufen.",
+      "certificateNotYetValid": "Das Zertifikat ist noch nicht gültig.",
+      "date": "Tragen Sie ein gültiges Datum ein.",
+      "authorityHost": "Tragen Sie einen Anmelde-Host von Microsoft ein, zum Beispiel https://login.microsoftonline.us.",
+      "tooLong": "Dieser Wert ist zu lang."
+    },
+    "test": {
+      "title": "Verbindung testen",
+      "description": "Fordert als App in Ihrem Verzeichnis ein Microsoft-Graph-Token an und vergleicht die erteilten Anwendungsberechtigungen mit dem, was {appName} braucht.",
+      "tenantId": "Verzeichnis-ID (Mandant) für den Test",
+      "run": "Verbindung testen",
+      "needsSave": "Speichern Sie die Registrierung zuerst; der Test verwendet die gespeicherten Werte.",
+      "unsaved": "Der Test verwendet die gespeicherte Registrierung, nicht die ungespeicherten Änderungen oben.",
+      "success": "Die Verbindung funktioniert, und alle nötigen Berechtigungen sind erteilt.",
+      "failed": "Der Test hat ein Problem gefunden",
+      "tokenOk": "Token in {tenant} erhalten.",
+      "checkedAt": "Zuletzt getestet",
+      "reasons": {
+        "invalid_secret": "Entra hat den geheimen Clientschlüssel abgelehnt. Meist wurde die Geheime ID statt des Werts eingetragen. Legen Sie einen neuen Schlüssel an und kopieren Sie dessen Wert.",
+        "secret_expired": "Der geheime Clientschlüssel ist abgelaufen. Legen Sie unter Zertifikate & Geheimnisse einen neuen an und tragen Sie ihn hier ein.",
+        "app_not_found": "In diesem Verzeichnis gibt es keine App mit dieser Anwendungs-ID (Client). Prüfen Sie beide IDs auf der Übersichtsseite der App.",
+        "tenant_not_found": "Dieses Verzeichnis gibt es nicht. Prüfen Sie die Verzeichnis-ID (Mandant).",
+        "credential_missing": "Entra hat einen geheimen Clientschlüssel oder ein Zertifikat erwartet und keines akzeptiert. Tragen Sie die Zugangsdaten erneut ein.",
+        "invalid_certificate": "Entra akzeptiert das Zertifikat nicht. Laden Sie die passende .crt unter Zertifikate & Geheimnisse → Zertifikate hoch.",
+        "consent_missing": "Es ist noch keine Anwendungsberechtigung erteilt. Wählen Sie auf der Seite API-Berechtigungen die Administratorzustimmung.",
+        "permissions_missing": "Nötige Berechtigungen fehlen. Fügen Sie sie unter API-Berechtigungen hinzu und erteilen Sie die Administratorzustimmung erneut.",
+        "network": "Microsoft Entra ist von diesem Server aus nicht erreichbar. Prüfen Sie die ausgehende Verbindung (DNS, Firewall, Proxy).",
+        "other": "Entra hat die Anmeldung abgelehnt. Der Fehlercode unten hilft bei der Diagnose."
+      },
+      "code": "Fehlercode: {code}",
+      "details": "Antwort von Microsoft Entra",
+      "missing": "{count, plural, one {# nötige Berechtigung fehlt.} other {# nötige Berechtigungen fehlen.}}",
+      "readOnly": "{granted} wurde statt {expected} erteilt: Backups liefen, Restores scheiterten mit 403.",
+      "unexpected": "Zusätzlich erteilt, von {appName} nicht genutzt: {list}",
+      "states": {
+        "granted": "Erteilt",
+        "read_only": "Nur Lesen",
+        "missing": "Fehlt"
+      }
+    },
+    "remove": {
+      "title": "App-Registrierung entfernen",
+      "description": "{appName} erreicht Microsoft 365 dann nicht mehr: Backups, Restores und Verzeichnis-Syncs aller Mandanten stehen, bis wieder eine Registrierung eingetragen ist.",
+      "action": "Registrierung entfernen",
+      "confirmTitle": "App-Registrierung entfernen?",
+      "confirmDescription": "Der geheime Clientschlüssel oder das Zertifikat wird gelöscht und lässt sich nicht wiederherstellen. Backups und Restores aller Microsoft-365-Quellen stehen still.",
+      "confirm": "Entfernen"
+    },
+    "toasts": {
+      "saved": "App-Registrierung gespeichert.",
+      "removed": "App-Registrierung entfernt."
+    },
+    "copy": "{label} kopieren",
+    "inline": {
+      "title": "Zuerst die Microsoft-365-App-Registrierung einrichten",
+      "description": "Tenants lassen sich verbinden, sobald die Backup-App in Microsoft Entra registriert und hier eingetragen ist. Änderungen gelten sofort, ohne Neustart.",
+      "openSettings": "In den Einstellungen öffnen"
+    }
+  },
+  "security": {
+    "passkeys": {
+      "title": "Ihre Passkeys",
+      "description": "Ohne Passwort anmelden, mit Touch ID, Windows Hello, dem Smartphone oder einem Sicherheitsschlüssel. Passkeys sind an {domain} gebunden.",
+      "descriptionNoDomain": "Ohne Passwort anmelden, mit Touch ID, Windows Hello, dem Smartphone oder einem Sicherheitsschlüssel.",
+      "add": "Passkey hinzufügen",
+      "openGeneral": "Betriebsmodus öffnen",
+      "unsupported": "Dieser Browser kann keine Passkeys erstellen. Nutzen Sie einen aktuellen Browser, um einen hinzuzufügen.",
+      "empty": "Sie haben noch keinen Passkey. Bis dahin melden Sie sich mit dem Notfall-Passwort und einem Authenticator-Code an.",
+      "emptyNoAuthenticator": "Sie haben noch keinen Passkey und keine Authenticator-App. Fügen Sie hier einen Passkey hinzu oder richten Sie unten die Authenticator-App ein.",
+      "emptySso": "Sie haben noch keinen Passkey. Bis dahin melden Sie sich mit Ihrem Microsoft-Konto an.",
+      "emptyNotReady": "Sie haben keinen Passkey. Passkeys lassen sich hinzufügen, sobald die Passkey-Bereitschaft erreicht ist.",
+      "notReadyMember": "Passkeys sind auf dieser Installation noch nicht verfügbar. Ihr Administrator schaltet sie frei, indem er {appName} unter einer eigenen HTTPS-Domain betreibt.",
+      "loadError": "Ihre Passkeys konnten nicht geladen werden",
+      "unnamed": "Passkey",
+      "createdAt": "Hinzugefügt {date}",
+      "createdUnknown": "Datum unbekannt",
+      "synced": "Synchronisiert",
+      "deviceBound": "Nur dieses Gerät",
+      "remove": "Entfernen",
+      "removeLabel": "Passkey {name} entfernen",
+      "addDialog": {
+        "title": "Passkey hinzufügen",
+        "description": "Geben Sie dem Passkey einen Namen, den Sie später wiedererkennen, und bestätigen Sie dann auf Ihrem Gerät.",
+        "name": "Name",
+        "nameHint": "Nur für Sie, um Ihre Passkeys zu unterscheiden.",
+        "namePlaceholder": "MacBook Touch ID",
+        "defaultName": "Passkey auf {device}",
+        "defaultNameGeneric": "Mein Passkey",
+        "confirm": "Passkey erstellen"
+      },
+      "removeDialog": {
+        "title": "Passkey entfernen?",
+        "description": "Mit „{name}“ ist keine Anmeldung mehr möglich. Ohne Passkey melden Sie sich mit dem Notfall-Passwort und einem Authenticator-Code an.",
+        "descriptionSso": "Mit „{name}“ ist keine Anmeldung mehr möglich. Ohne Passkey melden Sie sich mit Ihrem Microsoft-Konto an.",
+        "confirm": "Passkey entfernen"
+      },
+      "errors": {
+        "cancelled": "Der Passkey-Dialog wurde abgebrochen oder ist abgelaufen. Es wurde nichts geändert.",
+        "alreadyRegistered": "Dieser Authenticator enthält bereits einen Passkey für Ihr Konto.",
+        "domain": "Diese Browser-Adresse passt nicht zur Passkey-Domain. Öffnen Sie {appName} über die öffentliche URL und versuchen Sie es erneut.",
+        "userVerification": "Der Authenticator kann Sie nicht per PIN oder Biometrie prüfen, was {appName} voraussetzt.",
+        "verificationFailed": "Der Server konnte den neuen Passkey nicht prüfen. Bitte erneut versuchen.",
+        "generic": "Die Passkey-Aktion ist fehlgeschlagen. Bitte erneut versuchen."
+      }
+    },
+    "authenticator": {
+      "title": "Authenticator-App",
+      "description": "Ihr Notfall-Passwort gilt nur zusammen mit einem sechsstelligen Code aus einer App auf Ihrem Smartphone. {appName} fragt ihn direkt nach dem Passwort ab.",
+      "statusOn": "Aktiv",
+      "statusOff": "Nicht eingerichtet",
+      "enabledDescription": "{appName} fragt bei jeder Anmeldung mit Ihrem Passwort einen Code aus Ihrer Authenticator-App ab. Geht Ihr Smartphone verloren, melden Sie sich mit einem Wiederherstellungscode an und ziehen den Authenticator danach auf das neue Smartphone um.",
+      "requiredDescription": "Ohne Authenticator-App lässt sich Ihr Notfall-Passwort nicht verwenden: {appName} akzeptiert es nur zusammen mit einem Code aus der App. Richten Sie sie ein, damit Sie sich auch ohne Ihren Passkey anmelden können.",
+      "setUp": "Authenticator-App einrichten",
+      "replace": "Auf neues Smartphone umziehen",
+      "newCodes": "Neue Wiederherstellungscodes",
+      "loadError": "Ihre Anmeldemethoden konnten nicht geladen werden",
+      "setup": {
+        "title": "Authenticator-App einrichten",
+        "replaceTitle": "Authenticator auf neues Smartphone umziehen",
+        "description": "Jede App für zeitbasierte Codes (TOTP) funktioniert.",
+        "passwordLead": "Bestätigen Sie mit Ihrem Passwort. {appName} erstellt dann den Schlüssel für Ihre Authenticator-App.",
+        "replaceWarning": "Ihr bisheriger Authenticator funktioniert nicht mehr, sobald Sie fortfahren. Halten Sie das neue Smartphone bereit und schließen Sie die Einrichtung sofort ab.",
+        "password": "Passwort",
+        "continue": "Weiter",
+        "steps": {
+          "open": "Öffnen Sie eine Authenticator-App auf Ihrem Smartphone, zum Beispiel Microsoft Authenticator, Google Authenticator, 1Password oder Bitwarden, und fügen Sie ein Konto hinzu.",
+          "scan": "Scannen Sie diesen QR-Code mit der App.",
+          "enter": "Geben Sie den sechsstelligen Code ein, den die App jetzt anzeigt."
+        },
+        "qrLabel": "QR-Code mit dem Schlüssel für Ihre Authenticator-App",
+        "manualTitle": "Code lässt sich nicht scannen?",
+        "manualHint": "Fügen Sie das Konto mit diesem Schlüssel von Hand hinzu: zeitbasiert, sechsstellig, alle 30 Sekunden.",
+        "account": "Konto",
+        "key": "Schlüssel",
+        "copyKey": "Schlüssel kopieren",
+        "keyCopied": "Schlüssel kopiert.",
+        "keyCopyFailed": "Der Schlüssel konnte nicht kopiert werden. Markieren und kopieren Sie ihn von Hand.",
+        "code": "Code aus der App",
+        "codePlaceholder": "123456",
+        "codeHint": "Wird der Code abgelehnt, prüfen Sie, ob Ihr Smartphone die Uhrzeit automatisch einstellt.",
+        "confirm": "Prüfen und aktivieren"
+      },
+      "codes": {
+        "enabled": "Die Authenticator-App ist eingerichtet. Ab jetzt fragt {appName} nach dem Passwort einen Code ab.",
+        "title": "Wiederherstellungscodes",
+        "lead": "Jeder Code funktioniert einmal, anstelle eines Codes aus der App, etwa wenn Ihr Smartphone verloren geht. Bewahren Sie sie im Passwort-Manager auf oder drucken Sie sie aus: {appName} zeigt sie nur jetzt.",
+        "listLabel": "Wiederherstellungscodes",
+        "copy": "Codes kopieren",
+        "copied": "Wiederherstellungscodes kopiert.",
+        "copyFailed": "Die Codes konnten nicht kopiert werden. Markieren und kopieren Sie sie von Hand.",
+        "download": "Als Textdatei herunterladen",
+        "fileName": "restow-wiederherstellungscodes.txt",
+        "fileTitle": "Wiederherstellungscodes für {appName}",
+        "fileNote": "Jeder Code funktioniert einmal. Bewahren Sie diese Datei sicher und offline auf.",
+        "acknowledge": "Ich habe die Wiederherstellungscodes sicher aufbewahrt.",
+        "done": "Fertig"
+      },
+      "regenerate": {
+        "title": "Neue Wiederherstellungscodes",
+        "description": "Erstellt zehn neue Wiederherstellungscodes. Die bisherigen Codes gelten sofort nicht mehr.",
+        "passwordLead": "Bestätigen Sie mit Ihrem Passwort, um die neuen Codes zu erstellen.",
+        "confirm": "Neue Codes erstellen"
+      },
+      "errors": {
+        "password": "Das Passwort ist nicht korrekt.",
+        "code": "Der Code ist falsch oder abgelaufen. Prüfen Sie die Uhrzeit Ihres Smartphones und geben Sie den aktuellen Code ein.",
+        "tooManyAttempts": "Zu viele Versuche. Bitte warten Sie eine Minute und versuchen Sie es erneut.",
+        "alreadyEnabled": "Für dieses Konto ist bereits eine Authenticator-App eingerichtet.",
+        "notEnabled": "Die Einrichtung wurde nicht begonnen oder ist abgelaufen. Bitte beginnen Sie erneut.",
+        "generic": "Die Einrichtung des Authenticators ist fehlgeschlagen. Bitte versuchen Sie es erneut."
+      }
+    },
+    "sessions": {
+      "title": "Sitzungen",
+      "description": "Meldet Ihr Konto in allen anderen Browsern und auf allen anderen Geräten ab. Dieser Browser bleibt angemeldet.",
+      "revoke": "Andere Sitzungen abmelden",
+      "confirmTitle": "Alle anderen Sitzungen abmelden?",
+      "confirmDescription": "Alle anderen Browser und Geräte, die mit Ihrem Konto angemeldet sind, werden sofort abgemeldet."
+    }
+  },
+  "danger": {
+    "title": "Gefahrenzone",
+    "description": "Diese Aktionen wirken sofort und lassen sich nicht rückgängig machen.",
+    "removeMail": {
+      "title": "Mail-Konfiguration entfernen",
+      "description": "Löscht den Benachrichtigungs-Transport und vernichtet das gespeicherte SMTP-Passwort. {appName} verschickt keine Berichte, Warnungen oder Einladungen mehr, bis ein neuer Transport eingerichtet ist.",
+      "notConfigured": "Es ist kein Mail-Transport eingerichtet, es gibt also nichts zu entfernen.",
+      "action": "Mail-Konfiguration entfernen",
+      "confirmTitle": "Mail-Konfiguration entfernen?",
+      "confirmDescription": "Benachrichtigungen stoppen sofort. Das gespeicherte SMTP-Passwort wird gelöscht und lässt sich nicht wiederherstellen.",
+      "confirm": "Entfernen"
+    }
+  },
+  "validation": {
+    "originOnly": "Nur die Adresse eingeben, ohne Pfad, zum Beispiel https://restow.example.com.",
+    "domainRequired": "Verwenden Sie einen Domainnamen. Passkeys lassen sich nicht an eine IP-Adresse binden.",
+    "passwordRequired": "Geben Sie das Passwort für diesen Server und Benutzernamen ein.",
+    "usernameRequired": "Ein Passwort braucht einen Benutzernamen.",
+    "tenantId": "Geben Sie eine Tenant-ID oder eine verifizierte Domain wie contoso.onmicrosoft.com ein.",
+    "host": "Geben Sie einen Hostnamen oder eine IP-Adresse ein."
+  },
+  "errors": {
+    "setupIncomplete": "Die Einrichtung ist noch nicht abgeschlossen. Schließen Sie zuerst den Einrichtungsassistenten ab.",
+    "mailNotConfigured": "Es ist noch kein Mail-Transport eingerichtet.",
+    "masterKey": "Der Server hat keinen gültigen Master-Key (RESTOW_MASTER_KEY) und kann das Passwort deshalb nicht verschlüsselt speichern.",
+    "microsoftAppManaged": "Die App-Registrierung ist in der Server-Umgebung gesetzt und lässt sich nur dort ändern.",
+    "microsoftAppNotConfigured": "Speichern Sie die App-Registrierung, bevor Sie sie testen."
+  },
+  "about": {
+    "title": "Über {appName}",
+    "description": "Version, Quellcode und Lizenzen dieser Installation.",
+    "product": "Produkt",
+    "version": "Version",
+    "developmentBuild": "Entwicklungs-Build",
+    "commit": "Commit",
+    "commitUnknown": "Unbekannt",
+    "license": "Lizenz",
+    "licenseName": "Apache-2.0",
+    "source": "Quellcode",
+    "sourceRelease": "Quellcode von Version {version}",
+    "sourceRepository": "Quellcode-Repository",
+    "thirdParty": "Lizenzen von Drittanbietern",
+    "thirdPartyLink": "Hinweise zu Drittanbieter-Software",
+    "thirdPartyGitHub": "auf GitHub",
+    "opensInNewTab": "(öffnet in einem neuen Tab)"
+  }
+}

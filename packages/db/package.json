@@ -1,0 +1,40 @@
+{
+  "name": "@restow/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Restow database schema (Drizzle), migrations, Row Level Security and database roles.",
+  "license": "Apache-2.0",
+  "main": "./dist/index.js",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./dist/index.js"
+    },
+    "./schema": {
+      "types": "./src/schema/index.ts",
+      "default": "./dist/schema/index.js"
+    },
+    "./migrate": {
+      "types": "./src/migrate.ts",
+      "default": "./dist/migrate.js"
+    }
+  },
+  "files": ["dist", "drizzle", "sql"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run",
+    "generate": "tsc -p tsconfig.build.json && drizzle-kit generate",
+    "migrate": "tsc -p tsconfig.build.json && node -e \"import('./dist/migrate.js').then((m) => m.migrateFromEnvironment()).catch((e) => { console.error(e.message); process.exit(1); })\""
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.3",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.0",
+    "drizzle-kit": "^0.31.11"
+  }
+}

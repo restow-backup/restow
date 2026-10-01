@@ -1,0 +1,235 @@
+# Restow — self-hosting / development stack.
+#
+# One built image runs three server roles (api | worker | scheduler) selected by the
+# ROLE env var. Caddy serves the built web UI, terminates TLS (Let's Encrypt) for the
+# public app domain and reverse-proxies /api/* to the api service.
+# All application config comes from .env (copy .env.example -> .env first).
+# No secrets are hard-coded here — values are read from .env via ${VAR}.
+#
+#   docker compose up -d                   # postgres + api + worker + scheduler + caddy
+#   docker compose --profile dev up -d     # add the Vite dev server (hot reload)
+#   docker compose --profile mail up -d    # add Mailpit (dev SMTP for notifications)
+#   docker compose --profile updater up -d # add the opt-in updater (read docs/UPDATING.md first)
+
+name: restow
+
+# Shared configuration for the three server roles (same image, same env).
+x-restow-app: &restow-app
+  build:
+    context: .
+    target: runtime
+  # RESTOW_IMAGE is written into .env by the opt-in updater (docs/UPDATING.md); unset, the
+  # image is the one `docker compose build` produces.
+  image: ${RESTOW_IMAGE:-restow:local}
+  env_file:
+    - .env
+  depends_on:
+    postgres:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-restow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-restow}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-restow} -d ${POSTGRES_DB:-restow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  api:
+    <<: *restow-app
+    environment:
+      ROLE: api
+      # Where the api looks for the opt-in updater. Nothing answers there unless the updater
+      # profile runs. The shared secret comes from the updater's volume, mounted read-only below.
+      RESTOW_UPDATER_URL: ${RESTOW_UPDATER_URL:-http://updater:8090}
+    # Loopback only — Caddy reaches the api over the compose network (api:3000).
+    ports:
+      - "127.0.0.1:${RESTOW_API_PORT:-3000}:3000"
+      # The archive journal SMTP receiver: part of the api role, not a separate service
+      # (https://docs.restowbackup.com/administrators/exchange-journaling/). It only
+      # listens when JOURNAL_SMTP_PORT is set in .env; until then this maps a closed port on the
+      # loopback interface, so a default installation opens no mail port to the
+      # network. Exchange Online delivers to port 25 and must reach the receiver
+      # directly, not through Caddy: set JOURNAL_SMTP_PORT=25 and
+      # JOURNAL_SMTP_BIND=0.0.0.0 in .env to open it. The receiver needs a TLS
+      # certificate (see the journal volume below).
+      - "${JOURNAL_SMTP_BIND:-127.0.0.1}:${JOURNAL_SMTP_PORT:-2525}:${JOURNAL_SMTP_PORT:-2525}"
+    volumes:
+      # Default local chunk store (STORAGE_LOCAL_PATH=/data/chunks lives here).
+      - restow-data:/data
+      # The server-side import folder: the api lists it, the worker reads it
+      # (https://docs.restowbackup.com/administrators/mail-import-export/).
+      # Read-only on purpose: Restow never writes to or deletes from it. Every tenant is
+      # limited to its own subfolder <folder>/<tenant slug>/.
+      - ${RESTOW_IMPORT_DIR:-./import}:/var/lib/restow/import:ro
+      # The journal receiver's TLS certificate chain and private key (PEM), read-only
+      # (.env.example: JOURNAL_TLS_CERT_PATH, JOURNAL_TLS_KEY_PATH). Without a
+      # certificate the receiver only starts with JOURNAL_ALLOW_INSECURE=true
+      # (local development).
+      - ${JOURNAL_TLS_DIR:-./journal-tls}:/etc/restow/journal-tls:ro
+      # The updater's shared secret (empty until the updater profile ran once).
+      - restow-updater-shared:/updater-shared:ro
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  worker:
+    <<: *restow-app
+    environment:
+      ROLE: worker
+    volumes:
+      - restow-data:/data
+      # The server-side import folder, read-only like on the api
+      # (https://docs.restowbackup.com/administrators/mail-import-export/).
+      - ${RESTOW_IMPORT_DIR:-./import}:/var/lib/restow/import:ro
+
+  scheduler:
+    <<: *restow-app
+    environment:
+      ROLE: scheduler
+
+  # Caddy serves the built SPA and terminates TLS for the public app domain, proxying
+  # /api/* to the api. Certificates are obtained automatically for RESTOW_APP_DOMAIN
+  # (which must resolve to this host with ports 80/443 reachable).
+  caddy:
+    build:
+      context: .
+      target: web
+    # RESTOW_WEB_IMAGE is written into .env by the opt-in updater, like RESTOW_IMAGE above.
+    image: ${RESTOW_WEB_IMAGE:-restow-web:local}
+    environment:
+      RESTOW_APP_DOMAIN: ${RESTOW_APP_DOMAIN:?set RESTOW_APP_DOMAIN in .env (e.g. app.example.com)}
+      RESTOW_EDGE_HSTS: ${RESTOW_EDGE_HSTS:-}
+      RESTOW_EDGE_TRUSTED_PROXIES: ${RESTOW_EDGE_TRUSTED_PROXIES:-}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+      # Additional sites on this edge, one `*.caddy` file each (the Caddyfile imports
+      # /etc/caddy/sites/*.caddy). The directory ships without any, so nothing changes
+      # until an operator adds one; see deploy/caddy-sites/README.md.
+      - ./deploy/caddy-sites:/etc/caddy/sites:ro
+    # Lets such a site proxy to a port another compose project on this host publishes
+    # on the Docker bridge gateway (the co-hosted public demo, deploy/demo/README.md),
+    # without sharing a Docker network with it. Unused while no site refers to it.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # --- Optional: the updater (profile: updater), OPT-IN ---
+  # Applies an update from the Updates tab (Settings): pulls or builds the new image, dumps the
+  # database, recreates the services and rolls back when the new version does not come up.
+  #
+  # WARNING: this service mounts the Docker socket. Access to the socket is root on the host, so
+  # anything that can make this container do something can do anything to the host. That is why it
+  # is a profile: nothing here runs unless you start it (docker compose --profile updater up -d).
+  # It is reachable only on the internal compose network (no published port), authenticates the api
+  # with a secret it generates into the restow-updater-shared volume, and gets none of the
+  # application's credentials (no env_file: no database password, no master key).
+  # Read "The opt-in updater" in docs/UPDATING.md before enabling it.
+  #
+  # RESTOW_PROJECT_DIR must be the absolute path of the directory holding this file and .env on
+  # the host (for example /opt/restow). It is mounted at the same path so `docker compose` inside
+  # the updater resolves every relative path the way the host would.
+  #
+  # Its own image is pinned on its own, never taken from RESTOW_IMAGE: the updater rewrites
+  # RESTOW_IMAGE during an update, and the container with the Docker socket must never start an
+  # image the updater installed. Only the operator moves it to a new version, by setting
+  # RESTOW_UPDATER_IMAGE (or rebuilding restow:local from a checkout) and recreating it. The
+  # updater refuses to update while this service follows RESTOW_IMAGE.
+  updater:
+    profiles: ["updater"]
+    image: ${RESTOW_UPDATER_IMAGE:-restow:local}
+    environment:
+      ROLE: updater
+      RESTOW_UPDATER_PROJECT_DIR: ${RESTOW_PROJECT_DIR:-/srv/restow}
+      RESTOW_UPDATER_API_URL: http://api:3000
+      # Repositories the updater may build an update from (source mode); empty = none, the
+      # default. Only the operator sets this, in .env (docs/UPDATING.md, "Two modes").
+      RESTOW_UPDATER_SOURCE_HOSTS: ${RESTOW_UPDATER_SOURCE_HOSTS:-}
+    expose:
+      - "8090"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${RESTOW_PROJECT_DIR:-/srv/restow}:${RESTOW_PROJECT_DIR:-/srv/restow}
+      - restow-updater:/state
+      - restow-updater-shared:/updater-shared
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8090/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+  # --- Optional: Vite dev server with hot reload (profile: dev) ---
+  web:
+    profiles: ["dev"]
+    build:
+      context: .
+      target: build
+    image: restow-webdev:local
+    command: ["pnpm", "--filter", "@restow/web", "dev", "--host", "0.0.0.0", "--port", "5173"]
+    env_file:
+      - .env
+    environment:
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "${RESTOW_WEB_PORT:-5173}:5173"
+    volumes:
+      - .:/app
+      - /app/node_modules
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # --- Optional: dev SMTP sink for notification mail (profile: mail) ---
+  mailpit:
+    image: axllent/mailpit:latest
+    profiles: ["mail"]
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "true"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "true"
+    ports:
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  restow-data:
+  caddy-data:
+  caddy-config:
+  # The opt-in updater: its state (status.json, database dumps, fetched sources) and the shared
+  # secret the api reads. Created empty even without the updater profile.
+  restow-updater:
+  restow-updater-shared:

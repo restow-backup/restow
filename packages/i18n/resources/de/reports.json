@@ -1,0 +1,533 @@
+{
+  "document": {
+    "author": "{appName}",
+    "product": "{appName}",
+    "generatedAt": "Erstellt am {date} (UTC)",
+    "page": "Seite {page} von {total}",
+    "notAvailable": "Nicht verfügbar",
+    "noValue": "Kein Wert"
+  },
+  "unavailable": {
+    "no_tenants": "Es wird noch kein Mandant verwaltet.",
+    "no_protected_objects": "Noch ist nichts geschützt: kein Postfach, kein OneDrive und kein IMAP-Konto.",
+    "no_backups_yet": "Bis zum Ende dieses Zeitraums war noch keine Sicherung abgeschlossen.",
+    "no_microsoft_365_source": "Es ist keine Microsoft-365-Quelle verbunden. Drosselung gibt es nur bei Microsoft Graph."
+  },
+  "stats": {
+    "title": "Backup-Statistik",
+    "subtitle": {
+      "tenant": "Mandant: {name}",
+      "provider": "Alle Mandanten ({count, plural, one {# Mandant} other {# Mandanten}})"
+    },
+    "period": "Zeitraum: {from} bis {to}, {granularity}",
+    "previous": "Veränderungen beziehen sich auf den gleich langen Vorzeitraum, {from} bis {to}.",
+    "granularity": {
+      "day": "pro Tag",
+      "week": "pro Woche",
+      "month": "pro Monat"
+    },
+    "kpi": {
+      "backupSuccessRate": "Erfolgsquote der Sicherungen",
+      "protectedObjects": "Geschützte Objekte",
+      "logicalBytes": "Geschützte Daten",
+      "physicalBytes": "Gespeichert nach Deduplizierung",
+      "dedupRatio": "Deduplizierungsfaktor",
+      "restores": "Wiederherstellungen",
+      "verifiedShare": "Nachweislich wiederherstellbar",
+      "throttlingWaitSeconds": "Drosselung durch Microsoft 365",
+      "failedItems": "Fehlgeschlagene Elemente"
+    },
+    "delta": {
+      "change": "{value} ggü. Vorzeitraum",
+      "unchanged": "Unverändert ggü. Vorzeitraum",
+      "none": "Kein Vergleichswert",
+      "points": "{value} Pp."
+    },
+    "section": {
+      "overview": "Kennzahlen",
+      "backups": {
+        "title": "Ergebnisse der Sicherungen",
+        "description": "Abgeschlossene Sicherungsläufe nach Ergebnis."
+      },
+      "volume": {
+        "title": "Geschütztes und gespeichertes Volumen",
+        "description": "Daten, die die abgeschlossenen Sicherungen umfassten (logisch), und die Bytes, die sie nach Deduplizierung und Verschlüsselung dem Speicher hinzugefügt haben (physisch)."
+      },
+      "storage": {
+        "title": "Speicherwachstum",
+        "description": "Bytes im Chunk-Speicher am Ende jedes Intervalls."
+      },
+      "restores": {
+        "title": "Wiederherstellungen",
+        "description": "Abgeschlossene Wiederherstellungen nach Ergebnis."
+      },
+      "readiness": {
+        "title": "Wiederherstellbarkeit",
+        "description": "Geschützte Objekte nach der Wiederherstellungsprüfung ihrer jeweils neuesten Sicherung am Ende jedes Intervalls. Eine Sicherung, die neuer ist als die letzte Prüfung oder nie geprüft wurde, gilt als nicht nachgewiesen."
+      },
+      "throttling": {
+        "title": "Drosselung durch Microsoft 365",
+        "description": "Zeit, die Microsoft Graph abgeschlossene Aufträge warten ließ, bevor weitere Anfragen angenommen wurden."
+      },
+      "jobDurations": {
+        "title": "Laufzeiten der Aufträge",
+        "description": "Median und 95. Perzentil der Laufzeit aller Aufträge, die im Zeitraum abgeschlossen wurden.",
+        "empty": "In diesem Zeitraum wurde kein Auftrag abgeschlossen."
+      },
+      "failuresByCause": {
+        "title": "Fehlgeschlagene Elemente nach Ursache",
+        "description": "Elemente, die ein Auftrag nicht verarbeiten konnte, gruppiert nach Ursache. Sie werden beim nächsten Lauf erneut versucht.",
+        "empty": "In diesem Zeitraum ist kein Element fehlgeschlagen."
+      },
+      "largestObjects": {
+        "title": "Größte geschützte Objekte",
+        "description": "Größe der letzten Sicherung jedes Objekts am Ende des Zeitraums."
+      },
+      "tenants": {
+        "title": "Mandanten",
+        "description": "Alle verwalteten Mandanten am Ende des Zeitraums.",
+        "empty": "Es wird noch kein Mandant verwaltet."
+      }
+    },
+    "series": {
+      "succeeded": "Erfolgreich",
+      "failed": "Fehlgeschlagen",
+      "cancelled": "Abgebrochen",
+      "logicalBytes": "Geschützt (logisch)",
+      "physicalBytes": "Dem Speicher hinzugefügt (physisch)",
+      "bytes": "Gespeichert",
+      "waitSeconds": "Wartezeit",
+      "completed": "Abgeschlossen",
+      "green": "Bereit",
+      "yellow": "Achtung",
+      "red": "Nicht wiederherstellbar",
+      "unverified": "Nicht nachgewiesen"
+    },
+    "column": {
+      "kind": "Auftrag",
+      "count": "Läufe",
+      "p50": "Median",
+      "p95": "95. Perzentil",
+      "cause": "Ursache",
+      "failures": "Elemente",
+      "lastAt": "Zuletzt",
+      "name": "Name",
+      "objectKind": "Typ",
+      "tenant": "Mandant",
+      "logicalBytes": "Größe",
+      "lastBackupAt": "Letzte Sicherung",
+      "state": "Wiederherstellbarkeit",
+      "objects": "Objekte",
+      "successRate": "Erfolgsquote",
+      "protectedBytes": "Geschützt",
+      "physicalBytes": "Gespeichert",
+      "failedItems": "Fehlgeschlagene Elemente"
+    },
+    "jobKind": {
+      "backup": "Sicherung",
+      "restore": "Wiederherstellung",
+      "verify": "Wiederherstellungsprüfung",
+      "directory": "Verzeichnis-Sync",
+      "archive": "Archiv",
+      "retention": "Aufbewahrung",
+      "scrub": "Speicherprüfung",
+      "storage_migration": "Speichermigration"
+    },
+    "objectKind": {
+      "mailbox": "Postfach",
+      "onedrive": "OneDrive",
+      "imap": "IMAP-Postfach"
+    },
+    "state": {
+      "green": "Bereit",
+      "yellow": "Achtung",
+      "red": "Nicht wiederherstellbar",
+      "unverified": "Nicht geprüft",
+      "no_backup": "Noch keine Sicherung"
+    },
+    "readiness": {
+      "green": "Bereit",
+      "yellow": "Achtung",
+      "red": "Nicht nachgewiesen",
+      "none": "Nichts geschützt"
+    },
+    "method": {
+      "title": "So werden diese Zahlen ermittelt",
+      "successRate": "Erfolgsquote: erfolgreiche Läufe geteilt durch erfolgreiche und fehlgeschlagene Läufe, die im Zeitraum abgeschlossen wurden. Abgebrochene Läufe wurden bewusst gestoppt und zählen nicht mit.",
+      "volume": "Geschützte Daten sind die jeweils neueste Sicherung jedes geschützten Objekts. Gespeicherte Bytes sind die verschlüsselten, deduplizierten Pack-Dateien; von der Speicherbereinigung entfernte Packs erscheinen auch in früheren Intervallen nicht mehr.",
+      "dedup": "Deduplizierungsfaktor: alle aufbewahrten Sicherungen zusammengezählt, geteilt durch die gespeicherten Bytes.",
+      "readiness": "Nachweislich wiederherstellbar: Objekte, deren neueste Sicherung eine Wiederherstellungsprüfung genau dieser Sicherung mit „Bereit“ oder „Achtung“ bewertet hat. Eine nach der letzten Prüfung erstellte Sicherung bleibt unbewiesen, bis sie selbst geprüft wurde; nie geprüfte oder nie gesicherte Objekte gelten als nicht nachgewiesen, und ein Schaden, den die Speicherprüfung nach einer Prüfung findet, gilt als nicht wiederherstellbar.",
+      "status": "Ausgeschlossene Objekte sind nicht geschützt, aus ihrer Quelle entfernte Objekte zählen, solange sie noch eine Sicherung haben. Gespeichert ist nur der aktuelle Schutzstatus eines Objekts; ein heute ausgeschlossenes Objekt fehlt deshalb auch in früheren Intervallen.",
+      "throttling": "Drosselungswartezeiten hat Microsoft Graph abgeschlossenen Aufträgen auferlegt; {appName} wartet so lange, wie Microsoft verlangt, statt früher erneut anzufragen."
+    }
+  },
+  "nav": "Alarme",
+  "page": {
+    "title": "Alarme",
+    "subtitle": "Wer wann was erfährt: Alarme, wenn etwas passiert, Berichte zu einem Zeitpunkt.",
+    "tenantScope": "Alarme und Berichte von {tenant}",
+    "newAlert": "Neuer Alarm",
+    "newReport": "Neuer Bericht",
+    "reportLocked": "Berichte nicht verfügbar",
+    "tabs": {
+      "rules": "Regeln",
+      "deliveries": "Zustellprotokoll"
+    },
+    "noTenant": {
+      "title": "Kein Mandant ausgewählt",
+      "description": "Wählen Sie oben einen Mandanten, um seine Alarme und Berichte zu sehen und zu ändern."
+    }
+  },
+  "rules": {
+    "loadError": "Die Regeln konnten nicht geladen werden.",
+    "alerts": {
+      "title": "Alarme",
+      "description": "Werden gesendet, wenn etwas passiert: eine fehlgeschlagene Sicherung, eine nicht bestandene Restore-Prüfung, beschädigter Speicher.",
+      "empty": "Noch kein Alarm. Fehlgeschlagene Aufträge und Änderungen der Wiederherstellbarkeit erscheinen trotzdem in der Glocke."
+    },
+    "reports": {
+      "title": "Berichte",
+      "description": "Eine Zusammenfassung eines Zeitraums, zu einer festen Zeit: täglich, wöchentlich oder monatlich.",
+      "empty": "Noch kein Bericht."
+    },
+    "columns": {
+      "rule": "Regel",
+      "trigger": "Wann",
+      "channels": "An",
+      "lastDelivery": "Zuletzt gesendet",
+      "actions": "Aktionen"
+    },
+    "moreEvents": "und {count} weitere",
+    "cadence": {
+      "daily": "Täglich um {time}",
+      "weekly": "Jeden {weekday} um {time}",
+      "monthly": "Monatlich am 1. um {time}",
+      "custom": "Benutzerdefiniert"
+    },
+    "next": "Nächster",
+    "recipients": "{count, plural, one {# Empfänger} other {# Empfänger}}",
+    "bell": "Glocke",
+    "webhook": "Webhook",
+    "never": "Noch nicht gesendet",
+    "paused": "Pausiert",
+    "locked": "Nicht verfügbar",
+    "actions": {
+      "menu": "Aktionen für {name}",
+      "edit": "Bearbeiten",
+      "test": "Jetzt Test senden",
+      "pause": "Pausieren",
+      "resume": "Fortsetzen",
+      "delete": "Löschen"
+    },
+    "deleteConfirm": {
+      "title": "Diese Regel löschen?",
+      "description": "„{name}“ sendet nichts mehr. Ihre Einträge im Zustellprotokoll bleiben erhalten."
+    }
+  },
+  "deliveries": {
+    "title": "Zustellprotokoll",
+    "description": "Alles, was die Regeln gesendet haben oder senden wollten, das Neueste zuerst. Fehlgeschlagene Mails werden viermal über etwa 80 Minuten wiederholt.",
+    "loadError": "Das Zustellprotokoll konnte nicht geladen werden.",
+    "empty": "Noch nichts gesendet.",
+    "summary": "Bericht",
+    "columns": {
+      "time": "Zeit",
+      "rule": "Regel",
+      "what": "Betrifft",
+      "channel": "Kanal",
+      "status": "Status"
+    },
+    "channel": {
+      "email": "E-Mail",
+      "in_app": "Glocke",
+      "webhook": "Webhook"
+    },
+    "status": {
+      "pending": "In Warteschlange",
+      "sent": "Gesendet",
+      "failed": "Fehlgeschlagen",
+      "skipped": "Übersprungen"
+    },
+    "reasons": {
+      "mail_not_configured": "Kein Mail-Versand eingerichtet (Einstellungen → Benachrichtigungs-Mail).",
+      "not_available": "Berichte sind auf dieser Installation nicht verfügbar.",
+      "webhook_deleted": "Der Webhook wurde gelöscht.",
+      "webhook_inactive": "Der Webhook ist pausiert.",
+      "no_recipient": "Kein Empfänger.",
+      "demo_mode": "Demo: Nichts verlässt diesen Server."
+    }
+  },
+  "editor": {
+    "title": {
+      "create": {
+        "event": "Neuer Alarm",
+        "schedule": "Neuer Bericht"
+      },
+      "edit": {
+        "event": "Alarm bearbeiten",
+        "schedule": "Bericht bearbeiten"
+      }
+    },
+    "description": {
+      "event": "Legen Sie fest, was den Alarm auslöst und wer ihn erhält.",
+      "schedule": "Legen Sie fest, wann der Bericht gesendet wird, was er umfasst und wer ihn erhält."
+    },
+    "name": "Name",
+    "namePlaceholder": {
+      "event": "z. B. Fehlgeschlagene Sicherungen",
+      "schedule": "z. B. Wochenbericht"
+    },
+    "events": "Alarm senden, wenn",
+    "eventsHint": "Jedes Ereignis erscheint außerdem in der Glocke, mit oder ohne Regel.",
+    "throttle": "Wiederholte Alarme",
+    "throttleHint": "Wie oft dieselbe Regel zum selben Postfach oder Auftragstyp alarmieren darf.",
+    "throttleOptions": {
+      "0": "Jedes Mal",
+      "15": "Höchstens alle 15 Minuten",
+      "60": "Höchstens stündlich",
+      "240": "Höchstens alle 4 Stunden",
+      "1440": "Höchstens einmal am Tag"
+    },
+    "frequency": "Häufigkeit",
+    "frequencies": {
+      "daily": "Täglich",
+      "weekly": "Wöchentlich",
+      "monthly": "Monatlich (am 1.)",
+      "custom": "Benutzerdefiniert (Cron)"
+    },
+    "weekday": "Tag",
+    "time": "Uhrzeit",
+    "cron": "Cron-Ausdruck",
+    "cronHint": "Fünf Felder: Minute, Stunde, Tag im Monat, Monat, Wochentag.",
+    "timezone": "Zeitzone",
+    "timezoneHint": "IANA-Name, z. B. Europe/Berlin.",
+    "period": "Umfasst",
+    "periodDays": "{count, plural, one {den letzten Tag} other {die letzten # Tage}}",
+    "sections": "Inhalt",
+    "channels": "Empfänger",
+    "recipients": "E-Mail-Adressen",
+    "recipientsHint": "Eine pro Zeile oder durch Kommas getrennt.",
+    "recipientsPlaceholder": "z. B. it@beispiel.de",
+    "inApp": "Auch in der Glocke anzeigen",
+    "inAppHint": "Ein Eintrag in der Glocke, sobald der Bericht gesendet wurde, für alle in diesem Mandanten.",
+    "bellAlways": "Alarme erscheinen immer auch in der Glocke.",
+    "webhook": "Webhook",
+    "webhookHint": "Zusätzlich als signierter Webhook (report.alert oder report.summary), z. B. an ein RMM, Teams oder ein Ticketsystem.",
+    "noWebhook": "Kein Webhook",
+    "language": "Sprache",
+    "languageTenant": "Sprache des Mandanten",
+    "enabled": "Aktiv",
+    "cancel": "Abbrechen",
+    "create": "Anlegen",
+    "save": "Speichern",
+    "errors": {
+      "name": "Geben Sie einen Namen ein.",
+      "events": "Wählen Sie mindestens ein Ereignis.",
+      "sections": "Wählen Sie mindestens einen Abschnitt.",
+      "channels": "Fügen Sie eine E-Mail-Adresse oder einen Webhook hinzu (bei Berichten auch die Glocke).",
+      "time": "Geben Sie eine Uhrzeit als HH:MM ein.",
+      "cron": "Ein Cron-Ausdruck hat fünf Felder.",
+      "recipients": "Eine der Adressen ist keine gültige E-Mail-Adresse."
+    }
+  },
+  "eventGroups": {
+    "jobs": "Aufträge",
+    "recoverability": "Wiederherstellbarkeit",
+    "storage": "Speicher",
+    "system": "Installation"
+  },
+  "events": {
+    "backup": {
+      "failed": "Sicherung fehlgeschlagen"
+    },
+    "restore": {
+      "failed": "Wiederherstellung fehlgeschlagen",
+      "completed": "Wiederherstellung abgeschlossen"
+    },
+    "archive": {
+      "failed": "Archiv-Abgleich fehlgeschlagen"
+    },
+    "directory": {
+      "failed": "Verzeichnisabgleich fehlgeschlagen"
+    },
+    "verify": {
+      "red": "Restore-Prüfung nicht bestanden",
+      "yellow": "Restore-Prüfung mit Hinweisen",
+      "recovered": "Wieder wiederherstellbar"
+    },
+    "scrub": {
+      "corrupt": "Speicherschaden gefunden",
+      "repaired": "Speicherschaden behoben"
+    },
+    "endpoint": {
+      "stale": "Server oder Client meldet sich nicht",
+      "suspicious_snapshot": "Verdächtiger Snapshot eines Servers oder Clients",
+      "storage_quota": "Speicherbudget von Servern und Clients",
+      "repository_locked": "Repository eines Servers oder Clients bleibt gesperrt"
+    },
+    "update": {
+      "available": "Update verfügbar"
+    }
+  },
+  "eventHints": {
+    "backup": {
+      "failed": "Ein Sicherungsauftrag eines Postfachs, OneDrives oder IMAP-Kontos wurde nicht abgeschlossen."
+    },
+    "restore": {
+      "failed": "Eine Wiederherstellung oder ein Download konnte nicht abgeschlossen werden.",
+      "completed": "Eine Wiederherstellung oder ein Download ist fertig."
+    },
+    "archive": {
+      "failed": "Ein Archiv-Abgleich wurde nicht abgeschlossen."
+    },
+    "directory": {
+      "failed": "Das Lesen von Nutzern und Postfächern aus Microsoft 365 ist fehlgeschlagen."
+    },
+    "verify": {
+      "red": "Eine Wiederherstellung wäre nicht vollständig: Die neueste Sicherung hat ihre Prüfung nicht bestanden.",
+      "yellow": "Die Prüfung ist mit Hinweisen bestanden.",
+      "recovered": "Ein Postfach, das rot oder gelb war, ist wieder grün."
+    },
+    "scrub": {
+      "corrupt": "Die Speicherprüfung hat beschädigte oder fehlende Pack-Dateien gefunden.",
+      "repaired": "Beschädigte Pack-Dateien wurden aus einer intakten Kopie wiederhergestellt."
+    },
+    "endpoint": {
+      "stale": "Ein Server hat sich länger als zwei Stunden nicht gemeldet, oder ein Client hat seit mehreren Tagen keine gute Sicherung.",
+      "suspicious_snapshot": "Ein Snapshot ist aufgetaucht, den kein Sicherungslauf gemeldet hat, oder einer, der in der Zukunft datiert ist. Die Aufbewahrung behält ihn; der Rechner könnte kompromittiert sein.",
+      "storage_quota": "Das Repository eines Rechners oder alle eines Mandanten zusammen haben 90 Prozent des Speicherbudgets erreicht, oder Sicherungen wurden abgelehnt, weil es ausgeschöpft ist.",
+      "repository_locked": "Aufbewahrung und Prüfungen fanden das Repository eines Rechners länger als zwölf Stunden gesperrt vor."
+    },
+    "update": {
+      "available": "Eine neuere Version der Software ist verfügbar. Wird einmal je Version für die gesamte Installation ausgelöst und kann daher nur von Provider-Administratoren gewählt werden."
+    }
+  },
+  "sections": {
+    "backups": "Sicherungen",
+    "readiness": "Wiederherstellbarkeit",
+    "failures": "Fehler",
+    "storage": "Speicher",
+    "restores": "Wiederherstellungen"
+  },
+  "sectionHints": {
+    "backups": "Erfolgsquote und fehlgeschlagene Elemente.",
+    "readiness": "Anteil nachweislich wiederherstellbar und geschützte Objekte.",
+    "failures": "Die häufigsten Fehlerursachen.",
+    "storage": "Geschützte Daten und ihr Platz nach Deduplizierung.",
+    "restores": "Wie viele Wiederherstellungen liefen."
+  },
+  "weekdays": {
+    "0": "Sonntag",
+    "1": "Montag",
+    "2": "Dienstag",
+    "3": "Mittwoch",
+    "4": "Donnerstag",
+    "5": "Freitag",
+    "6": "Samstag"
+  },
+  "queues": {
+    "backup": "Sicherung",
+    "restore": "Wiederherstellung",
+    "archive": "Archiv-Abgleich",
+    "directory": "Verzeichnisabgleich"
+  },
+  "mail": {
+    "tenant": "Mandant",
+    "target": "Betrifft",
+    "when": "Zeitpunkt",
+    "error": "Fehler",
+    "reasons": "Gründe",
+    "verifyRedOutdated": "Sicherung zu alt",
+    "testPrefix": "Test: ",
+    "alertIntro": "{event}: {target} ({tenant}).",
+    "summaryIntro": "Zusammenfassung für {tenant}, {from} bis {to}.",
+    "footer": "Sie erhalten diese Nachricht wegen der Regel „{rule}“ in {appName}. Ändern oder pausieren Sie sie unter Alarme.",
+    "version": "Neue Version",
+    "running": "Laufende Version",
+    "releaseNotes": "Release Notes",
+    "cause": "Ursache",
+    "todo": "Was zu tun ist"
+  },
+  "summary": {
+    "previous": "Vorzeitraum",
+    "backupSuccessRate": "Erfolgsquote der Sicherungen",
+    "failedItems": "Fehlgeschlagene Elemente",
+    "verifiedShare": "Nachweislich wiederherstellbar",
+    "protectedObjects": "Geschützte Objekte",
+    "failures": "Fehler",
+    "failure": "Fehler",
+    "noFailures": "Keine in diesem Zeitraum",
+    "logicalBytes": "Geschützte Daten",
+    "physicalBytes": "Gespeichert nach Deduplizierung",
+    "restores": "Wiederherstellungen"
+  },
+  "bell": {
+    "label": "Benachrichtigungen",
+    "labelUnread": "{count, plural, one {Benachrichtigungen, # ungelesen} other {Benachrichtigungen, # ungelesen}}",
+    "labelUnreadAttention": "Benachrichtigungen, {count} ungelesen, {attention, plural, one {# braucht Aufmerksamkeit} other {# brauchen Aufmerksamkeit}}",
+    "title": "Benachrichtigungen",
+    "markAll": "Alle gelesen",
+    "empty": "Nichts Neues.",
+    "unread": "ungelesen",
+    "manage": "Alarme"
+  },
+  "bellEvents": {
+    "backup": {
+      "failed": "Sicherung fehlgeschlagen: {object}"
+    },
+    "restore": {
+      "failed": "Wiederherstellung fehlgeschlagen: {object}",
+      "completed": "Wiederherstellung abgeschlossen: {object}"
+    },
+    "archive": {
+      "failed": "Archiv-Abgleich fehlgeschlagen: {object}"
+    },
+    "directory": {
+      "failed": "Verzeichnisabgleich fehlgeschlagen"
+    },
+    "verify": {
+      "red": "Restore-Prüfung nicht bestanden: {object}",
+      "redOutdated": "Sicherung zu alt: {object}",
+      "yellow": "Restore-Prüfung mit Hinweisen: {object}",
+      "recovered": "Wieder wiederherstellbar: {object}"
+    },
+    "scrub": {
+      "corrupt": "Speicherschaden gefunden",
+      "repaired": "Speicherschaden behoben"
+    },
+    "endpoint": {
+      "stale": "Meldet sich nicht: {object}",
+      "suspicious_snapshot": "Verdächtiger Snapshot: {object}",
+      "storage_quota": "Speicherbudget: {object}",
+      "repository_locked": "Repository gesperrt: {object}"
+    },
+    "report": {
+      "ready": "Bericht gesendet: {rule}"
+    },
+    "update": {
+      "available": "Update verfügbar: Version {version}",
+      "succeeded": "Auf Version {version} aktualisiert",
+      "failed": "Update auf Version {version} nicht abgeschlossen"
+    }
+  },
+  "toasts": {
+    "created": "Regel angelegt.",
+    "updated": "Regel gespeichert.",
+    "deleted": "Regel gelöscht.",
+    "paused": "Regel pausiert.",
+    "resumed": "Regel fortgesetzt.",
+    "testQueued": "{count, plural, one {Test für # Kanal eingereiht; siehe Zustellprotokoll.} other {Test für # Kanäle eingereiht; siehe Zustellprotokoll.}}"
+  },
+  "errors": {
+    "network": "Der Server ist nicht erreichbar.",
+    "featureUnavailable": "Zeitgesteuerte Berichte sind auf dieser Installation nicht verfügbar.",
+    "invalid": "Die Regel kann nicht gespeichert werden: {detail}",
+    "notFound": "Die Regel existiert nicht mehr.",
+    "generic": "Das hat nicht funktioniert. Bitte versuchen Sie es erneut."
+  },
+  "defaultRules": {
+    "jobFailures": "Fehlgeschlagene Aufträge",
+    "readinessRed": "Wiederherstellbarkeit gefährdet",
+    "weeklyReport": "Wochenbericht"
+  }
+}

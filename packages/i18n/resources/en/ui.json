@@ -1,0 +1,106 @@
+{
+  "table": {
+    "loading": "Loading entries …",
+    "empty": {
+      "title": "No entries yet",
+      "description": "Entries appear here as soon as there are any."
+    },
+    "filteredEmpty": {
+      "title": "No matching entries",
+      "description": "No entry matches the current search and filters.",
+      "reset": "Reset filters"
+    },
+    "error": {
+      "title": "The list could not be loaded",
+      "stale": "The list could not be refreshed. What is shown is from the last successful load."
+    },
+    "sortBy": "Sort by {column}",
+    "search": "Search",
+    "resetFilters": "Reset",
+    "columns": {
+      "button": "Columns",
+      "label": "Visible columns"
+    },
+    "filter": {
+      "selected": "{count, plural, one {# selected} other {# selected}}",
+      "noOptions": "No matching option",
+      "clear": "Clear filter"
+    },
+    "actions": {
+      "column": "Actions",
+      "open": "Open actions",
+      "openFor": "Actions for {name}"
+    },
+    "pagination": {
+      "label": "Pagination",
+      "range": "{from}–{to} of {total}",
+      "pageSize": "Rows per page",
+      "page": "Page {page} of {pages}",
+      "first": "First page",
+      "previous": "Previous page",
+      "next": "Next page",
+      "last": "Last page"
+    },
+    "loadMore": {
+      "action": "Load more",
+      "shown": "{count, plural, one {# entry shown} other {# entries shown}}",
+      "all": "{count, plural, one {The only entry is shown} other {All # entries shown}}"
+    }
+  },
+  "time": {
+    "never": "Never",
+    "unknown": "Unknown",
+    "justNow": "just now"
+  },
+  "confirm": {
+    "typePrompt": "To confirm, type the following:"
+  },
+  "kpi": {
+    "previousPeriod": "compared with the previous period",
+    "loading": "Loading value …",
+    "change": {
+      "upBetter": "Up by {change} {period}, an improvement.",
+      "upWorse": "Up by {change} {period}, a deterioration.",
+      "upNeutral": "Up by {change} {period}.",
+      "downBetter": "Down by {change} {period}, an improvement.",
+      "downWorse": "Down by {change} {period}, a deterioration.",
+      "downNeutral": "Down by {change} {period}.",
+      "flat": "Unchanged {period}."
+    }
+  },
+  "chart": {
+    "loading": "Loading chart …",
+    "unavailable": "Not available",
+    "error": "The chart could not be loaded",
+    "empty": {
+      "title": "No data yet",
+      "description": "The chart fills in as soon as there is data for this period."
+    }
+  },
+  "copy": {
+    "action": "Copy",
+    "copied": "Copied",
+    "failed": "Could not copy to the clipboard. Select the text and copy it manually."
+  },
+  "refresh": {
+    "action": "Refresh",
+    "refreshing": "Refreshing …"
+  },
+  "activityOrb": {
+    "backupRunning": "Backup running",
+    "restoreRunning": "Restore running",
+    "verifying": "Restore check running",
+    "restoreTest": "Testing a restore",
+    "directorySync": "Directory sync running",
+    "sourceConsent": "Waiting for admin consent",
+    "searching": "Searching",
+    "exporting": "Exporting",
+    "reportGenerating": "Generating report",
+    "queued": "Queued",
+    "throttled": "Waiting for Microsoft (throttled)",
+    "waitingFirstBackup": "Waiting for first backup",
+    "scrubbing": "Storage check running",
+    "integrityCheck": "Checking integrity",
+    "storageMigration": "Storage migration running"
+  }
+}

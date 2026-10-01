@@ -1,0 +1,522 @@
+{
+  "section": {
+    "what": "What happened",
+    "why": "Why",
+    "todo": "What to do",
+    "technical": "Technical details",
+    "technicalHelp": "Quote these values in a support case. They never contain passwords, keys or tokens.",
+    "docs": "Troubleshooting guide",
+    "retryNow": "Retry now",
+    "retrying": "{appName} retries automatically",
+    "transient": "This is usually temporary.",
+    "notTransient": "{appName} cannot fix this by waiting.",
+    "olderFailure": "This failure was recorded before {appName} kept structured causes, so only the message below is available.",
+    "recordedMessage": "Message as recorded",
+    "copy": "Copy details for support",
+    "itemsByCause": "Failed items by cause",
+    "itemsByCauseHelp": "Items that share a cause are grouped. The latest example of each group is explained.",
+    "moreCauses": "{count, plural, one {# more item has a cause that is not shown here.} other {# more items have causes that are not shown here.}}"
+  },
+  "what": {
+    "job": "{queue} for {object} failed {when}.",
+    "jobNoObject": "{queue} failed {when}.",
+    "attempt": "An attempt of {queue} for {object} failed {when}.",
+    "attemptNoObject": "An attempt of {queue} failed {when}.",
+    "item": "The item {item} could not be processed ({when}).",
+    "source": "The connection to {name} is broken (recorded {when}).",
+    "sync": "The last directory sync of {name} failed {when}.",
+    "credential": "The login test for {name} failed {when}.",
+    "verify": "The recovery check of {object} found a problem ({when}).",
+    "step": "It stopped during the step: {step}.",
+    "items": "{count, plural, one {# item was affected.} other {# items were affected.}}",
+    "itemGroup": "{count, plural, one {# item} other {# items}}",
+    "retry": "Attempt {attempt} of {limit} failed. {appName} tries again around {when}.",
+    "retryUnknown": "Attempt {attempt} of {limit} failed. {appName} tries again automatically."
+  },
+  "technicalKeys": {
+    "httpStatus": "HTTP status",
+    "errorCode": "Error code",
+    "innerErrorCode": "Inner error code",
+    "requestId": "Request ID",
+    "clientRequestId": "Client request ID",
+    "serverDate": "Time reported by the server",
+    "endpoint": "Request",
+    "aadsts": "Entra error (AADSTS)",
+    "correlationId": "Correlation ID",
+    "imapResponse": "IMAP response",
+    "imapCode": "IMAP response code",
+    "imapStatus": "IMAP status",
+    "imapCommand": "IMAP command",
+    "systemCode": "System error",
+    "host": "Host",
+    "port": "Port",
+    "syscall": "System call",
+    "path": "Path",
+    "sqlState": "SQL state",
+    "errorName": "Error type",
+    "message": "Message",
+    "code": "Cause code",
+    "occurredAt": "Time",
+    "step": "Step"
+  },
+  "cause": {
+    "graph": {
+      "consent_missing": {
+        "title": "Microsoft 365 admin consent is missing or was withdrawn",
+        "why": "Microsoft does not recognise {appName} in this Microsoft 365 organisation. Either an administrator never granted consent, or it was taken back later, for example by deleting the {appName} app under Enterprise applications in Entra ID. Without consent {appName} cannot read anything from this organisation."
+      },
+      "app_credentials_invalid": {
+        "title": "Microsoft does not accept the credentials of the {appName} app",
+        "why": "{reason, select, secret_expired {The client secret of the {appName} app registration has expired.} invalid_secret {The client secret was not accepted. A frequent cause is that the ID of the secret was entered instead of its value.} invalid_certificate {The certificate of the {appName} app registration was not accepted.} credential_missing {Microsoft received no usable secret or certificate.} other {Microsoft refused to issue a token for the {appName} app.}} This concerns the app registration of this installation, so it affects every Microsoft 365 source."
+      },
+      "tenant_not_found": {
+        "title": "Microsoft does not know this tenant",
+        "why": "The Microsoft 365 tenant this source points to was not found. It may have been renamed or deleted, or the tenant ID or domain stored for the source is wrong."
+      },
+      "token_rejected": {
+        "title": "Microsoft did not accept the access token",
+        "why": "Microsoft refused the access token {appName} presented, or did not issue one. This is usually temporary, because tokens are renewed automatically. It also happens when the clock of the {appName} server is off by several minutes, or when the credentials of the app changed in the meantime."
+      },
+      "permission_missing": {
+        "title": "The {appName} app is missing a Microsoft 365 permission",
+        "why": "Microsoft refused the request with \"insufficient privileges\". {has_permission, select, yes {The call needs the application permission {permission}, which the {appName} app does not hold in this organisation.} other {The {appName} app does not hold an application permission this call needs.}} Consent may have been given for a smaller set of permissions, or for read-only variants such as Mail.Read instead of Mail.ReadWrite."
+      },
+      "access_denied": {
+        "title": "Microsoft denied access to this mailbox or drive",
+        "why": "Microsoft answered \"access denied\". There are two usual reasons: {has_permission, select, yes {the {appName} app lacks the permission {permission}} other {the {appName} app lacks a permission this call needs}}, or an Exchange Application Access Policy in the customer organisation excludes this mailbox from the app. {appName} cannot tell the two apart from Microsoft's answer."
+      },
+      "mailbox_not_licensed": {
+        "title": "This user has no usable Exchange Online mailbox",
+        "why": "{reason, select, not_in_exchange_online {The mailbox is hosted outside Exchange Online, for example on premises, which Microsoft Graph cannot reach.} other {Microsoft reports that the mailbox is not enabled for the REST API: the user has no Exchange Online licence, the licence was removed recently, or the mailbox is inactive or soft-deleted.}} {appName} can only back up mailboxes that live in Exchange Online."
+      },
+      "user_not_found": {
+        "title": "The user or mailbox no longer exists",
+        "why": "Microsoft reports that this user or mailbox does not exist any more. The user was probably deleted or the mailbox was removed. Backups that already exist stay restorable."
+      },
+      "onedrive_unavailable": {
+        "title": "This user has no OneDrive that {appName} can reach",
+        "why": "Microsoft reports that the OneDrive of this user does not exist. Usual reasons: the user has no licence that includes OneDrive, or OneDrive was never provisioned because the user never opened it."
+      },
+      "throttled": {
+        "title": "Microsoft is slowing {appName} down (throttling)",
+        "why": "Microsoft limits how many requests an app may send to a tenant or a mailbox and answered \"too many requests\"{has_retryAfterSeconds, select, yes { and asked {appName} to wait {retryAfterSeconds, plural, one {# second} other {# seconds}}} other {}}. This is normal for large backups and not an error on your side. {appName} waits as asked, adds some delay of its own and does not hammer Microsoft."
+      },
+      "service_unavailable": {
+        "title": "Microsoft had a temporary service problem",
+        "why": "Microsoft answered with a server error{has_httpStatus, select, yes { (HTTP {httpStatus})} other {}}. Such errors usually disappear on their own within minutes."
+      },
+      "item_not_found": {
+        "title": "The item was changed or deleted at Microsoft in the meantime",
+        "why": "{appName} listed this item but could not read it afterwards, because it was moved or deleted at Microsoft in between. The next run sees the new state."
+      },
+      "item_too_large": {
+        "title": "The item is too large for Microsoft Graph",
+        "why": "Microsoft refuses to hand out this item because it exceeds a size limit. {appName} lists the item as failed on every run and carries on with everything else, so this does not stop the backup."
+      },
+      "item_unreadable": {
+        "title": "The item is damaged or unreadable at Microsoft",
+        "why": "Microsoft could not deliver this item, because its data is corrupt or not in a valid format. The problem is in the mailbox or drive itself, not in {appName}."
+      },
+      "delta_expired": {
+        "title": "Microsoft invalidated the change tracking of a folder",
+        "why": "The change token {appName} stored for this folder or drive is no longer valid, for example after a long pause or after the folder changed. {appName} reads that folder again completely. Other folders are not affected."
+      },
+      "quota_exceeded": {
+        "title": "The target mailbox or OneDrive is full",
+        "why": "Microsoft refused to store more data because the target reached its storage quota."
+      },
+      "request_rejected": {
+        "title": "Microsoft rejected the request",
+        "why": "Microsoft answered{has_httpStatus, select, yes { with HTTP {httpStatus}} other {}}{has_graphCode, select, yes { ({graphCode})} other {}}, and {appName} has no more specific explanation for it. The technical details contain the exact answer."
+      }
+    },
+    "imap": {
+      "auth_failed": {
+        "title": "The IMAP server refused the login",
+        "why": "The server did not accept the username and password{has_host, select, yes { for {host}} other {}}. Usual reasons: the password was changed, two-step verification is on and an app password is needed (Google, Microsoft, iCloud and many hosts), IMAP access is switched off for the account, or the account is locked after too many failed logins."
+      },
+      "oauth_failed": {
+        "title": "The OAuth2 sign-in of the IMAP account no longer works",
+        "why": "{reason, select, token_expired {The stored refresh token was rejected: it expired or the user withdrew access.} client_invalid {The provider rejected the OAuth app (client ID or secret) that {appName} uses.} secret_invalid {The stored OAuth2 credentials are incomplete or damaged.} other {The provider refused to renew the access token.}} {appName} cannot renew access on its own until the account is connected again."
+      },
+      "credential_missing": {
+        "title": "No password is set for this IMAP account",
+        "why": "The source is set up so that every mailbox has its own password, but this account has none. {appName} cannot log in without it."
+      },
+      "starttls_unavailable": {
+        "title": "The server does not offer the encrypted connection that is configured",
+        "why": "{appName} requires an encrypted connection and never falls back to plain text. The server{has_host, select, yes { {host}} other {}} did not provide TLS as configured: STARTTLS is missing, or the port or the security mode does not match."
+      },
+      "address_blocked": {
+        "title": "Connections to this IMAP host are not allowed",
+        "why": "The host{has_host, select, yes { {host}} other {}} lies in a private, loopback or link-local network. {appName} only connects to public servers, unless a provider administrator approved the host for this source or the operator allowed private networks for the installation."
+      },
+      "config_invalid": {
+        "title": "The IMAP source is not configured correctly",
+        "why": "{appName} cannot use the current IMAP settings, for example the server, the login or the master user setup. The technical details name the problem."
+      },
+      "command_failed": {
+        "title": "The IMAP server refused a command",
+        "why": "The server answered with an error to a command {appName} sent{has_imapCode, select, yes { ({imapCode})} other {}}. The technical details contain the server's answer. Usual reasons are a folder that was deleted or renamed during the run, or limits on the server."
+      },
+      "mailbox_full": {
+        "title": "The IMAP mailbox is full",
+        "why": "The server refused to store more data because the mailbox reached its quota."
+      },
+      "connection_lost": {
+        "title": "The connection to the IMAP server was lost",
+        "why": "The server closed the connection during the run or stopped answering. {appName} reconnects and continues where it stopped. Mail servers do this under load or when a connection limit is reached."
+      }
+    },
+    "network": {
+      "dns": {
+        "title": "The host name cannot be resolved",
+        "why": "{has_host, select, yes {The name {host} could not be looked up in DNS from the {appName} server.} other {A host name could not be looked up in DNS from the {appName} server.}} {role, select, imap {It is the IMAP server of the source.} microsoft {It is a Microsoft service.} other {}}"
+      },
+      "unreachable": {
+        "title": "The host cannot be reached",
+        "why": "The connection to {has_host, select, yes {{host}} other {the host}}{has_port, select, yes {:{port}} other {}} was refused, reset or blocked. Firewalls, proxies and network outages cause this. {role, select, imap {It is the IMAP server of the source.} microsoft {It is a Microsoft service.} other {}}"
+      },
+      "timeout": {
+        "title": "The host did not answer in time",
+        "why": "{has_host, select, yes {{host} did not answer within the time limit.} other {The remote host did not answer within the time limit.}} A slow network, a firewall that drops packets or an overloaded server cause this. {role, select, imap {It is the IMAP server of the source.} microsoft {It is a Microsoft service.} other {}}"
+      },
+      "tls": {
+        "title": "The TLS certificate of the host is not accepted",
+        "why": "{reason, select, expired {The certificate has expired.} self_signed {The certificate is self-signed and therefore not trusted.} hostname_mismatch {The certificate was issued for a different host name.} untrusted {The certificate was not issued by a trusted authority, or the chain is incomplete.} other {The TLS handshake failed.}} {appName} never connects without valid encryption."
+      }
+    },
+    "storage": {
+      "path_missing": {
+        "title": "The storage folder does not exist",
+        "why": "{appName} cannot find the folder or file{has_path, select, yes { {path}} other {}}. Usual reason: a disk or network share is not mounted into the container, or the folder was moved or deleted."
+      },
+      "not_writable": {
+        "title": "{appName} may not write to the storage folder",
+        "why": "The operating system denied access{has_path, select, yes { to {path}} other {}}. The folder is read-only or belongs to a user the {appName} worker does not run as."
+      },
+      "full": {
+        "title": "The storage target is full",
+        "why": "There is no space left on the storage target, or its quota is used up. {appName} cannot write new backup data until space is available."
+      },
+      "access_denied": {
+        "title": "The storage service denied access",
+        "why": "The storage service accepted the credentials but does not allow this operation. The account may lack permission to read, write, list or delete in the bucket, or a bucket policy blocks it."
+      },
+      "credentials_invalid": {
+        "title": "The storage service does not accept the credentials",
+        "why": "The access key or the secret of the storage target is wrong, expired or was revoked."
+      },
+      "bucket_missing": {
+        "title": "The bucket does not exist",
+        "why": "The storage service reports that the bucket configured for this target does not exist, or the account cannot see it."
+      },
+      "wrong_region": {
+        "title": "The bucket is at a different endpoint or region",
+        "why": "The storage service redirected the request or rejected the signature for this region. The endpoint URL or the region of the target does not match where the bucket lives."
+      },
+      "unreachable": {
+        "title": "The storage target cannot be reached",
+        "why": "The connection to the storage endpoint{has_host, select, yes { {host}} other {}} failed. Firewalls, DNS problems or an outage at the storage provider cause this."
+      },
+      "timeout": {
+        "title": "The storage target did not answer in time",
+        "why": "The storage endpoint did not respond within the time limit. The network may be slow or the service overloaded."
+      },
+      "tls": {
+        "title": "The TLS certificate of the storage endpoint is not accepted",
+        "why": "{reason, select, expired {The certificate has expired.} self_signed {The certificate is self-signed and therefore not trusted.} hostname_mismatch {The certificate was issued for a different host name.} untrusted {The certificate was not issued by a trusted authority.} other {The TLS handshake failed.}} {appName} never connects to storage without valid encryption."
+      },
+      "rate_limited": {
+        "title": "The storage service is limiting requests",
+        "why": "The storage service answered \"slow down\" or \"service unavailable\". {appName} tries again automatically."
+      },
+      "integrity": {
+        "title": "Data on the storage does not match what {appName} wrote",
+        "why": "{reason, select, source_missing {An object that the index knows is missing on the primary target.} source_corrupt {An object on the primary target has a different size or checksum than recorded.} verify_failed {A copy target returned different bytes than were written.} other {A read-back of stored data did not match.}} {appName} did not spread the damage to other targets."
+      },
+      "error": {
+        "title": "The storage target returned an unexpected error",
+        "why": "Writing or reading backup data failed and {appName} could not tell exactly why. The technical details contain the answer of the storage."
+      }
+    },
+    "crypto": {
+      "key_missing": {
+        "title": "The encryption key is missing",
+        "why": "{reason, select, master_key {The master key (RESTOW_MASTER_KEY) is not available to this process.} tenant_key {No data encryption key exists for this tenant.} other {A required encryption key is not available.}} Without it {appName} can neither write nor read encrypted backups."
+      },
+      "key_invalid": {
+        "title": "Data cannot be decrypted with the key {appName} has",
+        "why": "The key does not match the data: the master key was changed or replaced, or the data is damaged. Backups can only be read with the key that encrypted them."
+      }
+    },
+    "verify": {
+      "hash_mismatch": {
+        "title": "Restored data does not match the backup",
+        "why": "{has_count, select, yes {{count, plural, one {# checked item came back} other {# checked items came back}}} other {Checked items came back}} with different content than the backup recorded (checksum or size differ). Such data cannot be restored correctly. Usual reasons are damaged data on the storage or changes made to the storage outside of {appName}."
+      },
+      "chunk_missing": {
+        "title": "Parts of the backup are missing",
+        "why": "{has_count, select, yes {{count, plural, one {# checked item refers} other {# checked items refer}}} other {Checked items refer}} to backup data that is no longer there: the storage index does not list it, or no storage target has the data file that holds it any more. These items cannot be restored completely."
+      },
+      "pack_unreadable": {
+        "title": "Backup data in the storage is damaged",
+        "why": "{has_count, select, yes {{count, plural, one {# checked item} other {# checked items}}} other {Checked items}} could not be read back because the stored data is damaged: a data file that cannot be opened, or a part that does not decrypt or is missing from its data file. The technical details of the item name the cause."
+      },
+      "storage_corrupt": {
+        "title": "The storage integrity check found damaged data",
+        "why": "{has_count, select, yes {{count, plural, one {# data file was} other {# data files were}}} other {Data files were}} found damaged by the last storage check, and no intact copy could restore them. Backups that use them may be incomplete."
+      },
+      "restore_test_failed": {
+        "title": "The test restore failed",
+        "why": "{has_count, select, yes {{count, plural, one {# sample item was} other {# sample items were}}} other {Sample items were}} not accepted by the test target. The backup data itself may be intact, but a restore into the target does not work today."
+      },
+      "manifest_unreadable": {
+        "title": "The catalogue of the latest backup cannot be read",
+        "why": "{appName} could not read the list of what the latest backup contains. Without it nothing can be verified or restored from this backup."
+      },
+      "no_snapshot": {
+        "title": "There is no backup to restore yet",
+        "why": "This object has no completed backup, so a restore would find nothing."
+      },
+      "snapshot_outdated": {
+        "title": "The latest backup is too old",
+        "why": "The newest backup is {ageHours, plural, one {# hour} other {# hours}} old. Data changed since then would be lost in a restore."
+      },
+      "snapshot_stale": {
+        "title": "The latest backup is getting old",
+        "why": "The newest backup is {ageHours, plural, one {# hour} other {# hours}} old, which is more than a schedule normally leaves."
+      },
+      "nothing_to_verify": {
+        "title": "The backup contains nothing that could be verified",
+        "why": "The latest backup holds no items that a recovery check can read back, so the rating rests on nothing yet."
+      },
+      "restore_test_unconfirmed": {
+        "title": "The target did not confirm the test restore",
+        "why": "{has_count, select, yes {{count, plural, one {# sample item was} other {# sample items were}}} other {Sample items were}} restored, but the target did not confirm that they arrived intact."
+      },
+      "incomplete": {
+        "title": "The restore check could not complete",
+        "why": "{appName} could not read the backup data back, for a reason that says nothing about the backup itself. Nothing was rated and the last result stays as it was; the check is repeated automatically. The technical details name what failed."
+      }
+    },
+    "config": {
+      "source_not_connected": {
+        "title": "The source is not connected yet",
+        "why": "Nothing can be backed up before the source is connected: for Microsoft 365 the admin consent is outstanding, for IMAP the connection was never tested successfully."
+      },
+      "source_disabled": {
+        "title": "The source is switched off",
+        "why": "An administrator paused this source, so no job runs for it."
+      },
+      "object_excluded": {
+        "title": "This object is excluded from protection",
+        "why": "The object was taken out of protection, so no backup runs for it."
+      },
+      "object_orphaned": {
+        "title": "This object no longer exists at the source",
+        "why": "The mailbox or drive disappeared from the source directory. Backups that exist stay restorable, new ones are not made."
+      },
+      "app_not_configured": {
+        "title": "The Microsoft 365 app of this installation is not configured",
+        "why": "The app registration {appName} needs to talk to Microsoft 365 is incomplete or missing (client ID, credentials). No Microsoft 365 job can run until it is set up."
+      },
+      "invalid": {
+        "title": "A setting prevents this job from running",
+        "why": "The job was rejected before it started because a setting is missing or inconsistent. The technical details name it."
+      }
+    },
+    "database": {
+      "unavailable": {
+        "title": "The database was not available",
+        "why": "{reason, select, too_many_connections {The database has no free connections left.} disk_full {The database ran out of disk space.} shutdown {The database was stopped or restarted.} conflict {The database rolled back a transaction because of a conflict.} other {The database connection was lost or could not be opened.}} The job continues from its last checkpoint once the database is back."
+      },
+      "error": {
+        "title": "The database returned an error",
+        "why": "A database operation failed{has_systemCode, select, yes { ({systemCode})} other {}}. The technical details contain the database message without the query."
+      }
+    },
+    "directory": {
+      "conflict": {
+        "title": "Protection rules changed during the sync",
+        "why": "An administrator changed the protection rules or overrides while the directory sync was running. {appName} discarded that run and starts again."
+      }
+    },
+    "export": {
+      "quota_exceeded": {
+        "title": "The export is larger than the space for exports",
+        "why": "The finished exports of this organization may use only a limited amount of storage together, and this export would go beyond it. The file that was written so far was deleted, nothing else was changed."
+      }
+    },
+    "job": {
+      "interrupted": {
+        "title": "The job was interrupted",
+        "why": "{reason, select, shutdown {The worker was stopped or restarted while the job was running.} expired {The job reached the time limit of a single run.} other {The job was interrupted before it finished.}} {appName} continues from the last checkpoint, nothing that was already saved is lost."
+      }
+    },
+    "unknown": {
+      "title": "The cause could not be identified",
+      "why": "{appName} could not classify this error. The message is shown exactly as recorded, with secrets removed."
+    },
+    "endpoint": {
+      "no_paths": {
+        "title": "None of the configured folders exists on the machine",
+        "why": "The agent had nothing to back up because none of the folders in the machine's settings exists on it. A backup without a folder would be empty, so it was not started."
+      },
+      "pre_hook_failed": {
+        "title": "The command before the backup failed",
+        "why": "The command that runs before the backup (for example a database dump) ended with an error, so the backup was not started. Backing up without it would save an inconsistent state."
+      },
+      "post_hook_failed": {
+        "title": "The command after the backup failed",
+        "why": "The backup itself finished, but the command that runs after it ended with an error. The backup is usable; check what the command was meant to do."
+      },
+      "hooks_not_allowed": {
+        "title": "A command before or after the backup was not run",
+        "why": "The settings of this machine name a command to run before or after the backup, but the machine does not allow commands from {appName}: they run as root, so an administrator of the machine has to allow them there. The backup ran without the command; what it prepares (for example a database dump) may be missing or out of date."
+      },
+      "timeout": {
+        "title": "The run took too long",
+        "why": "The run did not finish within the time the agent allows. What was already uploaded is kept, so the next run continues quickly where this one stopped."
+      },
+      "target_not_empty": {
+        "title": "The restore folder is not empty",
+        "why": "{has_path, select, yes {The folder {path} already contains files.} other {The target folder already contains files.}} A restore never overwrites files, so nothing was restored."
+      },
+      "invalid_task": {
+        "title": "The machine could not carry out the request",
+        "why": "The agent refused a task from the server as invalid, for example a restore without a usable snapshot or folder. Nothing was changed on the machine."
+      },
+      "hash_mismatch": {
+        "title": "A restored file does not match its recorded checksum",
+        "why": "{has_path, select, yes {The file {path}} other {A sampled file}} came back from the backup with different content than when it was backed up (the checksum differs). Such a backup cannot be restored correctly. Usual reasons are damaged data in the storage, or a file that changed between its backup and the check."
+      },
+      "file_missing": {
+        "title": "A sampled file is missing from the backup",
+        "why": "{has_path, select, yes {The file {path}} other {A sampled file}} could not be found in the snapshot, although the backup reported it."
+      },
+      "file_not_regular": {
+        "title": "A sampled file is not a regular file",
+        "why": "{has_path, select, yes {{path}} other {A sampled entry}} is a link, a device or a folder now, so its content cannot be compared. Sampled files are chosen among regular files; this one changed its type since."
+      },
+      "read_error": {
+        "title": "Some files could not be read",
+        "why": "{has_count, select, yes {{count, plural, one {# error was} other {# errors were}} reported} other {Errors were reported}} while reading files, for example locked or permission-protected files, or files that changed during the backup. The rest was backed up (a partial backup), and a partial backup is never rated fully restorable."
+      },
+      "restic_failed": {
+        "title": "The backup program ended with an error",
+        "why": "{has_exitCode, select, yes {restic ended with exit code {exitCode}.} other {restic ended with an error.}} The technical details show what it reported."
+      },
+      "repository_locked": {
+        "title": "The repository is busy",
+        "why": "Another backup or a maintenance run (pruning, a check) holds the repository lock. The agent waits and tries again, so this usually resolves itself."
+      },
+      "repository_missing": {
+        "title": "The repository was not found",
+        "why": "The backup program could not find this machine's repository in the storage target. Files in the storage may have been moved or deleted outside of the backup software, or the storage target was changed."
+      },
+      "repository_password": {
+        "title": "The repository password is rejected",
+        "why": "The password stored on the server does not open the repository. This should never happen. Do not change files in the storage and quote the technical details in a support case."
+      },
+      "repository_refused": {
+        "title": "The server refused the request",
+        "why": "The server refused what the machine asked for, for example deleting or overwriting a backup. Machines may only add backups; pruning happens on the server."
+      },
+      "network": {
+        "title": "The machine could not reach the server",
+        "why": "The connection from the machine to the server failed or was interrupted (DNS, firewall, proxy, a restart of the server or a bad line). The agent tries again by itself."
+      },
+      "agent_stopped": {
+        "title": "The agent stopped while the run was going",
+        "why": "The agent did not report for hours during this run, so the server closed it. The machine may have been switched off or lost its network, or the agent service stopped."
+      },
+      "interrupted": {
+        "title": "The run was interrupted",
+        "why": "The agent was restarted while this run was going (an update, a reboot or a stopped service). It continues by itself. This is not a failed backup."
+      },
+      "silent": {
+        "title": "The server has not reported",
+        "why": "{has_ageHours, select, yes {There has been no contact for {ageHours, plural, one {# hour} other {# hours}}.} other {There has been no contact for some time.}} A server reports every five minutes. It may be switched off or offline, or the agent service may have stopped."
+      },
+      "backup_overdue": {
+        "title": "No good backup for days",
+        "why": "{has_ageDays, select, yes {The last good backup is {ageDays, plural, one {# day} other {# days}} old.} other {The last good backup is too old.}} The machine may have been off or offline, or its backups keep failing."
+      },
+      "repository_damaged": {
+        "title": "The repository is damaged",
+        "why": "The repository check found damaged or missing data among this machine's backups. Backups made from now on are not affected, but older data may not be restorable. The technical details show what the check reported."
+      }
+    }
+  },
+  "steps": {
+    "regrant_consent": "Create a new consent link for this source and let a Global Administrator of the customer organisation grant admin consent again.",
+    "verify_permissions": "Run \"Verify permissions\" on the source to see which permissions the organisation has granted.",
+    "grant_permission": "{has_permission, select, yes {Add the application permission {permission} to the {appName} app registration in Entra ID} other {Add the missing application permissions to the {appName} app registration in Entra ID}}, then grant admin consent again for this source.",
+    "check_app_credentials": "Check the client secret or certificate of the {appName} app under Settings > Microsoft 365. If it expired or was replaced in Entra ID, save the new one there.",
+    "configure_app": "Finish the app registration under Settings > Microsoft 365: client ID, credentials and public URL.",
+    "check_tenant_id": "Check the tenant ID or domain of the source. If the organisation was renamed or deleted, create the source again.",
+    "check_server_clock": "Check that the clock of the {appName} server is correct (NTP). A clock that is off by more than a few minutes makes Microsoft reject tokens.",
+    "assign_license": "Assign an Exchange Online licence to this user in the Microsoft 365 admin centre, or exclude the mailbox from protection.",
+    "exclude_object": "If this object does not need protection, exclude it on the Protected objects page.",
+    "include_object": "To back it up again, include the object on the Protected objects page.",
+    "assign_onedrive_license": "Make sure the user has a licence that includes OneDrive and that OneDrive was provisioned (the user opens OneDrive once). Or exclude the drive from protection.",
+    "sync_directory": "Run a directory sync so {appName} learns which users still exist. Objects of removed users are then marked as gone and are no longer backed up.",
+    "check_access_policy": "If you use an Exchange Application Access Policy, add this mailbox to the allowed group, or exclude the mailbox from protection.",
+    "wait_automatic": "Nothing to do. {appName} tries again automatically.",
+    "wait_throttled": "Nothing to do. {appName} waits as long as Microsoft asks and carries on by itself. Very large first backups can take days because of these limits.",
+    "check_service_health": "If the problem lasts for hours, check the Microsoft 365 service health in the admin centre.",
+    "open_item_at_source": "Open the item in Outlook or OneDrive. If it cannot be opened there either, it is damaged at Microsoft and can be deleted or replaced.",
+    "contact_microsoft_support": "For a Microsoft support case, quote the request ID, the client request ID and the time from the technical details.",
+    "item_stays_failed": "Nothing to do for the backup as a whole. The item stays listed as failed, everything else is backed up.",
+    "free_target_space": "Free up space in the target, or choose another target for the restore.",
+    "check_app_password": "Check the username and the password in the source settings. If the provider requires two-step verification, create an app password and use that.",
+    "enable_imap_access": "Make sure IMAP access is switched on for the account at the mail provider.",
+    "reauthorize_oauth": "Connect the account again in the source settings so that {appName} receives a new OAuth token.",
+    "set_object_password": "Set or correct the password of this account on the Protected objects page.",
+    "check_host_reachable": "{has_host, select, yes {Check that {host}{has_port, select, yes {:{port}} other {}} is reachable from the {appName} server} other {Check that the server is reachable from the {appName} server}}: name, port, firewall and proxy.",
+    "check_dns": "Check that the host name resolves from the {appName} server: the DNS server used by the container and typos in the name.",
+    "check_tls_certificate": "Check the certificate of the host: it must be valid, not expired, issued for this host name and signed by a trusted authority.",
+    "check_imap_security": "Check the connection security (TLS or STARTTLS) and the port in the source settings.",
+    "approve_private_network": "Use a public host name, or ask a provider administrator to approve this private host for the source, or allow private networks for the installation (IMAP_ALLOW_PRIVATE_NETWORKS).",
+    "check_server_limits": "If it keeps happening, check the limits of the IMAP server: connections per user and per IP address.",
+    "check_source_settings": "Check the settings of the source.",
+    "enable_source": "Switch the source on again in its settings.",
+    "reconnect_source": "Finish connecting the source: for Microsoft 365 grant admin consent, for IMAP test the connection.",
+    "check_storage_path": "Check that the folder exists, is mounted into the container and that the {appName} worker may write to it.",
+    "free_storage_space": "Free up space in the repository, or add another repository under Repositories.",
+    "check_storage_credentials": "Check the access key and the secret of the storage target.",
+    "check_storage_permissions": "Check that the credentials may read, write, list and delete in the bucket.",
+    "check_bucket": "Check the name of the bucket.",
+    "check_storage_endpoint": "Check the endpoint URL and the region of the storage target.",
+    "check_storage_health": "Run a connection test on the storage target and, if data is damaged, a storage integrity check.",
+    "check_master_key": "Make sure RESTOW_MASTER_KEY is set for the API and the worker and has exactly the value that encrypted the tenant keys. Never change it without wrapping the keys again.",
+    "restore_key_backup": "Restore the master key from your key backup.",
+    "run_backup_again": "Run a new backup. If the problem returns, run a health check.",
+    "run_health_check": "Run a complete health check to see the full extent.",
+    "restore_from_copy": "If you have a copy target, restore the affected data files from the copy. The next backup writes missing data again.",
+    "check_test_target": "Check the test restore target of the source and that the {appName} app may write there.",
+    "wait_for_exports_to_expire": "Finished exports are deleted automatically after their download time. Wait for that, then request the export again.",
+    "export_less_mail": "Export a smaller selection, for example one folder or one period, or split the export into several parts.",
+    "raise_export_limit": "If the storage target has room, an administrator of the installation can raise the limit with the setting EXPORT_MAX_TENANT_BYTES.",
+    "check_database": "Check that Postgres is running and reachable, has free disk space and has connections left.",
+    "worker_resources": "If jobs are interrupted often, check memory and restarts of the worker container.",
+    "read_technical_details": "The technical details below show the exact answer.",
+    "check_endpoint_paths": "Check that the folders in the machine's settings exist on the machine, or change the folders.",
+    "check_endpoint_hooks": "Run the before and after commands from the settings by hand on the machine as administrator and fix what fails.",
+    "allow_endpoint_hooks": "On the machine, allow hooks as administrator: `sudo restow-agent hooks scripts` (only scripts in /etc/restow-agent/hooks.d) or `sudo restow-agent hooks any` (any command). Or remove the commands from the settings.",
+    "check_endpoint_agent": "Check that the agent service is running on the machine and that the machine can reach the server over HTTPS.",
+    "check_endpoint_file_access": "Check the permissions of the files named in the run. Databases and other files that change while they are copied are best dumped by a command that runs before the backup.",
+    "choose_empty_restore_folder": "Request the restore again and choose a folder that does not exist yet or is empty. A restore never overwrites files.",
+    "wait_endpoint_retry": "Nothing to do. The agent tries again at its next scheduled run, or start one with Back up now."
+  },
+  "go": {
+    "settings_microsoft": "Open Microsoft 365 settings",
+    "source": "Open the source",
+    "sources": "Open Sources",
+    "directory": "Open Protected objects",
+    "storage": "Open Repositories",
+    "verify": "Open Recovery readiness",
+    "jobs": "Open Backup"
+  }
+}

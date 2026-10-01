@@ -1,0 +1,17 @@
+{
+  "name": "@restow/ee-worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Restow Business and Service Provider worker tasks, loaded by apps/worker through apps/worker/src/ee.ts and compiled into its build.",
+  "license": "SEE LICENSE IN ../LICENSE",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@restow/core": "workspace:*",
+    "@restow/db": "workspace:*",
+    "drizzle-orm": "^0.45.3"
+  }
+}

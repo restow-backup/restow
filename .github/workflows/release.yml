@@ -1,0 +1,756 @@
+name: Release
+
+# Runs when a tag v* is pushed. The tag must sit on main, match the version in
+# package.json and have a finished CHANGELOG.md section with a real date. Then:
+#
+#   verify -> ci (the full CI on the tagged commit)
+#          -> agent (the endpoint agent for every target; its SHA256SUMS goes
+#                    to a DRAFT GitHub release as agent-SHA256SUMS)
+#          -> agent-signature (waits in the environment agent-release-signing
+#                    until the maintainer signed agent-SHA256SUMS offline with
+#                    scripts/release/sign-agent.sh; checks the signature
+#                    against agent/release-signing.pub)
+#          -> build (all four images, amd64 and arm64, each on a native runner,
+#                    with the signed agent, pushed by digest and NOT tagged):
+#                    the full build (restow, restow-web: the core plus the
+#                    Business and Service Provider modules) and the Community
+#                    build (restow-community, restow-web-community: the
+#                    Apache-2.0 core without ee/), docs/CI.md "Two build targets"
+#          -> release-smoke (the smoke checks against those digests, for both
+#                    builds on both architectures; it gates the release)
+#          -> publish (only when CI and the smoke passed: checks the agent
+#                    signature once more, tags, cosign signatures, SBOMs, and
+#                    publishes the draft release)
+#
+# Nothing is tagged in the registry and no release is public until the smoke
+# has passed: a failed run leaves only untagged digests and a draft behind.
+# Only GITHUB_TOKEN is used; the images are signed keyless (GitHub OIDC). The
+# agent release key never enters CI: the maintainer signs on their own
+# machine (agent/README.md, "Release signing"). Every third-party action is
+# pinned to a full commit SHA with its version in a comment.
+#
+# Repository settings this workflow relies on (docs/CI.md): the package
+# visibility of ghcr.io/<owner>/restow, restow-web, restow-community and
+# restow-web-community is set to public after the first push, the arm64 hosted runner (ubuntu-24.04-arm) is available, and
+# the environment agent-release-signing exists with the maintainer as required
+# reviewer (without it the signature job fails until the signature is there,
+# and scripts/release/sign-agent.sh re-runs it).
+
+on:
+  push:
+    tags: ["v*"]
+
+# A release is never cancelled half way: two tags run one after the other.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify the tag
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      channel: ${{ steps.release.outputs.channel }}
+      tags: ${{ steps.release.outputs.tags }}
+      prerelease: ${{ steps.release.outputs.prerelease }}
+      image: ${{ steps.names.outputs.image }}
+      web_image: ${{ steps.names.outputs.web_image }}
+      community_image: ${{ steps.names.outputs.community_image }}
+      community_web_image: ${{ steps.names.outputs.community_web_image }}
+      previous_version: ${{ steps.previous.outputs.version }}
+      created: ${{ steps.names.outputs.created }}
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: The tag is annotated and its commit is on main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          # Annotated: the ref points at a tag object, not straight at a commit.
+          kind="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.type')"
+          if [ "$kind" != "tag" ]; then
+            echo "::error::$TAG is a lightweight tag. Release tags are annotated and signed: git tag -s $TAG"
+            exit 1
+          fi
+          # Signed: GitHub verifies the signature against the tagger's keys. A
+          # tag it cannot verify is reported, not refused, because the maintainer's
+          # public key may not be registered with GitHub.
+          object="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.sha')"
+          verified="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object" --jq '.verification.verified')"
+          reason="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object" --jq '.verification.reason')"
+          if [ "$verified" != "true" ]; then
+            echo "::warning::GitHub could not verify the signature of $TAG ($reason). Upload the signing key to the maintainer's GitHub account to show it as verified."
+          fi
+          # Only from main: the tagged commit is reachable from origin/main.
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$TAG points at $GITHUB_SHA, which is not on main. Release tags are made on main only."
+            exit 1
+          fi
+
+      - name: The version, the changelog and the tag agree
+        id: release
+        run: >-
+          node scripts/ci/check-release.mjs
+          --tag "$GITHUB_REF_NAME"
+          --github-output "$GITHUB_OUTPUT"
+
+      - name: The server install script pins this version
+        # deploy/install/install.sh ships as a release asset and installs DEFAULT_VERSION
+        # unless told otherwise; a release whose script installs another one is refused.
+        env:
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          pinned="$(sed -n 's/^DEFAULT_VERSION="\(.*\)"$/\1/p' deploy/install/install.sh)"
+          if [ "$pinned" != "$VERSION" ]; then
+            echo "::error::deploy/install/install.sh installs ${pinned:-no version} by default, not $VERSION. Set DEFAULT_VERSION=\"$VERSION\" in it."
+            exit 1
+          fi
+
+      - name: The agent and its build script exist
+        # A release ships the endpoint agent binaries; the pipeline does not
+        # release a commit that cannot build them.
+        run: |
+          for file in agent/go.mod agent/build.sh; do
+            if [ ! -f "$file" ]; then
+              echo "::error::$file is missing: a release ships the endpoint agent."
+              exit 1
+            fi
+          done
+
+      - name: Image names and build date
+        id: names
+        # The full build keeps the names existing installations, the updater's defaults
+        # and the documentation use; the Community build carries the suffix -community
+        # (docs/CI.md, "Two build targets").
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          {
+            echo "image=$image"
+            echo "web_image=$image-web"
+            echo "community_image=$image-community"
+            echo "community_web_image=$image-web-community"
+            echo "created=$(git log -1 --format=%cI "$GITHUB_SHA")"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: The previous release (the smoke upgrades from it)
+        id: previous
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          previous="$(gh release list --exclude-drafts --limit 100 --json tagName --jq '.[].tagName' \
+            | node scripts/ci/previous-release.mjs --version "$VERSION")"
+          echo "version=$previous" >> "$GITHUB_OUTPUT"
+          if [ -z "$previous" ]; then
+            echo "::notice::No earlier release exists; the upgrade path is checked from the next release on."
+          else
+            echo "::notice::Upgrade path is checked from $previous."
+          fi
+
+  ci:
+    name: CI
+    needs: verify
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+
+  agent:
+    name: Agent release (draft)
+    needs: verify
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write # the draft release
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: agent/go.mod
+          cache: false
+
+      - name: Build the agent for every target (refuses the placeholder signing key)
+        env:
+          CREATED: ${{ needs.verify.outputs.created }}
+        run: |
+          set -euo pipefail
+          RESTOW_COMMIT="$(printf '%.7s' "$GITHUB_SHA")" SOURCE_DATE_EPOCH="$(date -d "$CREATED" +%s)" \
+            sh agent/build.sh --version "$VERSION" --out "$RUNNER_TEMP/agent-dist"
+          cat "$RUNNER_TEMP/agent-dist/SHA256SUMS"
+
+      - name: Keep the build for the image
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-dist
+          path: ${{ runner.temp }}/agent-dist
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Put agent-SHA256SUMS on the draft release (the maintainer signs it)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cp "$RUNNER_TEMP/agent-dist/SHA256SUMS" "$RUNNER_TEMP/agent-SHA256SUMS"
+          if gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft > "$RUNNER_TEMP/draft" 2>/dev/null; then
+            if [ "$(cat "$RUNNER_TEMP/draft")" != "true" ]; then
+              echo "::error::$GITHUB_REF_NAME is already published; a release is never rebuilt."
+              exit 1
+            fi
+            gh release upload "$GITHUB_REF_NAME" --clobber "$RUNNER_TEMP/agent-SHA256SUMS"
+          else
+            gh release create "$GITHUB_REF_NAME" --draft --verify-tag --title "Restow $VERSION" \
+              --notes "Draft: waiting for the agent signature (scripts/release/sign-agent.sh $GITHUB_REF_NAME)." \
+              "$RUNNER_TEMP/agent-SHA256SUMS"
+          fi
+          echo "::notice::Sign the agent now, on the signing machine: scripts/release/sign-agent.sh $GITHUB_REF_NAME --key <private key>"
+
+  agent-signature:
+    name: Agent signature (maintainer, offline)
+    needs: [verify, agent]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # The maintainer approves this job after signing (sign-agent.sh does it).
+    environment: agent-release-signing
+    permissions:
+      contents: write # read the draft release (drafts are not visible with read access)
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Download the build
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agent-dist
+          path: agent-dist
+
+      - name: Download the signature from the draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release download "$GITHUB_REF_NAME" --dir signed --pattern agent-SHA256SUMS --pattern agent-SHA256SUMS.sig || true
+          if [ ! -f signed/agent-SHA256SUMS.sig ]; then
+            echo "::error::The draft release has no agent-SHA256SUMS.sig. Run scripts/release/sign-agent.sh $GITHUB_REF_NAME on the signing machine; it re-runs this job."
+            exit 1
+          fi
+
+      - name: The signature covers exactly this build and matches the committed key
+        run: |
+          set -euo pipefail
+          cmp signed/agent-SHA256SUMS agent-dist/SHA256SUMS || {
+            echo "::error::agent-SHA256SUMS on the draft is not the checksum list of this build."
+            exit 1
+          }
+          sh scripts/release/verify-agent-signature.sh agent-dist/SHA256SUMS signed/agent-SHA256SUMS.sig agent/release-signing.pub
+          cp signed/agent-SHA256SUMS.sig agent-dist/SHA256SUMS.sig
+
+      - name: Hand the signed build to the image build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: agent-dist-signed
+          path: agent-dist
+          if-no-files-found: error
+          retention-days: 7
+
+  build:
+    name: Build ${{ matrix.arch }}
+    needs: [verify, agent-signature]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: The signed agent for the image (agent/prebuilt, verified again in the Dockerfile)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: agent-dist-signed
+          path: agent/prebuilt
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the application image by digest
+        id: app
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: runtime
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            RESTOW_VERSION=${{ needs.verify.outputs.version }}
+            RESTOW_REVISION=${{ github.sha }}
+            RESTOW_CREATED=${{ needs.verify.outputs.created }}
+          # Untagged: the tags come from the publish job, after the smoke.
+          outputs: type=image,name=${{ needs.verify.outputs.image }},push-by-digest=true,name-canonical=true,push=true
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=release-${{ matrix.arch }}
+          cache-to: type=gha,scope=release-${{ matrix.arch }},mode=max
+
+      - name: Build and push the web edge image by digest
+        id: web
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: web
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            RESTOW_VERSION=${{ needs.verify.outputs.version }}
+            RESTOW_REVISION=${{ github.sha }}
+            RESTOW_CREATED=${{ needs.verify.outputs.created }}
+          outputs: type=image,name=${{ needs.verify.outputs.web_image }},push-by-digest=true,name-canonical=true,push=true
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=release-${{ matrix.arch }}
+          cache-to: type=gha,scope=release-${{ matrix.arch }},mode=max
+
+      # The Community build: the same workspace with ee/ stripped before it is
+      # compiled (scripts/docker/strip-ee.mjs); the Dockerfile stops the build when any
+      # ee/ code reaches these images. It shares the install stage and its cache.
+      - name: Build and push the Community application image by digest
+        id: community_app
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: runtime-community
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            RESTOW_VERSION=${{ needs.verify.outputs.version }}
+            RESTOW_REVISION=${{ github.sha }}
+            RESTOW_CREATED=${{ needs.verify.outputs.created }}
+          outputs: type=image,name=${{ needs.verify.outputs.community_image }},push-by-digest=true,name-canonical=true,push=true
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=release-${{ matrix.arch }}
+          cache-to: type=gha,scope=release-${{ matrix.arch }},mode=max
+
+      - name: Build and push the Community web edge image by digest
+        id: community_web
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: web-community
+          platforms: linux/${{ matrix.arch }}
+          build-args: |
+            RESTOW_VERSION=${{ needs.verify.outputs.version }}
+            RESTOW_REVISION=${{ github.sha }}
+            RESTOW_CREATED=${{ needs.verify.outputs.created }}
+          outputs: type=image,name=${{ needs.verify.outputs.community_web_image }},push-by-digest=true,name-canonical=true,push=true
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=release-${{ matrix.arch }}
+          cache-to: type=gha,scope=release-${{ matrix.arch }},mode=max
+
+      - name: Record the digests
+        env:
+          APP_DIGEST: ${{ steps.app.outputs.digest }}
+          WEB_DIGEST: ${{ steps.web.outputs.digest }}
+          COMMUNITY_APP_DIGEST: ${{ steps.community_app.outputs.digest }}
+          COMMUNITY_WEB_DIGEST: ${{ steps.community_web.outputs.digest }}
+        run: |
+          mkdir -p digests
+          printf '%s' "$APP_DIGEST" > "digests/app-${{ matrix.arch }}"
+          printf '%s' "$WEB_DIGEST" > "digests/web-${{ matrix.arch }}"
+          printf '%s' "$COMMUNITY_APP_DIGEST" > "digests/community-app-${{ matrix.arch }}"
+          printf '%s' "$COMMUNITY_WEB_DIGEST" > "digests/community-web-${{ matrix.arch }}"
+          echo "app            ${{ matrix.arch }}: $APP_DIGEST"
+          echo "web            ${{ matrix.arch }}: $WEB_DIGEST"
+          echo "community app  ${{ matrix.arch }}: $COMMUNITY_APP_DIGEST"
+          echo "community web  ${{ matrix.arch }}: $COMMUNITY_WEB_DIGEST"
+
+      - name: Upload the digests
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digests-${{ matrix.arch }}
+          path: digests/*
+          if-no-files-found: error
+          retention-days: 7
+
+  release-smoke:
+    name: release-smoke ${{ matrix.variant }} ${{ matrix.arch }}
+    # The release smoke (scripts/smoke, "The release smoke" in docs/CI.md): its
+    # checks are mandatory and block the release. They run against the pushed
+    # digests, on the architecture of each image, once for the full build and once
+    # for the Community build (--variant community: one tenant, no license API; the
+    # journal and the storage-target checks are skipped there with their reason).
+    needs: [verify, build]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            variant: full
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            variant: full
+          - arch: amd64
+            runner: ubuntu-24.04
+            variant: community
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            variant: community
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Download the digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: digests-${{ matrix.arch }}
+          path: digests
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Run the smoke checks
+        env:
+          VARIANT: ${{ matrix.variant }}
+          ARCH: ${{ matrix.arch }}
+          IMAGE: ${{ matrix.variant == 'community' && needs.verify.outputs.community_image || needs.verify.outputs.image }}
+          WEB_IMAGE: ${{ matrix.variant == 'community' && needs.verify.outputs.community_web_image || needs.verify.outputs.web_image }}
+          VERSION: ${{ needs.verify.outputs.version }}
+          PREVIOUS: ${{ needs.verify.outputs.previous_version }}
+          # The Microsoft 365 check runs only for the full build on amd64 and only when
+          # these are set; without them the report says so in plain words (docs/CI.md).
+          M365_TEST_TENANT_ID: ${{ matrix.arch == 'amd64' && matrix.variant == 'full' && secrets.M365_TEST_TENANT_ID || '' }}
+          M365_TEST_CLIENT_ID: ${{ matrix.arch == 'amd64' && matrix.variant == 'full' && secrets.M365_TEST_CLIENT_ID || '' }}
+          M365_TEST_CLIENT_SECRET: ${{ matrix.arch == 'amd64' && matrix.variant == 'full' && secrets.M365_TEST_CLIENT_SECRET || '' }}
+          M365_TEST_MAILBOX: ${{ matrix.arch == 'amd64' && matrix.variant == 'full' && secrets.M365_TEST_MAILBOX || '' }}
+          M365_TEST_RESTORE_MAILBOX: ${{ matrix.arch == 'amd64' && matrix.variant == 'full' && secrets.M365_TEST_RESTORE_MAILBOX || '' }}
+        run: |
+          # The full build keeps its report and digest file names; the Community build's carry
+          # "community" (its logs go to smoke-out/logs-community).
+          prefix=""
+          if [ "$VARIANT" = community ]; then
+            prefix="community-"
+          fi
+          report="smoke-report-$prefix$ARCH.md"
+          args=(
+            --variant "$VARIANT"
+            --image "$IMAGE@$(cat "digests/${prefix}app-$ARCH")"
+            --web-image "$WEB_IMAGE@$(cat "digests/${prefix}web-$ARCH")"
+            --version "$VERSION"
+            --revision "$GITHUB_SHA"
+            --require-agent
+            --report "$report"
+          )
+          if [ -n "$PREVIOUS" ]; then
+            args+=(--previous-image "$IMAGE:$PREVIOUS" --previous-web-image "$WEB_IMAGE:$PREVIOUS")
+          fi
+          node scripts/smoke/run.mjs "${args[@]}"
+
+      - name: Upload the report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: smoke-report-${{ matrix.variant == 'community' && 'community-' || '' }}${{ matrix.arch }}
+          path: |
+            smoke-report-${{ matrix.variant == 'community' && 'community-' || '' }}${{ matrix.arch }}.md
+            smoke-out/logs${{ matrix.variant == 'community' && '-community' || '' }}
+          if-no-files-found: warn
+          retention-days: 30
+
+  publish:
+    name: Publish
+    needs: [verify, ci, release-smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write # the GitHub release and its assets
+      packages: write # the image tags and signatures
+      id-token: write # keyless cosign signing (GitHub OIDC)
+    env:
+      IMAGE: ${{ needs.verify.outputs.image }}
+      WEB_IMAGE: ${{ needs.verify.outputs.web_image }}
+      COMMUNITY_IMAGE: ${{ needs.verify.outputs.community_image }}
+      COMMUNITY_WEB_IMAGE: ${{ needs.verify.outputs.community_web_image }}
+      VERSION: ${{ needs.verify.outputs.version }}
+      TAGS: ${{ needs.verify.outputs.tags }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Download the digests
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: digests-*
+          path: digests
+          merge-multiple: true
+
+      - name: Download the smoke reports
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: smoke-report-*
+          path: reports
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tag the images (one multi-arch manifest per image)
+        id: tag
+        run: |
+          set -euo pipefail
+          IFS=',' read -ra tags <<< "$TAGS"
+          first="${tags[0]}"
+          # One multi-arch manifest per image: <output key> <repository> <digest file prefix>.
+          while read -r key repository prefix; do
+            refs=()
+            for tag in "${tags[@]}"; do
+              refs+=(--tag "$repository:$tag")
+            done
+            amd64="$repository@$(cat "digests/${prefix}-amd64")"
+            arm64="$repository@$(cat "digests/${prefix}-arm64")"
+            docker buildx imagetools create "${refs[@]}" "$amd64" "$arm64"
+            index="$(docker buildx imagetools inspect "$repository:$first" --format '{{json .Manifest}}' | jq -r .digest)"
+            {
+              echo "${key}_index=$index"
+              echo "${key}_amd64=$amd64"
+              echo "${key}_arm64=$arm64"
+            } >> "$GITHUB_OUTPUT"
+            echo "$repository@$index"
+          done <<EOF
+          app $IMAGE app
+          web $WEB_IMAGE web
+          community_app $COMMUNITY_IMAGE community-app
+          community_web $COMMUNITY_WEB_IMAGE community-web
+          EOF
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+
+      - name: Sign all four images (keyless, GitHub OIDC)
+        env:
+          APP_INDEX: ${{ steps.tag.outputs.app_index }}
+          WEB_INDEX: ${{ steps.tag.outputs.web_index }}
+          COMMUNITY_APP_INDEX: ${{ steps.tag.outputs.community_app_index }}
+          COMMUNITY_WEB_INDEX: ${{ steps.tag.outputs.community_web_index }}
+        run: |
+          set -euo pipefail
+          cosign sign --yes "$IMAGE@$APP_INDEX"
+          cosign sign --yes "$WEB_IMAGE@$WEB_INDEX"
+          cosign sign --yes "$COMMUNITY_IMAGE@$COMMUNITY_APP_INDEX"
+          cosign sign --yes "$COMMUNITY_WEB_IMAGE@$COMMUNITY_WEB_INDEX"
+
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+
+      - name: SBOM (SPDX) for each image and architecture, attached to the image as attestation
+        env:
+          APP_AMD64: ${{ steps.tag.outputs.app_amd64 }}
+          APP_ARM64: ${{ steps.tag.outputs.app_arm64 }}
+          WEB_AMD64: ${{ steps.tag.outputs.web_amd64 }}
+          WEB_ARM64: ${{ steps.tag.outputs.web_arm64 }}
+          COMMUNITY_APP_AMD64: ${{ steps.tag.outputs.community_app_amd64 }}
+          COMMUNITY_APP_ARM64: ${{ steps.tag.outputs.community_app_arm64 }}
+          COMMUNITY_WEB_AMD64: ${{ steps.tag.outputs.community_web_amd64 }}
+          COMMUNITY_WEB_ARM64: ${{ steps.tag.outputs.community_web_arm64 }}
+        run: |
+          set -euo pipefail
+          mkdir -p assets
+          # <asset name> <image by digest>; the full application image keeps its asset names.
+          while read -r name image; do
+            syft scan "$image" --output "spdx-json=assets/$name.spdx.json"
+            cosign attest --yes --type spdxjson --predicate "assets/$name.spdx.json" "$image"
+          done <<EOF
+          restow-$VERSION-linux-amd64 $APP_AMD64
+          restow-$VERSION-linux-arm64 $APP_ARM64
+          restow-web-$VERSION-linux-amd64 $WEB_AMD64
+          restow-web-$VERSION-linux-arm64 $WEB_ARM64
+          restow-community-$VERSION-linux-amd64 $COMMUNITY_APP_AMD64
+          restow-community-$VERSION-linux-arm64 $COMMUNITY_APP_ARM64
+          restow-web-community-$VERSION-linux-amd64 $COMMUNITY_WEB_AMD64
+          restow-web-community-$VERSION-linux-arm64 $COMMUNITY_WEB_ARM64
+          EOF
+
+      - name: The agent binaries (taken from the image that was smoke-tested)
+        env:
+          APP_AMD64: ${{ steps.tag.outputs.app_amd64 }}
+        run: |
+          set -euo pipefail
+          container="$(docker create --platform linux/amd64 "$APP_AMD64")"
+          docker cp "$container:/srv/agent/$VERSION" agent-tree
+          docker rm "$container" > /dev/null
+          mkdir -p assets
+          for dir in agent-tree/*/; do
+            target="$(basename "$dir")"
+            cp "$dir/restow-agent" "assets/restow-agent_${VERSION}_${target}"
+          done
+          # The license notices that travel with the agent (the same file in every target folder).
+          cp agent-tree/linux-amd64/THIRD_PARTY_NOTICES.txt assets/restow-agent-THIRD_PARTY_NOTICES.txt
+          ls -l assets
+
+      - name: The release notes and the checksums
+        env:
+          CHANNEL: ${{ needs.verify.outputs.channel }}
+          APP_INDEX: ${{ steps.tag.outputs.app_index }}
+          WEB_INDEX: ${{ steps.tag.outputs.web_index }}
+          COMMUNITY_APP_INDEX: ${{ steps.tag.outputs.community_app_index }}
+          COMMUNITY_WEB_INDEX: ${{ steps.tag.outputs.community_web_index }}
+        run: |
+          set -euo pipefail
+          cp reports/smoke-report-amd64/smoke-report-amd64.md assets/smoke-report.md
+          cp reports/smoke-report-arm64/smoke-report-arm64.md assets/smoke-report-arm64.md
+          cp reports/smoke-report-community-amd64/smoke-report-community-amd64.md assets/smoke-report-community.md
+          cp reports/smoke-report-community-arm64/smoke-report-community-arm64.md assets/smoke-report-community-arm64.md
+          cp deploy/release/docker-compose.yml assets/docker-compose.yml
+          cp deploy/release/.env.example assets/env.example
+          # The server install script and its own checksum file (for `sha256sum -c` right
+          # after the download); both are listed in SHA256SUMS below and so signed with it.
+          cp deploy/install/install.sh assets/install.sh
+          (cd assets && sha256sum install.sh > install.sh.sha256)
+
+          node scripts/ci/release-notes.mjs --version "$VERSION" --channel "$CHANNEL" \
+            --smoke-report assets/smoke-report.md --out notes.md
+          verdict() { sed -n 's/^- Verdict: //p' "$1"; }
+          {
+            echo
+            echo "The Community images were smoke-tested on their own (smoke-report-community.md, smoke-report-community-arm64.md): amd64 $(verdict assets/smoke-report-community.md); arm64 $(verdict assets/smoke-report-community-arm64.md)."
+            echo
+            echo "### Images"
+            echo
+            echo "Two builds of the same release. The full build is the Apache-2.0 core plus the Business and Service Provider modules (Restow Enterprise License), which stay locked until a license key is installed. The Community build is the Apache-2.0 core alone."
+            echo
+            echo "\`\`\`"
+            echo "$IMAGE:$VERSION"
+            echo "$WEB_IMAGE:$VERSION"
+            echo "$COMMUNITY_IMAGE:$VERSION"
+            echo "$COMMUNITY_WEB_IMAGE:$VERSION"
+            echo "\`\`\`"
+            echo
+            echo "The digests of the multi-arch manifests (the opt-in updater verifies the pulled images against the two lines of its build):"
+            echo
+            echo "\`\`\`"
+            echo "restow: $APP_INDEX"
+            echo "restow-web: $WEB_INDEX"
+            echo "restow-community: $COMMUNITY_APP_INDEX"
+            echo "restow-web-community: $COMMUNITY_WEB_INDEX"
+            echo "\`\`\`"
+            echo
+            echo "All four images are multi-arch (linux/amd64, linux/arm64), signed with cosign (keyless) and carry an SPDX SBOM as attestation. Verify any of them with:"
+            echo
+            echo "\`\`\`"
+            for image in "$IMAGE" "$WEB_IMAGE" "$COMMUNITY_IMAGE" "$COMMUNITY_WEB_IMAGE"; do
+              echo "cosign verify $image:$VERSION \\"
+              echo "  --certificate-identity-regexp '^https://github.com/$GITHUB_REPOSITORY/\\.github/workflows/release\\.yml@refs/tags/v' \\"
+              echo "  --certificate-oidc-issuer https://token.actions.githubusercontent.com"
+            done
+            echo "\`\`\`"
+            echo
+            echo "docker-compose.yml and env.example are the release stack (deploy/release/); install.sh installs it on a dedicated Linux VM (README.md, \"Install with the script\"; install.sh.sha256 for \`sha256sum -c\` after the download); restow-agent-THIRD_PARTY_NOTICES.txt holds the licenses of the agent binaries and of the restic they run; SHA256SUMS lists every file of this release and is signed (SHA256SUMS.sigstore.json)."
+          } >> notes.md
+
+          (cd assets && sha256sum -- * > SHA256SUMS)
+          cat assets/SHA256SUMS
+
+      - name: Sign the checksums (keyless)
+        run: >-
+          cosign sign-blob --yes
+          --bundle assets/SHA256SUMS.sigstore.json
+          assets/SHA256SUMS
+
+      - name: Download the agent signature from the draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release download "$GITHUB_REF_NAME" --dir agent-signed --pattern agent-SHA256SUMS --pattern agent-SHA256SUMS.sig
+
+      - name: The agent signature matches the committed release key and the smoke-tested image
+        run: |
+          set -euo pipefail
+          sh scripts/release/verify-agent-signature.sh agent-signed/agent-SHA256SUMS agent-signed/agent-SHA256SUMS.sig agent/release-signing.pub
+          # The agent in the image is the signed one: every binary taken from it is in the signed list.
+          for file in assets/restow-agent_"$VERSION"_*; do
+            target="${file##*_}"
+            sum="$(sha256sum "$file" | cut -d ' ' -f 1)"
+            grep -qx "$sum  $target/restow-agent" agent-signed/agent-SHA256SUMS || {
+              echo "::error::The agent for $target in the image is not the signed build."
+              exit 1
+            }
+          done
+
+      - name: Publish the GitHub release
+        env:
+          # Only these steps talk to the GitHub API; the token is not in the environment of the
+          # steps that sign, attest and tag the images.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          flags=()
+          if [ "$PRERELEASE" = "true" ]; then
+            flags+=(--prerelease)
+          fi
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            # The draft of the agent job (or a re-run of a release that got this far): fill and publish it.
+            gh release upload "$GITHUB_REF_NAME" --clobber assets/*
+            gh release edit "$GITHUB_REF_NAME" --title "Restow $VERSION" --notes-file notes.md --draft=false "${flags[@]}"
+          else
+            echo "::error::There is no draft release $GITHUB_REF_NAME with the signed agent; the agent job did not run."
+            exit 1
+          fi

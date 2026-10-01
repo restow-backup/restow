@@ -1,0 +1,369 @@
+{
+  "nav": "Protected objects",
+  "title": "Protected objects",
+  "subtitle": "Mailboxes, OneDrives and IMAP accounts in scope, and the rules that decide it.",
+  "tenantScope": "Mailboxes, OneDrives and IMAP accounts of {tenant}, and the rules that decide what is protected.",
+  "noTenant": {
+    "title": "No tenant selected",
+    "description": "Choose a tenant in the switcher at the top to see its protected objects."
+  },
+  "tabs": {
+    "objects": "Objects",
+    "sources": "Sources and rules",
+    "attention": "Needs attention"
+  },
+  "kind": {
+    "mailbox": "Mailbox",
+    "onedrive": "OneDrive",
+    "imap": "IMAP account"
+  },
+  "status": {
+    "active": "Protected",
+    "excluded": "Excluded",
+    "orphaned": "Orphaned",
+    "not_selected": "Not selected",
+    "needs_credential": "Needs attention"
+  },
+  "statusHint": {
+    "active": "In scope: backups run for this object.",
+    "excluded": "Out of scope by rule or by an individual decision: no new backups run.",
+    "orphaned": "No longer in the directory or no longer provisioned. Existing backups stay until retention removes them.",
+    "not_selected": "The scope is \"Only selected objects\" and nobody chose this object: no new backups run. Existing backups, if any, stay until retention removes them.",
+    "needs_credential": "In scope, but this account has no password of its own set and working yet: no backup can run until one is set under Login and tested."
+  },
+  "override": {
+    "include": "Always included",
+    "exclude": "Always excluded",
+    "includeHint": "An admin decided to protect this object regardless of the rules.",
+    "excludeHint": "An admin decided to leave this object out regardless of the rules."
+  },
+  "sharedOrBlocked": {
+    "label": "Shared or blocked",
+    "hint": "Sign-in is disabled for this account: a shared or resource mailbox, or a blocked user. Microsoft Graph does not tell them apart."
+  },
+  "readiness": {
+    "green": "Restore verified",
+    "yellow": "Restore degraded",
+    "red": "Restore failed",
+    "unverified": "Not verified",
+    "none": "No backup",
+    "needs_credential": "Needs attention",
+    "checked": "Checked {when}",
+    "unverifiedHint": "Backups exist, but no test restore has confirmed them yet. An unverified backup does not count as protected.",
+    "noneHint": "There is nothing to verify until the first backup completed.",
+    "needsCredentialHint": "This account has no password of its own set and working right now, so it is not currently protected, whatever an earlier restore point once proved."
+  },
+  "backup": {
+    "never": "No backup yet",
+    "running": "Backup running",
+    "failed": "Last run failed",
+    "failedHint": "The most recent backup run failed {when}. Open the run for the reason.",
+    "failedWhen": "The most recent backup run failed {when}.",
+    "openJob": "Open run",
+    "snapshots": "{count, plural, one {# snapshot} other {# snapshots}}",
+    "now": "Back up now",
+    "perObject": "Back up per object"
+  },
+  "credential": {
+    "status": {
+      "missing": "Not protected",
+      "untested": "Not tested",
+      "ok": "Login works",
+      "failed": "Login failed"
+    },
+    "hint": {
+      "missing": "This account has no password of its own yet; it is not protected until one is set.",
+      "untested": "A password is set but has not been tried against the server yet.",
+      "ok": "The last test-login succeeded.",
+      "failed": "The last test-login failed; see the reason below."
+    },
+    "checked": "Tested {when}",
+    "setAction": "Set password",
+    "testAction": "Test login",
+    "setTitle": "Set the password for {name}",
+    "setDescription": "Stored encrypted with the tenant key and never shown again. Only meaningful for a source with one password per mailbox.",
+    "passwordLabel": "Password",
+    "setConfirm": "Save password",
+    "setDone": "The password for {name} was saved.",
+    "testing": "Testing the login for {name}.",
+    "testOk": "The login for {name} works.",
+    "testFailed": "The login for {name} failed.",
+    "probeReasons": {
+      "blocked_address": "This server is in a loopback, private or link-local network, which {appName} does not connect to from here.",
+      "auth": "The server rejected the username or password.",
+      "timeout": "The server did not answer in time.",
+      "tls": "The TLS handshake failed.",
+      "starttls_unavailable": "The server does not offer STARTTLS on this port.",
+      "dns": "The hostname could not be resolved.",
+      "refused": "The connection was refused.",
+      "unknown": "The connection failed for an unexpected reason."
+    }
+  },
+  "errors": {
+    "imapNotPerMailbox": "This account's source authenticates every mailbox with its own stored credential; it has no password of its own to set or test.",
+    "imapCredentialNotConfigured": "This mailbox has no password yet; set one first."
+  },
+  "objects": {
+    "search": "Search name, address or id",
+    "protectedCount": "{active} of {total} protected",
+    "filters": {
+      "kind": "Type",
+      "status": "Status",
+      "source": "Source",
+      "shared": "Shared or blocked",
+      "allKinds": "All types",
+      "allStatuses": "All statuses",
+      "allSources": "All sources",
+      "sharedAll": "Shared and personal",
+      "sharedOnly": "Shared or blocked only",
+      "sharedExcluded": "Not shared or blocked",
+      "reset": "Reset filters"
+    },
+    "columns": {
+      "name": "Name",
+      "kind": "Type",
+      "status": "Status",
+      "lastBackup": "Last backup",
+      "readiness": "Readiness",
+      "credential": "Login",
+      "actions": "Actions"
+    },
+    "sortBy": "Sort by {column}",
+    "empty": {
+      "title": "No protected objects yet",
+      "description": "Connect a Microsoft 365 tenant and run a directory sync, or add accounts to an IMAP source.",
+      "filtered": "Nothing matches the current filters."
+    },
+    "range": "{from}–{to} of {total}",
+    "page": "Page {page} of {pages}",
+    "pageSize": "Rows per page",
+    "previous": "Previous page",
+    "next": "Next page",
+    "error": "Protected objects could not be loaded"
+  },
+  "actions": {
+    "menu": "Actions for {name}",
+    "include": "Always include",
+    "exclude": "Exclude from backup",
+    "reset": "Follow the rules again",
+    "remove": "Remove account",
+    "done": {
+      "include": "{name} is now always included.",
+      "exclude": "{name} is excluded from backup.",
+      "reset": "{name} follows the rules again.",
+      "remove": "{name} was removed."
+    },
+    "failed": "The change could not be saved.",
+    "excludeConfirm": {
+      "title": "Exclude {name} from backup?",
+      "description": "No new backups run for this object. Existing backups stay until retention removes them.",
+      "confirm": "Exclude"
+    },
+    "removeConfirm": {
+      "title": "Remove {name}?",
+      "description": "The account leaves the list. It has no backups, so nothing else is removed.",
+      "confirm": "Remove"
+    }
+  },
+  "bulk": {
+    "selected": "{count, plural, one {# selected} other {# selected}}",
+    "selectAllMatching": "Select all {count, plural, one {# matching object} other {# matching objects}}",
+    "clear": "Clear selection",
+    "selectPage": "Select all rows on this page",
+    "include": "Include",
+    "exclude": "Exclude",
+    "reset": "Follow the rules again",
+    "confirm": {
+      "include": {
+        "title": "{count, plural, one {Include # object?} other {Include # objects?}}",
+        "description": "{count, plural, one {The object is} other {The objects are}} always protected from now on, regardless of the rules, until an admin changes that decision.",
+        "confirm": "Include"
+      },
+      "exclude": {
+        "title": "{count, plural, one {Exclude # object from backup?} other {Exclude # objects from backup?}}",
+        "description": "No new backups run for {count, plural, one {the object} other {the objects}}. Existing backups stay until retention removes them.",
+        "confirm": "Exclude"
+      },
+      "reset": {
+        "title": "{count, plural, one {Follow the rules again for # object?} other {Follow the rules again for # objects?}}",
+        "description": "Individual decisions are removed; the source's protection rules decide {count, plural, one {the object} other {the objects}} again after the next directory sync.",
+        "confirm": "Follow the rules"
+      }
+    },
+    "done": {
+      "include": "{count, plural, one {# object included.} other {# objects included.}}",
+      "exclude": "{count, plural, one {# object excluded from backup.} other {# objects excluded from backup.}}",
+      "reset": "{count, plural, one {# object follows the rules again.} other {# objects follow the rules again.}}"
+    },
+    "failed": "The bulk change could not be saved."
+  },
+  "sync": {
+    "now": "Sync now",
+    "full": "Full sync",
+    "fullHint": "Reads the whole directory instead of the changes. Runs once a day on its own.",
+    "menu": "More sync options",
+    "queued": "Sync queued",
+    "running": "Sync running",
+    "fullPending": "Full sync requested",
+    "lastRun": "Last sync {when}",
+    "never": "Not synced yet",
+    "lastFull": "Last full sync {when}",
+    "failedAt": "Last sync failed {when}",
+    "mode": {
+      "initial": "Full sync",
+      "incremental": "Changes only",
+      "resync": "Full sync after an expired delta link"
+    },
+    "summary": "{users, plural, =0 {No changed users} one {# user read} other {# users read}}: {created} added, {updated} updated, {orphaned} orphaned",
+    "rescoped": "{count, plural, one {# object re-scoped by the rules} other {# objects re-scoped by the rules}}",
+    "removedUsers": "{count, plural, one {# user left the directory} other {# users left the directory}}",
+    "warnings": {
+      "title": "{count, plural, one {# warning} other {# warnings}}",
+      "show": "Show warnings",
+      "hide": "Hide warnings",
+      "more": "{count, plural, one {# more warning is not listed} other {# more warnings are not listed}}",
+      "group_unresolved": "The protection group could not be read ({status}). Its members are excluded until it resolves.",
+      "mailbox_probe_failed": "Mailbox of {user} could not be checked ({status}); its address decided.",
+      "drive_probe_failed": "OneDrive of {user} could not be checked ({status}); left unchanged.",
+      "user_fetch_failed": "User {user} could not be read ({status}); the next sync picks it up."
+    },
+    "result": {
+      "queued": "Directory sync queued.",
+      "alreadyQueued": "A directory sync is already queued or running.",
+      "notQueued": {
+        "source_disabled": "The source is paused; the change applies once it is resumed.",
+        "consent_outstanding": "The change applies after admin consent and the first sync.",
+        "queue_unavailable": "No sync could be queued because the worker is not running; the next scheduled sync applies the change."
+      }
+    },
+    "failed": "The sync could not be started."
+  },
+  "sources": {
+    "empty": {
+      "title": "No sources yet",
+      "description": "Connect a Microsoft 365 tenant or an IMAP server under Sources; its mailboxes and accounts show up here.",
+      "action": "Go to sources"
+    },
+    "kind": {
+      "m365": "Microsoft 365",
+      "imap": "IMAP"
+    },
+    "health": {
+      "disabled": "Paused",
+      "consent_outstanding": "Consent outstanding",
+      "syncing": "Syncing",
+      "error": "Sync failed",
+      "never_synced": "Not synced yet",
+      "healthy": "In sync",
+      "manual": "Manual list"
+    },
+    "counts": "{active} protected, {excluded} excluded, {orphaned} orphaned",
+    "m365Kinds": "{mailbox, plural, one {# mailbox} other {# mailboxes}}, {onedrive, plural, one {# OneDrive} other {# OneDrives}}",
+    "imapKinds": "{count, plural, one {# account} other {# accounts}}",
+    "consentHint": "Grant admin consent for this tenant under Sources before the first sync.",
+    "disabledHint": "The source is paused. Resume it under Sources to sync again.",
+    "manualHint": "IMAP servers have no directory. Add accounts by hand or from a CSV file.",
+    "openSource": "Open source",
+    "showObjects": "Show objects",
+    "error": "Sources could not be loaded",
+    "rules": {
+      "title": "Rules",
+      "all": "Everyone in the directory",
+      "group": "Members of {group}",
+      "groupUnnamed": "Members of the group {id}",
+      "selected": "Only selected objects",
+      "shared": "Shared and blocked mailboxes included",
+      "sharedOff": "Shared and blocked mailboxes left out",
+      "exclusions": "{count, plural, =0 {No exclusions} one {# exclusion} other {# exclusions}}",
+      "overrides": "{count, plural, =0 {No individual decisions} one {# individual decision} other {# individual decisions}}",
+      "edit": "Edit rules"
+    },
+    "addAccounts": "Add accounts"
+  },
+  "rules": {
+    "title": "Protection rules",
+    "description": "Which mailboxes and OneDrives of {source} {appName} protects. Saving queues a sync that applies the rules.",
+    "precedence": "Individual decisions on single objects beat these rules.",
+    "selectedHint": "Choose what to protect from the Objects tab: select the mailboxes or OneDrives you want and use \"Include\", there or as a bulk action. Switching scope never deletes a backup: an object that leaves the scope simply stops being backed up and keeps its existing snapshots.",
+    "mode": {
+      "label": "Scope",
+      "all": "Everyone in the directory",
+      "allHint": "Every user with a mailbox or OneDrive, including shared and resource mailboxes. Recommended.",
+      "group": "Members of one group",
+      "groupHint": "Only direct and nested members of the group. Everyone else is excluded.",
+      "selected": "Only selected objects",
+      "selectedHint": "Nobody is protected until an admin explicitly includes a mailbox or OneDrive from the objects list. A new object of an already-included user (for example a OneDrive Microsoft creates on first use) is not included automatically."
+    },
+    "group": {
+      "label": "Group",
+      "search": "Search groups by name or paste an object id",
+      "empty": "No group starts with this name.",
+      "change": "Choose another group",
+      "required": "Choose a group for this scope.",
+      "error": "Groups could not be loaded.",
+      "unnamed": "Group {id}",
+      "kind": {
+        "microsoft365": "Microsoft 365",
+        "security": "Security",
+        "mail_security": "Mail-enabled security",
+        "distribution": "Distribution list"
+      }
+    },
+    "shared": {
+      "label": "Include shared and blocked mailboxes",
+      "hint": "Accounts with sign-in disabled: shared and resource mailboxes, but also blocked users. Microsoft Graph does not tell them apart."
+    },
+    "exclude": {
+      "label": "Exclusion list",
+      "hint": "One entry per line: address, user principal name or object id. Applies before the scope.",
+      "placeholder": "scanner@example.com\nroom-berlin@example.com",
+      "count": "{count, plural, =0 {No entries} one {# entry} other {# entries}}"
+    },
+    "save": "Save rules",
+    "saved": "Rules saved.",
+    "failed": "The rules could not be saved."
+  },
+  "accounts": {
+    "title": "Add IMAP accounts",
+    "description": "Accounts of {source}. With a header row, a password column is accepted for a source with one password per mailbox; it is sealed on arrival and never shown again.",
+    "format": "One account per line: login, name, address. A header row (login, name, email, password) in any order is recognised; comma, semicolon and tab all work. A password column only applies with a header row.",
+    "passwordColumnHint": "This source has one password per mailbox, so a password column is sealed on arrival.",
+    "passwordColumnIgnoredHint": "This source shares one login for every mailbox, so a password column here is ignored.",
+    "text": "Accounts",
+    "placeholder": "anna@example.com\naccounting@example.com;Accounting",
+    "file": "Choose CSV file",
+    "fileLoaded": "{name} loaded",
+    "fileError": "The file could not be read.",
+    "check": "Check list",
+    "singlePassword": {
+      "label": "Password",
+      "hint": "Only used because this source has one password per mailbox; adding several accounts at once still needs the CSV header's own password column."
+    },
+    "add": "{count, plural, one {Add # account} other {Add # accounts}}",
+    "summary": "{created, plural, =0 {No new accounts} one {# new account} other {# new accounts}}, {existing, plural, =0 {none listed already} one {# listed already} other {# listed already}}",
+    "done": "{created, plural, =0 {No new accounts added} one {# account added} other {# accounts added}}.",
+    "nothing": "No valid accounts found.",
+    "empty": "Paste accounts or choose a file, then check the list.",
+    "state": {
+      "new": "New",
+      "existing": "Listed already"
+    },
+    "columns": {
+      "login": "Login",
+      "email": "Address",
+      "displayName": "Name",
+      "password": "Password",
+      "passwordSet": "Set",
+      "state": "Status"
+    },
+    "issues": {
+      "title": "{count, plural, one {# line skipped} other {# lines skipped}}",
+      "line": "Line {line}:",
+      "entry": "Entry:",
+      "missing_login": "no login",
+      "duplicate_login": "duplicate login {value}",
+      "invalid_email": "invalid address {value}"
+    },
+    "failed": "The accounts could not be added."
+  }
+}

@@ -1,0 +1,337 @@
+{
+  "nav": "Wiederherstellbarkeit",
+  "title": "Wiederherstellbarkeit",
+  "tenantScope": "Lässt sich jede Sicherung von {tenant} heute wiederherstellen?",
+  "subtitle": "Zufällig ausgewählte Mails, Dateien, Termine und Kontakte werden aus der jeweils letzten Sicherung über den Restore-Weg zurückgelesen und Byte für Byte mit ihren Prüfsummen verglichen. Nur ein nachgewiesener Restore zählt: Eine Sicherung, die noch keine Prüfung zurückgelesen hat, gilt als nicht nachgewiesen, auch wenn sie nach einer erfolgreichen Prüfung entstand.",
+  "state": {
+    "green": "Bereit",
+    "yellow": "Achtung",
+    "red": "Nicht wiederherstellbar",
+    "unverified": "Nicht geprüft",
+    "no_backup": "Noch keine Sicherung",
+    "waitingForFirstBackup": "Wartet auf erste Sicherung"
+  },
+  "kind": {
+    "mailbox": "Postfach",
+    "onedrive": "OneDrive",
+    "imap": "IMAP-Postfach"
+  },
+  "checkKind": {
+    "verify": "Stichprobenprüfung",
+    "health_check": "Vollprüfung",
+    "scrub": "Befund der Speicherprüfung"
+  },
+  "category": {
+    "mail": "Mails",
+    "file": "Dateien",
+    "event": "Termine",
+    "contact": "Kontakte"
+  },
+  "actions": {
+    "checkAll": "Alle jetzt prüfen",
+    "checkNow": "Jetzt prüfen",
+    "viewReport": "Bericht",
+    "viewReportFor": "Letzten Bericht für {name} öffnen",
+    "scrubSample": "Stichprobe prüfen",
+    "scrubFull": "Alle Packs prüfen",
+    "openJob": "Job öffnen",
+    "openScrubJob": "Job der Speicherprüfung öffnen",
+    "back": "Zurück zur Wiederherstellbarkeit",
+    "verifyNow": "Jetzt prüfen",
+    "verifyNowFor": "Jetzt prüfen: die letzte Sicherung von {name}",
+    "viewPreviousReportFor": "Bericht zur Prüfung der vorherigen Sicherung von {name}"
+  },
+  "overall": {
+    "green": {
+      "title": "Jede Sicherung ist wiederherstellbar",
+      "description": "{total, plural, one {Das geschützte Objekt hat} other {Alle # geschützten Objekte haben}} die letzte Restore-Prüfung bestanden."
+    },
+    "yellow": {
+      "title": "Wiederherstellbar, aber etwas braucht Aufmerksamkeit",
+      "description": "{count, plural, one {# Objekt braucht} other {# Objekte brauchen}} Aufmerksamkeit: eine Warnung in der letzten Prüfung oder eine überfällige Prüfung."
+    },
+    "red": {
+      "title": "Nicht jede Sicherung ist nachweislich wiederherstellbar",
+      "description": "{count, plural, one {# Objekt lässt sich nicht vollständig wiederherstellen, oder seine letzte Sicherung ist} other {# Objekte lassen sich nicht vollständig wiederherstellen, oder ihre letzten Sicherungen sind}} noch nicht als wiederherstellbar nachgewiesen. Eine Sicherung ohne verifizierten Restore gilt als fehlgeschlagen."
+    },
+    "empty": {
+      "title": "Noch nichts geschützt",
+      "description": "Sobald Postfächer, OneDrives, IMAP-Konten oder Rechner geschützt und gesichert sind, erscheinen hier ihre Restore-Prüfungen."
+    }
+  },
+  "unverified": {
+    "title": "{count, plural, one {Die letzte Sicherung von # Objekt ist noch nicht geprüft} other {Die letzten Sicherungen von # Objekten sind noch nicht geprüft}}",
+    "description": "{count, plural, one {Diese Sicherung entstand nach der letzten Restore-Prüfung. Bis eine Prüfung sie zurückliest, gilt sie als nicht nachgewiesen, ganz gleich, wie eine frühere Sicherung abgeschnitten hat.} other {Diese Sicherungen entstanden nach der letzten Restore-Prüfung. Bis eine Prüfung sie zurückliest, gelten sie als nicht nachgewiesen, ganz gleich, wie eine frühere Sicherung abgeschnitten hat.}}",
+    "running": "{count, plural, one {# Prüfung ist bereits eingeplant oder aktiv.} other {# Prüfungen sind bereits eingeplant oder aktiv.}}"
+  },
+  "summary": {
+    "ready": "Bereit",
+    "readyHint": "Letzte Restore-Prüfung bestanden",
+    "attention": "Achtung",
+    "attentionHint": "{overdue, plural, =0 {Warnungen in der letzten Prüfung} one {Warnungen und # überfällige Prüfung} other {Warnungen und # überfällige Prüfungen}}",
+    "failed": "Nicht wiederherstellbar",
+    "failedHint": "Letzte Restore-Prüfung fehlgeschlagen",
+    "unproven": "Nicht nachgewiesen",
+    "unprovenHint": "Letzte Sicherung nicht geprüft: {unverified} · Noch keine Sicherung: {noBackup}"
+  },
+  "table": {
+    "title": "Geschützte Objekte",
+    "description": "Die letzte Bewertung je Postfach, OneDrive, IMAP-Konto und Rechner, die kritischsten zuerst.",
+    "filter": {
+      "all": "Alle ({count})",
+      "attention": "Braucht Aufmerksamkeit ({count})",
+      "waiting": "Wartet auf erste Sicherung ({count})"
+    },
+    "columns": {
+      "object": "Objekt",
+      "readiness": "Wiederherstellbarkeit",
+      "lastCheck": "Letzte Prüfung",
+      "result": "Ergebnis",
+      "backup": "Letzte Sicherung",
+      "actions": "Aktionen"
+    },
+    "result": {
+      "verified": "{verified} von {checked} Elementen bytegenau wiederhergestellt",
+      "storage": "Beschädigter Speicher, gefunden von der Speicherprüfung",
+      "unverified": "Eine Sicherung ist vorhanden, wurde aber nie geprüft.",
+      "noBackup": "Nichts zu prüfen, bis die erste Sicherung abgeschlossen ist.",
+      "noBackupNextRun": "Noch nichts zu prüfen; die nächste Sicherung ist fällig {time}.",
+      "noBackupOverdue": "Keine Sicherung innerhalb von 24 Stunden nach Beginn des Schutzes.",
+      "latestUnverified": "Letzte Sicherung noch nicht geprüft.",
+      "previousCheck": "Vorherige Sicherung: {state}, geprüft"
+    },
+    "running": {
+      "queued": "Prüfung eingeplant",
+      "active": "Prüfung läuft"
+    },
+    "orphaned": "In der Quelle entfernt",
+    "overdue": "Überfällig",
+    "never": "Nie",
+    "noBackup": "Noch keine Sicherung",
+    "empty": "Noch keine geschützten Objekte.",
+    "emptyAttention": "Kein Objekt braucht Aufmerksamkeit.",
+    "emptyWaiting": "Kein Objekt wartet auf seine erste Sicherung.",
+    "technicalId": "Technische ID: {id}"
+  },
+  "snapshot": {
+    "column": "Verifizierung",
+    "state": {
+      "green": "Verifiziert",
+      "yellow": "Verifiziert mit Warnungen",
+      "red": "Prüfung fehlgeschlagen",
+      "unverified": "Noch nicht verifiziert"
+    },
+    "hint": {
+      "checked": "Restore-Prüfung dieser Sicherung: {date}",
+      "unverified": "Noch keine Restore-Prüfung hat diese Sicherung zurückgelesen, sie ist also nicht als wiederherstellbar nachgewiesen."
+    }
+  },
+  "reason": {
+    "no_snapshot": "Es gibt keine abgeschlossene Sicherung.",
+    "manifest_unreadable": "Das Verzeichnis der letzten Sicherung ist nicht lesbar.",
+    "items_missing": "{count, plural, one {# Element verweist} other {# Elemente verweisen}} auf Daten, die im Chunk-Index oder im Speicher fehlen.",
+    "items_unreadable": "{count, plural, one {# Element ist} other {# Elemente sind}} im Speicher beschädigt: Die Daten lassen sich nicht öffnen oder entschlüsseln.",
+    "items_mismatched": "{count, plural, one {# Element kam} other {# Elemente kamen}} anders zurück, als es gesichert wurde.",
+    "storage_corrupt": "{count, plural, one {# Speicher-Pack mit diesen Daten ist} other {# Speicher-Packs mit diesen Daten sind}} beschädigt.",
+    "test_restore_failed": "{count, plural, one {# Element konnte} other {# Elemente konnten}} nicht in das Prüfziel wiederhergestellt werden.",
+    "snapshot_outdated": "Die letzte Sicherung ist {days, plural, one {# Tag} other {# Tage}} alt; neuere Daten ließen sich nicht wiederherstellen.",
+    "snapshot_stale": "Die letzte Sicherung ist {hours, plural, one {# Stunde} other {# Stunden}} alt.",
+    "nothing_to_verify": "Die letzte Sicherung enthält nichts, was geprüft werden könnte.",
+    "test_restore_unconfirmed": "Das Prüfziel hat {count, plural, one {# wiederhergestelltes Element} other {# wiederhergestellte Elemente}} nicht bestätigt.",
+    "unknown": "Der Befund „{code}“ stammt von einer neueren Version und kann hier nicht beschrieben werden."
+  },
+  "storage": {
+    "title": "Speicherintegrität",
+    "description": "Jede Pack-Datei wird von jedem Speicherziel gelesen und mit ihrer erfassten SHA-256-Prüfsumme verglichen: wöchentlich eine Stichprobe, monatlich alle Packs. Schäden werden aus einer intakten Kopie repariert, sofern es eine gibt.",
+    "state": {
+      "ok": "Intakt",
+      "repaired": "Repariert",
+      "corrupt": "Beschädigt",
+      "never": "Noch nicht geprüft"
+    },
+    "mode": {
+      "sample": "Stichprobe",
+      "full": "alle Packs"
+    },
+    "running": {
+      "queued": "Speicherprüfung eingeplant ({mode})",
+      "active": "Speicherprüfung läuft ({mode})"
+    },
+    "lastCheck": "Letzte Prüfung",
+    "lastCheckValue": "{when} ({mode})",
+    "unknownDate": "Datum unbekannt",
+    "lastFull": "Letzte Vollprüfung",
+    "noFull": "Noch keine Vollprüfung",
+    "coverage": "Umfang",
+    "packs": "{checked} von {total} Packs geprüft, {bytes} gelesen",
+    "never": "Es lief noch keine Speicherprüfung.",
+    "corruptTitle": "{count, plural, one {# Pack ist beschädigt} other {# Packs sind beschädigt}}",
+    "corrupt": "Auf keinem Speicherziel gibt es eine intakte Kopie, daher ließ sich der Schaden nicht reparieren. Jedes Objekt, dessen Daten in diesen Packs liegen, gilt als nicht wiederherstellbar.",
+    "corruptHeal": "Eine Vollsicherung der betroffenen Objekte schreibt die beschädigten Inhalte erneut aus der Quelle, soweit die Quelle sie noch enthält. Sicherungen verwenden Daten aus diesen Packs nicht mehr. Sobald keine Sicherung ein beschädigtes Pack mehr braucht, nimmt die nächste Speicherprüfung es aus dem Bestand.",
+    "retired": "{count, plural, one {# beschädigtes Pack wird} other {# beschädigte Packs werden}} nicht mehr gebraucht: spätere Sicherungen haben die Inhalte neu geschrieben. {count, plural, one {Es wurde} other {Sie wurden}} aus dem Index entfernt, {count, plural, one {seine Datei wird} other {ihre Dateien werden}} frühestens einen Tag später von einer Speicherprüfung gelöscht.",
+    "repairedTitle": "{count, plural, one {# Pack wurde repariert} other {# Packs wurden repariert}}",
+    "repaired": "Ein Speicherziel hatte eine beschädigte oder fehlende Kopie; sie wurde aus einer intakten Kopie neu geschrieben und zur Bestätigung zurückgelesen.",
+    "target": {
+      "primary": "Primärspeicher",
+      "copy": "Kopie {index}"
+    },
+    "targetStatus": {
+      "ok": "intakt",
+      "missing": "fehlt",
+      "unreadable": "nicht lesbar",
+      "size_mismatch": "falsche Größe",
+      "hash_mismatch": "Prüfsumme weicht ab",
+      "malformed": "keine gültige Pack-Datei",
+      "foreign_tenant": "gehört zu einem anderen Mandanten",
+      "index_mismatch": "Inhalt weicht vom Chunk-Index ab",
+      "other": "fehlerhaft"
+    },
+    "targetFailed": "{target}: {status}",
+    "targetRepaired": "{target}: {status}, repariert",
+    "morePacks": "{count, plural, one {und # weiteres Pack} other {und # weitere Packs}}",
+    "gc": {
+      "reclaimed": "Die Bereinigung nicht mehr benötigter Daten hat {bytes} freigegeben.",
+      "clean": "Die Bereinigung hat keine freizugebenden Daten gefunden.",
+      "interrupted": "Die Bereinigung pausiert für eine laufende Sicherung, Wiederherstellung oder Wiederherstellungsprüfung und wird mit der nächsten Vollprüfung fortgesetzt.",
+      "skipped": {
+        "disabled": "Die Bereinigung ist für diese Prüfung abgeschaltet.",
+        "partial_manifest_unreadable": "Die Bereinigung wurde übersprungen, weil eine unvollständige Sicherung nicht lesbar war.",
+        "backup_running": "Die Bereinigung wurde verschoben, weil eine Sicherung lief.",
+        "restore_running": "Die Bereinigung wurde verschoben, weil eine Wiederherstellung lief.",
+        "verify_running": "Die Bereinigung wurde verschoben, weil eine Wiederherstellungsprüfung lief.",
+        "other": "Die Bereinigung wurde übersprungen."
+      }
+    },
+    "failed": "Die letzte Speicherprüfung ist fehlgeschlagen",
+    "schedule": {
+      "next": "Nächste geplante Speicherprüfung {when}.",
+      "enabled": "Speicherprüfungen sind eingeplant.",
+      "none": "Es ist keine Speicherprüfung eingeplant; sie läuft nur, wenn sie hier gestartet wird."
+    }
+  },
+  "footer": {
+    "lastCheck": "Letzte Restore-Prüfung:",
+    "neverChecked": "Es lief noch keine Restore-Prüfung.",
+    "scheduleNext": "Nächste geplante Restore-Prüfung:",
+    "scheduleEnabled": "Restore-Prüfungen sind eingeplant.",
+    "scheduleNone": "Es ist keine Restore-Prüfung eingeplant; Prüfungen laufen nur, wenn sie hier oder nach einer Sicherung gestartet werden."
+  },
+  "report": {
+    "subtitle": "{kind} am {when}",
+    "findings": {
+      "title": "Befunde",
+      "none": "Keine Befunde: Jedes geprüfte Element kam bytegenau aus einer aktuellen Sicherung zurück."
+    },
+    "stats": {
+      "checked": "Geprüfte Elemente",
+      "verified": "Bytegenau wiederhergestellt",
+      "failed": "Fehlgeschlagen",
+      "bytes": "Gelesene Daten",
+      "duration": "Dauer"
+    },
+    "snapshot": {
+      "title": "Geprüfte Sicherung",
+      "sequence": "Sicherung #{sequence}",
+      "completed": "Abgeschlossen am {when}",
+      "items": "{count, plural, one {# Element} other {# Elemente}}",
+      "none": "Es war keine abgeschlossene Sicherung vorhanden.",
+      "completedUnknown": "Abschlusszeit unbekannt"
+    },
+    "sample": {
+      "title": "Stichprobe",
+      "line": "{category}: {sampled} von {eligible}",
+      "all": "Jedes Element der Sicherung wurde zurückgelesen.",
+      "seed": "Startwert der Stichprobe {seed}"
+    },
+    "items": {
+      "title": "Geprüfte Elemente",
+      "sampleDescription": "Jedes Element der Zufallsstichprobe, über den Restore-Weg zurückgelesen.",
+      "allDescription": "Elemente mit Fehlern; alle anderen Elemente der Sicherung haben bestanden.",
+      "empty": "Es wurden keine Elemente geprüft.",
+      "noFailures": "Kein Element ist fehlgeschlagen.",
+      "detail": "Technisches Detail:",
+      "omitted": "{count, plural, one {# weiteres Element hat bestanden und wird} other {# weitere Elemente haben bestanden und werden}} nicht aufgeführt.",
+      "columns": {
+        "item": "Element",
+        "type": "Typ",
+        "size": "Größe",
+        "result": "Ergebnis",
+        "checksum": "Prüfsumme"
+      }
+    },
+    "itemStatus": {
+      "verified": "Bytegenau",
+      "mismatch": "Abweichend",
+      "missing": "Fehlt",
+      "unreadable": "Nicht lesbar"
+    },
+    "hash": {
+      "matched": "SHA-256 stimmt",
+      "mismatched": "SHA-256 weicht ab",
+      "not_recorded": "Nur Chunk-Prüfsummen",
+      "not_reached": "Nicht erreicht"
+    },
+    "damagedPacks": {
+      "title": "{count, plural, one {# beschädigtes Pack in dieser Sicherung} other {# beschädigte Packs in dieser Sicherung}}",
+      "description": "Die letzte Speicherprüfung hat diese Pack-Dateien auf jedem Speicherziel beschädigt vorgefunden. Darin gespeicherte Elemente lassen sich nicht wiederherstellen, auch wenn die Stichprobe sie nicht berührt hat."
+    },
+    "manifestFailure": {
+      "title": "Warum das Verzeichnis dieses Backups nicht gelesen werden konnte"
+    },
+    "testRestore": {
+      "title": "Test-Restore",
+      "description": "Die geprüften Elemente wurden zusätzlich in {target} wiederhergestellt.",
+      "status": {
+        "confirmed": "Bestätigt",
+        "unconfirmed": "Nicht bestätigt",
+        "failed": "Fehlgeschlagen"
+      }
+    },
+    "scrub": {
+      "title": "Befund der Speicherprüfung",
+      "description": "Die Speicherprüfung hat Pack-Dateien mit Daten dieses Objekts auf jedem Speicherziel beschädigt vorgefunden und konnte sie aus keiner Kopie reparieren."
+    },
+    "unknown": {
+      "title": "Details nicht lesbar",
+      "description": "Die Bewertung dieses Berichts ist oben zu sehen, seine Details ließen sich jedoch nicht lesen."
+    },
+    "history": {
+      "title": "Frühere Prüfungen",
+      "description": "Jede Bewertung dieses Objekts, die neueste zuerst.",
+      "error": "Die früheren Prüfungen konnten nicht geladen werden.",
+      "loadMore": "Mehr laden"
+    },
+    "notFound": {
+      "title": "Bericht nicht gefunden",
+      "description": "Diesen Bericht gibt es im gewählten Mandanten nicht. Möglicherweise gehört er zu einem anderen Mandanten."
+    },
+    "latestBackup": {
+      "unverifiedTitle": "Eine neuere Sicherung ist noch nicht geprüft",
+      "unverified": "Sicherung #{sequence} vom {when} entstand nach dieser Prüfung und wurde noch nicht zurückgelesen. Dieser Bericht bewertet nur die Sicherung, die er geprüft hat.",
+      "ratedTitle": "Eine neuere Sicherung hat eine eigene Bewertung",
+      "rated": "Sicherung #{sequence} vom {when} wurde nach diesem Bericht geprüft; ihr eigener Bericht bewertet sie.",
+      "open": "Ihren Bericht öffnen"
+    }
+  },
+  "toast": {
+    "queued": "{count, plural, one {# Restore-Prüfung gestartet} other {# Restore-Prüfungen gestartet}}",
+    "queuedWithSkipped": "{count, plural, one {# Restore-Prüfung gestartet} other {# Restore-Prüfungen gestartet}}; {skipped, plural, one {# Objekt wurde übersprungen} other {# Objekte wurden übersprungen}} (noch keine Sicherung oder es läuft bereits eine Prüfung).",
+    "nothingQueued": "Es wurde keine Prüfung gestartet: Jedes Objekt wird bereits geprüft oder hat noch keine Sicherung.",
+    "checkStarted": "Restore-Prüfung für {name} gestartet",
+    "startFailed": "Die Restore-Prüfung konnte nicht gestartet werden",
+    "alreadyQueued": "Es ist bereits eine Prüfung eingeplant oder aktiv.",
+    "noBackup": "Dieses Objekt hat noch keine abgeschlossene Sicherung, es gibt also nichts zu prüfen.",
+    "excluded": "Dieses Objekt ist vom Schutz ausgenommen.",
+    "scrubStarted": {
+      "sample": "Speicherprüfung gestartet (Stichprobe)",
+      "full": "Speicherprüfung aller Packs gestartet"
+    },
+    "scrubFailed": "Die Speicherprüfung konnte nicht gestartet werden",
+    "unverifiedQueued": "{count, plural, one {# Restore-Prüfung für eine ungeprüfte Sicherung gestartet} other {# Restore-Prüfungen für ungeprüfte Sicherungen gestartet}}",
+    "nothingUnverified": "Es wurde keine Prüfung gestartet: Jede letzte Sicherung ist geprüft oder wird bereits geprüft."
+  },
+  "error": {
+    "overview": "Die Wiederherstellbarkeit konnte nicht geladen werden",
+    "report": "Der Bericht konnte nicht geladen werden"
+  }
+}

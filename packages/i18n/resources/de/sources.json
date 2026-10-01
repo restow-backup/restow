@@ -1,0 +1,404 @@
+{
+  "nav": "Quellen",
+  "title": "Quellen",
+  "subtitle": "Die Microsoft-365-Tenants und IMAP-Postfächer, die dieser Mandant schützt.",
+  "tenantScope": "Quellen von {tenant}",
+  "noTenant": {
+    "title": "Kein Mandant gewählt",
+    "description": "Wählen Sie oben einen Mandanten, um seine Quellen zu verwalten."
+  },
+  "kind": {
+    "m365": "Microsoft 365",
+    "imap": "IMAP",
+    "import": "Importierte Mail-Dateien"
+  },
+  "kindLong": {
+    "m365": "Microsoft-365-Tenant",
+    "imap": "IMAP-Postfach",
+    "import": "Importierte Mail-Dateien"
+  },
+  "status": {
+    "pending": "Nicht verbunden",
+    "active": "Verbunden",
+    "error": "Problem",
+    "disabled": "Pausiert"
+  },
+  "actions": {
+    "add": "Quelle hinzufügen",
+    "addM365": "Microsoft-365-Tenant",
+    "addImap": "IMAP-Postfach",
+    "addImport": "Mail-Dateien importieren",
+    "createLink": "Consent-Link erzeugen",
+    "reconnect": "Neuen Consent-Link erzeugen",
+    "verify": "Berechtigungen prüfen",
+    "verifyAgain": "Erneut prüfen",
+    "test": "Verbindung testen",
+    "pause": "Pausieren",
+    "resume": "Fortsetzen",
+    "delete": "Löschen",
+    "edit": "Bearbeiten",
+    "editConnection": "Verbindung bearbeiten",
+    "create": "Anlegen",
+    "openConsent": "Consent-Seite öffnen",
+    "copyLink": "Link kopieren",
+    "backToList": "Alle Quellen",
+    "moreActions": "Weitere Aktionen"
+  },
+  "list": {
+    "empty": {
+      "title": "Noch keine Quellen",
+      "description": "Verbinden Sie einen Microsoft-365-Tenant oder fügen Sie ein IMAP-Postfach hinzu. Gesichert wird nichts, bevor eine Quelle verbunden und geprüft ist."
+    },
+    "lastSync": "Letzter Abgleich {when}",
+    "neverSynced": "Noch kein Abgleich",
+    "neverSyncedHint": "{appName} liest die Nutzer, Postfächer und OneDrives dieses Mandanten aus Entra ID, sobald die Berechtigungen geprüft sind, und danach nach dem Zeitplan für den Verzeichnisabgleich.",
+    "consentPending": "Wartet auf Admin-Consent",
+    "consentDeniedShort": "Consent nicht erteilt",
+    "permissionsOk": "Alle Berechtigungen erteilt",
+    "permissionsIncomplete": "{count, plural, one {# Berechtigung fehlt} other {# Berechtigungen fehlen}}",
+    "notVerified": "Berechtigungen noch nicht geprüft",
+    "verificationFailed": "Prüfung fehlgeschlagen",
+    "imapNotTested": "Verbindung noch nicht getestet",
+    "imapOk": "Verbindung getestet",
+    "imapFailed": "Verbindung fehlgeschlagen",
+    "paused": "Pausiert: keine Sicherungen bis zur Fortsetzung",
+    "importedMailboxes": "{count, plural, =0 {Noch keine importierten Postfächer} one {# importiertes Postfach} other {# importierte Postfächer}}"
+  },
+  "error": {
+    "title": "Quellen nicht verfügbar",
+    "notFound": "Diese Quelle existiert nicht oder gehört zu einem anderen Mandanten."
+  },
+  "errors": {
+    "nameTaken": "In diesem Mandanten gibt es bereits eine Quelle mit diesem Namen.",
+    "passwordRequired": "Geben Sie das Passwort erneut ein: Das gespeicherte wird nur für den Server und Benutzernamen verwendet, für die es gespeichert wurde.",
+    "entraNotConfigured": "Die Entra-Backup-App dieser Installation ist nicht konfiguriert.",
+    "consentRequired": "Erteilen Sie zuerst den Admin-Consent; erst dann lassen sich die Berechtigungen prüfen.",
+    "sourceIncomplete": "Die gespeicherte Verbindung ist unvollständig. Bearbeiten Sie die Quelle und geben Sie das Passwort erneut ein.",
+    "perMailboxNoSourceTest": "Diese Quelle hat kein eigenes Passwort; jedes Postfach meldet sich mit seinem eigenen an. Testen Sie stattdessen jedes einzeln aus der Kontenliste.",
+    "imapHostNotAllowed": "Dieser IMAP-Server liegt in einem Loopback-, privaten oder Link-Local-Netz. Nur ein Provider-Admin kann eine Quelle mit einem internen Server verbinden; Link-Local-Adressen werden nie verwendet."
+  },
+  "detail": {
+    "created": "Angelegt {when}",
+    "syncProblem": {
+      "title": "Letztes Problem beim Abgleich",
+      "description": "Der letzte Sicherungslauf dieser Quelle meldete: {message}"
+    },
+    "paused": {
+      "title": "Quelle pausiert",
+      "description": "Für diese Quelle laufen keine Sicherungen oder Archiv-Abgleiche, bis sie fortgesetzt wird. Vorhandene Sicherungen bleiben wiederherstellbar."
+    }
+  },
+  "form": {
+    "name": "Name",
+    "namePlaceholderM365": "z. B. Contoso GmbH",
+    "namePlaceholderImap": "z. B. Postfach Alice",
+    "m365": {
+      "title": "Microsoft-365-Tenant hinzufügen",
+      "description": "Legt die Quelle an. Im nächsten Schritt erteilt ein Global Admin des Kunden den Admin-Consent; erst dann kann gesichert werden.",
+      "editTitle": "Microsoft-365-Quelle bearbeiten",
+      "editDescription": "Name und Ziel-Tenant des Consent-Links.",
+      "tenantHint": "Tenant-ID oder Domain (optional)",
+      "tenantHintHelp": "Führt den Admin direkt in den richtigen Tenant. Leer lassen, damit der Admin seine Organisation selbst wählt.",
+      "tenantHintPlaceholder": "contoso.onmicrosoft.com",
+      "tenantHintLocked": "Die Quelle ist mit einem Tenant verbunden; ein erneuter Consent findet immer in diesem Tenant statt.",
+      "scope": "Schutzumfang",
+      "scopeAll": "Alle Postfächer und OneDrives",
+      "scopeGroup": "Mitglieder einer Gruppe",
+      "groupId": "Gruppen-ID",
+      "groupIdHelp": "Objekt-ID einer Sicherheits- oder Microsoft-365-Gruppe. Mitglieder werden geschützt, alle anderen nicht.",
+      "scopeLater": "Den Umfang können Sie später unter Verzeichnis verfeinern, einschließlich Ausnahmen und freigegebener Postfächer."
+    },
+    "imap": {
+      "title": "IMAP-Postfach hinzufügen",
+      "editTitle": "IMAP-Verbindung bearbeiten",
+      "description": "TLS ist außerhalb von Entwicklungsumgebungen Pflicht. Das Passwort wird mit dem Mandantenschlüssel verschlüsselt gespeichert und nie wieder angezeigt.",
+      "host": "Server",
+      "hostPlaceholder": "imap.example.com",
+      "port": "Port",
+      "security": "Sicherheit",
+      "securityOptions": {
+        "tls": "TLS (implizit, Port 993)",
+        "starttls": "STARTTLS (Port 143)",
+        "none": "Keine (unverschlüsselt, nur Entwicklung)"
+      },
+      "securityNoneWarning": "Unverschlüsseltes IMAP überträgt das Passwort im Klartext. Nur gegen einen lokalen Testserver verwenden.",
+      "username": "Benutzername",
+      "usernamePlaceholder": "alice@example.com",
+      "usernameHintMasterUser": "Wird bei Master-User nicht zur Anmeldung verwendet: maßgeblich ist die Anmeldung des Master-Accounts weiter unten. Dient hier nur als Bezeichnung.",
+      "usernameHintPerMailbox": "Wird nicht zur Anmeldung verwendet: Jedes Postfach meldet sich mit seinem eigenen Konto und Passwort an, einzeln gesetzt unter Verzeichnis. Dient hier nur als Bezeichnung.",
+      "password": "Passwort",
+      "passwordKeep": "Leer lassen, um das gespeicherte Passwort zu behalten.",
+      "passwordAgain": "Server oder Benutzername haben sich geändert, deshalb wird das Passwort erneut benötigt.",
+      "passwordHint": "App-Passwörter sind empfehlenswert, wo der Anbieter sie anbietet.",
+      "testHint": "Vor dem Speichern testen, um Tippfehler früh zu finden. Nach dem Speichern testet {appName} die gespeicherte Verbindung noch einmal.",
+      "authMode": {
+        "label": "Postfach-Anmeldung",
+        "options": {
+          "shared": "Gemeinsame Anmeldung",
+          "per_mailbox": "Ein Passwort je Postfach",
+          "master_user": "Master-User"
+        },
+        "explain": {
+          "shared": "Eine Anmeldung und ein Passwort gelten für jedes Postfach. Geeignet für ein App-Passwort oder ein vom Anbieter für Backup vorgesehenes Konto.",
+          "per_mailbox": "Jedes Postfach behält sein eigenes Passwort, gesetzt im Reiter Verzeichnis. Geeignet für Hoster, bei denen jedes Postfach ein eigenes Passwort hat und es keinen Master-Account gibt, etwa Hetzner, IONOS oder all-inkl.",
+          "master_user": "Ein Master-Account meldet sich an und übernimmt jedes Postfach. Geeignet, wenn der Anbieter einen Dovecot-Master-User oder SASL-AUTHZID-Impersonation unterstützt."
+        },
+        "perMailboxPasswordHint": "Wird im Reiter Verzeichnis gesetzt, ein Passwort je Postfach.",
+        "perMailboxTestHint": "Die Anmeldung jedes Postfachs wird einzeln im Reiter Verzeichnis getestet, nicht hier.",
+        "masterUserTestHint": "Die Master-Anmeldung lässt sich nur gegen ein echtes Postfach testen, deshalb testet {appName} sie nach dem Speichern. Die Anmeldung eines einzelnen Postfachs wird im Reiter Verzeichnis getestet.",
+        "masterUsername": "Anmeldung des Master-Accounts",
+        "masterUsernameHint": "Das Konto, das sich anmeldet und jedes Postfach übernimmt.",
+        "masterStyle": "Anmelde-Art",
+        "masterStyleOptions": {
+          "dovecot_separator": "Dovecot-Trennzeichen (master*postfach)",
+          "sasl_authzid": "SASL-AUTHZID"
+        },
+        "masterSeparator": "Trennzeichen",
+        "masterSeparatorHint": "Standard ist \"*\" (master*postfach@example.com)."
+      }
+    }
+  },
+  "validation": {
+    "tenantHint": "Tenant-ID (GUID) oder eine verifizierte Domain wie contoso.onmicrosoft.com eingeben.",
+    "host": "Hostnamen oder IP-Adresse eingeben, keine URL.",
+    "groupId": "Für den Gruppen-Umfang ist eine Gruppen-ID nötig.",
+    "passwordAgain": "Für den geänderten Server oder Benutzernamen das Passwort erneut eingeben.",
+    "masterUsername": "Die Anmeldung des Master-Accounts eingeben."
+  },
+  "m365": {
+    "connection": {
+      "title": "Microsoft-365-Verbindung",
+      "description": "Admin-Consent des Kunden-Tenants für die App von {appName}."
+    },
+    "connect": {
+      "title": "Microsoft 365 verbinden",
+      "description": "Ein Global Admin des Kunden öffnet den Consent-Link, meldet sich in seinem Tenant an und erteilt die Anwendungsberechtigungen für die ganze Organisation. Danach bittet Microsoft ihn um eine weitere Anmeldung, mit der {appName} Organisation und Admin-Rolle bestätigt, bevor irgendetwas verbunden wird. {appName} prüft danach jede Berechtigung.",
+      "consentExplainer": {
+        "title": "Eine App-Registrierung, ein Consent je Organisation",
+        "sharedApp": "Die Microsoft-365-App-Registrierung unter Einstellungen → Microsoft 365 wird von allen Mandanten dieser Installation von {appName} gemeinsam genutzt, auch von Ihrer eigenen Organisation. Sie ist nicht speziell für diesen Kunden, daher muss jede Microsoft-365-Organisation, die {appName} sichert (auch Ihre eigene, falls Sie Ihren eigenen Tenant sichern), ihr einmal über einen Link wie diesen Consent erteilen.",
+        "secondSignIn": "Die zweite Anmeldung ist kein zweiter Consent: Sie lässt {appName} bestätigen, welche Organisation und welcher Admin gerade den Consent erteilt haben, bevor irgendetwas mit dieser Quelle verbunden wird.",
+        "portalConsent": "Haben Sie für diese App im Entra-Portal bereits auf \"Admin-Consent erteilen\" geklickt? Das muss trotzdem einmal über diesen Link laufen: Das Portal erteilt die Berechtigungen, aber erst dieser Ablauf sagt {appName}, zu welchem seiner Mandanten sie gehören."
+      },
+      "steps": {
+        "one": "Consent-Link erzeugen (eine Stunde gültig).",
+        "two": "Selbst öffnen oder an den Global Admin des Kunden schicken.",
+        "three": "Nach Consent und bestätigender Anmeldung aktualisiert sich diese Seite und zeigt die Berechtigungs-Checkliste."
+      },
+      "waiting": "Warte auf Consent … diese Seite aktualisiert sich automatisch.",
+      "linkExpires": "Link gültig bis {when}",
+      "linkExpired": "Der Link ist abgelaufen. Erzeugen Sie einen neuen.",
+      "linkLabel": "Consent-Link",
+      "audience": "Ziel-Tenant: {tenant}",
+      "audienceAny": "Ziel-Tenant: die Organisation des Admins",
+      "redirectUri": "In der Backup-App eingetragene Redirect-URI",
+      "redirectHint": "Genau dieser Wert muss in Entra als Web-Redirect-URI der Backup-App eingetragen sein, sonst lehnt Microsoft den Rückweg ab.",
+      "consented": "Admin-Consent erteilt {when}",
+      "consent": "Admin-Consent",
+      "tenantId": "Entra-Tenant-ID",
+      "reconsentHint": "Wiederholen Sie den Consent, nachdem der App-Registrierung Berechtigungen hinzugefügt wurden. Der Link funktioniert nur im bereits verbundenen Tenant."
+    },
+    "consentError": {
+      "title": "Letzter Consent-Versuch fehlgeschlagen",
+      "at": "Versuch {when}",
+      "details": "Microsoft meldete: {description}",
+      "codes": {
+        "access_denied": "Der Admin hat den Consent abgelehnt oder die Anmeldung abgebrochen.",
+        "consent_not_granted": "Microsoft ist ohne Bestätigung des Consents zurückgekehrt.",
+        "tenant_mismatch": "Der Consent wurde in einem anderen Microsoft-365-Tenant erteilt als dem, mit dem diese Quelle verbunden ist. Es wurde nichts geändert.",
+        "tenant_already_connected": "Dieser Microsoft-365-Tenant ist bereits mit einer anderen Quelle dieser Installation verbunden. Es wurde nichts geändert. Nur der Provider-Administrator kann ihn einem anderen Mandanten zuordnen.",
+        "sign_in_failed": "Die bestätigende Anmeldung nach dem Consent wurde nicht abgeschlossen, daher konnte {appName} nicht feststellen, wer zugestimmt hat. Es wurde nichts verbunden; führen Sie den Consent-Link erneut aus.",
+        "identity_mismatch": "Die bestätigende Anmeldung passte nicht zu der Organisation, die zugestimmt hat. Es wurde nichts verbunden; führen Sie den Consent-Link erneut aus und melden Sie sich mit demselben Konto an.",
+        "not_an_admin": "Das Konto der bestätigenden Anmeldung ist weder Global Administrator noch Administrator für privilegierte Rollen dieser Organisation. Es wurde nichts verbunden.",
+        "role_check_failed": "{appName} konnte die Admin-Rolle des angemeldeten Kontos nicht lesen. Direkt nach einem Consent braucht Microsoft mitunter einige Minuten; führen Sie den Consent-Link in Kürze erneut aus.",
+        "app_not_configured": "Die Backup-App dieser Installation ist nicht vollständig eingerichtet (Client-ID, Zugangsdaten oder öffentliche URL), daher konnte der Consent nicht bestätigt werden. Es wurde nichts verbunden.",
+        "other": "Microsoft meldete den Fehler {code}."
+      }
+    },
+    "entra": {
+      "notConfigured": {
+        "title": "Entra-App nicht konfiguriert",
+        "description": "Zum Verbinden von Microsoft-365-Tenants braucht diese Installation die Backup-App-Registrierung. Ein Provider-Admin richtet sie unter Einstellungen → Microsoft 365 ein (oder über ENTRA_CLIENT_* in der Server-Umgebung, siehe https://docs.restowbackup.com/de/administrators/first-steps/)."
+      },
+      "reasons": {
+        "no_client_id": "Es ist keine Anwendungs-ID (Client) eingerichtet.",
+        "no_credential": "Es ist weder ein geheimer Clientschlüssel noch ein Zertifikat eingerichtet.",
+        "no_public_url": "Es ist keine öffentliche URL konfiguriert; der Consent-Rückweg braucht eine.",
+        "credential_unusable": "Die eingerichteten Zugangsdaten lassen sich nicht verwenden; Einstellungen → Microsoft 365 zeigt den Grund."
+      },
+      "clientId": "Client-ID der Backup-App",
+      "credential": {
+        "secret": "Client-Secret",
+        "certificate": "Zertifikat"
+      },
+      "provider": {
+        "title": "Öffentliche URL fehlt",
+        "description": "Die App-Registrierung ist eingerichtet, aber der Admin-Consent braucht für seinen Rückweg eine öffentliche URL. Legen Sie sie unter Einstellungen → Allgemein fest.",
+        "openSettings": "Einstellungen öffnen"
+      },
+      "tenantAdmin": {
+        "title": "Microsoft-365-Verbindung noch nicht eingerichtet",
+        "description": "Ihr Service Provider hat die Microsoft-365-Verbindung noch nicht eingerichtet. Sobald das geschehen ist, können Sie Ihren Tenant hier verbinden."
+      }
+    },
+    "permissions": {
+      "title": "Anwendungsberechtigungen",
+      "description": "Was der Kunden-Tenant der Backup-App erteilt hat, verglichen mit dem, was {appName} braucht.",
+      "notChecked": "Noch nicht geprüft. Prüfen Sie die Berechtigungen, sobald der Admin-Consent erteilt ist.",
+      "awaitingConsent": "Verfügbar, sobald der Admin-Consent erteilt ist.",
+      "checkedAt": "Geprüft {when}",
+      "columns": {
+        "permission": "Berechtigung",
+        "purpose": "Wofür",
+        "state": "Status"
+      },
+      "required": "Pflicht",
+      "optional": "Optional",
+      "state": {
+        "granted": "Erteilt",
+        "read_only": "Nur lesend",
+        "missing": "Fehlt"
+      },
+      "readOnlyDetail": "Statt {expected} wurde {granted} erteilt.",
+      "pitfall": {
+        "title": "Nur lesend statt lesend und schreibend",
+        "description": "Der klassische Fehler: Mit {granted} läuft das Backup, aber jeder Restore scheitert mit 403. Erteilen Sie {expected} in der App-Registrierung und wiederholen Sie den Consent."
+      },
+      "unexpected": "Zusätzlich erteilt, von {appName} nicht genutzt: {list}",
+      "complete": "Alle Pflichtberechtigungen sind erteilt.",
+      "incomplete": "{count, plural, one {# Pflichtberechtigung fehlt.} other {# Pflichtberechtigungen fehlen.}}",
+      "optionalMissing": "Optionale Berechtigungen schalten nur Zusätze frei, etwa Benachrichtigungen über Graph.",
+      "purpose": {
+        "mail": "Mail sichern und wiederherstellen",
+        "mailboxSettings": "Zeitzone und Regionaleinstellungen",
+        "calendar": "Kalender sichern und wiederherstellen",
+        "contacts": "Kontakte sichern und wiederherstellen",
+        "onedrive": "OneDrive sichern und wiederherstellen",
+        "users": "Verzeichnis-Sync und Postfachliste",
+        "groups": "Schutzumfang über Gruppen",
+        "directory": "Gelöschte Nutzer und Rollenprüfung",
+        "organization": "Tenant-Name und Lizenzen",
+        "notifications": "Benachrichtigungen über Graph (optional)",
+        "signIn": "Bestätigende Anmeldung des zustimmenden Admins (kein Datenzugriff)"
+      }
+    },
+    "token": {
+      "title": "Anmeldung als Backup-App",
+      "ok": "Token für Tenant {tenant} erhalten.",
+      "failed": "Es konnte kein Token bezogen werden.",
+      "hints": {
+        "consent_missing": "Der Tenant hat der Backup-App nicht zugestimmt (oder einer anderen App-ID). Direkt nach einem Consent braucht Microsoft mitunter einige Minuten; prüfen Sie in Kürze erneut, sonst wiederholen Sie den Admin-Consent.",
+        "invalid_credentials": "Client-Secret oder Zertifikat passen nicht zur App-Registrierung. Prüfen Sie sie unter Einstellungen → Microsoft 365 (oder ENTRA_CLIENT_SECRET / ENTRA_CLIENT_CERT_PATH in der Server-Umgebung).",
+        "credentials_expired": "Client-Secret oder Zertifikat sind abgelaufen. Legen Sie in Entra neue an und tragen Sie sie unter Einstellungen → Microsoft 365 ein (oder tauschen Sie sie in der Server-Umgebung).",
+        "tenant_unknown": "Entra kennt diese Tenant-ID nicht. Der Consent-Rückweg hat sie gemeldet; wenden Sie sich an den Kunden-Admin.",
+        "unknown": "Entra hat die Anmeldung abgelehnt. Der Fehlercode unten hilft eventuell weiter."
+      },
+      "code": "Fehlercode: {code}"
+    },
+    "testCall": {
+      "title": "Testaufruf: Nutzer auflisten",
+      "ok": "{count, plural, =0 {Der Tenant hat keine Nutzer zurückgegeben.} one {# Nutzer zurückgegeben.} other {# Nutzer zurückgegeben.}}",
+      "failed": "Der Aufruf ist fehlgeschlagen: {code}",
+      "sample": "Erste zurückgegebene Nutzer",
+      "forbiddenHint": "Ein 403 bedeutet hier meist: User.Read.All fehlt oder eine Application Access Policy schließt die App aus."
+    },
+    "consentResult": {
+      "granted": "Admin-Consent erteilt.",
+      "grantedVerifiedOk": "Admin-Consent erteilt und alle Berechtigungen geprüft.",
+      "grantedVerifiedFailed": "Admin-Consent erteilt, aber die Prüfung hat Probleme gefunden. Direkt nach einem Consent braucht Microsoft mitunter einige Minuten, bis die Berechtigungen greifen; prüfen Sie in Kürze erneut.",
+      "denied": "Der Admin-Consent wurde nicht erteilt ({error}).",
+      "identity_not_verified": "{appName} konnte nicht bestätigen, dass ein Administrator dieser Organisation den Consent erteilt hat. Es wurde nichts verbunden; die Quelle zeigt den Grund.",
+      "tenant_already_connected": "Dieser Microsoft-365-Tenant ist bereits mit einer anderen Quelle dieser Installation verbunden. Es wurde nichts geändert.",
+      "tenant_mismatch": "Der Consent wurde in einem anderen Microsoft-365-Tenant erteilt als dem, mit dem diese Quelle verbunden ist. Es wurde nichts geändert; legen Sie für den anderen Tenant eine eigene Quelle an.",
+      "invalid_state": "Der Consent-Link war ungültig oder ist abgelaufen. Erzeugen Sie einen neuen Link.",
+      "unknown_source": "Die Quelle zu diesem Consent existiert nicht mehr."
+    }
+  },
+  "imap": {
+    "connection": {
+      "title": "IMAP-Verbindung",
+      "description": "Server, Konto und Transportverschlüsselung dieses Postfachs."
+    },
+    "server": "Server",
+    "security": "Sicherheit",
+    "username": "Benutzername",
+    "password": "Passwort",
+    "passwordStored": "Verschlüsselt gespeichert",
+    "passwordMissing": "Nicht gespeichert",
+    "passwordPerMailbox": "Je Postfach gesetzt, im Reiter Verzeichnis",
+    "probe": {
+      "title": "Letzter Verbindungstest",
+      "none": "Noch nicht getestet.",
+      "running": "Verbindung wird getestet …",
+      "ok": "Verbindung erfolgreich",
+      "failed": "Verbindung fehlgeschlagen",
+      "secure": "Verschlüsselt (TLS)",
+      "insecure": "Unverschlüsselt",
+      "server": "Server: {name}",
+      "mailboxes": "{count, plural, one {# Ordner} other {# Ordner}}",
+      "specialUse": "Sonderordner",
+      "capabilities": "Fähigkeiten",
+      "testedAt": "Getestet {when}",
+      "reasons": {
+        "blocked_address": "Dieser Server liegt in einem Loopback-, privaten oder Link-Local-Netz, zu dem {appName} von hier aus keine Verbindung aufbaut. Nur ein Provider-Admin kann eine Quelle mit einem internen Server verbinden.",
+        "auth": "Der Server hat Benutzername oder Passwort abgelehnt.",
+        "timeout": "Der Server hat nicht rechtzeitig geantwortet. Host, Port und Firewall prüfen.",
+        "tls": "Der TLS-Handshake ist fehlgeschlagen. Zertifikat und Sicherheitsmodus prüfen.",
+        "starttls_unavailable": "Der Server bietet auf diesem Port kein STARTTLS an. TLS auf Port 993 oder einen anderen Port verwenden.",
+        "dns": "Der Hostname konnte nicht aufgelöst werden.",
+        "refused": "Die Verbindung wurde abgelehnt. Host und Port prüfen.",
+        "unknown": "Die Verbindung ist aus einem unerwarteten Grund fehlgeschlagen."
+      },
+      "detail": "Serverantwort: {message}"
+    }
+  },
+  "delete": {
+    "title": "Quelle löschen?",
+    "description": "{name} wird samt gespeicherter Zugangsdaten entfernt. Das geht nur, solange die Quelle keine Sicherungen, archivierten Mails oder Legal Holds enthält.",
+    "importDescription": "{name} wird samt allen importierten Postfächern und ihren Snapshots entfernt. Importierte Mails liegen nirgends sonst, das lässt sich also nicht rückgängig machen.",
+    "confirm": "Quelle löschen",
+    "blocked": {
+      "title": "Diese Quelle enthält noch Daten",
+      "description": "Beim Löschen ginge der Index ihrer Daten verloren, deshalb behält {appName} sie. Pausieren Sie die Quelle stattdessen: Es laufen keine neuen Sicherungen, alles bleibt wiederherstellbar, und die Aufbewahrungsregeln bestimmen, wann Daten ablaufen.",
+      "snapshots": "{count, plural, one {# Snapshot} other {# Snapshots}}",
+      "archiveItems": "{count, plural, one {# archivierte Nachricht} other {# archivierte Nachrichten}}",
+      "legalHolds": "{count, plural, one {# Legal Hold} other {# Legal Holds}}"
+    },
+    "pauseInstead": "Stattdessen pausieren"
+  },
+  "toasts": {
+    "created": "Quelle angelegt.",
+    "updated": "Quelle gespeichert.",
+    "deleted": "Quelle gelöscht.",
+    "paused": "Quelle pausiert.",
+    "resumed": "Quelle fortgesetzt.",
+    "verified": "Prüfung abgeschlossen.",
+    "tested": "Verbindungstest abgeschlossen.",
+    "linkCreated": "Consent-Link erzeugt.",
+    "copied": "Link in die Zwischenablage kopiert.",
+    "copyFailed": "Der Link konnte nicht kopiert werden. Markieren und kopieren Sie ihn manuell."
+  },
+  "consentLanding": {
+    "product": "{appName}",
+    "granted": {
+      "title": "Consent erfasst",
+      "body": "{appName} hat den Admin-Consent für Ihre Organisation erfasst und prüft jetzt die erteilten Berechtigungen. Das Ergebnis sieht der Administrator von {appName}."
+    },
+    "denied": {
+      "title": "Consent nicht erteilt",
+      "body": "Der Admin-Consent wurde nicht erteilt, daher kann {appName} nicht auf Ihre Organisation zugreifen. Für einen neuen Versuch bitten Sie den Administrator von {appName} um einen neuen Consent-Link."
+    },
+    "unverified": {
+      "title": "Consent nicht bestätigt",
+      "body": "{appName} konnte nicht bestätigen, dass ein Administrator Ihrer Organisation den Consent erteilt hat, daher wurde nichts verbunden. Melden Sie sich beim nächsten Versuch mit einem Konto an, das Global Administrator oder Administrator für privilegierte Rollen ist."
+    },
+    "rejected": {
+      "title": "Consent nicht übernommen",
+      "body": "Ihre Organisation passt nicht zu der Verbindung, für die dieser Link erzeugt wurde. Es wurde nichts geändert. Bitte wenden Sie sich an den Administrator von {appName}."
+    },
+    "invalid": {
+      "title": "Link ungültig oder abgelaufen",
+      "body": "Dieser Consent-Link ist nicht mehr gültig. Es wurde nichts geändert. Bitte fordern Sie beim Administrator von {appName} einen neuen Link an."
+    },
+    "close": "Sie können dieses Fenster jetzt schließen."
+  }
+}

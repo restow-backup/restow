@@ -1,0 +1,176 @@
+{
+  "nav": "Archiv",
+  "title": "Archiv",
+  "page": {
+    "title": "Archiv",
+    "description": "Durchsuchen Sie das archivierte Postfach des Mandanten, prüfen Sie die Hash-Kette und verwalten Sie Legal Holds."
+  },
+  "noTenant": "Wählen Sie einen Mandanten, um dessen Archiv zu durchsuchen.",
+  "forbidden": "Die Archivsuche erfordert die Rolle Mandanten-Administrator.",
+  "actions": {
+    "refresh": "Aktualisieren",
+    "verifyChain": "Kette prüfen",
+    "placeHold": "Legal Hold anlegen",
+    "release": "Freigeben"
+  },
+  "search": {
+    "placeholder": "Betreff, Absender, Empfänger und Text durchsuchen",
+    "hasAttachment": "Mit Anhang",
+    "dateFrom": "Von Datum",
+    "dateTo": "Bis Datum",
+    "results": "{count, plural, one {# Treffer} other {# Treffer}}",
+    "empty": "Keine archivierten Mails entsprechen dieser Suche.",
+    "emptyTenant": "Für diesen Mandanten wurde noch nichts archiviert."
+  },
+  "table": {
+    "subject": "Betreff",
+    "from": "Von",
+    "to": "An",
+    "receivedAt": "Empfangen",
+    "date": "Datum",
+    "size": "Größe",
+    "attachment": "Anhang",
+    "source": "Quelle",
+    "sources": {
+      "journal": "Journal",
+      "graph_sync": "Graph-Sync",
+      "imap_sync": "IMAP-Sync",
+      "file_import": "Import"
+    }
+  },
+  "detail": {
+    "title": "Element",
+    "messageId": "Message-ID",
+    "itemHash": "Element-Hash (SHA-256)",
+    "chainHash": "Ketten-Hash",
+    "source": "Quelle",
+    "retentionUntil": "Aufbewahrt bis",
+    "unlimited": "Unbegrenzt",
+    "flags": "Kennzeichen",
+    "noFlags": "Keine",
+    "sourceJournal": "Exchange-Online-Journal",
+    "sourceGraphSync": "Graph-Sync",
+    "sourceImapSync": "IMAP-Sync",
+    "sourceFileImport": "Mail-Datei-Import"
+  },
+  "chain": {
+    "title": "Hash-Kette",
+    "description": "Berechnet den Ketten-Hash jedes Eintrags aus seinem Vorgänger neu und meldet den ersten Bruch, falls vorhanden.",
+    "ok": "Kette intakt: {count} Elemente geprüft.",
+    "broken": "Kette an Position {index} unterbrochen.",
+    "empty": "Noch nichts zu prüfen: Das Archiv ist leer."
+  },
+  "legalHold": {
+    "title": "Legal Holds",
+    "description": "Ein Legal Hold blockiert die Löschung uneingeschränkt, unabhängig davon, wie weit die Aufbewahrungsfrist eines Elements bereits überschritten ist.",
+    "reason": "Grund",
+    "reasonPlaceholder": "Warum dieser Legal Hold erforderlich ist",
+    "mailboxAll": "Gesamter Mandant",
+    "active": "Aktiv",
+    "released": "Freigegeben",
+    "createdAt": "Angelegt",
+    "releasedAt": "Freigegeben",
+    "empty": "Keine Legal Holds für diesen Mandanten."
+  },
+  "journal": {
+    "title": "Exchange-Journaling",
+    "description": "Exchange Online schickt eine Kopie jeder Nachricht an diese Adresse, bevor Nutzer sie sehen. Das Archiv bewahrt jede Kopie unverändert auf.",
+    "status": {
+      "receiving": "Empfang läuft",
+      "stale": "Seit mehr als 24 Stunden kein Report",
+      "no_reports": "Noch keine Reports",
+      "receiver_down": "Empfänger läuft nicht",
+      "not_configured": "Nicht eingerichtet"
+    },
+    "notConfigured": "Journaling ist auf dieser Installation nicht eingerichtet. Es braucht JOURNAL_SMTP_PORT, JOURNAL_HOSTNAME und ein TLS-Zertifikat für diesen Hostnamen, danach einen Neustart der API. Die Anleitung unten beschreibt die Seite von Exchange Online.",
+    "lastReport": "Letzter Report",
+    "noReportYet": "Noch keiner",
+    "counts": {
+      "last24Hours": "Letzte 24 Stunden",
+      "last7Days": "Letzte 7 Tage",
+      "value": "{count, plural, one {# Report} other {# Reports}}"
+    },
+    "reason": {
+      "restart_required": "Die Lizenz enthält den Journal-Empfänger, aber die API wurde vor ihrer Installation gestartet. Starten Sie die API neu, damit der Empfänger startet.",
+      "listen_failed": "Der Empfänger konnte nicht starten. Prüfen Sie das API-Log: Häufige Ursachen sind ein bereits belegter Port oder fehlende Berechtigung für Port 25.",
+      "tls_not_configured": "Der Empfänger läuft nicht, weil er kein TLS-Zertifikat hat. Exchange Online verlangt TLS für die Journal-Zustellung, und {appName} nimmt Journalmails nie ohne ein eigenes Zertifikat an. Setzen Sie JOURNAL_TLS_CERT_PATH und JOURNAL_TLS_KEY_PATH auf die PEM-Zertifikatskette und den privaten Schlüssel für den Journal-Hostnamen und starten Sie die API neu.",
+      "tls_invalid": "Der Empfänger läuft nicht, weil sein TLS-Zertifikat nicht verwendet werden kann. JOURNAL_TLS_CERT_PATH und JOURNAL_TLS_KEY_PATH müssen beide gesetzt sein und auf lesbare PEM-Dateien zeigen, der private Schlüssel darf nicht verschlüsselt sein und muss zum Zertifikat gehören. Das API-Log nennt die Datei. Beheben Sie das und starten Sie die API neu.",
+      "tls_expired": "Das TLS-Zertifikat des Empfängers ist abgelaufen, Exchange Online kann daher nicht zustellen. Ersetzen Sie die Zertifikats- und Schlüsseldateien (JOURNAL_TLS_CERT_PATH und JOURNAL_TLS_KEY_PATH). Ein laufender Empfänger übernimmt erneuerte Dateien innerhalb weniger Minuten; ist er nicht gestartet, starten Sie die API neu.",
+      "not_started": "Der Empfänger wurde in diesem API-Prozess nicht gestartet. Bleibt das nach dem Neuladen so, starten Sie die API neu und lesen Sie ihr Log."
+    },
+    "address": {
+      "label": "Journal-Adresse",
+      "copy": "Journal-Adresse kopieren",
+      "soFar": "Adresse bisher",
+      "hostMissing": "Es ist kein Journal-Hostname konfiguriert, daher gibt es noch keine vollständige Adresse. Setzen Sie JOURNAL_HOSTNAME auf den Hostnamen, an den Exchange Online zustellen soll, zum Beispiel archive.example.com, und starten Sie die API neu.",
+      "hostInvalid": "JOURNAL_HOSTNAME ist kein gültiger Hostname. Geben Sie nur den Hostnamen an: ohne Schema, Pfad, Port und Mailadresse."
+    },
+    "rotate": {
+      "action": "Adresse erneuern",
+      "title": "Journal-Adresse erneuern?",
+      "description": "Es wird eine neue Adresse erzeugt, die bisherige funktioniert sofort nicht mehr.",
+      "consequence": "Bis Sie den Empfänger Ihrer Journalregel auf die neue Adresse ändern, werden Reports abgewiesen und nicht archiviert. Exchange Online schickt sie an das Postfach für nicht zustellbare Journalberichte.",
+      "confirm": "Adresse erneuern",
+      "done": "Neue Journal-Adresse erzeugt. Passen Sie Ihre Journalregel an."
+    },
+    "setup": {
+      "title": "Voraussetzungen und Anleitung"
+    },
+    "checklist": {
+      "title": "Was Exchange Online von dieser Installation braucht",
+      "dns": "Veröffentlichen Sie {host} im DNS (A- oder AAAA-Eintrag, oder ein MX-Eintrag auf einen Host, der einen hat) und lassen Sie ihn auf diesen Server zeigen.",
+      "dnsUnset": "Veröffentlichen Sie den Journal-Hostnamen im DNS (A- oder AAAA-Eintrag, oder ein MX-Eintrag auf einen Host, der einen hat), sobald JOURNAL_HOSTNAME gesetzt ist.",
+      "portOk": "Der Empfänger lauscht auf Port 25, dem einzigen Port, auf dem Exchange Online zustellt. Er muss aus dem Internet erreichbar sein.",
+      "portForward": "Exchange Online stellt nur auf Port 25 zu, der Empfänger lauscht aber auf Port {port}. Leiten Sie Port 25 der öffentlichen Adresse auf Port {port} weiter oder setzen Sie JOURNAL_SMTP_PORT=25.",
+      "portUnset": "Exchange Online stellt nur auf Port 25 zu. Setzen Sie JOURNAL_SMTP_PORT=25, damit der Empfänger dort startet.",
+      "tlsOk": "TLS ist Pflicht: Der Empfänger weist Mail ab, bis der Absender STARTTLS gestartet hat. Das Zertifikat muss von einer öffentlich vertrauten Stelle stammen und zum Journal-Hostnamen passen.",
+      "tlsNeeded": "Exchange Online verlangt TLS. Stellen Sie ein Zertifikat und einen Schlüssel für den Journal-Hostnamen bereit und setzen Sie JOURNAL_TLS_CERT_PATH und JOURNAL_TLS_KEY_PATH.",
+      "tlsMissing": "Es ist kein nutzbares TLS-Zertifikat konfiguriert (JOURNAL_TLS_CERT_PATH und JOURNAL_TLS_KEY_PATH), der Empfänger bietet daher kein TLS an. Der Connector unten verlangt TLS, Exchange Online würde daher nicht zustellen.",
+      "size": "Reports bis {size} MB werden angenommen, größere abgewiesen."
+    },
+    "guide": {
+      "title": "Exchange Online einrichten",
+      "intro": "Sie brauchen einen Connector, der per TLS an {appName} zustellt, und eine Journalregel, die jede Nachricht darüber schickt. Beides richtet ein Microsoft-365-Administrator ein.",
+      "hostFallback": "[Journal-Host]",
+      "connector": {
+        "title": "Connector anlegen",
+        "body": "Öffnen Sie im Exchange Admin Center (admin.exchange.microsoft.com) E-Mail-Fluss (Mail flow), dann Connectors, und fügen Sie einen Connector von Office 365 zu Partnerorganisation hinzu. Nennen Sie ihn zum Beispiel {appName} Journal."
+      },
+      "routing": {
+        "title": "Zum Journal-Host leiten",
+        "body": "Nutzen Sie den Connector nur für E-Mail an die Domäne {host} und leiten Sie sie über den Smarthost {host}. Verlangen Sie immer TLS, mit einem Zertifikat einer vertrauenswürdigen Zertifizierungsstelle, dessen Name zu {host} passt. Diese Domäne darf keine Ihrer akzeptierten Domänen in Microsoft 365 sein."
+      },
+      "validate": {
+        "title": "Connector überprüfen",
+        "body": "Microsoft fragt nach einer E-Mail-Adresse, um den Connector zu testen: Geben Sie die Journal-Adresse von oben ein. Die Testnachricht kommt als nicht lesbarer Journal-Report an und wird mit einer Markierung archiviert. Das ist erwartet."
+      },
+      "undeliverable": {
+        "title": "Postfach für nicht zustellbare Reports festlegen",
+        "body": "Öffnen Sie im Microsoft-Purview-Portal (purview.microsoft.com) Datenlebenszyklusverwaltung (Data lifecycle management), dann Exchange (Legacy), dann Journalregeln. Tragen Sie unter Nicht zustellbare Journalberichte senden an ein echtes Postfach ein, das jemand liest, zum Beispiel ein freigegebenes Postfach. Exchange Online schickt dorthin Reports, die nicht an {appName} zugestellt werden konnten; hier fällt eine Lücke auf."
+      },
+      "rule": {
+        "title": "Journalregel anlegen",
+        "body": "Legen Sie eine Regel an, die Journalberichte an die Journal-Adresse von oben schickt, für Nachrichten, die von allen gesendet oder empfangen werden, vom Typ Alle Nachrichten. Schalten Sie die Regel ein."
+      },
+      "verify": {
+        "title": "Funktion prüfen",
+        "body": "Senden Sie eine Nachricht innerhalb Ihrer Organisation. Der Report kommt meist innerhalb weniger Minuten an. Diese Seite zeigt dann Empfang läuft, und die Nachricht steht in der Archivsuche mit der Quelle Exchange-Online-Journal."
+      },
+      "docs": "Vollständige Anleitung in der Dokumentation"
+    }
+  },
+  "flags": {
+    "report-unparseable": "Journal-Report konnte nicht gelesen werden",
+    "report-parse-timeout": "Journal-Report ließ sich nicht rechtzeitig lesen; Byte für Byte wie empfangen archiviert, ohne seine Angaben",
+    "report-parse-memory-limit": "Journal-Report brauchte zum Lesen mehr Speicher als erlaubt; Byte für Byte wie empfangen archiviert, ohne seine Angaben",
+    "envelope-body-missing": "Umschlagtext fehlt",
+    "envelope-unparseable": "Umschlagtext konnte nicht gelesen werden",
+    "sender-missing": "Absender fehlt",
+    "message-id-missing": "Message-ID fehlt",
+    "recipients-missing": "Empfänger fehlen",
+    "original-message-missing": "Originalnachricht fehlt; stattdessen wurde der rohe Report archiviert",
+    "original-message-unparseable": "Originalnachricht konnte nicht gelesen werden",
+    "recipient-classification-degraded": "An/Cc/Bcc konnte nicht für jeden Empfänger bestimmt werden",
+    "recipients-truncated": "Mehr als 100.000 Empfänger; nur die ersten 100.000 sind aufgeführt (der archivierte Report enthält alle)"
+  }
+}

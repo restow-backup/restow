@@ -1,0 +1,465 @@
+{
+  "nav": {
+    "tenants": "All tenants",
+    "members": "Members"
+  },
+  "list": {
+    "title": "Tenants",
+    "subtitle": "The customers this installation protects: mailboxes, last backup and proven recoverability per tenant.",
+    "searchLabel": "Search tenants",
+    "searchPlaceholder": "Search by name or slug",
+    "count": "{count, plural, one {# tenant} other {# tenants}}",
+    "matches": "{count, number} of {total, plural, one {# tenant} other {# tenants}}",
+    "noMatches": "No tenant matches “{query}”.",
+    "current": "Current",
+    "error": "The tenants could not be loaded.",
+    "columns": {
+      "tenant": "Tenant",
+      "mailboxes": "Mailboxes",
+      "lastBackup": "Last backup",
+      "readiness": "Recovery readiness",
+      "actions": "Actions"
+    },
+    "empty": {
+      "title": "No tenants yet",
+      "description": "A tenant is one customer. Its sources, backups, archive, keys and users are kept strictly apart from every other tenant. Create the first tenant to start protecting mailboxes."
+    }
+  },
+  "overview": {
+    "mailboxes": "Protected mailboxes",
+    "usage": "{count, plural, one {# mailbox protected} other {# mailboxes protected}}",
+    "usageUnavailable": "Mailbox usage is currently unavailable.",
+    "tenantsLabel": "Tenants",
+    "tenants": "{count, plural, one {# tenant} other {# tenants}}",
+    "single": "This installation manages one tenant."
+  },
+  "mailboxes": {
+    "count": "{count, number}",
+    "ofCap": "{used, number} of {cap, number}",
+    "capHint": "Agreed cap",
+    "overCap": "Above the agreed cap",
+    "unknown": "Unknown",
+    "unknownHint": "Mailbox usage is currently unavailable.",
+    "notTracked": "Not counted while the tenant is being deleted"
+  },
+  "readiness": {
+    "green": "Ready",
+    "yellow": "Degraded",
+    "red": "Not ready",
+    "none": "Nothing protected",
+    "loading": "Checking recovery readiness …",
+    "unavailable": "Unavailable",
+    "unavailableHint": "The readiness of this tenant could not be read.",
+    "nothingProtected": "No objects protected yet",
+    "notReadyCount": "{count, number} of {total, number} not proven restorable",
+    "allReady": "{count, plural, one {The protected object is proven restorable} other {All # objects proven restorable}}",
+    "deleting": "Not checked while the tenant is being deleted"
+  },
+  "lastBackup": {
+    "never": "No backup yet",
+    "unavailable": "Unavailable",
+    "notTracked": "Not tracked while the tenant is being deleted"
+  },
+  "status": {
+    "active": "Active",
+    "suspended": "Suspended",
+    "deleting": "Being deleted"
+  },
+  "actions": {
+    "create": "New tenant",
+    "createFirst": "Create the first tenant",
+    "enter": "Switch to tenant",
+    "open": "Open details",
+    "moreFor": "More actions for {name}",
+    "edit": "Edit tenant",
+    "suspend": "Suspend tenant",
+    "resume": "Resume tenant",
+    "delete": "Delete tenant",
+    "backToList": "All tenants",
+    "invite": "Invite",
+    "inviteFirst": "Invite the first person",
+    "copyLink": "Copy link"
+  },
+  "create": {
+    "title": "New tenant",
+    "description": "A tenant is one customer. It receives its own encryption key, and its data stays separate from every other tenant.",
+    "name": "Name",
+    "namePlaceholder": "e.g. Example Ltd",
+    "slug": "Slug",
+    "slugPlaceholder": "e.g. example-ltd",
+    "slugHint": "Short name for exports and integrations: lowercase letters, digits and hyphens. It cannot be changed later.",
+    "submit": "Create tenant"
+  },
+  "edit": {
+    "title": "Edit tenant",
+    "description": "The slug {slug} stays as it is, because exports and integrations refer to it.",
+    "name": "Name",
+    "cap": "Mailbox cap",
+    "capPlaceholder": "No cap",
+    "capHint": "Optional. The number of mailboxes agreed with this customer, shown for reference. Nothing is blocked when it is exceeded; the provider dashboard only points it out.",
+    "submit": "Save changes"
+  },
+  "suspend": {
+    "title": "Suspend {name}?",
+    "description": "Jobs for this tenant stop and its users can no longer sign in. Stored backups remain intact and provider admins keep access. You can resume the tenant at any time.",
+    "confirm": "Suspend tenant"
+  },
+  "resume": {
+    "title": "Resume {name}?",
+    "description": "Jobs run on schedule again and the tenant’s users can sign in.",
+    "confirm": "Resume tenant"
+  },
+  "delete": {
+    "title": "Delete {name}?",
+    "description": "Deleting a tenant cannot be undone.",
+    "points": {
+      "access": "Every sign-in to this tenant ends immediately: all memberships and open invitations are removed.",
+      "data": "The stored data of the tenant is removed afterwards by a separate, audited deletion job.",
+      "audit": "The audit log keeps every entry about this tenant."
+    },
+    "confirmLabel": "Type {slug} to confirm",
+    "confirm": "Delete tenant"
+  },
+  "detail": {
+    "created": "created {date}",
+    "error": "The tenant could not be loaded.",
+    "notFound": {
+      "title": "Tenant not found",
+      "description": "This tenant does not exist. It may have been removed, or the link is incomplete."
+    },
+    "suspended": {
+      "title": "This tenant is suspended",
+      "description": "Jobs do not run and its users cannot sign in. Stored backups remain intact."
+    },
+    "deleting": {
+      "title": "This tenant is being deleted",
+      "description": "Sign-ins have ended and its data is being removed by the deletion job. No further changes are possible."
+    },
+    "overview": {
+      "readiness": "Recovery readiness",
+      "mailboxes": "Protected mailboxes",
+      "noCap": "No cap agreed",
+      "lastBackup": "Last backup",
+      "encryption": "Encryption",
+      "keyVersion": "Tenant key, version {version, number}",
+      "noKey": "No key yet",
+      "keyHint": "AES-256-GCM with a key of its own"
+    },
+    "danger": {
+      "title": "Delete this tenant",
+      "description": "Ends every sign-in to the tenant and removes its data. This cannot be undone."
+    }
+  },
+  "members": {
+    "title": "Members",
+    "description": "People who can sign in to this tenant, with their role.",
+    "providerNote": "Provider admins have access to every tenant and are not listed here.",
+    "error": "The members could not be loaded.",
+    "noMembersYet": "Nobody has accepted an invitation yet.",
+    "you": "You",
+    "selfHint": "You cannot change your own access.",
+    "roleOf": "Role of {name}",
+    "removeOf": "Remove {name}",
+    "empty": {
+      "title": "Nobody has access yet",
+      "description": "Invite the customer’s administrator first. They can then manage sources, protection and restores and invite their own colleagues."
+    },
+    "columns": {
+      "person": "Person",
+      "role": "Role",
+      "joined": "Member since",
+      "actions": "Actions"
+    },
+    "roles": {
+      "tenant_admin": "Tenant admin",
+      "tenant_user": "User"
+    },
+    "roleHints": {
+      "tenant_admin": "Manages sources, protection, members and restores for everyone in the tenant.",
+      "tenant_user": "Restores only their own mailbox and OneDrive."
+    },
+    "invitations": {
+      "title": "{count, plural, one {Open invitation} other {Open invitations}}",
+      "pending": "Waiting for acceptance",
+      "expired": "Expired",
+      "copyFor": "Copy the invitation link for {email}",
+      "cancelFor": "Cancel the invitation for {email}",
+      "columns": {
+        "email": "Email address",
+        "expires": "Valid until"
+      }
+    },
+    "remove": {
+      "title": "Remove {name}?",
+      "description": "The person loses access to this tenant immediately. Their account remains, and the audit log keeps every entry about their actions.",
+      "confirm": "Remove access"
+    },
+    "cancelInvitation": {
+      "title": "Cancel this invitation?",
+      "description": "The invitation link for {email} stops working immediately.",
+      "confirm": "Cancel invitation",
+      "keep": "Keep invitation"
+    }
+  },
+  "invite": {
+    "title": "Invite to {tenant}",
+    "email": "Email address",
+    "emailPlaceholder": "e.g. name@example.com",
+    "role": "Role",
+    "invited": {
+      "another": "Invite another person",
+      "done": "Done"
+    }
+  },
+  "invitation": {
+    "pageTitle": "Invitation",
+    "error": "The invitation could not be loaded.",
+    "heading": "You are invited to {tenant}",
+    "headingGeneric": "You are invited to a tenant",
+    "lead": "Accept to get access as {role, select, tenant_admin {tenant admin} other {user}}.",
+    "leadGeneric": "Accept to get access with the role your administrator chose for you.",
+    "fields": {
+      "account": "Your account",
+      "role": "Role",
+      "invitedBy": "Invited by",
+      "expires": "Valid until"
+    },
+    "accept": "Accept invitation",
+    "decline": "Decline",
+    "answerFailed": "Your answer could not be saved. Please try again.",
+    "accepted": "You now have access to {tenant}.",
+    "acceptedGeneric": "Invitation accepted. You now have access to the tenant.",
+    "declined": "Invitation declined.",
+    "switchAccount": "Sign in with another account",
+    "declineConfirm": {
+      "title": "Decline this invitation?",
+      "description": "The invitation cannot be used afterwards. If you change your mind, ask your administrator for a new one.",
+      "confirm": "Decline invitation"
+    },
+    "blocked": {
+      "wrongRecipient": {
+        "title": "This invitation is for another address",
+        "description": "You are signed in as {email}, but the invitation was sent to a different email address. Sign in with the invited address to accept it."
+      },
+      "invalid": {
+        "title": "This invitation is no longer valid",
+        "description": "It was already accepted, declined or cancelled, or it has expired. Ask your administrator for a new invitation."
+      },
+      "emailUnverified": {
+        "title": "Email address not confirmed",
+        "description": "Your email address must be confirmed before you can answer this invitation. Contact your administrator."
+      }
+    }
+  },
+  "membersPage": {
+    "title": "Members",
+    "subtitle": "Who can sign in to {tenant}, and with which role.",
+    "subtitleNoTenant": "Who can sign in to a tenant, and with which role.",
+    "noTenant": {
+      "title": "No tenant selected",
+      "description": "Choose a tenant in the switcher at the top to manage its members."
+    },
+    "forbidden": {
+      "title": "Only tenant admins manage members",
+      "description": "In this tenant your account has the user role. Ask a tenant admin if you need more access."
+    }
+  },
+  "validation": {
+    "nameTooLong": "Use at most {max, number} characters.",
+    "slugTooShort": "Use at least {min, number} characters.",
+    "slugTooLong": "Use at most {max, number} characters.",
+    "slugFormat": "Use lowercase letters, digits and single hyphens between words.",
+    "slugTaken": "This slug is already in use. Choose another one.",
+    "capInteger": "Enter a whole number of mailboxes, or leave the field empty.",
+    "tooLong": "Use at most {max, number} characters.",
+    "countryCodeFormat": "Use a two-letter country code (e.g. DE).",
+    "timeZoneFormat": "Use a valid IANA time zone name (e.g. Europe/Berlin).",
+    "onePrimaryContact": "Mark exactly one contact as primary.",
+    "atLeastOneContact": "Add at least one contact.",
+    "duplicateEmail": "This email address is used more than once.",
+    "customerNumberTaken": "This customer number is already in use. Choose another one."
+  },
+  "errors": {
+    "featureUnavailable": "This installation manages one tenant. Another tenant cannot be created.",
+    "setupRequired": "Complete the installation setup before creating tenants.",
+    "alreadyMember": "This person is already a member of the tenant.",
+    "alreadyInvited": "This address already has an open invitation. Copy its link from the list or cancel it first.",
+    "memberGone": "This entry no longer exists. The list has been refreshed."
+  },
+  "toasts": {
+    "created": "{name} was created.",
+    "updated": "Changes saved.",
+    "suspended": "{name} is suspended.",
+    "resumed": "{name} is active again.",
+    "deleted": "{name} is being deleted.",
+    "entered": "You are now working in {name}.",
+    "memberAdded": "{email} now has access as {role, select, tenant_admin {tenant admin} other {user}}.",
+    "roleChanged": "{name} is now {role, select, tenant_admin {a tenant admin} other {a user}}.",
+    "memberRemoved": "{name} no longer has access.",
+    "invitationCanceled": "The invitation for {email} was cancelled.",
+    "copied": "Link copied.",
+    "copyFailed": "The link could not be copied. Select it and copy it manually."
+  },
+  "wizard": {
+    "title": "New tenant",
+    "description": "Set up a new customer step by step: organisation, contacts, notification recipients and administrators to invite.",
+    "steps": {
+      "organisation": "Organisation",
+      "contacts": "Contacts",
+      "notifications": "Notifications",
+      "admins": "Administrators",
+      "source": "Source",
+      "review": "Review"
+    },
+    "back": "Back",
+    "next": "Next",
+    "create": "Create tenant",
+    "cancel": "Cancel",
+    "close": "Close",
+    "cancelConfirm": {
+      "title": "Discard this new tenant?",
+      "description": "Nothing entered here has been saved yet.",
+      "confirm": "Discard",
+      "keep": "Keep editing"
+    },
+    "organisation": {
+      "title": "Organisation",
+      "description": "Name, address and locale of the new customer.",
+      "name": "Name",
+      "namePlaceholder": "e.g. Example Ltd",
+      "slug": "Slug",
+      "slugPlaceholder": "e.g. example-ltd",
+      "slugHint": "Short name for exports and integrations: lowercase letters, digits and hyphens. It cannot be changed later.",
+      "customerNumber": "Customer number",
+      "customerNumberPlaceholder": "e.g. K-1001",
+      "customerNumberHint": "Your own internal number for this customer. Optional, but must be unique across this installation.",
+      "vatId": "VAT ID",
+      "vatIdPlaceholder": "e.g. DE123456789",
+      "address": "Address",
+      "addressLine1": "Address",
+      "addressLine1Placeholder": "Street and number",
+      "addressLine2": "Address, line 2",
+      "addressLine2Placeholder": "Suite, floor, c/o (optional)",
+      "postalCode": "Postal code",
+      "city": "City",
+      "countryCode": "Country code",
+      "countryCodePlaceholder": "e.g. DE",
+      "language": "Language",
+      "timeZone": "Time zone",
+      "timeZoneHint": "IANA name, e.g. Europe/Berlin. Optional; not used to schedule anything yet."
+    },
+    "contacts": {
+      "title": "Contact persons",
+      "description": "Who to reach at this customer. Exactly one is the primary contact.",
+      "name": "Name",
+      "namePlaceholder": "Full name",
+      "role": "Role",
+      "rolePlaceholder": "e.g. IT contact",
+      "email": "Email address",
+      "phone": "Phone",
+      "primary": "Primary contact",
+      "add": "Add a contact",
+      "remove": "Remove {name}",
+      "removeUnnamed": "Remove this contact"
+    },
+    "notifications": {
+      "title": "Notification recipients",
+      "description": "Who receives operational e-mails, and about what.",
+      "deliveryNotice": "Each category you choose becomes a rule under Alerts when the tenant is created: failed jobs and recoverability at risk as alerts, the weekly report on Mondays at 07:00 where reports are available on this installation. You can change or add rules there at any time.",
+      "categories": {
+        "jobFailures": "Job failures",
+        "weeklyReport": "Weekly report",
+        "readinessRed": "Readiness turns red",
+        "licenseUpdates": "Licence and update notices"
+      },
+      "email": "Email address",
+      "name": "Name",
+      "namePlaceholder": "Optional",
+      "add": "Add a recipient",
+      "remove": "Remove {email}",
+      "removeUnnamed": "Remove this recipient",
+      "empty": "No notification recipients yet.",
+      "noCategories": "No categories selected",
+      "testMail": {
+        "title": "Send test mail",
+        "recipient": "Send a test mail to",
+        "recipientPlaceholder": "e.g. name@example.com",
+        "send": "Send test mail",
+        "success": "Test mail sent to {recipient} via {transport, select, graph {Microsoft Graph} other {SMTP}}.",
+        "notConfigured": "No mail transport is configured for this installation yet. Set one up under Settings → Mail, then try again.",
+        "openMailSettings": "Open Settings → Mail",
+        "testFailure": {
+          "timeout": "The mail server did not answer in time.",
+          "graphAppMissing": "No Microsoft 365 app registration is configured for Graph sendMail.",
+          "graphTenantMissing": "No Microsoft 365 tenant is configured for Graph sendMail.",
+          "transportError": "The test mail could not be sent: {detail}"
+        }
+      }
+    },
+    "admins": {
+      "title": "Administrators to invite",
+      "description": "Who should administer this tenant. An existing {appName} account gets access right away; anyone else gets an invitation you share yourself. Nothing is e-mailed automatically.",
+      "email": "Email address",
+      "role": "Role",
+      "add": "Add an administrator",
+      "remove": "Remove {email}",
+      "removeUnnamed": "Remove this administrator",
+      "empty": "Nobody will be invited yet. You can invite administrators later from the tenant's members."
+    },
+    "source": {
+      "title": "First source",
+      "description": "Connect the customer's Microsoft 365 tenant or an IMAP mailbox once the tenant is created.",
+      "notice": "Once the tenant is created, the next screen takes you straight to its Sources page to connect one."
+    },
+    "review": {
+      "title": "Review",
+      "description": "Check everything once more before the tenant is created.",
+      "organisation": "Organisation",
+      "contacts": "Contacts",
+      "notifications": "Notification recipients",
+      "admins": "Administrators to invite",
+      "noCustomerNumber": "No customer number",
+      "noVatId": "No VAT ID",
+      "noAddress": "No address",
+      "noTimeZone": "No time zone set",
+      "noneYet": "None yet"
+    },
+    "success": {
+      "title": "{name} was created",
+      "description": "The tenant is ready. Connect its first source, or open it to invite more people and adjust settings.",
+      "connectSource": "Connect a source now",
+      "openTenant": "Open the tenant",
+      "admins": {
+        "title": "Administrators",
+        "memberBadge": "Added, can sign in right away",
+        "expires": "Invited, valid until {date}",
+        "invitedHint": "No e-mail was sent for an invitation. Copy each link above, or open the tenant's Members page to copy it again later.",
+        "noSignInNotice": "Sign-in with Microsoft is not available in this release. An invited person can accept only once they already have a way to sign in; if they do not, create an account for them under Members first."
+      },
+      "adminInviteFailed": "{count, plural, one {# administrator} other {# administrators}} could not be invited: {emails}. Invite them from the tenant's members."
+    }
+  },
+  "customerPanel": {
+    "title": "Customer data",
+    "description": "Internal customer number, address and locale for this tenant, set up in the tenant wizard.",
+    "edit": "Edit customer data",
+    "customerNumber": "Customer number",
+    "vatId": "VAT ID",
+    "address": "Address",
+    "language": "Language",
+    "timeZone": "Time zone",
+    "noneSet": "Not set",
+    "saved": "Customer data saved.",
+    "contactsTitle": "Contacts",
+    "contactsDescription": "Who to reach at this customer.",
+    "editContacts": "Edit contacts",
+    "noContacts": "No contact persons yet.",
+    "addContact": "Add contact",
+    "primaryBadge": "Primary",
+    "contactsSaved": "Contacts saved.",
+    "notificationsTitle": "Alerts",
+    "notificationsDescription": "Who is told what, and when, is set up as rules. The recipients chosen in the wizard became rules there.",
+    "recipientsSaved": "Notification recipients saved.",
+    "openAlerts": "Open alerts"
+  }
+}

@@ -1,0 +1,364 @@
+{
+  "nav": "Repositories",
+  "title": "Repositories",
+  "subtitle": "Where backups are stored, whether every repository works, and how much is stored.",
+  "tenantScope": "Repositories of {tenant}",
+  "noTenant": {
+    "title": "No tenant selected",
+    "description": "Select a tenant in the top bar to manage its repositories."
+  },
+  "error": {
+    "title": "Repositories could not be loaded"
+  },
+  "kindLong": {
+    "local": "Server path (volume, NFS, SMB)",
+    "s3": "S3-compatible object storage",
+    "installation_default": "Retired installation default"
+  },
+  "role": {
+    "primary": "Primary",
+    "copy": "Copy",
+    "previous": "Previous",
+    "primaryHint": "Backups are written here first; restores read from here.",
+    "copyHint": "Every new backup is also written here. Data from before the copy existed is mirrored and verified by the copy job.",
+    "previousHint": "Retired: no longer written to. Kept until removed; restore, verification, downloads and later backups of objects protected before the switch still read from it whenever a restore point lives only here.",
+    "replacePrimary": "Replace the primary",
+    "replacePrimaryHint": "Choose below whether existing backups move to the new repository first, or stay where they are."
+  },
+  "status": {
+    "ok": "Working",
+    "error": "Problem",
+    "unverified": "Not tested"
+  },
+  "actions": {
+    "add": "Add repository",
+    "addS3": "S3-compatible storage",
+    "addLocal": "Server path (volume, NFS, SMB)",
+    "localProviderOnly": "Provider admins only",
+    "addCopy": "Add copy",
+    "test": "Test",
+    "testAgain": "Test again",
+    "testSettings": "Test settings",
+    "edit": "Edit",
+    "delete": "Remove",
+    "promote": "Make primary",
+    "checkCopy": "Check copy",
+    "moreActions": "More actions for {name}",
+    "create": "Add repository"
+  },
+  "usage": {
+    "title": "Usage",
+    "description": "Protected data compared with what the deduplicated, encrypted store takes.",
+    "range": {
+      "label": "Period",
+      "days": "{count} days"
+    },
+    "error": "Usage could not be loaded",
+    "logical": "Protected data",
+    "logicalHint": "{count, plural, =0 {No completed backup yet} one {Latest backup of # object} other {Latest backups of # objects}}",
+    "physical": "Stored",
+    "physicalHint": "{count, plural, one {# pack} other {# packs}}, on every repository",
+    "savings": "Saved by deduplication",
+    "savingsHint": "Against {bytes} in {count, plural, one {# retained backup} other {# retained backups}}",
+    "growth": "Growth, {count} days",
+    "growthValue": "+{bytes}",
+    "growthRatio": "{ratio} more than at the start",
+    "growthNoBaseline": "Nothing was stored before this period",
+    "empty": "Nothing stored yet. The chart fills in with the first backup.",
+    "growthNote": "Growth counts the data stored today by the day it was written. Space freed by cleanup does not show as a decline.",
+    "chartTitle": "Stored data per day",
+    "chartInfo": "How growth is counted",
+    "chartLabel": "Stored data from {from} to {to}: {start} at the start, {end} at the end",
+    "tooltipStored": "Stored: {bytes}",
+    "tableDate": "Date",
+    "tableBytes": "Stored"
+  },
+  "targets": {
+    "title": "Repositories",
+    "description": "The primary receives every backup first; copies receive the same data at another location.",
+    "managedByProvider": "Server paths are managed by the provider admin.",
+    "retiredLocation": "Stands in for the environment's default storage from before it was replaced. It has no location of its own to test.",
+    "singleLocation": {
+      "title": "Only one repository",
+      "description": "All backups of this tenant are stored in one place. Add a copy repository at another location, such as offsite object storage, so a single failure cannot take every copy (3-2-1 rule)."
+    }
+  },
+  "default": {
+    "name": "Installation default",
+    "description": "Configured on the server; used until this tenant has a primary repository of its own.",
+    "managedByProvider": "Configured by your provider",
+    "copy": "Every write is also copied to a second path on the server.",
+    "copyAt": "Every write is also copied to {location}.",
+    "notChecked": "Not tested in this session. The installation default keeps no test history.",
+    "misconfigured": {
+      "title": "Installation default storage is misconfigured",
+      "description": "The server's storage settings (STORAGE_TARGET, S3_*) are invalid. This tenant's backups cannot be written until the provider fixes them or a primary repository is added."
+    }
+  },
+  "health": {
+    "ok": "Working",
+    "okWithWarnings": "Working, with warnings",
+    "notTested": "Not tested yet. Run a test before relying on this repository.",
+    "configInvalid": "The stored settings are no longer valid. Edit the repository.",
+    "failedAt": "(stopped at: {step})",
+    "stepDuration": "{step} {ms} ms",
+    "detail": "Details: {message}",
+    "testedAt": "Tested {when}",
+    "steps": {
+      "location": "Directory check",
+      "write": "Write",
+      "read": "Read back",
+      "list": "List",
+      "delete": "Delete"
+    },
+    "errors": {
+      "path_missing": "The directory does not exist. Mount the share or create the directory first.",
+      "not_a_directory": "The path is not a directory.",
+      "not_writable": "{appName} cannot write here (permissions or a read-only mount).",
+      "no_space": "The storage is full.",
+      "access_denied": "Access denied: the key lacks permission for this bucket.",
+      "invalid_credentials": "The access key or the secret is not accepted.",
+      "bucket_missing": "The bucket does not exist.",
+      "wrong_region": "The bucket is in another region, or the endpoint does not match it.",
+      "unreachable": "The storage service is not reachable (DNS, network or firewall).",
+      "tls": "The TLS certificate of the endpoint is not trusted.",
+      "timeout": "The storage did not answer in time.",
+      "integrity": "The data read back differs from what was written.",
+      "unknown": "The test failed."
+    },
+    "warnings": {
+      "ephemeral_path": "This directory is inside the container, not on a volume or mount. Its data is lost when the container is recreated.",
+      "insecure_endpoint": "The endpoint uses plain HTTP: credentials and data travel unencrypted.",
+      "cleanup_failed": "The small test object could not be deleted again. It lies in the tenant's probes folder and can be removed by hand."
+    }
+  },
+  "objectLock": {
+    "filesystem": "No hardware WORM",
+    "filesystemHint": "A filesystem cannot enforce immutability: anyone with access to the server can change or delete files. For WORM archiving, use an S3 bucket with Object Lock.",
+    "notChecked": "Object Lock not checked yet",
+    "notCheckedHint": "A successful test also detects whether the bucket enforces Object Lock (WORM).",
+    "enabled": "Object Lock enabled (WORM)",
+    "enabledHint": "The bucket enforces retention: locked objects cannot be changed or deleted before their date.",
+    "disabled": "Object Lock not enabled",
+    "disabledHint": "Fine for backups. Archive data that must be immutable needs a bucket created with Object Lock.",
+    "unsupported": "Object Lock not supported by this provider",
+    "unsupportedHint": "Fine for backups. For WORM archiving, choose a provider that supports S3 Object Lock.",
+    "unknownAccess": "Object Lock status unknown",
+    "unknownAccessHint": "The key may not read the bucket's Object Lock configuration (s3:GetBucketObjectLockConfiguration).",
+    "unknownError": "Object Lock status unknown",
+    "unknownErrorHint": "The provider did not answer the Object Lock query. Test again later.",
+    "defaults": "Default: {mode}, {retention}.",
+    "noMode": "no default mode",
+    "noRetention": "no default retention",
+    "modes": {
+      "GOVERNANCE": "governance mode",
+      "COMPLIANCE": "compliance mode"
+    },
+    "retention": {
+      "days": "{count, plural, one {# day} other {# days}} retention",
+      "years": "{count, plural, one {# year} other {# years}} retention"
+    },
+    "retired": "Retired",
+    "retiredHint": "This placeholder stands for the environment's storage settings from before they were replaced; it was never tested on its own."
+  },
+  "migration": {
+    "queued": "Migration queued",
+    "queuedSource": "Replacement queued",
+    "copying": "Migrating {percent}%",
+    "copyingUnknown": "Migrating…",
+    "verifying": "Verifying",
+    "switching": "Switching over",
+    "switched": "Switched",
+    "retired": "Replaced",
+    "failed": "Migration failed",
+    "failedSource": "Replacement failed; this location is still the primary",
+    "cancelled": "Migration cancelled",
+    "cancelledSource": "Replacement cancelled; this location is still the primary",
+    "stalled": "Migration stalled; cancel to finalize it",
+    "stalledSource": "Replacement stalled; this location is still the primary",
+    "cancel": "Cancel migration",
+    "cancelConfirmTitle": "Cancel this migration?",
+    "cancelConfirmDescription": "Copying stops at the next checkpoint. Nothing is lost: the old primary keeps serving backups and restores, and this repository stays a copy you can remove or try again with.",
+    "cancelConfirm": "Cancel migration",
+    "etaLabel": "About {duration} left",
+    "eta": {
+      "hours": "{hours} h {minutes} min",
+      "minutes": "{minutes} min {seconds} s",
+      "seconds": "{seconds} s"
+    },
+    "showDetails": "Technical details",
+    "retry": "Retry"
+  },
+  "form": {
+    "createTitle": {
+      "s3": "Add S3-compatible storage",
+      "local": "Add a server path"
+    },
+    "editTitle": "Edit repository",
+    "description": {
+      "s3": "A bucket at Hetzner Object Storage, Amazon S3, Wasabi, Backblaze B2, Garage or another S3-compatible service. Credentials are stored encrypted.",
+      "local": "A directory inside the containers: the default volume or an NFS/SMB share mounted into the api and worker containers."
+    },
+    "name": "Name",
+    "namePlaceholder": {
+      "s3": "e.g. Offsite Hetzner",
+      "local": "e.g. NAS in the server room"
+    },
+    "role": "Role",
+    "primaryBlocked": {
+      "primaryExists": "This tenant already has a primary. Add a copy and promote it later, or choose \"Replace the primary\" above.",
+      "tenantHasData": "This tenant already has backups on the installation default. Add a copy and promote it later, or choose \"Replace the primary\" above."
+    },
+    "migrationMode": "How existing backups move",
+    "migrationModeMove": "Move existing backups (recommended)",
+    "migrationModeMoveHint": "A background job copies every pack, manifest and key to the new repository and verifies it by hash, then switches the primary automatically. The old location stays in place, read-only, until you remove it.",
+    "migrationModeKeep": "Keep existing backups where they are",
+    "migrationModeKeepHint": "The new repository becomes primary right away, nothing is copied. The old location stays in place, read-only: restoring, verifying and backing up objects from before the switch keep working by reading it, but every new byte is written to the new repository only. A standalone restore (restow-restore) needs both locations passed to --storage for a snapshot from after this switch.",
+    "local": {
+      "basePath": "Path",
+      "basePathPlaceholder": "/mnt/backup/restow",
+      "basePathHint": "Absolute path in the containers. The directory must exist and be writable."
+    },
+    "s3": {
+      "preset": "Provider",
+      "presets": {
+        "hetzner": "Hetzner Object Storage",
+        "aws": "Amazon S3",
+        "wasabi": "Wasabi",
+        "backblaze": "Backblaze B2",
+        "garage": "Garage",
+        "other": "Other S3-compatible service"
+      },
+      "presetHint": "Fills in endpoint, region and addressing. Adjust them to where your bucket is.",
+      "bucket": "Bucket",
+      "bucketPlaceholder": "restow-backup",
+      "prefix": "Prefix (optional)",
+      "prefixPlaceholder": "restow",
+      "prefixHint": "Keeps {appName} data in a folder of the bucket.",
+      "endpoint": "Endpoint",
+      "endpointPlaceholder": "https://fsn1.your-objectstorage.com",
+      "endpointHint": "Leave empty for Amazon S3.",
+      "insecureEndpoint": "This endpoint uses plain HTTP. Credentials and backups travel unencrypted; use HTTPS unless the service sits on a trusted internal network.",
+      "region": "Region",
+      "regionHint": "Empty means us-east-1.",
+      "forcePathStyle": "Path-style addressing",
+      "forcePathStyleHint": "Needed by Garage and many self-hosted services.",
+      "accessKeyId": "Access key ID",
+      "keepCredentials": "Leave both fields empty to keep the stored key (…{hint}).",
+      "storedKeyPlaceholder": "Stored: …{hint}",
+      "secretAccessKey": "Secret access key",
+      "secretHint": "Stored encrypted and never shown again.",
+      "credentialsAgain": "The endpoint changed, so the stored key is not sent there. Enter the key pair again."
+    },
+    "testHint": {
+      "s3": "Writes, reads and deletes a small test object and checks Object Lock. Nothing is saved.",
+      "local": "Checks the directory, then writes, reads and deletes a small test file. Nothing is saved."
+    }
+  },
+  "validation": {
+    "type": "Invalid value.",
+    "too_long": "Too long.",
+    "invalid_characters": "Contains characters that are not allowed.",
+    "absolute_path": "Enter an absolute path starting with /.",
+    "path_traversal": "The path must not contain . or .. segments.",
+    "root_path": "The root directory cannot be a repository.",
+    "system_path": "System directories cannot be used as repositories.",
+    "bucket_name": "3 to 63 characters: lowercase letters, digits, dots and hyphens, starting and ending with a letter or digit.",
+    "prefix": "Letters, digits, dots, underscores, hyphens and slashes only, without empty, . or .. segments.",
+    "endpoint_url": "Enter a complete URL, e.g. https://fsn1.your-objectstorage.com.",
+    "endpoint_protocol": "The endpoint must start with https:// (or http://).",
+    "endpoint_path": "Enter only the service address, without a path or bucket name.",
+    "endpoint_credentials": "The endpoint must not contain a user name or password.",
+    "region": "Letters, digits, hyphens and underscores only.",
+    "unknown_kind": "Unknown repository type.",
+    "https_required": "Only HTTPS endpoints are allowed.",
+    "private_address": "The endpoint points into a private or local network.",
+    "local_hostname": "Use the public host name of the service.",
+    "unresolvable": "This host name does not resolve.",
+    "not_applicable": "Not applicable to this repository.",
+    "credentials_pair": "Enter both the access key ID and the secret, or neither to keep the stored key.",
+    "credentials_again": "The endpoint changed: enter the key pair again.",
+    "whitespace": "Must not contain spaces or line breaks."
+  },
+  "completeness": {
+    "title": "Check copy {name}",
+    "description": "Compares the copy with the primary: every pack, backup manifest and key must be present.",
+    "checking": "Comparing the copy with the primary …",
+    "complete": {
+      "title": "The copy is complete",
+      "description": "Everything the primary holds is present on this copy."
+    },
+    "incomplete": {
+      "title": "The copy is not complete yet",
+      "description": "{bytes} of backup data is still missing. The copy job mirrors it; new backups reach the copy right away."
+    },
+    "packs": "Packs (backup data)",
+    "manifests": "Backup manifests",
+    "keys": "Encrypted keys",
+    "count": "{present} of {expected}",
+    "listingOnly": "Presence is checked by listing. The copy job and the scrub verify contents by checksum.",
+    "again": "Check again"
+  },
+  "promote": {
+    "title": "Make {name} the primary",
+    "description": "The current primary becomes a copy and keeps receiving every backup. From now on, restores read from this repository first.",
+    "descriptionFromDefault": "From now on, backups and restores use this repository first, and this tenant stops using the installation default. Data already stored there stays until the provider removes it.",
+    "notVerified": {
+      "title": "Test the repository first",
+      "description": "Only a repository whose last test succeeded can become the primary."
+    },
+    "effect": "Everything is in place. The switch applies to the next backup and restore.",
+    "confirm": "Make primary"
+  },
+  "delete": {
+    "title": "Remove {name}?",
+    "description": "{appName} stops writing backups to this copy.",
+    "descriptionPrimary": "{appName} stops using this repository. Without a primary repository of its own, this tenant uses the installation default again.",
+    "descriptionPrevious": "This location was replaced as the primary. Removing it means older backups that live only here are no longer restorable, verifiable or searchable.",
+    "dataStays": "Data already stored at this location is not deleted. Remove it at the storage provider if it is no longer needed.",
+    "confirm": "Remove repository"
+  },
+  "toasts": {
+    "created": "{name} added. Testing it now.",
+    "updated": "{name} saved.",
+    "deleted": "{name} removed.",
+    "promoted": "{name} is now the primary.",
+    "testOk": "{name} works.",
+    "testFailed": "The test of {name} failed.",
+    "migrationCancelled": "The migration to {name} was cancelled.",
+    "migrationRetried": "The migration to {name} was queued again."
+  },
+  "errors": {
+    "localRequiresProviderAdmin": "Only a provider admin can manage server paths.",
+    "primaryExists": "This tenant already has a primary repository. Add a copy and make it the primary once it is complete.",
+    "tenantHasData": "This tenant already has backups. Add the new location as a copy; once it is complete, make it the primary.",
+    "locationOverlap": "This location is already in use by this tenant, or lies inside one that is.",
+    "locationLocked": "The primary holds backups, so its location cannot change. Add the new location as a copy and make it the primary once it is complete.",
+    "primaryHoldsData": "The primary holds backups and cannot be removed. Make another repository the primary first.",
+    "alreadyPrimary": "This repository already is the primary.",
+    "notVerified": "Test the repository successfully before making it the primary.",
+    "copyIncomplete": "The copy is not complete yet.",
+    "invalidLocation": "The location is not valid. Check the marked fields.",
+    "endpointNotAllowed": "This endpoint is not allowed. Tenant admins can only use public HTTPS endpoints.",
+    "targetNotFound": "This repository no longer exists.",
+    "credentialsNotApplicable": "Only S3 repositories have credentials.",
+    "credentialsRequired": "Enter the access key pair.",
+    "configInvalid": "The stored settings of this repository are no longer valid. Edit the repository.",
+    "credentialsUnusable": "The stored credentials cannot be read. Enter them again.",
+    "defaultMisconfigured": "The installation default storage is misconfigured on the server.",
+    "unreachable": "The primary or the copy could not be listed. Test both repositories.",
+    "masterKeyMissing": "The server has no master key (RESTOW_MASTER_KEY), so credentials cannot be stored.",
+    "migrationInProgress": "This tenant already has a storage migration running. Wait for it to finish or cancel it.",
+    "notACopy": "Only a copy repository can be promoted to primary.",
+    "migrationNotFound": "This repository has no storage migration to cancel.",
+    "migrationNotCancellable": "This migration already finished and cannot be cancelled.",
+    "migrationNotRetryable": "Only a failed move can be tried again.",
+    "keepTargetUnreachable": "The new repository could not be verified with a quick write/read/delete check. Fix the location or credentials, or choose \"move\" instead.",
+    "keepBlockedByActiveJob": "A backup, archive, retention, scrub or storage migration job for this tenant is still queued or running. Wait for it to finish, then try again.",
+    "previousHoldsExclusiveData": "This location still holds backup data no other repository has. Run a \"move\" replacement first to copy it onto the current primary, then remove this location.",
+    "installationDefaultReadonly": "This placeholder stands for a retired installation default and has no settings of its own.",
+    "queueNotReady": "The background job queue is not ready yet. Try again in a moment.",
+    "activeEndpoints": "Servers or clients back up to this storage through the agent, and a change of the primary does not move their backups yet. Revoke or uninstall those machines first; their existing backups stay readable from the old location, which has to stay attached.",
+    "previousHoldsEndpointRepositories": "This location still holds the backups of a server or client that only it has. A storage change does not move those yet, so keep this location attached."
+  }
+}

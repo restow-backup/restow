@@ -1,0 +1,385 @@
+{
+  "initialPage1": {
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(driveItem)",
+    "@odata.nextLink": "https://graph.microsoft.com/v1.0/drives/b!drive1/root/delta?token=NEXT1",
+    "value": [
+      {
+        "id": "01ROOT",
+        "name": "root",
+        "root": {},
+        "folder": {
+          "childCount": 4
+        },
+        "parentReference": {
+          "driveId": "b!drive1",
+          "driveType": "business"
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2024-01-01T00:00:00Z",
+          "lastModifiedDateTime": "2026-09-01T00:00:00Z"
+        }
+      },
+      {
+        "id": "01DOCS",
+        "name": "Documents",
+        "folder": {
+          "childCount": 1
+        },
+        "eTag": "\"{D1},1\"",
+        "parentReference": {
+          "driveId": "b!drive1",
+          "id": "01ROOT",
+          "path": "/drive/root:"
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2024-01-01T00:00:00Z",
+          "lastModifiedDateTime": "2026-09-01T00:00:00Z"
+        },
+        "shared": {
+          "scope": "users",
+          "sharedBy": {
+            "user": {
+              "displayName": "Alice Example",
+              "id": "user-1"
+            }
+          },
+          "sharedDateTime": "2026-05-01T08:00:00Z"
+        }
+      },
+      {
+        "id": "01REPORTS",
+        "name": "Reports",
+        "folder": {
+          "childCount": 1
+        },
+        "eTag": "\"{R1},1\"",
+        "parentReference": {
+          "driveId": "b!drive1",
+          "id": "01DOCS",
+          "path": "/drive/root:/Documents"
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2025-03-01T00:00:00Z",
+          "lastModifiedDateTime": "2026-08-30T15:30:00Z"
+        }
+      },
+      {
+        "id": "01Q3",
+        "name": "Q3 report.xlsx",
+        "size": 11,
+        "eTag": "\"{Q3},1\"",
+        "cTag": "\"c:{Q3},1\"",
+        "file": {
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "hashes": {
+            "quickXorHash": "q3hash1="
+          }
+        },
+        "@microsoft.graph.downloadUrl": "https://contoso-my.sharepoint.example/download.aspx?item=q3&tempauth=OK1",
+        "parentReference": {
+          "driveId": "b!drive1",
+          "id": "01REPORTS",
+          "path": "/drive/root:/Documents/Reports"
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2026-08-01T09:00:00Z",
+          "lastModifiedDateTime": "2026-08-30T15:30:00Z"
+        },
+        "createdBy": {
+          "user": {
+            "displayName": "Alice Example",
+            "id": "user-1"
+          }
+        },
+        "lastModifiedBy": {
+          "user": {
+            "displayName": "Bob Example",
+            "id": "user-2"
+          }
+        }
+      }
+    ]
+  },
+  "initialPage2": {
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(driveItem)",
+    "@odata.deltaLink": "https://graph.microsoft.com/v1.0/drives/b!drive1/root/delta?token=DELTA1",
+    "value": [
+      {
+        "id": "01NOTES",
+        "name": "notes.txt",
+        "size": 11,
+        "eTag": "\"{N1},1\"",
+        "cTag": "\"c:{N1},1\"",
+        "file": {
+          "mimeType": "text/plain"
+        },
+        "@microsoft.graph.downloadUrl": "https://contoso-my.sharepoint.example/download.aspx?item=notes&tempauth=OK1",
+        "parentReference": {
+          "driveId": "b!drive1",
+          "id": "01ROOT",
+          "path": "/drive/root:"
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2026-09-01T09:00:00Z",
+          "lastModifiedDateTime": "2026-09-01T09:00:00Z"
+        }
+      },
+      {
+        "id": "01NOTEBOOK",
+        "name": "Notebook",
+        "package": {
+          "type": "oneNote"
+        },
+        "parentReference": {
+          "driveId": "b!drive1",
+          "id": "01ROOT",
+          "path": "/drive/root:"
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2026-02-01T09:00:00Z",
+          "lastModifiedDateTime": "2026-02-01T09:00:00Z"
+        }
+      },
+      {
+        "id": "01SHORTCUT",
+        "name": "Team files",
+        "remoteItem": {
+          "id": "01REMOTE",
+          "folder": {
+            "childCount": 12
+          },
+          "webUrl": "https://contoso.sharepoint.example/sites/team/Shared%20Documents",
+          "parentReference": {
+            "driveId": "b!teamdrive"
+          }
+        },
+        "parentReference": {
+          "driveId": "b!drive1",
+          "id": "01ROOT",
+          "path": "/drive/root:"
+        }
+      }
+    ]
+  },
+  "incrementalPage": {
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(driveItem)",
+    "@odata.deltaLink": "https://graph.microsoft.com/v1.0/drives/b!drive1/root/delta?token=DELTA2",
+    "value": [
+      {
+        "id": "01NOTES",
+        "name": "notes.txt",
+        "deleted": {
+          "state": "deleted"
+        },
+        "parentReference": {
+          "driveId": "b!drive1",
+          "id": "01ROOT"
+        }
+      },
+      {
+        "id": "01REPORTS",
+        "name": "Archive",
+        "folder": {
+          "childCount": 1
+        },
+        "eTag": "\"{R1},2\"",
+        "parentReference": {
+          "driveId": "b!drive1",
+          "id": "01DOCS",
+          "path": "/drive/root:/Documents"
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2025-03-01T00:00:00Z",
+          "lastModifiedDateTime": "2026-09-10T10:00:00Z"
+        }
+      },
+      {
+        "id": "01Q3",
+        "name": "Q3 report.xlsx",
+        "size": 11,
+        "eTag": "\"{Q3},2\"",
+        "cTag": "\"c:{Q3},1\"",
+        "file": {
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "hashes": {
+            "quickXorHash": "q3hash1="
+          }
+        },
+        "@microsoft.graph.downloadUrl": "https://contoso-my.sharepoint.example/download.aspx?item=q3&tempauth=OK2",
+        "parentReference": {
+          "driveId": "b!drive1",
+          "id": "01REPORTS",
+          "path": "/drive/root:/Documents/Archive"
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2026-08-01T09:00:00Z",
+          "lastModifiedDateTime": "2026-08-30T15:30:00Z"
+        }
+      },
+      {
+        "id": "01PLAN",
+        "name": "plan.docx",
+        "size": 12,
+        "eTag": "\"{P1},1\"",
+        "cTag": "\"c:{P1},1\"",
+        "file": {
+          "mimeType": "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        },
+        "@microsoft.graph.downloadUrl": "https://contoso-my.sharepoint.example/download.aspx?item=plan&tempauth=OK1",
+        "parentReference": {
+          "driveId": "b!drive1",
+          "id": "01DOCS"
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2026-09-10T10:00:00Z",
+          "lastModifiedDateTime": "2026-09-10T10:05:00Z"
+        }
+      }
+    ]
+  },
+  "emptyPage": {
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(driveItem)",
+    "@odata.deltaLink": "https://graph.microsoft.com/v1.0/drives/b!drive1/root/delta?token=DELTA3",
+    "value": []
+  },
+  "gone": {
+    "error": {
+      "code": "resyncRequired",
+      "message": "The delta token is no longer valid, and the app must reset the sync state.",
+      "innerError": {
+        "request-id": "6c2a2d3e-4444-4c1a-9d3b-000000000004"
+      }
+    }
+  },
+  "resyncPage": {
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(driveItem)",
+    "@odata.deltaLink": "https://graph.microsoft.com/v1.0/drives/b!drive1/root/delta?token=DELTA-R",
+    "value": [
+      {
+        "id": "01ROOT",
+        "name": "root",
+        "root": {},
+        "folder": {
+          "childCount": 1
+        },
+        "parentReference": {
+          "driveId": "b!drive1"
+        }
+      },
+      {
+        "id": "01DOCS",
+        "name": "Documents",
+        "folder": {
+          "childCount": 1
+        },
+        "eTag": "\"{D1},1\"",
+        "parentReference": {
+          "driveId": "b!drive1",
+          "id": "01ROOT",
+          "path": "/drive/root:"
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2024-01-01T00:00:00Z",
+          "lastModifiedDateTime": "2026-09-01T00:00:00Z"
+        },
+        "shared": {
+          "scope": "users",
+          "sharedBy": {
+            "user": {
+              "displayName": "Alice Example",
+              "id": "user-1"
+            }
+          },
+          "sharedDateTime": "2026-05-01T08:00:00Z"
+        }
+      },
+      {
+        "id": "01REPORTS",
+        "name": "Reports",
+        "folder": {
+          "childCount": 1
+        },
+        "eTag": "\"{R1},1\"",
+        "parentReference": {
+          "driveId": "b!drive1",
+          "id": "01DOCS",
+          "path": "/drive/root:/Documents"
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2025-03-01T00:00:00Z",
+          "lastModifiedDateTime": "2026-08-30T15:30:00Z"
+        }
+      },
+      {
+        "id": "01Q3",
+        "name": "Q3 report.xlsx",
+        "size": 11,
+        "eTag": "\"{Q3},1\"",
+        "cTag": "\"c:{Q3},1\"",
+        "file": {
+          "mimeType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          "hashes": {
+            "quickXorHash": "q3hash1="
+          }
+        },
+        "@microsoft.graph.downloadUrl": "https://contoso-my.sharepoint.example/download.aspx?item=q3&tempauth=OK3",
+        "parentReference": {
+          "driveId": "b!drive1",
+          "id": "01REPORTS",
+          "path": "/drive/root:/Documents/Reports"
+        },
+        "fileSystemInfo": {
+          "createdDateTime": "2026-08-01T09:00:00Z",
+          "lastModifiedDateTime": "2026-08-30T15:30:00Z"
+        },
+        "createdBy": {
+          "user": {
+            "displayName": "Alice Example",
+            "id": "user-1"
+          }
+        },
+        "lastModifiedBy": {
+          "user": {
+            "displayName": "Bob Example",
+            "id": "user-2"
+          }
+        }
+      }
+    ]
+  },
+  "versions": {
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(driveItemVersion)",
+    "value": [
+      {
+        "id": "3.0",
+        "size": 11,
+        "lastModifiedDateTime": "2026-08-30T15:30:00Z",
+        "lastModifiedBy": {
+          "user": {
+            "displayName": "Bob Example"
+          }
+        }
+      },
+      {
+        "id": "2.0",
+        "size": 14,
+        "lastModifiedDateTime": "2026-08-20T11:00:00Z",
+        "lastModifiedBy": {
+          "user": {
+            "displayName": "Alice Example"
+          }
+        }
+      },
+      {
+        "id": "1.0",
+        "size": 8,
+        "lastModifiedDateTime": "2026-08-01T09:00:00Z",
+        "lastModifiedBy": {
+          "user": {
+            "displayName": "Alice Example"
+          }
+        }
+      }
+    ]
+  }
+}

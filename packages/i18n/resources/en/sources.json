@@ -1,0 +1,404 @@
+{
+  "nav": "Sources",
+  "title": "Sources",
+  "subtitle": "The Microsoft 365 tenants and IMAP mailboxes this tenant protects.",
+  "tenantScope": "Sources of {tenant}",
+  "noTenant": {
+    "title": "No tenant selected",
+    "description": "Select a tenant in the top bar to manage its sources."
+  },
+  "kind": {
+    "m365": "Microsoft 365",
+    "imap": "IMAP",
+    "import": "Imported mail files"
+  },
+  "kindLong": {
+    "m365": "Microsoft 365 tenant",
+    "imap": "IMAP mailbox",
+    "import": "Imported mail files"
+  },
+  "status": {
+    "pending": "Not connected",
+    "active": "Connected",
+    "error": "Problem",
+    "disabled": "Paused"
+  },
+  "actions": {
+    "add": "Add source",
+    "addM365": "Microsoft 365 tenant",
+    "addImap": "IMAP mailbox",
+    "addImport": "Import mail files",
+    "createLink": "Create consent link",
+    "reconnect": "Create new consent link",
+    "verify": "Verify permissions",
+    "verifyAgain": "Verify again",
+    "test": "Test connection",
+    "pause": "Pause",
+    "resume": "Resume",
+    "delete": "Delete",
+    "edit": "Edit",
+    "editConnection": "Edit connection",
+    "create": "Create",
+    "openConsent": "Open consent page",
+    "copyLink": "Copy link",
+    "backToList": "All sources",
+    "moreActions": "More actions"
+  },
+  "list": {
+    "empty": {
+      "title": "No sources yet",
+      "description": "Connect a Microsoft 365 tenant or add an IMAP mailbox to start protecting data. Nothing is backed up until a source is connected and verified."
+    },
+    "lastSync": "Last sync {when}",
+    "neverSynced": "No sync yet",
+    "neverSyncedHint": "{appName} reads the users, mailboxes and OneDrives of this tenant from Entra ID once its permissions are verified, and again on its directory schedule.",
+    "consentPending": "Waiting for admin consent",
+    "consentDeniedShort": "Consent not granted",
+    "permissionsOk": "All permissions granted",
+    "permissionsIncomplete": "{count, plural, one {# permission missing} other {# permissions missing}}",
+    "notVerified": "Permissions not verified yet",
+    "verificationFailed": "Verification failed",
+    "imapNotTested": "Connection not tested yet",
+    "imapOk": "Connection tested",
+    "imapFailed": "Connection failed",
+    "paused": "Paused: no backups run until resumed",
+    "importedMailboxes": "{count, plural, =0 {No imported mailboxes yet} one {# imported mailbox} other {# imported mailboxes}}"
+  },
+  "error": {
+    "title": "Sources unavailable",
+    "notFound": "This source does not exist or belongs to another tenant."
+  },
+  "errors": {
+    "nameTaken": "A source with this name already exists in this tenant.",
+    "passwordRequired": "Enter the password again: the stored one is only used for the server and username it was saved for.",
+    "entraNotConfigured": "The Entra backup app of this installation is not configured.",
+    "consentRequired": "Grant admin consent first; only then can the permissions be verified.",
+    "sourceIncomplete": "The stored connection is incomplete. Edit the source and enter the password again.",
+    "perMailboxNoSourceTest": "This source has no password of its own; every mailbox authenticates with its own. Test each one from the accounts list instead.",
+    "imapHostNotAllowed": "This IMAP server is in a loopback, private or link-local network. Only a provider admin can connect a source to an internal server; link-local addresses are never used."
+  },
+  "detail": {
+    "created": "Created {when}",
+    "syncProblem": {
+      "title": "Last sync problem",
+      "description": "The last backup run of this source reported: {message}"
+    },
+    "paused": {
+      "title": "Source paused",
+      "description": "No backups or archive syncs run for this source until it is resumed. Existing backups stay restorable."
+    }
+  },
+  "form": {
+    "name": "Name",
+    "namePlaceholderM365": "e.g. Contoso Ltd.",
+    "namePlaceholderImap": "e.g. Mailbox Alice",
+    "m365": {
+      "title": "Add Microsoft 365 tenant",
+      "description": "Creates the source. In the next step a Global Admin of the customer grants admin consent; only then can anything be backed up.",
+      "editTitle": "Edit Microsoft 365 source",
+      "editDescription": "Name and target tenant of the consent link.",
+      "tenantHint": "Tenant ID or domain (optional)",
+      "tenantHintHelp": "Sends the admin straight to the right tenant. Leave empty to let the admin pick their organisation.",
+      "tenantHintPlaceholder": "contoso.onmicrosoft.com",
+      "tenantHintLocked": "The source is connected to a tenant; re-consent always happens in that tenant.",
+      "scope": "Protection scope",
+      "scopeAll": "All mailboxes and OneDrives",
+      "scopeGroup": "Members of a group",
+      "groupId": "Group ID",
+      "groupIdHelp": "Object ID of a security or Microsoft 365 group. Members are protected; everyone else is not.",
+      "scopeLater": "You can refine the scope later under Directory, including exclusions and shared mailboxes."
+    },
+    "imap": {
+      "title": "Add IMAP mailbox",
+      "editTitle": "Edit IMAP connection",
+      "description": "TLS is required for anything but development. The password is stored encrypted with the tenant key and never shown again.",
+      "host": "Server",
+      "hostPlaceholder": "imap.example.com",
+      "port": "Port",
+      "security": "Security",
+      "securityOptions": {
+        "tls": "TLS (implicit, port 993)",
+        "starttls": "STARTTLS (port 143)",
+        "none": "None (unencrypted, development only)"
+      },
+      "securityNoneWarning": "Unencrypted IMAP sends the password in clear text. Use this only against a local test server.",
+      "username": "Username",
+      "usernamePlaceholder": "alice@example.com",
+      "usernameHintMasterUser": "Not used to sign in with a master account: the master account's own login below is. Kept only as a label.",
+      "usernameHintPerMailbox": "Not used to sign in: each mailbox logs in with its own account and password, set individually under Directory. Kept only as a label.",
+      "password": "Password",
+      "passwordKeep": "Leave empty to keep the stored password.",
+      "passwordAgain": "The server or username changed, so the password is needed again.",
+      "passwordHint": "App passwords are recommended where the provider offers them.",
+      "testHint": "Test before saving to catch typos early. After saving, {appName} tests the stored connection once more.",
+      "authMode": {
+        "label": "Mailbox login",
+        "options": {
+          "shared": "Shared login",
+          "per_mailbox": "One password per mailbox",
+          "master_user": "Master user"
+        },
+        "explain": {
+          "shared": "One login and password work for every mailbox. Use this with an app password or an account your provider designates for backup.",
+          "per_mailbox": "Every mailbox keeps its own password, set from the Directory tab. Use this with hosters that give each mailbox its own password and have no master account, such as Hetzner, IONOS or all-inkl.",
+          "master_user": "One master account logs in and impersonates every mailbox. Use this when your provider supports a Dovecot-style master user or SASL authzid impersonation."
+        },
+        "perMailboxPasswordHint": "Set from the Directory tab, one password per mailbox.",
+        "perMailboxTestHint": "Each mailbox's login is tested individually from the Directory tab, not here.",
+        "masterUserTestHint": "The master login can only be tested against a real mailbox, so {appName} tests it once you save. Test an individual mailbox's login from the Directory tab.",
+        "masterUsername": "Master account login",
+        "masterUsernameHint": "The account that logs in and impersonates every mailbox.",
+        "masterStyle": "Login style",
+        "masterStyleOptions": {
+          "dovecot_separator": "Dovecot separator (master*mailbox)",
+          "sasl_authzid": "SASL authzid"
+        },
+        "masterSeparator": "Separator",
+        "masterSeparatorHint": "Defaults to \"*\" (master*mailbox@example.com)."
+      }
+    }
+  },
+  "validation": {
+    "tenantHint": "Enter the tenant ID (GUID) or a verified domain such as contoso.onmicrosoft.com.",
+    "host": "Enter a hostname or IP address, not a URL.",
+    "groupId": "A group ID is required for the group scope.",
+    "passwordAgain": "Enter the password again for the changed server or username.",
+    "masterUsername": "Enter the master account's login."
+  },
+  "m365": {
+    "connection": {
+      "title": "Microsoft 365 connection",
+      "description": "Admin consent of the customer tenant for the {appName} app."
+    },
+    "connect": {
+      "title": "Connect Microsoft 365",
+      "description": "A Global Admin of the customer opens the consent link, signs in to their tenant and grants the application permissions for the whole organisation. Microsoft then asks them to sign in once more, so {appName} can confirm the organisation and the admin role before it connects anything. {appName} then verifies every permission.",
+      "consentExplainer": {
+        "title": "One app registration, one consent per organisation",
+        "sharedApp": "The Microsoft 365 app registration under Settings → Microsoft 365 is shared by every {appName} tenant on this installation, including your own organisation. It is not specific to this customer, so every Microsoft 365 organisation {appName} backs up, including yours if you back up your own tenant, needs to grant it consent once, through a link like this one.",
+        "secondSignIn": "The second sign-in is not a second consent: it lets {appName} confirm which organisation and which admin just granted consent, before connecting anything to this source.",
+        "portalConsent": "Already clicked \"Grant admin consent\" for this app in the Entra admin portal? That still has to run through this link once: the portal grants the permissions, but only this flow tells {appName} which of its tenants they belong to."
+      },
+      "steps": {
+        "one": "Create the consent link (valid for one hour).",
+        "two": "Open it yourself or send it to the customer's Global Admin.",
+        "three": "After the consent and the confirming sign-in, this page updates and shows the permission checklist."
+      },
+      "waiting": "Waiting for consent … this page refreshes automatically.",
+      "linkExpires": "Link valid until {when}",
+      "linkExpired": "The link has expired. Create a new one.",
+      "linkLabel": "Consent link",
+      "audience": "Target tenant: {tenant}",
+      "audienceAny": "Target tenant: the admin's own organisation",
+      "redirectUri": "Redirect URI registered on the backup app",
+      "redirectHint": "This exact value must be registered as a Web redirect URI on the backup app in Entra, otherwise Microsoft rejects the return trip.",
+      "consented": "Admin consent granted {when}",
+      "consent": "Admin consent",
+      "tenantId": "Entra tenant ID",
+      "reconsentHint": "Run the consent again after permissions were added to the app registration. The link only works in the tenant that is already connected."
+    },
+    "consentError": {
+      "title": "Last consent attempt failed",
+      "at": "Attempt {when}",
+      "details": "Microsoft reported: {description}",
+      "codes": {
+        "access_denied": "The admin declined the consent, or cancelled the sign-in.",
+        "consent_not_granted": "Microsoft returned without confirming the consent.",
+        "tenant_mismatch": "The consent was granted in a different Microsoft 365 tenant than the one this source is connected to. Nothing was changed.",
+        "tenant_already_connected": "This Microsoft 365 tenant is already connected to another source of this installation. Nothing was changed. Only the provider administrator can move it to another tenant.",
+        "sign_in_failed": "The confirming sign-in after the consent did not complete, so {appName} could not tell who consented. Nothing was connected; run the consent link again.",
+        "identity_mismatch": "The confirming sign-in did not match the organisation that consented. Nothing was connected; run the consent link again and sign in with the same account.",
+        "not_an_admin": "The account used for the confirming sign-in is not a Global Administrator or Privileged Role Administrator of this organisation. Nothing was connected.",
+        "role_check_failed": "{appName} could not read the admin role of the account that signed in. Right after a consent Microsoft may need a few minutes; run the consent link again shortly.",
+        "app_not_configured": "The backup app of this installation is not fully configured (client ID, credentials or public URL), so the consent could not be confirmed. Nothing was connected.",
+        "other": "Microsoft returned the error {code}."
+      }
+    },
+    "entra": {
+      "notConfigured": {
+        "title": "Entra app not configured",
+        "description": "Connecting Microsoft 365 tenants needs the backup app registration of this installation. A provider admin sets it up under Settings → Microsoft 365 (or through ENTRA_CLIENT_* in the server environment, see https://docs.restowbackup.com/administrators/first-steps/)."
+      },
+      "reasons": {
+        "no_client_id": "No Application (client) ID is set up.",
+        "no_credential": "No client secret or certificate is set up.",
+        "no_public_url": "No public URL is configured; the consent callback needs one.",
+        "credential_unusable": "The configured credential cannot be used; Settings → Microsoft 365 shows why."
+      },
+      "clientId": "Backup app client ID",
+      "credential": {
+        "secret": "Client secret",
+        "certificate": "Certificate"
+      },
+      "provider": {
+        "title": "Public URL missing",
+        "description": "The app registration is set up, but the admin consent needs a public URL for its callback. Set it under Settings → General.",
+        "openSettings": "Open the settings"
+      },
+      "tenantAdmin": {
+        "title": "Microsoft 365 connection not set up yet",
+        "description": "Your service provider has not set up the Microsoft 365 connection yet. Once they have, you can connect your tenant here."
+      }
+    },
+    "permissions": {
+      "title": "Application permissions",
+      "description": "What the customer tenant granted the backup app, compared with what {appName} needs.",
+      "notChecked": "Not checked yet. Verify the permissions once the admin consent is granted.",
+      "awaitingConsent": "Available once the admin consent is granted.",
+      "checkedAt": "Checked {when}",
+      "columns": {
+        "permission": "Permission",
+        "purpose": "Used for",
+        "state": "State"
+      },
+      "required": "Required",
+      "optional": "Optional",
+      "state": {
+        "granted": "Granted",
+        "read_only": "Read-only",
+        "missing": "Missing"
+      },
+      "readOnlyDetail": "{granted} was granted instead of {expected}.",
+      "pitfall": {
+        "title": "Read-only instead of read-write",
+        "description": "The classic mistake: with {granted} the backup runs, but every restore fails with 403. Grant {expected} on the app registration and run the consent again."
+      },
+      "unexpected": "Also granted, not used by {appName}: {list}",
+      "complete": "All required permissions are granted.",
+      "incomplete": "{count, plural, one {# required permission is missing.} other {# required permissions are missing.}}",
+      "optionalMissing": "Optional permissions only unlock extras such as notifications via Graph.",
+      "purpose": {
+        "mail": "Mail backup and restore",
+        "mailboxSettings": "Time zone and regional settings",
+        "calendar": "Calendar backup and restore",
+        "contacts": "Contacts backup and restore",
+        "onedrive": "OneDrive backup and restore",
+        "users": "Directory sync and mailbox list",
+        "groups": "Group-based protection scope",
+        "directory": "Deleted users and role checks",
+        "organization": "Tenant name and licences",
+        "notifications": "Notifications via Graph (optional)",
+        "signIn": "Confirming sign-in of the consenting admin (no data access)"
+      }
+    },
+    "token": {
+      "title": "Sign-in as the backup app",
+      "ok": "Token acquired for tenant {tenant}.",
+      "failed": "No token could be acquired.",
+      "hints": {
+        "consent_missing": "The tenant has not consented to the backup app (or consented to a different app ID). Right after a consent Microsoft may need a few minutes; verify again shortly, otherwise run the admin consent again.",
+        "invalid_credentials": "The client secret or certificate does not match the app registration. Check it under Settings → Microsoft 365 (or ENTRA_CLIENT_SECRET / ENTRA_CLIENT_CERT_PATH in the server environment).",
+        "credentials_expired": "The client secret or certificate has expired. Create a new one in Entra and enter it under Settings → Microsoft 365 (or rotate it in the server environment).",
+        "tenant_unknown": "Entra does not know this tenant ID. The consent callback recorded it; contact the customer admin.",
+        "unknown": "Entra rejected the sign-in. The error code below may help."
+      },
+      "code": "Error code: {code}"
+    },
+    "testCall": {
+      "title": "Test call: list users",
+      "ok": "{count, plural, =0 {The tenant returned no users.} one {# user returned.} other {# users returned.}}",
+      "failed": "The call failed: {code}",
+      "sample": "First users returned",
+      "forbiddenHint": "A 403 here usually means User.Read.All is missing or an Application Access Policy excludes the app."
+    },
+    "consentResult": {
+      "granted": "Admin consent granted.",
+      "grantedVerifiedOk": "Admin consent granted and all permissions verified.",
+      "grantedVerifiedFailed": "Admin consent granted, but the verification found problems. Right after a consent Microsoft may need a few minutes to apply the permissions; verify again shortly.",
+      "denied": "Admin consent was not granted ({error}).",
+      "identity_not_verified": "{appName} could not confirm that an administrator of this organisation granted the consent. Nothing was connected; the source shows why.",
+      "tenant_already_connected": "This Microsoft 365 tenant is already connected to another source of this installation. Nothing was changed.",
+      "tenant_mismatch": "The consent was granted in a different Microsoft 365 tenant than the one this source is connected to. Nothing was changed; create a separate source for the other tenant.",
+      "invalid_state": "The consent link was invalid or has expired. Create a new link.",
+      "unknown_source": "The source this consent belongs to no longer exists."
+    }
+  },
+  "imap": {
+    "connection": {
+      "title": "IMAP connection",
+      "description": "Server, account and transport security of this mailbox."
+    },
+    "server": "Server",
+    "security": "Security",
+    "username": "Username",
+    "password": "Password",
+    "passwordStored": "Stored encrypted",
+    "passwordMissing": "Not stored",
+    "passwordPerMailbox": "Set per mailbox, from the Directory tab",
+    "probe": {
+      "title": "Last connection test",
+      "none": "Not tested yet.",
+      "running": "Testing connection …",
+      "ok": "Connection successful",
+      "failed": "Connection failed",
+      "secure": "Encrypted (TLS)",
+      "insecure": "Unencrypted",
+      "server": "Server: {name}",
+      "mailboxes": "{count, plural, one {# folder} other {# folders}}",
+      "specialUse": "Special folders",
+      "capabilities": "Capabilities",
+      "testedAt": "Tested {when}",
+      "reasons": {
+        "blocked_address": "This server is in a loopback, private or link-local network, which {appName} does not connect to from here. Only a provider admin can connect a source to an internal server.",
+        "auth": "The server rejected the username or password.",
+        "timeout": "The server did not answer in time. Check host, port and firewall.",
+        "tls": "The TLS handshake failed. Check the certificate and the security mode.",
+        "starttls_unavailable": "The server does not offer STARTTLS on this port. Use TLS on port 993 or another port.",
+        "dns": "The hostname could not be resolved.",
+        "refused": "The connection was refused. Check host and port.",
+        "unknown": "The connection failed for an unexpected reason."
+      },
+      "detail": "Server said: {message}"
+    }
+  },
+  "delete": {
+    "title": "Delete source?",
+    "description": "{name} is removed together with its stored credentials. This is only possible while the source holds no backups, archived mail or legal holds.",
+    "importDescription": "{name} is removed together with all imported mailboxes and their snapshots. Imported mail is not stored anywhere else, so this cannot be undone.",
+    "confirm": "Delete source",
+    "blocked": {
+      "title": "This source still holds data",
+      "description": "Deleting it would remove the index of its data, so {appName} keeps it. Pause the source instead: no new backups run, everything stays restorable, and retention decides when data expires.",
+      "snapshots": "{count, plural, one {# snapshot} other {# snapshots}}",
+      "archiveItems": "{count, plural, one {# archived message} other {# archived messages}}",
+      "legalHolds": "{count, plural, one {# legal hold} other {# legal holds}}"
+    },
+    "pauseInstead": "Pause instead"
+  },
+  "toasts": {
+    "created": "Source created.",
+    "updated": "Source updated.",
+    "deleted": "Source deleted.",
+    "paused": "Source paused.",
+    "resumed": "Source resumed.",
+    "verified": "Verification finished.",
+    "tested": "Connection test finished.",
+    "linkCreated": "Consent link created.",
+    "copied": "Link copied to the clipboard.",
+    "copyFailed": "The link could not be copied. Select it and copy it manually."
+  },
+  "consentLanding": {
+    "product": "{appName}",
+    "granted": {
+      "title": "Consent recorded",
+      "body": "{appName} has recorded the admin consent for your organisation and is now checking the granted permissions. The {appName} administrator sees the result."
+    },
+    "denied": {
+      "title": "Consent not granted",
+      "body": "The admin consent was not granted, so {appName} cannot access your organisation. To try again, ask the {appName} administrator for a new consent link."
+    },
+    "unverified": {
+      "title": "Consent not confirmed",
+      "body": "{appName} could not confirm that an administrator of your organisation granted the consent, so nothing was connected. Sign in with a Global Administrator or Privileged Role Administrator account when you run the link again."
+    },
+    "rejected": {
+      "title": "Consent not applied",
+      "body": "Your organisation does not match the connection this link was created for. Nothing was changed. Please contact the {appName} administrator."
+    },
+    "invalid": {
+      "title": "Link invalid or expired",
+      "body": "This consent link is no longer valid. Nothing was changed. Please ask the {appName} administrator for a new link."
+    },
+    "close": "You can close this window now."
+  }
+}

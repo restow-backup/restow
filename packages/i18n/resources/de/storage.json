@@ -1,0 +1,364 @@
+{
+  "nav": "Repositories",
+  "title": "Repositories",
+  "subtitle": "Wo Backups liegen, ob jedes Repository funktioniert und wie viel gespeichert ist.",
+  "tenantScope": "Repositories von {tenant}",
+  "noTenant": {
+    "title": "Kein Mandant ausgewählt",
+    "description": "Wählen Sie oben einen Mandanten, um seine Repositories zu verwalten."
+  },
+  "error": {
+    "title": "Repositories konnten nicht geladen werden"
+  },
+  "kindLong": {
+    "local": "Serverpfad (Volume, NFS, SMB)",
+    "s3": "S3-kompatibler Objektspeicher",
+    "installation_default": "Abgelöster Installationsstandard"
+  },
+  "role": {
+    "primary": "Primär",
+    "copy": "Kopie",
+    "previous": "Vorherig",
+    "primaryHint": "Backups werden zuerst hierhin geschrieben; Wiederherstellungen lesen von hier.",
+    "copyHint": "Jedes neue Backup wird auch hierhin geschrieben. Daten aus der Zeit vor der Kopie spiegelt und prüft der Kopierjob.",
+    "previousHint": "Abgelöst: Wird nicht mehr beschrieben. Bleibt bis zur Entfernung erhalten; Wiederherstellung, Prüfung, Downloads und spätere Backups von vor der Umstellung geschützten Objekten lesen weiterhin von hier, sobald ein Wiederherstellungspunkt nur noch hier liegt.",
+    "replacePrimary": "Primäres Repository ersetzen",
+    "replacePrimaryHint": "Wählen Sie unten, ob vorhandene Backups zuerst zum neuen Repository wandern oder dort bleiben, wo sie sind."
+  },
+  "status": {
+    "ok": "Funktioniert",
+    "error": "Problem",
+    "unverified": "Nicht getestet"
+  },
+  "actions": {
+    "add": "Repository hinzufügen",
+    "addS3": "S3-kompatibler Speicher",
+    "addLocal": "Serverpfad (Volume, NFS, SMB)",
+    "localProviderOnly": "Nur für Provider-Admins",
+    "addCopy": "Kopie hinzufügen",
+    "test": "Testen",
+    "testAgain": "Erneut testen",
+    "testSettings": "Einstellungen testen",
+    "edit": "Bearbeiten",
+    "delete": "Entfernen",
+    "promote": "Zum primären Repository machen",
+    "checkCopy": "Kopie prüfen",
+    "moreActions": "Weitere Aktionen für {name}",
+    "create": "Repository hinzufügen"
+  },
+  "usage": {
+    "title": "Belegung",
+    "description": "Geschützte Daten im Vergleich zu dem, was der deduplizierte, verschlüsselte Speicher belegt.",
+    "range": {
+      "label": "Zeitraum",
+      "days": "{count} Tage"
+    },
+    "error": "Die Belegung konnte nicht geladen werden",
+    "logical": "Geschützte Daten",
+    "logicalHint": "{count, plural, =0 {Noch kein abgeschlossenes Backup} one {Letztes Backup von # Objekt} other {Letzte Backups von # Objekten}}",
+    "physical": "Gespeichert",
+    "physicalHint": "{count, plural, one {# Pack} other {# Packs}}, auf jedem Repository",
+    "savings": "Durch Deduplizierung gespart",
+    "savingsHint": "Gegenüber {bytes} in {count, plural, one {# aufbewahrten Backup} other {# aufbewahrten Backups}}",
+    "growth": "Zuwachs, {count} Tage",
+    "growthValue": "+{bytes}",
+    "growthRatio": "{ratio} mehr als zu Beginn",
+    "growthNoBaseline": "Vor diesem Zeitraum war nichts gespeichert",
+    "empty": "Noch nichts gespeichert. Das Diagramm füllt sich mit dem ersten Backup.",
+    "growthNote": "Der Zuwachs zählt die heute gespeicherten Daten nach dem Tag, an dem sie geschrieben wurden. Durch Bereinigung freigegebener Platz erscheint nicht als Rückgang.",
+    "chartTitle": "Gespeicherte Daten pro Tag",
+    "chartInfo": "Wie der Zuwachs gezählt wird",
+    "chartLabel": "Gespeicherte Daten vom {from} bis {to}: {start} zu Beginn, {end} am Ende",
+    "tooltipStored": "Gespeichert: {bytes}",
+    "tableDate": "Datum",
+    "tableBytes": "Gespeichert"
+  },
+  "targets": {
+    "title": "Repositories",
+    "description": "Das primäre Repository erhält jedes Backup zuerst; Kopien erhalten dieselben Daten an einem anderen Ort.",
+    "managedByProvider": "Serverpfade verwaltet der Provider-Admin.",
+    "retiredLocation": "Steht für die Speichereinstellungen der Umgebung von vor der Ablösung. Es hat keinen eigenen Ort zum Testen.",
+    "singleLocation": {
+      "title": "Nur ein Repository",
+      "description": "Alle Backups dieses Mandanten liegen an einem Ort. Fügen Sie ein Kopie-Repository an einem anderen Ort hinzu, etwa externen Objektspeicher, damit ein einzelner Ausfall nicht alle Kopien trifft (3-2-1-Regel)."
+    }
+  },
+  "default": {
+    "name": "Installationsstandard",
+    "description": "Auf dem Server konfiguriert; gilt, bis dieser Mandant ein eigenes primäres Repository hat.",
+    "managedByProvider": "Von Ihrem Provider konfiguriert",
+    "copy": "Jeder Schreibvorgang wird zusätzlich in einen zweiten Pfad auf dem Server kopiert.",
+    "copyAt": "Jeder Schreibvorgang wird zusätzlich nach {location} kopiert.",
+    "notChecked": "In dieser Sitzung nicht getestet. Der Installationsstandard speichert keinen Testverlauf.",
+    "misconfigured": {
+      "title": "Der Standardspeicher der Installation ist falsch konfiguriert",
+      "description": "Die Speichereinstellungen des Servers (STORAGE_TARGET, S3_*) sind ungültig. Backups dieses Mandanten können erst geschrieben werden, wenn der Provider sie korrigiert oder ein primäres Repository hinzugefügt wird."
+    }
+  },
+  "health": {
+    "ok": "Funktioniert",
+    "okWithWarnings": "Funktioniert, mit Warnungen",
+    "notTested": "Noch nicht getestet. Testen Sie das Repository, bevor Sie sich darauf verlassen.",
+    "configInvalid": "Die gespeicherten Einstellungen sind nicht mehr gültig. Bearbeiten Sie das Repository.",
+    "failedAt": "(abgebrochen bei: {step})",
+    "stepDuration": "{step} {ms} ms",
+    "detail": "Details: {message}",
+    "testedAt": "Getestet {when}",
+    "steps": {
+      "location": "Verzeichnisprüfung",
+      "write": "Schreiben",
+      "read": "Zurücklesen",
+      "list": "Auflisten",
+      "delete": "Löschen"
+    },
+    "errors": {
+      "path_missing": "Das Verzeichnis existiert nicht. Binden Sie die Freigabe ein oder legen Sie das Verzeichnis zuerst an.",
+      "not_a_directory": "Der Pfad ist kein Verzeichnis.",
+      "not_writable": "{appName} kann hier nicht schreiben (Berechtigungen oder schreibgeschützte Einbindung).",
+      "no_space": "Der Speicher ist voll.",
+      "access_denied": "Zugriff verweigert: Dem Schlüssel fehlen Rechte für diesen Bucket.",
+      "invalid_credentials": "Access Key oder Secret werden nicht akzeptiert.",
+      "bucket_missing": "Der Bucket existiert nicht.",
+      "wrong_region": "Der Bucket liegt in einer anderen Region, oder der Endpunkt passt nicht zu ihm.",
+      "unreachable": "Der Speicherdienst ist nicht erreichbar (DNS, Netzwerk oder Firewall).",
+      "tls": "Dem TLS-Zertifikat des Endpunkts wird nicht vertraut.",
+      "timeout": "Der Speicher hat nicht rechtzeitig geantwortet.",
+      "integrity": "Die zurückgelesenen Daten weichen vom Geschriebenen ab.",
+      "unknown": "Der Test ist fehlgeschlagen."
+    },
+    "warnings": {
+      "ephemeral_path": "Dieses Verzeichnis liegt im Container, nicht auf einem Volume oder einer Einbindung. Seine Daten gehen verloren, wenn der Container neu erstellt wird.",
+      "insecure_endpoint": "Der Endpunkt nutzt unverschlüsseltes HTTP: Zugangsdaten und Daten werden unverschlüsselt übertragen.",
+      "cleanup_failed": "Das kleine Testobjekt konnte nicht wieder gelöscht werden. Es liegt im Ordner probes des Mandanten und kann von Hand entfernt werden."
+    }
+  },
+  "objectLock": {
+    "filesystem": "Kein Hardware-WORM",
+    "filesystemHint": "Ein Dateisystem kann Unveränderbarkeit nicht erzwingen: Wer Zugriff auf den Server hat, kann Dateien ändern oder löschen. Für WORM-Archivierung nutzen Sie einen S3-Bucket mit Object Lock.",
+    "notChecked": "Object Lock noch nicht geprüft",
+    "notCheckedHint": "Ein erfolgreicher Test erkennt auch, ob der Bucket Object Lock (WORM) erzwingt.",
+    "enabled": "Object Lock aktiv (WORM)",
+    "enabledHint": "Der Bucket erzwingt Aufbewahrung: Gesperrte Objekte lassen sich vor ihrem Datum weder ändern noch löschen.",
+    "disabled": "Object Lock nicht aktiv",
+    "disabledHint": "Für Backups geeignet. Archivdaten, die unveränderbar sein müssen, brauchen einen mit Object Lock angelegten Bucket.",
+    "unsupported": "Object Lock wird von diesem Anbieter nicht unterstützt",
+    "unsupportedHint": "Für Backups geeignet. Für WORM-Archivierung wählen Sie einen Anbieter mit S3 Object Lock.",
+    "unknownAccess": "Object-Lock-Status unbekannt",
+    "unknownAccessHint": "Der Schlüssel darf die Object-Lock-Konfiguration des Buckets nicht lesen (s3:GetBucketObjectLockConfiguration).",
+    "unknownError": "Object-Lock-Status unbekannt",
+    "unknownErrorHint": "Der Anbieter hat die Object-Lock-Abfrage nicht beantwortet. Testen Sie später erneut.",
+    "defaults": "Standard: {mode}, {retention}.",
+    "noMode": "kein Standardmodus",
+    "noRetention": "keine Standardaufbewahrung",
+    "modes": {
+      "GOVERNANCE": "Governance-Modus",
+      "COMPLIANCE": "Compliance-Modus"
+    },
+    "retention": {
+      "days": "{count, plural, one {# Tag} other {# Tage}} Aufbewahrung",
+      "years": "{count, plural, one {# Jahr} other {# Jahre}} Aufbewahrung"
+    },
+    "retired": "Abgelöst",
+    "retiredHint": "Dieser Platzhalter steht für die Speichereinstellungen der Umgebung von vor ihrer Ablösung; er wurde nie einzeln getestet."
+  },
+  "migration": {
+    "queued": "Migration eingeplant",
+    "queuedSource": "Ablösung eingeplant",
+    "copying": "Migration läuft, {percent} %",
+    "copyingUnknown": "Migration läuft …",
+    "verifying": "Wird geprüft",
+    "switching": "Wird umgeschaltet",
+    "switched": "Umgeschaltet",
+    "retired": "Abgelöst",
+    "failed": "Migration fehlgeschlagen",
+    "failedSource": "Ablösung fehlgeschlagen; dieser Ort ist weiterhin das primäre Repository",
+    "cancelled": "Migration abgebrochen",
+    "cancelledSource": "Ablösung abgebrochen; dieser Ort ist weiterhin das primäre Repository",
+    "stalled": "Migration ins Stocken geraten; zum Abschließen abbrechen",
+    "stalledSource": "Ablösung ins Stocken geraten; dieser Ort ist weiterhin das primäre Repository",
+    "cancel": "Migration abbrechen",
+    "cancelConfirmTitle": "Diese Migration abbrechen?",
+    "cancelConfirmDescription": "Das Kopieren stoppt beim nächsten Kontrollpunkt. Nichts geht verloren: Das alte primäre Repository bedient Backups und Wiederherstellungen weiter, und dieses Repository bleibt eine Kopie, die Sie entfernen oder erneut versuchen können.",
+    "cancelConfirm": "Migration abbrechen",
+    "etaLabel": "Noch etwa {duration}",
+    "eta": {
+      "hours": "{hours} Std. {minutes} Min.",
+      "minutes": "{minutes} Min. {seconds} Sek.",
+      "seconds": "{seconds} Sek."
+    },
+    "showDetails": "Technische Details",
+    "retry": "Erneut versuchen"
+  },
+  "form": {
+    "createTitle": {
+      "s3": "S3-kompatiblen Speicher hinzufügen",
+      "local": "Serverpfad hinzufügen"
+    },
+    "editTitle": "Repository bearbeiten",
+    "description": {
+      "s3": "Ein Bucket bei Hetzner Object Storage, Amazon S3, Wasabi, Backblaze B2, Garage oder einem anderen S3-kompatiblen Dienst. Zugangsdaten werden verschlüsselt gespeichert.",
+      "local": "Ein Verzeichnis in den Containern: das Standard-Volume oder eine NFS/SMB-Freigabe, die in die Container api und worker eingebunden ist."
+    },
+    "name": "Name",
+    "namePlaceholder": {
+      "s3": "z. B. Offsite Hetzner",
+      "local": "z. B. NAS im Serverraum"
+    },
+    "role": "Rolle",
+    "primaryBlocked": {
+      "primaryExists": "Dieser Mandant hat bereits ein primäres Repository. Fügen Sie eine Kopie hinzu und befördern Sie sie später, oder wählen Sie oben „Primäres Repository ersetzen“.",
+      "tenantHasData": "Dieser Mandant hat bereits Backups im Installationsstandard. Fügen Sie eine Kopie hinzu und befördern Sie sie später, oder wählen Sie oben „Primäres Repository ersetzen“."
+    },
+    "migrationMode": "Wie vorhandene Backups umziehen",
+    "migrationModeMove": "Vorhandene Backups verschieben (empfohlen)",
+    "migrationModeMoveHint": "Ein Hintergrundjob kopiert jedes Pack, jedes Manifest und jeden Schlüssel zum neuen Repository und prüft es per Hash, dann schaltet er das primäre Repository automatisch um. Der alte Ort bleibt bis zur Entfernung schreibgeschützt bestehen.",
+    "migrationModeKeep": "Vorhandene Backups dort belassen, wo sie sind",
+    "migrationModeKeepHint": "Das neue Repository wird sofort zum primären Repository, ohne dass etwas kopiert wird. Der alte Ort bleibt schreibgeschützt bestehen: Wiederherstellung, Prüfung und Backup von Objekten aus der Zeit vor der Umstellung funktionieren weiterhin und lesen von dort, aber jedes neue Byte wird nur auf das neue Repository geschrieben. Eine eigenständige Wiederherstellung (restow-restore) für einen Snapshot von nach dieser Umstellung benötigt beide Orte über --storage.",
+    "local": {
+      "basePath": "Pfad",
+      "basePathPlaceholder": "/mnt/backup/restow",
+      "basePathHint": "Absoluter Pfad in den Containern. Das Verzeichnis muss existieren und beschreibbar sein."
+    },
+    "s3": {
+      "preset": "Anbieter",
+      "presets": {
+        "hetzner": "Hetzner Object Storage",
+        "aws": "Amazon S3",
+        "wasabi": "Wasabi",
+        "backblaze": "Backblaze B2",
+        "garage": "Garage",
+        "other": "Anderer S3-kompatibler Dienst"
+      },
+      "presetHint": "Füllt Endpunkt, Region und Adressierung aus. Passen Sie sie an den Standort Ihres Buckets an.",
+      "bucket": "Bucket",
+      "bucketPlaceholder": "restow-backup",
+      "prefix": "Präfix (optional)",
+      "prefixPlaceholder": "restow",
+      "prefixHint": "Legt die Daten von {appName} in einem Ordner des Buckets ab.",
+      "endpoint": "Endpunkt",
+      "endpointPlaceholder": "https://fsn1.your-objectstorage.com",
+      "endpointHint": "Für Amazon S3 leer lassen.",
+      "insecureEndpoint": "Dieser Endpunkt nutzt unverschlüsseltes HTTP. Zugangsdaten und Backups werden unverschlüsselt übertragen; nutzen Sie HTTPS, sofern der Dienst nicht in einem vertrauenswürdigen internen Netz steht.",
+      "region": "Region",
+      "regionHint": "Leer bedeutet us-east-1.",
+      "forcePathStyle": "Pfad-Adressierung",
+      "forcePathStyleHint": "Nötig für Garage und viele selbst betriebene Dienste.",
+      "accessKeyId": "Access Key ID",
+      "keepCredentials": "Beide Felder leer lassen, um den gespeicherten Schlüssel zu behalten (…{hint}).",
+      "storedKeyPlaceholder": "Gespeichert: …{hint}",
+      "secretAccessKey": "Secret Access Key",
+      "secretHint": "Wird verschlüsselt gespeichert und nie wieder angezeigt.",
+      "credentialsAgain": "Der Endpunkt hat sich geändert, deshalb wird der gespeicherte Schlüssel nicht dorthin gesendet. Geben Sie das Schlüsselpaar erneut ein."
+    },
+    "testHint": {
+      "s3": "Schreibt, liest und löscht ein kleines Testobjekt und prüft Object Lock. Es wird nichts gespeichert.",
+      "local": "Prüft das Verzeichnis und schreibt, liest und löscht dann eine kleine Testdatei. Es wird nichts gespeichert."
+    }
+  },
+  "validation": {
+    "type": "Ungültiger Wert.",
+    "too_long": "Zu lang.",
+    "invalid_characters": "Enthält nicht erlaubte Zeichen.",
+    "absolute_path": "Geben Sie einen absoluten Pfad an, der mit / beginnt.",
+    "path_traversal": "Der Pfad darf keine Abschnitte . oder .. enthalten.",
+    "root_path": "Das Wurzelverzeichnis kann kein Repository sein.",
+    "system_path": "Systemverzeichnisse können nicht als Repository dienen.",
+    "bucket_name": "3 bis 63 Zeichen: Kleinbuchstaben, Ziffern, Punkte und Bindestriche, Beginn und Ende mit Buchstabe oder Ziffer.",
+    "prefix": "Nur Buchstaben, Ziffern, Punkte, Unterstriche, Bindestriche und Schrägstriche, ohne leere, . oder .. Abschnitte.",
+    "endpoint_url": "Geben Sie eine vollständige URL an, z. B. https://fsn1.your-objectstorage.com.",
+    "endpoint_protocol": "Der Endpunkt muss mit https:// (oder http://) beginnen.",
+    "endpoint_path": "Geben Sie nur die Adresse des Dienstes an, ohne Pfad oder Bucket-Namen.",
+    "endpoint_credentials": "Der Endpunkt darf keinen Benutzernamen und kein Passwort enthalten.",
+    "region": "Nur Buchstaben, Ziffern, Bindestriche und Unterstriche.",
+    "unknown_kind": "Unbekannte Repository-Art.",
+    "https_required": "Nur HTTPS-Endpunkte sind erlaubt.",
+    "private_address": "Der Endpunkt zeigt in ein privates oder lokales Netz.",
+    "local_hostname": "Verwenden Sie den öffentlichen Hostnamen des Dienstes.",
+    "unresolvable": "Dieser Hostname lässt sich nicht auflösen.",
+    "not_applicable": "Für dieses Repository nicht anwendbar.",
+    "credentials_pair": "Geben Sie Access Key ID und Secret an oder lassen Sie beide leer, um den gespeicherten Schlüssel zu behalten.",
+    "credentials_again": "Der Endpunkt hat sich geändert: Geben Sie das Schlüsselpaar erneut ein.",
+    "whitespace": "Darf keine Leerzeichen oder Zeilenumbrüche enthalten."
+  },
+  "completeness": {
+    "title": "Kopie {name} prüfen",
+    "description": "Vergleicht die Kopie mit dem primären Repository: Jedes Pack, jedes Backup-Manifest und jeder Schlüssel muss vorhanden sein.",
+    "checking": "Kopie wird mit dem primären Repository verglichen …",
+    "complete": {
+      "title": "Die Kopie ist vollständig",
+      "description": "Alles, was das primäre Repository enthält, ist auf dieser Kopie vorhanden."
+    },
+    "incomplete": {
+      "title": "Die Kopie ist noch nicht vollständig",
+      "description": "Es fehlen noch {bytes} Backup-Daten. Der Kopierjob spiegelt sie; neue Backups erreichen die Kopie sofort."
+    },
+    "packs": "Packs (Backup-Daten)",
+    "manifests": "Backup-Manifeste",
+    "keys": "Verschlüsselte Schlüssel",
+    "count": "{present} von {expected}",
+    "listingOnly": "Die Vollständigkeit wird per Auflistung geprüft. Kopierjob und Scrub prüfen die Inhalte per Prüfsumme.",
+    "again": "Erneut prüfen"
+  },
+  "promote": {
+    "title": "{name} zum primären Repository machen",
+    "description": "Das bisherige primäre Repository wird zur Kopie und erhält weiterhin jedes Backup. Ab jetzt lesen Wiederherstellungen zuerst von diesem Repository.",
+    "descriptionFromDefault": "Ab jetzt nutzen Backups und Wiederherstellungen zuerst dieses Repository, und dieser Mandant nutzt den Installationsstandard nicht mehr. Dort bereits gespeicherte Daten bleiben erhalten, bis der Provider sie entfernt.",
+    "notVerified": {
+      "title": "Testen Sie das Repository zuerst",
+      "description": "Nur ein Repository, dessen letzter Test erfolgreich war, kann primäres Repository werden."
+    },
+    "effect": "Alles ist vorhanden. Die Umstellung gilt für das nächste Backup und die nächste Wiederherstellung.",
+    "confirm": "Zum primären Repository machen"
+  },
+  "delete": {
+    "title": "{name} entfernen?",
+    "description": "{appName} schreibt keine Backups mehr in diese Kopie.",
+    "descriptionPrimary": "{appName} nutzt dieses Repository nicht mehr. Ohne eigenes primäres Repository nutzt dieser Mandant wieder den Installationsstandard.",
+    "descriptionPrevious": "Dieser Ort wurde als primäres Repository abgelöst. Beim Entfernen sind ältere Backups, die nur noch hier liegen, nicht mehr wiederherstellbar, prüfbar oder durchsuchbar.",
+    "dataStays": "Bereits an diesem Ort gespeicherte Daten werden nicht gelöscht. Entfernen Sie sie beim Speicheranbieter, wenn sie nicht mehr gebraucht werden.",
+    "confirm": "Repository entfernen"
+  },
+  "toasts": {
+    "created": "{name} hinzugefügt. Wird jetzt getestet.",
+    "updated": "{name} gespeichert.",
+    "deleted": "{name} entfernt.",
+    "promoted": "{name} ist jetzt das primäre Repository.",
+    "testOk": "{name} funktioniert.",
+    "testFailed": "Der Test von {name} ist fehlgeschlagen.",
+    "migrationCancelled": "Die Migration zu {name} wurde abgebrochen.",
+    "migrationRetried": "Die Migration zu {name} wurde erneut eingeplant."
+  },
+  "errors": {
+    "localRequiresProviderAdmin": "Nur ein Provider-Admin kann Serverpfade verwalten.",
+    "primaryExists": "Dieser Mandant hat bereits ein primäres Repository. Fügen Sie eine Kopie hinzu und machen Sie sie zum primären Repository, sobald sie vollständig ist.",
+    "tenantHasData": "Dieser Mandant hat bereits Backups. Fügen Sie den neuen Ort als Kopie hinzu; sobald sie vollständig ist, machen Sie sie zum primären Repository.",
+    "locationOverlap": "Dieser Ort wird von diesem Mandanten bereits genutzt oder liegt innerhalb eines genutzten Ortes.",
+    "locationLocked": "Das primäre Repository enthält Backups, deshalb kann sich sein Ort nicht ändern. Fügen Sie den neuen Ort als Kopie hinzu und machen Sie ihn zum primären Repository, sobald er vollständig ist.",
+    "primaryHoldsData": "Das primäre Repository enthält Backups und kann nicht entfernt werden. Machen Sie zuerst ein anderes Repository zum primären Repository.",
+    "alreadyPrimary": "Dieses Repository ist bereits das primäre Repository.",
+    "notVerified": "Testen Sie das Repository erfolgreich, bevor Sie es zum primären Repository machen.",
+    "copyIncomplete": "Die Kopie ist noch nicht vollständig.",
+    "invalidLocation": "Der Ort ist ungültig. Prüfen Sie die markierten Felder.",
+    "endpointNotAllowed": "Dieser Endpunkt ist nicht erlaubt. Mandanten-Admins können nur öffentliche HTTPS-Endpunkte nutzen.",
+    "targetNotFound": "Dieses Repository existiert nicht mehr.",
+    "credentialsNotApplicable": "Nur S3-Repositories haben Zugangsdaten.",
+    "credentialsRequired": "Geben Sie das Schlüsselpaar ein.",
+    "configInvalid": "Die gespeicherten Einstellungen dieses Repositorys sind nicht mehr gültig. Bearbeiten Sie das Repository.",
+    "credentialsUnusable": "Die gespeicherten Zugangsdaten können nicht gelesen werden. Geben Sie sie erneut ein.",
+    "defaultMisconfigured": "Der Standardspeicher der Installation ist auf dem Server falsch konfiguriert.",
+    "unreachable": "Primäres Repository oder Kopie konnten nicht aufgelistet werden. Testen Sie beide Repositories.",
+    "masterKeyMissing": "Der Server hat keinen Master-Key (RESTOW_MASTER_KEY), deshalb können keine Zugangsdaten gespeichert werden.",
+    "migrationInProgress": "Dieser Mandant hat bereits eine laufende Speichermigration. Warten Sie, bis sie fertig ist, oder brechen Sie sie ab.",
+    "notACopy": "Nur eine Kopie kann zum primären Repository befördert werden.",
+    "migrationNotFound": "Für dieses Repository gibt es keine Speichermigration zum Abbrechen.",
+    "migrationNotCancellable": "Diese Migration ist bereits abgeschlossen und kann nicht mehr abgebrochen werden.",
+    "migrationNotRetryable": "Nur eine fehlgeschlagene Verschiebung kann erneut versucht werden.",
+    "keepTargetUnreachable": "Das neue Repository konnte mit einer kurzen Schreib-/Lese-/Löschprüfung nicht bestätigt werden. Beheben Sie den Ort oder die Zugangsdaten, oder wählen Sie stattdessen „Verschieben“.",
+    "keepBlockedByActiveJob": "Für diesen Mandanten läuft noch ein Backup-, Archiv-, Aufbewahrungs-, Scrub- oder Speichermigrationsjob oder wartet in der Warteschlange. Warten Sie, bis er fertig ist, und versuchen Sie es dann erneut.",
+    "previousHoldsExclusiveData": "Dieser Ort enthält noch Backup-Daten, die kein anderes Repository hat. Führen Sie zuerst eine „Verschieben“-Ablösung durch, um sie auf das aktuelle primäre Repository zu kopieren, und entfernen Sie diesen Ort danach.",
+    "installationDefaultReadonly": "Dieser Platzhalter steht für einen abgelösten Installationsstandard und hat keine eigenen Einstellungen.",
+    "queueNotReady": "Die Warteschlange für Hintergrundjobs ist noch nicht bereit. Versuchen Sie es gleich noch einmal.",
+    "activeEndpoints": "Server oder Clients sichern über den Agenten auf dieses Repository, und ein Wechsel des primären Repositorys verschiebt deren Backups noch nicht. Sperren oder deinstallieren Sie diese Rechner zuerst; ihre vorhandenen Backups bleiben vom alten Ort lesbar, der angebunden bleiben muss.",
+    "previousHoldsEndpointRepositories": "Dieser Ort enthält noch Backups eines Servers oder Clients, die nur er hat. Ein Wechsel des Repositorys verschiebt diese noch nicht; lassen Sie diesen Ort daher angebunden."
+  }
+}

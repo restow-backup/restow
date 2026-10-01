@@ -1,0 +1,215 @@
+{
+  "app": {
+    "name": "{appName}",
+    "tagline": "{appName}. Backup you can prove is restorable."
+  },
+  "actions": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "next": "Next",
+    "back": "Back",
+    "confirm": "Confirm",
+    "close": "Close",
+    "retry": "Retry",
+    "continue": "Continue",
+    "finish": "Finish",
+    "refresh": "Refresh",
+    "openMenu": "Open menu",
+    "closeMenu": "Close menu",
+    "collapseSidebar": "Collapse sidebar",
+    "expandSidebar": "Expand sidebar",
+    "showPassword": "Show password",
+    "hidePassword": "Hide password",
+    "backHome": "Back to overview",
+    "previous": "Previous",
+    "goBack": "Go back"
+  },
+  "theme": {
+    "label": "Appearance",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
+  "language": {
+    "label": "Language",
+    "de": "German",
+    "en": "English"
+  },
+  "nav": {
+    "label": "Main navigation",
+    "groups": {
+      "daily": "Daily",
+      "mail": "Mail & SaaS",
+      "endpoints": "Servers & endpoints",
+      "tenants": "Tenants",
+      "admin": "Admin",
+      "other": "More"
+    },
+    "groupMenu": "{group}, show entries",
+    "items": {
+      "jobs": "Jobs",
+      "setup": "Setup",
+      "resources": "Resources"
+    },
+    "breadcrumb": "Breadcrumb",
+    "notifications": "Notifications",
+    "pagination": "Pagination",
+    "stage": {
+      "alpha": "Alpha"
+    },
+    "soon": {
+      "badge": "Soon",
+      "spoken": ", coming soon",
+      "hint": "coming soon",
+      "release": "Coming in {version}",
+      "notYet": "This feature does not exist in this version yet. The menu entry already shows where it will be.",
+      "roadmap": "Roadmap on the website",
+      "roadmapUrl": "https://restowbackup.com/en/roadmap/",
+      "newTab": "(opens in a new tab)"
+    },
+    "setup": {
+      "tabsLabel": "Setup of {tenant}",
+      "tabs": {
+        "protection": "Protection",
+        "sources": "Sources",
+        "schedules": "Schedules",
+        "retention": "Retention",
+        "imports": "Imports"
+      },
+      "openTenantPage": "Open tenant page",
+      "openTenantPageFor": "Open tenant page: {name}",
+      "tenantPage": "Tenant page"
+    }
+  },
+  "tenant": {
+    "label": "Tenant",
+    "placeholder": "Select tenant",
+    "none": "No tenant",
+    "noneDescription": "This account is not assigned to a tenant yet.",
+    "switch": "Switch tenant",
+    "current": "Current tenant",
+    "count": "{count, plural, one {# tenant} other {# tenants}}",
+    "switchCurrent": "Switch tenant, current: {name}",
+    "search": "Search tenants …",
+    "empty": "No matching tenant.",
+    "switched": "You are now working in {name}.",
+    "closedHint": "only the provider can open it",
+    "status": {
+      "active": "Active",
+      "suspended": "Suspended",
+      "deleting": "Being deleted"
+    },
+    "notice": {
+      "suspended": {
+        "title": "{name} is suspended",
+        "provider": "Jobs and sign-ins of this tenant are paused until you reactivate it on its tenant page.",
+        "member": "Its pages cannot load until your service provider reactivates the tenant."
+      },
+      "deleting": {
+        "title": "{name} is being deleted",
+        "provider": "Its data is being removed; nothing in this tenant can be changed any more.",
+        "member": "Its pages are no longer available."
+      }
+    }
+  },
+  "roles": {
+    "provider_admin": "Provider admin",
+    "tenant_admin": "Tenant admin",
+    "tenant_user": "User"
+  },
+  "user": {
+    "menu": "User menu",
+    "signedInAs": "Signed in as",
+    "security": "Sign-in security",
+    "signOut": "Sign out",
+    "signingOut": "Signing out …",
+    "menuFor": "User menu of {name}",
+    "roleIn": "in {tenant}"
+  },
+  "loading": {
+    "label": "Loading …",
+    "session": "Checking session …"
+  },
+  "errors": {
+    "title": "Something went wrong",
+    "generic": "The action could not be completed. Please try again.",
+    "network": "The {appName} server is not reachable. Check that the API and the database are running.",
+    "unauthorized": "Your session has expired. Please sign in again.",
+    "forbidden": "You do not have permission for this action.",
+    "featureUnavailable": "This function is not available on this installation.",
+    "demoReadOnly": "This is a public demo: browsing, backups, verification and restoring a snapshot as a download all work; changing sources, settings, users or credentials, or restoring back into the mailbox, does not.",
+    "notFound": "The requested resource was not found.",
+    "conflict": "The action conflicts with the current state.",
+    "validation": "The input is incomplete or invalid.",
+    "server": "The server reported an internal error.",
+    "pageTitle": "This page could not be displayed",
+    "shellTitle": "{appName} could not be loaded",
+    "details": "Technical details",
+    "forbiddenTitle": "No access",
+    "roleInTenant": "Your role in {tenant}: {role}.",
+    "providerRole": "Your role in the provider team does not allow this.",
+    "providerScope": "This tenant is not one of your tenants in the provider team."
+  },
+  "notFound": {
+    "title": "Page not found",
+    "description": "There is nothing at this address. The link is outdated or the page has moved."
+  },
+  "validation": {
+    "required": "This field is required.",
+    "email": "Please enter a valid email address.",
+    "url": "Please enter a complete URL starting with https://.",
+    "httpsRequired": "The public URL must start with https://.",
+    "port": "Please enter a port between 1 and 65535.",
+    "minLength": "At least {min} characters.",
+    "passwordMismatch": "The passwords do not match.",
+    "totp": "Please enter the 6-digit code.",
+    "emailInUse": "An account with this email already exists. Choose another email."
+  },
+  "time": {
+    "never": "Never",
+    "unknown": "Unknown"
+  },
+  "shell": {
+    "skipToContent": "Skip to content",
+    "version": "Version {version}",
+    "versionUntagged": "Build without a release version",
+    "updateAvailable": "Update available: {version}"
+  },
+  "search": {
+    "button": "Search …",
+    "open": "Search pages and actions",
+    "title": "Command palette",
+    "description": "Go to a page or an account, switch the tenant or change your preferences.",
+    "placeholder": "Search pages, actions and accounts …",
+    "empty": "No matching page or action.",
+    "current": "Current setting",
+    "groups": {
+      "objects": "Protected objects",
+      "tenants": "Switch tenant",
+      "preferences": "Appearance and language",
+      "account": "Account"
+    },
+    "objectKinds": {
+      "mailbox": "Mailbox",
+      "onedrive": "OneDrive",
+      "imap": "IMAP account"
+    },
+    "switchTo": "Switch to {name}",
+    "theme": "Appearance: {theme}",
+    "language": "Language: {language}"
+  },
+  "keys": {
+    "ctrl": "Ctrl"
+  },
+  "soon": {
+    "mailJobs": {
+      "description": "Jobs for Mail & SaaS define what is backed up, when, into which repository and for how long, for many mailboxes, OneDrives and IMAP accounts at once. Past runs are in History."
+    },
+    "endpointJobs": {
+      "description": "Jobs for servers and clients set paths, hooks, schedule, repository and retention for many machines at once, with overrides per machine."
+    },
+    "resources": {
+      "description": "Shows how busy this installation is, what waits in the queue and whether another worker or a bigger server helps."
+    }
+  }
+}

@@ -1,0 +1,68 @@
+# Public demo on the production edge (deploy/demo/README.md, "Option B: co-hosted").
+#
+# Inactive as shipped: the production Caddy imports only `*.caddy` files from this
+# directory. To serve the demo, copy this file and reload Caddy:
+#
+#   cp deploy/caddy-sites/demo.caddy.example deploy/caddy-sites/demo.caddy
+#   docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+#
+# To take the demo off the production edge again, delete demo.caddy and reload.
+#
+# The demo's own web container publishes only on the Docker bridge gateway
+# (RESTOW_DEMO_BIND_ADDRESS:RESTOW_DEMO_BIND_PORT in deploy/demo/.env, default
+# 172.17.0.1:8081), never on a public interface. This Caddy reaches it through
+# `host.docker.internal`, which docker-compose.yml maps to that gateway with
+# `extra_hosts: host.docker.internal:host-gateway`; the two stacks share no Docker
+# network. Change the port below if RESTOW_DEMO_BIND_PORT is not 8081, and the
+# hostname if the demo lives somewhere else.
+#
+# TLS for the demo hostname is terminated here, like every other site of this
+# Caddy (automatic HTTPS; the hostname must resolve to this host). The demo's own
+# Caddy serves plain HTTP (RESTOW_DEMO_APP_DOMAIN=:80) and never requests a
+# certificate itself.
+demo.restowbackup.com {
+	# HSTS is set here, not through the inner demo Caddy's own RESTOW_EDGE_HSTS
+	# (which stays empty by design, deploy/demo/.env.example): this outer site is
+	# the one terminating real, publicly trusted TLS for the demo hostname, so it
+	# is the one a browser should be told to always reach over HTTPS. Remove this
+	# block if the demo hostname is ever served without automatic HTTPS here.
+	header Strict-Transport-Security "max-age=63072000; includeSubDomains"
+
+	# The main Caddyfile's security_headers strip Server/Via on the production
+	# site itself, but this outer site block is separate and gets none of that
+	# for free: reverse_proxy always sets its own Via header regardless of what
+	# the inner demo Caddy sent, and would otherwise leave it on every response.
+	# Known limitation, not fixable here: Caddy's automatic HTTP->HTTPS redirect
+	# on port 80 is generated before this block runs and still answers with a
+	# bare Server: Caddy header (same as the main Caddyfile, see its own note).
+	header {
+		-Via
+		-Server
+	}
+
+	# Without this, a moment where the inner demo Caddy is unreachable (a
+	# restart, an image update) would answer with Caddy's bare default error
+	# page instead — Server header included — for exactly as long as the demo
+	# reverse_proxy above is down.
+	handle_errors {
+		header {
+			-Via
+			-Server
+		}
+		respond "{err.status_code} {err.status_text}" {err.status_code}
+	}
+
+	reverse_proxy host.docker.internal:8081 {
+		# The visitor's own address, set here rather than taken from the request:
+		# a client-supplied X-Forwarded-For never reaches the demo. The demo's own
+		# Caddy trusts this hop (deploy/demo/docker-compose.yml, web service) and
+		# passes the value on; the demo uses it only as an in-memory rate-limit
+		# key and never stores it (deploy/demo/README.md, "What it is").
+		# Caddy logs this line as unnecessary when it loads the site, because its
+		# default for a directly connected client is the same value. It stays
+		# explicit so the header remains pinned to the connecting peer even if
+		# this edge is ever told to trust a proxy in front of it
+		# (RESTOW_EDGE_TRUSTED_PROXIES in the root Caddyfile).
+		header_up X-Forwarded-For {remote_host}
+	}
+}

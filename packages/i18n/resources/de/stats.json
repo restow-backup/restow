@@ -1,0 +1,317 @@
+{
+  "nav": "Statistik",
+  "title": "Statistik",
+  "description": {
+    "tenant": "Sicherungen, Wiederherstellungen, Speicher und Wiederherstellbarkeit von {tenant} im Zeitverlauf.",
+    "provider": "Sicherungen, Wiederherstellungen, Speicher und Wiederherstellbarkeit über alle Mandanten.",
+    "loading": "Sicherungen, Wiederherstellungen, Speicher und Wiederherstellbarkeit im Zeitverlauf."
+  },
+  "period": {
+    "label": "Zeitraum",
+    "presetsLabel": "Vorgegebene Zeiträume",
+    "presets": {
+      "7d": "7 Tage",
+      "30d": "30 Tage",
+      "90d": "90 Tage",
+      "12m": "12 Monate"
+    },
+    "custom": "Benutzerdefiniert",
+    "customActive": "Benutzerdefinierter Zeitraum: {range}",
+    "customTitle": "Benutzerdefinierter Zeitraum",
+    "customHint": "Wählen Sie den ersten und den letzten Tag. Tage nach heute sind nicht wählbar.",
+    "pickStart": "Wählen Sie den ersten Tag.",
+    "pickEnd": "Wählen Sie jetzt den letzten Tag.",
+    "apply": "Übernehmen",
+    "cancel": "Abbrechen",
+    "summary": "Zeitraum {range}, ein Wert {granularity}.",
+    "comparison": "Veränderungen gegenüber {range}.",
+    "granularity": {
+      "day": "pro Tag",
+      "week": "pro Woche",
+      "month": "pro Monat"
+    }
+  },
+  "scope": {
+    "label": "Umfang",
+    "tenant": "Mandant",
+    "provider": "Alle Mandanten"
+  },
+  "actions": {
+    "refresh": "Zahlen aktualisieren",
+    "exportPdf": "PDF exportieren",
+    "exportLabel": "Export",
+    "exportCsv": "Als CSV herunterladen",
+    "exportMenu": "Exportoptionen für {chart}"
+  },
+  "download": {
+    "pdfPreparing": "PDF-Bericht wird erstellt …",
+    "csvPreparing": "CSV-Export wird erstellt …",
+    "done": "Download bereit",
+    "failed": "Der Download ist fehlgeschlagen"
+  },
+  "noTenant": {
+    "title": "Kein Mandant ausgewählt",
+    "description": "Wählen Sie oben einen Mandanten, um dessen Statistik zu sehen.",
+    "providerAction": "Alle Mandanten anzeigen"
+  },
+  "notAdmin": {
+    "title": "Die Statistik ist Administratoren vorbehalten",
+    "description": "Ihre Rolle in {tenant} umfasst die Statistik nicht. Ein Administrator des Mandanten kann sie öffnen."
+  },
+  "error": {
+    "title": "Die Statistik konnte nicht geladen werden",
+    "stale": "Die Zahlen konnten nicht aktualisiert werden. Angezeigt wird der Stand des letzten erfolgreichen Ladens.",
+    "retry": "Erneut versuchen"
+  },
+  "unavailable": {
+    "title": "Nicht verfügbar",
+    "reasons": {
+      "missing": "Diese Serverversion liefert diesen Wert noch nicht.",
+      "no_tenants": "Es gibt noch keine Mandanten.",
+      "no_protected_objects": "Noch ist nichts geschützt. Fügen Sie eine Quelle hinzu und legen Sie ihren Schutzumfang fest.",
+      "no_backups_yet": "Es lief noch keine Sicherung. Die Werte erscheinen nach der ersten Sicherung.",
+      "no_microsoft_365_source": "Drosselung gibt es nur bei Microsoft 365, und hier ist keine Microsoft-365-Quelle eingerichtet."
+    }
+  },
+  "kpi": {
+    "sectionLabel": "Kennzahlen",
+    "none": "Kein Wert in diesem Zeitraum.",
+    "points": "{value} PP",
+    "backupSuccessRate": {
+      "label": "Erfolgsquote der Sicherungen",
+      "hint": "Anteil der abgeschlossenen Sicherungsläufe"
+    },
+    "failedItems": {
+      "label": "Fehlgeschlagene Elemente",
+      "hint": "Elemente, die ein Lauf nicht verarbeiten konnte"
+    },
+    "verifiedShare": {
+      "label": "Per Restore-Prüfung verifiziert",
+      "hint": "Anteil der geschützten Objekte mit bestandener Restore-Prüfung"
+    },
+    "protectedObjects": {
+      "label": "Geschützte Objekte",
+      "hint": "Postfächer, OneDrives, IMAP-Konten, Server und Clients im Schutzumfang"
+    },
+    "restores": {
+      "label": "Wiederherstellungen",
+      "hint": "Wiederherstellungen in diesem Zeitraum"
+    },
+    "throttlingWaitSeconds": {
+      "label": "Wartezeit durch Drosselung",
+      "hint": "Zeit, die Microsoft 365 {appName} warten ließ"
+    },
+    "logicalBytes": {
+      "label": "Gesichert (logisch)",
+      "hint": "Größe der geschützten Daten vor der Deduplizierung"
+    },
+    "physicalBytes": {
+      "label": "Belegt (physisch)",
+      "hint": "Platzbedarf der Daten im Chunk-Store"
+    },
+    "dedup": {
+      "label": "Eingespart durch Deduplizierung",
+      "hint": "Gesicherte zu gespeicherten Daten {factor} : 1",
+      "hintNone": "Noch nichts gespeichert, das sich vergleichen ließe"
+    }
+  },
+  "charts": {
+    "sectionLabel": "Verläufe",
+    "weekOf": "Woche ab {date}",
+    "backups": {
+      "title": "Ergebnisse der Sicherungen",
+      "description": "Sicherungsläufe {granularity}, nach Ergebnis.",
+      "series": {
+        "succeeded": "Erfolgreich",
+        "failed": "Fehlgeschlagen",
+        "cancelled": "Abgebrochen"
+      },
+      "empty": {
+        "title": "Keine Sicherungsläufe",
+        "description": "In diesem Zeitraum lief keine Sicherung."
+      },
+      "summary": "In diesem Zeitraum waren {succeeded} Sicherungsläufe erfolgreich, {failed} schlugen fehl und {cancelled} wurden abgebrochen."
+    },
+    "restores": {
+      "title": "Wiederherstellungen",
+      "description": "Wiederherstellungen {granularity}, nach Ergebnis.",
+      "series": {
+        "completed": "Abgeschlossen",
+        "failed": "Fehlgeschlagen"
+      },
+      "empty": {
+        "title": "Keine Wiederherstellungen",
+        "description": "In diesem Zeitraum lief keine Wiederherstellung."
+      },
+      "summary": "In diesem Zeitraum wurden {completed} Wiederherstellungen abgeschlossen und {failed} schlugen fehl."
+    },
+    "readiness": {
+      "title": "Wiederherstellbarkeit",
+      "description": "Geschützte Objekte nach dem Ergebnis ihrer letzten Restore-Prüfung, {granularity}.",
+      "empty": {
+        "title": "Keine geschützten Objekte",
+        "description": "In diesem Zeitraum gab es keine geschützten Objekte."
+      },
+      "summary": "Am Ende des Zeitraums waren {green} Objekte bereit, {yellow} brauchten Aufmerksamkeit, {red} waren nicht wiederherstellbar und {unverified} nicht geprüft."
+    },
+    "volume": {
+      "title": "Logisches und physisches Volumen",
+      "description": "Geschützte Daten vor der Deduplizierung und ihr Platzbedarf im Speicher, {granularity}.",
+      "series": {
+        "logical": "Logisch",
+        "physical": "Physisch"
+      },
+      "empty": {
+        "title": "Keine Daten gesichert",
+        "description": "In diesem Zeitraum wurden keine Daten gesichert."
+      },
+      "dedup": "Die Deduplizierung spart {savings} der gesicherten Daten (Verhältnis {factor} : 1).",
+      "dedupShare": "Die Deduplizierung spart {savings} der gesicherten Daten.",
+      "summary": "Am Ende des Zeitraums belegten {logical} geschützte Daten {physical} im Speicher."
+    },
+    "storage": {
+      "title": "Speicherwachstum",
+      "description": "Belegter Platz im Chunk-Store, {granularity}.",
+      "series": {
+        "bytes": "Belegt"
+      },
+      "empty": {
+        "title": "Der Speicher ist leer",
+        "description": "In diesem Zeitraum wurde nichts gespeichert."
+      },
+      "summary": "Der Speicher wuchs in diesem Zeitraum von {first} auf {last}."
+    },
+    "jobDurations": {
+      "title": "Laufzeiten der Jobs",
+      "description": "Typische (p50) und langsame (p95) Laufzeit je Jobart in diesem Zeitraum.",
+      "series": {
+        "p50": "Median (p50)",
+        "p95": "95. Perzentil (p95)"
+      },
+      "empty": {
+        "title": "Keine abgeschlossenen Jobs",
+        "description": "In diesem Zeitraum wurde kein Job abgeschlossen."
+      },
+      "tooltipLabel": "{kind} · {runs}",
+      "runs": "{count, plural, one {# Lauf} other {# Läufe}}",
+      "summary": "Die langsamste Jobart war {kind}: typisch {p50}, langsame Läufe {p95}."
+    },
+    "throttling": {
+      "title": "Wartezeiten durch Drosselung",
+      "description": "Wie lange und wie oft Microsoft 365 {appName} warten ließ, {granularity}.",
+      "series": {
+        "wait": "Wartezeit",
+        "events": "Drosselungen"
+      },
+      "empty": {
+        "title": "Keine Drosselung",
+        "description": "Microsoft 365 hat {appName} in diesem Zeitraum nicht gedrosselt."
+      },
+      "summary": "In diesem Zeitraum ließ Microsoft 365 {appName} insgesamt {wait} warten, verteilt auf {events} Drosselungen."
+    }
+  },
+  "tables": {
+    "sectionLabel": "Einzelheiten",
+    "failures": {
+      "title": "Fehler nach Ursache",
+      "description": "Elemente, die in diesem Zeitraum nicht verarbeitet werden konnten, gruppiert nach dem Grund der Quelle.",
+      "columns": {
+        "cause": "Ursache",
+        "count": "Elemente",
+        "lastAt": "Zuletzt aufgetreten"
+      },
+      "search": "Ursachen durchsuchen",
+      "actions": {
+        "jobs": "Jobs öffnen",
+        "copy": "Ursache kopieren"
+      },
+      "copied": "Ursache in die Zwischenablage kopiert",
+      "empty": {
+        "title": "Keine Fehler",
+        "description": "Alle Elemente in diesem Zeitraum wurden verarbeitet."
+      },
+      "unknownCause": "Unbekannter Grund"
+    },
+    "largest": {
+      "title": "Größte Objekte",
+      "description": "Geschützte Objekte nach gesicherter Größe vor der Deduplizierung.",
+      "columns": {
+        "name": "Objekt",
+        "kind": "Typ",
+        "logicalBytes": "Größe (logisch)",
+        "lastBackupAt": "Letzte Sicherung",
+        "state": "Zustand",
+        "tenant": "Mandant"
+      },
+      "search": "Objekte durchsuchen",
+      "actions": {
+        "browse": "Sicherungen durchsuchen",
+        "object": "In geschützten Objekten zeigen"
+      },
+      "empty": {
+        "title": "Noch keine Objekte gesichert",
+        "description": "Objekte erscheinen hier nach ihrer ersten Sicherung."
+      }
+    },
+    "tenants": {
+      "title": "Mandanten",
+      "description": "Kennzahlen je Mandant in diesem Zeitraum, die meisten fehlgeschlagenen Elemente zuerst.",
+      "columns": {
+        "name": "Mandant",
+        "objects": "Objekte",
+        "successRate": "Erfolgsquote",
+        "logicalBytes": "Logisch",
+        "physicalBytes": "Physisch",
+        "readiness": "Wiederherstellbarkeit",
+        "failures": "Fehlgeschlagen"
+      },
+      "noRuns": "Keine Läufe",
+      "search": "Mandanten durchsuchen",
+      "actions": {
+        "stats": "Statistik dieses Mandanten zeigen",
+        "tenant": "Mandant öffnen"
+      },
+      "empty": {
+        "title": "Noch keine Mandanten",
+        "description": "Mandanten erscheinen hier, sobald der erste angelegt ist."
+      },
+      "nothingProtected": "Nichts geschützt"
+    }
+  },
+  "readiness": {
+    "green": "Bereit",
+    "yellow": "Achtung",
+    "red": "Nicht wiederherstellbar",
+    "unverified": "Nicht geprüft",
+    "unknown": "Unbekannt"
+  },
+  "jobKinds": {
+    "backup": "Sicherung",
+    "restore": "Wiederherstellung",
+    "verify": "Restore-Prüfung",
+    "health_check": "Vollprüfung",
+    "archive": "Archiv-Sync",
+    "directory": "Verzeichnis-Sync",
+    "retention": "Aufbewahrung",
+    "scrub": "Speicherprüfung",
+    "storage_migration": "Speichermigration"
+  },
+  "objectKinds": {
+    "mailbox": "Postfach",
+    "onedrive": "OneDrive",
+    "imap": "IMAP-Postfach",
+    "unknown": "Unbekannt"
+  },
+  "objectStates": {
+    "active": "Aktiv",
+    "excluded": "Ausgeschlossen",
+    "orphaned": "Verwaist",
+    "failed": "Fehlgeschlagen",
+    "green": "Bereit",
+    "yellow": "Achtung",
+    "red": "Nicht wiederherstellbar",
+    "unverified": "Nicht geprüft",
+    "none": "Unbekannt",
+    "no_backup": "Noch keine Sicherung"
+  }
+}

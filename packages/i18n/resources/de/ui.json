@@ -1,0 +1,106 @@
+{
+  "table": {
+    "loading": "Einträge werden geladen …",
+    "empty": {
+      "title": "Noch keine Einträge",
+      "description": "Einträge erscheinen hier, sobald es welche gibt."
+    },
+    "filteredEmpty": {
+      "title": "Keine passenden Einträge",
+      "description": "Kein Eintrag passt zur aktuellen Suche und zu den Filtern.",
+      "reset": "Filter zurücksetzen"
+    },
+    "error": {
+      "title": "Die Liste konnte nicht geladen werden",
+      "stale": "Die Liste konnte nicht aktualisiert werden. Angezeigt wird der Stand vom letzten erfolgreichen Laden."
+    },
+    "sortBy": "Nach {column} sortieren",
+    "search": "Suchen",
+    "resetFilters": "Zurücksetzen",
+    "columns": {
+      "button": "Spalten",
+      "label": "Sichtbare Spalten"
+    },
+    "filter": {
+      "selected": "{count, plural, one {# ausgewählt} other {# ausgewählt}}",
+      "noOptions": "Keine passende Option",
+      "clear": "Filter entfernen"
+    },
+    "actions": {
+      "column": "Aktionen",
+      "open": "Aktionen öffnen",
+      "openFor": "Aktionen für {name}"
+    },
+    "pagination": {
+      "label": "Seitennavigation",
+      "range": "{from}–{to} von {total}",
+      "pageSize": "Zeilen pro Seite",
+      "page": "Seite {page} von {pages}",
+      "first": "Erste Seite",
+      "previous": "Vorherige Seite",
+      "next": "Nächste Seite",
+      "last": "Letzte Seite"
+    },
+    "loadMore": {
+      "action": "Mehr laden",
+      "shown": "{count, plural, one {# Eintrag angezeigt} other {# Einträge angezeigt}}",
+      "all": "{count, plural, one {Der einzige Eintrag wird angezeigt} other {Alle # Einträge angezeigt}}"
+    }
+  },
+  "time": {
+    "never": "Nie",
+    "unknown": "Unbekannt",
+    "justNow": "gerade eben"
+  },
+  "confirm": {
+    "typePrompt": "Geben Sie zur Bestätigung Folgendes ein:"
+  },
+  "kpi": {
+    "previousPeriod": "gegenüber dem Vorzeitraum",
+    "loading": "Wert wird geladen …",
+    "change": {
+      "upBetter": "Gestiegen um {change} {period}, eine Verbesserung.",
+      "upWorse": "Gestiegen um {change} {period}, eine Verschlechterung.",
+      "upNeutral": "Gestiegen um {change} {period}.",
+      "downBetter": "Gesunken um {change} {period}, eine Verbesserung.",
+      "downWorse": "Gesunken um {change} {period}, eine Verschlechterung.",
+      "downNeutral": "Gesunken um {change} {period}.",
+      "flat": "Unverändert {period}."
+    }
+  },
+  "chart": {
+    "loading": "Diagramm wird geladen …",
+    "unavailable": "Nicht verfügbar",
+    "error": "Das Diagramm konnte nicht geladen werden",
+    "empty": {
+      "title": "Noch keine Daten",
+      "description": "Das Diagramm füllt sich, sobald Daten für diesen Zeitraum vorliegen."
+    }
+  },
+  "copy": {
+    "action": "Kopieren",
+    "copied": "Kopiert",
+    "failed": "Kopieren in die Zwischenablage nicht möglich. Bitte markieren Sie den Text und kopieren Sie ihn manuell."
+  },
+  "refresh": {
+    "action": "Aktualisieren",
+    "refreshing": "Wird aktualisiert …"
+  },
+  "activityOrb": {
+    "backupRunning": "Sicherung läuft",
+    "restoreRunning": "Wiederherstellung läuft",
+    "verifying": "Restore-Prüfung läuft",
+    "restoreTest": "Restore wird getestet",
+    "directorySync": "Verzeichnis-Sync läuft",
+    "sourceConsent": "Wartet auf Admin-Consent",
+    "searching": "Suche läuft",
+    "exporting": "Export läuft",
+    "reportGenerating": "Bericht wird erstellt",
+    "queued": "Wartend",
+    "throttled": "Wartet auf Microsoft (Drosselung)",
+    "waitingFirstBackup": "Wartet auf erste Sicherung",
+    "scrubbing": "Speicherprüfung läuft",
+    "integrityCheck": "Integrität wird geprüft",
+    "storageMigration": "Speichermigration läuft"
+  }
+}

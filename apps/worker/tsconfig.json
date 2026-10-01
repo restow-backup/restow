@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    // The repository root, not src: src/ee.ts pulls the ee/worker sources
+    // into this build, so dist mirrors the repository layout
+    // (dist/apps/worker/src/index.js next to dist/ee/worker/src/...).
+    "rootDir": "../.."
+  },
+  "include": ["src"],
+  "exclude": ["dist", "node_modules"]
+}

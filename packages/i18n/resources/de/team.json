@@ -1,0 +1,99 @@
+{
+  "nav": "Team",
+  "title": "Provider-Team",
+  "subtitle": "Wer diese Installation verwaltet, mit welcher Rolle und in welchen Mandanten.",
+  "invite": "Mitglied einladen",
+  "loadError": "Das Team konnte nicht geladen werden.",
+  "ownersOnly": "Nur Inhaber können das Team ändern.",
+  "you": "Sie",
+  "columns": {
+    "member": "Mitglied",
+    "role": "Rolle",
+    "tenants": "Mandanten",
+    "status": "Status",
+    "actions": "Aktionen"
+  },
+  "roles": {
+    "owner": {
+      "label": "Inhaber",
+      "description": "Alles, einschließlich Team, Lizenz und Installationseinstellungen."
+    },
+    "administrator": {
+      "label": "Administrator",
+      "description": "Richtet Mandanten, Speicher, Zeitpläne, Quellen und Integrationen ein und betreibt sie. Nicht Team, Lizenz oder Installationseinstellungen."
+    },
+    "technician": {
+      "label": "Techniker",
+      "description": "Startet Backups, Prüfungen und Restores und öffnet gesicherte und archivierte Inhalte. Ändert keine Konfiguration."
+    },
+    "read_only": {
+      "label": "Nur lesen",
+      "description": "Sieht Status, Berichte und Audit-Log. Keine Inhalte, keine Änderungen."
+    }
+  },
+  "scope": {
+    "all": "Alle Mandanten",
+    "selected": "Ausgewählte Mandanten",
+    "count": "{count, plural, one {# Mandant} other {# Mandanten}}",
+    "allHint": "Gilt auch für später angelegte Mandanten.",
+    "ownerHint": "Inhaber haben immer alle Mandanten.",
+    "pick": "Mandanten",
+    "noTenants": "Es gibt noch keine Mandanten."
+  },
+  "status": {
+    "active": "Aktiv",
+    "invited": "Eingeladen",
+    "invitation_expired": "Einladung abgelaufen"
+  },
+  "form": {
+    "email": "E-Mail-Adresse",
+    "emailHint": "Darf zu keinem bestehenden Konto gehören.",
+    "name": "Name",
+    "role": "Rolle",
+    "scope": "Mandanten",
+    "errors": {
+      "email": "Geben Sie eine gültige E-Mail-Adresse ein.",
+      "name": "Geben Sie einen Namen ein.",
+      "tenants": "Wählen Sie mindestens einen Mandanten."
+    }
+  },
+  "dialog": {
+    "inviteTitle": "Ins Provider-Team einladen",
+    "inviteDescription": "Die Person erhält einen Link, um ein Passwort zu wählen, und richtet danach eine Authenticator-App ein.",
+    "editTitle": "Rolle und Mandanten ändern",
+    "editDescription": "Gilt für {name} ab der nächsten Anfrage.",
+    "submitInvite": "Einladung senden",
+    "submitSave": "Speichern",
+    "cancel": "Abbrechen"
+  },
+  "link": {
+    "title": "Einladung bereit",
+    "sent": "Die Einladung ging per E-Mail an {email}. Der Link funktioniert einmal, 72 Stunden lang.",
+    "copy": "Es konnte keine E-Mail gesendet werden. Geben Sie diesen Link selbst an {email} weiter; er funktioniert einmal, 72 Stunden lang.",
+    "done": "Fertig"
+  },
+  "actions": {
+    "edit": "Rolle ändern",
+    "editLabel": "Rolle und Mandanten von {name} ändern",
+    "remove": "Entfernen",
+    "removeLabel": "{name} aus dem Team entfernen",
+    "reissue": "Neuer Einladungslink",
+    "reissueLabel": "Neuen Einladungslink für {name} erstellen"
+  },
+  "remove": {
+    "title": "{name} aus dem Team entfernen?",
+    "description": "Die Sitzungen enden sofort, eine offene Einladung funktioniert nicht mehr. Ein Konto, das zu keinem Mandanten gehört, wird gelöscht.",
+    "confirm": "Entfernen"
+  },
+  "toasts": {
+    "invited": "Einladung erstellt",
+    "updated": "Änderungen gespeichert",
+    "removed": "Mitglied entfernt",
+    "reissued": "Neuer Einladungslink erstellt"
+  },
+  "errors": {
+    "lastOwner": "Das Team behält immer mindestens einen Inhaber. Machen Sie zuerst jemand anderen zum Inhaber.",
+    "accountExists": "Zu dieser Adresse gibt es schon ein Konto. Laden Sie die Person mit einer anderen Adresse ein.",
+    "noTenants": "Wählen Sie mindestens einen Mandanten, oder geben Sie dem Mitglied alle Mandanten."
+  }
+}

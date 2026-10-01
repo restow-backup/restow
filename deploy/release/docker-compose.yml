@@ -1,0 +1,195 @@
+# Restow release stack: runs the published images, builds nothing.
+#
+# The repository's root docker-compose.yml builds Restow from source. This
+# file is for operators: it pulls the two images of a release and starts
+# PostgreSQL, the three Restow roles and the Caddy edge. Every release has two
+# builds; pick one with RESTOW_IMAGE and RESTOW_WEB_IMAGE in .env:
+#   full       ghcr.io/restow-backup/restow and ghcr.io/restow-backup/restow-web:
+#              the Apache-2.0 core plus the Business and Service Provider modules
+#              (Restow Enterprise License), locked until a license key is installed
+#   Community  ghcr.io/restow-backup/restow-community and
+#              ghcr.io/restow-backup/restow-web-community: the Apache-2.0 core only
+# The release pipeline runs its smoke checks (scripts/smoke) against exactly this
+# file, with both builds.
+#
+#   cp env.example .env     # (a repository checkout calls it .env.example) then fill in every empty value
+#   docker compose up -d
+#
+# The version to run is named by RESTOW_IMAGE and RESTOW_WEB_IMAGE in .env (the
+# opt-in updater writes the same two variables). Update by changing them and
+# running `docker compose pull && docker compose up -d` (docs/UPDATING.md).
+# No secret is written in this file: every value comes from .env.
+
+name: restow
+
+# Shared configuration for the three server roles (same image, same env).
+x-restow-app: &restow-app
+  image: ${RESTOW_IMAGE:?set RESTOW_IMAGE in .env (for example ghcr.io/restow-backup/restow:0.1.0 or ghcr.io/restow-backup/restow-community:0.1.0)}
+  env_file:
+    - .env
+  depends_on:
+    postgres:
+      condition: service_healthy
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-restow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-restow}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-restow} -d ${POSTGRES_DB:-restow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  api:
+    <<: *restow-app
+    environment:
+      ROLE: api
+      # Where the api looks for the opt-in updater (profile `updater`); nothing
+      # answers there unless that profile runs.
+      RESTOW_UPDATER_URL: ${RESTOW_UPDATER_URL:-http://updater:8090}
+    ports:
+      # Loopback only: the Caddy edge reaches the api over the compose network.
+      - "127.0.0.1:${RESTOW_API_PORT:-3000}:3000"
+      # The archive journal SMTP receiver (Business and Service Provider), which
+      # only listens when JOURNAL_SMTP_PORT is set in .env. Until then this maps a
+      # closed port on the loopback interface. Exchange Online delivers to port 25
+      # and must reach the receiver directly, not through Caddy: set
+      # JOURNAL_SMTP_PORT=25 and JOURNAL_SMTP_BIND=0.0.0.0 in .env to open it.
+      # The receiver needs a TLS certificate (see the journal volume below).
+      - "${JOURNAL_SMTP_BIND:-127.0.0.1}:${JOURNAL_SMTP_PORT:-2525}:${JOURNAL_SMTP_PORT:-2525}"
+    volumes:
+      # Default local chunk store (STORAGE_LOCAL_PATH=/data/chunks lives here).
+      - restow-data:/data
+      # The server-side import folder: the api lists it, the worker reads it
+      # (https://docs.restowbackup.com/administrators/mail-import-export/). Read-only on
+      # purpose: Restow never writes to or deletes from it.
+      - ${RESTOW_IMPORT_DIR:-./import}:/var/lib/restow/import:ro
+      # The journal receiver's TLS certificate chain and private key (PEM). Exchange
+      # Online requires TLS, and the receiver does not start without a certificate.
+      # A directory, not two files, so that a renewal that replaces the files is seen
+      # (the receiver re-reads them every few minutes, no restart needed). Put
+      # fullchain.pem and privkey.pem there and point JOURNAL_TLS_CERT_PATH and
+      # JOURNAL_TLS_KEY_PATH at /etc/restow/journal-tls/<file> in .env (.env.example).
+      - ${JOURNAL_TLS_DIR:-./journal-tls}:/etc/restow/journal-tls:ro
+      # The updater's shared secret (empty until the updater profile ran once).
+      - restow-updater-shared:/updater-shared:ro
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # The worker and the scheduler wait for a healthy api: the api applies the
+  # database migrations, and creates the two application database roles they
+  # sign in with, before it answers /healthz.
+  worker:
+    <<: *restow-app
+    environment:
+      ROLE: worker
+    volumes:
+      - restow-data:/data
+      - ${RESTOW_IMPORT_DIR:-./import}:/var/lib/restow/import:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  scheduler:
+    <<: *restow-app
+    environment:
+      ROLE: scheduler
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  # Caddy serves the built web interface and terminates TLS (automatic certificates
+  # for RESTOW_APP_DOMAIN, which must resolve to this host with ports 80 and 443
+  # reachable), and proxies /api/* to the api.
+  caddy:
+    image: ${RESTOW_WEB_IMAGE:?set RESTOW_WEB_IMAGE in .env (for example ghcr.io/restow-backup/restow-web:0.1.0 or ghcr.io/restow-backup/restow-web-community:0.1.0)}
+    environment:
+      RESTOW_APP_DOMAIN: ${RESTOW_APP_DOMAIN:?set RESTOW_APP_DOMAIN in .env (for example app.example.com)}
+      RESTOW_EDGE_HSTS: ${RESTOW_EDGE_HSTS:-}
+      RESTOW_EDGE_TRUSTED_PROXIES: ${RESTOW_EDGE_TRUSTED_PROXIES:-}
+    ports:
+      - "${RESTOW_HTTP_PORT:-80}:80"
+      - "${RESTOW_HTTPS_PORT:-443}:443"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - api
+    restart: unless-stopped
+
+  # --- Optional: the updater (profile: updater), OPT-IN ---
+  # Applies an update from the Updates tab (Settings): pulls the new images, dumps the
+  # database, recreates the services and rolls back when the new version does not come up.
+  # WARNING: it mounts the Docker socket, which is root on the host. Nothing runs unless you
+  # start it (docker compose --profile updater up -d). Read "The opt-in updater" in
+  # docs/UPDATING.md first. RESTOW_PROJECT_DIR must be the absolute path of the directory
+  # that holds this file and .env on the host (for example /opt/restow).
+  # Its own image is RESTOW_UPDATER_IMAGE, set in .env before the profile is started: never
+  # RESTOW_IMAGE, which the updater rewrites, so the container with the Docker socket never runs
+  # an image the updater installed. Only the operator changes it (docs/UPDATING.md). It must be
+  # an image of the same build as RESTOW_IMAGE: the updater installs the images of the build it
+  # runs from (full or Community), unless the two repositories below name others.
+  updater:
+    profiles: ["updater"]
+    image: ${RESTOW_UPDATER_IMAGE:-}
+    environment:
+      ROLE: updater
+      RESTOW_UPDATER_PROJECT_DIR: ${RESTOW_PROJECT_DIR:-/srv/restow}
+      RESTOW_UPDATER_API_URL: http://api:3000
+      # Repositories the updater may build an update from (source mode); empty = none, the
+      # default. Only the operator sets this, in .env (docs/UPDATING.md, "Two modes").
+      RESTOW_UPDATER_SOURCE_HOSTS: ${RESTOW_UPDATER_SOURCE_HOSTS:-}
+      # Where image mode pulls the application and the web image from; empty = the release
+      # images of the updater's own build (ghcr.io/restow-backup/restow and restow-web, or
+      # restow-community and restow-web-community). Set them only for a mirror.
+      RESTOW_UPDATER_IMAGE_REPOSITORY: ${RESTOW_UPDATER_IMAGE_REPOSITORY:-}
+      RESTOW_UPDATER_WEB_IMAGE_REPOSITORY: ${RESTOW_UPDATER_WEB_IMAGE_REPOSITORY:-}
+    expose:
+      - "8090"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${RESTOW_PROJECT_DIR:-/srv/restow}:${RESTOW_PROJECT_DIR:-/srv/restow}
+      - restow-updater:/state
+      - restow-updater-shared:/updater-shared
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8090/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  restow-data:
+  caddy-data:
+  caddy-config:
+  restow-updater:
+  restow-updater-shared:

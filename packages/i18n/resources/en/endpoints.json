@@ -1,0 +1,913 @@
+{
+  "nav": {
+    "inventory": "Inventory",
+    "fileRestore": "File restore"
+  },
+  "areas": {
+    "agents": {
+      "title": "Inventory",
+      "subtitle": "Every server and client with a backup agent: connection, agent version and recovery readiness."
+    },
+    "servers": {
+      "title": "Servers",
+      "subtitle": "Servers that are backed up by an agent, file by file."
+    },
+    "clients": {
+      "title": "Clients",
+      "subtitle": "Laptops and desktops that are backed up by an agent whenever they are online."
+    }
+  },
+  "profile": {
+    "server": "Server",
+    "client": "Client"
+  },
+  "os": {
+    "linux": "Linux",
+    "darwin": "macOS",
+    "windows": "Windows"
+  },
+  "status": {
+    "online": "Online",
+    "offline": "Offline",
+    "never": "Never connected",
+    "revoked": "Revoked"
+  },
+  "activity": {
+    "backup": "Backup running",
+    "restore": "Restore running",
+    "verify_sample": "Restore test running",
+    "busy": "Working"
+  },
+  "readiness": {
+    "state": {
+      "green": "Ready",
+      "yellow": "Attention",
+      "red": "Not restorable",
+      "unverified": "Not verified",
+      "no_backup": "No backup yet"
+    },
+    "overdue": "Overdue",
+    "overdueHint": "The newest backup has not been checked by a restore test for more than a week."
+  },
+  "runKind": {
+    "backup": "Backup",
+    "restore": "Restore to the machine",
+    "verify_sample": "Restore test on the machine"
+  },
+  "runStatus": {
+    "running": "Running",
+    "succeeded": "Succeeded",
+    "partial": "Partial",
+    "failed": "Failed",
+    "interrupted": "Interrupted",
+    "incomplete": "Not completed, will be retried",
+    "incompleteFinal": "Not completed"
+  },
+  "attention": {
+    "none": "Nothing to do",
+    "more": "+{count} more",
+    "silent": {
+      "label": "Silent",
+      "hint": "The machine has not been in contact for longer than the alert limit.",
+      "message": "{hours, plural, one {The server has not been in contact for more than # hour. It should report every few minutes, so it may be switched off, offline or its agent may have stopped.} other {The server has not been in contact for more than # hours. It should report every few minutes, so it may be switched off, offline or its agent may have stopped.}}"
+    },
+    "backup_overdue": {
+      "label": "Backup overdue",
+      "hint": "There has been no successful backup for longer than the alert limit.",
+      "message": "{days, plural, one {There has been no successful backup for more than # day. The client may have been off or offline, or its backups keep failing.} other {There has been no successful backup for more than # days. The client may have been off or offline, or its backups keep failing.}}"
+    },
+    "last_backup_failed": {
+      "label": "Last backup failed",
+      "hint": "The most recent backup run failed. Nothing new was saved by it.",
+      "message": "The most recent backup run failed and saved nothing new. Open the run under Runs to read its log and errors."
+    },
+    "restore_test_failed": {
+      "label": "Restore test failed",
+      "hint": "Files of the newest backup did not come back intact in a restore test.",
+      "message": "A restore test of the newest backup failed: sampled files could not be read back or did not match. Until a test passes, this backup counts as not restorable. See Reports for the differences."
+    },
+    "repository_damaged": {
+      "label": "Repository damaged",
+      "hint": "A repository check found damage in the stored backup data.",
+      "message": "A repository check found damage in the stored backup data of this machine. Restores may fail. See Reports for details, and check the storage target."
+    },
+    "never_seen": {
+      "label": "Never connected",
+      "hint": "The agent has not contacted {appName} yet.",
+      "message": "The agent has not contacted {appName} yet. Check that the install command ran on the machine and that the machine can reach this address."
+    }
+  },
+  "list": {
+    "refresh": "Refresh the list",
+    "honesty": "File-based backup with restic: single files and folders are backed up and restored. There are no disk images and no bare-metal restore. A restore never overwrites anything: it goes into a new folder on the machine, or is downloaded as a ZIP.",
+    "new": {
+      "server": "New server",
+      "client": "New client"
+    },
+    "search": "Search name or host name",
+    "unknown": "Unknown",
+    "noBackupYet": "No backup yet",
+    "backupRunning": "Backup running",
+    "backupFailed": "Failed",
+    "backupPartial": "Partial",
+    "columns": {
+      "name": "Name",
+      "profile": "Type",
+      "system": "System",
+      "status": "Status",
+      "lastBackup": "Last backup",
+      "lastSeen": "Last contact",
+      "readiness": "Recovery readiness",
+      "attention": "Needs attention",
+      "agentVersion": "Agent version"
+    },
+    "errors": {
+      "load": "The machines could not be loaded"
+    },
+    "noTenant": {
+      "title": "No tenant selected",
+      "description": "Choose a tenant at the top to see its servers and clients."
+    },
+    "empty": {
+      "agents": {
+        "title": "No machines yet",
+        "description": "Add a server or a client: {appName} creates a one-time command that installs the backup agent on the machine."
+      },
+      "servers": {
+        "title": "No servers yet",
+        "description": "Add a Linux server: {appName} creates a one-time command that installs the backup agent and connects the server. It is then backed up every day."
+      },
+      "clients": {
+        "title": "No clients yet",
+        "description": "Add a laptop or desktop: {appName} creates a one-time command that installs the backup agent. The client is backed up whenever it is online."
+      }
+    }
+  },
+  "pending": {
+    "title": "Pending enrollments",
+    "description": "Install commands that were created but no machine has used yet. Each works once and expires after 24 hours. A command cannot be shown again; create a new one if it is lost.",
+    "unnamed": "Unnamed",
+    "created": "Created",
+    "expires": "expires",
+    "revoke": "Revoke",
+    "revokeFor": "Revoke the install command {name}",
+    "revoked": "The install command was revoked.",
+    "confirm": {
+      "title": "Revoke this install command?",
+      "description": "A machine that has not used it yet can no longer enroll with it. Machines that already enrolled are not affected.",
+      "action": "Revoke command"
+    },
+    "showAll": "Also show used, expired and revoked commands",
+    "state": {
+      "valid": "Open",
+      "used": "Used",
+      "expired": "Expired",
+      "revoked": "Revoked"
+    }
+  },
+  "enroll": {
+    "title": {
+      "server": "New server",
+      "client": "New client"
+    },
+    "description": {
+      "choose": {
+        "server": "Choose the operating system of the server. {appName} then creates a one-time command that installs the backup agent and connects the server to this installation.",
+        "client": "Choose the operating system of the client. {appName} then creates a one-time command that installs the backup agent and connects the client to this installation."
+      },
+      "command": "Run the command on the machine. This window shows when the machine has connected."
+    },
+    "os": {
+      "legend": "Operating system",
+      "planned": "Planned",
+      "hint": {
+        "linux": "With systemd, on x86-64 or ARM64",
+        "darwin": "Intel or Apple silicon",
+        "windows": "On the roadmap, not available yet"
+      },
+      "windowsNote": "Windows is on the roadmap and cannot be chosen yet. This release backs up Linux and macOS machines."
+    },
+    "label": {
+      "field": "Name (optional)",
+      "placeholder": {
+        "server": "For example: Mail server",
+        "client": "For example: Ada's laptop"
+      },
+      "hint": "Shown in the lists instead of the host name. You can change it later."
+    },
+    "honesty": "The agent backs up files and folders. It does not create disk images, and a bare-metal restore is not possible.",
+    "cancel": "Cancel",
+    "create": "Create install command",
+    "createAnother": "Create a new command",
+    "done": "Done",
+    "command": {
+      "heading": {
+        "linux": "Run this on the Linux machine",
+        "darwin": "Run this on the Mac"
+      },
+      "intro": {
+        "linux": "Open a terminal on the {kind} and paste the command. It needs root rights (sudo) and curl, and asks for the token below.",
+        "darwin": "Open Terminal on the {kind} and paste the command. It needs an administrator account (sudo) and asks for the token below."
+      },
+      "kind": {
+        "server": "server",
+        "client": "client"
+      },
+      "copy": "Copy the install command",
+      "tokenIntro": "When the installer asks for the enrollment token, paste this (the input stays hidden):",
+      "copyToken": "Copy the enrollment token",
+      "validity": "Valid for 24 hours and single use.",
+      "expiresAt": "Expires {time}",
+      "secretNote": "The token is a one-time secret. It is not part of the command, so it ends up neither in the shell history nor in the process list of the machine. It is shown only now and cannot be shown again once you close this window."
+    },
+    "warnings": {
+      "insecure": {
+        "title": "This address is not encrypted",
+        "description": "The address {url} uses plain http. The one-time token and the secrets of the agent would travel unencrypted. Use an https address (set the public URL in the settings) before you connect a machine outside a network you trust."
+      },
+      "notConfigured": {
+        "title": "No public URL is set",
+        "description": "The address {url} in the command was taken from this browser, because no public URL is configured. The machine must be able to reach exactly this address.",
+        "link": "Set the public URL in the settings"
+      }
+    },
+    "status": {
+      "waiting": {
+        "title": "Waiting for the machine to connect",
+        "description": "This window checks every few seconds. You can also close it: the machine appears in the list once it has connected."
+      },
+      "connected": {
+        "title": "Connected",
+        "description": {
+          "server": "The server has enrolled. It will be backed up on its schedule; you can also start the first backup right away.",
+          "client": "The client has enrolled. It will be backed up whenever it is online; you can also start the first backup right away."
+        },
+        "open": {
+          "server": "Open the server",
+          "client": "Open the client"
+        }
+      },
+      "expired": {
+        "title": "The command has expired",
+        "description": "It was not used within 24 hours and no longer works. Create a new command to connect the machine."
+      },
+      "revoked": {
+        "title": "The command was revoked",
+        "description": "It no longer works. Create a new command to connect the machine."
+      }
+    },
+    "script": {
+      "heading": "What the script does",
+      "steps": {
+        "download": {
+          "linux": "Downloads restow-agent and restic from this server, not from the internet.",
+          "darwin": "Downloads restow-agent and restic from this server, not from the internet."
+        },
+        "verify": {
+          "linux": "Checks the maintainer's signature over the release and the SHA-256 checksum of both programs before it runs anything.",
+          "darwin": "Checks the maintainer's signature over the release and the SHA-256 checksum of both programs before it runs anything."
+        },
+        "service": {
+          "linux": "Installs both into /opt/restow-agent, a folder only root can change, and registers the agent as a system service (systemd unit restow-agent).",
+          "darwin": "Installs both into /Library/Application Support/Restow, a folder only root can change, and registers the agent as a system service (LaunchDaemon com.restowbackup.agent)."
+        },
+        "enroll": {
+          "linux": "Enrolls the machine with the one-time token. The agent only connects out to {appName}; no port is opened on the machine.",
+          "darwin": "Enrolls the machine with the one-time token. The agent only connects out to {appName}; no port is opened on the machine."
+        }
+      },
+      "repair": "Running the command again repairs the installation instead of installing it twice.",
+      "hooks": "Commands before and after the backup (hooks) stay off on the machine unless you allow them there: add -s -- --hooks=scripts (only scripts in /etc/restow-agent/hooks.d) or -s -- --hooks=any after sudo sh."
+    },
+    "uninstall": {
+      "heading": "Remove the agent later",
+      "intro": "Run one of these commands on the machine to remove the agent. Backups that already exist stay restorable in {appName}.",
+      "agent": "With the agent installed",
+      "script": "With the script, also if the agent is broken or gone",
+      "copyAgent": "Copy the uninstall command",
+      "copyScript": "Copy the uninstall script command",
+      "remote": "You can also uninstall from {appName}: open the machine, then Settings, then Uninstall agent."
+    },
+    "unattended": {
+      "heading": "Unattended installation (RMM, scripts)",
+      "intro": "Without a terminal to type into, the installer reads the token from a file. Put the token into {tokenFile} (mode 0600, owned by root), then run:",
+      "copy": "Copy the unattended install command",
+      "cleanup": "Delete the token file after the installation. The token is single use and expires after 24 hours."
+    }
+  },
+  "detail": {
+    "title": "Machine",
+    "refresh": "Refresh this machine",
+    "back": "Back to inventory",
+    "loadError": "The machine could not be loaded",
+    "notFound": "Machine not found",
+    "notFoundDescription": "This machine does not exist in the selected tenant. It may belong to another tenant, or the link is wrong.",
+    "revokedBanner": "This machine is revoked. It takes no new backups or tasks and its settings cannot be changed. The backups that exist stay restorable: browse them and download files as a ZIP.",
+    "tabs": {
+      "overview": "Overview",
+      "snapshots": "Snapshots",
+      "settings": "Settings"
+    }
+  },
+  "actions": {
+    "backup": {
+      "label": "Back up now",
+      "queued": "Backup requested",
+      "queuedNote": "The machine starts it with its next contact, usually within a few minutes.",
+      "already": "A backup is already waiting for this machine.",
+      "failed": "The backup could not be requested"
+    },
+    "test": {
+      "label": "Run restore test",
+      "queued": "Restore test queued",
+      "queuedNote": "{appName} reads sample files of the newest backup back and compares their checksums. The result appears under Reports.",
+      "already": "A restore test is already queued or running for this machine.",
+      "failed": "The restore test could not be started",
+      "needsBackup": "A restore test needs a successful backup first."
+    }
+  },
+  "facts": {
+    "title": "This machine",
+    "profile": "Type",
+    "system": "System",
+    "osVersion": "Operating system version",
+    "agentVersion": "Agent version",
+    "connection": "Connection",
+    "lastSuccess": "Last successful backup",
+    "noSuccess": "No successful backup yet",
+    "lastBackup": "Last backup run",
+    "outcome": {
+      "partial": "some files could not be read",
+      "failed": "failed",
+      "interrupted": "interrupted, continues automatically"
+    },
+    "nextRun": "Next backup",
+    "nextRunUnknown": "Not reported yet",
+    "noNextRun": "None, the machine is revoked",
+    "config": "Configuration",
+    "configApplied": "Version {version}, applied on the machine",
+    "configPending": "Version {version} is saved; the machine still runs version {applied} and fetches the change with its next contact",
+    "configNone": "none",
+    "added": "Added",
+    "revoked": "Revoked",
+    "never": "Never",
+    "configRevoked": "Version {version}"
+  },
+  "repository": {
+    "title": "Repository",
+    "description": "The restic repository that holds the backups of this machine in your storage target.",
+    "size": "Size in storage",
+    "snapshots": "Snapshots kept",
+    "measured": "Measured",
+    "notMeasured": "Not measured yet; it appears with the first backup",
+    "lastRetention": "Last retention run",
+    "lastCheck": "Last repository check",
+    "lastRestoreTest": "Last restore test",
+    "retention": "Kept: {daily} daily, {weekly} weekly and {monthly} monthly snapshots. Only the server removes older ones; the agent can add backups but never delete them.",
+    "ofBudget": "{used} of {budget} ({percent} %)",
+    "budget": "Storage budget",
+    "budgetUnlimited": "No limit",
+    "budgetOwn": "{budget}, set for this machine",
+    "budgetDefault": "{budget}, the installation's default",
+    "tenant": "All servers and clients",
+    "tenantOf": "{used} of {budget}",
+    "refused": "Last refused upload",
+    "quota": {
+      "near": "The repository uses more than 90 percent of its storage budget. Raise the budget in the settings or keep fewer snapshots before new backups are refused.",
+      "exceeded": "The storage budget is used up: new backups of this machine are refused until the budget is raised or retention frees space. Restores keep working."
+    }
+  },
+  "tasks": {
+    "title": "Waiting for the machine",
+    "description": "These requests are picked up with the machine's next contact. A request that the machine does not pick up in time expires and is marked as failed.",
+    "kind": {
+      "backup_now": "Back up now",
+      "restore": "Restore",
+      "verify_sample": "Restore test",
+      "update_config": "Apply new settings",
+      "uninstall": "Uninstall the agent"
+    },
+    "restore": "{count, plural, one {Restore # item into a new folder} other {Restore # items into a new folder}}",
+    "status": {
+      "pending": "Waiting to be picked up",
+      "delivered": "Handed to the machine",
+      "done": "Done",
+      "failed": "Failed"
+    },
+    "retryFrom": "Repeats a test that could not complete; picked up from {time}",
+    "recentTitle": "Recent requests",
+    "recentDescription": "The last requests to this machine that are over, and how each one ended.",
+    "reason": {
+      "expired": "The machine did not pick it up in time.",
+      "revoked": "The machine was revoked before it could pick it up.",
+      "agentStopped": "The agent stopped reporting while it ran this request."
+    }
+  },
+  "runs": {
+    "title": "Runs",
+    "description": "What the agent did on this machine: backups, restores and restore tests, newest first. Open a run for its log and the files it could not read.",
+    "empty": "No run reported yet. The first one appears after the machine has started a backup.",
+    "unknown": "Unknown",
+    "columns": {
+      "kind": "Run",
+      "status": "Result",
+      "started": "Started",
+      "duration": "Duration",
+      "dataAdded": "Data added"
+    },
+    "openFor": "Open details of {kind} from {time}",
+    "showOlder": "Show older runs",
+    "loadingOlder": "Loading older runs",
+    "olderError": "Older runs could not be loaded",
+    "sheet": {
+      "title": "Run",
+      "description": "Result, errors and the end of the log of this run.",
+      "error": "The run could not be loaded"
+    },
+    "facts": {
+      "status": "Result",
+      "started": "Started",
+      "finished": "Finished",
+      "notFinished": "Still running",
+      "duration": "Duration",
+      "snapshot": "Snapshot",
+      "filesProcessed": "Files processed",
+      "bytesProcessed": "Data processed",
+      "filesNew": "New files",
+      "filesChanged": "Changed files",
+      "filesUnmodified": "Unchanged files",
+      "dataAdded": "Data added to the repository"
+    },
+    "progress": {
+      "heading": "Progress",
+      "label": "Progress of the run",
+      "none": "The machine has not reported progress yet.",
+      "files": "{done} files",
+      "filesOf": "{done} of {total} files",
+      "bytesOf": "{done} of {total}",
+      "updated": "Last update"
+    },
+    "partialNote": "The backup finished and a snapshot exists, but some files could not be read, for example because they were open, locked or not readable. Those files are missing from this snapshot. The list below shows which.",
+    "failedNote": "This run failed. Read the errors and the log below to see why; nothing new was saved by it.",
+    "errors": {
+      "heading": "{count, plural, one {# error} other {# errors}}",
+      "none": "The run reported no errors.",
+      "more": "{count, plural, one {# more error is not shown here.} other {# more errors are not shown here.}}",
+      "noneYet": "No errors reported so far."
+    },
+    "log": {
+      "heading": "End of the log",
+      "note": "The last lines of the run log, as reported by the agent. Secrets are never part of it.",
+      "running": "The log is reported when the run ends.",
+      "empty": "The agent sent no log for this run."
+    },
+    "interruptedNote": "The agent was restarted while this run was going and picks the work up again by itself. This is not a failure; nothing needs to be done.",
+    "incompleteNote": "This restore test could not complete, so it says nothing about the backup: nothing was rated, no alert went out, and the last restore test stays as it was. The machine gets the test again after a wait while this backup is its newest; otherwise the next backup brings a new test.",
+    "incompleteNoteFinal": "This restore test could not complete, so it says nothing about the backup: nothing was rated and no alert went out. The machine is revoked and gets no more tests.",
+    "errorCount": "{count, plural, one {# error} other {# errors}}"
+  },
+  "reports": {
+    "title": "Reports",
+    "description": "What {appName} found out about the repository: restore tests, repository checks and retention runs.",
+    "empty": "No report yet. Restore tests, repository checks and retention runs appear here.",
+    "kind": {
+      "restore_test": "Restore test",
+      "repository_check": "Repository check",
+      "retention": "Retention run"
+    },
+    "origin": {
+      "server": "Read back by the server",
+      "agent": "Restored on the machine"
+    },
+    "snapshot": "snapshot {id}",
+    "noRating": "No rating",
+    "errorMessage": "Reason: {message}",
+    "restoreTest": {
+      "matched": "{matched} of {files} sampled files matched their checksum",
+      "noResult": "The test did not finish"
+    },
+    "check": {
+      "headline": "Repository check",
+      "subset": "Checked {percent}% of the stored data"
+    },
+    "retention": {
+      "headline": "Retention run",
+      "removed": "{count, plural, one {# snapshot removed} other {# snapshots removed}}",
+      "kept": "{kept} snapshots kept",
+      "size": "Repository size afterwards: {size}",
+      "unrecorded": "{count, plural, one {# snapshot no backup reported was kept} other {# snapshots no backup reported were kept}}"
+    },
+    "mismatches": {
+      "show": "{count, plural, one {Show # difference} other {Show # differences}}",
+      "expected": "Expected",
+      "actual": "Found",
+      "missing": "File could not be read back",
+      "reason": "Reason"
+    }
+  },
+  "snapshots": {
+    "title": "Restore points",
+    "description": "{count, plural, one {# snapshot in the repository. Pick one to browse its files.} other {# snapshots in the repository. Pick one to browse its files.}}",
+    "files": "{count, plural, one {# file} other {# files}}",
+    "errorTitle": "The snapshots could not be read",
+    "busyTitle": "The repository is busy",
+    "empty": {
+      "title": "No snapshot yet",
+      "description": "A snapshot is created by every successful backup. Once the machine has finished its first backup, its restore points appear here."
+    },
+    "flags": {
+      "unrecorded": "Not reported by any backup",
+      "future_time": "Dated in the future",
+      "hint": "Retention keeps this snapshot. Check the machine: it may be compromised."
+    }
+  },
+  "browser": {
+    "title": "Files in snapshot {id}",
+    "auditNote": "Browsing and downloading are recorded in the audit log.",
+    "pathBar": "Folder path",
+    "root": "Snapshot root",
+    "pick": {
+      "title": "Pick a snapshot",
+      "description": "Choose a restore point on the left to browse its folders and files."
+    },
+    "columns": {
+      "name": "Name",
+      "size": "Size",
+      "modified": "Modified"
+    },
+    "selectAll": "Select everything in this folder",
+    "select": "Select {name}",
+    "coveredBy": "{name} is included by a selected folder",
+    "emptyFolder": "This folder is empty.",
+    "symlink": "link",
+    "special": "special file, cannot be restored",
+    "errorTitle": "The folder could not be read",
+    "busyTitle": "The repository is busy",
+    "revokedNote": "This machine is revoked, so files cannot be restored onto it. You can still download them as a ZIP.",
+    "selection": {
+      "none": "Nothing selected",
+      "count": "{count, plural, one {# item selected} other {# items selected}}",
+      "folderNote": "A selected folder includes everything inside it.",
+      "clear": "Clear selection",
+      "downloadZip": "Download as ZIP",
+      "download": {
+        "too_many": "A ZIP holds at most {max, number} selected items. Select fewer, or select a parent folder.",
+        "preparing": "Preparing ZIP",
+        "failed": "The ZIP could not be prepared"
+      },
+      "restore": {
+        "action": "Restore to the machine",
+        "too_many": "A restore takes at most {max} selected items. Select fewer, or select a parent folder."
+      },
+      "manyNote": "Every single file is read on its own, so a selection of more than {count} single files can take a long time. Select the folder that holds them instead."
+    },
+    "selectAllLoaded": "Select everything loaded so far in this folder",
+    "shown": "{count, plural, one {# entry shown} other {# entries shown}}",
+    "loadMore": "Load more",
+    "loadingMore": "Loading more entries",
+    "loadMoreError": "More entries could not be loaded.",
+    "loadMoreRetry": "Try again"
+  },
+  "restore": {
+    "title": "Restore to the machine",
+    "description": "The selected files and folders are restored on {name} by its agent.",
+    "selection": "{count, plural, one {# item} other {# items}} from snapshot {id} of {time}",
+    "moreItems": "{count, plural, one {and # more} other {and # more}}",
+    "target": {
+      "label": "Target folder (optional)",
+      "placeholder": "/srv/restore",
+      "hint": "An absolute path on the machine. Without one, the agent creates a new folder named Restow-Restore followed by the date and time, inside the first folder that is backed up.",
+      "errors": {
+        "notAbsolute": "Enter an absolute path, starting with a slash.",
+        "controlCharacters": "The path contains control characters.",
+        "tooLong": "The path is too long."
+      }
+    },
+    "neverOverwrites": "A restore never overwrites existing files. Everything is written into a new folder, so files that are on the machine now stay untouched.",
+    "timing": "The machine starts the restore with its next contact, usually within a few minutes. You can follow it under Runs on the overview.",
+    "offline": {
+      "server": "The server is not connected right now. The restore waits and starts when it reports back.",
+      "client": "The client is not connected right now. The restore waits and starts when the client is back online."
+    },
+    "cancel": "Cancel",
+    "close": "Close",
+    "submit": "Request restore",
+    "showOverview": "Show overview",
+    "requested": {
+      "title": "Restore requested",
+      "description": "The request is waiting for the machine. When the agent picks it up, the run appears under Runs on the overview, with the folder it restored into."
+    },
+    "toast": {
+      "requested": "Restore requested"
+    }
+  },
+  "settings": {
+    "revokedNote": "This machine is revoked. Its settings can no longer be changed.",
+    "general": {
+      "title": "General",
+      "name": "Name",
+      "nameHint": "Shown instead of the host name {hostname}. Leave empty to show the host name."
+    },
+    "files": {
+      "title": "What is backed up",
+      "description": "Folders the agent backs up and patterns it leaves out."
+    },
+    "paths": {
+      "label": "Folders to back up",
+      "placeholder": "/home",
+      "row": "Folder {index}",
+      "remove": "Remove {path}",
+      "add": "Add a folder",
+      "hint": "Absolute paths on the machine, for example /home or /srv. Everything below a folder is included."
+    },
+    "excludes": {
+      "label": "Exclude patterns",
+      "hint": "One pattern per line, for example *.tmp or node_modules. Files that match are left out of the backup."
+    },
+    "schedule": {
+      "title": "Schedule",
+      "description": "When the agent starts a backup.",
+      "kind": "Run",
+      "kinds": {
+        "daily": "Daily at a fixed time",
+        "interval": "At a fixed interval",
+        "on_connect": "Whenever the machine is online"
+      },
+      "timeOfDay": "Time of day",
+      "timeHint": "In the time zone below.",
+      "minutes": {
+        "interval": "Every … minutes",
+        "on_connect": "At most once every … minutes"
+      },
+      "minutesHint": {
+        "interval": "At least {min} minutes.",
+        "on_connect": "A backup starts when the machine is online and the last one is older than this. Empty: the agent default of {default} minutes (4 hours)."
+      },
+      "timeZone": "Time zone",
+      "timeZoneHint": "The time zone the schedule is read in.",
+      "defaults": "By default, servers are backed up daily at 22:00 and clients whenever they are online, at most once every 4 hours."
+    },
+    "limits": {
+      "title": "Limits",
+      "description": "Keep backups from disturbing the machine or its network.",
+      "bandwidth": "Upload limit (kbit/s)",
+      "bandwidthHint": "Empty means unlimited. 1000 kbit/s is about 1 Mbit/s.",
+      "unlimited": "Unlimited",
+      "acPower": "Only back up on AC power",
+      "acPowerHint": "A laptop on battery skips the backup until it is plugged in."
+    },
+    "hooks": {
+      "title": "Commands before and after the backup",
+      "description": "Commands the agent runs around each backup, for example to dump a database so that its files are consistent. They run as root, so the machine decides whether it runs them.",
+      "warningTitle": "These commands run with full rights",
+      "warningRoot": "The agent runs them as root (administrator) on the machine, before and after every backup. Only enter commands you trust and understand.",
+      "warningFailure": "If the command before the backup fails, the backup fails too, so a broken dump never gets backed up as if it were fine.",
+      "warningAudit": "The audit log records that hooks changed and a fingerprint of them, not their text.",
+      "stepUp": "Setting or changing a hook asks you to confirm it is you when you signed in more than 10 minutes ago. Removing all hooks does not.",
+      "pre": "Before the backup",
+      "preHint": "Runs first. Leave empty for none.",
+      "prePlaceholder": "pg_dumpall -U postgres > /var/backups/all.sql",
+      "post": "After the backup",
+      "postHint": "Runs when the backup is over. Leave empty for none.",
+      "policy": {
+        "unknown": {
+          "title": "The machine has not said whether it allows hooks",
+          "description": "The agent reports it with its next contact. Until then no hooks can be set here."
+        },
+        "off": {
+          "title": "Hooks are switched off on this machine",
+          "description": "Hooks run as root, so only an administrator of the machine can allow them, on the machine itself. It takes one of these commands there:"
+        },
+        "scripts": {
+          "title": "This machine only runs its own scripts",
+          "description": "Enter the name of a script that an administrator put into /etc/restow-agent/hooks.d on the machine, not a command. The agent runs it directly, without a shell.",
+          "available": "Scripts on the machine: {scripts}",
+          "none": "There are no scripts in /etc/restow-agent/hooks.d on the machine yet."
+        },
+        "any": {
+          "title": "This machine runs any command from {appName}",
+          "description": "An administrator of the machine allowed hooks of any kind. Whoever may change this machine's settings in {appName} can run commands as root on it."
+        }
+      },
+      "scriptHint": "The name of a script in /etc/restow-agent/hooks.d. Leave empty for none.",
+      "scriptPlaceholder": "db-dump",
+      "hidden": {
+        "set": "A command is set (fingerprint {fingerprint}). Only administrators who may change the settings see it.",
+        "none": "None."
+      },
+      "ignored": {
+        "title": "The commands below are not run",
+        "description": "They were set before the machine decided about hooks. The machine skips them and marks each backup as incomplete until they are removed or allowed on the machine.",
+        "clear": "Remove the commands"
+      }
+    },
+    "retention": {
+      "title": "Retention",
+      "description": "How many snapshots are kept.",
+      "keepDaily": "Daily snapshots",
+      "keepWeekly": "Weekly snapshots",
+      "keepMonthly": "Monthly snapshots",
+      "default": "Default: {count}",
+      "note": "The server applies these rules and removes older snapshots; the agent can only add backups, never delete them. Lowering a number permanently removes older snapshots at the next retention run."
+    },
+    "alerts": {
+      "title": "Alerts",
+      "description": "When {appName} tells you that this machine needs attention.",
+      "hours": "Hours without contact",
+      "hoursHint": "Alert when the server has not been in contact for longer than this. Default: {count}.",
+      "days": "Days without a good backup",
+      "daysHint": "Alert when the client has had no successful backup for longer than this. Default: {count}."
+    },
+    "errors": {
+      "tooLong": "Too long, at most {max} characters.",
+      "controlCharacters": "Contains control characters: {value}",
+      "notAbsolute": "Not an absolute path: {value}",
+      "noPaths": "Add at least one folder to back up.",
+      "tooManyPaths": "At most {max} folders are allowed.",
+      "tooManyExcludes": "At most {max} patterns are allowed.",
+      "timeOfDay": "Enter a time as HH:MM, for example 22:00.",
+      "required": "This field is required.",
+      "integer": "Enter a whole number.",
+      "range": "Enter a number from {min} to {max}.",
+      "notScriptName": "Enter the name of a script (letters, digits, dot, dash, underscore), not a command."
+    },
+    "sections": {
+      "displayName": "Name",
+      "schedule": "Schedule",
+      "paths": "Folders",
+      "excludes": "Exclude patterns",
+      "hooks": "Commands",
+      "bandwidthKbps": "Upload limit",
+      "onlyOnAcPower": "AC power",
+      "retention": "Retention",
+      "staleAfterHours": "Alerts",
+      "staleAfterDays": "Alerts",
+      "quotaGib": "Storage budget"
+    },
+    "save": {
+      "unsaved": "Unsaved changes",
+      "clean": "No changes",
+      "fix": "Fix the marked fields before saving.",
+      "action": "Save changes",
+      "discard": "Discard changes"
+    },
+    "toast": {
+      "saved": "Settings saved",
+      "appliedLater": "The machine applies them with its next contact.",
+      "unchanged": "Nothing changed"
+    },
+    "quota": {
+      "title": "Storage budget",
+      "description": "The most the repository of this machine may take in the storage target. Uploads beyond it are refused; restores keep working.",
+      "label": "Budget in GiB",
+      "hintDefault": "Leave empty for the installation's default of {size}.",
+      "hintUnlimited": "Leave empty for no limit (the installation sets none).",
+      "tenantNote": "All servers and clients of this tenant share a budget of {size}."
+    }
+  },
+  "repositoryKey": {
+    "title": "Restore without {appName}",
+    "description": "The backup of this machine is a normal restic repository.",
+    "body": "With the repository password and access to the storage target, you can restore the backup with restic alone, even if this {appName} server is gone. The server also keeps the password sealed next to the repository, so the master key and the storage are enough: the command restow-restore endpoint-password recovers it. Keep the password safe all the same, for example in a password manager.",
+    "show": "Show repository password",
+    "dialog": {
+      "title": "Repository password",
+      "description": "Confirm that you want to see the password of this machine's repository.",
+      "shownDescription": "Copy the password now. It is hidden again when you close this window.",
+      "warningTitle": "Handle with care",
+      "audit": "Showing the password is recorded in the audit log.",
+      "power": "The password decrypts the whole backup of this machine. Anyone who has it and can read the storage target can read every backed-up file.",
+      "stepUp": "If you signed in more than 10 minutes ago, you confirm it is you first.",
+      "cancel": "Cancel",
+      "confirm": "Show password",
+      "password": "Password",
+      "copyPassword": "Copy the repository password",
+      "hideNote": "Not stored in this browser. Closing the window hides it.",
+      "example": "Example command",
+      "copyCommand": "Copy the example command",
+      "exampleNote": "Replace /path/to/storage with the folder of your storage target and run restic with this password. It restores the newest snapshot into /restore. For object storage, use the restic repository address of your bucket instead.",
+      "hide": "Hide and close"
+    }
+  },
+  "danger": {
+    "title": "Remove this machine",
+    "description": "Backups that already exist stay restorable in both cases.",
+    "uninstall": {
+      "title": "Uninstall the agent",
+      "description": "The machine removes the agent by itself with its next contact, and is revoked when it does. Use this when you no longer want to back the machine up.",
+      "action": "Uninstall agent",
+      "queued": "The uninstall is waiting for the machine.",
+      "confirm": {
+        "title": "Uninstall the agent on {name}?",
+        "description": "The agent removes itself from the machine with its next contact. Afterwards the machine is revoked and no longer backed up. Backups that exist stay restorable.",
+        "offline": "If the machine is off or offline, this waits until it reports back. To stop it right now, revoke it instead.",
+        "action": "Uninstall agent"
+      },
+      "toast": {
+        "queued": "Uninstall requested",
+        "already": "An uninstall is already waiting for this machine."
+      }
+    },
+    "revoke": {
+      "title": "Revoke",
+      "description": "Refuses the machine at once: no more backups and no more tasks. The agent stays installed on the machine until you remove it there.",
+      "action": "Revoke machine",
+      "confirm": {
+        "title": "Revoke {name}?",
+        "description": "From now on the machine is refused: it is no longer backed up and takes no tasks. The agent stays installed and keeps trying until you uninstall it on the machine. Backups that exist stay restorable.",
+        "irreversible": "This cannot be undone. To back the machine up again, enroll it anew.",
+        "action": "Revoke machine"
+      },
+      "toast": "The machine was revoked."
+    }
+  },
+  "errors": {
+    "resticBusy": "The server is reading other backups right now. Try again in a moment.",
+    "repositoryLocked": "The repository is busy with a backup or maintenance. Try again shortly.",
+    "repositoryUnavailable": "The repository of this machine could not be opened in the storage target. Check that the storage target is reachable.",
+    "resticFailed": "Reading the repository failed. The details are in the server log.",
+    "resticUnavailable": "The restic program is not available on the server, so snapshots cannot be read.",
+    "unsupportedOs": "This operating system is not supported yet. This release backs up Linux and macOS machines.",
+    "revoked": "This machine is revoked and takes no changes or tasks.",
+    "nothingToTest": "There is no successful backup to test yet.",
+    "instanceUnknown": "The address of this installation is not known. Set the public URL in the settings and try again.",
+    "queueNotReady": "The worker has not started yet. Try again in a moment.",
+    "pathNotFound": "A selected path is not part of this snapshot.",
+    "tokenSettled": "This install command was already used or revoked.",
+    "downloadGone": "This download is no longer available. Prepare it again.",
+    "downloadTooLarge": "The selection is too large for one download. Select fewer items, or a parent folder.",
+    "invalidCursor": "The folder listing is out of date. Open the folder again.",
+    "hooksNotAllowed": "This machine does not allow hooks from {appName}. An administrator of the machine can allow them there with sudo restow-agent hooks scripts or sudo restow-agent hooks any.",
+    "hookNotAScript": "This machine only runs scripts from /etc/restow-agent/hooks.d. Enter the name of a script there, not a command.",
+    "recentSignIn": "Confirm it is you first: setting or changing a hook and showing the repository password need a sign-in from the last 10 minutes."
+  },
+  "readinessSection": {
+    "overdue": "Overdue",
+    "notChecked": "Not checked",
+    "open": "Open",
+    "openFor": "Open {name}",
+    "result": {
+      "green": "The restore test of the newest backup matched every checked file.",
+      "yellow": "The restore test passed, but the newest backup is partial: some files could not be read.",
+      "red": "The restore test of the newest backup failed, or a repository check found damage.",
+      "unverified": "A backup exists but was never verified.",
+      "noBackup": "Nothing to verify until the first backup completes.",
+      "noBackupOverdue": "No backup within 24 hours of protection starting."
+    }
+  },
+  "runErrors": {
+    "interrupted": "Interrupted, continues automatically",
+    "no_paths": "None of the configured folders exists on the machine",
+    "pre_hook_failed": "The command before the backup failed, so the backup did not run",
+    "post_hook_failed": "The command after the backup failed",
+    "hooks_not_allowed": "The command before or after the backup was not run: the machine does not allow hooks from {appName}",
+    "timeout": "The run took too long and was stopped",
+    "target_not_empty": "The target folder was not empty, so nothing was restored and nothing was overwritten",
+    "invalid_task": "The machine could not carry out the request",
+    "hash_mismatch": "A file differs from the checksum recorded at backup time",
+    "missing": "A file was not found in the snapshot",
+    "not_regular": "The entry is not a regular file, so it could not be compared",
+    "read_error": "A file could not be read",
+    "restic_exit": "restic ended with exit code {code}",
+    "unknown": "Error code {code}",
+    "detail": "Message from the agent",
+    "agent_stopped": "The agent stopped reporting while the run was in progress"
+  },
+  "agentUpdates": {
+    "title": "Automatic agent updates",
+    "description": "Agents update themselves to the newest version this installation ships, and only to releases signed by the maintainer. Pause it to keep every machine of this tenant on its version, for example to test an update first.",
+    "label": "Update agents automatically",
+    "on": "On: the machines install new signed agent releases by themselves.",
+    "paused": "Paused for every machine of this tenant, also for machines added later.",
+    "toast": {
+      "on": "Automatic agent updates are on",
+      "paused": "Automatic agent updates are paused"
+    }
+  },
+  "inventory": {
+    "title": "Inventory",
+    "subtitle": "Every machine with a backup agent: connection, agent version and recovery readiness.",
+    "filterLabel": "Filter machines",
+    "chips": {
+      "agents": "All",
+      "servers": "Servers",
+      "clients": "Clients"
+    }
+  },
+  "fileRestore": {
+    "title": "File restore",
+    "subtitle": "Restore or download files from a restore point of a machine.",
+    "machine": "Machine",
+    "choose": "Choose a machine",
+    "noTenant": "Choose a tenant at the top to restore files of its machines.",
+    "pick": {
+      "title": "Choose a machine",
+      "description": "Choose a machine above. Then pick a restore point, browse it and restore files."
+    },
+    "empty": {
+      "title": "No machines yet",
+      "description": "Add a server or client in the inventory. Once it is backed up, restore its files here.",
+      "action": "Open inventory"
+    }
+  }
+}

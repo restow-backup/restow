@@ -1,0 +1,76 @@
+{
+  "calendars": {
+    "value": [
+      {
+        "id": "cal-default",
+        "name": "Calendar",
+        "isDefaultCalendar": true,
+        "canEdit": true,
+        "owner": { "address": "alice@contoso.example" }
+      },
+      { "id": "cal-team", "name": "Team", "isDefaultCalendar": false, "canEdit": true }
+    ]
+  },
+  "events": {
+    "value": [
+      {
+        "id": "evt-single",
+        "type": "singleInstance",
+        "subject": "Dentist",
+        "start": { "dateTime": "2026-09-10T08:00:00.0000000", "timeZone": "UTC" },
+        "end": { "dateTime": "2026-09-10T09:00:00.0000000", "timeZone": "UTC" },
+        "iCalUId": "040000008200E00074C5B7101A82E00800000000",
+        "changeKey": "ck1",
+        "webLink": "https://outlook.office365.example/calendar/item/evt-single",
+        "organizer": { "emailAddress": { "address": "alice@contoso.example" } },
+        "attendees": [{ "emailAddress": { "address": "bob@contoso.example" }, "type": "required" }]
+      },
+      {
+        "id": "evt-master",
+        "type": "seriesMaster",
+        "subject": "Weekly sync",
+        "start": { "dateTime": "2026-01-05T10:00:00.0000000", "timeZone": "UTC" },
+        "end": { "dateTime": "2026-01-05T10:30:00.0000000", "timeZone": "UTC" },
+        "recurrence": {
+          "pattern": { "type": "weekly", "interval": 1, "daysOfWeek": ["monday"] },
+          "range": { "type": "endDate", "startDate": "2026-01-05", "endDate": "2026-12-28" }
+        }
+      }
+    ]
+  },
+  "instances": {
+    "value": [
+      {
+        "id": "evt-occ-1",
+        "type": "occurrence",
+        "seriesMasterId": "evt-master",
+        "subject": "Weekly sync",
+        "originalStart": "2026-09-07T10:00:00Z",
+        "start": { "dateTime": "2026-09-07T10:00:00.0000000", "timeZone": "UTC" }
+      },
+      {
+        "id": "evt-exc-1",
+        "type": "exception",
+        "seriesMasterId": "evt-master",
+        "subject": "Weekly sync (moved)",
+        "originalStart": "2026-09-14T10:00:00Z",
+        "start": { "dateTime": "2026-09-14T14:00:00.0000000", "timeZone": "UTC" }
+      }
+    ]
+  },
+  "contactFolders": {
+    "value": [{ "id": "cf-suppliers", "displayName": "Suppliers", "parentFolderId": "cf-root" }]
+  },
+  "contacts": {
+    "value": [
+      {
+        "id": "ct-1",
+        "changeKey": "ck-ct-1",
+        "displayName": "Carol Contact",
+        "emailAddresses": [{ "address": "carol@supplier.example", "name": "Carol Contact" }],
+        "parentFolderId": "cf-suppliers",
+        "createdDateTime": "2025-02-02T00:00:00Z"
+      }
+    ]
+  }
+}

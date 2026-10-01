@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    // The repository root, not src: src/ee.ts pulls the ee/api sources into
+    // this build, so dist mirrors the repository layout
+    // (dist/apps/api/src/server.js next to dist/ee/api/src/...).
+    "rootDir": "../..",
+    "declaration": false,
+    "jsx": "react-jsx"
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["dist", "node_modules"]
+}

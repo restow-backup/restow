@@ -1,0 +1,358 @@
+# Restow public demo (demo.restowbackup.com) — a separate, self-contained
+# compose project. Read deploy/demo/README.md before running this anywhere.
+#
+# Isolation (non-negotiable, see deploy/demo/README.md "Isolation"):
+#   - api, worker, scheduler, postgres and dovecot sit on `internal`, a
+#     Docker network with no route to the internet or to any other compose
+#     project on the host;
+#   - `web` (Caddy: the built SPA plus the /api reverse proxy) publishes only
+#     on the Docker bridge gateway address by default (172.17.0.1:8081,
+#     RESTOW_DEMO_BIND_ADDRESS/RESTOW_DEMO_BIND_PORT), never on 0.0.0.0
+#     (security review finding 7): an address the host itself and its
+#     containers use, not a public interface, so it is safe to bring up on
+#     any host, including a production one. The co-hosted variant
+#     ("Option B" in the README) uses this default as-is: the production
+#     Caddy reaches it through host.docker.internal (host-gateway) without
+#     sharing a Docker network. Public 80/443 on its own dedicated VM is an
+#     explicit opt-in (docker-compose.override.public.yml, "Option A");
+#   - RESTOW_DEMO=true switches on the demo guard (every change refused
+#     except the handful a visitor is offered) and makes webhooks and
+#     outbound mail no-ops (apps/api middleware/demo-guard.ts, notify.ts;
+#     apps/worker handlers/webhooks.ts);
+#   - the seed (deploy/demo/seed) is the only thing that may create the demo
+#     tenants, sources and schedules; it authenticates its own bootstrap
+#     calls with RESTOW_DEMO_SEED_TOKEN, a secret the public never sees, and
+#     is not on the demo guard's public allowlist even with that token
+#     (routes/setup.ts refuses any admin but the documented one);
+#   - deploy/demo/reset.sh recreates the whole project (and so the database
+#     and the mail volume) from scratch every night, and starts `web` only
+#     after the seed has finished successfully.
+#
+# Nothing here is ever built on the host that runs the demo: every service
+# runs from a prebuilt image, and this file has no `build:` section at all.
+# deploy/demo/build-images.sh builds them elsewhere (a workstation or CI
+# runner) from the same repository Dockerfile as the product image —
+# api/worker/scheduler and web are its `runtime` and `web` targets unchanged,
+# the seed (and the heartbeat sidecar) is its `demo-seed` stage: the `build`
+# stage's workspace plus the product's pinned restic, see
+# deploy/demo/seed/package.json — dovecot is deploy/demo/dovecot — and saves
+# them to one tarball with a SHA-256 checksum, which the host only loads.
+# Image names come from .env (RESTOW_DEMO_*_IMAGE; the defaults below match
+# build-images.sh). `pull_policy: never` makes a missing local image a clear
+# error instead of a pull attempt from a public registry; reset.sh checks for
+# all of them before it touches anything.
+#
+#   deploy/demo/build-images.sh                     # elsewhere: build, save, checksum
+#   docker load -i restow-demo-images-*.tar.gz      # on the host, after sha256sum -c
+#   cp deploy/demo/.env.example deploy/demo/.env    # fill in, never commit
+#   deploy/demo/reset.sh                            # seed, then publish
+
+name: restow-demo
+
+x-restow-app: &restow-app
+  image: ${RESTOW_DEMO_APP_IMAGE:-restow-demo-app:local}
+  pull_policy: never
+  env_file:
+    - .env
+  # Each service below sets its own `environment:` (ROLE plus the demo
+  # flags): a key a service defines itself replaces this anchor's value
+  # wholesale rather than merging with it, so nothing is set here that would
+  # only be shadowed.
+  depends_on:
+    postgres:
+      condition: service_healthy
+  networks:
+    - internal
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-restow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-restow}
+    volumes:
+      - demo-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-restow} -d ${POSTGRES_DB:-restow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - internal
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+  dovecot:
+    image: ${RESTOW_DEMO_DOVECOT_IMAGE:-restow-demo-dovecot:local}
+    pull_policy: never
+    environment:
+      RESTOW_DEMO_MAILBOXES: ${RESTOW_DEMO_MAILBOXES:?set RESTOW_DEMO_MAILBOXES in .env}
+      RESTOW_DEMO_IMAP_PASSWORD: ${RESTOW_DEMO_IMAP_PASSWORD:?set RESTOW_DEMO_IMAP_PASSWORD in .env}
+    volumes:
+      - demo-mail:/var/mail/vhosts
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "143"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+    networks:
+      - internal
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 128M
+
+  api:
+    <<: *restow-app
+    environment:
+      ROLE: api
+      RESTOW_DEMO: "true"
+      RESTOW_MODE: public
+      IMAP_ALLOW_INSECURE: "true"
+      IMAP_ALLOW_PRIVATE_NETWORKS: "true"
+      STORAGE_TARGET: local
+      STORAGE_LOCAL_PATH: /data/chunks
+    volumes:
+      - demo-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+  worker:
+    <<: *restow-app
+    environment:
+      ROLE: worker
+      RESTOW_DEMO: "true"
+      IMAP_ALLOW_INSECURE: "true"
+      IMAP_ALLOW_PRIVATE_NETWORKS: "true"
+      STORAGE_TARGET: local
+      STORAGE_LOCAL_PATH: /data/chunks
+    volumes:
+      - demo-data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+  scheduler:
+    <<: *restow-app
+    environment:
+      ROLE: scheduler
+      RESTOW_DEMO: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: "0.25"
+          memory: 128M
+
+  # One-shot: generates the synthetic mail and bootstraps the installation
+  # (deploy/demo/seed), then exits. The "seed" profile keeps it out of a
+  # plain `docker compose up` (which would otherwise start it once as a
+  # normal service, in addition to reset.sh's own explicit run, and try to
+  # create the same tenants twice); reset.sh runs it with
+  # `docker compose run --rm seed`, which reaches it regardless of profiles.
+  #
+  # It also plays the Restow agent for two simulated machines (README,
+  # "Simulated machines"): it writes their files, backs them up with real
+  # restic through the agent API and the restic REST endpoint of the api, and
+  # asks the server to prove each backup restorable. The machines' file
+  # systems are the tmpfs mounts below, one per folder the agent backs up, so
+  # the snapshots carry the paths of the machines (/srv/share, /etc/samba,
+  # /var/log/samba on the Linux server, /Users/jdoe on the Mac) and nothing of
+  # this container. RESTOW_DEMO_ENDPOINT_ROOT=/ means "write at these absolute
+  # paths": it is safe here because each folder is a fresh, empty tmpfs (the
+  # seed refuses a folder that already holds files), and it must never be set
+  # for a seed run on a machine that has real data at those paths.
+  seed:
+    profiles: ["seed"]
+    image: ${RESTOW_DEMO_SEED_IMAGE:-restow-demo-seed:local}
+    pull_policy: never
+    # The Maildir the seed writes must belong to Dovecot's `vmail` user
+    # (uid/gid 1000, deploy/demo/dovecot/Dockerfile): Dovecot keeps its
+    # index and uidlist files next to the messages, and in a directory it
+    # cannot write it lists every mailbox as empty. Uid/gid 1000 is also the
+    # Node image's own unprivileged `node` user, so the seed runs without root.
+    user: "1000:1000"
+    working_dir: /app
+    command: ["node", "deploy/demo/seed/dist/index.js"]
+    env_file:
+      - .env
+    environment:
+      RESTOW_DEMO: "true"
+      RESTOW_API_URL: http://api:3000
+      RESTOW_DEMO_IMAP_HOST: dovecot
+      RESTOW_DEMO_IMAP_PORT: "143"
+      RESTOW_DEMO_ENDPOINT_ROOT: /
+      RESTOW_DEMO_AGENT_STATE: /var/demo/agents/state.json
+    volumes:
+      - demo-mail:/var/mail/vhosts
+      # The logins of the simulated machines, for the heartbeat sidecar below.
+      - demo-agents:/var/demo/agents
+    tmpfs:
+      - /srv/share:mode=0755,uid=1000,gid=1000,size=64m
+      - /etc/samba:mode=0755,uid=1000,gid=1000,size=8m
+      - /var/log/samba:mode=0755,uid=1000,gid=1000,size=16m
+      - /Users/jdoe:mode=0755,uid=1000,gid=1000,size=64m
+    depends_on:
+      api:
+        condition: service_healthy
+      dovecot:
+        condition: service_healthy
+    networks:
+      - internal
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 768M
+
+  # Keeps the simulated machines online (deploy/demo/seed/src/heartbeat.ts): the
+  # seed backs them up once, during the nightly reset, and a real agent's
+  # heartbeat every five minutes would otherwise be missing, so the file server
+  # would show as silent after two hours. It only sends heartbeats, with the
+  # logins the seed left in `demo-agents`; reset.sh starts it after the seed.
+  # It holds the seed token (the demo guard refuses every write without it) and
+  # nothing else of .env.
+  agent-sim:
+    image: ${RESTOW_DEMO_SEED_IMAGE:-restow-demo-seed:local}
+    pull_policy: never
+    user: "1000:1000"
+    working_dir: /app
+    command: ["node", "deploy/demo/seed/dist/heartbeat.js"]
+    environment:
+      RESTOW_API_URL: http://api:3000
+      RESTOW_DEMO_SEED_TOKEN: ${RESTOW_DEMO_SEED_TOKEN:?set RESTOW_DEMO_SEED_TOKEN in .env}
+      RESTOW_DEMO_AGENT_STATE: /var/demo/agents/state.json
+    volumes:
+      - demo-agents:/var/demo/agents:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - internal
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "0.1"
+          memory: 96M
+
+  # Caddy: the built SPA plus the /api reverse proxy (unchanged from the
+  # product image's `web` target and Caddyfile — only its environment
+  # differs). The only container reachable from outside this compose
+  # project, and by default only on the Docker bridge gateway address
+  # (security review finding 7), which the host and its containers use and
+  # which is not a public interface. reset.sh refuses a wildcard bind address
+  # (0.0.0.0 or ::). See docker-compose.override.public.yml to publish 80/443 on a
+  # dedicated VM instead.
+  web:
+    image: ${RESTOW_DEMO_WEB_IMAGE:-restow-demo-web:local}
+    pull_policy: never
+    environment:
+      RESTOW_APP_DOMAIN: ${RESTOW_DEMO_APP_DOMAIN:?set RESTOW_DEMO_APP_DOMAIN in .env (a domain for its own VM, or ":80" when co-hosted behind another Caddy)}
+      # Keep the X-Forwarded-For a proxy in front sets (the production Caddy's
+      # `header_up X-Forwarded-For {remote_host}`, deploy/caddy-sites/
+      # demo.caddy.example) instead of replacing it with that proxy's address,
+      # so the demo guard's per-visitor rate limit sees each visitor, not one
+      # shared proxy (security review finding 4). Private ranges only: in the
+      # co-hosted variant this port is published only on the Docker bridge,
+      # and on a dedicated VM ("Option A") public clients connect directly and
+      # are never trusted (README, "Visitor addresses").
+      RESTOW_EDGE_TRUSTED_PROXIES: private_ranges
+      # HSTS only makes sense on Option A's own dedicated VM with a real TLS
+      # domain (co-hosted behind another Caddy, HSTS is that Caddy's own
+      # setting); unset by default, same as .env.example documents.
+      RESTOW_EDGE_HSTS: ${RESTOW_EDGE_HSTS:-}
+    ports:
+      - "${RESTOW_DEMO_BIND_ADDRESS:-172.17.0.1}:${RESTOW_DEMO_BIND_PORT:-8081}:80"
+    volumes:
+      - demo-caddy-data:/data
+      - demo-caddy-config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - internal
+      - default
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 256M
+
+networks:
+  # No `internal: true` here would give every container on it a route out;
+  # with it, api/worker/scheduler/postgres/dovecot/seed have none.
+  internal:
+    internal: true
+  # Caddy's own network for its published port and, on a dedicated VM only,
+  # outbound ACME traffic (automatic HTTPS) — a regular bridge network, not
+  # internal, since Docker publishes ports only from such a network.
+  default:
+
+volumes:
+  # Postgres stays on a real (disk-backed) volume: a database that can hit
+  # ENOSPC mid-transaction on tmpfs is a worse failure mode than the disk
+  # guard is worth here, and Postgres has its own size (via demo-pgdata's
+  # host mount — see the README for an optional filesystem quota).
+  demo-pgdata:
+  # tmpfs, capped (security review finding 3 "a compose-level disk guard"):
+  # the chunk store and the mail corpus are both small, fully reproducible by
+  # the seed, and reset every night anyway, so a hard, enforced size limit
+  # that a write simply fails past (ENOSPC) is a better fit than a soft quota
+  # on the host filesystem. Sizes are generous for the seeded corpus (a few
+  # hundred small messages) plus what a visitor's own backups/downloads add
+  # in a day; a write past the cap fails cleanly rather than filling the host.
+  demo-data:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=4g"
+  demo-mail:
+    driver_opts:
+      type: tmpfs
+      device: tmpfs
+      o: "size=1g"
+  # The logins of the simulated machines (deploy/demo/seed/src/agent-state.ts):
+  # written by the seed, read by the heartbeat sidecar. A plain volume, not
+  # tmpfs: a tmpfs volume lives only while some container has it mounted, and
+  # the seed has exited by the time the sidecar starts. reset.sh removes it
+  # every night like the rest (`down --volumes`).
+  demo-agents:
+  demo-caddy-data:
+  demo-caddy-config:

@@ -1,0 +1,176 @@
+{
+  "nav": "Archive",
+  "title": "Archive",
+  "page": {
+    "title": "Archive",
+    "description": "Search the tenant's archived mail, verify the hash chain and manage legal holds."
+  },
+  "noTenant": "Select a tenant to search its archive.",
+  "forbidden": "Archive search requires the tenant administrator role.",
+  "actions": {
+    "refresh": "Refresh",
+    "verifyChain": "Verify chain",
+    "placeHold": "Place legal hold",
+    "release": "Release"
+  },
+  "search": {
+    "placeholder": "Search subject, sender, recipients and body",
+    "hasAttachment": "Has attachment",
+    "dateFrom": "From date",
+    "dateTo": "To date",
+    "results": "{count, plural, one {# result} other {# results}}",
+    "empty": "No archived mail matches this search.",
+    "emptyTenant": "Nothing has been archived for this tenant yet."
+  },
+  "table": {
+    "subject": "Subject",
+    "from": "From",
+    "to": "To",
+    "receivedAt": "Received",
+    "date": "Date",
+    "size": "Size",
+    "attachment": "Attachment",
+    "source": "Source",
+    "sources": {
+      "journal": "Journal",
+      "graph_sync": "Graph sync",
+      "imap_sync": "IMAP sync",
+      "file_import": "Import"
+    }
+  },
+  "detail": {
+    "title": "Item",
+    "messageId": "Message ID",
+    "itemHash": "Item hash (SHA-256)",
+    "chainHash": "Chain hash",
+    "source": "Source",
+    "retentionUntil": "Retained until",
+    "unlimited": "Unlimited",
+    "flags": "Flags",
+    "noFlags": "None",
+    "sourceJournal": "Exchange Online journal",
+    "sourceGraphSync": "Graph sync",
+    "sourceImapSync": "IMAP sync",
+    "sourceFileImport": "Mail file import"
+  },
+  "chain": {
+    "title": "Hash chain",
+    "description": "Recomputes every entry's chain hash from its predecessor and reports the first break, if any.",
+    "ok": "Chain intact: {count} items verified.",
+    "broken": "Chain broken at position {index}.",
+    "empty": "Nothing to verify yet: the archive is empty."
+  },
+  "legalHold": {
+    "title": "Legal holds",
+    "description": "A hold blocks deletion unconditionally, however far past its retention date an item is.",
+    "reason": "Reason",
+    "reasonPlaceholder": "Why this hold is required",
+    "mailboxAll": "Whole tenant",
+    "active": "Active",
+    "released": "Released",
+    "createdAt": "Placed",
+    "releasedAt": "Released",
+    "empty": "No legal holds for this tenant."
+  },
+  "journal": {
+    "title": "Exchange journaling",
+    "description": "Exchange Online sends a copy of every message to this address before users see it. The archive keeps each copy unchanged.",
+    "status": {
+      "receiving": "Receiving",
+      "stale": "No report for more than 24 hours",
+      "no_reports": "No reports yet",
+      "receiver_down": "Receiver not running",
+      "not_configured": "Not set up"
+    },
+    "notConfigured": "Journaling is not set up on this installation. It needs JOURNAL_SMTP_PORT, JOURNAL_HOSTNAME and a TLS certificate for that host name, then a restart of the api. The guide below covers the Exchange Online side.",
+    "lastReport": "Last report",
+    "noReportYet": "None yet",
+    "counts": {
+      "last24Hours": "Last 24 hours",
+      "last7Days": "Last 7 days",
+      "value": "{count, plural, one {# report} other {# reports}}"
+    },
+    "reason": {
+      "restart_required": "The license includes the journal receiver, but the api started before it was installed. Restart the api to start the receiver.",
+      "listen_failed": "The receiver could not start. Check the api log: usual causes are a port that is already in use or no permission for port 25.",
+      "tls_not_configured": "The receiver is not running because it has no TLS certificate. Exchange Online requires TLS for journal delivery, and {appName} never accepts journal mail without a certificate of your own. Set JOURNAL_TLS_CERT_PATH and JOURNAL_TLS_KEY_PATH to the PEM certificate chain and private key for the journal host name, then restart the api.",
+      "tls_invalid": "The receiver is not running because its TLS certificate cannot be used. JOURNAL_TLS_CERT_PATH and JOURNAL_TLS_KEY_PATH must both be set and point to readable PEM files, the private key must not be encrypted and must belong to the certificate. The api log names the file. Fix it, then restart the api.",
+      "tls_expired": "The TLS certificate of the receiver has expired, so Exchange Online cannot deliver. Replace the certificate and key files (JOURNAL_TLS_CERT_PATH and JOURNAL_TLS_KEY_PATH). A running receiver picks up renewed files within a few minutes; if it did not start, restart the api.",
+      "not_started": "The receiver has not started in this api process. If this stays after a reload, restart the api and read its log."
+    },
+    "address": {
+      "label": "Journal address",
+      "copy": "Copy journal address",
+      "soFar": "Address so far",
+      "hostMissing": "No journal host name is configured, so there is no complete address yet. Set JOURNAL_HOSTNAME to the host name Exchange Online should deliver to, for example archive.example.com, and restart the api.",
+      "hostInvalid": "JOURNAL_HOSTNAME is not a valid host name. Give the host name only: no scheme, path, port or mail address."
+    },
+    "rotate": {
+      "action": "Rotate address",
+      "title": "Rotate the journal address?",
+      "description": "A new address is created and the current one stops working at once.",
+      "consequence": "Until you change the recipient of your journal rule to the new address, reports are refused and not archived. Exchange Online sends them to the mailbox for undeliverable journal reports.",
+      "confirm": "Rotate address",
+      "done": "New journal address created. Update your journal rule."
+    },
+    "setup": {
+      "title": "Setup requirements and guide"
+    },
+    "checklist": {
+      "title": "What Exchange Online needs from this installation",
+      "dns": "Publish {host} in DNS (an A or AAAA record, or an MX record that points to a host with one) and point it to this server.",
+      "dnsUnset": "Publish the journal host name in DNS (an A or AAAA record, or an MX record that points to a host with one) once JOURNAL_HOSTNAME is set.",
+      "portOk": "The receiver listens on port 25, the only port Exchange Online delivers to. It must be reachable from the internet.",
+      "portForward": "Exchange Online delivers to port 25 only, but the receiver listens on port {port}. Forward port 25 of the public address to port {port} or set JOURNAL_SMTP_PORT=25.",
+      "portUnset": "Exchange Online delivers to port 25 only. Set JOURNAL_SMTP_PORT=25 to start the receiver there.",
+      "tlsOk": "TLS is required: the receiver refuses mail until the sender has started STARTTLS. The certificate must come from a publicly trusted authority and match the journal host name.",
+      "tlsNeeded": "Exchange Online requires TLS. Provide a certificate and key for the journal host name and set JOURNAL_TLS_CERT_PATH and JOURNAL_TLS_KEY_PATH.",
+      "tlsMissing": "No usable TLS certificate is configured (JOURNAL_TLS_CERT_PATH and JOURNAL_TLS_KEY_PATH), so the receiver does not offer TLS. The connector below requires TLS, so Exchange Online would not deliver.",
+      "size": "Reports up to {size} MB are accepted; larger ones are refused."
+    },
+    "guide": {
+      "title": "Set up Exchange Online",
+      "intro": "You need a connector that delivers to {appName} over TLS and a journal rule that sends every message through it. A Microsoft 365 administrator sets up both.",
+      "hostFallback": "[journal host]",
+      "connector": {
+        "title": "Create a connector",
+        "body": "In the Exchange admin center (admin.exchange.microsoft.com) open Mail flow, then Connectors, and add a connector from Office 365 to Partner organization. Name it, for example, {appName} journal."
+      },
+      "routing": {
+        "title": "Route it to the journal host",
+        "body": "Use the connector only for email sent to the domain {host} and route it through the smart host {host}. Always use TLS, with a certificate issued by a trusted authority whose name matches {host}. That domain must not be one of your accepted domains in Microsoft 365."
+      },
+      "validate": {
+        "title": "Validate the connector",
+        "body": "Microsoft asks for an email address to test the connector: enter the journal address above. The test message arrives as a journal report that cannot be read and is archived with a flag. That is expected."
+      },
+      "undeliverable": {
+        "title": "Name a mailbox for undeliverable reports",
+        "body": "In the Microsoft Purview portal (purview.microsoft.com) open Data lifecycle management, then Exchange (legacy), then Journal rules. Under Send undeliverable journal reports to, enter a real mailbox that somebody reads, for example a shared mailbox. Exchange Online sends reports there that it could not deliver to {appName}, so this is where a gap shows up."
+      },
+      "rule": {
+        "title": "Create the journal rule",
+        "body": "Add a rule that sends journal reports to the journal address above, for messages sent or received by everyone, of the type All messages. Turn the rule on."
+      },
+      "verify": {
+        "title": "Check that it works",
+        "body": "Send a message inside your organization. The report usually arrives within a few minutes. This page then shows Receiving, and the message is in the archive search with the source Exchange Online journal."
+      },
+      "docs": "Full guide in the documentation"
+    }
+  },
+  "flags": {
+    "report-unparseable": "Journal report could not be parsed",
+    "report-parse-timeout": "Journal report could not be read in time; archived byte for byte as received, without its details",
+    "report-parse-memory-limit": "Journal report needed more memory to read than allowed; archived byte for byte as received, without its details",
+    "envelope-body-missing": "Envelope text missing",
+    "envelope-unparseable": "Envelope text could not be parsed",
+    "sender-missing": "Sender missing",
+    "message-id-missing": "Message ID missing",
+    "recipients-missing": "Recipients missing",
+    "original-message-missing": "Original message missing; the raw report was archived instead",
+    "original-message-unparseable": "Original message could not be parsed",
+    "recipient-classification-degraded": "To/Cc/Bcc could not be determined for every recipient",
+    "recipients-truncated": "More than 100,000 recipients; only the first 100,000 are listed (the archived report keeps all of them)"
+  }
+}

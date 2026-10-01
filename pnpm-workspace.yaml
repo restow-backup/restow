@@ -1,0 +1,9 @@
+packages:
+  - apps/*
+  - packages/*
+  # Business and Service Provider modules (ee/LICENSE): compiled into the
+  # apps that load them (apps/*/src/ee.ts), never published on their own.
+  - ee/*
+  # The demo seed (deploy/demo/README.md) is workspace tooling for the public
+  # demo only, never part of the shipped product image.
+  - deploy/demo/seed

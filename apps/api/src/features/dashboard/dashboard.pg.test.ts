@@ -1,0 +1,890 @@
+/**
+ * Postgres-backed tests of the start page: GET /dashboard through the same
+ * Hono routes the web UI calls, with the provider view off and on (a test
+ * feature gate stands in for an extension, lib/features.ts) and per role,
+ * with two tenants whose figures must never mix.
+ *
+ * The routes run on the provisioned database roles, as in production: the
+ * application role that Row Level Security binds and the installation role
+ * (src/testing/database-roles.ts). The suite's own handle is the owner, for
+ * fixtures. Authentication is replaced by a middleware that sets the tenant
+ * and role the way requireTenant does; requireTenant itself is covered by the
+ * session tests.
+ *
+ * Runs when RESTOW_TEST_DATABASE_URL points at a Postgres server as a
+ * superuser (the database `restow_api_dashboard_test` is recreated there and
+ * dropped after, the roles with it). Without it the suite is skipped.
+ */
+import { randomBytes, randomUUID } from "node:crypto";
+import {
+  type Database,
+  createDb,
+  endpointReports,
+  endpointRuns,
+  endpoints,
+  jobProgress,
+  jobs,
+  packs,
+  protectedObjects,
+  providers,
+  retentionPolicies,
+  schedules,
+  settings,
+  snapshots,
+  sources,
+  storageTargets,
+  tenants,
+  users,
+  verifyReports,
+} from "@restow/db";
+import { eq, sql } from "drizzle-orm";
+import { Hono, type MiddlewareHandler } from "hono";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { registerApiExtension, resetExtensionsForTesting } from "../../extensions.js";
+import type { Role } from "../../middleware/rbac.js";
+import type { TenantEnv } from "../../middleware/session.js";
+import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import {
+  dropDatabase,
+  recreateDatabase,
+  testDatabaseAdminUrl,
+} from "../snapshots/testing/explorer-fixture.js";
+import type { DashboardDto, TenantWidgetId } from "./dto.js";
+
+const DATABASE = "restow_api_dashboard_test";
+const HOUR = 3_600_000;
+const DAY = 24 * HOUR;
+
+/** Noon (UTC) today, so "today" and "yesterday" never straddle midnight while the suite runs. */
+const NOW = new Date(`${new Date().toISOString().slice(0, 10)}T12:00:00.000Z`);
+const ago = (ms: number) => new Date(NOW.getTime() - ms);
+const dayKey = (date: Date) => date.toISOString().slice(0, 10);
+
+/** A valid installation default (a local path); nothing is read or written there. */
+const STORAGE_ENV = { STORAGE_TARGET: "local", STORAGE_LOCAL_PATH: "/data/chunks" };
+
+const ALL_WIDGETS: TenantWidgetId[] = [
+  "setup",
+  "lastBackup",
+  "readiness",
+  "protectedObjects",
+  "storage",
+  "mailboxUsage",
+  "endpoints",
+  "backupTrend",
+  "verificationHistory",
+  "storageGrowth",
+  "retention",
+  "recentJobs",
+];
+const MEMBER_WIDGETS = ALL_WIDGETS.filter(
+  (id) => id !== "mailboxUsage" && id !== "endpoints" && id !== "recentJobs",
+);
+
+function one<T>(rows: readonly T[]): T {
+  const [first] = rows;
+  if (first === undefined) {
+    throw new Error("insert returned no row");
+  }
+  return first;
+}
+
+interface Fixture {
+  installationId: string;
+  contoso: string;
+  fabrikam: string;
+  globex: string;
+  contosoJobIds: string[];
+}
+
+/**
+ * Contoso (default storage, one backup schedule, no retention policy):
+ *   Anna's mailbox   snapshot verified green, backed up today
+ *   Anna's OneDrive  snapshot never verified (unverified), yesterday's run left 2 items behind
+ *   an IMAP account  never backed up; today's run failed, and one two days ago
+ *   packs: 1000 bytes written 40 days ago, 500 today
+ * Fabrikam (own primary target failing its probe, IMAP source in error, a
+ * 90-day retention policy, a cap of 1 mailbox with 2 protected):
+ *   two IMAP accounts, one with a snapshot, and a failed job two hours ago
+ * Globex (servers and clients backed up by the agent, no licensed mailbox):
+ *   web      server, backup proven green
+ *   db       server, restore test of its backup failed (red)
+ *   laptop   client, backup never tested (unverified), its newest backup run failed
+ *   fresh    server, no backup yet
+ *   roamer   client, proven green, its newest run only says "interrupted" (no failure)
+ *   quiet    server, proven green, silent for five hours
+ *   retired  server, revoked: counted nowhere
+ *   plus an orphaned IMAP account whose backup is proven green
+ * Leaving: being deleted, never shown.
+ */
+async function seed(db: Database): Promise<Fixture> {
+  const provider = one(await db.insert(providers).values({ name: "Provider" }).returning());
+  const installation = one(
+    await db
+      .insert(settings)
+      .values({
+        singleton: true,
+        mailTransport: "smtp",
+        mailConfig: {
+          transport: "smtp",
+          host: "mail.example.test",
+          port: 587,
+          security: "starttls",
+          from: "restow@example.test",
+        },
+      })
+      .returning(),
+  );
+
+  const tenant = async (name: string, extra: Partial<typeof tenants.$inferInsert> = {}) =>
+    one(
+      await db
+        .insert(tenants)
+        .values({
+          providerId: provider.id,
+          name,
+          slug: `${name.toLowerCase()}-${randomUUID().slice(0, 6)}`,
+          ...extra,
+        })
+        .returning(),
+    ).id;
+  const contoso = await tenant("Contoso");
+  const fabrikam = await tenant("Fabrikam", { mailboxCap: 1 });
+  const globex = await tenant("Globex");
+  await tenant("Leaving", { status: "deleting" });
+
+  const source = async (tenantId: string, kind: "m365" | "imap", status: "active" | "error") =>
+    one(
+      await db
+        .insert(sources)
+        .values({ tenantId, kind, name: `${kind}-${randomUUID().slice(0, 6)}`, status })
+        .returning(),
+    ).id;
+  const object = async (
+    tenantId: string,
+    sourceId: string,
+    kind: "mailbox" | "onedrive" | "imap",
+    displayName: string,
+    userId: string | null = null,
+  ) =>
+    one(
+      await db
+        .insert(protectedObjects)
+        .values({ tenantId, sourceId, kind, displayName, userId, externalId: randomUUID() })
+        .returning(),
+    ).id;
+  const snapshot = async (tenantId: string, protectedObjectId: string, at: Date) =>
+    one(
+      await db
+        .insert(snapshots)
+        .values({
+          tenantId,
+          protectedObjectId,
+          sequence: 1,
+          manifestPath: `tenants/${tenantId}/manifests/${randomUUID()}`,
+          itemCount: 10,
+          byteSize: 4000,
+          startedAt: at,
+          completedAt: at,
+        })
+        .returning(),
+    ).id;
+  const job = async (
+    tenantId: string,
+    protectedObjectId: string,
+    status: "completed" | "failed",
+    at: Date,
+    failedItems = 0,
+  ) => {
+    const row = one(
+      await db
+        .insert(jobs)
+        .values({
+          tenantId,
+          queue: "backup",
+          status,
+          protectedObjectId,
+          startedAt: at,
+          completedAt: at,
+          createdAt: at,
+          errorMessage: status === "failed" ? "The server refused the login." : null,
+        })
+        .returning(),
+    );
+    await db
+      .insert(jobProgress)
+      .values({ tenantId, jobId: row.id, total: 10, done: 10 - failedItems, failed: failedItems });
+    return row.id;
+  };
+
+  // Contoso
+  const contosoM365 = await source(contoso, "m365", "active");
+  const contosoImap = await source(contoso, "imap", "active");
+  const anna = one(
+    await db.insert(users).values({ tenantId: contoso, email: "anna@contoso.test" }).returning(),
+  ).id;
+  const annaMail = await object(contoso, contosoM365, "mailbox", "Anna Example", anna);
+  const annaDrive = await object(contoso, contosoM365, "onedrive", "Anna Example", anna);
+  const imapAccount = await object(contoso, contosoImap, "imap", "info@contoso.test");
+  const mailSnapshot = await snapshot(contoso, annaMail, ago(HOUR));
+  await snapshot(contoso, annaDrive, ago(25 * HOUR));
+  await db.insert(verifyReports).values({
+    tenantId: contoso,
+    protectedObjectId: annaMail,
+    snapshotId: mailSnapshot,
+    recoveryReadiness: "green",
+    checkedAt: ago(30 * 60_000),
+  });
+  const contosoJobIds = [
+    await job(contoso, annaMail, "completed", ago(HOUR)),
+    await job(contoso, annaDrive, "completed", ago(25 * HOUR), 2),
+    await job(contoso, imapAccount, "failed", ago(2 * HOUR)),
+    // In the 24 hours before the last 24: the provider view's trend of failures.
+    await job(contoso, imapAccount, "failed", ago(40 * HOUR)),
+  ];
+  await db.insert(packs).values([
+    {
+      tenantId: contoso,
+      path: "p/old",
+      sha256: "a".repeat(64),
+      size: 1000,
+      createdAt: ago(40 * DAY),
+    },
+    { tenantId: contoso, path: "p/new", sha256: "b".repeat(64), size: 500, createdAt: ago(HOUR) },
+  ]);
+  await db
+    .insert(schedules)
+    .values({ tenantId: contoso, kind: "backup", intervalMinutes: 480, enabled: true });
+
+  // Fabrikam
+  const fabrikamImap = await source(fabrikam, "imap", "error");
+  const first = await object(fabrikam, fabrikamImap, "imap", "sales@fabrikam.test");
+  await object(fabrikam, fabrikamImap, "imap", "support@fabrikam.test");
+  await snapshot(fabrikam, first, ago(3 * DAY));
+  await job(fabrikam, first, "failed", ago(2 * HOUR));
+  await db.insert(storageTargets).values({
+    tenantId: fabrikam,
+    kind: "local",
+    role: "primary",
+    config: { basePath: "/mnt/fabrikam" },
+    status: "error",
+    errorMessage: "The path is not writable.",
+  });
+  await db.insert(retentionPolicies).values({
+    tenantId: fabrikam,
+    name: "Ninety days",
+    isDefault: true,
+    appliesTo: { target: "snapshots", keepDays: 90, keepLast: 3 },
+  });
+
+  await seedGlobex(db, globex, source, object, snapshot);
+
+  return { installationId: installation.id, contoso, fabrikam, globex, contosoJobIds };
+}
+
+/** Globex: the endpoints of the fixture (see `seed`), next to an orphaned account with a proven backup. */
+async function seedGlobex(
+  db: Database,
+  tenantId: string,
+  source: (tenantId: string, kind: "m365" | "imap", status: "active" | "error") => Promise<string>,
+  object: (
+    tenantId: string,
+    sourceId: string,
+    kind: "mailbox" | "onedrive" | "imap",
+    displayName: string,
+  ) => Promise<string>,
+  snapshot: (tenantId: string, protectedObjectId: string, at: Date) => Promise<string>,
+): Promise<void> {
+  const config = {
+    profile: "server" as const,
+    schedule: { kind: "daily" as const, timeOfDay: "22:00", timeZone: "Europe/Berlin" },
+    paths: ["/etc"],
+    excludes: [],
+    hooks: {},
+    bandwidthKbps: null,
+    onlyOnAcPower: false,
+    useVss: false,
+  };
+  const endpoint = async (
+    hostname: string,
+    profile: "server" | "client",
+    extra: Partial<typeof endpoints.$inferInsert> = {},
+  ) =>
+    one(
+      await db
+        .insert(endpoints)
+        .values({
+          tenantId,
+          hostname,
+          os: "linux",
+          arch: "amd64",
+          profile,
+          secretHash: randomUUID().replace(/-/g, ""),
+          config: { ...config, profile },
+          createdAt: ago(30 * DAY),
+          lastSeenAt: ago(5 * 60_000),
+          ...extra,
+        })
+        .returning(),
+    ).id;
+  const run = async (
+    endpointId: string,
+    finishedAgo: number,
+    status: "succeeded" | "failed",
+    extra: Partial<typeof endpointRuns.$inferInsert> = {},
+  ) => {
+    await db.insert(endpointRuns).values({
+      tenantId,
+      endpointId,
+      kind: "backup",
+      status,
+      startedAt: ago(finishedAgo + 60_000),
+      finishedAt: ago(finishedAgo),
+      ...extra,
+    });
+  };
+  const restoreTest = async (
+    endpointId: string,
+    snapshotId: string,
+    readiness: "green" | "red",
+    checkedAgo: number,
+  ) => {
+    await db.insert(endpointReports).values({
+      tenantId,
+      endpointId,
+      kind: "restore_test",
+      origin: "server",
+      snapshotId,
+      readiness,
+      checkedAt: ago(checkedAgo),
+    });
+  };
+  const readError = [{ code: "read_error", message: "permission denied" }];
+
+  const web = await endpoint("web", "server", { lastSuccessAt: ago(2 * HOUR) });
+  await run(web, 2 * HOUR, "succeeded", { snapshotId: "snap-web" });
+  await restoreTest(web, "snap-web", "green", HOUR);
+
+  const database = await endpoint("db", "server", { lastSuccessAt: ago(3 * HOUR) });
+  await run(database, 3 * HOUR, "succeeded", { snapshotId: "snap-db" });
+  await restoreTest(database, "snap-db", "red", 2 * HOUR);
+
+  const laptop = await endpoint("laptop", "client", {
+    lastSeenAt: ago(30 * 60_000),
+    lastSuccessAt: ago(20 * HOUR),
+  });
+  await run(laptop, 20 * HOUR, "succeeded", { snapshotId: "snap-laptop" });
+  await run(laptop, HOUR, "failed", { errors: readError });
+
+  await endpoint("fresh", "server", { createdAt: ago(HOUR) });
+
+  const roamer = await endpoint("roamer", "client", { lastSuccessAt: ago(10 * HOUR) });
+  await run(roamer, 10 * HOUR, "succeeded", { snapshotId: "snap-roamer" });
+  await restoreTest(roamer, "snap-roamer", "green", 9 * HOUR);
+  await run(roamer, 30 * 60_000, "failed", {
+    errors: [{ code: "interrupted", message: "The agent was restarted." }],
+  });
+
+  const quiet = await endpoint("quiet", "server", {
+    lastSeenAt: ago(5 * HOUR),
+    lastSuccessAt: ago(6 * HOUR),
+  });
+  await run(quiet, 6 * HOUR, "succeeded", { snapshotId: "snap-quiet" });
+  await restoreTest(quiet, "snap-quiet", "green", 5 * HOUR);
+
+  // Revoked: its newest backup failed and it finished more recently than any other, yet it counts nowhere.
+  const retired = await endpoint("retired", "server", {
+    status: "revoked",
+    revokedAt: ago(2 * DAY),
+    lastSuccessAt: ago(HOUR),
+  });
+  await run(retired, HOUR, "failed", { errors: readError });
+
+  // An orphaned account still counts in the readiness widget while its backup exists.
+  const legacySource = await source(tenantId, "imap", "active");
+  const legacy = await object(tenantId, legacySource, "imap", "legacy@globex.test");
+  await db
+    .update(protectedObjects)
+    .set({ status: "orphaned" })
+    .where(eq(protectedObjects.id, legacy));
+  const legacySnapshot = await snapshot(tenantId, legacy, ago(2 * DAY));
+  await db.insert(verifyReports).values({
+    tenantId,
+    protectedObjectId: legacy,
+    snapshotId: legacySnapshot,
+    recoveryReadiness: "green",
+    checkedAt: ago(2 * DAY),
+  });
+}
+
+describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
+  let owner: Database;
+  let roles: TestDatabaseRoles | undefined;
+  let appDb: Database;
+  let installationDb: Database;
+  let brokenDb: Database;
+  let f: Fixture;
+  let app: Hono;
+  let degraded: Hono;
+
+  /** Sets what requireTenant would: the tenant from a header and the role from another. */
+  const access: MiddlewareHandler<TenantEnv> = async (c, next) => {
+    const tenantId = c.req.header("x-test-tenant") ?? "";
+    const role = (c.req.header("x-test-role") ?? "tenant_user") as Role;
+    const tenant = one(
+      await owner
+        .select({
+          id: tenants.id,
+          name: tenants.name,
+          slug: tenants.slug,
+          organizationId: tenants.organizationId,
+          status: tenants.status,
+        })
+        .from(tenants)
+        .where(eq(tenants.id, tenantId)),
+    );
+    c.set("tenantId", tenant.id);
+    c.set("tenant", tenant);
+    c.set("role", role);
+    c.set("isProviderAdmin", role === "provider_admin");
+    c.set("memberships", []);
+    await next();
+  };
+
+  /** Whether the test gate opens the provider view (`dashboard.allTenants`). */
+  let allTenants = false;
+  function setProviderView(on: boolean) {
+    allTenants = on;
+  }
+
+  async function dashboard(
+    tenantId: string,
+    role: Role,
+    query = "",
+    on: Hono = app,
+  ): Promise<{ status: number; body: DashboardDto & { type?: string } }> {
+    const response = await on.request(`/dashboard${query}`, {
+      headers: { "x-test-tenant": tenantId, "x-test-role": role },
+    });
+    return { status: response.status, body: (await response.json()) as DashboardDto };
+  }
+
+  function ok<T>(result: { state: "ok"; data: T } | { state: "error" } | undefined): T {
+    if (!result || result.state !== "ok") {
+      throw new Error(`widget not ok: ${JSON.stringify(result)}`);
+    }
+    return result.data;
+  }
+
+  beforeAll(async () => {
+    const url = await recreateDatabase(testDatabaseAdminUrl as string, DATABASE);
+    roles = await provisionTestRoles(url);
+    // The API's shared handles and configuration read the environment on import.
+    process.env.DATABASE_URL = roles.appUrl;
+    process.env.DATABASE_PROVIDER_URL = roles.providerUrl;
+    process.env.RESTOW_MASTER_KEY = randomBytes(32).toString("base64");
+    registerApiExtension({
+      name: "test-gate",
+      featureGate: {
+        isEnabled: async (_db, feature) => feature === "dashboard.allTenants" && allTenants,
+      },
+    });
+
+    owner = createDb(url);
+    appDb = createDb(roles.appUrl);
+    installationDb = createDb(roles.providerUrl);
+    // Nothing listens on port 1: every query on this pool fails.
+    brokenDb = createDb("postgres://nobody:nothing@127.0.0.1:1/none");
+    f = await seed(owner);
+
+    const { audit } = await import("../../lib/audit.js");
+    await audit(owner, {
+      action: "settings.mail.tested",
+      actor: "admin@provider.test",
+      target: "admin@provider.test",
+      targetType: "email",
+      details: { transport: "smtp", ok: true, reason: null, unsaved: false },
+    });
+
+    const { createDashboardRoutes } = await import("./routes.js");
+    const { errorHandler } = await import("../../problem.js");
+    const build = (providerDb: Database) => {
+      const hono = new Hono();
+      hono.onError(errorHandler);
+      hono.route(
+        "/dashboard",
+        createDashboardRoutes({
+          db: appDb,
+          providerDb,
+          env: STORAGE_ENV,
+          now: () => NOW,
+          access,
+        }),
+      );
+      return hono;
+    };
+    app = build(installationDb);
+    degraded = build(brokenDb);
+  }, 60_000);
+
+  afterAll(async () => {
+    resetExtensionsForTesting();
+    const shared = await import("../../db.js");
+    await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
+    await Promise.all([
+      owner?.$client.end(),
+      appDb?.$client.end(),
+      installationDb?.$client.end(),
+      brokenDb?.$client.end(),
+    ]);
+    await dropDatabase(testDatabaseAdminUrl as string, DATABASE);
+    await roles?.drop(testDatabaseAdminUrl as string);
+  });
+
+  describe("without the provider view", () => {
+    beforeEach(() => setProviderView(false));
+
+    it("gives tenant admins every tenant widget and the tenant's own mailboxes", async () => {
+      const { status, body } = await dashboard(f.contoso, "tenant_admin");
+      expect(status).toBe(200);
+      expect(body).not.toHaveProperty("edition");
+      expect(Object.keys(body.widgets)).toEqual(ALL_WIDGETS);
+      expect(Object.values(body.widgets).every((widget) => widget.state === "ok")).toBe(true);
+      expect(body.provider).toBeNull();
+      // Anna's mailbox (+ her OneDrive, which does not count twice) and the IMAP account = 2.
+      expect(ok(body.widgets.mailboxUsage)).toEqual({
+        scope: "tenant",
+        used: 2,
+        tenant: { used: 2, cap: null },
+      });
+    });
+
+    it("counts the installation's mailboxes for a provider admin", async () => {
+      const { body } = await dashboard(f.contoso, "provider_admin");
+      // Contoso 2 and Fabrikam's two IMAP accounts = 4.
+      expect(ok(body.widgets.mailboxUsage)).toEqual({
+        scope: "installation",
+        used: 4,
+        tenant: { used: 2, cap: null },
+      });
+    });
+
+    it("leaves the admin widgets out for plain members", async () => {
+      const { status, body } = await dashboard(f.contoso, "tenant_user");
+      expect(status).toBe(200);
+      expect(Object.keys(body.widgets)).toEqual(MEMBER_WIDGETS);
+      expect(body.widgets.endpoints).toBeUndefined();
+      expect(body.viewer).toEqual({
+        role: "tenant_user",
+        isProviderAdmin: false,
+        canAdminister: false,
+      });
+      expect(ok(body.widgets.setup).items.some((item) => item.actionable)).toBe(false);
+    });
+
+    it("refuses the provider view, even to a provider admin", async () => {
+      const member = await dashboard(f.contoso, "tenant_admin", "?provider=true");
+      expect(member.status).toBe(403);
+      const provider = await dashboard(f.contoso, "provider_admin", "?provider=true");
+      expect(provider.status).toBe(403);
+      expect(provider.body.type).toBe("urn:restow:problem:feature-unavailable");
+    });
+
+    it("returns the same tenant widgets as with the provider view on", async () => {
+      const off = await dashboard(f.contoso, "tenant_admin");
+      setProviderView(true);
+      const on = await dashboard(f.contoso, "tenant_admin");
+      expect(on.body.widgets).toEqual(off.body.widgets);
+    });
+  });
+
+  describe("with the provider view", () => {
+    beforeEach(() => setProviderView(true));
+
+    it("reports the provider view as unavailable without the module that builds it", async () => {
+      const { status, body } = await dashboard(f.contoso, "provider_admin", "?provider=true");
+      expect(status).toBe(200);
+      expect(Object.keys(body.widgets)).toEqual(ALL_WIDGETS);
+      expect(ok(body.widgets.mailboxUsage)).toMatchObject({ scope: "installation", used: 4 });
+
+      // The cross-tenant matrix is an extension (ee/api,
+      // provider-dashboard/view.pg.test.ts); without it the core reports the
+      // provider view as unavailable instead of failing the whole page.
+      expect(body.provider).toEqual({ state: "error" });
+    });
+
+    it("refuses the provider view to tenant admins and members", async () => {
+      for (const role of ["tenant_admin", "tenant_user"] as const) {
+        const { status } = await dashboard(f.contoso, role, "?provider=true");
+        expect(status).toBe(403);
+      }
+    });
+
+    it("leaves the provider view out unless it is asked for", async () => {
+      const { body } = await dashboard(f.contoso, "provider_admin");
+      expect(body.provider).toBeNull();
+    });
+
+    it("shows a tenant admin the tenant's own mailboxes and cap, not the installation", async () => {
+      const { body } = await dashboard(f.fabrikam, "tenant_admin");
+      expect(ok(body.widgets.mailboxUsage)).toEqual({
+        scope: "tenant",
+        used: 2,
+        tenant: { used: 2, cap: 1 },
+      });
+    });
+  });
+
+  describe("widgets", () => {
+    beforeEach(() => setProviderView(false));
+
+    it("flags the unverified backup in the readiness widget", async () => {
+      const { body } = await dashboard(f.contoso, "tenant_user");
+      expect(ok(body.widgets.readiness)).toMatchObject({
+        overall: "red",
+        total: 3,
+        green: 1,
+        unverified: 1,
+        noBackup: 1,
+      });
+    });
+
+    it("reports last backups per type next to the protected kinds", async () => {
+      const { body } = await dashboard(f.contoso, "tenant_user");
+      const lastBackup = ok(body.widgets.lastBackup);
+      expect(lastBackup.protectedKinds).toEqual({ mailbox: 1, onedrive: 1, imap: 1 });
+      expect(lastBackup.lastSuccess.mail).toBe(ago(HOUR).toISOString());
+      // Yesterday's OneDrive run left items behind and the IMAP run failed: neither is a success.
+      expect(lastBackup.lastSuccess.imap).toBeNull();
+    });
+
+    it("counts backup outcomes, verification ratings and bytes per day", async () => {
+      const { body } = await dashboard(f.contoso, "tenant_user");
+      const trend = ok(body.widgets.backupTrend);
+      expect(trend.days).toBe(60);
+      expect(trend.series).toHaveLength(60);
+      expect(trend.series.at(-1)).toEqual({
+        date: dayKey(NOW),
+        succeeded: 1,
+        withItemFailures: 0,
+        failed: 1,
+      });
+      expect(trend.series.at(-2)).toEqual({
+        date: dayKey(ago(DAY)),
+        succeeded: 0,
+        withItemFailures: 1,
+        failed: 0,
+      });
+
+      const verification = ok(body.widgets.verificationHistory);
+      expect(verification.series.at(-1)).toEqual({
+        date: dayKey(NOW),
+        green: 1,
+        yellow: 0,
+        red: 0,
+      });
+
+      const growth = ok(body.widgets.storageGrowth);
+      expect(growth.series).toHaveLength(30);
+      expect(growth.series[0]?.bytes).toBe(1000);
+      expect(growth.series.at(-1)?.bytes).toBe(1500);
+      expect(growth.growthBytes).toBe(500);
+      expect(growth.forecast?.method).toBe("linear");
+      expect(growth.forecast?.points).toHaveLength(30);
+    });
+
+    it("says honestly that everything is kept when there is no retention policy", async () => {
+      const contoso = ok((await dashboard(f.contoso, "tenant_user")).body.widgets.retention);
+      expect(contoso).toMatchObject({
+        policy: null,
+        scopedPolicies: 0,
+        activeHolds: 0,
+        snapshots: { active: 2, pruned: 0 },
+        lastRun: null,
+      });
+      const fabrikam = ok((await dashboard(f.fabrikam, "tenant_user")).body.widgets.retention);
+      expect(fabrikam.policy).toEqual({ name: "Ninety days", keepDays: 90, keepLast: 3 });
+    });
+
+    it("judges the setup from the data", async () => {
+      const contoso = ok((await dashboard(f.contoso, "tenant_admin")).body.widgets.setup);
+      expect(contoso).toMatchObject({ complete: true, done: 7 });
+      expect(contoso.items.filter((item) => !item.actionable).map((item) => item.id)).toEqual([
+        "notificationMail",
+      ]);
+
+      const fabrikam = ok((await dashboard(f.fabrikam, "provider_admin")).body.widgets.setup);
+      const states = Object.fromEntries(
+        fabrikam.items.map((item) => [item.id, [item.state, item.reason]]),
+      );
+      expect(states).toEqual({
+        storage: ["attention", "target_error"],
+        source: ["attention", "source_error"],
+        objects: ["done", null],
+        schedules: ["open", "no_backup_schedule"],
+        firstBackup: ["done", null],
+        firstVerification: ["open", null],
+        notificationMail: ["done", null],
+      });
+      expect(fabrikam.items.every((item) => item.actionable)).toBe(true);
+    });
+
+    it("shows a failing storage target in the storage widget", async () => {
+      const fabrikam = ok((await dashboard(f.fabrikam, "tenant_user")).body.widgets.storage);
+      expect(fabrikam.target).toEqual({ source: "tenant", status: "error" });
+      const contoso = ok((await dashboard(f.contoso, "tenant_user")).body.widgets.storage);
+      expect(contoso).toEqual({
+        logicalBytes: 8000,
+        physicalBytes: 1500,
+        target: { source: "installation_default", status: "ok" },
+      });
+    });
+
+    it("counts the protected servers and clients and what needs an admin", async () => {
+      const { body } = await dashboard(f.globex, "tenant_admin");
+      expect(ok(body.widgets.endpoints)).toEqual({
+        // The revoked server is not protected.
+        protected: 6,
+        servers: 4,
+        clients: 2,
+        // web, roamer and quiet proven green; db failed its restore test; laptop's backup was
+        // never read back; fresh has no backup yet.
+        readiness: { green: 3, yellow: 0, red: 1, unverified: 1, noBackup: 1 },
+        notReady: 3,
+        // laptop only: roamer's newest run says "interrupted" (the agent restarted), and the
+        // revoked server's failed run is not counted.
+        failedLastBackup: 1,
+        // db (restore test failed), laptop (last backup failed), quiet (server silent for 5 hours).
+        needingAttention: 3,
+        // The newest good backup of a protected machine, not the revoked server's.
+        lastSuccessAt: ago(2 * HOUR).toISOString(),
+      });
+    });
+
+    it("answers with zeros for a tenant without endpoints, for the page to show no card", async () => {
+      const { body } = await dashboard(f.contoso, "tenant_admin");
+      expect(ok(body.widgets.endpoints)).toEqual({
+        protected: 0,
+        servers: 0,
+        clients: 0,
+        readiness: { green: 0, yellow: 0, red: 0, unverified: 0, noBackup: 0 },
+        notReady: 0,
+        failedLastBackup: 0,
+        needingAttention: 0,
+        lastSuccessAt: null,
+      });
+    });
+
+    it("counts the same machines in the readiness widget and on the verify page", async () => {
+      const { body } = await dashboard(f.globex, "tenant_admin");
+      const readiness = ok(body.widgets.readiness);
+      const endpointsWidget = ok(body.widgets.endpoints);
+      // The orphaned account plus the six protected machines.
+      expect(readiness).toMatchObject({
+        total: 7,
+        green: 4,
+        yellow: 0,
+        red: 1,
+        unverified: 1,
+        noBackup: 1,
+      });
+      expect(readiness.total).toBe(endpointsWidget.protected + 1);
+
+      const { readinessOverview } = await import("../verify/service.js");
+      const page = await readinessOverview(appDb, f.globex, NOW);
+      const onPage = (state: string) => page.endpoints.filter((row) => row.state === state).length;
+      expect(endpointsWidget.readiness).toEqual({
+        green: onPage("green"),
+        yellow: onPage("yellow"),
+        red: onPage("red"),
+        unverified: onPage("unverified"),
+        noBackup: onPage("no_backup"),
+      });
+      expect(page.summary).toMatchObject({ total: readiness.total, red: readiness.red });
+      expect(page.endpoints).toHaveLength(endpointsWidget.protected);
+    });
+
+    it("lists the tenant's recent jobs for admins", async () => {
+      const { body } = await dashboard(f.contoso, "tenant_admin");
+      const jobsWidget = ok(body.widgets.recentJobs);
+      expect(jobsWidget.items.map((job) => job.id).sort()).toEqual([...f.contosoJobIds].sort());
+      expect(jobsWidget.items[0]).toMatchObject({
+        status: "completed",
+        object: { kind: "mailbox", displayName: "Anna Example" },
+        progress: { total: 10, done: 10, failed: 0 },
+      });
+    });
+  });
+
+  describe("tenant isolation", () => {
+    beforeEach(() => setProviderView(false));
+
+    it("never mixes one tenant's figures into another's", async () => {
+      const contoso = (await dashboard(f.contoso, "tenant_admin")).body;
+      const fabrikam = (await dashboard(f.fabrikam, "tenant_admin")).body;
+      expect(contoso.tenant.id).toBe(f.contoso);
+      expect(fabrikam.tenant.id).toBe(f.fabrikam);
+
+      expect(ok(fabrikam.widgets.protectedObjects).active).toBe(2);
+      expect(ok(contoso.widgets.protectedObjects).active).toBe(3);
+      expect(ok(fabrikam.widgets.storage).physicalBytes).toBe(0);
+      const fabrikamJobs = ok(fabrikam.widgets.recentJobs).items.map((job) => job.id);
+      expect(fabrikamJobs).toHaveLength(1);
+      expect(fabrikamJobs.some((id) => f.contosoJobIds.includes(id))).toBe(false);
+      // The endpoints of Globex never reach another tenant's widget, nor the other way round.
+      const globex = (await dashboard(f.globex, "tenant_admin")).body;
+      expect(ok(contoso.widgets.endpoints).protected).toBe(0);
+      expect(ok(fabrikam.widgets.endpoints).protected).toBe(0);
+      expect(ok(globex.widgets.endpoints).protected).toBe(6);
+      expect(ok(globex.widgets.protectedObjects).total).toBe(1);
+      const fabrikamTrend = ok(fabrikam.widgets.backupTrend).series;
+      expect(fabrikamTrend.reduce((sum, day) => sum + day.succeeded, 0)).toBe(0);
+      expect(ok(fabrikam.widgets.storageGrowth).series.at(-1)?.bytes).toBe(0);
+    });
+  });
+
+  describe("a failing data source", () => {
+    beforeEach(() => setProviderView(false));
+
+    it("fails only the widgets that need it", async () => {
+      const { status, body } = await dashboard(f.contoso, "provider_admin", "", degraded);
+      expect(status).toBe(200);
+      // The notification mail test and the installation's mailbox usage (a
+      // provider admin's scope) live on the installation pool, which is down here.
+      expect(body.widgets.setup).toEqual({ state: "error" });
+      expect(body.widgets.mailboxUsage).toEqual({ state: "error" });
+      for (const id of ALL_WIDGETS.filter(
+        (widget) => widget !== "setup" && widget !== "mailboxUsage",
+      )) {
+        expect(body.widgets[id]?.state, id).toBe("ok");
+      }
+    });
+
+    it("fails the endpoints widget alone when its source fails, and the page still answers", async () => {
+      // The endpoint tables become unreadable for a moment.
+      await owner.execute(sql`alter table endpoint_reports rename to endpoint_reports_offline`);
+      try {
+        const { status, body } = await dashboard(f.globex, "tenant_admin");
+        expect(status).toBe(200);
+        expect(Object.keys(body.widgets)).toEqual(ALL_WIDGETS);
+        expect(body.widgets.endpoints).toEqual({ state: "error" });
+        // Sources that never read the endpoint tables are untouched.
+        for (const id of [
+          "setup",
+          "mailboxUsage",
+          "backupTrend",
+          "verificationHistory",
+          "storageGrowth",
+          "retention",
+          "recentJobs",
+        ] as const) {
+          expect(body.widgets[id]?.state, id).toBe("ok");
+        }
+      } finally {
+        await owner.execute(sql`alter table endpoint_reports_offline rename to endpoint_reports`);
+      }
+      const { body } = await dashboard(f.globex, "tenant_admin");
+      expect(body.widgets.endpoints?.state).toBe("ok");
+    });
+  });
+});

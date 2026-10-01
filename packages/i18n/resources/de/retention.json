@@ -1,0 +1,145 @@
+{
+  "nav": "Aufbewahrung",
+  "page": {
+    "title": "Sicherungsstand-Aufbewahrung",
+    "description": "Wie lange Sicherungsstände aufbewahrt werden, und welche Objekte einer eigenen Regel folgen."
+  },
+  "noTenant": {
+    "title": "Kein Mandant ausgewählt",
+    "description": "Wählen Sie einen Mandanten, um dessen Aufbewahrungsrichtlinien zu verwalten."
+  },
+  "forbidden": {
+    "title": "Nur für Administratoren",
+    "description": "Die Aufbewahrung bestimmt, welche Sicherungsdaten überhaupt erhalten bleiben; nur Mandanten- und Provider-Administratoren können sie einsehen oder ändern."
+  },
+  "actions": {
+    "new": "Neue Richtlinie",
+    "edit": "Bearbeiten",
+    "delete": "Löschen",
+    "cancel": "Abbrechen",
+    "save": "Speichern",
+    "create": "Richtlinie anlegen",
+    "refresh": "Aktualisieren"
+  },
+  "table": {
+    "label": "Aufbewahrungsrichtlinien",
+    "search": "Richtlinien durchsuchen…",
+    "name": "Richtlinie",
+    "scope": "Gilt für",
+    "preset": "Regel",
+    "cutoff": "Aufbewahrt für",
+    "updated": "Zuletzt geändert"
+  },
+  "empty": {
+    "title": "Noch keine Aufbewahrungsrichtlinie",
+    "description": "Ohne Richtlinie wird jeder Sicherungsstand aufbewahrt. Empfohlen: {rule}.",
+    "cta": "Neue Richtlinie"
+  },
+  "errors": {
+    "load": "Aufbewahrungsrichtlinien konnten nicht geladen werden."
+  },
+  "cutoff": {
+    "forever": "Ohne Altersgrenze aufbewahrt",
+    "days": "Bis zu {days, plural, one {# Tag} other {# Tagen}}"
+  },
+  "scope": {
+    "tenantWide": "Mandanten-Standard",
+    "objects": "{count, plural, one {# Objekt} other {# Objekte}}"
+  },
+  "presetRule": {
+    "default": "30 Tage, danach täglich bis 90 Tage, danach wöchentlich bis 1 Jahr"
+  },
+  "presets": {
+    "default": "Empfohlen (30 Tage, danach täglich bis 90 Tage, danach wöchentlich bis 1 Jahr)",
+    "30d": "30 Tage",
+    "90d": "90 Tage",
+    "1y": "1 Jahr",
+    "3y": "3 Jahre",
+    "7y": "7 Jahre",
+    "keep_all": "Alles aufbewahren",
+    "custom": "Benutzerdefiniert"
+  },
+  "form": {
+    "createTitle": "Neue Aufbewahrungsrichtlinie",
+    "editTitle": "Aufbewahrungsrichtlinie bearbeiten",
+    "description": "Legen Sie fest, wie lange Sicherungsstände aufbewahrt werden. Der neueste Sicherungsstand eines Objekts und sein einziger geprüfter Sicherungsstand werden nie entfernt, egal was die Richtlinie sagt.",
+    "name": "Name",
+    "namePlaceholder": "z. B. Standard",
+    "preset": "Regel",
+    "scope": "Gilt für",
+    "scopeTenant": "Mandanten-Standard",
+    "scopeObjects": "Bestimmte Objekte",
+    "objectSearch": "Geschützte Objekte suchen…",
+    "objectEmpty": "Kein passendes Objekt.",
+    "objectPlaceholder": "Objekt hinzufügen…",
+    "removeObject": "{name} entfernen",
+    "tiersTitle": "Stufen",
+    "tiersHint": "Jede Stufe deckt einen Altersbereich ab. „Jeden aufbewahren“ dünnt nie aus; eine Anzahl Tage behält nur den neuesten Sicherungsstand je Zeitraum. Die letzte Stufe kann offen bleiben (ohne Altersgrenze aufbewahrt) oder enden; danach bleibt nichts erhalten.",
+    "tierFrom": "Ab (Tage)",
+    "tierTo": "Bis (Tage)",
+    "tierToForever": "Kein Ende",
+    "tierKeepEvery": "Aufbewahren",
+    "tierKeepEveryEvery": "Jeden",
+    "tierKeepEveryDays": "Einen je {days, plural, one {# Tag} other {# Tage}}",
+    "addTier": "Stufe hinzufügen",
+    "removeTier": "Stufe entfernen",
+    "previewTitle": "Was der nächste Lauf entfernen würde",
+    "previewObjects": "Betroffene Objekte",
+    "previewRestorePoints": "Entfernte Sicherungsstände",
+    "previewBytes": "Entfernte Größe",
+    "previewHeld": "{count, plural, one {# Sicherungsstand ist} other {# Sicherungsstände sind}} durch einen Legal Hold gehalten und bleiben erhalten",
+    "previewNone": "Mit dieser Richtlinie würde nichts entfernt.",
+    "previewLoading": "Wird berechnet…",
+    "previewRefused": "Korrigieren Sie die Richtlinie oben, um eine Vorschau zu sehen.",
+    "previewError": "Die Vorschau konnte nicht geladen werden."
+  },
+  "validation": {
+    "required": {
+      "name": "Ein Name ist erforderlich.",
+      "objects": "Wählen Sie mindestens ein Objekt."
+    }
+  },
+  "problems": {
+    "object_not_found": "Dieses Objekt existiert nicht in diesem Mandanten.",
+    "object_already_scoped": "Für dieses Objekt gibt es bereits eine eigene Aufbewahrungsrichtlinie.",
+    "default_exists": "Dieser Mandant hat bereits eine Standardrichtlinie; bearbeiten Sie diese stattdessen.",
+    "empty": "Mindestens eine Stufe ist erforderlich.",
+    "start": "Die erste Stufe muss bei Tag 0 beginnen.",
+    "from_days": "Der Beginn einer Stufe muss eine ganze Anzahl Tage sein.",
+    "keep_every_days": "„Einen je N Tage aufbewahren“ muss 0 oder eine positive ganze Zahl sein.",
+    "to_days": "Das Ende einer Stufe muss nach ihrem Beginn liegen.",
+    "open_ended": "Nur die letzte Stufe darf ohne Ende sein.",
+    "gap": "Stufen müssen lückenlos aneinander anschließen, ohne Lücke oder Überlappung.",
+    "required": "Eine benutzerdefinierte Richtlinie benötigt mindestens eine Stufe.",
+    "generic": "Diese Richtlinie konnte so nicht gespeichert werden."
+  },
+  "toasts": {
+    "created": "Aufbewahrungsrichtlinie „{name}“ angelegt",
+    "updated": "Aufbewahrungsrichtlinie „{name}“ geändert",
+    "deleted": "Aufbewahrungsrichtlinie „{name}“ gelöscht",
+    "failed": "Das konnte nicht gespeichert werden"
+  },
+  "confirm": {
+    "deleteTitle": "Diese Aufbewahrungsrichtlinie löschen?",
+    "deleteDescription": "„{name}“ bereinigt danach keine Sicherungsstände mehr. Bereits bereinigte Sicherungsstände kommen nicht zurück.",
+    "deleteDescriptionOverride": "„{name}“ gilt danach nicht mehr für ihre Objekte; für diese greift ab dann der Mandanten-Standard, der unter Umständen mehr bereinigt. Bereits bereinigte Sicherungsstände kommen nicht zurück.",
+    "deleteConfirm": "Richtlinie löschen",
+    "stricterTitle": "Diese Richtlinie speichern?",
+    "stricterDescription": "Mit dieser Richtlinie würde der nächste Aufbewahrungslauf {count, plural, one {# Sicherungsstand} other {# Sicherungsstände}} entfernen. Das lässt sich nicht rückgängig machen.",
+    "stricterConfirm": "Trotzdem speichern"
+  },
+  "dashboardWidget": {
+    "title": "Sicherungsstand-Aufbewahrung",
+    "description": "Wie lange Sicherungsstände aufbewahrt werden, und welche Objekte einer eigenen Regel folgen.",
+    "recommendedDefault": "Noch keine Richtlinie, daher wird jeder Sicherungsstand aufbewahrt. Die empfohlene Standardrichtlinie: {rule}.",
+    "thinningNote": "Dazwischenliegende Sicherungsstände werden ausgedünnt, um Speicherplatz zu sparen; nicht jeder bleibt erhalten.",
+    "keepAll": "Alles wird aufbewahrt: Es gibt noch keine Aufbewahrungsrichtlinie, daher wird kein Sicherungsstand gelöscht.",
+    "keepByAge": "Jeder Sicherungsstand wird aufbewahrt; die Richtlinie setzt keine Altersgrenze.",
+    "prunes": "Sicherungsstände, die älter als {days} Tage sind, werden gelöscht; {keepLast, plural, one {der neueste Sicherungsstand} other {die neuesten # Sicherungsstände}} jedes Objekts bleiben immer erhalten.",
+    "onlyOverrides": "Es gibt keinen Mandanten-Standard, daher behalten Objekte ohne eigene Richtlinie jeden Sicherungsstand. {count, plural, one {# Objekt folgt} other {# Objekte folgen}} einer eigenen Richtlinie, die dessen Sicherungsstände löschen kann.",
+    "kept": "Aufbewahrte Sicherungsstände",
+    "pruned": "Gelöschte Sicherungsstände",
+    "emptyTitle": "Noch keine Sicherungsstände",
+    "emptyWithPolicy": "Die Aufbewahrungsrichtlinie greift, sobald Sicherungsstände vorhanden sind."
+  }
+}

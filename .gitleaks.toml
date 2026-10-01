@@ -1,0 +1,26 @@
+# gitleaks configuration: the default rules plus an allowlist for the known
+# false positives in this repository (reviewed 2026-09-24). Real secrets never
+# belong in the repository; see SECURITY.md and .env.example.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures and translation keys, not secrets"
+paths = [
+  '''(^|/)[^/]+\.test\.ts$''',
+  '''(^|/)[^/]+\.pg\.test\.ts$''',
+  # React component tests (.test.tsx) and Go tests with their helpers
+  '''(^|/)[^/]+\.test\.tsx?$''',
+  '''(^|/)[^/]+_test\.go$''',
+  '''(^|/)internal/testutil/''',
+  # The smoke helper's own unit test feeds made-up setup tokens to its log parser
+  '''(^|/)scripts/smoke/lib/restow\.test\.mjs$''',
+]
+regexes = [
+  # i18n keys such as "m365.consentResult.granted" in presenters
+  '''^m365\.[a-zA-Z0-9.]+$''',
+  # i18n keys such as "lead.minutes5" in the update presenters
+  '''^lead\.minutes[0-9]+$''',
+  # PEM header checks in the Microsoft app settings form validation
+  '''-----BEGIN (ENCRYPTED )?PRIVATE KEY-----/\.test''',
+]

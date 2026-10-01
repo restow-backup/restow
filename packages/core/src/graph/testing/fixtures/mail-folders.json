@@ -1,0 +1,91 @@
+{
+  "wellKnown": {
+    "inbox": "AAMkFolderInbox",
+    "sentitems": "AAMkFolderSent",
+    "deleteditems": "AAMkFolderDeleted",
+    "drafts": "AAMkFolderDrafts",
+    "msgfolderroot": "AAMkFolderRoot"
+  },
+  "topLevelPage1": {
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users('user-1')/mailFolders",
+    "@odata.nextLink": "https://graph.microsoft.com/v1.0/users/user-1/mailFolders?includeHiddenFolders=true&$select=id,displayName,parentFolderId,childFolderCount,totalItemCount,unreadItemCount,isHidden&$top=100&$skip=100",
+    "value": [
+      {
+        "id": "AAMkFolderInbox",
+        "displayName": "Inbox",
+        "parentFolderId": "AAMkFolderRoot",
+        "childFolderCount": 2,
+        "totalItemCount": 1204,
+        "unreadItemCount": 12,
+        "isHidden": false
+      },
+      {
+        "id": "AAMkFolderSent",
+        "displayName": "Sent Items",
+        "parentFolderId": "AAMkFolderRoot",
+        "childFolderCount": 0,
+        "totalItemCount": 388,
+        "unreadItemCount": 0,
+        "isHidden": false
+      }
+    ]
+  },
+  "topLevelPage2": {
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users('user-1')/mailFolders",
+    "value": [
+      {
+        "id": "AAMkFolderDeleted",
+        "displayName": "Deleted Items",
+        "parentFolderId": "AAMkFolderRoot",
+        "childFolderCount": 0,
+        "totalItemCount": 40,
+        "unreadItemCount": 0,
+        "isHidden": false
+      },
+      {
+        "id": "AAMkFolderHidden",
+        "displayName": "Quick Step Settings",
+        "parentFolderId": "AAMkFolderRoot",
+        "childFolderCount": 0,
+        "totalItemCount": 3,
+        "unreadItemCount": 0,
+        "isHidden": true
+      }
+    ]
+  },
+  "inboxChildren": {
+    "value": [
+      {
+        "id": "AAMkFolderProjects",
+        "displayName": "Projects",
+        "parentFolderId": "AAMkFolderInbox",
+        "childFolderCount": 1,
+        "totalItemCount": 55,
+        "unreadItemCount": 1,
+        "isHidden": false
+      },
+      {
+        "id": "AAMkFolderNewsletters",
+        "displayName": "Newsletters",
+        "parentFolderId": "AAMkFolderInbox",
+        "childFolderCount": 0,
+        "totalItemCount": 900,
+        "unreadItemCount": 400,
+        "isHidden": false
+      }
+    ]
+  },
+  "projectsChildren": {
+    "value": [
+      {
+        "id": "AAMkFolderRestow",
+        "displayName": "Restow",
+        "parentFolderId": "AAMkFolderProjects",
+        "childFolderCount": 0,
+        "totalItemCount": 12,
+        "unreadItemCount": 0,
+        "isHidden": false
+      }
+    ]
+  }
+}

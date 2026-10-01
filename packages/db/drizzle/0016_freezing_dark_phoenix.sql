@@ -1,0 +1,1 @@
+ALTER TABLE "endpoint_runs" ADD COLUMN "failure" jsonb;

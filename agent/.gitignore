@@ -1,0 +1,5 @@
+# Build output and download caches (the repository root also ignores dist/).
+/dist/
+/.cache/
+# The signed release build the release workflow hands to the image build.
+/prebuilt/

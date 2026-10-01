@@ -1,0 +1,506 @@
+{
+  "nav": "Audit-Log",
+  "title": "Audit-Log",
+  "subtitle": {
+    "provider": "Jede protokollierte Aktion aller Mandanten und der Installation selbst. Jeder Eintrag ist mit dem vorherigen verkettet und wird täglich versiegelt, spätere Änderungen fallen daher auf.",
+    "tenant": "Jede protokollierte Aktion in {tenant}. Jeder Eintrag ist mit dem vorherigen verkettet und wird täglich versiegelt, spätere Änderungen fallen daher auf."
+  },
+  "noTenant": {
+    "title": "Kein Mandant gewählt",
+    "description": "Wählen Sie oben einen Mandanten, um sein Audit-Log zu sehen."
+  },
+  "notAdmin": {
+    "title": "Rolle Mandanten-Admin erforderlich",
+    "description": "Das Audit-Log von {tenant} ist nur für dessen Mandanten-Admins sichtbar."
+  },
+  "chain": {
+    "installation": "Installation",
+    "status": {
+      "verifying": "Kette wird geprüft …",
+      "intact": "Kette intakt",
+      "broken": "Kette gebrochen",
+      "empty": "Noch keine Einträge",
+      "error": "Prüfung fehlgeschlagen"
+    },
+    "verifyNow": "Jetzt prüfen",
+    "openDetails": "Prüfdetails anzeigen",
+    "dialog": {
+      "title": "Kettenprüfung",
+      "description": "Jeder Eintrag muss auf seinen Vorgänger verweisen, seinen eigenen Hash reproduzieren und zu den täglichen Ankern passen.",
+      "checked": "Geprüft {when} in {duration}.",
+      "noChains": "Es gibt noch nichts zu prüfen."
+    },
+    "verifiedEntries": "{count, plural, one {# Eintrag geprüft} other {# Einträge geprüft}}",
+    "anchors": "{verified, number} von {total, plural, one {# Tagesanker} other {# Tagesankern}} bestätigt",
+    "latestAnchor": "Letzter Anker: {date}, {count, plural, one {# Eintrag} other {# Einträge}}",
+    "noAnchor": "Noch kein Tagesanker. Der erste wird geschrieben, sobald der erste Tag mit Einträgen vorbei ist.",
+    "newest": "Neuester Eintrag {when}",
+    "emptyChain": "Noch keine Einträge protokolliert.",
+    "break": {
+      "hash_mismatch": "Eintrag {position, number} wurde nach dem Schreiben verändert: Sein Inhalt reproduziert seinen Hash nicht mehr.",
+      "link_mismatch": "Eintrag {position, number} verweist nicht auf den Eintrag davor: Einträge wurden entfernt, eingefügt oder umsortiert.",
+      "anchor_mismatch": "Die Kette passt nicht mehr zum Anker vom {date}: versiegelt mit {anchored, plural, one {# Eintrag} other {# Einträgen}}, jetzt {found, plural, =0 {keiner} one {# Eintrag} other {# Einträge}}."
+    },
+    "showEntry": "Eintrag anzeigen",
+    "alert": {
+      "title": "Die Audit-Kette ist gebrochen",
+      "single": "{chain}: {problem}",
+      "multiple": "{count, plural, one {# Kette ist} other {# Ketten sind}} gebrochen. Die Prüfdetails zeigen, wo.",
+      "hint": "Ab dem Bruch lässt sich für keinen Eintrag mehr einstehen. Lassen Sie die Datenbank unverändert und prüfen Sie, wer Schreibzugriff darauf hatte."
+    },
+    "error": "Die Kette konnte nicht geprüft werden."
+  },
+  "filters": {
+    "tenant": "Mandant",
+    "allTenants": "Alle Mandanten",
+    "installation": "Installation",
+    "action": "Aktion",
+    "allActions": "Alle Aktionen",
+    "allOfCategory": "Alle Ereignisse: {category}",
+    "actionSearch": "Aktion oder Kategorie suchen …",
+    "actionEmpty": "Keine passende Aktion",
+    "actor": "Ausgeführt von",
+    "actorPlaceholder": "E-Mail, Name oder Benutzer-ID",
+    "target": "Ziel",
+    "targetPlaceholder": "Postfach, Quelle, ID …",
+    "from": "Von",
+    "to": "Bis",
+    "clear": "Filter zurücksetzen"
+  },
+  "table": {
+    "caption": "Audit-Einträge, neueste zuerst",
+    "time": "Zeitpunkt",
+    "action": "Aktion",
+    "actor": "Ausgeführt von",
+    "target": "Ziel",
+    "tenant": "Mandant",
+    "ip": "IP-Adresse",
+    "onBehalfOf": "für {subject}",
+    "hashMismatch": "Hash stimmt nicht",
+    "loadMore": "Ältere Einträge laden",
+    "empty": {
+      "title": "Noch keine Einträge",
+      "description": "Aktionen wie Wiederherstellungen, Änderungen an Mandanten und verbundene Quellen erscheinen hier, sobald sie passieren."
+    },
+    "emptyFiltered": {
+      "title": "Keine passenden Einträge",
+      "description": "Kein Eintrag passt zu diesen Filtern."
+    },
+    "loadError": "Das Audit-Log konnte nicht geladen werden."
+  },
+  "entry": {
+    "title": "Audit-Eintrag",
+    "loadError": "Dieser Eintrag konnte nicht geladen werden.",
+    "hashValid": "Hash stimmt",
+    "hashInvalid": "Hash stimmt nicht",
+    "hashInvalidHint": "Die gespeicherten Felder reproduzieren den Hash dieses Eintrags nicht mehr: Er wurde nach dem Schreiben verändert.",
+    "time": "Zeitpunkt",
+    "action": "Aktion",
+    "actor": "Ausgeführt von",
+    "actorUserId": "Benutzer-ID",
+    "onBehalfOf": "Im Auftrag von",
+    "targetName": "Name des Ziels",
+    "target": "Ziel",
+    "targetType": "Zieltyp",
+    "tenant": "Mandant",
+    "ip": "IP-Adresse",
+    "details": "Details",
+    "noDetails": "Keine weiteren Details protokolliert.",
+    "integrity": "Integrität",
+    "chainHash": "Ketten-Hash",
+    "prevHash": "Vorheriger Hash",
+    "firstEntry": "Erster Eintrag der Kette",
+    "entryId": "Eintrags-ID",
+    "notRecorded": "Nicht erfasst",
+    "copy": "{label} kopieren",
+    "copied": "Kopiert"
+  },
+  "actor": {
+    "system": "System",
+    "apiKey": "API-Schlüssel {id}",
+    "user": "Benutzer {id}",
+    "adminConsent": "Microsoft-Admin-Consent"
+  },
+  "categories": {
+    "account": "Konten",
+    "api": "Integrations-API",
+    "api_key": "API-Schlüssel",
+    "archive": "Archiv",
+    "audit": "Audit",
+    "auth": "Anmeldung",
+    "backup": "Backup",
+    "directory": "Verzeichnis",
+    "export": "Export",
+    "impersonation": "Handeln für andere",
+    "import": "Import",
+    "job": "Jobs",
+    "legal_hold": "Legal Hold",
+    "license": "Lizenz",
+    "restore": "Wiederherstellung",
+    "retention": "Aufbewahrung",
+    "retention_policy": "Aufbewahrung",
+    "schedule": "Zeitpläne",
+    "scrub": "Speicherprüfung",
+    "settings": "Einstellungen",
+    "setup": "Einrichtung",
+    "snapshot": "Sicherungsinhalte",
+    "source": "Quellen",
+    "stats": "Statistik",
+    "storage": "Speicher",
+    "tenant": "Mandanten",
+    "verify": "Prüfung",
+    "webhook": "Webhooks",
+    "provider_team": "Provider-Team",
+    "access": "Zugriff",
+    "report": "Alarme",
+    "update": "Updates",
+    "endpoint": "Server und Clients"
+  },
+  "events": {
+    "account": {
+      "provisioned": "Konto bereitgestellt",
+      "password_link_issued": "Passwort-Link ausgestellt",
+      "password_set": "Passwort gesetzt",
+      "access_recovered": "Admin-Zugang über die Kommandozeile des Servers wiederhergestellt"
+    },
+    "api": {
+      "archive": {
+        "report": {
+          "read": "Archiv-Nachweisbericht über die API gelesen"
+        }
+      },
+      "job": {
+        "events": {
+          "opened": "Fortschrittsstream eines Jobs über die API geöffnet"
+        },
+        "read": "Job über die API gelesen"
+      },
+      "jobs": {
+        "read": "Jobs über die API gelesen"
+      },
+      "objects": {
+        "read": "Geschützte Objekte über die API gelesen"
+      },
+      "provider": {
+        "tenants": {
+          "read": "Ansprechpartner eines Mandanten über die API gelesen"
+        },
+        "users": {
+          "read": "Benutzer aller Mandanten über die API gelesen"
+        }
+      },
+      "users": {
+        "read": "Benutzer über die API gelesen"
+      },
+      "verify": {
+        "read": "Prüfbericht über die API gelesen"
+      },
+      "endpoints": {
+        "read": "Endpunkte über die API gelesen"
+      }
+    },
+    "api_key": {
+      "created": "API-Schlüssel angelegt",
+      "revoked": "API-Schlüssel widerrufen"
+    },
+    "archive": {
+      "searched": "Archiv durchsucht",
+      "item": {
+        "read": "Archivelement gelesen",
+        "deleted": "Archivelement durch Aufbewahrungslauf gelöscht"
+      },
+      "legal_hold": {
+        "created": "Legal Hold angelegt",
+        "released": "Legal Hold freigegeben"
+      },
+      "journal": {
+        "address_created": "Journal-Adresse ausgestellt",
+        "address_rotated": "Journal-Adresse erneuert"
+      }
+    },
+    "backup": {
+      "requested": "Backup manuell gestartet",
+      "first_queued": "Erste Sicherung eingeplant"
+    },
+    "directory": {
+      "account": {
+        "credential_set": "Postfach-Zugangsdaten hinterlegt",
+        "credential_tested": "Postfach-Zugangsdaten getestet",
+        "deleted": "Konto entfernt"
+      },
+      "accounts": {
+        "imported": "Konten importiert"
+      },
+      "protection": {
+        "changed": "Schutz geändert",
+        "bulk_changed": "Schutz für mehrere Objekte geändert"
+      },
+      "rules": {
+        "updated": "Schutzregeln geändert"
+      },
+      "sync": {
+        "requested": "Verzeichnisabgleich gestartet"
+      }
+    },
+    "export": {
+      "cancelled": "Export abgebrochen",
+      "downloaded": "Export heruntergeladen",
+      "requested": "Export angefordert"
+    },
+    "import": {
+      "cancelled": "Import abgebrochen",
+      "requested": "Import angefordert",
+      "upload": {
+        "cancelled": "Upload für Import abgebrochen",
+        "completed": "Upload für Import abgeschlossen",
+        "created": "Upload für Import gestartet"
+      }
+    },
+    "job": {
+      "cancelled": "Job abgebrochen",
+      "retried": "Job erneut gestartet"
+    },
+    "license": {
+      "installed": "Lizenz installiert",
+      "removed": "Lizenz entfernt"
+    },
+    "restore": {
+      "cancelled": "Wiederherstellung abgebrochen",
+      "downloaded": "Wiederherstellung heruntergeladen",
+      "requested": "Wiederherstellung angefordert"
+    },
+    "retention_policy": {
+      "created": "Aufbewahrungsrichtlinie angelegt",
+      "updated": "Aufbewahrungsrichtlinie geändert",
+      "deleted": "Aufbewahrungsrichtlinie gelöscht"
+    },
+    "schedule": {
+      "created": "Zeitplan angelegt",
+      "updated": "Zeitplan geändert",
+      "deleted": "Zeitplan gelöscht",
+      "recommended": {
+        "applied": "Empfohlene Zeitpläne übernommen"
+      }
+    },
+    "scrub": {
+      "requested": "Speicherprüfung gestartet"
+    },
+    "settings": {
+      "disclaimer_accepted": "Hinweis zur Betreiberverantwortung akzeptiert",
+      "mail": {
+        "removed": "Mailversand entfernt",
+        "tested": "Mailversand getestet"
+      },
+      "microsoft_app": {
+        "removed": "Microsoft-365-App-Registrierung entfernt",
+        "saved": "Microsoft-365-App-Registrierung gespeichert",
+        "tested": "Microsoft-365-App-Registrierung getestet"
+      },
+      "updated": "Einstellungen geändert"
+    },
+    "setup": {
+      "completed": "Installation eingerichtet"
+    },
+    "snapshot": {
+      "mail": {
+        "attachment_downloaded": "Mail-Anhang heruntergeladen",
+        "previewed": "Mail-Vorschau geöffnet"
+      },
+      "searched": "Sicherungsinhalte durchsucht",
+      "tree": {
+        "read": "Ordner einer Sicherung geöffnet"
+      },
+      "versions": {
+        "read": "Versionsverlauf geöffnet"
+      }
+    },
+    "source": {
+      "consent": {
+        "denied": "Admin-Consent abgelehnt",
+        "granted": "Admin-Consent erteilt",
+        "link_created": "Consent-Link erzeugt",
+        "rejected": "Consent-Rückmeldung zurückgewiesen",
+        "sign_in_started": "Admin-Consent zurückgemeldet, bestätigende Anmeldung gestartet"
+      },
+      "created": "Quelle hinzugefügt",
+      "deleted": "Quelle gelöscht",
+      "imap": {
+        "probed": "IMAP-Server abgefragt"
+      },
+      "tested": "Verbindung getestet",
+      "updated": "Quelle geändert",
+      "verified": "Berechtigungen geprüft"
+    },
+    "stats": {
+      "exported": "Statistik exportiert",
+      "report_generated": "Statistikbericht erstellt"
+    },
+    "storage": {
+      "default": {
+        "tested": "Standardspeicher getestet"
+      },
+      "migration": {
+        "started": "Speichermigration gestartet",
+        "verify_failed": "Speichermigration bei der Prüfung fehlgeschlagen",
+        "switched": "Speichermigration hat das Primärziel umgeschaltet",
+        "cancelled": "Speichermigration abgebrochen"
+      },
+      "target": {
+        "created": "Repository hinzugefügt",
+        "deleted": "Repository entfernt",
+        "probed": "Repository abgefragt",
+        "promoted": "Repository zum primären gemacht",
+        "tested": "Repository getestet",
+        "updated": "Repository geändert"
+      }
+    },
+    "tenant": {
+      "created": "Mandant angelegt",
+      "deleted": "Mandant gelöscht",
+      "customer": {
+        "updated": "Kundendaten des Mandanten geändert"
+      },
+      "contacts": {
+        "updated": "Ansprechpartner des Mandanten geändert"
+      },
+      "notification_recipients": {
+        "updated": "Benachrichtigungsempfänger des Mandanten geändert"
+      },
+      "key": {
+        "created": "Mandantenschlüssel erzeugt"
+      },
+      "member": {
+        "added": "Mitglied hinzugefügt",
+        "invitation_canceled": "Einladung zurückgezogen",
+        "invitation_declined": "Einladung abgelehnt",
+        "invited": "Mitglied eingeladen",
+        "joined": "Einladung angenommen",
+        "removed": "Mitglied entfernt",
+        "role_changed": "Rolle eines Mitglieds geändert"
+      },
+      "updated": "Mandant geändert"
+    },
+    "verify": {
+      "report": {
+        "viewed": "Prüfbericht angesehen"
+      },
+      "requested": "Prüfung gestartet"
+    },
+    "webhook": {
+      "created": "Webhook angelegt",
+      "deleted": "Webhook gelöscht",
+      "delivery": {
+        "redelivered": "Webhook-Zustellung erneut gesendet"
+      },
+      "secret": {
+        "rotated": "Webhook-Secret erneuert"
+      },
+      "tested": "Webhook-Testereignis gesendet",
+      "updated": "Webhook geändert"
+    },
+    "provider_team": {
+      "member_invited": "Teammitglied eingeladen",
+      "member_updated": "Rolle eines Teammitglieds geändert",
+      "member_removed": "Teammitglied entfernt",
+      "link_reissued": "Team-Einladungslink neu erstellt"
+    },
+    "access": {
+      "denied": "Aktion verweigert"
+    },
+    "report": {
+      "rule": {
+        "created": "Berichtsregel angelegt",
+        "updated": "Berichtsregel geändert",
+        "deleted": "Berichtsregel gelöscht"
+      },
+      "test_sent": "Test einer Berichtsregel gesendet"
+    },
+    "update": {
+      "check": "Update-Prüfung",
+      "scheduled": "Update angekündigt",
+      "cancelled": "Angekündigtes Update abgebrochen",
+      "started": "Update gestartet",
+      "succeeded": "Update abgeschlossen",
+      "failed": "Update fehlgeschlagen",
+      "acknowledged": "Update-Ergebnis bestätigt",
+      "settings": {
+        "updated": "Update-Einstellungen geändert"
+      }
+    },
+    "endpoint": {
+      "token": {
+        "created": "Enrollment-Token erstellt",
+        "revoked": "Enrollment-Token widerrufen"
+      },
+      "enrolled": "Rechner eingerichtet",
+      "revoked": "Rechner widerrufen",
+      "config": {
+        "changed": "Konfiguration des Rechners geändert"
+      },
+      "backup": {
+        "requested": "Sicherung angefordert"
+      },
+      "restore": {
+        "requested": "Wiederherstellung auf dem Rechner angefordert",
+        "finished": "Wiederherstellung auf dem Rechner beendet"
+      },
+      "restore_test": {
+        "requested": "Restore-Test angefordert"
+      },
+      "uninstall": {
+        "requested": "Deinstallation des Agenten angefordert"
+      },
+      "updates": {
+        "paused": "Automatische Agent-Updates pausiert",
+        "resumed": "Automatische Agent-Updates fortgesetzt"
+      },
+      "snapshot": {
+        "browsed": "Gesicherte Dateien durchsucht",
+        "downloaded": "Gesicherte Dateien heruntergeladen"
+      },
+      "repository": {
+        "denied": "Rechner wollte seine Sicherungen ändern",
+        "password": {
+          "revealed": "Repository-Passwort angezeigt"
+        }
+      }
+    }
+  },
+  "targetTypes": {
+    "api_key": "API-Schlüssel",
+    "app_registration": "App-Registrierung",
+    "archive_item": "Archivobjekt",
+    "email": "E-Mail-Adresse",
+    "export_job": "Export",
+    "imap": "IMAP-Konto",
+    "import_upload": "Import-Upload",
+    "installation": "Installation",
+    "invitation": "Einladung",
+    "job": "Job",
+    "legal_hold": "Legal Hold",
+    "mail_import": "Import",
+    "mailbox": "Postfach",
+    "manifest_object": "Gesichertes Objekt",
+    "member": "Mitglied",
+    "onedrive": "OneDrive",
+    "protected_object": "Geschütztes Objekt",
+    "restore_job": "Wiederherstellung",
+    "retention_policy": "Aufbewahrungsrichtlinie",
+    "schedule": "Zeitplan",
+    "settings": "Einstellungen",
+    "snapshot": "Snapshot",
+    "source": "Quelle",
+    "stats": "Statistik",
+    "storage_location": "Speicherort",
+    "storage_target": "Repository",
+    "tenant": "Mandant",
+    "user": "Benutzer",
+    "verify_report": "Prüfbericht",
+    "webhook": "Webhook",
+    "route": "Route",
+    "report_rule": "Berichtsregel",
+    "update": "Update",
+    "endpoint": "Server oder Client",
+    "endpoint_enrollment_token": "Enrollment-Token"
+  }
+}

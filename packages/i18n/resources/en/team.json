@@ -1,0 +1,99 @@
+{
+  "nav": "Team",
+  "title": "Provider team",
+  "subtitle": "Who administers this installation, with which role and in which tenants.",
+  "invite": "Invite member",
+  "loadError": "The team could not be loaded.",
+  "ownersOnly": "Only owners can change the team.",
+  "you": "You",
+  "columns": {
+    "member": "Member",
+    "role": "Role",
+    "tenants": "Tenants",
+    "status": "Status",
+    "actions": "Actions"
+  },
+  "roles": {
+    "owner": {
+      "label": "Owner",
+      "description": "Everything, including the team, the license and the installation settings."
+    },
+    "administrator": {
+      "label": "Administrator",
+      "description": "Sets up and runs tenants, storage, schedules, sources and integrations. Not the team, the license or the installation settings."
+    },
+    "technician": {
+      "label": "Technician",
+      "description": "Runs backups, checks and restores and opens backed-up and archived content. Changes no configuration."
+    },
+    "read_only": {
+      "label": "Read only",
+      "description": "Sees status, reports and the audit log. No content, no changes."
+    }
+  },
+  "scope": {
+    "all": "All tenants",
+    "selected": "Selected tenants",
+    "count": "{count, plural, one {# tenant} other {# tenants}}",
+    "allHint": "Includes tenants created later.",
+    "ownerHint": "Owners always have every tenant.",
+    "pick": "Tenants",
+    "noTenants": "There are no tenants yet."
+  },
+  "status": {
+    "active": "Active",
+    "invited": "Invited",
+    "invitation_expired": "Invitation expired"
+  },
+  "form": {
+    "email": "Email address",
+    "emailHint": "Must not belong to an existing account.",
+    "name": "Name",
+    "role": "Role",
+    "scope": "Tenants",
+    "errors": {
+      "email": "Enter a valid email address.",
+      "name": "Enter a name.",
+      "tenants": "Choose at least one tenant."
+    }
+  },
+  "dialog": {
+    "inviteTitle": "Invite to the provider team",
+    "inviteDescription": "The person receives a link to choose a password, then sets up an authenticator app.",
+    "editTitle": "Change role and tenants",
+    "editDescription": "Applies to {name} with the next request.",
+    "submitInvite": "Send invitation",
+    "submitSave": "Save",
+    "cancel": "Cancel"
+  },
+  "link": {
+    "title": "Invitation ready",
+    "sent": "The invitation went to {email} by email. The link works once, for 72 hours.",
+    "copy": "No email could be sent. Hand this link to {email} yourself; it works once, for 72 hours.",
+    "done": "Done"
+  },
+  "actions": {
+    "edit": "Change role",
+    "editLabel": "Change role and tenants of {name}",
+    "remove": "Remove",
+    "removeLabel": "Remove {name} from the team",
+    "reissue": "New invitation link",
+    "reissueLabel": "Create a new invitation link for {name}"
+  },
+  "remove": {
+    "title": "Remove {name} from the team?",
+    "description": "Their sessions end at once and their open invitation stops working. An account that belongs to no tenant is deleted.",
+    "confirm": "Remove"
+  },
+  "toasts": {
+    "invited": "Invitation created",
+    "updated": "Changes saved",
+    "removed": "Member removed",
+    "reissued": "New invitation link created"
+  },
+  "errors": {
+    "lastOwner": "The team always keeps at least one owner. Make someone else an owner first.",
+    "accountExists": "An account with this address already exists. Invite the person with a different address.",
+    "noTenants": "Choose at least one tenant, or give the member every tenant."
+  }
+}

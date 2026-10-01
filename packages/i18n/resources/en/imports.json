@@ -1,0 +1,439 @@
+{
+  "nav": "Imports",
+  "title": "Import mail files",
+  "subtitle": "Bring EML, MSG, MBOX and ZIP files into {appName} as an imported mailbox. The messages can be browsed, previewed and restored like any backup.",
+  "loadError": "The import settings could not be loaded",
+  "noTenant": {
+    "title": "No tenant selected",
+    "description": "Select a tenant in the top bar to import mail files into it."
+  },
+  "actions": {
+    "backToSources": "All sources",
+    "history": "Imports",
+    "next": "Continue",
+    "start": "Start import"
+  },
+  "steps": {
+    "label": "Import steps",
+    "source": "Source",
+    "files": "Files",
+    "target": "Target",
+    "review": "Review",
+    "done": "completed"
+  },
+  "blockers": {
+    "origin": "Choose where the files come from.",
+    "uploadDisabled": "Uploads are switched off on this server.",
+    "folderDisabled": "The server import folder is not available.",
+    "noFiles": "Add at least one file to import.",
+    "name": "Enter a name for the new mailbox.",
+    "mailbox": "Choose the mailbox to add to.",
+    "uploading": "Wait until all uploads have finished."
+  },
+  "formats": {
+    "eml": "EML",
+    "msg": "MSG",
+    "mbox": "MBOX",
+    "zip": "ZIP",
+    "pst": "PST/OST",
+    "unknown": "Not recognized"
+  },
+  "source": {
+    "title": "Where do the files come from?",
+    "description": "{appName} reads the files, rebuilds the folder structure and stores the messages as a new restore point of an imported mailbox.",
+    "upload": {
+      "title": "Upload from this computer",
+      "description": "Pick files or drop them in the next step. Large files are sent in pieces and continue where they stopped after an interruption.",
+      "disabled": "Uploads are switched off on this server."
+    },
+    "folder": {
+      "title": "Server import folder",
+      "description": "Use files that are already on the {appName} server, in {path}. Best for very large archives that you do not want to send through the browser.",
+      "disabled": {
+        "title": "The import folder is not available",
+        "description": "No readable folder is mounted at {path}. Mount a directory there in the api and worker containers (read only is enough) or set IMPORT_DIR to the path you use, then reload this page. For example, add this to the volumes of both containers:"
+      },
+      "mountExample": "- ./import:{path}:ro"
+    },
+    "info": {
+      "title": "What can be imported",
+      "supported": "Supported: EML (single messages), MSG (Outlook messages), MBOX and ZIP archives of these, as well as folders or ZIP files with EML or MSG messages, such as MailStore exports.",
+      "mailstore": "MailStore's own archive format cannot be read. In MailStore, export the mailboxes as EML or MSG files (a folder or a ZIP) and import that.",
+      "pst": "PST and OST files are planned for a later release. Until then, export the mailbox from Outlook as MSG or EML files, or convert it to MBOX, and import those.",
+      "calendar": "Only mail is imported. Calendar entries and contacts are not, and an Outlook item that is a contact or an appointment is listed as not a mail message.",
+      "msg": "MSG messages are rebuilt as EML from the properties stored in the file. Text, HTML, recipients and attachments are kept, but the result is not the original transport format byte for byte."
+    }
+  },
+  "files": {
+    "title": "Choose the files",
+    "descriptionUpload": "Add the files to import. They are sent to the {appName} server in encrypted pieces, so you can go on to the next step while they upload.",
+    "descriptionFolder": "Select the files and folders of the import folder. A selected folder brings everything inside it.",
+    "status": {
+      "imported": "Imported",
+      "partial": "Partly imported",
+      "failed": "Failed",
+      "refused": "Not imported"
+    },
+    "table": {
+      "title": "Files",
+      "description": "What each file contained and what became of it. The SHA-256 lets you check that a file is the one you meant to import.",
+      "file": "File",
+      "status": "Result",
+      "messages": "Messages",
+      "folders": "Folders",
+      "attachments": "Attachments",
+      "duplicates": "Duplicates",
+      "skipped": "Skipped",
+      "failed": "Failed",
+      "sha256": "SHA-256",
+      "format": "Format",
+      "size": "Size",
+      "origin": "Source",
+      "origins": {
+        "upload": "Upload",
+        "folder": "Import folder"
+      },
+      "none": "No files.",
+      "noHash": "not read"
+    }
+  },
+  "upload": {
+    "dropTitle": "Drop mail files here",
+    "dropActive": "Release to add the files",
+    "pick": "Choose files",
+    "limit": "Up to {size} per file. An interrupted upload continues where it stopped.",
+    "folderDropped": "{count, plural, one {A folder was skipped} other {# folders were skipped}}: folders cannot be uploaded. Add the files themselves, or put the folder into a ZIP first.",
+    "duplicates": "{count, plural, one {This file is already in the list.} other {# files are already in the list.}}",
+    "list": {
+      "title": "Files to import",
+      "removeAll": "Remove all"
+    },
+    "overall": {
+      "label": "Upload progress",
+      "files": "{done} of {total} files",
+      "bytes": "{sent} of {total} ({percent}%)",
+      "speed": "{speed} per second",
+      "eta": "about {duration} left"
+    },
+    "item": {
+      "status": {
+        "queued": "Waiting",
+        "opening": "Preparing",
+        "completing": "Checking the file",
+        "ready": "Ready to import"
+      },
+      "progressLabel": "Upload of {name}",
+      "sent": "{percent}% ({sent} of {total})",
+      "retrying": "connection problem, trying again in {seconds} s (attempt {attempt})",
+      "resumed": "Continued",
+      "retry": "Try again",
+      "remove": "Remove {name}"
+    },
+    "errors": {
+      "network": "The server could not be reached, even after several tries. Check the connection and try again: the upload continues where it stopped.",
+      "server": "The server reported an error, even after several tries. Try again in a moment.",
+      "unauthorized": "Your session has expired. Sign in again; the upload can then continue where it stopped.",
+      "forbidden": "You are not allowed to upload files for this tenant.",
+      "tooLarge": "This file is larger than the limit of {limit}. Split it, or put it into the server import folder.",
+      "empty": "This file is empty.",
+      "gone": "The upload no longer exists on the server, it may have expired. Remove the file and add it again.",
+      "stagingFull": "The space for files that wait for an import is full. Wait until an import has finished or remove an upload, then try again. Large files can also be put into the server import folder.",
+      "conflict": "The server no longer accepts data for this upload. Remove the file and add it again.",
+      "corrupt": "The data kept arriving damaged. Check the connection (a proxy may be changing the data) and try again.",
+      "invalid": "The server rejected this file.",
+      "unreadable": "The browser could not read the file. It may have been moved, deleted or changed since you chose it.",
+      "unknown": "The upload failed for an unknown reason."
+    },
+    "refusal": {
+      "pst_not_supported": {
+        "title": "PST and OST files cannot be imported yet",
+        "description": "Importing PST and OST files is planned for a later release. Export the mailbox from Outlook as MSG or EML files, or convert it to MBOX, and import those."
+      },
+      "unrecognised": {
+        "title": "This is not a supported mail file",
+        "description": "{appName} looked at the content of the file and found no EML message, MSG message, MBOX file or ZIP archive. The name of the file does not matter, only its content."
+      },
+      "notImported": "The file is not part of the import."
+    },
+    "unfinished": {
+      "title": "Unfinished uploads",
+      "description": "Uploads from an earlier visit that were not used yet. To continue an interrupted upload, add the same file again: it is recognized by name and size, and only the missing parts are sent.",
+      "complete": "complete",
+      "received": "{percent}% received",
+      "expires": "kept until {date}",
+      "pickAgain": "Add this file again to continue.",
+      "use": "Use this file",
+      "discard": "Discard"
+    }
+  },
+  "folder": {
+    "root": "Import folder",
+    "empty": "This folder is empty.",
+    "loadError": "The import folder could not be read",
+    "notEnabled": {
+      "title": "The import folder is not available",
+      "description": "The server has no readable import folder. Ask the operator to mount one."
+    },
+    "gone": {
+      "title": "This folder no longer exists",
+      "description": "It was moved or removed on the server.",
+      "toRoot": "Back to the import folder"
+    },
+    "columns": {
+      "select": "Select",
+      "name": "Name",
+      "format": "Format",
+      "size": "Size",
+      "modified": "Modified"
+    },
+    "directory": "Folder",
+    "select": "Select {name}",
+    "covered": "Included through the selected folder {folder}",
+    "reasons": {
+      "pst": "PST and OST files are planned for a later release.",
+      "unknown": "Not recognized as a mail file.",
+      "other": "This kind of file cannot be imported."
+    },
+    "truncated": "Only the first {count} entries are shown. Open a subfolder, or select this folder as a whole.",
+    "nothingSelected": "Nothing selected yet.",
+    "selected": {
+      "title": "Selected",
+      "count": "{count, plural, one {# entry} other {# entries}}",
+      "clear": "Clear",
+      "remove": "Remove {name}"
+    }
+  },
+  "target": {
+    "title": "Where should the messages go?",
+    "description": "An imported mailbox is a mailbox in {appName} that only holds imported mail. Every import adds a new restore point to it and never removes what is already there.",
+    "new": {
+      "title": "Create a new imported mailbox",
+      "description": "For a separate collection, for example one mailbox per former employee or per archive.",
+      "name": "Name of the mailbox",
+      "placeholder": "for example Mail archive 2019",
+      "hint": "1 to {max} characters. This is the name you will see in the restore explorer.",
+      "errors": {
+        "empty": "Enter a name.",
+        "tooLong": "The name may have at most {max} characters."
+      }
+    },
+    "existing": {
+      "title": "Add to an existing imported mailbox",
+      "description": "The new messages are added to what the mailbox already holds. Messages that are already there are skipped.",
+      "none": "There is no imported mailbox yet.",
+      "select": "Imported mailbox",
+      "placeholder": "Choose a mailbox",
+      "hint": "The same message is recognized and skipped, so importing a file twice does no harm.",
+      "error": "Choose a mailbox."
+    },
+    "archive": {
+      "title": "Also ingest into the archive (retention and search apply)",
+      "description": "Every imported message is also written to the archive, marked as imported from a file. Retention rules, legal holds and full-text search then apply to it like to any archived mail. Leave this off if the mail only needs to be restorable."
+    }
+  },
+  "review": {
+    "title": "Review and start",
+    "description": "Check the details. The import runs in the background: you can leave this page and follow it under Imports.",
+    "facts": {
+      "source": "Source",
+      "files": "Files",
+      "target": "Target",
+      "archive": "Archive"
+    },
+    "source": {
+      "upload": "Upload from this computer",
+      "folder": "Server import folder"
+    },
+    "filesSummary": "{count, plural, one {# file} other {# files}}, {size}",
+    "target": {
+      "new": "New imported mailbox: {name}",
+      "existing": "Added to: {name}"
+    },
+    "archive": {
+      "yes": "Also ingested into the archive",
+      "no": "Not ingested into the archive"
+    },
+    "uploading": "{count, plural, one {# file is} other {# files are}} still uploading. You can start the import when all uploads have finished.",
+    "note": "Messages that are already in the mailbox are skipped as duplicates. Calendar entries and contacts are not imported. Files that cannot be read are listed in the report, and everything else is imported."
+  },
+  "status": {
+    "queued": "Waiting",
+    "active": "Running",
+    "completed": "Completed",
+    "completedWithIssues": "Completed with problems",
+    "failed": "Failed",
+    "cancelled": "Cancelled",
+    "unknown": "Unknown"
+  },
+  "phase": {
+    "starting": "Starting",
+    "prepare": "Preparing",
+    "import": "Importing messages",
+    "manifest": "Writing the restore point",
+    "archive": "Ingesting into the archive",
+    "other": "Working"
+  },
+  "job": {
+    "title": "Import",
+    "subtitle": "Progress and report of this import.",
+    "back": "All imports",
+    "loadError": "The import could not be loaded",
+    "notFound": {
+      "title": "Import not found",
+      "description": "This import does not exist or belongs to another tenant."
+    },
+    "openExplorer": "Open in restore explorer",
+    "downloadReport": "Download report as JSON",
+    "progress": {
+      "title": "Import in progress",
+      "queued": "Waiting for a worker to pick it up.",
+      "running": "The import is running.",
+      "phase": "Phase: {phase}",
+      "label": "Import progress",
+      "waiting": "Waiting to start.",
+      "counting": "Counting what is in the files.",
+      "read": "{done} of {total} read ({percent}%)",
+      "messages": "{count, plural, one {# message imported so far} other {# messages imported so far}}",
+      "file": "File {current} of {total}",
+      "failed": "{count, plural, one {# item failed} other {# items failed}}",
+      "duplicates": "{count, plural, one {# duplicate skipped} other {# duplicates skipped}}",
+      "stored": "{size} stored",
+      "eta": "about {duration} left",
+      "archive": "{done} of {total} messages handed to the archive"
+    },
+    "outcome": {
+      "title": "Result",
+      "finishedAt": "Finished {date}",
+      "notFinished": "The import did not finish.",
+      "failed": "The import failed",
+      "failedUnknown": "No further details were reported.",
+      "cancelled": "The import was cancelled",
+      "cancelledDescription": "It stopped before finishing. Files uploaded for it were removed from the server, and earlier imports into the mailbox are not affected.",
+      "completedSnapshot": "The messages are stored in a new restore point of the mailbox.",
+      "completedNoSnapshot": "Nothing new was stored, for example because every message was already in the mailbox.",
+      "allAlreadyImported": "{count, plural, one {The only message in the files was already imported. Nothing new was stored.} other {All # messages in the files were already imported. Nothing new was stored.}}",
+      "nothingStored": "Nothing was stored because none of the files could be read. The list below says why."
+    },
+    "request": {
+      "title": "Request",
+      "mailbox": "Mailbox",
+      "files": "Files",
+      "filesValue": "{count, plural, one {# file} other {# files}}",
+      "archive": "Archive",
+      "actor": "Started by",
+      "requested": "Requested",
+      "started": "Started",
+      "finished": "Finished",
+      "duration": "Duration"
+    }
+  },
+  "report": {
+    "messages": "Messages",
+    "folders": "Folders",
+    "attachments": "Attachments",
+    "duplicates": "Duplicates skipped",
+    "failed": "Unreadable items",
+    "skipped": "Skipped items",
+    "bytes": "Message data",
+    "rebuilt": "Rebuilt from MSG"
+  },
+  "notes": {
+    "title": "Good to know",
+    "calendar_contacts_not_imported": "Calendar entries and contacts are not imported, only mail. Outlook items that are contacts or appointments are listed as not a mail message.",
+    "msg_reconstructed": "Some messages come from MSG files and were rebuilt as EML from the stored properties. Their content and attachments are kept, but they are not the original transport format byte for byte.",
+    "metadata_unavailable": "Some messages are stored byte for byte, but their subject, sender and text could not be read in a reasonable time or with the memory the import allows, so they appear without those details and the archive search does not find their text. The messages themselves are complete.",
+    "item_list_truncated": "The list of items is capped, so more items exist than are shown.",
+    "report_recovered": "This report was rebuilt from the records of the job after the import was interrupted, for example by a restart. Some details, such as the list of failed or skipped items, may be missing.",
+    "other": "The import reported a note this version of {appName} does not know (code: {code})."
+  },
+  "archive": {
+    "title": "Archive",
+    "description": "The result of ingesting the imported messages into the archive.",
+    "ingested": "Ingested",
+    "already": "Already archived",
+    "failed": "Failed",
+    "pending": "The messages are handed to the archive once the import is done.",
+    "none": "No archive result was reported."
+  },
+  "items": {
+    "title": "Items that were not imported",
+    "description": "Items that could not be read or were skipped, failed ones first. The reason is explained in your language, followed by the reader's original text.",
+    "filters": {
+      "failed": "Failed",
+      "skipped": "Skipped",
+      "all": "All"
+    },
+    "outcome": {
+      "failed": "Failed",
+      "skipped": "Skipped"
+    },
+    "columns": {
+      "item": "Item",
+      "reason": "Reason"
+    },
+    "codes": {
+      "unreadable": "The item is damaged or could not be parsed.",
+      "unsupported": "A format or container {appName} does not read, for example an encrypted or nested archive.",
+      "not_mail": "This is not a mail message, for example an index file, an image, or an Outlook contact or appointment.",
+      "pst_not_supported": "PST and OST files are planned for a later release.",
+      "too_large": "The message is larger than the limit for a single message.",
+      "empty": "The item has no content.",
+      "limit": "A safety limit of the ZIP reader was reached: number of entries, expanded size or compression ratio.",
+      "duplicate": "The message is already in the mailbox.",
+      "other": "Not imported for another reason."
+    },
+    "copy": "Copy list",
+    "copied": "Copied",
+    "copyFailed": "The list could not be copied. Select it and copy it by hand.",
+    "none": "No items to show.",
+    "pending": "Failures appear here while the import runs.",
+    "liveFailures": "Items the import could not read so far:",
+    "noneNeeded": "Every item was imported. There is nothing to report.",
+    "noneListed": "The report did not list individual items.",
+    "omitted": "{count, plural, one {# more item is} other {# more items are}} not listed. The list shows the first {listed}."
+  },
+  "cancel": {
+    "action": "Cancel import",
+    "title": "Cancel this import?",
+    "description": "The import stops as soon as the worker reaches its next check. Files uploaded for it are removed from the server, and earlier imports into the mailbox are not affected.",
+    "keep": "Keep running",
+    "confirm": "Cancel import",
+    "done": "The import was cancelled.",
+    "failed": "The import could not be cancelled"
+  },
+  "list": {
+    "title": "Imports",
+    "subtitle": "Every import of mail files into this tenant, newest first.",
+    "new": "Import mail files",
+    "loadError": "The imports could not be loaded",
+    "empty": {
+      "title": "No imports yet",
+      "description": "Import EML, MSG, MBOX or ZIP files to keep old mail browsable and restorable in {appName}."
+    },
+    "columns": {
+      "created": "Started",
+      "name": "Mailbox",
+      "status": "Status",
+      "files": "Files",
+      "messages": "Messages",
+      "failed": "Failed",
+      "open": "Open"
+    },
+    "archive": "Also ingested into the archive",
+    "open": "Open import {name}"
+  },
+  "sourcePanel": {
+    "title": "Imported mail files",
+    "description": "Mail brought in from EML, MSG, MBOX and ZIP files. Nothing is backed up from here, so there is no connection to set up or test.",
+    "mailboxes": "{count, plural, one {imported mailbox} other {imported mailboxes}}",
+    "history": "Show imports"
+  },
+  "errors": {
+    "formatNotSupported": "One of the files is a PST or OST file, or another format that cannot be imported. PST and OST import is planned for a later release.",
+    "fileTooLarge": "A file is larger than the limit of this server.",
+    "nameTaken": "An imported mailbox with this name already exists. Choose another name, or add to the existing mailbox.",
+    "uploadNotReady": "One of the uploads is not complete yet. Wait until every upload is ready.",
+    "alreadyQueued": "An import into this mailbox is already waiting. It starts as soon as the running one has finished.",
+    "folderDisabled": "The server import folder is not available."
+  }
+}

@@ -1,0 +1,93 @@
+{
+  "initialPage1": {
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(message)",
+    "@odata.nextLink": "https://graph.microsoft.com/v1.0/users/user-1/mailFolders/AAMkFolderInbox/messages/delta?$select=id,internetMessageId,subject,receivedDateTime,lastModifiedDateTime,isRead,flag,categories,hasAttachments,parentFolderId&$skiptoken=SKIP1",
+    "value": [
+      {
+        "id": "AAMkMsg1",
+        "internetMessageId": "<msg1@contoso.example>",
+        "subject": "Quarterly numbers",
+        "receivedDateTime": "2026-09-01T08:15:00Z",
+        "lastModifiedDateTime": "2026-09-01T08:15:03Z",
+        "isRead": true,
+        "flag": { "flagStatus": "notFlagged" },
+        "categories": ["Finance"],
+        "hasAttachments": true,
+        "parentFolderId": "AAMkFolderInbox"
+      },
+      {
+        "id": "AAMkMsg2",
+        "internetMessageId": "<msg2@contoso.example>",
+        "subject": "Lunch?",
+        "receivedDateTime": "2026-09-02T10:00:00Z",
+        "lastModifiedDateTime": "2026-09-02T10:00:00Z",
+        "isRead": false,
+        "flag": { "flagStatus": "flagged" },
+        "categories": [],
+        "hasAttachments": false,
+        "parentFolderId": "AAMkFolderInbox"
+      }
+    ]
+  },
+  "initialPage2": {
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(message)",
+    "@odata.deltaLink": "https://graph.microsoft.com/v1.0/users/user-1/mailFolders/AAMkFolderInbox/messages/delta?$select=id,internetMessageId,subject,receivedDateTime,lastModifiedDateTime,isRead,flag,categories,hasAttachments,parentFolderId&$deltatoken=DELTA1",
+    "value": [
+      {
+        "id": "AAMkMsg3",
+        "internetMessageId": "<msg3@contoso.example>",
+        "subject": "Re: Lunch?",
+        "receivedDateTime": "2026-09-02T10:05:00Z",
+        "lastModifiedDateTime": "2026-09-02T10:05:00Z",
+        "isRead": false,
+        "flag": { "flagStatus": "notFlagged" },
+        "categories": [],
+        "hasAttachments": false,
+        "parentFolderId": "AAMkFolderInbox"
+      }
+    ]
+  },
+  "incrementalPage": {
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#Collection(message)",
+    "@odata.deltaLink": "https://graph.microsoft.com/v1.0/users/user-1/mailFolders/AAMkFolderInbox/messages/delta?$select=id,internetMessageId,subject,receivedDateTime,lastModifiedDateTime,isRead,flag,categories,hasAttachments,parentFolderId&$deltatoken=DELTA2",
+    "value": [
+      {
+        "id": "AAMkMsg2",
+        "internetMessageId": "<msg2@contoso.example>",
+        "subject": "Lunch?",
+        "receivedDateTime": "2026-09-02T10:00:00Z",
+        "lastModifiedDateTime": "2026-09-03T07:30:00Z",
+        "isRead": true,
+        "flag": { "flagStatus": "complete" },
+        "categories": ["Personal"],
+        "hasAttachments": false,
+        "parentFolderId": "AAMkFolderInbox"
+      },
+      {
+        "@removed": { "reason": "deleted" },
+        "id": "AAMkMsg1"
+      }
+    ]
+  },
+  "goneOutlook": {
+    "error": {
+      "code": "SyncStateNotFound",
+      "message": "The sync state is not found; a full resync is required.",
+      "innerError": {
+        "date": "2026-09-20T06:00:00",
+        "request-id": "6c2a2d3e-1111-4c1a-9d3b-000000000001",
+        "client-request-id": "6c2a2d3e-1111-4c1a-9d3b-000000000001"
+      }
+    }
+  },
+  "throttled": {
+    "error": {
+      "code": "ApplicationThrottled",
+      "message": "Application is over its MailboxConcurrency limit.",
+      "innerError": {
+        "date": "2026-09-20T06:00:00",
+        "request-id": "6c2a2d3e-2222-4c1a-9d3b-000000000002"
+      }
+    }
+  }
+}

@@ -1,0 +1,266 @@
+{
+  "title": "Backup",
+  "status": {
+    "idle": "Bereit",
+    "running": "Läuft",
+    "completed": "Abgeschlossen",
+    "failed": "Fehlgeschlagen"
+  },
+  "snapshot": {
+    "title": "Snapshots",
+    "empty": "Noch keine Snapshots vorhanden.",
+    "created": "Erstellt am {date, date, medium}"
+  },
+  "health": {
+    "title": "Zustand",
+    "verified": "Restore verifiziert",
+    "unverified": "Restore noch nicht verifiziert",
+    "lastRun": "Letzter Lauf {timestamp, time, short}"
+  },
+  "nav": {
+    "history": "Verlauf"
+  },
+  "queue": {
+    "backup": "Backup",
+    "restore": "Wiederherstellung",
+    "verify": "Restore-Prüfung",
+    "archive": "Archiv-Sync",
+    "directory": "Verzeichnis-Sync",
+    "retention": "Aufbewahrung",
+    "scrub": "Speicherprüfung",
+    "storage_migration": "Speichermigration"
+  },
+  "jobStatus": {
+    "queued": "Wartend",
+    "active": "Läuft",
+    "completed": "Abgeschlossen",
+    "completedWithFailures": "{count, plural, one {Abgeschlossen, # Element fehlgeschlagen} other {Abgeschlossen, # Elemente fehlgeschlagen}}",
+    "failed": "Fehlgeschlagen",
+    "cancelled": "Abgebrochen",
+    "checkIncomplete": "Nicht abgeschlossen, wird wiederholt"
+  },
+  "kind": {
+    "mailbox": "Postfach",
+    "onedrive": "OneDrive",
+    "imap": "IMAP-Konto"
+  },
+  "phase": {
+    "starting": "Startet",
+    "connect": "Verbindet",
+    "enumerate": "Liest den vollständigen Bestand",
+    "changes": "Liest Änderungen",
+    "download": "Lädt herunter",
+    "folders": "Ordner",
+    "mail": "E-Mails",
+    "calendar": "Kalender",
+    "contacts": "Kontakte",
+    "files": "Dateien",
+    "resync": "Vollständiges Neulesen (Änderungstoken abgelaufen)",
+    "retry": "Wiederholt fehlgeschlagene Elemente",
+    "commit": "Schließt den Snapshot ab",
+    "manifest": "Schließt den Snapshot ab",
+    "resolve": "Bereitet vor",
+    "archive": "Packt das Archiv",
+    "evaluate": "Prüft die Aufbewahrung",
+    "prune": "Entfernt abgelaufene Snapshots",
+    "load": "Lädt das bekannte Verzeichnis",
+    "complete": "Vervollständigt unvollständige Benutzereinträge",
+    "probe": "Prüft Postfächer und OneDrives",
+    "plan": "Wendet die Schutzregeln an",
+    "persist": "Speichert das Verzeichnis",
+    "unknown": "Arbeitet ({name})"
+  },
+  "live": {
+    "connecting": "Live-Aktualisierung verbindet …",
+    "open": "Live",
+    "reconnecting": "Live-Aktualisierung verbindet neu …",
+    "closed": "Live-Aktualisierung pausiert",
+    "openHint": "Der Fortschritt aktualisiert sich automatisch.",
+    "reconnectingHint": "Die Verbindung zum Server wurde unterbrochen. {appName} verbindet sich selbst neu; die Liste kann einige Sekunden alt sein.",
+    "closedHint": "Live-Aktualisierung ist nicht verfügbar. Laden Sie die Seite neu, um es erneut zu versuchen."
+  },
+  "progress": {
+    "items": "{done} von {total} Elementen",
+    "itemsOpen": "{done} Elemente bisher",
+    "itemsDone": "{done} Elemente verarbeitet",
+    "bytes": "{bytes} neue Daten",
+    "bytesRead": "{bytes} gelesen",
+    "bytesPartial": "{bytes} vor dem Stopp gespeichert",
+    "noChanges": "Keine Änderungen",
+    "noItems": "Keine Elemente verarbeitet",
+    "eta": "noch etwa {duration}",
+    "failed": "{count, plural, one {# Element fehlgeschlagen} other {# Elemente fehlgeschlagen}}",
+    "waiting": "Wartet auf einen freien Worker",
+    "notStarted": "Nicht gestartet",
+    "noProgress": "Kein Fortschritt erfasst",
+    "label": "Fortschritt"
+  },
+  "throttle": {
+    "title": "Microsoft 365 drosselt Anfragen",
+    "waiting": "Microsoft hat {appName} um eine Pause gebeten (HTTP {status}). Der Job läuft in {remaining} automatisch weiter.",
+    "waitingShort": "Von Microsoft pausiert, weiter in {remaining}",
+    "resumed": "Microsoft hat die Anfragen in diesem Lauf gedrosselt. Der Job läuft normal weiter.",
+    "summary": "{count, plural, one {# Pause} other {# Pausen}} durch Microsoft, insgesamt {duration}",
+    "explanation": "Microsoft 365 begrenzt, wie viele Anfragen eine Anwendung senden darf. Warten ist die richtige Reaktion; es geht nichts verloren und kein Element wird übersprungen."
+  },
+  "duration": {
+    "hours": "{hours} Std. {minutes} Min.",
+    "minutes": "{minutes} Min. {seconds} Sek.",
+    "seconds": "{seconds} Sek."
+  },
+  "actions": {
+    "backupNow": "Jetzt sichern",
+    "backupNowIncremental": "Änderungen sichern",
+    "backupNowIncrementalHint": "Setzt beim letzten Snapshot an. Nur neue und geänderte Elemente werden gelesen.",
+    "backupNowFull": "Vollsicherung",
+    "backupNowFullHint": "Liest alles erneut. Die Deduplizierung hält den Speicherbedarf gering, der Lauf dauert aber länger.",
+    "backupAll": "Alle sichern",
+    "backupAllTitle": "Alle geschützten Objekte sichern?",
+    "backupAllDescription": "Für jedes geschützte Objekt dieses Mandanten wird ein Backup-Job eingereiht. Objekte, die bereits eingereiht sind oder deren Quelle nicht verbunden ist, werden übersprungen.",
+    "backupAllConfirm": "Backups einreihen",
+    "cancel": "Job abbrechen",
+    "cancelTitle": "Diesen Job abbrechen?",
+    "cancelDescription": "Ein laufender Job hält am nächsten Sicherungspunkt an. Bereits gespeicherte Elemente bleiben im Speicher; der Snapshot dieses Laufs wird nicht abgeschlossen.",
+    "cancelConfirm": "Job abbrechen",
+    "keepRunning": "Weiterlaufen lassen",
+    "retry": "Erneut ausführen",
+    "openJob": "Job öffnen",
+    "history": "Snapshot-Verlauf",
+    "backToJobs": "Zum Verlauf",
+    "loadMore": "Weitere laden",
+    "clearFilters": "Filter zurücksetzen"
+  },
+  "toast": {
+    "queuedOne": "Backup für {name} eingereiht.",
+    "queuedMany": "{count, plural, one {# Backup eingereiht} other {# Backups eingereiht}}.",
+    "skipped": "{count, plural, one {# Objekt übersprungen} other {# Objekte übersprungen}}: bereits eingereiht oder nicht bereit.",
+    "nothingQueued": "Es wurde kein Backup eingereiht. Alle Objekte sind bereits eingereiht oder nicht bereit.",
+    "cancelled": "Der Job wird abgebrochen.",
+    "retried": "Der Job wurde erneut eingereiht.",
+    "alreadyQueued": "Ein Backup dieses Objekts ist bereits eingereiht oder läuft.",
+    "failed": "Die Aktion konnte nicht ausgeführt werden."
+  },
+  "blocked": {
+    "excluded": "Vom Schutz ausgenommen",
+    "orphaned": "Nicht mehr im Quellverzeichnis",
+    "source_pending": "Quelle noch nicht verbunden",
+    "source_disabled": "Quelle deaktiviert",
+    "already_queued": "Bereits eingereiht"
+  },
+  "jobs": {
+    "title": "Verlauf",
+    "description": "Alle Läufe dieses Mandanten: Sicherungen, Wiederherstellungen und Wartung, mit Live-Fortschritt.",
+    "empty": "Noch keine Läufe. Läufe erscheinen hier, sobald eine Sicherung, eine Wiederherstellung oder eine Wartung eingereiht wird.",
+    "emptyFiltered": "Keine Läufe entsprechen diesen Filtern.",
+    "filterQueue": "Art",
+    "filterStatus": "Status",
+    "allQueues": "Alle Arten",
+    "allStatuses": "Alle Status",
+    "columns": {
+      "job": "Job",
+      "object": "Objekt",
+      "status": "Status",
+      "progress": "Fortschritt",
+      "started": "Gestartet",
+      "duration": "Dauer",
+      "actions": "Aktionen"
+    },
+    "tenantWide": "Gesamter Mandant",
+    "scheduled": "Geplant",
+    "manual": "Manuell gestartet",
+    "afterBackup": "Automatisch nach Sicherung",
+    "full": "Voll",
+    "loadError": "Der Verlauf konnte nicht geladen werden."
+  },
+  "detail": {
+    "title": "Lauf: {queue}",
+    "notFound": "Diesen Lauf gibt es nicht oder er gehört zu einem anderen Mandanten.",
+    "created": "Eingereiht",
+    "started": "Gestartet",
+    "finished": "Beendet",
+    "duration": "Dauer",
+    "trigger": "Auslöser",
+    "mode": "Modus",
+    "modeFull": "Vollsicherung",
+    "modeIncremental": "Änderungen seit dem letzten Snapshot",
+    "phase": "Aktueller Schritt: {phase}",
+    "since": "seit {time}",
+    "error": "Warum der Lauf fehlgeschlagen ist",
+    "cancelledInfo": "Der Job wurde abgebrochen. Vor dem Abbruch gespeicherte Elemente bleiben im Speicher; das nächste Backup setzt beim letzten abgeschlossenen Snapshot an.",
+    "result": "Ergebnis",
+    "resultSnapshot": "Snapshot {sequence}",
+    "resultItems": "{total} Elemente im Snapshot, {written} neu oder geändert",
+    "resultBytes": "{bytes} neue Daten nach Deduplizierung",
+    "resultVerify": "Für dieses Objekt wurde eine Restore-Prüfung eingereiht.",
+    "resultCopies": "{count, plural, one {# Kopieziel fehlte das Manifest; es wurde ergänzt.} other {# Kopiezielen fehlte das Manifest; es wurde ergänzt.}}",
+    "snapshotState": "Snapshot",
+    "noSnapshot": "Für diesen Lauf wurde noch kein Snapshot begonnen.",
+    "loadError": "Der Lauf konnte nicht geladen werden."
+  },
+  "failures": {
+    "title": "Elemente, die nicht verarbeitet werden konnten",
+    "description": "Fehlgeschlagene Elemente werden im nächsten Lauf erneut versucht. Nach drei Fehlläufen in Folge wird ein Alarm ausgelöst.",
+    "empty": "In diesem Job ist kein Element fehlgeschlagen.",
+    "item": "Element",
+    "reason": "Grund",
+    "attempts": "Läufe",
+    "lastAttempt": "Letzter Versuch",
+    "repeated": "In {count} Läufen fehlgeschlagen",
+    "capped": "Die ersten {shown} von {total} fehlgeschlagenen Elementen werden angezeigt."
+  },
+  "objects": {
+    "title": "Backup",
+    "description": "Jedes geschützte Postfach, OneDrive und IMAP-Konto mit seinem letzten Backup. Starten Sie ein Backup für ein einzelnes Objekt oder für alle.",
+    "empty": "Noch keine geschützten Objekte. Verbinden Sie eine Quelle und synchronisieren Sie das Verzeichnis, um Postfächer und OneDrives hinzuzufügen.",
+    "search": "Objekte durchsuchen",
+    "noMatch": "Kein Objekt entspricht der Suche.",
+    "filterKind": "Typ",
+    "allKinds": "Alle Typen",
+    "columns": {
+      "object": "Objekt",
+      "source": "Quelle",
+      "lastBackup": "Letztes erfolgreiches Backup",
+      "lastJob": "Letzter Job",
+      "readiness": "Wiederherstellbarkeit",
+      "actions": "Aktionen"
+    },
+    "never": "Nie",
+    "snapshotSummary": "{count, plural, one {# Element} other {# Elemente}}, {size}",
+    "noJob": "Noch kein Lauf",
+    "loadError": "Die geschützten Objekte konnten nicht geladen werden."
+  },
+  "readiness": {
+    "green": "Restore verifiziert",
+    "yellow": "Restore teilweise verifiziert",
+    "red": "Restore-Prüfung fehlgeschlagen",
+    "none": "Noch nicht verifiziert",
+    "checked": "geprüft {time}"
+  },
+  "snapshots": {
+    "title": "Snapshot-Verlauf",
+    "description": "Gesicherte Zeitpunkte von {name}. Nur abgeschlossene Snapshots lassen sich wiederherstellen.",
+    "includePruned": "Abgelaufene Snapshots anzeigen",
+    "empty": "Noch keine Snapshots. Das erste Backup legt einen an.",
+    "columns": {
+      "sequence": "Nr.",
+      "state": "Zustand",
+      "completed": "Abgeschlossen",
+      "items": "Elemente",
+      "size": "Größe",
+      "job": "Job"
+    },
+    "state": {
+      "running": "Läuft",
+      "completed": "Abgeschlossen",
+      "incomplete": "Unvollständig",
+      "pruned": "Abgelaufen"
+    },
+    "stateHint": {
+      "running": "Das Backup schreibt diesen Snapshot noch.",
+      "completed": "Festgeschrieben und wiederherstellbar.",
+      "incomplete": "Der Job endete, bevor der Snapshot festgeschrieben war. Er kann nicht wiederhergestellt werden.",
+      "pruned": "Durch die Aufbewahrungsrichtlinie entfernt."
+    },
+    "loadError": "Der Snapshot-Verlauf konnte nicht geladen werden."
+  }
+}

@@ -1,0 +1,142 @@
+{
+  "nav": "Retention",
+  "page": {
+    "title": "Restore point retention",
+    "description": "How long backup restore points are kept, and which objects follow their own rule."
+  },
+  "noTenant": {
+    "title": "No tenant selected",
+    "description": "Choose a tenant to manage its retention policies."
+  },
+  "forbidden": {
+    "title": "Administrators only",
+    "description": "Retention shapes what backup data survives at all, so only tenant and provider administrators can view or change it."
+  },
+  "actions": {
+    "new": "New policy",
+    "edit": "Edit",
+    "delete": "Delete",
+    "cancel": "Cancel",
+    "save": "Save",
+    "create": "Create policy",
+    "refresh": "Refresh"
+  },
+  "table": {
+    "label": "Retention policies",
+    "search": "Search policies…",
+    "name": "Policy",
+    "scope": "Applies to",
+    "preset": "Rule",
+    "cutoff": "Kept for",
+    "updated": "Last changed"
+  },
+  "empty": {
+    "title": "No retention policy yet",
+    "description": "Without one, every restore point is kept. Recommended: {rule}.",
+    "cta": "New policy"
+  },
+  "errors": {
+    "load": "Retention policies could not be loaded."
+  },
+  "cutoff": {
+    "forever": "Kept without an age limit",
+    "days": "Up to {days, plural, one {# day} other {# days}}"
+  },
+  "scope": {
+    "tenantWide": "Tenant default",
+    "objects": "{count, plural, one {# object} other {# objects}}"
+  },
+  "presetRule": {
+    "default": "30 days, then daily up to 90 days, then weekly up to 1 year"
+  },
+  "presets": {
+    "default": "Recommended (30 d, then daily to 90 d, then weekly to 1 y)",
+    "30d": "30 days",
+    "90d": "90 days",
+    "1y": "1 year",
+    "3y": "3 years",
+    "7y": "7 years",
+    "keep_all": "Keep everything",
+    "custom": "Custom"
+  },
+  "form": {
+    "createTitle": "New retention policy",
+    "editTitle": "Edit retention policy",
+    "description": "Choose how long restore points are kept. The newest restore point of an object, and its only verified one, are never removed, whatever the policy says.",
+    "name": "Name",
+    "namePlaceholder": "e.g. Standard",
+    "preset": "Rule",
+    "scope": "Applies to",
+    "scopeTenant": "Tenant default",
+    "scopeObjects": "Specific objects",
+    "objectSearch": "Search protected objects…",
+    "objectEmpty": "No matching object.",
+    "objectPlaceholder": "Add an object…",
+    "removeObject": "Remove {name}",
+    "tiersTitle": "Tiers",
+    "tiersHint": "Each tier covers an age range. \"Keep every one\" never thins it; a number of days keeps only the newest restore point per that many days. The last tier can stay open-ended (kept without an age limit) or end, after which nothing survives.",
+    "tierFrom": "From (days)",
+    "tierTo": "To (days)",
+    "tierToForever": "No limit",
+    "tierKeepEvery": "Keep",
+    "tierKeepEveryEvery": "Every one",
+    "tierKeepEveryDays": "One per {days, plural, one {# day} other {# days}}",
+    "addTier": "Add tier",
+    "removeTier": "Remove tier",
+    "previewTitle": "What the next run would remove",
+    "previewObjects": "Objects affected",
+    "previewRestorePoints": "Restore points removed",
+    "previewBytes": "Size removed",
+    "previewHeld": "{count, plural, one {# restore point is} other {# restore points are}} held by a legal hold and stay",
+    "previewNone": "Nothing would be removed with this policy.",
+    "previewLoading": "Calculating…",
+    "previewRefused": "Fix the policy above to see a preview.",
+    "previewError": "The preview could not be loaded."
+  },
+  "validation": {
+    "required": { "name": "A name is required.", "objects": "Choose at least one object." }
+  },
+  "problems": {
+    "object_not_found": "That object does not exist in this tenant.",
+    "object_already_scoped": "That object already has its own retention policy.",
+    "default_exists": "This tenant already has a default policy; edit it instead.",
+    "empty": "At least one tier is required.",
+    "start": "The first tier must start at day 0.",
+    "from_days": "A tier's start must be a whole number of days.",
+    "keep_every_days": "\"Keep every N days\" must be 0 or a positive whole number.",
+    "to_days": "A tier's end must be later than its start.",
+    "open_ended": "Only the last tier may have no end.",
+    "gap": "Tiers must be contiguous, with no gap or overlap.",
+    "required": "A custom policy needs at least one tier.",
+    "generic": "This policy could not be saved as entered."
+  },
+  "toasts": {
+    "created": "Retention policy \"{name}\" created",
+    "updated": "Retention policy \"{name}\" updated",
+    "deleted": "Retention policy \"{name}\" deleted",
+    "failed": "That could not be saved"
+  },
+  "confirm": {
+    "deleteTitle": "Delete this retention policy?",
+    "deleteDescription": "\"{name}\" will no longer prune restore points. Nothing already pruned comes back.",
+    "deleteDescriptionOverride": "\"{name}\" stops governing its objects; the tenant default applies to them from then on, which may prune more. Nothing already pruned comes back.",
+    "deleteConfirm": "Delete policy",
+    "stricterTitle": "Save this policy?",
+    "stricterDescription": "With this policy, the next retention run would remove {count, plural, one {# restore point} other {# restore points}}. This cannot be undone.",
+    "stricterConfirm": "Save anyway"
+  },
+  "dashboardWidget": {
+    "title": "Restore point retention",
+    "description": "How long backup restore points are kept, and which objects follow their own rule.",
+    "recommendedDefault": "No policy yet, so every restore point is kept. The recommended default policy: {rule}.",
+    "thinningNote": "Restore points in between are thinned to save space; not every one is kept.",
+    "keepAll": "Everything is kept: there is no retention policy yet, so no restore point is ever pruned.",
+    "keepByAge": "Every restore point is kept; the policy sets no age limit.",
+    "prunes": "Restore points older than {days} days are pruned; the newest {keepLast, plural, one {restore point} other {# restore points}} of each object are always kept.",
+    "onlyOverrides": "There is no tenant default, so objects without their own policy keep every restore point. {count, plural, one {# object follows} other {# objects follow}} its own policy, which may prune its restore points.",
+    "kept": "Restore points kept",
+    "pruned": "Restore points pruned",
+    "emptyTitle": "No restore points yet",
+    "emptyWithPolicy": "The retention policy applies once restore points exist."
+  }
+}

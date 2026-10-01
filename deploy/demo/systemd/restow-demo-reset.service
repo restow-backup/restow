@@ -1,0 +1,37 @@
+# Restow public demo — nightly reset service unit.
+#
+# Install (as root on the demo VM or the co-hosting production host):
+#   cp deploy/demo/systemd/restow-demo-reset.service /etc/systemd/system/
+#   cp deploy/demo/systemd/restow-demo-reset.timer /etc/systemd/system/
+#   # Edit the WorkingDirectory below to where this repository (or just
+#   # deploy/demo/) is checked out.
+#   systemctl daemon-reload
+#   systemctl enable --now restow-demo-reset.timer
+#
+# The reset never builds: load the images from deploy/demo/build-images.sh
+# first (deploy/demo/README.md, "Images"); a missing image makes the reset
+# stop before it tears anything down.
+#
+# Run it once by hand to check it works before relying on the timer:
+#   systemctl start restow-demo-reset.service
+#   journalctl -u restow-demo-reset.service -f
+# and separately, the reset script's own log:
+#   tail -f /var/log/restow-demo-reset.log
+
+[Unit]
+Description=Restow public demo: nightly reset (compose down -v, up from prebuilt images, seed)
+Wants=network-online.target
+After=network-online.target docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# CHANGE THIS to the path this repository (or a deploy of deploy/demo/) is
+# checked out at on the host running the demo.
+WorkingDirectory=/opt/restow-demo
+ExecStart=/opt/restow-demo/deploy/demo/reset.sh
+# The reset script already logs to a file; keep journald's copy too, but
+# without duplicating stdout you would not otherwise see when run manually.
+StandardOutput=journal
+StandardError=journal
+TimeoutStartSec=20min

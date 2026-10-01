@@ -1,0 +1,84 @@
+{
+  "organization": {
+    "value": [
+      {
+        "id": "tenant-1",
+        "displayName": "Contoso GmbH",
+        "tenantType": "AAD",
+        "countryLetterCode": "DE",
+        "preferredLanguage": "de",
+        "verifiedDomains": [
+          {
+            "name": "contoso.onmicrosoft.com",
+            "isInitial": true,
+            "isDefault": false,
+            "type": "Managed"
+          },
+          { "name": "contoso.example", "isInitial": false, "isDefault": true, "type": "Managed" }
+        ]
+      }
+    ]
+  },
+  "initialPage1": {
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users",
+    "@odata.nextLink": "https://graph.microsoft.com/v1.0/users/delta?$skiptoken=USERS1",
+    "value": [
+      {
+        "id": "user-1",
+        "userPrincipalName": "alice@contoso.example",
+        "displayName": "Alice Example",
+        "mail": "alice@contoso.example",
+        "accountEnabled": true,
+        "userType": "Member",
+        "assignedLicenses": [{ "skuId": "6fd2c87f-b296-42f0-b197-1e91e994b900" }],
+        "assignedPlans": [
+          {
+            "service": "exchange",
+            "capabilityStatus": "Enabled",
+            "servicePlanId": "efb87545-963c-4e0d-99df-69c6916d9eb0"
+          }
+        ]
+      },
+      {
+        "id": "user-shared",
+        "userPrincipalName": "info@contoso.example",
+        "displayName": "Info (shared)",
+        "mail": "info@contoso.example",
+        "accountEnabled": false,
+        "userType": "Member",
+        "assignedLicenses": [],
+        "assignedPlans": []
+      }
+    ]
+  },
+  "initialPage2": {
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users",
+    "@odata.deltaLink": "https://graph.microsoft.com/v1.0/users/delta?$deltatoken=USERSDELTA1",
+    "value": [
+      {
+        "id": "user-guest",
+        "userPrincipalName": "ext_partner.example#EXT#@contoso.onmicrosoft.com",
+        "displayName": "Partner Guest",
+        "mail": "guest@partner.example",
+        "accountEnabled": true,
+        "userType": "Guest",
+        "assignedLicenses": [],
+        "assignedPlans": []
+      }
+    ]
+  },
+  "incrementalPage": {
+    "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#users",
+    "@odata.deltaLink": "https://graph.microsoft.com/v1.0/users/delta?$deltatoken=USERSDELTA2",
+    "value": [
+      { "@removed": { "reason": "changed" }, "id": "user-guest" },
+      { "id": "user-1", "displayName": "Alice Example-Renamed" }
+    ]
+  },
+  "groupMembers": {
+    "value": [
+      { "id": "user-1", "userPrincipalName": "alice@contoso.example" },
+      { "id": "user-shared", "userPrincipalName": "info@contoso.example" }
+    ]
+  }
+}

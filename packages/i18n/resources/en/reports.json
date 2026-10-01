@@ -1,0 +1,533 @@
+{
+  "document": {
+    "author": "{appName}",
+    "product": "{appName}",
+    "generatedAt": "Generated on {date} (UTC)",
+    "page": "Page {page} of {total}",
+    "notAvailable": "Not available",
+    "noValue": "No value"
+  },
+  "unavailable": {
+    "no_tenants": "No tenant is managed yet.",
+    "no_protected_objects": "Nothing is protected yet: no mailbox, OneDrive or IMAP account.",
+    "no_backups_yet": "No backup had completed by the end of this period.",
+    "no_microsoft_365_source": "No Microsoft 365 source is connected. Throttling only applies to Microsoft Graph."
+  },
+  "stats": {
+    "title": "Backup statistics",
+    "subtitle": {
+      "tenant": "Tenant: {name}",
+      "provider": "All tenants ({count, plural, one {# tenant} other {# tenants}})"
+    },
+    "period": "Period: {from} to {to}, {granularity}",
+    "previous": "Changes compare with the previous period of the same length, {from} to {to}.",
+    "granularity": {
+      "day": "per day",
+      "week": "per week",
+      "month": "per month"
+    },
+    "kpi": {
+      "backupSuccessRate": "Backup success rate",
+      "protectedObjects": "Protected objects",
+      "logicalBytes": "Protected data",
+      "physicalBytes": "Stored after deduplication",
+      "dedupRatio": "Deduplication ratio",
+      "restores": "Restores",
+      "verifiedShare": "Proven restorable",
+      "throttlingWaitSeconds": "Microsoft 365 throttling",
+      "failedItems": "Failed items"
+    },
+    "delta": {
+      "change": "{value} vs. previous period",
+      "unchanged": "Unchanged vs. previous period",
+      "none": "No comparison value",
+      "points": "{value} pp"
+    },
+    "section": {
+      "overview": "Key figures",
+      "backups": {
+        "title": "Backup outcomes",
+        "description": "Backup runs that finished, by outcome."
+      },
+      "volume": {
+        "title": "Protected and stored volume",
+        "description": "Data the completed backups covered (logical) and the bytes they added to storage after deduplication and encryption (physical)."
+      },
+      "storage": {
+        "title": "Storage growth",
+        "description": "Bytes in the chunk store at the end of each interval."
+      },
+      "restores": {
+        "title": "Restores",
+        "description": "Restores that finished, by outcome."
+      },
+      "readiness": {
+        "title": "Recovery readiness",
+        "description": "Protected objects by the restore check of their newest backup at the end of each interval. A backup newer than its last check, or never checked, counts as not proven."
+      },
+      "throttling": {
+        "title": "Microsoft 365 throttling",
+        "description": "Time Microsoft Graph made finished jobs wait before it accepted more requests."
+      },
+      "jobDurations": {
+        "title": "Job durations",
+        "description": "Median and 95th percentile run time of the jobs that completed in the period.",
+        "empty": "No job completed in this period."
+      },
+      "failuresByCause": {
+        "title": "Failed items by cause",
+        "description": "Items a job could not process, grouped by cause. They are retried on the next run.",
+        "empty": "No item failed in this period."
+      },
+      "largestObjects": {
+        "title": "Largest protected objects",
+        "description": "Size of the latest backup of each object at the end of the period."
+      },
+      "tenants": {
+        "title": "Tenants",
+        "description": "Every managed tenant at the end of the period.",
+        "empty": "No tenant is managed yet."
+      }
+    },
+    "series": {
+      "succeeded": "Succeeded",
+      "failed": "Failed",
+      "cancelled": "Cancelled",
+      "logicalBytes": "Protected (logical)",
+      "physicalBytes": "Added to storage (physical)",
+      "bytes": "Stored",
+      "waitSeconds": "Waiting time",
+      "completed": "Completed",
+      "green": "Ready",
+      "yellow": "Attention",
+      "red": "Not restorable",
+      "unverified": "Not proven"
+    },
+    "column": {
+      "kind": "Job",
+      "count": "Runs",
+      "p50": "Median",
+      "p95": "95th percentile",
+      "cause": "Cause",
+      "failures": "Items",
+      "lastAt": "Last seen",
+      "name": "Name",
+      "objectKind": "Type",
+      "tenant": "Tenant",
+      "logicalBytes": "Size",
+      "lastBackupAt": "Last backup",
+      "state": "Readiness",
+      "objects": "Objects",
+      "successRate": "Success rate",
+      "protectedBytes": "Protected",
+      "physicalBytes": "Stored",
+      "failedItems": "Failed items"
+    },
+    "jobKind": {
+      "backup": "Backup",
+      "restore": "Restore",
+      "verify": "Restore check",
+      "directory": "Directory sync",
+      "archive": "Archive",
+      "retention": "Retention",
+      "scrub": "Storage check",
+      "storage_migration": "Storage migration"
+    },
+    "objectKind": {
+      "mailbox": "Mailbox",
+      "onedrive": "OneDrive",
+      "imap": "IMAP mailbox"
+    },
+    "state": {
+      "green": "Ready",
+      "yellow": "Attention",
+      "red": "Not restorable",
+      "unverified": "Not verified",
+      "no_backup": "No backup yet"
+    },
+    "readiness": {
+      "green": "Ready",
+      "yellow": "Attention",
+      "red": "Not proven",
+      "none": "Nothing protected"
+    },
+    "method": {
+      "title": "How these figures are measured",
+      "successRate": "Backup success rate: succeeded runs divided by succeeded and failed runs that finished in the period. Cancelled runs were stopped on purpose and are not counted.",
+      "volume": "Protected data is the newest backup of every protected object. Stored bytes are the encrypted, deduplicated pack files; packs removed by garbage collection no longer appear in earlier intervals.",
+      "dedup": "Deduplication ratio: all retained backups added up, divided by the bytes stored.",
+      "readiness": "Proven restorable: objects whose newest backup was rated “Ready” or “Attention” by a restore check of that very backup. A backup taken after the last check stays unproven until it is checked itself; objects never checked or never backed up are not proven, and damage the storage check finds after a check counts as not restorable.",
+      "status": "Excluded objects are not protected and objects removed from their source count while they still have a backup. Only an object's current status is stored, so an object excluded today is left out of earlier intervals too.",
+      "throttling": "Throttling waits are what Microsoft Graph imposed on finished jobs; {appName} waits as long as Microsoft asks instead of retrying sooner."
+    }
+  },
+  "nav": "Alerts",
+  "page": {
+    "title": "Alerts",
+    "subtitle": "Who is told what, when: alerts when something happens, reports at a point in time.",
+    "tenantScope": "Alerts and reports of {tenant}",
+    "newAlert": "New alert",
+    "newReport": "New report",
+    "reportLocked": "Reports not available",
+    "tabs": {
+      "rules": "Rules",
+      "deliveries": "Delivery log"
+    },
+    "noTenant": {
+      "title": "No tenant selected",
+      "description": "Select a tenant in the top bar to see and change its alerts and reports."
+    }
+  },
+  "rules": {
+    "loadError": "The rules could not be loaded.",
+    "alerts": {
+      "title": "Alerts",
+      "description": "Sent when something happens: a failed backup, a restore check that did not pass, damaged storage.",
+      "empty": "No alert yet. Failed jobs and readiness changes still appear in the bell."
+    },
+    "reports": {
+      "title": "Reports",
+      "description": "A summary of a period, sent at a fixed time: daily, weekly or monthly.",
+      "empty": "No report yet."
+    },
+    "columns": {
+      "rule": "Rule",
+      "trigger": "When",
+      "channels": "To",
+      "lastDelivery": "Last sent",
+      "actions": "Actions"
+    },
+    "moreEvents": "and {count} more",
+    "cadence": {
+      "daily": "Daily at {time}",
+      "weekly": "Every {weekday} at {time}",
+      "monthly": "Monthly on the 1st at {time}",
+      "custom": "Custom"
+    },
+    "next": "Next",
+    "recipients": "{count, plural, one {# recipient} other {# recipients}}",
+    "bell": "Bell",
+    "webhook": "Webhook",
+    "never": "Not sent yet",
+    "paused": "Paused",
+    "locked": "Not available",
+    "actions": {
+      "menu": "Actions for {name}",
+      "edit": "Edit",
+      "test": "Send test now",
+      "pause": "Pause",
+      "resume": "Resume",
+      "delete": "Delete"
+    },
+    "deleteConfirm": {
+      "title": "Delete this rule?",
+      "description": "“{name}” stops sending. Its entries in the delivery log stay."
+    }
+  },
+  "deliveries": {
+    "title": "Delivery log",
+    "description": "Everything the rules sent or tried to send, newest first. Failed mails are retried four times over about 80 minutes.",
+    "loadError": "The delivery log could not be loaded.",
+    "empty": "Nothing sent yet.",
+    "summary": "Report",
+    "columns": {
+      "time": "Time",
+      "rule": "Rule",
+      "what": "About",
+      "channel": "Channel",
+      "status": "Status"
+    },
+    "channel": {
+      "email": "E-mail",
+      "in_app": "Bell",
+      "webhook": "Webhook"
+    },
+    "status": {
+      "pending": "Queued",
+      "sent": "Sent",
+      "failed": "Failed",
+      "skipped": "Skipped"
+    },
+    "reasons": {
+      "mail_not_configured": "No mail transport is set up (Settings → Notification mail).",
+      "not_available": "Reports are not available on this installation.",
+      "webhook_deleted": "The webhook was deleted.",
+      "webhook_inactive": "The webhook is paused.",
+      "no_recipient": "No recipient.",
+      "demo_mode": "Demo: nothing leaves this server."
+    }
+  },
+  "editor": {
+    "title": {
+      "create": {
+        "event": "New alert",
+        "schedule": "New report"
+      },
+      "edit": {
+        "event": "Edit alert",
+        "schedule": "Edit report"
+      }
+    },
+    "description": {
+      "event": "Choose what should trigger the alert and who receives it.",
+      "schedule": "Choose when the report is sent, what it covers and who receives it."
+    },
+    "name": "Name",
+    "namePlaceholder": {
+      "event": "e.g. Failed backups",
+      "schedule": "e.g. Weekly report"
+    },
+    "events": "Send an alert when",
+    "eventsHint": "Each event also appears in the bell, with or without a rule.",
+    "throttle": "Repeat alerts",
+    "throttleHint": "How often the same rule may alert about the same mailbox or job type.",
+    "throttleOptions": {
+      "0": "Every time",
+      "15": "At most every 15 minutes",
+      "60": "At most every hour",
+      "240": "At most every 4 hours",
+      "1440": "At most once a day"
+    },
+    "frequency": "Frequency",
+    "frequencies": {
+      "daily": "Daily",
+      "weekly": "Weekly",
+      "monthly": "Monthly (on the 1st)",
+      "custom": "Custom (cron)"
+    },
+    "weekday": "Day",
+    "time": "Time",
+    "cron": "Cron expression",
+    "cronHint": "Five fields: minute, hour, day of month, month, day of week.",
+    "timezone": "Time zone",
+    "timezoneHint": "IANA name, e.g. Europe/Berlin.",
+    "period": "Covers",
+    "periodDays": "{count, plural, one {the last day} other {the last # days}}",
+    "sections": "Contents",
+    "channels": "Recipients",
+    "recipients": "E-mail addresses",
+    "recipientsHint": "One per line, or separated by commas.",
+    "recipientsPlaceholder": "e.g. it@example.com",
+    "inApp": "Also show in the bell",
+    "inAppHint": "A bell entry when the report was sent, for everyone in this tenant.",
+    "bellAlways": "Alerts always appear in the bell as well.",
+    "webhook": "Webhook",
+    "webhookHint": "Also sent as a signed webhook (report.alert or report.summary), e.g. to an RMM, Teams or a ticket system.",
+    "noWebhook": "No webhook",
+    "language": "Language",
+    "languageTenant": "Tenant language",
+    "enabled": "Active",
+    "cancel": "Cancel",
+    "create": "Create",
+    "save": "Save",
+    "errors": {
+      "name": "Enter a name.",
+      "events": "Choose at least one event.",
+      "sections": "Choose at least one section.",
+      "channels": "Add an e-mail address or a webhook (or the bell, for a report).",
+      "time": "Enter a time as HH:MM.",
+      "cron": "A cron expression has five fields.",
+      "recipients": "One of the addresses is not a valid e-mail address."
+    }
+  },
+  "eventGroups": {
+    "jobs": "Jobs",
+    "recoverability": "Recoverability",
+    "storage": "Storage",
+    "system": "Installation"
+  },
+  "events": {
+    "backup": {
+      "failed": "Backup failed"
+    },
+    "restore": {
+      "failed": "Restore failed",
+      "completed": "Restore completed"
+    },
+    "archive": {
+      "failed": "Archive sync failed"
+    },
+    "directory": {
+      "failed": "Directory sync failed"
+    },
+    "verify": {
+      "red": "Restore check failed",
+      "yellow": "Restore check needs attention",
+      "recovered": "Restorable again"
+    },
+    "scrub": {
+      "corrupt": "Storage damage found",
+      "repaired": "Storage damage repaired"
+    },
+    "endpoint": {
+      "stale": "Server or client not reporting",
+      "suspicious_snapshot": "Suspicious snapshot of a server or client",
+      "storage_quota": "Storage budget of servers and clients",
+      "repository_locked": "Repository of a server or client stays locked"
+    },
+    "update": {
+      "available": "Update available"
+    }
+  },
+  "eventHints": {
+    "backup": {
+      "failed": "A backup job of a mailbox, OneDrive or IMAP account did not finish."
+    },
+    "restore": {
+      "failed": "A restore or download could not be completed.",
+      "completed": "A restore or download is ready."
+    },
+    "archive": {
+      "failed": "An archive sync run did not finish."
+    },
+    "directory": {
+      "failed": "Reading users and mailboxes from Microsoft 365 failed."
+    },
+    "verify": {
+      "red": "A restore would not be complete: the newest backup did not pass its check.",
+      "yellow": "The check passed with warnings.",
+      "recovered": "A mailbox that was red or yellow is green again."
+    },
+    "scrub": {
+      "corrupt": "The storage check found damaged or missing pack files.",
+      "repaired": "Damaged pack files were restored from an intact copy."
+    },
+    "endpoint": {
+      "stale": "A server has not reported for more than two hours, or a client has had no good backup for several days.",
+      "suspicious_snapshot": "A snapshot appeared that no backup run reported, or one dated in the future. Retention keeps it; the machine may be compromised.",
+      "storage_quota": "The repository of a machine, or all of a tenant's together, reached 90 percent of the storage budget, or backups were refused because it is used up.",
+      "repository_locked": "Retention and checks of a machine's repository kept finding it locked for more than twelve hours."
+    },
+    "update": {
+      "available": "A newer version of the software is available. Raised once per version for the whole installation, so only provider administrators can choose it."
+    }
+  },
+  "sections": {
+    "backups": "Backups",
+    "readiness": "Recoverability",
+    "failures": "Failures",
+    "storage": "Storage",
+    "restores": "Restores"
+  },
+  "sectionHints": {
+    "backups": "Success rate and failed items.",
+    "readiness": "Share proven restorable and protected objects.",
+    "failures": "The most frequent failure causes.",
+    "storage": "Protected data and what it takes after deduplication.",
+    "restores": "How many restores ran."
+  },
+  "weekdays": {
+    "0": "Sunday",
+    "1": "Monday",
+    "2": "Tuesday",
+    "3": "Wednesday",
+    "4": "Thursday",
+    "5": "Friday",
+    "6": "Saturday"
+  },
+  "queues": {
+    "backup": "Backup",
+    "restore": "Restore",
+    "archive": "Archive sync",
+    "directory": "Directory sync"
+  },
+  "mail": {
+    "tenant": "Tenant",
+    "target": "Concerns",
+    "when": "When",
+    "error": "Error",
+    "reasons": "Reasons",
+    "verifyRedOutdated": "Backup too old",
+    "testPrefix": "Test: ",
+    "alertIntro": "{event}: {target} ({tenant}).",
+    "summaryIntro": "Summary for {tenant}, {from} to {to}.",
+    "footer": "You receive this message because of the rule “{rule}” in {appName}. Change or pause it under Alerts.",
+    "version": "New version",
+    "running": "Running version",
+    "releaseNotes": "Release notes",
+    "cause": "Cause",
+    "todo": "What to do"
+  },
+  "summary": {
+    "previous": "previous period",
+    "backupSuccessRate": "Backup success rate",
+    "failedItems": "Failed items",
+    "verifiedShare": "Proven restorable",
+    "protectedObjects": "Protected objects",
+    "failures": "Failures",
+    "failure": "Failure",
+    "noFailures": "None in this period",
+    "logicalBytes": "Protected data",
+    "physicalBytes": "Stored after deduplication",
+    "restores": "Restores"
+  },
+  "bell": {
+    "label": "Notifications",
+    "labelUnread": "{count, plural, one {Notifications, # unread} other {Notifications, # unread}}",
+    "labelUnreadAttention": "Notifications, {count} unread, {attention, plural, one {# needs attention} other {# need attention}}",
+    "title": "Notifications",
+    "markAll": "Mark all read",
+    "empty": "Nothing new.",
+    "unread": "unread",
+    "manage": "Alerts"
+  },
+  "bellEvents": {
+    "backup": {
+      "failed": "Backup failed: {object}"
+    },
+    "restore": {
+      "failed": "Restore failed: {object}",
+      "completed": "Restore completed: {object}"
+    },
+    "archive": {
+      "failed": "Archive sync failed: {object}"
+    },
+    "directory": {
+      "failed": "Directory sync failed"
+    },
+    "verify": {
+      "red": "Restore check failed: {object}",
+      "redOutdated": "Backup too old: {object}",
+      "yellow": "Restore check needs attention: {object}",
+      "recovered": "Restorable again: {object}"
+    },
+    "scrub": {
+      "corrupt": "Storage damage found",
+      "repaired": "Storage damage repaired"
+    },
+    "endpoint": {
+      "stale": "Not reporting: {object}",
+      "suspicious_snapshot": "Suspicious snapshot: {object}",
+      "storage_quota": "Storage budget: {object}",
+      "repository_locked": "Repository locked: {object}"
+    },
+    "report": {
+      "ready": "Report sent: {rule}"
+    },
+    "update": {
+      "available": "Update available: version {version}",
+      "succeeded": "Updated to version {version}",
+      "failed": "Update to version {version} did not complete"
+    }
+  },
+  "toasts": {
+    "created": "Rule created.",
+    "updated": "Rule saved.",
+    "deleted": "Rule deleted.",
+    "paused": "Rule paused.",
+    "resumed": "Rule resumed.",
+    "testQueued": "{count, plural, one {Test queued for # channel; see the delivery log.} other {Test queued for # channels; see the delivery log.}}"
+  },
+  "errors": {
+    "network": "The server cannot be reached.",
+    "featureUnavailable": "Time-triggered reports are not available on this installation.",
+    "invalid": "The rule cannot be saved: {detail}",
+    "notFound": "The rule no longer exists.",
+    "generic": "That did not work. Please try again."
+  },
+  "defaultRules": {
+    "jobFailures": "Failed jobs",
+    "readinessRed": "Recoverability at risk",
+    "weeklyReport": "Weekly report"
+  }
+}

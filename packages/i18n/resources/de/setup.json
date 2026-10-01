@@ -1,0 +1,203 @@
+{
+  "title": "Ersteinrichtung",
+  "subtitle": "Sechs Schritte, dann ist {appName} betriebsbereit.",
+  "stepIndicator": "Schritt {current} von {total}",
+  "step": {
+    "token": "Setup-Token",
+    "disclaimer": "Hinweis",
+    "mode": "Betriebsmodus",
+    "admin": "Erstes Admin-Konto",
+    "mail": "Mail-Transport",
+    "review": "Überprüfung"
+  },
+  "token": {
+    "title": "Bestätigen Sie, dass Sie diesen Server betreiben",
+    "description": "Nur wer Zugriff auf den Server hat, kann {appName} einrichten. Das Setup-Token weist das nach.",
+    "whereLog": "Beim Start hat der api-Container ein einmaliges Setup-Token in sein Log geschrieben. So zeigen Sie es auf dem Server an:",
+    "whereEnvironment": "Dieser Server nimmt sein Setup-Token aus der Variable RESTOW_SETUP_TOKEN in seiner Umgebung (.env). Geben Sie diesen Wert ein.",
+    "restart": "Jeder Neustart der api erzeugt ein neues Token. Verwenden Sie das zuletzt ausgegebene.",
+    "label": "Setup-Token",
+    "placeholder": "XXXXX-XXXXX-XXXXX-XXXXX",
+    "hint": "Groß- und Kleinschreibung und Bindestriche spielen keine Rolle.",
+    "checking": "Wird geprüft …",
+    "error": {
+      "required": "Geben Sie das Setup-Token ein.",
+      "invalid": "Das ist nicht das Setup-Token dieses Servers. Kopieren Sie es erneut aus dem Log.",
+      "changed": "Das Setup-Token hat sich geändert, vermutlich wurde die api neu gestartet. Geben Sie das zuletzt ausgegebene Token ein. Ihre Eingaben bleiben erhalten.",
+      "failed": "Das Token konnte nicht geprüft werden. Versuchen Sie es erneut."
+    }
+  },
+  "disclaimer": {
+    "title": "Ihre Verantwortung als Betreiber",
+    "description": "Bitte lesen Sie diesen Hinweis. {appName} kann erst genutzt werden, wenn Sie ihn akzeptiert haben.",
+    "intro": "{appName} ist ein Werkzeug für Backup und Archivierung. Es schreibt Ihre Daten auf Speicher, den Sie betreiben, und hilft Ihnen, sie zurückzuholen. Es betreibt diesen Speicher nicht für Sie und kann Ihre Infrastruktur nicht absichern. Was auf der Hardware- und Speicherebene geschieht, liegt in Ihrer Verantwortung als Betreiber.",
+    "points": {
+      "strategy": {
+        "title": "Kein Ersatz für eine Backup-Strategie",
+        "body": "{appName} ersetzt keine Backup-Strategie. Halten Sie sich an die 3-2-1-Regel: drei Kopien Ihrer Daten auf zwei Arten von Medien, davon eine an einem anderen Ort oder offline. Bewahren Sie eine unabhängige Kopie auf, die {appName} weder erreichen noch löschen kann. Gerade in der Beta darf {appName} niemals Ihre einzige Sicherung sein."
+      },
+      "storage": {
+        "title": "Hardware und Speicher",
+        "body": "Sie sind verantwortlich für die Server, Datenträger, Netzwerke und Speicherziele darunter sowie für deren Redundanz, Kapazität und Zustand. Fällt ein Speicherziel aus, läuft es voll, geht es verloren oder wird es nicht getrennt gesichert, kann {appName} das weder beheben noch die Daten zurückbringen."
+      },
+      "immutability": {
+        "title": "Ransomware und Löschen",
+        "body": "Daten sind nur dann unveränderbar, wenn der Speicher sie dazu macht. Ist auf dem Speicherziel kein WORM oder Object Lock eingerichtet, kann jeder, der es erreicht, auch Ransomware oder ein kompromittiertes Konto, Ihre Sicherungen und Ihr Archiv ändern oder löschen. Den Speicher gegen Ransomware und Löschen zu schützen, liegt bei Ihnen."
+      },
+      "keys": {
+        "title": "Verschlüsselungsschlüssel",
+        "body": "Ihre Daten werden mit Schlüsseln verschlüsselt, die aus dem Master-Schlüssel dieser Installation abgeleitet sind. Sie sind dafür verantwortlich, diesen Schlüssel sicher und getrennt von den Daten aufzubewahren. Geht der Master-Schlüssel verloren, kann niemand die Daten entschlüsseln, und sie lassen sich nicht wiederherstellen."
+      },
+      "security": {
+        "title": "Netzwerk und Zugriff",
+        "body": "Sie sind verantwortlich für die Sicherheit von Server, Netzwerk, Konten und Zugangsdaten, die {appName} und seinen Speicher erreichen: Updates, Firewall, HTTPS, starke Anmeldung und wer worauf zugreifen darf."
+      },
+      "restore": {
+        "title": "Restore regelmäßig testen",
+        "body": "Testen Sie Wiederherstellungen regelmäßig und prüfen Sie die Ergebnisse, zusätzlich zur Prüfung, die {appName} selbst durchführt. Eine Sicherung, die Sie nie wiederhergestellt haben, ist keine, auf die Sie sich verlassen können."
+      },
+      "gobd": {
+        "title": "Archiv und GoBD",
+        "body": "Die Archivfunktionen sind für den GoBD-konformen Einsatz ausgelegt. Ob Ihr gesamtes Verfahren konform ist, einschließlich Verfahrensdokumentation, Aufbewahrungsfristen, Zugriffsrechten, organisatorischen Maßnahmen und dem Speicher hinter dem Archiv, liegt in Ihrer Verantwortung. {appName} leistet keine Rechts- oder Steuerberatung."
+      },
+      "warranty": {
+        "title": "Keine Gewährleistung",
+        "body": "{appName} wird unter seinen Lizenzbedingungen bereitgestellt, ohne Gewährleistung darüber hinaus und über das hinaus, was zwingendes Recht vorschreibt."
+      }
+    },
+    "accept": "Ich habe diesen Hinweis gelesen und akzeptiere ihn. Mir ist bewusst, dass ich als Betreiber dieser Installation für die oben genannten Punkte verantwortlich bin.",
+    "required": "Setzen Sie den Haken, um fortzufahren.",
+    "version": "Fassung {version}",
+    "continue": "Weiter",
+    "accepted": "Sie haben diesen Hinweis akzeptiert.",
+    "failed": "Ihre Zustimmung konnte nicht gespeichert werden.",
+    "serverRequired": "Der Hinweis muss akzeptiert werden, bevor die Einrichtung gespeichert werden kann.",
+    "versionChanged": "Der Hinweis wurde aktualisiert. Laden Sie die Seite neu, um die aktuelle Fassung zu lesen.",
+    "reload": "Neu laden",
+    "existing": {
+      "title": "Hinweis zur Verantwortung des Betreibers",
+      "description": "Diese Installation wurde eingerichtet, bevor es diesen Hinweis gab, oder der Hinweis wurde aktualisiert. Bitte lesen und akzeptieren Sie ihn, um {appName} weiter zu nutzen.",
+      "needAdministrator": "Ein Owner oder Administrator des Provider-Teams muss diesen Hinweis zuerst akzeptieren. Bitten Sie eine dieser Personen, sich anzumelden und ihn zu akzeptieren, oder melden Sie sich ab.",
+      "accept": "Akzeptieren und fortfahren",
+      "signOut": "Abmelden"
+    }
+  },
+  "mode": {
+    "title": "Wie betreiben Sie {appName}?",
+    "description": "Der Modus lässt sich später in den Einstellungen ändern.",
+    "local": "Lokaler Modus",
+    "localDescription": "Erreichbar über IP-Adresse oder localhost, ohne öffentliche Domain. Anmeldung per Notfall-Passwort.",
+    "public": "Öffentlicher Modus",
+    "publicDescription": "Erreichbar über eine eigene Domain mit HTTPS. Passkeys sind verfügbar.",
+    "publicUrl": {
+      "label": "Öffentliche URL",
+      "placeholder": "https://restow.example.com",
+      "hint": "Genau die Adresse, die Browser aufrufen. Sie bestimmt die Passkey-Domain und die Entra-Redirect-URI."
+    },
+    "passkey": {
+      "title": "Passkey-Bereitschaft",
+      "ready": "Passkeys werden auf dieser Installation angeboten.",
+      "notReady": "Passkeys werden noch nicht angeboten. Bis dahin gilt die Notfall-Anmeldung mit Passwort.",
+      "checking": "Prüfe die Verbindung …",
+      "reasons": {
+        "mode_not_public": "Der lokale Modus bindet keine Domain, die WebAuthn verlangt.",
+        "no_public_url": "Es ist keine gültige öffentliche URL gesetzt.",
+        "not_https": "Die öffentliche URL wird nicht über HTTPS ausgeliefert.",
+        "origin_mismatch": "Der Browser meldet eine andere Origin als die konfigurierte URL."
+      },
+      "rpId": "Passkey-Domain",
+      "origin": "Origin"
+    }
+  },
+  "admin": {
+    "title": "Erstes Admin-Konto",
+    "description": "Dieses Konto ist Provider-Admin: Es richtet {appName} ein und legt Mandanten an.",
+    "name": {
+      "label": "Name",
+      "placeholder": "Vor- und Nachname"
+    },
+    "email": {
+      "label": "E-Mail",
+      "placeholder": "admin@example.com"
+    },
+    "password": {
+      "label": "Notfall-Passwort",
+      "placeholder": "Mindestens 12 Zeichen",
+      "hint": "Das Passwort ist der Notfall-Weg. Nutzen Sie einen Passwort-Manager. Direkt nach der Anmeldung richten Sie eine Authenticator-App ein; danach fragt {appName} deren Code zusammen mit dem Passwort ab."
+    },
+    "confirm": {
+      "label": "Passwort wiederholen",
+      "placeholder": "Noch einmal eingeben"
+    },
+    "strength": {
+      "label": "Passwortstärke",
+      "tooShort": "Zu kurz",
+      "weak": "Schwach",
+      "fair": "Ausreichend",
+      "strong": "Stark",
+      "veryStrong": "Sehr stark"
+    },
+    "passkeyHint": "Sobald die Passkey-Bereitschaft erreicht ist, können Sie unter Anmeldesicherheit im Benutzermenü einen Passkey hinzufügen."
+  },
+  "mail": {
+    "title": "Wie versendet {appName} Benachrichtigungen?",
+    "description": "Wird für Berichte, Warnungen und Einladungen genutzt. Der Journal-Empfang für das Archiv ist davon getrennt.",
+    "transport": {
+      "label": "Transport",
+      "smtp": "SMTP-Server",
+      "graph": "Microsoft Graph (Mail.Send)"
+    },
+    "smtp": {
+      "host": "SMTP-Server",
+      "hostPlaceholder": "smtp.example.com",
+      "port": "Port",
+      "security": "Verbindungssicherheit",
+      "securityOptions": {
+        "starttls": "STARTTLS (Port 587)",
+        "tls": "TLS / implizit (Port 465)",
+        "none": "Unverschlüsselt (nur intern)"
+      },
+      "username": "Benutzername",
+      "usernameHint": "Leer lassen, wenn der Server keine Anmeldung verlangt.",
+      "password": "Passwort",
+      "passwordHint": "Wird verschlüsselt gespeichert und nie im Klartext angezeigt.",
+      "from": "Absenderadresse",
+      "fromPlaceholder": "restow@example.com"
+    },
+    "graph": {
+      "sender": "Absenderpostfach",
+      "senderPlaceholder": "restow@example.com",
+      "tenantId": "Entra-Tenant-ID (optional)",
+      "tenantIdPlaceholder": "00000000-0000-0000-0000-000000000000",
+      "hint": "Nutzt die Microsoft-App-Registrierung als Anwendung. Erfordert die Anwendungsberechtigung Mail.Send mit Admin-Consent; siehe https://docs.restowbackup.com/de/administrators/setup-wizard/."
+    },
+    "sendTest": {
+      "label": "Testnachricht an das Admin-Konto senden",
+      "hint": "Zeigt sofort, ob der Transport funktioniert. Ein Fehlschlag blockiert die Einrichtung nicht."
+    }
+  },
+  "review": {
+    "title": "Überprüfung",
+    "description": "Prüfen Sie Ihre Angaben und schließen Sie die Einrichtung ab.",
+    "mode": "Betriebsmodus",
+    "publicUrl": "Öffentliche URL",
+    "admin": "Erstes Admin-Konto",
+    "mail": "Mail-Transport",
+    "sendTest": "Testnachricht",
+    "yes": "Ja",
+    "no": "Nein",
+    "finish": "Einrichtung abschließen",
+    "submitting": "Einrichtung wird gespeichert …",
+    "signingIn": "Anmeldung läuft …"
+  },
+  "result": {
+    "success": "Einrichtung abgeschlossen. Willkommen bei {appName}.",
+    "testSendOk": "Die Testnachricht wurde versendet.",
+    "testSendFailed": "Die Testnachricht konnte nicht versendet werden: {error}",
+    "signInFailed": "Die Einrichtung ist gespeichert, die automatische Anmeldung hat aber nicht geklappt. Bitte melden Sie sich manuell an.",
+    "alreadyConfigured": "Diese Installation ist bereits eingerichtet.",
+    "failed": "Die Einrichtung konnte nicht gespeichert werden.",
+    "administratorExists": "Eine frühere, nicht abgeschlossene Einrichtung hat bereits einen Administrator angelegt. Fahren Sie mit dessen E-Mail-Adresse und Passwort fort.",
+    "configurationIncomplete": "Die Serverkonfiguration ist unvollständig. Setzen Sie {settings} in der Serverumgebung, starten Sie {appName} neu und schließen Sie dann die Einrichtung ab."
+  }
+}

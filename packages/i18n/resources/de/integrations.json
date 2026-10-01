@@ -1,0 +1,369 @@
+{
+  "nav": "Integrationen",
+  "title": "Integrationen",
+  "subtitle": "API-Schlüssel und Webhooks verbinden {appName} mit RMM-, PSA- und Ticketsystemen.",
+  "tenantScope": "API-Schlüssel und Webhooks von {tenant}. Integrationen sehen nur diesen Mandanten.",
+  "tabs": {
+    "apiKeys": "API-Schlüssel",
+    "webhooks": "Webhooks"
+  },
+  "noTenant": {
+    "title": "Kein Mandant ausgewählt",
+    "description": "Wählen Sie oben einen Mandanten, um seine API-Schlüssel und Webhooks zu verwalten."
+  },
+  "noTenantAccess": {
+    "title": "Rolle Mandanten-Admin erforderlich",
+    "description": "Nur Mandanten-Admins können die API-Schlüssel und Webhooks von {tenant} verwalten."
+  },
+  "apiKeys": {
+    "title": "API-Schlüssel",
+    "description": "Integrationen melden sich mit 'Authorization: Bearer <Schlüssel>' an. Ein Schlüssel wirkt nur in diesem Mandanten und nur mit den Berechtigungen, die er erhalten hat.",
+    "create": "API-Schlüssel erstellen",
+    "showRevoked": "Widerrufene Schlüssel anzeigen",
+    "rateLimit": "Jeder Schlüssel darf 600 Anfragen je 10 Minuten senden.",
+    "empty": {
+      "title": "Noch keine API-Schlüssel",
+      "description": "Erstellen Sie je angebundenem System einen eigenen Schlüssel. So lässt sich einer widerrufen, ohne die anderen zu berühren."
+    },
+    "columns": {
+      "name": "Name",
+      "key": "Schlüssel",
+      "scopes": "Berechtigungen",
+      "lastUsed": "Zuletzt verwendet",
+      "expires": "Läuft ab",
+      "status": "Status",
+      "actions": "Aktionen"
+    },
+    "createdBy": "von {name}",
+    "neverUsed": "Nie verwendet",
+    "noExpiry": "Kein Ablauf",
+    "expiresSoon": "Läuft bald ab",
+    "moreScopes": "+{count}",
+    "allScopes": "Alle Berechtigungen",
+    "status": {
+      "active": "Aktiv",
+      "expired": "Abgelaufen",
+      "revoked": "Widerrufen"
+    },
+    "revoke": "Widerrufen",
+    "revokeLabel": "{name} widerrufen",
+    "revokeConfirm": {
+      "title": "API-Schlüssel widerrufen?",
+      "description": "Alle Integrationen, die „{name}“ ({prefix}…) verwenden, funktionieren sofort nicht mehr. Der Widerruf lässt sich nicht rückgängig machen; der Schlüssel bleibt für den Prüfpfad in der Liste.",
+      "confirm": "Schlüssel widerrufen"
+    },
+    "loadError": "Die API-Schlüssel konnten nicht geladen werden."
+  },
+  "providerKeys": {
+    "title": "Provider-Schlüssel",
+    "description": "Provider-Schlüssel gelten mandantenübergreifend: Anfragen nennen den Mandanten im Header X-Restow-Tenant, und die Provider-Übersichten zeigen alle Mandanten.",
+    "create": "Provider-Schlüssel erstellen",
+    "empty": {
+      "title": "Noch keine Provider-Schlüssel",
+      "description": "Mit einem Provider-Schlüssel liest Ihr RMM oder PSA den Status aller Mandanten mit einem einzigen Schlüssel."
+    },
+    "unavailable": {
+      "title": "Auf dieser Installation nicht verfügbar",
+      "description": "Provider-Schlüssel sind auf dieser Installation nicht verfügbar. Vorhandene Provider-Schlüssel lassen sich weiterhin widerrufen."
+    },
+    "loadError": "Die Provider-Schlüssel konnten nicht geladen werden."
+  },
+  "createKey": {
+    "title": "API-Schlüssel erstellen",
+    "providerTitle": "Provider-Schlüssel erstellen",
+    "description": "Geben Sie dem Schlüssel einen Namen und nur die Berechtigungen, die die Integration braucht.",
+    "providerDescription": "Der Schlüssel gilt für alle Mandanten. Geben Sie ihm nur die Berechtigungen, die die Integration braucht.",
+    "name": "Name",
+    "namePlaceholder": "z. B. RMM oder Ticketsystem",
+    "nameHint": "Erscheint in der Schlüsselliste und im Audit-Log.",
+    "scopes": "Berechtigungen",
+    "scopesHint": "Berechtigungen schließen einander nicht ein: Ein Schlüssel, der den Schutz ändert, braucht zusätzlich Lesezugriff, wenn er Nutzer liest.",
+    "expiry": "Ablauf",
+    "expiryHint": "Ein abgelaufener Schlüssel funktioniert nicht mehr; erstellen Sie rechtzeitig einen neuen.",
+    "expiryOptions": {
+      "never": "Kein Ablauf",
+      "30": "30 Tage",
+      "90": "90 Tage",
+      "180": "180 Tage",
+      "365": "1 Jahr"
+    },
+    "submit": "Schlüssel erstellen",
+    "errors": {
+      "nameRequired": "Geben Sie dem Schlüssel einen Namen.",
+      "nameTooLong": "Höchstens 100 Zeichen.",
+      "scopesRequired": "Wählen Sie mindestens eine Berechtigung."
+    }
+  },
+  "scopes": {
+    "groups": {
+      "read": "Lesen",
+      "act": "Auslösen",
+      "manage": "Konfigurieren"
+    },
+    "status_read": {
+      "label": "Status",
+      "description": "Zusammenfassung, Speicher, letzter Verify-Bericht."
+    },
+    "jobs_read": {
+      "label": "Jobs",
+      "description": "Jobs mit Fortschritt, Fehlern und Dauer."
+    },
+    "items_read": {
+      "label": "Geschützte Objekte",
+      "description": "Postfächer, OneDrives und IMAP-Konten mit ihrem letzten Snapshot."
+    },
+    "users_read": {
+      "label": "Nutzer",
+      "description": "Die Nutzer- und Postfachaufstellung, für PSA-Abgleich und Abrechnung."
+    },
+    "archive_read": {
+      "label": "Archiv",
+      "description": "Journaling-Status, Kettenprüfung und Nachweisberichte."
+    },
+    "restore_write": {
+      "label": "Sicherungen und Wiederherstellungen",
+      "description": "Sicherungen und Wiederherstellungen starten."
+    },
+    "verify_write": {
+      "label": "Test-Wiederherstellungen",
+      "description": "Verify-Läufe (stichprobenartige Test-Wiederherstellungen) starten."
+    },
+    "users_write": {
+      "label": "Schutz",
+      "description": "Nutzer ein- oder ausschließen, z. B. beim On- und Offboarding."
+    },
+    "webhooks_manage": {
+      "label": "Webhooks",
+      "description": "Webhooks dieses Mandanten anlegen, ändern und löschen."
+    }
+  },
+  "reveal": {
+    "keyTitle": "API-Schlüssel jetzt kopieren",
+    "keyDescription": "Der Schlüssel wird nur dieses eine Mal angezeigt. {appName} speichert nur einen Fingerabdruck; ein verlorener Schlüssel lässt sich nicht wiederherstellen, nur ersetzen.",
+    "keyLabel": "API-Schlüssel",
+    "keyUsage": "Senden Sie ihn mit jeder Anfrage als: Authorization: Bearer <Schlüssel>",
+    "secretTitle": "Signatur-Secret jetzt kopieren",
+    "secretDescription": "Das Secret wird nur dieses eine Mal angezeigt. Hinterlegen Sie es im empfangenden System, um den Header X-Restow-Signature zu prüfen.",
+    "secretLabel": "Signatur-Secret",
+    "copy": "Kopieren",
+    "copied": "In die Zwischenablage kopiert.",
+    "copyFailed": "Kopieren fehlgeschlagen. Markieren Sie den Text und kopieren Sie ihn von Hand.",
+    "acknowledge": "Ich habe es an einem sicheren Ort gespeichert.",
+    "done": "Fertig"
+  },
+  "events": {
+    "job_failed": {
+      "label": "Job fehlgeschlagen",
+      "description": "Ein Sicherungs-, Wiederherstellungs-, Verify- oder Archiv-Job ist nach allen Wiederholungen endgültig fehlgeschlagen."
+    },
+    "job_completed": {
+      "label": "Job abgeschlossen",
+      "description": "Ein Job wurde erfolgreich beendet."
+    },
+    "verify_completed": {
+      "label": "Verify abgeschlossen",
+      "description": "Eine Test-Wiederherstellung ist beendet, mit ihrer Wiederherstellbarkeit."
+    },
+    "webhook_test": {
+      "label": "Testereignis",
+      "description": "Gesendet mit „Testereignis senden“."
+    },
+    "report_alert": {
+      "label": "Alarm aus einer Regel",
+      "description": "Gesendet von einer Alarm-Regel unter Alarme, die diesen Webhook nennt."
+    },
+    "report_summary": {
+      "label": "Bericht aus einer Regel",
+      "description": "Gesendet von einer Berichts-Regel unter Alarme, die diesen Webhook nennt."
+    },
+    "unknown": {
+      "label": "Anderes Ereignis",
+      "description": "Ein Ereignis, das diese Version von {appName} nicht beschreibt."
+    }
+  },
+  "webhooks": {
+    "title": "Webhooks",
+    "description": "{appName} ruft diese URLs auf, wenn etwas passiert, z. B. damit Ihr Ticketsystem bei einer fehlgeschlagenen Sicherung ein Ticket eröffnet.",
+    "create": "Webhook hinzufügen",
+    "empty": {
+      "title": "Noch keine Webhooks",
+      "description": "Fügen Sie einen Webhook hinzu, damit {appName} Ihr RMM-, PSA- oder Ticketsystem über fehlgeschlagene Jobs und andere Ereignisse informiert."
+    },
+    "columns": {
+      "webhook": "Webhook",
+      "events": "Ereignisse",
+      "health": "Status",
+      "lastDelivery": "Letzte Zustellung",
+      "actions": "Aktionen"
+    },
+    "unnamed": "Webhook ohne Namen",
+    "insecure": "Unverschlüsselt",
+    "insecureHint": "Einfaches http: Die Nutzdaten werden unverschlüsselt übertragen. Die Signatur belegt trotzdem, dass sie von {appName} stammen.",
+    "eventCount": "{count, plural, one {# Ereignis} other {# Ereignisse}}",
+    "health": {
+      "paused": "Pausiert",
+      "failing": "Fehlerhaft",
+      "retrying": "Wird wiederholt",
+      "healthy": "Stellt zu",
+      "idle": "Noch keine Zustellungen"
+    },
+    "stats": {
+      "pending": "{count, plural, one {# wartend} other {# wartend}}",
+      "failed": "{count, plural, one {# fehlgeschlagen} other {# fehlgeschlagen}} in 24 h",
+      "delivered": "{count, plural, one {# zugestellt} other {# zugestellt}} in 24 h"
+    },
+    "noDeliveries": "Noch keine",
+    "open": "{name} öffnen",
+    "actions": "Aktionen für {name}",
+    "edit": "Bearbeiten",
+    "pause": "Pausieren",
+    "activate": "Aktivieren",
+    "delete": "Löschen",
+    "deleteConfirm": {
+      "title": "Webhook löschen?",
+      "description": "{appName} ruft {url} nicht mehr auf. Das Zustellprotokoll und das Signatur-Secret werden mit gelöscht.",
+      "confirm": "Webhook löschen"
+    },
+    "loadError": "Die Webhooks konnten nicht geladen werden."
+  },
+  "webhookForm": {
+    "createTitle": "Webhook hinzufügen",
+    "editTitle": "Webhook bearbeiten",
+    "description": "{appName} sendet für jedes gewählte Ereignis einen signierten JSON-POST an die URL.",
+    "name": "Name",
+    "namePlaceholder": "z. B. RMM-Alarme",
+    "nameHint": "Optional; hilft, Webhooks auseinanderzuhalten.",
+    "url": "URL",
+    "urlPlaceholder": "https://rmm.example.com/hooks/restow",
+    "urlHint": "Lokale und private Netzadressen werden abgelehnt, sofern der Betreiber sie nicht freigibt.",
+    "events": "Ereignisse",
+    "eventsHint": "{appName} ruft die URL nur für diese Ereignisse auf.",
+    "active": "Aktiv",
+    "activeHint": "Ein pausierter Webhook erhält nichts; wartende Wiederholungen enden.",
+    "submitCreate": "Webhook hinzufügen",
+    "submitEdit": "Änderungen speichern",
+    "errors": {
+      "nameTooLong": "Höchstens 100 Zeichen.",
+      "urlRequired": "Geben Sie die URL ein, die {appName} aufrufen soll.",
+      "urlTooLong": "Höchstens 2048 Zeichen.",
+      "url": "Geben Sie eine vollständige URL ein, z. B. https://rmm.example.com/hooks/restow.",
+      "scheme": "Nur http://- und https://-URLs können Webhooks empfangen.",
+      "credentials": "Entfernen Sie Benutzername und Passwort aus der URL; die Signatur weist {appName} aus.",
+      "eventsRequired": "Wählen Sie mindestens ein Ereignis."
+    }
+  },
+  "detail": {
+    "back": "Zurück zu den Webhooks",
+    "notFound": {
+      "title": "Webhook nicht gefunden",
+      "description": "Er wurde möglicherweise gelöscht oder gehört zu einem anderen Mandanten."
+    },
+    "sendTest": "Testereignis senden",
+    "rotateSecret": "Secret erneuern",
+    "rotateConfirm": {
+      "title": "Signatur-Secret erneuern?",
+      "description": "Ein neues Secret wird erzeugt und einmal angezeigt. Ab der nächsten Zustellung wird damit signiert; das empfangende System muss angepasst werden.",
+      "confirm": "Secret erneuern"
+    },
+    "configuration": "Konfiguration",
+    "url": "URL",
+    "events": "Ereignisse",
+    "noEvents": "Keine Ereignisse abonniert. Bearbeiten Sie den Webhook und wählen Sie mindestens eines, sonst erhält er nichts.",
+    "status": "Status",
+    "created": "Angelegt",
+    "updated": "Zuletzt geändert",
+    "secret": "Signatur-Secret",
+    "secretConfigured": "Verschlüsselt gespeichert",
+    "secretMissing": "Fehlt: Erneuern Sie das Secret, um eines zu erzeugen",
+    "pausedNotice": {
+      "title": "Dieser Webhook ist pausiert",
+      "description": "Er erhält keine Ereignisse und keine Testereignisse, bis er aktiviert wird."
+    }
+  },
+  "deliveries": {
+    "title": "Zustellprotokoll",
+    "description": "Jede Zustellung mit ihren Versuchen. Fehlgeschlagene Versuche werden etwa einen Tag lang wiederholt; abgeschlossene Zustellungen bleiben 30 Tage erhalten.",
+    "filter": {
+      "label": "Status",
+      "all": "Alle",
+      "pending": "Wartend",
+      "delivered": "Zugestellt",
+      "failed": "Fehlgeschlagen"
+    },
+    "columns": {
+      "event": "Ereignis",
+      "status": "Status",
+      "attempts": "Versuche",
+      "created": "Erzeugt",
+      "result": "Ergebnis"
+    },
+    "status": {
+      "pending": "Wartend",
+      "delivered": "Zugestellt",
+      "failed": "Fehlgeschlagen"
+    },
+    "attempts": "{attempts} von {max}",
+    "deliveredAt": "Zugestellt {time}",
+    "nextAttempt": "Nächster Versuch {time}",
+    "waiting": "Wartet auf den ersten Versuch",
+    "empty": "Noch keine Zustellungen. Senden Sie ein Testereignis, um den Webhook auszuprobieren.",
+    "emptyFiltered": "Keine Zustellungen mit diesem Status.",
+    "loadMore": "Ältere Zustellungen laden",
+    "open": "Details der Zustellung vom {time}",
+    "loadError": "Das Zustellprotokoll konnte nicht geladen werden.",
+    "detailTitle": "Zustellung",
+    "detailDescription": "{event}, erzeugt am {time}",
+    "deliveryId": "Zustell-ID",
+    "eventId": "Ereignis-ID",
+    "eventIdHint": "Bei Wiederholungen und erneuten Zustellungen gleich; Empfänger erkennen Duplikate daran.",
+    "lastError": "Letzter Fehler",
+    "technicalDetail": "Technisches Detail",
+    "payload": "Nutzdaten",
+    "payloadHint": "Der JSON-Body, so wie er signiert und gesendet wurde.",
+    "redeliver": "Erneut senden",
+    "redeliverHint": "Sendet dasselbe Ereignis als neue Zustellung.",
+    "errors": {
+      "http_error": "Der Empfänger antwortete mit HTTP {status}.",
+      "redirect": "Der Empfänger leitete um (HTTP {status}). Weiterleitungen werden nicht verfolgt; verwenden Sie die endgültige URL.",
+      "timeout": "Der Empfänger hat nicht innerhalb von 10 Sekunden geantwortet.",
+      "connection_failed": "Die Verbindung zum Empfänger ist fehlgeschlagen.",
+      "dns_failed": "Der Hostname konnte nicht aufgelöst werden.",
+      "tls_failed": "Das TLS-Zertifikat des Empfängers wurde nicht akzeptiert.",
+      "blocked_address": "Die URL zeigt auf eine Adresse, die {appName} nicht aufruft: Loopback und private Netze nur mit Freigabe des Betreibers, Link-Local (Cloud-Metadaten) und reservierte Bereiche nie.",
+      "invalid_url": "Die URL ist ungültig.",
+      "secret_missing": "Der Webhook hat kein Signatur-Secret. Erneuern Sie das Secret, um eines zu erzeugen.",
+      "webhook_disabled": "Der Webhook wurde pausiert, bevor diese Zustellung hinausging.",
+      "internal": "{appName} konnte diese Zustellung nicht vorbereiten. Sie wird wiederholt.",
+      "unknown": "Die Zustellung ist fehlgeschlagen."
+    }
+  },
+  "signature": {
+    "title": "Anfragen prüfen",
+    "description": "Jede Anfrage ist ein JSON-POST, signiert mit dem Secret des Webhooks. Prüfen Sie die Signatur, bevor Sie einer Anfrage vertrauen.",
+    "signatureHeader": "HMAC-SHA-256 des unveränderten Request-Bodys mit dem Signatur-Secret, hexadezimal und mit dem Präfix sha256=. Vergleichen Sie in konstanter Zeit.",
+    "eventHeader": "Der Ereignisname, z. B. job.failed.",
+    "deliveryHeader": "Die Zustell-ID; die id im Body kennzeichnet das Ereignis über Wiederholungen hinweg.",
+    "attemptHeader": "Die Nummer des Versuchs, ab 1.",
+    "retries": "Jede Antwort außer 2xx gilt als Fehler und wird nach 1 Min., 5 Min., 15 Min., 1 Std., 3 Std., 6 Std. und 12 Std. wiederholt. HTTP 410 beendet die Zustellung sofort."
+  },
+  "toasts": {
+    "keyCreated": "API-Schlüssel erstellt.",
+    "keyRevoked": "API-Schlüssel widerrufen.",
+    "webhookCreated": "Webhook hinzugefügt.",
+    "webhookUpdated": "Webhook gespeichert.",
+    "webhookPaused": "Webhook pausiert.",
+    "webhookActivated": "Webhook aktiviert.",
+    "webhookDeleted": "Webhook gelöscht.",
+    "secretRotated": "Signatur-Secret erneuert.",
+    "testQueued": "Testereignis eingereiht. Es erscheint in wenigen Sekunden im Zustellprotokoll.",
+    "redelivered": "Das Ereignis wird erneut gesendet."
+  },
+  "problems": {
+    "keyLimit": "Die Grenze von 50 aktiven API-Schlüsseln ist erreicht. Widerrufen Sie zuerst ungenutzte Schlüssel.",
+    "webhookLimit": "Die Grenze von 20 Webhooks je Mandant ist erreicht.",
+    "featureUnavailable": "Das ist auf dieser Installation nicht verfügbar.",
+    "webhookPaused": "Der Webhook ist pausiert. Aktivieren Sie ihn zuerst.",
+    "deliveryPending": "Diese Zustellung wird noch versucht. Warten Sie, bis sie abgeschlossen ist.",
+    "masterKeyMissing": "Secrets können nicht gespeichert werden: Auf dem Server ist kein RESTOW_MASTER_KEY konfiguriert."
+  }
+}

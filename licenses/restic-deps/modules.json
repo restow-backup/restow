@@ -1,0 +1,892 @@
+{
+  "$comment": "The Go modules compiled into the restic release binary (all four targets list the same), with the license texts and NOTICE files of each module at that exact version, fetched through the Go module proxy and checked against the hash in the binary. Written by `node scripts/restic-licenses.mjs vendor`, licenses reviewed by hand; scripts/third-party-notices.mjs prints them, scripts/ci/check-licenses.mjs checks them against license-policy.json.",
+  "restic": "0.19.1",
+  "modules": [
+    {
+      "path": "cloud.google.com/go",
+      "version": "v0.123.0",
+      "sum": "h1:2NAUJwPR47q+E35uaJeYoNhuNEM9kM8SjgRgdeOJUSE=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/googleapis/google-cloud-go",
+      "ref": "refs/tags/v0.123.0",
+      "subdir": "",
+      "licenseFiles": ["cloud.google.com_go@v0.123.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "cloud.google.com/go/auth",
+      "version": "v0.20.0",
+      "sum": "h1:kXTssoVb4azsVDoUiF8KvxAqrsQcQtB53DcSgta74CA=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/googleapis/google-cloud-go",
+      "ref": "refs/tags/auth/v0.20.0",
+      "subdir": "auth",
+      "licenseFiles": ["cloud.google.com_go_auth@v0.20.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "cloud.google.com/go/auth/oauth2adapt",
+      "version": "v0.2.8",
+      "sum": "h1:keo8NaayQZ6wimpNSmW5OPc283g65QNIiLpZnkHRbnc=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/googleapis/google-cloud-go",
+      "ref": "refs/tags/auth/oauth2adapt/v0.2.8",
+      "subdir": "auth/oauth2adapt",
+      "licenseFiles": ["cloud.google.com_go_auth_oauth2adapt@v0.2.8/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "cloud.google.com/go/compute/metadata",
+      "version": "v0.9.0",
+      "sum": "h1:pDUj4QMoPejqq20dK0Pg2N4yG9zIkYGdBtwLoEkH9Zs=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/googleapis/google-cloud-go",
+      "ref": "refs/tags/compute/metadata/v0.9.0",
+      "subdir": "compute/metadata",
+      "licenseFiles": ["cloud.google.com_go_compute_metadata@v0.9.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "cloud.google.com/go/iam",
+      "version": "v1.7.0",
+      "sum": "h1:JD3zh0C6LHl16aCn5Akff0+GELdp1+4hmh6ndoFLl8U=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/googleapis/google-cloud-go",
+      "ref": "refs/tags/iam/v1.7.0",
+      "subdir": "iam",
+      "licenseFiles": ["cloud.google.com_go_iam@v1.7.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "cloud.google.com/go/monitoring",
+      "version": "v1.24.3",
+      "sum": "h1:dde+gMNc0UhPZD1Azu6at2e79bfdztVDS5lvhOdsgaE=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/googleapis/google-cloud-go",
+      "ref": "refs/tags/monitoring/v1.24.3",
+      "subdir": "monitoring",
+      "licenseFiles": ["cloud.google.com_go_monitoring@v1.24.3/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "cloud.google.com/go/storage",
+      "version": "v1.62.2",
+      "sum": "h1:WgR4U9n7bIzXkkVnwPKKE8bkaKUNsHG+0MAAlh9DGU4=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/googleapis/google-cloud-go",
+      "ref": "refs/tags/storage/v1.62.2",
+      "subdir": "storage",
+      "licenseFiles": ["cloud.google.com_go_storage@v1.62.2/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/Azure/azure-sdk-for-go/sdk/azcore",
+      "version": "v1.21.1",
+      "sum": "h1:jHb/wfvRikGdxMXYV3QG/SzUOPYN9KEUUuC0Yd0/vC0=",
+      "license": "MIT",
+      "source": "https://github.com/Azure/azure-sdk-for-go",
+      "ref": "refs/tags/sdk/azcore/v1.21.1",
+      "subdir": "sdk/azcore",
+      "licenseFiles": ["github.com_Azure_azure-sdk-for-go_sdk_azcore@v1.21.1/LICENSE.txt"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/Azure/azure-sdk-for-go/sdk/azidentity",
+      "version": "v1.13.1",
+      "sum": "h1:Hk5QBxZQC1jb2Fwj6mpzme37xbCDdNTxU7O9eb5+LB4=",
+      "license": "MIT",
+      "source": "https://github.com/Azure/azure-sdk-for-go",
+      "ref": "refs/tags/sdk/azidentity/v1.13.1",
+      "subdir": "sdk/azidentity",
+      "licenseFiles": ["github.com_Azure_azure-sdk-for-go_sdk_azidentity@v1.13.1/LICENSE.txt"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/Azure/azure-sdk-for-go/sdk/internal",
+      "version": "v1.12.0",
+      "sum": "h1:fhqpLE3UEXi9lPaBRpQ6XuRW0nU7hgg4zlmZZa+a9q4=",
+      "license": "MIT",
+      "source": "https://github.com/Azure/azure-sdk-for-go",
+      "ref": "refs/tags/sdk/internal/v1.12.0",
+      "subdir": "sdk/internal",
+      "licenseFiles": ["github.com_Azure_azure-sdk-for-go_sdk_internal@v1.12.0/LICENSE.txt"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/Azure/azure-sdk-for-go/sdk/storage/azblob",
+      "version": "v1.7.0",
+      "sum": "h1:BM85pSYlVYQHdq00nxyPoOkyLF5NArJG3bOsrmbwr4k=",
+      "license": "MIT",
+      "source": "https://github.com/Azure/azure-sdk-for-go",
+      "ref": "refs/tags/sdk/storage/azblob/v1.7.0",
+      "subdir": "sdk/storage/azblob",
+      "licenseFiles": ["github.com_Azure_azure-sdk-for-go_sdk_storage_azblob@v1.7.0/LICENSE.txt"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/AzureAD/microsoft-authentication-library-for-go",
+      "version": "v1.7.2",
+      "sum": "h1:RHK7bS+HQMslb1sZpAokUt+zTVmue0hKSs2C791hhzU=",
+      "license": "MIT",
+      "source": "https://github.com/AzureAD/microsoft-authentication-library-for-go",
+      "ref": "refs/tags/v1.7.2",
+      "subdir": "",
+      "licenseFiles": ["github.com_AzureAD_microsoft-authentication-library-for-go@v1.7.2/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/Backblaze/blazer",
+      "version": "v0.7.2",
+      "sum": "h1:UWNHMLB+Nf+UmbO2qkVvgriODLEMz4kIyr2Hm+DVXQM=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/Backblaze/blazer",
+      "ref": "refs/tags/v0.7.2",
+      "subdir": "",
+      "licenseFiles": ["github.com_Backblaze_blazer@v0.7.2/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp",
+      "version": "v1.31.0",
+      "sum": "h1:DHa2U07rk8syqvCge0QIGMCE1WxGj9njT44GH7zNJLQ=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/GoogleCloudPlatform/opentelemetry-operations-go",
+      "ref": "refs/tags/detectors/gcp/v1.31.0",
+      "subdir": "detectors/gcp",
+      "licenseFiles": [
+        "github.com_GoogleCloudPlatform_opentelemetry-operations-go_detectors_gcp@v1.31.0/LICENSE"
+      ],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric",
+      "version": "v0.55.0",
+      "sum": "h1:UnDZ/zFfG1JhH/DqxIZYU/1CUAlTUScoXD/LcM2Ykk8=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/GoogleCloudPlatform/opentelemetry-operations-go",
+      "ref": "refs/tags/exporter/metric/v0.55.0",
+      "subdir": "exporter/metric",
+      "licenseFiles": [
+        "github.com_GoogleCloudPlatform_opentelemetry-operations-go_exporter_metric@v0.55.0/LICENSE"
+      ],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping",
+      "version": "v0.55.0",
+      "sum": "h1:0s6TxfCu2KHkkZPnBfsQ2y5qia0jl3MMrmBhu3nCOYk=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/GoogleCloudPlatform/opentelemetry-operations-go",
+      "ref": "refs/tags/internal/resourcemapping/v0.55.0",
+      "subdir": "internal/resourcemapping",
+      "licenseFiles": [
+        "github.com_GoogleCloudPlatform_opentelemetry-operations-go_internal_resourcemapping@v0.55.0/LICENSE"
+      ],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/anacrolix/fuse",
+      "version": "v0.3.1",
+      "sum": "h1:oT8s3B5HFkBdLe/WKJO5MNo9iIyEtc+BhvTZYp4jhDM=",
+      "license": "BSD-3-Clause AND BSD-2-Clause",
+      "source": "https://github.com/anacrolix/fuse",
+      "ref": "refs/tags/v0.3.1",
+      "subdir": "",
+      "licenseFiles": ["github.com_anacrolix_fuse@v0.3.1/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/cenkalti/backoff/v4",
+      "version": "v4.3.0",
+      "sum": "h1:MyRJ/UdXutAwSAT+s3wNd7MfTIcy71VQueUuFK343L8=",
+      "license": "MIT",
+      "source": "https://github.com/cenkalti/backoff",
+      "ref": "refs/tags/v4.3.0",
+      "subdir": "",
+      "licenseFiles": ["github.com_cenkalti_backoff_v4@v4.3.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/cespare/xxhash/v2",
+      "version": "v2.3.0",
+      "sum": "h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=",
+      "license": "MIT",
+      "source": "https://github.com/cespare/xxhash",
+      "ref": "refs/tags/v2.3.0",
+      "subdir": "",
+      "licenseFiles": ["github.com_cespare_xxhash_v2@v2.3.0/LICENSE.txt"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/cpuguy83/go-md2man/v2",
+      "version": "v2.0.6",
+      "sum": "h1:XJtiaUW6dEEqVuZiMTn1ldk455QWwEIsMIJlo5vtkx0=",
+      "license": "MIT",
+      "source": "https://github.com/cpuguy83/go-md2man",
+      "ref": "refs/tags/v2.0.6",
+      "subdir": "",
+      "licenseFiles": ["github.com_cpuguy83_go-md2man_v2@v2.0.6/LICENSE.md"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/dustin/go-humanize",
+      "version": "v1.0.1",
+      "sum": "h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=",
+      "license": "MIT",
+      "source": "https://github.com/dustin/go-humanize",
+      "ref": "refs/tags/v1.0.1",
+      "subdir": "",
+      "licenseFiles": ["github.com_dustin_go-humanize@v1.0.1/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/elithrar/simple-scrypt",
+      "version": "v1.4.1",
+      "sum": "h1:LtAlU7NDhCJN2eUam1yOr9O1XTHb8T+pnDHh/wwlSt0=",
+      "license": "MIT",
+      "source": "https://github.com/elithrar/simple-scrypt",
+      "ref": "refs/tags/v1.4.1",
+      "subdir": "",
+      "licenseFiles": ["github.com_elithrar_simple-scrypt@v1.4.1/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/felixge/httpsnoop",
+      "version": "v1.0.4",
+      "sum": "h1:NFTV2Zj1bL4mc9sqWACXbQFVBBg2W3GPvqp8/ESS2Wg=",
+      "license": "MIT",
+      "source": "https://github.com/felixge/httpsnoop",
+      "ref": "refs/tags/v1.0.4",
+      "subdir": "",
+      "licenseFiles": ["github.com_felixge_httpsnoop@v1.0.4/LICENSE.txt"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/go-ini/ini",
+      "version": "v1.67.0",
+      "sum": "h1:z6ZrTEZqSWOTyH2FlglNbNgARyHG8oLW9gMELqKr06A=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/go-ini/ini",
+      "ref": "refs/tags/v1.67.0",
+      "subdir": "",
+      "licenseFiles": ["github.com_go-ini_ini@v1.67.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/go-logr/logr",
+      "version": "v1.4.3",
+      "sum": "h1:CjnDlHq8ikf6E492q6eKboGOC0T8CDaOvkHCIg8idEI=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/go-logr/logr",
+      "ref": "refs/tags/v1.4.3",
+      "subdir": "",
+      "licenseFiles": ["github.com_go-logr_logr@v1.4.3/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/go-logr/stdr",
+      "version": "v1.2.2",
+      "sum": "h1:hSWxHoqTgW2S2qGc0LTAI563KZ5YKYRhT3MFKZMbjag=",
+      "license": "Apache-2.0",
+      "source": "",
+      "ref": "",
+      "subdir": "",
+      "licenseFiles": ["github.com_go-logr_stdr@v1.2.2/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/golang-jwt/jwt/v5",
+      "version": "v5.3.1",
+      "sum": "h1:kYf81DTWFe7t+1VvL7eS+jKFVWaUnK9cB1qbwn63YCY=",
+      "license": "MIT",
+      "source": "https://github.com/golang-jwt/jwt",
+      "ref": "refs/tags/v5.3.1",
+      "subdir": "",
+      "licenseFiles": ["github.com_golang-jwt_jwt_v5@v5.3.1/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/google/s2a-go",
+      "version": "v0.1.9",
+      "sum": "h1:LGD7gtMgezd8a/Xak7mEWL0PjoTQFvpRudN895yqKW0=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/google/s2a-go",
+      "ref": "refs/tags/v0.1.9",
+      "subdir": "",
+      "licenseFiles": ["github.com_google_s2a-go@v0.1.9/LICENSE.md"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/google/uuid",
+      "version": "v1.6.0",
+      "sum": "h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/google/uuid",
+      "ref": "refs/tags/v1.6.0",
+      "subdir": "",
+      "licenseFiles": ["github.com_google_uuid@v1.6.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/googleapis/enterprise-certificate-proxy",
+      "version": "v0.3.16",
+      "sum": "h1:F/VPrx0YPBdksZJQdCAp0WUsqnNmZpUZszzfYt0M5Dw=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/googleapis/enterprise-certificate-proxy",
+      "ref": "refs/tags/v0.3.16",
+      "subdir": "",
+      "licenseFiles": ["github.com_googleapis_enterprise-certificate-proxy@v0.3.16/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/googleapis/gax-go/v2",
+      "version": "v2.22.0",
+      "sum": "h1:PjIWBpgGIVKGoCXuiCoP64altEJCj3/Ei+kSU5vlZD4=",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/googleapis/gax-go",
+      "ref": "refs/tags/v2.22.0",
+      "subdir": "",
+      "licenseFiles": ["github.com_googleapis_gax-go_v2@v2.22.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/hashicorp/golang-lru/v2",
+      "version": "v2.0.7",
+      "sum": "h1:a+bsQ5rvGLjzHuww6tVxozPZFVghXaHOwFs4luLUK2k=",
+      "license": "MPL-2.0",
+      "source": "https://github.com/hashicorp/golang-lru",
+      "ref": "refs/tags/v2.0.7",
+      "subdir": "",
+      "licenseFiles": ["github.com_hashicorp_golang-lru_v2@v2.0.7/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/klauspost/compress",
+      "version": "v1.18.6",
+      "sum": "h1:2jupLlAwFm95+YDR+NwD2MEfFO9d4z4Prjl1XXDjuao=",
+      "license": "Apache-2.0 AND MIT AND BSD-3-Clause",
+      "source": "https://github.com/klauspost/compress",
+      "ref": "refs/tags/v1.18.6",
+      "subdir": "",
+      "licenseFiles": ["github.com_klauspost_compress@v1.18.6/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/klauspost/cpuid/v2",
+      "version": "v2.2.11",
+      "sum": "h1:0OwqZRYI2rFrjS4kvkDnqJkKHdHaRnCm68/DY4OxRzU=",
+      "license": "MIT",
+      "source": "https://github.com/klauspost/cpuid",
+      "ref": "refs/tags/v2.2.11",
+      "subdir": "",
+      "licenseFiles": ["github.com_klauspost_cpuid_v2@v2.2.11/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/klauspost/crc32",
+      "version": "v1.3.0",
+      "sum": "h1:sSmTt3gUt81RP655XGZPElI0PelVTZ6YwCRnPSupoFM=",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/klauspost/crc32",
+      "ref": "refs/tags/v1.3.0",
+      "subdir": "",
+      "licenseFiles": ["github.com_klauspost_crc32@v1.3.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/kr/fs",
+      "version": "v0.1.0",
+      "sum": "h1:Jskdu9ieNAYnjxsi0LbQp1ulIKZV1LAFgK1tWhpZgl8=",
+      "license": "BSD-3-Clause",
+      "source": "",
+      "ref": "",
+      "subdir": "",
+      "licenseFiles": ["github.com_kr_fs@v0.1.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/kylelemons/godebug",
+      "version": "v1.1.0",
+      "sum": "h1:RPNrshWIDI6G2gRW9EHilWtl7Z6Sb1BR0xunSBf0SNc=",
+      "license": "Apache-2.0",
+      "source": "",
+      "ref": "",
+      "subdir": "",
+      "licenseFiles": ["github.com_kylelemons_godebug@v1.1.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/minio/crc64nvme",
+      "version": "v1.1.1",
+      "sum": "h1:8dwx/Pz49suywbO+auHCBpCtlW1OfpcLN7wYgVR6wAI=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/minio/crc64nvme",
+      "ref": "refs/tags/v1.1.1",
+      "subdir": "",
+      "licenseFiles": ["github.com_minio_crc64nvme@v1.1.1/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/minio/md5-simd",
+      "version": "v1.1.2",
+      "sum": "h1:Gdi1DZK69+ZVMoNHRXJyNcxrMA4dSxoYHZSQbirFg34=",
+      "license": "Apache-2.0 AND BSD-3-Clause",
+      "source": "",
+      "ref": "",
+      "subdir": "",
+      "licenseFiles": [
+        "github.com_minio_md5-simd@v1.1.2/LICENSE",
+        "github.com_minio_md5-simd@v1.1.2/LICENSE.Golang"
+      ],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/minio/minio-go/v7",
+      "version": "v7.1.0",
+      "sum": "h1:QEt5IStDpxgGjEdtOgpiZ5QhmSl3ax7qy61vi2SwHO8=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/minio/minio-go",
+      "ref": "refs/tags/v7.1.0",
+      "subdir": "",
+      "licenseFiles": ["github.com_minio_minio-go_v7@v7.1.0/LICENSE"],
+      "noticeFiles": ["github.com_minio_minio-go_v7@v7.1.0/NOTICE"]
+    },
+    {
+      "path": "github.com/ncw/swift/v2",
+      "version": "v2.0.5",
+      "sum": "h1:9o5Gsd7bInAFEqsGPcaUdsboMbqf8lnNtxqWKFT9iz8=",
+      "license": "MIT",
+      "source": "https://github.com/ncw/swift",
+      "ref": "refs/tags/v2.0.5",
+      "subdir": "",
+      "licenseFiles": ["github.com_ncw_swift_v2@v2.0.5/COPYING"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/peterbourgon/unixtransport",
+      "version": "v0.0.7",
+      "sum": "h1:HhN7nydIDwlXWFzB6mbzQLcl46UdZLHrmF2lFfAgvnY=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/peterbourgon/unixtransport",
+      "ref": "refs/tags/v0.0.7",
+      "subdir": "",
+      "licenseFiles": ["github.com_peterbourgon_unixtransport@v0.0.7/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/philhofer/fwd",
+      "version": "v1.2.0",
+      "sum": "h1:e6DnBTl7vGY+Gz322/ASL4Gyp1FspeMvx1RNDoToZuM=",
+      "license": "MIT",
+      "source": "https://github.com/philhofer/fwd",
+      "ref": "refs/tags/v1.2.0",
+      "subdir": "",
+      "licenseFiles": ["github.com_philhofer_fwd@v1.2.0/LICENSE.md"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/pkg/browser",
+      "version": "v0.0.0-20240102092130-5ac0b6a4141c",
+      "sum": "h1:+mdjkGKdHQG3305AYmdv1U2eRNDiU2ErMBj1gwrq8eQ=",
+      "license": "BSD-2-Clause",
+      "source": "https://github.com/pkg/browser",
+      "ref": "",
+      "subdir": "",
+      "licenseFiles": ["github.com_pkg_browser@v0.0.0-20240102092130-5ac0b6a4141c/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/pkg/errors",
+      "version": "v0.9.1",
+      "sum": "h1:FEBLx1zS214owpjy7qsBeixbURkuhQAwrK5UwLGTwt4=",
+      "license": "BSD-2-Clause",
+      "source": "",
+      "ref": "",
+      "subdir": "",
+      "licenseFiles": ["github.com_pkg_errors@v0.9.1/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/pkg/sftp",
+      "version": "v1.13.10",
+      "sum": "h1:+5FbKNTe5Z9aspU88DPIKJ9z2KZoaGCu6Sr6kKR/5mU=",
+      "license": "BSD-2-Clause",
+      "source": "https://github.com/pkg/sftp",
+      "ref": "refs/tags/v1.13.10",
+      "subdir": "",
+      "licenseFiles": ["github.com_pkg_sftp@v1.13.10/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/pkg/xattr",
+      "version": "v0.4.12",
+      "sum": "h1:rRTkSyFNTRElv6pkA3zpjHpQ90p/OdHQC1GmGh1aTjM=",
+      "license": "BSD-2-Clause",
+      "source": "https://github.com/pkg/xattr",
+      "ref": "refs/tags/v0.4.12",
+      "subdir": "",
+      "licenseFiles": ["github.com_pkg_xattr@v0.4.12/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/restic/chunker",
+      "version": "v0.4.0",
+      "sum": "h1:YUPYCUn70MYP7VO4yllypp2SjmsRhRJaad3xKu1QFRw=",
+      "license": "BSD-2-Clause",
+      "source": "",
+      "ref": "",
+      "subdir": "",
+      "licenseFiles": ["github.com_restic_chunker@v0.4.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/rs/xid",
+      "version": "v1.6.0",
+      "sum": "h1:fV591PaemRlL6JfRxGDEPl69wICngIQ3shQtzfy2gxU=",
+      "license": "MIT",
+      "source": "https://github.com/rs/xid",
+      "ref": "refs/tags/v1.6.0",
+      "subdir": "",
+      "licenseFiles": ["github.com_rs_xid@v1.6.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/russross/blackfriday/v2",
+      "version": "v2.1.0",
+      "sum": "h1:JIOH55/0cWyOuilr9/qlrm0BSXldqnqwMsf35Ld67mk=",
+      "license": "BSD-2-Clause",
+      "source": "",
+      "ref": "",
+      "subdir": "",
+      "licenseFiles": ["github.com_russross_blackfriday_v2@v2.1.0/LICENSE.txt"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/spf13/cobra",
+      "version": "v1.10.2",
+      "sum": "h1:DMTTonx5m65Ic0GOoRY2c16WCbHxOOw6xxezuLaBpcU=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/spf13/cobra",
+      "ref": "refs/tags/v1.10.2",
+      "subdir": "",
+      "licenseFiles": ["github.com_spf13_cobra@v1.10.2/LICENSE.txt"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/spf13/pflag",
+      "version": "v1.0.10",
+      "sum": "h1:4EBh2KAYBwaONj6b2Ye1GiHfwjqyROoF4RwYO+vPwFk=",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/spf13/pflag",
+      "ref": "refs/tags/v1.0.10",
+      "subdir": "",
+      "licenseFiles": ["github.com_spf13_pflag@v1.0.10/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/tinylib/msgp",
+      "version": "v1.6.1",
+      "sum": "h1:ESRv8eL3u+DNHUoSAAQRE50Hm162zqAnBoGv9PzScPY=",
+      "license": "MIT",
+      "source": "https://github.com/tinylib/msgp",
+      "ref": "refs/tags/v1.6.1",
+      "subdir": "",
+      "licenseFiles": ["github.com_tinylib_msgp@v1.6.1/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "github.com/zeebo/xxh3",
+      "version": "v1.1.0",
+      "sum": "h1:s7DLGDK45Dyfg7++yxI0khrfwq9661w9EN78eP/UZVs=",
+      "license": "BSD-2-Clause",
+      "source": "https://github.com/zeebo/xxh3",
+      "ref": "refs/tags/v1.1.0",
+      "subdir": "",
+      "licenseFiles": ["github.com_zeebo_xxh3@v1.1.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "go.opentelemetry.io/auto/sdk",
+      "version": "v1.2.1",
+      "sum": "h1:jXsnJ4Lmnqd11kwkBV2LgLoFMZKizbCi5fNZ/ipaZ64=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/open-telemetry/opentelemetry-go-instrumentation",
+      "ref": "refs/tags/sdk/v1.2.1",
+      "subdir": "sdk",
+      "licenseFiles": ["go.opentelemetry.io_auto_sdk@v1.2.1/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "go.opentelemetry.io/contrib/detectors/gcp",
+      "version": "v1.42.0",
+      "sum": "h1:kpt2PEJuOuqYkPcktfJqWWDjTEd/FNgrxcniL7kQrXQ=",
+      "license": "Apache-2.0 AND BSD-3-Clause",
+      "source": "https://github.com/open-telemetry/opentelemetry-go-contrib",
+      "ref": "refs/tags/detectors/gcp/v1.42.0",
+      "subdir": "detectors/gcp",
+      "licenseFiles": ["go.opentelemetry.io_contrib_detectors_gcp@v1.42.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc",
+      "version": "v0.67.0",
+      "sum": "h1:yI1/OhfEPy7J9eoa6Sj051C7n5dvpj0QX8g4sRchg04=",
+      "license": "Apache-2.0 AND BSD-3-Clause",
+      "source": "https://github.com/open-telemetry/opentelemetry-go-contrib",
+      "ref": "refs/tags/instrumentation/google.golang.org/grpc/otelgrpc/v0.67.0",
+      "subdir": "instrumentation/google.golang.org/grpc/otelgrpc",
+      "licenseFiles": [
+        "go.opentelemetry.io_contrib_instrumentation_google.golang.org_grpc_otelgrpc@v0.67.0/LICENSE"
+      ],
+      "noticeFiles": []
+    },
+    {
+      "path": "go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp",
+      "version": "v0.67.0",
+      "sum": "h1:OyrsyzuttWTSur2qN/Lm0m2a8yqyIjUVBZcxFPuXq2o=",
+      "license": "Apache-2.0 AND BSD-3-Clause",
+      "source": "https://github.com/open-telemetry/opentelemetry-go-contrib",
+      "ref": "refs/tags/instrumentation/net/http/otelhttp/v0.67.0",
+      "subdir": "instrumentation/net/http/otelhttp",
+      "licenseFiles": [
+        "go.opentelemetry.io_contrib_instrumentation_net_http_otelhttp@v0.67.0/LICENSE"
+      ],
+      "noticeFiles": []
+    },
+    {
+      "path": "go.opentelemetry.io/otel",
+      "version": "v1.43.0",
+      "sum": "h1:mYIM03dnh5zfN7HautFE4ieIig9amkNANT+xcVxAj9I=",
+      "license": "Apache-2.0 AND BSD-3-Clause",
+      "source": "https://github.com/open-telemetry/opentelemetry-go",
+      "ref": "refs/tags/v1.43.0",
+      "subdir": "",
+      "licenseFiles": ["go.opentelemetry.io_otel@v1.43.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "go.opentelemetry.io/otel/metric",
+      "version": "v1.43.0",
+      "sum": "h1:d7638QeInOnuwOONPp4JAOGfbCEpYb+K6DVWvdxGzgM=",
+      "license": "Apache-2.0 AND BSD-3-Clause",
+      "source": "https://github.com/open-telemetry/opentelemetry-go",
+      "ref": "refs/tags/metric/v1.43.0",
+      "subdir": "metric",
+      "licenseFiles": ["go.opentelemetry.io_otel_metric@v1.43.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "go.opentelemetry.io/otel/sdk",
+      "version": "v1.43.0",
+      "sum": "h1:pi5mE86i5rTeLXqoF/hhiBtUNcrAGHLKQdhg4h4V9Dg=",
+      "license": "Apache-2.0 AND BSD-3-Clause",
+      "source": "https://github.com/open-telemetry/opentelemetry-go",
+      "ref": "refs/tags/sdk/v1.43.0",
+      "subdir": "sdk",
+      "licenseFiles": ["go.opentelemetry.io_otel_sdk@v1.43.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "go.opentelemetry.io/otel/sdk/metric",
+      "version": "v1.43.0",
+      "sum": "h1:S88dyqXjJkuBNLeMcVPRFXpRw2fuwdvfCGLEo89fDkw=",
+      "license": "Apache-2.0 AND BSD-3-Clause",
+      "source": "https://github.com/open-telemetry/opentelemetry-go",
+      "ref": "refs/tags/sdk/metric/v1.43.0",
+      "subdir": "sdk/metric",
+      "licenseFiles": ["go.opentelemetry.io_otel_sdk_metric@v1.43.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "go.opentelemetry.io/otel/trace",
+      "version": "v1.43.0",
+      "sum": "h1:BkNrHpup+4k4w+ZZ86CZoHHEkohws8AY+WTX09nk+3A=",
+      "license": "Apache-2.0 AND BSD-3-Clause",
+      "source": "https://github.com/open-telemetry/opentelemetry-go",
+      "ref": "refs/tags/trace/v1.43.0",
+      "subdir": "trace",
+      "licenseFiles": ["go.opentelemetry.io_otel_trace@v1.43.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "go.uber.org/automaxprocs",
+      "version": "v1.6.0",
+      "sum": "h1:O3y2/QNTOdbF+e/dpXNNW7Rx2hZ4sTIPyybbxyNqTUs=",
+      "license": "MIT",
+      "source": "https://github.com/uber-go/automaxprocs",
+      "ref": "refs/tags/v1.6.0",
+      "subdir": "",
+      "licenseFiles": ["go.uber.org_automaxprocs@v1.6.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "go.yaml.in/yaml/v3",
+      "version": "v3.0.4",
+      "sum": "h1:tfq32ie2Jv2UxXFdLJdh3jXuOzWiL1fo0bu/FbuKpbc=",
+      "license": "Apache-2.0 AND MIT",
+      "source": "https://github.com/yaml/go-yaml",
+      "ref": "refs/tags/v3.0.4",
+      "subdir": "",
+      "licenseFiles": ["go.yaml.in_yaml_v3@v3.0.4/LICENSE"],
+      "noticeFiles": ["go.yaml.in_yaml_v3@v3.0.4/NOTICE"]
+    },
+    {
+      "path": "golang.org/x/crypto",
+      "version": "v0.52.0",
+      "sum": "h1:RMs7fP2rXdep0CftQlK8Uf+kibLm7qkCcradZWYz988=",
+      "license": "BSD-3-Clause",
+      "source": "https://go.googlesource.com/crypto",
+      "ref": "refs/tags/v0.52.0",
+      "subdir": "",
+      "licenseFiles": ["golang.org_x_crypto@v0.52.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "golang.org/x/net",
+      "version": "v0.55.0",
+      "sum": "h1:bcvxaJn3e1U6InsFWt1JUq1aSjnRxLzT2rtD2KfkDF8=",
+      "license": "BSD-3-Clause",
+      "source": "https://go.googlesource.com/net",
+      "ref": "refs/tags/v0.55.0",
+      "subdir": "",
+      "licenseFiles": ["golang.org_x_net@v0.55.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "golang.org/x/oauth2",
+      "version": "v0.36.0",
+      "sum": "h1:peZ/1z27fi9hUOFCAZaHyrpWG5lwe0RJEEEeH0ThlIs=",
+      "license": "BSD-3-Clause",
+      "source": "https://go.googlesource.com/oauth2",
+      "ref": "refs/tags/v0.36.0",
+      "subdir": "",
+      "licenseFiles": ["golang.org_x_oauth2@v0.36.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "golang.org/x/sync",
+      "version": "v0.20.0",
+      "sum": "h1:e0PTpb7pjO8GAtTs2dQ6jYa5BWYlMuX047Dco/pItO4=",
+      "license": "BSD-3-Clause",
+      "source": "https://go.googlesource.com/sync",
+      "ref": "refs/tags/v0.20.0",
+      "subdir": "",
+      "licenseFiles": ["golang.org_x_sync@v0.20.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "golang.org/x/sys",
+      "version": "v0.45.0",
+      "sum": "h1:dO4czNzziLiiXplLQgBCEpCvXQ3dnkn0SdaZSYdQ+FY=",
+      "license": "BSD-3-Clause",
+      "source": "https://go.googlesource.com/sys",
+      "ref": "refs/tags/v0.45.0",
+      "subdir": "",
+      "licenseFiles": ["golang.org_x_sys@v0.45.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "golang.org/x/term",
+      "version": "v0.43.0",
+      "sum": "h1:S4RLU2sB31O/NCl+zFN9Aru9A/Cq2aqKpTZJ6B+DwT4=",
+      "license": "BSD-3-Clause",
+      "source": "https://go.googlesource.com/term",
+      "ref": "refs/tags/v0.43.0",
+      "subdir": "",
+      "licenseFiles": ["golang.org_x_term@v0.43.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "golang.org/x/text",
+      "version": "v0.37.0",
+      "sum": "h1:Cqjiwd9eSg8e0QAkyCaQTNHFIIzWtidPahFWR83rTrc=",
+      "license": "BSD-3-Clause",
+      "source": "https://go.googlesource.com/text",
+      "ref": "refs/tags/v0.37.0",
+      "subdir": "",
+      "licenseFiles": ["golang.org_x_text@v0.37.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "golang.org/x/time",
+      "version": "v0.15.0",
+      "sum": "h1:bbrp8t3bGUeFOx08pvsMYRTCVSMk89u4tKbNOZbp88U=",
+      "license": "BSD-3-Clause",
+      "source": "https://go.googlesource.com/time",
+      "ref": "refs/tags/v0.15.0",
+      "subdir": "",
+      "licenseFiles": ["golang.org_x_time@v0.15.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "google.golang.org/api",
+      "version": "v0.282.0",
+      "sum": "h1:WmJiSVqUnKqJCpJOx7YADbXaC+9DDsnGSfllFSj7R2I=",
+      "license": "BSD-3-Clause",
+      "source": "https://github.com/googleapis/google-api-go-client",
+      "ref": "refs/tags/v0.282.0",
+      "subdir": "",
+      "licenseFiles": ["google.golang.org_api@v0.282.0/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "google.golang.org/genproto",
+      "version": "v0.0.0-20260319201613-d00831a3d3e7",
+      "sum": "h1:XzmzkmB14QhVhgnawEVsOn6OFsnpyxNPRY9QV01dNB0=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/googleapis/go-genproto",
+      "ref": "",
+      "subdir": "",
+      "licenseFiles": ["google.golang.org_genproto@v0.0.0-20260319201613-d00831a3d3e7/LICENSE"],
+      "noticeFiles": []
+    },
+    {
+      "path": "google.golang.org/genproto/googleapis/api",
+      "version": "v0.0.0-20260401024825-9d38bb4040a9",
+      "sum": "h1:VPWxll4HlMw1Vs/qXtN7BvhZqsS9cdAittCNvVENElA=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/googleapis/go-genproto",
+      "ref": "",
+      "subdir": "googleapis/api",
+      "licenseFiles": [
+        "google.golang.org_genproto_googleapis_api@v0.0.0-20260401024825-9d38bb4040a9/LICENSE"
+      ],
+      "noticeFiles": []
+    },
+    {
+      "path": "google.golang.org/genproto/googleapis/rpc",
+      "version": "v0.0.0-20260523011958-0a33c5d7ca68",
+      "sum": "h1:PvEgGJf9C/1u5CHkInMg7UFYYUoiaQmW2LbtH0pjB78=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/googleapis/go-genproto",
+      "ref": "",
+      "subdir": "googleapis/rpc",
+      "licenseFiles": [
+        "google.golang.org_genproto_googleapis_rpc@v0.0.0-20260523011958-0a33c5d7ca68/LICENSE"
+      ],
+      "noticeFiles": []
+    },
+    {
+      "path": "google.golang.org/grpc",
+      "version": "v1.81.1",
+      "sum": "h1:VnnIIZ88UzOOKLukQi+ImGz8O1Wdp8nAGGnvOfEIWQQ=",
+      "license": "Apache-2.0",
+      "source": "https://github.com/grpc/grpc-go",
+      "ref": "refs/tags/v1.81.1",
+      "subdir": "",
+      "licenseFiles": ["google.golang.org_grpc@v1.81.1/LICENSE"],
+      "noticeFiles": ["google.golang.org_grpc@v1.81.1/NOTICE.txt"]
+    },
+    {
+      "path": "google.golang.org/protobuf",
+      "version": "v1.36.11",
+      "sum": "h1:fV6ZwhNocDyBLK0dj+fg8ektcVegBBuEolpbTQyBNVE=",
+      "license": "BSD-3-Clause",
+      "source": "https://go.googlesource.com/protobuf",
+      "ref": "refs/tags/v1.36.11",
+      "subdir": "",
+      "licenseFiles": ["google.golang.org_protobuf@v1.36.11/LICENSE"],
+      "noticeFiles": []
+    }
+  ]
+}

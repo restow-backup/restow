@@ -1,0 +1,362 @@
+# Restow web edge: serves the built SPA, terminates TLS (automatic Let's Encrypt for
+# RESTOW_APP_DOMAIN) and reverse-proxies the API. better-auth (/api/auth/*) and the REST
+# surface (/api/v1/*) both live under /api and go to the api service; everything else is
+# the single-page app.
+{
+	servers {
+		# Peers whose X-Forwarded-For this Caddy keeps (and appends to) instead of
+		# replacing it with the peer's own address. The default trusts loopback only,
+		# which no client ever connects from, so nothing changes for a normal
+		# installation. Set RESTOW_EDGE_TRUSTED_PROXIES (space-separated CIDR ranges, or
+		# `private_ranges`) only when another reverse proxy sits in front of this one,
+		# as with the co-hosted public demo (deploy/demo/README.md).
+		trusted_proxies static {$RESTOW_EDGE_TRUSTED_PROXIES:127.0.0.1/32 ::1/128}
+	}
+}
+
+# Security headers shared by every site this edge serves (the main SPA below and the
+# co-hosted demo's own inner Caddy, deploy/caddy-sites/README.md: both bake in this
+# same file via the `web` Docker target, so a change here reaches both). Split into a
+# plain base (imported both for normal responses and, again, inside handle_errors
+# below — a named matcher cannot be defined twice in one site block, so the
+# HSTS-gating matcher lives only in the wrapper that normal responses use) and that
+# wrapper, `security_headers`.
+#
+# An unset {$VAR} substituted straight into a header value still puts that header on
+# the wire with an empty value (Caddy's `header` directive does not treat "" as
+# "omit"), so HSTS below is gated with an `expression` matcher against
+# {env.RESTOW_EDGE_HSTS} instead, which omits the header outright when the variable is
+# unset. A reverse_proxy failure (the api container unreachable) answers with Caddy's
+# own error page before the normal response-header chain runs, which is what
+# handle_errors below is for: without it, an outage would otherwise serve a 502 with
+# the Server header back and none of the hardening below.
+#
+# The restore explorer's EML preview and print view are sandboxed `<iframe
+# srcdoc="...">` (own `sandbox`, no `allow-scripts`) with their own `<meta
+# http-equiv="Content-Security-Policy">` for mail content specifically — but a srcdoc
+# iframe has no response of its own to carry an HTTP CSP header, so it still inherits
+# this edge-level policy underneath its meta one. That inheritance is why img-src
+# allows data: (the preview's embedded `cid:` images, resolved to data URIs) and
+# style-src carries 'unsafe-inline' (the mail's own inline styles) below; without
+# either, a real inline image or style in a previewed message is silently dropped.
+#
+# Every header below is set with Caddy's `?` operator (set only if the response does
+# not already carry that header), not a bare name. An upstream that sends its own
+# hardened headers must keep them — the M365 consent-landing page
+# (apps/api/src/features/sources/landing.ts, LANDING_CSP) answers GET
+# /api/v1/sources/m365/consent/callback with `Content-Security-Policy: default-src
+# 'none'; ...` and `Referrer-Policy: no-referrer` — a bare header name here would
+# silently replace both with this edge's own, looser defaults on every response through
+# /api/*, undoing hardening the api applied on purpose (consent-redirect.test.ts
+# checks default-src 'none' at the api). `?` leaves an already-set header alone and
+# only fills the gap on routes that set nothing of their own: the SPA, /assets/*, and
+# the rest of /api/*.
+#
+# Each `?field value` is its own `header` directive rather than several lines inside
+# one `header { }` block: Caddy compiles a block's `?` lines into a single handler
+# whose "only if unset" condition is one combined requirement that every field in the
+# block is absent, not five independent per-field checks (confirmed with `caddy
+# adapt`). A route that sets only one of the five, like the consent-landing page above
+# (Referrer-Policy and its own CSP, but not X-Frame-Options or Permissions-Policy),
+# would then suppress the edge's defaults for all five instead of just the one it set
+# itself — silently dropping X-Frame-Options and Permissions-Policy on that route. Five
+# separate directives give each header its own independent gate.
+(security_headers_base) {
+	# Browsers must not guess a response's type from its content.
+	header ?X-Content-Type-Options "nosniff"
+	# The destination's origin, never the full URL, leaves Restow for another site.
+	header ?Referrer-Policy "strict-origin-when-cross-origin"
+	# No site may frame Restow (legacy header; frame-ancestors below is the
+	# modern, authoritative version of the same rule).
+	header ?X-Frame-Options "DENY"
+	# Every browser feature Restow has no use for, off everywhere; anything not
+	# listed (including WebAuthn's publickey-credentials-*) keeps its default,
+	# which already covers the same-origin passkey flow Restow actually uses.
+	header ?Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=(), usb=(), midi=(), magnetometer=(), gyroscope=(), accelerometer=()"
+	# The built SPA has no inline <script> (apps/web/index.html loads only the
+	# hashed module bundle), so script-src stays at 'self'. style-src carries
+	# 'unsafe-inline' for three things a stricter policy blocks: Radix UI's
+	# inline `style` attributes at runtime, runtime-injected <style> elements
+	# (the stats page's chart colour rules, sonner's toast styles), and the
+	# srcdoc mail preview's own inline styles (inherited from this policy, see
+	# above). A <style> element falls under style-src-elem, which without its
+	# own directive falls back to style-src, not style-src-attr, so a separate
+	# style-src-attr directive would cover only the Radix case, be redundant
+	# with style-src for it, and do nothing for the <style> elements or the
+	# mail preview — left out rather than kept as dead weight. img-src allows
+	# data: for the mail preview's embedded `cid:` images and any inline
+	# icons/badges rendered as data URIs. frame-src stays same-origin only
+	# (the mail preview and print view are same-origin srcdoc iframes);
+	# frame-ancestors 'none' keeps Restow itself out of anyone else's frame.
+	# Nothing here has a documented use for plugins, a retargeted <base>, or a
+	# cross-origin form target.
+	header ?Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'none'; form-action 'self'"
+	# Caddy's Server header (just "Caddy", no version); not worth advertising on an
+	# installation's edge. -Server covers a response this Caddyfile generates itself
+	# (the SPA, assets, error pages); reverse_proxy additionally always sets its own
+	# Via header on a proxied response regardless of what the upstream sent, so that
+	# is removed too — without it, an /api/* response is otherwise still named Caddy
+	# via that header. Unconditional deletes, so unlike the five defaults above they
+	# stay fine together in one block: there is no "only if unset" requirement to
+	# collapse.
+	header {
+		-Server
+		-Via
+	}
+}
+
+(security_headers) {
+	import security_headers_base
+
+	# HSTS only once an operator has confirmed public mode with a real, TLS-terminated
+	# domain: RESTOW_EDGE_HSTS=true, documented in .env.example. Never inferred from
+	# RESTOW_APP_DOMAIN alone, because this same file also serves the co-hosted demo's
+	# inner Caddy, whose RESTOW_APP_DOMAIN is deliberately ":80" with no TLS of its own
+	# (deploy/caddy-sites/demo.caddy.example) — and never for a bare local/IP install.
+	@hsts_on expression {env.RESTOW_EDGE_HSTS} == "true"
+	header @hsts_on Strict-Transport-Security "max-age=63072000; includeSubDomains"
+}
+
+{$RESTOW_APP_DOMAIN} {
+	encode zstd gzip
+	import security_headers
+
+	# Known limitation, not fixable from this site block: in public mode (a real
+	# domain, not ":80") Caddy's automatic HTTP->HTTPS redirect on port 80 is
+	# generated internally, before any directive here runs, so it still answers
+	# with a bare Server: Caddy header. It carries no other content and 301s
+	# straight to HTTPS, where every header above applies normally.
+
+	# A reverse_proxy failure (api unreachable) answers before the block above ever
+	# runs, so an outage gets the same hardening headers on its error page too
+	# (Server still removed, CSP and the rest still set) instead of Caddy's bare
+	# default. No HSTS matcher here: it is already covered by import security_headers
+	# above for every successful response, and a browser needs to see it only once to
+	# start enforcing it, not on every single response.
+	#
+	# The same block is the maintenance page
+	# (https://docs.restowbackup.com/administrators/updates/). While the api is down (it
+	# restarts during an update, or it crashed), reverse_proxy answers 502/503/504 and:
+	#   - a browser asking for a page gets the static maintenance page in its language
+	#     (German when Accept-Language leads with "de", else English; the files are built
+	#     with the web app into /srv/maintenance/), with status 503 and Retry-After;
+	#   - a request under /api/* gets a small problem+json 503 (the web app treats it as
+	#     "the server is restarting", not as an error);
+	#   - the read-only status the maintenance page and the web app poll
+	#     (/_maintenance/status) answers 503 {"phase":"unavailable"} when no updater runs.
+	# Anything else keeps the plain one-line answer.
+	handle_errors {
+		import security_headers_base
+
+		@maintenance_status path /_maintenance/status
+		handle @maintenance_status {
+			header Cache-Control "no-store"
+			header Content-Type "application/json; charset=utf-8"
+			respond `{"phase":"unavailable"}` 503
+		}
+
+		# A body over the edge's limit (request_body below) gets the same problem the api
+		# answers for one over its own (apps/api/src/middleware/body-limit.ts).
+		@body_too_large {
+			expression {err.status_code} == 413
+			path /api/* /agent/v1/*
+		}
+		handle @body_too_large {
+			header Cache-Control "no-store"
+			header Content-Type "application/problem+json; charset=utf-8"
+			respond `{"type":"urn:restow:problem:payload-too-large","title":"Payload Too Large","status":413,"detail":"The request body is larger than this endpoint accepts."}` 413
+		}
+
+		@app_down_api {
+			expression {err.status_code} in [502, 503, 504]
+			path /api/*
+		}
+		handle @app_down_api {
+			header Cache-Control "no-store"
+			header Retry-After "30"
+			header Content-Type "application/problem+json; charset=utf-8"
+			respond `{"type":"urn:restow:problem:service-unavailable","title":"Service unavailable","status":503,"detail":"The server is restarting or under maintenance."}` 503
+		}
+
+		@app_down_page_de {
+			expression {err.status_code} in [502, 503, 504]
+			header Accept *text/html*
+			header_regexp language Accept-Language (?i)^\s*de
+		}
+		handle @app_down_page_de {
+			header Cache-Control "no-store"
+			header Retry-After "30"
+			rewrite * /maintenance/index.de.html
+			root * /srv
+			file_server {
+				status 503
+			}
+		}
+
+		@app_down_page {
+			expression {err.status_code} in [502, 503, 504]
+			header Accept *text/html*
+		}
+		handle @app_down_page {
+			header Cache-Control "no-store"
+			header Retry-After "30"
+			rewrite * /maintenance/index.en.html
+			root * /srv
+			file_server {
+				status 503
+			}
+		}
+
+		handle {
+			respond "{err.status_code} {err.status_text}" {err.status_code}
+		}
+	}
+
+	# Liveness/readiness are the api's own job, not the SPA fallback below.
+	# /readyz reports only {status, checks: {database, worker, scheduler}}
+	# (apps/api/src/app.ts) — nothing host- or install-specific — so it is safe to
+	# expose on the public edge. (Only a caller that presents the opt-in updater's shared
+	# secret also gets the running version; nobody else can.)
+	handle /healthz {
+		reverse_proxy api:3000
+	}
+	handle /readyz {
+		reverse_proxy api:3000
+	}
+
+	# Request body limits: the api enforces the exact limit of every route
+	# (apps/api/src/middleware/body-limit.ts: 1 MiB unless listed there); the edge sets
+	# the outer bound, so an oversized body is cut off before it reaches the api. The
+	# routes nobody signs in for (sign-in, the setup wizard, set-password links) get the
+	# api's default of 1 MiB right here; everything else under /api is bounded by the
+	# largest body the api accepts at all, an import upload segment (32 MiB).
+	handle /api/* {
+		@api_public path /api/auth/* /api/v1/setup /api/v1/setup/* /api/v1/accounts/*
+		request_body @api_public {
+			max_size 1MiB
+		}
+		request_body {
+			max_size 33MiB
+		}
+		reverse_proxy api:3000
+	}
+
+	# Endpoint backup (https://docs.restowbackup.com/administrators/endpoint-backup/overview/),
+	# all served by the api and none of it behind a browser session:
+	#   /agent/v1/*       the agent API (JSON, HTTP Basic with the agent's own secret);
+	#                     bodies up to 16 MiB (a run report), enrollment (no secret yet)
+	#                     up to 1 MiB, the same limits the api applies
+	#   /agent/restic/*   the restic REST backend the agents write their backups through
+	#                     (append-only for an agent, streamed in both directions: uploads
+	#                     are packs up to 128 MiB, so nothing is buffered here and no body
+	#                     size limit is set at the edge; the api refuses more than 128 MiB)
+	#   /install/*        the install scripts and the agent binaries with their SHA256SUMS
+	# Without these two blocks the single-page app fallback below would answer index.html
+	# to an agent, which then fails on the first JSON parse.
+	handle /agent/* {
+		@agent_enroll path /agent/v1/enroll
+		request_body @agent_enroll {
+			max_size 1MiB
+		}
+		@agent_api path /agent/v1/*
+		request_body @agent_api {
+			max_size 16MiB
+		}
+		reverse_proxy api:3000
+	}
+	handle /install/* {
+		reverse_proxy api:3000
+	}
+
+	# The update status while the api may be down: a read-only JSON document the opt-in
+	# updater serves (phase, step, progress, message; no version and nothing sensitive,
+	# apps/api/src/updater/protocol.ts PublicStatus). Only GET/HEAD, only this one path,
+	# no cookie or credentials forwarded. Without an updater the upstream does not
+	# resolve and handle_errors above answers.
+	handle /_maintenance/status {
+		@status_read method GET HEAD
+		handle @status_read {
+			rewrite * /public/status
+			reverse_proxy updater:8090 {
+				header_up -Cookie
+				header_up -Authorization
+				transport http {
+					dial_timeout 2s
+					response_header_timeout 3s
+				}
+			}
+		}
+		respond 405
+	}
+
+	# The static maintenance page and its script and styles: needed exactly when the
+	# api is down, so they never touch it.
+	handle /maintenance/* {
+		header Cache-Control "no-cache"
+		root * /srv
+		file_server
+	}
+
+	# The license notices of the web interface, as plain text (the image copies
+	# THIRD_PARTY_NOTICES.md of the release to /srv/licenses/THIRD_PARTY_NOTICES.txt;
+	# the About box of the settings links to it). Static files that never touch the
+	# api, so they open while it is down too; an unknown name is a 404, never the SPA.
+	handle /licenses/* {
+		header Cache-Control "no-cache"
+		@license_text path *.txt
+		header @license_text Content-Type "text/plain; charset=utf-8"
+		root * /srv
+		file_server
+	}
+
+	# The content-hashed bundle under /assets/* never changes for a given filename,
+	# so it caches for a year; index.html (the catch-all below) must always
+	# revalidate, so a redeploy is picked up immediately. /api/* above carries no
+	# cache directive of its own here, unchanged either way.
+	handle /assets/* {
+		root * /srv
+		# Only once the file actually exists: without this matcher, a request
+		# under /assets/* for a file the current build does not ship (a stale
+		# deep link after a redeploy, or a probe) would get the year-long
+		# immutable header on its 404 too, which an intermediary cache could
+		# then hold onto for a year.
+		@asset_file file
+		header @asset_file Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# A page navigation first asks the api whether it is there (a liveness call, nothing
+	# is forwarded but the request line): if it is not, the reverse_proxy failure ends in
+	# the maintenance page above instead of a shell that cannot load its data.
+	@page_navigation {
+		method GET
+		header Accept *text/html*
+	}
+	handle @page_navigation {
+		route {
+			forward_auth api:3000 {
+				uri /healthz
+				header_up -Cookie
+				header_up -Authorization
+			}
+			header Cache-Control "no-cache"
+			root * /srv
+			try_files {path} /index.html
+			file_server
+		}
+	}
+
+	handle {
+		header Cache-Control "no-cache"
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+# Additional sites served by this same edge, one `*.caddy` file each, from
+# deploy/caddy-sites/ (mounted read-only at /etc/caddy/sites by docker-compose.yml).
+# Nothing is active by default: the directory ships without any `*.caddy` file, and
+# an import glob that matches no file (or a directory that is not mounted at all, as
+# in the public demo's own web container) is accepted and imports nothing.
+import /etc/caddy/sites/*.caddy

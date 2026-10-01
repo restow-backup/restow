@@ -1,0 +1,85 @@
+{
+  "nav": "License",
+  "edition": {
+    "label": "Edition",
+    "community": "Community",
+    "business": "Business",
+    "service_provider": "Service Provider",
+    "badge": {
+      "key": "Key installed",
+      "environment": "From environment"
+    }
+  },
+  "locked": {
+    "business": "Available in Business",
+    "service_provider": "Available in Service Provider"
+  },
+  "about": {
+    "title": "License",
+    "description": "Edition and license key of this installation.",
+    "requiredEdition": "That feature is part of {edition}. Enter a license key below to unlock it.",
+    "loadError": "License status unavailable",
+    "terms": "License terms",
+    "termsLink": "View the license terms",
+    "opensInNewTab": "(opens in a new tab)"
+  },
+  "key": {
+    "title": "License key",
+    "description": "Business and Service Provider are unlocked with a signed key that is bound to this installation.",
+    "none": "None installed",
+    "licensee": "Licensee",
+    "keyId": "Key ID",
+    "issuedAt": "Issued",
+    "installedAt": "Installed",
+    "installationId": "Installation ID",
+    "installationIdHint": "Quote this ID when you request a key.",
+    "verification": "Verification key",
+    "verificationSource": {
+      "embedded": "built into this release",
+      "environment": "from RESTOW_LICENSE_PUBLIC_KEY"
+    },
+    "remove": "Remove key",
+    "copy": "Copy installation ID"
+  },
+  "install": {
+    "title": "Install a key",
+    "replaceTitle": "Install a different key",
+    "label": "License key",
+    "placeholder": "restow-license-v1.…",
+    "hint": "Paste the complete key. Line breaks added by an email client do no harm.",
+    "submit": "Verify and install",
+    "offline": "Verification runs offline against the public verification key. {appName} makes no outbound connection for it.",
+    "required": "Paste the license key.",
+    "unavailable": {
+      "title": "Keys cannot be verified",
+      "unconfigured": "This build carries no public verification key. Use an official release image or set RESTOW_LICENSE_PUBLIC_KEY.",
+      "invalid": "RESTOW_LICENSE_PUBLIC_KEY is set but does not contain a readable Ed25519 key. Correct the value and restart the API.",
+      "not_configured": "The installation has not been set up yet. Complete the setup wizard first."
+    }
+  },
+  "remove": {
+    "title": "Remove the license key?",
+    "description": "Without a key, this installation runs as {edition, select, community {Community} business {Business} other {Service Provider}}. The removal is recorded in the audit log.",
+    "confirm": "Remove"
+  },
+  "toasts": {
+    "installed": "Key installed. Edition: {edition, select, community {Community} business {Business} other {Service Provider}}.",
+    "removed": "License key removed."
+  },
+  "errors": {
+    "malformed": "This text is not a license key. Paste the complete key exactly as it was issued.",
+    "bad_signature": "The signature does not match. The key was altered, or it was not issued for this installation's verification key.",
+    "invalid_payload": "The key is signed, but its content is incomplete or contradictory. Please contact the issuer.",
+    "installation_mismatch": "This key belongs to installation {keyInstallation}; this installation has the ID {installation}. Request a key for this ID.",
+    "unavailable": "This installation cannot verify license keys at the moment.",
+    "notConfigured": "The installation has not been set up yet.",
+    "notInstalled": "No license key is installed."
+  },
+  "tenants": {
+    "blocked": {
+      "title": "Another tenant requires the Service Provider edition",
+      "description": "The {edition, select, community {Community} business {Business} other {Service Provider}} edition manages exactly one tenant, and this installation already has it. Managing several tenants requires a Service Provider license key.",
+      "action": "Open license settings"
+    }
+  }
+}

@@ -1,0 +1,25 @@
+# Restow public demo — nightly reset timer: 03:00 Europe/Berlin, matching
+# the banner shown in the app shell (packages/i18n resources/*/auth.json,
+# key "demo.banner"). Change both together if the time ever changes.
+#
+# Install alongside restow-demo-reset.service; see that file for the setup
+# steps.
+
+[Unit]
+Description=Run the Restow public demo reset every night at 03:00 Europe/Berlin
+
+[Timer]
+OnCalendar=*-*-* 03:00:00 Europe/Berlin
+# Catch up on a missed run (host was off at 03:00) instead of silently
+# skipping a whole day.
+Persistent=true
+# Also reset shortly after every boot: the chunk store lives on a tmpfs
+# volume (docker-compose.yml, demo-data) and is empty after a reboot while
+# Postgres still lists the old restore points, so every preview and restore
+# would fail until the next 03:00 run.
+OnBootSec=2min
+# Spread real-world load if this pattern is ever reused for several demos.
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target

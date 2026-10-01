@@ -1,0 +1,207 @@
+{
+  "nav": "Schedules",
+  "page": {
+    "title": "Schedules",
+    "description": "What runs on its own for this tenant: backups, verification, integrity checks, directory sync and retention."
+  },
+  "actions": {
+    "new": "New schedule",
+    "applyRecommended": "Apply recommended schedules",
+    "edit": "Edit",
+    "delete": "Delete",
+    "enable": "Switch on",
+    "refresh": "Refresh schedules"
+  },
+  "kinds": {
+    "backup": "Backup",
+    "verify": "Verification",
+    "scrub": "Integrity check",
+    "directory": "Directory sync",
+    "retention": "Retention",
+    "archive": "Archive sync"
+  },
+  "kindHints": {
+    "backup": "Backs up every active protected object, or only the one you choose.",
+    "verify": "Restores a sample of the latest backup to prove it can be restored. While a verification schedule is on, every new backup is verified as well.",
+    "scrub": "Checks the stored packs for damage and repairs them from copies. Monthly or rarer runs check everything, more frequent runs a sample.",
+    "directory": "Reads users, mailboxes and OneDrives from Microsoft Entra ID, so new people are protected by the rules.",
+    "retention": "Applies the retention policies. Until a policy exists, everything is kept."
+  },
+  "objectKinds": {
+    "mailbox": "Mailbox",
+    "onedrive": "OneDrive",
+    "imap": "IMAP account"
+  },
+  "scope": {
+    "allObjects": "All protected objects",
+    "tenant": "Whole tenant",
+    "withheld": {
+      "mailbox": "One mailbox (not yours)",
+      "onedrive": "One OneDrive (not yours)",
+      "imap": "One IMAP account (not yours)"
+    }
+  },
+  "cadence": {
+    "everyMinutes": "{count, plural, one {Every minute} other {Every # minutes}}",
+    "everyHours": "{count, plural, one {Every hour} other {Every # hours}}",
+    "daily": "Daily at {time}",
+    "weekly": "Every {days} at {time}",
+    "workdays": "Monday to Friday at {time}",
+    "monthly": "Monthly on day {day} at {time}",
+    "custom": "Custom: {cron}"
+  },
+  "table": {
+    "label": "Schedules",
+    "kind": "Kind",
+    "scope": "Applies to",
+    "cadence": "Cadence",
+    "nextRun": "Next run",
+    "lastRun": "Last run",
+    "lastJob": "Last job",
+    "enabled": "On",
+    "paused": "Switched off",
+    "noJob": "No run yet",
+    "openJob": "Open the last job ({status})",
+    "toggle": "Run {kind} automatically"
+  },
+  "jobStatus": {
+    "queued": "Queued",
+    "active": "Running",
+    "completed": "Completed",
+    "failed": "Failed",
+    "cancelled": "Cancelled"
+  },
+  "errors": {
+    "load": "The schedules could not be loaded"
+  },
+  "noTenant": {
+    "title": "No tenant selected",
+    "description": "Select a tenant to see and change its schedules."
+  },
+  "empty": {
+    "title": "No schedules yet",
+    "description": "Nothing runs on its own: backups, verification and integrity checks happen only when someone starts them."
+  },
+  "notices": {
+    "readOnly": "You can see the schedules of this tenant. Only tenant administrators can change them.",
+    "noBackup": {
+      "title": "Backups run only when started by hand",
+      "missing": "No schedule backs up all protected objects of this tenant.",
+      "paused": "The backup schedule for all protected objects is switched off."
+    },
+    "noVerify": {
+      "title": "Backups stay unverified",
+      "missing": "No verification schedule exists, so no backup is test-restored and recovery readiness stays unknown.",
+      "paused": "The verification schedule is switched off, so new backups are not test-restored and recovery readiness stays unknown."
+    },
+    "recommended": {
+      "title": "Recommended schedules not set up",
+      "description": "Missing: {kinds}."
+    },
+    "retention": "Retention applies the retention policies. Until a policy exists, everything is kept."
+  },
+  "presets": {
+    "every_hours": "Every few hours",
+    "every_minutes": "Every few minutes",
+    "daily": "Daily",
+    "weekly": "On chosen weekdays",
+    "monthly": "Monthly",
+    "custom": "Custom (cron expression)"
+  },
+  "form": {
+    "createTitle": "New schedule",
+    "editTitle": "Edit schedule",
+    "description": "Choose what runs, how often and for which objects.",
+    "kind": "What runs",
+    "cadence": "Cadence",
+    "preset": "How often",
+    "hours": "Every how many hours",
+    "minutes": "Every how many minutes",
+    "days": "On these days",
+    "dayOfMonth": "Day of the month",
+    "dayOfMonthHint": "1 to {max}: every month has these days.",
+    "time": "At (local time)",
+    "cron": "Cron expression",
+    "cronHint": "Five fields: minute, hour, day of month, month, day of week. Example: 30 4 * * 1-5 runs at 04:30 from Monday to Friday.",
+    "intervalStartsNow": "The first run starts within a minute of saving; later runs count from the previous one.",
+    "intervalFromLastRun": "Runs count from the last run.",
+    "timezone": "Time zone",
+    "timezoneHint": "Times are local times in this zone; daylight saving time is taken into account.",
+    "timezoneSearch": "Search time zones",
+    "timezoneEmpty": "No time zone found.",
+    "timezoneBrowser": "This browser",
+    "previewTitle": "Next runs",
+    "previewRefused": "No runs: correct the marked field.",
+    "previewIncomplete": "Complete the cadence to see the next runs.",
+    "previewNow": "now",
+    "scope": "Applies to",
+    "scopeObject": "One protected object",
+    "scopeTenant": "Runs for the whole tenant.",
+    "object": "Protected object",
+    "objectPlaceholder": "Choose a protected object",
+    "objectSearch": "Search by name or address",
+    "objectEmpty": "No matching protected object.",
+    "enabled": "Switched on",
+    "enabledHint": "Switched off, the schedule keeps its settings but does not run.",
+    "save": "Save changes",
+    "create": "Create schedule"
+  },
+  "validation": {
+    "required": {
+      "minutes": "Enter the number of minutes.",
+      "hours": "Enter the number of hours.",
+      "time": "Enter a time.",
+      "days": "Choose at least one day.",
+      "dayOfMonth": "Enter a day of the month.",
+      "cron": "Enter a cron expression.",
+      "object": "Choose a protected object."
+    },
+    "range": {
+      "minutes": "Choose between {min} and {max} minutes.",
+      "hours": "Choose between 1 and {max} hours.",
+      "dayOfMonth": "Choose a day between 1 and {maxDay}."
+    }
+  },
+  "problems": {
+    "cadence_missing": "Choose how often the schedule runs.",
+    "cadence_ambiguous": "Use either an interval or a cron expression, not both.",
+    "interval_not_integer": "The interval must be whole minutes.",
+    "interval_out_of_range": "The interval must be between 15 minutes and 31 days.",
+    "cron_invalid": "This is not a valid cron expression.",
+    "cron_never_matches": "This expression never matches a date.",
+    "cron_too_frequent": "Runs must be at least 15 minutes apart.",
+    "timezone_unknown": "This time zone is unknown.",
+    "scope_not_supported": "This kind of schedule always runs for the whole tenant.",
+    "object_not_found": "The protected object no longer exists.",
+    "generic": "The schedule cannot be saved like this."
+  },
+  "confirm": {
+    "summary": "{kind} · {cadence} · {scope}",
+    "delete": {
+      "title": "Delete this schedule?",
+      "description": "It will no longer run on its own. Runs already queued are not affected, and the settings cannot be brought back.",
+      "confirm": "Delete schedule"
+    },
+    "disable": {
+      "backup": {
+        "title": "Switch off automatic backups?",
+        "description": "While it is off, the objects it covers are backed up only when someone starts a backup by hand."
+      },
+      "verify": {
+        "title": "Switch off verification?",
+        "description": "While it is off, new backups are not test-restored and recovery readiness is no longer proven."
+      },
+      "confirm": "Switch off"
+    }
+  },
+  "toasts": {
+    "created": "{kind} schedule created",
+    "updated": "{kind} schedule saved",
+    "deleted": "{kind} schedule deleted",
+    "enabled": "{kind} schedule switched on",
+    "disabled": "{kind} schedule switched off",
+    "applied": "{count, plural, one {# recommended schedule added} other {# recommended schedules added}}",
+    "appliedNone": "Every recommended schedule already exists.",
+    "failed": "The change could not be saved"
+  }
+}

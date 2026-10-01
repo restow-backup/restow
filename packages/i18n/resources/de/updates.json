@@ -1,0 +1,571 @@
+{
+  "title": "Updates",
+  "loadError": "Die Update-Informationen konnten nicht geladen werden",
+  "access": {
+    "demo": "Das ist eine öffentliche Demo. Die Update-Einstellungen und das Installieren von Updates sind hier schreibgeschützt.",
+    "role": "Sie sehen den Update-Status. Update-Einstellungen ändern und Updates installieren darf nur die Rolle Inhaber im Provider-Team."
+  },
+  "refreshFailed": {
+    "active": "Der Server antwortet gerade nicht. Das ist normal, solange ein Update ihn neu startet. Diese Seite zeigt den zuletzt empfangenen Stand und versucht es weiter.",
+    "idle": "Der aktuelle Stand konnte nicht geladen werden. Diese Seite zeigt den zuletzt empfangenen Stand."
+  },
+  "toasts": {
+    "saved": "Update-Einstellungen gespeichert.",
+    "cancelled": "Das angekündigte Update wurde abgebrochen.",
+    "dismissed": "Der Update-Lauf wurde von dieser Seite entfernt."
+  },
+  "errors": {
+    "updaterUnavailable": "Der Updater läuft nicht. Starten Sie ihn oder aktualisieren Sie von Hand.",
+    "updaterBlocked": "Der Updater kann gerade keine Updates installieren. Die Gründe stehen auf dieser Seite.",
+    "busy": "Ein Update ist bereits angekündigt oder läuft.",
+    "versionUnknown": "Diese Version gehört nicht zu den Releases der letzten Prüfung. Prüfen Sie auf Updates und versuchen Sie es erneut.",
+    "runningUnknown": "Diese Installation meldet keine Release-Version und lässt sich deshalb von hier nicht aktualisieren.",
+    "sourceNotAllowed": "Das Bauen von Updates aus dieser Quelle ist auf dem Server abgeschaltet. Der Betreiber muss das Repository zuerst freigeben; bis dahin aktualisieren Sie von Hand.",
+    "recentSignIn": "Bestätigen Sie zuerst, dass Sie es sind: Das Ändern der Update-Quelle oder des Zugriffstokens und das Starten eines Updates erfordern eine Anmeldung aus den letzten 10 Minuten.",
+    "notVerifiable": "Dieses Release veröffentlicht keinen Image-Digest, daher kann der Updater es nicht prüfen. Aktualisieren Sie von Hand, nachdem Sie das Release geprüft haben.",
+    "invalidSource": "Diese Adresse lässt sich nicht als Update-Quelle verwenden. Geben Sie die https-Adresse eines GitHub-, Forgejo- oder Gitea-Repositorys im öffentlichen Internet ein. Ein Server im eigenen Netz funktioniert nur, wenn der Betreiber seinen Host in der .env-Datei auf dem Server einträgt."
+  },
+  "form": {
+    "unsaved": "Es gibt ungespeicherte Änderungen.",
+    "saved": "Alle Änderungen sind gespeichert.",
+    "discard": "Änderungen verwerfen"
+  },
+  "commands": {
+    "copy": "Befehl kopieren",
+    "copyLine": "Zeile kopieren"
+  },
+  "span": {
+    "seconds": "{count, plural, one {# Sekunde} other {# Sekunden}}",
+    "minutes": "{count, plural, one {# Minute} other {# Minuten}}",
+    "hours": "{count, plural, one {# Stunde} other {# Stunden}}"
+  },
+  "lead": {
+    "now": "Sofort starten",
+    "minute1": "In 1 Minute",
+    "minutes5": "In 5 Minuten",
+    "minutes15": "In 15 Minuten",
+    "minutes30": "In 30 Minuten",
+    "hour1": "In 1 Stunde",
+    "custom": "{minutes, plural, one {In # Minute} other {In # Minuten}}"
+  },
+  "steps": {
+    "prepare": "Update vorbereiten",
+    "fetch": "Neue Version beschaffen",
+    "fetchImage": "Neue Version herunterladen",
+    "fetchSource": "Neue Version bauen",
+    "backup": "Datenbank sichern",
+    "stop": "Dienste anhalten",
+    "start": "Neue Version starten",
+    "health": "Prüfen, ob alles läuft",
+    "finish": "Abschließen",
+    "status": {
+      "pending": "Wartet",
+      "running": "Läuft",
+      "done": "Fertig",
+      "failed": "Fehlgeschlagen",
+      "skipped": "Übersprungen"
+    }
+  },
+  "failure": {
+    "prepare": {
+      "docker_unreachable": "Docker ist nicht erreichbar.",
+      "compose_missing": "Die Compose-Datei wurde nicht gefunden.",
+      "project_dir_mismatch": "Der Projektordner stimmt nicht mit dem überein, aus dem diese Installation läuft.",
+      "env_unwritable": "Die .env-Datei kann nicht geschrieben werden.",
+      "disk_space": "Es ist nicht genug freier Speicherplatz vorhanden.",
+      "not_newer": "Die gewählte Version ist nicht neuer als die laufende.",
+      "compose_unsupported": "Diese Version von Docker Compose wird nicht unterstützt.",
+      "updater_image_unpinned": "Der Updater bezieht sein eigenes Image aus den Image-Zeilen, die er bei einem Update umschreibt. Geben Sie ihm ein eigenes, festes Image und erstellen Sie ihn neu; die Schritte stehen unter Einstellungen, Updates."
+    },
+    "fetch": {
+      "pull_failed": "Das neue Image konnte nicht heruntergeladen werden.",
+      "digest_missing": "Das Release veröffentlicht keinen Image-Digest, daher lässt sich das Image nicht prüfen. Es wurde nichts geändert.",
+      "signature_invalid": "Das Image ist nicht vom Release-Workflow dieser Version signiert, oder die Signatur ließ sich nicht prüfen. Es wurde nicht verwendet.",
+      "digest_mismatch": "Das heruntergeladene Image passt nicht zum veröffentlichten Digest des Releases. Es wurde nicht verwendet.",
+      "download_failed": "Das Release konnte nicht von der Quelle heruntergeladen werden.",
+      "token_unavailable": "Der gespeicherte Zugriffstoken konnte nicht gelesen werden.",
+      "build_failed": "Das Bauen der neuen Version ist fehlgeschlagen."
+    },
+    "backup": {
+      "failed": "Die Datenbanksicherung ist fehlgeschlagen."
+    },
+    "stop": {
+      "failed": "Die Dienste konnten nicht angehalten werden."
+    },
+    "start": {
+      "failed": "Die neue Version konnte nicht gestartet werden."
+    },
+    "health": {
+      "timeout": "Die neue Version wurde nicht rechtzeitig gesund.",
+      "crashed": "Die neue Version hat sich gleich nach dem Start beendet.",
+      "version_mismatch": "Die neue Version antwortet, meldet aber eine andere Version als erwartet."
+    },
+    "finish": {
+      "failed": "Die abschließenden Schritte sind fehlgeschlagen."
+    },
+    "interrupted": "Das Update wurde unterbrochen, zum Beispiel durch einen Neustart des Updaters.",
+    "unknown": "Das Update ist aus einem Grund fehlgeschlagen, den diese Version nicht kennt."
+  },
+  "version": {
+    "title": "Version",
+    "description": "Die Version, die diese Installation ausführt, und was die letzte Update-Prüfung ergeben hat.",
+    "running": "Laufende Version",
+    "runningUnknown": "Unbekannt",
+    "runningUnknownHint": "Dieser Build trägt keine Release-Version und lässt sich deshalb nicht mit einem Release vergleichen.",
+    "lastChecked": "Zuletzt geprüft",
+    "neverChecked": "Noch nie",
+    "nextCheck": "Nächste Prüfung",
+    "nextCheckNone": "Nicht geplant",
+    "source": "Quelle",
+    "checkNow": "Jetzt prüfen",
+    "checkNowHint": "Liest die Release-Liste der Quelle einmal, sofort.",
+    "checkNowOff": "Die Update-Prüfung ist aus. Schalten Sie sie in den Quelleneinstellungen unten ein, um jetzt zu prüfen."
+  },
+  "check": {
+    "status": {
+      "off": {
+        "title": "Update-Prüfung ist aus",
+        "description": "Diese Installation sucht nicht nach neuen Versionen. Schalten Sie unten die tägliche Prüfung ein oder aktualisieren Sie von Hand."
+      },
+      "pending": {
+        "title": "Noch nicht geprüft",
+        "description": "Die Prüfung ist eingeschaltet, hat aber noch nicht gelaufen. Mit „Jetzt prüfen“ starten Sie sie sofort."
+      },
+      "upToDate": {
+        "title": "Aktuell",
+        "description": "Das ist das neueste Release im Kanal {channel}."
+      },
+      "available": {
+        "title": "Update verfügbar: {version}",
+        "detail": "Tag {tag}.",
+        "detailDated": "Tag {tag}, veröffentlicht am {date}."
+      },
+      "comparisonUnavailable": {
+        "title": "Neuestes Release: {version}",
+        "description": "Dieser Build meldet keine Release-Version und lässt sich deshalb nicht mit dem neuesten Release vergleichen."
+      },
+      "failed": {
+        "title": "Letzte Prüfung fehlgeschlagen"
+      }
+    },
+    "lastKnown": {
+      "available": "Letzte erfolgreiche Prüfung: Version {version} (Tag {tag}) ist verfügbar.",
+      "upToDate": "Letzte erfolgreiche Prüfung: aktuell.",
+      "latest": "Letzte erfolgreiche Prüfung: Das neueste Release ist {version}."
+    },
+    "errorStatus": "HTTP-Status {status}",
+    "errors": {
+      "rate_limited": "Die Quelle begrenzt Anfragen. Die nächste Prüfung versucht es später erneut.",
+      "rate_limitedUntil": "Die Quelle begrenzt Anfragen. Ab {time} sind Anfragen wieder erlaubt.",
+      "unauthorized": "Die Quelle hat den Zugriffstoken abgelehnt: Er ist ungültig oder abgelaufen. Ersetzen Sie ihn unten in den Quelleneinstellungen.",
+      "not_found": "Das Repository wurde nicht gefunden, oder es ist privat und es ist kein Zugriffstoken gespeichert.",
+      "forbidden": "Die Quelle hat den Zugriff verweigert. Dem Zugriffstoken fehlt möglicherweise die Berechtigung für dieses Repository.",
+      "server_error": "Die Quelle meldet einen Serverfehler. Das geht meist vorüber; die nächste Prüfung versucht es erneut.",
+      "network": "Die Quelle ist nicht erreichbar. Prüfen Sie die Netzwerkverbindung und den DNS dieses Servers.",
+      "timeout": "Die Quelle hat nicht rechtzeitig geantwortet.",
+      "invalid_response": "Die Quelle hat mit etwas geantwortet, das keine Release-Liste ist.",
+      "no_release": "Die Quelle hat für diesen Kanal noch kein Release.",
+      "redirect": "Die Quelle hat die Anfrage weitergeleitet. Tragen Sie die endgültige Adresse des Repositorys ein.",
+      "unknown": "Die Prüfung ist aus einem Grund fehlgeschlagen, den diese Version nicht kennt."
+    }
+  },
+  "releases": {
+    "latest": {
+      "title": "Neuestes Release",
+      "description": "Das neueste Release des gewählten Kanals."
+    },
+    "newer": {
+      "title": "Verfügbare Releases",
+      "description": "Releases, die neuer sind als die installierte Version, das neueste zuerst."
+    },
+    "empty": {
+      "disabled": "Noch keine Release-Informationen: Die Update-Prüfung ist aus.",
+      "pending": "Noch keine Release-Informationen: Die Prüfung hat noch nicht gelaufen.",
+      "ok": "Die Quelle hat für diesen Kanal kein Release.",
+      "failed": "Keine Release-Informationen: Die letzte Prüfung ist fehlgeschlagen."
+    },
+    "newest": "Neueste",
+    "installed": "Installiert",
+    "prerelease": "Vorabversion",
+    "released": "Veröffentlicht am {date}",
+    "noDate": "Kein Veröffentlichungsdatum",
+    "page": "Release-Seite",
+    "opensInNewTab": "(öffnet in einem neuen Tab)",
+    "showNotes": "Release-Notes anzeigen",
+    "hideNotes": "Release-Notes ausblenden",
+    "noNotes": "Zu diesem Release gibt es keine Notes.",
+    "truncated": "Die Notes sind hier abgeschnitten. Den vollständigen Text finden Sie auf der Release-Seite."
+  },
+  "source": {
+    "title": "Update-Quelle und Kanal",
+    "description": "Woher Releases gelesen werden und welche Releases zählen.",
+    "environment": {
+      "title": "Die Update-Quelle wird von der Umgebung vorgegeben",
+      "description": "Die Variable RESTOW_UPDATE_CHECK_URL ist gesetzt. Sie hat Vorrang vor der täglichen Prüfung, der Quelle und dem Token unten. Entfernen Sie sie aus der .env-Datei und starten Sie neu, um sie hier zu verwalten. Der Kanal lässt sich weiterhin ändern. Verwendete Adresse:"
+    },
+    "enabled": {
+      "label": "Einmal täglich auf Updates prüfen",
+      "hint": "Gelesen wird nur die Release-Liste der Quelle unten; über diese Installation wird nichts gesendet."
+    },
+    "url": {
+      "label": "Quell-Repository",
+      "placeholder": "Standard: {url}",
+      "hint": "Die Adresse eines GitHub-, Forgejo- oder Gitea-Repositorys. Leer lassen, um die Standardquelle zu verwenden.",
+      "lockedHint": "Von der Umgebung vorgegeben. Hier nicht änderbar.",
+      "reset": "Standard verwenden",
+      "issues": {
+        "tooLong": "Die Adresse ist zu lang.",
+        "invalid": "Geben Sie eine vollständige Webadresse ein, zum Beispiel https://github.com/owner/repository.",
+        "protocol": "Die Adresse muss mit https:// oder http:// beginnen."
+      }
+    },
+    "providers": {
+      "github": "GitHub",
+      "forgejo": "Forgejo oder Gitea",
+      "feed": "Release-Feed"
+    },
+    "mode": {
+      "image": {
+        "label": "Image-Update",
+        "description": "Lädt das veröffentlichte Release-Image herunter. Das nutzt die Standardquelle."
+      },
+      "source": {
+        "label": "Aus Quellcode bauen",
+        "description": "Baut das Release auf diesem Server aus dem Repository am jeweiligen Tag. Das gilt für eigene Repositorys, dauert länger als ein Image-Update und funktioniert nur, wenn der Betreiber das Repository auf dem Server freigegeben hat."
+      }
+    },
+    "channel": {
+      "label": "Release-Kanal",
+      "stable": {
+        "label": "Stabil",
+        "description": "Nur finale Releases."
+      },
+      "beta": {
+        "label": "Beta",
+        "description": "Finale Releases und Vorabversionen wie Release Candidates."
+      }
+    },
+    "token": {
+      "label": "Zugriffstoken (optional)",
+      "hint": "Nur für ein privates Repository nötig. Er wird verschlüsselt gespeichert, nur an die Quelle gesendet und nie wieder angezeigt.",
+      "lockedHint": "Die Umgebung gibt die Quelle vor; der gespeicherte Token wird hier nicht verwendet.",
+      "stored": "Ein Token ist gespeichert.",
+      "replace": "Ersetzen",
+      "remove": "Entfernen",
+      "willRemove": "Der Token wird beim Speichern entfernt.",
+      "undo": "Rückgängig",
+      "cancel": "Abbrechen",
+      "placeholder": "Token einfügen",
+      "newPlaceholder": "Neuen Token einfügen"
+    }
+  },
+  "updater": {
+    "title": "Updates installieren",
+    "description": {
+      "unavailable": "Aktualisieren Sie von Hand oder starten Sie den optionalen Updater, um Updates von dieser Seite aus zu installieren.",
+      "ready": "Kündigen Sie hier ein Update an. Der Updater sichert zuerst die Datenbank und setzt zurück, wenn die neue Version nicht startet.",
+      "blocked": "Der Updater läuft, kann aber gerade keine Updates installieren.",
+      "busy": "Ein Update ist angekündigt oder läuft.",
+      "demo": "Das Installieren von Updates ist in der öffentlichen Demo abgeschaltet."
+    },
+    "unavailable": {
+      "title": "Der Updater läuft nicht",
+      "body": "Von dieser Seite aus lassen sich keine Updates installieren. Aktualisieren Sie mit den Befehlen unten von Hand oder starten Sie den Updater."
+    },
+    "enable": {
+      "title": "Updater starten",
+      "body": "Der Updater ist optional. Läuft er, kann diese Seite ein Update ankündigen, zuerst die Datenbank sichern, die Dienste neu starten und zurücksetzen, wenn die neue Version nicht startet.",
+      "socket": "Der Updater bindet den Docker-Socket ein. Das ist Root-Zugriff auf den Host: Wer den Updater kontrolliert, kontrolliert diesen Server. Starten Sie ihn nur, wenn Sie das akzeptieren."
+    },
+    "blocked": {
+      "title": "Updates sind blockiert",
+      "body": "Bis das behoben ist, lässt sich nichts installieren. Das Aktualisieren von Hand funktioniert weiterhin."
+    },
+    "blockers": {
+      "docker_unreachable": "Der Updater erreicht Docker nicht. Prüfen Sie, ob der Docker-Socket in den Updater eingebunden ist und Docker läuft.",
+      "compose_missing": "Der Updater findet die docker-compose.yml im Projektordner nicht. Prüfen Sie RESTOW_PROJECT_DIR in der .env-Datei.",
+      "project_dir_mismatch": "Der Projektordner, den der Updater sieht, stimmt nicht mit dem Ordner überein, aus dem diese Installation läuft. Setzen Sie RESTOW_PROJECT_DIR in der .env-Datei auf den absoluten Pfad des Ordners mit der docker-compose.yml und starten Sie den Updater neu.",
+      "env_unwritable": "Der Updater kann die .env-Datei nicht schreiben. Er muss dort die neue Image-Referenz eintragen.",
+      "disk_space": "Es ist nicht genug freier Speicherplatz für einen Download und die Datenbanksicherung vorhanden.",
+      "docker_cli_missing": "Der Updater findet das Docker-Kommandozeilenwerkzeug nicht, das er für Compose braucht.",
+      "updater_image_unpinned": "Der Updater bezieht sein eigenes Image aus RESTOW_IMAGE, der Zeile, die er bei einem Update umschreibt. Ein Update würde damit auch den Updater ersetzen. Verwenden Sie die docker-compose.yml dieses Releases, setzen Sie RESTOW_UPDATER_IMAGE in der .env-Datei und erstellen Sie den Updater neu.",
+      "unknown": "Der Updater meldet ein Problem, das diese Version nicht kennt."
+    },
+    "ready": {
+      "available": "Version {version} ist verfügbar",
+      "body": "Kündigen Sie sie mit Vorlaufzeit an, damit alle angemeldeten Personen ihre Arbeit speichern können.",
+      "install": "Update installieren",
+      "nothing": "Es gibt kein neueres Release, das sich installieren ließe."
+    },
+    "sourceNotAllowed": {
+      "title": "Bauen aus dieser Quelle ist abgeschaltet",
+      "body": "Der Updater baut aus einem eigenen Repository nur, wenn der Betreiber es in der .env-Datei auf dem Server einträgt. Ergänzen Sie diese Zeile in der .env und erstellen Sie den Updater neu:",
+      "risk": "Was aus diesem Repository gebaut wird, läuft mit vollem Zugriff auf alle Sicherungen und Schlüssel. Geben Sie nur ein Repository frei, dem Sie so sehr vertrauen wie dem Release selbst. Das Aktualisieren von Hand funktioniert weiterhin."
+    },
+    "outdated": "Der Updater läuft in Version {updater}, diese Installation in {running}. Ein Update ersetzt den Updater nie: Er behält das Image aus RESTOW_UPDATER_IMAGE. Um ihn auf {running} zu bringen, setzen Sie RESTOW_UPDATER_IMAGE in der .env-Datei auf das Image dieses Releases (oder bauen restow:local daraus neu, wenn Sie aus dem Quellcode bauen) und erstellen den Updater neu:",
+    "incompatible": {
+      "title": "Der Updater muss neu erstellt werden",
+      "body": "Der Updater läuft, spricht aber ein älteres Protokoll. Ein Update ersetzt den Updater nie: Setzen Sie RESTOW_UPDATER_IMAGE in der .env-Datei auf das Image dieses Releases (oder bauen restow:local daraus neu, wenn Sie aus dem Quellcode bauen), erstellen Sie den Updater neu und laden Sie diese Seite neu. Bis dahin aktualisieren Sie von Hand."
+    },
+    "busy": {
+      "scheduledTitle": "Update auf Version {version} ist angekündigt",
+      "runningTitle": "Update auf Version {version} läuft",
+      "startsIn": "Startet in {time}. Alle angemeldeten Personen sehen den Countdown.",
+      "starting": "Das Update startet gleich.",
+      "noCancel": "Das Update läuft und lässt sich nicht mehr abbrechen.",
+      "cancel": "Wartung abbrechen",
+      "cancelTitle": "Angekündigtes Update abbrechen?",
+      "cancelBody": "Der Countdown verschwindet für alle, und es wird nichts geändert. Sie können das Update später erneut ankündigen.",
+      "cancelConfirm": "Wartung abbrechen",
+      "cancelKeep": "Beibehalten"
+    },
+    "demo": "Das ist eine öffentliche Demo. Updates lassen sich hier nicht installieren. Die Versionsinformationen oben bleiben sichtbar."
+  },
+  "manual": {
+    "title": "Von Hand aktualisieren",
+    "body": "Lesen Sie zuerst die Release-Notes. Führen Sie die Befehle dann im Projektordner auf dem Server aus, dort, wo die docker-compose.yml liegt.",
+    "yourMode": "Ihre Einrichtung",
+    "image": {
+      "title": "Veröffentlichte Images",
+      "hint": "Für die Standardquelle. Lädt das neue Release-Image und erstellt die Dienste neu."
+    },
+    "source": {
+      "title": "Aus Quellcode gebaut",
+      "hint": "Für ein eigenes Repository. Holt den Release-Tag und baut ihn auf diesem Server."
+    }
+  },
+  "install": {
+    "title": "Update installieren",
+    "description": "Wählen Sie die Version und wann sie startet. Alle angemeldeten Personen sehen bis dahin einen Countdown.",
+    "version": "Version",
+    "lead": "Start",
+    "confirm": "Update ankündigen",
+    "confirmNow": "Update jetzt starten",
+    "prerelease": "Das ist eine Vorabversion. Installieren Sie sie nur, wenn Sie sie testen möchten.",
+    "unverifiable": "Dieses Release veröffentlicht keinen Image-Digest. Der Updater installiert nur Images, die er prüfen kann; aktualisieren Sie auf diese Version deshalb von Hand.",
+    "effects": {
+      "title": "Das passiert",
+      "downtime": "Die Anwendung ist kurz nicht erreichbar, während die Dienste neu starten.",
+      "backup": "Zuerst wird die Datenbank gesichert. Die letzten drei Sicherungen bleiben erhalten.",
+      "rollback": "Startet die neue Version nicht, wird automatisch die vorherige Version wiederhergestellt.",
+      "countdown": "Alle angemeldeten Personen sehen einen Countdown und, solange das Update läuft, einen Hinweis.",
+      "modeImage": "Das Release-Image wird aus der Registry heruntergeladen.",
+      "modeSource": "Das Release wird auf diesem Server aus dem Repository am Tag {tag} gebaut. Das dauert länger als ein Download."
+    }
+  },
+  "dumps": {
+    "title": "Datenbanksicherungen",
+    "description": "Der Updater legt vor jedem Update eine an und behält die letzten drei.",
+    "empty": "Noch keine Sicherung. Die erste entsteht vor dem ersten Update.",
+    "file": "Datei",
+    "size": "Größe",
+    "created": "Erstellt"
+  },
+  "run": {
+    "title": "Letztes Update",
+    "titleActive": "Aktuelles Update",
+    "versions": "Version {from} auf {to}",
+    "versionTo": "Auf Version {to}",
+    "status": {
+      "scheduled": "Angekündigt",
+      "running": "Läuft",
+      "cancelled": "Abgebrochen",
+      "failed": "Fehlgeschlagen",
+      "succeeded": "Erfolgreich",
+      "unchanged": "Fehlgeschlagen, unverändert",
+      "rolled_back": "Fehlgeschlagen, zurückgesetzt",
+      "needs_attention": "Erfordert Ihr Eingreifen"
+    },
+    "outcomeNote": {
+      "succeeded": "Die neue Version läuft.",
+      "unchanged": "Das Update ist fehlgeschlagen, bevor etwas ersetzt wurde. Die vorherige Version wurde nie angehalten.",
+      "rolled_back": "Das Update ist fehlgeschlagen, bevor die Datenbank migriert wurde. Die vorherige Version läuft wieder."
+    },
+    "requestedBy": "Gestartet von",
+    "mode": "Modus",
+    "startsAt": "Startet",
+    "startedAt": "Gestartet",
+    "finishedAt": "Beendet",
+    "signature": {
+      "label": "Release-Signatur",
+      "verified": "Geprüft: vom Release-Workflow dieser Version signiert",
+      "invalid": "Ungültig: Das Image wurde nicht verwendet",
+      "off": "Nicht geprüft: Die Signaturprüfung ist im Updater abgeschaltet"
+    },
+    "cancelledNote": "Dieses Update wurde abgebrochen, bevor es begann. Es wurde nichts geändert.",
+    "failure": {
+      "step": "Fehlgeschlagen im Schritt: {step}",
+      "migrationsRan": "Datenbankmigrationen waren bereits gelaufen.",
+      "migrationsNotRun": "Es war noch keine Datenbankmigration gelaufen."
+    },
+    "log": {
+      "show": "Protokoll anzeigen",
+      "hide": "Protokoll ausblenden",
+      "note": "Die letzten Zeilen des Update-Protokolls, auf Englisch. Geheimnisse sind entfernt."
+    },
+    "dismiss": {
+      "action": "Ausblenden",
+      "hint": "Ausblenden entfernt diesen Lauf von der Seite. Er bleibt im Audit-Log.",
+      "attentionHint": "Blenden Sie den Hinweis erst aus, wenn die Installation wiederhergestellt ist.",
+      "confirmTitle": "Hinweis ausblenden?",
+      "confirmBody": "Die Wiederherstellungsbefehle verschwinden von dieser Seite. Bewahren Sie sie auf, wenn Sie die Installation noch nicht wiederhergestellt haben."
+    }
+  },
+  "recovery": {
+    "title": "Das Update erfordert Ihr Eingreifen",
+    "body": "Die neue Version ist nach der Datenbankmigration nicht gestartet. {product} wurde angehalten, und die Datenbanksicherung von vor dem Update blieb erhalten. Stellen Sie sie mit den folgenden Befehlen wieder her, in dieser Reihenfolge.",
+    "dump": "Die Sicherung ist {file} ({size}), erstellt in Version {version}.",
+    "steps": {
+      "copy": "Kopieren Sie die Sicherung aus dem Updater heraus.",
+      "stop": "Halten Sie die Anwendung an.",
+      "restore": "Stellen Sie die Datenbank aus der Sicherung wieder her.",
+      "images": "Tragen Sie die vorherigen Image-Referenzen wieder in die .env-Datei ein.",
+      "start": "Starten Sie die vorherige Version."
+    },
+    "removeLines": "Entfernen Sie diese Zeilen aus der .env, falls sie dort stehen: {names}",
+    "copyAll": "Alle Befehle kopieren"
+  },
+  "maintenance": {
+    "openSettings": "Einstellungen, Updates öffnen",
+    "banner": {
+      "scheduled": "Wartung in {time}: {product} wird auf Version {version} aktualisiert. Speichern Sie Ihre Arbeit.",
+      "starting": "Die Wartung beginnt: {product} wird auf Version {version} aktualisiert.",
+      "running": "Wartung läuft: {product} wird auf Version {version} aktualisiert.",
+      "attention": "Das letzte Update erfordert Ihr Eingreifen. Ein Administrator muss die Installation wiederherstellen."
+    },
+    "announce": {
+      "start": "Wartung angekündigt: {product} wird in {time} auf Version {version} aktualisiert.",
+      "minute": "Die Wartung beginnt in einer Minute. Speichern Sie Ihre Arbeit.",
+      "seconds": "Die Wartung beginnt in 10 Sekunden.",
+      "starting": "Die Wartung beginnt jetzt."
+    },
+    "modal": {
+      "running": {
+        "title": "{product} wird auf Version {version} aktualisiert",
+        "titleNoVersion": "{product} wird aktualisiert",
+        "description": "Diese Seite geht automatisch weiter."
+      },
+      "progress": "Fortschritt",
+      "percent": "{value} %",
+      "steps": "Schritte des Updates",
+      "unreachable": "Der Server startet neu. Das ist normal.",
+      "dismiss": "Ausblenden",
+      "succeeded": {
+        "title": "Auf Version {version} aktualisiert",
+        "description": "Die neue Version läuft. Diese Seite lädt sich selbst neu.",
+        "reload": "Jetzt neu laden"
+      },
+      "failed": {
+        "reason": "Grund: {reason}",
+        "unchanged": {
+          "title": "Das Update konnte nicht starten",
+          "description": "Es wurde nichts geändert; die vorherige Version läuft weiter."
+        },
+        "rolledBack": {
+          "title": "Das Update ist fehlgeschlagen und wurde zurückgesetzt",
+          "description": "Die vorherige Version läuft wieder."
+        },
+        "needsAttention": {
+          "title": "Das Update erfordert Eingreifen",
+          "admin": "Das Update ist fehlgeschlagen, nachdem die Datenbank migriert wurde. Ein Administrator muss sie wiederherstellen. Details finden Sie unter Einstellungen, Updates.",
+          "user": "{product} ist nicht verfügbar. Ein Administrator wurde informiert."
+        },
+        "generic": {
+          "title": "Das Update wurde nicht abgeschlossen",
+          "description": "{product} ist möglicherweise eingeschränkt, bis ein Administrator es geprüft hat."
+        }
+      }
+    },
+    "versionUnknown": "unbekannt",
+    "messages": {
+      "run": {
+        "scheduled": "Das Update auf Version {version} ist für {startsAt} angekündigt.",
+        "starting": "Das Update auf Version {version} beginnt.",
+        "succeeded": "Auf Version {version} aktualisiert.",
+        "unchanged": "Das Update ist fehlgeschlagen, bevor etwas geändert wurde. {reason}",
+        "rolled_back": "Das Update ist fehlgeschlagen und wurde zurückgesetzt. {reason}",
+        "needs_attention": "Das Update ist fehlgeschlagen, nachdem die Datenbank migriert wurde. {reason}",
+        "interrupted": "Der Updater wurde während des Updates neu gestartet."
+      },
+      "step": {
+        "prepare": {
+          "checking": "Installation wird geprüft",
+          "verifying_compose": "Compose-Einrichtung wird geprüft"
+        },
+        "fetch": {
+          "pulling": "{image} wird heruntergeladen",
+          "pulling_web": "Web-Image {image} wird heruntergeladen",
+          "web_not_published": "Das Release hat kein Web-Image; das aktuelle ({image}) bleibt",
+          "verifying_signatures": "Signatur des Releases wird geprüft",
+          "verifying_digests": "Heruntergeladene Images werden geprüft",
+          "requesting_token": "Zugriffstoken wird angefordert",
+          "downloading": "Version {version} wird aus dem Repository heruntergeladen",
+          "extracting": "Version {version} wird entpackt",
+          "building": "{image} wird gebaut",
+          "building_web": "Web-Image {image} wird gebaut"
+        },
+        "backup": {
+          "baseline": "Stand vor der Sicherung wird gelesen",
+          "dumping": "Datenbanksicherung {file} wird geschrieben",
+          "verifying": "Datenbanksicherung {file} wird geprüft"
+        },
+        "stop": {
+          "stopping": "{services} werden angehalten"
+        },
+        "start": {
+          "writing_env": "Neue Image-Referenzen werden in die .env geschrieben",
+          "starting_api": "Neue Version ({image}) wird gestartet und die Datenbank migriert"
+        },
+        "health": {
+          "waiting_for_api": "Warten auf die Antwort von Version {version}",
+          "starting_workers": "Worker und Scheduler werden gestartet",
+          "starting_edge": "Webserver wird gestartet",
+          "verifying_services": "Es wird geprüft, ob alle Dienste laufen"
+        },
+        "finish": {
+          "cleaning": "Aufräumen"
+        }
+      },
+      "rollback": {
+        "checking_migrations": "Es wird geprüft, ob Datenbankmigrationen gelaufen sind",
+        "restoring_env": "Vorherige Image-Referenzen werden in die .env zurückgeschrieben",
+        "restarting": "Vorherige Version ({version}) wird neu gestartet",
+        "waiting_for_api": "Warten auf die Antwort der vorherigen Version",
+        "done": "Die vorherige Version läuft wieder.",
+        "failed": "Die vorherige Version konnte nicht wiederhergestellt werden."
+      },
+      "recovery": {
+        "stopping_application": "Anwendung wird zum Schutz der Daten angehalten",
+        "dump_kept": "Die Datenbanksicherung {file} blieb erhalten"
+      }
+    }
+  },
+  "maintenancePage": {
+    "heading": {
+      "unavailable": "{product} ist vorübergehend nicht erreichbar",
+      "scheduled": "Ein Update von {product} ist angekündigt",
+      "scheduledVersion": "{product} wird auf Version {version} aktualisiert",
+      "updating": "{product} wird aktualisiert",
+      "updatingVersion": "{product} wird auf Version {version} aktualisiert",
+      "succeeded": "{product} wurde aktualisiert",
+      "succeededVersion": "{product} wurde auf Version {version} aktualisiert",
+      "failed": "Das Update von {product} wurde nicht abgeschlossen"
+    },
+    "lead": {
+      "refresh": "Diese Seite aktualisiert sich automatisch.",
+      "scheduled": "Das Update beginnt bald. Diese Seite aktualisiert sich automatisch.",
+      "succeeded": "Die neue Version läuft. Diese Seite lädt jetzt neu."
+    },
+    "failure": {
+      "unchanged": "Das Update konnte nicht starten. Es wurde nichts geändert; die vorherige Version läuft weiter.",
+      "rolledBack": "Das Update ist fehlgeschlagen und wurde zurückgesetzt. Die vorherige Version läuft wieder.",
+      "needsAttention": "Das Update ist fehlgeschlagen, nachdem die Datenbank migriert wurde. Ein Administrator muss sie wiederherstellen. Die Schritte stehen in der Update-Anleitung der Dokumentation.",
+      "generic": "Das Update wurde nicht abgeschlossen. Ein Administrator muss {product} prüfen."
+    },
+    "reason": "Grund: {reason}",
+    "restarting": "Der Server startet neu. Das ist normal.",
+    "retry": "Jetzt erneut versuchen",
+    "progress": "Fortschritt des Updates",
+    "stepsLabel": "Schritte des Updates"
+  }
+}

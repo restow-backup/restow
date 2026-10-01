@@ -1,0 +1,16 @@
+{
+  "name": "@restow/ee-licensing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Restow license key verification, editions and capabilities, shared by the Business and Service Provider modules (ee/api, ee/worker) and compiled into the apps that load them.",
+  "license": "SEE LICENSE IN ../LICENSE",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@restow/db": "workspace:*",
+    "drizzle-orm": "^0.45.3"
+  }
+}

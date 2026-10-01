@@ -1,0 +1,81 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Secrets and environment — NEVER commit real values.
+# Real values live only in .env (ignored); .env.example carries empty placeholders.
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.pfx
+*.p12
+*.p8
+*.jks
+*.crt
+*.cer
+id_rsa*
+id_ed25519*
+secrets/
+keys/
+license-signing.key
+# The journal receiver's TLS certificate and private key (docs: Exchange journaling),
+# which the compose stack mounts from ./journal-tls
+journal-tls/
+
+# Local data and storage (chunk store, volumes, Postgres) — anchored to the repo
+# root so they never match source directories such as packages/core/src/storage
+/data/
+/storage/
+/minio-data/
+/pgdata/
+
+# Local overrides
+docker-compose.override.yml
+docker-compose.override.yaml
+compose.override.yml
+compose.override.yaml
+*.local.yml
+# Sites enabled on one host's edge (deploy/caddy-sites/README.md); only the
+# README and *.example templates are tracked.
+/deploy/caddy-sites/*.caddy
+# Image tarballs written by deploy/demo/build-images.sh
+/deploy/demo/images/
+
+# Output of the release smoke (scripts/smoke/run.mjs): working files, logs, reports
+/smoke-out/
+/smoke-report.md
+/smoke-report-*.md
+
+# Logs and coverage
+*.log
+coverage/
+.nyc_output/
+
+# Editor / OS
+.DS_Store
+.idea/
+
+# Test artifacts
+playwright-report/
+test-results/
+
+
+# Internal only, never in the public repository. These used to be excluded
+# only through this clone's .git/info/exclude, which a fresh clone or a new
+# initial commit does not carry over.
+/internal/
+/work/
+/CLAUDE.md
+/.claude/
+MEMORY.md
+agent-model-choice.md
+*-TODO.md
+
+# Server-side import folder of a local checkout (docs/IMPORT.md): mail files, never committed
+/import/

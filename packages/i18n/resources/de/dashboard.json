@@ -1,0 +1,420 @@
+{
+  "nav": "Übersicht",
+  "title": "Übersicht",
+  "subtitle": "Der Stand Ihrer Sicherungen, der Wiederherstellbarkeit und des Speichers auf einen Blick.",
+  "providerScope": "Alle Mandanten",
+  "tenantScope": "Mandant {tenant}",
+  "suspended": "Gesperrt",
+  "updated": "Aktualisiert",
+  "noTenant": {
+    "title": "Kein Mandant ausgewählt",
+    "description": "Wählen Sie oben einen Mandanten, um seine Sicherungen, Wiederherstellbarkeit und seinen Speicher zu sehen.",
+    "firstTenant": "Es gibt noch keinen Mandanten. Legen Sie den ersten an und verbinden Sie dann Microsoft 365 oder IMAP als Quelle.",
+    "openTenants": "Zu den Mandanten"
+  },
+  "error": {
+    "title": "Übersicht nicht verfügbar"
+  },
+  "stale": {
+    "title": "Die Übersicht konnte nicht aktualisiert werden",
+    "description": "Die Zahlen unten stammen von der letzten erfolgreichen Aktualisierung,",
+    "retry": "Erneut versuchen"
+  },
+  "tabs": {
+    "label": "Ansicht",
+    "provider": "Provider",
+    "tenant": "Mandant"
+  },
+  "actions": {
+    "details": "Details"
+  },
+  "widget": {
+    "loading": "{title} wird geladen …",
+    "error": {
+      "title": "Dieser Teil konnte nicht geladen werden",
+      "description": "Der Server konnte diese Zahlen gerade nicht lesen. Der Rest der Übersicht ist aktuell."
+    }
+  },
+  "setup": {
+    "title": "{appName} einrichten",
+    "description": "Die Schritte von einem neuen Mandanten bis zu nachweislich wiederherstellbaren Sicherungen.",
+    "progress": "{done} von {total} Schritten erledigt",
+    "byProvider": "Erledigt Ihr Provider",
+    "byAdmin": "Erledigt ein Administrator",
+    "doneSteps": "Erledigte Schritte",
+    "state": {
+      "done": "erledigt",
+      "open": "offen",
+      "attention": "braucht Aufmerksamkeit"
+    },
+    "complete": {
+      "title": "Einrichtung abgeschlossen",
+      "description": "Alle {total} Schritte sind erledigt.",
+      "show": "Schritte anzeigen",
+      "hide": "Schritte ausblenden"
+    },
+    "items": {
+      "storage": {
+        "label": "Repository funktioniert",
+        "hint": "Sicherungen brauchen ein Repository, das antwortet.",
+        "action": "Speicher öffnen"
+      },
+      "source": {
+        "label": "Quelle verbunden",
+        "hint": "Verbinden Sie Microsoft 365 oder einen IMAP-Server.",
+        "action": "Quelle verbinden"
+      },
+      "objects": {
+        "label": "Objekte geschützt",
+        "hint": "Wählen Sie die Postfächer, OneDrives und IMAP-Konten, die geschützt werden.",
+        "action": "Objekte schützen"
+      },
+      "schedules": {
+        "label": "Zeitpläne aktiv",
+        "hint": "Sicherungen laufen nur mit einem aktiven Zeitplan von selbst.",
+        "action": "Zeitpläne öffnen"
+      },
+      "firstBackup": {
+        "label": "Erste Sicherung erledigt",
+        "hint": "Starten Sie die erste Sicherung, sobald Objekte geschützt sind.",
+        "action": "Sicherung starten"
+      },
+      "firstVerification": {
+        "label": "Erste Wiederherstellungsprüfung grün",
+        "hint": "Eine Sicherung zählt erst, wenn eine Wiederherstellungsprüfung sie bestätigt hat.",
+        "action": "Jetzt prüfen"
+      },
+      "notificationMail": {
+        "label": "Benachrichtigungsmail getestet",
+        "hint": "Fehler und Warnungen werden per Mail verschickt.",
+        "action": "Einstellungen öffnen"
+      }
+    },
+    "reasons": {
+      "target_error": "Die letzte Prüfung des Repositorys ist fehlgeschlagen.",
+      "target_unverified": "Das Repository wurde noch nicht getestet.",
+      "default_untested": "Es wird der Standardspeicher des Servers verwendet; er wurde noch nicht getestet oder beschrieben.",
+      "default_misconfigured": "Der Standardspeicher des Servers ist nicht richtig eingerichtet.",
+      "source_error": "Eine Quelle meldet einen Fehler.",
+      "consent_pending": "Eine Quelle wartet auf die Zustimmung des Administrators.",
+      "no_backup_schedule": "Kein Sicherungszeitplan ist aktiv.",
+      "not_green": "Wiederherstellungsprüfungen liefen, aber noch keine war grün.",
+      "not_configured": "Es ist kein Mailversand eingerichtet.",
+      "not_tested": "Der Mailversand wurde noch nicht getestet.",
+      "test_failed": "Die letzte Testmail konnte nicht versendet werden."
+    }
+  },
+  "readiness": {
+    "title": "Wiederherstellbarkeit",
+    "description": "Ob eine Wiederherstellungsprüfung die Sicherungen als wiederherstellbar bestätigt hat.",
+    "lastCheck": "Letzte Prüfung",
+    "neverChecked": "Noch keine Wiederherstellungsprüfung",
+    "overall": {
+      "green": "Bereit",
+      "yellow": "Braucht Aufmerksamkeit",
+      "red": "Nicht bereit",
+      "none": "Nichts zu bewerten"
+    },
+    "segments": {
+      "green": "Bereit",
+      "yellow": "Braucht Aufmerksamkeit",
+      "red": "Nicht wiederherstellbar",
+      "unverified": "Noch nicht geprüft",
+      "noBackup": "Noch keine Sicherung"
+    },
+    "unverified": {
+      "title": "{count, plural, one {# Sicherung noch nicht geprüft} other {# Sicherungen noch nicht geprüft}}",
+      "description": "Die neueste Sicherung dieser Objekte wurde noch von keiner Wiederherstellungsprüfung zurückgelesen. Eine Sicherung zählt erst, wenn eine Wiederherstellung sie bestätigt hat.",
+      "action": "Jetzt prüfen"
+    },
+    "noBackup": {
+      "title": "{count, plural, one {# Objekt ohne Sicherung} other {# Objekte ohne Sicherung}}",
+      "description": "Für diese Objekte kann nichts wiederhergestellt werden, bis ihre erste Sicherung abgeschlossen ist."
+    },
+    "overdue": "{count, plural, one {# Bewertung überfällig} other {# Bewertungen überfällig}}",
+    "running": "{count, plural, one {# Prüfung läuft} other {# Prüfungen laufen}}",
+    "empty": {
+      "title": "Noch nichts zu bewerten",
+      "description": "Die Wiederherstellbarkeit erscheint, sobald Objekte geschützt und gesichert sind.",
+      "action": "Objekte schützen"
+    }
+  },
+  "lastBackup": {
+    "title": "Letzte erfolgreiche Sicherung",
+    "description": "Der neueste Lauf je Datentyp, der ohne fehlgeschlagene Elemente endete.",
+    "never": "Noch keine erfolgreiche Sicherung",
+    "stale": "Älter als 2 Tage",
+    "types": {
+      "mail": "Exchange-Postfächer",
+      "onedrive": "OneDrive",
+      "imap": "IMAP-Postfächer",
+      "archive": "Archiv"
+    },
+    "empty": {
+      "title": "Noch keine Sicherungen",
+      "description": "Noch ist nichts geschützt, daher gibt es keine Sicherung zu melden.",
+      "action": "Quelle verbinden"
+    }
+  },
+  "protectedObjects": {
+    "title": "Geschützte Objekte",
+    "healthy": "Keine Fehler in den letzten Läufen",
+    "failed": "{count, plural, one {# fehlgeschlagen} other {# fehlgeschlagen}}",
+    "withItemFailures": "{count, plural, one {# mit fehlgeschlagenen Elementen} other {# mit fehlgeschlagenen Elementen}}",
+    "running": "{count, plural, one {# Sicherung läuft} other {# Sicherungen laufen}}",
+    "link": "Geschützte Objekte öffnen",
+    "empty": {
+      "title": "Noch nichts geschützt",
+      "description": "Postfächer, OneDrives und IMAP-Konten erscheinen hier, sobald sie geschützt sind.",
+      "action": "Objekte schützen"
+    }
+  },
+  "storage": {
+    "title": "Gespeichert",
+    "logical": "{bytes} gesichert",
+    "saved": "{share} durch Deduplizierung gespart",
+    "link": "Speicher öffnen",
+    "target": {
+      "unverified": "Speicher noch nicht getestet",
+      "error": "Repository fehlerhaft",
+      "misconfigured": "Standardspeicher falsch eingerichtet"
+    },
+    "empty": {
+      "title": "Noch nichts gespeichert",
+      "description": "Der Chunk-Speicher füllt sich mit der ersten Sicherung."
+    }
+  },
+  "mailboxUsage": {
+    "title": "Geschützte Postfächer",
+    "tenantTitle": "Postfächer in diesem Mandanten",
+    "link": "Nutzung je Mandant",
+    "empty": {
+      "title": "Noch kein Postfach geschützt",
+      "description": "Postfächer werden hier gezählt, sobald sie unter Schutz stehen."
+    },
+    "cap": "Für diesen Mandanten vereinbarte Obergrenze: {cap}"
+  },
+  "endpoints": {
+    "title": "Server und Clients",
+    "description": "Vom Agenten gesicherte Rechner und ob ihre Sicherungen nachweislich wiederherstellbar sind.",
+    "summary": "{count, plural, one {# Rechner geschützt} other {# Rechner geschützt}} ({servers, plural, one {# Server} other {# Server}}, {clients, plural, one {# Client} other {# Clients}}).",
+    "lastBackup": "Letzte Sicherung",
+    "neverBacked": "Noch keine erfolgreiche Sicherung",
+    "allGood": "Jeder Rechner ist nachweislich wiederherstellbar und seine letzte Sicherung war erfolgreich.",
+    "findings": {
+      "notReady": "{count, plural, one {# Rechner nicht nachweislich wiederherstellbar} other {# Rechner nicht nachweislich wiederherstellbar}}",
+      "failedLastBackup": "{count, plural, one {# Rechner: letzte Sicherung fehlgeschlagen} other {# Rechner: letzte Sicherung fehlgeschlagen}}",
+      "attention": "{count, plural, one {# Rechner braucht Aufmerksamkeit} other {# Rechner brauchen Aufmerksamkeit}}"
+    }
+  },
+  "backupSuccess": {
+    "title": "Sicherungserfolg ({days} Tage)",
+    "points": "{points} Pkt.",
+    "period": "ggü. den {days} Tagen davor",
+    "hint": "{succeeded} von {runs} Läufen ohne fehlgeschlagene Elemente",
+    "empty": {
+      "title": "Keine Sicherungsläufe",
+      "description": "In den letzten {days} Tagen wurde keine Sicherung beendet."
+    }
+  },
+  "backupTrend": {
+    "title": "Sicherungsläufe",
+    "description": "Beendete Sicherungsläufe pro Tag in den letzten {days} Tagen.",
+    "window": "Zeitraum",
+    "days": "{days} Tage",
+    "summary": "{succeeded} von {runs} Sicherungsläufen der letzten {days} Tage endeten ohne fehlgeschlagene Elemente.",
+    "series": {
+      "succeeded": "Erfolgreich",
+      "withItemFailures": "Mit fehlgeschlagenen Elementen",
+      "failed": "Fehlgeschlagen"
+    },
+    "empty": {
+      "title": "Keine Sicherungsläufe",
+      "description": "In den letzten {days} Tagen wurde keine Sicherung beendet.",
+      "action": "Sicherung starten"
+    }
+  },
+  "verificationHistory": {
+    "title": "Wiederherstellungsprüfungen",
+    "description": "Wiederherstellungsprüfungen pro Tag und ihre Bewertung in den letzten {days} Tagen.",
+    "summary": "{checks} Wiederherstellungsprüfungen in den letzten {days} Tagen.",
+    "lastCheck": "Letzte Prüfung",
+    "never": "Es lief noch keine Wiederherstellungsprüfung.",
+    "series": {
+      "green": "Bereit",
+      "yellow": "Braucht Aufmerksamkeit",
+      "red": "Nicht wiederherstellbar"
+    },
+    "empty": {
+      "title": "Noch keine Wiederherstellungsprüfungen",
+      "description": "Eine Wiederherstellungsprüfung liest Sicherungen zurück und belegt, dass sie wiederherstellbar sind.",
+      "action": "Jetzt prüfen"
+    }
+  },
+  "storageGrowth": {
+    "title": "Speicherwachstum",
+    "description": "Gespeicherte Daten der letzten {days} Tage, nach dem Tag, an dem sie geschrieben wurden.",
+    "summary": "{stored} gespeichert, {growth} im Zeitraum geschrieben.",
+    "growth": "{growth} in den letzten {days} Tagen geschrieben",
+    "estimate": "Schätzung: etwa {bytes} in {days} Tagen, wenn der Trend anhält (Gerade durch die letzten {basisDays} Tage).",
+    "noEstimate": "Keine Schätzung: Es gibt noch nicht genug Verlauf.",
+    "series": {
+      "stored": "Gespeichert",
+      "forecast": "Schätzung"
+    },
+    "empty": {
+      "title": "Noch nichts gespeichert",
+      "description": "Das Wachstum erscheint, sobald Sicherungen Daten schreiben."
+    }
+  },
+  "retention": {
+    "title": "Aufbewahrung der Sicherungsstände",
+    "description": "Wie lange Sicherungen aufbewahrt werden.",
+    "keepAll": "Alles wird aufbewahrt: Es gibt noch keine Aufbewahrungsrichtlinie, daher wird keine Sicherung gelöscht.",
+    "keepByAge": "Jeder Sicherungsstand wird aufbewahrt; die Richtlinie setzt keine Altersgrenze.",
+    "prunes": "Sicherungsstände, die älter als {days} Tage sind, werden gelöscht; {keepLast, plural, one {der neueste Stand} other {die neuesten # Stände}} jedes Objekts bleiben immer erhalten.",
+    "policy": "Richtlinie: {name}",
+    "noPolicy": "Keine Richtlinie",
+    "holds": "{count, plural, one {# Legal Hold hält das Löschen an} other {# Legal Holds halten das Löschen an}}",
+    "scoped": "{count, plural, one {# weitere Richtlinie gilt für einzelne Objekte.} other {# weitere Richtlinien gelten für einzelne Objekte.}}",
+    "kept": "Aufbewahrte Stände",
+    "pruned": "Gelöschte Stände",
+    "oldest": "Ältester aufbewahrter Stand",
+    "none": "Keiner",
+    "lastRun": "Letzter Aufbewahrungslauf",
+    "runFailed": "Fehlgeschlagen",
+    "notRun": "Noch nicht gelaufen",
+    "empty": {
+      "title": "Noch keine Sicherungsstände",
+      "withPolicy": "Die Aufbewahrungsrichtlinie greift, sobald Sicherungen existieren."
+    }
+  },
+  "recentJobs": {
+    "title": "Letzte Läufe",
+    "description": "Die neuesten Sicherungen, Wiederherstellungen und Prüfungen.",
+    "all": "Verlauf",
+    "wholeTenant": "Ganzer Mandant",
+    "notStarted": "Noch nicht gestartet",
+    "resumes": "Weiter",
+    "progress": "{done} von {total}",
+    "failedItems": "{count, plural, one {# Element fehlgeschlagen} other {# Elemente fehlgeschlagen}}",
+    "columns": {
+      "queue": "Art",
+      "object": "Objekt",
+      "status": "Status",
+      "started": "Gestartet",
+      "progress": "Fortschritt"
+    },
+    "queue": {
+      "backup": "Sicherung",
+      "restore": "Wiederherstellung",
+      "verify": "Wiederherstellungsprüfung",
+      "archive": "Archiv",
+      "directory": "Verzeichnisabgleich",
+      "retention": "Aufbewahrung",
+      "scrub": "Speicherprüfung",
+      "storage_migration": "Speichermigration"
+    },
+    "kinds": {
+      "mailbox": "Postfach",
+      "onedrive": "OneDrive",
+      "imap": "IMAP-Konto"
+    },
+    "status": {
+      "queued": "Wartend",
+      "active": "Läuft",
+      "throttled": "Wartet auf Microsoft",
+      "completed": "Abgeschlossen",
+      "completedWithFailures": "Abgeschlossen mit Fehlern",
+      "failed": "Fehlgeschlagen",
+      "cancelled": "Abgebrochen"
+    },
+    "empty": {
+      "title": "Noch keine Läufe",
+      "description": "Sicherungen, Wiederherstellungen und Prüfungen erscheinen hier, sobald sie laufen.",
+      "action": "Sicherung starten"
+    }
+  },
+  "provider": {
+    "loading": "Die Provider-Ansicht wird geladen …",
+    "error": {
+      "title": "Die Provider-Ansicht konnte nicht geladen werden"
+    },
+    "empty": {
+      "title": "Noch keine Mandanten",
+      "description": "Legen Sie den ersten Mandanten an und verbinden Sie dann Microsoft 365 oder IMAP als seine Quelle.",
+      "action": "Zu den Mandanten"
+    },
+    "kpis": {
+      "tenants": "Mandanten",
+      "tenantsHint": "{count, plural, =0 {Keiner gesperrt} one {# gesperrt} other {# gesperrt}}",
+      "notReady": "Nicht bereite Mandanten",
+      "notReadyHint": "Etwas ist nicht wiederherstellbar oder noch nicht bestätigt.",
+      "unverified": "Ungeprüfte Sicherungen",
+      "unverifiedHint": "Neueste Sicherungen, die noch keine Wiederherstellungsprüfung zurückgelesen hat.",
+      "failures": "Fehlgeschlagene Aufträge (24 h)",
+      "failuresHint": "Aufträge jeder Art, die in den letzten 24 Stunden fehlgeschlagen sind.",
+      "failuresPeriod": "ggü. den 24 Stunden davor",
+      "mailboxes": "Geschützte Postfächer",
+      "stored": "Gespeichert",
+      "storedHint": "Nach Deduplizierung, über alle Mandanten.",
+      "incomplete": "{count, plural, one {Ohne # Mandanten, dessen Zahlen nicht gelesen werden konnten.} other {Ohne # Mandanten, deren Zahlen nicht gelesen werden konnten.}}"
+    },
+    "matrix": {
+      "title": "Zustand der Mandanten",
+      "description": "Alle Mandanten, die mit Handlungsbedarf zuerst.",
+      "search": "Mandanten suchen …",
+      "suspended": "Gesperrt",
+      "unavailable": "Nicht verfügbar",
+      "unverifiedCount": "{count, plural, one {# ungeprüft} other {# ungeprüft}}",
+      "ofCap": "{used} von {cap}",
+      "columns": {
+        "tenant": "Mandant",
+        "readiness": "Wiederherstellbarkeit",
+        "unverified": "Ungeprüft",
+        "failures": "Fehlgeschlagen (24 h)",
+        "lastBackup": "Letzte Sicherung",
+        "mailboxes": "Postfächer",
+        "stored": "Gespeichert"
+      },
+      "actions": {
+        "open": "Übersicht öffnen",
+        "details": "Mandantendetails"
+      },
+      "filteredEmpty": {
+        "title": "Kein Mandant passt",
+        "description": "Ändern Sie die Suche oder den Filter, um weitere Mandanten zu sehen."
+      }
+    },
+    "alerts": {
+      "title": "Hinweise über alle Mandanten",
+      "description": "Was jetzt Aufmerksamkeit braucht, das Dringendste zuerst.",
+      "open": "Mandant öffnen",
+      "showAll": "Alle {count} anzeigen",
+      "showFewer": "Weniger anzeigen",
+      "severity": {
+        "destructive": "Kritisch",
+        "warning": "Warnung"
+      },
+      "kinds": {
+        "unavailable": "Die Zahlen des Mandanten konnten nicht gelesen werden.",
+        "storage_error": "Das Repository besteht seine Prüfung nicht.",
+        "not_restorable": "{count, plural, one {# Objekt ist nicht wiederherstellbar.} other {# Objekte sind nicht wiederherstellbar.}}",
+        "failed_jobs": "{count, plural, one {# Auftrag ist in den letzten 24 Stunden fehlgeschlagen.} other {# Aufträge sind in den letzten 24 Stunden fehlgeschlagen.}}",
+        "over_cap": "{count, plural, one {# Postfach über der für diesen Mandanten vereinbarten Obergrenze.} other {# Postfächer über der für diesen Mandanten vereinbarten Obergrenze.}}",
+        "unverified": "{count, plural, one {# Sicherung noch nicht geprüft.} other {# Sicherungen noch nicht geprüft.}}",
+        "no_backup": "{count, plural, one {# Objekt ohne Sicherung.} other {# Objekte ohne Sicherung.}}",
+        "stale_backup": "Seit mehr als 2 Tagen keine erfolgreiche Sicherung. Letzte:"
+      },
+      "empty": {
+        "title": "Keine Hinweise",
+        "description": "Jeder Mandant ist gesichert und geprüft, und keiner liegt über seiner vereinbarten Obergrenze."
+      }
+    }
+  },
+  "views": {
+    "label": "Ansichten der Übersicht",
+    "status": "Status",
+    "statistics": "Statistik"
+  }
+}

@@ -1,0 +1,420 @@
+{
+  "nav": "Overview",
+  "title": "Overview",
+  "subtitle": "The state of your backups, recoverability and storage at a glance.",
+  "providerScope": "Showing all tenants",
+  "tenantScope": "Showing {tenant}",
+  "suspended": "Suspended",
+  "updated": "Updated",
+  "noTenant": {
+    "title": "No tenant selected",
+    "description": "Select a tenant in the top bar to see its backups, recoverability and storage.",
+    "firstTenant": "There is no tenant yet. Create the first one, then connect Microsoft 365 or IMAP as a source.",
+    "openTenants": "Go to tenants"
+  },
+  "error": {
+    "title": "Overview unavailable"
+  },
+  "stale": {
+    "title": "The overview could not be refreshed",
+    "description": "The figures below are from the last successful update,",
+    "retry": "Try again"
+  },
+  "tabs": {
+    "label": "View",
+    "provider": "Provider",
+    "tenant": "Tenant"
+  },
+  "actions": {
+    "details": "Details"
+  },
+  "widget": {
+    "loading": "Loading {title} …",
+    "error": {
+      "title": "This part could not be loaded",
+      "description": "The server could not read these figures just now. The rest of the overview is current."
+    }
+  },
+  "setup": {
+    "title": "Set up {appName}",
+    "description": "The steps from a new tenant to backups that are proven restorable.",
+    "progress": "{done} of {total} steps done",
+    "byProvider": "Done by your provider",
+    "byAdmin": "Done by an administrator",
+    "doneSteps": "Steps done",
+    "state": {
+      "done": "done",
+      "open": "open",
+      "attention": "needs attention"
+    },
+    "complete": {
+      "title": "Setup complete",
+      "description": "All {total} steps are done.",
+      "show": "Show steps",
+      "hide": "Hide steps"
+    },
+    "items": {
+      "storage": {
+        "label": "Repository healthy",
+        "hint": "Backups need a repository that answers.",
+        "action": "Open storage"
+      },
+      "source": {
+        "label": "Source connected",
+        "hint": "Connect Microsoft 365 or an IMAP server.",
+        "action": "Connect a source"
+      },
+      "objects": {
+        "label": "Objects protected",
+        "hint": "Choose the mailboxes, OneDrives and IMAP accounts to protect.",
+        "action": "Protect objects"
+      },
+      "schedules": {
+        "label": "Schedules active",
+        "hint": "Backups run on their own only with an active schedule.",
+        "action": "Open schedules"
+      },
+      "firstBackup": {
+        "label": "First backup done",
+        "hint": "Run the first backup once objects are protected.",
+        "action": "Start a backup"
+      },
+      "firstVerification": {
+        "label": "First restore check green",
+        "hint": "A backup only counts once a restore check proved it.",
+        "action": "Check now"
+      },
+      "notificationMail": {
+        "label": "Notification mail tested",
+        "hint": "Failures and warnings are sent by mail.",
+        "action": "Open settings"
+      }
+    },
+    "reasons": {
+      "target_error": "The last probe of the repository failed.",
+      "target_unverified": "The repository has not been tested yet.",
+      "default_untested": "The server's default storage is used; it has not been tested or written to yet.",
+      "default_misconfigured": "The server's default storage is not configured correctly.",
+      "source_error": "A source reports an error.",
+      "consent_pending": "A source is waiting for the administrator's consent.",
+      "no_backup_schedule": "No backup schedule is active.",
+      "not_green": "Restore checks ran, but none rated green yet.",
+      "not_configured": "No mail transport is configured.",
+      "not_tested": "The mail transport has not been tested yet.",
+      "test_failed": "The last test mail could not be sent."
+    }
+  },
+  "readiness": {
+    "title": "Recovery readiness",
+    "description": "Whether the backups have been proven restorable by a restore check.",
+    "lastCheck": "Last check",
+    "neverChecked": "No restore check yet",
+    "overall": {
+      "green": "Ready",
+      "yellow": "Needs attention",
+      "red": "Not ready",
+      "none": "Nothing to rate"
+    },
+    "segments": {
+      "green": "Ready",
+      "yellow": "Needs attention",
+      "red": "Cannot be restored",
+      "unverified": "Not verified yet",
+      "noBackup": "No backup yet"
+    },
+    "unverified": {
+      "title": "{count, plural, one {# backup not verified yet} other {# backups not verified yet}}",
+      "description": "The newest backup of these objects has not been read back by a restore check. A backup only counts once a restore proved it.",
+      "action": "Check now"
+    },
+    "noBackup": {
+      "title": "{count, plural, one {# object without a backup} other {# objects without a backup}}",
+      "description": "Nothing can be restored for these objects until their first backup completes."
+    },
+    "overdue": "{count, plural, one {# rating overdue} other {# ratings overdue}}",
+    "running": "{count, plural, one {# check running} other {# checks running}}",
+    "empty": {
+      "title": "Nothing to rate yet",
+      "description": "Recovery readiness appears once objects are protected and backed up.",
+      "action": "Protect objects"
+    }
+  },
+  "lastBackup": {
+    "title": "Last successful backup",
+    "description": "The newest run per data type that finished without failed items.",
+    "never": "No successful backup yet",
+    "stale": "Older than 2 days",
+    "types": {
+      "mail": "Exchange mailboxes",
+      "onedrive": "OneDrive",
+      "imap": "IMAP mailboxes",
+      "archive": "Archive"
+    },
+    "empty": {
+      "title": "No backups yet",
+      "description": "Nothing is protected yet, so there is no backup to report.",
+      "action": "Connect a source"
+    }
+  },
+  "protectedObjects": {
+    "title": "Protected objects",
+    "healthy": "No failures in the latest runs",
+    "failed": "{count, plural, one {# failed} other {# failed}}",
+    "withItemFailures": "{count, plural, one {# with failed items} other {# with failed items}}",
+    "running": "{count, plural, one {# backup running} other {# backups running}}",
+    "link": "Open protected objects",
+    "empty": {
+      "title": "Nothing protected yet",
+      "description": "Mailboxes, OneDrives and IMAP accounts appear here once they are protected.",
+      "action": "Protect objects"
+    }
+  },
+  "storage": {
+    "title": "Stored",
+    "logical": "{bytes} backed up",
+    "saved": "{share} saved by deduplication",
+    "link": "Open storage",
+    "target": {
+      "unverified": "Storage not tested yet",
+      "error": "Repository failing",
+      "misconfigured": "Default storage misconfigured"
+    },
+    "empty": {
+      "title": "Nothing stored yet",
+      "description": "The chunk store fills with the first backup."
+    }
+  },
+  "mailboxUsage": {
+    "title": "Protected mailboxes",
+    "tenantTitle": "Mailboxes in this tenant",
+    "link": "Usage per tenant",
+    "empty": {
+      "title": "No mailbox protected yet",
+      "description": "Mailboxes are counted here as soon as they are under protection."
+    },
+    "cap": "Cap agreed for this tenant: {cap}"
+  },
+  "endpoints": {
+    "title": "Servers and clients",
+    "description": "Machines backed up by the agent, and whether their backups are proven restorable.",
+    "summary": "{count, plural, one {# machine protected} other {# machines protected}} ({servers, plural, one {# server} other {# servers}}, {clients, plural, one {# client} other {# clients}}).",
+    "lastBackup": "Last backup",
+    "neverBacked": "No successful backup yet",
+    "allGood": "Every machine is proven restorable and its last backup succeeded.",
+    "findings": {
+      "notReady": "{count, plural, one {# machine not proven restorable} other {# machines not proven restorable}}",
+      "failedLastBackup": "{count, plural, one {# machine: the last backup failed} other {# machines: the last backup failed}}",
+      "attention": "{count, plural, one {# machine needs attention} other {# machines need attention}}"
+    }
+  },
+  "backupSuccess": {
+    "title": "Backup success ({days} days)",
+    "points": "{points} pts",
+    "period": "vs. the {days} days before",
+    "hint": "{succeeded} of {runs} runs without failed items",
+    "empty": {
+      "title": "No backup runs",
+      "description": "No backup finished in the last {days} days."
+    }
+  },
+  "backupTrend": {
+    "title": "Backup runs",
+    "description": "Finished backup runs per day over the last {days} days.",
+    "window": "Period",
+    "days": "{days} days",
+    "summary": "{succeeded} of {runs} backup runs in the last {days} days finished without failed items.",
+    "series": {
+      "succeeded": "Successful",
+      "withItemFailures": "With failed items",
+      "failed": "Failed"
+    },
+    "empty": {
+      "title": "No backup runs",
+      "description": "No backup finished in the last {days} days.",
+      "action": "Start a backup"
+    }
+  },
+  "verificationHistory": {
+    "title": "Restore checks",
+    "description": "Restore checks per day and their rating over the last {days} days.",
+    "summary": "{checks} restore checks in the last {days} days.",
+    "lastCheck": "Last check",
+    "never": "No restore check has run yet.",
+    "series": {
+      "green": "Ready",
+      "yellow": "Needs attention",
+      "red": "Cannot be restored"
+    },
+    "empty": {
+      "title": "No restore checks yet",
+      "description": "A restore check reads backups back to prove they can be restored.",
+      "action": "Check now"
+    }
+  },
+  "storageGrowth": {
+    "title": "Storage growth",
+    "description": "Stored data over the last {days} days, by the day it was written.",
+    "summary": "{stored} stored, {growth} written in the period.",
+    "growth": "{growth} written in the last {days} days",
+    "estimate": "Estimate: about {bytes} in {days} days if the trend continues (straight line through the last {basisDays} days).",
+    "noEstimate": "No estimate: there is not enough history yet.",
+    "series": {
+      "stored": "Stored",
+      "forecast": "Estimate"
+    },
+    "empty": {
+      "title": "Nothing stored yet",
+      "description": "The growth appears once backups write data."
+    }
+  },
+  "retention": {
+    "title": "Snapshot retention",
+    "description": "How long backups are kept.",
+    "keepAll": "Everything is kept: there is no retention policy yet, so no backup is ever pruned.",
+    "keepByAge": "Every snapshot is kept; the policy sets no age limit.",
+    "prunes": "Snapshots older than {days} days are pruned; the newest {keepLast, plural, one {snapshot} other {# snapshots}} of each object are always kept.",
+    "policy": "Policy: {name}",
+    "noPolicy": "No policy",
+    "holds": "{count, plural, one {# legal hold pauses pruning} other {# legal holds pause pruning}}",
+    "scoped": "{count, plural, one {# more policy applies to single objects.} other {# more policies apply to single objects.}}",
+    "kept": "Snapshots kept",
+    "pruned": "Snapshots pruned",
+    "oldest": "Oldest kept",
+    "none": "None",
+    "lastRun": "Last retention run",
+    "runFailed": "Failed",
+    "notRun": "Not run yet",
+    "empty": {
+      "title": "No snapshots yet",
+      "withPolicy": "The retention policy applies once backups exist."
+    }
+  },
+  "recentJobs": {
+    "title": "Recent runs",
+    "description": "The latest backup, restore and check runs.",
+    "all": "History",
+    "wholeTenant": "Whole tenant",
+    "notStarted": "Not started yet",
+    "resumes": "Resumes",
+    "progress": "{done} of {total}",
+    "failedItems": "{count, plural, one {# item failed} other {# items failed}}",
+    "columns": {
+      "queue": "Type",
+      "object": "Object",
+      "status": "Status",
+      "started": "Started",
+      "progress": "Progress"
+    },
+    "queue": {
+      "backup": "Backup",
+      "restore": "Restore",
+      "verify": "Restore check",
+      "archive": "Archive",
+      "directory": "Directory sync",
+      "retention": "Retention",
+      "scrub": "Storage scrub",
+      "storage_migration": "Storage migration"
+    },
+    "kinds": {
+      "mailbox": "Mailbox",
+      "onedrive": "OneDrive",
+      "imap": "IMAP account"
+    },
+    "status": {
+      "queued": "Queued",
+      "active": "Running",
+      "throttled": "Waiting for Microsoft",
+      "completed": "Completed",
+      "completedWithFailures": "Completed with failures",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    },
+    "empty": {
+      "title": "No runs yet",
+      "description": "Backups, restores and checks appear here once they run.",
+      "action": "Start a backup"
+    }
+  },
+  "provider": {
+    "loading": "Loading the provider view …",
+    "error": {
+      "title": "The provider view could not be loaded"
+    },
+    "empty": {
+      "title": "No tenants yet",
+      "description": "Create the first tenant, then connect Microsoft 365 or IMAP as its source.",
+      "action": "Go to tenants"
+    },
+    "kpis": {
+      "tenants": "Tenants",
+      "tenantsHint": "{count, plural, =0 {None suspended} one {# suspended} other {# suspended}}",
+      "notReady": "Tenants not ready",
+      "notReadyHint": "Something cannot be restored or is not proven yet.",
+      "unverified": "Unverified backups",
+      "unverifiedHint": "Newest backups not yet read back by a restore check.",
+      "failures": "Failed jobs (24 h)",
+      "failuresHint": "Jobs of any kind that failed in the last 24 hours.",
+      "failuresPeriod": "vs. the 24 hours before",
+      "mailboxes": "Protected mailboxes",
+      "stored": "Stored",
+      "storedHint": "After deduplication, across all tenants.",
+      "incomplete": "{count, plural, one {Without # tenant whose figures could not be read.} other {Without # tenants whose figures could not be read.}}"
+    },
+    "matrix": {
+      "title": "Tenant health",
+      "description": "Every tenant, the ones that need attention first.",
+      "search": "Search tenants …",
+      "suspended": "Suspended",
+      "unavailable": "Not available",
+      "unverifiedCount": "{count, plural, one {# unverified} other {# unverified}}",
+      "ofCap": "{used} of {cap}",
+      "columns": {
+        "tenant": "Tenant",
+        "readiness": "Readiness",
+        "unverified": "Unverified",
+        "failures": "Failed (24 h)",
+        "lastBackup": "Last backup",
+        "mailboxes": "Mailboxes",
+        "stored": "Stored"
+      },
+      "actions": {
+        "open": "Open overview",
+        "details": "Tenant details"
+      },
+      "filteredEmpty": {
+        "title": "No tenant matches",
+        "description": "Change the search or the filter to see more tenants."
+      }
+    },
+    "alerts": {
+      "title": "Alerts across tenants",
+      "description": "What needs attention now, the most severe first.",
+      "open": "Open tenant",
+      "showAll": "Show all {count}",
+      "showFewer": "Show fewer",
+      "severity": {
+        "destructive": "Critical",
+        "warning": "Warning"
+      },
+      "kinds": {
+        "unavailable": "The tenant's figures could not be read.",
+        "storage_error": "The repository fails its probe.",
+        "not_restorable": "{count, plural, one {# object cannot be restored.} other {# objects cannot be restored.}}",
+        "failed_jobs": "{count, plural, one {# job failed in the last 24 hours.} other {# jobs failed in the last 24 hours.}}",
+        "over_cap": "{count, plural, one {# mailbox above the cap agreed for this tenant.} other {# mailboxes above the cap agreed for this tenant.}}",
+        "unverified": "{count, plural, one {# backup not verified yet.} other {# backups not verified yet.}}",
+        "no_backup": "{count, plural, one {# object without a backup.} other {# objects without a backup.}}",
+        "stale_backup": "No successful backup for more than 2 days. Last one:"
+      },
+      "empty": {
+        "title": "No alerts",
+        "description": "Every tenant is backed up and verified, and none is above its agreed cap."
+      }
+    }
+  },
+  "views": {
+    "label": "Overview views",
+    "status": "Status",
+    "statistics": "Statistics"
+  }
+}

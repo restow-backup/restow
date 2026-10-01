@@ -1,0 +1,337 @@
+{
+  "nav": "Recovery readiness",
+  "title": "Recovery readiness",
+  "tenantScope": "Can every backup of {tenant} be restored today?",
+  "subtitle": "Random mails, files, calendar items and contacts are read back from each latest backup through the restore path and compared byte by byte with their checksums. Only a proven restore counts: a backup no check has read back yet, even one taken after a successful check, is shown as not proven.",
+  "state": {
+    "green": "Ready",
+    "yellow": "Attention",
+    "red": "Not restorable",
+    "unverified": "Not verified",
+    "no_backup": "No backup yet",
+    "waitingForFirstBackup": "Waiting for first backup"
+  },
+  "kind": {
+    "mailbox": "Mailbox",
+    "onedrive": "OneDrive",
+    "imap": "IMAP mailbox"
+  },
+  "checkKind": {
+    "verify": "Sample check",
+    "health_check": "Full check",
+    "scrub": "Storage check finding"
+  },
+  "category": {
+    "mail": "Mails",
+    "file": "Files",
+    "event": "Calendar items",
+    "contact": "Contacts"
+  },
+  "actions": {
+    "checkAll": "Check all now",
+    "checkNow": "Check now",
+    "viewReport": "Report",
+    "viewReportFor": "Open the latest report for {name}",
+    "scrubSample": "Check a sample",
+    "scrubFull": "Check all packs",
+    "openJob": "Open job",
+    "openScrubJob": "Open storage check job",
+    "back": "Back to recovery readiness",
+    "verifyNow": "Verify now",
+    "verifyNowFor": "Verify now: the latest backup of {name}",
+    "viewPreviousReportFor": "Report of the previous backup's check for {name}"
+  },
+  "overall": {
+    "green": {
+      "title": "Every backup is restorable",
+      "description": "{total, plural, one {The protected object} other {All # protected objects}} passed the latest restore check."
+    },
+    "yellow": {
+      "title": "Restorable, but something needs attention",
+      "description": "{count, plural, one {# object needs} other {# objects need}} attention: a warning in the latest check, or a check that is overdue."
+    },
+    "red": {
+      "title": "Not every backup is proven restorable",
+      "description": "{count, plural, one {# object cannot be restored completely, or its latest backup is} other {# objects cannot be restored completely, or their latest backups are}} not proven restorable yet. A backup without a verified restore counts as failed."
+    },
+    "empty": {
+      "title": "Nothing protected yet",
+      "description": "Once mailboxes, drives, IMAP accounts or machines are protected and backed up, their restore checks appear here."
+    }
+  },
+  "unverified": {
+    "title": "{count, plural, one {The latest backup of # object is not verified yet} other {The latest backups of # objects are not verified yet}}",
+    "description": "{count, plural, one {This backup was taken after the last restore check. Until a check reads it back, it counts as not proven, whatever an earlier backup scored.} other {These backups were taken after the last restore check. Until a check reads them back, they count as not proven, whatever an earlier backup scored.}}",
+    "running": "{count, plural, one {# check is already queued or running.} other {# checks are already queued or running.}}"
+  },
+  "summary": {
+    "ready": "Ready",
+    "readyHint": "Latest restore check passed",
+    "attention": "Attention",
+    "attentionHint": "{overdue, plural, =0 {Warnings in the latest check} one {Warnings, and # overdue check} other {Warnings, and # overdue checks}}",
+    "failed": "Not restorable",
+    "failedHint": "Latest restore check failed",
+    "unproven": "Not proven",
+    "unprovenHint": "Latest backup not verified: {unverified} · No backup yet: {noBackup}"
+  },
+  "table": {
+    "title": "Protected objects",
+    "description": "The latest rating per mailbox, drive, IMAP account and machine, worst first.",
+    "filter": {
+      "all": "All ({count})",
+      "attention": "Needs attention ({count})",
+      "waiting": "Waiting for first backup ({count})"
+    },
+    "columns": {
+      "object": "Object",
+      "readiness": "Readiness",
+      "lastCheck": "Last check",
+      "result": "Result",
+      "backup": "Latest backup",
+      "actions": "Actions"
+    },
+    "result": {
+      "verified": "{verified} of {checked} items restored byte-exact",
+      "storage": "Damaged storage found by the storage check",
+      "unverified": "A backup exists but was never verified.",
+      "noBackup": "Nothing to verify until the first backup completes.",
+      "noBackupNextRun": "Nothing to verify yet; the next backup is due {time}.",
+      "noBackupOverdue": "No backup within 24 hours of protection starting.",
+      "latestUnverified": "Latest backup not verified yet.",
+      "previousCheck": "Previous backup: {state}, checked"
+    },
+    "running": {
+      "queued": "Check queued",
+      "active": "Check running"
+    },
+    "orphaned": "Removed from source",
+    "overdue": "Overdue",
+    "never": "Never",
+    "noBackup": "No backup yet",
+    "empty": "No protected objects yet.",
+    "emptyAttention": "No object needs attention.",
+    "emptyWaiting": "No object is waiting for its first backup.",
+    "technicalId": "Technical id: {id}"
+  },
+  "snapshot": {
+    "column": "Verification",
+    "state": {
+      "green": "Verified",
+      "yellow": "Verified with warnings",
+      "red": "Check failed",
+      "unverified": "Not verified yet"
+    },
+    "hint": {
+      "checked": "Restore check of this backup: {date}",
+      "unverified": "No restore check has read this backup back yet, so it is not proven restorable."
+    }
+  },
+  "reason": {
+    "no_snapshot": "No completed backup exists.",
+    "manifest_unreadable": "The index of the latest backup cannot be read.",
+    "items_missing": "{count, plural, one {# item refers} other {# items refer}} to data that is missing from the chunk index or from the storage.",
+    "items_unreadable": "{count, plural, one {# item is} other {# items are}} damaged in the storage: the data does not open or decrypt.",
+    "items_mismatched": "{count, plural, one {# item} other {# items}} came back different from what was backed up.",
+    "storage_corrupt": "{count, plural, one {# storage pack holding this data is} other {# storage packs holding this data are}} damaged.",
+    "test_restore_failed": "{count, plural, one {# item} other {# items}} could not be restored into the test target.",
+    "snapshot_outdated": "The latest backup is {days, plural, one {# day} other {# days}} old; newer data could not be restored.",
+    "snapshot_stale": "The latest backup is {hours, plural, one {# hour} other {# hours}} old.",
+    "nothing_to_verify": "The latest backup contains nothing that could be verified.",
+    "test_restore_unconfirmed": "The test target did not confirm {count, plural, one {# restored item} other {# restored items}}.",
+    "unknown": "Finding \"{code}\" was reported by a newer version and cannot be described here."
+  },
+  "storage": {
+    "title": "Storage integrity",
+    "description": "Every pack file is read from each storage target and checked against its recorded SHA-256: a sample every week, all packs every month. Damage is repaired from an intact copy where one exists.",
+    "state": {
+      "ok": "Intact",
+      "repaired": "Repaired",
+      "corrupt": "Damaged",
+      "never": "Not checked yet"
+    },
+    "mode": {
+      "sample": "sample",
+      "full": "all packs"
+    },
+    "running": {
+      "queued": "Storage check queued ({mode})",
+      "active": "Storage check running ({mode})"
+    },
+    "lastCheck": "Last check",
+    "lastCheckValue": "{when} ({mode})",
+    "unknownDate": "date unknown",
+    "lastFull": "Last full check",
+    "noFull": "No full check yet",
+    "coverage": "Coverage",
+    "packs": "{checked} of {total} packs checked, {bytes} read",
+    "never": "No storage check has run yet.",
+    "corruptTitle": "{count, plural, one {# pack is damaged} other {# packs are damaged}}",
+    "corrupt": "No intact copy exists on any storage target, so the damage could not be repaired. Every object whose data sits in these packs is rated not restorable.",
+    "corruptHeal": "A full backup of the affected objects writes the damaged content again from the source, as far as the source still holds it. Backups no longer reuse data from these packs. Once no backup needs a damaged pack any more, the next storage check retires it.",
+    "retired": "{count, plural, one {# damaged pack is} other {# damaged packs are}} no longer needed: later backups wrote their content again. {count, plural, one {It was} other {They were}} removed from the index and {count, plural, one {its file is} other {their files are}} deleted by a storage check one day later at the earliest.",
+    "repairedTitle": "{count, plural, one {# pack was repaired} other {# packs were repaired}}",
+    "repaired": "A storage target held a damaged or missing copy; it was rewritten from an intact copy and read back to confirm.",
+    "target": {
+      "primary": "Primary storage",
+      "copy": "Copy {index}"
+    },
+    "targetStatus": {
+      "ok": "intact",
+      "missing": "missing",
+      "unreadable": "unreadable",
+      "size_mismatch": "wrong size",
+      "hash_mismatch": "checksum differs",
+      "malformed": "not a valid pack file",
+      "foreign_tenant": "belongs to another tenant",
+      "index_mismatch": "contents differ from the chunk index",
+      "other": "failed"
+    },
+    "targetFailed": "{target}: {status}",
+    "targetRepaired": "{target}: {status}, repaired",
+    "morePacks": "{count, plural, one {and # more pack} other {and # more packs}}",
+    "gc": {
+      "reclaimed": "Cleanup of data no backup needs any more reclaimed {bytes}.",
+      "clean": "Cleanup found no data that can be reclaimed.",
+      "interrupted": "Cleanup paused to make way for a running backup, restore or restore check and continues with the next full check.",
+      "skipped": {
+        "disabled": "Cleanup is disabled for this check.",
+        "partial_manifest_unreadable": "Cleanup was skipped because an unfinished backup could not be read.",
+        "backup_running": "Cleanup was postponed because a backup was running.",
+        "restore_running": "Cleanup was postponed because a restore was running.",
+        "verify_running": "Cleanup was postponed because a restore check was running.",
+        "other": "Cleanup was skipped."
+      }
+    },
+    "failed": "The last storage check failed",
+    "schedule": {
+      "next": "Next scheduled storage check {when}.",
+      "enabled": "Storage checks are scheduled.",
+      "none": "No storage check is scheduled; it runs only when started here."
+    }
+  },
+  "footer": {
+    "lastCheck": "Last restore check:",
+    "neverChecked": "No restore check has run yet.",
+    "scheduleNext": "Next scheduled restore check:",
+    "scheduleEnabled": "Restore checks are scheduled.",
+    "scheduleNone": "No restore check is scheduled; checks run only when started here or after a backup."
+  },
+  "report": {
+    "subtitle": "{kind} on {when}",
+    "findings": {
+      "title": "Findings",
+      "none": "No findings: every checked item came back byte-exact from a current backup."
+    },
+    "stats": {
+      "checked": "Items checked",
+      "verified": "Restored byte-exact",
+      "failed": "Failed",
+      "bytes": "Data read",
+      "duration": "Duration"
+    },
+    "snapshot": {
+      "title": "Checked backup",
+      "sequence": "Backup #{sequence}",
+      "completed": "Completed {when}",
+      "items": "{count, plural, one {# item} other {# items}}",
+      "none": "No completed backup was available.",
+      "completedUnknown": "Completion time unknown"
+    },
+    "sample": {
+      "title": "Sample",
+      "line": "{category}: {sampled} of {eligible}",
+      "all": "Every item of the backup was read back.",
+      "seed": "Sample seed {seed}"
+    },
+    "items": {
+      "title": "Checked items",
+      "sampleDescription": "Every item of the random sample, read back through the restore path.",
+      "allDescription": "Items that failed; every other item of the backup passed.",
+      "empty": "No items were checked.",
+      "noFailures": "No item failed.",
+      "detail": "Technical detail:",
+      "omitted": "{count, plural, one {# further item passed and is} other {# further items passed and are}} not listed.",
+      "columns": {
+        "item": "Item",
+        "type": "Type",
+        "size": "Size",
+        "result": "Result",
+        "checksum": "Checksum"
+      }
+    },
+    "itemStatus": {
+      "verified": "Byte-exact",
+      "mismatch": "Differs",
+      "missing": "Missing",
+      "unreadable": "Unreadable"
+    },
+    "hash": {
+      "matched": "SHA-256 matches",
+      "mismatched": "SHA-256 differs",
+      "not_recorded": "Chunk checksums only",
+      "not_reached": "Not reached"
+    },
+    "damagedPacks": {
+      "title": "{count, plural, one {# damaged pack in this backup} other {# damaged packs in this backup}}",
+      "description": "The latest storage check found these pack files damaged on every storage target. Items stored in them cannot be restored, even if the sample did not touch them."
+    },
+    "manifestFailure": {
+      "title": "Why the catalogue of this backup could not be read"
+    },
+    "testRestore": {
+      "title": "Test restore",
+      "description": "The verified items were also restored into {target}.",
+      "status": {
+        "confirmed": "Confirmed",
+        "unconfirmed": "Not confirmed",
+        "failed": "Failed"
+      }
+    },
+    "scrub": {
+      "title": "Storage check finding",
+      "description": "The storage check found pack files holding data of this object damaged on every storage target and could not repair them from a copy."
+    },
+    "unknown": {
+      "title": "Details not readable",
+      "description": "The rating of this report is shown above, but its details could not be read."
+    },
+    "history": {
+      "title": "Earlier checks",
+      "description": "Every rating of this object, newest first.",
+      "error": "The earlier checks could not be loaded.",
+      "loadMore": "Load more"
+    },
+    "notFound": {
+      "title": "Report not found",
+      "description": "This report does not exist in the selected tenant. It may belong to another tenant."
+    },
+    "latestBackup": {
+      "unverifiedTitle": "A newer backup is not verified yet",
+      "unverified": "Backup #{sequence} from {when} was taken after this check and has not been read back yet. This report rates only the backup it checked.",
+      "ratedTitle": "A newer backup has its own rating",
+      "rated": "Backup #{sequence} from {when} was checked after this report; its own report rates it.",
+      "open": "Open its report"
+    }
+  },
+  "toast": {
+    "queued": "{count, plural, one {# restore check started} other {# restore checks started}}",
+    "queuedWithSkipped": "{count, plural, one {# restore check started} other {# restore checks started}}; {skipped, plural, one {# object was skipped} other {# objects were skipped}} (no backup yet, or a check is already running).",
+    "nothingQueued": "No check was started: every object is already being checked or has no backup yet.",
+    "checkStarted": "Restore check started for {name}",
+    "startFailed": "The restore check could not be started",
+    "alreadyQueued": "A check is already queued or running.",
+    "noBackup": "This object has no completed backup yet, so there is nothing to verify.",
+    "excluded": "This object is excluded from protection.",
+    "scrubStarted": {
+      "sample": "Storage check started (sample)",
+      "full": "Storage check of all packs started"
+    },
+    "scrubFailed": "The storage check could not be started",
+    "unverifiedQueued": "{count, plural, one {# restore check started for an unverified backup} other {# restore checks started for unverified backups}}",
+    "nothingUnverified": "No check was started: every latest backup is verified or is being checked already."
+  },
+  "error": {
+    "overview": "Recovery readiness could not be loaded",
+    "report": "The report could not be loaded"
+  }
+}

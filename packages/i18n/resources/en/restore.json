@@ -1,0 +1,418 @@
+{
+  "nav": {
+    "explorer": "Restore explorer"
+  },
+  "explorer": {
+    "title": "Restore explorer",
+    "subtitle": "Browse any restore point of an account, then restore or download folders, files and mails.",
+    "kinds": {
+      "folder": "Folder",
+      "file": "File",
+      "mail": "Mail",
+      "event": "Event",
+      "contact": "Contact"
+    },
+    "areas": {
+      "mail": "Mail",
+      "calendar": "Calendar",
+      "contacts": "Contacts"
+    },
+    "deleted": "Deleted in source",
+    "deletedShort": "Deleted",
+    "empty": "This folder is empty at this restore point.",
+    "emptyDescription": "It may not have existed yet, or its contents were moved. Choose another restore point or go up one level.",
+    "emptyRoot": "This restore point contains no items.",
+    "loadError": "The folder could not be loaded.",
+    "rootLocation": "Top level",
+    "shown": "Showing {shown} of {total}",
+    "accounts": {
+      "title": "Accounts",
+      "searchLabel": "Search accounts",
+      "searchPlaceholder": "Search mailboxes, OneDrives and IMAP accounts …",
+      "typeAll": "All accounts",
+      "typeLabel": "Account type",
+      "types": {
+        "mailbox": "Mailboxes",
+        "onedrive": "OneDrives",
+        "imap": "IMAP accounts"
+      },
+      "empty": "No matching account",
+      "emptyDescription": "Try a different search or a different type.",
+      "lastBackup": "Last backup",
+      "lastImport": "Last import",
+      "protected": "Protected",
+      "excluded": "Not protected",
+      "imported": "Imported"
+    },
+    "object": {
+      "own": "Yours",
+      "orphaned": "Removed from source",
+      "loadError": "The protected mailboxes and drives could not be loaded.",
+      "none": "No protected account yet",
+      "noneDescription": "Protect a mailbox, OneDrive or IMAP account first. It appears here as soon as it is protected, even before its first backup finishes.",
+      "noneAction": "Go to Protected objects",
+      "kinds": {
+        "mailbox": "Mailbox",
+        "onedrive": "OneDrive",
+        "imap": "IMAP account"
+      }
+    },
+    "restorePoint": {
+      "fieldLabel": "Restore point",
+      "listLabel": "Restore points",
+      "item": "Restore point #{sequence} from {date}",
+      "latest": "Latest",
+      "current": "Current",
+      "none": "No restore point yet",
+      "noneDescription": "This mailbox or drive has no restore point yet.",
+      "loadError": "The restore points of this mailbox or drive could not be loaded."
+    },
+    "tree": {
+      "label": "Folders",
+      "expand": "Expand {name}",
+      "collapse": "Collapse {name}",
+      "loadError": "The folders could not be loaded.",
+      "noSubfolders": "No subfolders",
+      "noFolders": "No folders",
+      "more": "{count, plural, one {# more folder} other {# more folders}} in the list"
+    },
+    "breadcrumb": {
+      "label": "Folder path"
+    },
+    "sort": {
+      "label": "Sort by",
+      "date": "Date",
+      "name": "Name"
+    },
+    "columns": {
+      "name": "Name",
+      "subject": "Subject",
+      "from": "From",
+      "to": "To",
+      "toMore": "+{count} more",
+      "date": "Date",
+      "size": "Size"
+    },
+    "flags": {
+      "attachments": "Has attachments",
+      "flagged": "Flagged",
+      "protected": "Rights-protected or encrypted"
+    },
+    "actions": {
+      "select": "Select {name}",
+      "selectAll": "Select everything in this list",
+      "deselectAll": "Deselect everything in this list",
+      "up": "Up one level",
+      "loadMore": "Load more",
+      "restore": "Restore …",
+      "download": "Download"
+    },
+    "selection": {
+      "region": "Selection",
+      "count": "{count, plural, one {# entry selected} other {# entries selected}}",
+      "folders": "{count, plural, one {# folder} other {# folders}}",
+      "items": "{count, plural, one {# item} other {# items}}",
+      "clear": "Clear",
+      "covered": "{name} is included through a selected folder"
+    },
+    "search": {
+      "label": "Search this restore point",
+      "placeholder": "Name, subject or path …",
+      "clear": "Clear search",
+      "results": "{count, plural, =0 {No results} one {# result} other {# results}} for “{query}”",
+      "none": "Nothing matches “{query}”",
+      "noneDescription": "The search covers names, paths and mail subjects at the selected restore point.",
+      "loadError": "The search failed.",
+      "scope": "Names, paths and subjects at this restore point were searched.",
+      "truncated": "Only the first {shown} results are shown. Refine the search to narrow them down."
+    },
+    "whole": {
+      "trigger": "Entire restore point",
+      "label": "Everything at this restore point",
+      "restore": "Restore everything …",
+      "download": "Download everything"
+    }
+  },
+  "details": {
+    "title": "Details",
+    "empty": "Select a mail, file or folder to see its details and versions.",
+    "deletedHint": "The source had already deleted this item at this restore point. It can still be restored from here.",
+    "folderHint": "Restoring a folder includes everything below it.",
+    "openFolder": "Open folder",
+    "reveal": "Show in folder",
+    "restore": "Restore …",
+    "download": "Download",
+    "location": "Location",
+    "size": "Size",
+    "modified": "Modified",
+    "contentType": "Content type",
+    "path": "Path in backup",
+    "mail": {
+      "subject": "Subject",
+      "noSubject": "(no subject)",
+      "from": "From",
+      "to": "To",
+      "cc": "Cc",
+      "date": "Date",
+      "sent": "Sent"
+    },
+    "protection": {
+      "notice": "{kind, select, purview {Rights-protected by Microsoft Purview} smime {S/MIME-encrypted} other {Protected}}: opening the EML needs the recipient's rights; restoring into the mailbox works.",
+      "downloadHint": "{kind, select, purview {Rights-protected by Microsoft Purview} smime {S/MIME-encrypted} other {Protected}}: the downloaded EML needs the recipient's rights to open; restoring into the mailbox works."
+    },
+    "reading": {
+      "plainText": "Plain-text message",
+      "attachmentsCount": "Attachments ({count})",
+      "attachmentsEmpty": "No attachments",
+      "attachmentsUnnamed": "Unnamed attachment",
+      "download": "Download {name}",
+      "downloadSize": "{name} · {size}",
+      "print": "Print",
+      "loadError": "The message could not be loaded.",
+      "simplified": {
+        "title": "Simplified view",
+        "description": "The formatted view of this message was too large to prepare. The text of the message is shown instead; images and layout are missing. Download the message to see all of it."
+      },
+      "unavailable": {
+        "rightsProtected": "This message is rights-protected and cannot be shown here.",
+        "smimeEncrypted": "This message is S/MIME-encrypted and cannot be shown here.",
+        "tooLarge": "This message is too large to show here. Download it, or restore it into the mailbox instead.",
+        "unsupportedFormat": "This message was stored in a format that cannot be shown here. Download it, or restore it into the mailbox instead.",
+        "unreadable": "This message could not be read within the time and memory the preview is allowed to use. Download it, or restore it into the mailbox instead."
+      }
+    }
+  },
+  "versions": {
+    "title": "Version history",
+    "description": "How this item looked at each restore point. Identical content across consecutive restore points is shown once.",
+    "loadError": "The version history could not be loaded.",
+    "sequence": "Restore point #{sequence}",
+    "shown": "Shown",
+    "deleted": "Deleted",
+    "deletedHint": "The source had deleted the item by this restore point; restore it from an earlier version.",
+    "seenOnce": "In one restore point",
+    "seenIn": "Unchanged in {count, number} restore points since {first}",
+    "modified": "modified {date}",
+    "onlyOne": "No other versions are known for this item.",
+    "show": "Show",
+    "restore": "Restore …",
+    "download": "Download",
+    "stored": {
+      "title": "Earlier versions kept by OneDrive",
+      "description": "OneDrive's own version history, captured with this restore point. These versions can be downloaded.",
+      "version": "Version {version}",
+      "download": "Download version {version}"
+    }
+  },
+  "dialog": {
+    "title": "Restore",
+    "titleDownload": "Download",
+    "source": "From {object}, {restorePoint}",
+    "everything": "Everything at this restore point",
+    "andMore": "{count, plural, other {and # more}}",
+    "restoreFolderName": "Restored {stamp}",
+    "target": {
+      "label": "Restore to",
+      "original": "Original location",
+      "originalDescription": "Back into {object}, where the items came from.",
+      "originalGone": "The original account no longer exists in the source.",
+      "demoDownloadOnly": "This demo only offers restore as a download.",
+      "other": "Another account",
+      "otherDescription": "Into a different mailbox, drive or IMAP account of this tenant.",
+      "otherRequiresAdmin": "Only tenant admins can restore into another account.",
+      "download": "Download as ZIP",
+      "downloadDescription": "Mails as .eml, files as they are, with a checksum list. The link is valid for 24 hours.",
+      "onlyDownload": "Earlier OneDrive versions are provided as a download.",
+      "account": "Target account",
+      "accountPlaceholder": "Address, user or account",
+      "accountHint": {
+        "mailbox": "The address of the target mailbox in the same Microsoft 365 tenant.",
+        "onedrive": "The user (UPN) or drive id of the target OneDrive; add :/Folder to restore into a subfolder.",
+        "imap": "The login of an IMAP account of this tenant."
+      }
+    },
+    "mode": {
+      "label": "If an item already exists",
+      "rename": "Keep both",
+      "renameDescriptionMail": "Nothing existing is touched: everything is restored into the new folder “{folder}”.",
+      "renameDescriptionFiles": "Nothing existing is touched: a file that already exists is restored under a new name.",
+      "skip": "Skip existing",
+      "skipDescription": "Items that are still there stay as they are; only missing items are restored."
+    },
+    "reason": {
+      "impersonationTitle": "Restore on behalf of the owner",
+      "impersonation": "This data belongs to {owner}. The restore is recorded as an admin restore on their behalf.",
+      "label": "Reason",
+      "placeholder": "Ticket number or why this restore is needed",
+      "help": "Written to the tamper-evident audit log."
+    },
+    "submit": "Start restore",
+    "submitDownload": "Prepare download",
+    "started": {
+      "restore": "Restore started",
+      "download": "Download is being prepared",
+      "description": "Follow the progress on the restore job page."
+    },
+    "errors": {
+      "title": "The restore could not be started",
+      "targetUnavailable": "This target is not available for this restore.",
+      "accountRequired": "Enter the account to restore into.",
+      "reasonRequired": "Enter a reason of at least 3 characters.",
+      "targetUnknown": "This account is not known in this tenant. IMAP restores can only go into accounts of this tenant.",
+      "selectionUnknown": "Some selected entries no longer exist at this restore point. Reload the folder and select again.",
+      "originalGone": "The original account no longer exists. Restore into another account or download the data.",
+      "queueUnavailable": "The job queue is not available. Make sure the {appName} worker is running, then try again.",
+      "snapshotGone": "This restore point is no longer available. Choose another one."
+    }
+  },
+  "jobs": {
+    "title": "Recent restores",
+    "subtitle": "Every restore and download, with progress and the result of each item.",
+    "newRestore": "New restore",
+    "empty": "No restores yet",
+    "emptyDescription": "Restores and downloads you start in the explorer appear here with their progress.",
+    "loadError": "The restores could not be loaded.",
+    "progressLabel": "Restore progress",
+    "progress": "{done} of {total}",
+    "outcome": "{restored} restored · {skipped} skipped · {failed} failed",
+    "snapshot": "Backup #{sequence} from {date}",
+    "adminRestore": "Admin restore",
+    "actorUnknown": "Unknown user",
+    "objectGone": "Removed mailbox or drive",
+    "columns": {
+      "requested": "Requested",
+      "object": "Mailbox or drive",
+      "what": "What and where",
+      "status": "Status",
+      "actions": "Actions"
+    },
+    "status": {
+      "queued": "Queued",
+      "active": "Running",
+      "completed": "Completed",
+      "completedWithIssues": "Completed with issues",
+      "failed": "Failed",
+      "cancelled": "Cancelled",
+      "unknown": "Unknown"
+    },
+    "selection": {
+      "all": "Everything"
+    },
+    "target": {
+      "original": "Original location",
+      "other": "Into {ref}",
+      "download": "Download"
+    },
+    "mode": {
+      "rename": "keep both",
+      "replace": "replace existing",
+      "skip": "skip existing"
+    },
+    "download": {
+      "action": "Download ZIP",
+      "until": "Available until {date}"
+    },
+    "cancel": {
+      "action": "Cancel",
+      "title": "Cancel this restore?",
+      "description": "The restore stops at the next item. What has already been restored stays in place.",
+      "keep": "Keep running",
+      "confirm": "Cancel restore",
+      "done": "The restore was cancelled.",
+      "failed": "The restore could not be cancelled."
+    }
+  },
+  "job": {
+    "title": "Restore job",
+    "subtitle": "Progress, outcome and every item of this restore.",
+    "back": "Recent restores",
+    "loadError": "The restore job could not be loaded.",
+    "progress": {
+      "title": "Progress",
+      "queued": "Queued. Restores run before verifications and backups.",
+      "running": "The restore is running.",
+      "waiting": "Waiting for a free worker.",
+      "counting": "Determining what to restore …",
+      "failed": "{count, plural, one {# item failed} other {# items failed}}",
+      "eta": "about {minutes, plural, one {# minute} other {# minutes}} left"
+    },
+    "outcome": {
+      "title": "Outcome",
+      "finishedAt": "Finished {date}",
+      "notFinished": "The restore did not finish.",
+      "restored": "Restored",
+      "skipped": "Skipped",
+      "failures": "Failed",
+      "unverified": "Not confirmed",
+      "folders": "Folders",
+      "bytes": "Data",
+      "failed": "The restore failed",
+      "failedUnknown": "No reason was reported.",
+      "cancelled": "The restore was cancelled",
+      "cancelledDescription": "Everything restored before the cancellation stays in place.",
+      "noResult": "The restore finished without reporting a result.",
+      "downloadExpired": "The download has expired",
+      "downloadExpiredDescription": "The link was valid until {date}. Start the download again from the explorer to get a new one."
+    },
+    "request": {
+      "title": "Request",
+      "object": "Mailbox or drive",
+      "snapshot": "Point in time",
+      "snapshotPruned": "The backup has since been removed by retention.",
+      "selection": "Selection",
+      "target": "Target",
+      "mode": "If an item exists",
+      "actor": "Requested by",
+      "reason": "Reason",
+      "requested": "Requested",
+      "started": "Started",
+      "finished": "Finished"
+    }
+  },
+  "items": {
+    "title": "Items",
+    "description": "What happened to each item, with the reason whenever it was not simply restored.",
+    "pending": "The outcome of each item is shown once the restore has finished.",
+    "none": "No per-item outcome was recorded for this restore.",
+    "liveFailures": "Items that could not be restored so far:",
+    "failuresOnly": "Items that could not be restored:",
+    "emptyFilter": "No items in this group.",
+    "truncated": "The {shown} items needing attention are listed first; {total} outcomes were reported in total.",
+    "unverified": "Not confirmed",
+    "restoredAs": "Restored as {target}",
+    "columns": {
+      "item": "Item",
+      "outcome": "Outcome"
+    },
+    "filters": {
+      "attention": "Needs attention",
+      "failed": "Failed",
+      "skipped": "Skipped",
+      "unverified": "Not confirmed",
+      "restored": "Restored",
+      "all": "All"
+    },
+    "status": {
+      "restored": "Restored",
+      "skipped": "Skipped",
+      "failed": "Failed"
+    },
+    "codes": {
+      "restored": "Restored.",
+      "unverified": "Restored, but the target's confirmation did not match the backup.",
+      "exists": "The target already holds this item.",
+      "not_restorable": "The backup holds no restorable content for this kind of item.",
+      "parent_not_restored": "Belongs to a message that was not restored.",
+      "wrong_target": "This kind of item cannot be restored into this target.",
+      "data_missing": "Data of this item is missing from the storage.",
+      "integrity": "The data did not pass the integrity check and was not restored.",
+      "target_rejected": "The target service refused the item.",
+      "error": "The item could not be restored."
+    }
+  },
+  "tabs": {
+    "label": "Restore explorer views",
+    "browse": "Browse",
+    "recent": "Recent restores"
+  }
+}

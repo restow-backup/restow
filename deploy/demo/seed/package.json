@@ -1,0 +1,17 @@
+{
+  "name": "@restow/demo-seed",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Restow public demo: a deterministic synthetic mail generator for the demo Dovecot mailboxes, and a seed that bootstraps the demo installation over the real API, plays the Restow agent for two simulated machines with real restic and fills the mail archive through the mail import (deploy/demo/README.md).",
+  "license": "Apache-2.0",
+  "scripts": {
+    "start": "node dist/index.js",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@restow/db": "workspace:*"
+  }
+}

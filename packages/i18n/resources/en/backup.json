@@ -1,0 +1,266 @@
+{
+  "title": "Backup",
+  "status": {
+    "idle": "Ready",
+    "running": "Running",
+    "completed": "Completed",
+    "failed": "Failed"
+  },
+  "snapshot": {
+    "title": "Snapshots",
+    "empty": "No snapshots yet.",
+    "created": "Created on {date, date, medium}"
+  },
+  "health": {
+    "title": "Health",
+    "verified": "Restore verified",
+    "unverified": "Restore not verified yet",
+    "lastRun": "Last run {timestamp, time, short}"
+  },
+  "nav": {
+    "history": "History"
+  },
+  "queue": {
+    "backup": "Backup",
+    "restore": "Restore",
+    "verify": "Restore check",
+    "archive": "Archive sync",
+    "directory": "Directory sync",
+    "retention": "Retention",
+    "scrub": "Storage check",
+    "storage_migration": "Storage migration"
+  },
+  "jobStatus": {
+    "queued": "Queued",
+    "active": "Running",
+    "completed": "Completed",
+    "completedWithFailures": "{count, plural, one {Completed, # item failed} other {Completed, # items failed}}",
+    "failed": "Failed",
+    "cancelled": "Cancelled",
+    "checkIncomplete": "Not completed, will be retried"
+  },
+  "kind": {
+    "mailbox": "Mailbox",
+    "onedrive": "OneDrive",
+    "imap": "IMAP account"
+  },
+  "phase": {
+    "starting": "Starting",
+    "connect": "Connecting",
+    "enumerate": "Reading the full inventory",
+    "changes": "Reading changes",
+    "download": "Downloading",
+    "folders": "Folders",
+    "mail": "Mail",
+    "calendar": "Calendar",
+    "contacts": "Contacts",
+    "files": "Files",
+    "resync": "Full re-read (change token expired)",
+    "retry": "Retrying failed items",
+    "commit": "Finishing snapshot",
+    "manifest": "Finishing snapshot",
+    "resolve": "Preparing",
+    "archive": "Packing archive",
+    "evaluate": "Evaluating retention",
+    "prune": "Removing expired snapshots",
+    "load": "Loading the known directory",
+    "complete": "Completing partial user entries",
+    "probe": "Checking mailboxes and OneDrives",
+    "plan": "Applying the protection rules",
+    "persist": "Saving the directory",
+    "unknown": "Working ({name})"
+  },
+  "live": {
+    "connecting": "Connecting live updates …",
+    "open": "Live",
+    "reconnecting": "Reconnecting live updates …",
+    "closed": "Live updates paused",
+    "openHint": "Progress updates arrive automatically.",
+    "reconnectingHint": "The connection to the server was interrupted. {appName} reconnects on its own; the list may be a few seconds old.",
+    "closedHint": "Live updates are not available. Reload the page to try again."
+  },
+  "progress": {
+    "items": "{done} of {total} items",
+    "itemsOpen": "{done} items so far",
+    "itemsDone": "{done} items processed",
+    "bytes": "{bytes} new data",
+    "bytesRead": "{bytes} read",
+    "bytesPartial": "{bytes} stored before it stopped",
+    "noChanges": "No changes",
+    "noItems": "No items processed",
+    "eta": "about {duration} left",
+    "failed": "{count, plural, one {# item failed} other {# items failed}}",
+    "waiting": "Waiting for a free worker",
+    "notStarted": "Not started",
+    "noProgress": "No progress recorded",
+    "label": "Progress"
+  },
+  "throttle": {
+    "title": "Microsoft 365 is limiting requests",
+    "waiting": "Microsoft asked {appName} to pause (HTTP {status}). The job continues automatically in {remaining}.",
+    "waitingShort": "Paused by Microsoft, continuing in {remaining}",
+    "resumed": "Microsoft limited requests during this run. The job continues normally.",
+    "summary": "{count, plural, one {# pause} other {# pauses}} imposed by Microsoft, {duration} in total",
+    "explanation": "Microsoft 365 limits how many requests an application may send. Waiting is the correct response; nothing is lost and no data is skipped."
+  },
+  "duration": {
+    "hours": "{hours} h {minutes} min",
+    "minutes": "{minutes} min {seconds} s",
+    "seconds": "{seconds} s"
+  },
+  "actions": {
+    "backupNow": "Back up now",
+    "backupNowIncremental": "Back up changes",
+    "backupNowIncrementalHint": "Continues from the last snapshot. Only new and changed items are read.",
+    "backupNowFull": "Full backup",
+    "backupNowFullHint": "Reads everything again. Deduplication keeps storage use low, but it takes longer.",
+    "backupAll": "Back up all",
+    "backupAllTitle": "Back up every protected object?",
+    "backupAllDescription": "A backup job is queued for every protected object of this tenant. Objects that are already queued or whose source is not connected are skipped.",
+    "backupAllConfirm": "Queue backups",
+    "cancel": "Cancel job",
+    "cancelTitle": "Cancel this job?",
+    "cancelDescription": "A running job stops at its next checkpoint. Items already stored stay in storage; the snapshot of this run is not completed.",
+    "cancelConfirm": "Cancel job",
+    "keepRunning": "Keep running",
+    "retry": "Run again",
+    "openJob": "Open job",
+    "history": "Snapshot history",
+    "backToJobs": "Back to history",
+    "loadMore": "Load more",
+    "clearFilters": "Clear filters"
+  },
+  "toast": {
+    "queuedOne": "Backup queued for {name}.",
+    "queuedMany": "{count, plural, one {# backup queued} other {# backups queued}}.",
+    "skipped": "{count, plural, one {# object skipped} other {# objects skipped}}: already queued or not ready.",
+    "nothingQueued": "No backup was queued. Every object is already queued or not ready.",
+    "cancelled": "The job is being cancelled.",
+    "retried": "The job was queued again.",
+    "alreadyQueued": "A backup of this object is already queued or running.",
+    "failed": "The action could not be completed."
+  },
+  "blocked": {
+    "excluded": "Excluded from protection",
+    "orphaned": "No longer in the source directory",
+    "source_pending": "Source not connected yet",
+    "source_disabled": "Source disabled",
+    "already_queued": "Already queued"
+  },
+  "jobs": {
+    "title": "History",
+    "description": "Every run of this tenant: backups, restores and maintenance, with live progress.",
+    "empty": "No runs yet. Runs appear here as soon as a backup, restore or maintenance run is queued.",
+    "emptyFiltered": "No runs match these filters.",
+    "filterQueue": "Type",
+    "filterStatus": "Status",
+    "allQueues": "All types",
+    "allStatuses": "All statuses",
+    "columns": {
+      "job": "Job",
+      "object": "Object",
+      "status": "Status",
+      "progress": "Progress",
+      "started": "Started",
+      "duration": "Duration",
+      "actions": "Actions"
+    },
+    "tenantWide": "Whole tenant",
+    "scheduled": "Scheduled",
+    "manual": "Started manually",
+    "afterBackup": "Automatically after backup",
+    "full": "Full",
+    "loadError": "The history could not be loaded."
+  },
+  "detail": {
+    "title": "{queue} run",
+    "notFound": "This run does not exist or belongs to another tenant.",
+    "created": "Queued",
+    "started": "Started",
+    "finished": "Finished",
+    "duration": "Duration",
+    "trigger": "Trigger",
+    "mode": "Mode",
+    "modeFull": "Full backup",
+    "modeIncremental": "Changes since the last snapshot",
+    "phase": "Current step: {phase}",
+    "since": "since {time}",
+    "error": "Why the run failed",
+    "cancelledInfo": "The job was cancelled. Items stored before the cancellation remain in storage; the next backup continues from the last completed snapshot.",
+    "result": "Result",
+    "resultSnapshot": "Snapshot {sequence}",
+    "resultItems": "{total} items in the snapshot, {written} new or changed",
+    "resultBytes": "{bytes} new data after deduplication",
+    "resultVerify": "A restore check was queued for this object.",
+    "resultCopies": "{count, plural, one {# copy target was missing the manifest and was repaired.} other {# copy targets were missing the manifest and were repaired.}}",
+    "snapshotState": "Snapshot",
+    "noSnapshot": "No snapshot has been started for this run yet.",
+    "loadError": "The run could not be loaded."
+  },
+  "failures": {
+    "title": "Items that could not be processed",
+    "description": "Failed items are retried in the next run. After three consecutive failures an alert is raised.",
+    "empty": "No item failed in this job.",
+    "item": "Item",
+    "reason": "Reason",
+    "attempts": "Runs",
+    "lastAttempt": "Last attempt",
+    "repeated": "Failed in {count} runs",
+    "capped": "Showing the first {shown} of {total} failed items."
+  },
+  "objects": {
+    "title": "Backup",
+    "description": "Every protected mailbox, OneDrive and IMAP account with its last backup. Start a backup for one object or for all of them.",
+    "empty": "No protected objects yet. Connect a source and synchronize the directory to add mailboxes and OneDrives.",
+    "search": "Search objects",
+    "noMatch": "No object matches the search.",
+    "filterKind": "Kind",
+    "allKinds": "All kinds",
+    "columns": {
+      "object": "Object",
+      "source": "Source",
+      "lastBackup": "Last successful backup",
+      "lastJob": "Last job",
+      "readiness": "Recovery readiness",
+      "actions": "Actions"
+    },
+    "never": "Never",
+    "snapshotSummary": "{count, plural, one {# item} other {# items}}, {size}",
+    "noJob": "No run yet",
+    "loadError": "The protected objects could not be loaded."
+  },
+  "readiness": {
+    "green": "Restore verified",
+    "yellow": "Restore partly verified",
+    "red": "Restore check failed",
+    "none": "Not verified yet",
+    "checked": "checked {time}"
+  },
+  "snapshots": {
+    "title": "Snapshot history",
+    "description": "Points in time that were backed up for {name}. Only completed snapshots can be restored.",
+    "includePruned": "Show expired snapshots",
+    "empty": "No snapshots yet. The first backup creates one.",
+    "columns": {
+      "sequence": "No.",
+      "state": "State",
+      "completed": "Completed",
+      "items": "Items",
+      "size": "Size",
+      "job": "Job"
+    },
+    "state": {
+      "running": "Running",
+      "completed": "Completed",
+      "incomplete": "Incomplete",
+      "pruned": "Expired"
+    },
+    "stateHint": {
+      "running": "The backup is still writing this snapshot.",
+      "completed": "Committed and restorable.",
+      "incomplete": "The job ended before the snapshot was committed. It cannot be restored.",
+      "pruned": "Removed by the retention policy."
+    },
+    "loadError": "The snapshot history could not be loaded."
+  }
+}
