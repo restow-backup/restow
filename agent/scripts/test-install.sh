@@ -37,7 +37,7 @@ fail() {
 }
 ok() { printf 'ok: %s\n' "$*"; }
 assert_file() { [ -e "$1" ] || fail "missing $1"; }
-assert_absent() { [ ! -e "$1" ] && [ ! -L "$1" ] || fail "$1 should not exist"; }
+assert_absent() { if [ -e "$1" ] || [ -L "$1" ]; then fail "$1 should not exist"; fi; }
 assert_grep() { grep -q -- "$1" "$2" || fail "'$1' not found in $2"; }
 assert_not_grep() { ! grep -q -- "$1" "$2" || fail "'$1' must not appear in $2"; }
 assert_root_dir() { [ "$(stat -c '%u:%a' "$1")" = 0:755 ] || fail "$1 must be root:755, is $(stat -c '%u:%a' "$1")"; }

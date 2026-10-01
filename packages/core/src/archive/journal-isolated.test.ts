@@ -149,7 +149,9 @@ describe("parseJournalReportIsolated", { timeout: 120_000 }, () => {
   it("refuses a report only when no process can take it now, before anything is parsed", async () => {
     configureIsolation({ workers: 1, maxQueued: 0 });
     try {
-      const running = parseJournalReportIsolated(HOSTILE, { timeoutMs: 2000 });
+      // Half the limit the timeout test above already proves too short for HOSTILE on CI runners,
+      // so the first report is still running (and then times out) when the second one arrives.
+      const running = parseJournalReportIsolated(HOSTILE, { timeoutMs: 500 });
       const refused = await parseJournalReportIsolated(HONEST).catch((e: unknown) => e);
       expect(refused).toBeInstanceOf(JournalParserBusyError);
       expect((await running).parseLimit).toBe("timeout");

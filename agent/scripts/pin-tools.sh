@@ -18,7 +18,9 @@ EXPECTED_FPR=CF8F18F2844575973F79D4E191A6868BD3F7A907
 
 tool="${1:-}"
 version="${2:-}"
-[ -n "$tool" ] && [ -n "$version" ] || die "usage: pin-tools.sh restic|rest-server <version>"
+if [ -z "$tool" ] || [ -z "$version" ]; then
+  die "usage: pin-tools.sh restic|rest-server <version>"
+fi
 case "$tool" in
   restic)
     var=RESTIC

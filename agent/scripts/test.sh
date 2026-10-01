@@ -16,7 +16,7 @@ if [ "${1:-}" != "--inner" ]; then
   # shellcheck source=lib.sh
   . "$AGENT_DIR/scripts/lib.sh"
   if command -v go >/dev/null 2>&1; then
-    sh "$0" --inner
+    sh "$AGENT_DIR/scripts/test.sh" --inner
   else
     command -v docker >/dev/null 2>&1 || die "neither go nor docker found"
     docker run --rm -v "$AGENT_DIR":/src -w /src \
