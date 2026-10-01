@@ -12,7 +12,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@better-auth/passkey": "^1.7.5",
+    "@better-auth/passkey": "^1.7.6",
     "@restow/i18n": "workspace:*",
     "@tanstack/react-query": "^5.62.7",
     "@tanstack/react-router": "^1.95.0",
