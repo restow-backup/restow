@@ -1247,7 +1247,7 @@ assert_contains "--behind-proxy needs release" "$out" "the error names the relea
 E2E_STUBS="$TMP_ROOT/e2e-stubs"
 E2E_LOG="$TMP_ROOT/e2e-calls.log"
 E2E_RELEASE="$TMP_ROOT/e2e-release"
-E2E_TOKEN="K7PQX-3MZRA-T9WHE-2BNCV"
+E2E_TOKEN="K7PQX-3MZRA-T9WHE-2BNCV" # gitleaks:allow (made-up test token)
 E2E_OLD_TOKEN="AAAAA-BBBBB-CCCCC-DDDDD"
 mkdir -p "$E2E_STUBS" "$E2E_RELEASE"
 export E2E_LOG E2E_RELEASE E2E_TOKEN E2E_OLD_TOKEN
@@ -1548,7 +1548,7 @@ assert_contains "this installation was not set up behind a reverse proxy" "$(cat
 # The setup token of .env (RESTOW_SETUP_TOKEN) is the operator's own and is not printed.
 dir_env_token="$TMP_ROOT/e2e-env-token"
 mkdir -p "$dir_env_token"
-printf 'RESTOW_SETUP_TOKEN=0123456789abcdef0123\n' >"$dir_env_token/.env"
+printf 'RESTOW_SETUP_TOKEN=0123456789abcdef0123\n' >"$dir_env_token/.env" # gitleaks:allow (made-up test token)
 out=$( (
   PATH="$E2E_STUBS:$PATH"
   OPT_DIR=$dir_env_token MODE=public PUBLIC_URL=https://backup.example.com DOMAIN=backup.example.com INTERACTIVE=0

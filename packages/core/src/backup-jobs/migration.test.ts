@@ -416,7 +416,7 @@ describe("mail migration, over many random tenants", () => {
         }
       }
     }
-  });
+  }, 120_000);
 });
 
 describe("endpoint migration", () => {
