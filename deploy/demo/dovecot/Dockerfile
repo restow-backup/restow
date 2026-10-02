@@ -4,7 +4,7 @@
 # accounts are provisioned at container start from RESTOW_DEMO_MAILBOXES /
 # RESTOW_DEMO_IMAP_PASSWORD (deploy/demo/docker-compose.yml), never baked
 # into the image.
-FROM alpine:3.20
+FROM alpine:3.24
 
 RUN apk add --no-cache dovecot \
     && addgroup -g 1000 vmail \
