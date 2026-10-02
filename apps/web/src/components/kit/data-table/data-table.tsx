@@ -1,4 +1,5 @@
 import {
+  type Cell,
   type ColumnDef,
   type ColumnFiltersState,
   type Header,
@@ -47,12 +48,14 @@ import { EmptyState } from "../empty-state.js";
 import { UI_NAMESPACE } from "../i18n.js";
 import { columnLabel } from "./columns.js";
 import { DataTableLoadMore, DataTablePagination } from "./pagination.js";
+import { columnPin, declaredWidths, pinningState, truncatedTitle, widthStyle } from "./pinning.js";
 import {
   TABLE_DEFAULTS,
   ariaSortFor,
   bodyState,
   clampPageIndex,
   hasStaleError,
+  plainCell,
   samePage,
   sameState,
 } from "./state.js";
@@ -142,10 +145,35 @@ export interface DataTableProps<TData, TValue = unknown> {
    * themselves (sheets, dialogs).
    */
   maxHeight?: string;
+  /**
+   * Ids of the columns that stay on the left while the table scrolls
+   * sideways (the name, host or job: what identifies the row), in order. Give
+   * them a `size`: it is their width, and the offset of the next pinned
+   * column is the sum of the sizes in front of it. On phones only the first
+   * one pins.
+   */
+  pinnedColumns?: readonly string[];
+  /**
+   * Makes a row clickable: called with the row's data when the row is clicked
+   * anywhere that is not itself a control (a link, button, field or menu entry
+   * keeps its own click). The row looks clickable, but a pointer is the only
+   * thing that uses this: the keyboard needs a control in the row that does the
+   * same (the name as a button), which every user of this prop has to provide.
+   */
+  onRowClick?: (row: TData) => void;
+  /**
+   * Smallest width of the table (a number of pixels or a CSS length). Columns
+   * that declare a `size` or `minSize` already keep their width, which sums
+   * up to the table's minimum and follows the columns a breakpoint hides;
+   * use this for a table whose columns do not.
+   */
+  minWidth?: number | string;
   className?: string;
 }
 
 const NO_ROWS: never[] = [];
+/** A placeholder row has no hover tint, neither on the row nor on its pinned cell (see `TableRow`). */
+const PLACEHOLDER_ROW = "hover:bg-transparent hover:[--row-mix:0%]";
 const DEFAULT_PAGE_SIZE = 25;
 /** Default height cap from the `md` breakpoint on (see `maxHeight`). */
 const DEFAULT_MAX_HEIGHT = "max(20rem, 70svh)";
@@ -188,6 +216,9 @@ export function DataTable<TData, TValue = unknown>({
   pagination,
   skeletonRows = 5,
   maxHeight,
+  pinnedColumns,
+  onRowClick,
+  minWidth,
   className,
 }: DataTableProps<TData, TValue>) {
   const { t } = useTranslation(UI_NAMESPACE);
@@ -272,6 +303,9 @@ export function DataTable<TData, TValue = unknown>({
   };
 
   const paginated = pagination?.mode === "client" || pagination?.mode === "manual";
+  const pinKey = (pinnedColumns ?? []).join("\u0000");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: pinKey is the content of pinnedColumns
+  const columnPinning = React.useMemo(() => pinningState(pinnedColumns), [pinKey]);
   const table = useReactTable<TData>({
     ...TABLE_DEFAULTS,
     data: (data ?? NO_ROWS) as TData[],
@@ -282,8 +316,10 @@ export function DataTable<TData, TValue = unknown>({
       columnVisibility,
       columnFilters,
       globalFilter,
+      columnPinning,
       ...(paginated ? { pagination: paginationState } : {}),
     },
+    enableColumnPinning: columnPinning.left?.length !== 0,
     onSortingChange,
     onColumnVisibilityChange,
     onColumnFiltersChange,
@@ -367,7 +403,12 @@ export function DataTable<TData, TValue = unknown>({
     filtered,
   });
   const staleError = hasStaleError(data !== undefined, error);
-  const visibleColumns = table.getVisibleLeafColumns();
+  // Pinned columns come first, as in the header and the rows.
+  const visibleColumns = [
+    ...table.getLeftVisibleLeafColumns(),
+    ...table.getCenterVisibleLeafColumns(),
+    ...table.getRightVisibleLeafColumns(),
+  ];
   const toolbarContent = typeof toolbar === "function" ? toolbar(table) : toolbar;
   const showColumnsMenu = columnsMenu && hideable.size > 0;
   const hasToolbar = Boolean(toolbarContent) || Boolean(toolbarActions) || showColumnsMenu;
@@ -430,7 +471,12 @@ export function DataTable<TData, TValue = unknown>({
         <p className="sr-only" aria-live="polite" aria-atomic="true" data-slot="data-table-status">
           {state === "loading" ? t("table.loading") : ""}
         </p>
-        <Table aria-busy={state === "loading" || fetching || undefined}>
+        <Table
+          aria-busy={state === "loading" || fetching || undefined}
+          style={minWidth === undefined ? undefined : { minWidth }}
+          scrollLabel={label}
+          containerClassName="@container scroll-pt-10"
+        >
           {label ? <caption className="sr-only">{label}</caption> : null}
           {/* The row border would scroll away under the sticky cells; they draw the line instead. */}
           <TableHeader className="[&_tr]:border-b-0">
@@ -445,33 +491,43 @@ export function DataTable<TData, TValue = unknown>({
           <TableBody>
             {state === "rows" ? (
               rows.map((row) => (
-                <TableRow key={row.id} data-state={row.getIsSelected() ? "selected" : undefined}>
-                  {row.getVisibleCells().map((cell) => {
-                    const meta = cell.column.columnDef.meta;
-                    return (
-                      <TableCell
-                        key={cell.id}
-                        className={cn(
-                          meta?.numeric && "text-right whitespace-nowrap tabular-nums",
-                          meta?.className,
-                          meta?.cellClassName,
-                        )}
-                      >
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    );
-                  })}
+                <TableRow
+                  key={row.id}
+                  data-state={row.getIsSelected() ? "selected" : undefined}
+                  className={onRowClick ? "cursor-pointer" : undefined}
+                  onClick={
+                    onRowClick
+                      ? (event) => {
+                          // A control inside the row keeps its own click.
+                          if (
+                            (event.target as HTMLElement).closest(
+                              "a,button,input,select,textarea,label,[role=menuitem],[role=checkbox]",
+                            )
+                          ) {
+                            return;
+                          }
+                          onRowClick(row.original);
+                        }
+                      : undefined
+                  }
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <BodyCell key={cell.id} cell={cell} />
+                  ))}
                 </TableRow>
               ))
             ) : state === "loading" ? (
               Array.from({ length: skeletonRows }, (_, index) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: static placeholders
-                <TableRow key={index} aria-hidden="true" className="hover:bg-transparent">
+                <TableRow key={index} aria-hidden="true" className={PLACEHOLDER_ROW}>
                   {visibleColumns.map((column) => {
                     const meta = column.columnDef.meta;
+                    const pin = columnPin(column);
                     return (
                       <TableCell
                         key={column.id}
+                        pin={pin}
+                        style={pin ? undefined : widthStyle(declaredWidths(column))}
                         className={cn(meta?.className, meta?.cellClassName)}
                       >
                         {column.id === "actions" ? null : (
@@ -493,39 +549,42 @@ export function DataTable<TData, TValue = unknown>({
                   colSpan={Math.max(1, visibleColumns.length)}
                   className="p-4 whitespace-normal"
                 >
-                  {state === "error" ? (
-                    <ErrorState
-                      title={errorTitle ?? t("table.error.title")}
-                      error={error}
-                      onRetry={onRetry}
-                      retrying={fetching}
-                    />
-                  ) : state === "filteredEmpty" ? (
-                    (filteredEmpty ?? (
-                      <EmptyState
-                        variant="plain"
-                        icon={SearchX}
-                        title={t("table.filteredEmpty.title")}
-                        description={t("table.filteredEmpty.description")}
-                        actions={
-                          canReset ? (
-                            <Button variant="outline" size="sm" onClick={resetFilters}>
-                              {t("table.filteredEmpty.reset")}
-                            </Button>
-                          ) : null
-                        }
+                  {/* The message stays in view of the scrolling container, not centred in a row as wide as the columns. */}
+                  <div className="sticky left-4 w-[calc(100cqw-2rem)] max-w-full">
+                    {state === "error" ? (
+                      <ErrorState
+                        title={errorTitle ?? t("table.error.title")}
+                        error={error}
+                        onRetry={onRetry}
+                        retrying={fetching}
                       />
-                    ))
-                  ) : (
-                    (empty ?? (
-                      <EmptyState
-                        variant="plain"
-                        icon={Inbox}
-                        title={t("table.empty.title")}
-                        description={t("table.empty.description")}
-                      />
-                    ))
-                  )}
+                    ) : state === "filteredEmpty" ? (
+                      (filteredEmpty ?? (
+                        <EmptyState
+                          variant="plain"
+                          icon={SearchX}
+                          title={t("table.filteredEmpty.title")}
+                          description={t("table.filteredEmpty.description")}
+                          actions={
+                            canReset ? (
+                              <Button variant="outline" size="sm" onClick={resetFilters}>
+                                {t("table.filteredEmpty.reset")}
+                              </Button>
+                            ) : null
+                          }
+                        />
+                      ))
+                    ) : (
+                      (empty ?? (
+                        <EmptyState
+                          variant="plain"
+                          icon={Inbox}
+                          title={t("table.empty.title")}
+                          description={t("table.empty.description")}
+                        />
+                      ))
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
             )}
@@ -558,12 +617,18 @@ function HeaderCell<TData>({ header }: { header: Header<TData, unknown> }) {
   const sorted = column.getIsSorted();
   const SortIcon = sorted === "asc" ? ArrowUp : sorted === "desc" ? ArrowDown : ArrowUpDown;
   const name = columnLabel(column);
+  const pin = columnPin(column);
 
   return (
     <TableHead
       aria-sort={ariaSortFor(canSort, sorted)}
+      pin={pin}
+      style={pin ? undefined : widthStyle(declaredWidths(column))}
       className={cn(
         "sticky top-0 z-10 bg-card shadow-[inset_0_-1px_0_var(--color-border)]",
+        // The pinned header is the corner: sticky in both directions and above
+        // the other header cells, which scroll under it sideways.
+        pin && "z-20 max-sm:sticky",
         meta?.numeric && "text-right whitespace-nowrap",
         meta?.className,
         meta?.headerClassName,
@@ -586,5 +651,51 @@ function HeaderCell<TData>({ header }: { header: Header<TData, unknown> }) {
         content
       )}
     </TableHead>
+  );
+}
+
+/**
+ * A body cell: pinned when its column is, with the width its column declared.
+ * A pinned column and one with a `maxSize` hold a single line: the content
+ * is cut off with an ellipsis inside the cell (the clip sits on an inner box
+ * with room for focus rings, because the cell itself casts the pinned edge's
+ * shadow) and says what it is in a tooltip.
+ */
+function BodyCell<TData>({ cell }: { cell: Cell<TData, unknown> }) {
+  const column = cell.column;
+  const meta = column.columnDef.meta;
+  const pin = columnPin(column);
+  const widths = declaredWidths(column);
+  const truncates = pin !== undefined || widths.max !== undefined;
+  const content = flexRender(column.columnDef.cell, cell.getContext());
+  const title = truncates
+    ? truncatedTitle(
+        cell.getValue(),
+        column.columnDef.cell === plainCell,
+        meta?.cellTitle?.(cell.row.original),
+      )
+    : undefined;
+
+  return (
+    <TableCell
+      pin={pin}
+      style={pin ? undefined : widthStyle(widths)}
+      className={cn(
+        meta?.numeric && "text-right whitespace-nowrap tabular-nums",
+        meta?.className,
+        meta?.cellClassName,
+      )}
+    >
+      {truncates ? (
+        <div
+          title={title}
+          className="-mx-1 -my-1 overflow-hidden px-1 py-1 text-ellipsis whitespace-nowrap"
+        >
+          {content}
+        </div>
+      ) : (
+        content
+      )}
+    </TableCell>
   );
 }

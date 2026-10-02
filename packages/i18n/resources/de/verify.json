@@ -77,11 +77,6 @@
   "table": {
     "title": "Geschützte Objekte",
     "description": "Die letzte Bewertung je Postfach, OneDrive, IMAP-Konto und Rechner, die kritischsten zuerst.",
-    "filter": {
-      "all": "Alle ({count})",
-      "attention": "Braucht Aufmerksamkeit ({count})",
-      "waiting": "Wartet auf erste Sicherung ({count})"
-    },
     "columns": {
       "object": "Objekt",
       "readiness": "Wiederherstellbarkeit",
@@ -109,9 +104,8 @@
     "never": "Nie",
     "noBackup": "Noch keine Sicherung",
     "empty": "Noch keine geschützten Objekte.",
-    "emptyAttention": "Kein Objekt braucht Aufmerksamkeit.",
-    "emptyWaiting": "Kein Objekt wartet auf seine erste Sicherung.",
-    "technicalId": "Technische ID: {id}"
+    "technicalId": "Technische ID: {id}",
+    "emptyState": "Kein Objekt in diesem Zustand: {state}."
   },
   "snapshot": {
     "column": "Verifizierung",
@@ -333,5 +327,30 @@
   "error": {
     "overview": "Die Wiederherstellbarkeit konnte nicht geladen werden",
     "report": "Der Bericht konnte nicht geladen werden"
+  },
+  "chips": {
+    "label": "Nach Zustand filtern",
+    "all": "Alle"
+  },
+  "allScope": "Bei welchen Mandanten lässt sich heute etwas nicht wiederherstellen?",
+  "allSubtitle": "Über alle Mandanten: die Mandanten, die Objekte im jeweiligen Zustand haben. Ein Mandant öffnet seine Objekte.",
+  "byTenant": {
+    "title": "Mandanten nach Wiederherstellungszustand",
+    "columns": {
+      "tenant": "Mandant",
+      "total": "Objekte",
+      "go": "Öffnen"
+    },
+    "open": "Zu {name} wechseln und die Wiederherstellbarkeit öffnen",
+    "openState": "Zu {name} wechseln und zeigen: {state}",
+    "error": "Die Mandanten konnten nicht geladen werden",
+    "loading": "Mandanten werden geladen …",
+    "empty": {
+      "state": "Kein Mandant hat Objekte in diesem Zustand",
+      "any": "Noch kein Mandant hat geschützte Objekte",
+      "description": "Wählen Sie oben einen anderen Zustand oder schützen Sie Objekte in einem Mandanten."
+    },
+    "hint": "Ein Klick auf eine Zeile, einen Namen oder eine Zahl wechselt in den Mandanten und öffnet seine Tabelle im jeweiligen Zustand.",
+    "incomplete": "{count, plural, one {# Mandant konnte nicht gelesen werden und fehlt hier.} other {# Mandanten konnten nicht gelesen werden und fehlen hier.}}"
   }
 }

@@ -1,11 +1,13 @@
-import { Plus, ShieldAlert, Trash2, TriangleAlert } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { ListChecks, Plus, ShieldAlert, Trash2, TriangleAlert } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { useConfirmIdentity } from "@/components/confirm-identity-dialog";
 import { Field, messageId } from "@/components/forms/field";
+import { ReadOnlyGroup } from "@/components/kit/read-only-group";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
@@ -18,6 +20,11 @@ import {
 import { toast } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  BandwidthWindowsField,
+  windowCheckOf,
+} from "@/features/backup-jobs/components/bandwidth-windows-field";
+import { jobDefinitionTo, linkProps } from "@/features/backup-jobs/paths";
 import { TimezonePicker } from "@/features/schedules/components/timezone-picker";
 import { browserTimeZone } from "@/features/schedules/presenters";
 import { isRecentSignInRequired } from "@/lib/recent-sign-in";
@@ -371,6 +378,8 @@ export function SettingsTab({ detail }: { detail: EndpointDetail }) {
   const revoked = detail.status === "revoked";
   const disabled = revoked || update.isPending;
   const profile = detail.profile;
+  // A machine in a backup job gets its schedule, folders, exclusions, hooks and bandwidth from the job.
+  const managed = detail.job != null;
 
   const problems = checkDraft(draft, profile, detail.hooks?.policy ?? null);
   const patch = buildPatch(detail, draft);
@@ -427,6 +436,26 @@ export function SettingsTab({ detail }: { detail: EndpointDetail }) {
         </Alert>
       ) : null}
 
+      {detail.job ? (
+        <Alert variant="info" data-slot="managed-by-job">
+          <ListChecks />
+          <AlertTitle>{t("settings.managed.title", { job: detail.job.name })}</AlertTitle>
+          <AlertDescription>
+            <p>{t("settings.managed.description")}</p>
+            <Link
+              {...linkProps(jobDefinitionTo(detail.job.id, "endpoint", "settings"))}
+              className={buttonVariants({
+                variant: "outline",
+                size: "sm",
+                className: "mt-2 w-fit",
+              })}
+            >
+              {t("settings.managed.open")}
+            </Link>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
       <form
         className="grid gap-4"
         noValidate
@@ -454,153 +483,166 @@ export function SettingsTab({ detail }: { detail: EndpointDetail }) {
           </Field>
         </Section>
 
-        <Section title={t("settings.files.title")} description={t("settings.files.description")}>
-          <PathsEditor
-            paths={draft.paths}
-            onChange={(paths) => set("paths", paths)}
-            disabled={disabled}
-            error={problemText(shown, "paths")}
-          />
-          <Field
-            id="settings-excludes"
-            label={t("settings.excludes.label")}
-            hint={t("settings.excludes.hint")}
-            error={problemText(shown, "excludes")}
-          >
-            <Textarea
-              id="settings-excludes"
-              value={draft.excludes}
-              onChange={(event) => set("excludes", event.target.value)}
-              rows={6}
+        <ReadOnlyGroup closed={managed} className="grid gap-4">
+          <Section title={t("settings.files.title")} description={t("settings.files.description")}>
+            <PathsEditor
+              paths={draft.paths}
+              onChange={(paths) => set("paths", paths)}
               disabled={disabled}
-              spellCheck={false}
-              className="font-mono text-sm"
-              aria-describedby={messageId("settings-excludes")}
+              error={problemText(shown, "paths")}
             />
-          </Field>
-        </Section>
-
-        <Section
-          title={t("settings.schedule.title")}
-          description={t("settings.schedule.description")}
-        >
-          <Field id="settings-schedule-kind" label={t("settings.schedule.kind")}>
-            <Select
-              value={draft.scheduleKind}
-              onValueChange={(value) => set("scheduleKind", value as ScheduleKind)}
-              disabled={disabled}
-            >
-              <SelectTrigger id="settings-schedule-kind" className="w-full sm:w-80">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SCHEDULE_KINDS.map((kind) => (
-                  <SelectItem key={kind} value={kind}>
-                    {t(`settings.schedule.kinds.${kind}`)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-
-          {draft.scheduleKind === "daily" ? (
             <Field
-              id="settings-time"
-              label={t("settings.schedule.timeOfDay")}
-              error={problemText(shown, "timeOfDay")}
-              hint={t("settings.schedule.timeHint")}
+              id="settings-excludes"
+              label={t("settings.excludes.label")}
+              hint={t("settings.excludes.hint")}
+              error={problemText(shown, "excludes")}
             >
-              <Input
-                id="settings-time"
-                type="time"
-                value={draft.timeOfDay}
-                onChange={(event) => set("timeOfDay", event.target.value)}
+              <Textarea
+                id="settings-excludes"
+                value={draft.excludes}
+                onChange={(event) => set("excludes", event.target.value)}
+                rows={6}
                 disabled={disabled}
-                className="w-40"
-                aria-describedby={messageId("settings-time")}
+                spellCheck={false}
+                className="font-mono text-sm"
+                aria-describedby={messageId("settings-excludes")}
               />
             </Field>
-          ) : (
+          </Section>
+
+          <Section
+            title={t("settings.schedule.title")}
+            description={t("settings.schedule.description")}
+          >
+            <Field id="settings-schedule-kind" label={t("settings.schedule.kind")}>
+              <Select
+                value={draft.scheduleKind}
+                onValueChange={(value) => set("scheduleKind", value as ScheduleKind)}
+                disabled={disabled}
+              >
+                <SelectTrigger id="settings-schedule-kind" className="w-full sm:w-80">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SCHEDULE_KINDS.map((kind) => (
+                    <SelectItem key={kind} value={kind}>
+                      {t(`settings.schedule.kinds.${kind}`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+
+            {draft.scheduleKind === "daily" ? (
+              <Field
+                id="settings-time"
+                label={t("settings.schedule.timeOfDay")}
+                error={problemText(shown, "timeOfDay")}
+                hint={t("settings.schedule.timeHint")}
+              >
+                <Input
+                  id="settings-time"
+                  type="time"
+                  value={draft.timeOfDay}
+                  onChange={(event) => set("timeOfDay", event.target.value)}
+                  disabled={disabled}
+                  className="w-40"
+                  aria-describedby={messageId("settings-time")}
+                />
+              </Field>
+            ) : (
+              <Field
+                id="settings-interval"
+                label={t(`settings.schedule.minutes.${draft.scheduleKind}`)}
+                error={problemText(shown, "intervalMinutes")}
+                hint={t(`settings.schedule.minutesHint.${draft.scheduleKind}`, {
+                  min: LIMITS.intervalMinMinutes,
+                  default: DEFAULTS.clientSchedule.intervalMinutes,
+                })}
+              >
+                <NumberInput
+                  id="settings-interval"
+                  value={draft.intervalMinutes}
+                  onChange={(value) => set("intervalMinutes", value)}
+                  disabled={disabled}
+                  describedBy={messageId("settings-interval")}
+                  invalid={Boolean(shown.intervalMinutes)}
+                  className="w-40"
+                />
+              </Field>
+            )}
+
             <Field
-              id="settings-interval"
-              label={t(`settings.schedule.minutes.${draft.scheduleKind}`)}
-              error={problemText(shown, "intervalMinutes")}
-              hint={t(`settings.schedule.minutesHint.${draft.scheduleKind}`, {
-                min: LIMITS.intervalMinMinutes,
-                default: DEFAULTS.clientSchedule.intervalMinutes,
-              })}
+              id="settings-zone"
+              label={t("settings.schedule.timeZone")}
+              error={problemText(shown, "timeZone")}
+              hint={t("settings.schedule.timeZoneHint")}
+            >
+              <TimezonePicker
+                id="settings-zone"
+                value={draft.timeZone}
+                onChange={(zone) => set("timeZone", zone)}
+                disabled={disabled}
+                describedBy={messageId("settings-zone")}
+              />
+            </Field>
+            <p className="text-xs text-muted-foreground">{t("settings.schedule.defaults")}</p>
+          </Section>
+
+          <Section
+            title={t("settings.limits.title")}
+            description={t("settings.limits.description")}
+          >
+            <Field
+              id="settings-bandwidth"
+              label={t("settings.limits.bandwidth")}
+              hint={t("settings.limits.bandwidthHint")}
+              error={problemText(shown, "bandwidthKbps")}
             >
               <NumberInput
-                id="settings-interval"
-                value={draft.intervalMinutes}
-                onChange={(value) => set("intervalMinutes", value)}
+                id="settings-bandwidth"
+                value={draft.bandwidthKbps}
+                onChange={(value) => set("bandwidthKbps", value)}
                 disabled={disabled}
-                describedBy={messageId("settings-interval")}
-                invalid={Boolean(shown.intervalMinutes)}
-                className="w-40"
+                describedBy={messageId("settings-bandwidth")}
+                invalid={Boolean(shown.bandwidthKbps)}
+                placeholder={t("settings.limits.unlimited")}
+                className="w-56"
               />
             </Field>
-          )}
-
-          <Field
-            id="settings-zone"
-            label={t("settings.schedule.timeZone")}
-            error={problemText(shown, "timeZone")}
-            hint={t("settings.schedule.timeZoneHint")}
-          >
-            <TimezonePicker
-              id="settings-zone"
-              value={draft.timeZone}
-              onChange={(zone) => set("timeZone", zone)}
+            <BandwidthWindowsField
+              idPrefix="settings-windows"
+              rows={draft.bandwidthWindows}
+              onChange={(rows) => set("bandwidthWindows", rows)}
+              zone={draft.timeZone}
+              check={windowCheckOf(draft.bandwidthWindows, attempted)}
               disabled={disabled}
-              describedBy={messageId("settings-zone")}
             />
-          </Field>
-          <p className="text-xs text-muted-foreground">{t("settings.schedule.defaults")}</p>
-        </Section>
-
-        <Section title={t("settings.limits.title")} description={t("settings.limits.description")}>
-          <Field
-            id="settings-bandwidth"
-            label={t("settings.limits.bandwidth")}
-            hint={t("settings.limits.bandwidthHint")}
-            error={problemText(shown, "bandwidthKbps")}
-          >
-            <NumberInput
-              id="settings-bandwidth"
-              value={draft.bandwidthKbps}
-              onChange={(value) => set("bandwidthKbps", value)}
-              disabled={disabled}
-              describedBy={messageId("settings-bandwidth")}
-              invalid={Boolean(shown.bandwidthKbps)}
-              placeholder={t("settings.limits.unlimited")}
-              className="w-56"
-            />
-          </Field>
-          <div className="flex items-start justify-between gap-4 rounded-md border p-3">
-            <div className="space-y-0.5">
-              <label htmlFor="settings-ac" className="text-sm font-medium">
-                {t("settings.limits.acPower")}
-              </label>
-              <p className="text-xs text-muted-foreground">{t("settings.limits.acPowerHint")}</p>
+            <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+              <div className="space-y-0.5">
+                <label htmlFor="settings-ac" className="text-sm font-medium">
+                  {t("settings.limits.acPower")}
+                </label>
+                <p className="text-xs text-muted-foreground">{t("settings.limits.acPowerHint")}</p>
+              </div>
+              <Switch
+                id="settings-ac"
+                checked={draft.onlyOnAcPower}
+                onCheckedChange={(checked) => set("onlyOnAcPower", checked)}
+                disabled={disabled}
+              />
             </div>
-            <Switch
-              id="settings-ac"
-              checked={draft.onlyOnAcPower}
-              onCheckedChange={(checked) => set("onlyOnAcPower", checked)}
-              disabled={disabled}
-            />
-          </div>
-        </Section>
+          </Section>
 
-        <HooksSection
-          detail={detail}
-          draft={draft}
-          set={set}
-          disabled={disabled}
-          problems={shown}
-          problemText={problemText}
-        />
+          <HooksSection
+            detail={detail}
+            draft={draft}
+            set={set}
+            disabled={disabled}
+            problems={shown}
+            problemText={problemText}
+          />
+        </ReadOnlyGroup>
 
         <Section
           title={t("settings.retention.title")}

@@ -228,7 +228,7 @@ function ScopePicker({
       <div className="grid gap-4 sm:grid-cols-2">
         {SCOPE_GROUPS.map((group) => (
           <div key={group.id} className="space-y-2">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            <p className="text-xs font-medium text-muted-foreground">
               {t(`scopes.groups.${group.id}`)}
             </p>
             <ul className="space-y-2">

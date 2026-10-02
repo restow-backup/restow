@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { i18n } from "@/i18n";
 import { type NavItem, type NavLockContext, groupNavItems } from "@/lib/navigation";
+import { canAccess } from "@/lib/session";
 
 import { eeWebExtension } from "../index";
 import "./i18n";
@@ -34,10 +35,10 @@ describe("editionLock", () => {
     expect(editionLock("business").isLocked({ features: [], extensions: {} })).toBe(true);
   });
 
-  it("leads to Settings, About, naming the edition, with a hint in both languages", () => {
+  it("leads to Installation, License, naming the edition, with a hint in both languages", () => {
     const lock = editionLock("service_provider");
-    expect(lock.to).toBe("/settings");
-    expect(lock.search).toEqual({ section: "about", requires: "service_provider" });
+    expect(lock.to).toBe("/installation/license");
+    expect(lock.search).toEqual({ requires: "service_provider" });
     expect(lock.hintKey).toBe("license:locked.service_provider");
     expect(i18n.getFixedT("en")(lock.hintKey)).toBe("Available in Service Provider");
     expect(i18n.getFixedT("de")(lock.hintKey)).toBe("Verfügbar in Service Provider");
@@ -81,12 +82,77 @@ describe("the ee extension's locks", () => {
     }
     const license = eeWebExtension.navItems?.find((item) => item.id === "license");
     expect(license).toMatchObject({
-      path: "/settings",
-      search: { section: "about" },
+      path: "/installation/license",
       labelKey: "license:nav",
       roles: ["provider_admin"],
-      group: "admin",
+      group: "installation",
     });
     expect(license?.lock).toBeUndefined();
+  });
+
+  it("places the ee entries in Installation, where the operator's level lives", () => {
+    const placed = (eeWebExtension.navItems ?? []).map((item) => [item.id, item.group]);
+    expect(placed).toEqual([
+      ["audit", "installation"],
+      ["license", "installation"],
+      ["team", "installation"],
+    ]);
+  });
+
+  it("keeps the audit log menu entry for provider admins only; a tenant administrator's log is a section of their tenant's page", () => {
+    const audit = (eeWebExtension.navItems ?? []).filter((item) => item.path === "/audit");
+    expect(audit.map((item) => [item.id, item.roles])).toEqual([["audit", ["provider_admin"]]]);
+    expect((eeWebExtension.tenantSections ?? []).map((section) => section.id)).toEqual(["audit"]);
+  });
+
+  it("leaves the three edition entries locked for Community and open from Business, in the menu", () => {
+    const items: NavItem[] = [
+      ...(eeWebExtension.navItems ?? []),
+      // A core entry the extension locks by id: all tenants (Service Provider).
+      {
+        id: "tenants",
+        path: "/tenants",
+        labelKey: "x",
+        icon: Building2,
+        group: "tenants",
+        lock: eeWebExtension.navLocks?.tenants,
+      },
+    ];
+    const lockedIn = (edition: string, role = "provider_admin") =>
+      Object.fromEntries(
+        groupNavItems(items, role, canAccess, {
+          features: edition === "service_provider" ? ["tenants.additional"] : [],
+          extensions: { edition },
+        }).map((group) => [
+          group.id,
+          group.items.map((item) => `${item.id}${item.locked ? " (locked)" : ""}`),
+        ]),
+      );
+    expect(lockedIn("community")).toEqual({
+      tenants: ["tenants (locked)"],
+      installation: ["team (locked)", "audit (locked)", "license"],
+    });
+    expect(lockedIn("business")).toEqual({
+      tenants: ["tenants (locked)"],
+      installation: ["team", "audit", "license"],
+    });
+    expect(lockedIn("service_provider")).toEqual({
+      tenants: ["tenants"],
+      installation: ["team", "audit", "license"],
+    });
+  });
+
+  it("puts nothing of the audit log into a tenant administrator's menu: it is a section of their tenant's page", () => {
+    const items: NavItem[] = [
+      ...(eeWebExtension.navItems ?? []),
+      { id: "members", path: "/members", labelKey: "x", icon: Building2, group: "tenants" },
+    ];
+    for (const edition of ["community", "business"]) {
+      const groups = groupNavItems(items, "tenant_admin", canAccess, {
+        features: [],
+        extensions: { edition },
+      });
+      expect(groups.flatMap((group) => group.items.map((item) => item.id))).toEqual(["members"]);
+    }
   });
 });

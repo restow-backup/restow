@@ -3,6 +3,7 @@ import type {
   ProviderAlertDto,
   ProviderKpisDto,
   ProviderTenantRowDto,
+  TenantKind,
   TenantStatus,
 } from "../../../../apps/api/src/features/dashboard/dto.js";
 import type { TenantSummaryDto } from "../../../../apps/api/src/routes/v1/status.js";
@@ -23,6 +24,7 @@ export interface TenantIdentity {
   name: string;
   slug: string;
   status: TenantStatus;
+  kind: TenantKind;
 }
 
 /** The tenant's figures as read in its own pinned transaction. */
@@ -60,6 +62,7 @@ export function tenantRow(
     name: tenant.name,
     slug: tenant.slug,
     status: tenant.status,
+    kind: tenant.kind,
     mailboxes: usage.mailboxes,
     mailboxCap: usage.cap,
   };
@@ -69,9 +72,11 @@ export function tenantRow(
       loaded: false,
       readiness: null,
       protectedObjects: null,
+      ready: null,
+      needsAttention: null,
+      notRestorable: null,
       unverified: null,
       noBackup: null,
-      notRestorable: null,
       failures24h: null,
       failuresPrevious24h: null,
       lastBackupAt: null,
@@ -85,9 +90,11 @@ export function tenantRow(
     loaded: true,
     readiness: summary.readiness.overall,
     protectedObjects: summary.objects.active,
+    ready: summary.readiness.green,
+    needsAttention: summary.readiness.yellow,
+    notRestorable: summary.readiness.red,
     unverified: summary.readiness.unverified,
     noBackup: summary.readiness.noBackup,
-    notRestorable: summary.readiness.red,
     failures24h: facts.failures24h,
     failuresPrevious24h: facts.failuresPrevious24h,
     lastBackupAt: newest([
@@ -170,16 +177,31 @@ export function providerAlerts(
  * Provider-wide figures. Tenant figures are summed over the tenants that
  * could be read, and the ones left out are counted, so the page can say the
  * totals are incomplete instead of adding unknowns in as zeros.
+ *
+ * The operator's own organisation (`kind = internal`) is protected like any
+ * other tenant, so its objects, failures and storage are part of the sums, but
+ * it is not one of the provider's customers: the tenant counts leave it out.
  */
 export function providerKpis(rows: readonly ProviderTenantRowDto[]): ProviderKpisDto {
   const loaded = rows.filter((row): row is LoadedTenantRowDto => row.loaded);
+  const customers = rows.filter((row) => row.kind !== "internal");
   const sum = (pick: (row: LoadedTenantRowDto) => number) =>
     loaded.reduce((total, row) => total + pick(row), 0);
   return {
-    tenants: rows.length,
-    suspendedTenants: rows.filter((row) => row.status === "suspended").length,
+    tenants: customers.length,
+    suspendedTenants: customers.filter((row) => row.status === "suspended").length,
     unavailableTenants: rows.length - loaded.length,
-    tenantsNotReady: loaded.filter((row) => row.readiness === "red").length,
+    tenantsNotReady: customers.filter((row) => row.loaded && row.readiness === "red").length,
+    readiness: {
+      total: sum(
+        (row) => row.ready + row.needsAttention + row.notRestorable + row.unverified + row.noBackup,
+      ),
+      green: sum((row) => row.ready),
+      yellow: sum((row) => row.needsAttention),
+      red: sum((row) => row.notRestorable),
+      unverified: sum((row) => row.unverified),
+      noBackup: sum((row) => row.noBackup),
+    },
     protectedObjects: sum((row) => row.protectedObjects),
     unverifiedObjects: sum((row) => row.unverified),
     failures24h: sum((row) => row.failures24h),

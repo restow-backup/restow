@@ -48,6 +48,8 @@ const READINESS_RANK: Record<ReadinessState, number> = {
 };
 
 const READINESS_ORDER = ["red", "no_backup", "unverified", "yellow", "green"] as const;
+/** The machine stays in view while the other columns scroll. */
+const PINNED = ["name"] as const;
 
 function timeValue(value: string | null): number {
   const parsed = value ? Date.parse(value) : Number.NaN;
@@ -109,10 +111,12 @@ export function EndpointsTable({
     const list: ColumnDef<EndpointSummary>[] = [
       {
         id: "name",
+        // Pinned (see `pinnedColumns`): the width is fixed.
+        size: 288,
         // The search reads the label and the host name.
         accessorFn: (endpoint) => `${endpointName(endpoint)} ${endpoint.hostname}`,
         header: t("list.columns.name"),
-        meta: { label: t("list.columns.name"), cellClassName: "max-w-72" },
+        meta: { label: t("list.columns.name") },
         enableHiding: false,
         sortingFn: (a, b) =>
           endpointName(a.original).localeCompare(endpointName(b.original), undefined, {
@@ -150,6 +154,7 @@ export function EndpointsTable({
     if (showAgentColumns) {
       list.push({
         id: "profile",
+        size: 110,
         accessorFn: (endpoint) => endpoint.profile,
         header: t("list.columns.profile"),
         meta: { label: t("list.columns.profile"), className: "hidden 2xl:table-cell" },
@@ -165,6 +170,7 @@ export function EndpointsTable({
     list.push(
       {
         id: "system",
+        size: 150,
         accessorFn: (endpoint) => `${endpoint.os} ${endpoint.arch}`,
         header: t("list.columns.system"),
         meta: { label: t("list.columns.system"), className: "hidden md:table-cell" },
@@ -176,6 +182,7 @@ export function EndpointsTable({
       },
       {
         id: "status",
+        size: 150,
         accessorFn: (endpoint) => (endpoint.status === "revoked" ? "revoked" : endpoint.connection),
         header: t("list.columns.status"),
         meta: { label: t("list.columns.status") },
@@ -188,6 +195,7 @@ export function EndpointsTable({
       },
       {
         id: "readiness",
+        size: 150,
         accessorFn: (endpoint) => endpoint.readiness.state,
         header: t("list.columns.readiness"),
         meta: { label: t("list.columns.readiness"), headerClassName: "whitespace-nowrap" },
@@ -202,6 +210,7 @@ export function EndpointsTable({
       },
       {
         id: "lastBackup",
+        size: 150,
         accessorFn: (endpoint) => timeValue(endpoint.lastBackupAt),
         enableGlobalFilter: false,
         header: t("list.columns.lastBackup"),
@@ -214,6 +223,7 @@ export function EndpointsTable({
       },
       {
         id: "lastSeen",
+        size: 130,
         accessorFn: (endpoint) => timeValue(endpoint.lastSeenAt),
         enableGlobalFilter: false,
         header: t("list.columns.lastSeen"),
@@ -234,6 +244,7 @@ export function EndpointsTable({
       },
       {
         id: "attention",
+        size: 200,
         accessorFn: (endpoint) => endpoint.attention.length,
         enableGlobalFilter: false,
         header: t("list.columns.attention"),
@@ -245,6 +256,7 @@ export function EndpointsTable({
     if (showAgentColumns) {
       list.push({
         id: "agentVersion",
+        size: 120,
         accessorFn: (endpoint) => endpoint.agentVersion ?? "",
         header: t("list.columns.agentVersion"),
         meta: {
@@ -289,6 +301,7 @@ export function EndpointsTable({
       onRetry={onRetry}
       errorTitle={t("list.errors.load")}
       empty={empty}
+      pinnedColumns={PINNED}
       sorting={{ mode: "client", initial: [{ id: "name", desc: false }] }}
       pagination={{ mode: "client", pageSize: 25 }}
       toolbar={(table) => (

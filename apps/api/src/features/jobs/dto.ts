@@ -69,6 +69,8 @@ export interface JobDto {
   protectedObjectId: string | null;
   object: JobObjectDto | null;
   scheduleId: string | null;
+  /** The backup job (definition) the run belongs to, when it was queued for one. */
+  backupJobId: string | null;
   /** What started the job: a schedule, a person, or the worker right after a backup. */
   trigger: "scheduled" | "manual" | "after_backup";
   /** Backup jobs: a full re-enumeration was requested. */
@@ -356,10 +358,12 @@ export function toJobDto(row: JobViewRow, itemCauses: ItemCauseCountDto[] = []):
     protectedObjectId: job.protectedObjectId,
     object,
     scheduleId: text(payload?.scheduleId),
+    backupJobId: text(payload?.backupJobId),
     trigger:
       payload?.afterBackup === true
         ? "after_backup"
-        : text(payload?.scheduleId) !== null
+        : text(payload?.scheduleId) !== null ||
+            (text(payload?.backupJobId) !== null && payload?.runNow !== true)
           ? "scheduled"
           : "manual",
     full: payload?.full === true,

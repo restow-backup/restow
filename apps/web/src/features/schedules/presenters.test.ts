@@ -8,8 +8,9 @@ import "./i18n.js";
 import {
   JOB_STATUS_TONE,
   type ScheduleDraft,
+  cadenceDraftFrom,
+  checkCadence,
   checkDraft,
-  coverageOf,
   describeCadence,
   describeScope,
   draftFromSchedule,
@@ -17,9 +18,12 @@ import {
   formatClock,
   inputFromDraft,
   intervalRuns,
+  isShownSchedule,
   lastActivityAt,
+  maintenanceKinds,
   mondayFirst,
   needsDisableConfirmation,
+  newCadenceDraft,
   newDraft,
   patchFromDraft,
   timeZoneOptions,
@@ -103,25 +107,55 @@ describe("describeScope", () => {
   it("says plainly that another person's object is not named", () => {
     const withheld = item({ protectedObject: { id: null, name: null, kind: "onedrive" } });
     expect(describeScope(withheld, en())).toBe("One OneDrive (not yours)");
-    // Still narrowed to one object: it does not count as covering everything.
-    expect(coverageOf([withheld], "backup").state).toBe("missing");
   });
 });
 
-describe("coverageOf", () => {
-  it("is active only with a tenant-wide schedule that is on", () => {
-    expect(coverageOf([item()], "backup")).toEqual({ state: "active", paused: null });
-    expect(coverageOf([], "backup")).toEqual({ state: "missing", paused: null });
-    const paused = item({ enabled: false });
-    expect(coverageOf([paused], "backup")).toEqual({ state: "paused", paused });
-    // A schedule for one object does not protect the others.
-    expect(
-      coverageOf([item({ protectedObject: { id: "o", name: "Anna", kind: "mailbox" } })], "backup")
-        .state,
-    ).toBe("missing");
-    expect(coverageOf([item()], "verify").state).toBe("missing");
+describe("jobs replace the backup and verify schedules", () => {
+  it("hides a backup or verify schedule a job took over, and keeps the others", () => {
+    const taken = { supersededByJobId: "job-1" };
+    expect(isShownSchedule(item({ ...taken }))).toBe(false);
+    expect(isShownSchedule(item({ kind: "verify", ...taken }))).toBe(false);
+    // One the migration left alone still runs, so it stays visible and editable.
+    expect(isShownSchedule(item({ supersededByJobId: null }))).toBe(true);
+    expect(isShownSchedule(item())).toBe(true);
+    // Maintenance is never superseded.
+    expect(isShownSchedule(item({ kind: "scrub", ...taken }))).toBe(true);
   });
 
+  it("recommends maintenance only", () => {
+    expect(maintenanceKinds(["backup", "verify", "scrub", "retention", "directory"])).toEqual([
+      "scrub",
+      "retention",
+      "directory",
+    ]);
+  });
+});
+
+describe("cadence draft", () => {
+  it("is the part of the schedule form the job editor shares", () => {
+    const draft = cadenceDraftFrom(
+      { intervalMinutes: null, cron: "30 4 * * 1-5" },
+      "Europe/Berlin",
+    );
+    expect(draft).toMatchObject({ presetType: "weekly", time: "04:30", timezone: "Europe/Berlin" });
+    expect(checkCadence(draft)).toEqual({
+      ok: true,
+      cadence: { intervalMinutes: null, cron: "30 4 * * 1-5" },
+    });
+    expect(checkCadence({ ...newCadenceDraft("UTC"), hours: "" })).toMatchObject({
+      ok: false,
+      field: "hours",
+      reason: "required",
+    });
+  });
+
+  it("starts a new schedule as a scrub, a kind that is still created here", () => {
+    expect(newDraft("UTC", "scrub").kind).toBe("scrub");
+    expect(newDraft("UTC").kind).toBe("backup");
+  });
+});
+
+describe("switching a schedule off", () => {
   it("asks before switching off backups or verification only", () => {
     expect(needsDisableConfirmation(item())).toBe(true);
     expect(needsDisableConfirmation(item({ kind: "verify" }))).toBe(true);

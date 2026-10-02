@@ -1,0 +1,219 @@
+{
+  "title": "{scope, select, organisation {Settings} other {Tenant settings}}",
+  "sections": {
+    "label": "{scope, select, organisation {Sections of your organisation} other {Sections of this tenant}}",
+    "select": "Section",
+    "overview": "Overview",
+    "connections": "Connections",
+    "protection": "Protection",
+    "jobs": "Jobs & schedules",
+    "retention": "Backup retention",
+    "storage": "Storage",
+    "agents": "Agents",
+    "archive": "Archive",
+    "notifications": "Notifications",
+    "integrations": "Integrations",
+    "members": "Members",
+    "masterData": "Master data"
+  },
+  "descriptions": {
+    "overview": "{scope, select, organisation {Your organisation at a glance: what is protected, whether it is proven restorable and where each setting lives.} other {{tenant} at a glance: what is protected, whether it is proven restorable and where each setting lives.}}",
+    "connections": "Where the data comes from: Microsoft 365, IMAP mailboxes and mail file imports.",
+    "protection": "Which mailboxes, OneDrives and IMAP accounts are protected, and by which rules.",
+    "jobs": "What runs on its own: backups, restore checks and maintenance.",
+    "retention": "How long the restore points of the backups are kept.",
+    "storage": "Where the backup data is stored, and how much of it there is.",
+    "agents": "Install the backup agent on servers and clients, and decide how it updates.",
+    "archive": "How long archived mail is kept, and the holds that stop its deletion.",
+    "notifications": "Who is told what: the recipients and the rules that send alerts and reports.",
+    "integrations": "API keys and webhooks for RMM, PSA and ticket systems.",
+    "members": "Who can sign in, and with which role.",
+    "masterData": "Name, customer number, language, time zone, address and contacts."
+  },
+  "access": {
+    "role": "Your role in the provider team can look at this page but not change it. Changing settings needs the Administrator role or higher.",
+    "demo": "This is the public demo: the settings of this section can be looked at but not changed."
+  },
+  "locked": {
+    "title": "{section} is not unlocked",
+    "description": "The section stays in the list so that you can see it exists. The license page shows what unlocks it and takes the key.",
+    "action": "Open the license page"
+  },
+  "states": {
+    "notYours": {
+      "title": "This is not your {scope, select, organisation {organisation} other {tenant}}",
+      "description": "You administer only your own {scope, select, organisation {organisation} other {tenant}}. The address names another one, or one that does not exist."
+    },
+    "unknown": {
+      "title": "This {scope, select, organisation {organisation} other {tenant}} does not exist",
+      "description": "The address names something that does not exist, or that your role in the provider team does not cover."
+    },
+    "notAdmin": {
+      "title": "Only administrators open this page",
+      "description": "In {name} your account has the user role. Ask an administrator if you need more access."
+    },
+    "closed": {
+      "title": "{name} is closed",
+      "description": "The {scope, select, organisation {organisation} other {tenant}} is suspended or being deleted. Only the provider can open its pages."
+    },
+    "openOwn": "Open the settings of {name}",
+    "home": "Go to the overview"
+  },
+  "protection": {
+    "backToObjects": "Back to protected objects"
+  },
+  "integrations": {
+    "backToList": "Back to integrations"
+  },
+  "connections": {
+    "tabsLabel": "Kinds of connection",
+    "tabs": {
+      "microsoft365": "Microsoft 365",
+      "imap": "IMAP",
+      "google": "Google Workspace",
+      "imports": "Imports"
+    },
+    "google": {
+      "title": "Google Workspace is not available yet",
+      "description": "Until it is, Gmail mailboxes are backed up through IMAP.",
+      "action": "Open IMAP"
+    }
+  },
+  "overview": {
+    "error": "The overview could not be loaded.",
+    "own": "Own organisation",
+    "customerNumber": "Customer number",
+    "created": "created {date}",
+    "sectionsTitle": "Everything about this {scope, select, organisation {organisation} other {tenant}}",
+    "figures": {
+      "objects": "Protected objects",
+      "objectsLink": "Open protection",
+      "machines": "Machines",
+      "machinesLink": "Open agents",
+      "machinesSplit": "{servers, plural, one {# server} other {# servers}} · {clients, plural, one {# client} other {# clients}}",
+      "readiness": "Readiness",
+      "readinessLink": "Open recovery readiness",
+      "connections": "Connections",
+      "connectionsLink": "Open connections",
+      "noneYet": "Nothing yet",
+      "unavailable": "Not available right now",
+      "noConnection": "Nothing connected yet",
+      "connected": "{connected} of {total} connected",
+      "failing": "{count, plural, one {# connection reports an error} other {# connections report an error}}",
+      "allWell": "No connection reports an error",
+      "kinds": {
+        "mailbox": "{count, plural, one {# mailbox} other {# mailboxes}}",
+        "onedrive": "{count, plural, one {# OneDrive} other {# OneDrives}}",
+        "imap": "{count, plural, one {# IMAP account} other {# IMAP accounts}}"
+      }
+    },
+    "steps": {
+      "show": "Show setup steps",
+      "hide": "Hide setup steps"
+    },
+    "actions": {
+      "moreFor": "More actions for {name}",
+      "suspend": "Suspend",
+      "resume": "Resume",
+      "delete": "Delete tenant"
+    },
+    "suspended": {
+      "title": "This tenant is suspended",
+      "description": "Its jobs and its sign-ins are paused. Only the provider can open its pages until it is resumed."
+    },
+    "deleting": {
+      "title": "This tenant is being deleted",
+      "description": "Its data is being removed. Nothing can be changed any more."
+    },
+    "suspend": {
+      "title": "Suspend {name}?",
+      "description": "Backups and the other jobs of the tenant stop, and its members can no longer sign in. Nothing is deleted. You can resume the tenant at any time.",
+      "confirm": "Suspend tenant"
+    },
+    "resume": {
+      "title": "Resume {name}?",
+      "description": "Jobs run again and the members can sign in again.",
+      "confirm": "Resume tenant"
+    },
+    "toasts": {
+      "suspended": "The tenant is suspended.",
+      "resumed": "The tenant is active again."
+    },
+    "danger": {
+      "title": "Delete tenant",
+      "description": "Deleting the tenant removes its backups, its archive and its keys for good. This cannot be undone.",
+      "internal": "This is your own organisation. It cannot be deleted while it is marked as such."
+    }
+  },
+  "agents": {
+    "enrol": {
+      "title": "Add a machine",
+      "description": "Each machine gets a one-time install command that is valid for 24 hours. The machines themselves, with their status and readiness, are under Servers & endpoints, Inventory.",
+      "server": "New server",
+      "client": "New client",
+      "inventory": "Open the inventory"
+    }
+  },
+  "archive": {
+    "retention": {
+      "title": "Retention",
+      "description": "How long mail stays in the archive before it may be deleted.",
+      "loadError": "The retention could not be loaded.",
+      "period": "{years, plural, one {# year} other {# years}}",
+      "unlimited": "Without end",
+      "unlimitedHint": "Archived mail is kept until it is removed by hand.",
+      "end_of_year": "The period ends on 31 December of the year the mail was received, plus the years above.",
+      "from_capture": "The period counts from the day the mail was captured.",
+      "fixed": "{scope, select, organisation {Your organisation uses this period in this version.} other {Every tenant uses this period in this version.}} Choosing another one is planned."
+    },
+    "capture": {
+      "title": "Capture and journal address",
+      "description": "How mail gets into the archive, the journal address for Exchange Online, its rotation and the guide for the connector are on the Archive page. They are part of the daily archive, not of the settings.",
+      "link": "Open the Archive page"
+    }
+  },
+  "notifications": {
+    "loadError": "The recipients could not be loaded.",
+    "recipients": {
+      "title": "Recipients",
+      "description": "The people who are told about this {scope, select, organisation {organisation} other {tenant}}, and what each one wants to hear about. Saving brings the rules below up to date from the next alert on.",
+      "weeklyUnavailable": "The weekly report is not available on this installation. The choice is kept and takes effect when reports are.",
+      "discard": "Discard changes",
+      "save": "Save recipients"
+    },
+    "alertsLink": "See the alerts that were sent"
+  },
+  "masterData": {
+    "loadError": "The master data could not be loaded.",
+    "hint": {
+      "role": "Your role in the provider team can look at the master data but not change it. Changing it needs the Administrator role or higher.",
+      "tenantAdmin": "Whoever runs this installation keeps this data. Ask them if something is wrong."
+    },
+    "identity": {
+      "title": "Name",
+      "description": "How {scope, select, organisation {your organisation} other {the tenant}} is called in the menu, in mails and in reports.",
+      "edit": "Edit name",
+      "name": "Name",
+      "slug": "Short name",
+      "cap": "Agreed mailboxes",
+      "noCap": "Not set"
+    },
+    "own": {
+      "title": "Own organisation",
+      "badge": "Marked",
+      "isOwn": "This is your own organisation: its mailboxes and servers are yours. It is listed first and cannot be deleted while it is marked as such.",
+      "markDescription": "Mark this tenant as your own organisation. It is then listed first and cannot be deleted. Only one tenant can be marked.",
+      "mark": "Mark as own organisation"
+    },
+    "installation": {
+      "title": "From the installation",
+      "description": "These values are the same for everyone on this server and are shown here to read.",
+      "publicUrl": "Public address",
+      "publicUrlNone": "Not set: this installation runs in local mode.",
+      "defaultStorage": "Default storage",
+      "defaultStorageNone": "Not available.",
+      "defaultStorageUsed": "In use here: {scope, select, organisation {your organisation} other {this tenant}} stores on the installation's default ({kind, select, s3 {S3} other {local storage}}).",
+      "defaultStorageUnused": "Not in use here: {scope, select, organisation {your organisation} other {this tenant}} has storage of its own."
+    }
+  }
+}

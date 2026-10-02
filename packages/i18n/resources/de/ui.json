@@ -102,5 +102,10 @@
     "scrubbing": "Speicherprüfung läuft",
     "integrityCheck": "Integrität wird geprüft",
     "storageMigration": "Speichermigration läuft"
+  },
+  "installationValue": {
+    "label": "Wird in der Installation festgelegt.",
+    "open": "{section} öffnen",
+    "ask": "Das ändert der Betreiber dieser Installation."
   }
 }

@@ -71,6 +71,8 @@ import {
 import {
   type Database,
   type Source,
+  backupJobMembers,
+  backupJobs,
   jobs,
   protectedObjects,
   safeErrorMessage,
@@ -412,6 +414,12 @@ export interface BackupStore {
    * tenant-wide one), or null when restore checks are not scheduled.
    */
   verifyScheduleId(protectedObjectId: string): Promise<string | null>;
+  /**
+   * The enabled mail job whose restore checks cover the object (its own override first, else the
+   * job's; an "all" job covers an object that is in no job), or null. A job comes before the
+   * schedules: they only remain for what no job could take over.
+   */
+  verifyBackupJobId(protectedObjectId: string): Promise<string | null>;
   /** Record a job the handler enqueued; a row the worker already upserted wins. */
   insertQueuedJob(row: QueuedJobRow): Promise<void>;
   /** Re-seal a secret whose plaintext changed (a rotated OAuth2 refresh token). */
@@ -484,6 +492,8 @@ export function pgBackupStore(
               eq(schedules.tenantId, tenantId),
               eq(schedules.kind, "verify"),
               eq(schedules.enabled, true),
+              // A schedule a job took over is the job's now (verifyBackupJobId).
+              isNull(schedules.supersededByJobId),
               or(
                 isNull(schedules.protectedObjectId),
                 eq(schedules.protectedObjectId, protectedObjectId),
@@ -494,6 +504,46 @@ export function pgBackupStore(
           .limit(1),
       );
       return row?.id ?? null;
+    },
+
+    async verifyBackupJobId(protectedObjectId) {
+      return run(async (tx) => {
+        const [member] = await tx
+          .select({
+            jobId: backupJobs.id,
+            enabled: backupJobs.enabled,
+            verifySchedule: backupJobs.verifySchedule,
+            overrides: backupJobMembers.overrides,
+          })
+          .from(backupJobMembers)
+          .innerJoin(backupJobs, eq(backupJobs.id, backupJobMembers.jobId))
+          .where(
+            and(
+              eq(backupJobMembers.tenantId, tenantId),
+              eq(backupJobMembers.protectedObjectId, protectedObjectId),
+              eq(backupJobs.kind, "mail"),
+            ),
+          )
+          .limit(1);
+        if (member) {
+          return member.enabled && (member.overrides?.verifySchedule ?? member.verifySchedule)
+            ? member.jobId
+            : null;
+        }
+        const [covering] = await tx
+          .select({ id: backupJobs.id, verifySchedule: backupJobs.verifySchedule })
+          .from(backupJobs)
+          .where(
+            and(
+              eq(backupJobs.tenantId, tenantId),
+              eq(backupJobs.kind, "mail"),
+              eq(backupJobs.scopeMode, "all"),
+              eq(backupJobs.enabled, true),
+            ),
+          )
+          .limit(1);
+        return covering?.verifySchedule ? covering.id : null;
+      });
     },
 
     async insertQueuedJob(row) {
@@ -891,8 +941,9 @@ export async function enqueueVerifyAfterBackup(options: {
   readonly jobIdGenerator?: () => string;
 }): Promise<string | null> {
   const { store, tenantId, protectedObjectId, send, logger } = options;
-  const scheduleId = await store.verifyScheduleId(protectedObjectId);
-  if (scheduleId === null) {
+  const backupJobId = await store.verifyBackupJobId(protectedObjectId);
+  const scheduleId = backupJobId === null ? await store.verifyScheduleId(protectedObjectId) : null;
+  if (backupJobId === null && scheduleId === null) {
     return null;
   }
   const payload: VerifyJobPayload = {
@@ -901,9 +952,10 @@ export async function enqueueVerifyAfterBackup(options: {
     protectedObjectId,
     kind: "verify",
     sampleSize: DEFAULT_VERIFY_SAMPLE_SIZE,
-    // The schedule that asked for checks, so its "last run" shows this one;
-    // `afterBackup` tells it apart from a run the schedule fired itself.
-    scheduleId,
+    // The job (or the schedule an older release made) that asked for checks, so its "last run"
+    // shows this one; `afterBackup` tells it apart from a run it fired itself.
+    ...(backupJobId !== null ? { backupJobId } : {}),
+    ...(scheduleId !== null ? { scheduleId } : {}),
     afterBackup: true,
   };
   const singletonKey = singletonKeyFor("verify", payload);

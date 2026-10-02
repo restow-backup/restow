@@ -110,6 +110,9 @@ DECLARE
     'endpoint_downloads',
     'endpoint_repository_locks',
     'endpoint_snapshot_flags',
+    'backup_jobs',
+    'backup_job_members',
+    'run_samples',
     -- Read and written only by the installation role (packages/db roles.ts);
     -- the policy is a second line should the tenant role ever be granted it.
     'provider_member_tenants'

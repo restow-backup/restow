@@ -2,6 +2,7 @@ import { Archive, Building2, HardDrive, LayoutDashboard, ListChecks } from "luci
 import { describe, expect, it } from "vitest";
 
 import {
+  NAV_GROUPS,
   type NavItem,
   type NavLock,
   type NavLockContext,
@@ -13,6 +14,7 @@ import {
   isNavItemOffered,
   isNavItemPage,
   matchedNavPath,
+  navGroupLabelKey,
   pathAfterTenantSwitch,
   visibleNavItems,
 } from "./navigation.js";
@@ -41,19 +43,62 @@ const items: NavItem[] = [
 describe("inferNavGroup", () => {
   it("maps ids to sections by keyword", () => {
     expect(inferNavGroup("restore")).toBe("mail");
-    expect(inferNavGroup("archive-search")).toBe("mail");
     expect(inferNavGroup("mail-exports")).toBe("mail");
+    // The archive is part of Mail & SaaS.
+    expect(inferNavGroup("archive-search")).toBe("mail");
+    expect(inferNavGroup("journal")).toBe("mail");
     expect(inferNavGroup("endpoint-agents")).toBe("endpoints");
     expect(inferNavGroup("inventory")).toBe("endpoints");
     expect(inferNavGroup("tenants")).toBe("tenants");
-    expect(inferNavGroup("audit-log")).toBe("admin");
-    expect(inferNavGroup("license")).toBe("admin");
+    expect(inferNavGroup("audit-log")).toBe("installation");
+    expect(inferNavGroup("license")).toBe("installation");
     expect(inferNavGroup("dashboard")).toBe("daily");
     expect(inferNavGroup("history")).toBe("daily");
   });
 
+  it("puts the tenant's own pages with the tenants and the operator's with the installation", () => {
+    // Tenant level: the settings (in either wording), repositories, integrations, members.
+    for (const id of [
+      "tenant-settings",
+      "organisation-settings",
+      "repositories",
+      "integrations",
+      "tenant-members",
+    ]) {
+      expect(inferNavGroup(id), id).toBe("tenants");
+    }
+    // Installation level, the settings of the installation itself included.
+    for (const id of ["settings", "team", "audit", "license", "resources", "notifications"]) {
+      expect(inferNavGroup(id), id).toBe("installation");
+    }
+  });
+
   it("falls back to other for unknown ids", () => {
     expect(inferNavGroup("something-else")).toBe("other");
+  });
+});
+
+describe("the sections", () => {
+  it("run Daily, Mail & SaaS, Servers & endpoints, Tenants, Installation, then the rest", () => {
+    expect([...NAV_GROUPS]).toEqual([
+      "daily",
+      "mail",
+      "endpoints",
+      "tenants",
+      "installation",
+      "other",
+    ]);
+  });
+
+  it("label the tenants section Organisation without tenant management, by the feature alone", () => {
+    expect(navGroupLabelKey("tenants", { features: [] })).toBe("nav.groups.organisation");
+    expect(navGroupLabelKey("tenants", { features: null })).toBe("nav.groups.organisation");
+    expect(navGroupLabelKey("tenants", { features: ["tenants.additional"] })).toBe(
+      "nav.groups.tenants",
+    );
+    for (const group of NAV_GROUPS.filter((id) => id !== "tenants")) {
+      expect(navGroupLabelKey(group, { features: [] })).toBe(`nav.groups.${group}`);
+    }
   });
 });
 
@@ -240,7 +285,6 @@ describe("entries with search params, extra paths and availability", () => {
       search: { type: "mail" },
       labelKey: "x",
       icon: ListChecks,
-      soon: "0.2.0",
     },
     {
       id: "endpoint-jobs",
@@ -248,7 +292,6 @@ describe("entries with search params, extra paths and availability", () => {
       search: { type: "endpoint" },
       labelKey: "x",
       icon: ListChecks,
-      soon: "0.2.0",
     },
     {
       id: "setup",
@@ -256,6 +299,15 @@ describe("entries with search params, extra paths and availability", () => {
       matches: ["/schedules", "/imports", "/sources/import"],
       labelKey: "x",
       icon: Building2,
+    },
+    // A feature of a later release: capacity planning (the jobs left this list with 0.2.0).
+    {
+      id: "resources",
+      path: "/resources",
+      labelKey: "x",
+      icon: HardDrive,
+      group: "installation",
+      soon: "0.5.0",
     },
   ];
 
@@ -315,8 +367,7 @@ describe("entries with search params, extra paths and availability", () => {
     const groups = groupNavItems(entries, null, allow, NO_LOCKS);
     const soon = groups.flatMap((group) => group.items).filter((item) => item.soon);
     expect(soon.map((item) => [item.id, item.soon, item.locked])).toEqual([
-      ["mail-jobs", "0.2.0", false],
-      ["endpoint-jobs", "0.2.0", false],
+      ["resources", "0.5.0", false],
     ]);
   });
 });

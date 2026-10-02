@@ -39,6 +39,7 @@ function job(overrides: Partial<JobDto> = {}): JobDto {
       status: "active",
     },
     scheduleId: null,
+    backupJobId: null,
     trigger: "manual",
     full: false,
     createdAt: "2026-09-23T09:00:00.000Z",

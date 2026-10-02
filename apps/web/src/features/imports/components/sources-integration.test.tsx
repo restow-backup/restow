@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { setActiveTenantId } from "@/lib/tenant";
 import type { ReactNode } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -78,12 +79,16 @@ describe("the import source in the sources list", () => {
 
 describe("the import source panel", () => {
   it("links to the wizard and to the history and offers no connection test", () => {
+    // The wizard and the history are pages of the active tenant's page (Connections).
+    setActiveTenantId("tenant-1");
     const view = mount(<ImportSourcePanel mailboxes={3} />);
     expect(text(view.container)).toContain("Imported mail files");
     expect(text(view.container)).toContain("3");
     expect(text(view.container)).toContain("imported mailboxes");
-    expect(view.container.querySelector('a[href="/sources/import"]')).not.toBeNull();
-    expect(view.container.querySelector('a[href="/imports"]')).not.toBeNull();
+    expect(
+      view.container.querySelector('a[href="/tenants/tenant-1/connections/imports/new"]'),
+    ).not.toBeNull();
+    expect(view.container.querySelector('a[href="/tenants/tenant-1/connections"]')).not.toBeNull();
     expect(text(view.container)).not.toContain("Test connection");
     view.unmount();
   });

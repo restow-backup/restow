@@ -103,6 +103,8 @@ export interface EndpointSummaryDto {
   readiness: ReadinessDto;
   latestRun: RunSummaryDto | null;
   attention: EndpointAttention[];
+  /** The backup job the machine belongs to; null for a machine in no job. */
+  job: { id: string; name: string } | null;
   createdAt: string;
   revokedAt: string | null;
 }
@@ -207,8 +209,10 @@ export interface EndpointDetailDto extends EndpointSummaryDto {
   } | null;
   /** Hooks: what the machine allows and what is configured (docs/AGENT.md, "Hooks"). */
   hooks: EndpointHooksDto;
-  /** The tenant paused automatic agent updates. */
+  /** No new agent release is installed on this machine: the tenant paused updates, or the machine is paused on its own. */
   autoUpdatePaused: boolean;
+  /** The machine is paused on its own (an override that outlives the tenant's setting). */
+  autoUpdateOwnPause: boolean;
 }
 
 /** One configured hook as everybody may see it: whether it is set, and a fingerprint of its text. */
@@ -529,6 +533,7 @@ export function toSummary(
   readiness: EndpointReadinessDto,
   now: Date,
   rated: RatedTests,
+  job: { id: string; name: string } | null = null,
 ): EndpointSummaryDto {
   return {
     id: endpoint.id,
@@ -549,6 +554,7 @@ export function toSummary(
     readiness: toReadiness(readiness),
     latestRun: latestRun ? toRunSummary(latestRun, rated) : null,
     attention: attentionOf(endpoint, latestRun, readiness, now),
+    job,
     createdAt: endpoint.createdAt.toISOString(),
     revokedAt: iso(endpoint.revokedAt),
   };

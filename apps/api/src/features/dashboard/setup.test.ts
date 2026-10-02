@@ -9,7 +9,7 @@ const READY: SetupFacts = {
   enabledBackupSchedules: 1,
   completedSnapshots: 30,
   verification: { reports: 4, green: 3 },
-  mail: { configured: true, lastTestOk: true },
+  mail: { configured: true, lastTestOk: true, notNeeded: false },
 };
 
 const FRESH: SetupFacts = {
@@ -19,7 +19,7 @@ const FRESH: SetupFacts = {
   enabledBackupSchedules: 0,
   completedSnapshots: 0,
   verification: { reports: 0, green: 0 },
-  mail: { configured: false, lastTestOk: null },
+  mail: { configured: false, lastTestOk: null, notNeeded: false },
 };
 
 function stateOf(facts: SetupFacts, id: string) {
@@ -34,10 +34,12 @@ describe("setup checklist", () => {
     expect(checklist).toMatchObject({ complete: true, done: 7, total: 7 });
   });
 
-  it("starts with nothing done on a fresh tenant", () => {
+  it("starts with only the skipped mail settled on a fresh tenant", () => {
     const checklist = buildSetupChecklist(FRESH, "provider_admin");
-    expect(checklist).toMatchObject({ complete: false, done: 0, total: 7 });
-    expect(checklist.items.every((item) => item.state === "open")).toBe(true);
+    expect(checklist).toMatchObject({ complete: false, done: 1, total: 7 });
+    expect(checklist.items.filter((item) => item.state !== "open").map((item) => item.id)).toEqual([
+      "notificationMail",
+    ]);
   });
 
   it("flags what is set up but broken instead of calling it open", () => {
@@ -58,7 +60,10 @@ describe("setup checklist", () => {
       stateOf({ ...READY, verification: { reports: 2, green: 0 } }, "firstVerification"),
     ).toEqual({ state: "attention", reason: "not_green" });
     expect(
-      stateOf({ ...READY, mail: { configured: true, lastTestOk: false } }, "notificationMail"),
+      stateOf(
+        { ...READY, mail: { configured: true, lastTestOk: false, notNeeded: false } },
+        "notificationMail",
+      ),
     ).toEqual({ state: "attention", reason: "test_failed" });
   });
 
@@ -71,11 +76,62 @@ describe("setup checklist", () => {
       stateOf({ ...FRESH, sources: { active: 0, error: 0, pending: 1 } }, "source")?.reason,
     ).toBe("consent_pending");
     expect(stateOf(FRESH, "schedules")?.reason).toBe("no_backup_schedule");
-    expect(stateOf(FRESH, "notificationMail")?.reason).toBe("not_configured");
     expect(
-      stateOf({ ...FRESH, mail: { configured: true, lastTestOk: null } }, "notificationMail")
-        ?.reason,
+      stateOf(
+        { ...FRESH, mail: { configured: true, lastTestOk: null, notNeeded: false } },
+        "notificationMail",
+      )?.reason,
     ).toBe("not_tested");
+  });
+
+  describe("the notification mail, the one optional step", () => {
+    const mail = (facts: Partial<SetupFacts["mail"]>): SetupFacts => ({
+      ...READY,
+      mail: { configured: true, lastTestOk: null, notNeeded: false, ...facts },
+    });
+
+    it("counts as not needed when the setup wizard skipped it (no transport)", () => {
+      expect(stateOf(mail({ configured: false }), "notificationMail")).toEqual({
+        state: "not_needed",
+        reason: "mail_skipped",
+      });
+    });
+
+    it("is not needed once the operator marks a configured transport that way", () => {
+      expect(stateOf(mail({ notNeeded: true }), "notificationMail")).toEqual({
+        state: "not_needed",
+        reason: "mail_marked",
+      });
+      // A failed test is still shown when it is marked: the mark answers "do I want a test?", not "does it work?".
+      expect(stateOf(mail({ notNeeded: true, lastTestOk: false }), "notificationMail")).toEqual({
+        state: "not_needed",
+        reason: "mail_marked",
+      });
+    });
+
+    it("is done once a test mail went out, whatever the mark says", () => {
+      expect(stateOf(mail({ notNeeded: true, lastTestOk: true }), "notificationMail")).toEqual({
+        state: "done",
+        reason: null,
+      });
+    });
+
+    it("lets Start disappear for a homelab that skipped the mail step", () => {
+      const homelab: SetupFacts = {
+        ...READY,
+        mail: { configured: false, lastTestOk: null, notNeeded: false },
+      };
+      expect(buildSetupChecklist(homelab, "provider_admin")).toMatchObject({
+        complete: true,
+        done: 7,
+        total: 7,
+      });
+    });
+
+    it("keeps a configured transport that was never tested open", () => {
+      const checklist = buildSetupChecklist(mail({}), "provider_admin");
+      expect(checklist).toMatchObject({ complete: false, done: 6, total: 7 });
+    });
   });
 
   it("marks steps the viewer cannot fix as information", () => {

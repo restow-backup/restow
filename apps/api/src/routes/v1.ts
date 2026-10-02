@@ -40,7 +40,7 @@ import { registerWebhookRoutes } from "./v1/webhooks.js";
  */
 
 /** Version of the v1 contract; additive changes raise the minor version. */
-export const V1_CONTRACT_VERSION = "1.0.0";
+export const V1_CONTRACT_VERSION = "1.2.0";
 
 /** The API's description, naming the product the way this installation is branded. */
 function describeApi(): string {

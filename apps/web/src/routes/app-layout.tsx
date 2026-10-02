@@ -14,6 +14,7 @@ import {
 } from "@/components/kit/page-context";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { AuthLayout } from "@/components/layout/auth-layout";
+import { ChooseTenantPage } from "@/components/layout/choose-tenant";
 import { RouteErrorPage } from "@/components/layout/route-error";
 import { useShellEntry } from "@/components/layout/shell-entry";
 import { ShellSkeleton } from "@/components/layout/shell-skeleton";
@@ -25,12 +26,13 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { toast } from "@/components/ui/sonner";
 import { DisclaimerDialog } from "@/features/disclaimer/disclaimer-dialog";
-import { TenantSetupTabs } from "@/features/tenant-setup/setup-tabs";
+import { LiveChannelProvider } from "@/features/history/live/provider";
 import { MaintenanceBanner, MaintenanceProvider, ShellMaintenanceModal } from "@/features/updates";
 import { queryKeys, setupStateQueryOptions } from "@/lib/api";
 import { LOGIN_PATH, loginRedirectFor } from "@/lib/entry";
 import { onUnauthorized } from "@/lib/query";
-import { useSession } from "@/lib/session";
+import { isTenantOnlyPage } from "@/lib/scope";
+import { sessionScope, useSession } from "@/lib/session";
 
 /** Route id of the authenticated shell (`appLayoutRoute` in routes/tree.ts). */
 const APP_ROUTE_ID = "/app";
@@ -115,31 +117,30 @@ export function ShellFrame({ children }: { children: React.ReactNode }) {
   return (
     // The maintenance state (an announced or running update) is for everyone signed in.
     <MaintenanceProvider>
-      <SidebarProvider>
-        <PageProvider
-          // A tab of the tenant setup area shows its own icon, not the area's.
-          icon={entry?.setupTab?.icon ?? entry?.item.icon ?? null}
-          tenantName={activeTenant?.name ?? null}
-        >
-          <CommandPaletteProvider>
-            <SkipLink />
-            <AppSidebar />
-            {/*
+      {/* The one live connection of the tab: every page below moves without a request of its own. */}
+      <LiveChannelProvider>
+        <SidebarProvider>
+          <PageProvider icon={entry?.item.icon ?? null} tenantName={activeTenant?.name ?? null}>
+            <CommandPaletteProvider>
+              <SkipLink />
+              <AppSidebar />
+              {/*
               Not the primitive's SidebarInset: that renders <main>, which would
               put the top bar inside the main landmark and make "Skip to content"
               land on the top bar instead of the page.
             */}
-            <div data-slot="sidebar-inset" className="flex min-w-0 flex-1 flex-col bg-background">
-              {/* The maintenance banner stays above the top bar while the page scrolls. */}
-              <div className="sticky top-0 z-20">
-                <MaintenanceBanner />
-                <TopBar />
+              <div data-slot="sidebar-inset" className="flex min-w-0 flex-1 flex-col bg-background">
+                {/* The maintenance banner stays above the top bar while the page scrolls. */}
+                <div className="sticky top-0 z-20">
+                  <MaintenanceBanner />
+                  <TopBar />
+                </div>
+                <ShellMain>{children}</ShellMain>
               </div>
-              <ShellMain>{children}</ShellMain>
-            </div>
-          </CommandPaletteProvider>
-        </PageProvider>
-      </SidebarProvider>
+            </CommandPaletteProvider>
+          </PageProvider>
+        </SidebarProvider>
+      </LiveChannelProvider>
       <ShellMaintenanceModal />
     </MaintenanceProvider>
   );
@@ -152,8 +153,8 @@ export function ShellFrame({ children }: { children: React.ReactNode }) {
  * fixed height below the top bar instead of a fixed max width, so it can lay
  * out its own independently scrolling panes. The width-sized `<main>` itself
  * is `PageMain`; this function only adds what belongs to the shell
- * specifically — the demo banner, the suspended-tenant notice, the tab bar
- * of the tenant setup area (on its pages only) and the routed page.
+ * specifically — the demo banner, the suspended-tenant notice and the routed
+ * page.
  */
 function ShellMain({ children }: { children: React.ReactNode }) {
   const width = usePageWidthValue();
@@ -168,11 +169,7 @@ function ShellMain({ children }: { children: React.ReactNode }) {
         move the routed page to a different position in the tree on every
         width change and force React to remount it instead of reconciling.
       */}
-      <div className={pageContentWrapperClass(width)}>
-        {/* Renders nothing outside the setup area, so the page keeps its place in the tree. */}
-        <TenantSetupTabs />
-        {children}
-      </div>
+      <div className={pageContentWrapperClass(width)}>{children}</div>
     </PageMain>
   );
 }
@@ -182,8 +179,13 @@ function ShellMain({ children }: { children: React.ReactNode }) {
  * whose search params, guard or loader failed renders the error page in its
  * place, and a page that throws while rendering is caught at the outlet
  * (sidebar and top bar keep working). Navigating elsewhere clears the error.
+ * Under "All tenants" a page that needs one tenant shows the choice of a tenant
+ * in its place (components/layout/choose-tenant.tsx).
  */
 function ShellOutlet() {
+  const { t } = useTranslation();
+  const session = useSession();
+  const entry = useShellEntry();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const failedPage = useRouterState({
     select: (state) => {
@@ -194,6 +196,11 @@ function ShellOutlet() {
 
   if (failedPage) {
     return <RouteErrorPage error={failedPage.error} />;
+  }
+
+  // Under "All tenants" a page that only exists per tenant asks for a tenant instead of failing.
+  if (sessionScope(session) === "all" && isTenantOnlyPage(entry?.item.id ?? null, pathname)) {
+    return <ChooseTenantPage title={entry ? t(entry.item.labelKey) : t("chooseTenant.title")} />;
   }
 
   return (
@@ -230,8 +237,10 @@ function DemoBanner() {
  */
 function SuspendedTenantNotice() {
   const { t } = useTranslation();
-  const { activeTenant, isProviderAdmin } = useSession();
-  if (!activeTenant || activeTenant.status === "active") {
+  const session = useSession();
+  const { activeTenant, isProviderAdmin } = session;
+  // Under "All tenants" no one tenant is being worked in; the tenant underneath says nothing.
+  if (!activeTenant || activeTenant.status === "active" || sessionScope(session) === "all") {
     return null;
   }
   const notice = `tenant.notice.${activeTenant.status}`;

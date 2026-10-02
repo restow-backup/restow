@@ -73,9 +73,10 @@ func (r *Runner) Env() []string {
 	if r.TmpDir != "" {
 		env = procenv.Set(env, "TMPDIR", r.TmpDir)
 	}
-	// One status message every five seconds instead of ten per second; the
-	// agent forwards progress to the server at most every ten seconds anyway.
-	env = procenv.Set(env, "RESTIC_PROGRESS_FPS", "0.2")
+	// One status message every two seconds instead of ten per second; the
+	// agent forwards the latest one to the server every five seconds (the
+	// run drawer draws its charts from those reports).
+	env = procenv.Set(env, "RESTIC_PROGRESS_FPS", progressFPS)
 	return append(env, r.ExtraEnv...)
 }
 
@@ -98,6 +99,11 @@ type execResult struct {
 	// Fatal is restic's own final error message (exit_error), if any.
 	Fatal string
 }
+
+// progressFPS is RESTIC_PROGRESS_FPS: status messages per second. 0.5 is one
+// every two seconds, so the 5 second report to the server always finds a fresh
+// one.
+const progressFPS = "0.5"
 
 const (
 	maxLineBytes  = 1 << 20

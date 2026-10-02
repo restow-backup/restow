@@ -1165,3 +1165,404 @@ describe.skipIf(!adminUrl)("upgrading 0.1.0: endpoint repository guards (0019)",
     }
   }, 120_000);
 });
+
+describe.skipIf(!adminUrl)("upgrading 0.1.0: tenant kind and the own organisation (0020)", () => {
+  const base = adminUrl as string;
+  const database = `restow_db_migrate_tenant_kind_${suffix}`;
+  const owner: RoleLogin = {
+    name: `restow_mig_kind_${suffix}`,
+    password: randomBytes(18).toString("base64url"),
+  };
+  const tenantIds = [randomUUID(), randomUUID()];
+  let folder = "";
+  let providerId = "";
+
+  beforeAll(async () => {
+    folder = migrationsFolderUpTo("0019_endpoint_repository_guards");
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(
+        `CREATE ROLE ${owner.name} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE PASSWORD '${owner.password}'`,
+      );
+      await admin.query(`CREATE DATABASE ${database} OWNER ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  afterAll(async () => {
+    if (folder) rmSync(folder, { recursive: true, force: true });
+    await dropTestDatabase(base, database);
+    const admin = new pg.Pool({ connectionString: base });
+    try {
+      await admin.query(`DROP ROLE IF EXISTS ${owner.name}`);
+    } finally {
+      await admin.end();
+    }
+  });
+
+  const kindOf = (pool: pg.Pool, tenantId: string) =>
+    asTenant(pool, tenantId, async (client) => {
+      const { rows } = await client.query<{ kind: string }>(
+        "SELECT kind FROM tenants WHERE id = $1",
+        [tenantId],
+      );
+      return rows[0]?.kind;
+    });
+
+  const setKind = (pool: pg.Pool, tenantId: string, kind: "customer" | "internal") =>
+    asTenant(pool, tenantId, (client) =>
+      client.query("UPDATE tenants SET kind = $2 WHERE id = $1", [tenantId, kind]),
+    );
+
+  it("makes every existing tenant a customer, never guessing which one is the operator's own", async () => {
+    const url = urlFor(base, database, owner);
+    await applyReleasedSchema(url, folder, null);
+    const pool = new pg.Pool({ connectionString: url });
+    try {
+      providerId = await insertReturningId(
+        pool,
+        "INSERT INTO providers (name) VALUES ('Provider') RETURNING id",
+        [],
+      );
+      for (const [index, tenantId] of tenantIds.entries()) {
+        await asTenant(pool, tenantId, (client) =>
+          client.query(
+            "INSERT INTO tenants (id, provider_id, name, slug) VALUES ($1, $2, $3, $3)",
+            [tenantId, providerId, `tenant-${index}-${suffix}`],
+          ),
+        );
+      }
+
+      await runMigrations(url);
+
+      for (const tenantId of tenantIds) {
+        expect(await kindOf(pool, tenantId)).toBe("customer");
+      }
+      // The column is NOT NULL with the customer default, and the enum knows exactly two kinds.
+      const { rows: column } = await pool.query<{
+        is_nullable: string;
+        column_default: string | null;
+      }>(
+        `SELECT is_nullable, column_default FROM information_schema.columns
+         WHERE table_name = 'tenants' AND column_name = 'kind'`,
+      );
+      expect(column[0]?.is_nullable).toBe("NO");
+      expect(column[0]?.column_default).toContain("customer");
+      const { rows: values } = await pool.query<{ enumlabel: string }>(
+        `SELECT enumlabel FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
+         WHERE t.typname = 'tenant_kind' ORDER BY e.enumsortorder`,
+      );
+      expect(values.map((row) => row.enumlabel)).toEqual(["customer", "internal"]);
+    } finally {
+      await pool.end();
+    }
+  }, 120_000);
+
+  it("allows one internal tenant per provider, refuses a second one even across Row Level Security, and takes the mark back", async () => {
+    const pool = new pg.Pool({ connectionString: urlFor(base, database, owner) });
+    try {
+      const [first, second] = tenantIds as [string, string];
+      await setKind(pool, first, "internal");
+      expect(await kindOf(pool, first)).toBe("internal");
+
+      // The second tenant is invisible to the first one's session, yet the unique index still sees it.
+      await expect(setKind(pool, second, "internal")).rejects.toMatchObject({
+        code: "23505",
+        constraint: "tenants_internal_uq",
+      });
+      expect(await kindOf(pool, second)).toBe("customer");
+
+      // A new tenant starts as a customer without naming a kind, and customers do not compete.
+      const created = randomUUID();
+      await asTenant(pool, created, (client) =>
+        client.query("INSERT INTO tenants (id, provider_id, name, slug) VALUES ($1, $2, $3, $3)", [
+          created,
+          providerId,
+          `created-${suffix}`,
+        ]),
+      );
+      expect(await kindOf(pool, created)).toBe("customer");
+
+      // Taking the mark back frees the place for the other tenant.
+      await setKind(pool, first, "customer");
+      await setKind(pool, second, "internal");
+      expect(await kindOf(pool, second)).toBe("internal");
+      await expect(setKind(pool, first, "internal")).rejects.toMatchObject({ code: "23505" });
+    } finally {
+      await pool.end();
+    }
+  }, 60_000);
+
+  it("changes nothing on a second run of the migration step", async () => {
+    const url = urlFor(base, database, owner);
+    const pool = new pg.Pool({ connectionString: url });
+    try {
+      const before = await appliedMigrations(pool);
+      await runMigrations(url);
+      expect(await appliedMigrations(pool)).toBe(before);
+      expect(await kindOf(pool, tenantIds[1] as string)).toBe("internal");
+    } finally {
+      await pool.end();
+    }
+  }, 60_000);
+});
+
+describe.skipIf(!adminUrl)(
+  "upgrading to the tenant page: agent update pause and recipient rules (0021)",
+  () => {
+    const base = adminUrl as string;
+    const database = `restow_db_migrate_tenant_page_${suffix}`;
+    const owner: RoleLogin = {
+      name: `restow_mig_page_${suffix}`,
+      password: randomBytes(18).toString("base64url"),
+    };
+    const ids = {
+      empty: randomUUID(),
+      allPaused: randomUUID(),
+      somePaused: randomUUID(),
+      unset: randomUUID(),
+      onePaused: randomUUID(),
+    };
+    let folder = "";
+
+    beforeAll(async () => {
+      folder = migrationsFolderUpTo("0020_tenant_kind");
+      const admin = new pg.Pool({ connectionString: base });
+      try {
+        await admin.query(
+          `CREATE ROLE ${owner.name} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE PASSWORD '${owner.password}'`,
+        );
+        await admin.query(`CREATE DATABASE ${database} OWNER ${owner.name}`);
+      } finally {
+        await admin.end();
+      }
+    });
+
+    afterAll(async () => {
+      if (folder) rmSync(folder, { recursive: true, force: true });
+      await dropTestDatabase(base, database);
+      const admin = new pg.Pool({ connectionString: base });
+      try {
+        await admin.query(`DROP ROLE IF EXISTS ${owner.name}`);
+      } finally {
+        await admin.end();
+      }
+    });
+
+    const addMachine = (pool: pg.Pool, tenantId: string, settings: Record<string, unknown>) =>
+      asTenant(pool, tenantId, (client) =>
+        client.query(
+          `INSERT INTO endpoints (tenant_id, hostname, os, arch, profile, secret_hash, config, settings)
+         VALUES ($1, $2, 'linux', 'amd64', 'server', 'hash', '{}'::jsonb, $3::jsonb)`,
+          [tenantId, `host-${randomBytes(3).toString("hex")}`, JSON.stringify(settings)],
+        ),
+      );
+
+    const pausedOf = (pool: pg.Pool, tenantId: string) =>
+      asTenant(pool, tenantId, async (client) => {
+        const { rows } = await client.query<{ paused: boolean }>(
+          "SELECT agent_updates_paused AS paused FROM tenants WHERE id = $1",
+          [tenantId],
+        );
+        return rows[0]?.paused;
+      });
+
+    it("turns a pause that every machine of a tenant carried into the tenant's own setting, and nothing else", async () => {
+      const url = urlFor(base, database, owner);
+      await applyReleasedSchema(url, folder, null);
+      const pool = new pg.Pool({ connectionString: url });
+      try {
+        const providerId = await insertReturningId(
+          pool,
+          "INSERT INTO providers (name) VALUES ('Provider') RETURNING id",
+          [],
+        );
+        for (const [name, tenantId] of Object.entries(ids)) {
+          await asTenant(pool, tenantId, (client) =>
+            client.query(
+              "INSERT INTO tenants (id, provider_id, name, slug) VALUES ($1, $2, $3, $3)",
+              [tenantId, providerId, `${name}-${suffix}`],
+            ),
+          );
+        }
+        await addMachine(pool, ids.allPaused, { autoUpdatePaused: true });
+        await addMachine(pool, ids.allPaused, { autoUpdatePaused: true });
+        await addMachine(pool, ids.somePaused, { autoUpdatePaused: true });
+        await addMachine(pool, ids.somePaused, { autoUpdatePaused: false });
+        await addMachine(pool, ids.unset, {});
+        await addMachine(pool, ids.onePaused, { autoUpdatePaused: true });
+
+        await runMigrations(url);
+
+        // Updates were on for the new column everywhere it was not the tenant-wide switch.
+        expect(await pausedOf(pool, ids.empty)).toBe(false);
+        expect(await pausedOf(pool, ids.allPaused)).toBe(true);
+        expect(await pausedOf(pool, ids.somePaused)).toBe(false);
+        expect(await pausedOf(pool, ids.unset)).toBe(false);
+        expect(await pausedOf(pool, ids.onePaused)).toBe(true);
+
+        // The flags on the machines stay; they are the machines' own pauses from now on.
+        const flags = await asTenant(pool, ids.allPaused, async (client) => {
+          const { rows } = await client.query<{ paused: string | null }>(
+            "SELECT settings ->> 'autoUpdatePaused' AS paused FROM endpoints WHERE tenant_id = $1",
+            [ids.allPaused],
+          );
+          return rows.map((row) => row.paused);
+        });
+        expect(flags).toEqual(["true", "true"]);
+
+        // Row Level Security is forced on both tables again, even for their owner.
+        const { rows } = await pool.query<{ relname: string; force: boolean }>(
+          `SELECT relname, relforcerowsecurity AS force FROM pg_class
+         WHERE relname IN ('tenants', 'endpoints') AND relkind = 'r' ORDER BY relname`,
+        );
+        expect(rows).toEqual([
+          { relname: "endpoints", force: true },
+          { relname: "tenants", force: true },
+        ]);
+      } finally {
+        await pool.end();
+      }
+    }, 120_000);
+
+    it("adds the recipient category as null and keeps it unique per tenant when set", async () => {
+      const pool = new pg.Pool({ connectionString: urlFor(base, database, owner) });
+      try {
+        const tenantId = ids.empty;
+        const addRule = (name: string, category: string | null) =>
+          asTenant(pool, tenantId, (client) =>
+            client.query(
+              `INSERT INTO report_rules (tenant_id, name, trigger, events, recipient_category)
+             VALUES ($1, $2, 'event', ARRAY['backup.failed'], $3)`,
+              [tenantId, name, category],
+            ),
+          );
+        // Rules without a category (made by hand, or by an earlier release) do not compete.
+        await addRule("by hand one", null);
+        await addRule("by hand two", null);
+        await addRule("failed jobs", "jobFailures");
+        await expect(addRule("failed jobs again", "jobFailures")).rejects.toMatchObject({
+          code: "23505",
+          constraint: "report_rules_recipient_category_uq",
+        });
+        await addRule("readiness", "readinessRed");
+        const { rows } = await asTenant(pool, tenantId, (client) =>
+          client.query<{ n: string }>(
+            "SELECT count(*)::text AS n FROM report_rules WHERE tenant_id = $1",
+            [tenantId],
+          ),
+        );
+        expect(rows[0]?.n).toBe("4");
+      } finally {
+        await pool.end();
+      }
+    }, 60_000);
+
+    it("changes nothing on a second run of the migration step", async () => {
+      const url = urlFor(base, database, owner);
+      const pool = new pg.Pool({ connectionString: url });
+      try {
+        const before = await appliedMigrations(pool);
+        await runMigrations(url);
+        expect(await appliedMigrations(pool)).toBe(before);
+        expect(await pausedOf(pool, ids.allPaused)).toBe(true);
+        expect(await pausedOf(pool, ids.somePaused)).toBe(false);
+      } finally {
+        await pool.end();
+      }
+    }, 60_000);
+  },
+);
+
+describe.skipIf(!adminUrl)(
+  "upgrading to the Start checklist: the notification mail marked as not needed (0022)",
+  () => {
+    const base = adminUrl as string;
+    const database = `restow_db_migrate_mail_not_needed_${suffix}`;
+    const owner: RoleLogin = {
+      name: `restow_mig_mailmark_${suffix}`,
+      password: randomBytes(18).toString("base64url"),
+    };
+    let folder = "";
+
+    beforeAll(async () => {
+      folder = migrationsFolderUpTo("0021_tenant_page_settings");
+      const admin = new pg.Pool({ connectionString: base });
+      try {
+        await admin.query(
+          `CREATE ROLE ${owner.name} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE PASSWORD '${owner.password}'`,
+        );
+        await admin.query(`CREATE DATABASE ${database} OWNER ${owner.name}`);
+      } finally {
+        await admin.end();
+      }
+    });
+
+    afterAll(async () => {
+      if (folder) rmSync(folder, { recursive: true, force: true });
+      await dropTestDatabase(base, database);
+      const admin = new pg.Pool({ connectionString: base });
+      try {
+        await admin.query(`DROP ROLE IF EXISTS ${owner.name}`);
+      } finally {
+        await admin.end();
+      }
+    });
+
+    const settingsRow = async (pool: pg.Pool) => {
+      const { rows } = await pool.query<{
+        mail_not_needed: boolean;
+        mail_transport: string | null;
+        public_url: string | null;
+      }>("SELECT mail_not_needed, mail_transport, public_url FROM settings");
+      return rows;
+    };
+
+    it("adds the mark as off for an installation that skipped the mail step, and keeps everything else", async () => {
+      const url = urlFor(base, database, owner);
+      await applyReleasedSchema(url, folder, null);
+      const pool = new pg.Pool({ connectionString: url });
+      try {
+        // An installation of the previous release, set up with the mail step skipped.
+        await pool.query(
+          `INSERT INTO settings (singleton, operating_mode, public_url, setup_completed_at)
+           VALUES (true, 'public', 'https://restow.example.test', now())`,
+        );
+        await runMigrations(url);
+
+        expect(await settingsRow(pool)).toEqual([
+          {
+            mail_not_needed: false,
+            mail_transport: null,
+            public_url: "https://restow.example.test",
+          },
+        ]);
+        // The column is not nullable and defaults to off: a new installation starts without the mark.
+        const { rows } = await pool.query<{ nullable: string; fallback: string }>(
+          `SELECT is_nullable AS nullable, column_default AS fallback
+           FROM information_schema.columns
+           WHERE table_name = 'settings' AND column_name = 'mail_not_needed'`,
+        );
+        expect(rows).toEqual([{ nullable: "NO", fallback: "false" }]);
+      } finally {
+        await pool.end();
+      }
+    }, 120_000);
+
+    it("changes nothing on a second run of the migration step", async () => {
+      const url = urlFor(base, database, owner);
+      const pool = new pg.Pool({ connectionString: url });
+      try {
+        await pool.query("UPDATE settings SET mail_not_needed = true");
+        const before = await appliedMigrations(pool);
+        await runMigrations(url);
+        expect(await appliedMigrations(pool)).toBe(before);
+        // A mark set after the upgrade survives a restart.
+        expect((await settingsRow(pool))[0]?.mail_not_needed).toBe(true);
+      } finally {
+        await pool.end();
+      }
+    }, 60_000);
+  },
+);

@@ -13,6 +13,8 @@
  *                    first passkey
  *   TENANT_NAME, TENANT_SLUG
  *                    the tenant the wizard creates
+ *   TENANT_WIZARD    "skip" leaves the wizard out (the Community build has its one
+ *                    tenant, the own organisation the setup created); default "run"
  *   RESULT_FILE      where the step list is written as JSON
  *   SCREENSHOT_DIR   where failure screenshots go
  *
@@ -221,7 +223,7 @@ try {
     });
   }
 
-  if (passkeyAdded) {
+  if (passkeyAdded && env("TENANT_WIZARD", "run") !== "skip") {
     await step("create a tenant through the wizard", async () => {
       await page.goto(`${BASE_URL}/tenants`, { waitUntil: "networkidle" });
       await page.getByRole("button", { name: "New tenant" }).click();
@@ -271,15 +273,34 @@ try {
           assert(links.length >= 8, `only ${links.length} navigation links found`);
           const problems = [];
           // Pages without a menu entry of their own: account security (user
-          // menu) and the tabs of the tenant setup area, which a Service
-          // Provider opens per tenant instead of from the menu.
+          // menu) and the sections of the active tenant's page, which the menu
+          // reaches through the one link to the tenant's settings.
+          const settings = links.find((href) => /^\/tenants\/[^/]+\/overview$/.test(href ?? ""));
+          const tenantPage = settings ? settings.replace(/\/overview$/, "") : null;
+          const sections = [
+            "connections",
+            "protection",
+            "jobs",
+            "retention",
+            "storage",
+            "agents",
+            "archive",
+            "notifications",
+            "integrations",
+            "members",
+            "audit",
+            "master-data",
+          ];
           const extra = [
             "/account",
-            "/protected-objects",
-            "/sources",
-            "/schedules",
-            "/retention",
-            "/imports",
+            ...(tenantPage
+              ? [
+                  ...sections.map((section) => `${tenantPage}/${section}`),
+                  `${tenantPage}/connections?tab=imap`,
+                  `${tenantPage}/connections?tab=google`,
+                  `${tenantPage}/connections?tab=imports`,
+                ]
+              : []),
           ];
           const pages = [...new Set([...links, ...extra])];
           for (const href of pages) {

@@ -45,3 +45,6 @@ export * from "./installation-secrets.js";
 
 // The lock that keeps the server's own work on one endpoint repository from overlapping.
 export * from "./repository-lock.js";
+
+// The throughput history of runs (sparklines and the run drawer's charts).
+export * from "./run-samples.js";

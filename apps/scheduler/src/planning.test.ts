@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  type BackupJobRow,
   type ScheduleRow,
   type TenantTargets,
   computeNextRunAt,
+  computeUnitNextRunAt,
+  expandJobUnit,
   expandSchedule,
   isDue,
+  isTimerDue,
   scrubModeFor,
+  unitNextRunAt,
+  unitSchedule,
 } from "./planning.js";
 import { singletonKeyFor } from "./queues.js";
 
@@ -223,5 +229,131 @@ describe("the import source (imported mailboxes)", () => {
         expandSchedule(schedule({ kind, protectedObjectId: "imported-1" }), withImport, newJobId),
       ).toEqual([]);
     }
+  });
+});
+
+describe("backup jobs", () => {
+  const job = (overrides: Partial<BackupJobRow> = {}): BackupJobRow => ({
+    id: "job-1",
+    tenantId: TENANT,
+    scopeMode: "all",
+    schedule: { kind: "interval", intervalMinutes: 480, timeZone: "UTC" },
+    verifySchedule: { kind: "cron", cron: "0 3 * * 0", timeZone: "UTC" },
+    nextRunAt: null,
+    lastRunAt: null,
+    verifyNextRunAt: null,
+    verifyLastRunAt: null,
+    ...overrides,
+  });
+  const withMembers = (members: NonNullable<TenantTargets["jobMembers"]>): TenantTargets => ({
+    ...targets,
+    jobMembers: members,
+  });
+
+  it("plans a backup for every object an all job covers, and nothing for objects it cannot work against", () => {
+    const planned = expandJobUnit(
+      { level: "job", what: "backup", job: job() },
+      withMembers([]),
+      newJobId,
+    );
+    expect(planned.map((item) => item.protectedObjectId).sort()).toEqual([
+      "imap-1",
+      "mb-1",
+      "od-1",
+    ]);
+    for (const item of planned) {
+      expect(item.queue).toBe("backup");
+      expect(item.payload).toMatchObject({ tenantId: TENANT, backupJobId: "job-1" });
+      expect(item.singletonKey).toBe(singletonKeyFor("backup", item.payload as never));
+    }
+  });
+
+  it("leaves the objects of another job to it", () => {
+    const planned = expandJobUnit(
+      { level: "job", what: "backup", job: job() },
+      withMembers([{ jobId: "other", protectedObjectId: "mb-1", overrides: {} }]),
+      newJobId,
+    );
+    expect(planned.map((item) => item.protectedObjectId).sort()).toEqual(["imap-1", "od-1"]);
+  });
+
+  it("plans a selected job's members only, and an object with a schedule of its own on its member's timer", () => {
+    const members = [
+      { jobId: "job-1", protectedObjectId: "mb-1", overrides: {} },
+      {
+        jobId: "job-1",
+        protectedObjectId: "od-1",
+        overrides: {
+          schedule: { kind: "interval" as const, intervalMinutes: 60, timeZone: "UTC" },
+        },
+      },
+    ];
+    const selected = job({ scopeMode: "selected" });
+    const own = expandJobUnit(
+      { level: "job", what: "backup", job: selected },
+      withMembers(members),
+      newJobId,
+    );
+    // od-1 runs on its own timer, not the job's.
+    expect(own.map((item) => item.protectedObjectId)).toEqual(["mb-1"]);
+    const member = members[1];
+    if (!member) throw new Error("fixture");
+    const alone = expandJobUnit(
+      {
+        level: "member",
+        what: "backup",
+        job: selected,
+        member: {
+          id: "m-2",
+          jobId: "job-1",
+          protectedObjectId: "od-1",
+          overrides: member.overrides,
+          nextRunAt: null,
+          lastRunAt: null,
+          verifyNextRunAt: null,
+          verifyLastRunAt: null,
+        },
+      },
+      withMembers(members),
+      newJobId,
+    );
+    expect(alone.map((item) => item.protectedObjectId)).toEqual(["od-1"]);
+  });
+
+  it("plans restore checks as verify jobs of the same objects", () => {
+    const planned = expandJobUnit(
+      { level: "job", what: "verify", job: job() },
+      withMembers([]),
+      newJobId,
+    );
+    expect(planned.map((item) => item.queue)).toEqual(["verify", "verify", "verify"]);
+    expect(planned[0]?.payload).toMatchObject({ kind: "verify", backupJobId: "job-1" });
+  });
+
+  it("knows which timer and schedule a unit runs on", () => {
+    const base = job({ nextRunAt: new Date("2026-03-01T09:00:00Z") });
+    const unit = { level: "job", what: "backup", job: base } as const;
+    expect(unitSchedule(unit)).toEqual(base.schedule);
+    expect(unitNextRunAt(unit)?.toISOString()).toBe("2026-03-01T09:00:00.000Z");
+    expect(computeUnitNextRunAt(unit, now).toISOString()).toBe("2026-03-01T18:00:00.000Z");
+    const verify = { level: "job", what: "verify", job: base } as const;
+    expect(unitSchedule(verify)).toEqual(base.verifySchedule);
+    // A cron schedule follows the wall clock of its zone.
+    expect(computeUnitNextRunAt(verify, now).toISOString()).toBe("2026-03-08T03:00:00.000Z");
+  });
+
+  it("refuses a schedule it cannot plan, for the loop to defer", () => {
+    const broken = job({ schedule: { kind: "cron", cron: "not a cron", timeZone: "UTC" } });
+    expect(() =>
+      computeUnitNextRunAt({ level: "job", what: "backup", job: broken }, now),
+    ).toThrow();
+    const gone = job({ schedule: null });
+    expect(() => computeUnitNextRunAt({ level: "job", what: "backup", job: gone }, now)).toThrow();
+  });
+
+  it("treats a timer that was never set as due", () => {
+    expect(isTimerDue(null, now)).toBe(true);
+    expect(isTimerDue(new Date("2026-03-01T10:00:00Z"), now)).toBe(true);
+    expect(isTimerDue(new Date("2026-03-01T10:00:01Z"), now)).toBe(false);
   });
 });

@@ -58,7 +58,7 @@ compiled into the app that loads them); it has no entry of its own.
 | License gate of the API modules, the core's feature gate, `edition-required` problem | `api/src/license/gate.ts` |
 | `/api/v1/license` (state, install, remove; provider admins, owners change it) | `api/src/license/routes.ts`, `service.ts` |
 | `extensions.edition` of `GET /api/v1/me` | `api/src/license/session.ts` |
-| License UI (Settings → About, also reached through the menu entry Admin › License: edition, licensee, key id, license terms link, key install and removal), locked menu entries | `web/src/license` |
+| License UI (Installation → License, `/installation/license`, also reached through the menu entry Installation › License: edition, licensee, key id, license terms link, key install and removal), locked menu entries and locked sections of the installation page | `web/src/license` |
 
 This repository only verifies keys. Issuing them is the business of the
 private restow-license repository; its signing key never enters this one.
@@ -78,14 +78,14 @@ installation without a key runs as Community.
 | --- | --- | --- | --- |
 | License key management and the edition | all editions of the full build | `licensing`, `api/src/license`, `web/src/license` | session routes, feature gate, session fields, provider route rules, web slots and nav locks |
 | Legal holds | `archive.legalHold` (Business) | `api/src/legal-holds`, `web/src/legal-holds` | session routes (guarded), `archive.sections` slot |
-| SMTP journal receiver and its per-tenant setup page (address, status, rotation, Exchange Online guide) | `archive.journalReceiver` (Business) | `api/src/journal`, `web/src/journal` | background service, session routes (guarded), `archive.sections` slot |
+| SMTP journal receiver, its per-tenant setup page (address, status, rotation, Exchange Online guide) and its installation page (Installation → Journal receiving: listening or not and why, port, TLS, host, size limit) | `archive.journalReceiver` (Business) | `api/src/journal`, `web/src/journal` | background service, session routes (guarded), `archive.sections` slot, `installationSections` |
 | Archive deletion runs | `archive.retentionEnforcement` (Business) | `worker/src/archive-retention` | retention tasks |
 | Audit log viewer (search, details, chain verification) | `audit.log` (Business) | `api/src/audit-log`, `web/src/audit-log` | session routes (guarded), routes and a locked nav entry |
 | Microsoft (Entra ID) sign-in for end users | `auth.microsoftSso` (Business) | `api/src/sso` | better-auth plugin, auth route guard, sign-in provider |
 | Provider team (roles, tenant scopes) | `provider.team` (Business) | `api/src/provider-team`, `web/src/provider-team` | session routes (guarded), routes and a locked nav entry |
 | Scheduled summary reports | `reports.scheduled` (Business) | `api/src/reports` | `reportSummary` feature hook, feature gate `reports.timed` |
 | Further tenants beyond the installation's first | `provider.tenantManagement` (Service Provider) | `api/src/license/gate.ts`, nav lock of the core's tenants entry in `web/src/license` | feature gate `tenants.additional`, nav locks |
-| Cross-tenant provider API (`/provider/*`) and provider API keys | `provider.crossTenantApi` (Service Provider) | `api/src/provider-api` | integration routes, feature gate `apiKeys.provider` |
+| Cross-tenant provider API (`/provider/*`) and provider API keys (Installation → Provider API) | `provider.crossTenantApi` (Service Provider) | `api/src/provider-api`, `web/src/provider-api` | integration routes, feature gate `apiKeys.provider`, `installationSections` |
 | Provider view of the dashboard (tenant matrix, alerts) and statistics across tenants | `provider.tenantReporting` (Service Provider) | `api/src/provider-dashboard`, `web/src/provider-dashboard` | `providerDashboard` feature hook, `dashboard.provider` slot, feature gates `dashboard.allTenants` and `stats.allTenants` |
 
 ### Extension points of the core
@@ -126,9 +126,17 @@ Web (`apps/web/src/lib/extensions.tsx`, `WebExtension`):
   entry greyed out with a lock and sends it to `to`; it knows nothing else.
 - `navLocks`: locks for the core's own entries, by nav item id (`ee/web`
   locks `tenants` below Service Provider).
+- `installationSections`: sections of the installation page
+  (`/installation/<id>`, `InstallationSectionSpec`): an id, label and
+  description keys, an icon, an `order` between the core's sections, the
+  component (props `{ requires }` from `?requires=`), an optional `lock` (a
+  locked section stays in the sub-navigation greyed out with a lock and leads to
+  `lock.to`, exactly like a locked menu entry) and an optional
+  `legacySettingsSection` (the old `/settings?section=<name>` address that now
+  leads here). `ee/web` adds Journal receiving (Business), Provider API
+  (Service Provider) and License.
 - `slots` (one component per slot; `ExtensionSlot` may render a `fallback`):
-  `settings.about` (Settings → About, after the core facts; props
-  `{ requires }` from `?requires=`), `shell.sidebarFooter` (the edition
+  `shell.sidebarFooter` (the edition
   badge), `tenants.creationLocked` (why no further tenant can be created; the
   core's neutral note is the fallback), `archive.sections`,
   `dashboard.provider`.
@@ -167,8 +175,9 @@ Web (`apps/web/src/lib/extensions.tsx`, `WebExtension`):
 Without the capability, a feature's session routes answer 404 exactly like an
 unknown path (`api/src/license/gate.ts`, `capabilityGuard`), the
 Microsoft sign-in paths answer 404 before better-auth sees them, and its menu
-entry is shown greyed out with a lock that leads to Settings → About
-(`/settings?section=about&requires=<edition>`), where the license key is
+entry (or section of the installation page) is shown greyed out with a lock
+that leads to Installation → License
+(`/installation/license?requires=<edition>`), where the license key is
 installed. The lock is registered by `ee/web` (`ee/web/src/license/nav-lock.ts`,
 `editionLock`; its own nav entries carry it, and it locks the core's tenants
 entry by id); the core sidebar only renders what the registry gives it. No banners, pop-ups or

@@ -152,7 +152,9 @@ func TestBackupOK_SecretsOnlyInEnvironment(t *testing.T) {
 		Host:           "web01",
 		Tags:           []string{"restow-agent"},
 		LimitUploadKiB: 512,
-		OnProgress:     func(p Progress) { progress = append(progress, p) },
+		// 1 GiB, as the server sends a limit of 1 GiB.
+		ExcludeLargerThanBytes: 1073741824,
+		OnProgress:             func(p Progress) { progress = append(progress, p) },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -173,7 +175,7 @@ func TestBackupOK_SecretsOnlyInEnvironment(t *testing.T) {
 	}
 
 	args := readFile(t, argsFile)
-	for _, want := range []string{"backup", "--json", "--files-from-raw", "--exclude-caches", "--host\nweb01", "--tag\nrestow-agent", "--limit-upload\n512", "--exclude-file"} {
+	for _, want := range []string{"backup", "--json", "--files-from-raw", "--exclude-caches", "--host\nweb01", "--tag\nrestow-agent", "--limit-upload\n512", "--exclude-file", "--exclude-larger-than\n1073741824"} {
 		if !strings.Contains(args, want) {
 			t.Errorf("args lack %q:\n%s", want, args)
 		}
@@ -187,7 +189,7 @@ func TestBackupOK_SecretsOnlyInEnvironment(t *testing.T) {
 	env := readFile(t, envFile)
 	for _, want := range []string{
 		"RESTIC_PASSWORD=repo-password-SECRET-0001", "RESTIC_REST_USERNAME=ep-1", "RESTIC_REST_PASSWORD=rsea_agent_SECRET_0002",
-		"RESTIC_REPOSITORY=rest:https://restow.example.com/agent/restic/ep-1/", "RESTIC_PROGRESS_FPS=0.2", "RESTIC_CACHE_DIR=",
+		"RESTIC_REPOSITORY=rest:https://restow.example.com/agent/restic/ep-1/", "RESTIC_PROGRESS_FPS=0.5", "RESTIC_CACHE_DIR=",
 	} {
 		if !strings.Contains(env, want) {
 			t.Errorf("environment lacks %q", want)
@@ -197,6 +199,67 @@ func TestBackupOK_SecretsOnlyInEnvironment(t *testing.T) {
 	entries, _ := os.ReadDir(r.TmpDir)
 	if len(entries) != 0 {
 		t.Fatalf("temporary option files left behind: %v", entries)
+	}
+}
+
+func TestBackupWithoutASizeLimitPassesNoSwitch(t *testing.T) {
+	// restic reads --exclude-larger-than 0 as "skip every file with content", so a zero must never reach it.
+	for _, limit := range []int64{0, -1} {
+		r, argsFile, _ := fakeRestic(t)
+		mode(r, "backup-ok")
+		if _, err := r.Backup(context.Background(), BackupOptions{Paths: []string{"/data"}, ExcludeLargerThanBytes: limit}); err != nil {
+			t.Fatal(err)
+		}
+		if args := readFile(t, argsFile); strings.Contains(args, "--exclude-larger-than") {
+			t.Fatalf("limit %d reached restic:\n%s", limit, args)
+		}
+	}
+}
+
+func TestBackupArgs(t *testing.T) {
+	cases := []struct {
+		name string
+		opts BackupOptions
+		ex   string
+		want []string
+	}{
+		{
+			name: "only the sources",
+			opts: BackupOptions{Paths: []string{"/data"}},
+			want: []string{"backup", "--json", "--files-from-raw", "/tmp/paths.raw", "--exclude-caches", "--retry-lock", "15m"},
+		},
+		{
+			name: "a size limit is passed as a plain number of bytes",
+			opts: BackupOptions{ExcludeLargerThanBytes: 5 * 1024 * 1024 * 1024},
+			want: []string{"backup", "--json", "--files-from-raw", "/tmp/paths.raw", "--exclude-caches", "--retry-lock", "15m",
+				"--exclude-larger-than", "5368709120"},
+		},
+		{
+			name: "everything at once, in a fixed order",
+			opts: BackupOptions{Host: "web01", Tags: []string{"restow-agent", "nightly"}, LimitUploadKiB: 977, ExcludeLargerThanBytes: 1000},
+			ex:   "/tmp/excludes.txt",
+			want: []string{"backup", "--json", "--files-from-raw", "/tmp/paths.raw", "--exclude-caches", "--retry-lock", "15m",
+				"--host", "web01", "--tag", "restow-agent", "--tag", "nightly", "--exclude-file", "/tmp/excludes.txt",
+				"--limit-upload", "977", "--exclude-larger-than", "1000"},
+		},
+		{
+			name: "no limits: neither switch appears",
+			opts: BackupOptions{LimitUploadKiB: 0, ExcludeLargerThanBytes: 0},
+			want: []string{"backup", "--json", "--files-from-raw", "/tmp/paths.raw", "--exclude-caches", "--retry-lock", "15m"},
+		},
+		{
+			name: "a negative size is no limit",
+			opts: BackupOptions{ExcludeLargerThanBytes: -7},
+			want: []string{"backup", "--json", "--files-from-raw", "/tmp/paths.raw", "--exclude-caches", "--retry-lock", "15m"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := backupArgs(tc.opts, "/tmp/paths.raw", tc.ex)
+			if strings.Join(got, "\x00") != strings.Join(tc.want, "\x00") {
+				t.Fatalf("args\n got: %q\nwant: %q", got, tc.want)
+			}
+		})
 	}
 }
 

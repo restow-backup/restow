@@ -28,6 +28,7 @@ export function MailStep({ form }: MailStepProps) {
   const { t: tc } = useTranslation();
 
   const transport = useWatch({ control: form.control, name: "mail.transport" });
+  const skipped = useWatch({ control: form.control, name: "mail.skipped" });
   const errors = form.formState.errors.mail;
 
   const message = (error: Parameters<typeof validationKey>[0]) => {
@@ -37,6 +38,11 @@ export function MailStep({ form }: MailStepProps) {
 
   return (
     <div className="space-y-5">
+      <div className="space-y-1 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+        <p>{t("mail.skip.explanation")}</p>
+        {skipped ? <p className="font-medium text-foreground">{t("mail.skip.skipped")}</p> : null}
+      </div>
+
       <div className="space-y-1.5">
         <Label htmlFor="mail-transport">{t("mail.transport.label")}</Label>
         <Controller

@@ -27,23 +27,30 @@
  * without touching this handler.
  */
 import {
+  type JobRetentionAssignment,
   type LegalHoldScope,
   type Logger,
   type RetentionJobPayload,
   type RetentionPolicyRow,
   type SnapshotCandidate,
   classifyFailure,
+  jobRetentionAssignments,
   loadManifest,
   parseSnapshotPolicy,
   planRetentionRun,
+  withJobRetention,
 } from "@restow/core";
 import {
+  backupJobMembers,
+  backupJobs,
   legalHolds,
   manifestObjects,
+  protectedObjects,
   reportableError,
   retentionPolicies,
   safeErrorMessage,
   snapshots,
+  sources,
   verifyReports,
 } from "@restow/db";
 import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
@@ -64,6 +71,12 @@ const RELEASE_BATCH = 1000;
 /** Everything the snapshot task reads or writes outside the engine seams; Postgres by default. */
 export interface RetentionStore {
   loadPolicies(): Promise<RetentionPolicyRow[]>;
+  /**
+   * The retention policies mail jobs name, with the objects of each job: those objects follow
+   * the named policy unless a policy is scoped to the object itself. Omitted by stores that
+   * know no jobs.
+   */
+  loadJobRetention?(): Promise<JobRetentionAssignment[]>;
   loadLegalHolds(): Promise<LegalHoldScope>;
   /** Completed, active restore points of the tenant. */
   loadCompletedSnapshots(): Promise<SnapshotCandidate[]>;
@@ -107,6 +120,43 @@ export function pgRetentionStore(run: TenantTxRunner, tenantId: string): Retenti
           .where(eq(retentionPolicies.tenantId, tenantId))
           .orderBy(asc(retentionPolicies.createdAt)),
       );
+    },
+
+    async loadJobRetention() {
+      return run(async (tx) => {
+        const named = await tx
+          .select({
+            id: backupJobs.id,
+            scopeMode: backupJobs.scopeMode,
+            retentionPolicyId: backupJobs.retentionPolicyId,
+          })
+          .from(backupJobs)
+          .where(and(eq(backupJobs.tenantId, tenantId), eq(backupJobs.kind, "mail")));
+        if (!named.some((job) => job.retentionPolicyId !== null)) {
+          return [];
+        }
+        const members = await tx
+          .select({
+            jobId: backupJobMembers.jobId,
+            protectedObjectId: backupJobMembers.protectedObjectId,
+          })
+          .from(backupJobMembers)
+          .where(eq(backupJobMembers.tenantId, tenantId));
+        const objects = await tx
+          .select({ id: protectedObjects.id, sourceKind: sources.kind })
+          .from(protectedObjects)
+          .innerJoin(sources, eq(sources.id, protectedObjects.sourceId))
+          .where(eq(protectedObjects.tenantId, tenantId));
+        return jobRetentionAssignments(
+          named,
+          members.flatMap((member) =>
+            member.protectedObjectId
+              ? [{ jobId: member.jobId, protectedObjectId: member.protectedObjectId }]
+              : [],
+          ),
+          objects.map((object) => ({ id: object.id, imported: object.sourceKind === "import" })),
+        );
+      });
     },
 
     async loadLegalHolds() {
@@ -359,11 +409,13 @@ export function createSnapshotRetentionTask(
       const store = storeFor(ctx);
       const logger = ctx.logger.child({ task: "snapshots" });
       const rows = await store.loadPolicies();
-      const policies = rows
+      const tenantPolicies = rows
         .map((row) => parseSnapshotPolicy(row))
         .filter((policy) => policy !== null);
+      // The objects of a job that names a policy follow it (an object's own policy still wins).
+      const policies = withJobRetention(tenantPolicies, (await store.loadJobRetention?.()) ?? []);
       const summary = {
-        policies: policies.length,
+        policies: tenantPolicies.length,
         objects: 0,
         candidates: 0,
         pruned: 0,
@@ -372,7 +424,7 @@ export function createSnapshotRetentionTask(
         chunkReferencesReleased: 0,
         dryRun: options.dryRun,
       } satisfies SnapshotRetentionSummary;
-      if (policies.length === 0) {
+      if (tenantPolicies.length === 0) {
         logger.info("no snapshot retention policy; keeping every snapshot");
         return { ...summary };
       }

@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { IMPORT_PATHS, importTo } from "../paths";
+import { IMPORTS_TAB_SEARCH, importWizardTo, importsListTo } from "../paths";
 
 /**
  * The body of the source detail page for the source of kind `import`: what it
@@ -27,12 +27,13 @@ export function ImportSourcePanel({ mailboxes }: { mailboxes: number }) {
           </span>
         </p>
         <div className="flex flex-wrap gap-2">
-          <Link to={importTo(IMPORT_PATHS.wizard)} className={buttonVariants({ size: "sm" })}>
+          <Link to={importWizardTo()} className={buttonVariants({ size: "sm" })}>
             <FileInput />
             {t("list.new")}
           </Link>
           <Link
-            to={importTo(IMPORT_PATHS.list)}
+            to={importsListTo()}
+            search={IMPORTS_TAB_SEARCH as never}
             className={buttonVariants({ variant: "outline", size: "sm" })}
           >
             <History />

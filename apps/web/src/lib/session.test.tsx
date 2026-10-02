@@ -150,8 +150,94 @@ describe("tenant list and states", () => {
       { id: "t2", name: "Two", slug: "two" },
     ]);
     expect(list).toEqual([
-      { id: "t1", name: "One", slug: "one", role: "tenant_admin", status: "deleting" },
-      { id: "t2", name: "Two", slug: "two", role: "tenant_admin", status: "active" },
+      {
+        id: "t1",
+        name: "One",
+        slug: "one",
+        kind: "customer",
+        customerNumber: null,
+        role: "tenant_admin",
+        status: "deleting",
+      },
+      {
+        id: "t2",
+        name: "Two",
+        slug: "two",
+        kind: "customer",
+        customerNumber: null,
+        role: "tenant_admin",
+        status: "active",
+      },
+    ]);
+  });
+
+  it("copies kind and customer number from the provider list, keeping the order the server gave", () => {
+    const list = buildTenantList({ role: "provider_admin", tenants: [] }, [
+      { id: "own", name: "Acme IT", slug: "acme-it", kind: "internal", customerNumber: null },
+      { id: "c1", name: "Contoso", slug: "contoso", kind: "customer", customerNumber: "K-1001" },
+    ]);
+    expect(list.map((tenant) => [tenant.id, tenant.kind, tenant.customerNumber])).toEqual([
+      ["own", "internal", null],
+      ["c1", "customer", "K-1001"],
+    ]);
+  });
+
+  it("copies kind and customer number from a member's profile", () => {
+    const profile = {
+      role: "tenant_admin" as const,
+      tenants: [
+        {
+          id: "own",
+          name: "Acme IT",
+          slug: "acme-it",
+          kind: "internal",
+          customerNumber: null,
+          role: "tenant_admin",
+        },
+        {
+          id: "c1",
+          name: "Contoso",
+          slug: "contoso",
+          kind: "customer",
+          customerNumber: "K-1001",
+          role: "tenant_user",
+        },
+      ] as Me["tenants"],
+    };
+    expect(
+      buildTenantList(profile, undefined).map((tenant) => [tenant.kind, tenant.customerNumber]),
+    ).toEqual([
+      ["internal", null],
+      ["customer", "K-1001"],
+    ]);
+  });
+
+  it("reads rows from a server before the own organisation existed as customers without a number", () => {
+    const list = buildTenantList(me, undefined);
+    expect(list.map((tenant) => [tenant.kind, tenant.customerNumber])).toEqual([
+      ["customer", null],
+      ["customer", null],
+    ]);
+    const odd = buildTenantList(
+      {
+        role: "tenant_user",
+        tenants: [
+          { id: "x", name: "X", slug: "x", kind: "bogus", customerNumber: 7, role: "tenant_user" },
+          {
+            id: "y",
+            name: "Y",
+            slug: "y",
+            kind: "internal",
+            customerNumber: "",
+            role: "tenant_user",
+          },
+        ] as unknown as Me["tenants"],
+      },
+      undefined,
+    );
+    expect(odd.map((tenant) => [tenant.kind, tenant.customerNumber])).toEqual([
+      ["customer", null],
+      ["internal", null],
     ]);
   });
 

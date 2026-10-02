@@ -25,8 +25,22 @@ const QP_BOMB = mail(
   "=\r\n=3D".repeat(700_000),
 );
 
-/** Nested blocks: the sanitiser needs seconds for them, a plain text conversion milliseconds. */
+/**
+ * Nested blocks: the sanitiser needs about 16 s for them on a laptop (and only more on a loaded
+ * machine), a plain text conversion milliseconds. The body is 1.5 MB, far below the size at which
+ * the preview skips the sanitiser by itself (MAX_SANITIZED_HTML_CHARS): a `simplified` answer for it
+ * can only come from the plain-text retry that follows a formatted view that ran over its time.
+ */
 const DIV_BOMB = mail("Content-Type: text/html", `<p>words here</p>${"<div>".repeat(300_000)}`);
+
+/**
+ * Budgets of the retry test. The formatted view gets a short one it cannot meet (8 times less than
+ * it needs here; a slower machine needs more, so it fails the same way), the retry a long one it
+ * cannot miss (a process start and 20 ms of work here; a loaded CI runner needed over 2.5 s for it
+ * when it was bound to half of the first budget). Neither outcome depends on the speed of the machine.
+ */
+const FORMATTED_VIEW_BUDGET_MS = 2000;
+const TEXT_RETRY_BUDGET_MS = 30_000;
 
 /** A 30 MB text of "<": mailparser's text to HTML conversion would make a 125 MB string of it at once. */
 const LT_REPORT = mail("Content-Type: text/plain", "<".repeat(30 * 1024 * 1024));
@@ -51,9 +65,10 @@ describe("previewInWorker", { timeout: TIMEOUT }, () => {
 
   it("shows the text of a message whose formatted view runs over its limit, marked as simplified", async () => {
     await previewInWorker(HTML_MAIL);
-    const started = Date.now();
-    const preview = await previewInWorker(DIV_BOMB, { timeoutMs: 5000 });
-    expect(Date.now() - started).toBeLessThan(30_000);
+    const preview = await previewInWorker(DIV_BOMB, {
+      timeoutMs: FORMATTED_VIEW_BUDGET_MS,
+      textTimeoutMs: TEXT_RETRY_BUDGET_MS,
+    });
     expect(preview.previewable).toBe(true);
     if (!preview.previewable) {
       throw new Error("expected previewable");
@@ -72,11 +87,23 @@ describe("previewInWorker", { timeout: TIMEOUT }, () => {
     clearInterval(timer);
     expect(failure).toBeInstanceOf(PreviewUnreadableError);
     expect((failure as PreviewUnreadableError).kind).toBe("timeout");
+    // The text attempt got half of the time of the formatted view, as it does by default.
+    expect((failure as PreviewUnreadableError).message).toContain("within 300 ms");
     expect(Date.now() - started).toBeLessThan(30_000);
     // About a second passed (a full and a text attempt): the loop ticked all along.
     expect(ticks).toBeGreaterThan(30);
     // The next message is previewed as usual.
     expect((await previewInWorker(HTML_MAIL)).previewable).toBe(true);
+  });
+
+  it("gives the text attempt the time it is asked for instead of half of the time of the formatted view", async () => {
+    await previewInWorker(HTML_MAIL);
+    const failure = await previewInWorker(QP_BOMB, { timeoutMs: 300, textTimeoutMs: 1500 }).catch(
+      (e: unknown) => e,
+    );
+    expect(failure).toBeInstanceOf(PreviewUnreadableError);
+    expect((failure as PreviewUnreadableError).kind).toBe("timeout");
+    expect((failure as PreviewUnreadableError).message).toContain("within 1500 ms");
   });
 
   it("previews a 30 MB report of '<' as text without a stall: no text to HTML conversion is asked for", async () => {

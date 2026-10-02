@@ -1,3 +1,4 @@
+import type { BandwidthWindow } from "@/features/backup-jobs/bandwidth-windows";
 import type { Failure } from "@/features/failures";
 import { apiFetch } from "@/lib/api";
 
@@ -95,6 +96,12 @@ export interface EndpointSummary {
   readiness: EndpointReadiness;
   latestRun: RunSummary | null;
   attention: Attention[];
+  /**
+   * The backup job the machine belongs to (release 0.2.0); null when it is in none and keeps the
+   * configuration it has. While it is in a job the job owns its configuration (`config`): schedule,
+   * folders, exclusions, hooks and bandwidth. Absent on servers from before 0.2.0, which read as null.
+   */
+  job?: { id: string; name: string } | null;
   createdAt: string;
   revokedAt: string | null;
 }
@@ -192,6 +199,11 @@ export interface EndpointConfig {
   excludes: string[];
   hooks: { pre?: string; post?: string };
   bandwidthKbps: number | null;
+  /**
+   * Time windows with a limit of their own, read in the zone of `schedule`; absent when there are none.
+   * `bandwidthKbps` is the limit outside every window.
+   */
+  bandwidthWindows?: BandwidthWindow[];
   onlyOnAcPower: boolean;
   useVss: boolean;
 }
@@ -267,8 +279,10 @@ export interface EndpointDetail extends EndpointSummary {
   } | null;
   /** Hooks: what the machine allows and what is configured. */
   hooks: EndpointHooks;
-  /** The tenant paused automatic agent updates. */
+  /** No new agent release is installed on this machine: the tenant paused updates, or the machine is paused on its own. */
   autoUpdatePaused: boolean;
+  /** The machine is paused on its own (an override that outlives the tenant's setting). */
+  autoUpdateOwnPause: boolean;
 }
 
 /**
@@ -294,11 +308,21 @@ export interface EndpointHooks {
   post: HookSummary;
 }
 
-/** The tenant-wide switch for automatic agent updates. */
+/** A machine that is paused on its own, as the Agents section lists it. */
+export interface AgentUpdateOverride {
+  id: string;
+  name: string;
+  profile: "server" | "client";
+}
+
+/** The tenant's setting for automatic agent updates, and the machines paused on their own. */
 export interface AgentUpdates {
+  /** One setting for the whole tenant; it also covers machines that enrol later. */
   paused: boolean;
-  /** Machines of the tenant; without one the switch cannot be set yet. */
+  /** Machines of the tenant. */
   endpoints: number;
+  /** Machines paused on their own: they stay paused whatever the tenant says. */
+  overrides: AgentUpdateOverride[];
 }
 
 /** What the scripts policy accepts as a hook: the plain name of a script. */
@@ -410,6 +434,8 @@ export interface UpdateEndpointInput {
     excludes?: string[];
     hooks?: { pre?: string; post?: string };
     bandwidthKbps?: number | null;
+    /** `null` or an empty list removes them. */
+    bandwidthWindows?: BandwidthWindow[] | null;
     onlyOnAcPower?: boolean;
   };
   settings?: {
@@ -429,6 +455,12 @@ export interface TaskResult {
   task: EndpointTask;
   alreadyQueued: boolean;
 }
+
+/**
+ * The problem type of a change to the configuration of a machine that is in a backup job: the job owns it
+ * (409). The settings page shows those fields read-only, so this is only the answer to a stale page.
+ */
+export const CONFIG_MANAGED_BY_JOB_PROBLEM = "urn:restow:problem:endpoint-config-managed-by-job";
 
 /** The API's limits (schemas.ts), so the UI stops before the request is refused. */
 export const LIMITS = {
@@ -608,8 +640,19 @@ export function fetchAgentUpdates(): Promise<AgentUpdates> {
   return apiFetch<AgentUpdates>(`${BASE}/agent-updates`);
 }
 
-export function setAgentUpdates(paused: boolean): Promise<AgentUpdates> {
-  return apiFetch<AgentUpdates>(`${BASE}/agent-updates`, { method: "PUT", body: { paused } });
+/** `resumeMachines` also lifts the machines' own pauses. */
+export function setAgentUpdates(paused: boolean, resumeMachines = false): Promise<AgentUpdates> {
+  return apiFetch<AgentUpdates>(`${BASE}/agent-updates`, {
+    method: "PUT",
+    body: resumeMachines ? { paused, resumeMachines } : { paused },
+  });
+}
+
+/** Lift the own pause of one machine; it then follows the tenant's setting. */
+export function resumeMachineUpdates(endpointId: string): Promise<AgentUpdates> {
+  return apiFetch<AgentUpdates>(`${BASE}/agent-updates/machines/${id(endpointId)}`, {
+    method: "DELETE",
+  });
 }
 
 export function revokeToken(tokenId: string): Promise<void> {

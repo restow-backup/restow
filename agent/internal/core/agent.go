@@ -59,7 +59,7 @@ type Options struct {
 	Tick               time.Duration // scheduler resolution, default 30 s
 	ConfigRefresh      time.Duration // default 1 h
 	UpdateInterval     time.Duration // default 6 h
-	ProgressInterval   time.Duration // default 10 s
+	ProgressInterval   time.Duration // default 5 s
 	SampleTimeout      time.Duration // default 10 min
 	// SelfUpdate enables GET /agent/v1/update polling.
 	SelfUpdate bool
@@ -87,7 +87,7 @@ func (o *Options) defaults() {
 		o.UpdateInterval = 6 * time.Hour
 	}
 	if o.ProgressInterval == 0 {
-		o.ProgressInterval = 10 * time.Second
+		o.ProgressInterval = defaultProgressInterval
 	}
 	if o.SampleTimeout == 0 {
 		o.SampleTimeout = 10 * time.Minute

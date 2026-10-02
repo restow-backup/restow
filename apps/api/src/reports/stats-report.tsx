@@ -69,7 +69,7 @@ interface Context {
 // ---------------------------------------------------------------------------
 
 type KpiKind = "percent" | "count" | "bytes" | "ratio" | "duration";
-type GoodDirection = "up" | "down" | "neutral";
+export type GoodDirection = "up" | "down" | "neutral";
 
 /** How each figure is shown, and which direction of change is good news. */
 const KPI_FORMAT: Record<KpiName, { kind: KpiKind; good: GoodDirection }> = {
@@ -119,9 +119,23 @@ function kpiTile(name: KpiName, kpi: KpiDto, context: Context): KpiTile {
     kind === "percent"
       ? t("stats.delta.points", { value: signed(change, formatDecimal(change * 100, language)) })
       : signed(change, formatKpi(kind, change, context));
-  const tone: Tone =
-    good === "neutral" ? "neutral" : change > 0 === (good === "up") ? "success" : "destructive";
-  return { ...tile, delta: t("stats.delta.change", { value: amount }), deltaTone: tone };
+  return {
+    ...tile,
+    delta: t("stats.delta.change", { value: amount }),
+    deltaTone: deltaTone(good, change),
+  };
+}
+
+/**
+ * The tone of a change against the previous period: plain text for good news,
+ * red for bad news, grey for no judgement. Good news is not green (the web
+ * app does the same): green means proof, and a success rate that rose is not.
+ */
+export function deltaTone(good: GoodDirection, change: number): Tone {
+  if (good === "neutral") {
+    return "neutral";
+  }
+  return change > 0 === (good === "up") ? "positive" : "destructive";
 }
 
 // ---------------------------------------------------------------------------
@@ -200,9 +214,10 @@ function Charts({ stats, context }: { stats: StatsDto; context: Context }) {
         formatValue={count}
         context={context}
         series={(rows) => [
+          // Completed, not checked: Lapis, never the green of a passed restore check.
           line(
             "succeeded",
-            colors.success,
+            colors.accent,
             rows.map((row) => row.succeeded),
           ),
           line(
@@ -578,7 +593,7 @@ export function StatsReport(props: StatsReportProps) {
         pageLabel={(page, total) => t("document.page", { page, total })}
       >
         <ReportHeader
-          eyebrow={t("document.product")}
+          product={t("document.product")}
           title={title}
           subtitle={subtitle}
           meta={[

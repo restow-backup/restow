@@ -8,6 +8,7 @@ import {
   canCreateTenant,
   canEnter,
   createTenantError,
+  deleteTenantError,
   fallbackTenant,
   filterTenants,
   genericError,
@@ -21,6 +22,8 @@ import {
   mailboxUsage,
   memberChangeError,
   notificationTestErrorKey,
+  ownOrganisationError,
+  ownOrganisationPrompt,
   parseTenantsSearch,
   readinessBadge,
   statusBadge,
@@ -38,7 +41,9 @@ function tenant(id: string, overrides: Partial<TenantItem> = {}): TenantItem {
     id,
     name: `Tenant ${id}`,
     slug: `tenant-${id}`,
+    kind: "customer",
     status: "active",
+    customerNumber: null,
     organizationId: `org-${id}`,
     mailboxCap: null,
     createdAt: null,
@@ -297,5 +302,130 @@ describe("invitations", () => {
     expect(tenantRoleFromMemberRole("member,admin")).toBe("tenant_admin");
     expect(tenantRoleFromMemberRole("member")).toBe("tenant_user");
     expect(tenantRoleFromMemberRole(null)).toBe("tenant_user");
+  });
+});
+
+describe("the own organisation prompt", () => {
+  const own = tenant("own", { kind: "internal", name: "Acme IT" });
+  const customerA = tenant("a", { name: "Contoso", customerNumber: "K-1" });
+  const asked = {
+    providerAdmin: true,
+    canManage: true,
+    additionalTenants: false,
+  };
+
+  it("asks only provider admins", () => {
+    expect(ownOrganisationPrompt({ ...asked, providerAdmin: false, tenants: [] })).toBeNull();
+    expect(
+      ownOrganisationPrompt({ ...asked, providerAdmin: false, tenants: [customerA] }),
+    ).toBeNull();
+  });
+
+  it("asks to set up the own organisation when there is no tenant at all: create only", () => {
+    expect(ownOrganisationPrompt({ ...asked, tenants: [] })).toEqual({
+      kind: "setUp",
+      canManage: true,
+      canCreate: true,
+      existing: [],
+    });
+  });
+
+  it("offers choosing an existing tenant, and creating one only where more than one tenant may exist", () => {
+    const single = ownOrganisationPrompt({ ...asked, tenants: [customerA] });
+    expect(single).toEqual({
+      kind: "setUp",
+      canManage: true,
+      canCreate: false,
+      existing: [{ id: "a", name: "Contoso", customerNumber: "K-1" }],
+    });
+    const several = ownOrganisationPrompt({
+      ...asked,
+      additionalTenants: true,
+      tenants: [customerA, tenant("b")],
+    });
+    expect(several).toMatchObject({ kind: "setUp", canCreate: true });
+    expect(several?.kind === "setUp" && several.existing.map((choice) => choice.id)).toEqual([
+      "a",
+      "b",
+    ]);
+  });
+
+  it("does not offer a tenant that is being deleted, and asks nothing when nothing can be offered", () => {
+    const deleting = tenant("gone", { status: "deleting" });
+    const prompt = ownOrganisationPrompt({
+      ...asked,
+      additionalTenants: true,
+      tenants: [deleting, customerA],
+    });
+    expect(prompt?.kind === "setUp" && prompt.existing.map((choice) => choice.id)).toEqual(["a"]);
+    expect(ownOrganisationPrompt({ ...asked, tenants: [deleting] })).toBeNull();
+    // With the extension, creating is possible even then.
+    expect(
+      ownOrganisationPrompt({ ...asked, additionalTenants: true, tenants: [deleting] }),
+    ).toMatchObject({ kind: "setUp", canCreate: true, existing: [] });
+  });
+
+  it("tells a provider admin without the right role instead of offering what the API would refuse", () => {
+    expect(
+      ownOrganisationPrompt({ ...asked, canManage: false, tenants: [customerA] }),
+    ).toMatchObject({
+      kind: "setUp",
+      canManage: false,
+    });
+  });
+
+  it("asks nothing once the own organisation exists, unless a service provider has no customer yet", () => {
+    expect(ownOrganisationPrompt({ ...asked, tenants: [own] })).toBeNull();
+    expect(ownOrganisationPrompt({ ...asked, tenants: [own, customerA] })).toBeNull();
+    expect(
+      ownOrganisationPrompt({ ...asked, additionalTenants: true, tenants: [own, customerA] }),
+    ).toBeNull();
+    expect(ownOrganisationPrompt({ ...asked, additionalTenants: true, tenants: [own] })).toEqual({
+      kind: "addCustomer",
+    });
+    // A customer that is being deleted is no customer.
+    expect(
+      ownOrganisationPrompt({
+        ...asked,
+        additionalTenants: true,
+        tenants: [own, tenant("gone", { status: "deleting" })],
+      }),
+    ).toEqual({ kind: "addCustomer" });
+    // Adding a customer needs the same role as setting up.
+    expect(
+      ownOrganisationPrompt({
+        ...asked,
+        canManage: false,
+        additionalTenants: true,
+        tenants: [own],
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("own organisation failures", () => {
+  it("explains a deletion that the own organisation refused", () => {
+    expect(
+      deleteTenantError(problem(409, { type: "urn:restow:problem:internal-tenant-protected" })),
+    ).toEqual({ key: "tenants:errors.internalTenantProtected" });
+    expect(deleteTenantError(problem(404))).toEqual({ key: "common:errors.notFound" });
+  });
+
+  it("explains why creating or choosing the own organisation failed", () => {
+    expect(
+      ownOrganisationError(
+        problem(403, {
+          type: "urn:restow:problem:feature-unavailable",
+          feature: "tenants.additional",
+        }),
+      ),
+    ).toEqual({ key: "tenants:ownOrganisation.errors.featureUnavailable" });
+    expect(
+      ownOrganisationError(problem(409, { type: "urn:restow:problem:internal-tenant-exists" })),
+    ).toEqual({ key: "tenants:ownOrganisation.errors.exists" });
+    expect(ownOrganisationError(problem(409, { type: "urn:restow:problem:slug-taken" }))).toEqual({
+      key: "tenants:validation.slugTaken",
+    });
+    expect(ownOrganisationError(problem(500))).toEqual({ key: "common:errors.server" });
   });
 });

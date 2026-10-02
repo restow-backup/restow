@@ -16,6 +16,13 @@ function isSupported(value: string | null | undefined): value is SupportedLangua
   return value != null && (supportedLanguages as readonly string[]).includes(value);
 }
 
+/** The browser's language (`navigator.language`) when the app has it, else undefined. */
+export function browserLanguage(): SupportedLanguage | undefined {
+  const browser =
+    typeof navigator !== "undefined" ? navigator.language?.slice(0, 2).toLowerCase() : undefined;
+  return isSupported(browser) ? browser : undefined;
+}
+
 /** Language preference: stored choice first, then the browser, then default. */
 function detectInitialLanguage(): SupportedLanguage | undefined {
   try {
@@ -27,8 +34,7 @@ function detectInitialLanguage(): SupportedLanguage | undefined {
     // Ignore storage access failures (private mode, disabled cookies).
   }
 
-  const browser = typeof navigator !== "undefined" ? navigator.language.slice(0, 2) : undefined;
-  return isSupported(browser) ? browser : undefined;
+  return browserLanguage();
 }
 
 export const i18n = createI18n({ lng: detectInitialLanguage() });
@@ -65,12 +71,30 @@ export function chooseLanguage(language: string): Promise<unknown> {
   return i18n.changeLanguage(language);
 }
 
-function languageWasChosen(): boolean {
+export function languageWasChosen(): boolean {
   try {
     return localStorage.getItem(LANGUAGE_CHOSEN_KEY) === "1";
   } catch {
     return false;
   }
+}
+
+/** The language the app shows right now, when it is one of the supported ones. */
+export function activeLanguage(): SupportedLanguage {
+  const current = i18n.resolvedLanguage ?? i18n.language;
+  return isSupported(current) ? current : fallbackLanguage;
+}
+
+/**
+ * The language the setup wizard preselects: what the visitor chose before, else
+ * the browser's language, else English. Not what happens to be stored: the stored
+ * language is the browser's at the time of the first visit, which is not a choice.
+ */
+export function setupLanguageSuggestion(): SupportedLanguage {
+  if (languageWasChosen()) {
+    return activeLanguage();
+  }
+  return browserLanguage() ?? fallbackLanguage;
 }
 
 /**

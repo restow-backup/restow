@@ -6,10 +6,10 @@ import { EmptyState, PageHeader, RefreshButton } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { useSession } from "@/lib/session";
 
-import { AgentUpdatesCard } from "./components/agent-updates-card.js";
 import { EndpointsTable } from "./components/endpoints-table.js";
 import { EnrollDialog } from "./components/enroll-dialog.js";
 import { PendingTokens } from "./components/pending-tokens.js";
+import { ProxmoxTeaser } from "./components/proxmox-teaser.js";
 import { useEndpoints } from "./hooks.js";
 import { type EndpointArea, type EndpointProfile, profileOfArea } from "./paths.js";
 
@@ -36,7 +36,7 @@ export function EndpointsPage({
   onKindChange?: (kind: EndpointProfile | undefined) => void;
 }) {
   const { t } = useTranslation("endpoints");
-  const { activeTenant } = useSession();
+  const { activeTenant, isProviderAdmin } = useSession();
   const profile = profileOfArea(area);
   const endpoints = useEndpoints(profile);
   const [enrolling, setEnrolling] = React.useState<EndpointProfile | null>(null);
@@ -61,6 +61,8 @@ export function EndpointsPage({
           fetching={endpoints.isFetching}
           label={t("list.refresh")}
         />
+        {/* A teaser, not a flow: what comes after this release. */}
+        <ProxmoxTeaser />
         {area === "agents"
           ? [newButton("client", false), newButton("server", true)]
           : newButton(profile ?? "server", true)}
@@ -91,11 +93,9 @@ export function EndpointsPage({
         </fieldset>
       ) : null}
 
-      <p className="max-w-3xl text-sm text-muted-foreground">{t("list.honesty")}</p>
+      <p className="max-w-prose text-sm text-muted-foreground">{t("list.honesty")}</p>
 
       <PendingTokens profile={profile} />
-
-      {activeTenant !== null ? <AgentUpdatesCard /> : null}
 
       <EndpointsTable
         area={area}
@@ -139,6 +139,7 @@ export function EndpointsPage({
           if (!open) setEnrolling(null);
         }}
         profile={enrolling ?? "server"}
+        canOpenInstallation={isProviderAdmin}
       />
     </div>
   );

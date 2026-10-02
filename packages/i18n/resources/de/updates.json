@@ -75,7 +75,7 @@
       "disk_space": "Es ist nicht genug freier Speicherplatz vorhanden.",
       "not_newer": "Die gewählte Version ist nicht neuer als die laufende.",
       "compose_unsupported": "Diese Version von Docker Compose wird nicht unterstützt.",
-      "updater_image_unpinned": "Der Updater bezieht sein eigenes Image aus den Image-Zeilen, die er bei einem Update umschreibt. Geben Sie ihm ein eigenes, festes Image und erstellen Sie ihn neu; die Schritte stehen unter Einstellungen, Updates."
+      "updater_image_unpinned": "Der Updater bezieht sein eigenes Image aus den Image-Zeilen, die er bei einem Update umschreibt. Geben Sie ihm ein eigenes, festes Image und erstellen Sie ihn neu; die Schritte stehen unter Installation, Updates."
     },
     "fetch": {
       "pull_failed": "Das neue Image konnte nicht heruntergeladen werden.",
@@ -426,7 +426,7 @@
     "copyAll": "Alle Befehle kopieren"
   },
   "maintenance": {
-    "openSettings": "Einstellungen, Updates öffnen",
+    "openSettings": "Installation, Updates öffnen",
     "banner": {
       "scheduled": "Wartung in {time}: {product} wird auf Version {version} aktualisiert. Speichern Sie Ihre Arbeit.",
       "starting": "Die Wartung beginnt: {product} wird auf Version {version} aktualisiert.",
@@ -467,7 +467,7 @@
         },
         "needsAttention": {
           "title": "Das Update erfordert Eingreifen",
-          "admin": "Das Update ist fehlgeschlagen, nachdem die Datenbank migriert wurde. Ein Administrator muss sie wiederherstellen. Details finden Sie unter Einstellungen, Updates.",
+          "admin": "Das Update ist fehlgeschlagen, nachdem die Datenbank migriert wurde. Ein Administrator muss sie wiederherstellen. Details finden Sie unter Installation, Updates.",
           "user": "{product} ist nicht verfügbar. Ein Administrator wurde informiert."
         },
         "generic": {

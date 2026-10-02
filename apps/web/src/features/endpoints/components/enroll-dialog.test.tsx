@@ -258,7 +258,7 @@ describe("EnrollDialog", () => {
     expect(insecure?.textContent).toContain("unencrypted");
     const notConfigured = document.querySelector('[data-warning="instance_url_not_configured"]');
     expect(notConfigured?.textContent).toContain("taken from this browser");
-    expect(notConfigured?.querySelector('a[href="/settings"]')).not.toBeNull();
+    expect(notConfigured?.querySelector('a[href="/installation/server"]')).not.toBeNull();
   });
 
   it("shows no warning for a clean address", async () => {

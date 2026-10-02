@@ -297,14 +297,23 @@ describe("views", () => {
         graphTenantIdDefault: "contoso.onmicrosoft.com",
         graphAppConfigured: false,
       },
+      disclaimerVersion: "2026-10-01",
+      disclaimerAcceptedAt: new Date("2026-09-20T07:00:00.000Z"),
+      currentDisclaimerVersion: "2026-10-01",
     });
     expect(view.updatedAt).toBe("2026-09-20T08:00:00.000Z");
+    expect(view.disclaimer).toEqual({
+      acceptedVersion: "2026-10-01",
+      acceptedAt: "2026-09-20T07:00:00.000Z",
+      currentVersion: "2026-10-01",
+    });
     expect(view.capabilities.graphMail).toEqual({
       appConfigured: false,
       defaultTenantId: "contoso.onmicrosoft.com",
     });
     expect(Object.keys(view).sort()).toEqual([
       "capabilities",
+      "disclaimer",
       "environment",
       "mail",
       "operatingMode",
@@ -312,5 +321,33 @@ describe("views", () => {
       "publicUrl",
       "updatedAt",
     ]);
+  });
+
+  it("reports an operator notice that was never accepted, or accepted at an older version", () => {
+    const base = {
+      operatingMode: "public" as const,
+      publicUrl: "https://restow.example.com",
+      mail: null,
+      smtpPasswordStored: false,
+      updatedAt: null,
+      passkeyReady: { ready: true, reasons: [], rpId: "restow.example.com", origin: null },
+      environmentPublicUrl: null,
+      mailEnvironment: { graphTenantIdDefault: null, graphAppConfigured: false },
+      currentDisclaimerVersion: "2026-10-01",
+    };
+    expect(
+      toSettingsView({ ...base, disclaimerVersion: null, disclaimerAcceptedAt: null }).disclaimer,
+    ).toEqual({ acceptedVersion: null, acceptedAt: null, currentVersion: "2026-10-01" });
+    expect(
+      toSettingsView({
+        ...base,
+        disclaimerVersion: "2026-01-01",
+        disclaimerAcceptedAt: new Date("2026-01-02T10:00:00.000Z"),
+      }).disclaimer,
+    ).toEqual({
+      acceptedVersion: "2026-01-01",
+      acceptedAt: "2026-01-02T10:00:00.000Z",
+      currentVersion: "2026-10-01",
+    });
   });
 });

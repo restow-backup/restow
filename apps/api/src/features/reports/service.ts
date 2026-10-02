@@ -74,6 +74,12 @@ export interface ReportRuleDto {
   periodDays: number;
   sections: string[];
   emailRecipients: string[];
+  /**
+   * Set when this rule carries one category of the tenant's notification recipients
+   * (`jobFailures`, `readinessRed`, `weeklyReport`): its e-mail recipients are the recipients
+   * who chose that category and change only through them.
+   */
+  recipientCategory: string | null;
   inApp: boolean;
   webhookId: string | null;
   language: "de" | "en" | null;
@@ -132,6 +138,7 @@ export function toRuleDto(
     periodDays: row.periodDays,
     sections: [...row.sections],
     emailRecipients: [...row.emailRecipients],
+    recipientCategory: row.recipientCategory,
     inApp: row.inApp,
     webhookId: row.webhookId,
     language: row.language,
@@ -415,6 +422,20 @@ export async function updateRule(
       if (!onlyDisabling) {
         await assertScheduledAllowed(tx, "schedule");
       }
+    }
+    if (before.recipientCategory !== null && patch.emailRecipients !== undefined) {
+      // The addresses of a rule that carries a category of the notification recipients come from
+      // the recipients; changing them here would be undone by the next save over there.
+      const key = (list: readonly string[]) =>
+        [...new Set(list.map((email) => email.trim().toLowerCase()))].sort().join("\n");
+      if (key(patch.emailRecipients) !== key(before.emailRecipients)) {
+        throw reportRuleProblem(
+          "emailRecipients",
+          "recipients_managed",
+          "The recipients of this rule are the notification recipients of the tenant; change them there.",
+        );
+      }
+      patch = { ...patch, emailRecipients: undefined };
     }
     const after: ReportRule = {
       ...before,

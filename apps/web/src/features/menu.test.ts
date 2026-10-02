@@ -1,17 +1,32 @@
 import { describe, expect, it } from "vitest";
 
+import { scopeKindOf } from "@/components/layout/breadcrumb-trail";
 import { navItems as dashboardNavItems } from "@/features/dashboard";
 import { featureNavItems } from "@/features/registry";
 import { i18n } from "@/i18n";
-import { type NavLockContext, groupNavItems } from "@/lib/navigation";
+import {
+  NAV_GROUPS,
+  type NavLockContext,
+  groupNavItems,
+  navGroupLabelKey,
+  navGroupOf,
+} from "@/lib/navigation";
 import { canAccess } from "@/lib/session";
 
 /**
- * The final menu of 0.1.0 (maintainer decision 2026-10-01, plan step 2) as
- * the sidebar builds it from the real registry, per edition and role:
- * Daily, Mail & SaaS, Servers & endpoints, Tenants, Admin. Upcoming entries
- * show "(soon <release>)", entries an edition lock holds closed "(locked)"
- * (decision D1 is open: they stay visible, greyed out).
+ * The menu of 0.2.0 (maintainer decisions 2026-10-01 and 2026-10-02, plan
+ * step 2, phase 1c) as the sidebar builds it from the real registry, per
+ * edition and role: Daily, Mail & SaaS (the archive among them), Servers &
+ * endpoints, Tenants (Organisation where the installation has one
+ * organisation), Installation.
+ * Upcoming entries show "(soon <release>)", entries an edition lock holds
+ * closed "(locked)" (decision D1: they stay visible, greyed out).
+ *
+ * The roles of the menu are the role in the active tenant: a provider admin
+ * (whatever the team role: owner, administrator, technician or read only; the
+ * pages gate what each may change, the menu has no entries per team role), a
+ * tenant admin and an end user. Technician and read only are not roles of the
+ * menu, so they see what every provider admin sees.
  */
 
 const items = [...dashboardNavItems, ...featureNavItems];
@@ -43,87 +58,226 @@ function menu(role: string | null, ctx: NavLockContext): Record<string, string[]
 }
 
 const DAILY = ["dashboard", "history", "verify", "alerts"];
-const MAIL = ["mail-jobs (soon 0.2.0)", "restore", "archive", "exports"];
-const ENDPOINTS = ["endpoint-jobs (soon 0.2.0)", "inventory", "file-restore"];
+// The archive is part of Mail & SaaS (maintainer decision 2026-10-02): no section of its own.
+const MAIL = ["mail-jobs", "restore", "archive", "exports"];
+const ENDPOINTS = ["endpoint-jobs", "inventory", "file-restore"];
 
 describe("the menu per edition", () => {
-  it("Community, provider admin: Setup, and the licensed entries greyed out", () => {
+  it("Community, provider admin: the one organisation's settings, the licensed entries greyed out", () => {
     expect(menu("provider_admin", COMMUNITY)).toEqual({
       daily: DAILY,
       mail: MAIL,
       endpoints: ENDPOINTS,
-      tenants: ["tenants (locked)", "tenant-setup"],
-      admin: [
-        "repositories",
-        "audit (locked)",
-        "integrations",
-        "license",
-        "team (locked)",
+      // "Settings" of the one organisation instead of "Tenant settings"; the
+      // list of all tenants stays as a greyed-out entry. Repositories, integrations,
+      // members and the rest are sections of the settings page, not entries.
+      tenants: ["organisation-settings", "tenants (locked)"],
+      installation: [
         "settings",
-        "resources (soon 0.2.1)",
+        "team (locked)",
+        "audit (locked)",
+        "license",
+        "resources (soon 0.5.0)",
       ],
     });
   });
 
-  it("Business, provider admin: audit log and team open, tenants still locked", () => {
+  it("Business, provider admin: audit log and team open, all tenants still locked", () => {
     expect(menu("provider_admin", BUSINESS)).toEqual({
       daily: DAILY,
       mail: MAIL,
       endpoints: ENDPOINTS,
-      tenants: ["tenants (locked)", "tenant-setup"],
-      admin: [
-        "repositories",
-        "audit",
-        "integrations",
-        "license",
-        "team",
-        "settings",
-        "resources (soon 0.2.1)",
-      ],
+      tenants: ["organisation-settings", "tenants (locked)"],
+      installation: ["settings", "team", "audit", "license", "resources (soon 0.5.0)"],
     });
   });
 
-  it("Service Provider, provider admin: All tenants instead of Setup, never a tenant itself", () => {
+  it("Service Provider, provider admin: tenant settings and all tenants, never a tenant itself", () => {
     expect(menu("provider_admin", SERVICE_PROVIDER)).toEqual({
       daily: DAILY,
       mail: MAIL,
       endpoints: ENDPOINTS,
-      tenants: ["tenants"],
-      admin: [
-        "repositories",
-        "audit",
-        "integrations",
-        "license",
-        "team",
-        "settings",
-        "resources (soon 0.2.1)",
-      ],
+      tenants: ["tenant-settings", "tenants"],
+      installation: ["settings", "team", "audit", "license", "resources (soon 0.5.0)"],
     });
   });
 
-  it("tenant admin: their own tenant's work and members, no installation entries", () => {
+  it("tenant admin in a Service Provider installation: the settings of their tenant, nothing else of the tenant level", () => {
+    // The old gap: no entry of their own for the tenant's settings here. Their members, audit
+    // log and the rest are sections of that page.
     expect(menu("tenant_admin", SERVICE_PROVIDER)).toEqual({
       daily: DAILY,
       mail: MAIL,
       endpoints: ENDPOINTS,
-      admin: ["repositories", "audit", "integrations", "tenant-members"],
+      tenants: ["tenant-settings"],
     });
-    expect(menu("tenant_admin", COMMUNITY).tenants).toEqual(["tenant-setup"]);
   });
 
-  it("end user: the overview, restore and exports only", () => {
-    expect(menu("tenant_user", COMMUNITY)).toEqual({
-      daily: ["dashboard"],
-      mail: ["restore", "exports"],
-    });
+  it("tenant admin in Community and Business: the organisation's settings", () => {
+    expect(menu("tenant_admin", COMMUNITY).tenants).toEqual(["organisation-settings"]);
+    expect(menu("tenant_admin", BUSINESS).tenants).toEqual(["organisation-settings"]);
+  });
+
+  it("shows the Installation section to provider admins only", () => {
+    for (const ctx of [COMMUNITY, BUSINESS, SERVICE_PROVIDER]) {
+      expect(menu("provider_admin", ctx).installation).toBeDefined();
+      expect(menu("tenant_admin", ctx).installation).toBeUndefined();
+      expect(menu("tenant_user", ctx).installation).toBeUndefined();
+    }
+  });
+
+  it("keeps one audit log entry, the provider admins'; a tenant administrator's is a section of their tenant's page", () => {
+    const audit = items.filter((item) => item.path === "/audit");
+    expect(audit.map((item) => [item.id, item.group, item.roles])).toEqual([
+      ["audit", "installation", ["provider_admin"]],
+    ]);
+    for (const [role, ctx] of [
+      ["provider_admin", SERVICE_PROVIDER],
+      ["tenant_admin", SERVICE_PROVIDER],
+    ] as const) {
+      const entries = Object.values(menu(role, ctx))
+        .flat()
+        .filter((id) => id.startsWith("audit") || id.startsWith("tenant-audit"));
+      expect(entries, role).toHaveLength(role === "provider_admin" ? 1 : 0);
+    }
+  });
+
+  it("names the Installation level in the header on every entry of that section, and the tenant level on the tenant settings", () => {
+    const level = (id: string, tenantKind: "customer" | "internal" | null = "customer") => {
+      const entry = items.find((item) => item.id === id);
+      return scopeKindOf({
+        groupId: entry ? navGroupOf(entry) : null,
+        entryId: id,
+        tenantKind,
+        organisationMode: false,
+      });
+    };
+    for (const id of ["settings", "team", "audit", "license", "resources"]) {
+      expect(level(id), id).toBe("installation");
+    }
+    expect(level("tenant-settings")).toBe("tenant");
+    expect(level("tenant-settings", "internal")).toBe("internal");
+  });
+
+  it("opens the installation page at its first section, and the license at its own", () => {
+    const settings = items.find((item) => item.id === "settings");
+    expect(settings).toMatchObject({ path: "/installation", group: "installation" });
+    const license = items.find((item) => item.id === "license");
+    expect(license).toMatchObject({ path: "/installation/license", group: "installation" });
+  });
+
+  it("end user: the overview, restore and exports only, in every edition", () => {
+    for (const ctx of [COMMUNITY, BUSINESS, SERVICE_PROVIDER]) {
+      expect(menu("tenant_user", ctx)).toEqual({
+        daily: ["dashboard"],
+        mail: ["restore", "exports"],
+      });
+    }
+  });
+
+  it("offers exactly one of tenant settings and organisation settings, never both", () => {
+    for (const [ctx, expected] of [
+      [COMMUNITY, "organisation-settings"],
+      [BUSINESS, "organisation-settings"],
+      [SERVICE_PROVIDER, "tenant-settings"],
+    ] as const) {
+      for (const role of ["provider_admin", "tenant_admin"]) {
+        const ids = (menu(role, ctx).tenants ?? []).filter(
+          (id) => id === "tenant-settings" || id === "organisation-settings",
+        );
+        expect(ids, `${role} in ${expected}`).toEqual([expected]);
+      }
+    }
+  });
+
+  it("has no menu entry for the pages that are sections of the tenant page", () => {
+    const ids = items.map((item) => item.id);
+    for (const gone of [
+      "repositories",
+      "integrations",
+      "tenant-members",
+      "tenant-audit",
+      "protection",
+      "sources",
+      "schedules",
+      "retention",
+      "imports",
+    ]) {
+      expect(ids, gone).not.toContain(gone);
+    }
+    for (const ctx of [COMMUNITY, BUSINESS, SERVICE_PROVIDER]) {
+      const installation = menu("provider_admin", ctx).installation ?? [];
+      for (const id of ["repositories", "integrations", "tenant-members"]) {
+        expect(installation.join(" ")).not.toContain(id);
+      }
+    }
+  });
+
+  it("lets the settings entries open the tenant page of the active tenant, on every section of it", () => {
+    for (const id of ["tenant-settings", "organisation-settings"]) {
+      const entry = items.find((item) => item.id === id);
+      expect(entry, id).toMatchObject({
+        path: "/tenants/$activeTenant/overview",
+        group: "tenants",
+        roles: ["provider_admin", "tenant_admin"],
+      });
+      expect(entry?.matches).toEqual(["/tenants/$activeTenant"]);
+    }
+  });
+
+  it("keeps the archive in Mail & SaaS, between the restore explorer and the exports", () => {
+    expect(menu("tenant_admin", COMMUNITY).mail).toEqual([
+      "mail-jobs",
+      "restore",
+      "archive",
+      "exports",
+    ]);
+    // Tenant admins and provider admins only; an end user has no archive entry.
+    expect(menu("tenant_user", COMMUNITY).mail).toEqual(["restore", "exports"]);
+    const archive = items.find((item) => item.id === "archive");
+    expect(archive?.group).toBe("mail");
+    expect(navGroupOf({ id: "archive", group: archive?.group })).toBe("mail");
   });
 
   it("puts each upcoming entry at the address its feature will have", () => {
     const soon = items.filter((item) => item.soon);
+    // The job definitions shipped with 0.2.0: Jobs carry no "Soon" badge any more.
     expect(soon.map((item) => [item.id, item.path, item.search ?? null, item.soon])).toEqual([
-      ["mail-jobs", "/jobs", { type: "mail" }, "0.2.0"],
-      ["endpoint-jobs", "/jobs", { type: "endpoint" }, "0.2.0"],
-      ["resources", "/resources", null, "0.2.1"],
+      ["resources", "/resources", null, "0.5.0"],
+    ]);
+  });
+
+  it("opens the jobs of each kind from the entry of its section, in the order the plan has them", () => {
+    const jobs = items.filter((item) => item.id === "mail-jobs" || item.id === "endpoint-jobs");
+    expect(
+      jobs.map((item) => [
+        item.id,
+        item.path,
+        item.search,
+        item.group,
+        item.order,
+        item.roles,
+        item.soon,
+      ]),
+    ).toEqual([
+      [
+        "mail-jobs",
+        "/jobs",
+        { type: "mail" },
+        "mail",
+        10,
+        ["provider_admin", "tenant_admin"],
+        undefined,
+      ],
+      [
+        "endpoint-jobs",
+        "/jobs",
+        { type: "endpoint" },
+        "endpoints",
+        10,
+        ["provider_admin", "tenant_admin"],
+        undefined,
+      ],
     ]);
   });
 
@@ -133,19 +287,24 @@ describe("the menu per edition", () => {
       byIcon.set(item.icon, [...(byIcon.get(item.icon) ?? []), item.id]);
     }
     const shared = [...byIcon.values()].filter((ids) => ids.length > 1);
-    // Jobs in both sections; a tenant (list and setup); people (Members, Team).
+    // Jobs in both sections; settings (installation, and the tenant's or the organisation's).
     expect(shared).toEqual([
       ["mail-jobs", "endpoint-jobs"],
-      ["tenants", "tenant-setup"],
-      ["tenant-members", "team"],
+      ["tenant-settings", "organisation-settings", "settings"],
     ]);
   });
 
-  it("labels the sections and the renamed entries in both languages", async () => {
+  it("labels the sections and the entries in both languages", async () => {
+    const groups = ["daily", "mail", "endpoints", "tenants", "installation"];
     await i18n.changeLanguage("de");
-    expect(
-      ["daily", "mail", "endpoints", "tenants", "admin"].map((id) => i18n.t(`nav.groups.${id}`)),
-    ).toEqual(["Täglich", "Mail & SaaS", "Server & Endpunkte", "Mandanten", "Verwaltung"]);
+    expect(groups.map((id) => i18n.t(`nav.groups.${id}`))).toEqual([
+      "Täglich",
+      "Mail & SaaS",
+      "Server & Endpunkte",
+      "Mandanten",
+      "Installation",
+    ]);
+    expect(i18n.t("nav.groups.organisation")).toBe("Organisation");
     expect(
       [
         "backup:nav.history",
@@ -153,7 +312,9 @@ describe("the menu per edition", () => {
         "reports:nav",
         "restore:nav.explorer",
         "tenants:nav.tenants",
-        "nav.items.setup",
+        "nav.items.tenantSettings",
+        "nav.items.organisationSettings",
+        "installation:nav",
         "storage:nav",
         "license:nav",
         "nav.items.resources",
@@ -163,24 +324,66 @@ describe("the menu per edition", () => {
       "Wiederherstellbarkeit",
       "Alarme",
       "Restore-Explorer",
-      "Alle Mandanten",
-      "Einrichtung",
+      "Mandanten verwalten",
+      "Mandanten-Einstellungen",
+      "Einstellungen",
+      "Einstellungen",
       "Repositories",
       "Lizenz",
-      "Auslastung",
+      "Kapazitätsplanung",
     ]);
     await i18n.changeLanguage("en");
-    expect(
-      ["daily", "mail", "endpoints", "tenants", "admin"].map((id) => i18n.t(`nav.groups.${id}`)),
-    ).toEqual(["Daily", "Mail & SaaS", "Servers & endpoints", "Tenants", "Admin"]);
+    expect(groups.map((id) => i18n.t(`nav.groups.${id}`))).toEqual([
+      "Daily",
+      "Mail & SaaS",
+      "Servers & endpoints",
+      "Tenants",
+      "Installation",
+    ]);
+    expect(i18n.t("nav.groups.organisation")).toBe("Organisation");
     expect(
       [
         "backup:nav.history",
         "reports:nav",
         "tenants:nav.tenants",
+        "nav.items.tenantSettings",
+        "nav.items.organisationSettings",
         "storage:nav",
         "license:nav",
+        "nav.items.resources",
       ].map((key) => i18n.t(key)),
-    ).toEqual(["History", "Alerts", "All tenants", "Repositories", "License"]);
+    ).toEqual([
+      "History",
+      "Alerts",
+      "Manage tenants",
+      "Tenant settings",
+      "Settings",
+      "Repositories",
+      "License",
+      "Capacity planning",
+    ]);
+  });
+
+  it("names the tenants section Organisation where the installation has one organisation", () => {
+    expect(navGroupLabelKey("tenants", COMMUNITY)).toBe("nav.groups.organisation");
+    expect(navGroupLabelKey("tenants", BUSINESS)).toBe("nav.groups.organisation");
+    expect(navGroupLabelKey("tenants", SERVICE_PROVIDER)).toBe("nav.groups.tenants");
+    // Every other section keeps its name in every edition.
+    expect(navGroupLabelKey("installation", COMMUNITY)).toBe("nav.groups.installation");
+  });
+
+  it("has exactly these sections, in this order: no Archive section, no leftover Admin", () => {
+    expect([...NAV_GROUPS]).toEqual([
+      "daily",
+      "mail",
+      "endpoints",
+      "tenants",
+      "installation",
+      "other",
+    ]);
+    const groupsInUse = new Set(items.map((item) => item.group ?? "other"));
+    expect([...groupsInUse].sort()).toEqual(
+      ["daily", "endpoints", "installation", "mail", "tenants"].sort(),
+    );
   });
 });

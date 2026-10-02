@@ -14,7 +14,7 @@ import type {
 import { widgetView } from "@/features/dashboard/presenters";
 import { ALERTS_COLLAPSED, AlertList } from "./alert-list.js";
 import { ProviderView } from "./provider-view.js";
-import { TenantMatrix, readinessFacet } from "./tenant-matrix.js";
+import { TenantMatrix, readinessFacet, sortTenantRows } from "./tenant-matrix.js";
 
 /**
  * The provider view rendered to static markup: tiles, alerts and the tenant
@@ -27,13 +27,22 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
     ...actual,
     Link: ({
       to,
+      search,
       className,
       children,
-    }: { to: string; className?: string; children: React.ReactNode }) => (
-      <a href={to} className={className}>
-        {children}
-      </a>
-    ),
+    }: {
+      to: string;
+      search?: Record<string, string>;
+      className?: string;
+      children: React.ReactNode;
+    }) => {
+      const query = new URLSearchParams(search ?? {}).toString();
+      return (
+        <a href={query ? `${to}?${query}` : to} className={className}>
+          {children}
+        </a>
+      );
+    },
   };
 });
 
@@ -51,12 +60,15 @@ function row(name: string, overrides: Partial<LoadedTenantRow> = {}): LoadedTena
     name,
     slug: name.toLowerCase(),
     status: "active",
+    kind: "customer",
     loaded: true,
     readiness: "green",
     protectedObjects: 10,
+    ready: 10,
+    needsAttention: 0,
+    notRestorable: 0,
     unverified: 0,
     noBackup: 0,
-    notRestorable: 0,
     failures24h: 0,
     failuresPrevious24h: 0,
     lastBackupAt: new Date(Date.now() - 3_600_000).toISOString(),
@@ -75,12 +87,15 @@ function unread(name: string): UnavailableTenantRow {
     name,
     slug: name.toLowerCase(),
     status: "active",
+    kind: "customer",
     loaded: false,
     readiness: null,
     protectedObjects: null,
+    ready: null,
+    needsAttention: null,
+    notRestorable: null,
     unverified: null,
     noBackup: null,
-    notRestorable: null,
     failures24h: null,
     failuresPrevious24h: null,
     lastBackupAt: null,
@@ -107,6 +122,7 @@ const VIEW: ProviderData = {
     suspendedTenants: 1,
     unavailableTenants: 1,
     tenantsNotReady: 1,
+    readiness: { total: 20, green: 14, yellow: 1, red: 2, unverified: 3, noBackup: 0 },
     protectedObjects: 20,
     unverifiedObjects: 3,
     failures24h: 2,
@@ -131,6 +147,7 @@ const handlers = {
   retrying: false,
   onOpenTenant: () => {},
   onTenantDetails: () => {},
+  onOpenReadiness: () => {},
 };
 
 describe("provider view", () => {
@@ -145,7 +162,7 @@ describe("provider view", () => {
     expect(html).not.toContain("Unlimited");
     expect(html).toContain("Alerts across tenants");
     expect(html).toContain("2 jobs failed in the last 24 hours.");
-    expect(html).toContain("Tenant health");
+    expect(html).toContain("Tenants by need for action");
     // Unverified backups are flagged in the matrix.
     expect(html).toContain('data-flag="unverified"');
     expect(html).toContain("3 unverified");
@@ -229,11 +246,12 @@ describe("tenant matrix", () => {
         rows={[row("Contoso"), unread("Tailspin")]}
         onOpenTenant={() => {}}
         onTenantDetails={() => {}}
+        onOpenReadiness={() => {}}
       />,
     );
     const tailspin = cellsOf(html, "Tailspin");
-    // Readiness, unverified, failures, last backup and storage: all unknown.
-    expect(tailspin.split('data-figure="unavailable"').length - 1).toBe(4);
+    // Cannot be restored, unverified, failures, last backup and storage: all unknown.
+    expect(tailspin.split('data-figure="unavailable"').length - 1).toBe(5);
     expect(tailspin).toContain("Not available");
     expect(tailspin).not.toContain("No successful backup yet");
     expect(tailspin).not.toContain(" B<");
@@ -255,6 +273,7 @@ describe("tenant matrix", () => {
         ]}
         onOpenTenant={() => {}}
         onTenantDetails={() => {}}
+        onOpenReadiness={() => {}}
       />,
     );
     const order = ["Gamma", "Beta", "Alpha"].map((name) => html.indexOf(`>${name}<`));
@@ -284,5 +303,106 @@ describe("readiness facet", () => {
     expect(readinessFacet(row("A"))).toBe("green");
     expect(readinessFacet(row("A", { readiness: null }))).toBe("none");
     expect(readinessFacet(unread("A"))).toBe("unavailable");
+  });
+});
+
+describe("the overview across all tenants", () => {
+  const html = () =>
+    render(<ProviderView view={widgetView({ state: "ok", data: VIEW }, false)} {...handlers} />);
+
+  it("counts the objects of every state in one readiness tile and links each row to the tenants that have them", () => {
+    const page = html();
+    const tile = page.slice(page.indexOf('data-widget="provider-readiness"'));
+    expect(tile).toContain("Recovery readiness, all tenants");
+    // 14 of 20 objects are proven restorable.
+    expect(tile).toContain("70%");
+    expect(tile).toContain("of 20 protected objects proven restorable");
+    const row = (segment: string) => {
+      const start = tile.indexOf(`data-segment="${segment}"`);
+      return tile.slice(start, tile.indexOf("</li>", start));
+    };
+    expect(row("green")).toContain('href="/verify?state=green&amp;scope=all"');
+    expect(row("yellow")).toContain('href="/verify?state=yellow&amp;scope=all"');
+    expect(row("red")).toContain('href="/verify?state=red&amp;scope=all"');
+    expect(row("unverified")).toContain('href="/verify?state=unverified&amp;scope=all"');
+    // No object without a backup anywhere: plain text with its 0.
+    expect(row("noBackup")).not.toContain("href=");
+    expect(row("noBackup")).toContain(">0<");
+  });
+
+  it("shows a skeleton for the tile while the figures load", () => {
+    const loading = render(<ProviderView view={{ kind: "loading" }} {...handlers} />);
+    expect(loading).toContain('data-widget="provider-readiness"');
+    expect(loading).toContain('aria-busy="true"');
+  });
+
+  it("calls the table what it is and says a click switches into the tenant", () => {
+    const page = html();
+    expect(page).toContain("Tenants by need for action");
+    expect(page).toContain("Click a row to switch into that tenant.");
+    expect(page).toContain('data-slot="open-tenant"');
+  });
+});
+
+describe("the tenants by what needs doing", () => {
+  const names = (rows: ReturnType<typeof sortTenantRows>) => rows.map((tenant) => tenant.name);
+
+  it("puts the operator's own organisation first, with its Internal badge, then the worst", () => {
+    const rows = [
+      row("Beta", { readiness: "green" }),
+      row("Gamma", { readiness: "red", notRestorable: 2 }),
+      { ...row("Our company", { readiness: "green" }), kind: "internal" as const },
+      row("Alpha", { readiness: "yellow" }),
+    ];
+    expect(names(sortTenantRows(rows))).toEqual(["Our company", "Gamma", "Alpha", "Beta"]);
+    const page = render(
+      <TenantMatrix
+        rows={rows}
+        onOpenTenant={() => {}}
+        onTenantDetails={() => {}}
+        onOpenReadiness={() => {}}
+      />,
+    );
+    const own = page.slice(
+      page.indexOf("Our company"),
+      page.indexOf("</tr>", page.indexOf("Our company")),
+    );
+    expect(own).toContain('data-flag="internal"');
+    expect(own).toContain(">Internal<");
+    // Only the own organisation carries it.
+    expect(page.split('data-flag="internal"').length - 1).toBe(1);
+    expect(page.indexOf("Our company")).toBeLessThan(page.indexOf("Gamma"));
+  });
+
+  it("orders by objects that cannot be restored, then unverified, then failed jobs, then name", () => {
+    const sorted = sortTenantRows([
+      row("D", { readiness: "red", notRestorable: 1, unverified: 5 }),
+      row("C", { readiness: "red", notRestorable: 3 }),
+      row("B", { readiness: "red", notRestorable: 1, unverified: 5, failures24h: 2 }),
+      row("A", { readiness: "red", notRestorable: 1, unverified: 5, failures24h: 2 }),
+    ]);
+    expect(names(sorted)).toEqual(["C", "A", "B", "D"]);
+  });
+
+  it("keeps an unread tenant after every tenant it could read, and does not move the own organisation", () => {
+    const own = { ...unread("Own"), kind: "internal" as const };
+    expect(names(sortTenantRows([row("Beta"), unread("Alpha"), own]))).toEqual([
+      "Own",
+      "Beta",
+      "Alpha",
+    ]);
+  });
+
+  it("links the number of objects that cannot be restored, and only a number above zero", () => {
+    const page = render(
+      <TenantMatrix
+        rows={[row("Contoso", { readiness: "red", notRestorable: 4 }), row("Fabrikam")]}
+        onOpenTenant={() => {}}
+        onTenantDetails={() => {}}
+        onOpenReadiness={() => {}}
+      />,
+    );
+    expect(page.split('data-flag="not-restorable"').length - 1).toBe(1);
+    expect(page).toContain("Switch to Contoso and show the objects that cannot be restored");
   });
 });

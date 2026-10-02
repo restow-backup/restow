@@ -48,11 +48,16 @@ function summary(overrides: Partial<TenantSummaryDto> = {}): TenantSummaryDto {
   } as TenantSummaryDto;
 }
 
-const tenant = (name: string, status: "active" | "suspended" = "active") => ({
+const tenant = (
+  name: string,
+  status: "active" | "suspended" = "active",
+  kind: "customer" | "internal" = "customer",
+) => ({
   id: `id-${name}`,
   name,
   slug: name.toLowerCase(),
   status,
+  kind,
 });
 
 const HEALTHY = { failures24h: 0, failuresPrevious24h: 0, storageError: false };
@@ -84,6 +89,10 @@ describe("tenant matrix rows", () => {
       readiness: "red",
       unverified: 2,
       protectedObjects: 4,
+      ready: 2,
+      needsAttention: 0,
+      notRestorable: 0,
+      noBackup: 0,
       failures24h: 1,
       failuresPrevious24h: 3,
       lastBackupAt: "2026-09-23T09:00:00.000Z",
@@ -99,15 +108,18 @@ describe("tenant matrix rows", () => {
       name: "Fabrikam",
       slug: "fabrikam",
       status: "active",
+      kind: "customer",
       mailboxes: 7,
       mailboxCap: 10,
       loaded: false,
       // Unknown, never an invented zero.
       readiness: null,
       protectedObjects: null,
+      ready: null,
+      needsAttention: null,
+      notRestorable: null,
       unverified: null,
       noBackup: null,
-      notRestorable: null,
       failures24h: null,
       failuresPrevious24h: null,
       lastBackupAt: null,
@@ -182,6 +194,7 @@ describe("provider figures", () => {
       suspendedTenants: 1,
       unavailableTenants: 0,
       tenantsNotReady: 1,
+      readiness: { total: 10, green: 8, yellow: 0, red: 0, unverified: 2, noBackup: 0 },
       protectedObjects: 8,
       unverifiedObjects: 2,
       failures24h: 1,
@@ -189,6 +202,49 @@ describe("provider figures", () => {
       mailboxes: 6,
       physicalBytes: 1600,
     });
+  });
+
+  it("sums the objects of every state, so the tile can show them across tenants", () => {
+    const kpis = providerKpis([
+      row("Contoso", {
+        ready: 10,
+        needsAttention: 2,
+        notRestorable: 1,
+        unverified: 3,
+        noBackup: 1,
+      }),
+      row("Fabrikam", {
+        ready: 5,
+        needsAttention: 0,
+        notRestorable: 2,
+        unverified: 0,
+        noBackup: 0,
+      }),
+    ]);
+    expect(kpis.readiness).toEqual({
+      total: 24,
+      green: 15,
+      yellow: 2,
+      red: 3,
+      unverified: 3,
+      noBackup: 1,
+    });
+  });
+
+  it("does not count the operator's own organisation as a customer", () => {
+    const own = {
+      ...row("Own", { readiness: "red", mailboxes: 4 }),
+      kind: "internal" as const,
+    };
+    const kpis = providerKpis([
+      own,
+      row("Contoso", { readiness: "red" }),
+      { ...row("Fabrikam"), status: "suspended" as const },
+    ]);
+    // Customers only: the own organisation is neither a tenant, a suspended one nor a tenant that is not ready.
+    expect(kpis).toMatchObject({ tenants: 2, suspendedTenants: 1, tenantsNotReady: 1 });
+    // Its objects, backups and storage are protected like any other: they are in the sums.
+    expect(kpis).toMatchObject({ protectedObjects: 12, mailboxes: 10, physicalBytes: 2400 });
   });
 
   it("leaves unread tenants out of the sums and says how many are missing", () => {

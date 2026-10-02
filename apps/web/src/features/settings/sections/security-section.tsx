@@ -31,6 +31,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
+import { installationSectionTo } from "@/features/installation/paths";
 import { errorMessageKey } from "@/lib/api";
 import { authClient, browserSupportsPasskeys } from "@/lib/auth-client";
 import { zodResolver } from "@/lib/form";
@@ -60,7 +61,6 @@ import {
   useRevokeOtherSessions,
   useSignInMethods,
 } from "../hooks";
-import { settingsTo } from "../paths";
 import { type PasskeyRow, authStatusKey, detectDevice, passkeyErrorKey } from "../presenters";
 
 /**
@@ -166,7 +166,7 @@ function PasskeysCard({ hasPassword }: { hasPassword: boolean }) {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => void navigate({ to: settingsTo() })}
+                onClick={() => void navigate({ to: installationSectionTo("server") })}
               >
                 {t("security.passkeys.openGeneral")}
               </Button>

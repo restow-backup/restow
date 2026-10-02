@@ -8,12 +8,22 @@ import {
   TableCell,
   TableHead,
   TableHeader,
+  type TablePin,
   TableRow,
 } from "@/components/ui/table";
 import type { AuditEntry } from "../api";
 import type { AuditFormat } from "../hooks";
 import { isOpaqueId } from "../presenters";
 import { actorText } from "./actor";
+
+/**
+ * Time and action stay on the left while the other columns scroll: when
+ * something happened and what it was. The time column has a fixed width so
+ * the action column knows where to start; on phones only the time pins.
+ */
+const TIME_WIDTH = 192;
+const PIN_TIME: TablePin = { left: 0, width: TIME_WIDTH, edge: "narrow" };
+const PIN_ACTION: TablePin = { left: TIME_WIDTH, edge: true };
 
 /** The audit entries, newest first; a row opens the entry's details. */
 export function AuditEntriesTable({
@@ -31,12 +41,14 @@ export function AuditEntriesTable({
 }) {
   const { t } = format;
   return (
-    <Table>
+    <Table className="min-w-[68rem]" scrollLabel={t("table.caption")}>
       <TableCaption className="sr-only">{t("table.caption")}</TableCaption>
       <TableHeader>
         <TableRow>
-          <TableHead className="pl-4">{t("table.time")}</TableHead>
-          <TableHead>{t("table.action")}</TableHead>
+          <TableHead pin={PIN_TIME} className="pl-4">
+            {t("table.time")}
+          </TableHead>
+          <TableHead pin={PIN_ACTION}>{t("table.action")}</TableHead>
           <TableHead>{t("table.actor")}</TableHead>
           <TableHead>{t("table.target")}</TableHead>
           {showTenant ? <TableHead>{t("table.tenant")}</TableHead> : null}
@@ -112,13 +124,13 @@ function EntryRow({
       className="cursor-pointer"
       onClick={() => onOpen(entry.id)}
     >
-      <TableCell className="pl-4 align-top whitespace-nowrap">
+      <TableCell pin={PIN_TIME} className="pl-4 align-top whitespace-nowrap">
         <time dateTime={entry.createdAt} className="block tabular-nums">
           {format.dateTime(entry.createdAt)}
         </time>
         <span className="text-xs text-muted-foreground">{format.relative(entry.createdAt)}</span>
       </TableCell>
-      <TableCell className="max-w-72 align-top">
+      <TableCell pin={PIN_ACTION} className="max-w-72 align-top">
         <div className="flex items-start gap-1.5">
           {entry.hashValid ? null : (
             <ShieldAlert

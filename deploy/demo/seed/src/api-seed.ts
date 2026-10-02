@@ -1,5 +1,5 @@
 import type { DemoMailbox, DemoTenant } from "./company.js";
-import { DEMO_TENANTS } from "./company.js";
+import { DEMO_PROVIDER_NAME, DEMO_TENANTS } from "./company.js";
 import { ApiClient, ApiRequestError } from "./http-client.js";
 
 /**
@@ -76,33 +76,42 @@ async function ensureInstallation(
     log("installation already set up, continuing with the existing admin");
     return;
   }
-  const host = new URL(config.publicUrl).hostname;
   // Setup is not on the demo guard's public allowlist (security review
   // finding 1): only this token-authenticated call may reach it, and
   // routes/setup.ts additionally refuses it unless firstAdmin matches
   // RESTOW_DEMO_EMAIL/RESTOW_DEMO_PASSWORD, which config.adminEmail/
   // adminPassword always are (index.ts reads them from the same variables).
-  await client.post(
-    "/api/v1/setup",
-    {
-      operatingMode: "public",
-      publicUrl: config.publicUrl,
-      providerName: "Restow Demo",
-      firstAdmin: {
-        name: config.adminName,
-        email: config.adminEmail,
-        password: config.adminPassword,
-      },
-      // Never actually sent: createNotifier() is a no-op in demo mode
-      // (apps/api notify.ts) regardless of what is configured here.
-      mail: {
-        transport: "smtp",
-        smtp: { host: "localhost", port: 25, security: "none", from: `noreply@${host}` },
-      },
-      sendTest: false,
+  await client.post("/api/v1/setup", setupRequest(config), { seed: true });
+}
+
+/**
+ * The setup wizard's own request. `providerName` is the name of the demo's
+ * own organisation: right after the setup the api creates it as the first
+ * tenant (kind internal). The seed therefore creates only the customers
+ * itself, so the demo has exactly one own organisation, neither missing nor
+ * duplicated.
+ */
+export function setupRequest(
+  config: Pick<SeedConfig, "publicUrl" | "adminName" | "adminEmail" | "adminPassword">,
+) {
+  const host = new URL(config.publicUrl).hostname;
+  return {
+    operatingMode: "public",
+    publicUrl: config.publicUrl,
+    providerName: DEMO_PROVIDER_NAME,
+    firstAdmin: {
+      name: config.adminName,
+      email: config.adminEmail,
+      password: config.adminPassword,
     },
-    { seed: true },
-  );
+    // Never actually sent: createNotifier() is a no-op in demo mode
+    // (apps/api notify.ts) regardless of what is configured here.
+    mail: {
+      transport: "smtp",
+      smtp: { host: "localhost", port: 25, security: "none", from: `noreply@${host}` },
+    },
+    sendTest: false,
+  };
 }
 
 async function signInAdmin(client: ApiClient, config: SeedConfig): Promise<void> {

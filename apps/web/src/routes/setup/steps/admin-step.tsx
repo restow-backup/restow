@@ -7,7 +7,7 @@ import { PasswordStrength } from "@/components/forms/password-strength";
 import { Input } from "@/components/ui/input";
 import { validationKey } from "@/lib/form";
 import { PASSWORD_MIN_LENGTH } from "@/lib/password";
-import type { SetupFormValues } from "@/routes/setup/schema";
+import { ORGANISATION_NAME_MAX_LENGTH, type SetupFormValues } from "@/routes/setup/schema";
 
 interface AdminStepProps {
   form: UseFormReturn<SetupFormValues>;
@@ -18,15 +18,35 @@ export function AdminStep({ form }: AdminStepProps) {
   const { t: tc } = useTranslation();
 
   const errors = form.formState.errors.admin;
+  const organisationError = form.formState.errors.organisationName;
   const password = useWatch({ control: form.control, name: "admin.password" });
 
   const message = (error: Parameters<typeof validationKey>[0]) => {
     const key = validationKey(error);
-    return key ? tc(key, { min: PASSWORD_MIN_LENGTH }) : undefined;
+    return key
+      ? tc(key, { min: PASSWORD_MIN_LENGTH, max: ORGANISATION_NAME_MAX_LENGTH })
+      : undefined;
   };
 
   return (
     <div className="space-y-4">
+      <Field
+        id="organisation-name"
+        label={t("admin.organisation.label")}
+        error={message(organisationError)}
+        hint={t("admin.organisation.hint")}
+      >
+        <Input
+          id="organisation-name"
+          autoComplete="organization"
+          maxLength={ORGANISATION_NAME_MAX_LENGTH}
+          placeholder={t("admin.organisation.placeholder")}
+          aria-invalid={organisationError !== undefined}
+          aria-describedby={messageId("organisation-name")}
+          {...form.register("organisationName")}
+        />
+      </Field>
+
       <div className="grid gap-4 sm:grid-cols-2">
         <Field id="admin-name" label={t("admin.name.label")} error={message(errors?.name)}>
           <Input

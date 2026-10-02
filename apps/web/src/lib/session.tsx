@@ -10,6 +10,7 @@ import {
   type Role,
   type SessionUser,
   type Tenant,
+  type TenantKind,
   type TenantSummary,
   fetchMe,
   fetchTenants,
@@ -19,11 +20,14 @@ import {
 import { type AuthSession, authClient } from "@/lib/auth-client";
 import { requiresAuthenticatorEnrollment } from "@/lib/second-factor";
 import {
+  type SessionScope,
   type TenantStatus,
   canEnterTenant,
   forgetActiveTenant,
   pickActiveTenant,
+  readRememberedScope,
   readRememberedTenantId,
+  rememberScope,
   roleInActiveTenant,
   setActiveTenantId,
 } from "@/lib/tenant";
@@ -71,8 +75,14 @@ export const meQueryOptions = queryOptions({
 
 export type SessionStatus = "loading" | "authenticated" | "unauthenticated" | "error";
 
-/** A tenant on offer in the switcher, with its lifecycle state. */
-export interface SessionTenant extends TenantSummary {
+/**
+ * A tenant on offer in the switcher, with its lifecycle state, its kind (the
+ * operator's own organisation is `internal` and listed first) and the
+ * provider's customer number.
+ */
+export interface SessionTenant extends Omit<TenantSummary, "kind" | "customerNumber"> {
+  kind: TenantKind;
+  customerNumber: string | null;
   status: TenantStatus;
 }
 
@@ -115,7 +125,21 @@ export interface SessionContextValue {
   /** Tenants the user may switch between (all tenants for a provider admin). */
   tenants: SessionTenant[];
   activeTenant: SessionTenant | null;
+  /** Make a tenant the active one; this also leaves the scope "all". */
   setActiveTenant: (tenantId: string) => void;
+  /**
+   * What the session works on: `tenant` (the active tenant) or `all`, the view
+   * across every tenant that only the overview has. Optional so that test doubles
+   * written before it existed stay valid; read it with {@link sessionScope}.
+   */
+  scope?: SessionScope;
+  /**
+   * The view across all tenants is on offer: a provider admin whose team role covers
+   * every tenant, on an installation that manages tenants and has more than one.
+   */
+  canViewAllTenants?: boolean;
+  /** Work across all tenants (only where {@link canViewAllTenants}); remembered per browser. */
+  setScopeAll?: () => void;
   /** The running version; null until the profile loaded. */
   version: RunningVersion | null;
   signOut: () => Promise<void>;
@@ -157,6 +181,23 @@ function statusOf(row: unknown): TenantStatus {
   return TENANT_STATUSES.includes(status as TenantStatus) ? (status as TenantStatus) : "active";
 }
 
+const TENANT_KINDS: readonly TenantKind[] = ["customer", "internal"];
+
+/** A tenant's kind from an API row; rows from older servers count as customers. */
+function kindOf(row: unknown): TenantKind {
+  const kind = typeof row === "object" && row !== null ? (row as { kind?: unknown }).kind : null;
+  return TENANT_KINDS.includes(kind as TenantKind) ? (kind as TenantKind) : "customer";
+}
+
+/** A tenant's customer number from an API row; null when none is set or the server sends none. */
+function customerNumberOf(row: unknown): string | null {
+  const number =
+    typeof row === "object" && row !== null
+      ? (row as { customerNumber?: unknown }).customerNumber
+      : null;
+  return typeof number === "string" && number.length > 0 ? number : null;
+}
+
 /**
  * Tenants the switcher offers. A provider admin may enter every tenant, so
  * the provider list (kept fresh when tenants are added or suspended) wins over
@@ -176,12 +217,19 @@ export function buildTenantList(
         id: tenant.id,
         name: tenant.name,
         slug: tenant.slug,
+        kind: kindOf(tenant),
+        customerNumber: customerNumberOf(tenant),
         role: membership?.role ?? "tenant_admin",
         status: statusOf(tenant),
       };
     });
   }
-  return me.tenants.map((tenant) => ({ ...tenant, status: statusOf(tenant) }));
+  return me.tenants.map((tenant) => ({
+    ...tenant,
+    kind: kindOf(tenant),
+    customerNumber: customerNumberOf(tenant),
+    status: statusOf(tenant),
+  }));
 }
 
 /**
@@ -265,6 +313,27 @@ export function resolveTenantView(
   };
 }
 
+/**
+ * Whether "All tenants" is on offer: a provider admin whose team role covers every tenant, on
+ * an installation that manages tenants (the Service Provider capabilities `tenants.additional`
+ * and `dashboard.allTenants`), with more than one tenant to look across. Community and Business
+ * have one organisation and never show it.
+ */
+export function canViewAllTenants(input: {
+  isProviderAdmin: boolean;
+  providerAllTenants: boolean;
+  features: readonly GatedFeature[] | null;
+  tenantCount: number;
+}): boolean {
+  return (
+    input.isProviderAdmin &&
+    input.providerAllTenants &&
+    (input.features?.includes("tenants.additional") ?? false) &&
+    (input.features?.includes("dashboard.allTenants") ?? false) &&
+    input.tenantCount > 1
+  );
+}
+
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const session = authClient.useSession();
@@ -301,6 +370,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   // The user's explicit choice in this page load; server hint and the
   // remembered tenant only apply until they pick one.
   const [selectedTenantId, setSelectedTenantId] = React.useState<string | null>(null);
+  // Whether the user asked for the view across all tenants; remembered per browser like the tenant.
+  const [wantsAllScope, setWantsAllScope] = React.useState(() => readRememberedScope() === "all");
 
   const view = React.useMemo(
     () =>
@@ -325,6 +396,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     (tenantId: string) => {
       setSelectedTenantId(tenantId);
       setActiveTenantId(tenantId);
+      // Choosing a tenant leaves "All tenants".
+      setWantsAllScope(false);
+      rememberScope("tenant");
       // Everything tenant-scoped must be re-read; auth and setup state are not.
       void queryClient.invalidateQueries({
         predicate: (query) => query.queryKey[0] !== "auth" && query.queryKey[0] !== "setup",
@@ -333,6 +407,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     [queryClient],
   );
 
+  const setScopeAll = React.useCallback(() => {
+    setWantsAllScope(true);
+    rememberScope("all");
+  }, []);
+
   const signOut = React.useCallback(async () => {
     setSuspended(true);
     // In-flight tenant queries would answer 401 after the cookie is gone;
@@ -340,6 +419,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     await queryClient.cancelQueries();
     await authClient.signOut();
     setSelectedTenantId(null);
+    setWantsAllScope(false);
     forgetActiveTenant();
     queryClient.clear();
   }, [queryClient]);
@@ -354,6 +434,14 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const version = React.useMemo(() => readRunningVersion(me.data), [me.data]);
   const features = React.useMemo(() => (me.data ? readFeatures(me.data) : null), [me.data]);
   const extensions = React.useMemo(() => (me.data ? readExtensions(me.data) : null), [me.data]);
+  const providerAllTenants = isProviderAdmin ? (me.data?.provider?.allTenants ?? true) : false;
+  const canViewAll = canViewAllTenants({
+    isProviderAdmin,
+    providerAllTenants,
+    features,
+    tenantCount: view.tenants.length,
+  });
+  const scope: SessionScope = wantsAllScope && canViewAll ? "all" : "tenant";
 
   const value = React.useMemo<SessionContextValue>(
     () => ({
@@ -364,10 +452,13 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       extensions,
       isProviderAdmin,
       providerRole: isProviderAdmin ? (me.data?.provider?.role ?? "owner") : null,
-      providerAllTenants: isProviderAdmin ? (me.data?.provider?.allTenants ?? true) : false,
+      providerAllTenants,
       tenants: view.tenants,
       activeTenant: view.activeTenant,
       setActiveTenant,
+      scope,
+      canViewAllTenants: canViewAll,
+      setScopeAll,
       version,
       signOut,
       refresh,
@@ -381,6 +472,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       isProviderAdmin,
       view,
       setActiveTenant,
+      scope,
+      canViewAll,
+      providerAllTenants,
+      setScopeAll,
       version,
       features,
       extensions,
@@ -412,6 +507,15 @@ export function useSession(): SessionContextValue {
     throw new Error("useSession must be used within a SessionProvider");
   }
   return context;
+}
+
+/**
+ * What the session works on: `all` while "All tenants" is chosen, else `tenant`. A plain
+ * function over the session value (not a hook), so that it keeps working where a test
+ * replaces `useSession`.
+ */
+export function sessionScope(session: Pick<SessionContextValue, "scope">): SessionScope {
+  return session.scope ?? "tenant";
 }
 
 /** Whether the installation enables a gated core feature (see {@link hasFeature}). */

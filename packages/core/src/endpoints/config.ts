@@ -14,6 +14,8 @@
  * Windows endpoints in 0.1.0 ({@link SUPPORTED_ENDPOINT_OS}).
  */
 
+import type { BandwidthWindow } from "../backup-jobs/bandwidth.js";
+
 export const ENDPOINT_PROFILES = ["server", "client"] as const;
 export type EndpointProfileName = (typeof ENDPOINT_PROFILES)[number];
 
@@ -43,9 +45,19 @@ export interface AgentConfig {
   paths: string[];
   excludes: string[];
   hooks: { pre?: string; post?: string };
+  /** The default upload limit in kbit/s (outside every window); null = unlimited. */
   bandwidthKbps: number | null;
   onlyOnAcPower: boolean;
   useVss: boolean;
+  /** Skip files larger than this many bytes; present only when a backup job sets a limit. */
+  excludeLargerThanBytes?: number;
+  /**
+   * Time windows with their own upload limit; present only when the machine's job (or the machine)
+   * sets some. Read in the zone of `schedule`. The server works out the active one when the agent
+   * asks for its configuration and sends the result as `bandwidthKbps`; the windows themselves
+   * never reach the agent.
+   */
+  bandwidthWindows?: BandwidthWindow[];
 }
 
 /** `GET /agent/v1/config` answers this: the configuration plus its version. */

@@ -157,6 +157,12 @@
         "body": "Send a message inside your organization. The report usually arrives within a few minutes. This page then shows Receiving, and the message is in the archive search with the source Exchange Online journal."
       },
       "docs": "Full guide in the documentation"
+    },
+    "hostNote": {
+      "title": "Journal host",
+      "description": "The name Exchange Online delivers its journal reports to. It is the same for every tenant of this server.",
+      "none": "Not set",
+      "section": "Journal receiving"
     }
   },
   "flags": {

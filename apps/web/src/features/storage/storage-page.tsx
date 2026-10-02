@@ -109,13 +109,9 @@ export function StoragePage() {
     body = (
       <>
         <UsageCard />
-        <section className="space-y-4" aria-labelledby="storage-targets-heading">
-          <div className="space-y-1">
-            <h2 id="storage-targets-heading" className="text-lg font-semibold tracking-tight">
-              {t("targets.title")}
-            </h2>
-            <p className="text-sm text-muted-foreground">{t("targets.description")}</p>
-          </div>
+        {/* The page heading already says "Repositories": the list is a region of that name, not a second heading. */}
+        <section className="space-y-4" aria-label={t("targets.title")} data-slot="storage-targets">
+          <p className="max-w-prose text-sm text-muted-foreground">{t("targets.description")}</p>
           {query.isPending ? (
             <TargetGridSkeleton />
           ) : query.isError ? (
@@ -200,7 +196,7 @@ function Targets({
           </AlertDescription>
         </Alert>
       )}
-      <div className="grid grid-cols-1 gap-4 *:min-w-0 md:grid-cols-2 xl:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 *:min-w-0 lg:grid-cols-2 2xl:grid-cols-3">
         {list.installationDefault.inUse ? (
           <DefaultTargetCard installationDefault={list.installationDefault} />
         ) : null}
@@ -252,7 +248,7 @@ function AddTargetMenu({
 
 function TargetGridSkeleton() {
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
       {[0, 1].map((index) => (
         <Card key={index} className="gap-3">
           <CardHeader className="flex flex-row items-start gap-3">

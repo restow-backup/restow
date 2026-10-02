@@ -1,6 +1,6 @@
 {
   "name": "@restow/scheduler",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Restow scheduler: a single leader-elected process that enqueues due backup, verify, retention and scrub jobs onto pg-boss.",
@@ -16,6 +16,7 @@
   "dependencies": {
     "@restow/core": "workspace:*",
     "@restow/db": "workspace:*",
+    "@restow/i18n": "workspace:*",
     "pg": "^8.13.0",
     "pg-boss": "^10.0.0"
   },

@@ -1023,6 +1023,15 @@ export function storageProbePrefix(tenantId: string): string {
   return `${tenantPrefix(tenantId)}probes/`;
 }
 
+/**
+ * The probe area of the installation itself (a test of the default storage
+ * that belongs to no tenant): `installation/probes/`. It never overlaps a
+ * tenant's area, so the probe object cannot be mistaken for tenant data.
+ */
+export function installationProbePrefix(): string {
+  return "installation/probes/";
+}
+
 const DEFAULT_STEP_TIMEOUT_MS = 15_000;
 const PROBE_PAYLOAD_BYTES = 256;
 

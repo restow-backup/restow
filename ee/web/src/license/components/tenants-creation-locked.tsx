@@ -4,10 +4,11 @@ import { useTranslation } from "react-i18next";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
-import { SETTINGS_PATH } from "@/features/settings/paths";
+import { installationSectionPath } from "@/features/installation/paths";
 import { cn } from "@/lib/utils";
 
 import { useEdition } from "../edition";
+import { LICENSE_SECTION_ID } from "../nav-lock";
 
 /**
  * Why no further tenant can be created (slot `tenants.creationLocked`): the
@@ -24,8 +25,8 @@ export function TenantsCreationLocked() {
       <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <span>{t("tenants.blocked.description", { edition })}</span>
         <Link
-          to={SETTINGS_PATH as LinkProps["to"]}
-          search={{ section: "about", requires: "service_provider" } as never}
+          to={installationSectionPath(LICENSE_SECTION_ID) as LinkProps["to"]}
+          search={{ requires: "service_provider" } as never}
           className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0")}
         >
           <KeyRound />

@@ -231,13 +231,14 @@ describe("consentLandingUrl", () => {
 
   const tenantId = baseRow.tenantId;
 
-  it("sends a granted consent to the source page with tenant and verification outcome", () => {
+  it("sends a granted consent to the source on its tenant's page with the verification outcome", () => {
     const url = new URL(
       consentLandingUrl(origin, { kind: "granted", tenantId, sourceId, verification: green }),
     );
-    expect(url.pathname).toBe(`/sources/${sourceId}`);
+    expect(url.pathname).toBe(`/tenants/${tenantId}/connections/sources/${sourceId}`);
     expect(url.searchParams.get("consent")).toBe("granted");
-    expect(url.searchParams.get("tenant")).toBe(tenantId);
+    // The tenant is in the path; the query does not repeat it.
+    expect(url.searchParams.has("tenant")).toBe(false);
     expect(url.searchParams.get("verified")).toBe("ok");
   });
 
@@ -245,7 +246,7 @@ describe("consentLandingUrl", () => {
     const url = new URL(
       consentLandingUrl(origin, { kind: "denied", tenantId, sourceId, error: "access_denied" }),
     );
-    expect(url.pathname).toBe(`/sources/${sourceId}`);
+    expect(url.pathname).toBe(`/tenants/${tenantId}/connections/sources/${sourceId}`);
     expect(url.searchParams.get("consent")).toBe("denied");
     expect(url.searchParams.get("error")).toBe("access_denied");
   });
@@ -259,7 +260,7 @@ describe("consentLandingUrl", () => {
         entraTenantId: "ffffffff-bbbb-cccc-dddd-eeeeeeeeeeee",
       }),
     );
-    expect(url.pathname).toBe(`/sources/${sourceId}`);
+    expect(url.pathname).toBe(`/tenants/${tenantId}/connections/sources/${sourceId}`);
     expect(url.searchParams.get("consent")).toBe("tenant_mismatch");
     // The foreign Entra tenant id is not echoed into the URL.
     expect(url.search).not.toContain("ffffffff");
@@ -274,7 +275,7 @@ describe("consentLandingUrl", () => {
         reason: "not_an_admin",
       }),
     );
-    expect(url.pathname).toBe(`/sources/${sourceId}`);
+    expect(url.pathname).toBe(`/tenants/${tenantId}/connections/sources/${sourceId}`);
     expect(url.searchParams.get("consent")).toBe("identity_not_verified");
     expect(url.searchParams.get("reason")).toBe("not_an_admin");
   });

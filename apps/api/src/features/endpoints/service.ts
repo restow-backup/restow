@@ -14,6 +14,7 @@ import {
   enrollmentTokenState,
   generateEnrollmentToken,
   isSupportedEndpointOs,
+  normalizeBandwidthWindows,
   openRepository,
   resolveSelection,
   resticListDirectory,
@@ -34,6 +35,7 @@ import {
   endpointSnapshotFlags,
   endpointTasks,
   endpoints,
+  tenants,
 } from "@restow/db";
 import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -41,9 +43,12 @@ import { audit } from "../../lib/audit.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { decodeCursor, encodeCursor } from "../../routes/v1/cursor.js";
+import { sameJson } from "../backup-jobs/json.js";
+import { jobRetentionOf, jobWithOverridesOf, jobsOfEndpoints } from "../backup-jobs/membership.js";
 import { pgBossExecutor } from "../jobs/pg-boss-tx.js";
 import { isMissingQueueSchema, jobQueue } from "../jobs/queue.js";
 import { ENDPOINT_AUDIT_ACTIONS, type EndpointActor, auditEndpoint } from "./audit.js";
+import { bandwidthWindowsProblem } from "./bandwidth.js";
 import { installCommands } from "./commands.js";
 import { isSafeOrigin } from "./distribution.js";
 import {
@@ -93,7 +98,7 @@ import {
 
 export type { EndpointActor };
 
-const AGENT_TASK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+export const AGENT_TASK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Finished requests the detail page lists besides the ones still waiting. */
 export const RECENT_TASKS = 20;
@@ -219,9 +224,17 @@ export async function listEndpoints(
     const runs = await latestRuns(tx, tenantId, ids);
     const readiness = await loadEndpointReadiness(tx, tenantId, ids, now);
     const rated = await loadRatedTests(tx, tenantId, [...runs.values()]);
+    const jobsOf = await jobsOfEndpoints(tx, tenantId, ids);
     return {
       items: rows.map((row) =>
-        toSummary(row, runs.get(row.id) ?? null, readinessOf(readiness, row.id), now, rated),
+        toSummary(
+          row,
+          runs.get(row.id) ?? null,
+          readinessOf(readiness, row.id),
+          now,
+          rated,
+          jobsOf.get(row.id) ?? null,
+        ),
       ),
     };
   });
@@ -316,12 +329,25 @@ export async function getEndpoint(
     ].sort((a, b) => b.checkedAt.getTime() - a.checkedAt.getTime());
     const readiness = await loadEndpointReadiness(tx, tenantId, [id], now);
     const rated = await loadRatedTests(tx, tenantId, runs, recentTasks);
-    const summary = toSummary(endpoint, runs[0] ?? null, readinessOf(readiness, id), now, rated);
+    const jobsOf = await jobsOfEndpoints(tx, tenantId, [id]);
+    const summary = toSummary(
+      endpoint,
+      runs[0] ?? null,
+      readinessOf(readiness, id),
+      now,
+      rated,
+      jobsOf.get(id) ?? null,
+    );
     const retention = latestPerKind.find((report) => report.kind === "retention");
     const [tenantUsage] = await tx
       .select({ bytes: sql<string | null>`sum(${endpoints.repositoryBytes})` })
       .from(endpoints)
       .where(eq(endpoints.tenantId, tenantId));
+    const [tenantRow] = await tx
+      .select({ paused: tenants.agentUpdatesPaused })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId))
+      .limit(1);
     const all = commandsFor(endpoint.os, instanceUrl);
     const commands = all
       ? {
@@ -356,7 +382,9 @@ export async function getEndpoint(
       lastRestoreTestAt: endpoint.lastRestoreTestAt?.toISOString() ?? null,
       commands,
       hooks: hooksOf(endpoint.config, endpoint.settings, options.revealHooks),
-      autoUpdatePaused: endpoint.settings.autoUpdatePaused === true,
+      // Paused for this machine: the tenant's setting, or the machine's own pause.
+      autoUpdatePaused: tenantRow?.paused === true || pausedOnItsOwn(endpoint.settings),
+      autoUpdateOwnPause: pausedOnItsOwn(endpoint.settings),
     };
   });
 }
@@ -656,11 +684,42 @@ export function applyConfigChange(
     next.bandwidthKbps = change.bandwidthKbps;
     changed.push("bandwidthKbps");
   }
+  let config = next;
+  if (change.bandwidthWindows !== undefined) {
+    // null and [] both remove the windows; a list is stored in its normal order (updateEndpoint checked it).
+    const wanted =
+      change.bandwidthWindows === null || change.bandwidthWindows.length === 0
+        ? null
+        : normalizeBandwidthWindows(change.bandwidthWindows);
+    // Compared by meaning: the database hands an object's keys back in an order of its own.
+    if (!sameJson(wanted, current.bandwidthWindows ?? null)) {
+      if (wanted) {
+        next.bandwidthWindows = wanted;
+      } else {
+        const { bandwidthWindows: _removed, ...without } = next;
+        config = without;
+      }
+      changed.push("bandwidthWindows");
+    }
+  }
   if (change.onlyOnAcPower !== undefined && change.onlyOnAcPower !== current.onlyOnAcPower) {
-    next.onlyOnAcPower = change.onlyOnAcPower;
+    config.onlyOnAcPower = change.onlyOnAcPower;
     changed.push("onlyOnAcPower");
   }
-  return { config: next, changed };
+  return { config, changed };
+}
+
+/** A 422 for time windows that cannot be saved: the problem names the window and its field. */
+function invalidBandwidthWindows(problem: { path: string[]; code: string; message: string }) {
+  return new ProblemError(422, "Invalid time windows", {
+    type: ENDPOINT_PROBLEMS.invalidBandwidthWindows,
+    detail: problem.message,
+    extensions: {
+      field: "bandwidthWindows",
+      code: problem.code,
+      issues: [{ path: problem.path, code: problem.code, message: problem.message }],
+    },
+  });
 }
 
 /**
@@ -681,6 +740,14 @@ export interface UpdateEndpointOptions {
    * the step-up check of the session).
    */
   readonly confirmHookChange?: () => void;
+}
+
+function configManagedByJob(job: { id: string; name: string }): ProblemError {
+  return new ProblemError(409, "Configuration managed by a backup job", {
+    type: ENDPOINT_PROBLEMS.configManagedByJob,
+    detail: `This machine belongs to the backup job "${job.name}", which decides its schedule, folders, exclusions, hooks and bandwidth. Change the job (or take the machine out of it).`,
+    extensions: { job: { id: job.id, name: job.name } },
+  });
 }
 
 export async function updateEndpoint(
@@ -710,8 +777,23 @@ export async function updateEndpoint(
       }
     }
     const details: Record<string, unknown> = {};
+    if (change.config?.bandwidthWindows) {
+      const problem = bandwidthWindowsProblem(change.config.bandwidthWindows, [
+        "config",
+        "bandwidthWindows",
+      ]);
+      if (problem) {
+        throw invalidBandwidthWindows(problem);
+      }
+    }
+    // A machine in a backup job takes its schedule, folders, exclusions, hooks, bandwidth (and the
+    // retention when the job sets one) from the job; those are changed there, nowhere else.
+    const managed = await jobWithOverridesOf(tx, tenantId, id);
     if (change.config) {
       const applied = applyConfigChange(endpoint.config, change.config);
+      if (managed && applied.changed.some((key) => key !== "onlyOnAcPower")) {
+        throw configManagedByJob(managed.job);
+      }
       if (applied.changed.includes("hooks")) {
         assertHooksAllowed(applied.config.hooks, endpoint.settings);
         if (hookChangeNeedsRecentSignIn(applied.config.hooks)) {
@@ -734,6 +816,14 @@ export async function updateEndpoint(
       }
     }
     if (change.settings) {
+      if (
+        managed &&
+        change.settings.retention !== undefined &&
+        jobRetentionOf(managed) !== undefined &&
+        JSON.stringify(change.settings.retention) !== JSON.stringify(endpoint.settings.retention)
+      ) {
+        throw configManagedByJob(managed.job);
+      }
       const merged: EndpointSettings = { ...endpoint.settings, ...change.settings };
       // No budget of its own: the installation's default applies again.
       if (merged.quotaGib === null) {
@@ -1442,51 +1532,101 @@ export type { ReportDto };
 export type { ResticError };
 
 // ---------------------------------------------------------------------------
-// Automatic agent updates (tenant-wide switch)
+// Automatic agent updates (one setting per tenant)
 // ---------------------------------------------------------------------------
 
 export interface AgentUpdatesDto {
-  /** The tenant paused automatic agent updates. */
+  /** The tenant paused automatic agent updates (one setting for the whole tenant). */
   paused: boolean;
-  /** Machines of the tenant (the switch is kept on each; without one it cannot be set yet). */
+  /** Machines of the tenant. */
   endpoints: number;
+  /**
+   * Machines that are paused on their own (`settings.autoUpdatePaused`, how the pause was kept
+   * before it became a setting of the tenant): they stay paused whatever the tenant says, until
+   * they are resumed one by one or all at once.
+   */
+  overrides: { id: string; name: string; profile: "server" | "client" }[];
+}
+
+/** Whether `settings` pauses the machine on its own. */
+function pausedOnItsOwn(settings: EndpointSettings): boolean {
+  return settings.autoUpdatePaused === true;
 }
 
 /**
- * The tenant-wide switch is stored on every endpoint of the tenant
- * (`settings.autoUpdatePaused`, no table of its own); a new endpoint takes it
- * over at enrollment. Paused when any of them is paused.
+ * The tenant's pause (`tenants.agent_updates_paused`) and the machines paused on their own.
+ * A machine takes no new agent release while the tenant pause or its own pause is set.
  */
 export async function getAgentUpdates(
   database: Database,
   tenantId: string,
 ): Promise<AgentUpdatesDto> {
-  return withTenantTx(database, tenantId, async (tx) => {
-    const [row] = await tx
-      .select({
-        endpoints: sql<number>`count(*)::int`,
-        paused: sql<number>`count(*) filter (where (${endpoints.settings} ->> 'autoUpdatePaused') = 'true')::int`,
-      })
-      .from(endpoints)
-      .where(eq(endpoints.tenantId, tenantId));
-    return { paused: (row?.paused ?? 0) > 0, endpoints: row?.endpoints ?? 0 };
-  });
+  return withTenantTx(database, tenantId, (tx) => readAgentUpdates(tx, tenantId));
 }
 
+async function readAgentUpdates(tx: Transaction, tenantId: string): Promise<AgentUpdatesDto> {
+  const [tenant] = await tx
+    .select({ paused: tenants.agentUpdatesPaused })
+    .from(tenants)
+    .where(eq(tenants.id, tenantId))
+    .limit(1);
+  const machines = await tx
+    .select({
+      id: endpoints.id,
+      displayName: endpoints.displayName,
+      hostname: endpoints.hostname,
+      profile: endpoints.profile,
+      settings: endpoints.settings,
+    })
+    .from(endpoints)
+    .where(eq(endpoints.tenantId, tenantId))
+    .orderBy(endpoints.hostname);
+  return {
+    paused: tenant?.paused === true,
+    endpoints: machines.length,
+    overrides: machines
+      .filter((machine) => pausedOnItsOwn(machine.settings))
+      .map((machine) => ({
+        id: machine.id,
+        name: machine.displayName?.trim() || machine.hostname,
+        profile: machine.profile,
+      })),
+  };
+}
+
+export interface SetAgentUpdatesOptions {
+  /** Also lift the pause of every machine that is paused on its own. */
+  resumeMachines?: boolean;
+}
+
+/**
+ * Pause or resume automatic agent updates for the tenant. It is one setting of the tenant, so it
+ * can be set before the first machine exists and covers machines that enrol later. The machines'
+ * own pauses are left alone unless `resumeMachines` asks to lift them as well.
+ */
 export async function setAgentUpdates(
   database: Database,
   tenantId: string,
   paused: boolean,
   actor: EndpointActor,
+  options: SetAgentUpdatesOptions = {},
 ): Promise<AgentUpdatesDto> {
   return withTenantTx(database, tenantId, async (tx) => {
-    const updated = await tx
-      .update(endpoints)
-      .set({
-        settings: sql`jsonb_set(${endpoints.settings}, '{autoUpdatePaused}', ${paused ? "true" : "false"}::jsonb)`,
-      })
-      .where(eq(endpoints.tenantId, tenantId))
-      .returning({ id: endpoints.id });
+    await tx.update(tenants).set({ agentUpdatesPaused: paused }).where(eq(tenants.id, tenantId));
+    let resumed = 0;
+    if (options.resumeMachines === true) {
+      const lifted = await tx
+        .update(endpoints)
+        .set({ settings: sql`${endpoints.settings} - 'autoUpdatePaused'` })
+        .where(
+          and(
+            eq(endpoints.tenantId, tenantId),
+            sql`(${endpoints.settings} ->> 'autoUpdatePaused') = 'true'`,
+          ),
+        )
+        .returning({ id: endpoints.id });
+      resumed = lifted.length;
+    }
     await audit(tx, {
       tenantId,
       actor: actor.label,
@@ -1495,8 +1635,38 @@ export async function setAgentUpdates(
       action: paused ? ENDPOINT_AUDIT_ACTIONS.updatesPaused : ENDPOINT_AUDIT_ACTIONS.updatesResumed,
       target: tenantId,
       targetType: "tenant",
-      details: { endpoints: updated.length },
+      details: { machinesResumed: resumed },
     });
-    return { paused: paused && updated.length > 0, endpoints: updated.length };
+    return readAgentUpdates(tx, tenantId);
+  });
+}
+
+/** Lift the own pause of one machine (it then follows the tenant's setting again). */
+export async function resumeMachineUpdates(
+  database: Database,
+  tenantId: string,
+  endpointId: string,
+  actor: EndpointActor,
+): Promise<AgentUpdatesDto> {
+  return withTenantTx(database, tenantId, async (tx) => {
+    const lifted = await tx
+      .update(endpoints)
+      .set({ settings: sql`${endpoints.settings} - 'autoUpdatePaused'` })
+      .where(and(eq(endpoints.tenantId, tenantId), eq(endpoints.id, endpointId)))
+      .returning({ id: endpoints.id });
+    if (lifted.length === 0) {
+      throw new ProblemError(404, "Machine not found");
+    }
+    await audit(tx, {
+      tenantId,
+      actor: actor.label,
+      actorUserId: actor.userId,
+      ip: actor.ip,
+      action: ENDPOINT_AUDIT_ACTIONS.updatesResumed,
+      target: endpointId,
+      targetType: "endpoint",
+      details: { machine: true },
+    });
+    return readAgentUpdates(tx, tenantId);
   });
 }

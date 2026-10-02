@@ -73,24 +73,54 @@ export const acceptDisclaimerSchema = z.object({
 });
 export type AcceptDisclaimerRequest = z.infer<typeof acceptDisclaimerSchema>;
 
-export const setupRequestSchema = z.object({
-  /**
-   * The operator responsibility notice, accepted in the wizard's first step
-   * and recorded with the new administrator (lib/disclaimer.ts). Required
-   * except in demo mode, which counts as accepted; routes/setup.ts checks it
-   * before anything else of the body.
-   */
-  disclaimer: acceptDisclaimerSchema.optional(),
-  operatingMode: operatingModeSchema,
-  /** Public origin the browser uses (origin only). Required in `public` mode. */
-  publicUrl: z.string().trim().url().optional(),
-  /** Display name of the operator (the single `providers` row). */
-  providerName: z.string().trim().min(1).max(200).optional(),
-  firstAdmin: firstAdminSchema,
-  mail: mailSetupSchema,
-  /** Send a test notification through the configured transport. */
-  sendTest: z.boolean().default(false),
-});
+/** The languages the setup wizard offers; the language of the operator's own organisation. */
+export const setupLanguageSchema = z.enum(["de", "en"]);
+
+export const setupRequestSchema = z
+  .object({
+    /**
+     * The operator responsibility notice, accepted in the wizard's first step
+     * and recorded with the new administrator (lib/disclaimer.ts). Required
+     * except in demo mode, which counts as accepted; routes/setup.ts checks it
+     * before anything else of the body.
+     */
+    disclaimer: acceptDisclaimerSchema.optional(),
+    operatingMode: operatingModeSchema,
+    /** Public origin the browser uses (origin only). Required in `public` mode. */
+    publicUrl: z.string().trim().url().optional(),
+    /**
+     * Name of the operator's own organisation, the one that installs and runs
+     * this Restow. Stored as the name of the operator (the single `providers`
+     * row) and the name of the installation's own organisation, the tenant of
+     * kind `internal` the setup creates (features/tenants/internal.ts).
+     */
+    providerName: z.string().trim().min(1).max(200),
+    /**
+     * The language the operator chose in the wizard's first step. It becomes the
+     * language of the own organisation (`tenants.language`), which the mails and
+     * reports of that tenant are written in, and of the setup's own test message.
+     * Absent: the tenant defers to the installation default, as before.
+     */
+    language: setupLanguageSchema.optional(),
+    firstAdmin: firstAdminSchema,
+    /**
+     * The notification mail transport. Optional: the wizard lets the operator set
+     * it up later (Installation, Settings, Mail). Without one nothing sends mail
+     * and every feature that would says so (an invitation shows its link to copy).
+     */
+    mail: mailSetupSchema.optional(),
+    /** Send a test notification through the configured transport (needs `mail`). */
+    sendTest: z.boolean().default(false),
+  })
+  .superRefine((request, ctx) => {
+    if (request.sendTest && !request.mail) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["sendTest"],
+        message: "A test message needs a mail transport; leave sendTest off when mail is skipped.",
+      });
+    }
+  });
 export type SetupRequest = z.infer<typeof setupRequestSchema>;
 
 // --- Helpers ----------------------------------------------------------------

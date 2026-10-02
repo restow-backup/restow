@@ -36,7 +36,10 @@ import {
   createDb,
   providerMembers,
   providers,
+  reportRules,
   settings,
+  tenantKeys,
+  tenants,
   twoFactor,
   user,
 } from "@restow/db";
@@ -58,8 +61,11 @@ const ADMIN_PASSWORD = "correct-horse-battery-1";
 const PRODUCT_NAME = "Acme Backup";
 const SETUP_TOKEN = "7QKMZ-RT4VX-9HBNP-2WCAE";
 
+const PROVIDER_NAME = "Acme IT Services GmbH";
+
 const SETUP_FIELDS = {
   operatingMode: "local",
+  providerName: PROVIDER_NAME,
   firstAdmin: { name: "Operator", email: ADMIN_EMAIL, password: ADMIN_PASSWORD },
   mail: {
     transport: "smtp",
@@ -290,14 +296,15 @@ describe.skipIf(!testDatabaseAdminUrl)(
         },
       );
       expect(response.status).toBe(201);
+      expect(await response.json()).toMatchObject({ ownOrganisation: { created: true } });
 
       const row = await settingsRow();
       expect(row?.setupCompletedAt).not.toBeNull();
       expect(row?.disclaimerVersion).toBe(version);
       expect(row?.disclaimerAcceptedIp).toBe("192.0.2.77");
       expect(row?.disclaimerAcceptedAt?.getTime()).toBeGreaterThanOrEqual(before - 1000);
-      // Without a provider name of its own, the operator row carries the product name.
-      expect((await owner.select().from(providers).limit(1))[0]?.name).toBe(PRODUCT_NAME);
+      // The operator row carries the name of the operator's own organisation, as given.
+      expect((await owner.select().from(providers).limit(1))[0]?.name).toBe(PROVIDER_NAME);
 
       const [admin] = await owner
         .select({ id: user.id })
@@ -329,6 +336,62 @@ describe.skipIf(!testDatabaseAdminUrl)(
         disclaimer: { version, accepted: true },
         setupToken: { required: false, source: null },
       });
+    });
+
+    it("creates the operator's own organisation with the setup: one internal tenant, named as given, with its key, its alert rules and its audit entry", async () => {
+      const rows = await owner.select().from(tenants);
+      expect(rows).toHaveLength(1);
+      const own = rows[0] as (typeof rows)[number];
+      expect(own).toMatchObject({
+        name: PROVIDER_NAME,
+        slug: "acme-it-services-gmbh",
+        kind: "internal",
+        status: "active",
+        // This request names no language (a client older than the wizard's language step):
+        // the tenant defers to the installation default. routes/setup.language.pg.test.ts
+        // covers the language the wizard sends.
+        language: null,
+      });
+      expect(own.organizationId).toBeTruthy();
+      expect(own.providerId).toBe((await owner.select().from(providers).limit(1))[0]?.id);
+      expect(
+        await owner.select().from(tenantKeys).where(eq(tenantKeys.tenantId, own.id)),
+      ).toHaveLength(1);
+
+      // The first administrator hears about failed jobs and data that is not proven restorable.
+      const rules = await owner.select().from(reportRules).where(eq(reportRules.tenantId, own.id));
+      expect(rules.map((rule) => rule.emailRecipients)).toEqual([[ADMIN_EMAIL], [ADMIN_EMAIL]]);
+      expect(rules.map((rule) => rule.trigger)).toEqual(["event", "event"]);
+
+      // The creation is written to the new tenant's own chain, as for every tenant; the
+      // installation chain keeps what the test above checked and nothing about the tenant.
+      const entries = await owner.select().from(auditLog).where(eq(auditLog.tenantId, own.id));
+      expect(entries.map((entry) => entry.action)).toEqual(["tenant.created"]);
+      expect(entries[0]?.details).toMatchObject({ kind: "internal", name: PROVIDER_NAME });
+      expect(entries[0]?.actor).toBe(ADMIN_EMAIL);
+      expect(verifyAuditChain(entries)).toMatchObject({ ok: true, checked: 1 });
+      expect((await installationChain()).map((entry) => entry.action)).toEqual([
+        "settings.disclaimer_accepted",
+        "setup.completed",
+      ]);
+    });
+
+    it("creates no second own organisation when the step runs again", async () => {
+      const shared = await import("../db.js");
+      const { ensureOwnOrganisation } = await import("../features/tenants/internal.js");
+      const [admin] = await owner
+        .select({ id: user.id })
+        .from(user)
+        .where(eq(user.email, ADMIN_EMAIL));
+      const again = await ensureOwnOrganisation(
+        shared.db,
+        shared.providerDb,
+        { name: "Another Name", alertEmail: ADMIN_EMAIL },
+        { id: admin?.id as string, email: ADMIN_EMAIL, ip: null, isProviderAdmin: true },
+      );
+      expect(again.created).toBe(false);
+      expect(again.tenant.name).toBe(PROVIDER_NAME);
+      expect(await owner.select({ id: tenants.id }).from(tenants)).toHaveLength(1);
     });
 
     it("closes the wizard once the installation is configured, token or not", async () => {

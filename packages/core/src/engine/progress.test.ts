@@ -130,4 +130,33 @@ describe("ProgressTracker", () => {
     clock.tick(10_000); // 10 items in 10 s -> 90 left -> 90 s
     expect(tracker.snapshot().etaSeconds).toBe(90);
   });
+
+  it("counts what was processed apart from what was stored, and what was transferred", async () => {
+    const sink = new MemoryProgressSink();
+    const tracker = new ProgressTracker({ sink, flushEveryItems: 1000, flushIntervalMs: 60_000 });
+    // An item of 1000 bytes of which 100 were new; the engine says so.
+    tracker.advance(1, 100, 1000);
+    // An engine that gives no processed count: it is what it stored.
+    tracker.advance(1, 50);
+    // An engine cannot have read less than it stored.
+    tracker.advance(1, 40, 10);
+    tracker.transfer(30);
+    tracker.transfer(0);
+    tracker.transfer(-5);
+    await tracker.flush();
+    expect(sink.last?.snapshot).toMatchObject({
+      done: 3,
+      bytes: 190,
+      bytesProcessed: 1000 + 50 + 40,
+      bytesTransferred: 30,
+    });
+  });
+
+  it("carries a transfer to the sink even when no item follows", async () => {
+    const sink = new MemoryProgressSink();
+    const tracker = new ProgressTracker({ sink, flushEveryItems: 1000, flushIntervalMs: 60_000 });
+    tracker.transfer(4096);
+    await tracker.flush();
+    expect(sink.last?.snapshot.bytesTransferred).toBe(4096);
+  });
 });

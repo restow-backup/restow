@@ -54,8 +54,17 @@ export const sourcesRoutes = new Hono<TenantEnv>();
 
 const tenantAdmin = requireTenant("tenant_admin");
 
-/** Where the browser lands after the consent round trip (web route of the sources feature). */
+/**
+ * Where the browser lands after a consent round trip that names no tenant (an invalid or unknown
+ * link): the old address of the sources, which leads on to the connections page of the tenant
+ * that is active in the browser (web feature `redirects`).
+ */
 const WEB_SOURCES_PATH = "/sources";
+
+/** The page of one source on its tenant's page (Connections), where the consent outcome is shown. */
+function webSourcePath(tenantId: string, sourceId: string): string {
+  return `/tenants/${tenantId}/connections/sources/${sourceId}`;
+}
 
 function actorOf(c: Context<TenantEnv>): Actor {
   const user = c.get("user");
@@ -88,8 +97,9 @@ async function optionalJson(c: Context): Promise<unknown> {
 const PATH_BASE = "http://path.invalid";
 
 /**
- * The web page a signed-in operator should see after the consent round trip.
- * `tenant` lets the app switch to the Restow tenant the link was made for.
+ * The web page a signed-in operator should see after the consent round trip:
+ * the source on the page of the Restow tenant the link was made for (the page
+ * makes that tenant the active one).
  *
  * With an `origin` the result is an absolute URL on it; without one it is a
  * path (`/sources...`) the browser resolves against the origin it called, so
@@ -100,26 +110,22 @@ export function consentLandingUrl(origin: string | null, outcome: ConsentResult)
   url.searchParams.set("consent", outcome.kind);
   switch (outcome.kind) {
     case "granted":
-      url.pathname = `${WEB_SOURCES_PATH}/${outcome.sourceId}`;
-      url.searchParams.set("tenant", outcome.tenantId);
+      url.pathname = webSourcePath(outcome.tenantId, outcome.sourceId);
       if (outcome.verification) {
         url.searchParams.set("verified", outcome.verification.ok ? "ok" : "failed");
       }
       break;
     case "denied":
-      url.pathname = `${WEB_SOURCES_PATH}/${outcome.sourceId}`;
-      url.searchParams.set("tenant", outcome.tenantId);
+      url.pathname = webSourcePath(outcome.tenantId, outcome.sourceId);
       url.searchParams.set("error", outcome.error);
       break;
     case "identity_not_verified":
-      url.pathname = `${WEB_SOURCES_PATH}/${outcome.sourceId}`;
-      url.searchParams.set("tenant", outcome.tenantId);
+      url.pathname = webSourcePath(outcome.tenantId, outcome.sourceId);
       url.searchParams.set("reason", outcome.reason);
       break;
     case "tenant_already_connected":
     case "tenant_mismatch":
-      url.pathname = `${WEB_SOURCES_PATH}/${outcome.sourceId}`;
-      url.searchParams.set("tenant", outcome.tenantId);
+      url.pathname = webSourcePath(outcome.tenantId, outcome.sourceId);
       break;
     case "invalid_state":
       url.searchParams.set("reason", outcome.reason);

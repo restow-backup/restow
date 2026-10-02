@@ -90,7 +90,7 @@ auseinanderlaufen.
 
 Eine `per_mailbox`-Quelle hat kein eigenes Login, das "Verbindung testen" auf
 Quellenebene prüfen könnte: sie ist deshalb sofort nach dem Anlegen oder Umstellen
-`active` (nicht `pending`), und Einrichtung › Quellen zeigt dort statt eines
+`active` (nicht `pending`), und Mandantenseite › Verbindungen (Reiter IMAP) zeigt dort statt eines
 Testen-Buttons den Hinweis, jedes Postfach einzeln im Reiter Verzeichnis zu testen.
 Bei `master_user` prüft "Verbindung testen" auf Quellenebene, sofern die Quelle
 bereits ein Postfach kennt, mit dessen echter Login-Form (Trennzeichen oder AUTHZID).
@@ -127,7 +127,7 @@ gleichen Host löst das nicht aus.
 
 Ablauf für einen typischen Hoster ohne Master-User (Hetzner, IONOS, all-inkl):
 
-1. Quelle anlegen: Einrichtung › Quellen → Neue IMAP-Quelle, Server/Port/Sicherheit des
+1. Quelle anlegen: Mandantenseite › Verbindungen › Reiter IMAP → Neue IMAP-Quelle, Server/Port/Sicherheit des
    Hosters eintragen, Anmeldemodus `per_mailbox` wählen. Kein Passwort auf
    Quellenebene nötig; die Quelle ist danach sofort `active`.
 2. Postfächer eintragen: Reiter Verzeichnis → Konten hinzufügen, entweder einzeln

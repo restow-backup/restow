@@ -57,6 +57,11 @@ export interface ProviderPools {
 }
 
 const tenantStatusSchema = z.enum(["active", "suspended", "deleting"]);
+const tenantKindSchema = z
+  .enum(["customer", "internal"])
+  .describe(
+    "`internal` marks the provider's own organisation, which is not one of its customers: leave it out of customer counts and billing.",
+  );
 
 export const providerTenantsQuerySchema = pageQuerySchema(50);
 export type ProviderTenantsQuery = z.infer<typeof providerTenantsQuerySchema>;
@@ -82,6 +87,7 @@ export const providerTenantSchema = component(
     name: z.string(),
     slug: z.string(),
     status: tenantStatusSchema,
+    kind: tenantKindSchema,
     createdAt: timestampSchema,
     customerNumber: z
       .string()
@@ -112,6 +118,7 @@ export const providerUserSchema = component(
       name: z.string(),
       slug: z.string(),
       status: tenantStatusSchema,
+      kind: tenantKindSchema,
     }),
   }),
 );
@@ -136,6 +143,7 @@ const tenantColumns = {
   name: tenants.name,
   slug: tenants.slug,
   status: tenants.status,
+  kind: tenants.kind,
   createdAt: tenants.createdAt,
   customerNumber: tenants.customerNumber,
 };
@@ -219,7 +227,13 @@ export async function listProviderUsers(
     const slice = await withTenantTx(db, tenant.id, (tx) =>
       loadDirectoryUsers(tx, tenant.id, wanted - collected.length, after, now),
     );
-    const block = { id: tenant.id, name: tenant.name, slug: tenant.slug, status: tenant.status };
+    const block = {
+      id: tenant.id,
+      name: tenant.name,
+      slug: tenant.slug,
+      status: tenant.status,
+      kind: tenant.kind,
+    };
     collected.push(...slice.items.map((user: DirectoryUserDto) => ({ ...user, tenant: block })));
     if (collected.length >= wanted) {
       break;
@@ -248,7 +262,7 @@ export function registerProviderRoutes(api: IntegrationApi, deps: V1Deps): void 
       operationId: "listProviderTenants",
       summary: "Every tenant with its status summary",
       description:
-        "The summary is the one `GET /status` returns for the tenant, plus the customer number (every key) and the contact persons of the tenant wizard (only a key that also carries the `users:read` scope; otherwise `contacts` is always empty). Pages by tenant id. Reading a tenant's contacts is recorded in that tenant's audit log; a tenant with none gets no entry.",
+        "The summary is the one `GET /status` returns for the tenant, plus its `kind` (`internal` for the provider's own organisation, which is not a customer), the customer number (every key) and the contact persons of the tenant wizard (only a key that also carries the `users:read` scope; otherwise `contacts` is always empty). Pages by tenant id. Reading a tenant's contacts is recorded in that tenant's audit log; a tenant with none gets no entry.",
       tag: "Provider",
       scope: "status:read",
       audited: true,

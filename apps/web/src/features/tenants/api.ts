@@ -15,6 +15,7 @@ import {
 import type {
   AddMemberInput,
   AddMemberResult,
+  CreateOwnOrganisationInput,
   CreateTenantInput,
   MemberList,
   NotificationRecipient,
@@ -70,6 +71,26 @@ export async function fetchTenantDetail(tenantId: string): Promise<TenantDetail>
 
 export async function createTenant(input: CreateTenantInput): Promise<TenantItem> {
   return decodeTenant(await apiFetch<unknown>(base, { ...noTenant, method: "POST", body: input }));
+}
+
+/** Creates the operator's own organisation (`POST /tenants/internal`); 409 while there is one. */
+export async function createOwnOrganisation(
+  input: CreateOwnOrganisationInput,
+): Promise<TenantItem> {
+  return decodeTenant(
+    await apiFetch<unknown>(`${base}/internal`, { ...noTenant, method: "POST", body: input }),
+  );
+}
+
+/** Marks an existing tenant as the operator's own organisation (`POST /tenants/:id/internal`). */
+export async function markOwnOrganisation(tenantId: string): Promise<TenantItem> {
+  return decodeTenant(
+    await apiFetch<unknown>(tenantPath(tenantId, "/internal"), {
+      ...noTenant,
+      method: "POST",
+      body: {},
+    }),
+  );
 }
 
 export async function updateTenant(

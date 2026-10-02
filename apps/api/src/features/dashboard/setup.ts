@@ -21,7 +21,7 @@ export interface SetupFacts {
   enabledBackupSchedules: number;
   completedSnapshots: number;
   verification: { reports: number; green: number };
-  mail: { configured: boolean; lastTestOk: boolean | null };
+  mail: { configured: boolean; lastTestOk: boolean | null; notNeeded: boolean };
 }
 
 type Judgement = Pick<SetupItemDto, "state" | "reason">;
@@ -29,6 +29,7 @@ type Judgement = Pick<SetupItemDto, "state" | "reason">;
 const done: Judgement = { state: "done", reason: null };
 const open = (reason: string | null = null): Judgement => ({ state: "open", reason });
 const attention = (reason: string): Judgement => ({ state: "attention", reason });
+const notNeeded = (reason: string): Judgement => ({ state: "not_needed", reason });
 
 function judgeStorage(storage: StorageTargetHealth): Judgement {
   switch (storage.status) {
@@ -60,14 +61,24 @@ function judgeVerification(verification: SetupFacts["verification"]): Judgement 
   return verification.reports > 0 ? attention("not_green") : open();
 }
 
+/**
+ * The notification mail is the one optional step. A transport that sent a test
+ * mail settles it. Without a transport the operator skipped the mail step of the
+ * setup wizard (or removed the transport later): nothing is mailed, which is a
+ * decision, so the step counts as not needed. A configured transport the operator
+ * does not want tested can be marked as not needed.
+ */
 function judgeMail(mail: SetupFacts["mail"]): Judgement {
   if (!mail.configured) {
-    return open("not_configured");
+    return notNeeded("mail_skipped");
   }
-  if (mail.lastTestOk === null) {
-    return open("not_tested");
+  if (mail.lastTestOk === true) {
+    return done;
   }
-  return mail.lastTestOk ? done : attention("test_failed");
+  if (mail.notNeeded) {
+    return notNeeded("mail_marked");
+  }
+  return mail.lastTestOk === null ? open("not_tested") : attention("test_failed");
 }
 
 const JUDGE: Readonly<Record<SetupItemId, (facts: SetupFacts) => Judgement>> = {
@@ -94,7 +105,10 @@ export function buildSetupChecklist(facts: SetupFacts, role: Role): SetupWidget 
     ...JUDGE[id](facts),
     actionable: canActOn(id, role),
   }));
-  const doneCount = items.filter((item) => item.state === "done").length;
+  // An optional step that is not needed is settled like a done one.
+  const doneCount = items.filter(
+    (item) => item.state === "done" || item.state === "not_needed",
+  ).length;
   return {
     complete: doneCount === items.length,
     done: doneCount,

@@ -1,0 +1,219 @@
+{
+  "title": "{scope, select, organisation {Einstellungen} other {Mandanten-Einstellungen}}",
+  "sections": {
+    "label": "{scope, select, organisation {Bereiche Ihrer Organisation} other {Bereiche dieses Mandanten}}",
+    "select": "Bereich",
+    "overview": "Übersicht",
+    "connections": "Verbindungen",
+    "protection": "Schutz",
+    "jobs": "Jobs & Zeitpläne",
+    "retention": "Backup-Aufbewahrung",
+    "storage": "Speicher",
+    "agents": "Agenten",
+    "archive": "Archiv",
+    "notifications": "Benachrichtigungen",
+    "integrations": "Integrationen",
+    "members": "Mitglieder",
+    "masterData": "Stammdaten"
+  },
+  "descriptions": {
+    "overview": "{scope, select, organisation {Ihre Organisation auf einen Blick: was geschützt ist, ob es nachweislich wiederherstellbar ist und wo welche Einstellung liegt.} other {{tenant} auf einen Blick: was geschützt ist, ob es nachweislich wiederherstellbar ist und wo welche Einstellung liegt.}}",
+    "connections": "Woher die Daten kommen: Microsoft 365, IMAP-Postfächer und Mail-Dateiimporte.",
+    "protection": "Welche Postfächer, OneDrives und IMAP-Konten geschützt sind und nach welchen Regeln.",
+    "jobs": "Was von selbst läuft: Sicherungen, Restore-Prüfungen und Wartung.",
+    "retention": "Wie lange die Wiederherstellungspunkte der Sicherungen aufbewahrt werden.",
+    "storage": "Wo die Sicherungsdaten liegen und wie viel es ist.",
+    "agents": "Den Backup-Agent auf Servern und Clients installieren und festlegen, wie er sich aktualisiert.",
+    "archive": "Wie lange archivierte Mails aufbewahrt werden und welche Sperren ihre Löschung verhindern.",
+    "notifications": "Wer was erfährt: die Empfänger und die Regeln, die Alarme und Berichte senden.",
+    "integrations": "API-Schlüssel und Webhooks für RMM-, PSA- und Ticketsysteme.",
+    "members": "Wer sich anmelden darf, und mit welcher Rolle.",
+    "masterData": "Name, Kundennummer, Sprache, Zeitzone, Adresse und Ansprechpartner."
+  },
+  "access": {
+    "role": "Ihre Rolle im Provider-Team darf diese Seite ansehen, aber nicht ändern. Einstellungen ändern braucht die Rolle Administrator oder höher.",
+    "demo": "Dies ist die öffentliche Demo: Die Einstellungen dieses Bereichs lassen sich ansehen, aber nicht ändern."
+  },
+  "locked": {
+    "title": "{section} ist nicht freigeschaltet",
+    "description": "Der Bereich bleibt in der Liste, damit Sie sehen, dass es ihn gibt. Die Lizenzseite zeigt, was ihn freischaltet, und nimmt den Schlüssel entgegen.",
+    "action": "Lizenzseite öffnen"
+  },
+  "states": {
+    "notYours": {
+      "title": "Das ist nicht {scope, select, organisation {Ihre Organisation} other {Ihr Mandant}}",
+      "description": "{scope, select, organisation {Sie verwalten nur Ihre eigene Organisation. Die Adresse nennt eine andere oder eine, die es nicht gibt.} other {Sie verwalten nur Ihren eigenen Mandanten. Die Adresse nennt einen anderen oder einen, den es nicht gibt.}}"
+    },
+    "unknown": {
+      "title": "{scope, select, organisation {Diese Organisation} other {Dieser Mandant}} existiert nicht",
+      "description": "Die Adresse nennt etwas, das es nicht gibt oder das Ihre Rolle im Provider-Team nicht abdeckt."
+    },
+    "notAdmin": {
+      "title": "Nur Administratoren öffnen diese Seite",
+      "description": "In {name} hat Ihr Konto die Benutzerrolle. Fragen Sie einen Administrator, wenn Sie mehr Zugriff brauchen."
+    },
+    "closed": {
+      "title": "{name} ist geschlossen",
+      "description": "{scope, select, organisation {Die Organisation ist gesperrt oder wird gelöscht. Nur der Provider kann ihre Seiten öffnen.} other {Der Mandant ist gesperrt oder wird gelöscht. Nur der Provider kann seine Seiten öffnen.}}"
+    },
+    "openOwn": "Einstellungen von {name} öffnen",
+    "home": "Zur Übersicht"
+  },
+  "protection": {
+    "backToObjects": "Zurück zu den geschützten Objekten"
+  },
+  "integrations": {
+    "backToList": "Zurück zu den Integrationen"
+  },
+  "connections": {
+    "tabsLabel": "Arten von Verbindungen",
+    "tabs": {
+      "microsoft365": "Microsoft 365",
+      "imap": "IMAP",
+      "google": "Google Workspace",
+      "imports": "Importe"
+    },
+    "google": {
+      "title": "Google Workspace ist noch nicht verfügbar",
+      "description": "Bis dahin werden Gmail-Postfächer über IMAP gesichert.",
+      "action": "IMAP öffnen"
+    }
+  },
+  "overview": {
+    "error": "Die Übersicht konnte nicht geladen werden.",
+    "own": "Eigene Organisation",
+    "customerNumber": "Kundennummer",
+    "created": "angelegt am {date}",
+    "sectionsTitle": "Alles zu {scope, select, organisation {dieser Organisation} other {diesem Mandanten}}",
+    "figures": {
+      "objects": "Geschützte Objekte",
+      "objectsLink": "Schutz öffnen",
+      "machines": "Maschinen",
+      "machinesLink": "Agenten öffnen",
+      "machinesSplit": "{servers, plural, one {# Server} other {# Server}} · {clients, plural, one {# Client} other {# Clients}}",
+      "readiness": "Wiederherstellbarkeit",
+      "readinessLink": "Wiederherstellbarkeit öffnen",
+      "connections": "Verbindungen",
+      "connectionsLink": "Verbindungen öffnen",
+      "noneYet": "Noch nichts",
+      "unavailable": "Gerade nicht verfügbar",
+      "noConnection": "Noch nichts verbunden",
+      "connected": "{connected} von {total} verbunden",
+      "failing": "{count, plural, one {# Verbindung meldet einen Fehler} other {# Verbindungen melden einen Fehler}}",
+      "allWell": "Keine Verbindung meldet einen Fehler",
+      "kinds": {
+        "mailbox": "{count, plural, one {# Postfach} other {# Postfächer}}",
+        "onedrive": "{count, plural, one {# OneDrive} other {# OneDrives}}",
+        "imap": "{count, plural, one {# IMAP-Konto} other {# IMAP-Konten}}"
+      }
+    },
+    "steps": {
+      "show": "Einrichtungsschritte anzeigen",
+      "hide": "Einrichtungsschritte ausblenden"
+    },
+    "actions": {
+      "moreFor": "Weitere Aktionen für {name}",
+      "suspend": "Sperren",
+      "resume": "Entsperren",
+      "delete": "Mandant löschen"
+    },
+    "suspended": {
+      "title": "Dieser Mandant ist gesperrt",
+      "description": "Seine Jobs und Anmeldungen ruhen. Bis zur Entsperrung kann nur der Provider seine Seiten öffnen."
+    },
+    "deleting": {
+      "title": "Dieser Mandant wird gelöscht",
+      "description": "Seine Daten werden entfernt. Es lässt sich nichts mehr ändern."
+    },
+    "suspend": {
+      "title": "{name} sperren?",
+      "description": "Sicherungen und die übrigen Jobs des Mandanten stoppen, und seine Mitglieder können sich nicht mehr anmelden. Nichts wird gelöscht. Sie können den Mandanten jederzeit entsperren.",
+      "confirm": "Mandant sperren"
+    },
+    "resume": {
+      "title": "{name} entsperren?",
+      "description": "Die Jobs laufen wieder, und die Mitglieder können sich wieder anmelden.",
+      "confirm": "Mandant entsperren"
+    },
+    "toasts": {
+      "suspended": "Der Mandant ist gesperrt.",
+      "resumed": "Der Mandant ist wieder aktiv."
+    },
+    "danger": {
+      "title": "Mandant löschen",
+      "description": "Das Löschen entfernt Sicherungen, Archiv und Schlüssel des Mandanten endgültig. Das lässt sich nicht rückgängig machen.",
+      "internal": "Das ist Ihre eigene Organisation. Sie lässt sich nicht löschen, solange sie so markiert ist."
+    }
+  },
+  "agents": {
+    "enrol": {
+      "title": "Maschine hinzufügen",
+      "description": "Jede Maschine bekommt einen einmaligen Installationsbefehl, der 24 Stunden gilt. Die Maschinen selbst mit Status und Wiederherstellbarkeit stehen unter Server & Endpunkte, Inventar.",
+      "server": "Neuer Server",
+      "client": "Neuer Client",
+      "inventory": "Inventar öffnen"
+    }
+  },
+  "archive": {
+    "retention": {
+      "title": "Aufbewahrung",
+      "description": "Wie lange Mails im Archiv bleiben, bevor sie gelöscht werden dürfen.",
+      "loadError": "Die Aufbewahrung konnte nicht geladen werden.",
+      "period": "{years, plural, one {# Jahr} other {# Jahre}}",
+      "unlimited": "Ohne Ende",
+      "unlimitedHint": "Archivierte Mails bleiben, bis sie von Hand entfernt werden.",
+      "end_of_year": "Die Frist endet am 31. Dezember des Jahres, in dem die Mail eingegangen ist, zuzüglich der oben genannten Jahre.",
+      "from_capture": "Die Frist zählt ab dem Tag, an dem die Mail erfasst wurde.",
+      "fixed": "{scope, select, organisation {In dieser Version gilt diese Frist für Ihre Organisation.} other {In dieser Version gilt diese Frist für jeden Mandanten.}} Eine andere wählen zu können ist geplant."
+    },
+    "capture": {
+      "title": "Erfassung und Journal-Adresse",
+      "description": "Wie Mails ins Archiv kommen, die Journal-Adresse für Exchange Online, ihre Erneuerung und die Anleitung für den Connector stehen auf der Archivseite. Sie gehören zum täglichen Archiv, nicht zu den Einstellungen.",
+      "link": "Archivseite öffnen"
+    }
+  },
+  "notifications": {
+    "loadError": "Die Empfänger konnten nicht geladen werden.",
+    "recipients": {
+      "title": "Empfänger",
+      "description": "Die Personen, die über {scope, select, organisation {diese Organisation} other {diesen Mandanten}} informiert werden, und worüber jede etwas erfahren will. Speichern bringt die Regeln darunter ab dem nächsten Alarm auf den neuen Stand.",
+      "weeklyUnavailable": "Der Wochenbericht ist auf dieser Installation nicht verfügbar. Die Auswahl bleibt erhalten und wirkt, sobald Berichte verfügbar sind.",
+      "discard": "Änderungen verwerfen",
+      "save": "Empfänger speichern"
+    },
+    "alertsLink": "Gesendete Alarme ansehen"
+  },
+  "masterData": {
+    "loadError": "Die Stammdaten konnten nicht geladen werden.",
+    "hint": {
+      "role": "Ihre Rolle im Provider-Team darf die Stammdaten ansehen, aber nicht ändern. Ändern braucht die Rolle Administrator oder höher.",
+      "tenantAdmin": "Der Betreiber dieser Installation pflegt diese Daten. Fragen Sie dort nach, wenn etwas nicht stimmt."
+    },
+    "identity": {
+      "title": "Name",
+      "description": "Wie {scope, select, organisation {Ihre Organisation} other {der Mandant}} im Menü, in Mails und in Berichten heißt.",
+      "edit": "Namen bearbeiten",
+      "name": "Name",
+      "slug": "Kurzname",
+      "cap": "Vereinbarte Postfächer",
+      "noCap": "Nicht gesetzt"
+    },
+    "own": {
+      "title": "Eigene Organisation",
+      "badge": "Markiert",
+      "isOwn": "Das ist Ihre eigene Organisation: Ihre Postfächer und Server. Sie steht an erster Stelle und lässt sich nicht löschen, solange sie so markiert ist.",
+      "markDescription": "Diesen Mandanten als Ihre eigene Organisation markieren. Er steht dann an erster Stelle und lässt sich nicht löschen. Markiert werden kann nur ein Mandant.",
+      "mark": "Als eigene Organisation markieren"
+    },
+    "installation": {
+      "title": "Aus der Installation",
+      "description": "Diese Werte gelten für alle auf diesem Server gleich und stehen hier zum Nachlesen.",
+      "publicUrl": "Öffentliche Adresse",
+      "publicUrlNone": "Nicht gesetzt: Diese Installation läuft im lokalen Modus.",
+      "defaultStorage": "Standardspeicher",
+      "defaultStorageNone": "Nicht verfügbar.",
+      "defaultStorageUsed": "Hier in Benutzung: {scope, select, organisation {Ihre Organisation} other {dieser Mandant}} speichert auf dem Standard der Installation ({kind, select, s3 {S3} other {lokaler Speicher}}).",
+      "defaultStorageUnused": "Hier nicht in Benutzung: {scope, select, organisation {Ihre Organisation} other {dieser Mandant}} hat einen eigenen Speicher."
+    }
+  }
+}

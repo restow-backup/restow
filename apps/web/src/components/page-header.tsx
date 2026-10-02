@@ -2,7 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import type * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { usePageFrame, usePublishedTitle } from "@/components/kit/page-context";
+import { useEmbeddedPage, usePageFrame, usePublishedTitle } from "@/components/kit/page-context";
 import { cn } from "@/lib/utils";
 
 interface PageHeaderProps {
@@ -37,10 +37,42 @@ export function PageHeader({
 }: PageHeaderProps) {
   const { t } = useTranslation();
   const frame = usePageFrame();
-  usePublishedTitle(title, t("app.name"));
+  const embedded = useEmbeddedPage();
+  usePublishedTitle(title, t("app.name"), !embedded);
 
   const Icon = icon === undefined ? frame.icon : icon;
   const hasActions = Boolean(actions) || Boolean(children);
+
+  if (embedded) {
+    // A section of a larger page: a heading one level below the page's own, no icon of its own.
+    return (
+      <div
+        data-slot="page-header"
+        data-embedded="true"
+        className={cn(
+          "flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between",
+          className,
+        )}
+      >
+        <div className="min-w-0 space-y-1">
+          <h2 className="text-lg font-semibold tracking-tight break-words hyphens-auto">{title}</h2>
+          {description ? (
+            typeof description === "string" ? (
+              <p className="max-w-prose text-sm text-muted-foreground">{description}</p>
+            ) : (
+              <div className="max-w-prose text-sm text-muted-foreground">{description}</div>
+            )
+          ) : null}
+        </div>
+        {hasActions ? (
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            {actions}
+            {children}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div

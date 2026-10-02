@@ -88,11 +88,33 @@ describe("SchedulesView", () => {
   });
 
   it("offers the recommended set when the tenant has no schedule", () => {
-    const html = view({ list: { items: [], missingKinds: ["backup", "verify"] } });
+    const html = view({ list: { items: [], missingKinds: ["scrub", "retention"] } });
     expect(html).toContain('data-slot="empty-state"');
-    expect(html).toContain("No schedules yet");
+    expect(html).toContain("No maintenance schedules yet");
     expect(html).toContain("Apply recommended schedules");
     expect(html).not.toContain("<table");
+  });
+
+  it("leaves backups and restore checks to the jobs: a schedule a job took over is not listed", () => {
+    const taken = { supersededByJobId: "job-1" };
+    const html = view({
+      list: {
+        items: [
+          item({ ...taken }),
+          item({ kind: "verify", intervalMinutes: null, cron: "0 3 * * 0", ...taken }),
+        ],
+        missingKinds: [],
+      },
+    });
+    // Nothing is left to show: the page offers the maintenance schedules, not the replaced ones.
+    expect(html).toContain("No maintenance schedules yet");
+    expect(html).not.toContain("<table");
+  });
+
+  it("still shows a backup schedule no job took over, because it is what runs", () => {
+    const html = view({ list: { items: [item({ supersededByJobId: null })], missingKinds: [] } });
+    expect(html).toContain("<table");
+    expect(html).toContain("Every 8 hours");
   });
 
   it("shows the cause and a retry when loading failed", () => {
@@ -115,29 +137,39 @@ describe("SchedulesView", () => {
     expect(html).toContain("New schedule");
   });
 
-  it("warns that backups run only by hand and offers the recommended set", () => {
-    const html = view({
-      list: { items: [covered.items[1] as ScheduleItem], missingKinds: ["backup", "scrub"] },
-    });
-    expect(html).toContain('data-notice="backup"');
-    expect(html).toContain("Backups run only when started by hand");
-    expect(count(html, "Apply recommended schedules")).toBe(1);
-  });
-
-  it("offers to switch a paused backup or verify schedule back on", () => {
+  it("warns when no job backs up all objects, and the recommended set fixes it by creating the mail job", () => {
     const html = view({
       list: {
-        items: [
-          item({ enabled: false }),
-          item({ kind: "verify", enabled: false, cron: "0 3 * * 0", intervalMinutes: null }),
-        ],
-        missingKinds: [],
+        items: [covered.items[2] as ScheduleItem],
+        missingKinds: ["backup", "verify", "scrub"],
       },
     });
-    expect(html).toContain("The backup schedule for all protected objects is switched off.");
-    expect(html).toContain("Backups stay unverified");
-    expect(count(html, ">Switch on<")).toBe(2);
-    expect(html).toContain("Switched off");
+    expect(html).toContain('data-notice="jobs"');
+    expect(html).toContain("Backups are not set up on a schedule");
+    expect(html).toContain("The recommended set creates the mail job.");
+    expect(html).toContain('href="/jobs"');
+    // The one button applies the whole set; the notice for the maintenance does not repeat it.
+    expect(count(html, "Apply recommended schedules")).toBe(1);
+    // Only maintenance is named as missing: the replaced kinds are the job's business.
+    expect(html).toContain("Missing: Integrity check.");
+  });
+
+  it("does not warn when the server says a job or an older schedule covers the objects", () => {
+    const html = view({ list: { items: covered.items, missingKinds: [] } });
+    expect(html).not.toContain('data-notice="jobs"');
+  });
+
+  it("says plainly that an older backup schedule keeps running next to the jobs", () => {
+    const html = view({ list: { items: [item({ supersededByJobId: null })], missingKinds: [] } });
+    expect(html).toContain('data-notice="legacy"');
+    expect(html).toContain("1 older backup or restore-check schedule");
+    expect(html).toContain("Runs next to the jobs");
+    // A maintenance schedule has nothing to say about jobs.
+    const maintenance = view({
+      list: { items: [covered.items[2] as ScheduleItem], missingKinds: [] },
+    });
+    expect(maintenance).not.toContain('data-notice="legacy"');
+    expect(maintenance).not.toContain("Runs next to the jobs");
   });
 
   it("is read-only for tenant users", () => {

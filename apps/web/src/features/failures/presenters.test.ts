@@ -93,8 +93,7 @@ describe("failureTone", () => {
 describe("stepLink", () => {
   it("sends each target to its page", () => {
     expect(stepLink({ id: "x", target: "settings_microsoft" })).toEqual({
-      to: "/settings",
-      search: { section: "microsoft365" },
+      to: "/installation/microsoft-app",
     });
     expect(stepLink({ id: "x", target: "sources" })?.to).toBe("/sources");
     expect(stepLink({ id: "x", target: "directory" })?.to).toBe("/protected-objects");

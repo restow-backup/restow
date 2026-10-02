@@ -39,7 +39,11 @@ type BackupOptions struct {
 	Tags []string
 	// LimitUploadKiB limits the upload rate (KiB/s); 0 = unlimited.
 	LimitUploadKiB int
-	OnProgress     func(Progress)
+	// ExcludeLargerThanBytes skips files larger than this many bytes
+	// (--exclude-larger-than); 0 or less = no limit. restic reads 0 as "skip
+	// every file with content", so a zero is never passed on.
+	ExcludeLargerThanBytes int64
+	OnProgress             func(Progress)
 }
 
 // BackupResult is the outcome of a backup that produced a snapshot.
@@ -55,6 +59,31 @@ type BackupResult struct {
 	Partial bool
 	// Warnings are problems with the options themselves (skipped patterns).
 	Warnings []string
+}
+
+// backupArgs builds the command line of `restic backup`. filesFrom is the raw
+// list of sources and excludeFile the exclude patterns (empty: none); both
+// are option files the caller wrote. Nothing secret belongs here: the
+// repository and its credentials travel in the environment.
+func backupArgs(o BackupOptions, filesFrom, excludeFile string) []string {
+	args := []string{"backup", "--json", "--files-from-raw", filesFrom, "--exclude-caches", "--retry-lock", "15m"}
+	if o.Host != "" {
+		args = append(args, "--host", o.Host)
+	}
+	for _, t := range o.Tags {
+		args = append(args, "--tag", t)
+	}
+	if excludeFile != "" {
+		args = append(args, "--exclude-file", excludeFile)
+	}
+	if o.LimitUploadKiB > 0 {
+		args = append(args, "--limit-upload", strconv.Itoa(o.LimitUploadKiB))
+	}
+	if o.ExcludeLargerThanBytes > 0 {
+		// A plain number of bytes: restic 0.19 reads it without a unit suffix.
+		args = append(args, "--exclude-larger-than", strconv.FormatInt(o.ExcludeLargerThanBytes, 10))
+	}
+	return args
 }
 
 // Backup runs `restic backup`. A returned *BackupResult with a nil error means
@@ -84,13 +113,6 @@ func (r *Runner) Backup(ctx context.Context, o BackupOptions) (*BackupResult, er
 		return nil, err
 	}
 
-	args := []string{"backup", "--json", "--files-from-raw", filesFrom, "--exclude-caches", "--retry-lock", "15m"}
-	if o.Host != "" {
-		args = append(args, "--host", o.Host)
-	}
-	for _, t := range o.Tags {
-		args = append(args, "--tag", t)
-	}
 	var excludeLines []string
 	for _, e := range o.Excludes {
 		if line, ok := excludeFileLine(e); ok {
@@ -99,16 +121,14 @@ func (r *Runner) Backup(ctx context.Context, o BackupOptions) (*BackupResult, er
 			res.Warnings = append(res.Warnings, fmt.Sprintf("exclude pattern %q cannot be used and was skipped", e))
 		}
 	}
+	exFile := ""
 	if len(excludeLines) > 0 {
-		exFile := filepath.Join(dir, "excludes.txt")
+		exFile = filepath.Join(dir, "excludes.txt")
 		if err := os.WriteFile(exFile, []byte(strings.Join(excludeLines, "\n")+"\n"), 0o600); err != nil {
 			return nil, err
 		}
-		args = append(args, "--exclude-file", exFile)
 	}
-	if o.LimitUploadKiB > 0 {
-		args = append(args, "--limit-upload", strconv.Itoa(o.LimitUploadKiB))
-	}
+	args := backupArgs(o, filesFrom, exFile)
 
 	var summary *BackupSummary
 	items := &itemErrors{r: r}

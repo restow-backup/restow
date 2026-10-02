@@ -3,6 +3,7 @@ import {
   type Database,
   type Tenant,
   type TenantContact,
+  type TenantKind,
   type TenantLanguage,
   type TenantNotificationRecipient,
   type TenantStatus,
@@ -35,7 +36,8 @@ import {
   hasSignInMethod,
   invalidatePreviousLinks,
 } from "../accounts/service.js";
-import { insertWizardRules, rulesFromRecipients } from "../reports/defaults.js";
+import { syncRecipientRules } from "../reports/defaults.js";
+import { internalFirstByName } from "./order.js";
 import type {
   AddMemberInput,
   CreateTenantInput,
@@ -47,9 +49,10 @@ import type {
 } from "./schemas.js";
 
 const CUSTOMER_NUMBER_UNIQUE_INDEX = "tenants_customer_number_uq";
+export const INTERNAL_TENANT_UNIQUE_INDEX = "tenants_internal_uq";
 
 /** True when `error` (or its cause) is Postgres' unique violation on `constraint`. */
-function isUniqueViolation(error: unknown, constraint: string): boolean {
+export function isUniqueViolation(error: unknown, constraint: string): boolean {
   let current: unknown = error;
   for (let depth = 0; depth < 5 && current !== null && typeof current === "object"; depth += 1) {
     const candidate = current as { code?: unknown; constraint?: unknown; cause?: unknown };
@@ -59,6 +62,33 @@ function isUniqueViolation(error: unknown, constraint: string): boolean {
     current = candidate.cause;
   }
   return false;
+}
+
+/** Problem type of marking or creating the own organisation while another tenant is it. */
+export const INTERNAL_TENANT_EXISTS_PROBLEM = "urn:restow:problem:internal-tenant-exists";
+
+/** Problem type of deleting the own organisation. */
+export const INTERNAL_TENANT_PROTECTED_PROBLEM = "urn:restow:problem:internal-tenant-protected";
+
+/** The installation has an own organisation already; `existing` names it when known. */
+export function internalTenantExistsProblem(
+  existing: Pick<Tenant, "id" | "name"> | null,
+): ProblemError {
+  return new ProblemError(409, "Own organisation already exists", {
+    type: INTERNAL_TENANT_EXISTS_PROBLEM,
+    detail: existing
+      ? `'${existing.name}' is the own organisation of this installation. Confirm the switch to make another tenant the own organisation.`
+      : "This installation has an own organisation already.",
+    extensions: existing ? { tenantId: existing.id, tenantName: existing.name } : {},
+  });
+}
+
+function internalTenantProtectedProblem(): ProblemError {
+  return new ProblemError(409, "The own organisation cannot be deleted", {
+    type: INTERNAL_TENANT_PROTECTED_PROBLEM,
+    detail:
+      "This tenant is the own organisation of the installation. Make another tenant the own organisation first, then delete this one.",
+  });
 }
 
 function customerNumberTakenProblem(customerNumber: string): ProblemError {
@@ -83,6 +113,8 @@ function customerNumberTakenProblem(customerNumber: string): ProblemError {
  * `deleting`, its organization (and with it every membership and invitation) is
  * removed so nobody can sign in to it, and the purge runs as an audited job.
  * The audit chain keeps referencing the tenant row (`on delete restrict`).
+ * The operator's own organisation (`kind = internal`) is never deleted: another
+ * tenant has to become the own organisation first (./internal.ts).
  */
 
 /** Who performs an action, for the audit log. */
@@ -102,7 +134,11 @@ export interface TenantDto {
   id: string;
   name: string;
   slug: string;
+  /** `internal` for the operator's own organisation (at most one), else `customer`. */
+  kind: TenantKind;
   status: TenantStatus;
+  /** The provider's customer number; null until set. Shown next to the name in tenant pickers. */
+  customerNumber: string | null;
   organizationId: string | null;
   mailboxCap: number | null;
   createdAt: string;
@@ -177,12 +213,14 @@ export type AddMemberResult =
 
 const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-function toDto(row: Tenant): TenantDto {
+export function toDto(row: Tenant): TenantDto {
   return {
     id: row.id,
     name: row.name,
     slug: row.slug,
+    kind: row.kind,
     status: row.status,
+    customerNumber: row.customerNumber,
     organizationId: row.organizationId,
     mailboxCap: row.mailboxCap,
     createdAt: row.createdAt.toISOString(),
@@ -239,13 +277,19 @@ function toRecipientDto(row: TenantNotificationRecipient): NotificationRecipient
   return { id: row.id, email: row.email, name: row.name, categories: categoriesFromRow(row) };
 }
 
-function notFound(): ProblemError {
+export function notFound(): ProblemError {
   return new ProblemError(404, "Tenant not found");
 }
 
-/** All tenants of the installation (provider view): pass the installation pool. */
+/**
+ * All tenants of the installation (provider view): pass the installation pool.
+ * The own organisation comes first, then the customers by name.
+ */
 export async function listTenants(providerDb: Database): Promise<TenantDto[]> {
-  const rows = await providerDb.select().from(tenants).orderBy(asc(tenants.name));
+  const rows = await providerDb
+    .select()
+    .from(tenants)
+    .orderBy(...internalFirstByName);
   return rows.map(toDto);
 }
 
@@ -318,7 +362,7 @@ async function hasTenant(providerDb: Database): Promise<boolean> {
 }
 
 /** Whether a tenant or organization uses the slug; spans tenants, so on the installation pool. */
-async function slugTaken(providerDb: Database, slug: string): Promise<boolean> {
+export async function slugTaken(providerDb: Database, slug: string): Promise<boolean> {
   const [byTenant] = await providerDb
     .select({ id: tenants.id })
     .from(tenants)
@@ -368,6 +412,11 @@ async function providerId(db: Database): Promise<string> {
   return row.id;
 }
 
+export interface CreateTenantOptions {
+  /** `internal` creates the operator's own organisation; the default is a customer. */
+  kind?: TenantKind;
+}
+
 /**
  * Create a tenant: better-auth organization, tenant row (with its customer
  * data), first DEK, contact persons, notification recipients and audit entry,
@@ -384,7 +433,23 @@ export async function createTenant(
   providerDb: Database,
   input: CreateTenantInput,
   actor: Actor,
+  options: CreateTenantOptions = {},
 ): Promise<TenantDto> {
+  const kind = options.kind ?? "customer";
+  if (kind === "internal") {
+    // The operator has one own organisation (`tenants_internal_uq` is the final word).
+    const [existing] = await providerDb
+      .select({ id: tenants.id, name: tenants.name })
+      .from(tenants)
+      .where(eq(tenants.kind, "internal"))
+      .limit(1);
+    if (existing) {
+      throw internalTenantExistsProblem(existing);
+    }
+  }
+  // The first tenant of an installation is always allowed, whichever kind it is
+  // (the setup wizard creates the own organisation this way); a further one,
+  // the own organisation included, needs `tenants.additional`.
   if (await hasTenant(providerDb)) {
     await requireFeature(db, "tenants.additional");
   }
@@ -430,10 +495,17 @@ export async function createTenant(
             organizationId: org.id,
             name: input.name,
             slug: input.slug,
+            kind,
+            // A new tenant has no schedules or machines of an older release to turn into jobs.
+            backupJobsMigratedAt: new Date(),
             ...input.customer,
           })
           .returning();
       } catch (error) {
+        // A concurrent create of the own organisation can race past the check above.
+        if (isUniqueViolation(error, INTERNAL_TENANT_UNIQUE_INDEX)) {
+          throw internalTenantExistsProblem(null);
+        }
         // A concurrent create can still race past the pre-check above; the
         // unique index is the final word, translated to the same 409.
         if (isUniqueViolation(error, CUSTOMER_NUMBER_UNIQUE_INDEX)) {
@@ -466,21 +538,18 @@ export async function createTenant(
               )
               .returning({ id: tenantNotificationRecipients.id })
           : [];
-      // Each chosen category becomes a rule under Alerts & reports
-      // (features/reports/defaults.ts); the weekly report only while
-      // time-triggered reports are on (`reports.timed`).
-      const reportRuleCount = await insertWizardRules(
-        tx,
-        rulesFromRecipients({
-          tenantId: id,
-          recipients: input.notificationRecipients ?? [],
-          language: input.customer?.language ?? null,
-          timeZone: input.customer?.timeZone ?? null,
-          createdBy: actor.id,
-          scheduledAllowed,
-          now: new Date(),
-        }),
-      );
+      // Each chosen category becomes the rule that carries it (features/reports/defaults.ts);
+      // the weekly report only while time-triggered reports are on (`reports.timed`).
+      const ruleChange = await syncRecipientRules(tx, {
+        tenantId: id,
+        recipients: input.notificationRecipients ?? [],
+        previous: [],
+        language: input.customer?.language ?? null,
+        timeZone: input.customer?.timeZone ?? null,
+        createdBy: actor.id,
+        scheduledAllowed,
+        now: new Date(),
+      });
       await audit(tx, {
         tenantId: id,
         actor: actor.email,
@@ -492,6 +561,7 @@ export async function createTenant(
         details: {
           name: input.name,
           slug: input.slug,
+          kind,
           organizationId: org.id,
           keyVersion: key.keyVersion,
           customerNumber: customerNumber ?? null,
@@ -500,7 +570,7 @@ export async function createTenant(
           contactIds: insertedContacts.map((contact) => contact.id),
           notificationRecipientCount: insertedRecipients.length,
           recipientIds: insertedRecipients.map((recipient) => recipient.id),
-          reportRuleCount,
+          reportRuleCount: ruleChange.created,
         },
       });
       return row;
@@ -623,9 +693,15 @@ export async function replaceTenantNotificationRecipients(
   recipients: ReplaceNotificationRecipientsInput,
   actor: Actor,
 ): Promise<NotificationRecipientDto[]> {
+  const scheduledAllowed = await featureEnabled(db, "reports.timed");
   const rows = await withTenantTx(db, id, async (tx) => {
     const [current] = await tx
-      .select({ id: tenants.id, status: tenants.status })
+      .select({
+        id: tenants.id,
+        status: tenants.status,
+        language: tenants.language,
+        timeZone: tenants.timeZone,
+      })
       .from(tenants)
       .where(eq(tenants.id, id));
     if (!current) {
@@ -634,6 +710,12 @@ export async function replaceTenantNotificationRecipients(
     if (current.status === "deleting") {
       throw new ProblemError(409, "Tenant is being deleted");
     }
+    const previous = (
+      await tx
+        .select()
+        .from(tenantNotificationRecipients)
+        .where(eq(tenantNotificationRecipients.tenantId, id))
+    ).map((row) => ({ email: row.email, categories: categoriesFromRow(row) }));
     await tx
       .delete(tenantNotificationRecipients)
       .where(eq(tenantNotificationRecipients.tenantId, id));
@@ -662,6 +744,17 @@ export async function replaceTenantNotificationRecipients(
         perCategory[category] += 1;
       }
     }
+    // The rules are what sends: they follow the recipients in the same transaction.
+    const ruleChange = await syncRecipientRules(tx, {
+      tenantId: id,
+      recipients,
+      previous,
+      language: current.language,
+      timeZone: current.timeZone,
+      createdBy: actor.id,
+      scheduledAllowed,
+      now: new Date(),
+    });
     await audit(tx, {
       tenantId: id,
       actor: actor.email,
@@ -671,7 +764,12 @@ export async function replaceTenantNotificationRecipients(
       targetType: "tenant",
       ip: actor.ip,
       // Ids and per-category counts, never the recipient addresses.
-      details: { count: recipients.length, perCategory, recipientIds: inserted.map((r) => r.id) },
+      details: {
+        count: recipients.length,
+        perCategory,
+        recipientIds: inserted.map((r) => r.id),
+        rules: ruleChange,
+      },
     });
     return inserted;
   });
@@ -732,13 +830,20 @@ export async function updateTenant(
  */
 export async function deleteTenant(db: Database, id: string, actor: Actor): Promise<TenantDto> {
   const marked = await withTenantTx(db, id, async (tx) => {
+    // The own organisation is never marked for deletion: the guard is part of
+    // the update itself, so a concurrent "make it the own organisation" cannot slip past it.
     const [row] = await tx
       .update(tenants)
       .set({ status: "deleting" })
-      .where(eq(tenants.id, id))
+      .where(and(eq(tenants.id, id), ne(tenants.kind, "internal")))
       .returning();
     if (!row) {
-      throw notFound();
+      const [existing] = await tx
+        .select({ kind: tenants.kind })
+        .from(tenants)
+        .where(eq(tenants.id, id))
+        .limit(1);
+      throw existing?.kind === "internal" ? internalTenantProtectedProblem() : notFound();
     }
     await audit(tx, {
       tenantId: id,

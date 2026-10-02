@@ -19,6 +19,8 @@
 
 import {
   type ExistingSchedule,
+  type JobSchedule,
+  jobScheduleFromCadence,
   missingRecommendedSchedules,
   nextRunAt,
   recommendedSchedules,
@@ -26,7 +28,15 @@ import {
 import type { Database } from "@restow/db";
 import type { PoolClient } from "pg";
 import type PgBoss from "pg-boss";
-import type { PlannedJob, ScheduleRow, TenantTargets } from "./planning.js";
+import { defaultMailJobName, languageOf } from "./names.js";
+import type {
+  BackupJobRow,
+  JobMemberRow,
+  JobUnit,
+  PlannedJob,
+  ScheduleRow,
+  TenantTargets,
+} from "./planning.js";
 import { sendOptionsFor } from "./queues.js";
 
 type Pool = Database["$client"];
@@ -99,6 +109,7 @@ export class ScheduleStore {
          FROM schedules s
          JOIN tenants t ON t.id = s.tenant_id
         WHERE s.enabled
+          AND s.superseded_by_job_id IS NULL
           AND t.status = 'active'
           AND (s.next_run_at IS NULL OR s.next_run_at <= $1)
         ORDER BY s.next_run_at NULLS FIRST, s.created_at
@@ -145,10 +156,12 @@ export class ScheduleStore {
     try {
       await client.query("BEGIN");
       await client.query("SELECT set_config('app.tenant_id', $1, true)", [tenantId]);
-      const tenant = await client.query<{ schedule_defaults_applied_at: Date | null }>(
-        "SELECT schedule_defaults_applied_at FROM tenants WHERE id = $1 FOR UPDATE",
-        [tenantId],
-      );
+      const tenant = await client.query<{
+        schedule_defaults_applied_at: Date | null;
+        language: string | null;
+      }>("SELECT schedule_defaults_applied_at, language FROM tenants WHERE id = $1 FOR UPDATE", [
+        tenantId,
+      ]);
       const marker = tenant.rows[0];
       if (!marker || marker.schedule_defaults_applied_at !== null) {
         await client.query("COMMIT");
@@ -167,19 +180,44 @@ export class ScheduleStore {
         "SELECT kind, protected_object_id, interval_minutes, cron FROM schedules WHERE tenant_id = $1",
         [tenantId],
       );
+      // A mail job that covers every object answers both the backup and the restore-check recommendation.
+      const coveredByJob = await client.query<{ present: boolean }>(
+        `SELECT EXISTS (SELECT 1 FROM backup_jobs
+                         WHERE tenant_id = $1 AND kind = 'mail' AND scope_mode = 'all') AS present`,
+        [tenantId],
+      );
+      const jobCoverage: ExistingSchedule[] =
+        coveredByJob.rows[0]?.present === true
+          ? (["backup", "verify"] as const).map((kind) => ({
+              kind,
+              protectedObjectId: null,
+              intervalMinutes: null,
+              cron: "* * * * *",
+            }))
+          : [];
       const missing = missingRecommendedSchedules(
-        existing.rows.map((row) => ({
-          kind: row.kind,
-          protectedObjectId: row.protected_object_id,
-          intervalMinutes: row.interval_minutes,
-          cron: row.cron,
-        })),
+        [
+          ...existing.rows.map((row) => ({
+            kind: row.kind,
+            protectedObjectId: row.protected_object_id,
+            intervalMinutes: row.interval_minutes,
+            cron: row.cron,
+          })),
+          ...jobCoverage,
+        ],
         recommendedSchedules({
           timezone,
           hasMicrosoftSource: microsoft.rows[0]?.present === true,
         }),
       );
+      // Backups and restore checks are one job (release 0.2.0); the rest stays a schedule.
+      const forJob = missing.filter(
+        (schedule) => schedule.kind === "backup" || schedule.kind === "verify",
+      );
       for (const schedule of missing) {
+        if (schedule.kind === "backup" || schedule.kind === "verify") {
+          continue;
+        }
         await client.query(
           `INSERT INTO schedules (tenant_id, kind, interval_minutes, cron, timezone, enabled, next_run_at)
            VALUES ($1, $2, $3, $4, $5, true, $6)`,
@@ -193,12 +231,44 @@ export class ScheduleStore {
           ],
         );
       }
+      const created: ExistingSchedule["kind"][] = missing
+        .filter((schedule) => schedule.kind !== "backup" && schedule.kind !== "verify")
+        .map((schedule) => schedule.kind);
+      if (forJob.length > 0) {
+        const backup = forJob.find((schedule) => schedule.kind === "backup");
+        const verify = forJob.find((schedule) => schedule.kind === "verify");
+        const names = await client.query<{ name: string }>(
+          "SELECT name FROM backup_jobs WHERE tenant_id = $1 AND kind = 'mail'",
+          [tenantId],
+        );
+        const name = defaultMailJobName(
+          languageOf(marker.language),
+          new Set(names.rows.map((row) => row.name)),
+        );
+        const timer = (schedule: typeof backup) => (schedule ? nextRunAt(schedule, { now }) : null);
+        await client.query(
+          `INSERT INTO backup_jobs
+             (tenant_id, kind, name, scope_mode, schedule, verify_schedule, enabled, origin,
+              next_run_at, verify_next_run_at)
+           VALUES ($1, 'mail', $2, 'all', $3, $4, true, 'user', $5, $6)
+           ON CONFLICT DO NOTHING`,
+          [
+            tenantId,
+            name,
+            backup ? JSON.stringify(jobScheduleFromCadence(backup)) : null,
+            verify ? JSON.stringify(jobScheduleFromCadence(verify)) : null,
+            timer(backup),
+            timer(verify),
+          ],
+        );
+        created.push(...forJob.map((schedule) => schedule.kind));
+      }
       await client.query("UPDATE tenants SET schedule_defaults_applied_at = $2 WHERE id = $1", [
         tenantId,
         now,
       ]);
       await client.query("COMMIT");
-      return { applied: true, created: missing.map((schedule) => schedule.kind) };
+      return { applied: true, created };
     } catch (error) {
       await client.query("ROLLBACK").catch(() => undefined);
       throw error;
@@ -223,8 +293,26 @@ export class ScheduleStore {
         "SELECT id, kind, status FROM sources WHERE tenant_id = $1",
         [tenantId],
       );
+      const jobMembers = await client.query<{
+        job_id: string;
+        protected_object_id: string;
+        overrides: NonNullable<TenantTargets["jobMembers"]>[number]["overrides"];
+      }>(
+        `SELECT job_id, protected_object_id, overrides
+           FROM backup_job_members
+          WHERE tenant_id = $1 AND protected_object_id IS NOT NULL`,
+        [tenantId],
+      );
       await client.query("COMMIT");
-      return { protectedObjects: objects.rows, sources: sources.rows };
+      return {
+        protectedObjects: objects.rows,
+        sources: sources.rows,
+        jobMembers: jobMembers.rows.map((row) => ({
+          jobId: row.job_id,
+          protectedObjectId: row.protected_object_id,
+          overrides: row.overrides ?? {},
+        })),
+      };
     } catch (error) {
       await client.query("ROLLBACK").catch(() => undefined);
       throw error;
@@ -250,6 +338,16 @@ export class ScheduleStore {
     try {
       await client.query("BEGIN");
       await client.query("SELECT set_config('app.tenant_id', $1, true)", [schedule.tenantId]);
+      // A backup job may have taken this schedule over since it was loaded (the migration, or
+      // the api): then the job plans these runs and this schedule must not.
+      const live = await client.query<{ superseded_by_job_id: string | null }>(
+        "SELECT superseded_by_job_id FROM schedules WHERE id = $1 FOR UPDATE",
+        [schedule.id],
+      );
+      if (live.rows.length === 0 || live.rows[0]?.superseded_by_job_id != null) {
+        await client.query("ROLLBACK");
+        return { enqueued: 0, skipped: 0 };
+      }
       for (const job of jobs) {
         const pgBossJobId = await boss.send(job.queue, job.payload, {
           ...sendOptionsFor(job.queue, job.payload as never),
@@ -296,6 +394,227 @@ export class ScheduleStore {
       await client.query(
         "UPDATE schedules SET next_run_at = $2, updated_at = now() WHERE id = $1",
         [schedule.id, nextRunAt],
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Backup jobs (mail): what is due, and enqueueing it
+  // -------------------------------------------------------------------------
+
+  /**
+   * The things due for enabled mail jobs of active tenants (across tenants): a job's backups or
+   * restore checks on the job's own timer, and an object whose member row carries a schedule of
+   * its own, on that row's timer. A timer that was never set counts as due.
+   */
+  async loadDueUnits(now: Date, limit: number): Promise<JobUnit[]> {
+    interface JobRecord {
+      id: string;
+      tenant_id: string;
+      scope_mode: "all" | "selected";
+      schedule: JobSchedule | null;
+      verify_schedule: JobSchedule | null;
+      next_run_at: Date | null;
+      last_run_at: Date | null;
+      verify_next_run_at: Date | null;
+      verify_last_run_at: Date | null;
+    }
+    const jobFields = `j.id, j.tenant_id, j.scope_mode, j.schedule, j.verify_schedule,
+              j.next_run_at, j.last_run_at, j.verify_next_run_at, j.verify_last_run_at`;
+    const toJob = (row: JobRecord): BackupJobRow => ({
+      id: row.id,
+      tenantId: row.tenant_id,
+      scopeMode: row.scope_mode,
+      schedule: row.schedule,
+      verifySchedule: row.verify_schedule,
+      nextRunAt: row.next_run_at,
+      lastRunAt: row.last_run_at,
+      verifyNextRunAt: row.verify_next_run_at,
+      verifyLastRunAt: row.verify_last_run_at,
+    });
+    const units: JobUnit[] = [];
+    const jobs = await this.installation.query<JobRecord>(
+      `SELECT ${jobFields}
+         FROM backup_jobs j
+         JOIN tenants t ON t.id = j.tenant_id
+        WHERE j.kind = 'mail' AND j.enabled AND t.status = 'active'
+          AND ((j.schedule IS NOT NULL AND (j.next_run_at IS NULL OR j.next_run_at <= $1))
+            OR (j.verify_schedule IS NOT NULL
+                AND (j.verify_next_run_at IS NULL OR j.verify_next_run_at <= $1)))
+        ORDER BY j.created_at, j.id
+        LIMIT $2`,
+      [now, limit],
+    );
+    for (const record of jobs.rows) {
+      const job = toJob(record);
+      if (job.schedule && (job.nextRunAt === null || job.nextRunAt <= now)) {
+        units.push({ level: "job", what: "backup", job });
+      }
+      if (job.verifySchedule && (job.verifyNextRunAt === null || job.verifyNextRunAt <= now)) {
+        units.push({ level: "job", what: "verify", job });
+      }
+    }
+    interface MemberRecord extends JobRecord {
+      member_id: string;
+      protected_object_id: string;
+      overrides: JobMemberRow["overrides"];
+      m_next_run_at: Date | null;
+      m_last_run_at: Date | null;
+      m_verify_next_run_at: Date | null;
+      m_verify_last_run_at: Date | null;
+    }
+    const members = await this.installation.query<MemberRecord>(
+      `SELECT ${jobFields}, m.id AS member_id, m.protected_object_id, m.overrides,
+              m.next_run_at AS m_next_run_at, m.last_run_at AS m_last_run_at,
+              m.verify_next_run_at AS m_verify_next_run_at,
+              m.verify_last_run_at AS m_verify_last_run_at
+         FROM backup_job_members m
+         JOIN backup_jobs j ON j.id = m.job_id
+         JOIN tenants t ON t.id = j.tenant_id
+        WHERE j.kind = 'mail' AND j.enabled AND t.status = 'active'
+          AND m.protected_object_id IS NOT NULL
+          AND ((jsonb_typeof(m.overrides -> 'schedule') = 'object'
+                AND (m.next_run_at IS NULL OR m.next_run_at <= $1))
+            OR (jsonb_typeof(m.overrides -> 'verifySchedule') = 'object'
+                AND (m.verify_next_run_at IS NULL OR m.verify_next_run_at <= $1)))
+        ORDER BY m.created_at, m.id
+        LIMIT $2`,
+      [now, limit],
+    );
+    for (const record of members.rows) {
+      const job = toJob(record);
+      const member: JobMemberRow = {
+        id: record.member_id,
+        jobId: record.id,
+        protectedObjectId: record.protected_object_id,
+        overrides: record.overrides ?? {},
+        nextRunAt: record.m_next_run_at,
+        lastRunAt: record.m_last_run_at,
+        verifyNextRunAt: record.m_verify_next_run_at,
+        verifyLastRunAt: record.m_verify_last_run_at,
+      };
+      if (member.overrides.schedule && (member.nextRunAt === null || member.nextRunAt <= now)) {
+        units.push({ level: "member", what: "backup", job, member });
+      }
+      if (
+        member.overrides.verifySchedule &&
+        (member.verifyNextRunAt === null || member.verifyNextRunAt <= now)
+      ) {
+        units.push({ level: "member", what: "verify", job, member });
+      }
+    }
+    return units.slice(0, limit);
+  }
+
+  /** The timer columns of a unit: which table, which row, which pair of columns. */
+  private unitTarget(unit: JobUnit): { table: string; id: string; next: string; last: string } {
+    const prefix = unit.what === "backup" ? "" : "verify_";
+    return unit.level === "job"
+      ? {
+          table: "backup_jobs",
+          id: unit.job.id,
+          next: `${prefix}next_run_at`,
+          last: `${prefix}last_run_at`,
+        }
+      : {
+          table: "backup_job_members",
+          id: unit.member.id,
+          next: `${prefix}next_run_at`,
+          last: `${prefix}last_run_at`,
+        };
+  }
+
+  /**
+   * Enqueue the planned jobs of one unit and advance its timer, atomically. The row is locked
+   * and looked at again first: a job that was switched off, deleted, or given another schedule
+   * since it was loaded is left alone (the api changed it; the next tick plans from the new state).
+   */
+  async enqueueUnit(
+    boss: PgBoss,
+    unit: JobUnit,
+    jobs: readonly PlannedJob[],
+    nextRunAt: Date,
+    loadedNextRunAt: Date | null,
+    now: Date,
+  ): Promise<EnqueueResult> {
+    const target = this.unitTarget(unit);
+    const client = await this.pool.connect();
+    let enqueued = 0;
+    let skipped = 0;
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT set_config('app.tenant_id', $1, true)", [unit.job.tenantId]);
+      const live = await client.query<{ enabled: boolean; next_run_at: Date | null }>(
+        `SELECT j.enabled, x.${target.next} AS next_run_at
+           FROM ${target.table} x
+           JOIN backup_jobs j ON j.id = ${target.table === "backup_jobs" ? "x.id" : "x.job_id"}
+          WHERE x.id = $1
+            FOR UPDATE OF x`,
+        [target.id],
+      );
+      const row = live.rows[0];
+      const same =
+        row !== undefined &&
+        (row.next_run_at?.getTime() ?? null) === (loadedNextRunAt?.getTime() ?? null);
+      if (!row || !row.enabled || !same) {
+        await client.query("ROLLBACK");
+        return { enqueued: 0, skipped: 0 };
+      }
+      for (const job of jobs) {
+        const pgBossJobId = await boss.send(job.queue, job.payload, {
+          ...sendOptionsFor(job.queue, job.payload as never),
+          db: bossDb(client),
+        });
+        if (pgBossJobId === null) {
+          skipped++;
+          continue;
+        }
+        await client.query(
+          `INSERT INTO jobs (id, tenant_id, queue, status, protected_object_id, payload, pg_boss_job_id)
+           VALUES ($1, $2, $3, 'queued', $4, $5, $6)`,
+          [
+            job.payload.jobId,
+            unit.job.tenantId,
+            job.queue,
+            job.protectedObjectId,
+            JSON.stringify(job.payload),
+            pgBossJobId,
+          ],
+        );
+        enqueued++;
+      }
+      await client.query(
+        `UPDATE ${target.table}
+            SET ${target.last} = $2, ${target.next} = $3, updated_at = now()
+          WHERE id = $1`,
+        [target.id, now, nextRunAt],
+      );
+      await client.query("COMMIT");
+      return { enqueued, skipped };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /** Push a unit's next run without running it (a schedule that cannot be planned). */
+  async deferUnit(unit: JobUnit, nextRunAt: Date): Promise<void> {
+    const target = this.unitTarget(unit);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT set_config('app.tenant_id', $1, true)", [unit.job.tenantId]);
+      await client.query(
+        `UPDATE ${target.table} SET ${target.next} = $2, updated_at = now() WHERE id = $1`,
+        [target.id, nextRunAt],
       );
       await client.query("COMMIT");
     } catch (error) {

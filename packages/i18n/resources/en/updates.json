@@ -75,7 +75,7 @@
       "disk_space": "There is not enough free disk space.",
       "not_newer": "The chosen version is not newer than the running one.",
       "compose_unsupported": "This version of Docker Compose is not supported.",
-      "updater_image_unpinned": "The updater takes its own image from the image lines it rewrites during an update. Give it its own pinned image and recreate it; the steps are under Settings, Updates."
+      "updater_image_unpinned": "The updater takes its own image from the image lines it rewrites during an update. Give it its own pinned image and recreate it; the steps are under Installation, Updates."
     },
     "fetch": {
       "pull_failed": "The new image could not be downloaded.",
@@ -426,7 +426,7 @@
     "copyAll": "Copy all commands"
   },
   "maintenance": {
-    "openSettings": "Open Settings, Updates",
+    "openSettings": "Open Installation, Updates",
     "banner": {
       "scheduled": "Maintenance in {time}: {product} will be updated to version {version}. Save your work.",
       "starting": "Maintenance is starting: {product} is being updated to version {version}.",
@@ -467,7 +467,7 @@
         },
         "needsAttention": {
           "title": "The update needs attention",
-          "admin": "The update failed after the database was migrated. An administrator has to restore it. Details are under Settings, Updates.",
+          "admin": "The update failed after the database was migrated. An administrator has to restore it. Details are under Installation, Updates.",
           "user": "{product} is unavailable. An administrator has been informed."
         },
         "generic": {

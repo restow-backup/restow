@@ -37,7 +37,7 @@ import { EditM365Dialog } from "./components/m365-source-dialogs";
 import { PermissionsCard } from "./components/permissions-card";
 import { SourceProblem } from "./components/source-problem";
 import { SourceKindIcon, SourceStatusBadge } from "./components/status";
-import { sourceDetailTo, sourcesListTo } from "./paths";
+import { sourceDetailTo, sourcesListSearch, sourcesListTo } from "./paths";
 import {
   type ConsentSearch,
   VERIFICATION_GRACE_MS,
@@ -66,12 +66,10 @@ export function SourceDetailPage() {
   const { t } = useTranslation("sources");
   const { sourceId = "" } = useParams({ strict: false }) as { sourceId?: string };
   const consent = useConsentSearchOnce(sourceId);
-  const tenantReady = useTenantFromConsent(consent.tenant);
   const [waitingForConsent, setWaitingForConsent] = React.useState(false);
   const [pollForVerification, setPollForVerification] = React.useState(false);
   const { query, tenantId, canManage } = useSourceDetail(sourceId, {
     poll: waitingForConsent || pollForVerification,
-    enabled: tenantReady,
   });
   const [consentMessage, setConsentMessage] = React.useState(() => describeConsentResult(consent));
 
@@ -95,7 +93,7 @@ export function SourceDetailPage() {
     body = <NoTenantSelected />;
   } else if (!canManage) {
     body = <SourcesForbidden />;
-  } else if (!source && (query.isPending || !tenantReady)) {
+  } else if (!source && query.isPending) {
     body = <DetailSkeleton />;
   } else if (query.isError && !source) {
     body =
@@ -134,6 +132,7 @@ export function SourceDetailPage() {
     <div className="space-y-6">
       <Link
         to={sourcesListTo()}
+        search={sourcesListSearch(source?.kind) as never}
         className="inline-flex items-center gap-1.5 rounded-sm text-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
       >
         <ArrowLeft aria-hidden="true" className="size-4" />
@@ -159,27 +158,6 @@ function useConsentSearchOnce(sourceId: string): ConsentSearch {
   }, [navigate, sourceId]);
 
   return consent;
-}
-
-/**
- * The consent link was made for a specific tenant; switch to it when the
- * browser shows another one, so the page does not look up the source in the
- * wrong tenant. Returns whether the active tenant is settled.
- */
-function useTenantFromConsent(targetTenantId: string | undefined): boolean {
-  const { activeTenant, tenants, setActiveTenant } = useSession();
-  const mustSwitch =
-    targetTenantId !== undefined &&
-    activeTenant?.id !== targetTenantId &&
-    tenants.some((tenant) => tenant.id === targetTenantId);
-
-  React.useEffect(() => {
-    if (mustSwitch && targetTenantId) {
-      setActiveTenant(targetTenantId);
-    }
-  }, [mustSwitch, targetTenantId, setActiveTenant]);
-
-  return !mustSwitch;
 }
 
 function SourceDetail({
@@ -232,7 +210,7 @@ function SourceDetail({
           </div>
           <div className="min-w-0 space-y-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="break-words text-2xl font-semibold tracking-tight">{source.name}</h1>
+              <h2 className="break-words text-lg font-semibold tracking-tight">{source.name}</h2>
               {imported ? null : <SourceStatusBadge status={source.status} />}
             </div>
             <p className="text-sm text-muted-foreground">

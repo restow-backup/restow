@@ -482,7 +482,7 @@ export class BackupRun {
       newBytes += content.newBytes;
     }
     this.counters.written++;
-    this.reporter.advance(1, newBytes);
+    this.reporter.advance(1, newBytes, size);
     this.noteItem(size);
   }
 

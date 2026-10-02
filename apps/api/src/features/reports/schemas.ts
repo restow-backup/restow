@@ -22,6 +22,7 @@ export type ReportRuleField =
   | "events"
   | "sections"
   | "channels"
+  | "emailRecipients"
   | "webhookId"
   | "trigger"
   | "intervalMinutes"

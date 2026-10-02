@@ -1,0 +1,761 @@
+{
+  "auto": {
+    "mailJob": "Mail backup",
+    "format": "{group} · {schedule}",
+    "duplicate": "{name} ({number})",
+    "group": {
+      "linux": {
+        "server": "Linux servers",
+        "client": "Linux clients"
+      },
+      "darwin": {
+        "server": "macOS servers",
+        "client": "macOS clients"
+      },
+      "windows": {
+        "server": "Windows servers",
+        "client": "Windows clients"
+      }
+    },
+    "schedule": {
+      "daily": "daily {time}",
+      "intervalHours": "every {hours} h",
+      "intervalMinutes": "every {minutes} min",
+      "onConnect": "on connect",
+      "onConnectHours": "on connect, at most every {hours} h",
+      "onConnectMinutes": "on connect, at most every {minutes} min"
+    }
+  },
+  "access": {
+    "demo": "This is the public demo: jobs can be looked at but not created, changed, run or deleted.",
+    "role": "Your role in the provider team can look at jobs but not change them. Changing jobs needs the Administrator role or higher."
+  },
+  "actions": {
+    "new": "New job",
+    "edit": "Edit",
+    "runNow": "Run now",
+    "pause": "Pause",
+    "resume": "Resume",
+    "delete": "Delete",
+    "refresh": "Refresh jobs"
+  },
+  "list": {
+    "title": "Jobs",
+    "description": {
+      "mail": "What is backed up, when and into which repository, for many mailboxes, OneDrives and IMAP accounts at once. The runs are in History.",
+      "endpoint": "Which folders of which servers and clients are backed up, when and with what left out. One job covers many machines, and single machines can do things differently. The runs are in History."
+    },
+    "table": {
+      "mail": "Mail & SaaS jobs",
+      "endpoint": "Server and client jobs"
+    },
+    "search": "Search jobs",
+    "nextInline": "Next:",
+    "loadError": "The jobs could not be loaded",
+    "columns": {
+      "name": "Job",
+      "scope": "Scope",
+      "schedule": "Schedule",
+      "repository": "Repository",
+      "lastRun": "Last run",
+      "nextRun": "Next run",
+      "restoreCheck": "Restore check"
+    },
+    "uncovered": {
+      "mail": "{count, plural, one {# protected object is in no job and is not backed up on a schedule.} other {# protected objects are in no job and are not backed up on a schedule.}}",
+      "endpoint": "{count, plural, one {# machine is in no job.} other {# machines are in no job.}} A machine without a job keeps the configuration it has; a job manages machines together.",
+      "action": "Create a job"
+    },
+    "empty": {
+      "title": {
+        "mail": "No mail jobs yet",
+        "endpoint": "No server or client jobs yet"
+      },
+      "description": {
+        "mail": "Without a job nothing is backed up on a schedule. A job covers mailboxes, OneDrives and IMAP accounts, runs on a schedule and checks that the backups can be restored.",
+        "endpoint": "A job tells the agents which folders to back up, when, and what to leave out. A machine without a job keeps the configuration it has."
+      }
+    }
+  },
+  "state": {
+    "paused": "Paused",
+    "failing": "Backup failed",
+    "running": "Running",
+    "attention": "Needs attention",
+    "empty": "Empty",
+    "ok": "Active"
+  },
+  "lastRun": {
+    "never": "No backup yet",
+    "running": "{count, plural, one {Running now} other {# running}}",
+    "failed": "{count} failed",
+    "partial": "{count} partial"
+  },
+  "nextRun": {
+    "paused": "Paused",
+    "manual": "Started by hand",
+    "onConnect": "When a machine connects",
+    "empty": "Nothing to back up",
+    "unknown": "Not planned yet"
+  },
+  "restoreCheck": {
+    "summary": "{passed} of {total} passed",
+    "none": "Nothing to check",
+    "detail": {
+      "passed": "{count} passed",
+      "failed": "{count} failed",
+      "warning": "{count} with warnings",
+      "unverified": "{count} not checked yet",
+      "noBackup": "{count} without a backup"
+    }
+  },
+  "schedule": {
+    "manual": "Started by hand",
+    "onConnect": "Whenever the machine is online",
+    "onConnectHours": "{count, plural, one {When online, at most every hour} other {When online, at most every # hours}}",
+    "onConnectMinutes": "When online, at most every {count} minutes",
+    "verifyLine": "Restore check: {schedule}",
+    "noVerify": "No restore checks",
+    "legend": "When the agent starts a backup",
+    "endpoint": {
+      "kind": "Run",
+      "kinds": {
+        "daily": "Daily at a fixed time",
+        "interval": "At a fixed interval",
+        "on_connect": "Whenever the machine is online"
+      },
+      "timeOfDay": "Time of day",
+      "timeHint": "In the time zone below.",
+      "minutes": {
+        "interval": "Every … minutes",
+        "on_connect": "At most once every … minutes"
+      },
+      "minutesHint": {
+        "interval": "At least {min} minutes.",
+        "on_connect": "A backup starts when the machine is online and the last one is older than this. Empty: the agent's default."
+      },
+      "timeZone": "Time zone",
+      "timeZoneHint": "The time zone the schedule is read in."
+    }
+  },
+  "scope": {
+    "kinds": {
+      "mailbox": "{count, plural, one {# mailbox} other {# mailboxes}}",
+      "onedrive": "{count, plural, one {# OneDrive} other {# OneDrives}}",
+      "imap": "{count, plural, one {# IMAP account} other {# IMAP accounts}}",
+      "server": "{count, plural, one {# server} other {# servers}}",
+      "client": "{count, plural, one {# client} other {# clients}}",
+      "other": "{count, plural, one {# other} other {# others}}"
+    },
+    "kindNames": {
+      "mailbox": "Mailbox",
+      "onedrive": "OneDrive",
+      "imap": "IMAP account",
+      "server": "Server",
+      "client": "Client"
+    },
+    "nothing": "Nothing yet",
+    "allLine": "Everything in no other job, new ones included",
+    "overridesNote": "{count} with overrides",
+    "unresolved": "Unknown object",
+    "allBody": "This job covers every mailbox, OneDrive and IMAP account that is in no other job, including ones that are added later. To take one out, put it into another job. Each one can still have overrides of its own.",
+    "columns": {
+      "name": "Name",
+      "kind": "Kind",
+      "schedule": "Schedule",
+      "lastBackup": "Last backup",
+      "restoreCheck": "Restore check",
+      "overrides": "Overrides"
+    },
+    "notCovered": "Not backed up ({status})",
+    "ownSchedule": "Own schedule",
+    "noOverrides": "None",
+    "overridesBadge": "{count} overrides",
+    "outcome": {
+      "succeeded": "Succeeded",
+      "partial": "Partial",
+      "failed": "Failed",
+      "running": "Running",
+      "queued": "Queued"
+    },
+    "table": {
+      "mail": "Objects of the job",
+      "endpoint": "Machines of the job"
+    },
+    "search": {
+      "mail": "Search by name or address",
+      "endpoint": "Search by machine name"
+    },
+    "loadError": "The objects of this job could not be loaded",
+    "actions": {
+      "add": "Add",
+      "editOverrides": "Edit overrides",
+      "remove": "Remove from job"
+    },
+    "empty": {
+      "title": {
+        "mail": "No objects in this job yet",
+        "endpoint": "No machines in this job yet"
+      },
+      "description": {
+        "mail": "Add the mailboxes, OneDrives and IMAP accounts this job should back up.",
+        "endpoint": "Add the servers and clients this job should manage."
+      }
+    },
+    "remove": {
+      "title": "Remove {name} from the job?",
+      "description": {
+        "mail": "It is no longer backed up by {job}. Without another job it is not backed up on a schedule.",
+        "endpoint": "It leaves {job} and keeps the configuration it has now. Without another job nothing manages it."
+      },
+      "confirm": "Remove from job"
+    }
+  },
+  "overrides": {
+    "title": "Overrides of {name}",
+    "description": {
+      "mail": "What this object does differently from {job}. Anything left off follows the job.",
+      "endpoint": "What this machine does differently from {job}. Anything left off follows the job."
+    },
+    "save": "Save overrides",
+    "groups": {
+      "schedule": {
+        "title": "Schedule",
+        "switch": "Own schedule",
+        "follows": "Follows the schedule of the job.",
+        "short": "own schedule"
+      },
+      "verify": {
+        "title": "Restore check",
+        "switch": "Own restore check",
+        "follows": "Follows the restore check of the job.",
+        "short": "own restore check"
+      },
+      "folders": {
+        "title": "Folders",
+        "switch": "Own folders",
+        "follows": "Backs up the folders of the job.",
+        "short": "own folders"
+      },
+      "exclusions": {
+        "title": "Exclusions",
+        "switch": "Own exclusions",
+        "follows": "Leaves out what the job leaves out.",
+        "short": "own exclusions"
+      },
+      "bandwidth": {
+        "title": "Bandwidth",
+        "switch": "Own bandwidth limit",
+        "follows": "Follows the bandwidth limit and the time windows of the job.",
+        "short": "own bandwidth"
+      },
+      "hooks": {
+        "title": "Commands before and after the backup",
+        "switch": "Own commands",
+        "follows": "Runs the commands of the job.",
+        "short": "own commands"
+      },
+      "retention": {
+        "title": "Retention",
+        "switch": "Own retention",
+        "follows": "Keeps restore points the way the job says.",
+        "short": "own retention"
+      }
+    }
+  },
+  "addMembers": {
+    "title": {
+      "mail": "Add objects",
+      "endpoint": "Add machines"
+    },
+    "description": {
+      "mail": "Choose the objects {job} should cover. One that is in another job is taken over only after you confirm.",
+      "endpoint": "Choose the machines {job} should manage. One that is in another job is taken over only after you confirm."
+    },
+    "submit": "Add",
+    "submitSome": "Add {count} selected"
+  },
+  "detail": {
+    "title": "Job",
+    "back": "All jobs",
+    "refresh": "Refresh this job",
+    "loadError": "The job could not be loaded",
+    "notFound": {
+      "title": "Job not found",
+      "description": "This job does not exist in the selected tenant. It may belong to another tenant, or the link is wrong."
+    },
+    "noTenant": {
+      "title": "No tenant selected",
+      "description": "Choose a tenant to see its jobs."
+    },
+    "allBadge": "Everything in no other job",
+    "tabs": {
+      "overview": "Overview",
+      "scope": "Scope",
+      "settings": "Settings",
+      "runs": "Runs"
+    }
+  },
+  "overview": {
+    "facts": "Key facts",
+    "state": "State",
+    "scope": "Scope",
+    "schedule": "Schedule",
+    "restoreCheckSchedule": "Restore check",
+    "lastRun": "Last run",
+    "nextRun": "Next run",
+    "repository": "Repository",
+    "retention": "Retention",
+    "restoreChecks": "Restore checks",
+    "restoreChecksNone": "Nothing in this job to check yet.",
+    "lastCheck": "Last check",
+    "neverChecked": "No restore check has run yet.",
+    "restoreChecksNote": "A backup counts as restorable once a restore check proved it. Green means every object passed.",
+    "showScope": {
+      "mail": "Show the objects",
+      "endpoint": "Show the machines"
+    }
+  },
+  "settings": {
+    "intro": "Everything this job says. Changing it opens the editor.",
+    "general": "General",
+    "schedule": "Schedule",
+    "repositoryAndRetention": "Repository and retention",
+    "folders": "Folders",
+    "exclusions": "Exclusions",
+    "bandwidth": "Bandwidth",
+    "hooks": "Commands before and after the backup",
+    "facts": {
+      "name": "Name",
+      "kind": "Kind",
+      "scope": "Scope",
+      "created": "Created",
+      "updated": "Changed",
+      "schedule": "Schedule",
+      "restoreCheck": "Restore check",
+      "repository": "Repository",
+      "retention": "Retention",
+      "fileTypes": "File types left out",
+      "ownPatterns": "Own patterns",
+      "larger": "Files larger than",
+      "bandwidth": "Upload limit",
+      "windows": "Time windows"
+    },
+    "kinds": {
+      "mail": "Mail & SaaS",
+      "endpoint": "Servers & endpoints"
+    },
+    "scopeMode": {
+      "all": "Everything that is in no other job",
+      "selected": "The ones that were chosen"
+    },
+    "none": "None",
+    "noLimit": "No limit",
+    "unlimited": "Unlimited",
+    "largerValue": "{size} GB",
+    "bandwidthValue": "{kbps} kbit/s",
+    "foldersNone": "No folders are set: every machine keeps its own folders.",
+    "hooksHidden": "Set, hidden for your role.",
+    "restoreCheckOff": "Off: no restore checks run for this job.",
+    "windowsNone": "None",
+    "windowsZone": "Read in {zone}. A limit applies when a run starts."
+  },
+  "runs": {
+    "table": "Runs of the job",
+    "columns": {
+      "type": "What ran",
+      "target": "Object or machine",
+      "status": "Status",
+      "started": "Started",
+      "finished": "Finished"
+    },
+    "open": "Open the {type} run in History",
+    "wholeJob": "The whole job",
+    "notFinished": "Not finished",
+    "empty": "This job has not run yet.",
+    "loadError": "The runs could not be loaded",
+    "statusOther": "{status}"
+  },
+  "run": {
+    "skipped": {
+      "already_queued": "{count, plural, one {# was already queued.} other {# were already queued.}}",
+      "excluded": "{count, plural, one {# is excluded from backups.} other {# are excluded from backups.}}",
+      "orphaned": "{count, plural, one {# no longer exists in the source.} other {# no longer exist in the source.}}",
+      "source_pending": "{count, plural, one {# waits for its source to be connected.} other {# wait for their source to be connected.}}",
+      "source_disabled": "{count, plural, one {# has a source that is switched off.} other {# have a source that is switched off.}}",
+      "revoked": "{count, plural, one {# machine is revoked.} other {# machines are revoked.}}",
+      "not_in_job": "{count, plural, one {# is not in this job.} other {# are not in this job.}}"
+    }
+  },
+  "toasts": {
+    "created": "Job {name} created",
+    "updated": "Job {name} saved",
+    "deleted": "Job {name} deleted",
+    "paused": "{name} paused",
+    "resumed": "{name} resumed",
+    "runQueued": {
+      "mail": "{count, plural, one {# backup of {name} queued} other {# backups of {name} queued}}",
+      "endpoint": "{count, plural, one {Backup requested from # machine} other {Backup requested from # machines}}"
+    },
+    "runNothing": "Nothing started for {name}",
+    "failed": "That did not work",
+    "overridesSaved": "Overrides of {name} saved",
+    "removed": "{name} removed from the job",
+    "added": {
+      "mail": "{count, plural, one {# object added to {name}} other {# objects added to {name}}}",
+      "endpoint": "{count, plural, one {# machine added to {name}} other {# machines added to {name}}}"
+    }
+  },
+  "pause": {
+    "title": "Pause {name}?",
+    "description": "{count, plural, one {# object is not backed up on a schedule while the job is paused.} other {# objects are not backed up on a schedule while the job is paused.}} Nothing is deleted; resume it any time.",
+    "confirm": "Pause job"
+  },
+  "delete": {
+    "title": "Delete {name}?",
+    "empty": "The job covers nothing right now.",
+    "impact": {
+      "mail": "{scope} will no longer be backed up on a schedule until another job takes them.",
+      "endpoint": "{scope} leave the job and keep the configuration they have now; nothing manages them until another job does."
+    },
+    "after": "The job and its settings cannot be brought back.",
+    "confirm": "Delete job"
+  },
+  "picker": {
+    "search": {
+      "mail": "Search by name or address",
+      "endpoint": "Search by machine name"
+    },
+    "showSelected": "Selected ({count})",
+    "table": {
+      "mail": "Objects to choose from",
+      "endpoint": "Machines to choose from"
+    },
+    "empty": {
+      "mail": "No object matches.",
+      "endpoint": "No machine matches."
+    },
+    "noneSelected": "Nothing selected yet.",
+    "selectAll": "Select all shown",
+    "select": "Select {name}",
+    "columns": {
+      "name": "Name",
+      "kind": "Kind",
+      "job": "Job"
+    },
+    "inJob": "In {job}",
+    "moves": "Moves from {job}",
+    "moveHere": "Move here",
+    "moveHereFor": "Move {name} here",
+    "keepThere": "Keep it there",
+    "moveTitle": "Move {name} to this job?",
+    "moveDescription": "It leaves {job} and is backed up by this job from now on.",
+    "moveConfirm": "Move here",
+    "selectedCount": "{count} selected",
+    "partial": "Showing {shown} of {total}. Search to narrow the list.",
+    "loadError": "The list could not be loaded"
+  },
+  "editor": {
+    "createTitle": {
+      "mail": "New mail job",
+      "endpoint": "New server or client job"
+    },
+    "editTitle": "Edit {name}",
+    "description": {
+      "mail": "Choose what is backed up, when, and how restore checks prove it.",
+      "endpoint": "Choose the machines, when they are backed up, which folders and what is left out."
+    },
+    "loading": "Loading the editor",
+    "loadError": "The editor could not be loaded",
+    "general": {
+      "title": "General",
+      "name": "Name",
+      "nameHint": {
+        "mail": "Shown in the list, in History and in alerts.",
+        "endpoint": "Shown in the list, in the inventory and in alerts."
+      },
+      "namePlaceholder": {
+        "mail": "e.g. Executive board, hourly",
+        "endpoint": "e.g. Servers, hourly"
+      },
+      "enabled": "Switched on",
+      "enabledHint": "Switched off, the job keeps its settings but does not run."
+    },
+    "scope": {
+      "title": {
+        "mail": "Objects",
+        "endpoint": "Machines"
+      },
+      "description": {
+        "mail": "Which mailboxes, OneDrives and IMAP accounts this job backs up.",
+        "endpoint": "Which servers and clients this job manages. A machine is in one job at a time."
+      },
+      "mode": "What the job covers",
+      "all": "All objects that are in no other job",
+      "allHint": "Includes objects that are added later. Only one job can cover all.",
+      "allTaken": "Another job already covers all objects that are in no job.",
+      "selected": "Only the objects I choose",
+      "allBody": "The job covers every active mailbox, OneDrive and IMAP account that is in no other job, including ones that are added later.",
+      "overridesKept": "{count, plural, one {# object keeps its overrides.} other {# objects keep their overrides.}}"
+    },
+    "schedule": {
+      "title": "Schedule",
+      "description": {
+        "mail": "When the job backs up its objects.",
+        "endpoint": "When the agent starts a backup."
+      },
+      "automatic": "Run on a schedule",
+      "manualOnly": "The job runs only when someone starts it."
+    },
+    "verify": {
+      "title": "Restore check",
+      "description": "A restore check restores a sample of the newest backup and compares it. A backup counts as restorable only after one passed.",
+      "automatic": "Check restores automatically",
+      "off": "Without restore checks nothing proves that these backups can be restored."
+    },
+    "retention": {
+      "title": "Retention",
+      "description": {
+        "mail": "How long restore points are kept.",
+        "endpoint": "How many restore points each machine keeps."
+      },
+      "policy": "Retention policy"
+    },
+    "folders": {
+      "title": "Folders",
+      "description": "The folders every machine of this job backs up."
+    },
+    "exclusions": {
+      "title": "Exclusions",
+      "description": "What the backup leaves out."
+    },
+    "bandwidth": {
+      "title": "Bandwidth",
+      "description": "Keep backups from using up the network, at all times or in time windows. A limit applies when a run starts."
+    },
+    "advanced": {
+      "title": "Advanced",
+      "description": "Commands before and after the backup"
+    },
+    "hooks": {
+      "title": "Commands before and after the backup",
+      "description": "Commands the agents run around each backup, for example to dump a database so that its files are consistent."
+    },
+    "repository": {
+      "title": "Repository",
+      "description": "Where the encrypted backups are written.",
+      "primary": "(primary repository)",
+      "sentence": "Every job writes to the primary repository of the tenant; a job cannot choose another one."
+    },
+    "fix": {
+      "title": "Some fields need a correction",
+      "description": "Correct the marked fields and save again."
+    },
+    "save": "Save changes",
+    "create": "Create job",
+    "discard": {
+      "title": "Discard your changes?",
+      "description": "Closing the editor drops what you entered.",
+      "confirm": "Discard changes",
+      "keep": "Keep editing"
+    },
+    "conflicts": {
+      "title": "{count, plural, one {# object is in another job} other {# objects are in other jobs}}",
+      "description": "They would leave their job and be backed up by this one. Move them here?",
+      "item": "{name} is in {job}",
+      "confirm": "Move here and save",
+      "cancel": "Back"
+    }
+  },
+  "folders": {
+    "label": "Folders",
+    "chosen": "Chosen folders",
+    "none": "No folder chosen yet.",
+    "remove": "Remove {path}",
+    "typePlaceholder": "Type a path, e.g. /var/www",
+    "add": "Add",
+    "showTree": "Choose from a backup",
+    "hideTree": "Hide the folder tree",
+    "hint": "Absolute paths, one at a time. A folder includes everything below it.",
+    "machine": "Read the folders from",
+    "noMachine": "Choose machines for this job first to browse their folders, or type a path.",
+    "snapshotsError": "The backups of this machine could not be read.",
+    "source": {
+      "backup": "Folders from the newest backup of {machine}, {time}.",
+      "none": "{machine} has no backup yet. Its configured folders are shown; type a path to add others."
+    },
+    "tree": {
+      "label": "Folders of {machine}",
+      "keys": "Arrow keys move, Space ticks a folder, Enter opens it.",
+      "loading": "Loading…",
+      "retry": "Try again",
+      "loadMore": "Load more",
+      "loadMoreIn": "Load more folders in {folder}",
+      "noSubfolders": "No subfolders",
+      "rootEmpty": "The backup holds no folders.",
+      "covered": "included"
+    }
+  },
+  "exclusions": {
+    "types": "File types to leave out",
+    "typesHint": "A type is on when all of its patterns are in the list. Only exclusions are possible: a backup cannot be limited to chosen file types.",
+    "presets": {
+      "videos": "Videos",
+      "diskImages": "Disk images",
+      "temporary": "Temporary files",
+      "installers": "Installers",
+      "music": "Music",
+      "trash": "Trash and caches"
+    },
+    "own": "Own patterns",
+    "ownList": "Own patterns of this job",
+    "remove": "Remove {pattern}",
+    "placeholder": "e.g. *.bak or **/node_modules",
+    "add": "Add",
+    "ownHint": "One pattern at a time; several lines can be pasted at once. Files that match are left out.",
+    "largerThan": "Skip files larger than",
+    "largerSize": "Size in gigabytes",
+    "gb": "GB",
+    "largerHint": "Needs agent version 0.2.0 or later on the machine. An older agent ignores this limit and still backs up those files."
+  },
+  "bandwidth": {
+    "label": "Upload limit (kbit/s)",
+    "hint": "Empty means unlimited. 1000 kbit/s is about 1 Mbit/s. It applies outside every time window.",
+    "unlimited": "Unlimited",
+    "windows": {
+      "title": "Time windows",
+      "description": "A time window sets another limit for certain days and hours. Outside every window the limit above applies.",
+      "applies": "The limit that applies when a run starts is used for that whole run. A window that begins or ends during a run does not change it.",
+      "rules": "A window starts at its start time and ends just before its end time. An end that is not after the start ends on the next day; the same time twice makes a window of 24 hours. Windows must not overlap, but one can start where another ends.",
+      "zone": "Times are read in {zone}, the time zone of the schedule.",
+      "empty": "No time windows: the limit above applies at all times.",
+      "add": "Add time window",
+      "max": "At most {max} time windows.",
+      "list": "Time windows",
+      "row": "Window {number}",
+      "remove": "Remove window {number}",
+      "days": "Days it starts on",
+      "daysHint": "A window that runs past midnight belongs to the day it starts on.",
+      "from": "From",
+      "to": "Until",
+      "limit": "Limit (kbit/s)",
+      "limitHint": "0 means unlimited.",
+      "unlimited": "unlimited",
+      "limitValue": "{kbps} kbit/s",
+      "summary": "{days}, {from} to {to}: {limit}",
+      "summaryNextDay": "{days}, {from} to {to} the next day: {limit}",
+      "summaryWholeDay": "{days}, 24 hours from {from}: {limit}",
+      "count": "{count, plural, one {# time window} other {# time windows}}"
+    }
+  },
+  "hooks": {
+    "pre": "Before the backup",
+    "preHint": "Runs first. Leave empty for none.",
+    "prePlaceholder": "pg_dumpall -U postgres > /var/backups/all.sql",
+    "post": "After the backup",
+    "postHint": "Runs when the backup is over. Leave empty for none.",
+    "warningTitle": "These commands run with full rights",
+    "warningRoot": "Each agent runs them as root (administrator) on its machine, before and after every backup. Only enter commands you trust and understand.",
+    "warningMachines": "A machine runs them only if its own administrator allowed hooks on it: none, only named scripts from /etc/restow-agent/hooks.d, or any command. A machine that does not allow them refuses the change.",
+    "warningFailure": "If the command before the backup fails, the backup fails too.",
+    "stepUp": "Setting or changing a hook asks you to confirm it is you when you signed in more than 10 minutes ago.",
+    "hidden": "The commands of this job are hidden for your role and cannot be changed here."
+  },
+  "retention": {
+    "mode": "Retention of the machines",
+    "machineOwn": "Each machine keeps its own retention",
+    "jobSets": "Set it for all machines of this job",
+    "keepDaily": "Daily restore points",
+    "keepWeekly": "Weekly restore points",
+    "keepMonthly": "Monthly restore points",
+    "note": "The server applies these rules and removes older restore points; the agent can only add backups, never delete them. Lowering a number permanently removes older restore points at the next retention run.",
+    "tenantDefault": "Tenant default",
+    "tenantDefaultNamed": "Tenant default ({name})",
+    "keep": "Daily {keepDaily}, weekly {keepWeekly}, monthly {keepMonthly}"
+  },
+  "repository": {
+    "installationDefault": "Default repository of the installation"
+  },
+  "tenant": {
+    "title": "Backup jobs",
+    "description": "What is backed up on a schedule for this tenant. The maintenance schedules below keep the repository healthy.",
+    "new": {
+      "mail": "Mail & SaaS job",
+      "endpoint": "Server or client job"
+    },
+    "openList": "Show them",
+    "openAll": {
+      "mail": "All Mail & SaaS jobs",
+      "endpoint": "All server and client jobs"
+    },
+    "empty": {
+      "title": "No backup jobs yet",
+      "description": "Create a job to back up mailboxes, OneDrives, servers or clients on a schedule."
+    },
+    "table": "Backup jobs of this tenant",
+    "columns": {
+      "kind": "Kind"
+    },
+    "kinds": {
+      "mail": "Mail & SaaS",
+      "endpoint": "Servers & endpoints"
+    }
+  },
+  "problems": {
+    "form": {
+      "nameRequired": "Enter a name for the job.",
+      "nameTooLong": "The name can have at most {max} characters.",
+      "tooManyMembers": "A job can cover at most {max} objects. Use more jobs.",
+      "required": "Enter a value.",
+      "integer": "Enter a whole number.",
+      "range": "Choose a number between {min} and {max}.",
+      "timeOfDay": "Enter a time such as 22:00.",
+      "paths": {
+        "none": "Add at least one folder.",
+        "tooMany": "A job can back up at most {max} folders.",
+        "empty": "Enter a path.",
+        "controlCharacters": "A path cannot contain control characters: {value}",
+        "notAbsolute": "Use an absolute path that starts with / or a drive letter: {value}",
+        "tooLong": "A path can have at most {max} characters."
+      },
+      "excludes": {
+        "tooMany": "A job can have at most {max} patterns.",
+        "controlCharacters": "A pattern cannot contain control characters: {value}",
+        "tooLong": "A pattern can have at most {max} characters."
+      },
+      "larger": "Enter a size above 0 and up to {max} GB.",
+      "hooksHidden": "The commands are hidden for your role and cannot be saved.",
+      "hookTooLong": "A command can have at most {max} characters.",
+      "windows": {
+        "fix": "Check the time windows.",
+        "days": "Choose at least one day.",
+        "time": "Enter a time such as 08:00.",
+        "kbpsRequired": "Enter a limit; 0 means unlimited.",
+        "kbps": "Enter a whole number of kbit/s from 0 (unlimited) to {max}.",
+        "overlap": "This window overlaps window {other}. Let one end where the other starts.",
+        "tooMany": "A job can have at most {max} time windows."
+      }
+    },
+    "server": {
+      "generic": "The job cannot be saved like this.",
+      "schedule_kind_not_supported": "This kind of job cannot use that kind of schedule.",
+      "timezone_unknown": "This time zone is unknown.",
+      "interval_out_of_range": "The interval is out of range.",
+      "time_of_day_invalid": "Use a time such as 02:30.",
+      "required": "A value is missing.",
+      "bandwidth_windows_too_many": "There are too many time windows.",
+      "bandwidth_window_days_required": "Choose at least one day for every time window.",
+      "bandwidth_window_days_invalid": "A time window has a day that does not exist.",
+      "bandwidth_window_time_invalid": "A time window has a time that is not valid.",
+      "bandwidth_window_kbps_invalid": "A time window has a limit that is not valid.",
+      "bandwidth_window_overlap": "Two time windows overlap. Let one end where the other starts."
+    }
+  },
+  "errors": {
+    "inOtherJob": "Some of the objects are in another job. Move them here to continue.",
+    "pauseNotSupported": "A machine job cannot be paused: the agent decides when to back up.",
+    "state": "The job is not in a state that allows this.",
+    "allJobExists": "Another job already covers every object that is in no other job. A tenant has one such job.",
+    "invalid": "The job cannot be saved like this."
+  }
+}

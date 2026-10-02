@@ -57,14 +57,20 @@ describe("RestowMark", () => {
     ]);
   });
 
-  it("holds in Nile and Limestone, the bar in Lapis and its dark step", () => {
+  it("takes its colours from the mark's own tokens, not from the interface's text and primary colours", () => {
     mount(<RestowMark />);
     const hold = container.querySelector("path")?.getAttribute("class") ?? "";
     const bar = container.querySelector("rect")?.getAttribute("class") ?? "";
-    expect(hold).toContain("stroke-[#0F1B2D]");
-    expect(hold).toContain("dark:stroke-[#F4F5F7]");
-    expect(bar).toContain("fill-[#2B4C9B]");
-    expect(bar).toContain("dark:fill-[#9DB4E6]");
+    expect(hold).toBe("stroke-mark-hold");
+    expect(bar).toBe("fill-mark-beam");
+    // The colour scheme Neutral recolours --foreground and --primary; the mark must not follow it.
+    for (const interfaceColour of ["foreground", "primary", "background", "muted", "accent"]) {
+      expect(hold, interfaceColour).not.toContain(interfaceColour);
+      expect(bar, interfaceColour).not.toContain(interfaceColour);
+    }
+    // No fixed colours either: the tokens carry Nile/Lapis and Limestone/Lapis Dark, and white label.
+    expect(container.innerHTML).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+    expect(container.innerHTML).not.toContain("dark:");
   });
 
   it("has a one-colour variant that follows the text colour", () => {
@@ -78,6 +84,10 @@ describe("RestowMark", () => {
   it("never uses the success green: a bar that is merely finished is not a checked one", () => {
     mount(<RestowMark />);
     expect(container.innerHTML.toLowerCase()).not.toContain("2da37a");
+    expect(container.innerHTML).not.toMatch(/success/);
+    mount(<Wordmark />);
+    expect(container.innerHTML.toLowerCase()).not.toContain("2da37a");
+    expect(container.innerHTML).not.toMatch(/success/);
   });
 });
 
@@ -85,16 +95,30 @@ describe("BrandName", () => {
   it("sets the default name as the wordmark, lowercase, and keeps the plain name for screen readers", () => {
     mount(<BrandName />);
     const visible = container.querySelector('[aria-hidden="true"]');
-    expect(visible?.textContent).toBe("restowbackup");
+    expect(visible?.textContent).toBe("restowbackup suite");
     expect(container.querySelector(".sr-only")?.textContent).toBe("Restow");
     const parts = [...(visible?.querySelectorAll("span") ?? [])].map((part) => part.textContent);
-    expect(parts).toEqual(["restow", "backup"]);
+    expect(parts).toEqual(["restow", "backup suite"]);
+  });
+
+  it("sets the second part in the mono face and the secondary text colour, not in a fixed colour", () => {
+    mount(<BrandName />);
+    const [name, descriptor] = [
+      ...(container.querySelector('[aria-hidden="true"]')?.querySelectorAll("span") ?? []),
+    ];
+    expect(name?.className).toContain("font-wordmark");
+    expect(name?.className).toContain("font-bold");
+    expect(descriptor?.className).toContain("font-wordmark-tag");
+    expect(descriptor?.className).toContain("text-muted-foreground");
+    expect(container.innerHTML).not.toMatch(/#[0-9a-f]{3,8}\b/i);
+    expect(container.innerHTML.toLowerCase()).not.toContain("success");
   });
 
   it("shows an operator's own product name as written, without the wordmark styling", () => {
     applyProductName("Acme Backup");
     mount(<BrandName />);
     expect(container.textContent).toBe("Acme Backup");
+    expect(container.textContent).not.toContain("backup suite");
     expect(container.querySelector('[aria-hidden="true"]')).toBeNull();
   });
 });

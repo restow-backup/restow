@@ -31,14 +31,14 @@ import {
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "../../../../apps/api/src/features/snapshots/testing/explorer-fixture.js";
-import type { TenantEnv } from "../../../../apps/api/src/middleware/session.js";
+import type { SessionEnv, TenantEnv } from "../../../../apps/api/src/middleware/session.js";
 import {
   type TestDatabaseRoles,
   provisionTestRoles,
 } from "../../../../apps/api/src/testing/database-roles.js";
 import type { JournalReceiverState } from "./receiver-state.js";
 import { tenantIdForJournalAddress } from "./recipient.js";
-import type { JournalSetupDto, JournalSetupEnvironment } from "./setup.js";
+import type { JournalReceiverDto, JournalSetupDto, JournalSetupEnvironment } from "./setup.js";
 
 const DATABASE = "restow_ee_journal_setup_test";
 const HOST = "archive.example.test";
@@ -53,6 +53,11 @@ function testTenantAdmin(userId: string): MiddlewareHandler<TenantEnv> {
     await next();
   };
 }
+
+/** Stand-in for requireProviderAdmin: the installation-level routes name no tenant. */
+const testProviderAdmin: MiddlewareHandler<SessionEnv> = async (_c, next) => {
+  await next();
+};
 
 describe.skipIf(!testDatabaseAdminUrl)("journal setup against Postgres", () => {
   let owner: Database;
@@ -158,7 +163,9 @@ describe.skipIf(!testDatabaseAdminUrl)("journal setup against Postgres", () => {
         "archive.journalReceiver",
         buildJournalRoutes({
           db: appDb,
+          providerDb,
           requireAdmin: testTenantAdmin(adminId),
+          requireProvider: testProviderAdmin,
           environment: () => environment,
         }),
       ),
@@ -181,6 +188,7 @@ describe.skipIf(!testDatabaseAdminUrl)("journal setup against Postgres", () => {
     for (const [method, path] of [
       ["GET", "/archive/journal"],
       ["POST", "/archive/journal/rotate"],
+      ["GET", "/archive/journal/receiver"],
     ] as const) {
       const res = await app.request(path, { method, headers: asTenant(contoso) });
       expect(res.status).toBe(404);
@@ -465,6 +473,88 @@ describe.skipIf(!testDatabaseAdminUrl)("journal setup against Postgres", () => {
       } finally {
         environment = saved;
       }
+    });
+
+    describe("the receiver, for the installation", () => {
+      async function getReceiver(): Promise<JournalReceiverDto> {
+        // No tenant header: the receiver belongs to the installation.
+        const res = await app.request("/archive/journal/receiver");
+        expect(res.status).toBe(200);
+        return (await res.json()) as JournalReceiverDto;
+      }
+
+      it("says the receiver listens, with the configuration behind it", async () => {
+        const view = await getReceiver();
+        expect(view).toMatchObject({
+          state: "listening",
+          receiver: { listening: true, reason: null },
+          hostname: HOST,
+          hostnameIssue: null,
+          docsUrl: "https://docs.example.test/administrators/exchange-journaling/",
+          requirements: {
+            dnsName: HOST,
+            smtpPort: 25,
+            exchangePort: 25,
+            portMismatch: false,
+            tlsConfigured: true,
+            maxMessageMegabytes: 150,
+          },
+        });
+      });
+
+      it("counts the journal reports of every tenant and names no address", async () => {
+        const view = await getReceiver();
+        // Contoso 1 h and 20 h, Fabrikam 0.1 h within a day; the newest is Fabrikam's.
+        expect(view.last24Hours).toBe(3);
+        expect(view.lastReportAt).toBe(hoursAgo(0.1).toISOString());
+        const text = JSON.stringify(view);
+        expect(text).not.toContain("journal+");
+        expect(text).not.toContain((await storedToken(contoso)) ?? "missing");
+      });
+
+      it("says why it is down, and when it was never configured", async () => {
+        const savedReceiver = receiver;
+        const savedEnvironment = environment;
+        try {
+          receiver = { phase: "edition_not_licensed" };
+          expect(await getReceiver()).toMatchObject({
+            state: "down",
+            receiver: { listening: false, reason: "restart_required" },
+          });
+          receiver = { phase: "tls_expired", message: "expired" };
+          expect(await getReceiver()).toMatchObject({
+            state: "down",
+            receiver: { reason: "tls_expired" },
+            requirements: { tlsConfigured: false },
+          });
+          environment = {
+            ...savedEnvironment,
+            journal: { ...savedEnvironment.journal, port: undefined },
+          };
+          expect(await getReceiver()).toMatchObject({
+            state: "not_configured",
+            receiver: { listening: false, reason: "port_not_configured" },
+            requirements: { smtpPort: null },
+          });
+        } finally {
+          receiver = savedReceiver;
+          environment = savedEnvironment;
+        }
+      });
+
+      it("says so when no journal host is configured", async () => {
+        const saved = environment;
+        try {
+          environment = { ...saved, journal: { ...saved.journal, hostname: "https://x.test/" } };
+          expect(await getReceiver()).toMatchObject({
+            hostname: null,
+            hostnameIssue: "invalid",
+            requirements: { dnsName: null },
+          });
+        } finally {
+          environment = saved;
+        }
+      });
     });
   });
 });

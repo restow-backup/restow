@@ -53,6 +53,17 @@ Worker skalierbar. Postgres 16 ist die einzige Zustandsquelle außer dem Chunk-S
   vereinbarte Postfachzahl, nur Anzeige, nie durchgesetzt), `tenant_key` (Verschlüsselung). Den ersten
   Mandanten legt der Kern immer an; jeder weitere existiert nur, solange eine Erweiterung
   `tenants.additional` freischaltet (siehe unten).
+- Eigene Organisation (`tenant.kind`): Ein Mandant ist `customer` (Standard) oder `internal`,
+  die eigene Organisation des Betreibers mit seinem eigenen M365, seinen Servern und seinem
+  Speicher. Höchstens einer je Provider ist `internal` (partieller Unique-Index
+  `tenants_internal_uq`). Der Setup-Wizard legt ihn aus dem Namen der Organisation an
+  (`providers.name`); eine Installation aus 0.1.x bekommt ihn beim API-Start, wenn sie
+  höchstens einen Mandanten haben kann (`tenants.additional` aus) und genau einen hat; sonst
+  markiert ein Provider-Admin einen Mandanten (`POST /api/v1/tenants/:id/internal`, mit
+  `confirmSwitch: true`, wenn die Markierung von einem anderen wandern soll) oder legt sie an
+  (`POST /api/v1/tenants/internal`). Ein interner Mandant lässt sich nicht löschen
+  (409 `urn:restow:problem:internal-tenant-protected`). `GET /me` und `GET /tenants` führen
+  `kind` und `customerNumber` und stellen die eigene Organisation an den Anfang.
 - `source` je Mandant: `m365` (App-Consent, Tenant-ID), `imap` (Host, Auth) oder `import`
   (Mail-Dateien, kein Server; ihre importierten Postfächer sind `protected_objects` der Art
   `imap` im Speicherformat des IMAP-Backups, siehe docs/IMPORT.md)
@@ -183,6 +194,19 @@ diese Schlüssel zuerst und öffnet damit das Manifest.
   export > verify > backup (import liegt zwischen archive und backup).
 - Ein Backup-Job je geschütztem Objekt; ein Snapshot je Objekt je Lauf. Fortschritt in
   `job_progress` (Elemente gesamt/erledigt/fehlgeschlagen, Bytes, ETA), per SSE an UI.
+- Durchsatz je Lauf (seit 0.2.0): `run_samples` hält kumulative Zähler `[epoch ms, verarbeitet, übertragen]`
+  höchstens 300 Punkte je Lauf (`packages/db/src/run-samples.ts`; die ältere Hälfte wird ausgedünnt, Raten ergeben
+  sich aus Nachbarpunkten). Mail-Läufe schreiben über den `PgProgressSink` des Workers, Agent-Läufe über
+  `/agent/v1/runs/:id/progress` (übertragen = Wachstum von `endpoints.repository_bytes` seit Laufbeginn; der
+  Agent meldet ab 0.2.0 alle 5 s). Die Oberfläche zeichnet die Übertragung als Durchschnitt über 15 s, weil
+  Daten in Paketen im Repository ankommen und die rohe Rate sonst eine Rechteckwelle ergibt.
+- Ein Live-Kanal je Browser-Tab: `GET /api/v1/live` (SSE, nur Session, Mandantenadministratoren) liefert Läufe beider
+  Quellen als eine Form (`RunDto`, `apps/api/src/features/history`), die Job-Definitionen mit letztem und nächstem Lauf
+  und den Verbindungszustand der Maschinen. Der Server fragt alle 2 s die Datenbank und sendet nur Änderungen
+  (Ereignisse `snapshot`, `run`, `definition`, `machine`, `gone`; alle 15 s ein Kommentar als Keep-alive). Der Client
+  schreibt sie in den React-Query-Cache (`apps/web/src/features/history/live`), pausiert im Hintergrund-Tab und pollt
+  weiter, solange der Kanal nicht steht. `/api/v1/jobs/events` bleibt unverändert. Der Verlauf (`/api/v1/history`,
+  `/history/:id`) ist ein Lesemodell über `jobs` und `endpoint_runs`, ohne eigene Tabelle.
 - Throttling-Budget je Source: Token-Bucket in Postgres (je Tenant-App), Worker
   reservieren Kapazität; 429 verkleinert das Budget, Erfolg vergrößert es (AIMD).
 - Wiederaufnahme: Job speichert Cursor (Ordner, Delta-Token, letzte Item-ID); Neustart
@@ -204,6 +228,75 @@ diese Schlüssel zuerst und öffnet damit das Manifest.
   `packages/i18n/resources/{de,en}/failures.json`; ein Test schlägt fehl, wenn ein Code
   ohne Text bleibt. Neue Quellen von Fehlern (etwa Endpunkt-Läufe) hängen sich mit
   `FailureError`/`classifyFailure` und einem eigenen Code im Katalog ein.
+
+## Jobs (Sicherungsdefinitionen)
+
+Seit 0.2.0 ist ein **Job** (`backup_jobs`, Migration 0023) die Vorlage dafür, was gesichert wird, wann,
+wohin und wie lange, für viele Objekte oder Rechner zugleich. Ein **Lauf** ist, was daraus entsteht
+(`jobs`, `endpoint_runs`); die Integrations-API nennt Läufe weiter `/api/v1/jobs` (Alias
+`/api/v1/runs`), die Definitionen heißen `/api/v1/backup-jobs` (Session-API der Weboberfläche).
+
+- **Modell.** `backup_jobs`: Mandant, Art (`mail` oder `endpoint`), Name (je Mandant und Art
+  eindeutig, ohne Groß/Klein), Umfang (`selected` = die Mitglieder, `all` = jedes geeignete Objekt des
+  Mandanten, das in keinem anderen Job ist, auch später hinzukommende; höchstens ein `all`-Job je
+  Mandant und Art), `schedule` (Intervall, Cron oder bei Rechnern täglich/bei Verbindung, mit
+  Zeitzone; NULL = nur von Hand) und `verify_schedule` (nur Mail: Restore-Prüfung; NULL = keine),
+  Repository (`storage_target_id`, NULL = Primärziel des Mandanten, das einzige, in das geschrieben
+  wird), Aufbewahrung (Mail: `retention_policy_id` auf eine Snapshot-Richtlinie, NULL = Standard des
+  Mandanten; Rechner: `settings.retention`), `settings` (Rechner: Pfade, Ausschlussmuster,
+  Größenlimit, Hooks, Bandbreite in kbit/s als Standard plus optionale Zeitfenster `bandwidthWindows`), `enabled`, `origin` (`user` oder `migration`) und die
+  Laufzeitspalten des Schedulers (`next_run_at`, `last_run_at`, `verify_*`). `backup_job_members`:
+  ein Objekt oder ein Rechner (genau eines von `protected_object_id` und `endpoint_id`, je höchstens
+  in einem Job) mit `overrides` (jsonb) und denselben Laufzeitspalten für ein eigenes Intervall.
+  Beide Tabellen haben Row Level Security wie jede Mandantentabelle.
+- **Ausführung Mail.** Der Scheduler plant Sicherung und Restore-Prüfung aus den Jobs
+  (`apps/scheduler/src/planning.ts` `expandJobUnit`, `store.ts` `loadDueUnits`/`enqueueUnit`): ein Job
+  auf seinem Takt für seine Objekte, ein Objekt mit eigenem Zeitplan auf dem Takt seines Mitglieds.
+  Der Umfang eines Jobs ist eine reine Regel im Kern (`mailJobObjectIds`), die Scheduler, API und
+  Worker teilen. Jeder geplante Lauf trägt `backupJobId` in der Nutzlast. Der Worker reiht nach einer
+  Sicherung eine Restore-Prüfung ein, wenn der Job (oder das Mitglied) eine hat (`verifyBackupJobId`),
+  sonst, wenn ein Zeitplan älterer Version das verlangt (`verifyScheduleId`).
+- **Ausführung Rechner.** Der Agent plant selbst; der Server schreibt die Wirk-Konfiguration (Job plus
+  Override) in `endpoints.config` und erhöht `config_version`, nur dort und nur bei einer Änderung
+  (`apps/api/src/features/backup-jobs/endpoint-sync.ts`, docs/AGENT.md "Jobs"). Die Zeitfenster der
+  Bandbreite (`bandwidthWindows`) stehen mit in dieser Konfiguration; ausgewertet werden sie beim Abruf
+  `GET /agent/v1/config` für den Moment der Anfrage (reine Regel `effectiveBandwidthKbps` im Kern), ohne
+  etwas zu schreiben und ohne `config_version` zu ändern. Der Agent liest die Konfiguration zu Beginn jeder
+  Sicherung neu und bleibt dafür unverändert.
+- **Wartung bleibt in `schedules`:** Aufbewahrungslauf, Speicherprüfung (scrub), Verzeichnisabgleich,
+  Archiv-Sync. Auch ein Zeitplan älterer Version, den kein Job übernehmen konnte, läuft weiter.
+- **Aufbewahrung Mail.** Die Objekte eines Jobs, der eine Richtlinie nennt, folgen ihr; eine Richtlinie,
+  die auf genau das Objekt zeigt, gilt weiter vor der des Jobs (`withJobRetention` im Kern, vom Worker
+  und von der Vorschau der API gleich benutzt). Eine Richtlinie, die ein Job nennt, lässt sich nicht
+  löschen (409).
+- **Migration älterer Installationen** (`apps/api/src/features/backup-jobs/migration.ts`, Regeln in
+  `packages/core/src/backup-jobs/migration.ts`). Beim Start der API, einmal je Mandant
+  (`tenants.backup_jobs_migrated_at`), eine Transaktion je Mandant, Advisory-Lock, nichts wird gelöscht:
+  Mail: ein Job aus den aktivierten Zeitplänen `backup` und `verify`; objektbezogene Zeitpläne werden
+  Overrides des Mitglieds, wenn ihre längste Pause zwischen zwei Läufen nicht länger ist als der kürzeste
+  Abstand des Job-Zeitplans (`scheduleGaps`, über die nächsten fünf Wochen; sonst läuft der alte weiter,
+  damit kein Objekt seltener gesichert wird, auch nachts, am Wochenende oder über den Monat nicht); hat
+  ein Objekt mehrere eigene Zeitpläne einer Art, wird der mit den kürzesten Pausen sein Override und die
+  übrigen laufen weiter;
+  Zeitpläne, die ein Job übernimmt, behalten ihre Zeile und bekommen `superseded_by_job_id` (ohne
+  Fremdschlüssel: ein gelöschter Job erweckt sie nicht wieder); Takte (`next_run_at`) werden übernommen,
+  die Zeitpläne werden dafür gesperrt (ein Scheduler, der gerade einen davon ausführt, wird abgewartet;
+  die Mandantenzeile nur mit `FOR NO KEY UPDATE`, damit kein Deadlock mit Einfügungen entsteht, die auf
+  den Mandanten verweisen). Hat der Mandant schon einen Mail-Job, bleiben seine Zeitpläne und werden im
+  Audit als `mail_job_exists` genannt. Rechner: aktive Rechner mit gleichem Profil, System und Zeitplan
+  (so wie der Agent ihn liest, Zeitzone eingeschlossen) ergeben einen Job; die Einstellungen, die die
+  meisten teilen, sind die des Jobs, der Rest ist Override; die Konfigurationen ändern sich dabei nicht. Zusammenfassung als Audit-Eintrag
+  `backup_job.migrated` je Mandant und einer für die Installation. Ein zweiter Lauf ändert nichts.
+- **Neue Mandanten** bekommen den Standard-Job (Sicherung alle 8 Stunden, Restore-Prüfung sonntags
+  03:00, Umfang `all`) statt zweier Zeitpläne, sobald sie die erste aktive Quelle haben
+  (Scheduler, `applyRecommendedDefaults`, oder "Empfohlene Zeitpläne anwenden").
+- **Rechte und Demo.** Alle Routen verlangen `tenant_admin` (oder Provider); Provider-Rollen: Ansehen ab
+  "Nur lesen" (Hook-Texte maskiert unter "Administrator"), "Jetzt ausführen" ab "Techniker", Anlegen,
+  Ändern, Umfang, Löschen ab "Administrator". Ein Hook im Job braucht die frische Anmeldung. In der Demo
+  sind alle Schreibzugriffe gesperrt (Standardverweigerung des Demo-Wächters).
+- **Audit:** `backup_job.created`, `.updated` (mit den geänderten Feldern, nie Hook-Texte),
+  `.deleted`, `.scope.changed` (hinzugefügt, entfernt, Overrides, bei Verschieben auch im Ausgangsjob),
+  `.run_requested`, `.migrated`.
 
 ## Restore
 
@@ -258,7 +351,10 @@ Archiv-Nachweisen liefert die API eine saubere Nutzer-/Postfach-Aufstellung je M
 (Directory) zur Anbindung an RMM, PSA und Ticketsysteme; mandantenübergreifend über einen
 Provider-Key, solange eine Erweiterung `apiKeys.provider` freischaltet (in der Vollversion:
 Service Provider). `GET /tenant` nennt seit dem 01.10.2026 keine Edition mehr.
-SSE `/api/v1/jobs/{id}/events`. Webhooks je Mandant (Ereignis,
+SSE `/api/v1/jobs/{id}/events`. Die Läufe heißen in der Integrations-API weiter `/jobs`; seit 0.2.0 (Vertrag
+1.2.0, additiv) gibt es sie auch unter `/runs` (`listRuns`, `startRunBackup`, `getRun`, `streamRunEvents`).
+Die Job-Definitionen (`/api/v1/backup-jobs`) sind Session-API und nicht Teil der Integrations-API.
+Webhooks je Mandant (Ereignis,
 HMAC-Signatur). Jeder lesende Zugriff auf Nutzer-/Backupdaten ist auditiert.
 
 ## Berichte und Benachrichtigungen
@@ -305,9 +401,32 @@ Installation, in der DB, nicht im Repo). Der Wizard legt den ersten Admin, `sett
 Provider-Zeile, SMTP-Secret, die Annahme des Betreiberhinweises und die Audit-Einträge in
 **einer** Transaktion an und setzt dabei `settings.setup_completed_at`; danach ist der
 öffentliche Wizard dauerhaft geschlossen (einseitige Sperre, unabhängig von Konten und
-Rollen). Ein abgebrochenes Setup hinterlässt nichts. Einstellungen ändert der Provider-Admin
+Rollen). Ein abgebrochenes Setup hinterlässt nichts. Der Wizard fragt den Namen der eigenen
+Organisation ab (Pflichtfeld `providerName`, gespeichert als `providers.name`); gleich nach der
+Setup-Transaktion legt die API daraus den Mandanten `kind = internal` an (Organisation, Zeile,
+Schlüssel, Alarmregeln für den ersten Admin, Audit-Eintrag; wie jeder erste Mandant ohne
+`tenants.additional`). Scheitert das, bleibt das Setup vollständig, der Fehler wird geloggt und
+als `setup.internal_tenant_failed` in die Installationskette geschrieben, und das Dashboard
+bietet an, die eigene Organisation anzulegen. Einstellungen ändert der Provider-Admin
 danach in der Oberfläche. Der Admin mit Passwort muss vor allem anderen eine
 Authenticator-App (TOTP) einrichten.
+
+Erster Schritt des Wizards ist die Sprache (Deutsch oder Englisch, vorbelegt aus der
+Browsersprache, sofort angewendet): Sie läuft als `language` im Setup-Request mit und wird die
+Sprache der eigenen Organisation (`tenants.language`, auch die Namen ihrer Alarmregeln) und der
+Testnachricht. Die Installation hat keine eigene Standardsprache in `settings`; ohne `language`
+(ältere Clients) bleibt `tenants.language` null und die Fallback-Konstante `defaultLanguage` aus
+`@restow/i18n` greift. Der Mail-Transport ist optional (`mail` fehlt im Request, wenn der
+Betreiber den Schritt überspringt): `settings.mail_transport` und `mail_config` bleiben null,
+`sendTest` ohne Transport lehnt die API mit 422 ab, und jede Stelle, die Mail verschicken würde,
+meldet „kein Transport" (`createInstallationNotifier` liefert null: Einladungen zeigen den Link
+zum Kopieren, Berichte werden mit dem Fehler `mail_not_configured` begrenzt wiederholt). Die Einrichtungsliste
+(„Start" im Menü, `GET /dashboard?widgets=setup`) behandelt die Mail als den einen optionalen Schritt
+(`notificationMail`): ohne Transport (Wizard übersprungen oder Konfiguration entfernt) zählt er als „nicht nötig"
+(`state: not_needed`, Grund `mail_skipped`), ein eingerichteter Transport wird durch eine erfolgreiche Testmail
+erledigt, und der Installations-Owner kann ihn mit `PUT /settings/mail/not-needed` (`settings.mail_not_needed`,
+Audit `settings.mail.not_needed`) als „nicht nötig" markieren. Ein nicht nötiger Schritt zählt wie ein erledigter; sind
+alle Schritte erledigt oder nicht nötig, verschwindet „Start" aus dem Menü.
 
 - Setup-Token (`apps/api/src/lib/setup-token.ts`): Wer nur die Adresse einer
   frischen Installation kennt, darf sie nicht übernehmen (Cross-Site-POST aus einer
@@ -595,20 +714,24 @@ API (`apps/api/src/extensions.ts`, `ApiExtension`):
 Web (`apps/web/src/lib/extensions.tsx`, `WebExtension`): Seiten (`routes`), Menüeinträge
 (`navItems`) mit optionalem `lock` (`apps/web/src/lib/navigation.ts`, `NavLock`:
 `isLocked`, Ziel, Hinweistext), Sperren für Menüeinträge des Kerns per ID (`navLocks`) und
-Slots (`settings.about`, `shell.sidebarFooter`, `tenants.creationLocked`,
+Abschnitte der Installationsseite (`installationSections`, `/installation/<abschnitt>`, mit
+optionalem `lock` und `legacySettingsSection` für die alte Adresse unter `/settings`) und
+Slots (`shell.sidebarFooter`, `tenants.creationLocked`,
 `archive.sections`, `dashboard.provider`). Die Seitenleiste zeigt einen gesperrten Eintrag
-ausgegraut mit Schloss und schickt ihn nach Einstellungen → Über (dorthin führt auch der
-Eintrag Verwaltung › Lizenz der vollen Images); ob er gesperrt ist,
-entscheidet allein die Erweiterung (aus `features` und `extensions` von `/me`). Der Kern
-kennt keine Edition: ohne Erweiterung gibt es keine Sperre und keine Lizenzoberfläche.
+ausgegraut mit Schloss und schickt ihn nach Installation → Lizenz (`/installation/license`,
+dorthin führt auch der Eintrag Installation › Lizenz der vollen Images); ein gesperrter
+Abschnitt der Installationsseite (Journal-Empfang ab Business, Provider-API im Service
+Provider) steht ausgegraut in der Unternavigation und führt ebenfalls dorthin. Ob etwas
+gesperrt ist, entscheidet allein die Erweiterung (aus `features` und `extensions` von `/me`).
+Der Kern kennt keine Edition: ohne Erweiterung gibt es keine Sperre und keine Lizenzoberfläche.
 
-Einstellungen → Über (Reiter `about`, C18) zeigt im Kern nur Produktname, Version, Commit,
+Installation → Über (Abschnitt `about`, C18) zeigt im Kern nur Produktname, Version, Commit,
 die Kernlizenz Apache-2.0 mit Link auf den englischen Lizenztext, einen Link auf den
 Quelltext beim Tag der laufenden Version (Entwicklungsbuild: Repository-Wurzel) und die
 Drittlizenzen (lokal `/licenses/THIRD_PARTY_NOTICES.txt` aus dem Web-Image und auf GitHub
-beim Tag). Im Vollbuild hängt `ee/web` darunter Edition, Lizenznehmer, Schlüssel-ID, den
+beim Tag). Im Vollbuild bringt `ee/web` Edition, Lizenznehmer, Schlüssel-ID, den
 Link auf die Restow-Lizenzbedingungen (Sprache der Oberfläche) sowie Einspielen und
-Entfernen des Schlüssels an. Erklärungen von Lizenzrechten stehen nirgends in der
+Entfernen des Schlüssels als eigenen Abschnitt Lizenz mit. Erklärungen von Lizenzrechten stehen nirgends in der
 Oberfläche.
 
 Worker (`apps/worker/src/extensions.ts`): `retentionTasks`, `handlers`; jede Aufgabe prüft
@@ -658,6 +781,20 @@ aus `RESTOW_REVISION`); daraus baut die Oberfläche den Info-Kasten der Einstell
   (`RESTOW_EDGE_TRUSTED_PROXIES`, gleiche Liste und gleicher Default wie im Caddyfile),
   nie der linke, vom Client schreibbare Eintrag. better-auth bekommt dieselbe Liste. Im
   Demo-Modus wird keine IP gespeichert.
+- Hinter einem Reverse-Proxy (Installer `--behind-proxy`, ab 0.2.0): Der Proxy hält Namen und
+  Zertifikat und leitet standardmäßig verschlüsselt an die Edge weiter (`https://<Host>:443`).
+  `RESTOW_EDGE_TLS` im Caddyfile wählt die Herkunft des Zertifikats: nicht gesetzt oder `acme`
+  ist das bisherige Verhalten (automatisches HTTPS, Let's Encrypt für öffentliche Namen),
+  `internal` lässt die Edge für `RESTOW_APP_DOMAIN` ein Zertifikat von Caddys eigener CA
+  ausstellen (`tls internal` im Site-Block, `default_sni` für Proxys ohne SNI, die Auswahl über
+  die Snippets `restow_tls_*` und `restow_sni_*`; ein anderer Wert stoppt Caddy beim Start).
+  Das Root-Zertifikat liegt im Volume `caddy-data` unter
+  `/data/caddy/pki/authorities/local/root.crt`; der Installer kopiert es nach
+  `<Verzeichnis>/edge-root-ca.crt`, damit der Proxy die Edge prüfen kann. Die unverschlüsselte
+  Ausnahme (`--proxy-hop http`) setzt `RESTOW_APP_DOMAIN=http://<Name>`. Der von der Edge nicht
+  gebrauchte Host-Port (80 bzw. 443) wird über `RESTOW_HTTP_PORT` / `RESTOW_HTTPS_PORT=127.0.0.1:`
+  nur auf dem Loopback und auf einem von Docker gewählten Port veröffentlicht. HSTS bleibt aus
+  (Sache des Proxys).
 - Content Security Policy strikt, keine Inline-Scripts, keine externen CDNs (Fonts lokal).
 - Dependencies: pnpm audit in CI, Dependabot, Lockfile committed, Lizenzprüfung gegen eine Allowlist (`scripts/ci/license-policy.json`).
 - Threat-Model-Dokument vor Phase 4.

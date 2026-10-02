@@ -1,9 +1,12 @@
 import type { AnyRoute } from "@tanstack/react-router";
+import type { LucideIcon } from "lucide-react";
 import type * as React from "react";
 
 import type { ProviderView } from "@/features/dashboard/api";
 import type { WidgetView } from "@/features/dashboard/presenters";
+import type { ReadinessState } from "@/features/verify/search";
 import type { NavItem, NavLock } from "@/lib/navigation";
+import type { SessionTenant } from "@/lib/session";
 
 /**
  * Extension points of the web app: the only way code outside the core
@@ -31,9 +34,10 @@ export interface SlotProps {
   /** Extra sections at the end of the archive page (features/archive/archive-page.tsx). */
   "archive.sections": Record<string, never>;
   /**
-   * The provider tab of the dashboard (features/dashboard/dashboard-page.tsx):
-   * the cross-tenant view, shown where the installation enables the gated
-   * feature `dashboard.allTenants`.
+   * The overview under "All tenants" (features/dashboard/dashboard-page.tsx): the sum across
+   * the tenants and the tenants by what needs doing, shown where the installation enables the
+   * gated feature `dashboard.allTenants`. `onOpenTenant` switches into a tenant,
+   * `onOpenReadiness` into a tenant and on to its Recovery readiness in a state.
    */
   "dashboard.provider": {
     view: WidgetView<ProviderView>;
@@ -41,14 +45,27 @@ export interface SlotProps {
     retrying: boolean;
     onOpenTenant: (tenantId: string) => void;
     onTenantDetails: (tenantId: string) => void;
+    onOpenReadiness: (tenantId: string, state: ReadinessState) => void;
   };
   /**
-   * Below the core facts of Settings, About (features/settings/sections/about-section.tsx),
-   * shown to provider admins. `requires` is the opaque `?requires=` value of
-   * the link that led there (a locked menu entry's `NavLock.search`, for
-   * example), or null; the core passes it on unread.
+   * Recovery readiness under "All tenants" (features/verify/verify-page.tsx,
+   * `?scope=all`): the tenants that have objects in a state, with their counts, built from the
+   * provider view. Choosing one switches into that tenant and opens its Recovery readiness.
    */
-  "settings.about": { requires: string | null };
+  "verify.byTenant": {
+    view: WidgetView<ProviderView>;
+    onRetry: () => void;
+    retrying: boolean;
+    state: ReadinessState | undefined;
+    onStateChange: (state: ReadinessState | undefined) => void;
+    onOpenReadiness: (tenantId: string, state: ReadinessState | undefined) => void;
+  };
+  /**
+   * The archive's settings on the tenant page (features/tenant-page, section
+   * Archive): what the Business modules add next to the retention the core
+   * shows (legal holds).
+   */
+  "tenant.archiveSettings": { readOnly: boolean };
   /**
    * The sidebar footer row next to the running version
    * (components/layout/app-sidebar.tsx); hidden while the sidebar is collapsed.
@@ -64,6 +81,86 @@ export interface SlotProps {
 
 export type SlotName = keyof SlotProps;
 
+/** What the installation page hands to the section component of an extension. */
+export interface InstallationSectionProps {
+  /**
+   * The opaque `?requires=` value of the link that led to the section (a locked
+   * menu entry's `NavLock.search`, for example), or null; the core passes it on
+   * unread.
+   */
+  requires: string | null;
+}
+
+/**
+ * A section of the installation page (`/installation/<id>`, features/installation)
+ * an extension adds to the core's own. It appears in the page's sub-navigation
+ * at `order` (the core's sections sit at 10, 20, ... in
+ * features/installation/sections.ts) and renders `component` for provider
+ * admins. A `lock` greys it out like a locked menu entry: the sub-navigation
+ * shows a lock, and the section itself says why and leads to `lock.to`. The
+ * core knows nothing about what the lock stands for.
+ */
+export interface InstallationSectionSpec {
+  /** URL segment: lowercase letters, digits and dashes. Unique across core and extensions. */
+  readonly id: string;
+  /** i18n key with namespace of the sub-navigation label (and the page title). */
+  readonly labelKey: string;
+  /** i18n key with namespace of the one-line description under the title; gets `{ scope }`. */
+  readonly descriptionKey?: string;
+  readonly icon: LucideIcon;
+  /** Position in the sub-navigation; lower first. */
+  readonly order: number;
+  readonly component: React.ComponentType<InstallationSectionProps>;
+  readonly lock?: NavLock;
+  /**
+   * The section of the old settings page (`/settings?section=<name>`, before
+   * 0.2.0) whose address now leads here; for content an extension took out of
+   * a core section. The core's own mapping applies where no section claims it.
+   */
+  readonly legacySettingsSection?: string;
+}
+
+/** What the tenant page hands to the component of a section. */
+export interface TenantSectionProps {
+  /** The tenant the page is about; it is the active tenant while the section renders. */
+  tenant: SessionTenant;
+  /**
+   * The viewer may look but not change: the provider team role is too low for
+   * settings, or the public demo is closed to changes. The page already closes
+   * the section's controls; the flag is for what that cannot reach (a link that
+   * would change something, a sentence saying so).
+   */
+  readOnly: boolean;
+  /**
+   * The page below the section the address names (a source below Connections,
+   * the per-object backup below Protection); null on the section's own page.
+   */
+  sub: string | null;
+}
+
+/**
+ * A section of the tenant page (`/tenants/<id>/<section>`, features/tenant-page)
+ * an extension adds to the core's own. It appears in the page's sub-navigation
+ * at `order` (the core's sections sit at 10, 20, ... in
+ * features/tenant-page/sections.tsx) and renders `component` for the admins of
+ * the tenant. A `lock` greys it out like a locked menu entry: the
+ * sub-navigation shows a lock, and the section itself says why and leads to
+ * `lock.to`. The core knows nothing about what the lock stands for.
+ */
+export interface TenantSectionSpec {
+  /** URL segment: lowercase letters, digits and dashes. Unique across core and extensions. */
+  readonly id: string;
+  /** i18n key with namespace of the sub-navigation label (and the page title). */
+  readonly labelKey: string;
+  /** i18n key with namespace of the one-line description under the title; gets `{ tenant }`. */
+  readonly descriptionKey?: string;
+  readonly icon: LucideIcon;
+  /** Position in the sub-navigation; lower first. */
+  readonly order: number;
+  readonly component: React.ComponentType<TenantSectionProps>;
+  readonly lock?: NavLock;
+}
+
 type SlotComponents = { [K in SlotName]?: React.ComponentType<SlotProps[K]> };
 
 export interface WebExtension {
@@ -78,6 +175,10 @@ export interface WebExtension {
    * lock themselves. The first extension to lock an id wins.
    */
   readonly navLocks?: Readonly<Record<string, NavLock>>;
+  /** Sections of the installation page (see {@link InstallationSectionSpec}). */
+  readonly installationSections?: readonly InstallationSectionSpec[];
+  /** Sections of the tenant page (see {@link TenantSectionSpec}). */
+  readonly tenantSections?: readonly TenantSectionSpec[];
   readonly slots?: SlotComponents;
 }
 
@@ -107,6 +208,16 @@ export function extensionNavLocks(): Readonly<Record<string, NavLock>> {
     }
   }
   return locks;
+}
+
+/** Every section the extensions add to the installation page, in registration order. */
+export function extensionInstallationSections(): InstallationSectionSpec[] {
+  return webExtensions.flatMap((extension) => [...(extension.installationSections ?? [])]);
+}
+
+/** Every section the extensions add to the tenant page, in registration order. */
+export function extensionTenantSections(): TenantSectionSpec[] {
+  return webExtensions.flatMap((extension) => [...(extension.tenantSections ?? [])]);
 }
 
 /** The component registered for `name`, or null when no extension fills it. */

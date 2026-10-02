@@ -4,7 +4,9 @@ import {
   DEFAULT_SCHEDULE_TIMEZONE,
   RESTIC_VERSION,
   type RestoreTestTaskParams,
+  bandwidthTimeZone,
   defaultEndpointConfig,
+  effectiveBandwidthKbps,
   endpointPasswordKey,
   enrollmentTokenState,
   failureOfRun,
@@ -12,6 +14,7 @@ import {
   hashSecret,
   isInterruptedOnly,
   isSupportedEndpointOs,
+  isValidTimeZone,
   judgeAgentRestoreTest,
   redactAgentLog,
   redactAgentMessage,
@@ -53,6 +56,7 @@ import {
   withRepository,
 } from "./repository.js";
 import { resticProblem } from "./restic-problem.js";
+import { recordProgressSample, startRunSamples } from "./run-samples.js";
 import {
   type EnrollInput,
   type FinishRunInput,
@@ -95,8 +99,54 @@ export interface EnrollResponse {
   restic: { version: string };
 }
 
-function configResponse(config: EndpointConfig, configVersion: number): AgentConfigResponse {
-  return { ...config, configVersion };
+/**
+ * What `GET /agent/v1/config` answers: the stored configuration, without the bandwidth windows
+ * (the agent does not know them) and with `bandwidthKbps` as the limit that applies at `now`, the
+ * active window's, else the default. The stored configuration and its version are never touched
+ * by a window starting or ending, so the agent's cached copy never goes stale because of one; it
+ * asks again when a backup starts and then gets the limit of that moment.
+ */
+export function configResponse(
+  config: EndpointConfig,
+  configVersion: number,
+  effective?: { zone: string; now: Date },
+): AgentConfigResponse {
+  const { bandwidthWindows, ...rest } = config;
+  if (!bandwidthWindows || bandwidthWindows.length === 0 || !effective) {
+    return { ...rest, configVersion };
+  }
+  return {
+    ...rest,
+    bandwidthKbps: effectiveBandwidthKbps(
+      config.bandwidthKbps,
+      bandwidthWindows,
+      effective.zone,
+      effective.now,
+    ),
+    configVersion,
+  };
+}
+
+/**
+ * The zone a machine's bandwidth windows are read in: the zone of its schedule; where that is
+ * missing (a configuration of an older release, a schedule that never named one), the tenant's
+ * zone, else the installation's default.
+ */
+async function bandwidthZoneOf(
+  tx: Transaction,
+  tenantId: string,
+  config: EndpointConfig,
+): Promise<string> {
+  const own = config.schedule?.timeZone;
+  if (typeof own === "string" && own !== "" && isValidTimeZone(own)) {
+    return own;
+  }
+  const [tenant] = await tx
+    .select({ timeZone: tenants.timeZone })
+    .from(tenants)
+    .where(eq(tenants.id, tenantId))
+    .limit(1);
+  return bandwidthTimeZone(tenant?.timeZone);
 }
 
 // ---------------------------------------------------------------------------
@@ -184,20 +234,6 @@ export async function enrollEndpoint(
     const config = defaultEndpointConfig(os, claimed.profile, {
       timeZone: tenant.timeZone ?? DEFAULT_SCHEDULE_TIMEZONE,
     });
-    // The tenant-wide pause of agent updates is stored on its endpoints; a new one takes it over.
-    const paused = await withTenantTx(db, tenantId, async (tx) => {
-      const [row] = await tx
-        .select({ id: endpoints.id })
-        .from(endpoints)
-        .where(
-          and(
-            eq(endpoints.tenantId, tenantId),
-            sql`(${endpoints.settings} ->> 'autoUpdatePaused') = 'true'`,
-          ),
-        )
-        .limit(1);
-      return row !== undefined;
-    });
     const stored = await storeSecret(db, {
       tenantId,
       kind: REPOSITORY_SECRET_KIND,
@@ -220,7 +256,6 @@ export async function enrollEndpoint(
         config,
         configVersion: 1,
         settings: {
-          ...(paused ? { autoUpdatePaused: true } : {}),
           ...(input.hooks ? { agent: { hooks: input.hooks, reportedAt: now.toISOString() } } : {}),
         },
         lastSeenAt: now,
@@ -314,10 +349,22 @@ async function loadEndpoint(tx: Transaction, agent: AgentContext): Promise<Endpo
   return endpoint;
 }
 
-export async function agentConfig(agent: AgentContext): Promise<AgentConfigResponse> {
+export async function agentConfig(
+  agent: AgentContext,
+  now: Date = new Date(),
+): Promise<AgentConfigResponse> {
   return withTenantTx(db, agent.tenantId, async (tx) => {
     const endpoint = await loadEndpoint(tx, agent);
-    return configResponse(endpoint.config, endpoint.configVersion);
+    const windows = endpoint.config.bandwidthWindows;
+    const zone =
+      windows && windows.length > 0
+        ? await bandwidthZoneOf(tx, agent.tenantId, endpoint.config)
+        : null;
+    return configResponse(
+      endpoint.config,
+      endpoint.configVersion,
+      zone === null ? undefined : { zone, now },
+    );
   });
 }
 
@@ -544,6 +591,8 @@ export async function startRun(
     if (!run) {
       throw new Error("run insert returned no row");
     }
+    // The first point of the run's throughput history, with the size of the repository to measure upload by.
+    await startRunSamples(tx, agent, run.id, now);
     return { runId: run.id };
   });
 }
@@ -578,6 +627,7 @@ export async function reportProgress(
     if (updated.length === 0) {
       throw new ProblemError(404, "Run not found or already finished");
     }
+    await recordProgressSample(tx, agent, runId, input.bytesDone, now);
   });
 }
 
@@ -666,6 +716,14 @@ export async function finishRun(
         progress: null,
       })
       .where(eq(endpointRuns.id, runId));
+    // The last point of the throughput history: the final counters, so the charts end where the run did.
+    await recordProgressSample(
+      tx,
+      agent,
+      runId,
+      Math.max(input.stats?.totalBytesProcessed ?? 0, run.progress?.bytesDone ?? 0),
+      now,
+    );
 
     const [endpoint] = await tx
       .select()
@@ -914,8 +972,18 @@ export async function agentUpdate(
   agent: AgentContext,
   instanceUrl: string,
 ): Promise<{ version: string; url: string; sha256: string } | null> {
-  const endpoint = await withTenantTx(db, agent.tenantId, (tx) => loadEndpoint(tx, agent));
-  if (endpoint.settings.autoUpdatePaused === true) {
+  const { endpoint, tenantPaused } = await withTenantTx(db, agent.tenantId, async (tx) => {
+    const loaded = await loadEndpoint(tx, agent);
+    const [tenant] = await tx
+      .select({ paused: tenants.agentUpdatesPaused })
+      .from(tenants)
+      .where(eq(tenants.id, agent.tenantId))
+      .limit(1);
+    return { endpoint: loaded, tenantPaused: tenant?.paused === true };
+  });
+  // The tenant's setting covers every machine, also the ones that enrol later; a machine can
+  // still be paused on its own.
+  if (tenantPaused || endpoint.settings.autoUpdatePaused === true) {
     return null;
   }
   const release = await latestAgentRelease(endpoint.os, endpoint.arch);

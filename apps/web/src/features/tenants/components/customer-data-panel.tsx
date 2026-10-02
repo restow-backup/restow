@@ -1,4 +1,4 @@
-import { BellRing, Pencil, TriangleAlert, UsersRound } from "lucide-react";
+import { Pencil, TriangleAlert, UsersRound } from "lucide-react";
 import * as React from "react";
 import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
@@ -50,22 +50,17 @@ interface CustomerDataPanelProps {
   tenant: TenantDetail;
   /** No changes while the tenant is being deleted (the API refuses them too). */
   readOnly?: boolean;
-  /** Open this tenant's Alerts; omitted, the button is not shown. */
-  onOpenAlerts?: () => void;
 }
 
 type DialogName = "customer" | "contacts" | null;
 
 /**
- * Customer data of the tenant wizard, on the tenant detail page: address
- * and locale and contact persons — shown, and (unless the tenant is being
- * deleted) editable — plus the way to the tenant's alerts and reports.
+ * Customer data of the tenant wizard, in the master data of the tenant page:
+ * customer number, address and locale and contact persons — shown, and
+ * (unless the tenant is being deleted, or the viewer may not change them)
+ * editable.
  */
-export function CustomerDataPanel({
-  tenant,
-  readOnly = false,
-  onOpenAlerts,
-}: CustomerDataPanelProps) {
+export function CustomerDataPanel({ tenant, readOnly = false }: CustomerDataPanelProps) {
   const { t } = useTranslation("tenants");
   const [dialog, setDialog] = React.useState<DialogName>(null);
   const address = [
@@ -81,7 +76,7 @@ export function CustomerDataPanel({
     <div className="space-y-4">
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
-          <div className="space-y-1.5">
+          <div className="min-w-0 flex-1 space-y-1.5">
             <CardTitle>{t("customerPanel.title")}</CardTitle>
             <CardDescription>{t("customerPanel.description")}</CardDescription>
           </div>
@@ -113,7 +108,7 @@ export function CustomerDataPanel({
 
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
-          <div className="space-y-1.5">
+          <div className="min-w-0 flex-1 space-y-1.5">
             <CardTitle>{t("customerPanel.contactsTitle")}</CardTitle>
             <CardDescription>{t("customerPanel.contactsDescription")}</CardDescription>
           </div>
@@ -160,21 +155,6 @@ export function CustomerDataPanel({
             </ul>
           )}
         </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-row flex-wrap items-start justify-between gap-3 space-y-0">
-          <div className="space-y-1.5">
-            <CardTitle>{t("customerPanel.notificationsTitle")}</CardTitle>
-            <CardDescription>{t("customerPanel.notificationsDescription")}</CardDescription>
-          </div>
-          {onOpenAlerts ? (
-            <Button variant="outline" size="sm" onClick={onOpenAlerts}>
-              <BellRing />
-              {t("customerPanel.openAlerts")}
-            </Button>
-          ) : null}
-        </CardHeader>
       </Card>
 
       <EditCustomerDataDialog

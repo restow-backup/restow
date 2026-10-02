@@ -38,6 +38,7 @@ import {
   packs,
   protectedObjects,
   providers,
+  runSamples,
   secrets,
   snapshots,
   sources,
@@ -437,6 +438,87 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
     // Discard only touches in-progress rows.
     await resumedCtx.snapshots.discard(committed.snapshotId);
     expect(await resumedCtx.snapshots.get(committed.snapshotId)).not.toBeNull();
+  });
+
+  it("keeps a throughput history per run: what was processed and transferred over time", async () => {
+    const run = tenantRunner(db, fixture.tenantId);
+    const jobId = randomUUID();
+    await db.insert(jobs).values({
+      id: jobId,
+      tenantId: fixture.tenantId,
+      queue: "backup",
+      protectedObjectId: fixture.protectedObjectId,
+    });
+    let clock = new Date("2026-10-02T10:00:00.000Z");
+    const sink = new PgProgressSink({
+      run,
+      tenantId: fixture.tenantId,
+      jobId,
+      protectedObjectId: fixture.protectedObjectId,
+      logger: noopLogger,
+      now: () => clock,
+    });
+    const publish = async (
+      processed: number,
+      transferred: number,
+      stored = Math.min(processed, 100),
+    ) =>
+      sink.publish({
+        snapshot: {
+          total: 10,
+          done: 1,
+          failed: 0,
+          bytes: stored,
+          bytesProcessed: processed,
+          bytesTransferred: transferred,
+          phase: "download",
+          etaSeconds: null,
+        },
+        failures: [],
+      });
+    await publish(1000, 0);
+    clock = new Date(clock.getTime() + 2000);
+    await publish(5000, 300);
+    // A second report within the minimum gap replaces the last point, it does not add one.
+    clock = new Date(clock.getTime() + 500);
+    await publish(5600, 340);
+    clock = new Date(clock.getTime() + 2000);
+    await publish(9000, 700);
+
+    const [progress] = await db.select().from(jobProgress).where(eq(jobProgress.jobId, jobId));
+    expect(progress).toMatchObject({ bytesProcessed: 9000, bytesTransferred: 700, bytes: 100 });
+    const [samples] = await db.select().from(runSamples).where(eq(runSamples.jobId, jobId));
+    const start = new Date("2026-10-02T10:00:00.000Z").getTime();
+    expect(samples?.points).toEqual([
+      [start, 1000, 0],
+      [start + 2500, 5600, 340],
+      [start + 4500, 9000, 700],
+    ]);
+    expect(samples?.endpointRunId).toBeNull();
+  });
+
+  it("reads an engine that counts no processed bytes as having read what it stored", async () => {
+    const run = tenantRunner(db, fixture.tenantId);
+    const jobId = randomUUID();
+    await db.insert(jobs).values({
+      id: jobId,
+      tenantId: fixture.tenantId,
+      queue: "verify",
+      protectedObjectId: fixture.protectedObjectId,
+    });
+    const sink = new PgProgressSink({
+      run,
+      tenantId: fixture.tenantId,
+      jobId,
+      protectedObjectId: fixture.protectedObjectId,
+      logger: noopLogger,
+    });
+    await sink.publish({
+      snapshot: { total: 2, done: 1, failed: 0, bytes: 4096, phase: null, etaSeconds: null },
+      failures: [],
+    });
+    const [progress] = await db.select().from(jobProgress).where(eq(jobProgress.jobId, jobId));
+    expect(progress).toMatchObject({ bytes: 4096, bytesProcessed: 4096, bytesTransferred: 0 });
   });
 
   it("persists progress and item failures with attempts carried across runs", async () => {

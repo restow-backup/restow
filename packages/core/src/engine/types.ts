@@ -66,7 +66,15 @@ export interface ProgressSnapshot {
   readonly total: number;
   readonly done: number;
   readonly failed: number;
+  /** Payload bytes the engine reported as stored (new data) with `advance(done, bytes)`. */
   readonly bytes: number;
+  /**
+   * Bytes the engine read and handled (the third argument of `advance`, `bytes` where an engine
+   * gives none): the run drawer's "processed" curve. Absent in snapshots built before it existed.
+   */
+  readonly bytesProcessed?: number;
+  /** Bytes written to the repository as packs (compressed and sealed): what the run transferred. */
+  readonly bytesTransferred?: number;
   readonly phase: string | null;
   /** Estimated seconds to completion, or null when unknown. */
   readonly etaSeconds: number | null;
@@ -93,8 +101,17 @@ export interface ItemFailureRecord {
 export interface ProgressReporter {
   /** Set (or raise) the expected number of items. May be called repeatedly as discovery proceeds. */
   total(count: number): void;
-  /** Record `done` more items (default 1) and `bytes` more payload bytes (default 0). */
-  advance(done?: number, bytes?: number): void;
+  /**
+   * Record `done` more items (default 1) and `bytes` more payload bytes (default 0). `processed`
+   * is how many bytes the engine read for them, which can exceed `bytes` when most of it was
+   * already stored (deduplication); it defaults to `bytes`.
+   */
+  advance(done?: number, bytes?: number, processed?: number): void;
+  /**
+   * Record `bytes` more written to the repository (a pack the chunk store uploaded). Optional so
+   * reporters of tests and engines that never upload need not implement it.
+   */
+  transfer?(bytes: number): void;
   /**
    * Record an item that failed, with a human-readable reason (no secrets) and,
    * where the engine has the error at hand, its classified cause.

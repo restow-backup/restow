@@ -33,6 +33,7 @@ import {
   HISTORY_DAYS,
   type TenantFacts,
   type TenantTrends,
+  loadInstallationDefaultTest,
   loadMailFacts,
   loadTenantCap,
   loadTenantFacts,
@@ -49,7 +50,9 @@ import type { SettledSource } from "./hooks.js";
  * The start page in one response. Which widgets apply is decided here, not
  * in the browser: every single-tenant widget exists on every installation, the
  * admin widgets are left out for plain members, and the provider view exists
- * only for provider admins while `dashboard.allTenants` is on.
+ * only for provider admins while `dashboard.allTenants` is on. A request may
+ * narrow the tenant widgets to a few (`widgets=setup` for the sidebar's Start
+ * checklist) or ask for the provider view alone (`provider=only`).
  *
  * Each data source is loaded on its own and may fail on its own: a widget
  * whose source failed is returned as `{ state: "error" }` (the cause goes to
@@ -71,6 +74,11 @@ export interface DashboardViewer {
   tenant: TenantContext;
   role: Role;
   isProviderAdmin: boolean;
+  /**
+   * The provider admin's team role covers every tenant. A member limited to some tenants is
+   * refused the provider view, which lists them all; omitted, every tenant is covered.
+   */
+  providerAllTenants?: boolean;
 }
 
 /** Jobs shown in the recent-jobs widget. */
@@ -356,6 +364,12 @@ export async function assertProviderView(viewer: DashboardViewer, db: Database):
       detail: "Only provider administrators may see the provider view.",
     });
   }
+  if (viewer.providerAllTenants === false) {
+    throw new ProblemError(403, "Every tenant required", {
+      detail:
+        "The provider view covers every tenant; your role in the provider team is limited to some.",
+    });
+  }
   await requireFeature(db, "dashboard.allTenants");
 }
 
@@ -370,7 +384,10 @@ export async function loadDashboard(
   }
 
   const canAdminister = isTenantAdmin(viewer.role);
-  const wanted = widgetsFor(canAdminister);
+  // `provider=only` reads no tenant widget at all; `widgets=` narrows to the ones asked for.
+  const wanted = query.tenantWidgets
+    ? widgetsFor(canAdminister).filter((id) => query.widgets === null || query.widgets.includes(id))
+    : [];
   const needs = (...ids: TenantWidgetId[]) => ids.some((id) => wanted.includes(id));
   const tenantId = viewer.tenant.id;
   const load = <T>(source: string, needed: boolean, run: () => Promise<T>) =>
@@ -381,9 +398,20 @@ export async function loadDashboard(
     load("summary", needs("lastBackup", "readiness", "protectedObjects", "storage"), () =>
       loadTenantSummary(deps.db, tenantId, now),
     ),
-    load("facts", needs("setup", "lastBackup", "storage", "retention"), () =>
-      loadTenantFacts(deps.db, tenantId, deps.env),
-    ),
+    load("facts", needs("setup", "lastBackup", "storage", "retention"), async () => {
+      // The installation's own test of the default storage counts for every tenant on the default.
+      // It lives in the installation chain; if that cannot be read the storage reads as untested
+      // (as it did before that test existed) and every other fact still shows.
+      const installationTest = await settle("default-storage-test", tenantId, () =>
+        loadInstallationDefaultTest(deps.providerDb),
+      );
+      return loadTenantFacts(
+        deps.db,
+        tenantId,
+        deps.env,
+        installationTest.ok ? installationTest.value : null,
+      );
+    }),
     load("mail", needs("setup"), () => loadMailFacts(deps.db, deps.providerDb)),
     load("trends", needs("backupTrend", "verificationHistory", "storageGrowth"), () =>
       loadTenantTrends(deps.db, tenantId, now),

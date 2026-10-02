@@ -39,6 +39,8 @@ export class ProgressTracker implements ProgressReporter {
   private doneCount = 0;
   private failedCount = 0;
   private byteCount = 0;
+  private processedCount = 0;
+  private transferredCount = 0;
   private currentPhase: string | null = null;
   private startedAt: number | null = null;
 
@@ -67,13 +69,24 @@ export class ProgressTracker implements ProgressReporter {
     }
   }
 
-  advance(done = 1, bytes = 0): void {
+  advance(done = 1, bytes = 0, processed: number = bytes): void {
     if (this.startedAt === null) {
       this.startedAt = this.clock();
     }
     this.doneCount += done;
     this.byteCount += bytes;
+    // Never below what was stored: an engine that reports less than it stored is wrong about reading.
+    this.processedCount += Math.max(processed, bytes);
     this.markDirty(done);
+  }
+
+  transfer(bytes: number): void {
+    if (bytes <= 0) {
+      return;
+    }
+    this.transferredCount += bytes;
+    // A pack goes out between two items; the next flush carries it.
+    this.markDirty(0);
   }
 
   fail(itemRef: string, reason: string, cause?: FailureCause): void {
@@ -97,6 +110,8 @@ export class ProgressTracker implements ProgressReporter {
       done: this.doneCount,
       failed: this.failedCount,
       bytes: this.byteCount,
+      bytesProcessed: this.processedCount,
+      bytesTransferred: this.transferredCount,
       phase: this.currentPhase,
       etaSeconds: this.eta(),
     };

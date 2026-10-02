@@ -11,10 +11,13 @@ interface RestowMarkProps {
 
 /**
  * The Restow mark (brand guide, section 2): a hold, an open rounded trough,
- * with one bar lying on its bottom. 48 x 48 grid; the hold is Nile in light
- * mode and Limestone in dark mode, the bar Lapis and its dark-mode step. The
- * colours are fixed brand colours, not app theme tokens, so the mark reads the
- * same on every surface.
+ * with one bar lying on its bottom. 48 x 48 grid. The hold takes --mark-hold
+ * and the bar --mark-beam: Nile and Lapis in light mode, Limestone and Lapis
+ * Dark in dark mode. These are the mark's own tokens, not --foreground and
+ * --primary: the mark keeps the brand colours in every colour scheme (the
+ * Neutral scheme recolours the interface, never the logo), and a white-label
+ * installation overrides the two tokens to brand its own. Never the success
+ * green.
  */
 export function RestowMark({ className, mono = false }: RestowMarkProps) {
   return (
@@ -24,7 +27,7 @@ export function RestowMark({ className, mono = false }: RestowMarkProps) {
         fill="none"
         strokeWidth={7}
         strokeLinecap="round"
-        className={mono ? "stroke-current" : "stroke-[#0F1B2D] dark:stroke-[#F4F5F7]"}
+        className={mono ? "stroke-current" : "stroke-mark-hold"}
       />
       <rect
         x={15.5}
@@ -32,7 +35,7 @@ export function RestowMark({ className, mono = false }: RestowMarkProps) {
         width={17}
         height={7}
         rx={2}
-        className={mono ? "fill-current" : "fill-[#2B4C9B] dark:fill-[#9DB4E6]"}
+        className={mono ? "fill-current" : "fill-mark-beam"}
       />
     </svg>
   );
@@ -45,9 +48,9 @@ interface BrandNameProps {
 /**
  * The product name from the branding. While it is the default name, it is set
  * as the wordmark of the brand guide (section 3): "restow" in bold, tight
- * tracking, then "backup" in a mono face, smaller and in the secondary colour,
- * both lowercase. Any other name an operator configures is shown as written.
- * Screen readers always get the plain name.
+ * tracking, then "backup suite" in a mono face, smaller and in the secondary
+ * colour, both lowercase. Any other name an operator configures is shown as
+ * written, without the descriptor. Screen readers always get the plain name.
  */
 export function BrandName({ className }: BrandNameProps) {
   const { t } = useTranslation();
@@ -62,8 +65,8 @@ export function BrandName({ className }: BrandNameProps) {
       <span className="sr-only">{name}</span>
       <span aria-hidden="true" className="inline-flex items-baseline gap-[0.45em]">
         <span className="font-wordmark font-bold tracking-[-0.03em]">restow</span>
-        <span className="font-wordmark-tag text-[0.7em] font-normal text-[#6B7486] dark:text-[#A7B0BD]">
-          backup
+        <span className="font-wordmark-tag text-[0.7em] font-normal text-muted-foreground">
+          backup suite
         </span>
       </span>
     </span>

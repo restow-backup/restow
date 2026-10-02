@@ -34,8 +34,8 @@ export function PageHeaderSkeleton() {
 
 /**
  * Layout-shaped placeholder while the session and profile load: sidebar (in
- * its remembered width), top bar and a page, so nothing moves when the shell
- * arrives.
+ * its remembered width, with the tenant switcher under the wordmark), top bar
+ * (scope and crumb) and a page, so nothing moves when the shell arrives.
  */
 export function ShellSkeleton() {
   const { t } = useTranslation();
@@ -53,6 +53,23 @@ export function ShellSkeleton() {
           <Skeleton className="size-8 shrink-0 rounded-lg" />
           {collapsed ? null : <Skeleton className="h-5 w-20" />}
         </div>
+        {/* The tenant switcher: the mark, two lines and the settings gear; the mark alone when collapsed. */}
+        <div className="flex items-center gap-1.5">
+          {collapsed ? (
+            <Skeleton className="size-8 shrink-0 rounded-md" />
+          ) : (
+            <>
+              <div className="flex h-12 flex-1 items-center gap-2 rounded-md border border-sidebar-border px-2">
+                <Skeleton className="size-8 shrink-0 rounded-md" />
+                <div className="flex flex-1 flex-col gap-1.5">
+                  <Skeleton className="h-3.5 w-24 max-w-full" />
+                  <Skeleton className="h-3 w-14" />
+                </div>
+              </div>
+              <Skeleton className="h-12 w-9 shrink-0 rounded-md" />
+            </>
+          )}
+        </div>
         {[0, 1, 2].map((group) => (
           <div key={group} className="flex flex-col gap-1 p-2">
             {collapsed ? null : <Skeleton className="mb-2 h-3 w-16" />}
@@ -68,9 +85,10 @@ export function ShellSkeleton() {
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex h-(--topbar-height) items-center gap-2 border-b border-border px-4">
           <Skeleton className="size-7" />
-          <Skeleton className="h-4 w-40" />
+          {/* The scope pill and the page's crumb. */}
+          <Skeleton className="h-6 w-28 rounded-full sm:w-36" />
+          <Skeleton className="hidden h-4 w-24 md:block" />
           <div className="ml-auto flex items-center gap-2">
-            <Skeleton className="h-9 w-24 sm:w-40" />
             <Skeleton className="size-9 md:w-44" />
             <Skeleton className="size-8 rounded-full" />
           </div>

@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
+import { useLiveOpen } from "@/features/history/live/provider";
 import {
   type ReadinessOverview,
   type ReportPage,
@@ -37,11 +38,14 @@ function isBusy(overview: ReadinessOverview | undefined): boolean {
 
 export function useReadinessOverview() {
   const { tenantId, enabled } = useTenantScope();
+  const connected = useLiveOpen();
   return useQuery({
     queryKey: verifyKeys.overview(tenantId),
     queryFn: fetchReadinessOverview,
     enabled,
-    refetchInterval: (query) => (isBusy(query.state.data) ? LIVE_REFRESH_MS : IDLE_REFRESH_MS),
+    // A restore check is a run: the live channel says when one ends. It polls only while that is down.
+    refetchInterval: (query) =>
+      connected ? false : isBusy(query.state.data) ? LIVE_REFRESH_MS : IDLE_REFRESH_MS,
   });
 }
 

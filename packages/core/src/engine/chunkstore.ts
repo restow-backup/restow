@@ -98,6 +98,8 @@ export interface ChunkWriterOptions {
   readonly signal?: AbortSignal;
   /** Injectable pack id generator (tests pin it). */
   readonly packIdGenerator?: () => string;
+  /** Called with the size of each pack once it is stored on every target and recorded. */
+  readonly onPackStored?: (packBytes: number) => void;
 }
 
 function toHex(id: Buffer): string {
@@ -391,6 +393,7 @@ export class ChunkWriter {
       this.unflushed.delete(entry.storedId);
     }
     this.stats.packsWritten++;
+    this.options.onPackStored?.(bytes.length);
     this.logger.debug("pack written", { path, chunks: chunkRecords.length, size: bytes.length });
   }
 

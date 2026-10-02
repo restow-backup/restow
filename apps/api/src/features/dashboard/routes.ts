@@ -27,6 +27,7 @@ export function createDashboardRoutes(deps: DashboardRouteDeps): Hono<TenantEnv>
       tenant: c.get("tenant"),
       role: c.get("role"),
       isProviderAdmin: c.get("isProviderAdmin"),
+      providerAllTenants: c.get("providerAccess")?.allTenants ?? true,
     };
     return c.json(await loadDashboard(deps, viewer, query));
   });

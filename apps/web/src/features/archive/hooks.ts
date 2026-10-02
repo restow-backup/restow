@@ -6,6 +6,7 @@ import {
   type ArchiveSearchParams,
   archiveKeys,
   fetchArchiveItem,
+  fetchArchiveRetention,
   searchArchive,
   verifyArchiveChain,
 } from "./api.js";
@@ -47,5 +48,15 @@ export function useVerifyChain() {
     onSuccess: (result) => {
       queryClient.setQueryData(archiveKeys.chain(tenantId), result);
     },
+  });
+}
+
+/** The retention that applies to the active tenant's archive. */
+export function useArchiveRetention() {
+  const { tenantId, enabled, canManage } = useTenantScope();
+  return useQuery({
+    queryKey: archiveKeys.retention(tenantId),
+    queryFn: fetchArchiveRetention,
+    enabled: enabled && canManage,
   });
 }

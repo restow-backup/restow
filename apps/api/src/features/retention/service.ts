@@ -2,19 +2,24 @@ import {
   type RetentionPreset,
   type RetentionTier,
   cutoffDays,
+  jobRetentionAssignments,
   parseSnapshotPolicy,
   planRetentionRun,
   policyAppliesTo,
   totalBytes,
+  withJobRetention,
 } from "@restow/core";
 import {
   type Database,
   type ProtectedObject,
   type RetentionPolicy,
+  backupJobMembers,
+  backupJobs,
   legalHolds,
   protectedObjects,
   retentionPolicies,
   snapshots,
+  sources,
   verifyReports,
 } from "@restow/db";
 import { and, asc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm";
@@ -441,6 +446,19 @@ export async function deleteRetentionPolicy(
 ): Promise<void> {
   await withTenantTx(db, tenantId, async (tx) => {
     const before = await findPolicy(tx, tenantId, id);
+    // A job that names the policy would silently fall back to the tenant default: refuse instead.
+    const [named] = await tx
+      .select({ name: backupJobs.name })
+      .from(backupJobs)
+      .where(and(eq(backupJobs.tenantId, tenantId), eq(backupJobs.retentionPolicyId, id)))
+      .limit(1);
+    if (named) {
+      throw new ProblemError(409, "Retention policy in use", {
+        type: "urn:restow:problem:retention-policy-in-use",
+        detail: `The backup job "${named.name}" uses this retention policy. Choose another policy for the job first.`,
+        extensions: { jobName: named.name },
+      });
+    }
     await tx
       .delete(retentionPolicies)
       .where(and(eq(retentionPolicies.tenantId, tenantId), eq(retentionPolicies.id, id)));
@@ -520,6 +538,42 @@ async function loadLegalHoldScope(tx: Transaction, tenantId: string) {
   return { tenantWide, protectedObjectIds: ids };
 }
 
+/** The policies mail jobs name, with the objects of each job (the worker's `loadJobRetention`). */
+async function loadJobRetentionAssignments(tx: Transaction, tenantId: string) {
+  const named = await tx
+    .select({
+      id: backupJobs.id,
+      scopeMode: backupJobs.scopeMode,
+      retentionPolicyId: backupJobs.retentionPolicyId,
+    })
+    .from(backupJobs)
+    .where(and(eq(backupJobs.tenantId, tenantId), eq(backupJobs.kind, "mail")));
+  if (!named.some((job) => job.retentionPolicyId !== null)) {
+    return [];
+  }
+  const members = await tx
+    .select({
+      jobId: backupJobMembers.jobId,
+      protectedObjectId: backupJobMembers.protectedObjectId,
+    })
+    .from(backupJobMembers)
+    .where(eq(backupJobMembers.tenantId, tenantId));
+  const objects = await tx
+    .select({ id: protectedObjects.id, sourceKind: sources.kind })
+    .from(protectedObjects)
+    .innerJoin(sources, eq(sources.id, protectedObjects.sourceId))
+    .where(eq(protectedObjects.tenantId, tenantId));
+  return jobRetentionAssignments(
+    named,
+    members.flatMap((member) =>
+      member.protectedObjectId
+        ? [{ jobId: member.jobId, protectedObjectId: member.protectedObjectId }]
+        : [],
+    ),
+    objects.map((object) => ({ id: object.id, imported: object.sourceKind === "import" })),
+  );
+}
+
 /**
  * What the next retention run would remove if `input` were saved as given,
  * computed with {@link planRetentionRun} — the exact function the worker
@@ -565,7 +619,12 @@ export async function previewRetentionPolicy(
     };
     const history = await loadSnapshotHistory(tx, tenantId);
     const holds = await loadLegalHoldScope(tx, tenantId);
-    const plan = planRetentionRun(history, [...existing, draft], holds, now);
+    // The objects of a job that names a policy follow it, exactly as in the worker's run.
+    const policies = withJobRetention(
+      [...existing, draft],
+      await loadJobRetentionAssignments(tx, tenantId),
+    );
+    const plan = planRetentionRun(history, policies, holds, now);
     return {
       objects: new Set(plan.expired.map((snapshot) => snapshot.protectedObjectId)).size,
       restorePoints: plan.expired.length,

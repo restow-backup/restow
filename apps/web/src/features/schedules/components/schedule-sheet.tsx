@@ -3,10 +3,8 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { Field, messageId } from "@/components/forms/field";
-import { relativeLabel } from "@/components/kit";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
@@ -24,48 +22,33 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { errorMessageKey } from "@/lib/api";
 
 import {
+  DEFAULT_NEW_KIND,
   OBJECT_SCOPED_KINDS,
   OFFERED_KINDS,
   type OfferedKind,
-  type PreviewRequest,
   type ScheduleItem,
 } from "../api.js";
-import { useCreateSchedule, useSchedulePreview, useUpdateSchedule } from "../hooks.js";
+import { useCreateSchedule, useUpdateSchedule } from "../hooks.js";
 import {
-  type DraftField,
   KIND_ICON,
-  MAX_INTERVAL_MINUTES,
-  MIN_INTERVAL_MINUTES,
   type ScheduleDraft,
   type ScopeMode,
-  WEEK,
   browserTimeZone,
   checkDraft,
   draftFromSchedule,
   fieldProblem,
-  formatRun,
   inputFromDraft,
-  intervalRuns,
   needsDisableConfirmation,
   newDraft,
   patchFromDraft,
-  weekdayLabel,
 } from "../presenters.js";
-import {
-  MAX_PRESET_DAY_OF_MONTH,
-  PRESET_TYPES,
-  type PresetType,
-  type Weekday,
-} from "../presets.js";
+import { CadenceFields } from "./cadence-fields.js";
 import { DisableScheduleDialog } from "./schedule-dialogs.js";
 import { ScopePicker } from "./scope-picker.js";
-import { TimezonePicker } from "./timezone-picker.js";
 
 export interface ScheduleSheetProps {
   open: boolean;
@@ -107,33 +90,10 @@ interface ScheduleFormProps {
   onSaved: ScheduleSheetProps["onSaved"];
 }
 
-/** Which form field a request field the API named belongs to. */
-function formFieldOf(apiField: string, draft: ScheduleDraft): DraftField | "timezone" | "cadence" {
-  switch (apiField) {
-    case "timezone":
-      return "timezone";
-    case "protectedObjectId":
-      return "object";
-    case "cron":
-      return draft.presetType === "custom" ? "cron" : "cadence";
-    case "intervalMinutes":
-      return draft.presetType === "every_minutes"
-        ? "minutes"
-        : draft.presetType === "every_hours"
-          ? "hours"
-          : "cadence";
-    default:
-      return "cadence";
-  }
-}
-
-const INTERVAL_PRESETS: readonly PresetType[] = ["every_minutes", "every_hours"];
-
 function ScheduleForm({ schedule, onDone, onSaved }: ScheduleFormProps) {
-  const { t, i18n } = useTranslation("schedules");
-  const language = i18n.resolvedLanguage ?? i18n.language;
+  const { t } = useTranslation("schedules");
   const [draft, setDraft] = React.useState<ScheduleDraft>(() =>
-    schedule ? draftFromSchedule(schedule) : newDraft(browserTimeZone()),
+    schedule ? draftFromSchedule(schedule) : newDraft(browserTimeZone(), DEFAULT_NEW_KIND),
   );
   const [attempted, setAttempted] = React.useState(false);
   const [confirmingDisable, setConfirmingDisable] = React.useState(false);
@@ -147,36 +107,17 @@ function ScheduleForm({ schedule, onDone, onSaved }: ScheduleFormProps) {
     setDraft((current) => ({ ...current, [key]: value }));
 
   const check = checkDraft(draft);
-  const isInterval = INTERVAL_PRESETS.includes(draft.presetType);
-  const previewRequest: PreviewRequest | null = check.ok
-    ? { ...check.cadence, timezone: draft.timezone }
-    : null;
-  // The API judges every cadence (interval limits, cron syntax, zone) while typing.
-  const preview = useSchedulePreview(previewRequest);
 
   const saveError = create.error ?? update.error;
   const saveProblem = fieldProblem(saveError);
-  const previewProblem = previewRequest ? fieldProblem(preview.error) : null;
-  const problem = saveProblem ?? previewProblem;
-  const problemField = problem ? formFieldOf(problem.field, draft) : null;
-
-  /** The message shown under a field: the API's verdict first, then the form's own check. */
-  const errorFor = (field: DraftField | "timezone" | "cadence"): string | undefined => {
-    if (problem && problemField === field) {
-      return t(problem.key);
-    }
-    if (field !== "timezone" && field !== "cadence" && !check.ok && check.field === field) {
-      // Required fields complain only after a save attempt; out-of-range values at once.
-      if (check.reason === "range" || attempted) {
-        return t(`validation.${check.reason}.${field}`, {
-          min: MIN_INTERVAL_MINUTES,
-          max: field === "hours" ? MAX_INTERVAL_MINUTES / 60 : MAX_INTERVAL_MINUTES,
-          maxDay: MAX_PRESET_DAY_OF_MONTH,
-        });
-      }
-    }
-    return undefined;
-  };
+  // Only the object is this form's own field; the cadence fields show the rest.
+  const objectProblem = saveProblem?.field === "protectedObjectId" ? saveProblem : null;
+  const cadenceProblem = saveProblem && !objectProblem ? saveProblem : null;
+  const objectError = objectProblem
+    ? t(objectProblem.key)
+    : !check.ok && check.field === "object" && attempted
+      ? t("validation.required.object")
+      : undefined;
 
   /** Save the draft. Failures stay on the mutation and show in the form. */
   const persist = async (): Promise<void> => {
@@ -214,13 +155,6 @@ function ScheduleForm({ schedule, onDone, onSaved }: ScheduleFormProps) {
 
   const scoped = OBJECT_SCOPED_KINDS.includes(draft.kind);
   const KindIcon = KIND_ICON[draft.kind];
-  const runs: Date[] | null = !check.ok
-    ? null
-    : isInterval && check.cadence.intervalMinutes !== null
-      ? intervalRuns(check.cadence.intervalMinutes, schedule?.lastRunAt ?? null, Date.now())
-      : preview.data
-        ? preview.data.next.map((instant) => new Date(instant))
-        : null;
   const nonFieldError = saveError && !saveProblem ? saveError : null;
 
   return (
@@ -259,195 +193,14 @@ function ScheduleForm({ schedule, onDone, onSaved }: ScheduleFormProps) {
             </Select>
           </Field>
 
-          <fieldset className="space-y-4">
-            <legend className="sr-only">{t("form.cadence")}</legend>
-            <Field id={ids("preset")} label={t("form.preset")} error={errorFor("cadence")}>
-              <Select
-                value={draft.presetType}
-                onValueChange={(value) => {
-                  const presetType = value as PresetType;
-                  setDraft((current) => ({
-                    ...current,
-                    presetType,
-                    // Switching to a custom expression starts from what was described so far.
-                    cron:
-                      presetType === "custom" && current.cron.trim() === "" && check.ok
-                        ? (check.cadence.cron ?? current.cron)
-                        : current.cron,
-                  }));
-                }}
-              >
-                <SelectTrigger
-                  id={ids("preset")}
-                  className="w-full"
-                  aria-describedby={messageId(ids("preset"))}
-                >
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {PRESET_TYPES.map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {t(`presets.${type}`)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-
-            {draft.presetType === "every_hours" ? (
-              <Field id={ids("hours")} label={t("form.hours")} error={errorFor("hours")}>
-                <Input
-                  id={ids("hours")}
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  max={MAX_INTERVAL_MINUTES / 60}
-                  value={draft.hours}
-                  onChange={(event) => set("hours", event.target.value)}
-                  aria-invalid={Boolean(errorFor("hours")) || undefined}
-                  aria-describedby={messageId(ids("hours"))}
-                  className="tabular-nums"
-                />
-              </Field>
-            ) : null}
-
-            {draft.presetType === "every_minutes" ? (
-              <Field id={ids("minutes")} label={t("form.minutes")} error={errorFor("minutes")}>
-                <Input
-                  id={ids("minutes")}
-                  type="number"
-                  inputMode="numeric"
-                  min={MIN_INTERVAL_MINUTES}
-                  max={MAX_INTERVAL_MINUTES}
-                  value={draft.minutes}
-                  onChange={(event) => set("minutes", event.target.value)}
-                  aria-invalid={Boolean(errorFor("minutes")) || undefined}
-                  aria-describedby={messageId(ids("minutes"))}
-                  className="tabular-nums"
-                />
-              </Field>
-            ) : null}
-
-            {draft.presetType === "weekly" ? (
-              <div className="space-y-1.5">
-                <Label id={ids("days-label")}>{t("form.days")}</Label>
-                <ToggleGroup
-                  type="multiple"
-                  variant="outline"
-                  aria-labelledby={ids("days-label")}
-                  aria-describedby={messageId(ids("days"))}
-                  value={draft.days.map(String)}
-                  onValueChange={(values: string[]) =>
-                    set(
-                      "days",
-                      values.map((value) => Number.parseInt(value, 10) as Weekday),
-                    )
-                  }
-                  className="flex-wrap"
-                >
-                  {WEEK.map((day) => (
-                    <ToggleGroupItem key={day} value={String(day)} className="min-w-11">
-                      {weekdayLabel(day, language)}
-                    </ToggleGroupItem>
-                  ))}
-                </ToggleGroup>
-                {errorFor("days") ? (
-                  <p id={messageId(ids("days"))} role="alert" className="text-xs text-destructive">
-                    {errorFor("days")}
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-
-            {draft.presetType === "monthly" ? (
-              <Field
-                id={ids("dayOfMonth")}
-                label={t("form.dayOfMonth")}
-                hint={t("form.dayOfMonthHint", { max: MAX_PRESET_DAY_OF_MONTH })}
-                error={errorFor("dayOfMonth")}
-              >
-                <Input
-                  id={ids("dayOfMonth")}
-                  type="number"
-                  inputMode="numeric"
-                  min={1}
-                  max={MAX_PRESET_DAY_OF_MONTH}
-                  value={draft.dayOfMonth}
-                  onChange={(event) => set("dayOfMonth", event.target.value)}
-                  aria-invalid={Boolean(errorFor("dayOfMonth")) || undefined}
-                  aria-describedby={messageId(ids("dayOfMonth"))}
-                  className="tabular-nums"
-                />
-              </Field>
-            ) : null}
-
-            {draft.presetType === "daily" ||
-            draft.presetType === "weekly" ||
-            draft.presetType === "monthly" ? (
-              <Field id={ids("time")} label={t("form.time")} error={errorFor("time")}>
-                <Input
-                  id={ids("time")}
-                  type="time"
-                  value={draft.time}
-                  onChange={(event) => set("time", event.target.value)}
-                  aria-invalid={Boolean(errorFor("time")) || undefined}
-                  aria-describedby={messageId(ids("time"))}
-                  className="w-36 tabular-nums"
-                />
-              </Field>
-            ) : null}
-
-            {draft.presetType === "custom" ? (
-              <Field
-                id={ids("cron")}
-                label={t("form.cron")}
-                hint={t("form.cronHint")}
-                error={errorFor("cron")}
-              >
-                <Input
-                  id={ids("cron")}
-                  value={draft.cron}
-                  onChange={(event) => set("cron", event.target.value)}
-                  placeholder="30 4 * * *"
-                  spellCheck={false}
-                  autoCapitalize="off"
-                  autoComplete="off"
-                  aria-invalid={Boolean(errorFor("cron")) || undefined}
-                  aria-describedby={messageId(ids("cron"))}
-                  className="font-mono"
-                />
-              </Field>
-            ) : null}
-
-            {isInterval ? (
-              <p className="text-sm text-muted-foreground">
-                {schedule?.lastRunAt ? t("form.intervalFromLastRun") : t("form.intervalStartsNow")}
-              </p>
-            ) : (
-              <Field
-                id={ids("timezone")}
-                label={t("form.timezone")}
-                hint={t("form.timezoneHint")}
-                error={errorFor("timezone")}
-              >
-                <TimezonePicker
-                  id={ids("timezone")}
-                  value={draft.timezone}
-                  onChange={(zone) => set("timezone", zone)}
-                  describedBy={messageId(ids("timezone"))}
-                />
-              </Field>
-            )}
-
-            <RunPreview
-              id={ids("preview")}
-              runs={runs}
-              loading={!isInterval && check.ok && (preview.isPending || preview.isPlaceholderData)}
-              refused={problem !== null && problem === previewProblem}
-              timeZone={isInterval ? undefined : draft.timezone}
-              language={language}
-            />
-          </fieldset>
+          <CadenceFields
+            idPrefix={ids("cadence")}
+            draft={draft}
+            onChange={(next) => setDraft((current) => ({ ...current, ...next }))}
+            attempted={attempted}
+            saveProblem={cadenceProblem}
+            lastRunAt={schedule?.lastRunAt ?? null}
+          />
 
           {scoped ? (
             <div className="space-y-3">
@@ -471,12 +224,12 @@ function ScheduleForm({ schedule, onDone, onSaved }: ScheduleFormProps) {
                 </div>
               </RadioGroup>
               {draft.scope === "object" ? (
-                <Field id={ids("object")} label={t("form.object")} error={errorFor("object")}>
+                <Field id={ids("object")} label={t("form.object")} error={objectError}>
                   <ScopePicker
                     id={ids("object")}
                     value={draft.object}
                     onChange={(object) => set("object", object)}
-                    invalid={Boolean(errorFor("object"))}
+                    invalid={Boolean(objectError)}
                     describedBy={messageId(ids("object"))}
                   />
                 </Field>
@@ -528,56 +281,5 @@ function ScheduleForm({ schedule, onDone, onSaved }: ScheduleFormProps) {
         }}
       />
     </>
-  );
-}
-
-interface RunPreviewProps {
-  id: string;
-  runs: Date[] | null;
-  loading: boolean;
-  /** The API refused the cadence (the reason shows at the field). */
-  refused: boolean;
-  timeZone: string | undefined;
-  language: string;
-}
-
-/** The next five runs, as the scheduler will run them. */
-function RunPreview({ id, runs, loading, refused, timeZone, language }: RunPreviewProps) {
-  const { t } = useTranslation("schedules");
-  const now = Date.now();
-  return (
-    <section
-      aria-labelledby={id}
-      aria-busy={loading || undefined}
-      className="rounded-lg border bg-muted/40 p-4"
-    >
-      <h3 id={id} className="text-sm font-medium">
-        {t("form.previewTitle")}
-      </h3>
-      {refused ? (
-        <p className="mt-2 text-sm text-muted-foreground">{t("form.previewRefused")}</p>
-      ) : runs === null && !loading ? (
-        <p className="mt-2 text-sm text-muted-foreground">{t("form.previewIncomplete")}</p>
-      ) : loading && runs === null ? (
-        <ul className="mt-2 space-y-2" aria-hidden="true">
-          {[0, 1, 2, 3, 4].map((index) => (
-            <li key={index}>
-              <Skeleton className="h-4 w-48" />
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <ol className={loading ? "mt-2 space-y-1 opacity-60" : "mt-2 space-y-1"}>
-          {(runs ?? []).map((run) => (
-            <li key={run.toISOString()} className="flex flex-wrap gap-x-2 text-sm tabular-nums">
-              <time dateTime={run.toISOString()}>{formatRun(run, language, timeZone)}</time>
-              <span className="text-muted-foreground">
-                {relativeLabel(run, now, language) ?? t("form.previewNow")}
-              </span>
-            </li>
-          ))}
-        </ol>
-      )}
-    </section>
   );
 }

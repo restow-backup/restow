@@ -9,6 +9,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  PIN_FIRST,
   Table,
   TableBody,
   TableCell,
@@ -20,7 +21,7 @@ import { ProgressBar } from "@/features/restore/components/progress-bar";
 import { formatDateTime, formatInteger, formatRelative } from "@/lib/format";
 import { ImportsForbidden, NoTenantSelected } from "../components/access-states";
 import { ImportStatusBadge } from "../components/status-badge";
-import { IMPORT_PATHS, importDetailTo, importTo } from "../paths";
+import { importDetailTo, importWizardTo } from "../paths";
 import { isLive, progressRatio } from "../presenters";
 import type { ImportSummary } from "../types";
 import { useImportList } from "../use-imports";
@@ -32,7 +33,7 @@ export function ImportsPage() {
   const { query, tenantId, canManage } = useImportList();
 
   const start = (
-    <Link to={importTo(IMPORT_PATHS.wizard)} className={buttonVariants({ size: "sm" })}>
+    <Link to={importWizardTo()} className={buttonVariants({ size: "sm" })}>
       <FileInput />
       {t("list.new")}
     </Link>
@@ -107,10 +108,10 @@ function ImportsTable({ imports }: { imports: readonly ImportSummary[] }) {
   const number = (value: number | null) => (value === null ? "–" : formatInteger(value, language));
 
   return (
-    <Table>
+    <Table scrollLabel={t("title")}>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          <TableHead>{t("list.columns.created")}</TableHead>
+          <TableHead pin={PIN_FIRST}>{t("list.columns.created")}</TableHead>
           <TableHead>{t("list.columns.name")}</TableHead>
           <TableHead>{t("list.columns.status")}</TableHead>
           <TableHead className="hidden text-right md:table-cell">
@@ -150,7 +151,7 @@ function ImportRow({
   const failed = entry.live?.failed ?? entry.failed;
   return (
     <TableRow>
-      <TableCell className="whitespace-nowrap">
+      <TableCell pin={PIN_FIRST} className="whitespace-nowrap">
         <Link
           to={importDetailTo(entry.id)}
           className="font-medium hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"

@@ -27,6 +27,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import {
+  PIN_FIRST,
   Table,
   TableBody,
   TableCell,
@@ -147,10 +148,10 @@ function WebhookList() {
             </p>
           </div>
         ) : (
-          <Table>
+          <Table className="min-w-[48rem]" scrollLabel={t("webhooks.title")}>
             <TableHeader>
               <TableRow>
-                <TableHead>{t("webhooks.columns.webhook")}</TableHead>
+                <TableHead pin={PIN_FIRST}>{t("webhooks.columns.webhook")}</TableHead>
                 <TableHead>{t("webhooks.columns.events")}</TableHead>
                 <TableHead>{t("webhooks.columns.health")}</TableHead>
                 <TableHead>{t("webhooks.columns.lastDelivery")}</TableHead>
@@ -226,7 +227,7 @@ function WebhookRow({
   const last = webhook.stats.lastDelivery;
   return (
     <TableRow>
-      <TableCell className="min-w-56 max-w-md">
+      <TableCell pin={PIN_FIRST} className="min-w-56 max-w-md">
         <Link
           to={webhookDetailTo(webhook.id)}
           className="font-medium underline-offset-4 hover:underline focus-visible:underline focus-visible:outline-none"

@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   addMemberSchema,
   countryCodeSchema,
+  createInternalTenantSchema,
   createTenantSchema,
   customerDataSchema,
+  markInternalTenantSchema,
   replaceNotificationRecipientsSchema,
   replaceTenantContactsSchema,
   tenantSlugSchema,
@@ -119,5 +121,37 @@ describe("countryCodeSchema / customerDataSchema time zone", () => {
   it("accepts a real IANA time zone and rejects a typo", () => {
     expect(customerDataSchema.safeParse({ timeZone: "Europe/Berlin" }).success).toBe(true);
     expect(customerDataSchema.safeParse({ timeZone: "Berlin" }).success).toBe(false);
+  });
+});
+
+describe("createInternalTenantSchema", () => {
+  it("takes a name, trimmed, and an optional slug", () => {
+    expect(createInternalTenantSchema.parse({ name: "  Müller IT  " })).toEqual({
+      name: "Müller IT",
+    });
+    expect(createInternalTenantSchema.parse({ name: "Müller IT", slug: "mueller" })).toEqual({
+      name: "Müller IT",
+      slug: "mueller",
+    });
+  });
+
+  it("refuses a missing, empty or too long name and a slug that is no slug", () => {
+    for (const bad of [{}, { name: "" }, { name: "   " }, { name: "x".repeat(201) }]) {
+      expect(createInternalTenantSchema.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
+    }
+    expect(createInternalTenantSchema.safeParse({ name: "A", slug: "Not A Slug" }).success).toBe(
+      false,
+    );
+    expect(createInternalTenantSchema.safeParse({ name: "x".repeat(200) }).success).toBe(true);
+  });
+});
+
+describe("markInternalTenantSchema", () => {
+  it("does not move the mark unless it is told to", () => {
+    expect(markInternalTenantSchema.parse({})).toEqual({ confirmSwitch: false });
+    expect(markInternalTenantSchema.parse({ confirmSwitch: true })).toEqual({
+      confirmSwitch: true,
+    });
+    expect(markInternalTenantSchema.safeParse({ confirmSwitch: "yes" }).success).toBe(false);
   });
 });

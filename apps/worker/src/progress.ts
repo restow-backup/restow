@@ -21,7 +21,9 @@ import {
   itemFailures,
   jobProgress,
   jobs,
+  recordRunSample,
   reportableError,
+  samplePoint,
   withoutQueryText,
 } from "@restow/db";
 import { and, desc, eq, inArray } from "drizzle-orm";
@@ -96,6 +98,9 @@ export class PgProgressSink implements ProgressSink {
     const { tenantId, jobId } = this.options;
     const { snapshot, failures } = update;
     const now = this.now();
+    // An engine that does not count what it read has read what it stored.
+    const bytesProcessed = Math.max(snapshot.bytesProcessed ?? 0, snapshot.bytes);
+    const bytesTransferred = snapshot.bytesTransferred ?? 0;
 
     const status = await this.options.run(async (tx) => {
       await tx
@@ -107,6 +112,8 @@ export class PgProgressSink implements ProgressSink {
           done: snapshot.done,
           failed: snapshot.failed,
           bytes: snapshot.bytes,
+          bytesProcessed,
+          bytesTransferred,
           etaSeconds: snapshot.etaSeconds,
         })
         .onConflictDoUpdate({
@@ -116,10 +123,19 @@ export class PgProgressSink implements ProgressSink {
             done: snapshot.done,
             failed: snapshot.failed,
             bytes: snapshot.bytes,
+            bytesProcessed,
+            bytesTransferred,
             etaSeconds: snapshot.etaSeconds,
             updatedAt: now,
           },
         });
+      // The throughput history of the run: one measurement per publish (the run drawer's charts).
+      await recordRunSample(
+        tx,
+        { tenantId, jobId },
+        samplePoint(now.getTime(), bytesProcessed, bytesTransferred),
+        { now },
+      );
 
       if (failures.length > 0) {
         await this.insertFailures(tx, failures, now, snapshot.phase);

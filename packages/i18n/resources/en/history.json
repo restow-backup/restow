@@ -1,0 +1,255 @@
+{
+  "title": "History",
+  "description": "Every run of this tenant, from the server and from the agents: backups, restores, restore checks, exports, imports and maintenance.",
+  "runTitle": "{kind} · {subject}",
+  "tabs": {
+    "label": "Kind of run",
+    "all": "All",
+    "backup": "Backup",
+    "restore": "Restore",
+    "restore_check": "Restore check",
+    "export": "Export",
+    "import": "Import",
+    "maintenance": "Maintenance"
+  },
+  "kind": {
+    "backup": "Backup",
+    "restore": "Restore",
+    "restore_check": "Restore check",
+    "export": "Export",
+    "import": "Import",
+    "maintenance": "Maintenance"
+  },
+  "type": {
+    "archive": "Archive sync",
+    "directory": "Directory sync",
+    "retention": "Retention run",
+    "scrub": "Storage check",
+    "storage_migration": "Storage migration"
+  },
+  "subject": {
+    "mailbox": "Mailbox",
+    "onedrive": "OneDrive",
+    "imap": "IMAP account",
+    "server": "Server",
+    "client": "Client"
+  },
+  "trigger": {
+    "scheduled": "Scheduled",
+    "manual": "Started by hand",
+    "after_backup": "After a backup"
+  },
+  "state": {
+    "queued": "Queued",
+    "running": "Running",
+    "succeeded": "Completed",
+    "restored": "Restored",
+    "partial": "Completed with failed items",
+    "failed": "Failed",
+    "cancelled": "Cancelled",
+    "incomplete": "Not completed, will be repeated"
+  },
+  "attempt": "Attempt {number} of {of}",
+  "restoreCheck": {
+    "passed": "Restore check passed",
+    "warning": "Restore check with warnings",
+    "failed": "Restore check failed",
+    "queued": "Restore check queued",
+    "running": "Restore check running",
+    "unverified": "Not checked yet",
+    "none": "No restore check"
+  },
+  "filter": {
+    "job": "Job",
+    "allJobs": "All jobs",
+    "unknownJob": "Another job"
+  },
+  "columns": {
+    "run": "Run",
+    "subject": "Object",
+    "status": "Status",
+    "progress": "Progress",
+    "started": "Started",
+    "duration": "Duration"
+  },
+  "row": {
+    "open": "Open {name}",
+    "full": "full backup",
+    "tenantWide": "Whole tenant",
+    "waiting": "Waiting to start",
+    "discovering": "Counting",
+    "items": "{done} of {total} items",
+    "itemsOpen": "{done} items so far",
+    "failedItems": "{count, plural, one {# item failed} other {# items failed}}",
+    "remaining": "{time} left"
+  },
+  "page": {
+    "refresh": "Refresh",
+    "table": "Runs",
+    "loadError": "The runs could not be loaded",
+    "empty": {
+      "title": "No runs yet",
+      "description": "A run appears here as soon as a backup, a restore, a restore check, an export or an import has been started."
+    },
+    "emptyFiltered": {
+      "title": "No runs match",
+      "description": "Nothing of this kind has run yet. Clear the filter to see every run.",
+      "descriptionJob": "Nothing of this kind has run for this job yet. Clear the filters to see every run."
+    },
+    "clearFilters": "Clear filters"
+  },
+  "units": {
+    "perSecond": "{value}/s"
+  },
+  "live": {
+    "label": "Live updates",
+    "connecting": "Connecting",
+    "open": "Live",
+    "reconnecting": "Not connected, retrying",
+    "closed": "Live updates are off",
+    "connectingHint": "Opening the live connection to the server.",
+    "openHint": "Progress, states and times update on their own. Nothing needs reloading.",
+    "reconnectingHint": "The connection to the server was lost. The pages refresh on their own, more slowly, until it is back.",
+    "closedHint": "The server did not open a live connection for this session. The pages refresh on their own.",
+    "updated": {
+      "now": "updated just now",
+      "seconds": "updated {count} s ago",
+      "minutes": "updated {count} min ago"
+    },
+    "countdown": "in {time}"
+  },
+  "chart": {
+    "processed": {
+      "title": "Processing",
+      "hint": "{unit} · read and checked at the source"
+    },
+    "transferred": {
+      "title": "Transfer to the repository",
+      "hint": "{unit} · after deduplication and compression · average over {seconds} s"
+    },
+    "now": "now",
+    "ago": "{time} ago",
+    "elapsed": "after {time}",
+    "averageOver": "average over {seconds} s",
+    "summary": {
+      "intro": "Throughput of {scope}.",
+      "recent": "the last 5 minutes",
+      "whole": "the whole run",
+      "processed": "Processing: now {current}, average {average}, peak {peak}.",
+      "transferred": "Transfer to the repository (average over {seconds} s): now {current}, average {average}, peak {peak}.",
+      "keys": "Use the left and right arrow keys to move through the measurements, Home and End to jump to the ends."
+    }
+  },
+  "view": {
+    "loadError": "The details of this run could not be loaded",
+    "progress": {
+      "label": "Progress",
+      "percent": "{percent} %",
+      "discovering": "Counting what is there",
+      "items": "{done} of {total} items",
+      "itemsOpen": "{done} items so far",
+      "reading": "Reading {path}",
+      "phase": "Step: {phase}"
+    },
+    "wave": {
+      "mailbox": "{done} of {total} mailboxes backed up",
+      "onedrive": "{done} of {total} OneDrives backed up",
+      "imap": "{done} of {total} IMAP accounts backed up",
+      "server": "{done} of {total} servers backed up",
+      "client": "{done} of {total} clients backed up",
+      "generic": "{done} of {total} runs finished"
+    },
+    "stats": {
+      "label": "Numbers of the run",
+      "summary": "Summary",
+      "data": "Data",
+      "result": "Result",
+      "duration": "Duration",
+      "speed": "Processing",
+      "averageSpeed": "Average speed",
+      "remaining": "Time left",
+      "about": "about {time}",
+      "ended": "Ended",
+      "processed": "Processed",
+      "new": "New or changed",
+      "transferred": "Transferred",
+      "saved": "{percent} % saved",
+      "backedUp": "Backed up",
+      "restoreCheck": "Restore check",
+      "checksPassed": "{passed} of {total} passed",
+      "failedItems": "Failed items",
+      "items": "Items"
+    },
+    "charts": {
+      "label": "Throughput",
+      "waiting": "The first measurements arrive in a few seconds.",
+      "none": "No measurements were kept for this run."
+    },
+    "objects": {
+      "mailboxes": "Mailboxes",
+      "machines": "Machines",
+      "empty": "No objects to show.",
+      "open": "Show the run of {name}",
+      "truncated": "More objects took part than are listed."
+    },
+    "log": {
+      "title": "Timeline",
+      "empty": "Nothing to show yet.",
+      "agent": "Agent log"
+    }
+  },
+  "events": {
+    "queued": "Queued",
+    "started": "Run started",
+    "startedFull": "Run started (full backup: everything is read again)",
+    "phase": "Step: {phase}",
+    "throttled": "Microsoft asked to slow down (status {status}), waiting {seconds} s",
+    "itemFailed": "{item}: {reason}",
+    "completedItems": "Completed: {written} of {total} items written",
+    "completedWithFailures": "Completed: {written} of {total} items written, {failed} failed",
+    "completed": "Completed",
+    "completedWithFailuresPlain": "Completed, {failed} failed",
+    "failed": "Failed",
+    "failedWithReason": "Failed: {reason}",
+    "cancelled": "Cancelled",
+    "agentError": "{message}",
+    "agentErrorPath": "{path}: {message}",
+    "finished": "Finished",
+    "finishedFiles": "Finished: {files} files new or changed",
+    "restore_check_queued": "Restore check queued",
+    "restore_check_running": "Restore check running",
+    "restore_check_passed": "Restore check passed",
+    "restore_check_warning": "Restore check with warnings",
+    "restore_check_failed": "Restore check failed"
+  },
+  "drawer": {
+    "title": "Run",
+    "loading": "Loading the run",
+    "close": "Close",
+    "since": "running since {time}",
+    "started": "started {time}",
+    "notFound": "This run does not exist any more, or it belongs to another tenant."
+  },
+  "actions": {
+    "cancel": "Cancel run",
+    "cancelTitle": "Cancel this run?",
+    "cancelBody": "{name} stops. What it has already stored stays; the next run continues from there.",
+    "cancelConfirm": "Cancel run",
+    "cancelKeep": "Keep running",
+    "cancelled": "The run was cancelled.",
+    "editJob": "Edit job",
+    "openInHistory": "Open in History",
+    "openMachine": "Open machine",
+    "runNow": "Run now",
+    "retry": "Retry",
+    "retried": "Queued again as {id}.",
+    "queued": "The backup was queued.",
+    "nothingQueued": "Nothing was queued: a backup of this object is already waiting or cannot run.",
+    "failed": "That did not work"
+  },
+  "detail": {
+    "back": "Back to History",
+    "loadError": "The run could not be loaded",
+    "notFound": "This run does not exist any more, or it belongs to another tenant."
+  }
+}

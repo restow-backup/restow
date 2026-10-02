@@ -2,6 +2,7 @@ import { StorageTargetError, installationDefaultStorage } from "@restow/core";
 import {
   type Database,
   auditLog,
+  backupJobs,
   jobProgress,
   jobs,
   legalHolds,
@@ -16,9 +17,10 @@ import {
   tenants,
   verifyReports,
 } from "@restow/db";
-import { type SQL, and, count, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { type SQL, and, count, desc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 import { notImported, snapshotNotImported } from "../../lib/imported-objects.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
+import { DEFAULT_STORAGE_AUDIT_ACTIONS } from "../settings/default-storage.js";
 import { SETTINGS_AUDIT_ACTIONS } from "../settings/service.js";
 import { STORAGE_AUDIT_ACTIONS } from "../storage/service.js";
 import type {
@@ -93,10 +95,39 @@ export function installationDefaultConfigured(env: NodeJS.ProcessEnv): boolean {
   }
 }
 
+/** The newest test of the installation's default storage, wherever it was recorded. */
+export interface DefaultStorageTest {
+  ok: boolean;
+  at: Date;
+}
+
+/**
+ * The newest test of the default storage recorded in the installation audit chain (no tenant;
+ * features/settings/default-storage.ts), which only the installation pool reads. It belongs to no
+ * tenant, but the default is every tenant without a target of its own, so it counts for all of them.
+ */
+export async function loadInstallationDefaultTest(
+  providerDb: Database,
+): Promise<DefaultStorageTest | null> {
+  const [row] = await providerDb
+    .select({
+      at: auditLog.createdAt,
+      ok: sql<string | null>`${auditLog.details}->>'ok'`,
+    })
+    .from(auditLog)
+    .where(
+      and(isNull(auditLog.tenantId), eq(auditLog.action, DEFAULT_STORAGE_AUDIT_ACTIONS.tested)),
+    )
+    .orderBy(desc(auditLog.createdAt))
+    .limit(1);
+  return row ? { ok: row.ok === "true", at: row.at } : null;
+}
+
 async function storageHealth(
   tx: Transaction,
   tenantId: string,
   env: NodeJS.ProcessEnv,
+  installationTest: DefaultStorageTest | null,
 ): Promise<StorageTargetHealth> {
   const [primary] = await tx
     .select({ status: storageTargets.status })
@@ -110,7 +141,8 @@ async function storageHealth(
     return { source: "installation_default", status: "misconfigured" };
   }
   // The default has no probe row of its own: data written to it proves it
-  // works; otherwise the latest explicit test of it decides.
+  // works; otherwise the latest explicit test of it decides, whether the
+  // tenant ran it from its storage page or the installation from its own page.
   const [written] = await tx
     .select({ id: packs.id })
     .from(packs)
@@ -119,8 +151,11 @@ async function storageHealth(
   if (written) {
     return { source: "installation_default", status: "ok" };
   }
-  const [test] = await tx
-    .select({ ok: sql<string | null>`${auditLog.details}->>'ok'` })
+  const [tenantTest] = await tx
+    .select({
+      ok: sql<string | null>`${auditLog.details}->>'ok'`,
+      at: auditLog.createdAt,
+    })
     .from(auditLog)
     .where(
       and(
@@ -130,16 +165,28 @@ async function storageHealth(
     )
     .orderBy(desc(auditLog.createdAt))
     .limit(1);
-  if (!test) {
+  const newest = [
+    tenantTest ? { ok: tenantTest.ok === "true", at: tenantTest.at } : null,
+    installationTest,
+  ].reduce<DefaultStorageTest | null>(
+    (latest, test) => (test && (!latest || test.at > latest.at) ? test : latest),
+    null,
+  );
+  if (!newest) {
     return { source: "installation_default", status: "unverified" };
   }
-  return { source: "installation_default", status: test.ok === "true" ? "ok" : "error" };
+  return { source: "installation_default", status: newest.ok ? "ok" : "error" };
 }
 
 export async function loadTenantFacts(
   db: Database,
   tenantId: string,
   env: NodeJS.ProcessEnv,
+  /**
+   * The installation-level test of the default storage (loadInstallationDefaultTest), read by the
+   * caller on the installation pool; null when there is none, or it could not be read.
+   */
+  installationTest: DefaultStorageTest | null,
 ): Promise<TenantFacts> {
   return withTenantTx(db, tenantId, async (tx) => {
     const kindRows = await tx
@@ -170,6 +217,8 @@ export async function loadTenantFacts(
       .groupBy(sources.status);
     const sourceCount = (status: string) => sourceRows.find((row) => row.status === status)?.n ?? 0;
 
+    // A backup runs on a schedule of an older release (one a job took over counts as the job's)
+    // or on a mail job that has a schedule.
     const [scheduleRow] = await tx
       .select({ n: count() })
       .from(schedules)
@@ -178,6 +227,18 @@ export async function loadTenantFacts(
           eq(schedules.tenantId, tenantId),
           eq(schedules.kind, "backup"),
           eq(schedules.enabled, true),
+          isNull(schedules.supersededByJobId),
+        ),
+      );
+    const [jobRow] = await tx
+      .select({ n: count() })
+      .from(backupJobs)
+      .where(
+        and(
+          eq(backupJobs.tenantId, tenantId),
+          eq(backupJobs.kind, "mail"),
+          eq(backupJobs.enabled, true),
+          isNotNull(backupJobs.schedule),
         ),
       );
 
@@ -239,7 +300,7 @@ export async function loadTenantFacts(
     const prunedSnapshots = snapshotRow?.pruned ?? 0;
     return {
       kinds,
-      storage: await storageHealth(tx, tenantId, env),
+      storage: await storageHealth(tx, tenantId, env, installationTest),
       setup: {
         sources: {
           active: sourceCount("active"),
@@ -247,7 +308,7 @@ export async function loadTenantFacts(
           pending: sourceCount("pending"),
         },
         activeObjects: kinds.mailbox + kinds.onedrive + kinds.imap,
-        enabledBackupSchedules: scheduleRow?.n ?? 0,
+        enabledBackupSchedules: (scheduleRow?.n ?? 0) + (jobRow?.n ?? 0),
         completedSnapshots: snapshotRow?.backups ?? 0,
         verification: { reports: reportRow?.reports ?? 0, green: reportRow?.green ?? 0 },
       },
@@ -279,15 +340,19 @@ function toIso(value: Date | null): string | null {
 // ---------------------------------------------------------------------------
 
 /**
- * Whether a notification transport is configured and how its latest test
- * send ended. The test sends are recorded in the installation audit chain
- * (no tenant), which only the installation pool reads.
+ * Whether a notification transport is configured, whether the operator marked
+ * the mail as not needed, and how the latest test send ended. The test sends
+ * are recorded in the installation audit chain (no tenant), which only the
+ * installation pool reads.
  */
 export async function loadMailFacts(
   db: Database,
   providerDb: Database,
 ): Promise<SetupFacts["mail"]> {
-  const [row] = await db.select({ transport: settings.mailTransport }).from(settings).limit(1);
+  const [row] = await db
+    .select({ transport: settings.mailTransport, notNeeded: settings.mailNotNeeded })
+    .from(settings)
+    .limit(1);
   const [test] = await providerDb
     .select({ ok: sql<string | null>`${auditLog.details}->>'ok'` })
     .from(auditLog)
@@ -297,6 +362,7 @@ export async function loadMailFacts(
   return {
     configured: Boolean(row?.transport),
     lastTestOk: test ? test.ok === "true" : null,
+    notNeeded: row?.notNeeded ?? false,
   };
 }
 

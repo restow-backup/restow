@@ -57,6 +57,8 @@ function tenantRow(status: "active" | "suspended") {
     organizationId: ORGANIZATION,
     name: "Contoso",
     slug: "contoso",
+    kind: "customer",
+    customerNumber: null,
     status,
     mailboxCap: null,
     scheduleDefaultsAppliedAt: null,
@@ -205,11 +207,6 @@ describe("customer data, contacts and notification recipients", () => {
       `/tenants/${TENANT}/contacts`,
       json([{ name: "Alice", isPrimary: true }], "PUT"),
     ],
-    [
-      "replace the notification recipients",
-      `/tenants/${TENANT}/notification-recipients`,
-      json([{ email: "ops@contoso.example", categories: [] }], "PUT"),
-    ],
   ];
 
   it.each(CUSTOMER_ROUTES)(
@@ -318,9 +315,12 @@ describe("customer data, contacts and notification recipients", () => {
   it("replaces the notification recipients and returns the new rows", async () => {
     signedIn(providerAdmin);
     const { app: hono, script } = app([
-      // The provider team lookup: no row, so an owner.
+      // The provider team lookup: no row, so an owner; then the tenant named in the path.
       [],
-      [{ id: TENANT, status: "active" }],
+      [tenantRow("active")],
+      [{ id: TENANT, status: "active", language: null, timeZone: null }],
+      // The recipients before, then the delete and the insert.
+      [],
       [],
       [
         {
@@ -333,6 +333,11 @@ describe("customer data, contacts and notification recipients", () => {
           notifyLicenseUpdates: false,
         },
       ],
+      // The rules follow: failed jobs get a rule, readiness has none and needs none.
+      [],
+      [],
+      [],
+      // The audit entry: the chain's last hash, then the insert.
       [],
       [{ id: "audit-3" }],
     ]);
@@ -347,11 +352,69 @@ describe("customer data, contacts and notification recipients", () => {
     expect(script.pending()).toBe(0);
   });
 
+  it("lets the tenant's own admin name the notification recipients, and read the tenant", async () => {
+    signedIn(tenantAdmin);
+    const { app: hono, script } = app([
+      // The admin's memberships, then the tenant named in the path.
+      [{ organizationId: ORGANIZATION, role: "admin" }],
+      [tenantRow("active")],
+      // replaceTenantNotificationRecipients: the tenant, the recipients before, the delete, the insert.
+      [{ id: TENANT, status: "active", language: null, timeZone: null }],
+      [],
+      [],
+      [
+        {
+          id: "recipient-1",
+          email: "ops@contoso.example",
+          name: null,
+          notifyJobFailures: false,
+          notifyWeeklyReport: false,
+          notifyReadinessRed: true,
+          notifyLicenseUpdates: false,
+        },
+      ],
+      // The rules follow: failed jobs have no recipient, readiness gets a rule.
+      [],
+      [],
+      [],
+      // The audit entry: the chain's last hash, then the insert.
+      [],
+      [{ id: "audit-4" }],
+    ]);
+    const res = await hono.request(
+      `/tenants/${TENANT}/notification-recipients`,
+      json([{ email: "ops@contoso.example", categories: ["readinessRed"] }], "PUT"),
+    );
+    expect(res.status).toBe(200);
+    expect(script.pending()).toBe(0);
+  });
+
+  it.each([
+    ["a plain member of the tenant", [{ organizationId: ORGANIZATION, role: "member" }], 403],
+    ["a person who is not a member of it", [{ organizationId: "org-other", role: "admin" }], 404],
+  ])("refuses the tenant detail and its recipients to %s", async (_who, memberships, status) => {
+    for (const [method, path, body] of [
+      ["GET", `/tenants/${TENANT}`, undefined],
+      [
+        "PUT",
+        `/tenants/${TENANT}/notification-recipients`,
+        [{ email: "ops@contoso.example", categories: ["jobFailures"] }],
+      ],
+    ] as const) {
+      signedIn(tenantAdmin);
+      const { app: hono, script } = app([memberships, [tenantRow("active")]]);
+      const res = await hono.request(path, body ? json(body, method) : { method });
+      expect(res.status, `${method} ${path}`).toBe(status);
+      expect(script.pending()).toBe(0);
+    }
+  });
+
   it("refuses duplicate recipient addresses (422) before the database is touched", async () => {
     signedIn(providerAdmin);
     const { app: hono, script } = app([
       // The provider team lookup: no row, so an owner.
       [],
+      [tenantRow("active")],
     ]);
     const res = await hono.request(
       `/tenants/${TENANT}/notification-recipients`,

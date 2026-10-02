@@ -24,6 +24,7 @@ function row(overrides: Partial<Schedule> = {}): Schedule {
     enabled: true,
     nextRunAt: new Date("2026-03-01T18:00:00Z"),
     lastRunAt: new Date("2026-03-01T10:00:00Z"),
+    supersededByJobId: null,
     createdAt: new Date("2026-02-01T00:00:00Z"),
     updatedAt: new Date("2026-02-02T00:00:00Z"),
     ...overrides,
@@ -48,6 +49,7 @@ describe("toScheduleDto", () => {
       nextRunAt: "2026-03-01T18:00:00.000Z",
       lastRunAt: "2026-03-01T10:00:00.000Z",
       lastJob: { id: "job-1", status: "failed", finishedAt: "2026-03-01T10:05:00.000Z" },
+      supersededByJobId: null,
       createdAt: "2026-02-01T00:00:00.000Z",
       updatedAt: "2026-02-02T00:00:00.000Z",
     });

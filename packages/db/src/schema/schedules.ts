@@ -30,7 +30,11 @@ export const scheduleKindEnum = pgEnum("schedule_kind", [
 ]);
 
 /**
- * Recurring job definitions evaluated by the scheduler. A schedule is either a
+ * Recurring schedules evaluated by the scheduler. Since 0.2.0 backup and
+ * restore-check schedules of a mail job live in `backup_jobs`; what stays here
+ * is the maintenance (retention run, storage check, directory sync, archive
+ * sync) and the schedules an older release made (`superseded_by_job_id` marks
+ * the ones a job took over). A schedule is either a
  * fixed interval (`intervalMinutes`) or a cron expression (`cron`, five fields,
  * evaluated in `timezone`) — exactly one of the two is set. `protectedObjectId`
  * narrows a schedule to one mailbox/drive; null means every active protected
@@ -55,6 +59,11 @@ export const schedules = pgTable(
     enabled: boolean("enabled").notNull().default(true),
     nextRunAt: timestamp("next_run_at", { withTimezone: true }),
     lastRunAt: timestamp("last_run_at", { withTimezone: true }),
+    // The backup job that took this schedule over (0.2.0, docs/ARCHITECTURE.md "Jobs"): the
+    // scheduler no longer plans it and the schedule API refuses to change it, but the row stays.
+    // A plain reference without a foreign key on purpose: deleting the job must never revive
+    // the schedule it replaced.
+    supersededByJobId: uuid("superseded_by_job_id"),
     ...timestamps(),
   },
   (t) => [

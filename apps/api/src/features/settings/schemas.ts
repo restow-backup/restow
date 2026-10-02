@@ -185,3 +185,7 @@ export const mailTestSchema = z
   })
   .strict();
 export type MailTestInput = z.infer<typeof mailTestSchema>;
+
+/** Body of `PUT /settings/mail/not-needed`: mark the notification mail as not needed, or take the mark back. */
+export const mailNotNeededSchema = z.object({ notNeeded: z.boolean() }).strict();
+export type MailNotNeededInput = z.infer<typeof mailNotNeededSchema>;

@@ -348,11 +348,16 @@ export function RuleFormDialog({
               id="rule-recipients"
               label={t("editor.recipients")}
               error={error("recipients")}
-              hint={t("editor.recipientsHint")}
+              hint={
+                rule?.recipientCategory ? t("editor.recipientsManaged") : t("editor.recipientsHint")
+              }
             >
               <Textarea
                 id="rule-recipients"
                 rows={3}
+                // The addresses of a rule that carries a category of the notification recipients
+                // are those recipients; they change on the Notifications page.
+                readOnly={Boolean(rule?.recipientCategory)}
                 value={form.recipientsText}
                 placeholder={t("editor.recipientsPlaceholder")}
                 aria-invalid={errors.recipients !== undefined}

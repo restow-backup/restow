@@ -94,7 +94,7 @@ afterEach(() => {
 describe("the consent callback redirect without a configured public URL", () => {
   it("stays on the origin the request arrived at, whatever the headers claim", async () => {
     const location = await redirectFor(null, FOREIGN_HEADERS);
-    expect(location).toBe(`/sources/${SOURCE}?consent=granted&tenant=${TENANT}`);
+    expect(location).toBe(`/tenants/${TENANT}/connections/sources/${SOURCE}?consent=granted`);
     expect(location).not.toContain("attacker.example");
   });
 
@@ -110,7 +110,7 @@ describe("the consent callback redirect with a configured public URL", () => {
   it("uses the public URL from the settings", async () => {
     const location = await redirectFor("https://restow.example.com/", FOREIGN_HEADERS);
     expect(location).toBe(
-      `https://restow.example.com/sources/${SOURCE}?consent=granted&tenant=${TENANT}`,
+      `https://restow.example.com/tenants/${TENANT}/connections/sources/${SOURCE}?consent=granted`,
     );
   });
 

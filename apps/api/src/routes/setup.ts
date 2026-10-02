@@ -6,6 +6,7 @@ import { type Config, config, missingRequiredConfig } from "../config.js";
 import { db, providerDb } from "../db.js";
 import { signInProvider } from "../extensions.js";
 import { resolveEntraApp } from "../features/sources/entra.js";
+import { ensureOwnOrganisation } from "../features/tenants/internal.js";
 import { AUDIT_ACTIONS, audit } from "../lib/audit.js";
 import { demoSeedTokenMatches, isConfiguredDemoCredentials } from "../lib/demo.js";
 import {
@@ -37,6 +38,7 @@ import { type PasskeyReadyResult, computePasskeyReady } from "../passkeyReady.js
 import { ProblemError } from "../problem.js";
 import {
   type MailSetup,
+  type SetupRequest,
   acceptDisclaimerSchema,
   parseOrProblem,
   readJsonBody,
@@ -52,6 +54,12 @@ import {
  * single `settings` row and the `providers` row and stores the SMTP password in
  * the encrypted secret store, all in one transaction that also sets
  * `settings.setup_completed_at`. Setups are serialized by an advisory lock.
+ * The operator's own organisation, a tenant of kind `internal` named after the
+ * operator and in the language the wizard's first step chose (`language`), is
+ * created right after that transaction committed (a failure there leaves the
+ * setup complete; the dashboard offers to create it). The mail transport is
+ * optional: without one `settings.mail_transport` stays null and the operator
+ * sets it up later in Settings.
  *
  * Once `setup_completed_at` is set the wizard is closed for good and `POST`
  * answers 409, whatever later happens to accounts or roles: a lost admin is
@@ -130,6 +138,12 @@ interface SetupResultResponse {
   adminCreated: boolean;
   /** The response carries a session cookie for the new admin when true. */
   signedIn: boolean;
+  /**
+   * The operator's own organisation, created from the name given. `created` is
+   * false when it could not be created: the setup is complete all the same, and
+   * the dashboard offers to create it (or to mark an existing tenant as it).
+   */
+  ownOrganisation: { created: boolean };
   testSend: { attempted: boolean; ok: boolean; error?: string };
 }
 
@@ -286,6 +300,82 @@ async function ensureProvider(tx: DbExecutor, name: string): Promise<void> {
   await tx.insert(providers).values({ name });
 }
 
+/**
+ * What may be logged and audited about a failure: a problem's type and detail,
+ * else the error's name and database code. Never its message, which for a
+ * failed query carries the statement and its bound values.
+ */
+function failureReason(error: unknown): string {
+  if (error instanceof ProblemError) {
+    return error.detail ? `${error.type}: ${error.detail}` : error.type;
+  }
+  if (error instanceof Error) {
+    const code = (error as { code?: unknown }).code;
+    return typeof code === "string" ? `${error.name} (${code})` : error.name;
+  }
+  return "unknown error";
+}
+
+/**
+ * The step after the setup transaction committed: the operator's own
+ * organisation, a tenant of kind `internal` named like the operator. The
+ * installation is complete without it, so a failure here is logged and written
+ * to the installation audit log, never turned into a failed setup: the
+ * dashboard offers to create it afterwards. Running it again changes nothing
+ * (features/tenants/internal.ts `ensureOwnOrganisation`).
+ */
+async function createOwnOrganisation(input: {
+  name: string;
+  language: SetupRequest["language"];
+  admin: { userId: string; email: string };
+  ip: string | null;
+}): Promise<{ created: boolean }> {
+  try {
+    await ensureOwnOrganisation(
+      db,
+      providerDb,
+      {
+        name: input.name,
+        alertEmail: input.admin.email,
+        ...(input.language ? { language: input.language } : {}),
+      },
+      { id: input.admin.userId, email: input.admin.email, ip: input.ip, isProviderAdmin: true },
+    );
+    return { created: true };
+  } catch (error) {
+    const reason = failureReason(error);
+    console.error(
+      JSON.stringify({
+        level: "error",
+        component: "setup",
+        message: "the own organisation could not be created after the setup",
+        reason,
+      }),
+    );
+    try {
+      await audit(providerDb, {
+        actor: input.admin.email,
+        actorUserId: input.admin.userId,
+        action: AUDIT_ACTIONS.setupInternalTenantFailed,
+        target: input.admin.userId,
+        targetType: "installation",
+        ip: input.ip,
+        details: { name: input.name, reason },
+      });
+    } catch (auditError) {
+      console.error(
+        JSON.stringify({
+          level: "error",
+          component: "setup",
+          message: "the failure to create the own organisation could not be audited",
+          reason: failureReason(auditError),
+        }),
+      );
+    }
+    return { created: false };
+  }
+}
+
 /** Sign the new admin in and return the cookies to forward; null when it fails. */
 async function signInCookies(
   requestHeaders: Headers,
@@ -405,8 +495,9 @@ setup.post("/", async (c) => {
     operatingMode: input.operatingMode,
     publicUrl,
     passkeyReady: passkeyReady.ready,
-    mailTransport: input.mail.transport,
-    mailConfig: toMailConfig(input.mail),
+    // Null while the operator skips the mail step: nothing sends mail until Settings has a transport.
+    mailTransport: input.mail?.transport ?? null,
+    mailConfig: input.mail ? toMailConfig(input.mail) : null,
     setupCompletedAt: new Date(),
   };
 
@@ -451,9 +542,8 @@ setup.post("/", async (c) => {
           setupCompletedAt: values.setupCompletedAt,
         },
       });
-    // Without a name of their own the operator row carries the product name.
-    await ensureProvider(tx, input.providerName ?? config.productName);
-    if (input.mail.transport === "smtp" && input.mail.smtp.password) {
+    await ensureProvider(tx, input.providerName);
+    if (input.mail?.transport === "smtp" && input.mail.smtp.password) {
       await upsertProviderSecret(tx, "smtp_password", input.mail.smtp.password);
     }
     await audit(tx, {
@@ -466,7 +556,7 @@ setup.post("/", async (c) => {
       details: {
         operatingMode: input.operatingMode,
         publicUrl,
-        mailTransport: input.mail.transport,
+        mailTransport: input.mail?.transport ?? null,
         passkeyReady: passkeyReady.ready,
         adminCreated: claimed.created,
       },
@@ -475,6 +565,14 @@ setup.post("/", async (c) => {
   });
   // The setup is done: the token has served its purpose.
   retireSetupToken();
+
+  // The operator's own organisation, now that the installation and its first admin exist.
+  const ownOrganisation = await createOwnOrganisation({
+    name: input.providerName,
+    language: input.language,
+    admin: { userId: admin.userId, email: adminEmail },
+    ip,
+  });
 
   const cookies = await signInCookies(
     c.req.raw.headers,
@@ -490,13 +588,15 @@ setup.post("/", async (c) => {
     passkeyReady,
     adminCreated: admin.created,
     signedIn: cookies !== null,
+    ownOrganisation,
     testSend: { attempted: false, ok: false },
   };
 
-  if (input.sendTest) {
+  // The schema refuses a test message without a transport; the check keeps the types honest.
+  if (input.sendTest && input.mail) {
     const sent = await (await notifierFromSetup(input.mail)).sendTest(
       input.firstAdmin.email,
-      requestLanguage(c),
+      input.language ?? requestLanguage(c),
     );
     result.testSend = { attempted: true, ok: sent.ok, error: sent.error };
   }

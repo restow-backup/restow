@@ -15,6 +15,7 @@ import {
   detectS3ObjectLock,
   inspectLocalPath,
   installationDefaultStorage,
+  installationProbePrefix,
   openStorageLocation,
   openStorageTarget,
   parseS3CredentialsSecret,
@@ -515,6 +516,11 @@ describe("probeStorageBackend", () => {
     expect(result.failedStep).toBeNull();
     expect(store.files.size).toBe(0);
     expect(prefix).toBe(`tenants/${TENANT}/probes/`);
+  });
+
+  it("keeps the installation's own probe area apart from every tenant's", () => {
+    expect(installationProbePrefix()).toBe("installation/probes/");
+    expect(installationProbePrefix().startsWith("tenants/")).toBe(false);
   });
 
   it("stops at a failing write with a classified error", async () => {

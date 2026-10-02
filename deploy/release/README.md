@@ -9,8 +9,8 @@ Every release comes in two builds. Pick one and use both of its images:
 
 | Build | `RESTOW_IMAGE` | `RESTOW_WEB_IMAGE` | Contains |
 | --- | --- | --- | --- |
-| full | `ghcr.io/restow-backup/restow:0.1.0` | `ghcr.io/restow-backup/restow-web:0.1.0` | the Apache-2.0 core plus the Business and Service Provider modules (Restow Enterprise License), which stay locked until a license key is installed |
-| Community | `ghcr.io/restow-backup/restow-community:0.1.0` | `ghcr.io/restow-backup/restow-web-community:0.1.0` | the Apache-2.0 core only: every backup source and every restore, for one tenant |
+| full | `ghcr.io/restow-backup/restow:0.2.0` | `ghcr.io/restow-backup/restow-web:0.2.0` | the Apache-2.0 core plus the Business and Service Provider modules (Restow Enterprise License), which stay locked until a license key is installed |
+| Community | `ghcr.io/restow-backup/restow-community:0.2.0` | `ghcr.io/restow-backup/restow-web-community:0.2.0` | the Apache-2.0 core only: every backup source and every restore, for one tenant |
 
 Take the full build if you may want the Business or Service Provider features later: a
 license key unlocks them without changing images. Take the Community build if you want the
@@ -23,7 +23,7 @@ steps below for you in `/opt/restow`: it installs Docker from Docker's signed ap
 if needed, checks these two files against the release's signed `SHA256SUMS`, generates the
 secrets into `.env` (mode 0600), checks the images' cosign signatures and starts the stack. See
 [Install with the script](../../README.md#install-with-the-script-recommended) and the
-[platform recommendations](../../README.md#platform-recommendations). By hand:
+[requirements](../../README.md#requirements). By hand:
 
 ```sh
 cp env.example .env      # a repository checkout calls it .env.example; fill in the required values
@@ -34,8 +34,8 @@ curl -fsS http://127.0.0.1:3000/healthz
 (The release assets carry the same two files as `docker-compose.yml` and `env.example`, and
 the install script as `install.sh` with `install.sh.sha256`; all of them are listed in the
 signed `SHA256SUMS`.)
-`RESTOW_APP_DOMAIN` is required. Open `RESTOW_PUBLIC_URL` to run the setup wizard; its first
-step asks for the one-time setup token the api prints to its log until the setup is complete
+`RESTOW_APP_DOMAIN` is required. Open `RESTOW_PUBLIC_URL` to run the setup wizard; it asks for
+the language first, then for the one-time setup token the api prints to its log until the setup is complete
 (`docker compose logs api | grep 'SETUP TOKEN'`), or the value of `RESTOW_SETUP_TOKEN` when you
 set one in `.env`. Back up `RESTOW_MASTER_KEY` offline before the first real backup. If the
 last owner loses their passkey, authenticator app or password, recover the access with
@@ -43,6 +43,11 @@ last owner loses their passkey, authenticator app or password, recover the acces
 [README](../../README.md#recovering-administrator-access)). For a local evaluation set
 `RESTOW_APP_DOMAIN=localhost` and `RESTOW_PUBLIC_URL=https://localhost`; Caddy then uses a
 certificate from its own local authority, which your browser will not trust until you accept it.
+Behind a reverse proxy that holds the name and the certificate (from 0.2.0), set
+`RESTOW_APP_DOMAIN=<name>`, `RESTOW_EDGE_TLS=internal` and `RESTOW_EDGE_TRUSTED_PROXIES=<proxy address>/32`
+(and `RESTOW_HTTP_PORT=127.0.0.1:` to leave port 80 alone) and let the proxy forward to
+`https://<this host>:443`; the install script's `--behind-proxy` does this, see the
+[README](../../README.md#behind-a-reverse-proxy).
 
 The archive's Exchange Online journal receiver (Business and Service Provider) is off until
 `JOURNAL_SMTP_PORT` is set (25 for Exchange Online, with `JOURNAL_SMTP_BIND=0.0.0.0` so that it is
@@ -69,7 +74,7 @@ Every image of a release is signed with cosign (keyless, GitHub OIDC). For the C
 build, verify `restow-community` and `restow-web-community` the same way:
 
 ```sh
-cosign verify ghcr.io/restow-backup/restow:0.1.0 \
+cosign verify ghcr.io/restow-backup/restow:0.2.0 \
   --certificate-identity-regexp '^https://github.com/restow-backup/restow/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```

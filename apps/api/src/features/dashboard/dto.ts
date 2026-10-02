@@ -31,6 +31,7 @@ export type WidgetResult<T> = { state: "ok"; data: T } | { state: "error" };
 
 export type Readiness = "green" | "yellow" | "red";
 export type TenantStatus = "active" | "suspended" | "deleting";
+export type TenantKind = "customer" | "internal";
 
 // ---------------------------------------------------------------------------
 // Tenant widgets
@@ -185,8 +186,12 @@ export type SetupItemId = (typeof SETUP_ITEM_IDS)[number];
 
 export interface SetupItemDto {
   id: SetupItemId;
-  /** `attention`: something is set up but broken (failed probe, source error, failed test mail). */
-  state: "done" | "open" | "attention";
+  /**
+   * `attention`: something is set up but broken (failed probe, source error, failed test mail).
+   * `not_needed`: an optional step the installation does not want (see `reason`); it counts as
+   * settled, like `done`.
+   */
+  state: "done" | "open" | "attention" | "not_needed";
   /** Machine-readable detail for the page, e.g. `target_error`; null when the state says it all. */
   reason: string | null;
   /** The viewer's role may fix this item; otherwise it is shown as information. */
@@ -194,7 +199,9 @@ export interface SetupItemDto {
 }
 
 export interface SetupWidget {
+  /** Every item is settled: done, or not needed. */
   complete: boolean;
+  /** Items settled so far (done, or not needed). */
   done: number;
   total: number;
   items: SetupItemDto[];
@@ -271,6 +278,8 @@ interface ProviderTenantRowBase {
   name: string;
   slug: string;
   status: TenantStatus;
+  /** `internal`: the operator's own organisation, which is not one of the provider's customers. */
+  kind: TenantKind;
   /** Protected mailboxes (counted with the mailbox usage, so known even when the figures are not). */
   mailboxes: number;
   /** The cap the provider agreed with this customer; null = none. Never enforced. */
@@ -283,9 +292,12 @@ export interface LoadedTenantRowDto extends ProviderTenantRowBase {
   /** Worst rating over the tenant's objects; null without protected objects. */
   readiness: Readiness | null;
   protectedObjects: number;
+  /** Objects by state, as the recovery-readiness page rates them (they add up to the objects rated). */
+  ready: number;
+  needsAttention: number;
+  notRestorable: number;
   unverified: number;
   noBackup: number;
-  notRestorable: number;
   /** Jobs of any kind that ended failed in the last 24 hours. */
   failures24h: number;
   /** The same count for the 24 hours before, for the trend. */
@@ -304,9 +316,11 @@ export interface UnavailableTenantRowDto extends ProviderTenantRowBase {
   loaded: false;
   readiness: null;
   protectedObjects: null;
+  ready: null;
+  needsAttention: null;
+  notRestorable: null;
   unverified: null;
   noBackup: null;
-  notRestorable: null;
   failures24h: null;
   failuresPrevious24h: null;
   lastBackupAt: null;
@@ -346,12 +360,26 @@ export interface ProviderAlertDto {
  * complete. Tenants and mailboxes are always complete.
  */
 export interface ProviderKpisDto {
+  /** The provider's customers: the operator's own organisation (`kind = internal`) is not counted. */
   tenants: number;
+  /** Suspended customers. */
   suspendedTenants: number;
   /** Tenants whose figures could not be read and are left out of the sums below. */
   unavailableTenants: number;
-  /** Tenants whose overall readiness is red (something cannot be restored or is unproven). */
+  /** Customers whose overall readiness is red (something cannot be restored or is unproven). */
   tenantsNotReady: number;
+  /**
+   * The objects of every tenant that could be read, the operator's own organisation included
+   * (it is protected like any other), by state: the sum behind the readiness tile.
+   */
+  readiness: {
+    total: number;
+    green: number;
+    yellow: number;
+    red: number;
+    unverified: number;
+    noBackup: number;
+  };
   protectedObjects: number;
   unverifiedObjects: number;
   failures24h: number;

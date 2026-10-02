@@ -4,21 +4,32 @@
  * in German and English without a missing translation key.
  *
  * The setup and the authenticator enrolment of the first administrator go over
- * the API (the emergency path every later check signs in with); the browser
- * then does what a person does: emergency sign-in, register a passkey, sign out,
- * sign in with the passkey, create a tenant, walk through the screens.
+ * the API (the emergency path every later check signs in with); the setup also
+ * creates the operator's own organisation, the installation's first tenant (kind
+ * internal, listed first), which this check proves. The browser then does what a
+ * person does: emergency sign-in, register a passkey, sign out, sign in with the
+ * passkey, create a tenant (a customer, next to the own organisation), walk
+ * through the screens.
  *
  * Between the setup and the browser, the build decides: the full build gets a
  * Service Provider license key (lib/license.mjs), installed the way an operator
  * does it, and the api is restarted because the journal receiver reads its
- * capability at start (check 6). The Community build has no license API at all,
- * and after the browser created its one tenant a second one is refused.
+ * capability at start (check 6). The Community build has no license API at all:
+ * its one tenant is the own organisation, the browser creates none, and a
+ * second tenant is refused.
  */
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { run } from "../lib/exec.mjs";
 import { installLicenseKey } from "../lib/license.mjs";
-import { ADMIN, installationTenant, setUpInstallation } from "../lib/restow.mjs";
+import {
+  ADMIN,
+  OWN_ORGANISATION,
+  installationTenant,
+  listTenants,
+  ownOrganisationOf,
+  setUpInstallation,
+} from "../lib/restow.mjs";
 
 const FEATURE_UNAVAILABLE = "urn:restow:problem:feature-unavailable";
 
@@ -33,6 +44,31 @@ export async function passkey(ctx, check) {
     ctx.totpSecret = result.totpSecret;
     return `passkey gate open for ${result.setup.passkeyReady.origin}`;
   });
+
+  await check.step(
+    "the setup created the operator's own organisation: one tenant of kind internal, named as given",
+    async () => {
+      const tenants = await listTenants(ctx.api);
+      const own = ownOrganisationOf(tenants);
+      if (tenants.length !== 1 || !own) {
+        throw new Error(
+          `the installation has ${tenants.length} tenants (${tenants.map((tenant) => `${tenant.slug}:${tenant.kind}`).join(", ")}), expected exactly the own organisation`,
+        );
+      }
+      if (own.name !== OWN_ORGANISATION.name || own.slug !== OWN_ORGANISATION.slug) {
+        throw new Error(
+          `the own organisation is ${JSON.stringify([own.name, own.slug])}, expected ${JSON.stringify([OWN_ORGANISATION.name, OWN_ORGANISATION.slug])}`,
+        );
+      }
+      const me = await ctx.api.get("/api/v1/me");
+      if (me.tenants?.[0]?.id !== own.id || me.tenants[0].kind !== "internal") {
+        throw new Error(
+          `the profile does not list the own organisation first: ${JSON.stringify(me.tenants)}`,
+        );
+      }
+      return `${own.slug} (kind ${own.kind}), first in the profile's tenants`;
+    },
+  );
 
   const community = ctx.options.variant === "community";
   if (community) {
@@ -113,6 +149,9 @@ export async function passkey(ctx, check) {
       `TENANT_NAME=${E2E_TENANT.name}`,
       "-e",
       `TENANT_SLUG=${E2E_TENANT.slug}`,
+      // The Community build has its one tenant already (the own organisation): no wizard to run.
+      "-e",
+      `TENANT_WIZARD=${community ? "skip" : "run"}`,
       "-e",
       `HOST_UID=${uid}`,
       "-e",
@@ -146,12 +185,30 @@ export async function passkey(ctx, check) {
       failed += 1;
     }
   }
-  ctx.e2eTenantSlug = E2E_TENANT.slug;
+  if (!community) {
+    await check.step(
+      "the tenant created in the browser is a customer, listed after the own organisation",
+      async () => {
+        const tenants = await listTenants(ctx.api);
+        const slugs = tenants.map((tenant) => `${tenant.slug}:${tenant.kind}`);
+        const created = tenants.find((tenant) => tenant.slug === E2E_TENANT.slug);
+        if (!created) {
+          // The browser steps report why; this check has nothing more to say about a missing tenant.
+          return `${E2E_TENANT.slug} was not created (the browser steps say why)`;
+        }
+        if (created.kind !== "customer" || tenants[0]?.kind !== "internal") {
+          throw new Error(
+            `expected the own organisation first and ${E2E_TENANT.slug} as a customer, got ${slugs.join(", ")}`,
+          );
+        }
+        return slugs.join(", ");
+      },
+    );
+  }
   if (community) {
     await check.step(
-      "the Community build keeps one tenant: a second one is refused (403 feature-unavailable)",
+      "the Community build keeps one tenant, its own organisation: a second one is refused (403 feature-unavailable)",
       async () => {
-        // The browser created the first tenant; when it could not, the API creates it here.
         const tenant = await installationTenant(ctx);
         const response = await ctx.api.request("POST", "/api/v1/tenants", {
           body: { name: "Smoke Second Tenant", slug: "smoke-second" },
@@ -161,7 +218,7 @@ export async function passkey(ctx, check) {
             `creating a second tenant answered ${response.status} ${JSON.stringify(response.body?.type ?? response.body)}, expected 403 ${FEATURE_UNAVAILABLE}`,
           );
         }
-        return `the one tenant is ${tenant.slug}; a second answered 403 ${FEATURE_UNAVAILABLE}`;
+        return `the one tenant is the own organisation ${tenant.slug}; a second answered 403 ${FEATURE_UNAVAILABLE}`;
       },
     );
   }

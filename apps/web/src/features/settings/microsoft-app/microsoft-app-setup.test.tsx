@@ -21,7 +21,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
   return {
     ...actual,
     Link: ({ className, children }: { className?: string; children: React.ReactNode }) => (
-      <a href="/settings" className={className}>
+      <a href="/installation/microsoft-app" className={className}>
         {children}
       </a>
     ),

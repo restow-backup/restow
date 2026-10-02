@@ -1,0 +1,255 @@
+{
+  "title": "Verlauf",
+  "description": "Jeder Lauf dieses Mandanten, vom Server und von den Agents: Sicherungen, Wiederherstellungen, Restore-Prüfungen, Exporte, Importe und Wartung.",
+  "runTitle": "{kind} · {subject}",
+  "tabs": {
+    "label": "Art des Laufs",
+    "all": "Alle",
+    "backup": "Sicherung",
+    "restore": "Wiederherstellung",
+    "restore_check": "Restore-Prüfung",
+    "export": "Export",
+    "import": "Import",
+    "maintenance": "Wartung"
+  },
+  "kind": {
+    "backup": "Sicherung",
+    "restore": "Wiederherstellung",
+    "restore_check": "Restore-Prüfung",
+    "export": "Export",
+    "import": "Import",
+    "maintenance": "Wartung"
+  },
+  "type": {
+    "archive": "Archiv-Sync",
+    "directory": "Verzeichnis-Sync",
+    "retention": "Aufbewahrungslauf",
+    "scrub": "Speicherprüfung",
+    "storage_migration": "Speichermigration"
+  },
+  "subject": {
+    "mailbox": "Postfach",
+    "onedrive": "OneDrive",
+    "imap": "IMAP-Konto",
+    "server": "Server",
+    "client": "Client"
+  },
+  "trigger": {
+    "scheduled": "Nach Zeitplan",
+    "manual": "Von Hand gestartet",
+    "after_backup": "Nach einer Sicherung"
+  },
+  "state": {
+    "queued": "Wartend",
+    "running": "Läuft",
+    "succeeded": "Abgeschlossen",
+    "restored": "Wiederhergestellt",
+    "partial": "Abgeschlossen mit fehlgeschlagenen Elementen",
+    "failed": "Fehlgeschlagen",
+    "cancelled": "Abgebrochen",
+    "incomplete": "Nicht abgeschlossen, wird wiederholt"
+  },
+  "attempt": "Versuch {number} von {of}",
+  "restoreCheck": {
+    "passed": "Restore-Prüfung bestanden",
+    "warning": "Restore-Prüfung mit Warnungen",
+    "failed": "Restore-Prüfung fehlgeschlagen",
+    "queued": "Restore-Prüfung eingereiht",
+    "running": "Restore-Prüfung läuft",
+    "unverified": "Noch nicht geprüft",
+    "none": "Keine Restore-Prüfung"
+  },
+  "filter": {
+    "job": "Job",
+    "allJobs": "Alle Jobs",
+    "unknownJob": "Anderer Job"
+  },
+  "columns": {
+    "run": "Lauf",
+    "subject": "Objekt",
+    "status": "Status",
+    "progress": "Fortschritt",
+    "started": "Gestartet",
+    "duration": "Dauer"
+  },
+  "row": {
+    "open": "{name} öffnen",
+    "full": "volle Sicherung",
+    "tenantWide": "Ganzer Mandant",
+    "waiting": "Wartet auf den Start",
+    "discovering": "Zählt",
+    "items": "{done} von {total} Elementen",
+    "itemsOpen": "{done} Elemente bisher",
+    "failedItems": "{count, plural, one {# Element fehlgeschlagen} other {# Elemente fehlgeschlagen}}",
+    "remaining": "noch {time}"
+  },
+  "page": {
+    "refresh": "Aktualisieren",
+    "table": "Läufe",
+    "loadError": "Die Läufe konnten nicht geladen werden",
+    "empty": {
+      "title": "Noch keine Läufe",
+      "description": "Ein Lauf erscheint hier, sobald eine Sicherung, eine Wiederherstellung, eine Restore-Prüfung, ein Export oder ein Import gestartet wurde."
+    },
+    "emptyFiltered": {
+      "title": "Keine passenden Läufe",
+      "description": "Es ist noch nichts dieser Art gelaufen. Setzen Sie den Filter zurück, um alle Läufe zu sehen.",
+      "descriptionJob": "Für diesen Job ist noch nichts dieser Art gelaufen. Setzen Sie die Filter zurück, um alle Läufe zu sehen."
+    },
+    "clearFilters": "Filter zurücksetzen"
+  },
+  "units": {
+    "perSecond": "{value}/s"
+  },
+  "live": {
+    "label": "Live-Aktualisierung",
+    "connecting": "Verbindet",
+    "open": "Live",
+    "reconnecting": "Nicht verbunden, versuche erneut",
+    "closed": "Live-Aktualisierung ist aus",
+    "connectingHint": "Die Live-Verbindung zum Server wird aufgebaut.",
+    "openHint": "Fortschritt, Zustände und Zeiten aktualisieren sich selbst. Neu laden ist nicht nötig.",
+    "reconnectingHint": "Die Verbindung zum Server ist abgebrochen. Die Seiten aktualisieren sich selbst, langsamer, bis sie wieder steht.",
+    "closedHint": "Der Server hat für diese Sitzung keine Live-Verbindung geöffnet. Die Seiten aktualisieren sich selbst.",
+    "updated": {
+      "now": "gerade aktualisiert",
+      "seconds": "vor {count} Sek. aktualisiert",
+      "minutes": "vor {count} Min. aktualisiert"
+    },
+    "countdown": "in {time}"
+  },
+  "chart": {
+    "processed": {
+      "title": "Verarbeitung",
+      "hint": "{unit} · an der Quelle gelesen und geprüft"
+    },
+    "transferred": {
+      "title": "Übertragung ins Repository",
+      "hint": "{unit} · nach Deduplizierung und Kompression · Durchschnitt über {seconds} s"
+    },
+    "now": "jetzt",
+    "ago": "vor {time}",
+    "elapsed": "nach {time}",
+    "averageOver": "Durchschnitt über {seconds} s",
+    "summary": {
+      "intro": "Durchsatz {scope}.",
+      "recent": "der letzten 5 Minuten",
+      "whole": "des gesamten Laufs",
+      "processed": "Verarbeitung: jetzt {current}, Mittel {average}, Spitze {peak}.",
+      "transferred": "Übertragung ins Repository (Durchschnitt über {seconds} s): jetzt {current}, Mittel {average}, Spitze {peak}.",
+      "keys": "Mit den Pfeiltasten links und rechts gehen Sie durch die Messpunkte, mit Pos1 und Ende springen Sie an die Enden."
+    }
+  },
+  "view": {
+    "loadError": "Die Einzelheiten dieses Laufs konnten nicht geladen werden",
+    "progress": {
+      "label": "Fortschritt",
+      "percent": "{percent} %",
+      "discovering": "Zählt, was da ist",
+      "items": "{done} von {total} Elementen",
+      "itemsOpen": "{done} Elemente bisher",
+      "reading": "Liest {path}",
+      "phase": "Schritt: {phase}"
+    },
+    "wave": {
+      "mailbox": "{done} von {total} Postfächern gesichert",
+      "onedrive": "{done} von {total} OneDrives gesichert",
+      "imap": "{done} von {total} IMAP-Konten gesichert",
+      "server": "{done} von {total} Servern gesichert",
+      "client": "{done} von {total} Clients gesichert",
+      "generic": "{done} von {total} Läufen beendet"
+    },
+    "stats": {
+      "label": "Zahlen des Laufs",
+      "summary": "Zusammenfassung",
+      "data": "Daten",
+      "result": "Ergebnis",
+      "duration": "Dauer",
+      "speed": "Verarbeitung",
+      "averageSpeed": "Mittlere Geschwindigkeit",
+      "remaining": "Restzeit",
+      "about": "ca. {time}",
+      "ended": "Ende",
+      "processed": "Verarbeitet",
+      "new": "Neu oder geändert",
+      "transferred": "Übertragen",
+      "saved": "{percent} % gespart",
+      "backedUp": "Gesichert",
+      "restoreCheck": "Restore-Prüfung",
+      "checksPassed": "{passed} von {total} bestanden",
+      "failedItems": "Fehlgeschlagene Elemente",
+      "items": "Elemente"
+    },
+    "charts": {
+      "label": "Durchsatz",
+      "waiting": "Die ersten Messpunkte kommen in wenigen Sekunden.",
+      "none": "Für diesen Lauf wurden keine Messpunkte aufbewahrt."
+    },
+    "objects": {
+      "mailboxes": "Postfächer",
+      "machines": "Rechner",
+      "empty": "Keine Objekte anzuzeigen.",
+      "open": "Lauf von {name} anzeigen",
+      "truncated": "Es waren mehr Objekte beteiligt, als aufgelistet sind."
+    },
+    "log": {
+      "title": "Ablauf",
+      "empty": "Noch nichts anzuzeigen.",
+      "agent": "Agent-Protokoll"
+    }
+  },
+  "events": {
+    "queued": "Eingereiht",
+    "started": "Lauf gestartet",
+    "startedFull": "Lauf gestartet (volle Sicherung: alles wird neu gelesen)",
+    "phase": "Schritt: {phase}",
+    "throttled": "Microsoft bat um Verlangsamung (Status {status}), wartet {seconds} Sek.",
+    "itemFailed": "{item}: {reason}",
+    "completedItems": "Abgeschlossen: {written} von {total} Elementen geschrieben",
+    "completedWithFailures": "Abgeschlossen: {written} von {total} Elementen geschrieben, {failed} fehlgeschlagen",
+    "completed": "Abgeschlossen",
+    "completedWithFailuresPlain": "Abgeschlossen, {failed} fehlgeschlagen",
+    "failed": "Fehlgeschlagen",
+    "failedWithReason": "Fehlgeschlagen: {reason}",
+    "cancelled": "Abgebrochen",
+    "agentError": "{message}",
+    "agentErrorPath": "{path}: {message}",
+    "finished": "Beendet",
+    "finishedFiles": "Beendet: {files} Dateien neu oder geändert",
+    "restore_check_queued": "Restore-Prüfung eingereiht",
+    "restore_check_running": "Restore-Prüfung läuft",
+    "restore_check_passed": "Restore-Prüfung bestanden",
+    "restore_check_warning": "Restore-Prüfung mit Warnungen",
+    "restore_check_failed": "Restore-Prüfung fehlgeschlagen"
+  },
+  "drawer": {
+    "title": "Lauf",
+    "loading": "Lauf wird geladen",
+    "close": "Schließen",
+    "since": "läuft seit {time}",
+    "started": "gestartet {time}",
+    "notFound": "Diesen Lauf gibt es nicht mehr, oder er gehört zu einem anderen Mandanten."
+  },
+  "actions": {
+    "cancel": "Lauf abbrechen",
+    "cancelTitle": "Diesen Lauf abbrechen?",
+    "cancelBody": "{name} wird beendet. Was schon gespeichert ist, bleibt; der nächste Lauf macht dort weiter.",
+    "cancelConfirm": "Lauf abbrechen",
+    "cancelKeep": "Weiterlaufen lassen",
+    "cancelled": "Der Lauf wurde abgebrochen.",
+    "editJob": "Job bearbeiten",
+    "openInHistory": "Im Verlauf öffnen",
+    "openMachine": "Rechner öffnen",
+    "runNow": "Jetzt ausführen",
+    "retry": "Wiederholen",
+    "retried": "Erneut eingereiht als {id}.",
+    "queued": "Die Sicherung wurde eingereiht.",
+    "nothingQueued": "Nichts eingereiht: Eine Sicherung dieses Objekts wartet schon oder kann nicht laufen.",
+    "failed": "Das hat nicht geklappt"
+  },
+  "detail": {
+    "back": "Zurück zum Verlauf",
+    "loadError": "Der Lauf konnte nicht geladen werden",
+    "notFound": "Diesen Lauf gibt es nicht mehr, oder er gehört zu einem anderen Mandanten."
+  }
+}

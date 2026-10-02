@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { useShellEntry } from "@/components/layout/shell-entry";
 import { SoonBadge, SoonSuffix } from "@/components/layout/soon-badge";
+import { TenantSwitcher } from "@/components/tenant-switcher";
 import { Badge } from "@/components/ui/badge";
 import {
   Sidebar,
@@ -21,19 +22,25 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { BrandName, RestowMark } from "@/components/wordmark";
+import { StartEntry } from "@/features/start";
 import { ExtensionSlot } from "@/lib/extensions";
-import { groupNavItems } from "@/lib/navigation";
-import { type RunningVersion, canAccess, useSession } from "@/lib/session";
+import { groupNavItems, navGroupLabelKey } from "@/lib/navigation";
+import { isTenantOnlyNavItem } from "@/lib/scope";
+import { type RunningVersion, canAccess, sessionScope, useSession } from "@/lib/session";
 import { useNavItems } from "@/lib/use-nav-items";
 
 const EXACT_MATCH = { exact: true, includeSearch: true } as const;
 
 /**
- * The application sidebar on the shadcn Sidebar: the product mark, the
- * navigation grouped by section (filtered by the role in the active tenant,
+ * The application sidebar on the shadcn Sidebar: the product mark, the tenant
+ * switcher (which tenant the daily work belongs to, with the way to its
+ * settings), the navigation grouped by section (filtered by the role in the
+ * active tenant,
  * locked entries greyed out, see `NavLock` in lib/navigation.ts, upcoming
- * ones marked "Soon"), and a footer with what extensions add there
- * (`shell.sidebarFooter`) and the running version. Account security lives in
+ * ones marked "Soon"; under "All tenants" the entries that only exist per tenant
+ * are dimmed, lib/scope.ts), and a footer with "Start" (the setup checklist, until
+ * it is done), what extensions add there (`shell.sidebarFooter`) and the running
+ * version. Account security lives in
  * the user menu. It collapses to an icon rail (labels move into tooltips),
  * becomes a sheet below 768 px and toggles with Ctrl/Cmd+B; the state is
  * remembered per browser by the sidebar primitive.
@@ -45,6 +52,7 @@ export function AppSidebar() {
   const { isMobile, setOpenMobile } = useSidebar();
   const items = useNavItems();
   const entry = useShellEntry();
+  const allTenants = sessionScope(session) === "all";
 
   const groups = groupNavItems(items, role, canAccess, session);
   // A tap on a link in the mobile sheet should reveal the page it opens.
@@ -68,13 +76,15 @@ export function AppSidebar() {
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
+        {/* Below the wordmark, above the first section; in the mobile sheet too. */}
+        <TenantSwitcher />
       </SidebarHeader>
 
       <SidebarContent>
         <nav aria-label={t("nav.label")}>
           {groups.map((group) => (
             <SidebarGroup key={group.id}>
-              <SidebarGroupLabel>{t(`nav.groups.${group.id}`)}</SidebarGroupLabel>
+              <SidebarGroupLabel>{t(navGroupLabelKey(group.id, session))}</SidebarGroupLabel>
               <SidebarGroupContent>
                 <SidebarMenu>
                   {group.items.map((item) => {
@@ -109,13 +119,28 @@ export function AppSidebar() {
                     }
                     const stage = item.stage ? t(`nav.stage.${item.stage}`) : null;
                     const soon = item.soon ? t("nav.soon.badge") : null;
+                    // Under "All tenants" an entry that needs a tenant stays reachable (it asks for
+                    // one), but is dimmed and says why.
+                    const dimmed = allTenants && isTenantOnlyNavItem(item.id);
+                    const dimmedHint = dimmed ? t("nav.scope.dimmedHint") : null;
                     const note = stage ?? soon;
                     return (
                       <SidebarMenuItem key={item.id}>
                         <SidebarMenuButton
                           asChild
                           isActive={active}
-                          tooltip={note ? `${label} (${note})` : label}
+                          tooltip={
+                            dimmedHint
+                              ? `${label} — ${dimmedHint}`
+                              : note
+                                ? `${label} (${note})`
+                                : label
+                          }
+                          className={
+                            dimmed
+                              ? "text-sidebar-foreground/50 hover:text-sidebar-foreground/70"
+                              : undefined
+                          }
                         >
                           <Link
                             // Feature paths are registered at runtime, so the
@@ -128,6 +153,8 @@ export function AppSidebar() {
                             activeOptions={EXACT_MATCH}
                             aria-current={active ? "page" : undefined}
                             data-soon={item.soon ? "true" : undefined}
+                            data-scope-dimmed={dimmed ? "true" : undefined}
+                            title={dimmedHint ?? undefined}
                             onClick={closeOnMobile}
                           >
                             <Icon aria-hidden="true" />
@@ -135,12 +162,15 @@ export function AppSidebar() {
                               {label}
                               {/* "Jobs, coming soon" for assistive technology. */}
                               {item.soon ? <SoonSuffix /> : null}
+                              {dimmedHint ? (
+                                <span className="sr-only">{`, ${dimmedHint}`}</span>
+                              ) : null}
                             </span>
                             {item.soon ? (
                               <SoonBadge className="ml-auto group-data-[collapsible=icon]:hidden" />
                             ) : null}
                             {stage ? (
-                              <span className="ml-auto rounded border border-sidebar-border px-1 text-[0.625rem] leading-4 font-medium text-sidebar-foreground/70 uppercase group-data-[collapsible=icon]:hidden">
+                              <span className="ml-auto rounded border border-sidebar-border px-1 text-[0.625rem] leading-4 font-medium text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden">
                                 {stage}
                               </span>
                             ) : null}
@@ -157,6 +187,8 @@ export function AppSidebar() {
       </SidebarContent>
 
       <SidebarFooter>
+        {/* The setup checklist, until every step is done (nothing renders then). */}
+        <StartEntry />
         <SidebarSeparator className="mx-0 group-data-[collapsible=icon]:sr-only" />
         <div className="flex flex-col gap-2 px-2 pb-1 text-xs text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden">
           <div className="flex flex-wrap items-center justify-between gap-2">

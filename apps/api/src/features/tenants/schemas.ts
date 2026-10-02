@@ -10,6 +10,9 @@ export const tenantSlugSchema = z
   .max(63)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Use lowercase letters, digits and hyphens.");
 
+/** A tenant's display name; the same rule for customers and for the operator's own organisation. */
+export const tenantNameSchema = z.string().trim().min(1).max(200);
+
 export const tenantRoleSchema = z.enum(["tenant_admin", "tenant_user"]);
 export const tenantStatusSchema = z.enum(["active", "suspended"]);
 export const tenantLanguageSchema = z.enum(["de", "en"]);
@@ -132,7 +135,7 @@ export type ReplaceNotificationRecipientsInput = z.infer<
 // --- Create / update tenant -------------------------------------------------------
 
 export const createTenantSchema = z.object({
-  name: z.string().trim().min(1).max(200),
+  name: tenantNameSchema,
   slug: tenantSlugSchema,
   /** Tenant wizard extras: all optional, so the minimal `{ name, slug }` request
    *  keeps working unchanged. */
@@ -141,6 +144,27 @@ export const createTenantSchema = z.object({
   notificationRecipients: replaceNotificationRecipientsSchema.optional(),
 });
 export type CreateTenantInput = z.infer<typeof createTenantSchema>;
+
+/**
+ * The operator's own organisation, created from its name alone: the slug is
+ * derived from the name (./slug.ts) unless the caller names one.
+ */
+export const createInternalTenantSchema = z.object({
+  name: tenantNameSchema,
+  slug: tenantSlugSchema.optional(),
+});
+export type CreateInternalTenantInput = z.infer<typeof createInternalTenantSchema>;
+
+/** Marking an existing tenant as the operator's own organisation. */
+export const markInternalTenantSchema = z.object({
+  /**
+   * Another tenant is the own organisation already: move the mark to this one
+   * (the other becomes a customer). Without it that is refused with 409, so a
+   * stray request cannot move the mark.
+   */
+  confirmSwitch: z.boolean().default(false),
+});
+export type MarkInternalTenantInput = z.infer<typeof markInternalTenantSchema>;
 
 export const updateTenantSchema = z
   .object({

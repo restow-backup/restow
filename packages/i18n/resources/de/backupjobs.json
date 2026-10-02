@@ -1,0 +1,761 @@
+{
+  "auto": {
+    "mailJob": "Mail-Sicherung",
+    "format": "{group} · {schedule}",
+    "duplicate": "{name} ({number})",
+    "group": {
+      "linux": {
+        "server": "Linux-Server",
+        "client": "Linux-Clients"
+      },
+      "darwin": {
+        "server": "macOS-Server",
+        "client": "macOS-Clients"
+      },
+      "windows": {
+        "server": "Windows-Server",
+        "client": "Windows-Clients"
+      }
+    },
+    "schedule": {
+      "daily": "täglich {time}",
+      "intervalHours": "alle {hours} Std",
+      "intervalMinutes": "alle {minutes} Min",
+      "onConnect": "bei Verbindung",
+      "onConnectHours": "bei Verbindung, höchstens alle {hours} Std",
+      "onConnectMinutes": "bei Verbindung, höchstens alle {minutes} Min"
+    }
+  },
+  "access": {
+    "demo": "Das ist die öffentliche Demo: Jobs lassen sich ansehen, aber nicht anlegen, ändern, ausführen oder löschen.",
+    "role": "Ihre Rolle im Provider-Team darf Jobs ansehen, aber nicht ändern. Zum Ändern von Jobs ist mindestens die Rolle Administrator nötig."
+  },
+  "actions": {
+    "new": "Neuer Job",
+    "edit": "Bearbeiten",
+    "runNow": "Jetzt ausführen",
+    "pause": "Pausieren",
+    "resume": "Fortsetzen",
+    "delete": "Löschen",
+    "refresh": "Jobs aktualisieren"
+  },
+  "list": {
+    "title": "Jobs",
+    "description": {
+      "mail": "Was wann in welches Repository gesichert wird, für viele Postfächer, OneDrives und IMAP-Konten auf einmal. Die Läufe stehen im Verlauf.",
+      "endpoint": "Welche Ordner welcher Server und Clients wann gesichert werden und was dabei ausgelassen wird. Ein Job gilt für viele Rechner, einzelne Rechner können abweichen. Die Läufe stehen im Verlauf."
+    },
+    "table": {
+      "mail": "Mail-&-SaaS-Jobs",
+      "endpoint": "Jobs für Server und Clients"
+    },
+    "search": "Jobs durchsuchen",
+    "nextInline": "Nächster:",
+    "loadError": "Die Jobs konnten nicht geladen werden",
+    "columns": {
+      "name": "Job",
+      "scope": "Umfang",
+      "schedule": "Zeitplan",
+      "repository": "Repository",
+      "lastRun": "Letzter Lauf",
+      "nextRun": "Nächster Lauf",
+      "restoreCheck": "Restore-Prüfung"
+    },
+    "uncovered": {
+      "mail": "{count, plural, one {# geschütztes Objekt ist in keinem Job und wird nicht nach Zeitplan gesichert.} other {# geschützte Objekte sind in keinem Job und werden nicht nach Zeitplan gesichert.}}",
+      "endpoint": "{count, plural, one {# Rechner ist in keinem Job.} other {# Rechner sind in keinem Job.}} Ein Rechner ohne Job behält seine bisherige Konfiguration; ein Job verwaltet Rechner gemeinsam.",
+      "action": "Job anlegen"
+    },
+    "empty": {
+      "title": {
+        "mail": "Noch keine Mail-Jobs",
+        "endpoint": "Noch keine Jobs für Server und Clients"
+      },
+      "description": {
+        "mail": "Ohne Job wird nichts nach Zeitplan gesichert. Ein Job umfasst Postfächer, OneDrives und IMAP-Konten, läuft nach Zeitplan und prüft, ob sich die Sicherungen wiederherstellen lassen.",
+        "endpoint": "Ein Job sagt den Agents, welche Ordner sie wann sichern und was sie auslassen. Ein Rechner ohne Job behält seine bisherige Konfiguration."
+      }
+    }
+  },
+  "state": {
+    "paused": "Pausiert",
+    "failing": "Sicherung fehlgeschlagen",
+    "running": "Läuft",
+    "attention": "Braucht Aufmerksamkeit",
+    "empty": "Leer",
+    "ok": "Aktiv"
+  },
+  "lastRun": {
+    "never": "Noch keine Sicherung",
+    "running": "{count, plural, one {Läuft gerade} other {# laufen}}",
+    "failed": "{count} fehlgeschlagen",
+    "partial": "{count} teilweise"
+  },
+  "nextRun": {
+    "paused": "Pausiert",
+    "manual": "Nur von Hand",
+    "onConnect": "Bei Verbindung eines Rechners",
+    "empty": "Nichts zu sichern",
+    "unknown": "Noch nicht geplant"
+  },
+  "restoreCheck": {
+    "summary": "{passed} von {total} bestanden",
+    "none": "Nichts zu prüfen",
+    "detail": {
+      "passed": "{count} bestanden",
+      "failed": "{count} fehlgeschlagen",
+      "warning": "{count} mit Warnungen",
+      "unverified": "{count} noch nicht geprüft",
+      "noBackup": "{count} ohne Sicherung"
+    }
+  },
+  "schedule": {
+    "manual": "Nur von Hand gestartet",
+    "onConnect": "Sobald der Rechner online ist",
+    "onConnectHours": "{count, plural, one {Bei Verbindung, höchstens jede Stunde} other {Bei Verbindung, höchstens alle # Stunden}}",
+    "onConnectMinutes": "Bei Verbindung, höchstens alle {count} Minuten",
+    "verifyLine": "Restore-Prüfung: {schedule}",
+    "noVerify": "Keine Restore-Prüfung",
+    "legend": "Wann der Agent eine Sicherung startet",
+    "endpoint": {
+      "kind": "Ausführen",
+      "kinds": {
+        "daily": "Täglich zu einer festen Uhrzeit",
+        "interval": "In festem Abstand",
+        "on_connect": "Sobald der Rechner online ist"
+      },
+      "timeOfDay": "Uhrzeit",
+      "timeHint": "In der Zeitzone unten.",
+      "minutes": {
+        "interval": "Alle … Minuten",
+        "on_connect": "Höchstens alle … Minuten"
+      },
+      "minutesHint": {
+        "interval": "Mindestens {min} Minuten.",
+        "on_connect": "Eine Sicherung startet, wenn der Rechner online ist und die letzte älter ist als dieser Wert. Leer: der Standard des Agents."
+      },
+      "timeZone": "Zeitzone",
+      "timeZoneHint": "Die Zeitzone, in der der Zeitplan gelesen wird."
+    }
+  },
+  "scope": {
+    "kinds": {
+      "mailbox": "{count, plural, one {# Postfach} other {# Postfächer}}",
+      "onedrive": "{count, plural, one {# OneDrive} other {# OneDrives}}",
+      "imap": "{count, plural, one {# IMAP-Konto} other {# IMAP-Konten}}",
+      "server": "{count, plural, one {# Server} other {# Server}}",
+      "client": "{count, plural, one {# Client} other {# Clients}}",
+      "other": "{count, plural, one {# weiteres} other {# weitere}}"
+    },
+    "kindNames": {
+      "mailbox": "Postfach",
+      "onedrive": "OneDrive",
+      "imap": "IMAP-Konto",
+      "server": "Server",
+      "client": "Client"
+    },
+    "nothing": "Noch nichts",
+    "allLine": "Alles, was in keinem anderen Job ist, auch Neues",
+    "overridesNote": "{count} mit Abweichungen",
+    "unresolved": "Unbekanntes Objekt",
+    "allBody": "Dieser Job umfasst jedes Postfach, jedes OneDrive und jedes IMAP-Konto, das in keinem anderen Job ist, auch später hinzukommende. Um eines herauszunehmen, legen Sie es in einen anderen Job. Jedes kann trotzdem eigene Abweichungen haben.",
+    "columns": {
+      "name": "Name",
+      "kind": "Art",
+      "schedule": "Zeitplan",
+      "lastBackup": "Letzte Sicherung",
+      "restoreCheck": "Restore-Prüfung",
+      "overrides": "Abweichungen"
+    },
+    "notCovered": "Wird nicht gesichert ({status})",
+    "ownSchedule": "Eigener Zeitplan",
+    "noOverrides": "Keine",
+    "overridesBadge": "{count} Abweichungen",
+    "outcome": {
+      "succeeded": "Erfolgreich",
+      "partial": "Teilweise",
+      "failed": "Fehlgeschlagen",
+      "running": "Läuft",
+      "queued": "Wartet"
+    },
+    "table": {
+      "mail": "Objekte des Jobs",
+      "endpoint": "Rechner des Jobs"
+    },
+    "search": {
+      "mail": "Nach Name oder Adresse suchen",
+      "endpoint": "Nach Rechnernamen suchen"
+    },
+    "loadError": "Die Objekte dieses Jobs konnten nicht geladen werden",
+    "actions": {
+      "add": "Hinzufügen",
+      "editOverrides": "Abweichungen bearbeiten",
+      "remove": "Aus dem Job entfernen"
+    },
+    "empty": {
+      "title": {
+        "mail": "Noch keine Objekte in diesem Job",
+        "endpoint": "Noch keine Rechner in diesem Job"
+      },
+      "description": {
+        "mail": "Fügen Sie die Postfächer, OneDrives und IMAP-Konten hinzu, die dieser Job sichern soll.",
+        "endpoint": "Fügen Sie die Server und Clients hinzu, die dieser Job verwalten soll."
+      }
+    },
+    "remove": {
+      "title": "{name} aus dem Job entfernen?",
+      "description": {
+        "mail": "Es wird nicht mehr von {job} gesichert. Ohne einen anderen Job wird es nicht nach Zeitplan gesichert.",
+        "endpoint": "Er verlässt {job} und behält die Konfiguration, die er jetzt hat. Ohne einen anderen Job verwaltet ihn nichts."
+      },
+      "confirm": "Aus dem Job entfernen"
+    }
+  },
+  "overrides": {
+    "title": "Abweichungen von {name}",
+    "description": {
+      "mail": "Was dieses Objekt anders macht als {job}. Alles, was aus bleibt, folgt dem Job.",
+      "endpoint": "Was dieser Rechner anders macht als {job}. Alles, was aus bleibt, folgt dem Job."
+    },
+    "save": "Abweichungen speichern",
+    "groups": {
+      "schedule": {
+        "title": "Zeitplan",
+        "switch": "Eigener Zeitplan",
+        "follows": "Folgt dem Zeitplan des Jobs.",
+        "short": "eigener Zeitplan"
+      },
+      "verify": {
+        "title": "Restore-Prüfung",
+        "switch": "Eigene Restore-Prüfung",
+        "follows": "Folgt der Restore-Prüfung des Jobs.",
+        "short": "eigene Restore-Prüfung"
+      },
+      "folders": {
+        "title": "Ordner",
+        "switch": "Eigene Ordner",
+        "follows": "Sichert die Ordner des Jobs.",
+        "short": "eigene Ordner"
+      },
+      "exclusions": {
+        "title": "Ausschlüsse",
+        "switch": "Eigene Ausschlüsse",
+        "follows": "Lässt aus, was der Job auslässt.",
+        "short": "eigene Ausschlüsse"
+      },
+      "bandwidth": {
+        "title": "Bandbreite",
+        "switch": "Eigene Bandbreitenbegrenzung",
+        "follows": "Folgt der Bandbreitenbegrenzung und den Zeitfenstern des Jobs.",
+        "short": "eigene Bandbreite"
+      },
+      "hooks": {
+        "title": "Befehle vor und nach der Sicherung",
+        "switch": "Eigene Befehle",
+        "follows": "Führt die Befehle des Jobs aus.",
+        "short": "eigene Befehle"
+      },
+      "retention": {
+        "title": "Aufbewahrung",
+        "switch": "Eigene Aufbewahrung",
+        "follows": "Behält Sicherungsstände so, wie der Job es sagt.",
+        "short": "eigene Aufbewahrung"
+      }
+    }
+  },
+  "addMembers": {
+    "title": {
+      "mail": "Objekte hinzufügen",
+      "endpoint": "Rechner hinzufügen"
+    },
+    "description": {
+      "mail": "Wählen Sie die Objekte, die {job} umfassen soll. Ein Objekt, das in einem anderen Job ist, wird erst nach Ihrer Bestätigung übernommen.",
+      "endpoint": "Wählen Sie die Rechner, die {job} verwalten soll. Ein Rechner, der in einem anderen Job ist, wird erst nach Ihrer Bestätigung übernommen."
+    },
+    "submit": "Hinzufügen",
+    "submitSome": "{count} Ausgewählte hinzufügen"
+  },
+  "detail": {
+    "title": "Job",
+    "back": "Alle Jobs",
+    "refresh": "Diesen Job aktualisieren",
+    "loadError": "Der Job konnte nicht geladen werden",
+    "notFound": {
+      "title": "Job nicht gefunden",
+      "description": "Diesen Job gibt es im gewählten Mandanten nicht. Er gehört vielleicht zu einem anderen Mandanten, oder der Link stimmt nicht."
+    },
+    "noTenant": {
+      "title": "Kein Mandant ausgewählt",
+      "description": "Wählen Sie einen Mandanten, um seine Jobs zu sehen."
+    },
+    "allBadge": "Alles, was in keinem anderen Job ist",
+    "tabs": {
+      "overview": "Übersicht",
+      "scope": "Umfang",
+      "settings": "Einstellungen",
+      "runs": "Läufe"
+    }
+  },
+  "overview": {
+    "facts": "Eckdaten",
+    "state": "Zustand",
+    "scope": "Umfang",
+    "schedule": "Zeitplan",
+    "restoreCheckSchedule": "Restore-Prüfung",
+    "lastRun": "Letzter Lauf",
+    "nextRun": "Nächster Lauf",
+    "repository": "Repository",
+    "retention": "Aufbewahrung",
+    "restoreChecks": "Restore-Prüfungen",
+    "restoreChecksNone": "In diesem Job gibt es noch nichts zu prüfen.",
+    "lastCheck": "Letzte Prüfung",
+    "neverChecked": "Es lief noch keine Restore-Prüfung.",
+    "restoreChecksNote": "Eine Sicherung gilt als wiederherstellbar, sobald eine Restore-Prüfung es belegt hat. Grün heißt: Jedes Objekt hat bestanden.",
+    "showScope": {
+      "mail": "Objekte anzeigen",
+      "endpoint": "Rechner anzeigen"
+    }
+  },
+  "settings": {
+    "intro": "Alles, was dieser Job festlegt. Zum Ändern öffnet sich der Editor.",
+    "general": "Allgemein",
+    "schedule": "Zeitplan",
+    "repositoryAndRetention": "Repository und Aufbewahrung",
+    "folders": "Ordner",
+    "exclusions": "Ausschlüsse",
+    "bandwidth": "Bandbreite",
+    "hooks": "Befehle vor und nach der Sicherung",
+    "facts": {
+      "name": "Name",
+      "kind": "Art",
+      "scope": "Umfang",
+      "created": "Angelegt",
+      "updated": "Geändert",
+      "schedule": "Zeitplan",
+      "restoreCheck": "Restore-Prüfung",
+      "repository": "Repository",
+      "retention": "Aufbewahrung",
+      "fileTypes": "Ausgelassene Dateitypen",
+      "ownPatterns": "Eigene Muster",
+      "larger": "Dateien größer als",
+      "bandwidth": "Upload-Limit",
+      "windows": "Zeitfenster"
+    },
+    "kinds": {
+      "mail": "Mail & SaaS",
+      "endpoint": "Server & Endpunkte"
+    },
+    "scopeMode": {
+      "all": "Alles, was in keinem anderen Job ist",
+      "selected": "Die ausgewählten"
+    },
+    "none": "Keine",
+    "noLimit": "Kein Limit",
+    "unlimited": "Unbegrenzt",
+    "largerValue": "{size} GB",
+    "bandwidthValue": "{kbps} kbit/s",
+    "foldersNone": "Es sind keine Ordner festgelegt: Jeder Rechner behält seine eigenen Ordner.",
+    "hooksHidden": "Gesetzt, für Ihre Rolle verborgen.",
+    "restoreCheckOff": "Aus: Für diesen Job laufen keine Restore-Prüfungen.",
+    "windowsNone": "Keine",
+    "windowsZone": "Gelesen in {zone}. Ein Limit gilt ab dem Start eines Laufs."
+  },
+  "runs": {
+    "table": "Läufe des Jobs",
+    "columns": {
+      "type": "Was lief",
+      "target": "Objekt oder Rechner",
+      "status": "Status",
+      "started": "Gestartet",
+      "finished": "Beendet"
+    },
+    "open": "Lauf „{type}“ im Verlauf öffnen",
+    "wholeJob": "Der ganze Job",
+    "notFinished": "Nicht beendet",
+    "empty": "Dieser Job ist noch nicht gelaufen.",
+    "loadError": "Die Läufe konnten nicht geladen werden",
+    "statusOther": "{status}"
+  },
+  "run": {
+    "skipped": {
+      "already_queued": "{count, plural, one {# war schon eingereiht.} other {# waren schon eingereiht.}}",
+      "excluded": "{count, plural, one {# ist von der Sicherung ausgeschlossen.} other {# sind von der Sicherung ausgeschlossen.}}",
+      "orphaned": "{count, plural, one {# gibt es in der Quelle nicht mehr.} other {# gibt es in der Quelle nicht mehr.}}",
+      "source_pending": "{count, plural, one {# wartet darauf, dass seine Quelle verbunden wird.} other {# warten darauf, dass ihre Quelle verbunden wird.}}",
+      "source_disabled": "{count, plural, one {# hat eine ausgeschaltete Quelle.} other {# haben eine ausgeschaltete Quelle.}}",
+      "revoked": "{count, plural, one {# Rechner ist gesperrt.} other {# Rechner sind gesperrt.}}",
+      "not_in_job": "{count, plural, one {# ist nicht in diesem Job.} other {# sind nicht in diesem Job.}}"
+    }
+  },
+  "toasts": {
+    "created": "Job {name} angelegt",
+    "updated": "Job {name} gespeichert",
+    "deleted": "Job {name} gelöscht",
+    "paused": "{name} pausiert",
+    "resumed": "{name} fortgesetzt",
+    "runQueued": {
+      "mail": "{count, plural, one {# Sicherung von {name} eingereiht} other {# Sicherungen von {name} eingereiht}}",
+      "endpoint": "{count, plural, one {Sicherung bei # Rechner angefordert} other {Sicherung bei # Rechnern angefordert}}"
+    },
+    "runNothing": "Für {name} wurde nichts gestartet",
+    "failed": "Das hat nicht geklappt",
+    "overridesSaved": "Abweichungen von {name} gespeichert",
+    "removed": "{name} aus dem Job entfernt",
+    "added": {
+      "mail": "{count, plural, one {# Objekt zu {name} hinzugefügt} other {# Objekte zu {name} hinzugefügt}}",
+      "endpoint": "{count, plural, one {# Rechner zu {name} hinzugefügt} other {# Rechner zu {name} hinzugefügt}}"
+    }
+  },
+  "pause": {
+    "title": "{name} pausieren?",
+    "description": "{count, plural, one {# Objekt wird nicht nach Zeitplan gesichert, solange der Job pausiert ist.} other {# Objekte werden nicht nach Zeitplan gesichert, solange der Job pausiert ist.}} Es wird nichts gelöscht; Sie können ihn jederzeit fortsetzen.",
+    "confirm": "Job pausieren"
+  },
+  "delete": {
+    "title": "{name} löschen?",
+    "empty": "Der Job umfasst im Moment nichts.",
+    "impact": {
+      "mail": "{scope} werden nicht mehr nach Zeitplan gesichert, bis ein anderer Job sie übernimmt.",
+      "endpoint": "{scope} verlassen den Job und behalten die Konfiguration, die sie jetzt haben; nichts verwaltet sie, bis ein anderer Job es tut."
+    },
+    "after": "Der Job und seine Einstellungen lassen sich nicht zurückholen.",
+    "confirm": "Job löschen"
+  },
+  "picker": {
+    "search": {
+      "mail": "Nach Name oder Adresse suchen",
+      "endpoint": "Nach Rechnernamen suchen"
+    },
+    "showSelected": "Ausgewählt ({count})",
+    "table": {
+      "mail": "Objekte zur Auswahl",
+      "endpoint": "Rechner zur Auswahl"
+    },
+    "empty": {
+      "mail": "Kein Objekt passt.",
+      "endpoint": "Kein Rechner passt."
+    },
+    "noneSelected": "Noch nichts ausgewählt.",
+    "selectAll": "Alle angezeigten auswählen",
+    "select": "{name} auswählen",
+    "columns": {
+      "name": "Name",
+      "kind": "Art",
+      "job": "Job"
+    },
+    "inJob": "In {job}",
+    "moves": "Wechselt aus {job}",
+    "moveHere": "Hierher verschieben",
+    "moveHereFor": "{name} hierher verschieben",
+    "keepThere": "Dort lassen",
+    "moveTitle": "{name} in diesen Job verschieben?",
+    "moveDescription": "Es verlässt {job} und wird ab jetzt von diesem Job gesichert.",
+    "moveConfirm": "Hierher verschieben",
+    "selectedCount": "{count} ausgewählt",
+    "partial": "{shown} von {total} angezeigt. Mit der Suche lässt sich die Liste eingrenzen.",
+    "loadError": "Die Liste konnte nicht geladen werden"
+  },
+  "editor": {
+    "createTitle": {
+      "mail": "Neuer Mail-Job",
+      "endpoint": "Neuer Job für Server oder Clients"
+    },
+    "editTitle": "{name} bearbeiten",
+    "description": {
+      "mail": "Legen Sie fest, was gesichert wird, wann, und wie Restore-Prüfungen es belegen.",
+      "endpoint": "Legen Sie fest, welche Rechner wann gesichert werden, welche Ordner und was ausgelassen wird."
+    },
+    "loading": "Der Editor wird geladen",
+    "loadError": "Der Editor konnte nicht geladen werden",
+    "general": {
+      "title": "Allgemein",
+      "name": "Name",
+      "nameHint": {
+        "mail": "Erscheint in der Liste, im Verlauf und in Alarmen.",
+        "endpoint": "Erscheint in der Liste, im Inventar und in Alarmen."
+      },
+      "namePlaceholder": {
+        "mail": "z. B. Geschäftsführung, stündlich",
+        "endpoint": "z. B. Server, stündlich"
+      },
+      "enabled": "Eingeschaltet",
+      "enabledHint": "Ausgeschaltet behält der Job seine Einstellungen, läuft aber nicht."
+    },
+    "scope": {
+      "title": {
+        "mail": "Objekte",
+        "endpoint": "Rechner"
+      },
+      "description": {
+        "mail": "Welche Postfächer, OneDrives und IMAP-Konten dieser Job sichert.",
+        "endpoint": "Welche Server und Clients dieser Job verwaltet. Ein Rechner ist immer nur in einem Job."
+      },
+      "mode": "Was der Job umfasst",
+      "all": "Alle Objekte, die in keinem anderen Job sind",
+      "allHint": "Schließt später hinzukommende Objekte ein. Nur ein Job kann alle umfassen.",
+      "allTaken": "Ein anderer Job umfasst bereits alle Objekte, die in keinem Job sind.",
+      "selected": "Nur die Objekte, die ich auswähle",
+      "allBody": "Der Job umfasst jedes aktive Postfach, jedes OneDrive und jedes IMAP-Konto, das in keinem anderen Job ist, auch später hinzukommende.",
+      "overridesKept": "{count, plural, one {# Objekt behält seine Abweichungen.} other {# Objekte behalten ihre Abweichungen.}}"
+    },
+    "schedule": {
+      "title": "Zeitplan",
+      "description": {
+        "mail": "Wann der Job seine Objekte sichert.",
+        "endpoint": "Wann der Agent eine Sicherung startet."
+      },
+      "automatic": "Nach Zeitplan ausführen",
+      "manualOnly": "Der Job läuft nur, wenn ihn jemand startet."
+    },
+    "verify": {
+      "title": "Restore-Prüfung",
+      "description": "Eine Restore-Prüfung stellt eine Stichprobe der neuesten Sicherung wieder her und vergleicht sie. Eine Sicherung gilt erst als wiederherstellbar, wenn eine Prüfung bestanden hat.",
+      "automatic": "Wiederherstellung automatisch prüfen",
+      "off": "Ohne Restore-Prüfung belegt nichts, dass sich diese Sicherungen wiederherstellen lassen."
+    },
+    "retention": {
+      "title": "Aufbewahrung",
+      "description": {
+        "mail": "Wie lange Sicherungsstände behalten werden.",
+        "endpoint": "Wie viele Sicherungsstände jeder Rechner behält."
+      },
+      "policy": "Aufbewahrungsrichtlinie"
+    },
+    "folders": {
+      "title": "Ordner",
+      "description": "Die Ordner, die jeder Rechner dieses Jobs sichert."
+    },
+    "exclusions": {
+      "title": "Ausschlüsse",
+      "description": "Was die Sicherung auslässt."
+    },
+    "bandwidth": {
+      "title": "Bandbreite",
+      "description": "Verhindert, dass Sicherungen das Netz auslasten, rund um die Uhr oder in Zeitfenstern. Ein Limit gilt ab dem Start eines Laufs."
+    },
+    "advanced": {
+      "title": "Erweitert",
+      "description": "Befehle vor und nach der Sicherung"
+    },
+    "hooks": {
+      "title": "Befehle vor und nach der Sicherung",
+      "description": "Befehle, die die Agents um jede Sicherung herum ausführen, zum Beispiel um eine Datenbank zu sichern, damit ihre Dateien konsistent sind."
+    },
+    "repository": {
+      "title": "Repository",
+      "description": "Wohin die verschlüsselten Sicherungen geschrieben werden.",
+      "primary": "(primäres Repository)",
+      "sentence": "Jeder Job schreibt in das primäre Repository des Mandanten; ein Job kann kein anderes wählen."
+    },
+    "fix": {
+      "title": "Einige Felder müssen korrigiert werden",
+      "description": "Korrigieren Sie die markierten Felder und speichern Sie erneut."
+    },
+    "save": "Änderungen speichern",
+    "create": "Job anlegen",
+    "discard": {
+      "title": "Änderungen verwerfen?",
+      "description": "Beim Schließen des Editors gehen Ihre Eingaben verloren.",
+      "confirm": "Änderungen verwerfen",
+      "keep": "Weiter bearbeiten"
+    },
+    "conflicts": {
+      "title": "{count, plural, one {# Objekt ist in einem anderen Job} other {# Objekte sind in anderen Jobs}}",
+      "description": "Sie würden ihren Job verlassen und von diesem gesichert werden. Hierher verschieben?",
+      "item": "{name} ist in {job}",
+      "confirm": "Hierher verschieben und speichern",
+      "cancel": "Zurück"
+    }
+  },
+  "folders": {
+    "label": "Ordner",
+    "chosen": "Gewählte Ordner",
+    "none": "Noch kein Ordner gewählt.",
+    "remove": "{path} entfernen",
+    "typePlaceholder": "Pfad eingeben, z. B. /var/www",
+    "add": "Hinzufügen",
+    "showTree": "Aus einer Sicherung wählen",
+    "hideTree": "Ordnerbaum ausblenden",
+    "hint": "Absolute Pfade, einer nach dem anderen. Ein Ordner schließt alles darunter ein.",
+    "machine": "Ordner lesen von",
+    "noMachine": "Wählen Sie zuerst Rechner für diesen Job, um ihre Ordner zu durchsuchen, oder geben Sie einen Pfad ein.",
+    "snapshotsError": "Die Sicherungen dieses Rechners konnten nicht gelesen werden.",
+    "source": {
+      "backup": "Ordner aus der neuesten Sicherung von {machine}, {time}.",
+      "none": "Von {machine} gibt es noch keine Sicherung. Seine eingestellten Ordner werden angezeigt; weitere geben Sie als Pfad ein."
+    },
+    "tree": {
+      "label": "Ordner von {machine}",
+      "keys": "Pfeiltasten bewegen, die Leertaste hakt einen Ordner ab, die Eingabetaste öffnet ihn.",
+      "loading": "Wird geladen …",
+      "retry": "Erneut versuchen",
+      "loadMore": "Mehr laden",
+      "loadMoreIn": "Weitere Ordner in {folder} laden",
+      "noSubfolders": "Keine Unterordner",
+      "rootEmpty": "Die Sicherung enthält keine Ordner.",
+      "covered": "eingeschlossen"
+    }
+  },
+  "exclusions": {
+    "types": "Dateitypen, die ausgelassen werden",
+    "typesHint": "Ein Typ ist an, wenn alle seine Muster in der Liste stehen. Möglich sind nur Ausschlüsse: Eine Sicherung lässt sich nicht auf gewählte Dateitypen beschränken.",
+    "presets": {
+      "videos": "Videos",
+      "diskImages": "Disk-Images",
+      "temporary": "Temporäre Dateien",
+      "installers": "Installationspakete",
+      "music": "Musik",
+      "trash": "Papierkorb und Caches"
+    },
+    "own": "Eigene Muster",
+    "ownList": "Eigene Muster dieses Jobs",
+    "remove": "{pattern} entfernen",
+    "placeholder": "z. B. *.bak oder **/node_modules",
+    "add": "Hinzufügen",
+    "ownHint": "Ein Muster nach dem anderen; mehrere Zeilen lassen sich auf einmal einfügen. Dateien, die passen, werden ausgelassen.",
+    "largerThan": "Dateien auslassen, die größer sind als",
+    "largerSize": "Größe in Gigabyte",
+    "gb": "GB",
+    "largerHint": "Benötigt Agent-Version 0.2.0 oder neuer auf dem Rechner. Ein älterer Agent ignoriert dieses Limit und sichert diese Dateien trotzdem."
+  },
+  "bandwidth": {
+    "label": "Upload-Limit (kbit/s)",
+    "hint": "Leer heißt unbegrenzt. 1000 kbit/s sind etwa 1 Mbit/s. Es gilt außerhalb aller Zeitfenster.",
+    "unlimited": "Unbegrenzt",
+    "windows": {
+      "title": "Zeitfenster",
+      "description": "Ein Zeitfenster legt für bestimmte Tage und Uhrzeiten ein anderes Limit fest. Außerhalb aller Zeitfenster gilt das Limit oben.",
+      "applies": "Das Limit, das beim Start eines Laufs gilt, wird für den ganzen Lauf verwendet. Ein Zeitfenster, das während eines Laufs beginnt oder endet, ändert daran nichts.",
+      "rules": "Ein Zeitfenster beginnt zur Startzeit und endet kurz vor der Endzeit. Liegt das Ende nicht nach dem Beginn, endet das Zeitfenster am nächsten Tag; zweimal dieselbe Uhrzeit ergibt ein Zeitfenster von 24 Stunden. Zeitfenster dürfen sich nicht überschneiden, aber eines kann dort beginnen, wo ein anderes endet.",
+      "zone": "Die Uhrzeiten werden in {zone} gelesen, der Zeitzone des Zeitplans.",
+      "empty": "Keine Zeitfenster: Das Limit oben gilt zu jeder Zeit.",
+      "add": "Zeitfenster hinzufügen",
+      "max": "Höchstens {max} Zeitfenster.",
+      "list": "Zeitfenster",
+      "row": "Zeitfenster {number}",
+      "remove": "Zeitfenster {number} entfernen",
+      "days": "Tage, an denen es beginnt",
+      "daysHint": "Ein Zeitfenster, das über Mitternacht hinausgeht, gehört zu dem Tag, an dem es beginnt.",
+      "from": "Von",
+      "to": "Bis",
+      "limit": "Limit (kbit/s)",
+      "limitHint": "0 heißt unbegrenzt.",
+      "unlimited": "unbegrenzt",
+      "limitValue": "{kbps} kbit/s",
+      "summary": "{days}, {from} bis {to}: {limit}",
+      "summaryNextDay": "{days}, {from} bis {to} am nächsten Tag: {limit}",
+      "summaryWholeDay": "{days}, 24 Stunden ab {from}: {limit}",
+      "count": "{count, plural, one {# Zeitfenster} other {# Zeitfenster}}"
+    }
+  },
+  "hooks": {
+    "pre": "Vor der Sicherung",
+    "preHint": "Läuft zuerst. Leer lassen für keinen.",
+    "prePlaceholder": "pg_dumpall -U postgres > /var/backups/all.sql",
+    "post": "Nach der Sicherung",
+    "postHint": "Läuft, wenn die Sicherung vorbei ist. Leer lassen für keinen.",
+    "warningTitle": "Diese Befehle laufen mit vollen Rechten",
+    "warningRoot": "Jeder Agent führt sie als root (Administrator) auf seinem Rechner aus, vor und nach jeder Sicherung. Tragen Sie nur Befehle ein, denen Sie vertrauen und die Sie verstehen.",
+    "warningMachines": "Ein Rechner führt sie nur aus, wenn sein eigener Administrator Hooks dort erlaubt hat: keine, nur benannte Skripte aus /etc/restow-agent/hooks.d oder beliebige Befehle. Ein Rechner, der sie nicht erlaubt, lehnt die Änderung ab.",
+    "warningFailure": "Schlägt der Befehl vor der Sicherung fehl, schlägt auch die Sicherung fehl.",
+    "stepUp": "Beim Setzen oder Ändern eines Hooks müssen Sie bestätigen, dass Sie es sind, wenn Sie sich vor mehr als 10 Minuten angemeldet haben.",
+    "hidden": "Die Befehle dieses Jobs sind für Ihre Rolle verborgen und lassen sich hier nicht ändern."
+  },
+  "retention": {
+    "mode": "Aufbewahrung der Rechner",
+    "machineOwn": "Jeder Rechner behält seine eigene Aufbewahrung",
+    "jobSets": "Für alle Rechner dieses Jobs festlegen",
+    "keepDaily": "Tägliche Sicherungsstände",
+    "keepWeekly": "Wöchentliche Sicherungsstände",
+    "keepMonthly": "Monatliche Sicherungsstände",
+    "note": "Der Server wendet diese Regeln an und entfernt ältere Sicherungsstände; der Agent kann Sicherungen nur hinzufügen, nie löschen. Wer eine Zahl senkt, entfernt beim nächsten Aufbewahrungslauf ältere Sicherungsstände endgültig.",
+    "tenantDefault": "Standard des Mandanten",
+    "tenantDefaultNamed": "Standard des Mandanten ({name})",
+    "keep": "Täglich {keepDaily}, wöchentlich {keepWeekly}, monatlich {keepMonthly}"
+  },
+  "repository": {
+    "installationDefault": "Standard-Repository der Installation"
+  },
+  "tenant": {
+    "title": "Backup-Jobs",
+    "description": "Was für diesen Mandanten nach Zeitplan gesichert wird. Die Wartungszeitpläne darunter halten das Repository gesund.",
+    "new": {
+      "mail": "Mail-&-SaaS-Job",
+      "endpoint": "Job für Server oder Clients"
+    },
+    "openList": "Anzeigen",
+    "openAll": {
+      "mail": "Alle Mail-&-SaaS-Jobs",
+      "endpoint": "Alle Jobs für Server und Clients"
+    },
+    "empty": {
+      "title": "Noch keine Backup-Jobs",
+      "description": "Legen Sie einen Job an, um Postfächer, OneDrives, Server oder Clients nach Zeitplan zu sichern."
+    },
+    "table": "Backup-Jobs dieses Mandanten",
+    "columns": {
+      "kind": "Art"
+    },
+    "kinds": {
+      "mail": "Mail & SaaS",
+      "endpoint": "Server & Endpunkte"
+    }
+  },
+  "problems": {
+    "form": {
+      "nameRequired": "Geben Sie dem Job einen Namen.",
+      "nameTooLong": "Der Name darf höchstens {max} Zeichen haben.",
+      "tooManyMembers": "Ein Job kann höchstens {max} Objekte umfassen. Verwenden Sie mehrere Jobs.",
+      "required": "Geben Sie einen Wert ein.",
+      "integer": "Geben Sie eine ganze Zahl ein.",
+      "range": "Wählen Sie eine Zahl zwischen {min} und {max}.",
+      "timeOfDay": "Geben Sie eine Uhrzeit wie 22:00 ein.",
+      "paths": {
+        "none": "Fügen Sie mindestens einen Ordner hinzu.",
+        "tooMany": "Ein Job kann höchstens {max} Ordner sichern.",
+        "empty": "Geben Sie einen Pfad ein.",
+        "controlCharacters": "Ein Pfad darf keine Steuerzeichen enthalten: {value}",
+        "notAbsolute": "Verwenden Sie einen absoluten Pfad, der mit / oder einem Laufwerksbuchstaben beginnt: {value}",
+        "tooLong": "Ein Pfad darf höchstens {max} Zeichen haben."
+      },
+      "excludes": {
+        "tooMany": "Ein Job kann höchstens {max} Muster haben.",
+        "controlCharacters": "Ein Muster darf keine Steuerzeichen enthalten: {value}",
+        "tooLong": "Ein Muster darf höchstens {max} Zeichen haben."
+      },
+      "larger": "Geben Sie eine Größe über 0 bis höchstens {max} GB ein.",
+      "hooksHidden": "Die Befehle sind für Ihre Rolle verborgen und lassen sich nicht speichern.",
+      "hookTooLong": "Ein Befehl darf höchstens {max} Zeichen haben.",
+      "windows": {
+        "fix": "Prüfen Sie die Zeitfenster.",
+        "days": "Wählen Sie mindestens einen Tag.",
+        "time": "Geben Sie eine Uhrzeit wie 08:00 ein.",
+        "kbpsRequired": "Geben Sie ein Limit ein; 0 heißt unbegrenzt.",
+        "kbps": "Geben Sie eine ganze Zahl in kbit/s von 0 (unbegrenzt) bis {max} ein.",
+        "overlap": "Dieses Zeitfenster überschneidet sich mit Zeitfenster {other}. Lassen Sie eines dort enden, wo das andere beginnt.",
+        "tooMany": "Ein Job kann höchstens {max} Zeitfenster haben."
+      }
+    },
+    "server": {
+      "generic": "Der Job lässt sich so nicht speichern.",
+      "schedule_kind_not_supported": "Diese Art von Job kann diese Art von Zeitplan nicht verwenden.",
+      "timezone_unknown": "Diese Zeitzone ist unbekannt.",
+      "interval_out_of_range": "Der Abstand liegt außerhalb des erlaubten Bereichs.",
+      "time_of_day_invalid": "Verwenden Sie eine Uhrzeit wie 02:30.",
+      "required": "Ein Wert fehlt.",
+      "bandwidth_windows_too_many": "Es gibt zu viele Zeitfenster.",
+      "bandwidth_window_days_required": "Wählen Sie für jedes Zeitfenster mindestens einen Tag.",
+      "bandwidth_window_days_invalid": "Ein Zeitfenster hat einen Tag, den es nicht gibt.",
+      "bandwidth_window_time_invalid": "Ein Zeitfenster hat eine ungültige Uhrzeit.",
+      "bandwidth_window_kbps_invalid": "Ein Zeitfenster hat ein ungültiges Limit.",
+      "bandwidth_window_overlap": "Zwei Zeitfenster überschneiden sich. Lassen Sie eines dort enden, wo das andere beginnt."
+    }
+  },
+  "errors": {
+    "inOtherJob": "Einige Objekte sind in einem anderen Job. Verschieben Sie sie hierher, um fortzufahren.",
+    "pauseNotSupported": "Ein Job für Rechner lässt sich nicht pausieren: Der Agent entscheidet, wann gesichert wird.",
+    "state": "Der Job ist nicht in einem Zustand, der das erlaubt.",
+    "allJobExists": "Ein anderer Job deckt bereits alle Objekte ab, die in keinem anderen Job sind. Ein Mandant hat einen solchen Job.",
+    "invalid": "Der Job lässt sich so nicht speichern."
+  }
+}

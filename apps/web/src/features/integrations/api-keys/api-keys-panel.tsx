@@ -1,26 +1,32 @@
-import { Building, KeyRound, Plus, ShieldAlert } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { Building, KeyRound, Plus, ServerCog, ShieldAlert } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/error-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
+import { installationSectionTo } from "@/features/installation/paths";
+import { extensionInstallationSections } from "@/lib/extensions";
+import { cn } from "@/lib/utils";
 
 import { ConfirmDialog } from "../components/confirm-dialog";
 import { useApiKeys, useIntegrationsScope, useProviderKeys, useRevokeApiKey } from "../hooks";
+import { PROVIDER_API_SECTION_ID } from "../paths";
 import { integrationErrorKey, visibleKeys } from "../presenters";
 import type { ApiKey, ApiKeyKind } from "../types";
 import { ApiKeyTable } from "./api-key-table";
 import { CreateApiKeyDialog } from "./create-api-key-dialog";
 
 /**
- * The API keys tab: the active tenant's keys and, for provider admins, the
- * installation's provider keys.
+ * The API keys tab: the active tenant's keys. The provider keys, which read
+ * across all tenants, belong to the installation and live on its page
+ * (Installation, Provider API); a provider admin finds a pointer to them here.
  */
 export function ApiKeysPanel() {
   const { t } = useTranslation("integrations");
@@ -44,7 +50,7 @@ export function ApiKeysPanel() {
           </AlertDescription>
         </Alert>
       )}
-      {scope.isProviderAdmin ? <ProviderKeys /> : null}
+      {scope.isProviderAdmin ? <ProviderKeysMoved /> : null}
       <p className="text-xs text-muted-foreground">{t("apiKeys.rateLimit")}</p>
     </div>
   );
@@ -72,7 +78,40 @@ function TenantKeys() {
   );
 }
 
-function ProviderKeys() {
+/**
+ * Tells a provider admin where the provider keys went, when the installation
+ * has the section for them. Without it (a build without the extension) there
+ * are no provider keys to point to.
+ */
+function ProviderKeysMoved() {
+  const { t: ti } = useTranslation("installation");
+  if (!extensionInstallationSections().some((section) => section.id === PROVIDER_API_SECTION_ID)) {
+    return null;
+  }
+  return (
+    <Alert variant="info" data-slot="provider-keys-moved">
+      <ServerCog />
+      <AlertTitle>{ti("providerApi.moved.title")}</AlertTitle>
+      <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <span>{ti("providerApi.moved.description")}</span>
+        <Link
+          to={installationSectionTo(PROVIDER_API_SECTION_ID)}
+          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0")}
+        >
+          {ti("providerApi.moved.action")}
+        </Link>
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+/**
+ * The installation's provider keys: a card with the keys, their creation and
+ * revocation. It is the content of Installation, Provider API (an extension's
+ * section); `available` says whether the installation offers provider keys at
+ * all.
+ */
+export function ProviderKeysCard() {
   const { t } = useTranslation("integrations");
   const query = useProviderKeys();
   const available = query.data?.available ?? false;

@@ -95,6 +95,19 @@ function runPreview(
   });
 }
 
+export interface PreviewInWorkerOptions {
+  readonly signal?: AbortSignal;
+  /** Wall-clock limit of the formatted view (default `config.preview.timeoutMs`). */
+  readonly timeoutMs?: number;
+  /**
+   * Wall-clock limit of the plain-text retry that follows a formatted view that ran over its time
+   * or memory (default: half of `timeoutMs`). The process that ran over its limit was killed, so
+   * the retry often starts a process of its own: a caller that needs the retry to be independent
+   * of the speed of the machine (a test) gives it its own, generous budget.
+   */
+  readonly textTimeoutMs?: number;
+}
+
 /**
  * The preview of one message's bytes. Resolves with a previewable DTO (formatted, or plain text
  * with `simplified` when the formatted view ran over its limits) or a not-previewable one for
@@ -102,7 +115,7 @@ function runPreview(
  */
 export async function previewInWorker(
   bytes: Buffer,
-  options: { signal?: AbortSignal; timeoutMs?: number } = {},
+  options: PreviewInWorkerOptions = {},
 ): Promise<MailPreviewDto> {
   configureParserPool();
   const timeoutMs = options.timeoutMs ?? config.preview.timeoutMs;
@@ -121,7 +134,7 @@ export async function previewInWorker(
       return await runPreview(
         bytes,
         "text",
-        Math.max(1, Math.floor(timeoutMs / 2)),
+        options.textTimeoutMs ?? Math.max(1, Math.floor(timeoutMs / 2)),
         options.signal,
       );
     } catch (second) {

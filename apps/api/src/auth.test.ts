@@ -20,6 +20,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import type * as AuthModule from "./auth.js";
 import { dropDatabase } from "./features/snapshots/testing/explorer-fixture.js";
 import { AUTH_RATE_LIMIT } from "./lib/auth-surface.js";
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "./lib/password-policy.js";
 import { type TestDatabaseRoles, provisionTestRoles } from "./testing/database-roles.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
@@ -100,6 +101,7 @@ afterAll(async () => {
 /** The parts of the resolved auth context these tests look at. */
 interface InspectedContext {
   rateLimit: { enabled: boolean; storage: string };
+  password: { config: { minPasswordLength: number; maxPasswordLength: number } };
   checkSchema?: () => Promise<void> | undefined;
 }
 
@@ -115,6 +117,22 @@ describe("auth options", () => {
   it("keeps the rate limits of the auth surface, with the counters in the database", async () => {
     expect(auth.options.rateLimit).toEqual({ ...AUTH_RATE_LIMIT, storage: "database" });
     expect((await context()).rateLimit).toMatchObject({ enabled: true, storage: "database" });
+  });
+
+  it("takes the password length limits from the password policy, not from better-auth", async () => {
+    // better-auth defaults to 128 characters and, since 1.7.6, refuses a longer
+    // password on sign-in too. Restow accepts up to MAX_PASSWORD_LENGTH (setup
+    // wizard, admin recovery), so an account with a 129-256 character password
+    // must keep signing in. The release notes state these two limits.
+    expect(auth.options.emailAndPassword).toMatchObject({
+      minPasswordLength: MIN_PASSWORD_LENGTH,
+      maxPasswordLength: MAX_PASSWORD_LENGTH,
+    });
+    expect((await context()).password.config).toEqual({
+      minPasswordLength: 12,
+      maxPasswordLength: 256,
+    });
+    expect(MAX_PASSWORD_LENGTH).toBeGreaterThan(128);
   });
 
   it("lets only the server set a user's Entra identity", () => {
@@ -269,5 +287,73 @@ describe.skipIf(!adminUrl)("the configured demo account, demo mode off, on Postg
       [email],
     );
     expect(Number(sessions[0]?.count)).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Password length on sign-in (better-auth 1.7.6 checks the limit there too)
+// ---------------------------------------------------------------------------
+
+describe.skipIf(!adminUrl)("password length on sign-in, on Postgres", () => {
+  async function createAccount(email: string, password: string): Promise<void> {
+    const userId = randomUUID();
+    const context = (await auth.$context) as unknown as {
+      password: { hash(value: string): Promise<string> };
+    };
+    await query('INSERT INTO "user" (id, name, email, email_verified) VALUES ($1, $2, $3, true)', [
+      userId,
+      email,
+      email,
+    ]);
+    await query(
+      `INSERT INTO account (id, account_id, provider_id, user_id, password, created_at, updated_at)
+       VALUES ($1, $2, 'credential', $3, $4, now(), now())`,
+      [randomUUID(), userId, userId, await context.password.hash(password)],
+    );
+  }
+
+  function signIn(email: string, password: string, clientIp: string): Promise<Response> {
+    return auth.handler(
+      new Request(`${PUBLIC_URL}/api/auth/sign-in/email`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          origin: PUBLIC_URL,
+          "x-forwarded-for": clientIp,
+        },
+        body: JSON.stringify({ email, password }),
+      }),
+    );
+  }
+
+  function passwordOf(length: number): string {
+    return randomBytes(length).toString("base64url").slice(0, length);
+  }
+
+  // The admin recovery (cli/admin-recovery.ts) and the setup wizard accept up to
+  // MAX_PASSWORD_LENGTH; with better-auth's own default of 128 these would be refused.
+  it.each([
+    [129, "198.51.100.70"],
+    [200, "198.51.100.71"],
+    [MAX_PASSWORD_LENGTH, "198.51.100.72"],
+  ])("signs in with a password of %i characters", async (length, clientIp) => {
+    const email = `password-${length}@example.test`;
+    const password = passwordOf(length);
+    await createAccount(email, password);
+
+    const response = await signIn(email, password, clientIp);
+
+    expect(response.status).toBe(200);
+  });
+
+  it("refuses a password above the policy maximum before checking it", async () => {
+    const response = await signIn(
+      "password-too-long@example.test",
+      passwordOf(MAX_PASSWORD_LENGTH + 1),
+      "198.51.100.73",
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({ code: "PASSWORD_TOO_LONG" });
   });
 });

@@ -59,6 +59,59 @@ export function mailboxUsage(
   };
 }
 
+// --- The operator's own organisation ----------------------------------------------
+
+/** A tenant the operator may mark as the own organisation. */
+export interface OwnOrganisationChoice {
+  id: string;
+  name: string;
+  customerNumber: string | null;
+}
+
+/**
+ * What the dashboard asks a provider admin about the own organisation:
+ *
+ *   - `setUp`        the installation has none yet. It can be created when no
+ *                    tenant exists or the installation may have several (the API
+ *                    applies the same limit to every tenant), and any tenant that
+ *                    is not being deleted can be marked as it.
+ *   - `addCustomer`  the own organisation exists on an installation that may have
+ *                    several tenants, and it has no customer yet.
+ *
+ * `null` asks nothing. Only provider admins are asked; the actions are for
+ * those whose team role may use them (`canManage`), the others see the note.
+ */
+export type OwnOrganisationPrompt =
+  | { kind: "setUp"; canManage: boolean; canCreate: boolean; existing: OwnOrganisationChoice[] }
+  | { kind: "addCustomer" };
+
+export function ownOrganisationPrompt(input: {
+  tenants: readonly Pick<TenantItem, "id" | "name" | "kind" | "status" | "customerNumber">[];
+  providerAdmin: boolean;
+  /** The provider team role may create tenants and mark one (administrator with every tenant). */
+  canManage: boolean;
+  /** The installation may have more than one tenant (`tenants.additional`). */
+  additionalTenants: boolean;
+}): OwnOrganisationPrompt | null {
+  if (!input.providerAdmin) {
+    return null;
+  }
+  const live = input.tenants.filter((tenant) => tenant.status !== "deleting");
+  if (!input.tenants.some((tenant) => tenant.kind === "internal")) {
+    const canCreate = input.tenants.length === 0 || input.additionalTenants;
+    const existing = live.map(({ id, name, customerNumber }) => ({ id, name, customerNumber }));
+    // Nothing to offer: no tenant to mark, and none may be created.
+    if (!canCreate && existing.length === 0) {
+      return null;
+    }
+    return { kind: "setUp", canManage: input.canManage, canCreate, existing };
+  }
+  const hasCustomer = live.some((tenant) => tenant.kind === "customer");
+  return input.additionalTenants && input.canManage && !hasCustomer
+    ? { kind: "addCustomer" }
+    : null;
+}
+
 // --- Badges ---------------------------------------------------------------------
 
 /** A backup without a verified restore counts as failed, so "not ready" looks like one. */
@@ -159,6 +212,8 @@ const PROBLEM_TYPES = {
   slugTaken: "urn:restow:problem:slug-taken",
   setupRequired: "urn:restow:problem:setup-required",
   customerNumberTaken: "urn:restow:problem:customer-number-taken",
+  internalTenantExists: "urn:restow:problem:internal-tenant-exists",
+  internalTenantProtected: "urn:restow:problem:internal-tenant-protected",
 } as const;
 
 /** better-auth codes the API passes through (`code` extension) that mean "slug in use". */
@@ -207,6 +262,32 @@ export function createTenantError(error: unknown): Message {
   }
   if (isCustomerNumberConflict(error)) {
     return { key: "tenants:validation.customerNumberTaken" };
+  }
+  return genericError(error);
+}
+
+/** Why deleting a tenant failed: the own organisation has its own explanation. */
+export function deleteTenantError(error: unknown): Message {
+  if (problemOf(error)?.type === PROBLEM_TYPES.internalTenantProtected) {
+    return { key: "tenants:errors.internalTenantProtected" };
+  }
+  return genericError(error);
+}
+
+/** Why creating the own organisation or marking a tenant as it failed. */
+export function ownOrganisationError(error: unknown): Message {
+  const problem = problemOf(error);
+  if (isFeatureUnavailable(error)) {
+    return { key: "tenants:ownOrganisation.errors.featureUnavailable" };
+  }
+  if (problem?.type === PROBLEM_TYPES.internalTenantExists) {
+    return { key: "tenants:ownOrganisation.errors.exists" };
+  }
+  if (problem?.type === PROBLEM_TYPES.setupRequired) {
+    return { key: "tenants:errors.setupRequired" };
+  }
+  if (isSlugConflict(error)) {
+    return { key: "tenants:validation.slugTaken" };
   }
   return genericError(error);
 }

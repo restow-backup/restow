@@ -1,4 +1,4 @@
-import type { JournalSetup, JournalStatus } from "./api";
+import type { JournalReceiverState, JournalSetup, JournalStatus } from "./api";
 
 /**
  * View decisions of the journal section, kept out of the component so they are
@@ -37,7 +37,9 @@ export interface ChecklistItem {
  * configuration. Before journaling is set up at all, nothing is a warning: the
  * missing port and certificate are simply the first things to do.
  */
-export function checklistItems(setup: JournalSetup): ChecklistItem[] {
+export function checklistItems<T extends Pick<JournalSetup, "requirements" | "status">>(
+  setup: T,
+): ChecklistItem[] {
   const { requirements } = setup;
   const notSetUp = isNotSetUp(setup.status);
   const port: ChecklistItem =
@@ -92,4 +94,20 @@ export function isNotSetUp(status: JournalStatus): boolean {
  */
 export function guideOpenByDefault(status: JournalStatus): boolean {
   return status !== "receiving" && !isNotSetUp(status);
+}
+
+/**
+ * The status the installation page gives the receiver, in the vocabulary of the
+ * tenant's setup (same tones, same checklist): a receiver that listens is
+ * receiving work, one that is down is a fault, one that was never set up is no fault.
+ */
+export function receiverStatus(state: JournalReceiverState): JournalStatus {
+  switch (state) {
+    case "listening":
+      return "receiving";
+    case "down":
+      return "receiver_down";
+    case "not_configured":
+      return "not_configured";
+  }
 }

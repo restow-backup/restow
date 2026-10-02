@@ -4,7 +4,7 @@ import { useTenantScope } from "@/features/archive/hooks";
 
 import { editionAllows, useEdition } from "../license/edition";
 
-import { fetchJournalSetup, journalKeys, rotateJournalAddress } from "./api";
+import { fetchJournalReceiver, fetchJournalSetup, journalKeys, rotateJournalAddress } from "./api";
 
 /** The status follows the receiver and the incoming reports: look again now and then. */
 const REFRESH_MS = 30_000;
@@ -41,5 +41,14 @@ export function useRotateJournalAddress() {
     onSuccess: (setup) => {
       queryClient.setQueryData(journalKeys.setup(tenantId), setup);
     },
+  });
+}
+
+/** The receiver for the installation page; its state follows the listener and the reports, so look again now and then. */
+export function useJournalReceiver() {
+  return useQuery({
+    queryKey: journalKeys.receiver,
+    queryFn: fetchJournalReceiver,
+    refetchInterval: REFRESH_MS,
   });
 }

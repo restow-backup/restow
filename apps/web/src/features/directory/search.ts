@@ -1,5 +1,7 @@
 import type { LinkProps } from "@tanstack/react-router";
 
+import { activeTenantPagePath, activeTenantPageTo } from "@/lib/tenant-paths";
+
 import type { ObjectKind, ObjectSort, ObjectStatusFilter, ObjectsQuery } from "./types";
 
 /**
@@ -8,7 +10,14 @@ import type { ObjectKind, ObjectSort, ObjectStatusFilter, ObjectsQuery } from ".
  * Unknown or invalid values are dropped, never passed to the API.
  */
 
-export const DIRECTORY_PATH = "/protected-objects";
+/**
+ * Where the protected objects live: the Protection section of the active
+ * tenant's page (features/tenant-page). The old address `/protected-objects`
+ * leads there (features/redirects).
+ */
+export function directoryPath(): string {
+  return activeTenantPagePath("protection");
+}
 
 export const PAGE_SIZES = [25, 50, 100] as const;
 export const DEFAULT_PAGE_SIZE = 25;
@@ -125,5 +134,5 @@ export function hasObjectFilters(search: DirectorySearch): boolean {
 
 /** Feature routes are registered at runtime; the static route typing cannot know them. */
 export function directoryTo(): LinkProps["to"] {
-  return DIRECTORY_PATH as LinkProps["to"];
+  return activeTenantPageTo("protection");
 }

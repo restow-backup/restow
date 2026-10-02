@@ -1,19 +1,29 @@
 {
   "title": "Initial setup",
-  "subtitle": "Six steps and {appName} is ready to run.",
+  "subtitle": "A few steps and {appName} is ready to run.",
   "stepIndicator": "Step {current} of {total}",
   "step": {
+    "language": "Language",
     "token": "Setup token",
     "disclaimer": "Operator notice",
     "mode": "Operating mode",
-    "admin": "First admin account",
+    "admin": "Organisation and admin",
     "mail": "Mail transport",
     "review": "Review"
+  },
+  "language": {
+    "title": "Choose your language",
+    "description": "The setup runs in this language. It is also the language of the mails and reports of your own organisation. You can change both later.",
+    "card": {
+      "title": "English",
+      "description": "Set up in English, with mails and reports in English."
+    }
   },
   "token": {
     "title": "Confirm that you run this server",
     "description": "Only someone with access to the server can set up {appName}. The setup token proves it.",
-    "whereLog": "When the api container started, it wrote a one-time setup token to its log. Show it on the server with:",
+    "what": "The setup token is a one-time code that proves you operate this server: only someone who can read the server's log can see it. It stops working once the setup is finished.",
+    "whereLog": "The installer printed it at the end of the installation. To show it again, run this on the server (in the directory of your installation; /opt/restow is the default):",
     "whereEnvironment": "This server takes its setup token from the RESTOW_SETUP_TOKEN variable in its environment (.env). Enter that value.",
     "restart": "Each restart of the api issues a new token. Use the one printed last.",
     "label": "Setup token",
@@ -110,8 +120,13 @@
     }
   },
   "admin": {
-    "title": "First admin account",
-    "description": "This account is the provider admin: it sets up {appName} and creates tenants.",
+    "title": "Your organisation and the first admin account",
+    "description": "The organisation is the one that runs this installation. The admin account is the provider admin: it sets up {appName} and manages everything in it.",
+    "organisation": {
+      "label": "Name of your organisation",
+      "placeholder": "Example IT Services GmbH",
+      "hint": "The organisation that runs this installation, for example your company. {appName} sets it up as your own organisation, the place for your own backups."
+    },
     "name": {
       "label": "Name",
       "placeholder": "First and last name"
@@ -142,6 +157,11 @@
   "mail": {
     "title": "How does {appName} send notifications?",
     "description": "Used for reports, alerts and invitations. The journal intake for the archive is separate from this.",
+    "skip": {
+      "action": "Skip for now",
+      "explanation": "Mail is optional. Without it {appName} sends no alert or report e-mails, and invitations and set-password links are not sent by mail: you copy the link and pass it on yourself. You can set it up later under Installation → Notification mail.",
+      "skipped": "You skipped this step. Fill in the form and choose Next to set up mail now."
+    },
     "transport": {
       "label": "Transport",
       "smtp": "SMTP server",
@@ -179,10 +199,13 @@
   "review": {
     "title": "Review",
     "description": "Check your entries and finish the setup.",
+    "language": "Language",
     "mode": "Operating mode",
     "publicUrl": "Public URL",
+    "organisation": "Your organisation",
     "admin": "First admin account",
     "mail": "Mail transport",
+    "mailSkipped": "Not set up",
     "sendTest": "Test message",
     "yes": "Yes",
     "no": "No",
@@ -198,6 +221,7 @@
     "alreadyConfigured": "This installation is already set up.",
     "failed": "The setup could not be saved.",
     "administratorExists": "An earlier, unfinished setup already created an administrator. Continue with that administrator's email and password.",
-    "configurationIncomplete": "The server configuration is incomplete. Set {settings} in the server environment and restart {appName}, then finish the setup."
+    "configurationIncomplete": "The server configuration is incomplete. Set {settings} in the server environment and restart {appName}, then finish the setup.",
+    "ownOrganisationFailed": "The setup is saved, but your own organisation could not be created. Create it from the overview."
   }
 }

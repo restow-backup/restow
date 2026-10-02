@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useOpenTenantSetup } from "@/features/tenant-setup/setup-tabs";
 import { providerMay } from "@/lib/provider-role";
 import { hasFeature, useSession } from "@/lib/session";
 
@@ -18,7 +17,7 @@ import { DeleteTenantDialog } from "./components/delete-tenant-dialog";
 import { InstallationPanel } from "./components/installation-panel";
 import { TenantTable } from "./components/tenant-table";
 import { useTenantHealths, useTenantList, useUsageOverview } from "./hooks";
-import { tenantsListTo } from "./paths";
+import { tenantDetailTo, tenantsListTo } from "./paths";
 import { canCreateTenant, filterTenants, parseTenantsSearch } from "./presenters";
 import type { TenantItem } from "./types";
 import { useEnterTenant } from "./use-enter-tenant";
@@ -41,7 +40,11 @@ export function TenantsPage() {
   const list = useTenantList();
   const usage = useUsageOverview();
   const { enter, activeTenantId } = useEnterTenant();
-  const openSetup = useOpenTenantSetup();
+  // A tenant's page makes the tenant the active one itself, so opening it is just a link.
+  const openSetup = React.useCallback(
+    (tenant: Pick<TenantItem, "id">) => void navigate({ to: tenantDetailTo(tenant.id) }),
+    [navigate],
+  );
   const [createOpen, setCreateOpen] = React.useState(false);
   const [deleting, setDeleting] = React.useState<TenantItem | null>(null);
   const [search, setSearch] = React.useState("");

@@ -1,9 +1,9 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { I18nextProvider } from "react-i18next";
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { i18n } from "@/i18n";
-import { registerWebExtension, resetWebExtensionsForTesting } from "@/lib/extensions";
+import { resetWebExtensionsForTesting } from "@/lib/extensions";
 import {
   type RunningVersion,
   type SessionContextValue,
@@ -14,21 +14,11 @@ import "../i18n";
 import { AboutSection } from "./about-section";
 
 /**
- * Settings, About: the facts of the running build and where its license,
+ * Installation, About: the facts of the running build and where its license,
  * source code and third-party notices are, for a release and for a
- * development build, and the `settings.about` slot below them.
+ * development build. Nothing about an edition or a license key: that is a
+ * section of its own where an extension offers one.
  */
-
-let currentSearch: Record<string, unknown> = { section: "about" };
-
-vi.mock("@tanstack/react-router", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@tanstack/react-router")>();
-  return {
-    ...actual,
-    useRouterState: ({ select }: { select: (state: unknown) => unknown }) =>
-      select({ location: { search: currentSearch } }),
-  };
-});
 
 const REPOSITORY = "https://github.com/restow-backup/restow";
 
@@ -70,10 +60,6 @@ function render(version: RunningVersion | null): string {
 
 beforeAll(async () => {
   await i18n.changeLanguage("en");
-});
-
-beforeEach(() => {
-  currentSearch = { section: "about" };
 });
 
 afterEach(() => {
@@ -121,17 +107,5 @@ describe("AboutSection", () => {
     expect(html).not.toMatch(
       /edition|Community|Business|Service Provider|AGPL|fair|free of charge|never limited/i,
     );
-  });
-
-  it("hands the ?requires= marker to the settings.about slot, and renders nothing more without one", () => {
-    currentSearch = { section: "about", requires: "reports.timed" };
-    expect(render(release)).not.toContain("slot:");
-    registerWebExtension({
-      name: "about-test",
-      slots: { "settings.about": ({ requires }) => <p>slot:{requires ?? "none"}</p> },
-    });
-    expect(render(release)).toContain("slot:reports.timed");
-    currentSearch = { section: "about", requires: "Not a Token!" };
-    expect(render(release)).toContain("slot:none");
   });
 });

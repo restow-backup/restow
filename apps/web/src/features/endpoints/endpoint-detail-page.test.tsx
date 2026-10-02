@@ -216,6 +216,7 @@ function detail(over: Partial<EndpointDetail> = {}): EndpointDetail {
       post: { set: false, fingerprint: null },
     },
     autoUpdatePaused: false,
+    autoUpdateOwnPause: false,
     ...over,
   };
 }

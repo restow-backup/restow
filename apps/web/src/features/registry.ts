@@ -1,12 +1,14 @@
 import type { AnyRoute } from "@tanstack/react-router";
 
 import * as archive from "@/features/archive";
+import * as backupJobs from "@/features/backup-jobs";
 import * as directory from "@/features/directory";
 import * as endpoints from "@/features/endpoints";
 import * as mailExports from "@/features/exports";
+import * as history from "@/features/history";
 import * as mailImports from "@/features/imports";
+import * as installation from "@/features/installation";
 import * as integrations from "@/features/integrations";
-import * as jobs from "@/features/jobs";
 import * as redirects from "@/features/redirects";
 import * as reports from "@/features/reports";
 import * as restore from "@/features/restore";
@@ -17,7 +19,7 @@ import * as soon from "@/features/soon";
 import * as sources from "@/features/sources";
 import * as stats from "@/features/stats";
 import * as storage from "@/features/storage";
-import * as tenantSetup from "@/features/tenant-setup";
+import * as tenantPage from "@/features/tenant-page";
 import * as tenants from "@/features/tenants";
 import * as verify from "@/features/verify";
 import { extensionNavItems, extensionNavLocks, extensionRoutes } from "@/lib/extensions";
@@ -38,7 +40,8 @@ import "./ee";
 
 /** Features in navigation order: the way an operator walks through Restow. */
 const features = [
-  jobs,
+  backupJobs,
+  history,
   verify,
   reports,
   stats,
@@ -48,7 +51,7 @@ const features = [
   mailExports,
   endpoints,
   tenants,
-  tenantSetup,
+  tenantPage,
   directory,
   sources,
   schedules,
@@ -56,6 +59,7 @@ const features = [
   mailImports,
   storage,
   integrations,
+  installation,
   settings,
   redirects,
 ] as const;
@@ -66,21 +70,32 @@ interface Placement {
 }
 
 /**
- * Where each entry sits in the sidebar, by nav item id: the final menu of
- * 0.1.0 (maintainer decision 2026-10-01; plan step 2). Features bring their
- * own defaults; this table settles the whole menu in one place so orders from
- * different features never collide:
+ * Where each entry sits in the sidebar, by nav item id: the menu of 0.2.0
+ * (maintainer decisions 2026-10-01 and 2026-10-02; plan step 2, phase 1c).
+ * Features bring their own defaults; this table settles the whole menu in one
+ * place so orders from different features never collide:
  *
  *   Daily                Overview, History, Recovery readiness, Alerts
- *   Mail & SaaS          Jobs (soon), Restore explorer, Archive, Exports
- *   Servers & endpoints  Jobs (soon), Inventory, File restore
- *   Tenants              All tenants (tenant management) or Setup (one tenant)
- *   Admin                Repositories, Audit log, Integrations, License, Team
- *                        (Members for tenant admins), Settings, Resources (soon)
+ *   Mail & SaaS          Jobs, Restore explorer, Archive, Exports
+ *   Servers & endpoints  Jobs, Inventory, File restore
+ *   Tenants              Tenant settings, All tenants (tenant management);
+ *   (Organisation)       "Settings" instead of "Tenant settings" and no
+ *                        "Tenants" wording where the installation has one
+ *                        organisation (lib/navigation.ts `navGroupLabelKey`)
+ *   Installation         Settings (the installation page and its sections), Team,
+ *                        Audit log, License, Resources (soon)
  *
- * The setup area's pages (protection, sources, schedules, retention, imports)
- * have no entry of their own; they are tabs (features/tenant-setup). Pinned
- * entries open the list once pins exist (0.2.0).
+ * "Jobs" are the job definitions (features/backup-jobs): the two entries share
+ * the address `/jobs` and differ by `?type=mail|endpoint`. Their runs are History.
+ *
+ * The pages of a single tenant (its connections, protection, schedules,
+ * retention, storage, agents, archive settings, notifications, integrations,
+ * members, audit log and master data) have no entries of their own: they are the
+ * sections of the tenant page, which "Tenant settings" opens
+ * (features/tenant-page). The audit log of a provider admin is in Installation
+ * (across every tenant), the one of a tenant's own administrator is the section
+ * Audit log of their tenant's page. Pinned entries open the list once pins
+ * exist (0.2.0).
  */
 const NAV_PLACEMENT: Readonly<Record<string, Placement>> = {
   dashboard: { group: "daily", order: 0 },
@@ -94,16 +109,14 @@ const NAV_PLACEMENT: Readonly<Record<string, Placement>> = {
   "endpoint-jobs": { group: "endpoints", order: 10 },
   inventory: { group: "endpoints", order: 20 },
   "file-restore": { group: "endpoints", order: 30 },
-  tenants: { group: "tenants", order: 10 },
-  "tenant-setup": { group: "tenants", order: 20 },
-  repositories: { group: "admin", order: 10 },
-  audit: { group: "admin", order: 20 },
-  integrations: { group: "admin", order: 30 },
-  license: { group: "admin", order: 40 },
-  team: { group: "admin", order: 50 },
-  "tenant-members": { group: "admin", order: 60 },
-  settings: { group: "admin", order: 90 },
-  resources: { group: "admin", order: 100 },
+  "tenant-settings": { group: "tenants", order: 10 },
+  "organisation-settings": { group: "tenants", order: 10 },
+  tenants: { group: "tenants", order: 50 },
+  settings: { group: "installation", order: 10 },
+  team: { group: "installation", order: 20 },
+  audit: { group: "installation", order: 30 },
+  license: { group: "installation", order: 40 },
+  resources: { group: "installation", order: 50 },
 };
 
 function placed(item: NavItem): NavItem {

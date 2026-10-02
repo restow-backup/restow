@@ -2239,10 +2239,12 @@ describe.skipIf(!testDatabaseAdminUrl)(
         });
 
         const { loadTenantFacts } = await import("../dashboard/queries.js");
-        const facts = await loadTenantFacts(appDb, tenantC, {
-          STORAGE_TARGET: "local",
-          STORAGE_LOCAL_PATH: "/x",
-        });
+        const facts = await loadTenantFacts(
+          appDb,
+          tenantC,
+          { STORAGE_TARGET: "local", STORAGE_LOCAL_PATH: "/x" },
+          null,
+        );
         expect(facts.kinds).toEqual({ mailbox: 0, onedrive: 0, imap: 0 });
         expect(facts.setup).toMatchObject({
           sources: { active: 0, error: 0, pending: 0 },

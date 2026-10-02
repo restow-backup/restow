@@ -16,6 +16,7 @@ import {
   type ProtectedObject,
   type Schedule,
   type ScheduleKind,
+  backupJobs,
   protectedObjects,
   schedules,
   sources,
@@ -27,6 +28,7 @@ import { audit } from "../../lib/audit.js";
 import { isImportedObject } from "../../lib/imported-objects.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
+import { ensureDefaultMailJob, mailJobCoverage } from "../backup-jobs/defaults.js";
 import { type OwnedObject, type Viewer, isOwnObject, seesAllObjects } from "../snapshots/access.js";
 import {
   type ApplyRecommendedInput,
@@ -99,6 +101,11 @@ export interface ScheduleDto {
    * a running one, before a queued, cancelled and finally a completed one.
    */
   lastJob: ScheduleLastJobDto | null;
+  /**
+   * The backup job that took this schedule over (release 0.2.0): the scheduler no longer plans
+   * it and it cannot be changed, but the row stays. Null for a schedule that still runs.
+   */
+  supersededByJobId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -117,6 +124,11 @@ export interface SchedulePreviewDto {
 export interface ApplyRecommendedDto {
   /** The schedules this call created (empty when every recommendation was covered). */
   created: ScheduleDto[];
+  /**
+   * The default mail job this call created, when the tenant had no job covering its objects:
+   * backups and restore checks live in jobs since 0.2.0, not in schedules.
+   */
+  jobCreated: { id: string; name: string } | null;
   missingKinds: CoreScheduleKind[];
 }
 
@@ -192,6 +204,7 @@ export function toScheduleDto(
     nextRunAt: row.enabled ? iso(row.nextRunAt) : null,
     lastRunAt: iso(row.lastRunAt),
     lastJob: lastJob && !visibility.jobId ? { ...lastJob, id: null } : lastJob,
+    supersededByJobId: row.supersededByJobId,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -442,7 +455,25 @@ async function missingKinds(
   const recommended = recommendedSchedules({
     hasMicrosoftSource: await hasMicrosoftSource(tx, tenantId),
   });
-  return kindsOfRecommendations(missingRecommendedSchedules(rows.map(asExisting), recommended));
+  const existing = [...rows.map(asExisting), ...(await mailJobCoverage(tx, tenantId))];
+  return kindsOfRecommendations(missingRecommendedSchedules(existing, recommended));
+}
+
+/** Problem type of a change to a schedule a backup job took over. */
+export const SCHEDULE_SUPERSEDED_PROBLEM = "urn:restow:problem:schedule-superseded";
+
+/** Backups and restore checks are part of backup jobs since 0.2.0; a schedule of them is not made any more. */
+export const JOB_KINDS: readonly ScheduleKind[] = ["backup", "verify"];
+
+function assertNotSuperseded(row: Schedule): void {
+  if (row.supersededByJobId !== null) {
+    throw new ProblemError(409, "Schedule replaced by a backup job", {
+      type: SCHEDULE_SUPERSEDED_PROBLEM,
+      detail:
+        "A backup job took this schedule over; change the job instead. The schedule stays on record.",
+      extensions: { jobId: row.supersededByJobId },
+    });
+  }
 }
 
 /** An audit entry about one schedule, or (`target.tenant`) about the tenant's set of schedules. */
@@ -538,6 +569,13 @@ export async function createSchedule(
     timezone: input.timezone,
   };
   assertCadenceOrProblem(cadence, now);
+  if (JOB_KINDS.includes(input.kind)) {
+    throw scheduleProblem(
+      "kind",
+      "kind_replaced_by_jobs",
+      "Backups and restore checks are scheduled in backup jobs (Jobs); a schedule of this kind is not made any more.",
+    );
+  }
   return withTenantTx(db, tenantId, async (tx) => {
     const object = await checkScope(tx, tenantId, input.kind, input.protectedObjectId);
     const [row] = await tx
@@ -580,6 +618,7 @@ export async function updateSchedule(
 ): Promise<ScheduleDto> {
   return withTenantTx(db, tenantId, async (tx) => {
     const before = await findSchedule(tx, tenantId, id);
+    assertNotSuperseded(before);
     const after = mergePatch(before, patch);
     const reschedule = needsNewNextRun(before, after);
     // An untouched cadence is not re-judged (switching off or rescoping always
@@ -626,6 +665,7 @@ export async function deleteSchedule(
 ): Promise<void> {
   await withTenantTx(db, tenantId, async (tx) => {
     const before = await findSchedule(tx, tenantId, id);
+    assertNotSuperseded(before);
     await tx.delete(schedules).where(and(eq(schedules.tenantId, tenantId), eq(schedules.id, id)));
     await audit(
       tx,
@@ -671,12 +711,20 @@ export async function applyRecommendedSchedules(
       throw new ProblemError(404, "Tenant not found");
     }
     const existing = await tx.select().from(schedules).where(eq(schedules.tenantId, tenantId));
-    const missing = missingRecommendedSchedules(
-      existing.map(asExisting),
+    const missingAll = missingRecommendedSchedules(
+      [...existing.map(asExisting), ...(await mailJobCoverage(tx, tenantId))],
       recommendedSchedules({
         timezone: input.timezone,
         hasMicrosoftSource: await hasMicrosoftSource(tx, tenantId),
       }),
+    );
+    // Backups and restore checks are a job; only the maintenance is a schedule.
+    const missing = missingAll.filter((schedule) => !JOB_KINDS.includes(schedule.kind));
+    const jobCreated = await ensureDefaultMailJob(
+      tx,
+      tenantId,
+      missingAll.filter((schedule) => JOB_KINDS.includes(schedule.kind)),
+      now,
     );
     const created =
       missing.length === 0
@@ -702,7 +750,7 @@ export async function applyRecommendedSchedules(
         .set({ scheduleDefaultsAppliedAt: now })
         .where(eq(tenants.id, tenantId));
     }
-    if (created.length > 0 || markerSet) {
+    if (created.length > 0 || jobCreated || markerSet) {
       await audit(
         tx,
         auditEvent(
@@ -713,12 +761,14 @@ export async function applyRecommendedSchedules(
           {
             timezone: input.timezone,
             created: created.map((row) => ({ id: row.id, ...scheduleDefinition(row) })),
+            ...(jobCreated ? { job: jobCreated } : {}),
           },
         ),
       );
     }
     return {
       created: created.map((row) => toScheduleDto(row, null, null)),
+      jobCreated,
       missingKinds: await missingKinds(tx, tenantId, [...existing, ...created]),
     };
   });

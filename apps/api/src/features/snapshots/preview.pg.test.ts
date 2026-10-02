@@ -39,6 +39,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { withTenantTx } from "../../lib/tenant-context.js";
 import type { Viewer } from "./access.js";
+import { MAX_SANITIZED_HTML_CHARS, PREVIEW_SIZE_CAP_BYTES } from "./preview.js";
 import { attachmentParamSchema, listObjectsQuerySchema, treeQuerySchema } from "./schemas.js";
 import {
   type ExplorerFixture,
@@ -302,12 +303,19 @@ describe.skipIf(!testDatabaseAdminUrl)("mail preview against Postgres", () => {
         "",
         "=\r\n=3D".repeat(700_000),
       ]);
-      const DIV_BOMB = eml([
+      /**
+       * An HTML body longer than the preview formats (MAX_SANITIZED_HTML_CHARS), shorter than the
+       * message size it opens at all (PREVIEW_SIZE_CAP_BYTES). The formatted view is over its limit
+       * by construction: the preview shows the text and says so, whatever the speed of the machine
+       * (nested markup that is slow to sanitise would depend on it; the retry that follows such a
+       * timeout is covered with explicit budgets in preview-isolated.test.ts).
+       */
+      const LONG_HTML = eml([
         "From: Mallory <mallory@example.test>",
-        "Subject: nested",
+        "Subject: long",
         "Content-Type: text/html",
         "",
-        `<p>words here</p>${"<div>".repeat(300_000)}`,
+        `<p>words here</p><p>${"filler ".repeat(Math.ceil(MAX_SANITIZED_HTML_CHARS / 7) + 1000)}</p>`,
       ]);
       let previewConfig: { timeoutMs: number };
       let savedTimeout: number;
@@ -332,16 +340,19 @@ describe.skipIf(!testDatabaseAdminUrl)("mail preview against Postgres", () => {
 
       it("shows the text of a message whose formatted view runs over the limit, and says so in the audit entry", async () => {
         await warm();
-        // The text attempt that follows gets half of it: enough for a loaded machine.
-        previewConfig.timeoutMs = 5000;
+        // Both limits are about what the message is, not how fast the machine is. The time limit
+        // is generous: a slow runner may take long to start the process this size gets, and the
+        // message must not fail on it (it would still end as the text, through the retry).
+        previewConfig.timeoutMs = 30_000;
+        expect(LONG_HTML.length).toBeGreaterThan(MAX_SANITIZED_HTML_CHARS);
+        expect(LONG_HTML.length).toBeLessThan(PREVIEW_SIZE_CAP_BYTES);
         const entryId = await insertMailEntry({
           snapshotId: f.mailbox.second,
           protectedObjectId: f.annaMailbox,
-          path: "mail/Inbox/Nested.aaaa.eml",
-          content: DIV_BOMB,
-          metadata: { subject: "nested" },
+          path: "mail/Inbox/Long.aaaa.eml",
+          content: LONG_HTML,
+          metadata: { subject: "long" },
         });
-        const started = Date.now();
         const preview = await service.previewMailEntry(
           db,
           f.tenantId,
@@ -349,11 +360,19 @@ describe.skipIf(!testDatabaseAdminUrl)("mail preview against Postgres", () => {
           f.mailbox.second,
           entryId,
         );
-        expect(Date.now() - started).toBeLessThan(30_000);
-        expect(preview).toMatchObject({
+        // Only what is asserted: the text is as long as the message, a failure must not print it.
+        expect({
+          previewable: preview.previewable,
+          simplified: preview.previewable ? preview.simplified : undefined,
+          bodyKind: preview.previewable ? preview.body.kind : undefined,
+          showsText: preview.previewable && preview.body.content.includes("words here"),
+          hasMarkup: preview.previewable && preview.body.content.includes("<"),
+        }).toEqual({
           previewable: true,
           simplified: true,
-          body: { kind: "text" },
+          bodyKind: "text",
+          showsText: true,
+          hasMarkup: false,
         });
         const entry = await entriesBy(
           f.admin,
@@ -361,7 +380,7 @@ describe.skipIf(!testDatabaseAdminUrl)("mail preview against Postgres", () => {
           entryId,
         );
         expect(entry[0]?.details).toMatchObject({ previewable: true });
-      }, 60_000);
+      }, 90_000);
 
       it("answers 'unreadable' with the headers of the manifest for a message that stays slow, instead of hanging", async () => {
         await warm();

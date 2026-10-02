@@ -123,6 +123,7 @@ function detail(over: Partial<EndpointDetail> = {}): EndpointDetail {
     },
     hooks: hooks("any"),
     autoUpdatePaused: false,
+    autoUpdateOwnPause: false,
     ...over,
   } as EndpointDetail;
 }
@@ -418,6 +419,109 @@ describe("SettingsTab", () => {
     expect(field<HTMLInputElement>("settings-interval").value).toBe("240");
     expect(field("settings-time")).toBeNull();
     expect(page.text()).toContain("At most once every … minutes");
+  });
+
+  it("offers time windows of the limit, reads them in the time zone of the schedule and saves them", async () => {
+    await open();
+    const windows = document.querySelector('[data-slot="bandwidth-windows"]') as HTMLElement;
+    expect(windows).not.toBeNull();
+    expect(windows.textContent).toContain(
+      "Times are read in Europe/Berlin, the time zone of the schedule.",
+    );
+    expect(windows.textContent).toContain("The limit that applies when a run starts");
+    expect(windows.textContent).toContain("No time windows: the limit above applies at all times.");
+    await page.click(page.byText("button", "Add time window"));
+    const row = document.querySelector('[data-slot="bandwidth-window"]') as HTMLElement;
+    expect(row).not.toBeNull();
+    // The limit is required before the window can be saved, 0 being unlimited.
+    await page.click(save());
+    await page.settle();
+    expect(updateEndpoint).not.toHaveBeenCalled();
+    expect(page.text()).toContain("Enter a limit; 0 means unlimited.");
+    const limit = row.querySelector<HTMLInputElement>('input[inputmode="numeric"]');
+    await page.type(limit as HTMLInputElement, "0");
+    await page.click(save());
+    await page.settle();
+    expect(updateEndpoint).toHaveBeenCalledTimes(1);
+    expect(updateEndpoint).toHaveBeenCalledWith(ID, {
+      config: {
+        bandwidthWindows: [{ days: [1, 2, 3, 4, 5], from: "08:00", to: "18:00", kbps: 0 }],
+      },
+    });
+  });
+
+  it("shows the windows a machine has, and takes them away with null", async () => {
+    await open({
+      config: {
+        ...detail().config,
+        bandwidthKbps: 500,
+        bandwidthWindows: [{ days: [6, 7], from: "00:00", to: "00:00", kbps: 8000 }],
+      },
+    });
+    const rows = document.querySelectorAll('[data-slot="bandwidth-window"]');
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.querySelector('[data-slot="window-summary"]')?.textContent).toBe(
+      "Sat, Sun, 24 hours from 00:00: 8000 kbit/s",
+    );
+    expect(save().disabled).toBe(true);
+    await page.click(document.querySelector('[aria-label="Remove window 1"]') as HTMLElement);
+    await page.click(save());
+    await page.settle();
+    expect(updateEndpoint).toHaveBeenCalledWith(ID, { config: { bandwidthWindows: null } });
+  });
+
+  it("shows what a backup job owns as read only, with the way to the job, and leaves the rest open", async () => {
+    await open({ job: { id: "job-1", name: "Linux servers, daily" } });
+    const note = document.querySelector('[data-slot="managed-by-job"]');
+    expect(note?.textContent).toContain("This machine is managed by the job Linux servers, daily");
+    expect(note?.textContent).toContain("come from the job and are shown here read-only");
+    expect(note?.querySelector("a")?.getAttribute("href")).toBe("/jobs/definitions/job-1");
+    const closed = (id: string) => field(id).closest("fieldset[disabled]") !== null;
+    // The folders, exclusions, schedule, hooks and bandwidth belong to the job.
+    for (const id of [
+      "settings-excludes",
+      "settings-schedule-kind",
+      "settings-time",
+      "settings-zone",
+      "settings-bandwidth",
+      "settings-ac",
+      "settings-pre-hook",
+      "settings-post-hook",
+    ]) {
+      expect(closed(id), id).toBe(true);
+    }
+    expect(
+      document.querySelector('input[aria-label^="Folder "]')?.closest("fieldset[disabled]"),
+    ).not.toBeNull();
+    // So do the time windows of the limit: they come from the job as well.
+    expect(
+      document
+        .querySelector('[data-slot="bandwidth-windows"] button')
+        ?.closest("fieldset[disabled]"),
+    ).not.toBeNull();
+    // The name, the retention, the alerts and the quota stay the machine's own.
+    for (const id of [
+      "settings-name",
+      "settings-keepDaily",
+      "settings-stale-hours",
+      "settings-quota",
+    ]) {
+      expect(closed(id), id).toBe(false);
+    }
+  });
+
+  it("sends no configuration when a machine in a job changes its name", async () => {
+    await open({ job: { id: "job-1", name: "Linux servers, daily" } });
+    await page.type(field<HTMLInputElement>("settings-name"), "Front");
+    await page.click(save());
+    await page.settle();
+    expect(updateEndpoint).toHaveBeenCalledWith(ID, { displayName: "Front" });
+  });
+
+  it("says nothing about a job for a machine that is in none", async () => {
+    await open({ job: null });
+    expect(document.querySelector('[data-slot="managed-by-job"]')).toBeNull();
+    expect(document.querySelector("fieldset[disabled]")).toBeNull();
   });
 
   it("locks the form for a revoked machine", async () => {

@@ -16,7 +16,7 @@ import { ApiError } from "@/lib/api";
 import { formatBytes, formatDateTime, formatInteger } from "@/lib/format";
 import { ImportsForbidden, NoTenantSelected } from "../components/access-states";
 import { ImportStatusBadge } from "../components/status-badge";
-import { IMPORT_PATHS, importTo } from "../paths";
+import { IMPORTS_TAB_SEARCH, importsListTo } from "../paths";
 import { alreadyImportedCount, isLive, phaseKey, progressRatio } from "../presenters";
 import type { ImportDetail } from "../types";
 import { useImportDetail } from "../use-imports";
@@ -35,7 +35,8 @@ export function ImportJobPage({ importId }: { importId: string }) {
 
   const back = (
     <Link
-      to={importTo(IMPORT_PATHS.list)}
+      to={importsListTo()}
+      search={IMPORTS_TAB_SEARCH as never}
       className={buttonVariants({ variant: "outline", size: "sm" })}
     >
       <ArrowLeft />

@@ -170,7 +170,7 @@ RUN --mount=type=cache,id=go-mod,target=/go/pkg/mod \
 # signing public key in /srv/agent/install. Assembled here as
 # a rootfs tree and copied into the runtime image in one step. The server's
 # restic is a link to the copy for the image's own architecture.
-FROM --platform=$BUILDPLATFORM alpine:3.22 AS agent-dist
+FROM --platform=$BUILDPLATFORM alpine:3.24 AS agent-dist
 ARG RESTOW_VERSION=
 ARG TARGETARCH
 COPY --from=agent-build /out /agent
@@ -325,7 +325,7 @@ LABEL org.opencontainers.image.vendor="IT Systeme Flores UG (haftungsbeschraenkt
 # tells the update check and the opt-in updater to stay on the Community images.
 FROM runtime-base AS runtime-community
 COPY --from=deploy-community /prod /prod
-# Release tag and commit of this build (CI: --build-arg RESTOW_VERSION=0.1.0). GET
+# Release tag and commit of this build (CI: --build-arg RESTOW_VERSION=0.2.0). GET
 # /api/v1/status reports them and the opt-in update check compares against the
 # version; empty for local builds. Declared last so a new version does not rebuild
 # the layers above it.

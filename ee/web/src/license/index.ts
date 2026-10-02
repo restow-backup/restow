@@ -1,48 +1,63 @@
 import { FileBadge } from "lucide-react";
 
-import { SETTINGS_PATH } from "@/features/settings/paths";
-import type { WebExtension } from "@/lib/extensions";
+import { installationSectionPath } from "@/features/installation/paths";
+import type { InstallationSectionSpec, WebExtension } from "@/lib/extensions";
 import type { NavItem } from "@/lib/navigation";
 
 import { AboutLicense } from "./components/about-license";
 import { EditionBadge } from "./components/edition-badge";
 import { TenantsCreationLocked } from "./components/tenants-creation-locked";
 import "./i18n";
-import { editionLock } from "./nav-lock";
+import { LICENSE_SECTION_ID, editionLock } from "./nav-lock";
 
 /**
  * The license module of ee/web: the edition read from the session
- * (`edition.ts`), menu locks by edition (`nav-lock.ts`) and what it adds to
- * core pages through slots: the license section of Settings, About, the
- * edition badge in the sidebar footer and the reason no further tenant can be
- * created. The core never names an edition itself.
+ * (`edition.ts`), locks by edition (`nav-lock.ts`) and what it adds to core
+ * pages: the license section of the installation page, the edition badge in
+ * the sidebar footer and the reason no further tenant can be created. The core
+ * never names an edition itself.
  */
 
 export { editionAllows, readEdition, requiredEditionOf, useEdition } from "./edition";
 export type { Edition, LicensedEdition } from "./edition";
-export { editionLock } from "./nav-lock";
+export { LICENSE_SECTION_ID, editionLock } from "./nav-lock";
 
 /** Slots the license module fills (lib/extensions.tsx `SlotProps`). */
 export const licenseSlots = {
-  "settings.about": AboutLicense,
   "shell.sidebarFooter": EditionBadge,
   "tenants.creationLocked": TenantsCreationLocked,
 } satisfies NonNullable<WebExtension["slots"]>;
 
 /**
- * "License" in Admin: the license section of Settings, About, where the key
- * is installed (provider admins, like the section itself). The core's
- * Settings entry stays for every other section.
+ * Installation, License: a section of its own, where the key is installed
+ * (provider admins, like the page itself). It used to be a card on the About
+ * page, so the old address of About (`/settings?section=about`) leads here.
+ * Every edition can open it: it is where a locked section sends you.
+ */
+export const licenseInstallationSections: InstallationSectionSpec[] = [
+  {
+    id: LICENSE_SECTION_ID,
+    labelKey: "license:nav",
+    descriptionKey: "license:about.description",
+    icon: FileBadge,
+    order: 80,
+    component: AboutLicense,
+    legacySettingsSection: "about",
+  },
+];
+
+/**
+ * "License" in Installation: the menu entry that opens the license section,
+ * where the key is installed (provider admins, like the section itself).
  */
 export const licenseNavItems: NavItem[] = [
   {
     id: "license",
-    path: SETTINGS_PATH,
-    search: { section: "about" },
+    path: installationSectionPath(LICENSE_SECTION_ID),
     labelKey: "license:nav",
     icon: FileBadge,
     roles: ["provider_admin"],
-    group: "admin",
+    group: "installation",
     order: 40,
   },
 ];

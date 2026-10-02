@@ -290,8 +290,21 @@ export interface SetupSubmission {
   disclaimer: { version: string; accepted: true };
   operatingMode: OperatingMode;
   publicUrl?: string;
+  /**
+   * Name of the operator's own organisation. The server stores it as the
+   * operator's name and creates the installation's own organisation (a tenant
+   * of kind `internal`) with it.
+   */
+  providerName: string;
+  /**
+   * The language chosen in the wizard's first step: the language of the own
+   * organisation (its mails and reports) and of the test message.
+   */
+  language?: "de" | "en";
   firstAdmin: { name: string; email: string; password: string };
-  mail: { transport: "smtp"; smtp: SmtpSetup } | { transport: "graph"; graph: GraphMailSetup };
+  /** Absent when the operator skips the mail step: it is set up later in the settings. */
+  mail?: { transport: "smtp"; smtp: SmtpSetup } | { transport: "graph"; graph: GraphMailSetup };
+  /** Needs `mail`. */
   sendTest?: boolean;
 }
 
@@ -299,6 +312,12 @@ export interface SetupResult {
   ok: true;
   passkeyReady: PasskeyReady;
   adminCreated: boolean;
+  /**
+   * The operator's own organisation the setup creates after the installation is
+   * saved. `created: false` means it could not be created: the setup is complete
+   * all the same and the dashboard offers to create it. Absent on older servers.
+   */
+  ownOrganisation?: { created: boolean };
   testSend: { attempted: boolean; ok: boolean; error?: string };
 }
 
@@ -308,10 +327,20 @@ export interface SessionUser {
   email: string;
 }
 
+/**
+ * What a tenant stands for: a `customer`, or the operator's own organisation
+ * (`internal`, at most one; the server lists it first).
+ */
+export type TenantKind = "customer" | "internal";
+
 export interface TenantSummary {
   id: string;
   name: string;
   slug: string;
+  /** Absent on servers from before 0.2.0, which read as `customer`. */
+  kind?: TenantKind;
+  /** The provider's customer number for this tenant; null or absent when none is set. */
+  customerNumber?: string | null;
   role: TenantRole;
 }
 
@@ -360,6 +389,10 @@ export interface Tenant {
   id: string;
   name: string;
   slug: string;
+  /** Absent on servers from before 0.2.0, which read as `customer`. */
+  kind?: TenantKind;
+  /** The provider's customer number for this tenant; null or absent when none is set. */
+  customerNumber?: string | null;
 }
 
 export type RecoveryReadiness = "green" | "yellow" | "red";

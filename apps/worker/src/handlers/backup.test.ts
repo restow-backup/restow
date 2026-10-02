@@ -204,6 +204,8 @@ interface FakeStoreOptions {
   objectStatus?: "active" | "excluded" | "orphaned";
   objectSecretRef?: string | null;
   verifyScheduled?: boolean;
+  /** The backup job that checks restores of the object (it comes before a schedule). */
+  verifyJobId?: string | null;
 }
 
 function fakeStore(options: FakeStoreOptions = {}) {
@@ -227,6 +229,9 @@ function fakeStore(options: FakeStoreOptions = {}) {
     },
     async verifyScheduleId() {
       return options.verifyScheduled ? VERIFY_SCHEDULE : null;
+    },
+    async verifyBackupJobId() {
+      return options.verifyJobId ?? null;
     },
     async insertQueuedJob(row) {
       queued.push(row);
@@ -839,6 +844,32 @@ describe("enqueueVerifyAfterBackup", () => {
     expect(queued).toEqual([
       { jobId: JOB, queue: "verify", protectedObjectId: OBJECT, payload, pgBossJobId: "boss-1" },
     ]);
+  });
+
+  it("names the backup job that asked for the check, and prefers it to a schedule", async () => {
+    const BACKUP_JOB = "7b1f0f0e-0000-4000-8000-0000000000aa";
+    const { store, queued } = fakeStore({ verifyScheduled: true, verifyJobId: BACKUP_JOB });
+    const sent: unknown[] = [];
+    await enqueueVerifyAfterBackup({
+      store,
+      tenantId: TENANT,
+      protectedObjectId: OBJECT,
+      send: async (queue, payload) => {
+        sent.push({ queue, payload });
+        return "boss-1";
+      },
+      logger: new RecordingLogger(),
+      jobIdGenerator: () => JOB,
+    });
+    expect(queued[0]?.payload).toEqual({
+      jobId: JOB,
+      tenantId: TENANT,
+      protectedObjectId: OBJECT,
+      kind: "verify",
+      sampleSize: 20,
+      backupJobId: BACKUP_JOB,
+      afterBackup: true,
+    });
   });
 
   it("records nothing when pg-boss reports the verify as already queued", async () => {

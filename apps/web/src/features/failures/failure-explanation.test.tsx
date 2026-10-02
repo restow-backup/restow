@@ -125,7 +125,7 @@ describe("FailureExplanation", () => {
     expect(html).toContain("Copy details for support");
   });
 
-  it("sends steps to Settings > Microsoft 365 with the right section", () => {
+  it("sends steps to Installation > Microsoft multi-tenant app", () => {
     const html = explanation({
       failure: failure({
         code: "graph.app_credentials_invalid",
@@ -133,7 +133,7 @@ describe("FailureExplanation", () => {
         steps: [{ id: "check_app_credentials", target: "settings_microsoft" }],
       }),
     });
-    expect(html).toContain('href="/settings?section=microsoft365"');
+    expect(html).toContain('href="/installation/microsoft-app"');
     expect(html).toContain("The client secret of the Restow app registration has expired.");
   });
 

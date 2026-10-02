@@ -1,30 +1,21 @@
-import { createRoute } from "@tanstack/react-router";
-
 import type { NavItem } from "@/lib/navigation";
-import { appLayoutRoute } from "@/routes/tree";
 
 import "./i18n.js";
-import { SCHEDULES_PATH } from "./paths.js";
-import { SchedulesPage } from "./schedules-page.js";
 
 /**
- * Schedules: what runs unattended per tenant (backup, verification, scrub,
- * directory sync, retention), with the recommended set, next and last runs
- * and honest warnings when backups run only by hand or stay unverified.
- * Every member of the tenant sees the page; only administrators change it.
+ * Schedules: what runs unattended per tenant besides the backup jobs: the
+ * maintenance (integrity checks, directory sync, retention), with the recommended
+ * set, next and last runs. Backups and their restore checks are backup jobs since
+ * 0.2.0 (features/backup-jobs): schedules a job took over are not listed, an older
+ * one no job could take over still is, with a note that it keeps running next to
+ * the jobs, and the recommended set also creates the default mail job where none
+ * covers all objects. The page is the "Jobs & schedules" section of the tenant
+ * page (features/tenant-page), below the tenant's jobs, for the tenant's
+ * administrators; the old address `/schedules` leads there (features/redirects).
+ * `components/cadence-fields.tsx` is the cadence form the job editor shares.
  */
 
-export const schedulesRoute = createRoute({
-  getParentRoute: () => appLayoutRoute,
-  path: SCHEDULES_PATH,
-  component: SchedulesPage,
-});
+export const routes = [];
 
-export const routes = [schedulesRoute];
-
-/**
- * No menu entry of its own: the page is a tab of the tenant setup area
- * (features/tenant-setup), which the menu entry "Setup" or "Open tenant page"
- * opens.
- */
+/** No menu entry: the tenant settings entry opens the tenant page. */
 export const navItems: NavItem[] = [];

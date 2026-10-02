@@ -387,6 +387,16 @@ export interface SettingsView {
   capabilities: {
     graphMail: { appConfigured: boolean; defaultTenantId: string | null };
   };
+  /**
+   * The operator responsibility notice as this installation holds it: the
+   * version it was accepted at and when (both null before the first
+   * acceptance) next to the version the server asks for now.
+   */
+  disclaimer: {
+    acceptedVersion: string | null;
+    acceptedAt: string | null;
+    currentVersion: string;
+  };
   /** Last change of the settings row (ISO 8601), null before setup. */
   updatedAt: string | null;
 }
@@ -400,6 +410,10 @@ export interface SettingsViewInput {
   passkeyReady: PasskeyReadyResult;
   environmentPublicUrl: string | null;
   mailEnvironment: MailEnvironment;
+  disclaimerVersion: string | null;
+  disclaimerAcceptedAt: Date | null;
+  /** Version of the notice text the server asks to be accepted (lib/disclaimer.ts). */
+  currentDisclaimerVersion: string;
 }
 
 /** The GET/PATCH response body. Secrets never appear, only whether one is stored. */
@@ -415,6 +429,11 @@ export function toSettingsView(input: SettingsViewInput): SettingsView {
         appConfigured: input.mailEnvironment.graphAppConfigured,
         defaultTenantId: input.mailEnvironment.graphTenantIdDefault,
       },
+    },
+    disclaimer: {
+      acceptedVersion: input.disclaimerVersion,
+      acceptedAt: input.disclaimerAcceptedAt ? input.disclaimerAcceptedAt.toISOString() : null,
+      currentVersion: input.currentDisclaimerVersion,
     },
     updatedAt: input.updatedAt ? input.updatedAt.toISOString() : null,
   };

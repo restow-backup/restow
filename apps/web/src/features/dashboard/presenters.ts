@@ -1,5 +1,4 @@
 import type { StatusTone } from "@/components/kit";
-import type { GatedFeature } from "@/lib/api";
 
 import type {
   BackupDay,
@@ -54,17 +53,6 @@ export function widgetView<T>(
   return result.state === "ok"
     ? { kind: "ready", data: result.data }
     : { kind: "error", error: new WidgetUnavailableError() };
-}
-
-/**
- * The provider view is asked for only where it exists: for a provider admin
- * on an installation that enables the gated feature `dashboard.allTenants`.
- */
-export function wantsProviderView(
-  isProviderAdmin: boolean,
-  features: readonly GatedFeature[] | null,
-): boolean {
-  return isProviderAdmin && (features?.includes("dashboard.allTenants") ?? false);
 }
 
 /** Columns of a row of tiles: as many as there are tiles, at most four. */
@@ -354,21 +342,4 @@ export function dayLabel(
     month: style === "short" ? "short" : "long",
     ...(style === "long" ? { year: "numeric" } : {}),
   }).format(parsed);
-}
-
-/**
- * What the line under the overview title describes: every tenant on the
- * provider tab, otherwise the selected tenant, or the generic subtitle while
- * none is selected.
- */
-export function overviewScope(view: {
-  provider: boolean;
-  tab: "provider" | "tenant";
-  noTenant: boolean;
-  tenantName: string | null | undefined;
-}): "provider" | "tenant" | "generic" {
-  if (view.provider && view.tab === "provider" && !view.noTenant) {
-    return "provider";
-  }
-  return view.tenantName ? "tenant" : "generic";
 }

@@ -19,7 +19,9 @@ const tenantDto = {
   id: "0b6c3a55-7c0e-4a55-9c55-3f7c1d0e0001",
   name: "Example Ltd",
   slug: "example-ltd",
+  kind: "customer",
   status: "active",
+  customerNumber: "K-1001",
   organizationId: "org-1",
   mailboxCap: 50,
   createdAt: "2026-09-01T08:00:00.000Z",
@@ -33,12 +35,29 @@ describe("decodeTenantList", () => {
       id: tenantDto.id,
       name: "Example Ltd",
       slug: "example-ltd",
+      kind: "customer",
       status: "active",
+      customerNumber: "K-1001",
       organizationId: "org-1",
       mailboxCap: 50,
       createdAt: tenantDto.createdAt,
       updatedAt: tenantDto.updatedAt,
     });
+  });
+
+  it("reads the own organisation, and a server from before it existed as customers", () => {
+    const tenants = decodeTenantList({
+      items: [
+        { ...tenantDto, kind: "internal", customerNumber: null },
+        { ...tenantDto, id: "b", kind: undefined, customerNumber: undefined },
+        { ...tenantDto, id: "c", kind: "reseller", customerNumber: "" },
+      ],
+    });
+    expect(tenants.map((tenant) => [tenant.kind, tenant.customerNumber])).toEqual([
+      ["internal", null],
+      ["customer", null],
+      ["customer", null],
+    ]);
   });
 
   it("accepts a bare array, drops rows without id and defaults unknown values", () => {

@@ -170,7 +170,7 @@ Source: https://github.com/Backblaze/blazer (tag v0.7.2).
 
 - License: Apache-2.0
 - Copyright: `Copyright 2016, the Blazer authors`
-- License text: [text 2](#text-2), [text 87](#text-87)
+- License text: [text 2](#text-2), [text 89](#text-89)
 
 ### github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.31.0
 
@@ -239,7 +239,7 @@ Source: https://github.com/dustin/go-humanize (tag v1.0.1).
 
 - License: MIT
 - Copyright: `Copyright (c) 2005-2008  Dustin Sallings <dustin@spy.net>`
-- License text: [text 103](#text-103)
+- License text: [text 105](#text-105)
 
 ### github.com/elithrar/simple-scrypt v1.4.1
 
@@ -400,7 +400,7 @@ Source: https://github.com/minio/minio-go (tag v7.1.0).
 - License: Apache-2.0
 - Copyright: no copyright line in the module's license or NOTICE files
 - License text: [text 2](#text-2)
-- Notice file: [text 101](#text-101)
+- Notice file: [text 103](#text-103)
 
 ### github.com/ncw/swift/v2 v2.0.5
 
@@ -448,7 +448,7 @@ Source: https://github.com/pkg/sftp (tag v1.13.10).
 
 - License: BSD-2-Clause
 - Copyright: `Copyright (c) 2013, Dave Cheney`
-- License text: [text 118](#text-118)
+- License text: [text 120](#text-120)
 
 ### github.com/pkg/xattr v0.4.12
 
@@ -458,7 +458,7 @@ Source: https://github.com/pkg/xattr (tag v0.4.12).
 - Copyright:
   - `Copyright (c) 2012 Dave Cheney. All rights reserved.`
   - `Copyright (c) 2014 Kuba Podgórski. All rights reserved.`
-- License text: [text 115](#text-115)
+- License text: [text 117](#text-117)
 
 ### github.com/restic/chunker v0.4.0
 
@@ -466,7 +466,7 @@ Source: the Go module github.com/restic/chunker v0.4.0.
 
 - License: BSD-2-Clause
 - Copyright: `Copyright (c) 2014, Alexander Neumann <alexander@bumpern.de>`
-- License text: [text 116](#text-116)
+- License text: [text 118](#text-118)
 
 ### github.com/rs/xid v1.6.0
 
@@ -474,7 +474,7 @@ Source: https://github.com/rs/xid (tag v1.6.0).
 
 - License: MIT
 - Copyright: `Copyright (c) 2015 Olivier Poitrey <rs@dailymotion.com>`
-- License text: [text 106](#text-106)
+- License text: [text 108](#text-108)
 
 ### github.com/russross/blackfriday/v2 v2.1.0
 
@@ -508,7 +508,7 @@ Source: https://github.com/tinylib/msgp (tag v1.6.1).
 
 - License: MIT
 - Copyright: `Copyright (c) 2014 Philip Hofer`
-- License text: [text 114](#text-114)
+- License text: [text 116](#text-116)
 
 ### github.com/zeebo/xxh3 v1.1.0
 
@@ -610,7 +610,7 @@ Source: https://github.com/yaml/go-yaml (tag v3.0.4).
   - `Copyright (c) 2006-2011 Kirill Simonov`
   - `Copyright (c) 2011-2019 Canonical Ltd`
   - `Copyright 2011-2016 Canonical Ltd.`
-- License text: [text 2](#text-2), [text 131](#text-131)
+- License text: [text 2](#text-2), [text 133](#text-133)
 - Notice file: [text 81](#text-81)
 
 ### golang.org/x/crypto v0.52.0
@@ -726,7 +726,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2018 The Go Authors. All rights reserved.`
 - License text: [text 18](#text-18)
 
-## Packages (558)
+## Packages (560)
 
 ### @aws-sdk/checksums 3.1001.0
 
@@ -854,49 +854,49 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2014-present Sebastian McKenzie and other contributors`
 - License text: [text 32](#text-32)
 
-### @better-auth/core 1.7.5
+### @better-auth/core 1.7.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 15](#text-15)
 
-### @better-auth/drizzle-adapter 1.7.5
+### @better-auth/drizzle-adapter 1.7.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 15](#text-15)
 
-### @better-auth/kysely-adapter 1.7.5
+### @better-auth/kysely-adapter 1.7.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 15](#text-15)
 
-### @better-auth/memory-adapter 1.7.5
+### @better-auth/memory-adapter 1.7.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 15](#text-15)
 
-### @better-auth/mongo-adapter 1.7.5
+### @better-auth/mongo-adapter 1.7.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 15](#text-15)
 
-### @better-auth/passkey 1.7.5
+### @better-auth/passkey 1.7.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 15](#text-15)
 
-### @better-auth/prisma-adapter 1.7.5
+### @better-auth/prisma-adapter 1.7.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 15](#text-15)
 
-### @better-auth/telemetry 1.7.5
+### @better-auth/telemetry 1.7.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
@@ -924,7 +924,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright © 2024 Sasha Koss`
-- License text: [text 98](#text-98)
+- License text: [text 100](#text-100)
 
 ### @drizzle-team/brocli 0.10.2
 
@@ -967,6 +967,24 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - License: MIT
 - Copyright: `Copyright (c) 2021-present Floating UI contributors`
 - License text: [text 23](#text-23)
+
+### @fontsource/ibm-plex-mono 5.3.0
+
+- License: OFL-1.1
+- Copyright:
+  - `Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-ThinItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-ExtraLight.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-ExtraLightItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Light.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-LightItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Regular.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Italic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Medium.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-MediumItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-SemiBold.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-SemiBoldItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Bold.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-BoldItalic.ttf: Copyright 2017 IBM Corp. All rights reserved.`
+  - `Copyright Holder. This restriction only applies to the primary font name as`
+  - `Copyright Holder(s) and the Author(s) or with their explicit written`
+- License text: [text 83](#text-83)
+
+### @fontsource/inter-tight 5.3.0
+
+- License: OFL-1.1
+- Copyright:
+  - `Copyright 2022 The Inter Project Authors (https://github.com/rsms/inter-tight) InterTight-Italic[wght].ttf: Copyright 2022 The Inter Project Authors (https://github.com/rsms/inter-tight)`
+  - `Copyright Holder. This restriction only applies to the primary font name as`
+  - `Copyright Holder(s) and the Author(s) or with their explicit written`
+- License text: [text 84](#text-84)
 
 ### @formatjs/ecma402-abstract 2.3.6
 
@@ -1014,13 +1032,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: ISC
 - Copyright: `Copyright (c) 2015, Contributors`
-- License text: [text 110](#text-110)
+- License text: [text 112](#text-112)
 
 ### @jridgewell/sourcemap-codec 1.6.0
 
 - License: MIT
 - Copyright: `Copyright 2024 Justin Ridgewell <justin@ridgewell.name>`
-- License text: [text 102](#text-102)
+- License text: [text 104](#text-104)
 
 ### @kenjiuno/decompressrtf 0.1.4
 
@@ -1700,19 +1718,19 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2021-present Tanner Linsley`
 - License text: [text 1](#text-1)
 
-### @tanstack/query-core 5.103.2
+### @tanstack/query-core 5.104.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-present Tanner Linsley`
 - License text: [text 1](#text-1)
 
-### @tanstack/react-query 5.103.2
+### @tanstack/react-query 5.104.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-present Tanner Linsley`
 - License text: [text 1](#text-1)
 
-### @tanstack/react-router 1.170.38
+### @tanstack/react-router 1.170.40
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-present Tanner Linsley`
@@ -1730,7 +1748,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2016 Tanner Linsley`
 - License text: [text 1](#text-1)
 
-### @tanstack/router-core 1.171.32
+### @tanstack/router-core 1.171.33
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-present Tanner Linsley`
@@ -2006,7 +2024,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2020 David Mark Clements`
-- License text: [text 128](#text-128)
+- License text: [text 130](#text-130)
 
 ### b4a 1.9.0
 
@@ -2039,7 +2057,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
   - `Copyright 2023 Holepunch Inc`
   - `Copyright Joyent, Inc. and other Node contributors.`
 - License text: [text 2](#text-2)
-- Notice file: [text 83](#text-83)
+- Notice file: [text 85](#text-85)
 
 ### bare-stream 2.13.4
 
@@ -2065,7 +2083,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2014 Jameson Little`
 - License text: [text 4](#text-4)
 
-### better-auth 1.7.5
+### better-auth 1.7.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
@@ -2087,7 +2105,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright 2015, Dustin Diaz (the "Original Author")`
-- License text: [text 95](#text-95)
+- License text: [text 97](#text-97)
 
 ### brace-expansion 2.1.7
 
@@ -2111,13 +2129,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2013-2024 Brian J. Brennan`
-- License text: [text 126](#text-126)
+- License text: [text 128](#text-128)
 
 ### buffer-equal-constant-time 1.0.1
 
 - License: BSD-3-Clause
 - Copyright: `Copyright (c) 2013, GoInstant Inc., a salesforce.com company`
-- License text: [text 119](#text-119)
+- License text: [text 121](#text-121)
 
 ### buffer-from 1.1.2
 
@@ -2129,7 +2147,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright © 2017 Aditya Yadav, http://netroy.in`
-- License text: [text 129](#text-129)
+- License text: [text 131](#text-131)
 
 ### cac 6.7.14
 
@@ -2159,7 +2177,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright © 2011-2015 Paul Vorbach <paul@vorba.ch>`
-- License text: [text 108](#text-108)
+- License text: [text 110](#text-110)
 
 ### clsx 2.1.1
 
@@ -2222,7 +2240,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
   - `Copyright (c) 2012-2014 Roman Shtylman <shtylman@gmail.com>`
   - `Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>`
   - `Copyright (c) 2015 Nathan Friedly <nathan@nfriedly.com> (http://nfriedly.com/)`
-- License text: [text 93](#text-93)
+- License text: [text 95](#text-95)
 
 ### core-util-is 1.0.3
 
@@ -2258,7 +2276,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2017-2018 Fredrik Nicol`
-- License text: [text 105](#text-105)
+- License text: [text 107](#text-107)
 
 ### d3-array 3.2.4
 
@@ -2278,7 +2296,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright:
   - `Copyright 2010-2021 Mike Bostock`
   - `Copyright 2001 Robert Penner`
-- License text: [text 117](#text-117)
+- License text: [text 119](#text-119)
 
 ### d3-format 3.1.2
 
@@ -2352,13 +2370,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2025 Michael Mclaughlin`
-- License text: [text 124](#text-124)
+- License text: [text 126](#text-126)
 
 ### decimal.js-light 2.5.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2020 Michael Mclaughlin`
-- License text: [text 123](#text-123)
+- License text: [text 125](#text-125)
 
 ### deep-eql 5.0.2
 
@@ -2406,13 +2424,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2014 The cheeriojs contributors`
-- License text: [text 86](#text-86)
+- License text: [text 88](#text-88)
 
 ### dom-serializer 3.1.1
 
 - License: MIT
 - Copyright: `Copyright © 2022 The Cheerio contributors`
-- License text: [text 109](#text-109)
+- License text: [text 111](#text-111)
 
 ### domelementtype 2.3.0
 
@@ -2504,7 +2522,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright:
   - `Copyright (c) 2012-present polygonplanet`
   - `Copyright (c) Microsoft Corporation.`
-- License text: [text 96](#text-96)
+- License text: [text 98](#text-98)
 
 ### entities 4.5.0
 
@@ -2534,7 +2552,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (C) 2018-2022 Guy Bedford`
-- License text: [text 100](#text-100)
+- License text: [text 102](#text-102)
 
 ### es-toolkit 1.52.0
 
@@ -2543,7 +2561,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
   - `Copyright (c) 2024 Viva Republica, Inc.`
   - `Copyright OpenJS Foundation and other contributors <https://openjsf.org/>`
 - License text: [text 1](#text-1)
-- Notice file: [text 132](#text-132)
+- Notice file: [text 134](#text-134)
 
 ### esbuild 0.18.20
 
@@ -2591,7 +2609,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright Joyent, Inc. and other Node contributors.`
-- License text: [text 89](#text-89)
+- License text: [text 91](#text-91)
 
 ### events-universal 1.0.1
 
@@ -2683,7 +2701,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright Mathias Bynens <https://mathiasbynens.be/>`
 - License text: [text 12](#text-12)
 
-### hono 4.13.8
+### hono 4.13.10
 
 - License: MIT
 - Copyright: `Copyright (c) 2021 - present, Yusuke Wada and Hono contributors`
@@ -2711,7 +2729,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: no copyright line in the package; author in package.json: Malte Legenhausen
-- License text: [text 99](#text-99)
+- License text: [text 101](#text-101)
 
 ### htmlparser2 10.1.0
 
@@ -2729,7 +2747,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: ISC
 - Copyright: `Copyright (c) 2021, Yevhen Tiurin <yevhentiurin@gmail.com>`
-- License text: [text 84](#text-84)
+- License text: [text 86](#text-86)
 
 ### i18next 24.2.3
 
@@ -2759,7 +2777,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: BSD-3-Clause
 - Copyright: `Copyright 2008 Fair Oaks Labs, Inc.`
-- License text: [text 120](#text-120)
+- License text: [text 122](#text-122)
 
 ### imapflow 1.7.8
 
@@ -2783,7 +2801,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: ISC
 - Copyright: `Copyright (c) Isaac Z. Schlueter`
-- License text: [text 122](#text-122)
+- License text: [text 124](#text-124)
 
 ### internmap 2.0.3
 
@@ -2795,7 +2813,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: BSD-3-Clause
 - Copyright: `Copyright (c) 2023, Oath Inc.`
-- License text: [text 88](#text-88)
+- License text: [text 90](#text-90)
 
 ### ip-address 10.7.2
 
@@ -2831,7 +2849,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: no copyright line in the package; no author in package.json
-- License text: [text 90](#text-90)
+- License text: [text 92](#text-92)
 
 ### isarray 1.0.0
 
@@ -3201,19 +3219,19 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
   - `Copyright (c) Pooya Parsa <pooya@pi0.io> - Daniel Roe <daniel@roe.dev>`
   - `Copyright Joyent, Inc. and other Node contributors.`
   - `Copyright (c) 2023-present Fabio Spampinato`
-- License text: [text 94](#text-94)
+- License text: [text 96](#text-96)
 
 ### pathval 2.0.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2011-2013 Jake Luer jake@alogicalparadox.com`
-- License text: [text 97](#text-97)
+- License text: [text 99](#text-99)
 
 ### pdfkit 0.20.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2014 Devon Govett`
-- License text: [text 91](#text-91)
+- License text: [text 93](#text-93)
 
 ### peberminta 0.10.0
 
@@ -3225,7 +3243,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2014 Andrew Kelley`
-- License text: [text 127](#text-127)
+- License text: [text 129](#text-129)
 
 ### pg 8.23.0
 
@@ -3255,7 +3273,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: ISC
 - Copyright: `Copyright © 2017, Charmander <~@charmander.me>`
-- License text: [text 113](#text-113)
+- License text: [text 115](#text-115)
 
 ### pg-pool 3.14.0
 
@@ -3363,7 +3381,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2015 Calvin Metcalf`
-- License text: [text 104](#text-104)
+- License text: [text 106](#text-106)
 
 ### process-warning 5.1.0
 
@@ -3393,7 +3411,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2016-2019, Peculiar Ventures`
-- License text: [text 92](#text-92)
+- License text: [text 94](#text-94)
 
 ### queue 6.0.2
 
@@ -3431,7 +3449,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) Meta Platforms, Inc. and affiliates.`
 - License text: [text 1](#text-1)
 
-### react-hook-form 7.88.0
+### react-hook-form 7.89.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2019-present Beier(Bill) Luo`
@@ -3680,19 +3698,19 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2013 James Halliday (mail@substack.net)`
-- License text: [text 125](#text-125)
+- License text: [text 127](#text-127)
 
 ### siginfo 2.0.0
 
 - License: ISC
 - Copyright: `Copyright (c) 2017, Emil Bay <github@tixz.dk>`
-- License text: [text 111](#text-111)
+- License text: [text 113](#text-113)
 
 ### signal-exit 4.1.0
 
 - License: ISC
 - Copyright: `Copyright (c) 2015-2023 Benjamin Coe, Isaac Z. Schlueter, and Contributors`
-- License text: [text 121](#text-121)
+- License text: [text 123](#text-123)
 
 ### smart-buffer 4.2.0
 
@@ -3746,7 +3764,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: ISC
 - Copyright: `Copyright (c) 2014-2018, Matteo Collina <hello@matteocollina.com>`
-- License text: [text 112](#text-112)
+- License text: [text 114](#text-114)
 
 ### stackback 0.0.2
 
@@ -3816,7 +3834,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: ISC
 - Copyright: `` Copyright (c) `2017`, `Colin Meinke` ``
-- License text: [text 85](#text-85)
+- License text: [text 87](#text-87)
 
 ### tailwindcss 4.3.3
 
@@ -3888,7 +3906,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2020 James M Snell and the Piscina contributors`
-- License text: [text 130](#text-130)
+- License text: [text 132](#text-132)
 
 ### tinyrainbow 2.0.0
 
@@ -4085,7 +4103,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
   - `Copyright (c) 2011 Einar Otto Stangvik <einaros@gmail.com>`
   - `Copyright (c) 2013 Arnout Kazemier and contributors`
   - `Copyright (c) 2016 Luigi Pinca and contributors`
-- License text: [text 107](#text-107)
+- License text: [text 109](#text-109)
 
 ### xtend 4.0.2
 
@@ -4129,7 +4147,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2025 Colin McDonnell`
 - License text: [text 1](#text-1)
 
-## License texts (132)
+## License texts (134)
 
 ### Text 1
 
@@ -10795,6 +10813,206 @@ limitations under the License.
 Used by 1 entry.
 
 ```text
+Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-ThinItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-ExtraLight.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-ExtraLightItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Light.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-LightItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Regular.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Italic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Medium.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-MediumItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-SemiBold.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-SemiBoldItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Bold.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-BoldItalic.ttf: Copyright 2017 IBM Corp. All rights reserved.
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license is copied below, and is also available with a FAQ at:
+http://scripts.sil.org/OFL
+
+
+-----------------------------------------------------------
+SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+-----------------------------------------------------------
+
+PREAMBLE
+The goals of the Open Font License (OFL) are to stimulate worldwide
+development of collaborative font projects, to support the font creation
+efforts of academic and linguistic communities, and to provide a free and
+open framework in which fonts may be shared and improved in partnership
+with others.
+
+The OFL allows the licensed fonts to be used, studied, modified and
+redistributed freely as long as they are not sold by themselves. The
+fonts, including any derivative works, can be bundled, embedded,
+redistributed and/or sold with any software provided that any reserved
+names are not used by derivative works. The fonts and derivatives,
+however, cannot be released under any other type of license. The
+requirement for fonts to remain under this license does not apply
+to any document created using the fonts or their derivatives.
+
+DEFINITIONS
+"Font Software" refers to the set of files released by the Copyright
+Holder(s) under this license and clearly marked as such. This may
+include source files, build scripts and documentation.
+
+"Reserved Font Name" refers to any names specified as such after the
+copyright statement(s).
+
+"Original Version" refers to the collection of Font Software components as
+distributed by the Copyright Holder(s).
+
+"Modified Version" refers to any derivative made by adding to, deleting,
+or substituting -- in part or in whole -- any of the components of the
+Original Version, by changing formats or by porting the Font Software to a
+new environment.
+
+"Author" refers to any designer, engineer, programmer, technical
+writer or other person who contributed to the Font Software.
+
+PERMISSION & CONDITIONS
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of the Font Software, to use, study, copy, merge, embed, modify,
+redistribute, and sell modified and unmodified copies of the Font
+Software, subject to the following conditions:
+
+1) Neither the Font Software nor any of its individual components,
+in Original or Modified Versions, may be sold by itself.
+
+2) Original or Modified Versions of the Font Software may be bundled,
+redistributed and/or sold with any software, provided that each copy
+contains the above copyright notice and this license. These can be
+included either as stand-alone text files, human-readable headers or
+in the appropriate machine-readable metadata fields within text or
+binary files as long as those fields can be easily viewed by the user.
+
+3) No Modified Version of the Font Software may use the Reserved Font
+Name(s) unless explicit written permission is granted by the corresponding
+Copyright Holder. This restriction only applies to the primary font name as
+presented to the users.
+
+4) The name(s) of the Copyright Holder(s) or the Author(s) of the Font
+Software shall not be used to promote, endorse or advertise any
+Modified Version, except to acknowledge the contribution(s) of the
+Copyright Holder(s) and the Author(s) or with their explicit written
+permission.
+
+5) The Font Software, modified or unmodified, in part or in whole,
+must be distributed entirely under this license, and must not be
+distributed under any other license. The requirement for fonts to
+remain under this license does not apply to any document created
+using the Font Software.
+
+TERMINATION
+This license becomes null and void if any of the above conditions are
+not met.
+
+DISCLAIMER
+THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
+DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
+OTHER DEALINGS IN THE FONT SOFTWARE.
+```
+
+### Text 84
+
+Used by 1 entry.
+
+```text
+Copyright 2022 The Inter Project Authors (https://github.com/rsms/inter-tight) InterTight-Italic[wght].ttf: Copyright 2022 The Inter Project Authors (https://github.com/rsms/inter-tight)
+
+This Font Software is licensed under the SIL Open Font License, Version 1.1.
+This license is copied below, and is also available with a FAQ at:
+http://scripts.sil.org/OFL
+
+
+-----------------------------------------------------------
+SIL OPEN FONT LICENSE Version 1.1 - 26 February 2007
+-----------------------------------------------------------
+
+PREAMBLE
+The goals of the Open Font License (OFL) are to stimulate worldwide
+development of collaborative font projects, to support the font creation
+efforts of academic and linguistic communities, and to provide a free and
+open framework in which fonts may be shared and improved in partnership
+with others.
+
+The OFL allows the licensed fonts to be used, studied, modified and
+redistributed freely as long as they are not sold by themselves. The
+fonts, including any derivative works, can be bundled, embedded,
+redistributed and/or sold with any software provided that any reserved
+names are not used by derivative works. The fonts and derivatives,
+however, cannot be released under any other type of license. The
+requirement for fonts to remain under this license does not apply
+to any document created using the fonts or their derivatives.
+
+DEFINITIONS
+"Font Software" refers to the set of files released by the Copyright
+Holder(s) under this license and clearly marked as such. This may
+include source files, build scripts and documentation.
+
+"Reserved Font Name" refers to any names specified as such after the
+copyright statement(s).
+
+"Original Version" refers to the collection of Font Software components as
+distributed by the Copyright Holder(s).
+
+"Modified Version" refers to any derivative made by adding to, deleting,
+or substituting -- in part or in whole -- any of the components of the
+Original Version, by changing formats or by porting the Font Software to a
+new environment.
+
+"Author" refers to any designer, engineer, programmer, technical
+writer or other person who contributed to the Font Software.
+
+PERMISSION & CONDITIONS
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of the Font Software, to use, study, copy, merge, embed, modify,
+redistribute, and sell modified and unmodified copies of the Font
+Software, subject to the following conditions:
+
+1) Neither the Font Software nor any of its individual components,
+in Original or Modified Versions, may be sold by itself.
+
+2) Original or Modified Versions of the Font Software may be bundled,
+redistributed and/or sold with any software, provided that each copy
+contains the above copyright notice and this license. These can be
+included either as stand-alone text files, human-readable headers or
+in the appropriate machine-readable metadata fields within text or
+binary files as long as those fields can be easily viewed by the user.
+
+3) No Modified Version of the Font Software may use the Reserved Font
+Name(s) unless explicit written permission is granted by the corresponding
+Copyright Holder. This restriction only applies to the primary font name as
+presented to the users.
+
+4) The name(s) of the Copyright Holder(s) or the Author(s) of the Font
+Software shall not be used to promote, endorse or advertise any
+Modified Version, except to acknowledge the contribution(s) of the
+Copyright Holder(s) and the Author(s) or with their explicit written
+permission.
+
+5) The Font Software, modified or unmodified, in part or in whole,
+must be distributed entirely under this license, and must not be
+distributed under any other license. The requirement for fonts to
+remain under this license does not apply to any document created
+using the Font Software.
+
+TERMINATION
+This license becomes null and void if any of the above conditions are
+not met.
+
+DISCLAIMER
+THE FONT SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO ANY WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT
+OF COPYRIGHT, PATENT, TRADEMARK, OR OTHER RIGHT. IN NO EVENT SHALL THE
+COPYRIGHT HOLDER BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+INCLUDING ANY GENERAL, SPECIAL, INDIRECT, INCIDENTAL, OR CONSEQUENTIAL
+DAMAGES, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
+OTHER DEALINGS IN THE FONT SOFTWARE.
+```
+
+### Text 85
+
+Used by 1 entry.
+
+```text
 Copyright 2023 Holepunch Inc
 
 Licensed under the Apache License, Version 2.0 (the "License");
@@ -10825,7 +11043,7 @@ The above copyright notice and this permission notice shall be included
 in all copies or substantial portions of the Software.
 ```
 
-### Text 84
+### Text 86
 
 Used by 1 entry.
 
@@ -10845,7 +11063,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### Text 85
+### Text 87
 
 Used by 1 entry.
 
@@ -10866,7 +11084,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
 
-### Text 86
+### Text 88
 
 Used by 1 entry.
 
@@ -10882,7 +11100,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 87
+### Text 89
 
 Used by 1 entry.
 
@@ -10900,7 +11118,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-### Text 88
+### Text 90
 
 Used by 1 entry.
 
@@ -10938,7 +11156,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 89
+### Text 91
 
 Used by 1 entry.
 
@@ -10965,7 +11183,7 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 90
+### Text 92
 
 Used by 1 entry.
 
@@ -10991,7 +11209,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### Text 91
+### Text 93
 
 Used by 1 entry.
 
@@ -11005,7 +11223,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 92
+### Text 94
 
 Used by 1 entry.
 
@@ -11033,7 +11251,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### Text 93
+### Text 95
 
 Used by 1 entry.
 
@@ -11065,7 +11283,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### Text 94
+### Text 96
 
 Used by 1 entry.
 
@@ -11142,7 +11360,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 95
+### Text 97
 
 Used by 1 entry.
 
@@ -11184,7 +11402,7 @@ programs and associated documentation files created by the
 Original Author, when distributed with the Software.
 ```
 
-### Text 96
+### Text 98
 
 Used by 1 entry.
 
@@ -11232,7 +11450,7 @@ The contributors credited in the upstream package are:
 The MIT License terms stated above apply equally to these files.
 ```
 
-### Text 97
+### Text 99
 
 Used by 1 entry.
 
@@ -11253,7 +11471,7 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY
 TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 98
+### Text 100
 
 Used by 1 entry.
 
@@ -11267,7 +11485,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 99
+### Text 101
 
 Used by 1 entry.
 
@@ -11299,7 +11517,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 100
+### Text 102
 
 Used by 1 entry.
 
@@ -11314,7 +11532,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 101
+### Text 103
 
 Used by 1 entry.
 
@@ -11330,7 +11548,7 @@ code for these subcomponents is subject to the terms and conditions
 of Apache License Version 2.0
 ```
 
-### Text 102
+### Text 104
 
 Used by 1 entry.
 
@@ -11354,7 +11572,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### Text 103
+### Text 105
 
 Used by 1 entry.
 
@@ -11380,7 +11598,7 @@ SOFTWARE.
 <http://www.opensource.org/licenses/mit-license.php>
 ```
 
-### Text 104
+### Text 106
 
 Used by 1 entry.
 
@@ -11404,7 +11622,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.**
 ```
 
-### Text 105
+### Text 107
 
 Used by 1 entry.
 
@@ -11428,7 +11646,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### Text 106
+### Text 108
 
 Used by 1 entry.
 
@@ -11452,7 +11670,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### Text 107
+### Text 109
 
 Used by 1 entry.
 
@@ -11475,7 +11693,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 108
+### Text 110
 
 Used by 1 entry.
 
@@ -11498,7 +11716,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 109
+### Text 111
 
 Used by 1 entry.
 
@@ -11510,7 +11728,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 110
+### Text 112
 
 Used by 1 entry.
 
@@ -11529,7 +11747,7 @@ WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
 ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### Text 111
+### Text 113
 
 Used by 1 entry.
 
@@ -11547,7 +11765,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### Text 112
+### Text 114
 
 Used by 1 entry.
 
@@ -11565,7 +11783,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
 IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### Text 113
+### Text 115
 
 Used by 1 entry.
 
@@ -11583,7 +11801,7 @@ OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### Text 114
+### Text 116
 
 Used by 1 entry.
 
@@ -11597,7 +11815,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 115
+### Text 117
 
 Used by 1 entry.
 
@@ -11626,7 +11844,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 116
+### Text 118
 
 Used by 1 entry.
 
@@ -11653,7 +11871,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 117
+### Text 119
 
 Used by 1 entry.
 
@@ -11684,7 +11902,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 118
+### Text 120
 
 Used by 1 entry.
 
@@ -11697,7 +11915,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 119
+### Text 121
 
 Used by 1 entry.
 
@@ -11713,7 +11931,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 120
+### Text 122
 
 Used by 1 entry.
 
@@ -11729,7 +11947,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 121
+### Text 123
 
 Used by 1 entry.
 
@@ -11750,7 +11968,7 @@ WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
 ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### Text 122
+### Text 124
 
 Used by 1 entry.
 
@@ -11770,7 +11988,7 @@ OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### Text 123
+### Text 125
 
 Used by 1 entry.
 
@@ -11797,7 +12015,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 124
+### Text 126
 
 Used by 1 entry.
 
@@ -11824,7 +12042,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 125
+### Text 127
 
 Used by 1 entry.
 
@@ -11853,7 +12071,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 126
+### Text 128
 
 Used by 1 entry.
 
@@ -11877,7 +12095,7 @@ FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TOR
 ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 127
+### Text 129
 
 Used by 1 entry.
 
@@ -11905,7 +12123,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### Text 128
+### Text 130
 
 Used by 1 entry.
 
@@ -11931,7 +12149,7 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
 OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 129
+### Text 131
 
 Used by 1 entry.
 
@@ -11945,7 +12163,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 130
+### Text 132
 
 Used by 1 entry.
 
@@ -11974,7 +12192,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### Text 131
+### Text 133
 
 Used by 1 entry.
 
@@ -12025,7 +12243,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-### Text 132
+### Text 134
 
 Used by 1 entry.
 

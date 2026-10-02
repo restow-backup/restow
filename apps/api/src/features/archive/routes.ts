@@ -4,6 +4,7 @@ import { db } from "../../db.js";
 import { clientIp } from "../../lib/request.js";
 import { type TenantEnv, requireTenant } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { archiveRetentionViewFor } from "./retention-policy.js";
 import { archiveItemParamSchema, archiveSearchQuerySchema } from "./schemas.js";
 import { type ArchiveActor, getArchiveItem, searchArchive, verifyArchiveChain } from "./service.js";
 
@@ -14,6 +15,7 @@ import { type ArchiveActor, getArchiveItem, searchArchive, verifyArchiveChain } 
  *   GET    /search              full text search, filtered, paginated
  *   GET    /items/:id           one item's metadata (audited read)
  *   GET    /chain/verify        hash chain integrity check
+ *   GET    /retention           the retention that applies to the tenant's archive (read only)
  *
  * Search and reading are part of the core. Legal holds
  * (`/archive/legal-holds`) and the rest of the GoBD layer (journal receipt,
@@ -52,6 +54,10 @@ export function buildArchiveRoutes(deps: ArchiveRoutesDeps): Hono<TenantEnv> {
 
   routes.get("/chain/verify", deps.requireAdmin, async (c) => {
     return c.json(await verifyArchiveChain(deps.db, c.get("tenantId")));
+  });
+
+  routes.get("/retention", deps.requireAdmin, async (c) => {
+    return c.json(await archiveRetentionViewFor(deps.db, c.get("tenantId")));
   });
 
   return routes;

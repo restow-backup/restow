@@ -449,6 +449,7 @@ describe("jobs", () => {
     protectedObjectId: MAILBOX,
     object: null,
     scheduleId: null,
+    backupJobId: null,
     trigger: "manual",
     full: false,
     createdAt: NOW.toISOString(),

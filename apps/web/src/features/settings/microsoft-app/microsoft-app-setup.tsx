@@ -10,9 +10,9 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
+import { ReadOnlyGroup } from "@/features/installation/access";
+import { installationSectionTo } from "@/features/installation/paths";
 import { cn } from "@/lib/utils";
-import { settingsTo } from "../paths";
-import { sectionSearch } from "../presenters";
 import type { MicrosoftAppView } from "./api";
 import { EnterStep } from "./app-form";
 import { TestPanel } from "./app-test";
@@ -29,12 +29,21 @@ import { CredentialsStep, PermissionsStep, RegisterStep } from "./setup-steps";
  * 365 source that cannot be connected yet.
  */
 
+/** Which parts of the guide are closed to the viewer (the installation page decides by provider role). */
+export interface MicrosoftAppClosed {
+  /** Entering and removing the registration (the owner of the provider team). */
+  change?: boolean;
+  /** Testing the connection (administrators and up). */
+  test?: boolean;
+}
+
 export interface MicrosoftAppSetupProps {
   variant?: SetupVariant;
+  closed?: MicrosoftAppClosed;
 }
 
 /** Loads the registration and renders the guide, with honest loading and error states. */
-export function MicrosoftAppSetup({ variant = "page" }: MicrosoftAppSetupProps) {
+export function MicrosoftAppSetup({ variant = "page", closed }: MicrosoftAppSetupProps) {
   const { t } = useTranslation("settings");
   const query = useMicrosoftApp();
   if (query.isPending) {
@@ -50,15 +59,17 @@ export function MicrosoftAppSetup({ variant = "page" }: MicrosoftAppSetupProps) 
       />
     );
   }
-  return <MicrosoftAppGuide view={query.data} variant={variant} />;
+  return <MicrosoftAppGuide view={query.data} variant={variant} closed={closed} />;
 }
 
 export function MicrosoftAppGuide({
   view,
   variant = "page",
+  closed = {},
 }: {
   view: MicrosoftAppView;
   variant?: SetupVariant;
+  closed?: MicrosoftAppClosed;
 }) {
   const { t } = useTranslation("settings");
   const [unsaved, setUnsaved] = React.useState(false);
@@ -77,11 +88,19 @@ export function MicrosoftAppGuide({
           <CredentialsStep variant={variant} />
         </li>
         <li>
-          <EnterStep view={view} variant={variant} onDirtyChange={setUnsaved} />
+          <ReadOnlyGroup closed={closed.change === true}>
+            <EnterStep view={view} variant={variant} onDirtyChange={setUnsaved} />
+          </ReadOnlyGroup>
         </li>
       </ol>
-      <TestPanel view={view} variant={variant} unsaved={unsaved} />
-      {variant === "page" && view.source === "database" ? <RemoveCard /> : null}
+      <ReadOnlyGroup closed={closed.test === true}>
+        <TestPanel view={view} variant={variant} unsaved={unsaved} />
+      </ReadOnlyGroup>
+      {variant === "page" && view.source === "database" ? (
+        <ReadOnlyGroup closed={closed.change === true}>
+          <RemoveCard />
+        </ReadOnlyGroup>
+      ) : null}
     </div>
   );
 }
@@ -95,8 +114,7 @@ function InlineIntro() {
       <AlertDescription className="gap-3">
         <p>{t("microsoftApp.inline.description")}</p>
         <Link
-          to={settingsTo()}
-          search={sectionSearch("microsoft365") as never}
+          to={installationSectionTo("microsoft-app")}
           className={cn(buttonVariants({ variant: "outline", size: "sm" }), "w-fit")}
         >
           <SettingsIcon aria-hidden="true" />

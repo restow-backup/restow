@@ -8,6 +8,7 @@ import {
   VerifyReportRoutePage,
   VerifyRoutePage,
 } from "@/features/verify/route-pages";
+import { parseVerifySearch } from "@/features/verify/search";
 import type { NavItem } from "@/lib/navigation";
 import { appLayoutRoute } from "@/routes/tree";
 
@@ -23,6 +24,9 @@ import { appLayoutRoute } from "@/routes/tree";
 export const verifyRoute = createRoute({
   getParentRoute: () => appLayoutRoute,
   path: VERIFY_PATH,
+  // `?state=` filters the table (the overview's legend links there); `?scope=all` is the
+  // tenants that have objects in that state, for "All tenants" (search.ts).
+  validateSearch: (search: Record<string, unknown>) => parseVerifySearch(search),
   component: VerifyRoutePage,
 });
 

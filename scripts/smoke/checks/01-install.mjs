@@ -18,6 +18,7 @@ import {
   ADMIN,
   addImapMailbox,
   createTenant,
+  listTenants,
   setUpInstallation,
   signIn,
   waitForSnapshot,
@@ -370,6 +371,14 @@ async function upgradeFromPrevious(ctx) {
       );
     }
     const again = await signIn(stack, totpSecret);
+    // 0.1.0 knew no own organisation. This installation can have only one tenant (no license
+    // key) and has exactly one, so the first start of the new version marked it as the own one.
+    const upgraded = await listTenants(again);
+    if (upgraded.length !== 1 || upgraded[0].id !== tenant.id || upgraded[0].kind !== "internal") {
+      throw new Error(
+        `after the upgrade the tenant list is ${JSON.stringify(upgraded.map((entry) => [entry.slug, entry.kind]))}, expected the one tenant of the previous release as the own organisation`,
+      );
+    }
     const objects = await again.get("/api/v1/jobs/objects", { tenantId: tenant.id });
     const object = objects.items.find((entry) => entry.id === objectId);
     if (!object?.lastSnapshot || object.lastSnapshot.sequence < first.sequence) {
@@ -387,7 +396,7 @@ async function upgradeFromPrevious(ctx) {
     );
     void queued;
     void ADMIN;
-    return `${before} -> ${after} migrations on a database with a tenant and a backup; the backup is still there and proven restorable`;
+    return `${before} -> ${after} migrations on a database with a tenant and a backup; the tenant became the own organisation, the backup is still there and proven restorable`;
   } finally {
     await stack.down();
   }

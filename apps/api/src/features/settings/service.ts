@@ -4,6 +4,7 @@ import type { SupportedLanguage } from "@restow/i18n";
 import { eq } from "drizzle-orm";
 import { config } from "../../config.js";
 import { audit } from "../../lib/audit.js";
+import { DISCLAIMER_VERSION } from "../../lib/disclaimer.js";
 import {
   type SecretRef,
   deleteSecret,
@@ -52,6 +53,7 @@ export const SETTINGS_AUDIT_ACTIONS = {
   updated: "settings.updated",
   mailTested: "settings.mail.tested",
   mailRemoved: "settings.mail.removed",
+  mailNotNeeded: "settings.mail.not_needed",
 } as const;
 
 const SMTP_PASSWORD_KIND = "smtp_password";
@@ -155,6 +157,9 @@ export async function getSettings(db: DbExecutor, context: RequestContext): Prom
     passkeyReady: passkeyReadyFor(state, context),
     environmentPublicUrl: config.publicUrl ?? null,
     mailEnvironment: await mailEnvironment(),
+    disclaimerVersion: row?.disclaimerVersion ?? null,
+    disclaimerAcceptedAt: row?.disclaimerAcceptedAt ?? null,
+    currentDisclaimerVersion: DISCLAIMER_VERSION,
   });
 }
 
@@ -326,6 +331,41 @@ export async function removeMailConfiguration(
     });
   });
   return getSettings(db, context);
+}
+
+// --- Notification mail marked as not needed ---------------------------------------------------
+
+/**
+ * Mark the notification mail as not needed (or take the mark back): the optional last step
+ * of the Start checklist stops asking for a test mail. It changes nothing about the transport
+ * itself and does not stop a configured transport from sending; installation-level, like
+ * the mail settings it belongs to.
+ */
+export async function setMailNotNeeded(
+  db: DbExecutor,
+  notNeeded: boolean,
+  actor: Actor,
+): Promise<{ notNeeded: boolean }> {
+  await db.transaction(async (tx) => {
+    const row = await loadRow(tx, { forUpdate: true });
+    if (!row) {
+      throw setupIncomplete();
+    }
+    if (row.mailNotNeeded === notNeeded) {
+      return;
+    }
+    await tx.update(settings).set({ mailNotNeeded: notNeeded }).where(eq(settings.id, row.id));
+    await audit(tx, {
+      actor: actor.email,
+      actorUserId: actor.id,
+      action: SETTINGS_AUDIT_ACTIONS.mailNotNeeded,
+      target: row.id,
+      targetType: "settings",
+      ip: actor.ip,
+      details: { notNeeded, transport: row.mailTransport },
+    });
+  });
+  return { notNeeded };
 }
 
 // --- Passkey readiness ------------------------------------------------------------------------

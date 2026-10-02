@@ -15,6 +15,17 @@ export const ADMIN = Object.freeze({
   password: "Smoke-Admin-Passw0rd!x1",
 });
 
+/**
+ * The operator's own organisation the setup creates: its name is the setup
+ * request's `providerName`, the slug is what the api derives from it. Since
+ * 0.2.0 the setup creates it as the installation's first tenant (kind
+ * `internal`), so the smoke never creates an "own" tenant itself.
+ */
+export const OWN_ORGANISATION = Object.freeze({
+  name: "Smoke Operator GmbH",
+  slug: "smoke-operator-gmbh",
+});
+
 const TERMINAL = new Set(["completed", "failed", "cancelled"]);
 
 /** The setup token the api printed last to its log (apps/api lib/setup-token.ts), or null. */
@@ -46,7 +57,9 @@ async function readSetupToken(stack) {
  *
  * The upgrade check sets up the previous release with this too, so the older
  * flow stays: 0.1.0 has no setup token and accepts the notice with a call of
- * its own (it ignores the fields of the newer request).
+ * its own (it ignores the fields of the newer request; its `providerName` is
+ * optional and names nobody, since 0.1.0 creates no tenant at setup). A current
+ * build creates the own organisation named by `providerName` as its first tenant.
  */
 export async function setUpInstallation(stack) {
   const api = new ApiClient(stack.apiUrl, stack.publicUrl);
@@ -57,7 +70,7 @@ export async function setUpInstallation(stack) {
   const body = {
     operatingMode: "public",
     publicUrl: stack.publicUrl,
-    providerName: "Restow Smoke",
+    providerName: OWN_ORGANISATION.name,
     firstAdmin: { name: ADMIN.name, email: ADMIN.email, password: ADMIN.password },
     mail: {
       transport: "smtp",
@@ -123,17 +136,30 @@ export async function listTenants(api) {
 }
 
 /**
- * The one tenant of a Community installation: the one check 3 created in the
- * wizard, or a new one when none exists yet (the first tenant is always allowed).
- * Every check of the community variant works in it.
+ * The operator's own organisation among `tenants` (the tenant list or the
+ * profile's tenants): the one of kind `internal`, or undefined.
+ */
+export function ownOrganisationOf(tenants) {
+  return tenants.find((tenant) => tenant.kind === "internal");
+}
+
+/**
+ * The one tenant of a Community installation: the own organisation the setup
+ * created (every installation has one since 0.2.0, the first tenant is always
+ * allowed). Every check of the community variant works in it. A build whose
+ * setup created no tenant at all is a failure of its own, not something to
+ * paper over by creating one here.
  */
 export async function installationTenant(ctx) {
   if (!ctx.installationTenant) {
     const tenants = await listTenants(ctx.api);
-    ctx.installationTenant =
-      tenants.find((tenant) => tenant.slug === ctx.e2eTenantSlug) ??
-      tenants[0] ??
-      (await createTenant(ctx.api, "Smoke Community Tenant", "smoke-community"));
+    const own = ownOrganisationOf(tenants);
+    if (!own) {
+      throw new Error(
+        `the installation has no own organisation (tenants: ${tenants.map((tenant) => tenant.slug).join(", ") || "none"}); the setup should have created it`,
+      );
+    }
+    ctx.installationTenant = own;
   }
   // A copy: checks hang their own facts on the tenant they get.
   return { ...ctx.installationTenant };

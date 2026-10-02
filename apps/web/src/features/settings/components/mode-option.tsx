@@ -24,7 +24,10 @@ export function ModeOption({
     <label
       className={cn(
         "flex cursor-pointer flex-col gap-2 rounded-lg border p-4 text-left transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring",
-        selected ? "border-primary ring-1 ring-ring" : "border-border hover:bg-accent",
+        "has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-70",
+        selected
+          ? "border-primary ring-1 ring-ring"
+          : "border-border hover:bg-accent has-[:disabled]:hover:bg-transparent",
       )}
     >
       <input type="radio" name={name} className="sr-only" checked={selected} onChange={onSelect} />

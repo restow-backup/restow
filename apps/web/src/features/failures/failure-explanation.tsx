@@ -281,9 +281,7 @@ export function FailureExplanation({
 function Section({ heading, children }: { heading: string; children: React.ReactNode }) {
   return (
     <section className="space-y-1.5">
-      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {heading}
-      </h3>
+      <h3 className="text-xs font-semibold text-muted-foreground">{heading}</h3>
       {children}
     </section>
   );

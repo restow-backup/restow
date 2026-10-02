@@ -10,6 +10,7 @@ import { AuthLayout } from "@/components/layout/auth-layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/components/ui/sonner";
+import { activeLanguage, i18n as appI18n, chooseLanguage, setupLanguageSuggestion } from "@/i18n";
 import {
   ApiError,
   DISCLAIMER_REQUIRED_PROBLEM,
@@ -28,9 +29,12 @@ import { HOME_PATH, LOGIN_PATH } from "@/lib/entry";
 import { zodResolver } from "@/lib/form";
 import { PasskeyReadiness } from "@/routes/setup/passkey-readiness";
 import {
+  SETUP_LANGUAGES,
   STEP_FIELDS,
   STEP_KEYS,
   type SetupFormValues,
+  type SetupLanguage,
+  type StepKey,
   buildSubmission,
   defaultSetupValues,
   setupFormSchema,
@@ -38,6 +42,7 @@ import {
 import { Stepper } from "@/routes/setup/stepper";
 import { AdminStep } from "@/routes/setup/steps/admin-step";
 import { DisclaimerStep, type DisclaimerStepError } from "@/routes/setup/steps/disclaimer-step";
+import { LanguageStep } from "@/routes/setup/steps/language-step";
 import { MailStep } from "@/routes/setup/steps/mail-step";
 import { ModeStep } from "@/routes/setup/steps/mode-step";
 import { ReviewStep } from "@/routes/setup/steps/review-step";
@@ -63,15 +68,20 @@ function missingSettings(error: unknown): string[] {
   return Array.isArray(missing) ? missing.filter((name) => typeof name === "string") : [];
 }
 
+/** The wizard's language is the app's current one, when the wizard offers it. */
+function setupLanguageOf(language: string | undefined): SetupLanguage {
+  return SETUP_LANGUAGES.find((candidate) => candidate === language) ?? "en";
+}
+
 /**
- * First-run setup wizard: the setup token, the operator notice, operating
- * mode, first admin account, mail transport and a review step
- * (docs/ARCHITECTURE.md, setup and operating modes). On success the new admin
- * is signed in right away and lands on the dashboard.
+ * First-run setup wizard: the language, the setup token, the operator notice,
+ * operating mode, first admin account, mail transport (which can be skipped)
+ * and a review step (docs/ARCHITECTURE.md, setup and operating modes). On
+ * success the new admin is signed in right away and lands on the dashboard.
  */
 export function SetupPage() {
   const { t } = useTranslation("setup");
-  const { t: tc } = useTranslation();
+  const { t: tc, i18n } = useTranslation();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -80,13 +90,11 @@ export function SetupPage() {
   const tokenSource = setupState?.setupToken?.source ?? null;
   const tokenRequired = setupState?.setupToken?.required ?? true;
 
-  // Without a setup token to ask for (the demo) the wizard starts at the
-  // notice, and past it when the notice counts as accepted.
-  const [stepIndex, setStepIndex] = React.useState(() =>
-    tokenRequired
-      ? STEP_KEYS.indexOf("token")
-      : STEP_KEYS.indexOf(disclaimer.accepted ? "mode" : "disclaimer"),
-  );
+  // The language is the wizard's first step, the demo's included. The steps that
+  // do not apply (no setup token to ask for in the demo, a notice that counts as
+  // accepted there) are passed over, forwards and backwards.
+  const [stepIndex, setStepIndex] = React.useState(0);
+  const language = setupLanguageOf(i18n.resolvedLanguage ?? i18n.language);
   const [setupToken, setSetupToken] = React.useState("");
   const [tokenError, setTokenError] = React.useState<TokenStepError | null>(null);
   const [noticeChecked, setNoticeChecked] = React.useState(false);
@@ -102,9 +110,27 @@ export function SetupPage() {
     mode: "onTouched",
   });
 
-  const currentKey = STEP_KEYS[stepIndex] ?? "token";
+  // The wizard starts in the browser's language (or the one the visitor chose before):
+  // the preselected card, and the language of every text from the first one on.
+  React.useEffect(() => {
+    const suggestion = setupLanguageSuggestion();
+    if (suggestion !== activeLanguage()) {
+      void appI18n.changeLanguage(suggestion);
+    }
+  }, []);
+
+  const currentKey = STEP_KEYS[stepIndex] ?? "language";
   const totalSteps = STEP_KEYS.length;
-  const next = () => setStepIndex((index) => Math.min(index + 1, totalSteps - 1));
+  const stepApplies = (key: StepKey) =>
+    key === "token" ? tokenRequired : key === "disclaimer" ? !disclaimer.accepted : true;
+  const stepFrom = (from: number, direction: 1 | -1) => {
+    let index = from + direction;
+    while (index > 0 && index < totalSteps - 1 && !stepApplies(STEP_KEYS[index] ?? "review")) {
+      index += direction;
+    }
+    return Math.min(Math.max(index, 0), totalSteps - 1);
+  };
+  const next = () => setStepIndex((index) => stepFrom(index, 1));
 
   const leaveConfigured = async () => {
     toast.info(t("result.alreadyConfigured"));
@@ -123,12 +149,17 @@ export function SetupPage() {
         operatingMode: submission.operatingMode,
         publicUrl: submission.publicUrl ?? null,
         passkeyReady: result.passkeyReady,
-        mailTransport: submission.mail.transport,
+        mailTransport: submission.mail?.transport ?? null,
         disclaimer: { version: previous?.disclaimer.version ?? "", accepted: true },
         setupToken: { required: false, source: null },
         microsoftSignIn: previous?.microsoftSignIn ?? false,
         demo: previous?.demo ?? { enabled: false, email: null, password: null },
       }));
+
+      // The installation is complete without it; the dashboard offers to create it afterwards.
+      if (result.ownOrganisation?.created === false) {
+        toast.warning(t("result.ownOrganisationFailed"));
+      }
 
       if (result.testSend.attempted) {
         if (result.testSend.ok) {
@@ -194,6 +225,12 @@ export function SetupPage() {
   });
 
   const goNext = async () => {
+    if (currentKey === "language") {
+      // Confirmed, not only preselected: the choice sticks (the language switcher agrees).
+      void chooseLanguage(language);
+      next();
+      return;
+    }
     if (currentKey === "token") {
       if (setupToken.trim().length === 0) {
         setTokenError("required");
@@ -211,6 +248,10 @@ export function SetupPage() {
       }
       return;
     }
+    if (currentKey === "mail") {
+      // Next on this step means "set it up now", also after an earlier "Skip for now".
+      form.setValue("mail.skipped", false);
+    }
     if (currentKey !== "review") {
       const valid = await form.trigger(STEP_FIELDS[currentKey], { shouldFocus: true });
       if (!valid) {
@@ -220,10 +261,17 @@ export function SetupPage() {
     next();
   };
 
-  const goBack = () => setStepIndex((index) => Math.max(index - 1, 0));
+  const goBack = () => setStepIndex((index) => stepFrom(index, -1));
+
+  // The mail transport can wait: nothing is validated or sent, the settings have it later.
+  const skipMail = () => {
+    form.setValue("mail.skipped", true, { shouldDirty: true });
+    form.clearErrors("mail");
+    next();
+  };
 
   const finish = form.handleSubmit((values) => {
-    mutation.mutate(buildSubmission(values, disclaimer.version));
+    mutation.mutate(buildSubmission(values, disclaimer.version, language));
   });
 
   const busy = phase !== "editing" || tokenMutation.isPending;
@@ -281,6 +329,12 @@ export function SetupPage() {
               <CardDescription>{t(`${currentKey}.description`)}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
+              {currentKey === "language" ? (
+                <LanguageStep
+                  value={language}
+                  onSelect={(selected) => void chooseLanguage(selected)}
+                />
+              ) : null}
               {currentKey === "token" ? (
                 <TokenStep
                   value={setupToken}
@@ -308,7 +362,7 @@ export function SetupPage() {
               {currentKey === "mail" ? <MailStep form={form} /> : null}
               {currentKey === "review" ? (
                 <>
-                  <ReviewStep values={form.getValues()} />
+                  <ReviewStep values={form.getValues()} language={language} />
                   {serverReadiness ? <PasskeyReadiness readiness={serverReadiness} /> : null}
                   {submitFailed ? (
                     <ErrorState
@@ -350,6 +404,13 @@ export function SetupPage() {
               <Button type="submit" disabled={!disclaimer.accepted && !noticeChecked}>
                 {t("disclaimer.continue")}
               </Button>
+            ) : currentKey === "mail" ? (
+              <div className="flex items-center gap-2">
+                <Button variant="outline" type="button" onClick={skipMail}>
+                  {t("mail.skip.action")}
+                </Button>
+                <Button type="submit">{tc("actions.next")}</Button>
+              </div>
             ) : (
               <Button type="submit">{tc("actions.next")}</Button>
             )}

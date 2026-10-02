@@ -742,6 +742,9 @@ const PROBLEM_KEYS: Readonly<Record<string, string>> = {
   "urn:restow:problem:endpoint-invalid-cursor": "endpoints:errors.invalidCursor",
   "urn:restow:problem:endpoint-hooks-not-allowed": "endpoints:errors.hooksNotAllowed",
   "urn:restow:problem:endpoint-hook-not-a-script": "endpoints:errors.hookNotAScript",
+  "urn:restow:problem:endpoint-config-managed-by-job": "endpoints:errors.configManagedByJob",
+  "urn:restow:problem:endpoint-invalid-bandwidth-windows":
+    "endpoints:errors.invalidBandwidthWindows",
   [RECENT_SIGN_IN_PROBLEM]: "endpoints:errors.recentSignIn",
 };
 
@@ -776,7 +779,7 @@ export function isRetryableProblem(error: unknown): boolean {
 /** Refresh interval while something runs, and while nothing does. */
 export const LIVE_REFRESH_MS = 15_000;
 export const IDLE_REFRESH_MS = 60_000;
-/** The open run sheet follows a running backup more closely (progress arrives every 10 s). */
+/** The open run sheet follows a running backup more closely (progress arrives every 5 s, every 10 s from an agent older than 0.2.0). */
 export const RUN_REFRESH_MS = 5_000;
 
 export function listRefetchInterval(items: readonly EndpointSummary[] | undefined): number {

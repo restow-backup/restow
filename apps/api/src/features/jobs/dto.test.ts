@@ -56,6 +56,8 @@ const progress: JobProgress = {
   done: 40,
   failed: 2,
   bytes: 4096,
+  bytesProcessed: 4096,
+  bytesTransferred: 0,
   etaSeconds: 120,
   createdAt: AT,
   updatedAt: AT,
@@ -133,6 +135,22 @@ describe("toJobDto", () => {
       cancellable: true,
       retryable: false,
     });
+  });
+
+  it('counts what the scheduler planned for a backup job as scheduled, and "Run now" as manual', () => {
+    const trigger = (payload: Record<string, unknown>) =>
+      toJobDto({ job: jobRow({ payload }), progress: null, object: mailbox });
+    expect(trigger({ backupJobId: "job-1" })).toMatchObject({
+      trigger: "scheduled",
+      backupJobId: "job-1",
+      scheduleId: null,
+    });
+    expect(trigger({ backupJobId: "job-1", runNow: true })).toMatchObject({
+      trigger: "manual",
+      backupJobId: "job-1",
+    });
+    // The restore check that follows a backup says so, whichever job asked for it.
+    expect(trigger({ backupJobId: "job-1", afterBackup: true }).trigger).toBe("after_backup");
   });
 
   it("tells a manual job from a restore check queued right after a backup", () => {

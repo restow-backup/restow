@@ -8,6 +8,7 @@ import { isUuid, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { SlidingWindowRateLimiter } from "../apikeys/rate-limit.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
+import { AGENT_API_LIMIT, RESTIC_API_LIMIT, TEN_MINUTES_MS } from "./rate-limits.js";
 
 /**
  * Authentication of an endpoint agent (docs/AGENT.md): HTTP Basic with
@@ -31,10 +32,10 @@ export const ENDPOINT_REVOKED_PROBLEM = ENDPOINT_PROBLEMS.revoked;
 export const AGENT_UNAUTHORIZED_PROBLEM = "urn:restow:problem:agent-unauthorized";
 export const RATE_LIMITED_PROBLEM = "urn:restow:problem:rate-limited";
 
-const TEN_MINUTES = 10 * 60 * 1000;
+const TEN_MINUTES = TEN_MINUTES_MS;
 
-export const agentApiLimiter = new SlidingWindowRateLimiter(600, TEN_MINUTES);
-export const resticApiLimiter = new SlidingWindowRateLimiter(20_000, TEN_MINUTES);
+export const agentApiLimiter = new SlidingWindowRateLimiter(AGENT_API_LIMIT, TEN_MINUTES);
+export const resticApiLimiter = new SlidingWindowRateLimiter(RESTIC_API_LIMIT, TEN_MINUTES);
 
 /** Failed logins per key in a fixed window; a key over the limit is refused without a lookup. */
 export class FailureTracker {

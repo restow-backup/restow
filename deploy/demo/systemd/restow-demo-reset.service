@@ -34,4 +34,4 @@ ExecStart=/opt/restow-demo/deploy/demo/reset.sh
 # without duplicating stdout you would not otherwise see when run manually.
 StandardOutput=journal
 StandardError=journal
-TimeoutStartSec=20min
+TimeoutStartSec=45min

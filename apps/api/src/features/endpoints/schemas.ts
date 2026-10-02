@@ -3,6 +3,8 @@ import {
   ENDPOINT_OS,
   ENDPOINT_PROFILES,
   type EndpointOsName,
+  MAX_BANDWIDTH_KBPS,
+  MAX_BANDWIDTH_WINDOWS,
   MAX_ENDPOINT_QUOTA_GIB,
   isValidTimeZone,
 } from "@restow/core";
@@ -211,7 +213,7 @@ export const scheduleSchema = z
   });
 
 /** Absolute paths only; no control characters. */
-const absolutePath = z
+export const absolutePath = z
   .string()
   .trim()
   .min(1)
@@ -220,7 +222,7 @@ const absolutePath = z
   .refine((value) => !/[\u0000-\u001f]/.test(value), "contains control characters")
   .refine((value) => /^(\/|[A-Za-z]:[\\/])/.test(value), "must be an absolute path");
 
-const excludePattern = z
+export const excludePattern = z
   .string()
   .trim()
   .min(1)
@@ -228,7 +230,22 @@ const excludePattern = z
   // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what is refused
   .refine((value) => !/[\u0000-\u001f]/.test(value), "contains control characters");
 
-const hookCommand = z.string().max(4096);
+export const hookCommand = z.string().max(4096);
+
+/**
+ * A time window of the upload limit (@restow/core backup-jobs/bandwidth.ts): the days it starts
+ * on (1 = Monday ... 7 = Sunday), local start and end, the limit in kbit/s (0 = unlimited). The
+ * shape is checked here; that windows do not overlap is checked by the service, which names the
+ * window.
+ */
+export const bandwidthWindowSchema = z.object({
+  days: z.array(z.number().int().min(1).max(7)).min(1).max(7),
+  from: timeOfDay,
+  to: timeOfDay,
+  kbps: z.number().int().min(0).max(MAX_BANDWIDTH_KBPS),
+});
+
+export const bandwidthWindowsSchema = z.array(bandwidthWindowSchema).max(MAX_BANDWIDTH_WINDOWS);
 
 export const retentionSchema = z.object({
   keepDaily: z.number().int().min(0).max(3650),
@@ -246,6 +263,8 @@ export const updateEndpointSchema = z
         excludes: z.array(excludePattern).max(500).optional(),
         hooks: z.object({ pre: hookCommand.optional(), post: hookCommand.optional() }).optional(),
         bandwidthKbps: z.number().int().min(1).max(10_000_000).nullable().optional(),
+        // Time windows with a limit of their own (only for a machine in no job); null or [] removes them.
+        bandwidthWindows: bandwidthWindowsSchema.nullable().optional(),
         onlyOnAcPower: z.boolean().optional(),
       })
       .optional(),
@@ -360,8 +379,14 @@ export const createTaskSchema = z.discriminatedUnion("kind", [
   }),
 ]);
 
-/** The tenant-wide switch for automatic agent updates. */
-export const agentUpdatesSchema = z.object({ paused: z.boolean() });
+/**
+ * The tenant's setting for automatic agent updates. `resumeMachines` also lifts the pauses that
+ * single machines carry from before the pause became a setting of the tenant.
+ */
+export const agentUpdatesSchema = z.object({
+  paused: z.boolean(),
+  resumeMachines: z.boolean().optional(),
+});
 
 export type CreateTaskInput = z.infer<typeof createTaskSchema>;
 export type HookPolicy = z.infer<typeof hookPolicySchema>;

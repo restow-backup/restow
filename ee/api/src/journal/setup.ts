@@ -308,6 +308,26 @@ async function journalActivity(tx: Transaction, tenantId: string, now: Date) {
   };
 }
 
+/** What the operator's network and Exchange Online need, from the configuration. */
+function receiverRequirements(
+  env: JournalSetupEnvironment,
+  hostname: string | null,
+  reason: ReceiverReason | null,
+): JournalSetupDto["requirements"] {
+  const port = env.journal.port ?? null;
+  return {
+    dnsName: hostname,
+    smtpPort: port,
+    exchangePort: EXCHANGE_SMTP_PORT,
+    portMismatch: port !== null && port !== EXCHANGE_SMTP_PORT,
+    tlsConfigured:
+      Boolean(env.journal.tlsCertPath && env.journal.tlsKeyPath) &&
+      reason !== "tls_invalid" &&
+      reason !== "tls_expired",
+    maxMessageMegabytes: Math.floor(env.journal.maxSizeBytes / (1024 * 1024)),
+  };
+}
+
 async function describeSetup(
   tx: Transaction,
   tenantId: string,
@@ -318,7 +338,6 @@ async function describeSetup(
   const { hostname, issue } = normalizeJournalHostname(env.journal.hostname);
   const reason = receiverReason((env.receiverState ?? journalReceiverState)(), env.journal.port);
   const activity = await journalActivity(tx, tenantId, now);
-  const port = env.journal.port ?? null;
   return {
     address: hostname === null ? null : journalAddress(token, hostname),
     localPart: journalLocalPart(token),
@@ -328,17 +347,7 @@ async function describeSetup(
     receiver: { listening: reason === null, reason },
     lastReportAt: activity.lastReportAt?.toISOString() ?? null,
     counts: { last24Hours: activity.last24Hours, last7Days: activity.last7Days },
-    requirements: {
-      dnsName: hostname,
-      smtpPort: port,
-      exchangePort: EXCHANGE_SMTP_PORT,
-      portMismatch: port !== null && port !== EXCHANGE_SMTP_PORT,
-      tlsConfigured:
-        Boolean(env.journal.tlsCertPath && env.journal.tlsKeyPath) &&
-        reason !== "tls_invalid" &&
-        reason !== "tls_expired",
-      maxMessageMegabytes: Math.floor(env.journal.maxSizeBytes / (1024 * 1024)),
-    },
+    requirements: receiverRequirements(env, hostname, reason),
     docsUrl: journalDocsUrl(env.docsTroubleshootingUrl),
   };
 }
@@ -381,4 +390,60 @@ export async function rotateJournalAddress(
     );
     return describeSetup(tx, tenantId, token, env);
   });
+}
+
+/**
+ * The receiver as the installation page shows it: the listener of this api
+ * process and the configuration behind it, for every tenant at once. It holds
+ * no tenant's address and no per-tenant counts.
+ *
+ * `listening`: reports can arrive. `down`: the receiver is configured, but
+ * nothing can arrive (see `receiver.reason`; `restart_required` when a license
+ * key that adds the receiver was installed after the api started).
+ * `not_configured`: `JOURNAL_SMTP_PORT` is not set, a normal state.
+ */
+export type JournalReceiverStatus = "listening" | "down" | "not_configured";
+
+export interface JournalReceiverDto {
+  state: JournalReceiverStatus;
+  receiver: { listening: boolean; reason: ReceiverReason | null };
+  /** The journal host (`JOURNAL_HOSTNAME`); null when missing or invalid. */
+  hostname: string | null;
+  hostnameIssue: HostnameIssue | null;
+  requirements: JournalSetupDto["requirements"];
+  /** The newest journal report of any tenant; null when none has arrived. */
+  lastReportAt: string | null;
+  /** Journal reports of all tenants archived in the last 24 hours. */
+  last24Hours: number;
+  docsUrl: string | null;
+}
+
+/** The receiver's state and configuration, with the activity across all tenants. */
+export async function getJournalReceiver(
+  providerDb: DbExecutor,
+  env: JournalSetupEnvironment,
+): Promise<JournalReceiverDto> {
+  const now = (env.now ?? (() => new Date()))();
+  const { hostname, issue } = normalizeJournalHostname(env.journal.hostname);
+  const reason = receiverReason((env.receiverState ?? journalReceiverState)(), env.journal.port);
+  const since = new Date(now.getTime() - DAY_MS);
+  const [activity] = await providerDb
+    .select({
+      newest: sql<Date | null>`max(${archiveItems.receivedAt})`.mapWith(archiveItems.receivedAt),
+      last24Hours:
+        sql<number>`count(*) filter (where ${archiveItems.receivedAt} >= ${since})`.mapWith(Number),
+    })
+    .from(archiveItems)
+    .where(eq(archiveItems.capturedVia, "journal"));
+  return {
+    state:
+      reason === null ? "listening" : reason === "port_not_configured" ? "not_configured" : "down",
+    receiver: { listening: reason === null, reason },
+    hostname,
+    hostnameIssue: issue,
+    requirements: receiverRequirements(env, hostname, reason),
+    lastReportAt: activity?.newest ? activity.newest.toISOString() : null,
+    last24Hours: activity?.last24Hours ?? 0,
+    docsUrl: journalDocsUrl(env.docsTroubleshootingUrl),
+  };
 }

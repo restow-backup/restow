@@ -38,6 +38,11 @@ const settings: InstallationSettings = {
     },
   },
   capabilities: { graphMail: { appConfigured: true, defaultTenantId: null } },
+  disclaimer: {
+    acceptedVersion: "2026-10-01",
+    acceptedAt: "2026-09-20T07:00:00.000Z",
+    currentVersion: "2026-10-01",
+  },
   updatedAt: "2026-09-20T08:00:00.000Z",
 };
 

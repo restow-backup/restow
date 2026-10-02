@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import {
+  PIN_FIRST,
   Table,
   TableBody,
   TableCell,
@@ -195,10 +196,10 @@ function MemberTable({ tenantId, members, readOnly, onRemove }: MemberTableProps
   };
 
   return (
-    <Table>
+    <Table scrollLabel={t("members.title")}>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          <TableHead>{t("members.columns.person")}</TableHead>
+          <TableHead pin={PIN_FIRST}>{t("members.columns.person")}</TableHead>
           <TableHead>{t("members.columns.role")}</TableHead>
           <TableHead className="hidden md:table-cell">{t("members.columns.joined")}</TableHead>
           <TableHead className="w-12">
@@ -212,7 +213,7 @@ function MemberTable({ tenantId, members, readOnly, onRemove }: MemberTableProps
           const locked = readOnly || isSelf;
           return (
             <TableRow key={member.userId}>
-              <TableCell className="min-w-0">
+              <TableCell pin={PIN_FIRST} className="min-w-0 max-w-[22rem]">
                 <div className="flex min-w-0 flex-col">
                   <span className="flex items-center gap-2 font-medium">
                     <span className="truncate">{displayName(member)}</span>
@@ -282,10 +283,10 @@ function InvitationTable({ invitations, readOnly, onCancel }: InvitationTablePro
       <h3 className="text-sm font-medium">
         {t("members.invitations.title", { count: invitations.length })}
       </h3>
-      <Table>
+      <Table scrollLabel={t("members.invitations.title", { count: invitations.length })}>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <TableHead>{t("members.invitations.columns.email")}</TableHead>
+            <TableHead pin={PIN_FIRST}>{t("members.invitations.columns.email")}</TableHead>
             <TableHead>{t("members.columns.role")}</TableHead>
             <TableHead className="hidden md:table-cell">
               {t("members.invitations.columns.expires")}
@@ -300,7 +301,7 @@ function InvitationTable({ invitations, readOnly, onCancel }: InvitationTablePro
             const expired = isExpired(invitation.expiresAt, now);
             return (
               <TableRow key={invitation.id}>
-                <TableCell className="min-w-0">
+                <TableCell pin={PIN_FIRST} className="min-w-0 max-w-[22rem]">
                   <div className="flex min-w-0 flex-col items-start gap-1">
                     <span className="truncate font-medium">{invitation.email}</span>
                     <Badge variant={expired ? "warning" : "muted"}>

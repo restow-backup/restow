@@ -20,6 +20,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import {
   type Database,
   auditLog,
+  backupJobs,
   createDb,
   jobs,
   protectedObjects,
@@ -28,7 +29,7 @@ import {
   sources,
   tenants,
 } from "@restow/db";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import { Hono, type MiddlewareHandler } from "hono";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { SessionUser } from "../../auth.js";
@@ -64,6 +65,7 @@ function testTenantAccess(minimum: TenantRole, userId: string): MiddlewareHandle
 
 interface Problem {
   status: number;
+  type?: string;
   field?: string;
   code?: string;
   issues?: { path: string[] }[];
@@ -191,31 +193,55 @@ describe.skipIf(!testDatabaseAdminUrl)("schedules against Postgres", () => {
     return (await response.json()) as ScheduleDto;
   }
 
+  /**
+   * A backup or verify schedule an older release made: the API no longer makes them (they are
+   * jobs now), so the fixtures write the rows themselves, as an installation that is moved to
+   * jobs still has them.
+   */
+  async function legacy(values: {
+    kind: "backup" | "verify";
+    tenantId?: string;
+    protectedObjectId?: string;
+    intervalMinutes?: number;
+    cron?: string;
+    supersededByJobId?: string;
+  }): Promise<string> {
+    const [row] = await owner
+      .insert(schedules)
+      .values({
+        tenantId: values.tenantId ?? contoso,
+        kind: values.kind,
+        protectedObjectId: values.protectedObjectId ?? null,
+        intervalMinutes: values.intervalMinutes ?? null,
+        cron: values.cron ?? null,
+        timezone: "Europe/Berlin",
+        supersededByJobId: values.supersededByJobId ?? null,
+        nextRunAt: clock,
+      })
+      .returning();
+    return row?.id ?? "";
+  }
+
   it("creates schedules with their first run and audits each one", async () => {
-    const backup = await create({ kind: "backup", intervalMinutes: 480 });
-    expect(backup).toMatchObject({
-      kind: "backup",
+    const directory = await create({ kind: "directory", intervalMinutes: 480 });
+    expect(directory).toMatchObject({
+      kind: "directory",
       protectedObject: null,
       intervalMinutes: 480,
       cron: null,
       timezone: "Europe/Berlin",
       enabled: true,
+      supersededByJobId: null,
       // An interval starts at once.
       nextRunAt: "2026-03-04T10:00:00.000Z",
       lastRunAt: null,
       lastJob: null,
     });
 
-    const verify = await create({
-      kind: "verify",
-      protectedObjectId: mailboxId,
-      cron: "0 3 * * 0",
-      timezone: "Europe/Berlin",
-    });
-    expect(verify.protectedObject).toEqual({ id: mailboxId, name: "Anna Berg", kind: "mailbox" });
-    expect(verify.nextRunAt).toBe("2026-03-08T02:00:00.000Z");
+    const scrub = await create({ kind: "scrub", cron: "0 3 * * 0", timezone: "Europe/Berlin" });
+    expect(scrub.nextRunAt).toBe("2026-03-08T02:00:00.000Z");
 
-    const [entry] = await auditEntries("schedule.created", verify.id);
+    const [entry] = await auditEntries("schedule.created", scrub.id);
     expect(entry).toMatchObject({
       tenantId: contoso,
       actorUserId: adminId,
@@ -223,26 +249,36 @@ describe.skipIf(!testDatabaseAdminUrl)("schedules against Postgres", () => {
       ip: "192.0.2.10",
     });
     expect(entry?.details).toMatchObject({
-      kind: "verify",
-      protectedObjectId: mailboxId,
+      kind: "scrub",
       cron: "0 3 * * 0",
       timezone: "Europe/Berlin",
     });
+    await call("DELETE", `/${scrub.id}`);
+  });
+
+  it("makes no backup or restore-check schedule any more: those are jobs", async () => {
+    for (const kind of ["backup", "verify"]) {
+      const response = await call("POST", "", { body: { kind, intervalMinutes: 480 } });
+      expect(response.status).toBe(422);
+      const problem = (await response.json()) as Problem;
+      expect(problem).toMatchObject({ field: "kind", code: "kind_replaced_by_jobs" });
+    }
+    const rows = await owner
+      .select()
+      .from(schedules)
+      .where(and(eq(schedules.tenantId, contoso), inArray(schedules.kind, ["backup", "verify"])));
+    expect(rows).toEqual([]);
   });
 
   it("refuses unusable schedules with a 422 problem naming the field", async () => {
     const cases: [Record<string, unknown>, string][] = [
-      [{ kind: "backup", cron: "0 3 * *" }, "cron"],
-      [{ kind: "backup", cron: "* * * * *" }, "cron"],
-      [{ kind: "backup", cron: "0 3 * * *", timezone: "Europe/Atlantis" }, "timezone"],
-      [{ kind: "backup", intervalMinutes: 60, cron: "0 3 * * *" }, "intervalMinutes"],
-      [{ kind: "backup" }, "intervalMinutes"],
-      [{ kind: "backup", intervalMinutes: 5 }, "intervalMinutes"],
+      [{ kind: "retention", cron: "0 3 * *" }, "cron"],
+      [{ kind: "retention", cron: "* * * * *" }, "cron"],
+      [{ kind: "retention", cron: "0 3 * * *", timezone: "Europe/Atlantis" }, "timezone"],
+      [{ kind: "retention", intervalMinutes: 60, cron: "0 3 * * *" }, "intervalMinutes"],
+      [{ kind: "retention" }, "intervalMinutes"],
+      [{ kind: "retention", intervalMinutes: 5 }, "intervalMinutes"],
       [{ kind: "scrub", intervalMinutes: 60, protectedObjectId: mailboxId }, "protectedObjectId"],
-      [
-        { kind: "backup", intervalMinutes: 60, protectedObjectId: foreignMailboxId },
-        "protectedObjectId",
-      ],
     ];
     const before = await owner.select().from(schedules).where(eq(schedules.tenantId, contoso));
     for (const [body, field] of cases) {
@@ -361,12 +397,18 @@ describe.skipIf(!testDatabaseAdminUrl)("schedules against Postgres", () => {
       })
       .returning();
     const ownId = own?.id ?? "";
-    const foreign = await create({
+    const foreignId = await legacy({
       kind: "backup",
       protectedObjectId: mailboxId,
       intervalMinutes: 720,
     });
-    const mine = await create({ kind: "backup", protectedObjectId: ownId, intervalMinutes: 720 });
+    const mineId = await legacy({
+      kind: "backup",
+      protectedObjectId: ownId,
+      intervalMinutes: 720,
+    });
+    const foreign = { id: foreignId };
+    const mine = { id: mineId };
     const jobId = randomUUID();
     await owner.insert(jobs).values({
       id: jobId,
@@ -405,7 +447,7 @@ describe.skipIf(!testDatabaseAdminUrl)("schedules against Postgres", () => {
   });
 
   it("keeps every tenant to its own schedules", async () => {
-    const own = await create({ kind: "backup", intervalMinutes: 240 }, fabrikam);
+    const own = await create({ kind: "retention", cron: "30 4 * * *" }, fabrikam);
     const contosoList = (await (await call("GET", "")).json()) as ScheduleListDto;
     expect(contosoList.items.map((item) => item.id)).not.toContain(own.id);
     const fabrikamList = (await (
@@ -421,7 +463,7 @@ describe.skipIf(!testDatabaseAdminUrl)("schedules against Postgres", () => {
   });
 
   it("shows the most telling job of the last run", async () => {
-    const schedule = await create({ kind: "verify", cron: "0 2 * * *" });
+    const schedule = { id: await legacy({ kind: "verify", cron: "0 2 * * *" }) };
     const insertRun = async (createdAt: string, statuses: ("completed" | "failed")[]) => {
       const ids: string[] = [];
       for (const status of statuses) {
@@ -481,22 +523,37 @@ describe.skipIf(!testDatabaseAdminUrl)("schedules against Postgres", () => {
   });
 
   it("applies the missing recommended schedules once and records it", async () => {
-    // Contoso has backup, verify, retention and scrub schedules from the tests above
-    // (the scrub one was deleted); a Microsoft 365 source makes directory sync recommended.
+    // Contoso has a directory sync, retention and a tenant-wide restore check (the one of an
+    // older release); the storage check was deleted again and nothing backs up as a whole. A
+    // Microsoft 365 source makes directory sync recommended, and backups are a job.
     const listed = (await (await call("GET", "")).json()) as ScheduleListDto;
-    expect(listed.missingKinds).toEqual(["directory", "scrub"]);
+    expect(listed.missingKinds).toEqual(["backup", "scrub"]);
 
     const response = await call("POST", "/recommended", { body: { timezone: "Europe/Vienna" } });
     expect(response.status).toBe(200);
-    const applied = (await response.json()) as { created: ScheduleDto[]; missingKinds: string[] };
+    const applied = (await response.json()) as {
+      created: ScheduleDto[];
+      jobCreated: { id: string; name: string } | null;
+      missingKinds: string[];
+    };
     expect(
       applied.created.map((item) => [item.kind, item.intervalMinutes, item.cron, item.timezone]),
     ).toEqual([
-      ["directory", 360, null, "Europe/Vienna"],
       ["scrub", null, "0 4 * * 6", "Europe/Vienna"],
       ["scrub", null, "0 5 1 * *", "Europe/Vienna"],
     ]);
+    // The backup recommendation became the tenant's mail job (restore checks stay as they were),
+    // named in the installation's default language: the tenant has none of its own.
+    expect(applied.jobCreated?.name).toBe("Mail-Sicherung");
     expect(applied.missingKinds).toEqual([]);
+    const [job] = await owner.select().from(backupJobs).where(eq(backupJobs.tenantId, contoso));
+    expect(job).toMatchObject({
+      kind: "mail",
+      scopeMode: "all",
+      schedule: { kind: "interval", intervalMinutes: 480, timeZone: "Europe/Vienna" },
+      verifySchedule: null,
+    });
+    expect(job?.nextRunAt?.toISOString()).toBe(clock.toISOString());
     const [tenant] = await owner.select().from(tenants).where(eq(tenants.id, contoso));
     expect(tenant?.scheduleDefaultsAppliedAt?.toISOString()).toBe(clock.toISOString());
     expect(await auditEntries("schedule.recommended.applied", contoso)).toHaveLength(1);
@@ -504,16 +561,67 @@ describe.skipIf(!testDatabaseAdminUrl)("schedules against Postgres", () => {
     // Idempotent: nothing more to add, nothing more to record.
     const again = await call("POST", "/recommended");
     expect(again.status).toBe(200);
-    expect(((await again.json()) as { created: unknown[] }).created).toEqual([]);
+    const second = (await again.json()) as { created: unknown[]; jobCreated: unknown };
+    expect(second.created).toEqual([]);
+    expect(second.jobCreated).toBeNull();
     expect(await auditEntries("schedule.recommended.applied", contoso)).toHaveLength(1);
+    expect(
+      await owner.select().from(backupJobs).where(eq(backupJobs.tenantId, contoso)),
+    ).toHaveLength(1);
 
     const zone = await call("POST", "/recommended", { body: { timezone: "Nowhere/Town" } });
     expect(zone.status).toBe(422);
     expect(((await zone.json()) as Problem).field).toBe("timezone");
   });
 
-  it("does not recommend a directory sync to a tenant without Microsoft 365", async () => {
+  it("gives a tenant without any job the default mail job with its restore checks", async () => {
+    // Fabrikam has an IMAP source only (no directory sync) and one retention schedule.
     const listed = (await (await call("GET", "", { tenant: fabrikam })).json()) as ScheduleListDto;
-    expect(listed.missingKinds).toEqual(["verify", "scrub", "retention"]);
+    expect(listed.missingKinds).toEqual(["backup", "verify", "scrub"]);
+    const applied = (await (await call("POST", "/recommended", { tenant: fabrikam })).json()) as {
+      created: ScheduleDto[];
+      jobCreated: { name: string } | null;
+      missingKinds: string[];
+    };
+    expect(applied.created.map((item) => item.kind)).toEqual(["scrub", "scrub"]);
+    expect(applied.jobCreated?.name).toBe("Mail-Sicherung");
+    expect(applied.missingKinds).toEqual([]);
+    const [job] = await owner.select().from(backupJobs).where(eq(backupJobs.tenantId, fabrikam));
+    expect(job).toMatchObject({
+      scopeMode: "all",
+      schedule: { kind: "interval", intervalMinutes: 480 },
+      verifySchedule: { kind: "cron", cron: "0 3 * * 0" },
+    });
+    // The list no longer asks for what the job covers.
+    const after = (await (await call("GET", "", { tenant: fabrikam })).json()) as ScheduleListDto;
+    expect(after.missingKinds).toEqual([]);
+  });
+
+  it("leaves a schedule a job took over on record, unchangeable, and the others alone", async () => {
+    const [job] = await owner.select().from(backupJobs).where(eq(backupJobs.tenantId, contoso));
+    const taken = await legacy({
+      kind: "backup",
+      intervalMinutes: 960,
+      supersededByJobId: job?.id,
+    });
+    const running = await legacy({ kind: "backup", cron: "0 1 * * *" });
+    const list = (await (await call("GET", "")).json()) as ScheduleListDto;
+    expect(list.items.find((item) => item.id === taken)?.supersededByJobId).toBe(job?.id);
+    expect(list.items.find((item) => item.id === running)?.supersededByJobId).toBeNull();
+
+    for (const response of [
+      await call("PATCH", `/${taken}`, { body: { enabled: false } }),
+      await call("DELETE", `/${taken}`),
+    ]) {
+      expect(response.status).toBe(409);
+      expect(((await response.json()) as Problem).type).toBe(
+        "urn:restow:problem:schedule-superseded",
+      );
+    }
+    const [row] = await owner.select().from(schedules).where(eq(schedules.id, taken));
+    expect(row).toMatchObject({ enabled: true, supersededByJobId: job?.id });
+    // One no job could take over is still the administrator's to change or delete.
+    expect((await call("PATCH", `/${running}`, { body: { enabled: false } })).status).toBe(200);
+    expect((await call("DELETE", `/${running}`)).status).toBe(204);
   });
 });

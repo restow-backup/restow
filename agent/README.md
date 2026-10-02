@@ -178,7 +178,17 @@ agent always excludes its own cache and temporary folders and every folder named
 host name recorded at enrollment and the tag `restow-agent`.
 
 - `bandwidthKbps` is read as **kilobits per second** (as the name says) and converted to
-  restic's `--limit-upload` in KiB/s, rounded up.
+  restic's `--limit-upload` in KiB/s, rounded up. Null or 0 means unlimited. The server
+  works out which time window of the machine's job is active when the agent asks for its
+  configuration, so `bandwidthKbps` is already the limit that applies at that moment and
+  the agent knows nothing about windows. A backup reads the configuration again when it
+  starts and keeps the limit it found for its whole run; a window that begins or ends
+  during the run changes nothing for it.
+- `excludeLargerThanBytes` (optional, sent only when the machine's job sets a size limit)
+  is passed to restic as `--exclude-larger-than <bytes>`; files above it are not backed up
+  and the run's log says so. Absent or 0 means no limit (restic would read a literal 0 as
+  "skip every file with content", so the agent never passes it). Agents older than 0.2.0
+  ignore the field.
 - `hooks.pre` / `hooks.post` run only as far as the machine allows (see [Hooks](#hooks)).
 - `onlyOnAcPower` is checked before a scheduled start and, if the device is on battery,
   the backup waits (see the limits below). An administrator's "Back up now" is not held
@@ -209,8 +219,9 @@ for files that are provably unchanged since the snapshot (same size and modifica
 before and after hashing). A later mismatch therefore points at the backup, not at an edit
 made afterwards.
 
-**Run reporting.** `POST /agent/v1/runs` at start, progress at most every 10 seconds
-(best effort), and a finish report with status (`succeeded`, `partial`, `failed`),
+**Run reporting.** `POST /agent/v1/runs` at start, progress every 5 seconds (best effort;
+restic is asked for a status message every 2 seconds, `RESTIC_PROGRESS_FPS=0.5`, so each
+report is fresh; 0.1.x agents reported every 10 seconds), and a finish report with status (`succeeded`, `partial`, `failed`),
 snapshot id, statistics, errors (at most 100), the sample and the last 200 log lines with
 secrets masked. If the instance cannot be reached when a run ends, the report is kept in
 an outbox on disk and delivered with a later heartbeat. A run that was in progress when
@@ -458,14 +469,32 @@ reviewer). On the signing machine:
 scripts/release/sign-agent.sh v0.1.0 --key ~/restow-keys/restow-agent-release
 ```
 
-The script downloads `agent-SHA256SUMS` with `gh`, shows it, signs it with `ssh-keygen`
-(asks for the passphrase), verifies the signature against `agent/release-signing.pub` as
-committed at the tag, uploads `agent-SHA256SUMS.sig` to the draft and lets the workflow
-continue (approves the waiting job, or re-runs it when the environment is not set up).
-The workflow checks that the signature covers exactly its build, builds the images with
-the signed agent (the Dockerfile checks the signature again), runs the release smoke,
-checks the signature once more and only then publishes the draft. The private key never
-enters the repository or CI.
+The script downloads `agent-SHA256SUMS` with `gh`, shows it (repository, release with the
+short commit, the fingerprint of the release key and the checksum list), signs it with
+`ssh-keygen` (asks for the passphrase), verifies the signature against
+`agent/release-signing.pub` as committed at the tag, uploads `agent-SHA256SUMS.sig` to the
+draft and lets the workflow continue (approves the waiting job, or re-runs it when the
+environment is not set up). The workflow checks that the signature covers exactly its
+build, builds the images with the signed agent (the Dockerfile checks the signature
+again), runs the release smoke, checks the signature once more and only then publishes
+the draft. The private key never enters the repository or CI.
+
+The script runs from any directory and needs no clone of the repository with the tag. The
+repository is `--repo <owner/name>`; without it the script uses the GitHub repository of the
+clone it lives in (as `gh repo view` reports it) and otherwise `restow-backup/restow`.
+It reads the tag, its commit and `agent/release-signing.pub` at the tag from that clone
+when the clone belongs to the repository and has the tag (after a `git fetch --tags`
+that it tries first). In every other case (a clone without the tag, a copy of the
+source tree without a GitHub remote, no repository at all) it reads them from GitHub
+with `gh api`: the tag is resolved to its commit (an annotated tag is dereferenced)
+and the public key is read at that commit. The new signature is always checked against the
+key committed at the tag, never against a key file from the working directory, and `gh`
+needs to be logged in with push rights to the repository either way.
+
+```sh
+# from anywhere, for a release of another repository (a fork with its own key)
+scripts/release/sign-agent.sh v0.2.0 --repo my-org/restow --key ~/restow-keys/restow-agent-release
+```
 
 ### Checking a release by hand
 

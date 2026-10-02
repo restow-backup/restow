@@ -50,8 +50,15 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
       search,
       children,
       ...props
-    }: { to: string; search?: { section?: string }; children: React.ReactNode }) => (
-      <a href={`${to}?section=${search?.section ?? ""}`} {...props}>
+    }: { to: string; search?: Record<string, string>; children: React.ReactNode }) => (
+      <a
+        href={
+          search && Object.keys(search).length > 0
+            ? `${to}?${new URLSearchParams(search).toString()}`
+            : to
+        }
+        {...props}
+      >
         {children}
       </a>
     ),
@@ -289,7 +296,7 @@ describe("the banner", () => {
     shell(deps);
     await tick(10);
     expect(banner()?.dataset.variant).toBe("attention");
-    expect(banner()?.querySelector("a")?.getAttribute("href")).toBe("/settings?section=updates");
+    expect(banner()?.querySelector("a")?.getAttribute("href")).toBe("/installation/updates");
     await mounted?.unmount();
 
     mounted = mount(
@@ -644,10 +651,10 @@ describe("the modal", () => {
     );
     const element = modal() as HTMLElement;
     expect(text(element)).toContain(
-      "The update failed after the database was migrated. An administrator has to restore it. Details are under Settings, Updates.",
+      "The update failed after the database was migrated. An administrator has to restore it. Details are under Installation, Updates.",
     );
     expect(buttonByText(element, "Dismiss")).toBeNull();
-    expect(element.querySelector("a")?.getAttribute("href")).toBe("/settings?section=updates");
+    expect(element.querySelector("a")?.getAttribute("href")).toBe("/installation/updates");
   });
 
   it("tells everybody else that an administrator has been informed, and lets them dismiss it", async () => {

@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  PIN_FIRST,
   Table,
   TableBody,
   TableCell,
@@ -32,12 +33,7 @@ import { BackupAllButton, BackupNowButton } from "@/features/jobs/components/act
 import { JobCause } from "@/features/jobs/components/job-cause";
 import { ProgressBar, ProgressSummary } from "@/features/jobs/components/job-progress";
 import { SnapshotHistoryDialog } from "@/features/jobs/components/snapshot-history-dialog";
-import {
-  JobStatusBadge,
-  LiveIndicator,
-  ObjectKindIcon,
-  ReadinessBadge,
-} from "@/features/jobs/components/status";
+import { JobStatusBadge, ObjectKindIcon, ReadinessBadge } from "@/features/jobs/components/status";
 import { jobDetailTo } from "@/features/jobs/paths";
 import { isLive, matchesTargetSearch, objectLabel } from "@/features/jobs/presenters";
 import { type JobFormat, useJobFormat } from "@/features/jobs/use-format";
@@ -49,7 +45,7 @@ const ALL_KINDS = "all";
 export function BackupPage() {
   const { t } = useTranslation("backup");
   const format = useJobFormat();
-  const { targets, stream } = useLiveBackupTargets();
+  const { targets } = useLiveBackupTargets();
   const [search, setSearch] = React.useState("");
   const [kind, setKind] = React.useState<ObjectKind | null>(null);
   const [historyFor, setHistoryFor] = React.useState<BackupTarget | null>(null);
@@ -65,7 +61,6 @@ export function BackupPage() {
   return (
     <div className="space-y-6">
       <PageHeader title={t("objects.title")} description={t("objects.description")}>
-        <LiveIndicator status={stream} />
         {all.length > 0 ? <BackupAllButton /> : null}
       </PageHeader>
 
@@ -138,10 +133,12 @@ export function BackupPage() {
             <p className="py-6 text-center text-sm text-muted-foreground">{t("objects.noMatch")}</p>
           ) : (
             <Card className="py-0">
-              <Table>
+              <Table className="min-w-[56rem]" scrollLabel={t("objects.title")}>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="pl-4">{t("objects.columns.object")}</TableHead>
+                    <TableHead pin={PIN_FIRST} className="pl-4">
+                      {t("objects.columns.object")}
+                    </TableHead>
                     <TableHead>{t("objects.columns.source")}</TableHead>
                     <TableHead>{t("objects.columns.lastBackup")}</TableHead>
                     <TableHead className="min-w-52">{t("objects.columns.lastJob")}</TableHead>
@@ -198,7 +195,7 @@ function TargetRow({
 
   return (
     <TableRow className={excluded ? "text-muted-foreground" : undefined}>
-      <TableCell className="max-w-72 pl-4 align-top">
+      <TableCell pin={PIN_FIRST} className="max-w-72 pl-4 align-top">
         <div className="flex min-w-0 items-start gap-2">
           <ObjectKindIcon kind={target.kind} className="mt-0.5 text-muted-foreground" />
           <div className="min-w-0 space-y-0.5">

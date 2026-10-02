@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import {
   BellRing,
   Building,
@@ -9,6 +10,7 @@ import {
   Play,
   Plus,
   Send,
+  Settings,
   Trash2,
 } from "lucide-react";
 import * as React from "react";
@@ -25,7 +27,7 @@ import {
 import { PageHeader } from "@/components/page-header";
 import { RequireRole } from "@/components/require-role";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   DropdownMenu,
@@ -37,6 +39,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import {
+  PIN_FIRST,
   Table,
   TableBody,
   TableCell,
@@ -44,8 +47,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { activeTenantPageTo } from "@/lib/tenant-paths";
 
 import type { DeliveryStatus, ReportRule, ReportTrigger } from "./api";
 import {
@@ -62,16 +65,17 @@ import { reportErrorMessage } from "./report-errors";
 import { RuleFormDialog } from "./rule-form-dialog";
 
 /**
- * Alerts and reports: the tenant's notification rules (an event triggers an
- * alert) and report rules (a point in time triggers a summary), and the log
- * of everything sent. Alerts are always offered; reports where the
- * installation enables them (the catalog's `scheduledAvailable`).
+ * Alerts: the log of everything the tenant was sent, newest first, and for
+ * each entry what it was about, the rule behind it, the channel and the
+ * outcome. The rules themselves (an event triggers an alert, a point in time a
+ * summary report) and the recipients are settings of the tenant: they live on
+ * the tenant page under Notifications, which this page points to.
  */
 export function ReportsPage() {
   return (
     <RequireRole roles={REPORTS_ROLES}>
       <TooltipProvider delayDuration={200}>
-        <ReportsContent />
+        <AlertsContent />
       </TooltipProvider>
     </RequireRole>
   );
@@ -85,11 +89,9 @@ const STATUS_TONE: Record<DeliveryStatus, StatusTone> = {
   skipped: "muted",
 };
 
-function ReportsContent() {
+function AlertsContent() {
   const { t } = useTranslation("reports");
   const scope = useReportsScope();
-  const catalog = useReportCatalog();
-  const [creating, setCreating] = React.useState<ReportTrigger | null>(null);
 
   if (scope.tenantId === null) {
     return (
@@ -104,8 +106,6 @@ function ReportsContent() {
     );
   }
 
-  const scheduledAvailable = catalog.data?.scheduledAvailable ?? false;
-
   return (
     <div className="space-y-6">
       <PageHeader
@@ -116,47 +116,71 @@ function ReportsContent() {
             : t("page.subtitle")
         }
         actions={
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => setCreating("event")}>
-              <BellRing aria-hidden="true" />
-              {t("page.newAlert")}
-            </Button>
-            {scheduledAvailable ? (
-              <Button onClick={() => setCreating("schedule")}>
-                <Plus aria-hidden="true" />
-                {t("page.newReport")}
-              </Button>
-            ) : catalog.data ? (
-              <StatusBadge tone="muted" icon={Lock} className="self-center">
-                {t("page.reportLocked")}
-              </StatusBadge>
-            ) : null}
-          </div>
+          <Link
+            to={activeTenantPageTo("notifications")}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            <Settings aria-hidden="true" />
+            {t("page.manageRules")}
+          </Link>
         }
       />
-      <Tabs defaultValue="rules">
-        <TabsList>
-          <TabsTrigger value="rules">{t("page.tabs.rules")}</TabsTrigger>
-          <TabsTrigger value="deliveries">{t("page.tabs.deliveries")}</TabsTrigger>
-        </TabsList>
-        <TabsContent value="rules" className="mt-4 space-y-6">
-          <RuleTables periods={catalog.data?.periods ?? [1, 7, 30, 90]} />
-        </TabsContent>
-        <TabsContent value="deliveries" className="mt-4">
-          <DeliveryLog />
-        </TabsContent>
-      </Tabs>
-      {creating ? (
-        <RuleFormDialog
-          open
-          trigger={creating}
-          periods={catalog.data?.periods ?? [1, 7, 30, 90]}
-          onOpenChange={(open) => {
-            if (!open) setCreating(null);
-          }}
-        />
-      ) : null}
+      <DeliveryLog />
     </div>
+  );
+}
+
+/**
+ * The tenant's alert rules and report rules, with the buttons that add one:
+ * the part of Alerts that is a setting, shown on the tenant page under
+ * Notifications. Alerts are always offered; reports where the installation
+ * enables them (the catalog's `scheduledAvailable`).
+ */
+export function AlertRulesPanel() {
+  const { t } = useTranslation("reports");
+  const catalog = useReportCatalog();
+  const [creating, setCreating] = React.useState<ReportTrigger | null>(null);
+  const scheduledAvailable = catalog.data?.scheduledAvailable ?? false;
+  const periods = catalog.data?.periods ?? [1, 7, 30, 90];
+
+  return (
+    <TooltipProvider delayDuration={200}>
+      <div className="space-y-6">
+        <PageHeader
+          title={t("rules.panelTitle")}
+          description={t("rules.panelDescription")}
+          actions={
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" onClick={() => setCreating("event")}>
+                <BellRing aria-hidden="true" />
+                {t("page.newAlert")}
+              </Button>
+              {scheduledAvailable ? (
+                <Button onClick={() => setCreating("schedule")}>
+                  <Plus aria-hidden="true" />
+                  {t("page.newReport")}
+                </Button>
+              ) : catalog.data ? (
+                <StatusBadge tone="muted" icon={Lock} className="self-center">
+                  {t("page.reportLocked")}
+                </StatusBadge>
+              ) : null}
+            </div>
+          }
+        />
+        <RuleTables periods={periods} />
+        {creating ? (
+          <RuleFormDialog
+            open
+            trigger={creating}
+            periods={periods}
+            onOpenChange={(open) => {
+              if (!open) setCreating(null);
+            }}
+          />
+        ) : null}
+      </div>
+    </TooltipProvider>
   );
 }
 
@@ -267,10 +291,10 @@ function RuleCard({
         {rules.length === 0 ? (
           <EmptyState icon={icon} title={empty} />
         ) : (
-          <Table>
+          <Table className="min-w-[44rem]" scrollLabel={title}>
             <TableHeader>
               <TableRow>
-                <TableHead>{t("rules.columns.rule")}</TableHead>
+                <TableHead pin={PIN_FIRST}>{t("rules.columns.rule")}</TableHead>
                 <TableHead>{t("rules.columns.trigger")}</TableHead>
                 <TableHead>{t("rules.columns.channels")}</TableHead>
                 <TableHead>{t("rules.columns.lastDelivery")}</TableHead>
@@ -347,7 +371,7 @@ function RuleRow({
 
   return (
     <TableRow>
-      <TableCell className="max-w-64">
+      <TableCell pin={PIN_FIRST} className="max-w-64">
         <span className="block truncate font-medium" title={rule.name}>
           {rule.name}
         </span>
@@ -461,10 +485,10 @@ function DeliveryLog() {
         {rows.length === 0 ? (
           <EmptyState icon={Send} title={t("deliveries.empty")} />
         ) : (
-          <Table>
+          <Table className="min-w-[48rem]" scrollLabel={t("deliveries.title")}>
             <TableHeader>
               <TableRow>
-                <TableHead>{t("deliveries.columns.time")}</TableHead>
+                <TableHead pin={PIN_FIRST}>{t("deliveries.columns.time")}</TableHead>
                 <TableHead>{t("deliveries.columns.rule")}</TableHead>
                 <TableHead>{t("deliveries.columns.what")}</TableHead>
                 <TableHead>{t("deliveries.columns.channel")}</TableHead>
@@ -474,7 +498,7 @@ function DeliveryLog() {
             <TableBody>
               {rows.map((row) => (
                 <TableRow key={row.id}>
-                  <TableCell className="whitespace-nowrap">
+                  <TableCell pin={PIN_FIRST} className="whitespace-nowrap">
                     <RelativeTime value={row.createdAt} />
                   </TableCell>
                   <TableCell className="max-w-48 truncate">{row.ruleName}</TableCell>

@@ -63,8 +63,12 @@ export function scopeKeyOf(access: AuditAccess): string | null {
   return access.kind === "tenant" ? `tenant:${access.tenantId}` : null;
 }
 
-/** The URL state and a setter that writes it back. */
-export function useAuditSearch() {
+/**
+ * The URL state and a setter that writes it back. `path` is the address the
+ * log lives at: the audit page itself, or the audit section of a tenant's page,
+ * where the filters are kept in the same way.
+ */
+export function useAuditSearch(path: string = AUDIT_PATH) {
   const raw = useSearch({ strict: false }) as Record<string, unknown>;
   const search = React.useMemo(() => parseAuditSearch(raw), [raw]);
   const navigate = useNavigate();
@@ -72,13 +76,13 @@ export function useAuditSearch() {
     (change: Partial<AuditSearch>) => {
       const typing = "actor" in change || "target" in change;
       void navigate({
-        to: AUDIT_PATH,
+        to: path as never,
         search: nextAuditSearch(search, change) as never,
         // Typing into a search box should not flood the history.
         replace: typing,
       });
     },
-    [navigate, search],
+    [navigate, path, search],
   );
   const clearFilters = React.useCallback(
     () => update(Object.fromEntries(FILTER_KEYS.map((key) => [key, undefined]))),

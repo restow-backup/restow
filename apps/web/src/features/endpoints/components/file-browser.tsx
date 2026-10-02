@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  PIN_FIRST,
   Table,
   TableBody,
   TableCell,
@@ -124,7 +125,7 @@ export function EntryTable({
   const all = allState(selection, entries);
   const insideSelectedFolder = coveredByFolder(selection, path);
   return (
-    <Table>
+    <Table scrollLabel={t("browser.title")}>
       <TableHeader>
         <TableRow>
           <TableHead className="w-10 pl-4">
@@ -135,7 +136,8 @@ export function EntryTable({
               aria-label={hasMore ? t("browser.selectAllLoaded") : t("browser.selectAll")}
             />
           </TableHead>
-          <TableHead>{t("browser.columns.name")}</TableHead>
+          {/* Pinned where it stands: the box in front scrolls away under it. */}
+          <TableHead pin={PIN_FIRST}>{t("browser.columns.name")}</TableHead>
           <TableHead className="text-right whitespace-nowrap">
             {t("browser.columns.size")}
           </TableHead>
@@ -169,7 +171,7 @@ export function EntryTable({
                     }
                   />
                 </TableCell>
-                <TableCell className="max-w-0 min-w-40">
+                <TableCell pin={PIN_FIRST} className="max-w-0 min-w-40">
                   <div className="flex min-w-0 items-start gap-2">
                     <EntryIcon type={entry.type} className="mt-0.5" />
                     <div className="min-w-0">

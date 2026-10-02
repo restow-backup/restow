@@ -1,4 +1,14 @@
-import type { ColumnDef, PaginationState } from "@tanstack/react-table";
+import type { CellContext, ColumnDef, PaginationState } from "@tanstack/react-table";
+
+/**
+ * What a column renders when its definition has no `cell`: the value as text.
+ * It is TanStack's own default, set again as `defaultColumn.cell` so the kit
+ * can tell a plain-text column (whose text is its tooltip when truncated)
+ * from one with its own cell.
+ */
+export function plainCell<TData>(props: CellContext<TData, unknown>): string | null {
+  return props.renderValue()?.toString?.() ?? null;
+}
 
 /**
  * TanStack options the kit sets on every table. `autoResetPageIndex` is off
@@ -6,11 +16,17 @@ import type { ColumnDef, PaginationState } from "@tanstack/react-table";
  * whenever `data` changes, so a refetch on window focus would throw the user
  * off page 3. The kit returns to the first page itself, and only when the
  * order or a filter changes.
+ *
+ * `defaultColumn` takes TanStack's 150 px size and its bounds out of the
+ * resolved column definitions, so `columnDef.size`, `minSize` and `maxSize`
+ * are set exactly when a page declared them (`getSize()` still falls back to
+ * the 150 px for pinned offsets).
  */
 export const TABLE_DEFAULTS = {
   autoResetPageIndex: false,
   enableSortingRemoval: false,
   enableMultiSort: false,
+  defaultColumn: { size: undefined, minSize: undefined, maxSize: undefined, cell: plainCell },
 } as const;
 
 /** What the table body shows. */

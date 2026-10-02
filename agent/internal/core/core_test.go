@@ -241,6 +241,103 @@ func TestBandwidthLimitPassedToRestic(t *testing.T) {
 	}
 }
 
+func TestBandwidthLimitIsReadWhenABackupStarts(t *testing.T) {
+	// The server works out the active time window when the agent asks for its
+	// configuration, and it does not change the configuration version at a
+	// window boundary. A backup therefore has to read the configuration again
+	// when it starts, not use the copy it holds.
+	h := newHarness(t)
+	night := int64(0)
+	day := int64(2000) // 2 Mbit/s = 244.14 KiB/s -> 245
+	h.srv.Config.BandwidthKbps = &day
+	h.srv.QueueTask(task("t-1", api.TaskBackupNow, nil))
+	h.start()
+	h.waitRun(1)
+	args, _ := os.ReadFile(filepath.Join(h.dir, "backup-args.txt"))
+	if !strings.Contains(string(args), "--limit-upload\n245") {
+		t.Fatalf("first run:\n%s", args)
+	}
+
+	// The window ends: same configVersion, no limit any more.
+	h.srv.Lock()
+	h.srv.Config.BandwidthKbps = &night
+	version := h.srv.Config.ConfigVersion
+	h.srv.Unlock()
+	h.srv.QueueTask(task("t-2", api.TaskBackupNow, nil))
+	h.waitRun(2)
+	args, _ = os.ReadFile(filepath.Join(h.dir, "backup-args.txt"))
+	if strings.Contains(string(args), "--limit-upload") {
+		t.Fatalf("second run still limited:\n%s", args)
+	}
+
+	// And a limit again, still without a new version.
+	h.srv.Lock()
+	h.srv.Config.BandwidthKbps = &day
+	if h.srv.Config.ConfigVersion != version {
+		t.Fatalf("the test must not change the configuration version")
+	}
+	h.srv.Unlock()
+	h.srv.QueueTask(task("t-3", api.TaskBackupNow, nil))
+	h.waitRun(3)
+	args, _ = os.ReadFile(filepath.Join(h.dir, "backup-args.txt"))
+	if !strings.Contains(string(args), "--limit-upload\n245") {
+		t.Fatalf("third run:\n%s", args)
+	}
+}
+
+func TestSizeLimitPassedToRestic(t *testing.T) {
+	h := newHarness(t)
+	h.srv.Config.ExcludeLargerThanBytes = 5 << 30 // 5 GiB
+	h.srv.QueueTask(task("t-1", api.TaskBackupNow, nil))
+	h.start()
+	fin := h.waitRun(1).Finish
+	args, _ := os.ReadFile(filepath.Join(h.dir, "backup-args.txt"))
+	if !strings.Contains(string(args), "--exclude-larger-than\n5368709120") {
+		t.Fatalf("args:\n%s", args)
+	}
+	// The log says that files are being skipped on purpose.
+	if !strings.Contains(fin.LogTail, "Files larger than 5.0 GiB are not backed up") {
+		t.Fatalf("log:\n%s", fin.LogTail)
+	}
+}
+
+func TestNoSizeLimitWhenTheConfigurationHasNone(t *testing.T) {
+	// An absent field and an explicit 0 both mean "no limit"; restic would read 0 as "skip every file".
+	for _, limit := range []int64{0, -1} {
+		h := newHarness(t)
+		h.srv.Config.ExcludeLargerThanBytes = limit
+		h.srv.QueueTask(task("t-1", api.TaskBackupNow, nil))
+		h.start()
+		fin := h.waitRun(1).Finish
+		args, _ := os.ReadFile(filepath.Join(h.dir, "backup-args.txt"))
+		if strings.Contains(string(args), "--exclude-larger-than") {
+			t.Fatalf("limit %d reached restic:\n%s", limit, args)
+		}
+		if strings.Contains(fin.LogTail, "Files larger than") {
+			t.Fatalf("log mentions a limit that is not set:\n%s", fin.LogTail)
+		}
+		h.stop()
+	}
+}
+
+func TestProgressIsReportedEveryFiveSecondsByDefault(t *testing.T) {
+	var o Options
+	o.defaults()
+	if o.ProgressInterval != 5*time.Second {
+		t.Fatalf("default progress interval %s, want 5s", o.ProgressInterval)
+	}
+	// The reporter has the same fallback for a caller that passes none.
+	if p := newProgressReporter(nil, "1", 0, nil); p.interval != 5*time.Second {
+		t.Fatalf("reporter interval %s, want 5s", p.interval)
+	}
+	// An explicit interval wins (the tests of the engine use a few milliseconds).
+	o = Options{ProgressInterval: 20 * time.Millisecond}
+	o.defaults()
+	if o.ProgressInterval != 20*time.Millisecond {
+		t.Fatalf("explicit interval overridden: %s", o.ProgressInterval)
+	}
+}
+
 func TestScheduledIntervalBackupStartsImmediatelyAndDoesNotRepeat(t *testing.T) {
 	h := newHarness(t)
 	h.noHistory = true

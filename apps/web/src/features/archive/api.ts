@@ -87,6 +87,20 @@ export function verifyArchiveChain(): Promise<ChainVerification> {
   return apiFetch<ChainVerification>("/archive/chain/verify");
 }
 
+/** The retention that applies to the tenant's archive (GET /archive/retention). */
+export interface ArchiveRetention {
+  /** `from_capture` counts from the day of capture, `end_of_year` to the end of the year of receipt. */
+  mode: "from_capture" | "end_of_year";
+  /** Years to keep; null keeps without end. */
+  years: number | null;
+  /** A policy of the tenant's own, or the default every tenant starts with. */
+  source: "default" | "tenant";
+}
+
+export function fetchArchiveRetention(): Promise<ArchiveRetention> {
+  return apiFetch<ArchiveRetention>("/archive/retention");
+}
+
 export const archiveKeys = {
   all: (tenantId: string | null) => ["tenant", tenantId, "archive"] as const,
   search: (tenantId: string | null, params: ArchiveSearchParams) =>
@@ -94,4 +108,5 @@ export const archiveKeys = {
   item: (tenantId: string | null, id: string) =>
     ["tenant", tenantId, "archive", "item", id] as const,
   chain: (tenantId: string | null) => ["tenant", tenantId, "archive", "chain"] as const,
+  retention: (tenantId: string | null) => ["tenant", tenantId, "archive", "retention"] as const,
 };

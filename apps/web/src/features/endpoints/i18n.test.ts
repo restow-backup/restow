@@ -77,6 +77,7 @@ const VALUES = {
   scripts: "db-dump, fsfreeze",
   tokenFile: "/root/restow-enrollment.token",
   fingerprint: "0123456789abcdef",
+  job: "Linux servers, daily",
 };
 
 describe("endpoints translations", () => {

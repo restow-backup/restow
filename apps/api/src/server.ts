@@ -61,6 +61,75 @@ try {
 await import("./ee.js");
 const { app } = await import("./app.js");
 
+// An installation updated from a release that knew no own organisation: when it can
+// have only one tenant and has exactly that one, the tenant is marked as the operator's
+// own organisation, once, before the first request is served (features/tenants/internal.ts).
+// A failure never keeps the api from starting: the dashboard offers the same choice.
+try {
+  const { adoptSoleTenantAsInternal } = await import("./features/tenants/internal.js");
+  const { db: adoptDb, providerDb: adoptProviderDb } = await import("./db.js");
+  const adopted = await adoptSoleTenantAsInternal(adoptDb, adoptProviderDb);
+  if (adopted) {
+    console.log(
+      JSON.stringify({
+        level: "info",
+        component: "tenants",
+        message: "the installation's only tenant was marked as its own organisation",
+        tenantId: adopted.id,
+      }),
+    );
+  }
+} catch (error) {
+  console.warn(
+    JSON.stringify({
+      level: "warn",
+      component: "tenants",
+      message: "the check for the installation's own organisation failed",
+      reason: error instanceof Error ? error.name : "unknown error",
+    }),
+  );
+}
+
+// An installation updated from a release before backup jobs: its schedules and machine
+// configurations become jobs, once per tenant, nothing deleted (features/backup-jobs/migration.ts).
+// A failure never keeps the api from starting: the old schedules keep running and the step is
+// tried again at the next start.
+try {
+  const { migrateToBackupJobs } = await import("./features/backup-jobs/migration.js");
+  const { providerDb: jobsProviderDb } = await import("./db.js");
+  const summary = await migrateToBackupJobs(jobsProviderDb, {
+    onError: (tenantId, error) =>
+      console.warn(
+        JSON.stringify({
+          level: "warn",
+          component: "backup-jobs",
+          message: "a tenant could not be moved to backup jobs and keeps its schedules",
+          tenantId,
+          reason: error instanceof Error ? error.name : "unknown error",
+        }),
+      ),
+  });
+  if (summary) {
+    console.log(
+      JSON.stringify({
+        level: "info",
+        component: "backup-jobs",
+        message: "schedules and machine configurations were turned into backup jobs",
+        ...summary,
+      }),
+    );
+  }
+} catch (error) {
+  console.warn(
+    JSON.stringify({
+      level: "warn",
+      component: "backup-jobs",
+      message: "the move to backup jobs failed",
+      reason: error instanceof Error ? error.name : "unknown error",
+    }),
+  );
+}
+
 const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(
     `${config.productName} API (${config.nodeEnv}) listening on http://localhost:${info.port}`,

@@ -337,12 +337,19 @@ export function integrationErrorKey(error: unknown): string {
 export type IntegrationsTab = "api-keys" | "webhooks";
 
 export interface IntegrationsSearch {
-  /** Omitted for the default tab (API keys). */
-  tab?: "webhooks";
+  /**
+   * Omitted for the default tab (API keys). `provider-keys` is the address the
+   * provider keys' old place answers to: the keys moved to Installation, Provider
+   * API, and the route leads there (index.ts); the page itself never shows it.
+   */
+  tab?: "webhooks" | "provider-keys";
 }
 
 export function parseIntegrationsSearch(search: Record<string, unknown>): IntegrationsSearch {
-  return search.tab === "webhooks" ? { tab: "webhooks" } : {};
+  if (search.tab === "webhooks") {
+    return { tab: "webhooks" };
+  }
+  return search.tab === "provider-keys" ? { tab: "provider-keys" } : {};
 }
 
 export const DELIVERY_FILTERS = ["all", "pending", "delivered", "failed"] as const;

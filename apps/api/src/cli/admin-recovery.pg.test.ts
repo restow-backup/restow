@@ -84,6 +84,7 @@ describe.skipIf(!testDatabaseAdminUrl)(
           body: JSON.stringify({
             disclaimer: { version: DISCLAIMER_VERSION, accepted: true },
             operatingMode: "local",
+            providerName: "Recovery Test Operator",
             firstAdmin: { name: "Owner", email: OWNER_EMAIL, password: OWNER_PASSWORD },
             mail: {
               transport: "smtp",

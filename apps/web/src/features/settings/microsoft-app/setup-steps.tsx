@@ -192,7 +192,7 @@ export function CredentialsStep({ variant }: { variant: SetupVariant }) {
       description={t("microsoftApp.steps.credentials.description")}
       variant={variant}
     >
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <section className="space-y-3 rounded-lg border border-border p-4">
           <div className="flex flex-wrap items-center gap-2">
             <h4 className="text-sm font-semibold">

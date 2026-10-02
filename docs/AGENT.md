@@ -61,7 +61,8 @@ Endpunkt (Linux/macOS)                       Restow-Instanz
   (`apps/scheduler/src/endpoints.ts`).
 - **Oberfläche** (`apps/web/src/features/endpoints`): Server & Endpunkte › Inventar (eine Liste
   aller Rechner mit den Filtern Alle, Server, Clients), Assistent, Detailseite
-  (`/inventory/<id>`), Dateibrowser, Server & Endpunkte › Datei-Restore, Einstellungen.
+  (`/inventory/<id>`), Dateibrowser, Server & Endpunkte › Datei-Restore, Einstellungen. Anmeldung, offene Token und die Pause der
+  Agent-Updates liegen außerdem auf der Mandantenseite (`/tenants/<id>/agents`).
 
 ## Enrollment
 
@@ -144,10 +145,10 @@ Alle Antworten sind JSON, Fehler `application/problem+json` wie im Rest der API.
 | Aufruf | Zweck |
 | --- | --- |
 | `POST /enroll` | Token gegen Zugangsdaten tauschen (siehe oben). |
-| `GET /config` | `{ profile, schedule, paths, excludes, hooks, bandwidthKbps, onlyOnAcPower, useVss, configVersion }` |
+| `GET /config` | `{ profile, schedule, paths, excludes, hooks, bandwidthKbps, onlyOnAcPower, useVss, configVersion }`, bei einem Rechner in einem Job mit Größenlimit zusätzlich `excludeLargerThanBytes` (siehe "Jobs"; ein Agent, der das Feld nicht kennt, ignoriert es). `bandwidthKbps` ist das Limit, das **im Moment der Anfrage** gilt (aktives Zeitfenster des Jobs, sonst der Standard, `null` = unbegrenzt); die Zeitfenster selbst bekommt der Agent nie. `Cache-Control: no-store`. |
 | `POST /heartbeat` | `{ agentVersion, osVersion, state: idle/running, nextRunAt, configVersion, hooks, hookScripts? }` ergibt `{ tasks }`. Alle 5 Minuten (Jitter +-60 s) und sofort beim Start. `hooks` ist die Hook-Regel des Rechners (`off`, `scripts`, `any`), `hookScripts` die Skripte in `/etc/restow-agent/hooks.d` (Regel `scripts`, höchstens 50). |
 | `POST /runs` | `{ kind: backup/restore/verify_sample, taskId?, startedAt }` ergibt `{ runId }`. |
-| `POST /runs/:id/progress` | `{ filesDone, bytesDone, totalFiles?, totalBytes?, currentPath? }`, höchstens alle 10 s. |
+| `POST /runs/:id/progress` | `{ filesDone, bytesDone, totalFiles?, totalBytes?, currentPath? }`, alle 5 s (Agent ab 0.2.0; 0.1.x: alle 10 s). Das Limit der Agent-API (600 Aufrufe je Endpunkt und 10 Minuten, gleitendes Fenster) lässt das zu: Mit Heartbeat, Konfiguration und Start und Ende des Laufs sind es etwa 125 Aufrufe in 10 Minuten. Der Verlauf (`run_samples`) behält Punkte, die mindestens 1,5 s auseinanderliegen. |
 | `POST /runs/:id/finish` | `{ status: succeeded/partial/failed, finishedAt, snapshotId?, stats?, sample?, errors, logTail, restoreTest? }`. `restoreTest` nur bei `verify_sample`: `{ files: [{ path, sha256? \| missing: true \| error }], restic?: { exitCode, fatal, errors: [{ item, message }] } }` (siehe "Restore-Test"). Wiederholung für einen beendeten Lauf antwortet gleich und ändert nichts. |
 | `GET /update` | `{ version, url, sha256 }` oder `null`: neuere **signierte** Agent-Version auf dieser Instanz; `null` auch, solange der Mandant Agent-Updates pausiert hat. |
 
@@ -161,6 +162,83 @@ Standardkonfiguration (`packages/core/src/endpoints/config.ts`):
 - `onlyOnAcPower: false` für beide Profile: Eine Sicherung, die nie läuft, ist schlimmer als
   eine im Akkubetrieb. Einstellbar.
 - `bandwidthKbps` ist in Kilobit pro Sekunde (kbit/s) angegeben; `null` heißt unbegrenzt.
+
+### Jobs: wer die Konfiguration schreibt
+
+Seit 0.2.0 gehört die Konfiguration eines Rechners einem **Job** (`backup_jobs`, Art `endpoint`;
+`docs/ARCHITECTURE.md`, "Jobs"), sobald der Rechner in einem steht. Der Agent merkt davon nichts: Er
+liest weiter `GET /config` und kennt nur `config`.
+
+- **Was der Job entscheidet:** Zeitplan (`schedule`), Ordner (`paths`), Ausschlüsse (`excludes`),
+  Hooks, Bandbreite (`bandwidthKbps`), ein Größenlimit (`excludeLargerThanGib`, als
+  `excludeLargerThanBytes` in `config`) und die Aufbewahrung des Repositorys
+  (`settings.retention` des Rechners; nur der Server liest sie). Was der Job nicht entscheidet,
+  bleibt am Rechner: Profil, `onlyOnAcPower`, `useVss`, Anzeigename, Speicherbudget und
+  Stille-Schwellen.
+- **Je Rechner überschreibbar:** Ein Mitglied des Jobs (`backup_job_members`) trägt `overrides` mit
+  genau den Feldern, die es anders macht (ein gesetztes Feld ersetzt den Wert des Jobs). Die
+  Wirk-Konfiguration ist `buildEndpointConfig(config des Rechners, Zeitplan, Einstellungen des Jobs
+  mit Override)` (`packages/core/src/backup-jobs/endpoint-config.ts`).
+- **Geschrieben wird an einer Stelle:** `syncEndpointConfigs`
+  (`apps/api/src/features/backup-jobs/endpoint-sync.ts`), bei Anlegen, Ändern und Umfang eines Jobs.
+  Sie sperrt die Zeile des Rechners, schreibt `config` nur, wenn sie sich ändert, erhöht dann
+  `config_version`, legt wie bei einer Änderung von Hand eine `update_config`-Aufgabe an und
+  auditiert `endpoint.config.changed` mit `via.job` (Hook-Texte nie, nur Fingerabdrücke). Dieselbe
+  Funktion läuft in der Migration älterer Installationen und beweist dort, dass der Job die
+  vorhandene Konfiguration exakt wiedergibt (nichts zu ändern, keine neue Version).
+- **Hooks im Job** laufen durch dieselben Schranken wie am Rechner: die Hook-Regel des Rechners
+  (`endpoint-hooks-not-allowed`, `endpoint-hook-not-a-script`, die Meldung nennt den Rechner) und
+  die frische Anmeldung (`recent-sign-in-required`), bevor irgendetwas geschrieben wird.
+- **Von Hand ändern geht dann nicht mehr:** `PATCH /api/v1/endpoints/:id` mit einer `config`, die ein
+  vom Job entschiedenes Feld ändert (oder einer `settings.retention`, wenn der Job sie setzt), antwortet
+  409 `endpoint-config-managed-by-job` mit dem Job. Anzeigename, `onlyOnAcPower` und Speicherbudget
+  bleiben änderbar. Wer einen Rechner aus dem Job nimmt oder den Job löscht, behält die zuletzt
+  geschriebene Konfiguration und kann sie wieder von Hand ändern.
+- **Größenlimit.** `excludeLargerThanBytes` wird nur geschrieben, wenn ein Job eines setzt (sonst bleibt
+  `config` Byte für Byte, wie sie war). Der Agent ab 0.2.0 reicht es als `--exclude-larger-than <Bytes>`
+  an restic weiter (reine Zahl, restic 0.19.1 liest sie ohne Einheit) und schreibt ins Lauf-Log, dass
+  Dateien darüber nicht gesichert werden. Fehlt das Feld oder ist es 0, gibt es kein Limit; eine 0 reicht
+  der Agent nie weiter, denn restic liest sie als "jede Datei mit Inhalt auslassen". Ein Agent vor 0.2.0
+  ignoriert das Feld und sichert diese Dateien; die Oberfläche sagt am Feld, dass Agent 0.2.0 nötig ist.
+  Agent-Versionen sind Restow-Versionen: Ein Rechner hat das Limit, sobald er sich auf 0.2.0 aktualisiert
+  hat (signiertes Release, Selbstaktualisierung, `autoUpdatePaused` des Mandanten beachten).
+- **Bandbreite mit Zeitfenstern.** `settings.bandwidthKbps` des Jobs ist der Standard,
+  `settings.bandwidthWindows` eine Liste von Fenstern `{ days, from, to, kbps }`: `days` sind die Wochentage,
+  an denen das Fenster **beginnt** (1 = Montag ... 7 = Sonntag), `from` (eingeschlossen) und `to` (nicht
+  eingeschlossen) Ortszeiten `HH:MM`, `kbps` das Limit in kbit/s, 0 = unbegrenzt. Ein `to`, das nicht nach
+  `from` liegt, endet am nächsten Tag (22:00 bis 06:00 von Freitag reicht bis Samstag 06:00); gleiche Zeiten
+  ergeben 24 Stunden (Ganztags: 00:00 bis 00:00). Fenster dürfen sich nicht überschneiden (422
+  `bandwidth_window_overlap` mit dem Pfad des späteren Fensters), aneinanderstoßende sind erlaubt; höchstens
+  24 Fenster. Gelesen werden sie in der Zeitzone des Zeitplans, den der Rechner hat (der des Jobs, bei
+  einem Zeitplan als Override dessen Zone), hilfsweise in der Zeitzone des Mandanten, sonst Europe/Berlin
+  (`bandwidthTimeZone` im Kern). Sommerzeit gilt auf der Wanduhr: Ein Fenster über die Nacht der Umstellung
+  dauert eine Stunde kürzer oder länger, ein Fenster in der ausgefallenen Stunde gilt an dem Tag nicht, eines
+  in der doppelten Stunde beide Male.
+  - **Wer wertet aus:** der Server, bei `GET /agent/v1/config` (`configResponse` in `agent-service.ts`). Die
+    Fenster stehen in `endpoints.config.bandwidthWindows`, geschrieben von `syncEndpointConfigs` und nur,
+    wenn sie sich ändern (normalisiert: Tage sortiert, Fenster nach Woche geordnet, so dass ein gleichbedeutender
+    Job nichts neu schreibt). Der Anfang oder das Ende eines Fensters schreibt **nichts** und erhöht
+    `config_version` nie; es entsteht auch keine `update_config`-Aufgabe. Die Antwort trägt das Limit des
+    Moments als `bandwidthKbps` und lässt `bandwidthWindows` weg.
+  - **Wann der Agent es sieht:** Jede Sicherung (Zeitplan, `backup_now`, `backup-now` auf der Konsole) holt
+    die Konfiguration zu Beginn neu (`runBackup`, `fetchConfig`) und nutzt deren `bandwidthKbps`. Ein Lauf
+    behält das Limit, mit dem er begann (restic bekommt `--limit-upload` einmal); ein Fenster, das während des
+    Laufs beginnt oder endet, ändert daran nichts. Ist der Server beim Start nicht erreichbar, läuft kein
+    Backup (das Repository liegt hinter ihm).
+  - **Override je Rechner:** Limit und Fenster sind eine Einstellung (Gruppe "Bandbreite" im Override). Hat ein
+    Mitglied ein eigenes `bandwidthKbps` (auch eines aus der Zeit vor den Fenstern), gelten die Fenster des
+    Jobs für es nicht; `bandwidthWindows` allein behält den Standard des Jobs; `[]` heißt "keine Fenster".
+  - **Rechner ohne Job:** Ein Rechner, der den Job verlassen hat, behält die zuletzt geschriebenen Fenster.
+    `PATCH /api/v1/endpoints/:id` nimmt `config.bandwidthWindows` an (`null` oder `[]` entfernt sie; 422
+    `endpoint-invalid-bandwidth-windows` mit dem Pfad); in einem Job antwortet es wie bei jedem Feld des Jobs
+    mit 409 `endpoint-config-managed-by-job`.
+- **Ein Job lässt sich bei Rechnern nicht pausieren** (`enabled=false` antwortet 422 `pause_not_supported`):
+  Der Agent entscheidet, wann er sichert. Rechner aus dem Job nehmen beendet die Verwaltung, nicht die
+  Sicherung.
+- **Nicht der Scheduler plant Rechner-Jobs.** Der Agent läuft nach seinem Zeitplan; der Scheduler plant
+  weiter nur Aufbewahrung, Prüfung und Restore-Test aus dem Zustand der Endpunktzeilen
+  (`apps/scheduler/src/endpoints.ts`). "Jetzt ausführen" eines Jobs (`POST /api/v1/backup-jobs/:id/run`)
+  legt je Rechner eine `backup_now`-Aufgabe an (eine wartende genügt).
 
 ### Aufgaben (`tasks`)
 
@@ -673,6 +751,8 @@ hier.
 | `endpoint-hooks-not-allowed` | 409 | Hooks wurden für einen Rechner gesetzt, der Hooks des Servers nicht zulässt (Regel `off`) oder keine Regel meldet (Agent einer Vorabversion). Leeren geht immer. |
 | `endpoint-hook-not-a-script` | 422 | Der Rechner führt nur Skripte aus `/etc/restow-agent/hooks.d` aus (Regel `scripts`), und ein Hook ist kein Skriptname. |
 | `recent-sign-in-required` | 403 | Hook setzen oder ändern bzw. Repository-Passwort anzeigen, aber die Anmeldung der Sitzung ist älter als zehn Minuten (`apps/api/src/lib/recent-sign-in.ts`, Feld `maxAgeSeconds`). Die Oberfläche fragt "Bestätigen Sie, dass Sie es sind" und wiederholt die Aktion. |
+| `endpoint-config-managed-by-job` | 409 | Der Rechner gehört zu einem Job, der Zeitplan, Ordner, Ausschlüsse, Hooks und Bandbreite (und die Aufbewahrung, wenn der Job sie setzt) entscheidet; den Job ändern oder den Rechner aus ihm nehmen. Die Antwort nennt den Job (`job.id`, `job.name`). |
+| `endpoint-invalid-bandwidth-windows` | 422 | Die Zeitfenster der Bandbreite eines Rechners ohne Job lassen sich nicht speichern (kein Tag, keine Uhrzeit `HH:MM`, Limit außerhalb 0 bis 10000000, Fenster überschneiden sich, mehr als 24). `issues[0].path` nennt Fenster und Feld, `code` ist `bandwidth_window_days_required`, `_days_invalid`, `_time_invalid`, `_kbps_invalid`, `bandwidth_windows_too_many` oder `bandwidth_window_overlap`. Im Job antwortet dieselbe Prüfung als `invalid-backup-job` (422) mit denselben Codes. |
 | `unsupported-os` | 422 | Betriebssystem nicht unterstützt (Windows ist geplant, nicht ausgeliefert). |
 | `enrollment-token-invalid` | 401 | Das Enrollment-Token ist unbekannt, abgelaufen, widerrufen oder verwendet. |
 | `agent-unauthorized` | 401 | Falsche oder fehlende Zugangsdaten des Agenten. |
@@ -763,10 +843,14 @@ Linux; der Agent prüft sie mit der Go-Standardbibliothek.
   eine kompromittierte Instanz.
 
 Ein Mandant kann automatische Agent-Updates pausieren (`GET/PUT /api/v1/endpoints/agent-updates`,
-Oberfläche: Server & Endpunkte › Inventar; Audit `endpoint.updates.paused`/`resumed`). Ohne eigene Tabelle
-liegt der Schalter in `endpoints.settings.autoUpdatePaused` jedes Endpunkts des Mandanten; ein
-neu angemeldeter Endpunkt übernimmt ihn, sobald einer des Mandanten pausiert ist. Eine Spalte am
-Mandanten wäre sauberer und kann mit der nächsten Migration folgen.
+Oberfläche: Mandantenseite › Agenten; Audit `endpoint.updates.paused`/`resumed`). Der Schalter ist eine
+Einstellung des Mandanten (`tenants.agent_updates_paused`, Migration 0021): Er lässt sich setzen, bevor
+der erste Rechner existiert, und gilt für später angemeldete Rechner mit. Bis 0.1.x lag er in
+`endpoints.settings.autoUpdatePaused` jedes Endpunkts; die Migration übernimmt ihn für Mandanten, deren
+Rechner alle pausiert waren. Ein Rechner kann weiterhin eine eigene Pause tragen (Überschreibung): Der
+Agent bekommt kein Update, solange die Mandanten-Einstellung oder die eigene Pause gilt. Die Überschreibungen
+zeigt die Oberfläche einzeln (`DELETE /api/v1/endpoints/agent-updates/machines/:id` hebt eine auf,
+`PUT` mit `resumeMachines` alle) und ein neu angemeldeter Rechner übernimmt keine mehr.
 
 ## Datenmodell
 
@@ -783,6 +867,9 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
   `repository_bytes` und `repository_measured_at` (Größe im Speicher), `quota_refused_at`,
   `quota_alert_level` und `quota_alerted_at` (Speicherbudget), `maintenance_locked_count`,
   `maintenance_locked_since` und `locked_alerted_at` (gesperrte Wartung); `settings.quotaGib`.
+- Jobs (Migration 0023, `docs/ARCHITECTURE.md`, "Jobs"): `backup_jobs` und `backup_job_members` sind
+  Mandantentabellen. Ein Rechner ist in höchstens einem Job (`backup_job_members.endpoint_id` ist
+  eindeutig); die Wirk-Konfiguration steht weiter in `endpoints.config`, nur ihr Schreiber hat gewechselt.
 - `endpoint_enrollment_tokens`: `token_hash` (eindeutig), Profil, Bezeichnung, `expires_at`,
   `used_at`, `used_by_endpoint_id`, `revoked_at`, `created_by`.
 - `endpoint_runs`: Art, Status, Zeiten, `snapshot_id`, `stats`, `errors`, `log_tail`,
@@ -966,4 +1053,4 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
   Härtung, Selbstaktualisierung eines älteren Agenten mit Umzug nach `/opt/restow-agent`).
 - Postgres (`endpoints.pg.test.ts`): Hook-Regel aus Heartbeat und Enrollment, Ablehnung und
   Annahme von Hooks, verdeckte Hook-Texte, Pausieren der Agent-Updates je Mandant (auch für
-  später angemeldete Rechner), signierte Prüfsummen und Schlüssel in den Skripten.
+  später angemeldete Rechner; `agent-updates.pg.test.ts` ohne restic), signierte Prüfsummen und Schlüssel in den Skripten.

@@ -15,7 +15,6 @@ import { LastBackupWidget } from "./widgets/last-backup-widget.js";
 import { ReadinessWidget } from "./widgets/readiness-widget.js";
 import { RecentJobsWidget } from "./widgets/recent-jobs-widget.js";
 import { RetentionWidget } from "./widgets/retention-widget.js";
-import { SetupWidget } from "./widgets/setup-widget.js";
 import {
   MailboxUsageWidget,
   ProtectedObjectsWidget,
@@ -42,13 +41,22 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
     ...actual,
     Link: ({
       to,
+      search,
       className,
       children,
-    }: { to: string; className?: string; children: React.ReactNode }) => (
-      <a href={to} className={className}>
-        {children}
-      </a>
-    ),
+    }: {
+      to: string;
+      search?: Record<string, string>;
+      className?: string;
+      children: React.ReactNode;
+    }) => {
+      const query = new URLSearchParams(search ?? {}).toString();
+      return (
+        <a href={query ? `${to}?${query}` : to} className={className}>
+          {children}
+        </a>
+      );
+    },
   };
 });
 
@@ -251,29 +259,6 @@ const data: WidgetData = {
 // Widgets
 // ---------------------------------------------------------------------------
 
-describe("setup checklist", () => {
-  it("shows skeleton, error, open steps and the collapsed complete state", () => {
-    expectLoading(render(<SetupWidget view={loading} {...state} />));
-    expectFailed(render(<SetupWidget view={failed} {...state} />));
-
-    const open = render(<SetupWidget view={ready(data.setup)} {...state} />);
-    expectTranslated(open);
-    expect(open).toContain("5 of 7 steps done");
-    expect(open).toContain('href="/schedules"');
-    expect(open).toContain("No backup schedule is active.");
-    // The notification mail belongs to the provider: information, no link.
-    expect(open).toContain("Done by your provider");
-    expect(open).not.toContain('href="/settings"');
-
-    const complete = render(
-      <SetupWidget view={ready({ ...data.setup, complete: true, done: 7 })} {...state} />,
-    );
-    expect(complete).toContain('data-state="complete"');
-    expect(complete).toContain("Setup complete");
-    expect(complete).toContain("Show steps");
-  });
-});
-
 describe("recovery readiness", () => {
   it("flags unverified backups visibly and never in a success tone", () => {
     const html = render(<ReadinessWidget view={ready(data.readiness)} {...state} canAdminister />);
@@ -283,12 +268,46 @@ describe("recovery readiness", () => {
     expect(html).toContain('data-segment="unverified"');
     expect(html).toContain("1 object without a backup");
     expect(html).toContain("Not ready");
-    expect(html).toContain('href="/verify"');
+    // The alert's button leads to the unverified objects.
+    expect(html).toContain('href="/verify?state=unverified"');
     const flag = html.slice(
       html.indexOf('data-flag="unverified"') - 200,
       html.indexOf('data-flag="unverified"'),
     );
     expect(flag).not.toContain("success");
+  });
+
+  it("links every legend row that has objects to the table of exactly those objects", () => {
+    // 3 green, 0 yellow, 2 red, 2 unverified, 1 without a backup.
+    const html = render(
+      <ReadinessWidget view={ready({ ...data.readiness, red: 2 })} {...state} canAdminister />,
+    );
+    const row = (segment: string) => {
+      const start = html.indexOf(`data-segment="${segment}"`);
+      return html.slice(start, html.indexOf("</li>", start));
+    };
+    expect(row("green")).toContain('href="/verify?state=green"');
+    expect(row("red")).toContain('href="/verify?state=red"');
+    expect(row("unverified")).toContain('href="/verify?state=unverified"');
+    expect(row("noBackup")).toContain('href="/verify?state=no_backup"');
+    // A row with none is plain text: shown, with its 0, but not a link.
+    expect(row("yellow")).not.toContain("href=");
+    expect(row("yellow")).toContain(">0<");
+    // In the order of the readiness page's filter: ready, attention, cannot be restored ...
+    const order = ["green", "yellow", "red", "unverified", "noBackup"].map((key) =>
+      html.indexOf(`data-segment="${key}"`),
+    );
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect(order.every((position) => position > 0)).toBe(true);
+  });
+
+  it("gives a plain member the legend as text, with no link to a page they cannot open", () => {
+    const html = render(
+      <ReadinessWidget view={ready(data.readiness)} {...state} canAdminister={false} />,
+    );
+    expect(html).toContain('data-segment="red"');
+    expect(html).not.toContain('href="/verify');
+    expect(html).not.toContain("Every row opens the table");
   });
 
   it("has skeleton, error and empty states", () => {
@@ -767,6 +786,9 @@ describe("widget registry", () => {
     expect(html).not.toContain('data-widget="recentJobs"');
     expect(html).not.toContain('data-widget="mailboxUsage"');
     expect(html).toContain('data-widget="backupSuccess"');
+    // The setup checklist is the sidebar's Start entry, not a card here, and nothing says "complete".
+    expect(html).not.toContain('data-widget="setup"');
+    expect(html).not.toContain("Setup complete");
     // Three figures for a member: no gap where the mailbox tile would be.
     expect(html).toContain("xl:grid-cols-3");
   });
@@ -774,13 +796,13 @@ describe("widget registry", () => {
   it("shows one failed widget without taking the others down", () => {
     const html = render(
       <DashboardWidgets
-        widgets={{ setup: { state: "error" }, readiness: ok("readiness") }}
+        widgets={{ lastBackup: { state: "error" }, readiness: ok("readiness") }}
         loading={false}
         canAdminister
         {...context}
       />,
     );
-    expect(html).toMatch(/data-widget="setup" data-state="error"/);
+    expect(html).toMatch(/data-widget="lastBackup" data-state="error"/);
     expect(html).toMatch(/data-widget="readiness" data-state="ready"/);
   });
 
@@ -795,8 +817,8 @@ describe("widget registry", () => {
   });
 
   it("places every widget the server can return, once, in one page order", () => {
+    // The server still answers `setup` (the Start entry and the tenant page read it); the page places none.
     const all: (keyof WidgetData)[] = [
-      "setup",
       "lastBackup",
       "readiness",
       "protectedObjects",

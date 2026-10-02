@@ -1,6 +1,8 @@
+import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
+  check,
   index,
   integer,
   jsonb,
@@ -114,6 +116,10 @@ export const jobs = pgTable(
   (t) => [
     index("jobs_tenant_status_idx").on(t.tenantId, t.status),
     index("jobs_object_created_idx").on(t.protectedObjectId, t.createdAt),
+    // History lists a tenant's runs newest first (apps/api features/history).
+    index("jobs_tenant_created_idx").on(t.tenantId, t.createdAt, t.id),
+    // The runs a backup job queued itself ("Run now", the scheduler): History filters by job.
+    index("jobs_backup_job_idx").on(sql`(${t.payload}->>'backupJobId')`),
   ],
 );
 
@@ -131,7 +137,13 @@ export const jobProgress = pgTable(
     total: integer("total").notNull().default(0),
     done: integer("done").notNull().default(0),
     failed: integer("failed").notNull().default(0),
+    // What the engine stored as new data so far (after deduplication, before sealing).
     bytes: bigint("bytes", { mode: "number" }).notNull().default(0),
+    // What the engine read and handled so far (the "processed" curve of the run drawer); never
+    // below `bytes`. Rows written before 0.2.0 carry 0 and read as `bytes`.
+    bytesProcessed: bigint("bytes_processed", { mode: "number" }).notNull().default(0),
+    // What was written to the repository (compressed and sealed packs).
+    bytesTransferred: bigint("bytes_transferred", { mode: "number" }).notNull().default(0),
     etaSeconds: integer("eta_seconds"),
     ...timestamps(),
   },

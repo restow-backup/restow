@@ -46,6 +46,10 @@ export const eeProviderRouteRules: Readonly<Record<string, ProviderRouteRule>> =
   // Exchange Online rule has the new one: configuration work too.
   "GET /api/v1/archive/journal": configure(),
   "POST /api/v1/archive/journal/rotate": configure(),
+  // The receiver itself (port, TLS, host, limits, whether it listens) belongs to the
+  // installation, not to a tenant, and holds no address: every provider admin may read it,
+  // but not a member limited to some tenants (it concerns all of them).
+  "GET /api/v1/archive/journal/receiver": view(scope.provider),
 
   // The cross-tenant provider API, reachable with a session too.
   "GET /api/v1/provider/tenants": view(scope.provider),

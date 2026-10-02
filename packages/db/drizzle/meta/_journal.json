@@ -141,6 +141,41 @@
       "when": 1790840583805,
       "tag": "0019_endpoint_repository_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790932093929,
+      "tag": "0020_tenant_kind",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790952185798,
+      "tag": "0021_tenant_page_settings",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1790957860214,
+      "tag": "0022_setup_mail_not_needed",
+      "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790962068610,
+      "tag": "0023_backup_jobs",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1790970340426,
+      "tag": "0024_run_samples",
+      "breakpoints": true
     }
   ]
 }

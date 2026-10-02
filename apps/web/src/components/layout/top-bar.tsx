@@ -6,24 +6,26 @@ import { ShortcutHint, ariaShortcut } from "@/components/command-palette/shortcu
 import { NotificationBell } from "@/components/layout/notification-bell";
 import { ShellBreadcrumbs } from "@/components/layout/shell-breadcrumbs";
 import { UserMenu } from "@/components/layout/user-menu";
-import { TenantSwitcher } from "@/components/tenant-switcher";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { LiveIndicator } from "@/features/history/live/indicator";
 
 /**
- * Sticky top bar: sidebar toggle, breadcrumbs, the tenant switcher, the
- * search button that opens the command palette, the bell and the user menu.
+ * Sticky top bar: sidebar toggle, breadcrumbs (which start with the scope the
+ * page works in; the tenant switcher is in the sidebar), the search button
+ * that opens the command palette, the bell and the user menu.
  */
 export function TopBar() {
   return (
     <header className="sticky top-0 z-20 flex h-(--topbar-height) shrink-0 items-center gap-2 border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
       <SidebarToggle />
       <Separator orientation="vertical" className="mr-1 data-[orientation=vertical]:h-4" />
-      <ShellBreadcrumbs className="flex-1" />
+      {/* Clipped, so a long crumb gives way to the indicator beside it; the padding keeps focus rings whole. */}
+      <ShellBreadcrumbs className="-m-1 flex-1 overflow-hidden p-1" />
       <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
-        <TenantSwitcher className="max-w-[9rem] sm:max-w-[16rem]" />
+        <LiveIndicator />
         <SearchButton />
         <NotificationBell />
         <UserMenu />

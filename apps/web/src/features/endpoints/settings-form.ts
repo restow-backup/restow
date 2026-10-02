@@ -1,4 +1,12 @@
 import {
+  type WindowDraft,
+  checkWindowDrafts,
+  windowDraftsOf,
+  windowsKey,
+  windowsOfDrafts,
+} from "@/features/backup-jobs/bandwidth-windows";
+
+import {
   type EndpointDetail,
   type EndpointSchedule,
   HOOK_SCRIPT_NAME,
@@ -33,6 +41,8 @@ export interface SettingsDraft {
   postHook: string;
   /** Kilobits per second (the agent's unit); empty means unlimited. */
   bandwidthKbps: string;
+  /** The time windows of the limit, one row each, read in the zone of the schedule. */
+  bandwidthWindows: WindowDraft[];
   onlyOnAcPower: boolean;
   keepDaily: string;
   keepWeekly: string;
@@ -54,6 +64,7 @@ export type DraftField =
   | "preHook"
   | "postHook"
   | "bandwidthKbps"
+  | "bandwidthWindows"
   | "keepDaily"
   | "keepWeekly"
   | "keepMonthly"
@@ -73,7 +84,8 @@ export interface DraftProblem {
     | "required"
     | "integer"
     | "range"
-    | "notScriptName";
+    | "notScriptName"
+    | "windows";
   /** Values for the message: limits, the offending line. */
   values?: Record<string, string | number>;
 }
@@ -118,6 +130,7 @@ export function draftFromDetail(
     preHook: config.hooks.pre ?? "",
     postHook: config.hooks.post ?? "",
     bandwidthKbps: numberText(config.bandwidthKbps),
+    bandwidthWindows: windowDraftsOf(config.bandwidthWindows),
     onlyOnAcPower: config.onlyOnAcPower,
     keepDaily: String(settings.retention.keepDaily),
     keepWeekly: String(settings.retention.keepWeekly),
@@ -246,6 +259,10 @@ export function checkDraft(
   });
   if (bandwidth) {
     problems.bandwidthKbps = bandwidth;
+  }
+  // What is wrong in a row is said at the row (`checkWindowDrafts`); this only blocks the save.
+  if (checkWindowDrafts(draft.bandwidthWindows).invalid) {
+    problems.bandwidthWindows = { code: "windows" };
   }
 
   const retention: [DraftField, string, number][] = [
@@ -384,6 +401,12 @@ export function buildPatch(
   const bandwidth = draft.bandwidthKbps.trim() === "" ? null : wholeNumber(draft.bandwidthKbps);
   if (bandwidth !== config.bandwidthKbps) {
     changed.bandwidthKbps = bandwidth;
+  }
+
+  // Compared by meaning (order of the week, each day once); none at all is sent as null.
+  const windows = windowsOfDrafts(draft.bandwidthWindows);
+  if (windowsKey(windows) !== windowsKey(config.bandwidthWindows)) {
+    changed.bandwidthWindows = windows.length > 0 ? windows : null;
   }
 
   if (draft.onlyOnAcPower !== config.onlyOnAcPower) {

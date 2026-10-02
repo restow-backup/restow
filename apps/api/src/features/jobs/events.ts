@@ -31,7 +31,20 @@ export const RECONNECT_MS = 3000;
 /** The tenant-wide stream starts with jobs that ran or changed this recently. */
 export const LIVE_LOOKBACK_MS = 60_000;
 
-export type JobEventName = "jobs" | "job" | "end" | "error";
+/**
+ * `snapshot`, `run`, `definition`, `machine` and `gone` belong to the live channel
+ * (features/history/live.ts), which reuses this loop and these helpers.
+ */
+export type JobEventName =
+  | "jobs"
+  | "job"
+  | "end"
+  | "error"
+  | "snapshot"
+  | "run"
+  | "definition"
+  | "machine"
+  | "gone";
 
 /** One SSE message (the shape Hono's `writeSSE` takes). */
 export interface SseMessage {

@@ -6,7 +6,9 @@ import {
   demoReportRules,
   isDemoJobInProgress,
   objectsWithoutFirstBackup,
+  setupRequest,
 } from "./api-seed.js";
+import { DEMO_PROVIDER_NAME, DEMO_TENANTS } from "./company.js";
 
 describe("classifyOutcomes", () => {
   it("counts completed jobs as completed", () => {
@@ -138,5 +140,40 @@ describe("demoReportRules", () => {
       expect(rule.emailRecipients).toEqual(["it@example-trading.example"]);
     }
     expect(rules[1]).toMatchObject({ cron: "0 7 * * 1", inApp: true });
+  });
+});
+
+describe("setupRequest", () => {
+  const request = setupRequest({
+    publicUrl: "https://demo.restow.example",
+    adminName: "Demo",
+    adminEmail: "demo@example.com",
+    adminPassword: "public-demo-password",
+  });
+
+  it("names the demo's own organisation, which the api creates as the first tenant", () => {
+    expect(request.providerName).toBe(DEMO_PROVIDER_NAME);
+    expect(DEMO_PROVIDER_NAME.trim().length).toBeGreaterThan(0);
+    expect(DEMO_PROVIDER_NAME.length).toBeLessThanOrEqual(200);
+  });
+
+  it("gives the own organisation a name of its own: no customer shares its name or its slug", () => {
+    const slugOfOwn = DEMO_PROVIDER_NAME.toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "");
+    for (const tenant of DEMO_TENANTS) {
+      expect(tenant.name).not.toBe(DEMO_PROVIDER_NAME);
+      expect(tenant.slug).not.toBe(slugOfOwn);
+    }
+  });
+
+  it("is the wizard's request, with the admin the demo documents and a mail setup that is never used", () => {
+    expect(request).toMatchObject({
+      operatingMode: "public",
+      publicUrl: "https://demo.restow.example",
+      firstAdmin: { email: "demo@example.com", password: "public-demo-password" },
+      mail: { transport: "smtp", smtp: { from: "noreply@demo.restow.example" } },
+      sendTest: false,
+    });
   });
 });

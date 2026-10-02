@@ -1,15 +1,14 @@
 {
   "nav": "Zeitpläne",
   "page": {
-    "title": "Zeitpläne",
-    "description": "Was für diesen Mandanten von selbst läuft: Sicherungen, Verifizierung, Integritätsprüfungen, Verzeichnis-Sync und Aufbewahrung."
+    "title": "Wartungszeitpläne",
+    "description": "Was für die Daten dieses Mandanten von selbst läuft, damit sie gesund bleiben: Integritätsprüfungen, Verzeichnis-Sync und Aufbewahrung. Sicherungen und ihre Restore-Prüfungen sind Backup-Jobs."
   },
   "actions": {
     "new": "Neuer Zeitplan",
     "applyRecommended": "Empfohlene Zeitpläne übernehmen",
     "edit": "Bearbeiten",
     "delete": "Löschen",
-    "enable": "Einschalten",
     "refresh": "Zeitpläne aktualisieren"
   },
   "kinds": {
@@ -51,7 +50,7 @@
     "custom": "Benutzerdefiniert: {cron}"
   },
   "table": {
-    "label": "Zeitpläne",
+    "label": "Wartungszeitpläne",
     "kind": "Art",
     "scope": "Gilt für",
     "cadence": "Rhythmus",
@@ -62,7 +61,8 @@
     "paused": "Ausgeschaltet",
     "noJob": "Noch kein Lauf",
     "openJob": "Letzten Job öffnen ({status})",
-    "toggle": "{kind} automatisch ausführen"
+    "toggle": "{kind} automatisch ausführen",
+    "legacy": "Läuft neben den Jobs"
   },
   "jobStatus": {
     "queued": "Wartend",
@@ -79,25 +79,21 @@
     "description": "Wählen Sie einen Mandanten, um seine Zeitpläne zu sehen und zu ändern."
   },
   "empty": {
-    "title": "Noch keine Zeitpläne",
-    "description": "Nichts läuft von selbst: Sicherungen, Verifizierung und Integritätsprüfungen finden nur statt, wenn jemand sie startet."
+    "title": "Noch keine Wartungszeitpläne",
+    "description": "Nichts hält das Repository von selbst gesund: Integritätsprüfungen, Verzeichnis-Sync und Aufbewahrung laufen nur, wenn jemand sie startet."
   },
   "notices": {
     "readOnly": "Sie sehen die Zeitpläne dieses Mandanten. Ändern können sie nur Mandanten-Administratoren.",
-    "noBackup": {
-      "title": "Sicherungen laufen nur, wenn jemand sie von Hand startet",
-      "missing": "Kein Zeitplan sichert alle geschützten Objekte dieses Mandanten.",
-      "paused": "Der Sicherungs-Zeitplan für alle geschützten Objekte ist ausgeschaltet."
-    },
-    "noVerify": {
-      "title": "Sicherungen bleiben unverifiziert",
-      "missing": "Es gibt keinen Verifizierungs-Zeitplan: Keine Sicherung wird probeweise wiederhergestellt, die Wiederherstellbarkeit bleibt unbekannt.",
-      "paused": "Der Verifizierungs-Zeitplan ist ausgeschaltet: Neue Sicherungen werden nicht probeweise wiederhergestellt, die Wiederherstellbarkeit bleibt unbekannt."
+    "noJob": {
+      "title": "Sicherungen sind nicht nach Zeitplan eingerichtet",
+      "description": "Kein Mail-Job umfasst alle geschützten Objekte dieses Mandanten, und auch kein älterer Zeitplan tut es. Ohne einen laufen Sicherungen und Restore-Prüfungen nur, wenn jemand sie startet. Die empfohlenen Zeitpläne legen den Mail-Job an.",
+      "open": "Jobs anzeigen"
     },
     "recommended": {
       "title": "Empfohlene Zeitpläne nicht eingerichtet",
       "description": "Es fehlen: {kinds}."
     },
+    "legacy": "Hier stehen {count, plural, one {# älterer Sicherungs- oder Restore-Prüfungs-Zeitplan} other {# ältere Sicherungs- und Restore-Prüfungs-Zeitpläne}}. Solche Zeitpläne laufen neben den Jobs weiter. Schalten Sie einen aus oder löschen Sie ihn, sobald ein Job dieselben Objekte umfasst.",
     "retention": "Die Aufbewahrung wendet die Aufbewahrungsrichtlinien an. Solange keine Richtlinie existiert, bleibt alles erhalten."
   },
   "presets": {

@@ -17,7 +17,6 @@ import {
   isStale,
   jobStatusView,
   lastDays,
-  overviewScope,
   previousDays,
   readinessRank,
   readinessSegments,
@@ -27,7 +26,6 @@ import {
   successRate,
   successRateDelta,
   tileColumns,
-  wantsProviderView,
   widgetView,
 } from "./presenters.js";
 
@@ -39,14 +37,6 @@ const day = (date: string, succeeded: number, withItemFailures = 0, failed = 0):
 });
 
 describe("which widgets the page shows", () => {
-  it("asks for the provider view only where the installation enables it", () => {
-    expect(wantsProviderView(true, ["dashboard.allTenants"])).toBe(true);
-    expect(wantsProviderView(true, ["stats.allTenants", "reports.timed"])).toBe(false);
-    expect(wantsProviderView(true, [])).toBe(false);
-    expect(wantsProviderView(false, ["dashboard.allTenants"])).toBe(false);
-    expect(wantsProviderView(true, null)).toBe(false);
-  });
-
   it("maps a widget result to loading, error or ready", () => {
     expect(widgetView(undefined, true)).toEqual({ kind: "loading" });
     const failed = widgetView({ state: "error" }, false);
@@ -299,19 +289,5 @@ describe("servers and clients", () => {
       ["yellow", "warning"],
       ["green", "success"],
     ]);
-  });
-});
-
-describe("overviewScope", () => {
-  const base = { provider: true, noTenant: false, tenantName: "Example Ltd" };
-  it("describes all tenants on the provider tab and the tenant on its own tab", () => {
-    expect(overviewScope({ ...base, tab: "provider" })).toBe("provider");
-    expect(overviewScope({ ...base, tab: "tenant" })).toBe("tenant");
-  });
-  it("names the tenant outside the provider view, and falls back without one", () => {
-    expect(overviewScope({ ...base, provider: false, tab: "provider" })).toBe("tenant");
-    expect(overviewScope({ ...base, provider: false, tab: "tenant", tenantName: null })).toBe(
-      "generic",
-    );
   });
 });

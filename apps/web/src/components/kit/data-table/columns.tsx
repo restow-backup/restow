@@ -28,6 +28,12 @@ declare module "@tanstack/react-table" {
     className?: string;
     headerClassName?: string;
     cellClassName?: string;
+    /**
+     * Tooltip of the cell when its column is single-line (a pinned column or
+     * one with a `maxSize`) and cuts its text off. Without it the tooltip is
+     * the cell's own value when it is plain text; a custom cell titles itself.
+     */
+    cellTitle?: (row: TData) => string | undefined;
   }
 }
 
@@ -60,19 +66,23 @@ export interface RowAction {
   /** Deletes, revokes or stops something; listed last, separated and in red. */
   destructive?: boolean;
   disabled?: boolean;
+  /** Id of the element that says why the action is disabled (`aria-describedby` of the entry). */
+  describedBy?: string;
 }
 
 export interface RowActionsMenuProps {
   actions: readonly RowAction[];
   /** Name of the row for the trigger's label, "Actions for <name>". */
   name?: string;
+  /** Id of the element that says why the entries are closed, named by the trigger (`aria-describedby`). */
+  describedBy?: string;
 }
 
 /**
  * The "…" menu of a row. Destructive actions come last, after a separator;
  * they should open a ConfirmDialog rather than act at once.
  */
-export function RowActionsMenu({ actions, name }: RowActionsMenuProps) {
+export function RowActionsMenu({ actions, name, describedBy }: RowActionsMenuProps) {
   const { t } = useTranslation(UI_NAMESPACE);
   if (actions.length === 0) {
     return null;
@@ -88,6 +98,7 @@ export function RowActionsMenu({ actions, name }: RowActionsMenuProps) {
         key={action.id}
         variant={action.destructive ? "destructive" : "default"}
         disabled={action.disabled}
+        aria-describedby={action.describedBy}
         onSelect={action.onSelect}
       >
         {Icon ? <Icon aria-hidden="true" /> : null}
@@ -100,7 +111,7 @@ export function RowActionsMenu({ actions, name }: RowActionsMenuProps) {
     // Not modal: a dialog opened from an item must not inherit the menu's pointer lock.
     <DropdownMenu modal={false}>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-sm" aria-label={label}>
+        <Button variant="ghost" size="icon-sm" aria-label={label} aria-describedby={describedBy}>
           <Ellipsis aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
@@ -123,21 +134,29 @@ export interface RowActionsColumnOptions<TData> {
   actions: (row: TData) => readonly RowAction[];
   /** Name of the row for the trigger's screen-reader label. */
   name?: (row: TData) => string;
+  /** Id of the element that says why entries are closed (see `RowActionsMenu`). */
+  describedBy?: string;
 }
 
 /** A trailing column with each row's action menu (never sortable or hideable). */
 export function rowActionsColumn<TData>({
   actions,
   name,
+  describedBy,
 }: RowActionsColumnOptions<TData>): ColumnDef<TData, unknown> {
   return {
     id: "actions",
     header: () => <ActionsHeader />,
     cell: ({ row }) => (
-      <RowActionsMenu actions={actions(row.original)} name={name?.(row.original)} />
+      <RowActionsMenu
+        actions={actions(row.original)}
+        name={name?.(row.original)}
+        describedBy={describedBy}
+      />
     ),
     enableSorting: false,
     enableHiding: false,
+    size: 48,
     meta: { className: "w-12 text-right" },
   };
 }

@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
+  PIN_FIRST,
   Table,
   TableBody,
   TableCell,
@@ -197,7 +198,7 @@ export function ArchivePage() {
         <EmptyState icon={ArchiveIcon} title={t(q ? "search.empty" : "search.emptyTenant")} />
       ) : (
         <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
-          <Table>
+          <Table className="min-w-[44rem]" scrollLabel={t("title")}>
             <TableHeader>
               <TableRow>
                 <TableHead className="w-8">
@@ -207,7 +208,8 @@ export function ArchivePage() {
                     aria-label={tExports("archive.selectAll")}
                   />
                 </TableHead>
-                <TableHead>{t("table.subject")}</TableHead>
+                {/* Pinned where it stands: the box in front scrolls away under it. */}
+                <TableHead pin={PIN_FIRST}>{t("table.subject")}</TableHead>
                 <TableHead>{t("table.from")}</TableHead>
                 <TableHead>{t("table.date")}</TableHead>
                 <TableHead>{t("table.source")}</TableHead>
@@ -229,7 +231,7 @@ export function ArchivePage() {
                       aria-label={tExports("archive.selectRow", { subject: result.subject ?? "" })}
                     />
                   </TableCell>
-                  <TableCell className="max-w-64 truncate font-medium">
+                  <TableCell pin={PIN_FIRST} className="max-w-64 truncate font-medium">
                     {result.subject ?? "—"}
                   </TableCell>
                   <TableCell className="max-w-40 truncate">{result.from ?? "—"}</TableCell>

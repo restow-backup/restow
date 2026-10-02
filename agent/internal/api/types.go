@@ -128,15 +128,23 @@ type Hooks struct {
 
 // Config is the endpoint configuration served by GET /agent/v1/config.
 type Config struct {
-	Profile       string   `json:"profile"`
-	Schedule      Schedule `json:"schedule"`
-	Paths         []string `json:"paths"`
-	Excludes      []string `json:"excludes"`
-	Hooks         Hooks    `json:"hooks"`
-	BandwidthKbps *int64   `json:"bandwidthKbps"`
-	OnlyOnACPower bool     `json:"onlyOnAcPower"`
-	UseVSS        bool     `json:"useVss"`
-	ConfigVersion Flex     `json:"configVersion"`
+	Profile  string   `json:"profile"`
+	Schedule Schedule `json:"schedule"`
+	Paths    []string `json:"paths"`
+	Excludes []string `json:"excludes"`
+	Hooks    Hooks    `json:"hooks"`
+	// BandwidthKbps is the upload limit that applies now, in kbit/s; nil or 0
+	// means unlimited. The server works out which time window of the job is
+	// active when the agent asks, so the agent reads the configuration again
+	// when a backup starts and uses this value as it finds it.
+	BandwidthKbps *int64 `json:"bandwidthKbps"`
+	OnlyOnACPower bool   `json:"onlyOnAcPower"`
+	UseVSS        bool   `json:"useVss"`
+	// ExcludeLargerThanBytes skips files larger than this many bytes (restic
+	// --exclude-larger-than). Absent, null or 0 mean no limit; the server sends
+	// the field only when a backup job sets one.
+	ExcludeLargerThanBytes int64 `json:"excludeLargerThanBytes,omitempty"`
+	ConfigVersion          Flex  `json:"configVersion"`
 }
 
 // HeartbeatRequest is the body of POST /agent/v1/heartbeat.

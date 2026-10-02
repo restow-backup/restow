@@ -24,6 +24,9 @@ export interface PolicyTableProps {
   onDelete: (policy: RetentionPolicy) => void;
 }
 
+/** The policy stays in view while the other columns scroll. */
+const PINNED = ["name"] as const;
+
 /** Every retention policy of the tenant: name, what it applies to, how long it keeps restore points. */
 export function PolicyTable({
   items,
@@ -42,6 +45,7 @@ export function PolicyTable({
       {
         id: "name",
         accessorKey: "name",
+        size: 240,
         header: t("table.name"),
         meta: { label: t("table.name") },
         enableHiding: false,
@@ -56,6 +60,7 @@ export function PolicyTable({
       },
       {
         id: "scope",
+        size: 180,
         accessorFn: (policy) => scopeLabel(policy.isDefault, policy.protectedObjects, t),
         header: t("table.scope"),
         meta: { label: t("table.scope"), cellClassName: "max-w-56 truncate" },
@@ -63,6 +68,7 @@ export function PolicyTable({
       },
       {
         id: "preset",
+        size: 180,
         accessorFn: (policy) => t(`presets.${policy.preset}`),
         header: t("table.preset"),
         meta: { label: t("table.preset"), cellClassName: "max-w-64 truncate" },
@@ -70,6 +76,7 @@ export function PolicyTable({
       },
       {
         id: "cutoff",
+        size: 130,
         accessorFn: (policy) => policy.cutoffDays ?? Number.POSITIVE_INFINITY,
         header: t("table.cutoff"),
         meta: { label: t("table.cutoff") },
@@ -77,6 +84,7 @@ export function PolicyTable({
       },
       {
         id: "updated",
+        size: 130,
         accessorKey: "updatedAt",
         header: t("table.updated"),
         meta: { label: t("table.updated"), className: "hidden md:table-cell" },
@@ -112,6 +120,7 @@ export function PolicyTable({
       onRetry={onRetry}
       errorTitle={t("errors.load")}
       empty={null}
+      pinnedColumns={PINNED}
       sorting={{ mode: "client", initial: [{ id: "name", desc: false }] }}
       pagination={{ mode: "client", pageSize: 25 }}
       toolbar={

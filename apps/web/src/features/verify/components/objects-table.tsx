@@ -6,6 +6,7 @@ import { RelativeTime, StatusBadge } from "@/components/kit";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  PIN_FIRST,
   Table,
   TableBody,
   TableCell,
@@ -13,14 +14,13 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EndpointReadinessRowView } from "@/features/endpoints/components/readiness-row";
 import type { EndpointReadinessRow, ObjectReadiness, VerifyObject } from "@/features/verify/api";
+import { StateChips, countsOfSummary } from "@/features/verify/components/state-chips";
 import { ObjectKindIcon, StateBadge } from "@/features/verify/components/status";
 import { verifyReportTo } from "@/features/verify/paths";
 import {
-  isWaitingForFirstBackup,
-  needsAttention,
+  type ReadinessRow,
   objectAddress,
   objectName,
   readinessRows,
@@ -28,12 +28,14 @@ import {
   rowRating,
   sortRowsByUrgency,
 } from "@/features/verify/presenters";
+import type { ReadinessState } from "@/features/verify/search";
 import type { VerifyFormat } from "@/features/verify/use-verify";
 
 /*
  * This table stays on the plain kit `Table` primitive rather than the kit
  * `DataTable`: the "worst first" order is fixed (never user-sortable), rows
- * are filtered by three fixed tabs rather than a search/facet toolbar, and
+ * are filtered by the state chips (which set the address) rather than a
+ * search/facet toolbar, and
  * the row keeps a wired-up "check now" action with its own loading state.
  * None of that benefits from DataTable's sorting/pagination/column-menu
  * machinery, so a hand-written table stays simpler (the sibling directory
@@ -46,8 +48,6 @@ import type { VerifyFormat } from "@/features/verify/use-verify";
  * its width and truncates with a tooltip instead of wrapping or stretching
  * the row.
  */
-
-type Filter = "all" | "attention" | "waiting";
 
 /** The object's primary label: its name, or a translated kind when even that is unknown. */
 function objectLabel(object: VerifyObject, t: VerifyFormat["t"]): string {
@@ -206,10 +206,25 @@ function ActionsCell({
   );
 }
 
+/** How many rows are in each state, for the chips. */
+export function stateCounts(rows: readonly ReadinessRow[]) {
+  const counts = { green: 0, yellow: 0, red: 0, unverified: 0, noBackup: 0 };
+  for (const row of rows) {
+    const { state } = rowRating(row);
+    if (state === "no_backup") {
+      counts.noBackup += 1;
+    } else {
+      counts[state] += 1;
+    }
+  }
+  return countsOfSummary(counts);
+}
+
 /**
  * Every protected object with its rating, worst first: mailboxes, OneDrives
  * and IMAP accounts, and the servers and clients backed up by the agent. The
- * tenant summary above counts both, and so do the filter tabs.
+ * tenant summary above counts both, and so do the state chips, which filter the
+ * table through the address (`?state=`).
  */
 export function ObjectsTable({
   items,
@@ -218,6 +233,8 @@ export function ObjectsTable({
   startingObjectId,
   nextBackupAt,
   onCheck,
+  state,
+  onStateChange,
 }: {
   items: readonly ObjectReadiness[];
   /** Servers and clients; they are rated like the objects and listed with them. */
@@ -227,22 +244,17 @@ export function ObjectsTable({
   /** The tenant's next scheduled backup run, shown while an object waits for its first one. */
   nextBackupAt: string | null;
   onCheck: (item: ObjectReadiness) => void;
+  /** The state the table is filtered to (the address's `state`); undefined shows every object. */
+  state?: ReadinessState;
+  onStateChange: (state: ReadinessState | undefined) => void;
 }) {
   const { t } = format;
   const rows = React.useMemo(() => readinessRows(items, endpoints), [items, endpoints]);
-  const attentionCount = rows.filter((row) => needsAttention(rowRating(row))).length;
-  const waitingCount = rows.filter((row) => isWaitingForFirstBackup(rowRating(row))).length;
-  const [filter, setFilter] = React.useState<Filter>("all");
+  const counts = React.useMemo(() => stateCounts(rows), [rows]);
   const visible = React.useMemo(() => {
     const sorted = sortRowsByUrgency(rows);
-    if (filter === "attention") {
-      return sorted.filter((row) => needsAttention(rowRating(row)));
-    }
-    if (filter === "waiting") {
-      return sorted.filter((row) => isWaitingForFirstBackup(rowRating(row)));
-    }
-    return sorted;
-  }, [rows, filter]);
+    return state ? sorted.filter((row) => rowRating(row).state === state) : sorted;
+  }, [rows, state]);
 
   return (
     <Card className="pb-0">
@@ -251,34 +263,22 @@ export function ObjectsTable({
           <CardTitle className="text-base">{t("table.title")}</CardTitle>
           <CardDescription>{t("table.description")}</CardDescription>
         </div>
-        <Tabs value={filter} onValueChange={(value) => setFilter(value as Filter)}>
-          <TabsList>
-            <TabsTrigger value="all">{t("table.filter.all", { count: rows.length })}</TabsTrigger>
-            <TabsTrigger value="attention">
-              {t("table.filter.attention", { count: attentionCount })}
-            </TabsTrigger>
-            <TabsTrigger value="waiting">
-              {t("table.filter.waiting", { count: waitingCount })}
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
       </CardHeader>
+      <div className="px-6">
+        <StateChips counts={counts} total={rows.length} value={state} onChange={onStateChange} />
+      </div>
       <CardContent className="p-0">
         {visible.length === 0 ? (
           <p className="px-6 pb-6 text-sm text-muted-foreground">
-            {t(
-              filter === "attention"
-                ? "table.emptyAttention"
-                : filter === "waiting"
-                  ? "table.emptyWaiting"
-                  : "table.empty",
-            )}
+            {state ? t("table.emptyState", { state: t(`state.${state}`) }) : t("table.empty")}
           </p>
         ) : (
-          <Table>
+          <Table className="min-w-[52rem]" scrollLabel={t("table.title")}>
             <TableHeader>
               <TableRow>
-                <TableHead className="pl-6">{t("table.columns.object")}</TableHead>
+                <TableHead pin={PIN_FIRST} className="pl-6">
+                  {t("table.columns.object")}
+                </TableHead>
                 <TableHead className="whitespace-nowrap">{t("table.columns.readiness")}</TableHead>
                 <TableHead className="whitespace-nowrap">{t("table.columns.lastCheck")}</TableHead>
                 <TableHead>{t("table.columns.result")}</TableHead>
@@ -327,7 +327,7 @@ function ObjectRow({
   const { t } = format;
   return (
     <TableRow>
-      <TableCell className="max-w-md pl-6">
+      <TableCell pin={PIN_FIRST} className="max-w-md pl-6">
         <ObjectCell object={item.object} format={format} />
       </TableCell>
       <TableCell className="whitespace-nowrap">

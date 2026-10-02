@@ -42,7 +42,8 @@ import { useCreateToken, useEndpointFormat, useEnrollmentTokens } from "../hooks
 import { type EndpointProfile, endpointDetailTo } from "../paths.js";
 import { endpointErrorKey } from "../presenters.js";
 
-const SETTINGS_TO = "/settings" as LinkProps["to"];
+/** The public URL, which the agents enrol against, is set under Installation, Server. */
+const SETTINGS_TO = "/installation/server" as LinkProps["to"];
 
 /** How often the dialog asks whether the machine has connected. */
 export const CONNECT_POLL_MS = 4_000;
@@ -99,6 +100,11 @@ export interface EnrollViewProps {
   /** The machine that used the token, once it did. */
   connectedEndpointId: string | null;
   onCreateAnother: () => void;
+  /**
+   * Whether the viewer may open the installation settings, where the public URL is set
+   * (provider admins only); without it the warning says whom to ask instead of linking.
+   */
+  canOpenInstallation?: boolean;
 }
 
 function OsChoice({
@@ -200,7 +206,13 @@ function ChooseStep(props: EnrollViewProps) {
   );
 }
 
-function Warnings({ created }: { created: CreatedToken }) {
+function Warnings({
+  created,
+  canOpenInstallation,
+}: {
+  created: CreatedToken;
+  canOpenInstallation: boolean;
+}) {
   const { t } = useTranslation("endpoints");
   return (
     <>
@@ -219,12 +231,16 @@ function Warnings({ created }: { created: CreatedToken }) {
           <AlertTitle>{t("enroll.warnings.notConfigured.title")}</AlertTitle>
           <AlertDescription>
             <p>{t("enroll.warnings.notConfigured.description", { url: created.instanceUrl })}</p>
-            <Link
-              to={SETTINGS_TO}
-              className="font-medium text-foreground underline underline-offset-4 hover:no-underline"
-            >
-              {t("enroll.warnings.notConfigured.link")}
-            </Link>
+            {canOpenInstallation ? (
+              <Link
+                to={SETTINGS_TO}
+                className="font-medium text-foreground underline underline-offset-4 hover:no-underline"
+              >
+                {t("enroll.warnings.notConfigured.link")}
+              </Link>
+            ) : (
+              <p>{t("enroll.warnings.notConfigured.elsewhere")}</p>
+            )}
           </AlertDescription>
         </Alert>
       ) : null}
@@ -324,7 +340,7 @@ function CommandStep(props: EnrollViewProps & { created: CreatedToken }) {
   const inactive = connection !== "waiting";
   return (
     <div className="grid gap-4">
-      <Warnings created={created} />
+      <Warnings created={created} canOpenInstallation={props.canOpenInstallation ?? true} />
 
       <section className="grid gap-2">
         <h3 className="text-sm font-medium">{t(`enroll.command.heading.${created.os}`)}</h3>
@@ -480,9 +496,16 @@ export interface EnrollDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   profile: EndpointProfile;
+  /** See {@link EnrollViewProps.canOpenInstallation}. */
+  canOpenInstallation?: boolean;
 }
 
-export function EnrollDialog({ open, onOpenChange, profile }: EnrollDialogProps) {
+export function EnrollDialog({
+  open,
+  onOpenChange,
+  profile,
+  canOpenInstallation = true,
+}: EnrollDialogProps) {
   const [os, setOs] = React.useState<EnrollOs>(() => defaultOs(profile));
   const [label, setLabel] = React.useState("");
   const create = useCreateToken();
@@ -530,6 +553,7 @@ export function EnrollDialog({ open, onOpenChange, profile }: EnrollDialogProps)
       created={created}
       tokenState={live?.state ?? null}
       connectedEndpointId={live?.usedByEndpointId ?? null}
+      canOpenInstallation={canOpenInstallation}
       onCreateAnother={() => {
         create.reset();
         setLabel("");

@@ -12,7 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { sourcesListTo } from "@/features/sources/paths";
 import { CircleX } from "lucide-react";
 import { ImportsForbidden, NoTenantSelected } from "../components/access-states";
-import { IMPORT_PATHS, importDetailTo, importTo } from "../paths";
+import { IMPORTS_TAB_SEARCH, importDetailTo, importsListTo } from "../paths";
 import { importErrorKey } from "../presenters";
 import type { ImportConfig } from "../types";
 import { useUploadManager } from "../upload/use-upload-manager";
@@ -79,6 +79,7 @@ export function ImportWizardPage() {
     <div className="space-y-6">
       <Link
         to={sourcesListTo()}
+        search={IMPORTS_TAB_SEARCH as never}
         className="inline-flex items-center gap-1.5 rounded-sm text-sm text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
       >
         <ArrowLeft aria-hidden="true" className="size-4" />
@@ -87,7 +88,8 @@ export function ImportWizardPage() {
       <PageHeader title={t("title")} description={t("subtitle")}>
         {tenantId && canManage ? (
           <Link
-            to={importTo(IMPORT_PATHS.list)}
+            to={importsListTo()}
+            search={IMPORTS_TAB_SEARCH as never}
             className={buttonVariants({ variant: "outline", size: "sm" })}
           >
             <History />

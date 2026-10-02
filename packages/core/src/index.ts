@@ -69,6 +69,9 @@ export * from "./reports/index.js";
 // Backup snapshot retention (tiered keep rule, presets, run planning)
 export * from "./retention/index.js";
 
+// Backup jobs: schedules, the configuration written to machines, the migration, job retention
+export * from "./backup-jobs/index.js";
+
 // Archive: journal parsing, write-once item store, hash chain, retention math
 export * as archive from "./archive/index.js";
 

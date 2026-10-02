@@ -20,6 +20,9 @@ import { readinessTone, runRateTone } from "../presenters.js";
 import { useStatsFormat } from "../use-stats-format.js";
 import { MISSING_LAST, TableCard, rowsOf } from "./table-card.js";
 
+/** The tenant stays in view while the other columns scroll. */
+const PINNED = ["name"] as const;
+
 /** Filter value of a tenant without readiness: it protects nothing yet. */
 const NOTHING_PROTECTED = "none";
 
@@ -63,13 +66,15 @@ export function TenantsTable({ data, onOpenTenantStats }: TenantsTableProps) {
     () => [
       {
         accessorKey: "name",
+        size: 240,
         header: t("tables.tenants.columns.name"),
         enableHiding: false,
-        meta: { cellClassName: "max-w-64 truncate font-medium" },
+        meta: { cellClassName: "font-medium" },
         cell: ({ row }) => <span title={row.original.name}>{row.original.name}</span>,
       },
       {
         accessorKey: "objects",
+        size: 110,
         header: t("tables.tenants.columns.objects"),
         enableGlobalFilter: false,
         meta: { numeric: true },
@@ -77,6 +82,7 @@ export function TenantsTable({ data, onOpenTenantStats }: TenantsTableProps) {
       },
       {
         id: "successRate",
+        size: 130,
         accessorFn: (row) => row.successRate ?? undefined,
         header: t("tables.tenants.columns.successRate"),
         ...MISSING_LAST,
@@ -93,6 +99,7 @@ export function TenantsTable({ data, onOpenTenantStats }: TenantsTableProps) {
       },
       {
         accessorKey: "logicalBytes",
+        size: 130,
         header: t("tables.tenants.columns.logicalBytes"),
         enableGlobalFilter: false,
         meta: { numeric: true, className: "hidden xl:table-cell" },
@@ -100,6 +107,7 @@ export function TenantsTable({ data, onOpenTenantStats }: TenantsTableProps) {
       },
       {
         accessorKey: "physicalBytes",
+        size: 130,
         header: t("tables.tenants.columns.physicalBytes"),
         enableGlobalFilter: false,
         meta: { numeric: true, className: "hidden xl:table-cell" },
@@ -107,6 +115,7 @@ export function TenantsTable({ data, onOpenTenantStats }: TenantsTableProps) {
       },
       {
         id: "readiness",
+        size: 150,
         accessorFn: (row) => row.readiness ?? NOTHING_PROTECTED,
         header: t("tables.tenants.columns.readiness"),
         filterFn: matchesAnyOf,
@@ -121,6 +130,7 @@ export function TenantsTable({ data, onOpenTenantStats }: TenantsTableProps) {
       },
       {
         accessorKey: "failures",
+        size: 110,
         header: t("tables.tenants.columns.failures"),
         enableGlobalFilter: false,
         meta: { numeric: true },
@@ -164,6 +174,7 @@ export function TenantsTable({ data, onOpenTenantStats }: TenantsTableProps) {
         sorting={{ mode: "client", initial: [{ id: "failures", desc: true }] }}
         pagination={{ mode: "client", pageSize: 10, pageSizes: [10, 25, 50] }}
         maxHeight="none"
+        pinnedColumns={PINNED}
         toolbar={(table) => (
           <>
             <DataTableSearch

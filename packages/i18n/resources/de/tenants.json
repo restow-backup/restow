@@ -1,6 +1,6 @@
 {
   "nav": {
-    "tenants": "Alle Mandanten",
+    "tenants": "Mandanten verwalten",
     "members": "Mitglieder"
   },
   "list": {
@@ -284,7 +284,8 @@
     "setupRequired": "Schließen Sie die Einrichtung der Installation ab, bevor Sie Mandanten anlegen.",
     "alreadyMember": "Diese Person ist bereits Mitglied des Mandanten.",
     "alreadyInvited": "Für diese Adresse gibt es bereits eine offene Einladung. Kopieren Sie deren Link aus der Liste, oder ziehen Sie sie zuerst zurück.",
-    "memberGone": "Diesen Eintrag gibt es nicht mehr. Die Liste wurde aktualisiert."
+    "memberGone": "Diesen Eintrag gibt es nicht mehr. Die Liste wurde aktualisiert.",
+    "internalTenantProtected": "Das ist Ihre eigene Organisation und kann nicht gelöscht werden. Machen Sie zuerst einen anderen Mandanten zu Ihrer eigenen Organisation und löschen Sie dann diesen."
   },
   "toasts": {
     "created": "{name} wurde angelegt.",
@@ -365,7 +366,7 @@
     "notifications": {
       "title": "Benachrichtigungsempfänger",
       "description": "Wer betriebliche E-Mails erhält, und worüber.",
-      "deliveryNotice": "Jede gewählte Kategorie wird beim Anlegen des Mandanten zu einer Regel unter Alarme: fehlgeschlagene Aufträge und gefährdete Wiederherstellbarkeit als Alarm, der Wochenbericht montags um 07:00, sofern Berichte auf dieser Installation verfügbar sind. Dort können Sie die Regeln jederzeit ändern oder ergänzen.",
+      "deliveryNotice": "Jede gewählte Kategorie wird von einer Regel des Mandanten getragen (fehlgeschlagene Aufträge und gefährdete Wiederherstellbarkeit als Alarm, der Wochenbericht montags um 07:00, sofern Berichte auf dieser Installation verfügbar sind). Die hier genannten Personen sind die Empfänger dieser Regeln.",
       "categories": {
         "jobFailures": "Fehlgeschlagene Jobs",
         "weeklyReport": "Wochenbericht",
@@ -386,8 +387,8 @@
         "recipientPlaceholder": "z. B. name@beispiel.de",
         "send": "Testmail senden",
         "success": "Testmail an {recipient} über {transport, select, graph {Microsoft Graph} other {SMTP}} gesendet.",
-        "notConfigured": "Für diese Installation ist noch kein Mailversand eingerichtet. Richten Sie ihn unter Einstellungen → Mail ein und versuchen Sie es dann erneut.",
-        "openMailSettings": "Einstellungen → Mail öffnen",
+        "notConfigured": "Für diese Installation ist noch kein Mailversand eingerichtet. Richten Sie ihn unter Installation → Benachrichtigungs-Mail ein und versuchen Sie es dann erneut.",
+        "openMailSettings": "Mail-Einstellungen öffnen",
         "testFailure": {
           "timeout": "Der Mailserver hat nicht rechtzeitig geantwortet.",
           "graphAppMissing": "Für Graph sendMail ist keine Microsoft-365-App-Registrierung eingerichtet.",
@@ -441,7 +442,7 @@
   },
   "customerPanel": {
     "title": "Kundendaten",
-    "description": "Interne Kundennummer, Adresse und Spracheinstellung dieses Mandanten, eingerichtet im Mandanten-Assistenten.",
+    "description": "Interne Kundennummer, Adresse und Spracheinstellung.",
     "edit": "Kundendaten bearbeiten",
     "customerNumber": "Kundennummer",
     "vatId": "USt-IdNr.",
@@ -451,15 +452,54 @@
     "noneSet": "Nicht gesetzt",
     "saved": "Kundendaten gespeichert.",
     "contactsTitle": "Ansprechpartner",
-    "contactsDescription": "Wen man bei diesem Kunden erreicht.",
+    "contactsDescription": "Wen man erreicht.",
     "editContacts": "Ansprechpartner bearbeiten",
     "noContacts": "Noch keine Ansprechpartner.",
     "addContact": "Ansprechpartner hinzufügen",
     "primaryBadge": "Primär",
     "contactsSaved": "Ansprechpartner gespeichert.",
-    "notificationsTitle": "Alarme",
-    "notificationsDescription": "Wer wann was erfährt, ist als Regeln eingerichtet. Die im Assistenten gewählten Empfänger wurden dort zu Regeln.",
-    "recipientsSaved": "Benachrichtigungsempfänger gespeichert.",
-    "openAlerts": "Alarme öffnen"
-  }
+    "recipientsSaved": "Benachrichtigungsempfänger gespeichert."
+  },
+  "ownOrganisation": {
+    "badge": "Eigene Organisation",
+    "deleteHint": "Das ist Ihre eigene Organisation und kann nicht gelöscht werden. Machen Sie zum Löschen zuerst einen anderen Mandanten zu Ihrer eigenen Organisation.",
+    "prompt": {
+      "setUp": {
+        "title": "Eigene Organisation einrichten",
+        "description": "Ihre eigenen Sicherungen gehören in eine eigene Organisation, getrennt von denen, die Sie für andere betreuen. Legen Sie sie jetzt an oder wählen Sie eine vorhandene als Ihre eigene.",
+        "descriptionCreateOnly": "Ihre eigenen Sicherungen gehören in eine eigene Organisation. Legen Sie sie an und verbinden Sie danach Microsoft 365 oder IMAP als Quelle.",
+        "readOnly": "Ihre eigene Organisation ist noch nicht eingerichtet. Das kann nur ein Administrator des Provider-Teams mit Zugriff auf alle Mandanten. Bitten Sie einen von ihnen darum."
+      },
+      "addCustomer": {
+        "title": "Ersten Kunden anlegen",
+        "description": "Ihre eigene Organisation ist eingerichtet. Jeder Kunde bekommt einen eigenen Mandanten mit eigenen Quellen, eigenem Speicher und eigenen Personen.",
+        "action": "Kunden anlegen"
+      }
+    },
+    "actions": {
+      "create": "Eigene Organisation anlegen",
+      "mark": "Vorhandene auswählen"
+    },
+    "create": {
+      "title": "Eigene Organisation anlegen",
+      "description": "Geben Sie ihr den Namen der Organisation, die diese Installation betreibt. Dort liegen Ihre eigenen Sicherungen.",
+      "nameLabel": "Name Ihrer Organisation",
+      "namePlaceholder": "Beispiel IT-Service GmbH",
+      "submit": "Anlegen"
+    },
+    "mark": {
+      "title": "Eigene Organisation auswählen",
+      "description": "Wählen Sie die, die Ihnen gehört. Sie steht ab jetzt ganz oben und lässt sich nicht löschen, solange sie Ihre eigene Organisation ist. Sonst ändert sich nichts an ihr.",
+      "choose": "Organisationen",
+      "submit": "Als meine Organisation verwenden"
+    },
+    "toasts": {
+      "ready": "{name} ist jetzt Ihre eigene Organisation."
+    },
+    "errors": {
+      "featureUnavailable": "Diese Installation kann nur eine Organisation haben. Wählen Sie stattdessen die vorhandene als Ihre eigene.",
+      "exists": "Eine andere Organisation ist bereits als Ihre eigene markiert. Laden Sie die Seite neu, um sie zu sehen."
+    }
+  },
+  "backToList": "Mandanten verwalten"
 }

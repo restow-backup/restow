@@ -4,24 +4,17 @@ import { useTranslation } from "react-i18next";
 import { RelativeTime, StatusBadge } from "@/components/kit";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
-import { formatInteger } from "@/lib/format";
-import { cn } from "@/lib/utils";
 
+import { verifyLink } from "@/features/verify/search";
 import type { ReadinessWidget as ReadinessData } from "../api.js";
 import { LinkButton } from "../components/link-button.js";
+import { ReadinessBar, ReadinessLegend } from "../components/readiness-legend.js";
 import { WidgetCard, type WidgetStateProps } from "../components/widget-frame.js";
 import { PATHS, to } from "../paths.js";
-import { readinessSegments, readinessTone } from "../presenters.js";
+import { readinessTone } from "../presenters.js";
 
-/** The fill of each tone in the breakdown bar and its legend (shared with the endpoints card). */
-export const SEGMENT_FILL = {
-  success: "bg-success",
-  warning: "bg-warning",
-  destructive: "bg-destructive",
-  muted: "bg-muted-foreground",
-  info: "bg-info",
-  neutral: "bg-foreground",
-} as const;
+// The endpoints card builds its bar and legend from the same fills.
+export { SEGMENT_FILL } from "../components/readiness-legend.js";
 
 function ReadinessSkeleton() {
   return (
@@ -38,10 +31,7 @@ function ReadinessSkeleton() {
 }
 
 function ReadinessBody({ data, canAdminister }: { data: ReadinessData; canAdminister: boolean }) {
-  const { t, i18n } = useTranslation("dashboard");
-  const language = i18n.resolvedLanguage ?? i18n.language;
-  const segments = readinessSegments(data);
-  const count = (value: number) => formatInteger(value, language);
+  const { t } = useTranslation("dashboard");
 
   return (
     <div className="space-y-4">
@@ -60,36 +50,12 @@ function ReadinessBody({ data, canAdminister }: { data: ReadinessData; canAdmini
         </span>
       </div>
 
-      <div
-        className="flex h-2 w-full gap-0.5 overflow-hidden rounded-full bg-muted"
-        aria-hidden="true"
-      >
-        {segments.map((segment) => (
-          <div
-            key={segment.key}
-            className={cn("h-full", SEGMENT_FILL[segment.tone])}
-            style={{ width: `${(segment.count / Math.max(1, data.total)) * 100}%` }}
-          />
-        ))}
-      </div>
-      <dl className="grid grid-cols-1 gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2">
-        {segments.map((segment) => (
-          <div
-            key={segment.key}
-            data-segment={segment.key}
-            className="flex items-center justify-between gap-2"
-          >
-            <dt className="flex items-center gap-2 text-muted-foreground">
-              <span
-                aria-hidden="true"
-                className={cn("size-2 rounded-full", SEGMENT_FILL[segment.tone])}
-              />
-              {t(`readiness.segments.${segment.key}`)}
-            </dt>
-            <dd className="font-medium tabular-nums">{count(segment.count)}</dd>
-          </div>
-        ))}
-      </dl>
+      <ReadinessBar counts={data} />
+      {/* Every row opens the table of exactly those objects; only administrators have that page. */}
+      <ReadinessLegend counts={data} scope="tenant" linkable={canAdminister} />
+      {canAdminister ? (
+        <p className="text-xs text-muted-foreground">{t("readiness.legendHint")}</p>
+      ) : null}
 
       {data.unverified > 0 ? (
         <Alert variant="warning" data-flag="unverified">
@@ -98,7 +64,7 @@ function ReadinessBody({ data, canAdminister }: { data: ReadinessData; canAdmini
           <AlertDescription className="gap-2">
             <p>{t("readiness.unverified.description")}</p>
             {canAdminister ? (
-              <LinkButton to={to(PATHS.verify)} size="xs" className="mt-1">
+              <LinkButton {...verifyLink("unverified")} size="xs" className="mt-1">
                 {t("readiness.unverified.action")}
               </LinkButton>
             ) : null}

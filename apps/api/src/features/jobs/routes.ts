@@ -1,20 +1,9 @@
-import { safeErrorMessage } from "@restow/db";
-import { type Context, Hono } from "hono";
-import { type SSEStreamingApi, streamSSE } from "hono/streaming";
+import { Hono } from "hono";
 import { db } from "../../db.js";
 import { ProblemError } from "../../problem.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { type JobsEnv, requireJobsAccess } from "./access.js";
-import {
-  JobChangeTracker,
-  type StreamIo,
-  type StreamStep,
-  jobMessage,
-  jobsMessage,
-  runStreamLoop,
-  singleJobStep,
-  windowStart,
-} from "./events.js";
+import { JobChangeTracker, jobMessage, jobsMessage, singleJobStep, windowStart } from "./events.js";
 import {
   eventsQuerySchema,
   jobIdParamSchema,
@@ -35,6 +24,7 @@ import {
   retryJob,
   startBackup,
 } from "./service.js";
+import { streamEvents } from "./sse-transport.js";
 
 /**
  * /api/v1/jobs — the job system for the backup operator and for integrations.
@@ -53,62 +43,6 @@ const readItems = requireJobsAccess("items:read");
 // The published scope set has no `backup:write`; job control maps onto `restore:write`.
 const controlJobs = requireJobsAccess("restore:write");
 
-/** A sleep that ends early once `signal` fires (the client disconnected). */
-function sleepUnless(ms: number, signal: AbortSignal): Promise<void> {
-  if (signal.aborted) {
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => {
-    const timer = setTimeout(done, ms);
-    function done() {
-      clearTimeout(timer);
-      signal.removeEventListener("abort", done);
-      resolve();
-    }
-    signal.addEventListener("abort", done, { once: true });
-  });
-}
-
-/** Adapt Hono's SSE stream to the loop's transport. */
-function sseIo(stream: SSEStreamingApi): StreamIo {
-  const disconnected = new AbortController();
-  stream.onAbort(() => disconnected.abort());
-  return {
-    write: (message) => stream.writeSSE({ ...message }),
-    heartbeat: async () => {
-      await stream.write(": keep-alive\n\n");
-    },
-    sleep: (ms) => sleepUnless(ms, disconnected.signal),
-    gone: () => stream.aborted || stream.closed,
-    now: () => Date.now(),
-  };
-}
-
-/** Run a stream; a failed read is logged here (the client already got an `error` event). */
-function streamJobs(
-  c: Context<JobsEnv>,
-  step: () => Promise<StreamStep>,
-  context: Record<string, unknown>,
-) {
-  // Tell reverse proxies (nginx, some Caddy setups) not to buffer the stream.
-  c.header("X-Accel-Buffering", "no");
-  return streamSSE(c, async (stream) => {
-    try {
-      await runStreamLoop(sseIo(stream), step);
-    } catch (error) {
-      console.error(
-        JSON.stringify({
-          level: "error",
-          message: "job event stream failed",
-          ...context,
-          // Never the failed query with its bound parameters.
-          errorMessage: safeErrorMessage(error),
-        }),
-      );
-    }
-  });
-}
-
 // Static paths first, so they never match as a job id.
 
 jobsRoutes.get("/", readJobs, async (c) => {
@@ -126,7 +60,7 @@ jobsRoutes.get("/events", readJobs, async (c) => {
   const since = windowStart(new Date());
   const tracker = new JobChangeTracker();
   let primed = false;
-  return streamJobs(
+  return streamEvents(
     c,
     async () => {
       const live = await listLiveJobs(db, tenantId, since, queue);
@@ -172,7 +106,7 @@ jobsRoutes.get("/:id/events", readJobs, async (c) => {
     throw new ProblemError(404, "Job not found");
   }
   const tracker = new JobChangeTracker();
-  return streamJobs(c, async () => singleJobStep(tracker, id, await findJob(db, tenantId, id)), {
+  return streamEvents(c, async () => singleJobStep(tracker, id, await findJob(db, tenantId, id)), {
     tenantId,
     jobId: id,
     stream: "job",

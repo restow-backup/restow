@@ -70,6 +70,23 @@ describe("decideProviderRoute", () => {
     }
   });
 
+  it("shows the default storage to every provider admin and lets administrators test it", () => {
+    const view = "/api/v1/settings/default-storage";
+    const test = "/api/v1/settings/default-storage/test";
+    expect(decideProviderRoute(access("read_only"), "GET", view, {}).allowed).toBe(true);
+    expect(decideProviderRoute(access("read_only"), "POST", test, {})).toMatchObject({
+      allowed: false,
+      required: "administrator",
+    });
+    expect(decideProviderRoute(access("technician"), "POST", test, {}).allowed).toBe(false);
+    expect(decideProviderRoute(access("administrator"), "POST", test, {}).allowed).toBe(true);
+    // It describes the installation: a member limited to some tenants has no business there.
+    expect(decideProviderRoute(access("administrator", [TENANT_A]), "GET", view, {})).toEqual({
+      allowed: false,
+      reason: "scope",
+    });
+  });
+
   it("lets a technician operate but not configure", () => {
     const tech = access("technician");
     expect(decideProviderRoute(tech, "POST", "/api/v1/jobs/backup", {}).allowed).toBe(true);
@@ -78,6 +95,67 @@ describe("decideProviderRoute", () => {
     expect(decideProviderRoute(tech, "POST", "/api/v1/sources", {}).allowed).toBe(false);
     expect(decideProviderRoute(tech, "PATCH", "/api/v1/schedules/:id", {}).allowed).toBe(false);
     expect(decideProviderRoute(tech, "POST", "/api/v1/tenants", {}).allowed).toBe(false);
+  });
+
+  it("lets every provider role look at backup jobs, a technician run one and an administrator change one", () => {
+    const reader = access("read_only");
+    const tech = access("technician");
+    const admin = access("administrator");
+    const list = ["GET", "/api/v1/backup-jobs"] as const;
+    const one = ["GET", "/api/v1/backup-jobs/:id"] as const;
+    const members = ["GET", "/api/v1/backup-jobs/:id/members"] as const;
+    const run = ["POST", "/api/v1/backup-jobs/:id/run"] as const;
+    const writes = [
+      ["POST", "/api/v1/backup-jobs"],
+      ["PATCH", "/api/v1/backup-jobs/:id"],
+      ["DELETE", "/api/v1/backup-jobs/:id"],
+      ["PUT", "/api/v1/backup-jobs/:id/members"],
+      ["POST", "/api/v1/backup-jobs/:id/members"],
+      ["PATCH", "/api/v1/backup-jobs/:id/members/:targetId"],
+      ["DELETE", "/api/v1/backup-jobs/:id/members/:targetId"],
+    ] as const;
+    for (const [method, path] of [list, one, members]) {
+      expect(decideProviderRoute(reader, method, path, {}).allowed, `${method} ${path}`).toBe(true);
+    }
+    // Looking is not running, and running is not changing.
+    expect(decideProviderRoute(reader, ...run, {}).allowed).toBe(false);
+    expect(decideProviderRoute(tech, ...run, {}).allowed).toBe(true);
+    for (const [method, path] of writes) {
+      expect(
+        decideProviderRoute(reader, method, path, {}).allowed,
+        `reader ${method} ${path}`,
+      ).toBe(false);
+      expect(
+        decideProviderRoute(tech, method, path, {}).allowed,
+        `technician ${method} ${path}`,
+      ).toBe(false);
+      expect(decideProviderRoute(admin, method, path, {}).allowed, `admin ${method} ${path}`).toBe(
+        true,
+      );
+    }
+    // The runs under their documented name follow the rules of /jobs.
+    expect(decideProviderRoute(reader, "GET", "/api/v1/runs/:id", {}).allowed).toBe(true);
+    expect(decideProviderRoute(reader, "POST", "/api/v1/runs/backup", {}).allowed).toBe(false);
+    expect(decideProviderRoute(tech, "POST", "/api/v1/runs/backup", {}).allowed).toBe(true);
+  });
+
+  it("lets every provider role read History and the live channel, scoped to the tenant it enters", () => {
+    const routes = [
+      ["GET", "/api/v1/history"],
+      ["GET", "/api/v1/history/:id"],
+      ["GET", "/api/v1/live"],
+    ] as const;
+    for (const role of ["read_only", "technician", "administrator", "owner"] as const) {
+      for (const [method, path] of routes) {
+        // A team member limited to some tenants enters one through the tenant context, which checks it.
+        expect(decideProviderRoute(access(role, [TENANT_A]), method, path, {}).allowed).toBe(true);
+        expect(providerRouteRule(`${method} ${path}`)?.scope.kind).toBe("tenant");
+      }
+    }
+    // Nothing of History writes: there is no rule for a write, so a non-owner is refused.
+    expect(
+      decideProviderRoute(access("administrator"), "POST", "/api/v1/history", {}).allowed,
+    ).toBe(false);
   });
 
   it("applies the rules an extension contributes for its own routes", () => {

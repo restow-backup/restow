@@ -1,24 +1,25 @@
-import { Monitor, Moon, Sun } from "lucide-react";
+import { Moon, Sun } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import { type Theme, useTheme } from "@/components/theme-provider";
+import { AppearanceMenuItems } from "@/components/appearance-menu";
+import { useTheme } from "@/components/theme-provider";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-const THEMES: readonly Theme[] = ["light", "dark", "system"];
-
-/** Light / dark / system picker; the button shows the resolved theme. */
+/**
+ * Appearance picker for pages outside the shell (sign-in, setup): colour
+ * scheme and mode, the same two choices as in the user menu. The button shows
+ * the resolved mode.
+ */
 export function ThemeToggle() {
   const { t } = useTranslation();
-  const { theme, resolvedTheme, setTheme } = useTheme();
+  const { resolvedTheme } = useTheme();
 
   return (
     <DropdownMenu>
@@ -27,19 +28,10 @@ export function ThemeToggle() {
           {resolvedTheme === "dark" ? <Moon /> : <Sun />}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="end" className="w-56">
         <DropdownMenuLabel>{t("theme.label")}</DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuRadioGroup value={theme} onValueChange={(value) => setTheme(value as Theme)}>
-          {THEMES.map((option) => (
-            <DropdownMenuRadioItem key={option} value={option} className="gap-2">
-              {option === "light" ? <Sun className="size-4" /> : null}
-              {option === "dark" ? <Moon className="size-4" /> : null}
-              {option === "system" ? <Monitor className="size-4" /> : null}
-              {t(`theme.${option}`)}
-            </DropdownMenuRadioItem>
-          ))}
-        </DropdownMenuRadioGroup>
+        <AppearanceMenuItems />
       </DropdownMenuContent>
     </DropdownMenu>
   );

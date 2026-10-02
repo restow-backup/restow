@@ -48,6 +48,7 @@ import {
   prepareDownload,
   requestRestoreTest,
   requestUninstall,
+  resumeMachineUpdates,
   revealRepositoryPassword,
   revokeEndpoint,
   revokeEnrollmentToken,
@@ -64,8 +65,9 @@ import {
  *   GET    /tokens?state=valid|all              enrollment tokens: the valid ones (default), or every state
  *   POST   /tokens                              create a one-time token; shown once, with the commands
  *   DELETE /tokens/:tokenId                     revoke an unused token
- *   GET    /agent-updates                       whether the tenant paused automatic agent updates
- *   PUT    /agent-updates                       pause or resume them for every machine of the tenant
+ *   GET    /agent-updates                       the tenant's pause of automatic agent updates, and the machines paused on their own
+ *   PUT    /agent-updates                       pause or resume them for the tenant (also with no machine yet)
+ *   DELETE /agent-updates/machines/:id          lift one machine's own pause
  *   GET    /:id                                 detail: config, runs, waiting and recent tasks, reports
  *                                               (hook texts only for who may change the configuration)
  *   PATCH  /:id                                 name, paths, excludes, schedule, hooks, bandwidth, retention
@@ -162,8 +164,15 @@ endpointsRoutes.get("/agent-updates", admin, async (c) => {
 });
 
 endpointsRoutes.put("/agent-updates", admin, async (c) => {
-  const { paused } = await parseJsonBody(c.req, agentUpdatesSchema);
-  return c.json(await setAgentUpdates(db, c.get("tenantId"), paused, actorOf(c)));
+  const { paused, resumeMachines } = await parseJsonBody(c.req, agentUpdatesSchema);
+  return c.json(
+    await setAgentUpdates(db, c.get("tenantId"), paused, actorOf(c), { resumeMachines }),
+  );
+});
+
+endpointsRoutes.delete("/agent-updates/machines/:id", admin, async (c) => {
+  const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
+  return c.json(await resumeMachineUpdates(db, c.get("tenantId"), id, actorOf(c)));
 });
 
 endpointsRoutes.delete("/tokens/:tokenId", admin, async (c) => {

@@ -12,7 +12,15 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import { archive } from "@restow/core";
-import { type Database, archiveItems, auditLog, createDb, providers, tenants } from "@restow/db";
+import {
+  type Database,
+  archiveItems,
+  auditLog,
+  createDb,
+  providers,
+  retentionPolicies,
+  tenants,
+} from "@restow/db";
 import { eq } from "drizzle-orm";
 import { Hono, type MiddlewareHandler } from "hono";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -252,5 +260,34 @@ describe.skipIf(!testDatabaseAdminUrl)("archive against Postgres", () => {
     };
     expect(broken.ok).toBe(false);
     expect(broken.brokenAt).not.toBeNull();
+  });
+  it("tells the retention that applies: the default until the tenant has a policy of its own, never another tenant's", async () => {
+    const read = async (tenantId: string) => {
+      const res = await app.request("/archive/retention", {
+        headers: { "x-restow-tenant": tenantId },
+      });
+      expect(res.status).toBe(200);
+      return res.json();
+    };
+    expect(await read(contoso)).toEqual({ mode: "end_of_year", years: 8, source: "default" });
+
+    // A backup policy of the same table is not the archive's, and another tenant's is not ours.
+    await owner.insert(retentionPolicies).values([
+      { tenantId: contoso, name: "Backups", years: 1, appliesTo: { target: "snapshots" } },
+      {
+        tenantId: fabrikam,
+        name: "Archive",
+        years: 6,
+        mode: "from_capture",
+        appliesTo: { target: "archive" },
+      },
+    ]);
+    expect(await read(contoso)).toEqual({ mode: "end_of_year", years: 8, source: "default" });
+    expect(await read(fabrikam)).toEqual({ mode: "from_capture", years: 6, source: "tenant" });
+
+    const forbidden = await app.request("/archive/retention", {
+      headers: { "x-restow-tenant": contoso, [ROLE_HEADER]: "tenant_user" },
+    });
+    expect(forbidden.status).toBe(403);
   });
 });

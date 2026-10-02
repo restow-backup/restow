@@ -2,7 +2,13 @@
 // jobs one schedule expands into. Free of I/O so it is unit-tested without a
 // database or a queue (docs/TESTING.md, stage 1).
 
-import { scrubModeForCadence } from "@restow/core";
+import {
+  type JobMemberOverrides,
+  type JobSchedule,
+  mailCadenceOf,
+  mailJobObjectIds,
+  scrubModeForCadence,
+} from "@restow/core";
 import type { Schedule, ScheduleKind } from "@restow/db";
 import { CronSyntaxError, isValidTimeZone, nextCronOccurrence, parseCron } from "./cron.js";
 import {
@@ -40,6 +46,12 @@ export interface TenantTargets {
     readonly kind: "m365" | "imap" | "import";
     readonly status: "pending" | "active" | "error" | "disabled";
   }[];
+  /** The member rows of the tenant's mail jobs (what an "all" job leaves to the others). */
+  readonly jobMembers?: readonly {
+    readonly jobId: string;
+    readonly protectedObjectId: string;
+    readonly overrides: JobMemberOverrides;
+  }[];
 }
 
 /** A job the scheduler intends to enqueue this tick. */
@@ -68,7 +80,10 @@ export function isDue(schedule: ScheduleRow, now: Date): boolean {
  * in their zone. Throws on an invalid cron expression or time zone, which the
  * tick loop turns into a deferred retry instead of a hot loop.
  */
-export function computeNextRunAt(schedule: ScheduleRow, now: Date): Date {
+export function computeNextRunAt(
+  schedule: Pick<ScheduleRow, "id" | "intervalMinutes" | "cron" | "timezone">,
+  now: Date,
+): Date {
   if (schedule.intervalMinutes !== null) {
     if (schedule.intervalMinutes <= 0) {
       throw new Error(`schedule ${schedule.id}: interval must be positive`);
@@ -202,3 +217,131 @@ function assertNever(kind: never): never {
 }
 
 export type { ScheduleKind };
+
+// ---------------------------------------------------------------------------
+// Backup jobs (mail): backups and restore checks planned from their definition
+// ---------------------------------------------------------------------------
+
+/** The `backup_jobs` columns the planner reads (mail jobs). */
+export interface BackupJobRow {
+  readonly id: string;
+  readonly tenantId: string;
+  readonly scopeMode: "all" | "selected";
+  readonly schedule: JobSchedule | null;
+  readonly verifySchedule: JobSchedule | null;
+  readonly nextRunAt: Date | null;
+  readonly lastRunAt: Date | null;
+  readonly verifyNextRunAt: Date | null;
+  readonly verifyLastRunAt: Date | null;
+}
+
+/** A member row that carries a schedule of its own. */
+export interface JobMemberRow {
+  readonly id: string;
+  readonly jobId: string;
+  readonly protectedObjectId: string;
+  readonly overrides: JobMemberOverrides;
+  readonly nextRunAt: Date | null;
+  readonly lastRunAt: Date | null;
+  readonly verifyNextRunAt: Date | null;
+  readonly verifyLastRunAt: Date | null;
+}
+
+/**
+ * One thing the scheduler does for a mail job: the backups or the restore checks of the job's
+ * objects on the job's own timer (`level: "job"`), or of one object whose member row carries a
+ * schedule of its own, on that member's timer (`level: "member"`).
+ */
+export type JobUnit =
+  | { readonly level: "job"; readonly what: "backup" | "verify"; readonly job: BackupJobRow }
+  | {
+      readonly level: "member";
+      readonly what: "backup" | "verify";
+      readonly job: BackupJobRow;
+      readonly member: JobMemberRow;
+    };
+
+/** The schedule a unit runs on. */
+export function unitSchedule(unit: JobUnit): JobSchedule | null {
+  if (unit.level === "job") {
+    return unit.what === "backup" ? unit.job.schedule : unit.job.verifySchedule;
+  }
+  return unit.what === "backup"
+    ? (unit.member.overrides.schedule ?? null)
+    : (unit.member.overrides.verifySchedule ?? null);
+}
+
+/** When the unit last ran next time was planned, as stored (null: never planned, due at once). */
+export function unitNextRunAt(unit: JobUnit): Date | null {
+  if (unit.level === "job") {
+    return unit.what === "backup" ? unit.job.nextRunAt : unit.job.verifyNextRunAt;
+  }
+  return unit.what === "backup" ? unit.member.nextRunAt : unit.member.verifyNextRunAt;
+}
+
+/** The next run of a unit after `now`; throws for a schedule that cannot be planned (the loop defers it). */
+export function computeUnitNextRunAt(unit: JobUnit, now: Date): Date {
+  const schedule = unitSchedule(unit);
+  const id = unit.level === "job" ? unit.job.id : unit.member.id;
+  const cadence = schedule ? mailCadenceOf(schedule) : null;
+  if (cadence === null) {
+    throw new Error(`backup job ${id}: the schedule cannot be planned`);
+  }
+  return computeNextRunAt(
+    {
+      id,
+      intervalMinutes: cadence.intervalMinutes,
+      cron: cadence.cron,
+      timezone: cadence.timezone,
+    },
+    now,
+  );
+}
+
+/** Whether a stored timer is due: never planned, or at or before `now`. */
+export function isTimerDue(nextRunAt: Date | null, now: Date): boolean {
+  return nextRunAt === null || nextRunAt.getTime() <= now.getTime();
+}
+
+/** The jobs of the unit: one backup or verify per object it covers, singleton per object like a schedule's. */
+export function expandJobUnit(
+  unit: JobUnit,
+  targets: TenantTargets,
+  newJobId: () => string,
+): PlannedJob[] {
+  const usableSources = new Set(targets.sources.filter(sourceUsable).map((source) => source.id));
+  const eligible = targets.protectedObjects.map((object) => ({
+    id: object.id,
+    eligible: object.status === "active" && usableSources.has(object.sourceId),
+  }));
+  const members = targets.jobMembers ?? [];
+  const covered = mailJobObjectIds(unit.job, members, eligible);
+  let ids: string[];
+  if (unit.level === "member") {
+    ids = covered.includes(unit.member.protectedObjectId) ? [unit.member.protectedObjectId] : [];
+  } else {
+    // An object with a schedule of its own for this kind runs on its member's timer, not the job's.
+    const own = new Set(
+      members
+        .filter(
+          (member) =>
+            member.jobId === unit.job.id &&
+            (unit.what === "backup"
+              ? member.overrides.schedule !== undefined
+              : member.overrides.verifySchedule !== undefined),
+        )
+        .map((member) => member.protectedObjectId),
+    );
+    ids = covered.filter((id) => !own.has(id));
+  }
+  const base = { tenantId: unit.job.tenantId, backupJobId: unit.job.id };
+  return ids.map((protectedObjectId) =>
+    unit.what === "backup"
+      ? planned("backup", { ...base, jobId: newJobId(), protectedObjectId }, protectedObjectId)
+      : planned(
+          "verify",
+          { ...base, jobId: newJobId(), protectedObjectId, kind: "verify" },
+          protectedObjectId,
+        ),
+  );
+}

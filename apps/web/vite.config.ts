@@ -4,6 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 
+import { fontPreloadPlugin } from "./vite/font-preload";
 import { maintenancePagePlugin } from "./vite/maintenance-page";
 
 /**
@@ -64,7 +65,8 @@ function vendorChunk(id: string): string | undefined {
 // plugin (no PostCSS config), and `@/` resolves to `src/` to match tsconfig.
 export default defineConfig({
   // maintenancePagePlugin writes dist/maintenance/*: the page the edge serves while the api is down.
-  plugins: [react(), tailwindcss(), maintenancePagePlugin()],
+  // fontPreloadPlugin adds the preload links of the first-paint fonts to dist/index.html.
+  plugins: [react(), tailwindcss(), maintenancePagePlugin(), fontPreloadPlugin()],
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "./src"),

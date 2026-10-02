@@ -34,7 +34,9 @@ name: Release
 # restow-web-community is set to public after the first push, the arm64 hosted runner (ubuntu-24.04-arm) is available, and
 # the environment agent-release-signing exists with the maintainer as required
 # reviewer (without it the signature job fails until the signature is there,
-# and scripts/release/sign-agent.sh re-runs it).
+# and scripts/release/sign-agent.sh re-runs it). The optional repository variable
+# REQUIRE_SIGNED_TAGS=true turns a tag whose signature GitHub cannot verify from a
+# warning into a failure of the verify job (docs/CI.md, "Repository variables").
 
 on:
   push:
@@ -81,6 +83,9 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
+          # Opt-in strict mode (docs/CI.md, "Repository variables"): "true" makes a tag
+          # whose signature GitHub cannot verify fail the release instead of warning.
+          REQUIRE_SIGNED_TAGS: ${{ vars.REQUIRE_SIGNED_TAGS }}
         run: |
           set -euo pipefail
           # Annotated: the ref points at a tag object, not straight at a commit.
@@ -89,18 +94,64 @@ jobs:
             echo "::error::$TAG is a lightweight tag. Release tags are annotated and signed: git tag -s $TAG"
             exit 1
           fi
-          # Signed: GitHub verifies the signature against the tagger's keys. A
-          # tag it cannot verify is reported, not refused, because the maintainer's
-          # public key may not be registered with GitHub.
+          # Signed: GitHub verifies the signature against the keys of the tagger's account.
+          # By default a tag it cannot verify is reported, not refused, because the
+          # maintainer's signing key may not be registered with GitHub (the agent release key
+          # is separate, agent/README.md). With REQUIRE_SIGNED_TAGS=true it is refused.
+          # The reason is one of the documented values of the "verification" object of the
+          # Git tags API; "unsigned" (no signature at all) needs another fix than the rest.
           object="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq '.object.sha')"
           verified="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object" --jq '.verification.verified')"
-          reason="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object" --jq '.verification.reason')"
+          reason="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object" --jq '.verification.reason // "unknown"')"
+          unverified_tag=false
           if [ "$verified" != "true" ]; then
-            echo "::warning::GitHub could not verify the signature of $TAG ($reason). Upload the signing key to the maintainer's GitHub account to show it as verified."
+            case "$reason" in
+              unsigned)
+                problem="$TAG carries no signature (reason: unsigned); it was probably created with git tag -a. Release tags must be created with git tag -s $TAG, with SSH or GPG signing configured (for SSH: git config gpg.format ssh and git config user.signingkey <public key file>)."
+                ;;
+              unknown_key)
+                problem="$TAG is signed, but GitHub does not know the key (reason: unknown_key). Add the public key to the tagger's GitHub account as a signing key (Settings > SSH and GPG keys > New SSH key > Key type: Signing Key; an authentication key does not verify signatures)."
+                ;;
+              not_signing_key)
+                problem="$TAG is signed, but not with a signing key (reason: not_signing_key). Add the SSH key as a Signing Key (a key added only for authentication does not count), or use a GPG key that is allowed to sign."
+                ;;
+              expired_key)
+                problem="$TAG is signed, but with an expired key (reason: expired_key). Extend the key or sign with a current one (git tag -s), and update the key at GitHub."
+                ;;
+              no_user)
+                problem="$TAG is signed, but GitHub finds no account for the tagger e-mail (reason: no_user). Create the tag with the e-mail of the maintainer's GitHub account (git config user.email), or add that address to the account."
+                ;;
+              unverified_email)
+                problem="$TAG is signed, but the tagger e-mail is not verified on the maintainer's GitHub account (reason: unverified_email). Verify the address under Settings > Emails."
+                ;;
+              bad_email)
+                # Assumption: the documented text speaks of PGP key identities; for an SSH
+                # signature the equivalent is that the tagger e-mail is not one of the account's.
+                problem="$TAG is signed, but the tagger e-mail does not match the signing key (reason: bad_email). Use a tagger e-mail (git config user.email) that belongs to the key's identities and to the maintainer's verified GitHub e-mail addresses."
+                ;;
+              malformed_signature | invalid | unknown_signature_type)
+                problem="$TAG has a signature GitHub cannot read or check (reason: $reason). Delete the tag and create it again with git tag -s $TAG; GitHub verifies GPG, SSH and S/MIME signatures."
+                ;;
+              gpgverify_error | gpgverify_unavailable)
+                problem="GitHub's signature verification service did not answer (reason: $reason), so the signature of $TAG was not checked. This is not a problem of the tag: re-run this workflow later."
+                ;;
+              *)
+                problem="$TAG is signed, but GitHub cannot match the signature to a verified identity (reason: $reason). Check that the signing key is added to the tagger's GitHub account as a signing key and that the tagger e-mail (git config user.email) is a verified address of that account."
+                ;;
+            esac
+            if [ "${REQUIRE_SIGNED_TAGS:-}" = "true" ]; then
+              echo "::error::$problem REQUIRE_SIGNED_TAGS is true, so an unverified tag fails the release."
+              unverified_tag=true
+            else
+              echo "::warning::$problem This is only a warning; set the repository variable REQUIRE_SIGNED_TAGS to true to refuse unverified tags."
+            fi
           fi
           # Only from main: the tagged commit is reachable from origin/main.
           if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
             echo "::error::$TAG points at $GITHUB_SHA, which is not on main. Release tags are made on main only."
+            exit 1
+          fi
+          if [ "$unverified_tag" = "true" ]; then
             exit 1
           fi
 

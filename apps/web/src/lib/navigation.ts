@@ -10,14 +10,32 @@ import type { GatedFeature } from "@/lib/api";
  */
 
 /**
- * The sidebar's sections, in order. A "Pinned" section will open the list
- * once pins exist (0.2.0); it is shown only when it has entries, so it needs
- * no place here before then. `other` catches an extension's entry without a
- * section; the core places all of its own.
+ * The sidebar's sections, in order. `tenants` is the tenant's own level (the
+ * settings of the active tenant, the tenant-level pages that wait for their
+ * place on the tenant page, and the list of all tenants); where the
+ * installation has one organisation only it is labelled "Organisation"
+ * ({@link navGroupLabelKey}). `installation` is the operator's level: the
+ * server, the team, the audit log, the license. A "Pinned" section will open
+ * the list once pins exist (0.2.0); it is shown only when it has entries, so
+ * it needs no place here before then. `other` catches an extension's entry
+ * without a section; the core places all of its own.
  */
-export const NAV_GROUPS = ["daily", "mail", "endpoints", "tenants", "admin", "other"] as const;
+export const NAV_GROUPS = [
+  "daily",
+  "mail",
+  "endpoints",
+  "tenants",
+  "installation",
+  "other",
+] as const;
 
 export type NavGroupId = (typeof NAV_GROUPS)[number];
+
+/**
+ * Id of the entry for the list of all tenants (tenant management). The
+ * header names its level "All tenants" instead of a single tenant.
+ */
+export const ALL_TENANTS_NAV_ID = "tenants";
 
 /**
  * What a {@link NavLock} (and {@link NavItem.visible}) decides on: the
@@ -61,8 +79,8 @@ export interface NavItem {
   /**
    * Search params the entry's link carries (`/jobs?type=mail`). The entry is
    * active only while the location carries them too, and it is more specific
-   * than an entry on the same path without them (`/settings?section=about`
-   * is License, not Settings).
+   * than an entry on the same path without them (`/jobs?type=mail` is the mail
+   * jobs, not the run list that shares the address).
    */
   search?: Readonly<Record<string, string>>;
   /** i18n key including namespace, e.g. `dashboard:nav`. */
@@ -87,9 +105,9 @@ export interface NavItem {
   /**
    * Whether the installation offers the entry at all, decided on the same
    * context as a lock (e.g. a gated feature); hidden while it says false.
-   * Two entries that stand for each other use it (Setup in a one-tenant
-   * installation, All tenants with tenant management), never to hide what a
-   * lock should grey out.
+   * Two entries that stand for each other use it ("Settings" of the one
+   * organisation, "Tenant settings" with tenant management), never to hide
+   * what a lock should grey out.
    */
   visible?: (context: NavLockContext) => boolean;
   /**
@@ -122,6 +140,11 @@ export type RoleCheck = (role: string | null, allowed: readonly string[] | undef
 /** Search params of the current location, as the router parsed them. */
 export type LocationSearch = Readonly<Record<string, unknown>>;
 
+/**
+ * Keywords that place an entry without an explicit section, first match wins.
+ * The order matters: `tenant-settings` is a tenant entry although it also
+ * says "setting".
+ */
 const GROUP_BY_KEYWORD: readonly [NavGroupId, readonly string[]][] = [
   ["daily", ["dashboard", "overview", "home", "history", "verify", "readiness", "alert", "stats"]],
   ["endpoints", ["endpoint", "inventory", "machine", "agent", "file-restore"]],
@@ -129,25 +152,28 @@ const GROUP_BY_KEYWORD: readonly [NavGroupId, readonly string[]][] = [
     "mail",
     ["mail", "restore", "archive", "journal", "hold", "export", "onedrive", "mailbox", "imap"],
   ],
-  ["tenants", ["tenant", "setup"]],
+  ["tenants", ["tenant", "organisation", "setup", "member", "repositor", "integration"]],
   [
-    "admin",
-    [
-      "setting",
-      "user",
-      "member",
-      "team",
-      "audit",
-      "storage",
-      "repositor",
-      "notification",
-      "integration",
-      "api",
-      "license",
-      "resource",
-    ],
+    "installation",
+    ["setting", "user", "team", "audit", "storage", "notification", "api", "license", "resource"],
   ],
 ];
+
+/**
+ * i18n key (namespace common) of a section's label. The tenants section reads
+ * "Organisation" where the installation does not manage tenants (feature
+ * `tenants.additional` off): there is the one organisation and the word
+ * "tenant" has no place in the menu.
+ */
+export function navGroupLabelKey(
+  group: NavGroupId,
+  context: Pick<NavLockContext, "features">,
+): string {
+  if (group === "tenants" && !(context.features ?? []).includes("tenants.additional")) {
+    return "nav.groups.organisation";
+  }
+  return `nav.groups.${group}`;
+}
 
 /** Infer the sidebar section from an item id such as `mail-exports`. */
 export function inferNavGroup(id: string): NavGroupId {

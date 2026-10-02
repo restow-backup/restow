@@ -20,7 +20,7 @@ import { useSession } from "@/lib/session";
 
 import { tenantKeys } from "../api";
 import { useDeleteTenant } from "../hooks";
-import { fallbackTenant, genericError } from "../presenters";
+import { deleteTenantError, fallbackTenant } from "../presenters";
 import type { TenantItem } from "../types";
 
 interface DeleteTenantDialogProps {
@@ -100,7 +100,7 @@ function DeleteTenantForm({ tenant, onCancel, onDeleted }: DeleteTenantFormProps
     });
   };
 
-  const error = remove.error ? genericError(remove.error) : null;
+  const error = remove.error ? deleteTenantError(remove.error) : null;
 
   return (
     <form onSubmit={submit} className="space-y-4">

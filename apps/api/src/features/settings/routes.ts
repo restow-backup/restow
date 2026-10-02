@@ -5,6 +5,7 @@ import { requestLanguage } from "../../lib/language.js";
 import { clientIp } from "../../lib/request.js";
 import { type SessionEnv, refuseApiKeys, requireProviderAdmin } from "../../middleware/session.js";
 import { acceptDisclaimerSchema, parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { getDefaultStorage, testDefaultStorage } from "./default-storage.js";
 import { saveMicrosoftAppSchema, testMicrosoftAppSchema } from "./microsoft-app/schemas.js";
 import {
   getMicrosoftApp,
@@ -13,7 +14,7 @@ import {
   testMicrosoftApp,
 } from "./microsoft-app/service.js";
 import { browserOrigin } from "./origin.js";
-import { mailTestSchema, updateSettingsSchema } from "./schemas.js";
+import { mailNotNeededSchema, mailTestSchema, updateSettingsSchema } from "./schemas.js";
 import {
   type Actor,
   type RequestContext,
@@ -21,6 +22,7 @@ import {
   getSettings,
   removeMailConfiguration,
   sendTestMail,
+  setMailNotNeeded,
   updateSettings,
 } from "./service.js";
 
@@ -32,6 +34,8 @@ import {
  *   POST   /mail/test             send a test notification (stored or draft transport) in the
  *                                  requester's language (Accept-Language)
  *   DELETE /mail                  remove the mail transport and its stored password
+ *   PUT    /mail/not-needed       mark the notification mail as not needed for the Start
+ *                                  checklist, or take the mark back ({ notNeeded: boolean })
  *   GET    /passkey-ready         re-check the passkey gate plus a server-side HTTPS probe
  *   POST   /disclaimer            accept the current operator responsibility notice (provider
  *                                  owner or administrator; for an installation set up before the notice existed, or
@@ -41,6 +45,10 @@ import {
  *   PUT    /microsoft-app         save it (client secret or certificate are write-only)
  *   POST   /microsoft-app/test    acquire a Graph token and compare the granted permissions
  *   DELETE /microsoft-app         remove the saved registration
+ *   GET    /default-storage       the installation's default storage (from the environment), how
+ *                                  many tenants keep their data on it, the last test of it
+ *   POST   /default-storage/test  write/read/list/delete probe and Object Lock detection on the
+ *                                  default; recorded in the installation audit chain
  *
  * Responses never contain secrets; the SMTP password, the client secret and the
  * certificate's private key are write-only. API keys are refused (403): these
@@ -80,6 +88,11 @@ settingsRoutes.post("/mail/test", async (c) => {
 
 settingsRoutes.delete("/mail", async (c) => {
   return c.json(await removeMailConfiguration(providerDb, actorOf(c), requestContext(c)));
+});
+
+settingsRoutes.put("/mail/not-needed", async (c) => {
+  const input = await parseJsonBody(c.req, mailNotNeededSchema);
+  return c.json(await setMailNotNeeded(providerDb, input.notNeeded, actorOf(c)));
 });
 
 settingsRoutes.get("/passkey-ready", async (c) => {
@@ -126,4 +139,12 @@ settingsRoutes.post("/microsoft-app/test", async (c) => {
 
 settingsRoutes.delete("/microsoft-app", async (c) => {
   return c.json(await removeMicrosoftApp(providerDb, actorOf(c), requestContext(c)));
+});
+
+settingsRoutes.get("/default-storage", async (c) => {
+  return c.json(await getDefaultStorage(providerDb));
+});
+
+settingsRoutes.post("/default-storage/test", async (c) => {
+  return c.json(await testDefaultStorage(providerDb, actorOf(c)));
 });

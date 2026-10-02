@@ -28,8 +28,8 @@ export const teamNavItems: NavItem[] = [
     labelKey: "team:nav",
     icon: Users,
     roles: ["provider_admin"],
-    group: "admin",
-    order: 50,
+    group: "installation",
+    order: 20,
     lock: editionLock("business"),
   },
 ];

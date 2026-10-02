@@ -8,13 +8,16 @@ import archiveDe from "../resources/de/archive.json" with { type: "json" };
 import auditDe from "../resources/de/audit.json" with { type: "json" };
 import authDe from "../resources/de/auth.json" with { type: "json" };
 import backupDe from "../resources/de/backup.json" with { type: "json" };
+import backupjobsDe from "../resources/de/backupjobs.json" with { type: "json" };
 import commonDe from "../resources/de/common.json" with { type: "json" };
 import dashboardDe from "../resources/de/dashboard.json" with { type: "json" };
 import directoryDe from "../resources/de/directory.json" with { type: "json" };
 import endpointsDe from "../resources/de/endpoints.json" with { type: "json" };
 import exportsDe from "../resources/de/exports.json" with { type: "json" };
 import failuresDe from "../resources/de/failures.json" with { type: "json" };
+import historyDe from "../resources/de/history.json" with { type: "json" };
 import importsDe from "../resources/de/imports.json" with { type: "json" };
+import installationDe from "../resources/de/installation.json" with { type: "json" };
 import integrationsDe from "../resources/de/integrations.json" with { type: "json" };
 import notificationsDe from "../resources/de/notifications.json" with { type: "json" };
 import reportsDe from "../resources/de/reports.json" with { type: "json" };
@@ -27,6 +30,7 @@ import sourcesDe from "../resources/de/sources.json" with { type: "json" };
 import statsDe from "../resources/de/stats.json" with { type: "json" };
 import storageDe from "../resources/de/storage.json" with { type: "json" };
 import teamDe from "../resources/de/team.json" with { type: "json" };
+import tenantpageDe from "../resources/de/tenantpage.json" with { type: "json" };
 import tenantsDe from "../resources/de/tenants.json" with { type: "json" };
 import uiDe from "../resources/de/ui.json" with { type: "json" };
 import updatesDe from "../resources/de/updates.json" with { type: "json" };
@@ -37,13 +41,16 @@ import archiveEn from "../resources/en/archive.json" with { type: "json" };
 import auditEn from "../resources/en/audit.json" with { type: "json" };
 import authEn from "../resources/en/auth.json" with { type: "json" };
 import backupEn from "../resources/en/backup.json" with { type: "json" };
+import backupjobsEn from "../resources/en/backupjobs.json" with { type: "json" };
 import commonEn from "../resources/en/common.json" with { type: "json" };
 import dashboardEn from "../resources/en/dashboard.json" with { type: "json" };
 import directoryEn from "../resources/en/directory.json" with { type: "json" };
 import endpointsEn from "../resources/en/endpoints.json" with { type: "json" };
 import exportsEn from "../resources/en/exports.json" with { type: "json" };
 import failuresEn from "../resources/en/failures.json" with { type: "json" };
+import historyEn from "../resources/en/history.json" with { type: "json" };
 import importsEn from "../resources/en/imports.json" with { type: "json" };
+import installationEn from "../resources/en/installation.json" with { type: "json" };
 import integrationsEn from "../resources/en/integrations.json" with { type: "json" };
 import notificationsEn from "../resources/en/notifications.json" with { type: "json" };
 import reportsEn from "../resources/en/reports.json" with { type: "json" };
@@ -56,6 +63,7 @@ import sourcesEn from "../resources/en/sources.json" with { type: "json" };
 import statsEn from "../resources/en/stats.json" with { type: "json" };
 import storageEn from "../resources/en/storage.json" with { type: "json" };
 import teamEn from "../resources/en/team.json" with { type: "json" };
+import tenantpageEn from "../resources/en/tenantpage.json" with { type: "json" };
 import tenantsEn from "../resources/en/tenants.json" with { type: "json" };
 import uiEn from "../resources/en/ui.json" with { type: "json" };
 import updatesEn from "../resources/en/updates.json" with { type: "json" };
@@ -84,6 +92,8 @@ export const namespaces = [
   "sources",
   "directory",
   "backup",
+  "backupjobs",
+  "history",
   "failures",
   "schedules",
   "restore",
@@ -97,6 +107,8 @@ export const namespaces = [
   "audit",
   "integrations",
   "settings",
+  "installation",
+  "tenantpage",
   "updates",
   "notifications",
   "reports",
@@ -134,6 +146,8 @@ export const resources = {
     sources: sourcesDe,
     directory: directoryDe,
     backup: backupDe,
+    backupjobs: backupjobsDe,
+    history: historyDe,
     failures: failuresDe,
     schedules: schedulesDe,
     restore: restoreDe,
@@ -147,6 +161,8 @@ export const resources = {
     audit: auditDe,
     integrations: integrationsDe,
     settings: settingsDe,
+    installation: installationDe,
+    tenantpage: tenantpageDe,
     updates: updatesDe,
     notifications: notificationsDe,
     reports: reportsDe,
@@ -164,6 +180,8 @@ export const resources = {
     sources: sourcesEn,
     directory: directoryEn,
     backup: backupEn,
+    backupjobs: backupjobsEn,
+    history: historyEn,
     failures: failuresEn,
     schedules: schedulesEn,
     restore: restoreEn,
@@ -177,6 +195,8 @@ export const resources = {
     audit: auditEn,
     integrations: integrationsEn,
     settings: settingsEn,
+    installation: installationEn,
+    tenantpage: tenantpageEn,
     updates: updatesEn,
     notifications: notificationsEn,
     reports: reportsEn,

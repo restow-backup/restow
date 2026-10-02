@@ -51,15 +51,26 @@ no Go, no network). A new restic pin therefore needs `vendor`, a review of the d
 are done.
 
 Dependabot (`.github/dependabot.yml`) opens version updates weekly (Monday 06:00
-Europe/Berlin), one pull request per update, for the pnpm workspace, the Go module of
-the agent, the GitHub Actions and every Dockerfile (the product image, the demo's
-Dovecot image, the updater test stubs). Major versions of Node and PostgreSQL (and of
-`@types/node`) are ignored: they are decisions, not updates. Every Dependabot pull
-request runs the normal CI, including the license check and the audit, so an update
-that brings in a license outside the policy cannot be merged. Updated by hand: the
-images pinned by digest in `ci.yml` (gitleaks, actionlint), the Go and restic pins in
-`agent/tools.env`, and `scripts/smoke/e2e` (playwright-core must match the pinned
-Playwright image).
+Europe/Berlin) for the pnpm workspace, the Go module of the agent, the GitHub Actions
+and the Dockerfiles (the product image, the updater test stubs). Patch and minor
+updates arrive grouped, with a low limit of open pull requests: better-auth with its
+passkey plugin, the TanStack packages, then development and production dependencies;
+all actions in one group, all images in one group. Major versions of Node and
+PostgreSQL (and of `@types/node`) are ignored: they are decisions, not updates. Known
+major migrations (vite, vitest, intl-messageformat, archiver) are ignored too and done
+by hand, one at a time. The demo's Dovecot image has its own entry that never moves the
+Alpine base automatically: its `dovecot.conf` is Dovecot 2.3 syntax, so the base moves
+by hand together with a config check and a demo rebuild.
+
+Every Dependabot pull request runs the normal CI (once: pushes to `dependabot/**`
+branches are skipped, the pull request run covers them), including the license check
+and the audit. The pull requests are a to-do signal, not something to merge: their
+commits carry no DCO sign-off and they do not regenerate `THIRD_PARTY_NOTICES.md`. The
+update is redone in the development tree (followed by
+`node scripts/third-party-notices.mjs`), tested, shipped with the next release, and the
+bot pull request is closed. Updated by hand: the images pinned by digest in `ci.yml`
+(gitleaks, actionlint), the Go and restic pins in `agent/tools.env`, and
+`scripts/smoke/e2e` (playwright-core must match the pinned Playwright image).
 
 ## Two build targets
 
@@ -172,13 +183,22 @@ image).
    `pnpm smoke` locally, or **Actions > Smoke > Run workflow**, and summarise it in
    the Verification section.
 2. Tag the commit on `main`, annotated and signed, and push the tag:
-   `git tag -s vX.Y.Z -m "Restow X.Y.Z" && git push origin vX.Y.Z`.
+   `git tag -s vX.Y.Z -m "Restow X.Y.Z" && git push origin vX.Y.Z`. `git tag -a` makes
+   an annotated tag without a signature: GitHub reports it as `unsigned`. To have GitHub
+   show the tag as verified, the signing key must be added to the maintainer's GitHub
+   account as a *signing* key (an authentication key does not count) and the tagger
+   e-mail (`git config user.email`) must be a verified address of that account.
 3. `release.yml` then runs, in this order:
    - **verify**: the tag is annotated, its commit is on `main`, `package.json` has the
      same version, `CHANGELOG.md` has that version with a real date and all required
      sections (`scripts/ci/check-release.mjs`), `deploy/install/install.sh` installs that
-     version by default (`DEFAULT_VERSION`), and `agent/` exists. A signature GitHub
-     cannot verify is a warning, not an error.
+     version by default (`DEFAULT_VERSION`), and `agent/` exists. A tag signature GitHub
+     cannot verify is a warning by default and names the reason GitHub reports: the tag
+     carries no signature (`unsigned`: create it with `git tag -s`), or it is signed but
+     GitHub cannot match it (`unknown_key`, `not_signing_key`, `no_user`,
+     `unverified_email`, `bad_email` and others: add the key as a signing key, verify
+     the tagger e-mail). With the repository variable `REQUIRE_SIGNED_TAGS` set to
+     `true` ("Repository variables") it is an error and the release stops here.
    - **ci**: the whole of `ci.yml` on the tagged commit.
    - **agent**: builds the endpoint agent for every target as the release version
      (`agent/build.sh` allows that because `agent/release-signing.pub` holds the
@@ -190,7 +210,9 @@ image).
      maintainer ran `scripts/release/sign-agent.sh vX.Y.Z --key <private key>` on the
      signing machine (it signs `agent-SHA256SUMS`, checks the signature against the
      committed public key, uploads `agent-SHA256SUMS.sig` and approves this job); then
-     checks that the signature covers exactly this build.
+     checks that the signature covers exactly this build. The script runs from any
+     directory and needs no clone: without a clone that has the tag it reads the tag and
+     the public key from GitHub (`--repo owner/name`, default `restow-backup/restow`).
    - **build** (amd64 and arm64, each on a native runner): all four images, with the
      signed agent (the Dockerfile checks the signature once more):
      `ghcr.io/<owner>/restow` (api, worker, scheduler, restic, agent downloads,
@@ -231,7 +253,7 @@ Verify an image (the same command for `restow-web`, `restow-community` and
 `restow-web-community`):
 
 ```sh
-cosign verify ghcr.io/restow-backup/restow:0.1.0 \
+cosign verify ghcr.io/restow-backup/restow:0.2.0 \
   --certificate-identity-regexp '^https://github.com/restow-backup/restow/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
@@ -269,6 +291,8 @@ any other).
   `scripts/release/sign-agent.sh` approves it after uploading the signature. Without
   the environment the signature job fails until the signature is there, and the script
   re-runs it.
+- **Repository variables** (Settings > Secrets and variables > Actions > Variables), all
+  optional: see "Repository variables" below.
 
 - **Package visibility.** After the first release run, open the packages `restow`,
   `restow-web`, `restow-community` and `restow-web-community` (your profile or
@@ -285,6 +309,27 @@ any other).
   release still runs, and the report says "skipped: no dev tenant credentials".
 - Private vulnerability reporting (SECURITY.md) and the Discussions category for
   announcements, if you want them.
+
+## Repository variables
+
+Variables hold settings, not secrets (Settings > Secrets and variables > Actions >
+Variables). None is required.
+
+| Variable | Used by | What |
+| --- | --- | --- |
+| `REQUIRE_SIGNED_TAGS` | `release.yml`, job **Verify the tag** | Set to `true` to refuse a release tag whose signature GitHub cannot verify: the step reports an `::error::` with the reason and the fix, and the job fails before anything is built. Unset, empty or any other value keeps the default: the same message as a `::warning::`, and the release goes on. |
+
+`REQUIRE_SIGNED_TAGS` is opt-in because "verified" needs more than a signature: the
+tagger's key has to be registered with GitHub as a signing key and the tagger e-mail has
+to be a verified address of the same account (the agent release key is a separate key and
+has nothing to do with it, `agent/README.md`, "Release signing"). Turn it on once a test
+tag of the maintainer shows "Verified" on GitHub. The messages tell the cases apart by the
+`verification.reason` of the Git tags API: `unsigned` (no signature at all, the tag was made
+with `git tag -a`: use `git tag -s`), `unknown_key` and `not_signing_key` (add the public key as
+a signing key), `no_user`, `unverified_email` and `bad_email` (fix the tagger e-mail), `expired_key`,
+`malformed_signature`, `invalid` and `unknown_signature_type` (sign again), and
+`gpgverify_error` and `gpgverify_unavailable` (GitHub's verification service had a problem:
+re-run the workflow).
 
 ## Secrets
 
@@ -344,9 +389,13 @@ api is restarted, because the journal receiver reads its capability at start. Th
 private key exists only in the memory of the smoke process.
 
 **The Community build** has no license API and exactly one tenant. Check 3 asserts both
-(`GET /api/v1/license` is 404; after the wizard created the first tenant, a second one is
-refused with 403 `urn:restow:problem:feature-unavailable`), and every later check works in
-that one tenant instead of creating its own. Check 6 (the journal receiver, a Business
+(`GET /api/v1/license` is 404; the one tenant is the operator's own organisation the setup
+created, kind `internal`, and a second one is refused with 403
+`urn:restow:problem:feature-unavailable`), and every later check works in that one tenant
+instead of creating its own. Check 3 also proves, in both builds, that the setup created
+exactly that tenant, named as the setup request says and listed first in the profile, and
+check 1's upgrade from the previous release proves that the one tenant of an update from
+0.1.x becomes the own organisation. Check 6 (the journal receiver, a Business
 module) and check 8 (it needs one tenant per storage target; the targets are core code,
 checked in the full run) are reported as skipped with that reason.
 

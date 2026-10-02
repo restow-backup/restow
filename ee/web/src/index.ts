@@ -1,24 +1,41 @@
 import type { WebExtension } from "@/lib/extensions";
 
-import { ArchiveSections } from "./archive-sections";
-import { auditNavItems, auditRoutes } from "./audit-log";
-import { licenseNavItems, licenseNavLocks, licenseSlots } from "./license";
+import { ArchiveSections, ArchiveSettingsSections } from "./archive-sections";
+import { auditNavItems, auditRoutes, auditTenantSections } from "./audit-log";
+import { journalInstallationSections } from "./journal";
+import {
+  licenseInstallationSections,
+  licenseNavItems,
+  licenseNavLocks,
+  licenseSlots,
+} from "./license";
+import { providerApiInstallationSections } from "./provider-api";
 import { ProviderView } from "./provider-dashboard/provider-view";
+import { ReadinessByTenant } from "./provider-dashboard/readiness-by-tenant";
 import { teamNavItems, teamRoute } from "./provider-team";
 
 /**
  * Entry of the Business and Service Provider web modules (ee/README.md),
  * loaded by apps/web/src/features/ee.ts. Each feature contributes its pages,
- * menu entries, locks on core menu entries and page sections (slots) here.
+ * menu entries, locks on core menu entries, sections of the installation page
+ * and of the tenant page, and page sections (slots) here.
  */
 export const eeWebExtension: WebExtension = {
   name: "ee",
   routes: [...auditRoutes, teamRoute],
   navItems: [...auditNavItems, ...licenseNavItems, ...teamNavItems],
   navLocks: licenseNavLocks,
+  tenantSections: auditTenantSections,
+  installationSections: [
+    ...journalInstallationSections,
+    ...providerApiInstallationSections,
+    ...licenseInstallationSections,
+  ],
   slots: {
     "archive.sections": ArchiveSections,
+    "tenant.archiveSettings": ArchiveSettingsSections,
     "dashboard.provider": ProviderView,
+    "verify.byTenant": ReadinessByTenant,
     ...licenseSlots,
   },
 };

@@ -157,6 +157,12 @@
         "body": "Senden Sie eine Nachricht innerhalb Ihrer Organisation. Der Report kommt meist innerhalb weniger Minuten an. Diese Seite zeigt dann Empfang läuft, und die Nachricht steht in der Archivsuche mit der Quelle Exchange-Online-Journal."
       },
       "docs": "Vollständige Anleitung in der Dokumentation"
+    },
+    "hostNote": {
+      "title": "Journal-Host",
+      "description": "Der Name, an den Exchange Online seine Journal-Berichte liefert. Er ist für jeden Mandanten dieses Servers derselbe.",
+      "none": "Nicht gesetzt",
+      "section": "Journal-Empfang"
     }
   },
   "flags": {

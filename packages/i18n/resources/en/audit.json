@@ -154,7 +154,8 @@
     "access": "Access",
     "report": "Alerts",
     "update": "Updates",
-    "endpoint": "Servers and clients"
+    "endpoint": "Servers and clients",
+    "backup_job": "Backup jobs"
   },
   "events": {
     "account": {
@@ -286,10 +287,14 @@
       "requested": "Storage check started"
     },
     "settings": {
+      "default_storage": {
+        "tested": "Default storage tested"
+      },
       "disclaimer_accepted": "Operator responsibility notice accepted",
       "mail": {
         "removed": "Mail delivery removed",
-        "tested": "Mail delivery tested"
+        "tested": "Mail delivery tested",
+        "not_needed": "Mail delivery marked as not needed, or as needed again"
       },
       "microsoft_app": {
         "removed": "Microsoft 365 app registration removed",
@@ -299,7 +304,8 @@
       "updated": "Settings changed"
     },
     "setup": {
-      "completed": "Installation set up"
+      "completed": "Installation set up",
+      "internal_tenant_failed": "Own organisation could not be created during setup"
     },
     "snapshot": {
       "mail": {
@@ -378,7 +384,11 @@
         "removed": "Member removed",
         "role_changed": "Member role changed"
       },
-      "updated": "Tenant changed"
+      "updated": "Tenant changed",
+      "internal": {
+        "marked": "Tenant marked as the own organisation",
+        "unmarked": "Own organisation mark removed"
+      }
     },
     "verify": {
       "report": {
@@ -464,6 +474,16 @@
           "revealed": "Repository password shown"
         }
       }
+    },
+    "backup_job": {
+      "created": "Backup job created",
+      "updated": "Backup job changed",
+      "deleted": "Backup job deleted",
+      "scope": {
+        "changed": "Scope of a backup job changed"
+      },
+      "run_requested": "Backup job run requested",
+      "migrated": "Schedules and machine configurations turned into backup jobs"
     }
   },
   "targetTypes": {
@@ -501,6 +521,8 @@
     "report_rule": "Report rule",
     "update": "Update",
     "endpoint": "Server or client",
-    "endpoint_enrollment_token": "Enrollment token"
-  }
+    "endpoint_enrollment_token": "Enrollment token",
+    "backup_job": "Backup job"
+  },
+  "sectionDescription": "The log of this {scope, select, organisation {organisation} other {tenant}}: who did what, when, with the hash chain that proves it was not changed."
 }

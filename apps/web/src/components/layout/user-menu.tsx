@@ -1,10 +1,11 @@
 import { type SupportedLanguage, supportedLanguages } from "@restow/i18n";
 import { type LinkProps, useNavigate } from "@tanstack/react-router";
-import { Fingerprint, Languages, LogOut, Monitor, Moon, Sun } from "lucide-react";
+import { Fingerprint, Languages, LogOut, Moon, Sun } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { AppearanceMenuItems } from "@/components/appearance-menu";
 import { useSignOut } from "@/components/layout/use-sign-out";
-import { type Theme, useTheme } from "@/components/theme-provider";
+import { useTheme } from "@/components/theme-provider";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,21 +28,15 @@ import { ACCOUNT_PATH } from "@/lib/entry";
 import { initialsOf } from "@/lib/format";
 import { useSession } from "@/lib/session";
 
-const THEMES: readonly { value: Theme; icon: typeof Sun }[] = [
-  { value: "light", icon: Sun },
-  { value: "dark", icon: Moon },
-  { value: "system", icon: Monitor },
-];
-
 /**
  * Avatar button with the signed-in identity, the role in the active tenant,
- * sign-in security, appearance, language and sign-out.
+ * sign-in security, appearance (colour scheme and mode), language and sign-out.
  */
 export function UserMenu() {
   const { t, i18n } = useTranslation();
   const navigate = useNavigate();
   const { user, role, activeTenant } = useSession();
-  const { theme, resolvedTheme, setTheme } = useTheme();
+  const { resolvedTheme } = useTheme();
   const { signOut, signingOut } = useSignOut();
   const language = (i18n.resolvedLanguage ?? i18n.language) as SupportedLanguage;
 
@@ -87,17 +82,7 @@ export function UserMenu() {
               {t("theme.label")}
             </DropdownMenuSubTrigger>
             <DropdownMenuSubContent>
-              <DropdownMenuRadioGroup
-                value={theme}
-                onValueChange={(value) => setTheme(value as Theme)}
-              >
-                {THEMES.map(({ value, icon: Icon }) => (
-                  <DropdownMenuRadioItem key={value} value={value}>
-                    <Icon />
-                    {t(`theme.${value}`)}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
+              <AppearanceMenuItems />
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           <DropdownMenuSub>

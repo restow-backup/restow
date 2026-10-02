@@ -8,15 +8,16 @@ import { apiFetch } from "@/lib/api";
 
 export type ScheduleKind = "backup" | "verify" | "retention" | "scrub" | "directory" | "archive";
 
-/** Kinds an administrator can create; archive sync is not offered yet. */
+/** Kinds a schedule can have (an existing backup or verify schedule can still be edited); archive sync is not offered yet. */
 export type OfferedKind = Exclude<ScheduleKind, "archive">;
-export const OFFERED_KINDS: readonly OfferedKind[] = [
-  "backup",
-  "verify",
-  "scrub",
-  "directory",
-  "retention",
-];
+/**
+ * Kinds an administrator can create. Backups and restore checks are backup jobs
+ * since 0.2.0 (features/backup-jobs); the API creates no backup or verify schedule
+ * any more, so only maintenance is offered here.
+ */
+export const OFFERED_KINDS: readonly OfferedKind[] = ["scrub", "directory", "retention"];
+/** What a new schedule starts as. */
+export const DEFAULT_NEW_KIND: OfferedKind = "scrub";
 
 /** Kinds that can be narrowed to one protected object. */
 export const OBJECT_SCOPED_KINDS: readonly ScheduleKind[] = ["backup", "verify"];
@@ -51,6 +52,11 @@ export interface ScheduleItem {
   nextRunAt: string | null;
   lastRunAt: string | null;
   lastJob: ScheduleLastJob | null;
+  /**
+   * The backup job that took over this backup or verify schedule (release 0.2.0);
+   * null when nothing did. Absent on servers from before 0.2.0, which read as null.
+   */
+  supersededByJobId?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -84,6 +90,11 @@ export interface SchedulePreview {
 
 export interface ApplyRecommendedResult {
   created: ScheduleItem[];
+  /**
+   * The default mail job the recommended set created when no job covered all objects (release 0.2.0);
+   * null when none was needed. Absent on servers from before 0.2.0.
+   */
+  jobCreated?: { id: string; name: string } | null;
   missingKinds: ScheduleKind[];
 }
 

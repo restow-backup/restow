@@ -134,6 +134,12 @@ export interface EventStreamOptions {
   readonly tenantId: string | null;
   readonly onEvent: (event: ServerEvent) => void;
   readonly onStatus?: (status: StreamStatus) => void;
+  /**
+   * Called for every chunk the server sent, comment lines (`: keep-alive`) included: proof the
+   * connection is alive even while nothing changed. The live channel's indicator and its stall
+   * watchdog read it.
+   */
+  readonly onActivity?: () => void;
   /** Injectable for tests. */
   readonly fetchImpl?: typeof fetch;
 }
@@ -207,6 +213,7 @@ export function openEventStream(options: EventStreamOptions): EventStreamHandle 
           if (done) {
             break;
           }
+          options.onActivity?.();
           for (const event of parser.push(decoder.decode(value, { stream: true }))) {
             if (event.event === "error") {
               failed = true;

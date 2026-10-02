@@ -9,6 +9,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  PIN_FIRST,
   Table,
   TableBody,
   TableCell,
@@ -102,10 +103,10 @@ function JobsTable({ jobs }: { jobs: RestoreJob[] }) {
   const now = useNow(jobs.some((job) => job.status === "active" && job.throttle !== null));
 
   return (
-    <Table>
+    <Table className="min-w-[52rem]" scrollLabel={t("jobs.title")}>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          <TableHead>{t("jobs.columns.requested")}</TableHead>
+          <TableHead pin={PIN_FIRST}>{t("jobs.columns.requested")}</TableHead>
           <TableHead>{t("jobs.columns.object")}</TableHead>
           <TableHead className="hidden lg:table-cell">{t("jobs.columns.what")}</TableHead>
           <TableHead>{t("jobs.columns.status")}</TableHead>
@@ -119,7 +120,7 @@ function JobsTable({ jobs }: { jobs: RestoreJob[] }) {
           const ratio = progressRatio(job.progress);
           return (
             <TableRow key={job.id} className="cursor-pointer" onClick={() => openJob(job.id)}>
-              <TableCell className="whitespace-nowrap">
+              <TableCell pin={PIN_FIRST} className="whitespace-nowrap">
                 <Link
                   to={jobHref(job.id)}
                   onClick={(event) => event.stopPropagation()}

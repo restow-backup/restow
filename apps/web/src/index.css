@@ -16,7 +16,30 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * Design tokens (light). Neutral zinc scale with a high-contrast primary.
+ * Design tokens (light), from the brand palette (brand guide, section 4):
+ * Limestone is the page, white the cards, Nile the text, Lapis the primary and
+ * the active navigation, Silt the secondary text. The neutral steps in between
+ * (muted, accent, border, input) are tints of Limestone. All values are OKLCH
+ * (tokens.test.ts parses them), converted from the brand hex values.
+ *
+ * Silt (#6B7486) is 4.3:1 on Limestone and 4.1:1 on the muted surface, so
+ * --muted-foreground takes it one step darker (#646D7E) to keep 4.5:1 on the
+ * page, cards and muted panels.
+ *
+ * The brand red (#D64545) is 4.4:1 on white, 4.0:1 on Limestone and 3.8:1 on
+ * the muted surface, too little for the red text of form errors and for white
+ * text on a destructive button. --destructive therefore takes it one step
+ * darker (#C63437, same hue and chroma, 5.3:1 / 4.9:1 / 4.6:1) in the light
+ * scheme; #D64545 stays the brand swatch for fills in charts and reports.
+ * --destructive-text, the text tone on the red tint, follows one step darker
+ * (#AD2E30) because the darker red makes a darker tint. --warning-text is a
+ * hair darker (#825700) so that the Soon badge also reads on the grey active
+ * sidebar entry of the Neutral scheme.
+ *
+ * The mark (the logo) has its own tokens, --mark-hold and --mark-beam: always
+ * the brand colours (Nile and Lapis, Limestone and Lapis Dark in dark mode),
+ * whatever colour scheme is chosen. The Neutral blocks below never set them; a
+ * white-label installation overrides them to brand its own mark.
  *
  * Status tones come in three parts:
  *   --<tone>             the tone itself: solid fills, icons, tints (bg-success/15)
@@ -43,6 +66,167 @@
   color-scheme: light;
   --radius: 0.625rem;
 
+  /* Limestone, white, Nile */
+  --background: oklch(0.97 0.003 264.542);
+  --foreground: oklch(0.221 0.039 258.275);
+  --card: oklch(1 0 0);
+  --card-foreground: oklch(0.221 0.039 258.275);
+  --popover: oklch(1 0 0);
+  --popover-foreground: oklch(0.221 0.039 258.275);
+  /* Lapis */
+  --primary: oklch(0.437 0.135 264.438);
+  --primary-foreground: oklch(1 0 0);
+  --secondary: oklch(0.952 0.006 264.532);
+  --secondary-foreground: oklch(0.221 0.039 258.275);
+  --muted: oklch(0.952 0.006 264.532);
+  /* Silt, one step darker: see above. */
+  --muted-foreground: oklch(0.532 0.03 264.295);
+  --accent: oklch(0.952 0.006 264.532);
+  --accent-foreground: oklch(0.221 0.039 258.275);
+  --border: oklch(0.924 0.009 264.52);
+  --input: oklch(0.865 0.015 260.728);
+  --ring: oklch(0.437 0.135 264.438);
+
+  /* #C63437: the brand red (#D64545) one step darker, see above. */
+  --destructive: oklch(0.55 0.182 24.512);
+  --destructive-foreground: oklch(1 0 0);
+  --destructive-text: oklch(0.5 0.164 24.557);
+  /* Green #2DA37A: proof only. */
+  --success: oklch(0.64 0.12 165.092);
+  --success-foreground: oklch(0.221 0.039 258.275);
+  --success-text: oklch(0.486 0.101 166.051);
+  /* #D69E2E */
+  --warning: oklch(0.735 0.138 80.006);
+  --warning-foreground: oklch(0.221 0.039 258.275);
+  --warning-text: oklch(0.49 0.105 76.287);
+  /* Lapis: running work and plain information. */
+  --info: oklch(0.437 0.135 264.438);
+  --info-foreground: oklch(1 0 0);
+  --info-text: oklch(0.437 0.135 264.438);
+
+  --chart-1: oklch(0.45 0.162 258);
+  --chart-2: oklch(0.67 0.19 45);
+  --chart-3: oklch(0.5 0.162 350);
+  --chart-4: oklch(0.66 0.2 292);
+  --chart-5: oklch(0.61 0.111 178);
+  --chart-success: oklch(0.6 0.12 165);
+  --chart-info: oklch(0.56 0.17 262);
+  --chart-warning: oklch(0.67 0.15 60);
+  --chart-destructive: oklch(0.5 0.2 25);
+  --chart-muted: oklch(0.5 0.012 286);
+
+  /*
+   * White sidebar, Lapis for the primary and the active entry (a Lapis tint
+   * with Lapis text). A hovered entry stays neutral (--sidebar-hover, the
+   * muted grey, with the ordinary sidebar text), so "under the pointer" and
+   * "the page you are on" never look alike.
+   */
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: oklch(0.221 0.039 258.275);
+  --sidebar-primary: oklch(0.437 0.135 264.438);
+  --sidebar-primary-foreground: oklch(1 0 0);
+  --sidebar-accent: oklch(0.946 0.016 266.277);
+  --sidebar-accent-foreground: oklch(0.437 0.135 264.438);
+  --sidebar-hover: oklch(0.952 0.006 264.532);
+  --sidebar-border: oklch(0.924 0.009 264.52);
+  --sidebar-ring: oklch(0.437 0.135 264.438);
+
+  /* The mark: Nile hold, Lapis bar. Not part of any colour scheme. */
+  --mark-hold: oklch(0.221 0.039 258.275);
+  --mark-beam: oklch(0.437 0.135 264.438);
+
+  --sidebar-width: 16rem;
+  --sidebar-width-collapsed: 3.5rem;
+  --topbar-height: 3.5rem;
+}
+
+/*
+ * Design tokens (dark). Same roles on Nile: the page is Nile, cards a step
+ * lighter, muted and accent another step; Lapis steps up to its dark value for
+ * the primary, links and the active entry. Status tones are lifted where text
+ * must read on the dark surfaces (destructive is used as text in places).
+ */
+.dark {
+  color-scheme: dark;
+  --background: oklch(0.221 0.039 258.275);
+  --foreground: oklch(0.97 0.003 264.542);
+  --card: oklch(0.266 0.055 260.319);
+  --card-foreground: oklch(0.97 0.003 264.542);
+  --popover: oklch(0.266 0.055 260.319);
+  --popover-foreground: oklch(0.97 0.003 264.542);
+  --primary: oklch(0.77 0.076 265.415);
+  --primary-foreground: oklch(0.221 0.039 258.275);
+  --secondary: oklch(0.298 0.058 260.554);
+  --secondary-foreground: oklch(0.97 0.003 264.542);
+  --muted: oklch(0.298 0.058 260.554);
+  --muted-foreground: oklch(0.754 0.021 257.486);
+  --accent: oklch(0.298 0.058 260.554);
+  --accent-foreground: oklch(0.97 0.003 264.542);
+  --border: oklch(0.97 0.003 264.542 / 9%);
+  --input: oklch(0.97 0.003 264.542 / 16%);
+  --ring: oklch(0.77 0.076 265.415);
+
+  --destructive: oklch(0.691 0.153 21.856);
+  --destructive-foreground: oklch(0.221 0.039 258.275);
+  --destructive-text: oklch(0.737 0.153 21.856);
+  --success: oklch(0.64 0.12 165.092);
+  --success-foreground: oklch(0.221 0.039 258.275);
+  --success-text: oklch(0.755 0.117 165.79);
+  --warning: oklch(0.735 0.138 80.006);
+  --warning-foreground: oklch(0.221 0.039 258.275);
+  --warning-text: oklch(0.805 0.122 81.359);
+  --info: oklch(0.77 0.076 265.415);
+  --info-foreground: oklch(0.221 0.039 258.275);
+  --info-text: oklch(0.77 0.076 265.415);
+
+  --chart-1: oklch(0.66 0.152 258);
+  /* Slots 2 and 4 are one step lighter (0.55 before) so they keep 3:1 on the lighter Nile-based card. */
+  --chart-2: oklch(0.56 0.152 45);
+  --chart-3: oklch(0.65 0.19 350);
+  --chart-4: oklch(0.56 0.2 292);
+  --chart-5: oklch(0.57 0.104 178);
+  --chart-success: oklch(0.78 0.15 165);
+  --chart-info: oklch(0.7 0.13 258);
+  --chart-warning: oklch(0.82 0.14 72);
+  --chart-destructive: oklch(0.6 0.21 25);
+  --chart-muted: oklch(0.6 0.012 286);
+
+  --sidebar: oklch(0.266 0.055 260.319);
+  --sidebar-foreground: oklch(0.97 0.003 264.542);
+  --sidebar-primary: oklch(0.77 0.076 265.415);
+  --sidebar-primary-foreground: oklch(0.221 0.039 258.275);
+  --sidebar-accent: oklch(0.345 0.057 261.272);
+  --sidebar-accent-foreground: oklch(0.77 0.076 265.415);
+  --sidebar-hover: oklch(0.298 0.058 260.554);
+  --sidebar-border: oklch(0.97 0.003 264.542 / 9%);
+  --sidebar-ring: oklch(0.77 0.076 265.415);
+
+  /* The mark in dark mode: Limestone hold, Lapis Dark bar. */
+  --mark-hold: oklch(0.97 0.003 264.542);
+  --mark-beam: oklch(0.77 0.076 265.415);
+}
+
+/*
+ * Colour scheme "Neutral": the black-and-white look of 0.1.0 (zinc greys, a
+ * near-black primary), chosen next to the mode (light, dark, system) in the
+ * appearance menu. theme-provider.tsx puts data-palette="neutral" on <html>;
+ * the default scheme, Restow, is the blocks above. These two blocks override
+ * only what the scheme owns: surfaces, text, lines, input, ring, the primary
+ * and the sidebar. They are selected by an attribute as well as the root, so
+ * they outrank `:root` and `.dark` above. Both set exactly the same tokens
+ * (tokens.test.ts checks it), so the later dark block always replaces every
+ * value of the light one.
+ *
+ * Not overridden, so they are the brand values in both schemes: the status
+ * tones (green is proof, amber, red, Lapis for running work and information),
+ * the chart tokens, --radius and the sizes. Nor are --mark-hold and
+ * --mark-beam: the mark keeps its brand colours.
+ *
+ * Differences from the 0.1.0 sidebar: a hovered entry is the muted surface
+ * (--sidebar-hover), and in dark the active entry is one step lighter than
+ * that (0.1.0 used the same grey for both), so the two never look alike.
+ */
+:root[data-palette="neutral"] {
   --background: oklch(1 0 0);
   --foreground: oklch(0.141 0.005 285.823);
   --card: oklch(1 0 0);
@@ -62,47 +246,18 @@
   --input: oklch(0.92 0.004 286.32);
   --ring: oklch(0.705 0.015 286.067);
 
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.985 0 0);
-  --destructive-text: oklch(0.49 0.2 27.5);
-  --success: oklch(0.627 0.17 149.2);
-  --success-foreground: oklch(0.985 0 0);
-  --success-text: oklch(0.48 0.13 150.5);
-  --warning: oklch(0.769 0.165 70.08);
-  --warning-foreground: oklch(0.21 0.006 285.885);
-  --warning-text: oklch(0.5 0.14 50);
-  --info: oklch(0.546 0.2 262);
-  --info-foreground: oklch(0.985 0 0);
-  --info-text: oklch(0.49 0.2 263);
-
-  --chart-1: oklch(0.45 0.162 258);
-  --chart-2: oklch(0.67 0.19 45);
-  --chart-3: oklch(0.5 0.162 350);
-  --chart-4: oklch(0.66 0.2 292);
-  --chart-5: oklch(0.61 0.111 178);
-  --chart-success: oklch(0.6 0.12 165);
-  --chart-info: oklch(0.56 0.17 262);
-  --chart-warning: oklch(0.67 0.15 60);
-  --chart-destructive: oklch(0.5 0.2 25);
-  --chart-muted: oklch(0.5 0.012 286);
-
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.141 0.005 285.823);
   --sidebar-primary: oklch(0.21 0.006 285.885);
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: oklch(0.94 0.002 286.375);
   --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
+  --sidebar-hover: oklch(0.967 0.001 286.375);
   --sidebar-border: oklch(0.92 0.004 286.32);
   --sidebar-ring: oklch(0.705 0.015 286.067);
-
-  --sidebar-width: 16rem;
-  --sidebar-width-collapsed: 3.5rem;
-  --topbar-height: 3.5rem;
 }
 
-/* Design tokens (dark). Same roles, stepped for the dark surfaces. */
-.dark {
-  color-scheme: dark;
+.dark[data-palette="neutral"] {
   --background: oklch(0.141 0.005 285.823);
   --foreground: oklch(0.985 0 0);
   --card: oklch(0.21 0.006 285.885);
@@ -121,36 +276,13 @@
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.552 0.016 285.938);
 
-  --destructive: oklch(0.704 0.191 22.216);
-  --destructive-foreground: oklch(0.985 0 0);
-  --destructive-text: oklch(0.77 0.15 21);
-  --success: oklch(0.723 0.17 149.2);
-  --success-foreground: oklch(0.141 0.005 285.823);
-  --success-text: oklch(0.8 0.17 151);
-  --warning: oklch(0.795 0.165 80.08);
-  --warning-foreground: oklch(0.141 0.005 285.823);
-  --warning-text: oklch(0.84 0.16 84);
-  --info: oklch(0.62 0.19 260);
-  --info-foreground: oklch(0.141 0.005 285.823);
-  --info-text: oklch(0.76 0.13 255);
-
-  --chart-1: oklch(0.66 0.152 258);
-  --chart-2: oklch(0.55 0.152 45);
-  --chart-3: oklch(0.65 0.19 350);
-  --chart-4: oklch(0.55 0.2 292);
-  --chart-5: oklch(0.57 0.104 178);
-  --chart-success: oklch(0.78 0.15 165);
-  --chart-info: oklch(0.7 0.13 258);
-  --chart-warning: oklch(0.82 0.14 72);
-  --chart-destructive: oklch(0.6 0.21 25);
-  --chart-muted: oklch(0.6 0.012 286);
-
   --sidebar: oklch(0.17 0.005 285.823);
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.92 0.004 286.32);
   --sidebar-primary-foreground: oklch(0.21 0.006 285.885);
-  --sidebar-accent: oklch(0.274 0.006 286.033);
+  --sidebar-accent: oklch(0.335 0.007 286.033);
   --sidebar-accent-foreground: oklch(0.985 0 0);
+  --sidebar-hover: oklch(0.274 0.006 286.033);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.552 0.016 285.938);
 }
@@ -160,10 +292,20 @@
  * `.light` nor `.dark`, and the only thing on screen is the empty page. That
  * paint follows the system preference, so a dark system never gets a white
  * page first (a stored choice that differs from the system applies as soon as
- * the module runs). tokens.test.ts keeps these values equal to the dark tokens.
+ * the module runs). tokens.test.ts keeps these values equal to the dark tokens
+ * of the scheme (Restow here, Neutral in the block after it).
  */
 @media (prefers-color-scheme: dark) {
   :root:not(.light):not(.dark) {
+    color-scheme: dark;
+    --background: oklch(0.221 0.039 258.275);
+    --foreground: oklch(0.97 0.003 264.542);
+  }
+}
+
+/* The same moment under the Neutral scheme (a scheme applied before the theme, e.g. by a future head script). */
+@media (prefers-color-scheme: dark) {
+  :root[data-palette="neutral"]:not(.light):not(.dark) {
     color-scheme: dark;
     --background: oklch(0.141 0.005 285.823);
     --foreground: oklch(0.985 0 0);
@@ -171,13 +313,18 @@
 }
 
 /*
- * The faces of the wordmark (brand guide, section 3). The app ships no web
- * fonts; the named faces are used where the device has them, the fallbacks are
- * the system faces the rest of the app uses.
+ * Typefaces (brand guide, section 5): Inter Tight for everything a person
+ * reads, IBM Plex Mono for everything a machine produces (logs, figures,
+ * versions, code). Tailwind uses --font-sans as the base font and --font-mono
+ * for `font-mono`. The faces are self-hosted (fonts.css, imported by main.tsx);
+ * until a file has loaded, and for characters it lacks, the system faces below
+ * take over. The wordmark uses the same two (section 3).
  */
 @theme {
-  --font-wordmark: "Inter Tight", ui-sans-serif, system-ui, sans-serif;
-  --font-wordmark-tag: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: "Inter Tight", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-wordmark: var(--font-sans);
+  --font-wordmark-tag: var(--font-mono);
 }
 
 /* Expose the tokens as Tailwind color/radius utilities (bg-background, text-success-text, ...). */
@@ -230,8 +377,12 @@
   --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
   --color-sidebar-accent: var(--sidebar-accent);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-hover: var(--sidebar-hover);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-mark-hold: var(--mark-hold);
+  --color-mark-beam: var(--mark-beam);
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);

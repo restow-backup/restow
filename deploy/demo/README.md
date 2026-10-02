@@ -38,7 +38,11 @@ and "Resource limits".
   browser prefers, so nobody has to find the language switcher first; a
   language the visitor picks in the language menu sticks from then on
   (apps/web `i18n.ts`, `applyDemoLanguage`).
-- Two fictional tenants ("Example Trading Ltd", "Birchwood Consulting Ltd")
+- The demo's own organisation, "Example Managed IT Ltd" (the fictional service
+  provider that runs the demo): the setup wizard's request names it and the api
+  creates it as the first tenant, kind `internal`, listed first and marked as
+  the own organisation. It owns no data of its own in the demo.
+- Two fictional customer tenants ("Example Trading Ltd", "Birchwood Consulting Ltd")
   each own one or two IMAP sources pointing at the demo's own Dovecot
   container, seeded with a few hundred synthetic invoices, orders,
   newsletters, calendar invites and everyday mail spread over the last ten
@@ -440,7 +444,9 @@ plain TypeScript, tested with vitest like the rest of the repository:
   see "Isolation"): waits for `/healthz`, runs the setup wizard's own
   request (the operator responsibility notice needs no step of its own: in
   demo mode the api treats it as accepted, since the demo has no operator and
-  a visitor cannot write), signs in, creates the two demo tenants, adds their IMAP sources
+  a visitor cannot write; its `providerName` becomes the demo's own organisation, which the
+  api creates right after the setup), signs in, creates the two demo customer tenants next
+  to it, adds their IMAP sources
   and protected mailboxes, waits for the first backup Restow queues on its
   own for every new mailbox and starts, one object at a time, any that the
   one-backup-at-a-time rule above skipped, then triggers and waits for the
@@ -558,7 +564,7 @@ How it works (`seed/src/endpoint-files.ts`, `endpoint-agent.ts`,
 
 Honest limits of the simulation: a restore test samples 6 files per backup (the
 agent takes up to 20) to keep the nightly reset short; runs last seconds, so no
-live progress is reported; Windows is not part of Restow 0.1.0 and not
+live progress is reported; Windows is not part of Restow 0.2.0 and not
 simulated. The first retention and repository check of each machine ran early
 in the history, so right after a reset the machine page shows them as weeks old
 and the repository size as "not measured yet"; the scheduler repeats both at
@@ -568,9 +574,9 @@ volume with everything else.
 
 ## The mail archive
 
-Restow 0.1.0 has **no continuous IMAP (or Graph) archive sync**: the worker has
+Restow 0.2.0 has **no continuous IMAP (or Graph) archive sync**: the worker has
 no handler for the archive queue and the schedule kind is not offered (the
-README and the changelog say so too). An archive item in 0.1.0 is written by
+README and the changelog say so too). An archive item in 0.2.0 is written by
 the journal receiver (Exchange Online journaling, Business edition, needs a TLS
 certificate) or by a mail file import with "also archive" (`docs/IMPORT.md`,
 `docs/ARCHIVE.md`). The demo has no Exchange, so its archive is filled by the
@@ -584,7 +590,7 @@ import (`seed/src/archive-seed.ts`):
   under Sources as the import source), and for each message an archive item:
   stored byte-exact, chained into the tenant's hash chain, indexed for full text
   search, with the retention date of the archive's fixed default policy (8 years
-  from the end of the year of capture; Restow 0.1.0 has no API or screen to set
+  from the end of the year of capture; Restow 0.2.0 has no API or screen to set
   another archive policy, so the seed does not invent one).
 - The archive page shows the items, search finds them, and the chain
   verification is green. One example **legal hold** is placed on the Example

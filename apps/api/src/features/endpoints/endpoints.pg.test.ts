@@ -1579,38 +1579,79 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
           `${sha256(binary)}  linux-amd64/restow-agent\n`,
         );
         const tenant = await freshTenant("Update switch tenant");
-        const first = await enrolled("server", tenant);
         const offer = async (who: Enrolled) =>
           (await (await agentRequest(who, "/update")).json()) as { version: string } | null;
 
-        // Unsigned: never offered.
-        expect(await offer(first)).toBeNull();
-        await writeFile(join(dist, "9.0.0", "SHA256SUMS.sig"), "-----BEGIN SSH SIGNATURE-----\n");
-        expect(await offer(first)).toMatchObject({ version: "9.0.0", sha256: sha256(binary) });
-
+        // The pause is a setting of the tenant: it can be set before the first machine exists.
         expect(await service.getAgentUpdates(shared.db, tenant)).toEqual({
           paused: false,
-          endpoints: 1,
+          endpoints: 0,
+          overrides: [],
         });
         expect(await service.setAgentUpdates(shared.db, tenant, true, actor())).toEqual({
           paused: true,
-          endpoints: 1,
+          endpoints: 0,
+          overrides: [],
         });
+        // A machine enrolled while paused is covered by it, without carrying a flag of its own.
+        const first = await enrolled("server", tenant);
+        await writeFile(join(dist, "9.0.0", "SHA256SUMS.sig"), "-----BEGIN SSH SIGNATURE-----\n");
         expect(await offer(first)).toBeNull();
-        // A machine enrolled while paused is paused too.
-        const later = await enrolled("client", tenant);
-        expect(await offer(later)).toBeNull();
+        const [row] = await fixture.db
+          .select({ settings: endpoints.settings })
+          .from(endpoints)
+          .where(eq(endpoints.id, first.endpointId));
+        expect(row?.settings.autoUpdatePaused).toBeUndefined();
         expect(await service.getAgentUpdates(shared.db, tenant)).toEqual({
           paused: true,
-          endpoints: 2,
+          endpoints: 1,
+          overrides: [],
         });
         // Another tenant is not affected.
         const other = await enrolled("server");
-        expect(await offer(other)).toMatchObject({ version: "9.0.0" });
+        expect(await offer(other)).toMatchObject({ version: "9.0.0", sha256: sha256(binary) });
 
+        // Resumed: every machine of the tenant gets the release, also one that enrolled later.
         await service.setAgentUpdates(shared.db, tenant, false, actor());
+        const later = await enrolled("client", tenant);
         expect(await offer(first)).toMatchObject({ version: "9.0.0" });
         expect(await offer(later)).toMatchObject({ version: "9.0.0" });
+
+        // A machine paused on its own (how the pause was kept before it became the tenant's
+        // setting) stays paused, is listed as an override, and is lifted on its own or all at once.
+        await fixture.db
+          .update(endpoints)
+          .set({ settings: { autoUpdatePaused: true } })
+          .where(eq(endpoints.id, first.endpointId));
+        expect(await offer(first)).toBeNull();
+        expect(await offer(later)).toMatchObject({ version: "9.0.0" });
+        const listed = await service.getAgentUpdates(shared.db, tenant);
+        expect(listed.paused).toBe(false);
+        expect(listed.overrides).toHaveLength(1);
+        expect(listed.overrides[0]).toMatchObject({ id: first.endpointId, profile: "server" });
+        // The detail says why the machine is paused.
+        const detail = await service.getEndpoint(shared.db, tenant, first.endpointId, instance.url);
+        expect(detail).toMatchObject({ autoUpdatePaused: true, autoUpdateOwnPause: true });
+        // Resuming the tenant leaves the override alone ...
+        await service.setAgentUpdates(shared.db, tenant, true, actor());
+        await service.setAgentUpdates(shared.db, tenant, false, actor());
+        expect(await offer(first)).toBeNull();
+        // ... unless asked to lift them as well.
+        await service.setAgentUpdates(shared.db, tenant, false, actor(), { resumeMachines: true });
+        expect(await offer(first)).toMatchObject({ version: "9.0.0" });
+        expect((await service.getAgentUpdates(shared.db, tenant)).overrides).toEqual([]);
+        // One machine's own pause can also be lifted by itself.
+        await fixture.db
+          .update(endpoints)
+          .set({ settings: { autoUpdatePaused: true } })
+          .where(eq(endpoints.id, later.endpointId));
+        expect(await offer(later)).toBeNull();
+        await service.resumeMachineUpdates(shared.db, tenant, later.endpointId, actor());
+        expect(await offer(later)).toMatchObject({ version: "9.0.0" });
+        await expect(
+          service.resumeMachineUpdates(shared.db, tenant, randomUUID(), actor()),
+        ).rejects.toMatchObject({ status: 404 });
+
         const actions = (
           await fixture.db.select().from(auditLog).where(eq(auditLog.tenantId, tenant))
         ).map((entry) => entry.action);

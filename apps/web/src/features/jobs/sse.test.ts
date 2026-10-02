@@ -115,6 +115,33 @@ describe("openEventStream", () => {
     expect(statuses.slice(0, 2)).toEqual(["connecting", "open"]);
   });
 
+  it("reports activity for every chunk, keep-alive comments included", async () => {
+    let activity = 0;
+    const events: ServerEvent[] = [];
+    const handle = openEventStream({
+      path: "/live",
+      tenantId: "tenant-1",
+      onEvent: (event) => events.push(event),
+      onActivity: () => activity++,
+      fetchImpl: async () => {
+        const body = new ReadableStream<Uint8Array>({
+          start(controller) {
+            const encoder = new TextEncoder();
+            controller.enqueue(encoder.encode(": keep-alive\n\n"));
+            controller.enqueue(encoder.encode(": keep-alive\n\n"));
+            controller.enqueue(encoder.encode("event: run\ndata: {}\n\n"));
+            controller.close();
+          },
+        });
+        return new Response(body, { status: 200 });
+      },
+    });
+    await until(() => events.length === 1);
+    handle.close();
+    // Three chunks arrived; only one of them was an event.
+    expect(activity).toBeGreaterThanOrEqual(3);
+  });
+
   it("gives up for good on a response retrying cannot fix", async () => {
     let calls = 0;
     const statuses: StreamStatus[] = [];

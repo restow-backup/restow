@@ -1,11 +1,15 @@
 import type { LinkProps } from "@tanstack/react-router";
 
+import { activeTenantPageTo } from "@/lib/tenant-paths";
+
 import type { FailureStep } from "./api";
 
 /**
- * Where a step's target lives in the UI. Feature routes are registered at
- * runtime, so the static route typing cannot know them (same approach as the
- * other features' path helpers); the conversion happens here, once.
+ * Where a step's target lives in the UI: the pages of the active tenant are
+ * sections of its tenant page (features/tenant-page). Feature routes are
+ * registered at runtime, so the static route typing cannot know them (same
+ * approach as the other features' path helpers); the conversion happens here,
+ * once.
  */
 
 export interface StepLink {
@@ -23,23 +27,23 @@ export interface StepContext {
 export function stepLink(step: FailureStep, context: StepContext = {}): StepLink | null {
   switch (step.target) {
     case "settings_microsoft":
-      return { to: "/settings" as LinkProps["to"], search: { section: "microsoft365" } };
+      return { to: "/installation/microsoft-app" as LinkProps["to"] };
     case "sources":
-      return { to: "/sources" as LinkProps["to"] };
+      return { to: activeTenantPageTo("connections") };
     case "source":
       return {
-        to: (context.sourceId
-          ? `/sources/${encodeURIComponent(context.sourceId)}`
-          : "/sources") as LinkProps["to"],
+        to: context.sourceId
+          ? activeTenantPageTo("connections", "sources", context.sourceId)
+          : activeTenantPageTo("connections"),
       };
     case "directory":
-      return { to: "/protected-objects" as LinkProps["to"] };
+      return { to: activeTenantPageTo("protection") };
     case "storage":
-      return { to: "/repositories" as LinkProps["to"] };
+      return { to: activeTenantPageTo("storage") };
     case "verify":
       return { to: "/verify" as LinkProps["to"] };
     case "jobs":
-      return { to: "/backup" as LinkProps["to"] };
+      return { to: activeTenantPageTo("protection", "backup") };
     default:
       return null;
   }

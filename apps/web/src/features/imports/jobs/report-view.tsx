@@ -5,6 +5,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  PIN_FIRST,
   Table,
   TableBody,
   TableCell,
@@ -165,10 +166,10 @@ export function FilesCard({ detail }: { detail: ImportDetail }) {
       </CardHeader>
       <CardContent>
         {report ? (
-          <Table>
+          <Table className="min-w-[56rem]" scrollLabel={t("files.table.title")}>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead>{t("files.table.file")}</TableHead>
+                <TableHead pin={PIN_FIRST}>{t("files.table.file")}</TableHead>
                 <TableHead>{t("files.table.status")}</TableHead>
                 <TableHead className="text-right whitespace-nowrap">
                   {t("files.table.messages")}
@@ -198,10 +199,10 @@ export function FilesCard({ detail }: { detail: ImportDetail }) {
             </TableBody>
           </Table>
         ) : detail.files.length > 0 ? (
-          <Table>
+          <Table scrollLabel={t("files.table.title")}>
             <TableHeader>
               <TableRow className="hover:bg-transparent">
-                <TableHead>{t("files.table.file")}</TableHead>
+                <TableHead pin={PIN_FIRST}>{t("files.table.file")}</TableHead>
                 <TableHead>{t("files.table.format")}</TableHead>
                 <TableHead className="text-right">{t("files.table.size")}</TableHead>
                 <TableHead>{t("files.table.origin")}</TableHead>
@@ -210,7 +211,7 @@ export function FilesCard({ detail }: { detail: ImportDetail }) {
             <TableBody>
               {detail.files.map((file) => (
                 <TableRow key={`${file.origin}:${file.path}`}>
-                  <TableCell className="max-w-0 min-w-40">
+                  <TableCell pin={PIN_FIRST} className="max-w-0 min-w-40">
                     <p className="truncate font-mono text-xs" title={file.path}>
                       {file.path}
                     </p>
@@ -247,7 +248,7 @@ function ReportFileRow({
   const hash = shortHash(file.sha256);
   return (
     <TableRow>
-      <TableCell className="max-w-0 min-w-44">
+      <TableCell pin={PIN_FIRST} className="max-w-0 min-w-44">
         <p className="truncate font-mono text-xs font-medium" title={file.path}>
           {file.path}
         </p>

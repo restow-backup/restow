@@ -156,5 +156,29 @@ describe.skipIf(!testDatabaseAdminUrl)("the provider tenant list against Postgre
       expect(wayneWithoutScope?.customerNumber).toBe("K-3003");
       expect(wayneWithoutScope?.contacts).toEqual([]);
     });
+
+    it("says which tenant is the provider's own organisation, so it is not billed as a customer", async () => {
+      const customer = await service.createTenant(
+        db,
+        providerDb,
+        { name: "Kord Industries", slug: slug("kord") },
+        actor,
+      );
+      const own = await service.createTenant(
+        db,
+        providerDb,
+        { name: "Our Own Company", slug: slug("own") },
+        actor,
+        { kind: "internal" },
+      );
+      const page = await provider.listProviderTenants(
+        { db, providerDb },
+        provider.providerTenantsQuerySchema.parse({ limit: 50 }),
+        new Date(),
+        false,
+      );
+      expect(page.items.find((item) => item.id === customer.id)?.kind).toBe("customer");
+      expect(page.items.find((item) => item.id === own.id)?.kind).toBe("internal");
+    });
   });
 });

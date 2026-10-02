@@ -19,7 +19,9 @@ import type { ProviderView as ProviderData, ProviderKpis } from "@/features/dash
 import { LinkButton } from "@/features/dashboard/components/link-button";
 import { PATHS, to } from "@/features/dashboard/paths";
 import type { WidgetView } from "@/features/dashboard/presenters";
+import type { ReadinessState } from "@/features/verify/search";
 import { AlertList } from "./alert-list.js";
+import { ProviderReadinessCard } from "./readiness-card.js";
 import { TenantMatrix } from "./tenant-matrix.js";
 import "@/features/dashboard/i18n";
 
@@ -29,6 +31,7 @@ interface ProviderViewProps {
   retrying: boolean;
   onOpenTenant: (tenantId: string) => void;
   onTenantDetails: (tenantId: string) => void;
+  onOpenReadiness: (tenantId: string, state: ReadinessState) => void;
 }
 
 const KPI_KEYS = ["tenants", "notReady", "unverified", "failures", "mailboxes", "stored"] as const;
@@ -64,6 +67,7 @@ function ProviderKpiTiles({ kpis, loading }: { kpis: ProviderKpis | null; loadin
   const language = i18n.resolvedLanguage ?? i18n.language;
   const count = (value: number) => formatInteger(value, language);
   const tiles: Record<KpiKey, TileView> = {
+    // The provider's customers: its own organisation is not one of them (and says so).
     tenants: {
       icon: Building2,
       value: kpis ? count(kpis.tenants) : "",
@@ -72,7 +76,7 @@ function ProviderKpiTiles({ kpis, loading }: { kpis: ProviderKpis | null; loadin
     notReady: {
       icon: ShieldAlert,
       value: kpis ? count(kpis.tenantsNotReady) : "",
-      hint: t("provider.kpis.notReadyHint"),
+      hint: kpis ? t("provider.kpis.notReadyHint", { count: kpis.tenants }) : null,
     },
     unverified: {
       icon: TriangleAlert,
@@ -137,9 +141,11 @@ function MatrixCard({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * The provider's view over every tenant (Service Provider edition, provider
- * admins only): provider-wide figures, alerts across tenants and the tenant
- * health matrix. Figures are read one tenant at a time on the server.
+ * The overview under "All tenants" (Service Provider edition, provider admins
+ * only): the recovery readiness summed over every tenant, provider-wide figures,
+ * alerts across tenants and the tenants by what needs doing. Figures are read one
+ * tenant at a time on the server. The operator's own organisation is in the sums
+ * and in the table, but is not counted as a customer.
  */
 export function ProviderView({
   view,
@@ -147,6 +153,7 @@ export function ProviderView({
   retrying,
   onOpenTenant,
   onTenantDetails,
+  onOpenReadiness,
 }: ProviderViewProps) {
   const { t } = useTranslation("dashboard");
 
@@ -167,6 +174,7 @@ export function ProviderView({
   if (view.kind === "loading") {
     return (
       <div data-widget="provider" data-state="loading" className="space-y-6">
+        <ProviderReadinessCard readiness={null} loading />
         <ProviderKpiTiles kpis={null} loading />
         <MatrixCard>
           <div className="space-y-2" aria-busy="true">
@@ -197,6 +205,7 @@ export function ProviderView({
 
   return (
     <div data-widget="provider" data-state="ready" className="space-y-6">
+      <ProviderReadinessCard readiness={data.kpis.readiness} loading={false} />
       <ProviderKpiTiles kpis={data.kpis} loading={false} />
       <AlertList alerts={data.alerts} onOpenTenant={onOpenTenant} />
       <MatrixCard>
@@ -204,6 +213,7 @@ export function ProviderView({
           rows={data.tenants}
           onOpenTenant={onOpenTenant}
           onTenantDetails={onTenantDetails}
+          onOpenReadiness={onOpenReadiness}
         />
       </MatrixCard>
     </div>

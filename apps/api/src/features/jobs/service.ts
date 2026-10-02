@@ -105,7 +105,7 @@ const objectSelection = {
   status: protectedObjects.status,
 };
 
-function jobViewQuery(tx: Transaction) {
+export function jobViewQuery(tx: Transaction) {
   return tx
     .select({ job: jobs, progress: jobProgress, object: objectSelection })
     .from(jobs)
@@ -244,7 +244,7 @@ async function loadItemCauses(
 }
 
 /** Job DTOs for rows read in `tx`, with the causes of their failed items attached. */
-async function toJobDtos(
+export async function toJobDtos(
   tx: Transaction,
   tenantId: string,
   rows: readonly JobViewRow[],
@@ -437,19 +437,25 @@ async function insertQueuedJob(
   });
 }
 
-/** Create the pg-boss job and the lifecycle row for one backup; null when already queued. */
-async function enqueueBackup(
+/**
+ * Create the pg-boss job and the lifecycle row for one backup; null when already queued.
+ * `extra.backupJobId` names the backup job the run is for ("Run now" of a job).
+ */
+export async function enqueueBackup(
   tx: Transaction,
   db: Database,
   tenantId: string,
   protectedObjectId: string,
   full: boolean,
+  extra: { backupJobId?: string; runNow?: true } = {},
 ): Promise<string | null> {
   const payload: BackupJobPayload = {
     jobId: randomUUID(),
     tenantId,
     protectedObjectId,
     ...(full ? { full: true } : {}),
+    ...(extra.backupJobId ? { backupJobId: extra.backupJobId } : {}),
+    ...(extra.runNow ? { runNow: true as const } : {}),
   };
   const pgBossJobId = await sendJob(tx, "backup", payload, db);
   if (pgBossJobId === null) {

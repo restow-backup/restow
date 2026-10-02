@@ -5,19 +5,29 @@
 # Linux VM: Debian 12 or 13, Ubuntu 22.04, 24.04 or 26.04, amd64 or arm64 (the releases
 # Docker's apt repository serves for both architectures). It
 #   - checks the machine (root, system, architecture, virtualization, memory, disk, ports
-#     80 and 443, outbound HTTPS, clock, DNS of the domain, an earlier installation),
+#     80 and 443, outbound HTTPS, clock, DNS of the domain, that the images of the chosen
+#     build can be pulled without a login, an earlier installation). The memory check
+#     counts what the kernel reserves for kdump, warns below 8 GiB (it counts 7: a VM shows
+#     a little less than it is given) and stops only below 3 GiB,
 #   - installs Docker Engine and the Compose plugin from Docker's signed apt repository
 #     when Docker is missing (never with get.docker.com),
 #   - downloads docker-compose.yml and env.example of one pinned release and checks them
 #     against the release's SHA256SUMS and that file's keyless cosign signature,
 #   - writes .env (mode 0600) with secrets from the kernel's random generator,
 #   - pulls the two images of the chosen build, checks their cosign signatures (the
-#     release workflow of exactly this version) and starts the stack.
+#     release workflow of exactly this version) and starts the stack,
+#   - waits until the api is healthy, reads the one-time setup token from its log and
+#     prints it with the address to open, on the terminal only (never in the log).
+#
+# Run without options on a terminal it explains what it will do and asks how Restow is
+# reached: public with its own certificate, behind a reverse proxy you already run
+# (--behind-proxy), or a local evaluation (--local). With options, or without a
+# terminal, it asks nothing it was told.
 #
 # Recommended use (README.md, "Install with the script"): download, check, then run.
 #
-#   curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.1.0/install.sh
-#   curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.1.0/install.sh.sha256
+#   curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.0/install.sh
+#   curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.0/install.sh.sha256
 #   sha256sum -c install.sh.sha256 && sudo bash install.sh
 #
 # `bash install.sh --help` lists the options and the exit codes. Running it again is
@@ -37,7 +47,7 @@ set -Eeuo pipefail
 # ---- The release this script belongs to ---------------------------------------------
 # The release workflow refuses a tag whose version differs from this line
 # (.github/workflows/release.yml, job verify).
-DEFAULT_VERSION="0.1.0"
+DEFAULT_VERSION="0.2.0"
 
 RELEASE_REPOSITORY="restow-backup/restow"
 RELEASE_URL_DEFAULT="https://github.com/${RELEASE_REPOSITORY}/releases/download"
@@ -54,8 +64,12 @@ DOCKER_REPO_FINGERPRINT="9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
 # ---- Limits -------------------------------------------------------------------------
 MIN_DOCKER_VERSION="24.0"
 MIN_COMPOSE_VERSION="2.20"
-# A VM with 4 GiB reports a little less (the kernel keeps some), hence 3.5 and 7 GiB.
-MIN_MEMORY_KIB=3670016
+# Memory is counted as MemTotal plus the crash-kernel reservation (check_memory). A VM
+# with 4 GiB shows less than that: the kernel and firmware keep some, a crashkernel=
+# reservation (kdump) another 320 to 512 MB, and ballooning can take more. So a 4 GiB
+# machine only warns: the check stops the installation below 3 GiB and recommends 8 GiB
+# (7 GiB, because a VM with 8 GiB shows a little less).
+MIN_MEMORY_KIB=3145728
 RECOMMENDED_MEMORY_KIB=7340032
 # The installation directory holds the compose file, .env and the import folder.
 MIN_DIR_DISK_KIB=1048576
@@ -64,6 +78,15 @@ MIN_DIR_DISK_KIB=1048576
 MIN_DOCKER_DISK_KIB=10485760
 RECOMMENDED_DOCKER_DISK_KIB=52428800
 HEALTH_TIMEOUT_SECONDS=600
+# How long, after the api answers, the installer waits for the setup token in its log.
+TOKEN_WAIT_SECONDS=60
+# The first release whose edge can serve an encrypted hop to a reverse proxy in front of it
+# (RESTOW_EDGE_TLS=internal, the Caddyfile of that release).
+PROXY_TLS_MIN_VERSION="0.2.0"
+DOCS_URL="https://docs.restowbackup.com"
+PROXY_DOCS_URL="https://docs.restowbackup.com/administrators/get-started/#behind-a-reverse-proxy"
+# Caddy's local root certificate inside the edge container (the caddy-data volume).
+EDGE_ROOT_CA_IN_CONTAINER="/data/caddy/pki/authorities/local/root.crt"
 
 # ---- Exit codes (also in --help and README.md) -----------------------------------------
 EXIT_ERROR=1
@@ -79,7 +102,13 @@ EXIT_ABORTED=10
 # ---- Paths (the tests point them at fixtures) -------------------------------------------
 OS_RELEASE_FILE=/etc/os-release
 MEMINFO_FILE=/proc/meminfo
+# Bytes the kernel reserved for the kdump crash kernel; the first file that exists is
+# read. Kernels with /sys/kernel/kexec/ deprecate the old name (kept as a link).
+KEXEC_CRASH_SIZE_FILES="/sys/kernel/kexec/crash_size /sys/kernel/kexec_crash_size"
 LOG_FILE=/var/log/restow-install.log
+# The terminal the questions are asked on and the secrets are shown on (never the log).
+TTY_IN=/dev/tty
+TTY_OUT=/dev/tty
 APT_SOURCES_DIR=/etc/apt/sources.list.d
 APT_KEYRINGS_DIR=/etc/apt/keyrings
 
@@ -93,6 +122,10 @@ OPT_DRY_RUN=0
 OPT_SKIP_SIGNATURES=0
 OPT_LOCAL=0
 OPT_UPDATER=0
+OPT_BEHIND_PROXY=0
+# The addresses of the reverse proxy, normalized (/32 or /128 added), separated by spaces.
+OPT_PROXY_IPS=""
+OPT_PROXY_HOP=""
 ACTION="install"
 
 # ---- State ----------------------------------------------------------------------------
@@ -119,6 +152,13 @@ WEB_IMAGE=""
 MASTER_KEY_ONCE=""
 LOCAL_MODE=0
 DOMAIN_PLACEHOLDER=0
+# How Restow is reached: public (own certificate), proxy (behind a reverse proxy) or local.
+MODE=""
+# proxy mode: https (the edge serves an encrypted hop, the default) or http (opt-in).
+PROXY_HOP="https"
+TRUSTED_PROXIES=""
+# What RESTOW_APP_DOMAIN gets: the domain, or http://<domain> for the unencrypted hop.
+APP_DOMAIN_VALUE=""
 
 VERSION_RE='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$'
 HOSTNAME_RE='^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$'
@@ -133,13 +173,21 @@ Usage: sudo bash install.sh [options]
 
 Installs the Restow server (the Docker Compose stack of release v${DEFAULT_VERSION}) on this
 machine: a dedicated VM with Debian 12 or 13 or Ubuntu 22.04, 24.04 or 26.04, amd64 or
-arm64.
+arm64, with 4 GiB of memory (8 GiB recommended) and 10 GiB free for Docker. The memory
+check counts what the kernel reserves for kdump; it warns below 7 GiB (a VM shows a little
+less than it is given) and stops below 3 GiB.
+
+Run without options on a terminal, it explains what it will do and asks how Restow is
+reached: (1) public, with its own certificate; (2) behind a reverse proxy you already run
+(Nginx Proxy Manager, Traefik, Caddy, ...); (3) a local evaluation. Options answer those
+questions in advance; without a terminal, or with --non-interactive, nothing is asked.
 
 Options:
-  --domain NAME            domain name of this server, e.g. backup.example.com. It must
-                           resolve to this host, with ports 80 and 443 reachable from the
-                           internet, for the Let's Encrypt certificate. Asked for when
-                           missing; required with --non-interactive.
+  --domain NAME            domain name of this server, e.g. backup.example.com. Public
+                           installation: it must resolve to this host, with ports 80 and
+                           443 reachable from the internet, for the Let's Encrypt
+                           certificate. With --behind-proxy: the name your reverse proxy
+                           serves. Asked for when missing; required with --non-interactive.
   --edition full|community the build to install (default: full)
                              full       the Apache-2.0 core plus the Business and Service
                                         Provider modules, locked until a license key is
@@ -160,6 +208,27 @@ Options:
                            with a certificate from Caddy's own local authority, which
                            browsers warn about. Passkeys are not offered. Not for
                            production. (--http-local is a deprecated name for it.)
+  --behind-proxy           an installation behind a reverse proxy you already run (Nginx
+                           Proxy Manager, Traefik, Caddy, ...), which holds the public name
+                           and certificate and forwards to this host. By default the hop
+                           is encrypted: forward to https://<this host>:443, where the
+                           edge shows a certificate of its own authority (the installer
+                           copies its root certificate to <dir>/edge-root-ca.crt, to verify
+                           it with). No public DNS record and no inbound port from the
+                           internet are needed; this host needs port 443 free. Needs
+                           --domain (the name the proxy serves) and --proxy-ip, and release
+                           ${PROXY_TLS_MIN_VERSION} or newer.
+  --proxy-ip ADDRESS...    the address of the reverse proxy itself, as this host sees it: an
+                           IP address, or a network such as 192.168.1.0/29. Repeat the option
+                           or separate the addresses with spaces. A bare address gets /32
+                           (IPv4) or /128 (IPv6). Written to RESTOW_EDGE_TRUSTED_PROXIES:
+                           Restow believes the client address these peers report (audit log,
+                           sign-in limits), so list the proxy only, never your whole LAN.
+                           Required with --behind-proxy and --non-interactive.
+  --proxy-hop https|http   how the proxy reaches this host (default: https). http sends
+                           everything, session cookies and passwords included, unencrypted
+                           to port 80 of this host: only when the proxy and Restow share a
+                           host or an isolated network. Works with any release.
   --skip-signature-check   do NOT check the cosign signatures of the release files and
                            images (their checksums are still checked). For tests and
                            unsigned mirrors only, never for production.
@@ -195,7 +264,8 @@ USAGE
 # Nothing that is logged or printed carries a secret: the secrets are generated into
 # variables, handed to awk through its environment (never a command line) and written
 # to .env only. The one exception is the master key, shown once on the terminal
-# (/dev/tty, never the log) in an interactive run.
+# ($TTY_OUT, /dev/tty, never the log) in an interactive run. The setup token is shown the same
+# way, with the address to open (print_final_block).
 
 log_line() {
   if [ "$LOG_READY" = 1 ]; then
@@ -222,6 +292,11 @@ warn() {
 error_line() {
   printf 'error: %s\n' "$*" >&2
   log_line "error: $*"
+}
+# A second line under an error: what to do about it.
+hint_line() {
+  printf '       hint: %s\n' "$*" >&2
+  log_line "hint: $*"
 }
 die() {
   local code=$1
@@ -301,24 +376,31 @@ setup_interaction() {
     INTERACTIVE=0
     return 0
   fi
-  # `curl ... | sudo bash` feeds the script on stdin: questions go to the terminal.
-  if (exec </dev/tty) 2>/dev/null; then
+  # `curl ... | sudo bash` feeds the script on stdin: questions go to the terminal. It is
+  # opened once (file descriptor 3), so a scripted terminal (the tests) is read line by line.
+  if (exec <"$TTY_IN") 2>/dev/null; then
+    exec 3<"$TTY_IN"
     INTERACTIVE=1
   else
-    die "$EXIT_USAGE" "no terminal to ask questions on. Run with --non-interactive and the options you need (at least --domain)."
+    die "$EXIT_USAGE" "no terminal to ask questions on. Run with --non-interactive and the options you need (at least --domain; --behind-proxy also needs --proxy-ip)."
   fi
+}
+
+# tty_say <text>: a line on the terminal of an interactive run, never in the log.
+tty_say() {
+  printf '%s\n' "$*" >>"$TTY_OUT"
 }
 
 # ask <variable> <question> [default]: sets the caller's variable (no local of that name here).
 ask() {
   local ask_reply=""
   if [ -n "${3:-}" ]; then
-    printf '%s [%s]: ' "$2" "$3" >/dev/tty
+    printf '%s [%s]: ' "$2" "$3" >>"$TTY_OUT"
   else
-    printf '%s: ' "$2" >/dev/tty
+    printf '%s: ' "$2" >>"$TTY_OUT"
   fi
-  if ! IFS= read -r ask_reply </dev/tty; then
-    printf '\n' >/dev/tty
+  if ! IFS= read -r ask_reply <&3; then
+    printf '\n' >>"$TTY_OUT"
     die "$EXIT_ABORTED" "no answer; nothing was changed"
   fi
   printf -v "$1" '%s' "${ask_reply:-${3:-}}"
@@ -330,9 +412,9 @@ confirm() {
   if [ "$INTERACTIVE" != 1 ]; then
     return 0
   fi
-  printf '%s [y/N] ' "$1" >/dev/tty
-  if ! IFS= read -r answer </dev/tty; then
-    printf '\n' >/dev/tty
+  printf '%s [y/N] ' "$1" >>"$TTY_OUT"
+  if ! IFS= read -r answer <&3; then
+    printf '\n' >>"$TTY_OUT"
     return 1
   fi
   case $answer in
@@ -424,7 +506,8 @@ domain_kind() {
   return 0
 }
 
-# domain_problem <normalized domain> <local 0|1>: prints what is wrong, nothing if fine.
+# domain_problem <normalized domain> <local 0|1> [proxy 0|1]: prints what is wrong, nothing if
+# fine. Behind a reverse proxy the name is the proxy's to certify, so an internal name is fine.
 domain_problem() {
   case "$(domain_kind "$1")" in
     ip)
@@ -437,7 +520,7 @@ domain_problem() {
       echo "not a fully qualified domain name: $1 (for example backup.example.com)"
       ;;
     internal)
-      if [ "$2" != 1 ]; then
+      if [ "$2" != 1 ] && [ "${3:-0}" != 1 ]; then
         echo "$1 is an internal name that gets no public certificate; use a public domain, or --local for an evaluation"
       fi
       ;;
@@ -446,6 +529,126 @@ domain_problem() {
         echo "--local takes localhost or an internal name (*.internal, *.home.arpa, *.localhost), not the public domain $1"
       fi
       ;;
+  esac
+  return 0
+}
+
+# ---- Reverse proxy addresses -----------------------------------------------------------
+
+# valid_ipv4 <address>: a dotted quad, each part 0 to 255 without a leading zero.
+valid_ipv4() {
+  local part re='^(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})\.(0|[1-9][0-9]{0,2})$'
+  [[ $1 =~ $re ]] || return 1
+  for part in "${BASH_REMATCH[@]:1:4}"; do
+    [ "$part" -le 255 ] || return 1
+  done
+}
+
+# valid_ipv6 <address>: hex groups of one to four digits, at most one "::", eight groups
+# without it. No embedded IPv4 part and no zone, which the edge's address lists do not take.
+valid_ipv6() {
+  awk -v a="$1" 'BEGIN {
+    if (a !~ /^[0-9A-Fa-f:]+$/ || a ~ /:::/ || a ~ /^:[^:]/ || a ~ /[^:]:$/) exit 1
+    n = gsub(/::/, "::", a)
+    if (n > 1) exit 1
+    m = split(a, group, ":")
+    count = 0
+    for (i = 1; i <= m; i++) if (group[i] != "") { if (length(group[i]) > 4) exit 1; count++ }
+    if (n == 1) { if (count > 7) exit 1 } else if (count != 8) exit 1
+    exit 0
+  }'
+}
+
+# proxy_entry_problem <address or network>: prints what is wrong with it, nothing if fine.
+proxy_entry_problem() {
+  local entry=$1 address prefix="" max not_an_address
+  not_an_address="not an IP address or network: $entry"
+  address=${entry%%/*}
+  if [ "$address" != "$entry" ]; then
+    prefix=${entry#*/}
+  fi
+  case $address in
+    *:*)
+      max=128
+      valid_ipv6 "$address" || {
+        echo "$not_an_address"
+        return 0
+      }
+      ;;
+    *)
+      max=32
+      valid_ipv4 "$address" || {
+        echo "$not_an_address"
+        return 0
+      }
+      ;;
+  esac
+  if [ "$address" != "$entry" ]; then
+    local re='^[0-9]{1,3}$'
+    if ! [[ $prefix =~ $re ]] || [ "$((10#$prefix))" -gt "$max" ]; then
+      echo "$not_an_address"
+    elif [ "$((10#$prefix))" -eq 0 ]; then
+      echo "$entry would trust every address as a proxy"
+    fi
+  fi
+  return 0
+}
+
+# normalize_proxy_entry <address or network>: lower case, with /32 or /128 for a bare address.
+normalize_proxy_entry() {
+  local entry=$1 address prefix=""
+  address=${entry%%/*}
+  if [ "$address" != "$entry" ]; then
+    prefix=$((10#${entry#*/}))
+  fi
+  address=$(to_lower "$address")
+  if [ -z "$prefix" ]; then
+    case $address in
+      *:*) prefix=128 ;;
+      *) prefix=32 ;;
+    esac
+  fi
+  printf '%s/%s' "$address" "$prefix"
+}
+
+# proxy_list_problem <addresses separated by spaces or commas>: the first problem, if any.
+proxy_list_problem() {
+  local item problem list=${1//,/ }
+  if [ -z "${list// /}" ]; then
+    echo "no address given"
+    return 0
+  fi
+  # shellcheck disable=SC2086 # splitting the list into its addresses is the point
+  for item in $list; do
+    problem=$(proxy_entry_problem "$item")
+    if [ -n "$problem" ]; then
+      echo "$problem"
+      return 0
+    fi
+  done
+  return 0
+}
+
+# proxy_list_normalize <addresses>: the normalized addresses, each once, separated by spaces.
+proxy_list_normalize() {
+  local item normalized result="" list=${1//,/ }
+  # shellcheck disable=SC2086 # splitting the list into its addresses is the point
+  for item in $list; do
+    normalized=$(normalize_proxy_entry "$item")
+    case " $result " in
+      *" $normalized "*) ;;
+      *) result="${result:+$result }$normalized" ;;
+    esac
+  done
+  printf '%s' "$result"
+}
+
+# proxy_entry_range_note <normalized entry>: says so when it covers a wide range (a network, not a machine).
+proxy_entry_range_note() {
+  local prefix=${1#*/}
+  case $1 in
+    *:*) [ "$prefix" -ge 64 ] || echo "$1 covers a very wide range" ;;
+    *) [ "$prefix" -ge 24 ] || echo "$1 covers more than 254 addresses" ;;
   esac
   return 0
 }
@@ -712,6 +915,16 @@ need_value() {
   fi
 }
 
+# add_proxy_ips <addresses separated by spaces or commas>: into OPT_PROXY_IPS, normalized.
+add_proxy_ips() {
+  local problem
+  problem=$(proxy_list_problem "$1")
+  if [ -n "$problem" ]; then
+    die "$EXIT_USAGE" "--proxy-ip: $problem (give the address of your reverse proxy, for example 192.168.1.20)"
+  fi
+  OPT_PROXY_IPS=$(proxy_list_normalize "${OPT_PROXY_IPS:+$OPT_PROXY_IPS }$1")
+}
+
 parse_args() {
   while [ $# -gt 0 ]; do
     case $1 in
@@ -776,6 +989,34 @@ parse_args() {
         OPT_LOCAL=1
         shift
         ;;
+      --behind-proxy)
+        OPT_BEHIND_PROXY=1
+        shift
+        ;;
+      --proxy-ip)
+        need_value "$1" "${2:-}"
+        shift
+        # One or more addresses: everything up to the next option.
+        while [ $# -gt 0 ] && [ "${1#-}" = "$1" ]; do
+          add_proxy_ips "$1"
+          shift
+        done
+        ;;
+      --proxy-ip=*)
+        need_value --proxy-ip "${1#*=}"
+        add_proxy_ips "${1#*=}"
+        shift
+        ;;
+      --proxy-hop)
+        need_value "$1" "${2:-}"
+        OPT_PROXY_HOP=$2
+        shift 2
+        ;;
+      --proxy-hop=*)
+        need_value --proxy-hop "${1#*=}"
+        OPT_PROXY_HOP=${1#*=}
+        shift
+        ;;
       --skip-signature-check)
         OPT_SKIP_SIGNATURES=1
         shift
@@ -820,9 +1061,22 @@ validate_options() {
     OPT_DIR=${OPT_DIR%/}
   fi
   valid_dir "$OPT_DIR" || die "$EXIT_USAGE" "--dir must be an absolute path of letters, digits, '.', '_', '-' and '/', and not a system directory itself (found: $OPT_DIR)"
+  if [ -n "$OPT_PROXY_HOP" ]; then
+    OPT_PROXY_HOP=$(to_lower "$OPT_PROXY_HOP")
+    case $OPT_PROXY_HOP in
+      https | http) ;;
+      *) die "$EXIT_USAGE" "--proxy-hop must be https or http (found: $OPT_PROXY_HOP)" ;;
+    esac
+  fi
+  if [ "$OPT_BEHIND_PROXY" != 1 ] && { [ -n "$OPT_PROXY_IPS" ] || [ -n "$OPT_PROXY_HOP" ]; }; then
+    die "$EXIT_USAGE" "--proxy-ip and --proxy-hop belong to --behind-proxy (see --help)"
+  fi
+  if [ "$OPT_BEHIND_PROXY" = 1 ] && [ "$OPT_LOCAL" = 1 ]; then
+    die "$EXIT_USAGE" "--behind-proxy and --local exclude each other: --local is an evaluation with a certificate of its own, --behind-proxy leaves the certificate to your reverse proxy"
+  fi
   if [ -n "$OPT_DOMAIN" ]; then
     OPT_DOMAIN=$(normalize_domain "$OPT_DOMAIN")
-    problem=$(domain_problem "$OPT_DOMAIN" "$OPT_LOCAL")
+    problem=$(domain_problem "$OPT_DOMAIN" "$OPT_LOCAL" "$OPT_BEHIND_PROXY")
     if [ -n "$problem" ]; then
       die "$EXIT_USAGE" "--domain: $problem"
     fi
@@ -960,16 +1214,55 @@ check_virtualization() {
   esac
 }
 
-check_memory() {
-  local kib label=unknown
-  kib=$(awk '/^MemTotal:/ { print $2 }' "$MEMINFO_FILE" 2>/dev/null || true)
-  if [ -n "$kib" ]; then
-    label="$(kib_to_gib "$kib") GiB"
+# crash_reserved_kib: KiB the kernel set aside for the kdump crash kernel (crashkernel= on
+# its command line), 0 when nothing is reserved or no file tells. The files hold bytes. That
+# memory is not part of MemTotal, but it is memory assigned to this machine.
+crash_reserved_kib() {
+  local file bytes
+  for file in $KEXEC_CRASH_SIZE_FILES; do
+    bytes=$(awk 'NR == 1 { print $1; exit }' "$file" 2>/dev/null || true)
+    case $bytes in
+      "" | *[!0-9]* | ????????????????*) ;; # empty, not a number, or 16 digits and more
+      *)
+        echo $((10#$bytes / 1024))
+        return 0
+        ;;
+    esac
+  done
+  echo 0
+}
+
+# memory_label <MemTotal KiB> <reserved KiB>: what to show for the memory.
+memory_label() {
+  case $1 in
+    "" | *[!0-9]*)
+      printf 'unknown'
+      return 0
+      ;;
+  esac
+  if [ "$2" -gt 0 ]; then
+    printf '%s GiB visible (+%s GiB reserved for kdump)' "$(kib_to_gib "$1")" "$(kib_to_gib "$2")"
+  else
+    printf '%s GiB' "$(kib_to_gib "$1")"
   fi
-  case "$(level_verdict "$kib" "$MIN_MEMORY_KIB" "$RECOMMENDED_MEMORY_KIB")" in
+}
+
+check_memory() {
+  local kib reserved total="" label
+  kib=$(awk '/^MemTotal:/ { print $2 }' "$MEMINFO_FILE" 2>/dev/null || true)
+  reserved=$(crash_reserved_kib)
+  case $kib in
+    "" | *[!0-9]*) ;;
+    *) total=$((kib + reserved)) ;;
+  esac
+  label=$(memory_label "$kib" "$reserved")
+  case "$(level_verdict "$total" "$MIN_MEMORY_KIB" "$RECOMMENDED_MEMORY_KIB")" in
     ok) ok "memory $label" ;;
-    warn) warn "memory $label: it runs, 8 GiB are recommended (mail parsing runs in helper processes of up to 512 MB each; set IMPORT_PARSE_WORKERS=1 and PREVIEW_PARSE_WORKERS=1 in .env on a small host)" ;;
-    fail) pf_fail "memory $label: Restow needs at least 4 GiB (8 GiB recommended)" ;;
+    warn) warn "memory $label: Restow runs, 8 GiB are recommended (mail parsing runs in helper processes of up to 512 MB each; set IMPORT_PARSE_WORKERS=1 and PREVIEW_PARSE_WORKERS=1 in .env on a small host)" ;;
+    fail)
+      pf_fail "memory $label: too little for Restow, which needs at least 4 GiB (8 GiB recommended)"
+      hint_line "assign at least 4 GiB (8 GiB recommended) to the VM. Proxmox with ballooning: set \"Minimum memory\" equal to \"Memory\". After a change shut the VM down and start it again; check with: free -h"
+      ;;
   esac
 }
 
@@ -1123,6 +1416,90 @@ check_network() {
   fi
 }
 
+# What a registry accepts as a manifest of a multi-architecture image or of a single one.
+REGISTRY_MANIFEST_ACCEPT="application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json"
+
+# registry_pull_status <reference>: asks the registry of an image, as the Docker client does
+# for an anonymous pull and without Docker (it may not be installed yet): an anonymous
+# bearer token for the repository, then the manifest of the tag. Prints one line:
+# public | unauthorized <code> | notfound 404 | unknown (the registry could not be asked, or
+# answered something else). ghcr.io (checked 2026-10-02) hands the token out only for a
+# public package: the token request itself answers 401 for a private one and 403 for a name
+# that does not exist, and the manifest request answers 404 for a tag that does not exist.
+registry_pull_status() {
+  local ref=$1 repo host path tag answer code token
+  repo=$(image_repository "$ref")
+  tag=$(image_tag "$ref")
+  host=${repo%%/*}
+  path=${repo#*/}
+  # The body, a line break and the HTTP status.
+  answer=$(curl -sS --proto '=https' --tlsv1.2 --max-time 10 -w '\n%{http_code}' \
+    "https://$host/token?scope=repository:$path:pull" 2>/dev/null || true)
+  code=${answer##*$'\n'}
+  case $code in
+    401 | 403)
+      echo "unauthorized $code"
+      return 0
+      ;;
+    200) ;;
+    *)
+      echo unknown
+      return 0
+      ;;
+  esac
+  token=$(printf '%s\n' "$answer" | sed -n 's#.*"token"[[:space:]]*:[[:space:]]*"\([A-Za-z0-9._~+/=-]*\)".*#\1#p' | head -n 1 || true)
+  if [ -z "$token" ]; then
+    echo unknown
+    return 0
+  fi
+  code=$(curl -sS --proto '=https' --tlsv1.2 --max-time 10 --head -o /dev/null -w '%{http_code}' \
+    -H "Authorization: Bearer $token" -H "Accept: $REGISTRY_MANIFEST_ACCEPT" \
+    "https://$host/v2/$path/manifests/$tag" 2>/dev/null || true)
+  case $code in
+    200) echo public ;;
+    401 | 403) echo "unauthorized $code" ;;
+    404) echo "notfound 404" ;;
+    *) echo unknown ;;
+  esac
+}
+
+# image_problem <status from registry_pull_status or a pull failure> <reference>: the same
+# plain explanation for both, empty when the status says nothing is wrong.
+image_problem() {
+  case $1 in
+    "unauthorized 403") echo "image $2 is not publicly available (403 denied): the release images may not be published yet" ;;
+    unauthorized*) echo "image $2 is not publicly available (401 unauthorized): the release images may not be published yet" ;;
+    notfound*) echo "no image $2 (404 not found): check --version and --edition" ;;
+  esac
+}
+
+# check_images: before anything is changed, each image of the chosen build can be pulled
+# without a login. A release whose packages are still private, or a version or build that
+# does not exist, stops here and not half way through the installation.
+check_images() {
+  local ref status problem host
+  host=${APP_IMAGE%%/*}
+  if [ "$host" != ghcr.io ]; then
+    warn "the images come from $host (RESTOW_INSTALL_IMAGE_PREFIX): not checked whether they can be pulled; fine when they are loaded on this host already"
+    return 0
+  fi
+  for ref in "$APP_IMAGE" "$WEB_IMAGE"; do
+    if [ "$DOCKER_STATE" = ok ] && docker image inspect "$ref" >/dev/null 2>&1; then
+      ok "$ref is here already"
+      continue
+    fi
+    status=$(registry_pull_status "$ref")
+    problem=$(image_problem "$status" "$ref")
+    if [ -n "$problem" ]; then
+      pf_fail "$problem; nothing was changed"
+    elif [ "$status" = public ]; then
+      ok "$ref can be pulled without a login"
+    else
+      warn "could not ask $host whether $ref can be pulled; the pull may still work"
+    fi
+  done
+}
+
 # Available KiB on the file system that holds <path> (or its nearest existing parent).
 avail_kib() {
   local path=$1
@@ -1132,12 +1509,59 @@ avail_kib() {
   df -Pk "$path" 2>/dev/null | awk 'NR == 2 { print $4 }'
 }
 
+# Ubuntu Server's installer often gives the root logical volume only part of its volume
+# group, so a 32 GB disk can leave 15 GB for / and the rest unused. lvm_free_hint <path>
+# says so, with the command that grows the volume, when <path> lives on a logical volume
+# whose volume group has LVM_HINT_MIN_KIB or more unused. It prints nothing otherwise,
+# and nothing when the LVM tools are missing or may not be used (not root). Once per hint.
+LVM_HINT_MIN_KIB=1048576
+LVM_HINT_SHOWN=""
+lvm_free_hint() {
+  local path=$1 device names vg lv free_kib hint
+  command -v findmnt >/dev/null 2>&1 || return 0
+  command -v lvs >/dev/null 2>&1 || return 0
+  command -v vgs >/dev/null 2>&1 || return 0
+  while [ ! -e "$path" ] && [ "$path" != / ]; do
+    path=$(dirname "$path")
+  done
+  device=$(findmnt -n -o SOURCE --target "$path" 2>/dev/null || true)
+  case $device in
+    /dev/*) ;;
+    *) return 0 ;;
+  esac
+  names=$(LC_ALL=C lvs --noheadings -o vg_name,lv_name "$device" 2>/dev/null | awk 'NR == 1 { print $1, $2 }' || true)
+  vg=${names%% *}
+  lv=${names#* }
+  if [ -z "$vg" ] || [ "$lv" = "$names" ]; then
+    return 0
+  fi
+  case $vg$lv in
+    *[!A-Za-z0-9+_.-]*) return 0 ;;
+  esac
+  # --units k: KiB; the number may carry a decimal point or comma.
+  free_kib=$(LC_ALL=C vgs --noheadings --units k --nosuffix -o vg_free "$vg" 2>/dev/null | awk 'NR == 1 { sub(/[.,].*$/, "", $1); print $1 }' || true)
+  case $free_kib in
+    "" | *[!0-9]*) return 0 ;;
+  esac
+  if [ "$free_kib" -lt "$LVM_HINT_MIN_KIB" ]; then
+    return 0
+  fi
+  hint="the volume group $vg has $(kib_to_gib "$free_kib") GiB unused: sudo lvextend -r -l +100%FREE /dev/$vg/$lv"
+  if [ "$hint" != "$LVM_HINT_SHOWN" ]; then
+    LVM_HINT_SHOWN=$hint
+    hint_line "$hint"
+  fi
+}
+
 check_disk() {
   local kib root
   kib=$(avail_kib "$OPT_DIR")
   case "$(level_verdict "$kib" "$MIN_DIR_DISK_KIB" "$MIN_DIR_DISK_KIB")" in
     ok) ok "$(kib_to_gib "$kib") GiB free for $OPT_DIR" ;;
-    *) pf_fail "only ${kib:-0} KiB free for $OPT_DIR (at least 1 GiB)" ;;
+    *)
+      pf_fail "only ${kib:-0} KiB free for $OPT_DIR (at least 1 GiB)"
+      lvm_free_hint "$OPT_DIR"
+      ;;
   esac
   root=""
   if [ "$DOCKER_STATE" = ok ]; then
@@ -1147,13 +1571,45 @@ check_disk() {
   kib=$(avail_kib "$root")
   case "$(level_verdict "$kib" "$MIN_DOCKER_DISK_KIB" "$RECOMMENDED_DOCKER_DISK_KIB")" in
     ok) ok "$(kib_to_gib "$kib") GiB free for Docker ($root)" ;;
-    warn) warn "$(kib_to_gib "$kib") GiB free for Docker ($root). It is enough to start; but until you add another storage target the backups go into a Docker volume there. 50 GiB or more are recommended, or an off-site target (S3 with Object Lock)." ;;
-    fail) pf_fail "only $(kib_to_gib "${kib:-0}") GiB free for Docker ($root): at least 10 GiB are needed for the images and the database" ;;
+    warn)
+      warn "$(kib_to_gib "$kib") GiB free for Docker ($root). It is enough to start; but until you add another storage target the backups go into a Docker volume there. 50 GiB or more are recommended, or an off-site target (S3 with Object Lock)."
+      lvm_free_hint "$root"
+      ;;
+    fail)
+      pf_fail "only $(kib_to_gib "${kib:-0}") GiB free for Docker ($root): at least 10 GiB are needed for the images and the database"
+      lvm_free_hint "$root"
+      ;;
   esac
 }
 
+# edge_port: the one host port the Caddy edge needs behind a reverse proxy: 443 for the
+# encrypted hop, 80 for the plain one. The other is published on this host's loopback
+# interface only (write_env), so nothing else on the machine can be in its way.
+edge_port() {
+  if [ "$PROXY_HOP" = http ]; then
+    echo 80
+  else
+    echo 443
+  fi
+}
+
 check_ports() {
-  local listening busy
+  local listening busy port
+  if [ "$MODE" = proxy ]; then
+    port=$(edge_port)
+    if ! command -v ss >/dev/null 2>&1; then
+      warn "cannot check whether port $port is free (no ss)"
+      return 0
+    fi
+    listening=$(ss -Hltn 2>/dev/null || true)
+    busy=$(busy_ports "$listening" "$port")
+    if [ -n "$busy" ]; then
+      pf_fail "port $port already in use on this host; the Caddy edge needs it, your reverse proxy forwards to it. See what listens: ss -ltnp"
+    else
+      ok "port $port is free (your reverse proxy forwards to it)"
+    fi
+    return 0
+  fi
   if ! command -v ss >/dev/null 2>&1; then
     warn "cannot check whether ports 80 and 443 are free (no ss)"
     return 0
@@ -1173,6 +1629,28 @@ own_addresses() {
   elif command -v hostname >/dev/null 2>&1; then
     hostname -I 2>/dev/null || true
   fi
+}
+
+# lan_address: the IPv4 address of this host that other machines reach it at (the one its
+# default route leaves from), else the first address of an interface that is neither
+# loopback, link-local nor Docker's default bridge. Nothing when there is none.
+lan_address() {
+  local address="" candidate
+  if command -v ip >/dev/null 2>&1; then
+    address=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{ for (i = 1; i < NF; i++) if ($i == "src") { print $(i + 1); exit } }' || true)
+  fi
+  if [ -z "$address" ]; then
+    for candidate in $(own_addresses || true); do
+      case $candidate in
+        127.* | 169.254.* | 172.17.* | *:*) continue ;;
+      esac
+      if valid_ipv4 "$candidate"; then
+        address=$candidate
+        break
+      fi
+    done
+  fi
+  printf '%s' "$address"
 }
 
 check_dns() {
@@ -1464,6 +1942,9 @@ write_env() {
   fi
   if is_dry; then
     dry "write $target from env.example (mode 0600): images, address, three database passwords, RESTOW_MASTER_KEY and BETTER_AUTH_SECRET, newly generated"
+    if [ "$MODE" = proxy ]; then
+      dry "set RESTOW_APP_DOMAIN=${APP_DOMAIN_VALUE:-$DOMAIN}, RESTOW_PUBLIC_URL=$PUBLIC_URL, RESTOW_EDGE_TRUSTED_PROXIES=$TRUSTED_PROXIES$([ "$PROXY_HOP" = http ] || printf ', RESTOW_EDGE_TLS=internal')"
+    fi
     return 0
   fi
   pg_password=$(random_hex 16)
@@ -1482,6 +1963,18 @@ write_env() {
     die "$EXIT_ERROR" "generating ${problem:-the secrets} from /dev/urandom failed"
   fi
   keys="$REQUIRED_ENV_NAMES RESTOW_PROJECT_DIR"
+  if [ "${MODE:-}" = proxy ]; then
+    # Behind a reverse proxy: the proxies whose client address is believed and, for the
+    # encrypted hop, the edge's own certificate authority. The host port the edge does not
+    # need is published on this host's loopback interface, on a port Docker picks ("127.0.0.1:"),
+    # so it cannot be in the way of anything else and is not reachable from the network.
+    keys="$keys RESTOW_EDGE_TRUSTED_PROXIES"
+    if [ "${PROXY_HOP:-https}" = http ]; then
+      keys="$keys RESTOW_HTTPS_PORT"
+    else
+      keys="$keys RESTOW_EDGE_TLS RESTOW_HTTP_PORT"
+    fi
+  fi
   if [ "$OPT_UPDATER" = 1 ]; then
     keys="$keys RESTOW_UPDATER_IMAGE"
     updater_image=$APP_IMAGE
@@ -1491,7 +1984,9 @@ write_env() {
   if ! (
     umask 077
     export RI_RESTOW_IMAGE="$APP_IMAGE" RI_RESTOW_WEB_IMAGE="$WEB_IMAGE"
-    export RI_RESTOW_PUBLIC_URL="$PUBLIC_URL" RI_RESTOW_APP_DOMAIN="$DOMAIN"
+    export RI_RESTOW_PUBLIC_URL="$PUBLIC_URL" RI_RESTOW_APP_DOMAIN="${APP_DOMAIN_VALUE:-$DOMAIN}"
+    export RI_RESTOW_EDGE_TRUSTED_PROXIES="${TRUSTED_PROXIES:-}" RI_RESTOW_EDGE_TLS=internal
+    export RI_RESTOW_HTTP_PORT="127.0.0.1:" RI_RESTOW_HTTPS_PORT="127.0.0.1:"
     export RI_POSTGRES_PASSWORD="$pg_password"
     export RI_DATABASE_MIGRATION_URL="postgres://restow:${pg_password}@postgres:5432/restow"
     export RI_DATABASE_URL="postgres://restow_app:${app_password}@postgres:5432/restow"
@@ -1540,12 +2035,12 @@ show_master_key() {
     printf '  a password manager entry, a printed copy in a safe.\n'
     printf '  It also stays in %s/.env (mode 0600).\n' "$OPT_DIR"
     printf '  ======================================================================\n\n'
-  } >/dev/tty
+  } >>"$TTY_OUT"
   MASTER_KEY_ONCE=""
   while :; do
-    printf 'Type "yes" once the key is stored offline: ' >/dev/tty
-    if ! IFS= read -r answer </dev/tty; then
-      printf '\n' >/dev/tty
+    printf 'Type "yes" once the key is stored offline: ' >>"$TTY_OUT"
+    if ! IFS= read -r answer <&3; then
+      printf '\n' >>"$TTY_OUT"
       die "$EXIT_ABORTED" "aborted; .env is written. Run the installer again to continue (the key is not shown again: read it from $OPT_DIR/.env)."
     fi
     if [ "$answer" = yes ]; then
@@ -1563,6 +2058,32 @@ image_repo_digest() {
   repo=$(image_repository "$1")
   docker image inspect --format '{{range .RepoDigests}}{{println .}}{{end}}' "$1" 2>/dev/null |
     awk -v repo="$repo" 'index($0, repo "@sha256:") == 1 { print substr($0, length(repo) + 2); exit }' || true
+}
+
+# pull_image <reference>: docker pull. A failure is explained as the preflight explains it
+# when Docker's answer says why (unauthorized, not found); otherwise with Docker's last line.
+pull_image() {
+  local ref=$1 output status="" problem lower last
+  log_line "run: docker pull $ref"
+  if output=$(docker pull "$ref" </dev/null 2>&1); then
+    log_line "$output"
+    return 0
+  fi
+  log_line "$output"
+  if [ "$LOG_READY" != 1 ]; then
+    printf '%s\n' "$output" >&2
+  fi
+  lower=$(to_lower "$output")
+  case $lower in
+    *"manifest unknown"* | *"not found"* | *"name unknown"*) status="notfound 404" ;;
+    *unauthorized* | *denied* | *"docker login"*) status="unauthorized 401" ;;
+  esac
+  last=$(printf '%s\n' "$output" | awk 'NF { line = $0 } END { print line }')
+  problem=$(image_problem "$status" "$ref")
+  if [ -n "$problem" ]; then
+    die "$EXIT_DOWNLOAD" "$problem${last:+ (docker: $last)}. Run the installer again once this is fixed: it keeps the .env it wrote."
+  fi
+  die "$EXIT_DOWNLOAD" "could not pull $ref${last:+ (docker: $last)}"
 }
 
 # pull_and_verify <reference>: pull it unless it is here already, then check the signature
@@ -1593,7 +2114,7 @@ pull_and_verify() {
     fi
     ok "$ref is here already ($digest)"
   else
-    run docker pull "$ref" || die "$EXIT_DOWNLOAD" "could not pull $ref"
+    pull_image "$ref"
     digest=$(image_repo_digest "$ref")
     if [ "$OPT_SKIP_SIGNATURES" = 1 ]; then
       warn "NOT checking the signature of $ref${digest:+ ($digest)} (--skip-signature-check)"
@@ -1676,32 +2197,154 @@ wait_healthy() {
   fi
 }
 
-# check_edge: the web edge answers on 443 with a certificate (warning only).
+# check_edge: the web edge answers (warning only). In the modes with a certificate of the
+# edge's own authority (--local, --behind-proxy) it is not checked against the system's roots.
 check_edge() {
-  local domain=$1 code i
+  local domain=$1 code i url
+  case $MODE:$PROXY_HOP in
+    proxy:http) url="http://$domain/" ;;
+    *) url="https://$domain/" ;;
+  esac
   if is_dry; then
-    dry "check that https://$domain answers through the Caddy edge"
+    dry "check that $url answers through the Caddy edge"
     return 0
   fi
   for i in 1 2 3 4 5 6 7 8 9; do
-    if [ "$LOCAL_MODE" = 1 ]; then
-      code=$(curl -ksS -o /dev/null --max-time 10 -w '%{http_code}' --resolve "$domain:443:127.0.0.1" "https://$domain/" 2>/dev/null || true)
+    if [ "$MODE" = proxy ] && [ "$PROXY_HOP" = http ]; then
+      code=$(curl -sS -o /dev/null --max-time 10 -w '%{http_code}' --resolve "$domain:80:127.0.0.1" "$url" 2>/dev/null || true)
+    elif [ "$MODE" = proxy ] || [ "$LOCAL_MODE" = 1 ]; then
+      code=$(curl -ksS -o /dev/null --max-time 10 -w '%{http_code}' --resolve "$domain:443:127.0.0.1" "$url" 2>/dev/null || true)
     else
-      code=$(curl -sS -o /dev/null --max-time 10 -w '%{http_code}' --resolve "$domain:443:127.0.0.1" "https://$domain/" 2>/dev/null || true)
+      code=$(curl -sS -o /dev/null --max-time 10 -w '%{http_code}' --resolve "$domain:443:127.0.0.1" "$url" 2>/dev/null || true)
     fi
     case $code in
       2?? | 3??)
-        ok "https://$domain answers (edge and certificate)"
+        if [ "$MODE" = proxy ]; then
+          ok "$url answers on this host (the edge your reverse proxy forwards to)"
+        else
+          ok "https://$domain answers (edge and certificate)"
+        fi
         return 0
         ;;
     esac
     log_line "edge check $i: HTTP ${code:-none}"
     sleep 10
   done
-  if [ "$LOCAL_MODE" = 1 ]; then
+  if [ "$MODE" = proxy ]; then
+    warn "$url does not answer on this host yet. See: cd $OPT_DIR && docker compose logs caddy"
+  elif [ "$LOCAL_MODE" = 1 ]; then
     warn "https://$domain does not answer yet. See: cd $OPT_DIR && docker compose logs caddy"
   else
     warn "https://$domain does not answer with a valid certificate yet. Caddy keeps trying; it needs the DNS record and ports 80 and 443 reachable from the internet. See: cd $OPT_DIR && docker compose logs caddy"
+  fi
+}
+
+# export_edge_root_ca: the root certificate of the edge's own authority, copied out of the
+# caddy-data volume to <dir>/edge-root-ca.crt (a public certificate, mode 0644). The reverse
+# proxy can verify the edge with it; nothing requires it. An existing file is kept.
+export_edge_root_ca() {
+  local target="$OPT_DIR/edge-root-ca.crt" tmp i
+  if is_dry; then
+    dry "copy the root certificate of the edge's own authority to $target (to verify the edge with)"
+    return 0
+  fi
+  if [ -s "$target" ]; then
+    ok "$target is here already"
+    return 0
+  fi
+  tmp="$WORK/edge-root-ca.crt"
+  for i in 1 2 3 4 5; do
+    if compose cp "caddy:$EDGE_ROOT_CA_IN_CONTAINER" "$tmp" >/dev/null 2>&1 && grep -q 'BEGIN CERTIFICATE' "$tmp" 2>/dev/null; then
+      if run install -m 0644 "$tmp" "$target"; then
+        ok "root certificate of the edge's own authority: $target"
+        return 0
+      fi
+    fi
+    log_line "root certificate export $i: not there yet"
+    sleep 3
+  done
+  warn "could not copy the root certificate of the edge. Your reverse proxy works without it unless you want it to verify the edge. Copy it later: cd $OPT_DIR && docker compose cp caddy:$EDGE_ROOT_CA_IN_CONTAINER edge-root-ca.crt"
+}
+
+# ---- The setup token --------------------------------------------------------------------
+
+TOKEN_POLL_SECONDS=2
+TOKEN_STATE=""
+TOKEN_VALUE=""
+
+# read_setup_token: the newest setup token in the log of the api, empty when there is none.
+# The token is a secret: it goes to a variable and to the terminal, never to the install log.
+read_setup_token() {
+  compose logs --no-color api 2>/dev/null |
+    sed -n 's/^.*SETUP TOKEN:[[:space:]]*\([A-HJKMNP-TV-Z2-9]\{5\}\(-[A-HJKMNP-TV-Z2-9]\{5\}\)\{3\}\).*$/\1/p' |
+    tail -n 1 || true
+}
+
+# wait_for_setup_token: the api prints the token a moment after it starts to answer.
+wait_for_setup_token() {
+  local token="" waited=0
+  while :; do
+    token=$(read_setup_token)
+    if [ -n "$token" ] || [ "$waited" -ge "$TOKEN_WAIT_SECONDS" ]; then
+      break
+    fi
+    sleep "$TOKEN_POLL_SECONDS"
+    waited=$((waited + 2))
+  done
+  printf '%s' "$token"
+}
+
+# setup_configured: the setup wizard has been finished (the api says so; no token is needed).
+setup_configured() {
+  local port
+  port=$(env_get "$OPT_DIR/.env" RESTOW_API_PORT 2>/dev/null || true)
+  curl -fsS --max-time 5 "http://127.0.0.1:${port:-3000}/api/v1/setup/state" 2>/dev/null | grep -q '"configured":true'
+}
+
+stdout_is_tty() {
+  [ -t 1 ]
+}
+
+# secret_sink: where a secret may be shown. The terminal of an interactive run (written to
+# it directly, so a pipe or tee in front of the script never carries it), the standard output
+# when that is a terminal; nothing otherwise (a provisioning run whose output is collected).
+secret_sink() {
+  if [ "$INTERACTIVE" = 1 ]; then
+    printf '%s' "$TTY_OUT"
+  elif stdout_is_tty; then
+    printf '%s' /dev/stdout
+  fi
+}
+
+# resolve_setup_token: sets TOKEN_STATE and TOKEN_VALUE.
+#   done         the setup wizard has been finished: there is no token any more
+#   environment  RESTOW_SETUP_TOKEN in .env is the token; it is not shown
+#   shown        read from the api log, to be shown on the terminal
+#   hidden       read, but there is no terminal to show it on
+#   missing      the api log has no token (yet)
+resolve_setup_token() {
+  local sink
+  TOKEN_STATE=""
+  TOKEN_VALUE=""
+  if setup_configured; then
+    TOKEN_STATE="done"
+    return 0
+  fi
+  if [ -n "$(env_get "$OPT_DIR/.env" RESTOW_SETUP_TOKEN 2>/dev/null || true)" ]; then
+    TOKEN_STATE=environment
+    return 0
+  fi
+  TOKEN_VALUE=$(wait_for_setup_token)
+  if [ -z "$TOKEN_VALUE" ]; then
+    TOKEN_STATE=missing
+    return 0
+  fi
+  sink=$(secret_sink)
+  if [ -z "$sink" ]; then
+    TOKEN_VALUE=""
+    TOKEN_STATE=hidden
+  else
+    TOKEN_STATE=shown
   fi
 }
 
@@ -1715,46 +2358,131 @@ edition_label() {
   esac
 }
 
-print_next_steps() {
-  cat <<NEXT
+# edge_target: where the reverse proxy forwards to: this host's address on the network and the
+# edge's port.
+edge_target() {
+  local host
+  host=$(lan_address)
+  host=${host:-"<this host's IP address>"}
+  if [ "$PROXY_HOP" = http ]; then
+    printf 'http://%s:80' "$host"
+  else
+    printf 'https://%s:443' "$host"
+  fi
+}
 
-Next steps
-  1. Master key: RESTOW_MASTER_KEY in $OPT_DIR/.env must be stored offline, apart from
-     this server and the storage, before the first real backup. Without it no backup
-     can be read again.
-  2. Repositories: the default repository is a Docker volume on this VM. Add an off-site
-     one (Admin > Repositories): S3-compatible object storage with Object Lock is recommended,
-     never only the hardware of the systems you protect.
-  3. Firewall: open 80 and 443 (certificate and web interface), SSH only from your
-     admin networks; 25 only if you receive Exchange Online journal mail.
-  4. Updates: this installer never updates. Read the release notes, then follow
-     docs/UPDATING.md (https://github.com/restow-backup/restow/blob/main/docs/UPDATING.md).
-  5. Back up $OPT_DIR/.env with the master key's offline copy, and the VM itself.
-NEXT
+# The longer list: above the box, so that the address and the token are what stays on screen.
+print_next_steps() {
+  say ""
+  say "Next steps"
+  say "  In the setup wizard (open the address in the box below):"
+  say "   1. Choose the language, English or Deutsch."
+  say "   2. Enter the setup token from the box. It proves that you operate this server."
+  say "   3. Accept the operator notice, say how Restow is reached, name your organisation and"
+  say "      create the first administrator."
+  say "   4. Set up the notification mail, or skip it: it can be set up later under"
+  say "      Installation > Notification mail (without it Restow sends no alert mails)."
+  say "  After the wizard:"
+  say "   5. Add a storage target off this machine (menu: Repositories). The default one is a"
+  say "      Docker volume on this VM; S3-compatible object storage with Object Lock is"
+  say "      recommended, never only the hardware of the systems you protect."
+  say "   6. Run the first backup, then check that a restore works."
+  say "  On this server:"
+  say "   7. Master key: RESTOW_MASTER_KEY in $OPT_DIR/.env must be stored offline, apart from"
+  say "      this server and the storage, before the first real backup. Without it no backup"
+  say "      can be read again."
+  case $MODE in
+    proxy)
+      say "   8. Firewall: let only your reverse proxy reach port $(edge_port). Docker publishes it on"
+      say "      every interface, past ufw: $PROXY_DOCS_URL"
+      say "      SSH only from your admin networks; 25 only if you receive Exchange Online journal mail."
+      ;;
+    *)
+      say "   8. Firewall: open 80 and 443 (certificate and web interface), SSH only from your"
+      say "      admin networks; 25 only if you receive Exchange Online journal mail."
+      ;;
+  esac
+  say "   9. Updates: this installer never updates. Read the release notes, then follow"
+  say "      docs/UPDATING.md (https://github.com/restow-backup/restow/blob/main/docs/UPDATING.md)."
+  say "  10. Back up $OPT_DIR/.env with the master key's offline copy, and the VM itself."
+  say "  Documentation: $DOCS_URL"
+}
+
+# final_block_lines <token state> <token>: the box the installer ends with, on stdout. The
+# state is one of those of resolve_setup_token; the token only matters for "shown".
+final_block_lines() {
+  local state=$1 token=$2 rule indent="                  " read_again lan
+  rule="======================================================================"
+  read_again="cd $OPT_DIR && sudo docker compose logs api | grep 'SETUP TOKEN'"
+  printf '\n  %s\n' "$rule"
+  printf '    Restow is running.\n'
+  case $MODE in
+    proxy)
+      printf '    Open:         %s  (served by your reverse proxy)\n' "$PUBLIC_URL"
+      if [ "$PROXY_HOP" = http ]; then
+        printf '%sYour proxy must forward to %s (not 3000). That hop is not encrypted.\n' "$indent" "$(edge_target)"
+      else
+        printf '%sYour proxy must forward to %s (not 80, not 3000)\n' "$indent" "$(edge_target)"
+      fi
+      ;;
+    local)
+      printf '    Open:         %s  (the browser warns about the certificate)\n' "$PUBLIC_URL"
+      if [ "$DOMAIN" = localhost ]; then
+        printf '%sThis machine only. For others: --local --domain restow.internal, pointed here.\n' "$indent"
+      else
+        lan=$(lan_address)
+        printf '%sOther machines: point %s at %s in DNS or the hosts file.\n' "$indent" "$DOMAIN" "${lan:-this machine}"
+      fi
+      ;;
+    *)
+      printf '    Open:         %s\n' "$PUBLIC_URL"
+      ;;
+  esac
+  case $state in
+    shown) printf '    Setup token:  %s\n' "$token" ;;
+    hidden) printf '    Setup token:  not shown in this run (no terminal). Read it as below.\n' ;;
+    missing) printf '    Setup token:  not in the api log yet. Read it as below.\n' ;;
+    environment) printf '    Setup token:  the value of RESTOW_SETUP_TOKEN in %s/.env\n' "$OPT_DIR" ;;
+    done) printf '    Setup:        complete, no token needed.\n' ;;
+  esac
+  printf '  %s\n' "$rule"
+  case $state in
+    shown | hidden | missing)
+      printf '  The token proves you operate this server and works until the setup is done.\n'
+      printf '  Read it again: %s\n' "$read_again"
+      ;;
+    environment)
+      printf '  The token proves you operate this server and works until the setup is done.\n'
+      ;;
+  esac
+}
+
+# print_final_block: the last thing the installer prints. The log gets the box without the
+# token; the token itself goes to the terminal only (secret_sink), never through say or log_line.
+print_final_block() {
+  local sink line
+  final_block_lines "$TOKEN_STATE" "(shown on the terminal only)" | while IFS= read -r line; do
+    log_line "$line"
+  done
+  if [ "$TOKEN_STATE" = shown ]; then
+    sink=$(secret_sink)
+    final_block_lines shown "$TOKEN_VALUE" >>"$sink"
+  else
+    final_block_lines "$TOKEN_STATE" ""
+  fi
+  TOKEN_VALUE=""
 }
 
 print_summary() {
-  local setup_url=$1
   say ""
-  say "Restow $VERSION ($(edition_label "$EDITION")) is running."
-  say ""
-  say "  Setup:        $setup_url"
-  say "  Setup token:  cd $OPT_DIR && sudo docker compose logs api | grep 'SETUP TOKEN'"
-  say "                (printed by the api until the setup wizard is finished)"
-  say "  Directory:    $OPT_DIR (.env with the secrets, mode 0600)"
-  say "  Log:          $LOG_FILE"
-  if [ "$LOCAL_MODE" = 1 ]; then
-    say "  Note:         evaluation mode, not for production. The browser warns about the"
-    say "                certificate of the edge's own authority; passkeys are not offered,"
-    say "                the first administrator signs in with a password and an"
-    say "                authenticator app. https://localhost opens on this machine only;"
-    say "                from another one use an internal name (--domain restow.internal)"
-    say "                that your DNS or hosts file points to this machine."
-  fi
+  say "Restow $VERSION ($(edition_label "$EDITION")) is installed in $OPT_DIR (.env with the secrets, mode 0600)."
+  say "Log: $LOG_FILE"
   if [ "$WARNINGS" -gt 0 ]; then
-    say "  Warnings:     $WARNINGS (see above and in the log)"
+    say "Warnings: $WARNINGS (see above and in the log)"
   fi
+  resolve_setup_token
   print_next_steps
+  print_final_block
 }
 
 # ---- Flows --------------------------------------------------------------------------------
@@ -1766,6 +2494,106 @@ banner() {
   fi
   if is_dry; then
     say "Dry run: checks only, nothing is changed."
+  fi
+}
+
+# print_intro: what is about to happen, on a terminal, before any question.
+print_intro() {
+  {
+    printf '\n'
+    printf 'This installs the Restow server on this machine with Docker Compose. It will:\n'
+    printf '  - check the machine (system, memory, disk, network) and change nothing yet,\n'
+    printf '  - ask how Restow is reached and which build you want, show a plan and wait for\n'
+    printf '    your confirmation,\n'
+    printf '  - install Docker if it is missing, download the release and check its signatures,\n'
+    printf '    write the configuration with newly generated secrets, pull the images, start Restow,\n'
+    printf '  - show you the address to open and the one-time setup token for the setup wizard.\n'
+    printf 'It takes about 10 to 20 minutes, most of it downloads. You need root (sudo), outbound\n'
+    printf 'HTTPS from this machine and, for options 1 and 2 below, a domain name for Restow.\n'
+    printf 'Stop at any question with Ctrl+C: nothing is changed before you confirm the plan.\n'
+  } >>"$TTY_OUT"
+}
+
+# mode_is_open: whether the operator has still to say how Restow is reached (a terminal, and
+# neither --local, --behind-proxy nor --domain, which each answer it).
+mode_is_open() {
+  [ "$INTERACTIVE" = 1 ] && [ "$OPT_LOCAL" != 1 ] && [ "$OPT_BEHIND_PROXY" != 1 ] && [ -z "$OPT_DOMAIN" ]
+}
+
+# ask_mode: the three ways to reach Restow. Sets OPT_BEHIND_PROXY or OPT_LOCAL for 2 and 3.
+ask_mode() {
+  local answer
+  {
+    printf '\nHow will people reach Restow?\n'
+    printf '  1) Public, with its own certificate\n'
+    printf '       Needs a domain that points at this server and ports 80 and 443 open to the internet.\n'
+    printf '  2) Behind a reverse proxy you already run (Nginx Proxy Manager, Traefik, Caddy, ...)\n'
+    printf '       The proxy handles the public address and TLS and forwards to this server, encrypted.\n'
+    printf '  3) Local evaluation (--local)\n'
+    printf '       No domain, no real certificate: https://localhost, to try Restow out.\n'
+  } >>"$TTY_OUT"
+  while :; do
+    ask answer "Choose 1, 2 or 3" 1
+    case $answer in
+      1) ;;
+      2) OPT_BEHIND_PROXY=1 ;;
+      3) OPT_LOCAL=1 ;;
+      *)
+        tty_say "Please answer 1, 2 or 3."
+        continue
+        ;;
+    esac
+    break
+  done
+}
+
+# ask_proxy_ips: the address of the reverse proxy, with what it is and is not.
+ask_proxy_ips() {
+  local answer problem
+  {
+    printf '\nWhich address does your reverse proxy connect from?\n'
+    printf '  Enter the address of the proxy server itself, as this machine sees it (for example\n'
+    printf '  192.168.1.20), not your whole network: Restow believes the client address that a\n'
+    printf '  listed proxy reports (audit log, sign-in limits). Several proxies: separate them with spaces.\n'
+  } >>"$TTY_OUT"
+  while :; do
+    ask answer "Address of your reverse proxy"
+    problem=$(proxy_list_problem "$answer")
+    if [ -z "$problem" ]; then
+      OPT_PROXY_IPS=$(proxy_list_normalize "$answer")
+      return 0
+    fi
+    tty_say "$problem (an IP address such as 192.168.1.20, or a network such as 192.168.1.0/29)"
+  done
+}
+
+# proxy_version_problem <version>: says why this release cannot serve the encrypted hop, if so.
+proxy_version_problem() {
+  if [ "${OPT_PROXY_HOP:-https}" != http ] && ! version_ge "$1" "$PROXY_TLS_MIN_VERSION"; then
+    echo "--behind-proxy needs release $PROXY_TLS_MIN_VERSION or newer: the edge of $1 cannot serve an encrypted hop to a reverse proxy. Install $PROXY_TLS_MIN_VERSION or newer (--version), or use --proxy-hop http (the hop is then not encrypted; see --help)."
+  fi
+}
+
+# require_proxy_options: --behind-proxy without a terminal has to bring its answers, and a
+# release that is too old stops before any check. Asked of a terminal later, in collect_configuration.
+require_proxy_options() {
+  local problem
+  # An installation that exists is only checked and started: resume_existing compares the flags with it.
+  if [ "$OPT_BEHIND_PROXY" != 1 ] || [ -f "$OPT_DIR/.env" ]; then
+    return 0
+  fi
+  problem=$(proxy_version_problem "${OPT_VERSION:-$DEFAULT_VERSION}")
+  if [ -n "$problem" ]; then
+    die "$EXIT_USAGE" "$problem"
+  fi
+  if [ "$INTERACTIVE" = 1 ] || is_dry; then
+    return 0
+  fi
+  if [ -z "$OPT_DOMAIN" ]; then
+    die "$EXIT_USAGE" "--domain is required with --behind-proxy and --non-interactive: the name your reverse proxy serves (for example backup.example.com)"
+  fi
+  if [ -z "$OPT_PROXY_IPS" ]; then
+    die "$EXIT_USAGE" "--proxy-ip is required with --behind-proxy and --non-interactive: the address of your reverse proxy, as this host sees it (for example --proxy-ip 192.168.1.20). It is the proxy's own address, not your LAN: Restow believes the client address these peers report."
   fi
 }
 
@@ -1817,27 +2645,46 @@ collect_configuration() {
   VERSION=${OPT_VERSION:-$DEFAULT_VERSION}
   DOMAIN=$OPT_DOMAIN
   EDITION=$OPT_EDITION
+  if mode_is_open; then
+    ask_mode
+  fi
+  if [ "$OPT_LOCAL" = 1 ]; then
+    MODE=local
+  elif [ "$OPT_BEHIND_PROXY" = 1 ]; then
+    MODE=proxy
+  else
+    MODE=public
+  fi
   if [ -z "$DOMAIN" ]; then
     if [ "$OPT_LOCAL" = 1 ]; then
       DOMAIN=localhost
     elif [ "$INTERACTIVE" = 1 ]; then
       while :; do
-        ask answer "Domain name of this server (for example backup.example.com)"
+        if [ "$MODE" = proxy ]; then
+          ask answer "Domain name your reverse proxy serves (for example backup.example.com)"
+        else
+          ask answer "Domain name of this server (for example backup.example.com)"
+        fi
         answer=$(normalize_domain "$answer")
-        problem=$(domain_problem "$answer" 0)
+        problem=$(domain_problem "$answer" 0 "$OPT_BEHIND_PROXY")
         if [ -n "$answer" ] && [ -z "$problem" ]; then
           DOMAIN=$answer
           break
         fi
-        printf '%s\n' "${problem:-a domain name is needed}" >/dev/tty
+        tty_say "${problem:-a domain name is needed}"
       done
     elif is_dry; then
       DOMAIN="backup.example.com"
       DOMAIN_PLACEHOLDER=1
       say "    (dry run without --domain: backup.example.com stands in for it, its DNS is not checked)"
+    elif [ "$MODE" = proxy ]; then
+      die "$EXIT_USAGE" "--domain is required with --behind-proxy and --non-interactive: the name your reverse proxy serves"
     else
       die "$EXIT_USAGE" "--domain is required with --non-interactive (or --local for an evaluation)"
     fi
+  fi
+  if [ "$MODE" = proxy ]; then
+    collect_proxy_configuration
   fi
   if [ -z "$EDITION" ]; then
     EDITION=full
@@ -1847,7 +2694,7 @@ collect_configuration() {
         printf '  full       the Apache-2.0 core plus the Business and Service Provider modules,\n'
         printf '             locked until a license key is installed (take it if you may want them)\n'
         printf '  community  the Apache-2.0 core only\n'
-      } >/dev/tty
+      } >>"$TTY_OUT"
       while :; do
         ask answer "Build (full or community)" full
         answer=$(to_lower "$answer")
@@ -1871,6 +2718,40 @@ collect_configuration() {
   WEB_IMAGE="$prefix/$web_name:$VERSION"
 }
 
+# collect_proxy_configuration: behind a reverse proxy, which proxies are trusted and how the
+# proxy reaches this host. The domain is known.
+collect_proxy_configuration() {
+  local problem entry note
+  PROXY_HOP=${OPT_PROXY_HOP:-https}
+  problem=$(proxy_version_problem "$VERSION")
+  if [ -n "$problem" ]; then
+    die "$EXIT_USAGE" "$problem"
+  fi
+  if [ -z "$OPT_PROXY_IPS" ]; then
+    if [ "$INTERACTIVE" = 1 ]; then
+      ask_proxy_ips
+    elif is_dry; then
+      OPT_PROXY_IPS="192.0.2.1/32"
+      say "    (dry run without --proxy-ip: 192.0.2.1/32 stands in for it)"
+    else
+      die "$EXIT_USAGE" "--proxy-ip is required with --behind-proxy and --non-interactive"
+    fi
+  fi
+  TRUSTED_PROXIES=$OPT_PROXY_IPS
+  for entry in $TRUSTED_PROXIES; do
+    note=$(proxy_entry_range_note "$entry")
+    if [ -n "$note" ]; then
+      warn "$note, and Restow believes the client address every one of them reports. List the proxy itself, not a network of machines."
+    fi
+  done
+  if [ "$PROXY_HOP" = http ]; then
+    APP_DOMAIN_VALUE="http://$DOMAIN"
+    warn "--proxy-hop http: the connection between your reverse proxy and this host is NOT encrypted. Session cookies, passwords and restored data cross it in clear text, and port 80 of this host is open to the whole network. Use it only when the proxy and Restow share a host or an isolated network."
+  else
+    APP_DOMAIN_VALUE=$DOMAIN
+  fi
+}
+
 show_plan() {
   local docker_action updater signatures address
   case $DOCKER_STATE in
@@ -1890,16 +2771,26 @@ show_plan() {
   else
     signatures="checked with cosign (release workflow of v$VERSION)"
   fi
-  if [ "$OPT_LOCAL" = 1 ]; then
-    address="$PUBLIC_URL (evaluation: the edge's own certificate authority)"
-  else
-    address="$PUBLIC_URL (Let's Encrypt certificate)"
-  fi
+  case $MODE in
+    local) address="$PUBLIC_URL (evaluation: the edge's own certificate authority)" ;;
+    proxy) address="$PUBLIC_URL (served by your reverse proxy)" ;;
+    *) address="$PUBLIC_URL (Let's Encrypt certificate)" ;;
+  esac
   step "Plan"
   say "    Release      v$VERSION, $(edition_label "$EDITION")"
   say "    Images       $APP_IMAGE"
   say "                 $WEB_IMAGE"
   say "    Address      $address"
+  if [ "$MODE" = proxy ]; then
+    if [ "$PROXY_HOP" = http ]; then
+      say "    TLS          at your reverse proxy: forward to $(edge_target) (not 3000). That hop is NOT encrypted."
+    else
+      say "    TLS          at your reverse proxy: forward to $(edge_target) (not 80, not 3000)"
+      say "                 The hop is encrypted; the edge shows a certificate of its own authority."
+    fi
+    say "    Proxy        $TRUSTED_PROXIES (its client address is believed: X-Forwarded-For)"
+    say "    HSTS         off here; leave it to your reverse proxy"
+  fi
   say "    Directory    $OPT_DIR"
   say "    Docker       $docker_action"
   say "    Signatures   $signatures"
@@ -1914,9 +2805,13 @@ install_fresh() {
   step "Checking the target"
   check_ports
   check_disk
-  if [ "$OPT_LOCAL" != 1 ] && [ "$DOMAIN_PLACEHOLDER" != 1 ]; then
+  if [ "$MODE" = public ] && [ "$DOMAIN_PLACEHOLDER" != 1 ]; then
     check_dns
+  elif [ "$MODE" = proxy ]; then
+    say "    note: $DOMAIN points at your reverse proxy, not at this server. Its DNS record and its certificate"
+    say "    are the proxy's job here, so they are not checked."
   fi
+  check_images
   if [ "$PREFLIGHT_FAILED" -gt 0 ]; then
     die "$EXIT_PREFLIGHT" "$PREFLIGHT_FAILED check(s) failed (see above); nothing was changed"
   fi
@@ -1943,17 +2838,20 @@ install_fresh() {
   start_stack "$OPT_UPDATER" 1
   wait_healthy
   check_edge "$DOMAIN"
+  if [ "$MODE" = proxy ] && [ "$PROXY_HOP" = https ]; then
+    export_edge_root_ca
+  fi
   if is_dry; then
     say ""
     say "Dry run finished: nothing was changed."
     return 0
   fi
   log_line "installation finished: v$VERSION $EDITION in $OPT_DIR"
-  print_summary "$PUBLIC_URL"
+  print_summary
 }
 
 resume_existing() {
-  local env="$OPT_DIR/.env" missing current_domain web_version
+  local env="$OPT_DIR/.env" missing current_domain web_version app_domain
   step "Existing installation in $OPT_DIR"
   say "    $env exists: nothing in $OPT_DIR is changed; the installer checks the images and makes sure the stack runs."
   if [ ! -f "$OPT_DIR/docker-compose.yml" ]; then
@@ -1968,12 +2866,30 @@ resume_existing() {
   fi
   VERSION=$(image_tag "$APP_IMAGE")
   EDITION=$(edition_of_image "$APP_IMAGE")
-  DOMAIN=$(env_get "$env" RESTOW_APP_DOMAIN)
+  app_domain=$(env_get "$env" RESTOW_APP_DOMAIN)
   PUBLIC_URL=$(env_get "$env" RESTOW_PUBLIC_URL)
+  # How this installation is reached, from what the installation wrote (or the operator did).
+  case $app_domain in
+    http://*)
+      MODE=proxy
+      PROXY_HOP=http
+      DOMAIN=${app_domain#http://}
+      ;;
+    *)
+      DOMAIN=$app_domain
+      if [ "$(env_get "$env" RESTOW_EDGE_TLS)" = internal ]; then
+        MODE=proxy
+        PROXY_HOP=https
+      elif [ "$(domain_kind "$DOMAIN")" = internal ]; then
+        MODE=local
+        LOCAL_MODE=1
+      else
+        MODE=public
+      fi
+      ;;
+  esac
+  TRUSTED_PROXIES=$(env_get "$env" RESTOW_EDGE_TRUSTED_PROXIES)
   current_domain=$DOMAIN
-  if [ "$(domain_kind "$DOMAIN")" = internal ]; then
-    LOCAL_MODE=1
-  fi
   if [ -n "$OPT_VERSION" ] && [ "$OPT_VERSION" != "$VERSION" ]; then
     die "$EXIT_EXISTING" "this installation runs ${VERSION:-an unknown version}, not $OPT_VERSION. The installer does not update; follow docs/UPDATING.md (bash install.sh --upgrade)."
   fi
@@ -1982,6 +2898,9 @@ resume_existing() {
   fi
   if [ -n "$OPT_DOMAIN" ] && [ "$OPT_DOMAIN" != "$current_domain" ]; then
     die "$EXIT_EXISTING" "this installation serves $current_domain. To change the domain, edit RESTOW_APP_DOMAIN and RESTOW_PUBLIC_URL in $env yourself."
+  fi
+  if [ "$OPT_BEHIND_PROXY" = 1 ] && [ "$MODE" != proxy ]; then
+    die "$EXIT_EXISTING" "this installation was not set up behind a reverse proxy. The installer never changes .env; the settings for a reverse proxy are in $PROXY_DOCS_URL."
   fi
   web_version=$(image_tag "$WEB_IMAGE")
   if [ "$web_version" != "$VERSION" ]; then
@@ -2006,13 +2925,16 @@ resume_existing() {
   if [ -n "$DOMAIN" ]; then
     check_edge "$DOMAIN"
   fi
+  if [ "$MODE" = proxy ] && [ "$PROXY_HOP" = https ]; then
+    export_edge_root_ca
+  fi
   if is_dry; then
     say ""
     say "Dry run finished: nothing was changed."
     return 0
   fi
   log_line "existing installation checked and running: $APP_IMAGE in $OPT_DIR"
-  print_summary "${PUBLIC_URL:-https://$DOMAIN}"
+  print_summary
 }
 
 main() {
@@ -2033,7 +2955,13 @@ main() {
   trap 'exit 130' INT TERM HUP
   init_log "$@"
   setup_interaction
+  require_proxy_options
   banner
+  # A first run on a terminal explains itself before it asks anything; an installation that
+  # exists already is only checked and started, so it needs no introduction.
+  if mode_is_open && [ ! -f "$OPT_DIR/.env" ]; then
+    print_intro
+  fi
   warn_overrides
   local temp_base=${TMPDIR:-/tmp}
   WORK=$(mktemp -d "${temp_base%/}/restow-install.XXXXXX")

@@ -10,7 +10,6 @@ import type {
   PermissionState,
   UnusableReason,
 } from "./microsoft-app/api";
-import { SETTINGS_SECTIONS } from "./presenters";
 
 /**
  * Guards for the `settings` namespace: German and English carry the same keys
@@ -79,7 +78,7 @@ function collect(pattern: RegExp, fallback: string): [string, string, string][] 
 }
 
 const TOP_LEVEL_GROUPS =
-  "general|mail|microsoftApp|security|danger|readiness|toasts|form|validation|errors|sections|account";
+  "general|mail|microsoftApp|security|readiness|toasts|form|validation|errors|account";
 
 /** Every key the Microsoft 365 app registration builds from API values. */
 function microsoftAppKeys(): string[] {
@@ -201,7 +200,6 @@ describe("settings translations", () => {
       "transport_error",
     ];
     const expected = [
-      ...SETTINGS_SECTIONS.map((section) => `sections.${section}`),
       ...probeStatuses.flatMap((status) => [
         `readiness.probe.badge.${status}`,
         `readiness.probe.status.${status}`,

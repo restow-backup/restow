@@ -18,6 +18,8 @@ const state = vi.hoisted(() => ({
     id: string;
     name: string;
     slug: string;
+    kind: "customer" | "internal";
+    customerNumber: string | null;
     status: "active" | "suspended" | "deleting";
     organizationId: string | null;
   }[],
@@ -84,6 +86,8 @@ beforeEach(() => {
       id: "t-contoso",
       name: "Contoso",
       slug: "contoso",
+      kind: "internal",
+      customerNumber: null,
       status: "active",
       organizationId: CONTOSO_ORG,
     },
@@ -91,6 +95,8 @@ beforeEach(() => {
       id: "t-fabrikam",
       name: "Fabrikam",
       slug: "fabrikam",
+      kind: "customer",
+      customerNumber: "K-1002",
       status: "suspended",
       organizationId: FABRIKAM_ORG,
     },
@@ -151,7 +157,7 @@ describe("GET /api/v1/me", () => {
     expect(body.version).toMatchObject({ running: null, updateCheck: "disabled" });
   });
 
-  it("lists each tenant with the member's role there and its status", async () => {
+  it("lists each tenant with its kind, customer number, the member's role there and its status", async () => {
     state.session = sessionOf({
       memberships: [
         { organizationId: CONTOSO_ORG, role: "admin" },
@@ -162,11 +168,21 @@ describe("GET /api/v1/me", () => {
     const body = await getMe();
     expect(body.role).toBe("tenant_admin");
     expect(body.tenants).toEqual([
-      { id: "t-contoso", name: "Contoso", slug: "contoso", role: "tenant_admin", status: "active" },
+      {
+        id: "t-contoso",
+        name: "Contoso",
+        slug: "contoso",
+        kind: "internal",
+        customerNumber: null,
+        role: "tenant_admin",
+        status: "active",
+      },
       {
         id: "t-fabrikam",
         name: "Fabrikam",
         slug: "fabrikam",
+        kind: "customer",
+        customerNumber: "K-1002",
         role: "tenant_user",
         status: "suspended",
       },

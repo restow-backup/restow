@@ -15,7 +15,6 @@ import { LastBackupWidget } from "./widgets/last-backup-widget.js";
 import { ReadinessWidget } from "./widgets/readiness-widget.js";
 import { RecentJobsWidget } from "./widgets/recent-jobs-widget.js";
 import { RetentionWidget } from "./widgets/retention-widget.js";
-import { SetupWidget } from "./widgets/setup-widget.js";
 import {
   MailboxUsageWidget,
   ProtectedObjectsWidget,
@@ -72,18 +71,12 @@ const state = (context: WidgetContext) => ({
   retrying: context.retrying,
 });
 
+/**
+ * The setup checklist is not on this page: it is the sidebar's "Start" entry
+ * (features/start), and the tenant page shows its steps. Nothing here says "setup
+ * complete" either.
+ */
 export const SECTIONS: readonly Section[] = [
-  {
-    id: "setup",
-    columns: () => "",
-    entries: [
-      {
-        key: "setup",
-        source: "setup",
-        render: (c) => <SetupWidget view={c.view("setup")} {...state(c)} />,
-      },
-    ],
-  },
   {
     id: "status",
     columns: twoUp,

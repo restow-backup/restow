@@ -38,7 +38,7 @@ B2, Garage — not MinIO, which is no longer open source). Every target has a ro
   (`withReadOnlyFallback`, `packages/core/src/storage/copy.ts`). Archive jobs and
   scrub never read it (see "Known limitations" for the scrub gap this leaves).
 
-The Repositories page (Admin › Repositories, `/repositories`) lists every target with its role,
+The Storage section of a tenant's page (`/tenants/<tenant>/storage`; the earlier address `/repositories` leads there) lists every target with its role,
 health (the result of its last test), and — for S3 targets — whether the bucket
 enforces Object Lock (WORM), which matters for the GoBD archive layer
 (`docs/ARCHIVE.md`). In 0.1.0 Object Lock covers only the archive's item records, not
@@ -144,7 +144,7 @@ and hashing, that nothing is lost: an existing backup is never made unreachable 
 
 A `move` migration runs as a background job (`storage_migration` queue) with its own
 row (`storage_migrations`) tracking its state, independent of the generic job list, so
-the target's card on the Repositories page can show it directly:
+the target's card in the Storage section can show it directly:
 
 1. **queued** — accepted, waiting for a worker.
 2. **copying** — every pack, manifest and wrapped key the current primary holds (or,

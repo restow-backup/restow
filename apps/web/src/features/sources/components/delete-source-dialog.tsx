@@ -13,7 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/sonner";
-import { sourcesListTo } from "../paths";
+import { sourcesListSearch, sourcesListTo } from "../paths";
 import { retainedDataOf, sourceErrorKey } from "../presenters";
 import type { SourceDto } from "../types";
 import { useDeleteSource, useUpdateSource } from "../use-sources";
@@ -50,7 +50,11 @@ export function DeleteSourceDialog({ open, onOpenChange, source }: DeleteSourceD
       onSuccess: () => {
         toast.success(t("toasts.deleted"));
         onOpenChange(false);
-        void navigate({ to: sourcesListTo(), replace: true });
+        void navigate({
+          to: sourcesListTo(),
+          search: sourcesListSearch(source.kind) as never,
+          replace: true,
+        });
       },
     });
   };

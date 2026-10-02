@@ -19,7 +19,7 @@ und für alle Mandanten wiederverwendet:
 1. **Backup-App** (Anwendungsberechtigungen, Client Credentials, Multi-Tenant). Sie
    sichert und restauriert Postfächer und OneDrives. Kunden erteilen ihr Admin-Consent
    per Link; danach holt Restow je Kunden-Tenant ein App-Token. Kein Nutzer ist an
-   diesem Fluss beteiligt. → In der Weboberfläche unter **Einstellungen → Microsoft 365**
+   diesem Fluss beteiligt. → In der Weboberfläche unter **Installation → Microsoft-Multi-Tenant-App**
    (verschlüsselt gespeichert) oder alternativ per `.env`: `ENTRA_CLIENT_ID`,
    `ENTRA_CLIENT_SECRET` oder `ENTRA_CLIENT_CERT_PATH`. Die Umgebung hat Vorrang.
 2. **SSO-App** (delegierte Berechtigungen, OIDC, Multi-Tenant `common`, Edition Business
@@ -50,11 +50,10 @@ Im Entra Admin Center (entra.microsoft.com) oder Azure-Portal unter
    Teil 4. Dieselbe URI dient auch der bestätigenden Anmeldung nach dem Consent; eine
    zweite URI ist nicht nötig.
 4. Registrieren. Danach **Anwendungs-(Client-)ID** und **Verzeichnis-(Mandanten-)ID**
-   notieren. Beide trägt der Provider-Admin in Restow unter **Einstellungen → Microsoft
-   365** ein (Schritt 4 der dortigen Anleitung); die Verzeichnis-ID dient dem
+   notieren. Beide trägt der Provider-Admin in Restow unter **Installation → Microsoft-Multi-Tenant-App** ein (Schritt 4 der dortigen Anleitung); die Verzeichnis-ID dient dem
    Verbindungstest. Alternativ gehört die Client-ID in `ENTRA_CLIENT_ID`.
 
-**Eintragen in der Weboberfläche.** Die Seite **Einstellungen → Microsoft 365** führt
+**Eintragen in der Weboberfläche.** Die Seite **Installation → Microsoft-Multi-Tenant-App** führt
 durch Teil 1 bis 3 (mit dem exakten Umleitungs-URI zum Kopieren, der Berechtigungsliste
 und dem OpenSSL-Befehl) und nimmt Client-ID, Verzeichnis-ID und Zugangsdaten entgegen.
 Client-Secret bzw. privater Schlüssel werden nur verschlüsselt in der Datenbank abgelegt
@@ -125,7 +124,7 @@ kann beide:
   `.crt` (öffentlichen Teil) hochladen. Der private Schlüssel bleibt beim Betreiber.
 - Privaten Schlüssel und Zertifikat zu einer PEM-Datei zusammenfügen
   (`cat restow-entra.key restow-entra.crt > restow-entra.pem`) und diese unter
-  **Einstellungen → Microsoft 365** hochladen; Restow prüft beim Speichern, dass Schlüssel
+  **Installation → Microsoft-Multi-Tenant-App** hochladen; Restow prüft beim Speichern, dass Schlüssel
   (RSA, unverschlüsselt) und Zertifikat zusammenpassen und das Zertifikat gültig ist, und
   legt beides nur verschlüsselt ab. Alternativ den Pfad zur PEM-Datei in
   `ENTRA_CLIENT_CERT_PATH` setzen; der Schlüssel gehört nicht ins Repo, nur auf den Host
@@ -139,7 +138,7 @@ kann beide:
   Clientschlüssel**. Laufzeit **maximal 24 Monate** — Microsoft lässt keine längeren
   mehr zu.
 - Den **Wert** (Spalte „Wert“) **sofort** kopieren, nicht die „Geheime ID“ daneben
-  (später nicht mehr sichtbar), und unter **Einstellungen → Microsoft 365** eintragen,
+  (später nicht mehr sichtbar), und unter **Installation → Microsoft-Multi-Tenant-App** eintragen,
   alternativ in `ENTRA_CLIENT_SECRET` ablegen. Restow lehnt eine eingetragene GUID ab,
   weil das fast immer die Geheime ID ist. Nie ins Repo, nie in Logs (`docs/… nicht
   verhandelbar`: keine Secrets im Repo, keine Secrets in Logs; Secrets liegen nur
@@ -170,7 +169,7 @@ https://login.microsoftonline.com/{tenant}/adminconsent?client_id={clientId}&red
   öffentlichen URL ab (siehe Teil 6), Standard:
   `<RESTOW_PUBLIC_URL>/api/v1/sources/m365/consent/callback`. **Genau dieser Wert** muss in
   Teil 1, Schritt 3 als Umleitungs-URI (Typ „Web") in der Backup-App eingetragen sein,
-  sonst lehnt Entra den Rückweg ab. Einrichtung › Quellen in Restow zeigt den Wert mit
+  sonst lehnt Entra den Rückweg ab. Mandantenseite › Verbindungen (Reiter Microsoft 365) in Restow zeigt den Wert mit
   Kopier-Knopf an.
 
 Ablauf: Kunden-Admin öffnet den Link → meldet sich in **seinem** Tenant an → sieht die
@@ -295,10 +294,10 @@ Journaling liefert die Kopie **vor** Zustellung inklusive Envelope-/BCC-Empfäng
 
 ## Checkliste
 
-- [ ] Backup-App (Multi-Tenant) registriert, Client-ID unter **Einstellungen → Microsoft 365** eingetragen (oder in `ENTRA_CLIENT_ID`; die Umgebung hat Vorrang).
+- [ ] Backup-App (Multi-Tenant) registriert, Client-ID unter **Installation → Microsoft-Multi-Tenant-App** eingetragen (oder in `ENTRA_CLIENT_ID`; die Umgebung hat Vorrang).
 - [ ] Neun Pflicht-Anwendungsberechtigungen gesetzt; `Mail.Send` nur bei Graph-Versand.
 - [ ] Delegierte Scopes `openid` und `profile` in der Backup-App eingetragen (bestätigende Anmeldung).
-- [ ] Zertifikat **oder** Secret (≤ 24 Monate) unter **Einstellungen → Microsoft 365** hinterlegt (verschlüsselt gespeichert) bzw. per `ENTRA_CLIENT_CERT_PATH` / `ENTRA_CLIENT_SECRET`; „Verbindung testen“ zeigt alle Pflichtrechte als erteilt.
+- [ ] Zertifikat **oder** Secret (≤ 24 Monate) unter **Installation → Microsoft-Multi-Tenant-App** hinterlegt (verschlüsselt gespeichert) bzw. per `ENTRA_CLIENT_CERT_PATH` / `ENTRA_CLIENT_SECRET`; „Verbindung testen“ zeigt alle Pflichtrechte als erteilt.
 - [ ] Admin-Consent-Rückweg als Web-Redirect in der Backup-App eingetragen.
 - [ ] SSO-App (Multi-Tenant `common`) registriert, delegierte Scopes `openid profile email`, Callback als Web-Redirect; `ENTRA_SSO_CLIENT_ID`/`ENTRA_SSO_CLIENT_SECRET` gesetzt.
 - [ ] `RESTOW_PUBLIC_URL`/`RESTOW_MODE` im Wizard gesetzt; angezeigte Redirect-URIs 1:1 in beide Apps übernommen.

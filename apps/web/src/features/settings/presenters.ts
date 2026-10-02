@@ -3,58 +3,10 @@ import { ApiError, errorMessageKey } from "@/lib/api";
 import type { MailTestFailureReason, ReachabilityStatus } from "./api";
 
 /**
- * Pure mapping from API and browser outcomes to what the settings page shows:
- * i18n keys, visual variants and URL state. No visible text lives here.
+ * Pure mapping from API and browser outcomes to what the settings pieces show
+ * (the installation sections and the account page): i18n keys and visual
+ * variants. No visible text lives here.
  */
-
-// --- Sections and URL state --------------------------------------------------------------
-
-/** The installation's settings; the admin's own sign-in security has its own page (`/account`). */
-export const SETTINGS_SECTIONS = [
-  "general",
-  "mail",
-  "microsoft365",
-  "updates",
-  "about",
-  "danger",
-] as const;
-export type SettingsSection = (typeof SETTINGS_SECTIONS)[number];
-
-export interface SettingsSearch {
-  section?: SettingsSection;
-  /**
-   * Opaque marker of what a link into Settings, About was about (a locked
-   * menu entry sets it, see `NavLock.search`); the core hands it to the
-   * `settings.about` extension slot unread. A short lowercase token.
-   */
-  requires?: string;
-}
-
-const REQUIRES_PATTERN = /^[a-z][a-z0-9_.]{0,63}$/;
-
-/** Accept only known sections; the default (`general`) is kept out of the URL. */
-export function parseSettingsSearch(search: unknown): SettingsSearch {
-  const raw =
-    typeof search === "object" && search !== null ? (search as Record<string, unknown>) : {};
-  const section =
-    typeof raw.section === "string" &&
-    raw.section !== "general" &&
-    (SETTINGS_SECTIONS as readonly string[]).includes(raw.section)
-      ? (raw.section as SettingsSection)
-      : undefined;
-  const requires =
-    section === "about" && typeof raw.requires === "string" && REQUIRES_PATTERN.test(raw.requires)
-      ? raw.requires
-      : undefined;
-  return {
-    ...(section ? { section } : {}),
-    ...(requires ? { requires } : {}),
-  };
-}
-
-export function sectionSearch(section: SettingsSection): SettingsSearch {
-  return section === "general" ? {} : { section };
-}
 
 // --- About ----------------------------------------------------------------------------------
 

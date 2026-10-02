@@ -7,6 +7,7 @@ import {
   checklistItems,
   guideOpenByDefault,
   isNotSetUp,
+  receiverStatus,
 } from "./presenters";
 
 function setup(overrides: Partial<JournalSetup["requirements"]> = {}): JournalSetup {
@@ -147,5 +148,29 @@ describe("guide", () => {
 
   it("stays folded while journaling is not set up at all", () => {
     expect(guideOpenByDefault("not_configured")).toBe(false);
+  });
+});
+
+describe("receiverStatus", () => {
+  it("speaks the vocabulary of the tenant's setup for the installation's receiver", () => {
+    expect(receiverStatus("listening")).toBe("receiving");
+    expect(receiverStatus("down")).toBe("receiver_down");
+    expect(receiverStatus("not_configured")).toBe("not_configured");
+    // So a receiver nobody set up is no fault, in the same tone, and a down one is a fault.
+    expect(STATUS_TONE[receiverStatus("not_configured")]).toBe("muted");
+    expect(STATUS_TONE[receiverStatus("down")]).toBe("destructive");
+  });
+
+  it("feeds the same checklist as the tenant's setup, from the requirements alone", () => {
+    const requirements = setup().requirements;
+    const items = checklistItems({ requirements, status: receiverStatus("listening") });
+    expect(items.map((item) => item.id)).toEqual(["dns", "port", "tls", "size"]);
+    // A receiver that was never set up has nothing to warn about: missing TLS is a to-do.
+    const unset = checklistItems({
+      requirements: { ...requirements, smtpPort: null, tlsConfigured: false },
+      status: receiverStatus("not_configured"),
+    });
+    expect(unset.find((item) => item.id === "tls")?.state).toBe("todo");
+    expect(unset.find((item) => item.id === "port")?.state).toBe("todo");
   });
 });

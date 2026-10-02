@@ -1,0 +1,1 @@
+ALTER TABLE "settings" ADD COLUMN "mail_not_needed" boolean DEFAULT false NOT NULL;

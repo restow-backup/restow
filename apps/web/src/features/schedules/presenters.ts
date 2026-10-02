@@ -148,28 +148,25 @@ export function describeScope(item: Pick<ScheduleItem, "kind" | "protectedObject
   return OBJECT_SCOPED_KINDS.includes(item.kind) ? t("scope.allObjects") : t("scope.tenant");
 }
 
-// --- Coverage (the honest warnings) --------------------------------------------
+// --- Jobs replace the backup and verify schedules ------------------------------
 
-export type CoverageState = "active" | "paused" | "missing";
-
-export interface Coverage {
-  state: CoverageState;
-  /** A tenant-wide schedule of the kind that is switched off (to switch it on again). */
-  paused: ScheduleItem | null;
-}
+/** The kinds backup jobs took over (release 0.2.0): the schedules page no longer creates them. */
+export const JOB_REPLACED_KINDS: readonly ScheduleKind[] = ["backup", "verify"];
 
 /**
- * Whether a tenant-wide schedule of `kind` runs: `active` when one is on,
- * `paused` when they all are off, `missing` when there is none. A schedule
- * narrowed to one object does not cover the others.
+ * Whether a schedule belongs to the table. The backup and restore-check
+ * schedules of earlier releases are replaced by backup jobs: once a job took
+ * a schedule over (`supersededByJobId`) it stays in the database but not on this
+ * page. One the migration left alone (not superseded) is still what runs, so it
+ * stays visible and editable.
  */
-export function coverageOf(items: readonly ScheduleItem[], kind: "backup" | "verify"): Coverage {
-  const tenantWide = items.filter((item) => item.kind === kind && item.protectedObject === null);
-  if (tenantWide.some((item) => item.enabled)) {
-    return { state: "active", paused: null };
-  }
-  const paused = tenantWide[0] ?? null;
-  return { state: paused ? "paused" : "missing", paused };
+export function isShownSchedule(item: Pick<ScheduleItem, "kind" | "supersededByJobId">): boolean {
+  return !JOB_REPLACED_KINDS.includes(item.kind) || !item.supersededByJobId;
+}
+
+/** The recommended kinds that are still maintenance; jobs cover the backup and the restore checks. */
+export function maintenanceKinds(kinds: readonly ScheduleKind[]): ScheduleKind[] {
+  return kinds.filter((kind) => !JOB_REPLACED_KINDS.includes(kind));
 }
 
 /** Switching off a backup or verify schedule is asked about first. */
@@ -181,9 +178,12 @@ export function needsDisableConfirmation(item: Pick<ScheduleItem, "kind" | "enab
 
 export type ScopeMode = "all" | "object";
 
-/** The schedule form's state; numbers stay text while they are being typed. */
-export interface ScheduleDraft {
-  kind: OfferedKind;
+/**
+ * How often something runs, as the form holds it: the preset and the text of the
+ * numbers while they are typed. The schedule form and the job editor share it
+ * (components/cadence-fields.tsx).
+ */
+export interface CadenceDraft {
   presetType: PresetType;
   minutes: string;
   hours: string;
@@ -193,12 +193,22 @@ export interface ScheduleDraft {
   dayOfMonth: string;
   cron: string;
   timezone: string;
+}
+
+/** The schedule form's state; numbers stay text while they are being typed. */
+export interface ScheduleDraft extends CadenceDraft {
+  kind: OfferedKind;
   scope: ScopeMode;
   object: { id: string; name: string } | null;
   enabled: boolean;
 }
 
-export type DraftField = "minutes" | "hours" | "time" | "days" | "dayOfMonth" | "cron" | "object";
+export type CadenceField = "minutes" | "hours" | "time" | "days" | "dayOfMonth" | "cron";
+export type DraftField = CadenceField | "object";
+
+export type CadenceCheck =
+  | { ok: true; cadence: StoredCadence }
+  | { ok: false; field: CadenceField; reason: "required" | "range" };
 
 export type DraftCheck =
   | { ok: true; cadence: StoredCadence }
@@ -206,10 +216,9 @@ export type DraftCheck =
 
 const pad = (value: number) => String(value).padStart(2, "0");
 
-/** A new schedule: a backup every 8 hours of every object, in the given zone. */
-export function newDraft(timezone: string): ScheduleDraft {
+/** A cadence every 8 hours in the given zone. */
+export function newCadenceDraft(timezone: string): CadenceDraft {
   return {
-    kind: "backup",
     presetType: "every_hours",
     minutes: "60",
     hours: "8",
@@ -218,27 +227,13 @@ export function newDraft(timezone: string): ScheduleDraft {
     dayOfMonth: "1",
     cron: "",
     timezone,
-    scope: "all",
-    object: null,
-    enabled: true,
   };
 }
 
-/** The form state of an existing schedule. */
-export function draftFromSchedule(item: ScheduleItem): ScheduleDraft {
-  const draft: ScheduleDraft = {
-    ...newDraft(item.timezone),
-    kind: item.kind === "archive" ? "backup" : item.kind,
-    cron: item.cron ?? "",
-    scope: item.protectedObject ? "object" : "all",
-    // Administrators, the only ones who edit, always receive the object's id and name.
-    object:
-      item.protectedObject?.id != null
-        ? { id: item.protectedObject.id, name: item.protectedObject.name }
-        : null,
-    enabled: item.enabled,
-  };
-  const preset = presetFromCadence(item);
+/** The form state of a stored cadence (an interval or a cron expression). */
+export function cadenceDraftFrom(cadence: StoredCadence, timezone: string): CadenceDraft {
+  const draft: CadenceDraft = { ...newCadenceDraft(timezone), cron: cadence.cron ?? "" };
+  const preset = presetFromCadence(cadence);
   switch (preset.type) {
     case "every_minutes":
       return { ...draft, presetType: preset.type, minutes: String(preset.minutes) };
@@ -269,6 +264,32 @@ export function draftFromSchedule(item: ScheduleItem): ScheduleDraft {
   }
 }
 
+/** A new schedule: a run every 8 hours of the whole tenant, in the given zone. */
+export function newDraft(timezone: string, kind: OfferedKind = "backup"): ScheduleDraft {
+  return {
+    ...newCadenceDraft(timezone),
+    kind,
+    scope: "all",
+    object: null,
+    enabled: true,
+  };
+}
+
+/** The form state of an existing schedule. */
+export function draftFromSchedule(item: ScheduleItem): ScheduleDraft {
+  return {
+    ...cadenceDraftFrom(item, item.timezone),
+    kind: item.kind === "archive" ? "backup" : item.kind,
+    scope: item.protectedObject ? "object" : "all",
+    // Administrators, the only ones who edit, always receive the object's id and name.
+    object:
+      item.protectedObject?.id != null
+        ? { id: item.protectedObject.id, name: item.protectedObject.name }
+        : null,
+    enabled: item.enabled,
+  };
+}
+
 function wholeNumber(text: string): number | null {
   const trimmed = text.trim();
   return /^\d+$/.test(trimmed) ? Number.parseInt(trimmed, 10) : null;
@@ -289,15 +310,12 @@ function parseTime(text: string): { hour: number; minute: number } | null {
  * the form can know is checked here; the API judges the cron expression and
  * the zone (and the live preview shows its verdict while typing).
  */
-export function checkDraft(draft: ScheduleDraft): DraftCheck {
-  const fail = (field: DraftField, reason: "required" | "range"): DraftCheck => ({
+export function checkCadence(draft: CadenceDraft): CadenceCheck {
+  const fail = (field: CadenceField, reason: "required" | "range"): CadenceCheck => ({
     ok: false,
     field,
     reason,
   });
-  if (draft.scope === "object" && OBJECT_SCOPED_KINDS.includes(draft.kind) && !draft.object) {
-    return fail("object", "required");
-  }
   switch (draft.presetType) {
     case "every_minutes": {
       const minutes = wholeNumber(draft.minutes);
@@ -337,6 +355,14 @@ export function checkDraft(draft: ScheduleDraft): DraftCheck {
   if (dayOfMonth === null) return fail("dayOfMonth", "required");
   if (dayOfMonth < 1 || dayOfMonth > MAX_PRESET_DAY_OF_MONTH) return fail("dayOfMonth", "range");
   return { ok: true, cadence: cadenceFromPreset({ type: "monthly", dayOfMonth, ...time }) };
+}
+
+/** The cadence of a schedule draft, or the first field to correct (the object first, then the cadence). */
+export function checkDraft(draft: ScheduleDraft): DraftCheck {
+  if (draft.scope === "object" && OBJECT_SCOPED_KINDS.includes(draft.kind) && !draft.object) {
+    return { ok: false, field: "object", reason: "required" };
+  }
+  return checkCadence(draft);
 }
 
 function scopeOf(draft: ScheduleDraft): string | null {

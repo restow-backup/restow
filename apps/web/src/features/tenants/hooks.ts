@@ -13,6 +13,7 @@ import {
   type MailTestResult,
   addMember,
   cancelInvitation,
+  createOwnOrganisation,
   createTenant,
   deleteTenant,
   fetchMembers,
@@ -20,6 +21,7 @@ import {
   fetchTenantHealth,
   fetchTenantList,
   fetchUsageOverview,
+  markOwnOrganisation,
   removeMember,
   replaceTenantContacts,
   replaceTenantNotificationRecipients,
@@ -32,6 +34,7 @@ import {
 import { canEnter } from "./presenters";
 import type {
   AddMemberInput,
+  CreateOwnOrganisationInput,
   CreateTenantInput,
   NotificationRecipientInput,
   TenantContactInput,
@@ -110,8 +113,10 @@ export function useTenantHealths(tenants: readonly TenantItem[]): Map<string, He
   });
 }
 
+/** One tenant's readiness; the provider's and the tenant's own admins' (the tenant page shows it). */
 export function useTenantHealth(tenant: TenantItem | undefined) {
-  const enabled = useProviderScope();
+  const { status } = useSession();
+  const enabled = status === "authenticated";
   return useQuery({
     queryKey: tenantKeys.health(tenant?.id ?? ""),
     queryFn: () => fetchTenantHealth(tenant?.id ?? ""),
@@ -120,8 +125,10 @@ export function useTenantHealth(tenant: TenantItem | undefined) {
   });
 }
 
+/** The tenant as its page shows it: the provider's, and the tenant's own admins' (the API admits both). */
 export function useTenantDetail(tenantId: string) {
-  const enabled = useProviderScope();
+  const { status } = useSession();
+  const enabled = status === "authenticated";
   return useQuery({
     queryKey: tenantKeys.detail(tenantId),
     queryFn: () => fetchTenantDetail(tenantId),
@@ -154,6 +161,24 @@ export function useCreateTenant() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (input: CreateTenantInput) => createTenant(input),
+    onSuccess: () => refreshTenantSet(queryClient),
+  });
+}
+
+/** Creates the operator's own organisation; the session's tenant list follows. */
+export function useCreateOwnOrganisation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateOwnOrganisationInput) => createOwnOrganisation(input),
+    onSuccess: () => refreshTenantSet(queryClient),
+  });
+}
+
+/** Marks an existing tenant as the operator's own organisation; the session's tenant list follows. */
+export function useMarkOwnOrganisation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (tenantId: string) => markOwnOrganisation(tenantId),
     onSuccess: () => refreshTenantSet(queryClient),
   });
 }

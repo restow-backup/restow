@@ -1,6 +1,6 @@
 {
   "nav": {
-    "tenants": "All tenants",
+    "tenants": "Manage tenants",
     "members": "Members"
   },
   "list": {
@@ -284,7 +284,8 @@
     "setupRequired": "Complete the installation setup before creating tenants.",
     "alreadyMember": "This person is already a member of the tenant.",
     "alreadyInvited": "This address already has an open invitation. Copy its link from the list or cancel it first.",
-    "memberGone": "This entry no longer exists. The list has been refreshed."
+    "memberGone": "This entry no longer exists. The list has been refreshed.",
+    "internalTenantProtected": "This is your own organisation and cannot be deleted. Make another tenant your own organisation first, then delete this one."
   },
   "toasts": {
     "created": "{name} was created.",
@@ -365,7 +366,7 @@
     "notifications": {
       "title": "Notification recipients",
       "description": "Who receives operational e-mails, and about what.",
-      "deliveryNotice": "Each category you choose becomes a rule under Alerts when the tenant is created: failed jobs and recoverability at risk as alerts, the weekly report on Mondays at 07:00 where reports are available on this installation. You can change or add rules there at any time.",
+      "deliveryNotice": "Each category you choose is carried by a rule of the tenant (failed jobs and recoverability at risk as alerts, the weekly report on Mondays at 07:00 where reports are available on this installation). The people listed here are the recipients of those rules.",
       "categories": {
         "jobFailures": "Job failures",
         "weeklyReport": "Weekly report",
@@ -386,8 +387,8 @@
         "recipientPlaceholder": "e.g. name@example.com",
         "send": "Send test mail",
         "success": "Test mail sent to {recipient} via {transport, select, graph {Microsoft Graph} other {SMTP}}.",
-        "notConfigured": "No mail transport is configured for this installation yet. Set one up under Settings → Mail, then try again.",
-        "openMailSettings": "Open Settings → Mail",
+        "notConfigured": "No mail transport is configured for this installation yet. Set one up under Installation → Notification mail, then try again.",
+        "openMailSettings": "Open the mail settings",
         "testFailure": {
           "timeout": "The mail server did not answer in time.",
           "graphAppMissing": "No Microsoft 365 app registration is configured for Graph sendMail.",
@@ -441,7 +442,7 @@
   },
   "customerPanel": {
     "title": "Customer data",
-    "description": "Internal customer number, address and locale for this tenant, set up in the tenant wizard.",
+    "description": "Internal customer number, address and locale.",
     "edit": "Edit customer data",
     "customerNumber": "Customer number",
     "vatId": "VAT ID",
@@ -451,15 +452,54 @@
     "noneSet": "Not set",
     "saved": "Customer data saved.",
     "contactsTitle": "Contacts",
-    "contactsDescription": "Who to reach at this customer.",
+    "contactsDescription": "Who to reach.",
     "editContacts": "Edit contacts",
     "noContacts": "No contact persons yet.",
     "addContact": "Add contact",
     "primaryBadge": "Primary",
     "contactsSaved": "Contacts saved.",
-    "notificationsTitle": "Alerts",
-    "notificationsDescription": "Who is told what, and when, is set up as rules. The recipients chosen in the wizard became rules there.",
-    "recipientsSaved": "Notification recipients saved.",
-    "openAlerts": "Open alerts"
-  }
+    "recipientsSaved": "Notification recipients saved."
+  },
+  "ownOrganisation": {
+    "badge": "Own organisation",
+    "deleteHint": "This is your own organisation and cannot be deleted. To delete it, make another tenant your own organisation first.",
+    "prompt": {
+      "setUp": {
+        "title": "Set up your own organisation",
+        "description": "Your own backups belong in an organisation of their own, kept apart from the organisations you look after for others. Create it now, or choose an existing one as your own.",
+        "descriptionCreateOnly": "Your own backups belong in an organisation of their own. Create it, then connect Microsoft 365 or IMAP as a source.",
+        "readOnly": "Your own organisation is not set up yet. Only an administrator of the provider team with access to every tenant can do that. Ask one of them."
+      },
+      "addCustomer": {
+        "title": "Add your first customer",
+        "description": "Your own organisation is set up. Each customer gets a tenant of its own, with its own sources, storage and people.",
+        "action": "Add a customer"
+      }
+    },
+    "actions": {
+      "create": "Create own organisation",
+      "mark": "Choose an existing one"
+    },
+    "create": {
+      "title": "Create your own organisation",
+      "description": "Give it the name of the organisation that runs this installation. It is where your own backups live.",
+      "nameLabel": "Name of your organisation",
+      "namePlaceholder": "Example IT Services GmbH",
+      "submit": "Create"
+    },
+    "mark": {
+      "title": "Choose your own organisation",
+      "description": "Pick the one that is yours. It is listed first from now on and cannot be deleted while it is your own organisation. Nothing else about it changes.",
+      "choose": "Organisations",
+      "submit": "Use as my own organisation"
+    },
+    "toasts": {
+      "ready": "{name} is now your own organisation."
+    },
+    "errors": {
+      "featureUnavailable": "This installation can have only one organisation. Choose the existing one as your own instead.",
+      "exists": "Another organisation is already marked as your own. Reload the page to see it."
+    }
+  },
+  "backToList": "Manage tenants"
 }

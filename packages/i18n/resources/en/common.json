@@ -28,7 +28,14 @@
     "label": "Appearance",
     "light": "Light",
     "dark": "Dark",
-    "system": "System"
+    "system": "System",
+    "mode": "Mode",
+    "palette": {
+      "label": "Colour scheme",
+      "restow": "{appName}",
+      "neutral": "Neutral"
+    },
+    "deviceNote": "Applies to this browser only."
   },
   "language": {
     "label": "Language",
@@ -42,14 +49,24 @@
       "mail": "Mail & SaaS",
       "endpoints": "Servers & endpoints",
       "tenants": "Tenants",
-      "admin": "Admin",
+      "organisation": "Organisation",
+      "installation": "Installation",
       "other": "More"
+    },
+    "scope": {
+      "installation": "Installation",
+      "all": "All tenants",
+      "internal": "Own organisation · internal",
+      "tenant": "Tenant: {name}",
+      "organisation": "Organisation: {name}",
+      "dimmedHint": "Works per tenant: choose a tenant at the top of the menu first."
     },
     "groupMenu": "{group}, show entries",
     "items": {
       "jobs": "Jobs",
-      "setup": "Setup",
-      "resources": "Resources"
+      "tenantSettings": "Tenant settings",
+      "organisationSettings": "Settings",
+      "resources": "Capacity planning"
     },
     "breadcrumb": "Breadcrumb",
     "notifications": "Notifications",
@@ -68,17 +85,7 @@
       "newTab": "(opens in a new tab)"
     },
     "setup": {
-      "tabsLabel": "Setup of {tenant}",
-      "tabs": {
-        "protection": "Protection",
-        "sources": "Sources",
-        "schedules": "Schedules",
-        "retention": "Retention",
-        "imports": "Imports"
-      },
-      "openTenantPage": "Open tenant page",
-      "openTenantPageFor": "Open tenant page: {name}",
-      "tenantPage": "Tenant page"
+      "openTenantPage": "Open tenant page"
     }
   },
   "tenant": {
@@ -90,7 +97,12 @@
     "current": "Current tenant",
     "count": "{count, plural, one {# tenant} other {# tenants}}",
     "switchCurrent": "Switch tenant, current: {name}",
-    "search": "Search tenants …",
+    "search": "Search by name or customer number …",
+    "organisation": "Organisation",
+    "internal": "Internal",
+    "customerNumber": "Customer number",
+    "manageAll": "Manage tenants",
+    "settingsOf": "Open settings of {name}",
     "empty": "No matching tenant.",
     "switched": "You are now working in {name}.",
     "closedHint": "only the provider can open it",
@@ -110,6 +122,12 @@
         "provider": "Its data is being removed; nothing in this tenant can be changed any more.",
         "member": "Its pages are no longer available."
       }
+    },
+    "all": {
+      "title": "All tenants",
+      "count": "{count, plural, one {# tenant} other {# tenants}}",
+      "description": "Sum across all {count, plural, one {# tenant} other {# tenants}}",
+      "switched": "You are now looking across all tenants."
     }
   },
   "roles": {
@@ -129,6 +147,10 @@
   "loading": {
     "label": "Loading …",
     "session": "Checking session …"
+  },
+  "table": {
+    "scrollable": "{name}, scrollable",
+    "scrollableUnnamed": "Scrollable table"
   },
   "errors": {
     "title": "Something went wrong",
@@ -161,6 +183,7 @@
     "httpsRequired": "The public URL must start with https://.",
     "port": "Please enter a port between 1 and 65535.",
     "minLength": "At least {min} characters.",
+    "maxLength": "At most {max} characters.",
     "passwordMismatch": "The passwords do not match.",
     "totp": "Please enter the 6-digit code.",
     "emailInUse": "An account with this email already exists. Choose another email."
@@ -196,20 +219,20 @@
     },
     "switchTo": "Switch to {name}",
     "theme": "Appearance: {theme}",
-    "language": "Language: {language}"
+    "language": "Language: {language}",
+    "scheme": "Colour scheme: {scheme}"
   },
   "keys": {
     "ctrl": "Ctrl"
   },
   "soon": {
-    "mailJobs": {
-      "description": "Jobs for Mail & SaaS define what is backed up, when, into which repository and for how long, for many mailboxes, OneDrives and IMAP accounts at once. Past runs are in History."
-    },
-    "endpointJobs": {
-      "description": "Jobs for servers and clients set paths, hooks, schedule, repository and retention for many machines at once, with overrides per machine."
-    },
     "resources": {
-      "description": "Shows how busy this installation is, what waits in the queue and whether another worker or a bigger server helps."
+      "description": "Shows utilisation and growth per tenant and per repository, with a plain forecast such as “full in about N days”."
     }
+  },
+  "chooseTenant": {
+    "title": "Choose a tenant",
+    "description": "This page works on one tenant at a time. Choose a tenant and it continues here with that tenant.",
+    "list": "Tenants"
   }
 }

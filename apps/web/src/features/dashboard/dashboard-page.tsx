@@ -11,17 +11,19 @@ import {
   RelativeTime,
   StatusBadge,
 } from "@/components/kit";
+import { useSwitchTenant } from "@/components/tenant-switcher";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { STATS_VIEW, StatsPage } from "@/features/stats";
+import { OwnOrganisationPrompt } from "@/features/tenants/components/own-organisation-prompt";
+import { type ReadinessState, verifyLink } from "@/features/verify/search";
 import { ExtensionSlot } from "@/lib/extensions";
+import { sessionScope, useSession } from "@/lib/session";
 
-import { LinkButton } from "./components/link-button.js";
 import { OverviewTabs } from "./components/overview-tabs.js";
-import { PATHS, tenantDetailTo, to } from "./paths.js";
-import { overviewScope, widgetView } from "./presenters.js";
-import { type DashboardTab, useDashboard } from "./use-dashboard.js";
+import { tenantDetailTo } from "./paths.js";
+import { widgetView } from "./presenters.js";
+import { useDashboard } from "./use-dashboard.js";
 import { DashboardWidgets } from "./widget-registry.js";
 import type { TrendWindow } from "./widgets/trend-widgets.js";
 import "./i18n.js";
@@ -29,41 +31,55 @@ import "./i18n.js";
 /**
  * Overview, the start page, with two tabs: Status (the dashboard below) and
  * Statistics (features/stats, `?view=statistics`, for administrators). The
- * tab bar sits above the header of the tab it shows.
+ * tab bar sits above the header of the tab it shows. Under "All tenants" there
+ * is only Status: statistics are a tenant's own.
  */
 export function DashboardPage() {
   const raw = useSearch({ strict: false }) as Record<string, unknown>;
-  const statistics = raw.view === STATS_VIEW;
+  const allTenants = sessionScope(useSession()) === "all";
+  const statistics = raw.view === STATS_VIEW && !allTenants;
   return (
     <div className="space-y-6">
-      <OverviewTabs current={statistics ? "statistics" : "status"} />
-      {statistics ? <StatsPage /> : <StatusView />}
+      {allTenants ? null : <OverviewTabs current={statistics ? "statistics" : "status"} />}
+      {statistics ? <StatsPage /> : <StatusView allTenants={allTenants} />}
     </div>
   );
 }
 
 /**
- * The Status tab: one request per view, the widgets that apply to the
- * viewer, and for provider admins where the installation offers it a provider
- * view next to the active tenant. Every widget has its own loading, empty
- * and error state; a failed refresh never passes old figures off as current.
+ * The Status tab follows the tenant switcher. For a tenant it is that tenant's
+ * widgets, one request, each with its own loading, empty and error state; a
+ * failed refresh never passes old figures off as current. Under "All tenants"
+ * (provider admins, where the installation offers it) it is the provider view
+ * alone: the sum across the tenants and the tenants by what needs doing, where a
+ * click switches into that tenant.
  */
-function StatusView() {
+function StatusView({ allTenants }: { allTenants: boolean }) {
   const { t } = useTranslation("dashboard");
   const navigate = useNavigate();
-  const [tab, setTab] = React.useState<DashboardTab>("provider");
-  const dashboard = useDashboard(tab);
-  const { query, setActiveTenant } = dashboard;
+  const { tenants } = useSession();
+  const switchTenant = useSwitchTenant();
+  const dashboard = useDashboard(allTenants ? "all" : "tenant");
+  const { query } = dashboard;
   const { refetch } = query;
   const [trendDays, setTrendDays] = React.useState<TrendWindow>(14);
 
   const refresh = React.useCallback(() => void refetch(), [refetch]);
   const openTenant = React.useCallback(
     (tenantId: string) => {
-      setActiveTenant(tenantId);
-      setTab("tenant");
+      const tenant = tenants.find((candidate) => candidate.id === tenantId);
+      if (tenant) {
+        switchTenant(tenant);
+      }
     },
-    [setActiveTenant],
+    [switchTenant, tenants],
+  );
+  const openReadiness = React.useCallback(
+    (tenantId: string, state: ReadinessState) => {
+      openTenant(tenantId);
+      void navigate(verifyLink(state) as never);
+    },
+    [navigate, openTenant],
   );
   const tenantDetails = React.useCallback(
     (tenantId: string) => void navigate({ to: tenantDetailTo(tenantId) }),
@@ -76,20 +92,17 @@ function StatusView() {
 
   let body: React.ReactNode;
   if (dashboard.noTenant) {
-    body = (
-      <EmptyState
-        icon={Building2}
-        title={t("noTenant.title")}
-        description={
-          dashboard.firstTenantPending ? t("noTenant.firstTenant") : t("noTenant.description")
-        }
-        actions={
-          dashboard.firstTenantPending ? (
-            <LinkButton to={to(PATHS.tenants)}>{t("noTenant.openTenants")}</LinkButton>
-          ) : undefined
-        }
-      />
-    );
+    // Before any tenant exists, a provider admin is asked to set up the own organisation.
+    body =
+      dashboard.ownOrganisation?.kind === "setUp" ? (
+        <OwnOrganisationPrompt prompt={dashboard.ownOrganisation} variant="empty" />
+      ) : (
+        <EmptyState
+          icon={Building2}
+          title={t("noTenant.title")}
+          description={t("noTenant.description")}
+        />
+      );
   } else if (query.isError && !data) {
     body = (
       <ErrorState
@@ -100,7 +113,19 @@ function StatusView() {
       />
     );
   } else {
-    const tenantWidgets = (
+    body = allTenants ? (
+      <ExtensionSlot
+        name="dashboard.provider"
+        props={{
+          view: widgetView(data?.provider ?? undefined, loading),
+          onRetry: refresh,
+          retrying,
+          onOpenTenant: openTenant,
+          onTenantDetails: tenantDetails,
+          onOpenReadiness: openReadiness,
+        }}
+      />
+    ) : (
       <DashboardWidgets
         widgets={data?.widgets}
         loading={loading}
@@ -112,52 +137,20 @@ function StatusView() {
         onTrendDaysChange={setTrendDays}
       />
     );
-    body = dashboard.provider ? (
-      <Tabs value={tab} onValueChange={(value) => setTab(value as DashboardTab)} className="gap-6">
-        <TabsList aria-label={t("tabs.label")}>
-          <TabsTrigger value="provider">{t("tabs.provider")}</TabsTrigger>
-          <TabsTrigger value="tenant" className="max-w-64">
-            <span className="truncate">{dashboard.tenantName ?? t("tabs.tenant")}</span>
-          </TabsTrigger>
-        </TabsList>
-        <TabsContent value="provider">
-          <ExtensionSlot
-            name="dashboard.provider"
-            props={{
-              view: widgetView(data?.provider ?? undefined, loading),
-              onRetry: refresh,
-              retrying,
-              onOpenTenant: openTenant,
-              onTenantDetails: tenantDetails,
-            }}
-          />
-        </TabsContent>
-        <TabsContent value="tenant">{tenantWidgets}</TabsContent>
-      </Tabs>
-    ) : (
-      tenantWidgets
-    );
   }
 
-  const scope = overviewScope({
-    provider: dashboard.provider,
-    tab,
-    noTenant: dashboard.noTenant,
-    tenantName: dashboard.tenantName,
-  });
-  const description =
-    scope === "provider" ? (
-      t("providerScope")
-    ) : scope === "tenant" ? (
-      <span className="flex flex-wrap items-center gap-2">
-        {t("tenantScope", { tenant: dashboard.tenantName ?? "" })}
-        {data?.tenant.status === "suspended" ? (
-          <StatusBadge tone="muted">{t("suspended")}</StatusBadge>
-        ) : null}
-      </span>
-    ) : (
-      t("subtitle")
-    );
+  const description = allTenants ? (
+    t("providerScope")
+  ) : dashboard.tenantName ? (
+    <span className="flex flex-wrap items-center gap-2">
+      {t("tenantScope", { tenant: dashboard.tenantName })}
+      {data?.tenant.status === "suspended" ? (
+        <StatusBadge tone="muted">{t("suspended")}</StatusBadge>
+      ) : null}
+    </span>
+  ) : (
+    t("subtitle")
+  );
 
   return (
     <div className="space-y-6">
@@ -178,6 +171,10 @@ function StatusView() {
           )
         }
       />
+
+      {dashboard.ownOrganisation && !dashboard.noTenant ? (
+        <OwnOrganisationPrompt prompt={dashboard.ownOrganisation} variant="banner" />
+      ) : null}
 
       {query.isError && data ? (
         <Alert variant="warning">

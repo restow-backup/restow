@@ -1,13 +1,4 @@
-import {
-  Cloud,
-  Inbox,
-  Loader2,
-  Mail,
-  Radio,
-  RotateCcw,
-  TriangleAlert,
-  WifiOff,
-} from "lucide-react";
+import { Cloud, Inbox, Loader2, Mail, RotateCcw, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Badge, badgeVariants } from "@/components/ui/badge";
@@ -25,7 +16,6 @@ import {
   SNAPSHOT_STATE_VARIANT,
   jobStatusDisplay,
 } from "@/features/jobs/presenters";
-import type { StreamStatus } from "@/features/jobs/sse";
 import { useJobFormat } from "@/features/jobs/use-format";
 import { cn } from "@/lib/utils";
 
@@ -106,47 +96,4 @@ const KIND_ICON = { mailbox: Mail, onedrive: Cloud, imap: Inbox } as const;
 export function ObjectKindIcon({ kind, className }: { kind: ObjectKind; className?: string }) {
   const Icon = KIND_ICON[kind];
   return <Icon className={cn("size-4 shrink-0", className)} aria-hidden="true" />;
-}
-
-/** Whether the page is receiving live updates, said plainly. */
-export function LiveIndicator({ status }: { status: StreamStatus | null }) {
-  const { t } = useTranslation("backup");
-  if (status === null) {
-    return null;
-  }
-  const open = status === "open";
-  const closed = status === "closed";
-  const hint = open ? "live.openHint" : closed ? "live.closedHint" : "live.reconnectingHint";
-  return (
-    <output aria-live="polite" className="inline-flex">
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            className={cn(
-              "inline-flex cursor-default items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring",
-              open && "text-info-text",
-              closed && "text-warning-foreground dark:text-warning",
-              !open && !closed && "text-muted-foreground",
-            )}
-          >
-            {open ? (
-              <span className="relative flex size-2" aria-hidden="true">
-                <span className="absolute inline-flex size-full animate-ping rounded-full bg-info opacity-60" />
-                <span className="relative inline-flex size-2 rounded-full bg-info" />
-              </span>
-            ) : closed ? (
-              <WifiOff className="size-3.5" aria-hidden="true" />
-            ) : status === "connecting" ? (
-              <Radio className="size-3.5" aria-hidden="true" />
-            ) : (
-              <Loader2 className="size-3.5 animate-spin" aria-hidden="true" />
-            )}
-            {t(`live.${status}`)}
-          </button>
-        </TooltipTrigger>
-        <TooltipContent className="max-w-xs">{t(hint)}</TooltipContent>
-      </Tooltip>
-    </output>
-  );
 }

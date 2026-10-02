@@ -13,6 +13,7 @@ import type { Role, TenantRole } from "@/lib/api";
  */
 
 const STORAGE_KEY = "restow.activeTenant";
+const SCOPE_KEY = "restow.scope";
 
 let activeTenantId: string | null = null;
 
@@ -39,13 +40,42 @@ export function setActiveTenantId(tenantId: string | null): void {
   }
 }
 
-/** Drop the active tenant and the remembered choice (on sign-out). */
+/** Drop the active tenant and the remembered choices (on sign-out). */
 export function forgetActiveTenant(): void {
   activeTenantId = null;
   try {
     localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(SCOPE_KEY);
   } catch {
     // Nothing remembered that could be removed.
+  }
+}
+
+/**
+ * What the session works on: one tenant (the default), or "All tenants", the
+ * view across every tenant that only the overview has. The active tenant stays
+ * what it was while the scope is "all", so nothing that needs a tenant loses
+ * its header; the scope is remembered per browser next to it.
+ */
+export type SessionScope = "tenant" | "all";
+
+export function readRememberedScope(): SessionScope {
+  try {
+    return localStorage.getItem(SCOPE_KEY) === "all" ? "all" : "tenant";
+  } catch {
+    return "tenant";
+  }
+}
+
+export function rememberScope(scope: SessionScope): void {
+  try {
+    if (scope === "all") {
+      localStorage.setItem(SCOPE_KEY, "all");
+    } else {
+      localStorage.removeItem(SCOPE_KEY);
+    }
+  } catch {
+    // Storage may be unavailable; the scope still applies for this page load.
   }
 }
 
@@ -105,4 +135,33 @@ export function roleInActiveTenant(
     return "provider_admin";
   }
   return activeTenant?.role ?? null;
+}
+
+/**
+ * The tenant that is active in the browser, before the session provider has
+ * decided: the choice made on this page (module state), the remembered one,
+ * then the server's hint, the first of them the person can enter. Used where
+ * an address has to name a tenant before any page renders (the redirects of old
+ * addresses); `null` when the person has no tenant to enter.
+ */
+export function activeTenantIdFor(
+  me:
+    | {
+        role: Role;
+        /** A profile from an older server carries no status: such a tenant counts as active. */
+        tenants: readonly { id: string; status?: TenantStatus }[];
+        activeTenantId: string | null;
+      }
+    | undefined,
+): string | null {
+  const preferred = [getActiveTenantId(), readRememberedTenantId(), me?.activeTenantId];
+  if (!me) {
+    return preferred.find((id): id is string => typeof id === "string" && id.length > 0) ?? null;
+  }
+  const isProviderAdmin = me.role === "provider_admin";
+  return (
+    pickActiveTenant(me.tenants, preferred, (tenant) =>
+      canEnterTenant(tenant.status ?? "active", isProviderAdmin),
+    )?.id ?? null
+  );
 }

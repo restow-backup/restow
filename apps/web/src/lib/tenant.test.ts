@@ -1,11 +1,14 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  activeTenantIdFor,
   canEnterTenant,
   forgetActiveTenant,
   getActiveTenantId,
   pickActiveTenant,
+  readRememberedScope,
   readRememberedTenantId,
+  rememberScope,
   roleInActiveTenant,
   setActiveTenantId,
 } from "./tenant.js";
@@ -96,5 +99,130 @@ describe("active tenant id", () => {
 
     forgetActiveTenant();
     expect(readRememberedTenantId()).toBeNull();
+  });
+});
+
+describe("the remembered scope", () => {
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", memoryStorage());
+  });
+
+  afterEach(() => {
+    forgetActiveTenant();
+    vi.unstubAllGlobals();
+  });
+
+  it("is one tenant until All tenants is chosen, and is remembered per browser", () => {
+    expect(readRememberedScope()).toBe("tenant");
+    rememberScope("all");
+    expect(readRememberedScope()).toBe("all");
+    expect(localStorage.getItem("restow.scope")).toBe("all");
+    rememberScope("tenant");
+    expect(readRememberedScope()).toBe("tenant");
+    expect(localStorage.getItem("restow.scope")).toBeNull();
+  });
+
+  it("is forgotten with the active tenant on sign-out", () => {
+    rememberScope("all");
+    setActiveTenantId("t2");
+    forgetActiveTenant();
+    expect(readRememberedScope()).toBe("tenant");
+    expect(readRememberedTenantId()).toBeNull();
+  });
+
+  it("does not fail where storage is blocked", () => {
+    vi.stubGlobal("localStorage", {
+      getItem: () => {
+        throw new Error("blocked");
+      },
+      setItem: () => {
+        throw new Error("blocked");
+      },
+      removeItem: () => {
+        throw new Error("blocked");
+      },
+    });
+    expect(() => rememberScope("all")).not.toThrow();
+    expect(readRememberedScope()).toBe("tenant");
+    expect(() => forgetActiveTenant()).not.toThrow();
+  });
+});
+
+/** A localStorage that works in the node environment. */
+function memoryStorage(): Storage {
+  const data = new Map<string, string>();
+  return {
+    getItem: (key: string) => data.get(key) ?? null,
+    setItem: (key: string, value: string) => void data.set(key, value),
+    removeItem: (key: string) => void data.delete(key),
+    clear: () => data.clear(),
+    key: (index: number) => [...data.keys()][index] ?? null,
+    get length() {
+      return data.size;
+    },
+  };
+}
+
+describe("activeTenantIdFor", () => {
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", memoryStorage());
+  });
+  afterEach(() => {
+    forgetActiveTenant();
+    vi.unstubAllGlobals();
+  });
+
+  const me = (over: Partial<Parameters<typeof activeTenantIdFor>[0] & object> = {}) => ({
+    role: "tenant_admin" as const,
+    tenants: [
+      { id: "t1", status: "active" as const },
+      { id: "t2", status: "active" as const },
+    ],
+    activeTenantId: "t1",
+    ...over,
+  });
+
+  it("prefers the tenant chosen in this page load, then the remembered one, then the server's hint", () => {
+    expect(activeTenantIdFor(me())).toBe("t1");
+    localStorage.setItem("restow.activeTenant", "t2");
+    expect(activeTenantIdFor(me())).toBe("t2");
+    setActiveTenantId("t1");
+    expect(activeTenantIdFor(me())).toBe("t1");
+  });
+
+  it("skips a tenant the person cannot enter or does not belong to", () => {
+    localStorage.setItem("restow.activeTenant", "gone");
+    expect(activeTenantIdFor(me())).toBe("t1");
+    setActiveTenantId("t2");
+    expect(
+      activeTenantIdFor(
+        me({
+          tenants: [
+            { id: "t1", status: "active" },
+            { id: "t2", status: "suspended" },
+          ],
+        }),
+      ),
+    ).toBe("t1");
+    // The provider enters a suspended tenant.
+    expect(
+      activeTenantIdFor(
+        me({
+          role: "provider_admin",
+          tenants: [
+            { id: "t1", status: "active" },
+            { id: "t2", status: "suspended" },
+          ],
+        }),
+      ),
+    ).toBe("t2");
+  });
+
+  it("takes a profile from an older server, with no status, as active", () => {
+    expect(activeTenantIdFor(me({ tenants: [{ id: "t1" }] }))).toBe("t1");
+  });
+
+  it("has no tenant for a person who belongs to none", () => {
+    expect(activeTenantIdFor(me({ tenants: [], activeTenantId: null }))).toBeNull();
   });
 });

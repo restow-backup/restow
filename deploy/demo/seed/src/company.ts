@@ -7,6 +7,15 @@
 
 export const DEMO_DOMAIN = "example.org";
 
+/**
+ * The fictional managed service provider that runs the demo. The setup wizard's
+ * request names it, and the api creates the demo's own organisation (the tenant
+ * of kind `internal`, listed first) with it; the two companies below are its
+ * customers. It owns no mailbox and no machine: the demo's data belongs to the
+ * customers.
+ */
+export const DEMO_PROVIDER_NAME = "Example Managed IT Ltd";
+
 /** One demo tenant (a fictional company) and the mailboxes it owns. */
 export interface DemoTenant {
   /** Sent to `POST /api/v1/tenants`. */

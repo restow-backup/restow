@@ -8,9 +8,7 @@
   "updated": "Updated",
   "noTenant": {
     "title": "No tenant selected",
-    "description": "Select a tenant in the top bar to see its backups, recoverability and storage.",
-    "firstTenant": "There is no tenant yet. Create the first one, then connect Microsoft 365 or IMAP as a source.",
-    "openTenants": "Go to tenants"
+    "description": "Select a tenant in the top bar to see its backups, recoverability and storage."
   },
   "error": {
     "title": "Overview unavailable"
@@ -19,11 +17,6 @@
     "title": "The overview could not be refreshed",
     "description": "The figures below are from the last successful update,",
     "retry": "Try again"
-  },
-  "tabs": {
-    "label": "View",
-    "provider": "Provider",
-    "tenant": "Tenant"
   },
   "actions": {
     "details": "Details"
@@ -37,21 +30,14 @@
   },
   "setup": {
     "title": "Set up {appName}",
-    "description": "The steps from a new tenant to backups that are proven restorable.",
     "progress": "{done} of {total} steps done",
     "byProvider": "Done by your provider",
     "byAdmin": "Done by an administrator",
-    "doneSteps": "Steps done",
     "state": {
       "done": "done",
       "open": "open",
-      "attention": "needs attention"
-    },
-    "complete": {
-      "title": "Setup complete",
-      "description": "All {total} steps are done.",
-      "show": "Show steps",
-      "hide": "Hide steps"
+      "attention": "needs attention",
+      "not_needed": "not needed"
     },
     "items": {
       "storage": {
@@ -99,9 +85,10 @@
       "consent_pending": "A source is waiting for the administrator's consent.",
       "no_backup_schedule": "No backup schedule is active.",
       "not_green": "Restore checks ran, but none rated green yet.",
-      "not_configured": "No mail transport is configured.",
       "not_tested": "The mail transport has not been tested yet.",
-      "test_failed": "The last test mail could not be sent."
+      "test_failed": "The last test mail could not be sent.",
+      "mail_skipped": "You skipped the mail step of the setup, so nothing is mailed. Set it up under Installation, Notification mail whenever you want it.",
+      "mail_marked": "Marked as not needed."
     }
   },
   "readiness": {
@@ -137,7 +124,10 @@
       "title": "Nothing to rate yet",
       "description": "Recovery readiness appears once objects are protected and backed up.",
       "action": "Protect objects"
-    }
+    },
+    "legend": "Objects by recovery state",
+    "legendHint": "Every row opens the table of exactly those objects.",
+    "open": "Show {count, plural, one {# object} other {# objects}}: {label}"
   },
   "lastBackup": {
     "title": "Last successful backup",
@@ -347,9 +337,9 @@
     },
     "kpis": {
       "tenants": "Tenants",
-      "tenantsHint": "{count, plural, =0 {None suspended} one {# suspended} other {# suspended}}",
+      "tenantsHint": "Your own organisation is not counted. {count, plural, =0 {None suspended} one {# suspended} other {# suspended}}.",
       "notReady": "Tenants not ready",
-      "notReadyHint": "Something cannot be restored or is not proven yet.",
+      "notReadyHint": "Of {count, plural, one {# customer} other {# customers}}. Something cannot be restored or is not proven yet.",
       "unverified": "Unverified backups",
       "unverifiedHint": "Newest backups not yet read back by a restore check.",
       "failures": "Failed jobs (24 h)",
@@ -361,8 +351,8 @@
       "incomplete": "{count, plural, one {Without # tenant whose figures could not be read.} other {Without # tenants whose figures could not be read.}}"
     },
     "matrix": {
-      "title": "Tenant health",
-      "description": "Every tenant, the ones that need attention first.",
+      "title": "Tenants by need for action",
+      "description": "The tenants that need action first, your own organisation on top. Click a row to switch into that tenant.",
       "search": "Search tenants …",
       "suspended": "Suspended",
       "unavailable": "Not available",
@@ -375,7 +365,8 @@
         "failures": "Failed (24 h)",
         "lastBackup": "Last backup",
         "mailboxes": "Mailboxes",
-        "stored": "Stored"
+        "stored": "Stored",
+        "notRestorable": "Cannot be restored"
       },
       "actions": {
         "open": "Open overview",
@@ -384,7 +375,10 @@
       "filteredEmpty": {
         "title": "No tenant matches",
         "description": "Change the search or the filter to see more tenants."
-      }
+      },
+      "internal": "Internal",
+      "openTenant": "Switch to {name}",
+      "openNotRestorable": "Switch to {name} and show the objects that cannot be restored"
     },
     "alerts": {
       "title": "Alerts across tenants",
@@ -410,11 +404,36 @@
         "title": "No alerts",
         "description": "Every tenant is backed up and verified, and none is above its agreed cap."
       }
+    },
+    "readiness": {
+      "title": "Recovery readiness, all tenants",
+      "description": "Every protected object of every tenant that could be read, your own organisation included.",
+      "share": "{total, plural, one {of # protected object proven restorable} other {of # protected objects proven restorable}}",
+      "hint": "Every row opens the tenants that have objects in that state."
     }
   },
   "views": {
     "label": "Overview views",
     "status": "Status",
     "statistics": "Statistics"
+  },
+  "start": {
+    "title": "Start",
+    "label": "Start, {done} of {total} steps done",
+    "progress": "{done} of {total} done",
+    "complete": "Setup complete. Start is gone from the menu.",
+    "attention": "Needs attention.",
+    "popover": {
+      "title": "Set up {name}",
+      "footer": "Start disappears from the menu once every step is done."
+    },
+    "notNeeded": {
+      "mark": "Not needed",
+      "undo": "Needed after all",
+      "marked": "Marked as not needed.",
+      "unmarked": "The step is open again.",
+      "demo": "Closed in the public demo.",
+      "role": "This changes an installation setting and needs the Owner role of the provider team."
+    }
   }
 }

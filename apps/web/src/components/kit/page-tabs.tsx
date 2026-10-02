@@ -1,5 +1,6 @@
 import { Link, type LinkProps } from "@tanstack/react-router";
 import type { LucideIcon } from "lucide-react";
+import type * as React from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -13,6 +14,8 @@ export interface PageTab {
   /** Search params of that link; `{}` clears the current ones. */
   search?: Readonly<Record<string, unknown>>;
   icon?: LucideIcon;
+  /** A small mark after the label (a "Soon" badge); announced as part of the link. */
+  badge?: React.ReactNode;
 }
 
 export interface PageTabsProps {
@@ -60,6 +63,7 @@ export function PageTabs({ label, tabs, current, className }: PageTabsProps) {
               >
                 {Icon ? <Icon aria-hidden="true" className="size-4 shrink-0" /> : null}
                 {tab.label}
+                {tab.badge}
               </Link>
             </li>
           );

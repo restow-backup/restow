@@ -1,3 +1,4 @@
+import { useNavigate, useSearch } from "@tanstack/react-router";
 import { ShieldCheck } from "lucide-react";
 import * as React from "react";
 
@@ -6,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import type { ObjectReadiness, RunVerifyResult } from "@/features/verify/api";
+import { AllTenantsReadiness } from "@/features/verify/components/all-tenants";
 import { ObjectsTable } from "@/features/verify/components/objects-table";
 import { StorageCard } from "@/features/verify/components/storage-card";
 import { OverallBanner, SummaryTiles } from "@/features/verify/components/summary";
@@ -18,12 +20,13 @@ import {
   startErrorMessage,
   unverifiedRunMessage,
 } from "@/features/verify/presenters";
+import { type ReadinessState, parseVerifySearch, verifyLink } from "@/features/verify/search";
 import {
   useReadinessOverview,
   useStartVerify,
   useVerifyFormat,
 } from "@/features/verify/use-verify";
-import { useSession } from "@/lib/session";
+import { sessionScope, useSession } from "@/lib/session";
 
 function OverviewSkeleton() {
   return (
@@ -49,8 +52,50 @@ type Starting = { scope: "all" } | { scope: "unverified" } | { scope: "object"; 
  * the storage check shows whether the pack files are intact. A backup no
  * check has read back yet, including one taken after a successful check, is
  * shown as not proven, never as fine.
+ *
+ * The address carries the filter: `?state=red` shows the objects in that state
+ * (the chips set it), `?state=red&scope=all` the tenants that have objects in it,
+ * which is also what the page is under "All tenants" (a link with `scope=all`
+ * brings the session there).
  */
 export function VerifyPage() {
+  const session = useSession();
+  const navigate = useNavigate();
+  const search = parseVerifySearch(useSearch({ strict: false }) as Record<string, unknown>);
+  const inAllTenants = sessionScope(session) === "all";
+  const wantsAll = search.scope === "all" && session.canViewAllTenants === true;
+  const { setScopeAll } = session;
+
+  // An address made for "All tenants" brings the session into that scope.
+  React.useEffect(() => {
+    if (wantsAll && !inAllTenants) {
+      setScopeAll?.();
+    }
+  }, [wantsAll, inAllTenants, setScopeAll]);
+
+  // The state is part of the address; the scope stays while the session is under "All tenants".
+  const setState = React.useCallback(
+    (state: ReadinessState | undefined) =>
+      void navigate({
+        ...verifyLink(state, inAllTenants || wantsAll ? "all" : undefined),
+        replace: true,
+      } as never),
+    [navigate, inAllTenants, wantsAll],
+  );
+
+  if (inAllTenants || wantsAll) {
+    return <AllTenantsReadiness state={search.state} onStateChange={setState} />;
+  }
+  return <TenantReadiness state={search.state} onStateChange={setState} />;
+}
+
+function TenantReadiness({
+  state,
+  onStateChange,
+}: {
+  state: ReadinessState | undefined;
+  onStateChange: (state: ReadinessState | undefined) => void;
+}) {
   const format = useVerifyFormat();
   const { t } = format;
   const { activeTenant } = useSession();
@@ -124,7 +169,7 @@ export function VerifyPage() {
         </Button>
       </PageHeader>
 
-      <p className="max-w-3xl text-sm text-muted-foreground">{t("subtitle")}</p>
+      <p className="max-w-prose text-sm text-muted-foreground">{t("subtitle")}</p>
 
       {overview.isError ? (
         <ErrorState
@@ -154,6 +199,8 @@ export function VerifyPage() {
             startingObjectId={starting?.scope === "object" ? starting.objectId : null}
             nextBackupAt={data.schedules.backup?.nextRunAt ?? null}
             onCheck={checkOne}
+            state={state}
+            onStateChange={onStateChange}
           />
           <p className="text-xs text-muted-foreground">
             {data.summary.lastCheckedAt ? (

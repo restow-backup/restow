@@ -208,20 +208,43 @@ export function documentTitle(
  * calling component is mounted. `PageHeader` does this for every page; a page
  * with a custom header can call it directly.
  */
-export function usePublishedTitle(title: string, appName: string): void {
+export function usePublishedTitle(title: string, appName: string, enabled = true): void {
   const { publishTitle, tenantName } = usePageFrame();
 
   React.useEffect(() => {
+    if (!enabled) {
+      return;
+    }
     publishTitle(title);
     return () => publishTitle(null);
-  }, [publishTitle, title]);
+  }, [enabled, publishTitle, title]);
 
   React.useEffect(() => {
+    if (!enabled) {
+      return;
+    }
     document.title = documentTitle(title, tenantName, appName);
     // The next page sets its own title in the same commit; a page without a
     // header falls back to the plain product name instead of a stale title.
     return () => {
       document.title = appName;
     };
-  }, [title, tenantName, appName]);
+  }, [enabled, title, tenantName, appName]);
+}
+
+const EmbeddedPageContext = React.createContext(false);
+
+/**
+ * Marks the pages rendered inside it as a part of a larger page (a section of
+ * the tenant page): their `PageHeader` becomes a section heading, one level
+ * below the page's own, and no longer publishes the page title or the browser
+ * tab title, which the surrounding page owns.
+ */
+export function EmbeddedPage({ children }: { children: React.ReactNode }) {
+  return <EmbeddedPageContext.Provider value={true}>{children}</EmbeddedPageContext.Provider>;
+}
+
+/** Whether the calling page is shown inside another page (see {@link EmbeddedPage}). */
+export function useEmbeddedPage(): boolean {
+  return React.useContext(EmbeddedPageContext);
 }

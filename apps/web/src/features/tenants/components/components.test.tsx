@@ -85,7 +85,9 @@ function tenant(id: string, overrides: Partial<TenantItem> = {}): TenantItem {
     id,
     name: `Tenant ${id}`,
     slug: `tenant-${id}`,
+    kind: "customer",
     status: "active",
+    customerNumber: null,
     organizationId: null,
     mailboxCap: null,
     createdAt: null,
@@ -255,8 +257,8 @@ describe("TenantTable", () => {
         onDelete={() => undefined}
       />,
     );
-    expect(html).toContain('href="/tenants/t1"');
-    expect(html).toContain('href="/tenants/t2"');
+    expect(html).toContain('href="/tenants/t1/overview"');
+    expect(html).toContain('href="/tenants/t2/overview"');
     expect(html).toContain("Current");
     expect(html).toContain("Being deleted");
     expect(html).toContain("Not counted while the tenant is being deleted");
@@ -264,6 +266,25 @@ describe("TenantTable", () => {
     const switches = html.match(/<button[^>]*>(?:(?!<\/button>).)*Switch to tenant/g) ?? [];
     expect(switches).toHaveLength(2);
     expect(switches.filter((button) => button.includes(' disabled=""'))).toHaveLength(1);
+  });
+
+  it("marks the own organisation with a badge of its own and no customer with it", () => {
+    const html = render(
+      <TenantTable
+        tenants={[tenant("own", { kind: "internal" }), tenant("t1")]}
+        health={healthById}
+        usage={usage}
+        activeTenantId={null}
+        onEnter={() => undefined}
+      />,
+    );
+    // One badge, on the own organisation's row only.
+    expect(html.match(/Own organisation/g)).toHaveLength(1);
+    const [ownRow, customerRow] = html
+      .split("<tr")
+      .filter((row) => row.includes('href="/tenants/'));
+    expect(ownRow).toContain("Own organisation");
+    expect(customerRow).not.toContain("Own organisation");
   });
 });
 
@@ -279,11 +300,9 @@ describe("CustomerDataPanel", () => {
     expect(html).not.toContain("Add contact");
   });
 
-  it("points to Alerts, where notifications now live as rules", () => {
-    const html = render(<CustomerDataPanel tenant={tenantDetail()} onOpenAlerts={() => {}} />);
-    expect(html).toContain("Open alerts");
-    // The old promise that nothing is sent yet is gone with the feature built.
-    expect(html).not.toContain("does not send any of these e-mails");
+  it("leaves the notification recipients to the Notifications section of the tenant page", () => {
+    const html = render(<CustomerDataPanel tenant={tenantDetail()} />);
+    expect(html).not.toContain("Open alerts");
   });
 });
 

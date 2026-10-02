@@ -24,6 +24,8 @@ import {
 } from "@restow/core";
 import {
   type Database,
+  backupJobMembers,
+  backupJobs,
   createDb,
   legalHolds,
   protectedObjects,
@@ -320,6 +322,130 @@ describe.skipIf(!adminUrl)("pgRetentionStore against Postgres", () => {
       const store = pgRetentionStore((fn) => db.transaction((tx) => fn(tx)), tenantId);
       const completed = await store.loadCompletedSnapshots();
       expect(completed.map((c) => c.id)).toHaveLength(3);
+    } finally {
+      await db.$client.end();
+    }
+  }, 60_000);
+
+  it("lets the objects of a job follow the retention policy the job names, an object's own policy still winning", async () => {
+    const url = await recreateTestDatabase(adminUrl as string);
+    const db = createDb(url);
+    try {
+      const [provider] = await db.insert(providers).values({ name: "Provider" }).returning();
+      const [tenant] = await db
+        .insert(tenants)
+        .values({ providerId: provider?.id as string, name: "Contoso", slug: "contoso" })
+        .returning();
+      const tenantId = tenant?.id as string;
+      const [source] = await db
+        .insert(sources)
+        .values({ tenantId, kind: "m365", name: "Contoso M365", status: "active" })
+        .returning();
+      const names = ["plain", "jobbed", "jobbed-own", "all-job"];
+      const objects: Record<string, string> = {};
+      for (const name of names) {
+        const [row] = await db
+          .insert(protectedObjects)
+          .values({
+            tenantId,
+            sourceId: source?.id as string,
+            kind: "mailbox",
+            externalId: `${name}@contoso.example`,
+          })
+          .returning();
+        objects[name] = row?.id as string;
+      }
+      // The tenant keeps 30 days; "Archive" keeps everything; one object has a policy of its own (90 days).
+      await db.insert(retentionPolicies).values({
+        tenantId,
+        name: "Standard",
+        isDefault: true,
+        appliesTo: { target: "snapshots", preset: "30d" },
+      });
+      const [keepAll] = await db
+        .insert(retentionPolicies)
+        .values({
+          tenantId,
+          name: "Archive",
+          appliesTo: { target: "snapshots", preset: "keep_all" },
+        })
+        .returning();
+      await db.insert(retentionPolicies).values({
+        tenantId,
+        name: "Own",
+        appliesTo: {
+          target: "snapshots",
+          preset: "90d",
+          protectedObjectIds: [objects["jobbed-own"] as string],
+        },
+      });
+      // One selected job names "Archive" for two objects (one has a policy of its own too);
+      // the job over all objects names nothing and leaves "all-job" to the tenant default.
+      const [selected] = await db
+        .insert(backupJobs)
+        .values({
+          tenantId,
+          kind: "mail",
+          name: "Archive job",
+          scopeMode: "selected",
+          retentionPolicyId: keepAll?.id,
+        })
+        .returning();
+      await db
+        .insert(backupJobs)
+        .values({ tenantId, kind: "mail", name: "Rest", scopeMode: "all" });
+      await db.insert(backupJobMembers).values([
+        { tenantId, jobId: selected?.id as string, protectedObjectId: objects.jobbed as string },
+        {
+          tenantId,
+          jobId: selected?.id as string,
+          protectedObjectId: objects["jobbed-own"] as string,
+        },
+      ]);
+      // Every object has one old restore point and a fresh one.
+      for (const name of names) {
+        await db.insert(snapshots).values([
+          {
+            tenantId,
+            protectedObjectId: objects[name] as string,
+            sequence: 1,
+            manifestPath: `${name}-old`,
+            status: "active",
+            byteSize: 100,
+            completedAt: daysAgo(200),
+          },
+          {
+            tenantId,
+            protectedObjectId: objects[name] as string,
+            sequence: 2,
+            manifestPath: `${name}-new`,
+            status: "active",
+            byteSize: 100,
+            completedAt: daysAgo(1),
+          },
+        ]);
+      }
+      const task = retentionTasks.list().find((t) => t.name === "snapshots");
+      if (!task) {
+        throw new Error("snapshots task not registered");
+      }
+      const summary = (await task.run(jobContext(db, tenantId), { dryRun: true })) as {
+        candidates: number;
+        policies: number;
+      };
+      // The old point is due for "plain" and "all-job" (30 days) and for "jobbed-own" (its own
+      // 90 days wins over the job's policy); "jobbed" keeps it through the job's policy.
+      expect(summary.candidates).toBe(3);
+      // The derived copies are not policies of the tenant.
+      expect(summary.policies).toBe(3);
+      const store = pgRetentionStore((fn) => db.transaction((tx) => fn(tx)), tenantId);
+      const assignments = (await store.loadJobRetention?.()) ?? [];
+      expect(assignments).toEqual([
+        {
+          retentionPolicyId: keepAll?.id,
+          protectedObjectIds: expect.arrayContaining([objects.jobbed, objects["jobbed-own"]]),
+        },
+      ]);
     } finally {
       await db.$client.end();
     }

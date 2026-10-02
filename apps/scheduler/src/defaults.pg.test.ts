@@ -1,9 +1,10 @@
 // The recommended schedules, applied by the scheduler on the database roles it
 // runs on in production: a tenant with an active source and no marker gets the
 // recommended set on the next tick (tenant-pinned, under Row Level Security),
-// the backup and directory sync it brings are due at once and enqueue jobs in
-// the same tick, a second tick adds nothing, and a schedule an administrator
-// deleted afterwards stays deleted.
+// the backup job and directory sync it brings are due at once and enqueue jobs
+// in the same tick, a second tick adds nothing, and a schedule an administrator
+// deleted afterwards stays deleted. Backups and restore checks are one mail job
+// since 0.2.0 (the maintenance is still made of schedules).
 //
 // Runs when RESTOW_TEST_DATABASE_URL points at a Postgres server as a superuser
 // (a uniquely named database and roles are created and dropped again); skipped
@@ -110,6 +111,27 @@ describe.skipIf(!adminUrl)("recommended schedules applied by the scheduler", () 
     return rows;
   }
 
+  interface JobRecord {
+    name: string;
+    scope_mode: string;
+    schedule: unknown;
+    verify_schedule: unknown;
+    next_run_at: Date | null;
+    last_run_at: Date | null;
+    verify_next_run_at: Date | null;
+    verify_last_run_at: Date | null;
+  }
+
+  async function jobsOf(tenantId: string): Promise<JobRecord[]> {
+    const { rows } = await owner.$client.query<JobRecord>(
+      `SELECT name, scope_mode, schedule, verify_schedule, next_run_at, last_run_at,
+              verify_next_run_at, verify_last_run_at
+         FROM backup_jobs WHERE tenant_id = $1 AND kind = 'mail' ORDER BY name`,
+      [tenantId],
+    );
+    return rows;
+  }
+
   async function markerOf(tenantId: string): Promise<Date | null> {
     const { rows } = await owner.$client.query<{ schedule_defaults_applied_at: Date | null }>(
       "SELECT schedule_defaults_applied_at FROM tenants WHERE id = $1",
@@ -199,11 +221,10 @@ describe.skipIf(!adminUrl)("recommended schedules applied by the scheduler", () 
     });
 
     const schedules = await schedulesOf(contoso);
+    // The maintenance is made of schedules; backups and restore checks are the one mail job.
     expect(
       schedules.map((row) => [row.kind, row.interval_minutes, row.cron, row.timezone, row.enabled]),
     ).toEqual([
-      ["backup", 480, null, "Europe/Berlin", true],
-      ["verify", null, "0 3 * * 0", "Europe/Berlin", true],
       ["retention", null, "30 4 * * *", "Europe/Berlin", true],
       ["scrub", null, "0 4 * * 6", "Europe/Berlin", true],
       ["scrub", null, "0 5 1 * *", "Europe/Berlin", true],
@@ -211,13 +232,21 @@ describe.skipIf(!adminUrl)("recommended schedules applied by the scheduler", () 
     ]);
     const byCron = new Map(schedules.map((row) => [row.cron ?? row.kind, row]));
     // The intervals ran now and moved on; the cron entries wait for Berlin night time.
-    expect(byCron.get("backup")?.last_run_at?.toISOString()).toBe(clock.toISOString());
-    expect(byCron.get("backup")?.next_run_at?.toISOString()).toBe("2026-03-04T18:00:00.000Z");
     expect(byCron.get("directory")?.next_run_at?.toISOString()).toBe("2026-03-04T16:00:00.000Z");
-    expect(byCron.get("0 3 * * 0")?.next_run_at?.toISOString()).toBe("2026-03-08T02:00:00.000Z");
     expect(byCron.get("30 4 * * *")?.next_run_at?.toISOString()).toBe("2026-03-05T03:30:00.000Z");
     expect(byCron.get("0 5 1 * *")?.next_run_at?.toISOString()).toBe("2026-04-01T03:00:00.000Z");
-    expect(byCron.get("0 3 * * 0")?.last_run_at).toBeNull();
+    const [job] = await jobsOf(contoso);
+    expect(job).toMatchObject({
+      // The tenant has no language of its own: the installation's default names the job.
+      name: "Mail-Sicherung",
+      scope_mode: "all",
+      schedule: { kind: "interval", intervalMinutes: 480, timeZone: "Europe/Berlin" },
+      verify_schedule: { kind: "cron", cron: "0 3 * * 0", timeZone: "Europe/Berlin" },
+    });
+    expect(job?.last_run_at?.toISOString()).toBe(clock.toISOString());
+    expect(job?.next_run_at?.toISOString()).toBe("2026-03-04T18:00:00.000Z");
+    expect(job?.verify_next_run_at?.toISOString()).toBe("2026-03-08T02:00:00.000Z");
+    expect(job?.verify_last_run_at).toBeNull();
     expect((await markerOf(contoso))?.toISOString()).toBe(clock.toISOString());
 
     const jobs = await owner.$client.query<{ queue: string; protected_object_id: string | null }>(
@@ -249,13 +278,13 @@ describe.skipIf(!adminUrl)("recommended schedules applied by the scheduler", () 
     expect(await loop().tick()).toMatchObject({ tenantsInitialised: 0, schedules: 0 });
     expect(await schedulesOf(tenantId)).toEqual(before);
 
-    await owner.$client.query("DELETE FROM schedules WHERE tenant_id = $1 AND kind = 'verify'", [
+    await owner.$client.query("DELETE FROM schedules WHERE tenant_id = $1 AND kind = 'retention'", [
       tenantId,
     ]);
     clock = new Date("2026-03-04T10:10:00Z");
     expect(await loop().tick()).toMatchObject({ tenantsInitialised: 0 });
     const after = await schedulesOf(tenantId);
-    expect(after.map((row) => row.kind)).not.toContain("verify");
+    expect(after.map((row) => row.kind)).not.toContain("retention");
     expect(after).toHaveLength(before.length - 1);
   });
 
@@ -271,19 +300,23 @@ describe.skipIf(!adminUrl)("recommended schedules applied by the scheduler", () 
     clock = new Date("2026-03-04T11:00:00Z");
     expect(await loop("America/New_York").tick()).toMatchObject({ tenantsInitialised: 1 });
     const schedules = await schedulesOf(fabrikam);
-    // No directory sync without a Microsoft 365 source; the admin's backup is kept as it was.
+    // No directory sync without a Microsoft 365 source; the admin's backup schedule is kept as it
+    // was (it covers the backup recommendation), and the missing restore check becomes the job.
     expect(schedules.map((row) => [row.kind, row.interval_minutes, row.cron])).toEqual([
       ["backup", 120, null],
-      ["verify", null, "0 3 * * 0"],
       ["retention", null, "30 4 * * *"],
       ["scrub", null, "0 4 * * 6"],
       ["scrub", null, "0 5 1 * *"],
     ]);
     // The zone the scheduler was configured with: 03:00 on Sunday in New York,
     // which is already daylight time that night (clocks go forward at 02:00).
-    const verify = schedules.find((row) => row.kind === "verify");
-    expect(verify?.timezone).toBe("America/New_York");
-    expect(verify?.next_run_at?.toISOString()).toBe("2026-03-08T07:00:00.000Z");
+    const [job] = await jobsOf(fabrikam);
+    expect(job).toMatchObject({
+      scope_mode: "all",
+      schedule: null,
+      verify_schedule: { kind: "cron", cron: "0 3 * * 0", timeZone: "America/New_York" },
+    });
+    expect(job?.verify_next_run_at?.toISOString()).toBe("2026-03-08T07:00:00.000Z");
   });
 
   it("recreates only what is missing when the marker is cleared", async () => {
@@ -298,9 +331,10 @@ describe.skipIf(!adminUrl)("recommended schedules applied by the scheduler", () 
     clock = new Date("2026-03-04T12:00:00Z");
     expect(await loop().tick()).toMatchObject({ tenantsInitialised: 1 });
     const kinds = (await schedulesOf(tenantId)).map((row) => row.kind);
-    expect(kinds.filter((kind) => kind === "verify")).toHaveLength(1);
-    expect(kinds.filter((kind) => kind === "backup")).toHaveLength(1);
-    expect(kinds).toHaveLength(6);
+    // Only the retention schedule the admin deleted came back; the job is not made twice.
+    expect(kinds.filter((kind) => kind === "retention")).toHaveLength(1);
+    expect(kinds).toHaveLength(4);
+    expect(await jobsOf(tenantId)).toHaveLength(1);
   });
 
   it("leaves the defaults alone when not configured", async () => {
@@ -342,7 +376,7 @@ describe.skipIf(!adminUrl)("recommended schedules applied by the scheduler", () 
     await source(importer, "imap", "active");
     await loop().tick();
     expect(await markerOf(importer)).not.toBeNull();
-    expect((await schedulesOf(importer)).map((row) => row.kind)).toContain("backup");
+    expect(await jobsOf(importer)).toHaveLength(1);
     const { rows: queued } = await owner.$client.query<{ protected_object_id: string | null }>(
       "SELECT protected_object_id FROM jobs WHERE tenant_id = $1 AND queue = 'backup'",
       [importer],

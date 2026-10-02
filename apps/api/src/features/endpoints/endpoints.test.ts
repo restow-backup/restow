@@ -5,7 +5,7 @@ import { ResticError, defaultEndpointConfig } from "@restow/core";
 import type { Endpoint, EndpointRun, EndpointTask } from "@restow/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FailureTracker } from "./agent-auth.js";
-import { agentFactsOf, trimLogTail } from "./agent-service.js";
+import { agentFactsOf, configResponse, trimLogTail } from "./agent-service.js";
 import { installCommands } from "./commands.js";
 
 /** Stands in for a maintainer's SSHSIG signature (the server never checks it, the agent does). */
@@ -374,6 +374,53 @@ describe("log tails", () => {
   });
 });
 
+describe("the configuration an agent is served", () => {
+  const stored = {
+    ...defaultEndpointConfig("linux", "server", { timeZone: "Europe/Berlin" }),
+    bandwidthKbps: 500,
+    bandwidthWindows: [
+      { days: [1, 2, 3, 4, 5], from: "08:00", to: "18:00", kbps: 2000 },
+      { days: [1, 2, 3, 4, 5], from: "22:00", to: "06:00", kbps: 0 },
+    ],
+  };
+  // Tuesday 2026-10-06; Berlin is on CEST (UTC+2).
+  const at = (iso: string) => ({ zone: "Europe/Berlin", now: new Date(iso) });
+
+  it("carries the limit of the window that is active, else the default, and never the windows", () => {
+    const day = configResponse(stored, 7, at("2026-10-06T08:00:00Z"));
+    expect(day.bandwidthKbps).toBe(2000);
+    expect(day.configVersion).toBe(7);
+    expect("bandwidthWindows" in day).toBe(false);
+    expect(configResponse(stored, 7, at("2026-10-06T17:00:00Z")).bandwidthKbps).toBe(500);
+    // A window of 0 is unlimited, which the agent reads as null.
+    expect(configResponse(stored, 7, at("2026-10-06T21:00:00Z")).bandwidthKbps).toBeNull();
+  });
+
+  it("is the stored configuration, byte for byte, when there are no windows", () => {
+    const { bandwidthWindows: _windows, ...plain } = stored;
+    const answer = configResponse(plain, 3, at("2026-10-06T08:00:00Z"));
+    expect(answer).toEqual({ ...plain, configVersion: 3 });
+    expect(
+      configResponse({ ...plain, bandwidthWindows: [] }, 3, at("2026-10-06T08:00:00Z")),
+    ).toEqual({
+      ...plain,
+      configVersion: 3,
+    });
+    // Without a moment to judge by (enrollment), the windows are only left out.
+    expect(configResponse(stored, 1).bandwidthKbps).toBe(500);
+  });
+
+  it("reads the windows on the wall clock of the zone it is given", () => {
+    const instant = new Date("2026-10-06T16:30:00Z");
+    expect(configResponse(stored, 1, { zone: "Europe/Berlin", now: instant }).bandwidthKbps).toBe(
+      500,
+    ); // 18:30
+    expect(
+      configResponse(stored, 1, { zone: "America/New_York", now: instant }).bandwidthKbps,
+    ).toBe(2000); // 12:30
+  });
+});
+
 describe("configuration changes", () => {
   const current = defaultEndpointConfig("linux", "server", { timeZone: "Europe/Berlin" });
 
@@ -389,6 +436,29 @@ describe("configuration changes", () => {
     expect(config.bandwidthKbps).toBe(2048);
     expect(config.excludes).toEqual(current.excludes);
     expect(current.paths).not.toEqual(["/srv"]);
+  });
+
+  it("sets, changes and removes bandwidth windows, storing them in their normal order", () => {
+    const night = { days: [5, 1], from: "22:00", to: "06:00", kbps: 0 };
+    const set = applyConfigChange(current, { bandwidthWindows: [night] });
+    expect(set.changed).toEqual(["bandwidthWindows"]);
+    expect(set.config.bandwidthWindows).toEqual([{ ...night, days: [1, 5] }]);
+    // The same windows again, written another way: nothing to change.
+    expect(
+      applyConfigChange(set.config, { bandwidthWindows: [{ ...night, days: [1, 5] }] }).changed,
+    ).toEqual([]);
+    // null and [] both remove them, and the key is gone, not empty.
+    for (const removal of [null, []]) {
+      const removed = applyConfigChange(set.config, { bandwidthWindows: removal });
+      expect(removed.changed).toEqual(["bandwidthWindows"]);
+      expect("bandwidthWindows" in removed.config).toBe(false);
+    }
+    expect(applyConfigChange(current, { bandwidthWindows: null }).changed).toEqual([]);
+    expect(applyConfigChange(current, { bandwidthWindows: [] }).changed).toEqual([]);
+    // Another change in the same request still lands on the final configuration.
+    const both = applyConfigChange(set.config, { bandwidthWindows: null, onlyOnAcPower: true });
+    expect(both.config.onlyOnAcPower).toBe(true);
+    expect("bandwidthWindows" in both.config).toBe(false);
   });
 
   it("sets and clears hooks; empty text removes a hook", () => {

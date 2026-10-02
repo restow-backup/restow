@@ -1,5 +1,5 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { Building2, ChevronDown, FileInput, Mail, Plug, Plus, RefreshCw } from "lucide-react";
+import { Building2, Mail, Plug, Plus, RefreshCw } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -7,39 +7,38 @@ import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
-import { IMPORT_PATHS, importTo } from "@/features/imports/paths";
 import { NoTenantSelected, SourcesForbidden } from "./components/access-states";
 import { ConsentResultAlert } from "./components/consent-result-alert";
 import { ImapSourceDialog } from "./components/imap-source-dialog";
 import { CreateM365Dialog } from "./components/m365-source-dialogs";
 import { SourceCard } from "./components/source-card";
-import { sourcesListTo } from "./paths";
+import { sourcesListSearch, sourcesListTo } from "./paths";
 import { describeConsentResult, parseConsentSearch } from "./presenters";
 import type { SourceKind } from "./types";
 import { useSourceList } from "./use-sources";
 
+/** The kinds of connection this page lists (the imports have their own page). */
+export type ListedSourceKind = "m365" | "imap";
+
 /**
- * All sources of the active tenant as cards with their status and the next
- * step each one needs. Adding a source opens the matching dialog.
+ * The sources of one kind (`m365` or `imap`) of the active tenant as cards with
+ * their status and the next step each one needs, one tab of the Connections
+ * section each. Adding a source opens the matching dialog.
  */
-export function SourcesPage() {
+export function SourcesPage({ kind }: { kind: ListedSourceKind }) {
   const { t } = useTranslation("sources");
   const { t: tc } = useTranslation();
   const { query, tenantId, tenantName, canManage } = useSourceList();
   const [dialog, setDialog] = React.useState<SourceKind | null>(null);
-  const consentMessage = useConsentMessageFromUrl();
+  const consentMessage = useConsentMessageFromUrl(kind);
 
   const header = (
     <PageHeader
-      title={t("title")}
-      description={tenantName ? t("tenantScope", { tenant: tenantName }) : t("subtitle")}
+      title={t(`list.title.${kind}`)}
+      description={
+        tenantName ? t(`list.description.${kind}`, { tenant: tenantName }) : t("subtitle")
+      }
     >
       {tenantId && canManage ? (
         <>
@@ -53,12 +52,16 @@ export function SourcesPage() {
           >
             <RefreshCw className={query.isFetching ? "animate-spin" : undefined} />
           </Button>
-          <AddSourceMenu onSelect={setDialog} />
+          <Button onClick={() => setDialog(kind)}>
+            <Plus />
+            {t(kind === "m365" ? "actions.addM365" : "actions.addImap")}
+          </Button>
         </>
       ) : null}
     </PageHeader>
   );
 
+  const sources = (query.data ?? []).filter((source) => source.kind === kind);
   let body: React.ReactNode;
   if (!tenantId) {
     body = <NoTenantSelected />;
@@ -75,12 +78,12 @@ export function SourcesPage() {
         retrying={query.isFetching}
       />
     );
-  } else if (query.data.length === 0) {
-    body = <EmptySources onSelect={setDialog} />;
+  } else if (sources.length === 0) {
+    body = <EmptySources kind={kind} onSelect={setDialog} />;
   } else {
     body = (
-      <div className="grid grid-cols-1 gap-4 *:min-w-0 md:grid-cols-2 xl:grid-cols-3">
-        {query.data.map((source) => (
+      <div className="grid grid-cols-1 gap-4 *:min-w-0 lg:grid-cols-2 2xl:grid-cols-3">
+        {sources.map((source) => (
           <SourceCard key={source.id} source={source} />
         ))}
       </div>
@@ -111,7 +114,7 @@ export function SourcesPage() {
  * land on the list). Read once, then the URL is cleaned so a reload does not
  * repeat it.
  */
-function useConsentMessageFromUrl() {
+function useConsentMessageFromUrl(kind: ListedSourceKind) {
   const navigate = useNavigate();
   const search = useSearch({ strict: false }) as Record<string, unknown>;
   const [message, setMessage] = React.useState(() =>
@@ -122,44 +125,24 @@ function useConsentMessageFromUrl() {
   React.useEffect(() => {
     if (hadParams.current) {
       hadParams.current = false;
-      void navigate({ to: sourcesListTo(), replace: true });
+      void navigate({
+        to: sourcesListTo(),
+        search: sourcesListSearch(kind) as never,
+        replace: true,
+      });
     }
-  }, [navigate]);
+  }, [navigate, kind]);
 
   return { message, dismiss: () => setMessage(null) };
 }
 
-function AddSourceMenu({ onSelect }: { onSelect: (kind: SourceKind) => void }) {
-  const { t } = useTranslation("sources");
-  const navigate = useNavigate();
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button>
-          <Plus />
-          {t("actions.add")}
-          <ChevronDown className="opacity-70" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuItem onSelect={() => onSelect("m365")}>
-          <Building2 />
-          {t("actions.addM365")}
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => onSelect("imap")}>
-          <Mail />
-          {t("actions.addImap")}
-        </DropdownMenuItem>
-        <DropdownMenuItem onSelect={() => void navigate({ to: importTo(IMPORT_PATHS.wizard) })}>
-          <FileInput />
-          {t("actions.addImport")}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function EmptySources({ onSelect }: { onSelect: (kind: SourceKind) => void }) {
+function EmptySources({
+  kind,
+  onSelect,
+}: {
+  kind: ListedSourceKind;
+  onSelect: (kind: SourceKind) => void;
+}) {
   const { t } = useTranslation("sources");
   return (
     <Card className="border-dashed py-0">
@@ -168,19 +151,13 @@ function EmptySources({ onSelect }: { onSelect: (kind: SourceKind) => void }) {
           <Plug aria-hidden="true" className="size-5" />
         </div>
         <div className="max-w-md space-y-1.5">
-          <h2 className="text-base font-semibold">{t("list.empty.title")}</h2>
-          <p className="text-sm text-muted-foreground">{t("list.empty.description")}</p>
+          <h3 className="text-base font-semibold">{t(`list.empty.${kind}.title`)}</h3>
+          <p className="text-sm text-muted-foreground">{t(`list.empty.${kind}.description`)}</p>
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <Button onClick={() => onSelect("m365")}>
-            <Building2 />
-            {t("actions.addM365")}
-          </Button>
-          <Button variant="outline" onClick={() => onSelect("imap")}>
-            <Mail />
-            {t("actions.addImap")}
-          </Button>
-        </div>
+        <Button onClick={() => onSelect(kind)}>
+          {kind === "m365" ? <Building2 /> : <Mail />}
+          {t(kind === "m365" ? "actions.addM365" : "actions.addImap")}
+        </Button>
       </CardContent>
     </Card>
   );
@@ -188,7 +165,7 @@ function EmptySources({ onSelect }: { onSelect: (kind: SourceKind) => void }) {
 
 function SourceGridSkeleton() {
   return (
-    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
       {[0, 1, 2].map((index) => (
         <Card key={index} className="gap-3">
           <CardHeader className="flex flex-row items-start gap-3">

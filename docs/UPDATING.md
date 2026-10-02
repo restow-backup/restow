@@ -8,7 +8,7 @@ There are two ways to update:
 
 - **By hand**, with `docker compose`. This is the default and always works;
   the rest of this page starts there.
-- **From the web interface**, under Settings, Updates: Restow tells you when
+- **From the web interface**, under Installation, Updates: Restow tells you when
   a newer version exists and, if you opt in to the updater service, applies
   it for you, with a countdown for everyone who is signed in, a database
   backup first, and an automatic rollback when the new version does not start
@@ -118,7 +118,7 @@ else.
 
 ## The Updates tab
 
-Settings, Updates (provider administrators; changing anything, including
+Installation, Updates (provider administrators; changing anything, including
 *Check now*, needs the provider team's owner role). It shows the running version, the release
 channel, the newest version with its tag and release date, a link to the
 release notes (and the notes themselves, rendered safely, collapsed), the
@@ -187,8 +187,8 @@ keeps working. Precedence, from strongest to weakest:
 ### The alert for a new version
 
 Once per new version, Restow raises an "Update available" alert: an entry in
-the notification bell of the provider administrators, and the alert rules under
-Daily › Alerts that list the event *Update available* (e-mail, webhook), in
+the notification bell of the provider administrators, and the alert rules (on each
+tenant's page, Notifications) that list the event *Update available* (e-mail, webhook), in
 every tenant. A rule for this event can be created by provider administrators
 only; a tenant's own administrators are not told about your updates. The same
 version never raises it twice.
@@ -280,7 +280,7 @@ hand is fully supported and takes a few commands.
    docker compose --profile updater up -d
    ```
 
-3. Open Settings, Updates. The Install card says whether the updater is ready
+3. Open Installation, Updates. The Install card says whether the updater is ready
    or what blocks it (Docker not reachable, Docker command line image not
    pulled yet, Compose file not found, project directory not matching
    `RESTOW_PROJECT_DIR`, `.env` not writable, not enough free space, the

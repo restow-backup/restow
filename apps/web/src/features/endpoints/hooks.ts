@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
+import { useLiveOpen } from "@/features/history/live/provider";
 import { formatBytes, formatDateTime, formatInteger } from "@/lib/format";
 import { useSession } from "@/lib/session";
 
@@ -24,6 +25,7 @@ import {
   fetchSnapshots,
   fetchTokens,
   requestRestoreTest,
+  resumeMachineUpdates,
   revealRepositoryPassword,
   revokeEndpoint,
   revokeToken,
@@ -36,6 +38,7 @@ import {
   RUN_REFRESH_MS,
   detailRefetchInterval,
   listRefetchInterval,
+  waitingTasks,
 } from "./presenters.js";
 
 /**
@@ -54,45 +57,57 @@ export function useTenantScope() {
 
 export function useEndpoints(profile: EndpointProfile | undefined) {
   const { tenantId, enabled } = useTenantScope();
+  // The live channel keeps connection, progress and next run current; the list polls only while it is down.
+  const connected = useLiveOpen();
   return useQuery({
     queryKey: endpointKeys.list(tenantId, profile),
     queryFn: () => fetchEndpoints(profile),
     enabled,
-    refetchInterval: (query) => listRefetchInterval(query.state.data),
+    refetchInterval: (query) => (connected ? false : listRefetchInterval(query.state.data)),
   });
 }
 
-export function useEndpoint(endpointId: string) {
+/** `wanted` false asks for nothing (a page that needs the machine only in some states). */
+export function useEndpoint(endpointId: string, wanted = true) {
   const { tenantId, enabled } = useTenantScope();
+  const connected = useLiveOpen();
   return useQuery({
     queryKey: endpointKeys.detail(tenantId, endpointId),
     queryFn: () => fetchEndpoint(endpointId),
-    enabled,
+    enabled: enabled && wanted,
     retry: false,
-    refetchInterval: (query) => detailRefetchInterval(query.state.data),
+    // Requests that wait for the machine are not on the channel: while one waits the detail still asks.
+    refetchInterval: (query) =>
+      connected && waitingTasks(query.state.data?.tasks ?? []).length === 0
+        ? false
+        : detailRefetchInterval(query.state.data),
   });
 }
 
 /** The newest runs beyond the 20 the detail carries; only fetched on request. */
 export function useRuns(endpointId: string, limit: number, enabled: boolean) {
   const scope = useTenantScope();
+  const connected = useLiveOpen();
   return useQuery({
     queryKey: endpointKeys.runs(scope.tenantId, endpointId, limit),
     queryFn: () => fetchRuns(endpointId, limit),
     enabled: scope.enabled && enabled,
-    refetchInterval: IDLE_REFRESH_MS,
+    refetchInterval: connected ? false : IDLE_REFRESH_MS,
   });
 }
 
 /** One run with log and errors; follows the run closely while it is running. */
 export function useRun(endpointId: string, runId: string | null) {
   const { tenantId, enabled } = useTenantScope();
+  const connected = useLiveOpen();
   return useQuery({
     queryKey: endpointKeys.run(tenantId, endpointId, runId ?? ""),
     queryFn: () => fetchRun(endpointId, runId ?? ""),
     enabled: enabled && runId !== null,
     retry: false,
-    refetchInterval: (query) => (query.state.data?.status === "running" ? RUN_REFRESH_MS : false),
+    // The log and the errors of a running run come in when it ends; the numbers are live.
+    refetchInterval: (query) =>
+      query.state.data?.status === "running" && !connected ? RUN_REFRESH_MS : false,
   });
 }
 
@@ -256,7 +271,7 @@ export function useEndpointFormat() {
 
 export type EndpointFormat = ReturnType<typeof useEndpointFormat>;
 
-/** The tenant-wide switch for automatic agent updates. */
+/** The tenant's setting for automatic agent updates, and the machines paused on their own. */
 export function useAgentUpdates() {
   const { tenantId, enabled } = useTenantScope();
   return useQuery({
@@ -270,7 +285,21 @@ export function useSetAgentUpdates() {
   const queryClient = useQueryClient();
   const { tenantId } = useTenantScope();
   return useMutation({
-    mutationFn: (paused: boolean) => setAgentUpdates(paused),
+    mutationFn: (input: { paused: boolean; resumeMachines?: boolean }) =>
+      setAgentUpdates(input.paused, input.resumeMachines),
+    onSuccess: (result) => {
+      queryClient.setQueryData(endpointKeys.agentUpdates(tenantId), result);
+      void queryClient.invalidateQueries({ queryKey: endpointKeys.all(tenantId) });
+    },
+  });
+}
+
+/** Lift one machine's own pause. */
+export function useResumeMachineUpdates() {
+  const queryClient = useQueryClient();
+  const { tenantId } = useTenantScope();
+  return useMutation({
+    mutationFn: (endpointId: string) => resumeMachineUpdates(endpointId),
     onSuccess: (result) => {
       queryClient.setQueryData(endpointKeys.agentUpdates(tenantId), result);
       void queryClient.invalidateQueries({ queryKey: endpointKeys.all(tenantId) });

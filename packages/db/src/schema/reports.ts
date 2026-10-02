@@ -9,6 +9,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 import { timestamps } from "./_shared.js";
@@ -52,11 +53,19 @@ export const reportRules = pgTable(
     inApp: boolean("in_app").notNull().default(false),
     webhookId: uuid("webhook_id").references(() => webhooks.id, { onDelete: "set null" }),
     language: tenantLanguageEnum("language"),
+    // Set on the rule that carries one category of the tenant's notification recipients
+    // (`jobFailures`, `readinessRed`, `weeklyReport`): its e-mail recipients are the recipients
+    // who chose that category, kept in step whenever the recipients are saved. Null for every
+    // rule an administrator made by hand.
+    recipientCategory: text("recipient_category"),
     createdBy: text("created_by"),
     ...timestamps(),
   },
   (t) => [
     index("report_rules_tenant_idx").on(t.tenantId),
+    uniqueIndex("report_rules_recipient_category_uq")
+      .on(t.tenantId, t.recipientCategory)
+      .where(sql`${t.recipientCategory} IS NOT NULL`),
     index("report_rules_due_idx").on(t.trigger, t.enabled, t.nextRunAt),
     check(
       "report_rules_schedule_cadence_ck",

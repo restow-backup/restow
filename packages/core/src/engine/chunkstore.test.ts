@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
@@ -92,7 +92,13 @@ describe("ChunkWriter / ChunkReader through the local pack store", () => {
   let index: MemoryChunkIndex;
   let packCounter: number;
 
-  function writer(options: { maxPackBytes?: number; signal?: AbortSignal } = {}): ChunkWriter {
+  function writer(
+    options: {
+      maxPackBytes?: number;
+      signal?: AbortSignal;
+      onPackStored?: (packBytes: number) => void;
+    } = {},
+  ): ChunkWriter {
     return new ChunkWriter({
       tenantId: TENANT,
       storage,
@@ -100,6 +106,7 @@ describe("ChunkWriter / ChunkReader through the local pack store", () => {
       index,
       maxPackBytes: options.maxPackBytes,
       signal: options.signal,
+      onPackStored: options.onPackStored,
       packIdGenerator: () => `pack${(packCounter++).toString().padStart(4, "0")}`,
     });
   }
@@ -201,6 +208,34 @@ describe("ChunkWriter / ChunkReader through the local pack store", () => {
 
     const r = new ChunkReader({ storage, keys, index, packCacheLimit: 1 });
     expect(Buffer.concat(await collect(r.read(result.chunks))).equals(data)).toBe(true);
+  });
+
+  it("reports the size of every pack it stored, once each, after the pack is durable", async () => {
+    const stored: number[] = [];
+    const w = writer({
+      maxPackBytes: MIN_CHUNK_SIZE * 2,
+      onPackStored: (bytes) => stored.push(bytes),
+    });
+    await w.write(pseudoRandom(MAX_CHUNK_SIZE * 2, 5));
+    const stats = await w.close();
+    expect(stored).toHaveLength(stats.packsWritten);
+    const keysOnDisk = await storage.primary.list(packPrefix(TENANT));
+    const sizes: number[] = [];
+    for (const key of keysOnDisk) {
+      sizes.push((await storage.primary.get(key)).length);
+    }
+    expect([...stored].sort((a, b) => a - b)).toEqual(sizes.sort((a, b) => a - b));
+  });
+
+  it("does not report a pack that could not be stored", async () => {
+    const stored: number[] = [];
+    const w = writer({ onPackStored: (bytes) => stored.push(bytes) });
+    await w.write(Buffer.from("object in an open pack"));
+    // Make the primary target unwritable: a file where its directory must be.
+    await rm(join(root, "primary"), { recursive: true, force: true });
+    await writeFile(join(root, "primary"), "not a directory");
+    await expect(w.close()).rejects.toBeDefined();
+    expect(stored).toEqual([]);
   });
 
   it("falls back to a copy target when the primary lost a pack", async () => {

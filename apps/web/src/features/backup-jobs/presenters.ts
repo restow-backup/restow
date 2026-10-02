@@ -1,0 +1,282 @@
+import type { TFunction } from "i18next";
+import { Cloud, Inbox, Laptop, type LucideIcon, Mail, Server } from "lucide-react";
+
+import type { StatusTone } from "@/components/kit";
+import { describeCadence } from "@/features/schedules/presenters";
+
+import type {
+  BackupJob,
+  JobKind,
+  JobMember,
+  JobRestoreCheck,
+  JobSchedule,
+  JobScope,
+  JobState,
+  MemberKind,
+  Repository,
+} from "./api.js";
+import { cadenceOfJobSchedule } from "./form.js";
+
+/**
+ * Presentation of jobs: the words for a schedule, a scope, a restore check, a
+ * state, a last and a next run. Pure functions over the API's shapes, kept free
+ * of React so they are unit-tested directly. `t` is bound to the backupjobs
+ * namespace, `tSchedules` to the schedules namespace (the words of a cadence).
+ */
+
+// --- Kinds --------------------------------------------------------------------------------
+
+/** One icon per meaning (icons table of the 0.2.0 plan): mailbox, OneDrive, IMAP account, server, client. */
+export const MEMBER_KIND_ICON: Readonly<Record<MemberKind, LucideIcon>> = {
+  mailbox: Mail,
+  onedrive: Cloud,
+  imap: Inbox,
+  server: Server,
+  client: Laptop,
+};
+
+/** The kinds of object or machine a job of this kind holds, in the order a summary lists them. */
+export const MEMBER_KINDS_OF: Readonly<Record<JobKind, readonly MemberKind[]>> = {
+  mail: ["mailbox", "onedrive", "imap"],
+  endpoint: ["server", "client"],
+};
+
+// --- Schedule --------------------------------------------------------------------------------
+
+export interface ScheduleText {
+  t: TFunction;
+  tSchedules: TFunction;
+  language: string;
+}
+
+/** How often a job runs, in words ("Every 8 hours", "Daily at 02:00", "On connect, at most every 4 hours"). */
+export function describeJobSchedule(schedule: JobSchedule | null, ctx: ScheduleText): string {
+  const { t, tSchedules, language } = ctx;
+  if (!schedule) {
+    return t("schedule.manual");
+  }
+  switch (schedule.kind) {
+    case "on_connect": {
+      const minutes = schedule.intervalMinutes;
+      if (minutes === undefined) {
+        return t("schedule.onConnect");
+      }
+      return minutes % 60 === 0
+        ? t("schedule.onConnectHours", { count: minutes / 60 })
+        : t("schedule.onConnectMinutes", { count: minutes });
+    }
+    default: {
+      const cadence = cadenceOfJobSchedule(schedule);
+      return cadence ? describeCadence(cadence, tSchedules, language) : t("schedule.manual");
+    }
+  }
+}
+
+/** Whether the zone matters for reading the schedule (clock times: daily, cron). */
+export function scheduleUsesZone(schedule: JobSchedule | null): boolean {
+  return schedule !== null && (schedule.kind === "cron" || schedule.kind === "daily");
+}
+
+// --- Scope ------------------------------------------------------------------------------------
+
+/**
+ * What a job covers: "214 mailboxes, 6 OneDrives" or "3 servers"; "Nothing yet" for an
+ * empty scope.
+ */
+export function describeScope(
+  scope: Pick<JobScope, "count" | "byKind">,
+  kind: JobKind,
+  t: TFunction,
+): string {
+  if (scope.count === 0) {
+    return t("scope.nothing");
+  }
+  const parts = MEMBER_KINDS_OF[kind]
+    .filter((memberKind) => (scope.byKind[memberKind] ?? 0) > 0)
+    .map((memberKind) => t(`scope.kinds.${memberKind}`, { count: scope.byKind[memberKind] ?? 0 }));
+  // A kind the client does not know yet still counts: the rest is "others".
+  const known = MEMBER_KINDS_OF[kind].reduce(
+    (sum, memberKind) => sum + (scope.byKind[memberKind] ?? 0),
+    0,
+  );
+  if (known < scope.count) {
+    parts.push(t("scope.kinds.other", { count: scope.count - known }));
+  }
+  return parts.join(", ");
+}
+
+/** The second line under a scope: "All of them, new ones included", or what differs. */
+export function scopeNote(
+  job: Pick<BackupJob, "scopeMode" | "scope" | "kind">,
+  t: TFunction,
+): string | null {
+  const parts: string[] = [];
+  if (job.scopeMode === "all") {
+    parts.push(t("scope.allLine"));
+  }
+  if (job.scope.overrides > 0) {
+    parts.push(t("scope.overridesNote", { count: job.scope.overrides }));
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+// --- State --------------------------------------------------------------------------------------
+
+export interface StateView {
+  tone: StatusTone;
+  /** `backupjobs:state.<key>`. */
+  key: JobState;
+  live: boolean;
+}
+
+/**
+ * The badge of a job's state. A running job is Lapis (info), problems are amber or
+ * red, a job that is merely fine is the neutral outline: green is for a restore
+ * check that passed, which is what the restore check column says.
+ */
+export function stateView(state: JobState): StateView {
+  switch (state) {
+    case "paused":
+      return { tone: "muted", key: state, live: false };
+    case "failing":
+      return { tone: "destructive", key: state, live: false };
+    case "running":
+      return { tone: "info", key: state, live: true };
+    case "attention":
+      return { tone: "warning", key: state, live: false };
+    case "empty":
+      return { tone: "muted", key: state, live: false };
+    default:
+      return { tone: "neutral", key: "ok", live: false };
+  }
+}
+
+// --- Restore check -------------------------------------------------------------------------------
+
+export interface RestoreCheckView {
+  tone: StatusTone;
+  /** What is checked: every object or machine of the scope. */
+  total: number;
+  passed: number;
+  /** The facts that are not "passed", in the order of their weight; the badge's tooltip lists them. */
+  details: { key: "failed" | "warning" | "unverified" | "noBackup"; count: number }[];
+  /** `none`: nothing in scope to check. */
+  state: "none" | "passed" | "attention" | "failed";
+}
+
+/**
+ * The restore checks of a scope in one badge: "5 of 6 passed". Green only when
+ * every object passed, red when one failed, amber for warnings, objects not
+ * checked yet and objects without a backup.
+ */
+export function restoreCheckView(check: JobRestoreCheck): RestoreCheckView {
+  const details = (
+    [
+      ["failed", check.failed],
+      ["warning", check.warning],
+      ["unverified", check.unverified],
+      ["noBackup", check.noBackup],
+    ] as const
+  )
+    .filter(([, count]) => count > 0)
+    .map(([key, count]) => ({ key, count }));
+  const base = { total: check.total, passed: check.passed, details };
+  if (check.total === 0) {
+    return { ...base, tone: "muted", state: "none" };
+  }
+  if (check.failed > 0) {
+    return { ...base, tone: "destructive", state: "failed" };
+  }
+  if (check.passed === check.total) {
+    return { ...base, tone: "success", state: "passed" };
+  }
+  return { ...base, tone: "warning", state: "attention" };
+}
+
+// --- Runs -------------------------------------------------------------------------------------------
+
+export interface LastRunView {
+  at: string | null;
+  running: number;
+  failed: number;
+  partial: number;
+  /** Nothing ran yet and nothing runs: "No backup yet". */
+  never: boolean;
+}
+
+export function lastRunView(job: Pick<BackupJob, "lastRun">): LastRunView {
+  const { at, running, failed, partial } = job.lastRun;
+  return { at, running, failed, partial, never: at === null && running === 0 && failed === 0 };
+}
+
+export type NextRunView =
+  | { kind: "at"; at: string }
+  | { kind: "paused" }
+  | { kind: "manual" }
+  | { kind: "onConnect" }
+  | { kind: "empty" }
+  | { kind: "unknown" };
+
+/** When a job runs next, or why it does not say. */
+export function nextRunView(
+  job: Pick<BackupJob, "enabled" | "schedule" | "nextRunAt" | "scope">,
+): NextRunView {
+  if (!job.enabled) return { kind: "paused" };
+  if (job.nextRunAt) return { kind: "at", at: job.nextRunAt };
+  if (job.schedule === null) return { kind: "manual" };
+  if (job.scope.count === 0) return { kind: "empty" };
+  if (job.schedule.kind === "on_connect") return { kind: "onConnect" };
+  return { kind: "unknown" };
+}
+
+// --- What the actions say ----------------------------------------------------------------------------------
+
+/** A machine job cannot be paused: the agent decides when to back up. A mail job can. */
+export function canPause(job: Pick<BackupJob, "kind">): boolean {
+  return job.kind === "mail";
+}
+
+/** What can be offered to switch a job: pause a mail job that runs, resume any job that is off. */
+export function switchAction(job: Pick<BackupJob, "kind" | "enabled">): "pause" | "resume" | null {
+  if (!job.enabled) return "resume";
+  return canPause(job) ? "pause" : null;
+}
+
+/** The repository in words: its name, or the installation's default. */
+export function repositoryLabel(repository: Repository, t: TFunction): string {
+  if (repository.kind === "installation_default" || repository.name === null) {
+    return t("repository.installationDefault");
+  }
+  return repository.name;
+}
+
+/** The retention of a job in words: the policy of a mail job, the numbers of a machine job. */
+export function retentionLabel(job: Pick<BackupJob, "kind" | "retention">, t: TFunction): string {
+  if (job.kind === "mail") {
+    return job.retention.policyName
+      ? job.retention.policyId
+        ? job.retention.policyName
+        : t("retention.tenantDefaultNamed", { name: job.retention.policyName })
+      : t("retention.tenantDefault");
+  }
+  const keep = job.retention.keep;
+  return keep ? t("retention.keep", { ...keep }) : t("retention.machineOwn");
+}
+
+// --- Members ----------------------------------------------------------------------------------------------
+
+/** Whether a member's last backup needs a word: running, failed or partial. */
+export function memberOutcomeTone(outcome: JobMember["lastBackup"]["outcome"]): StatusTone | null {
+  switch (outcome) {
+    case "running":
+      return "info";
+    case "failed":
+      return "destructive";
+    case "partial":
+      return "warning";
+    case "queued":
+      return "muted";
+    default:
+      return null;
+  }
+}

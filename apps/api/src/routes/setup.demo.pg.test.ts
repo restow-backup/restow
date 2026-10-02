@@ -16,7 +16,7 @@
  * the suite is skipped.
  */
 import { randomBytes } from "node:crypto";
-import { type Database, auditLog, createDb, settings } from "@restow/db";
+import { type Database, auditLog, createDb, settings, tenants } from "@restow/db";
 import type { Hono } from "hono";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
@@ -34,6 +34,7 @@ const SEED_TOKEN = randomBytes(16).toString("hex");
 
 const DEMO_SETUP = {
   operatingMode: "local",
+  providerName: "Example Managed IT Ltd",
   firstAdmin: { name: "Demo", email: DEMO_EMAIL, password: DEMO_PASSWORD },
   mail: {
     transport: "smtp",
@@ -128,7 +129,10 @@ describe.skipIf(!testDatabaseAdminUrl)("operator notice in demo mode against Pos
     const actions = (await owner.select({ action: auditLog.action }).from(auditLog)).map(
       (entry) => entry.action,
     );
-    expect(actions).toEqual(["setup.completed"]);
+    // The setup, and the creation of the operator's own organisation right after it.
+    expect(actions.sort()).toEqual(["setup.completed", "tenant.created"]);
+    const [own] = await owner.select().from(tenants);
+    expect(own).toMatchObject({ name: "Example Managed IT Ltd", kind: "internal" });
 
     const after = (await (await call("GET", "/api/v1/setup/state")).json()) as {
       configured: boolean;

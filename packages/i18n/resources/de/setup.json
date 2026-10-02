@@ -1,19 +1,29 @@
 {
   "title": "Ersteinrichtung",
-  "subtitle": "Sechs Schritte, dann ist {appName} betriebsbereit.",
+  "subtitle": "Wenige Schritte, dann ist {appName} betriebsbereit.",
   "stepIndicator": "Schritt {current} von {total}",
   "step": {
+    "language": "Sprache",
     "token": "Setup-Token",
     "disclaimer": "Hinweis",
     "mode": "Betriebsmodus",
-    "admin": "Erstes Admin-Konto",
+    "admin": "Organisation und Admin",
     "mail": "Mail-Transport",
     "review": "Überprüfung"
+  },
+  "language": {
+    "title": "Wählen Sie Ihre Sprache",
+    "description": "Die Einrichtung läuft in dieser Sprache. Sie ist auch die Sprache der Mails und Berichte Ihrer eigenen Organisation. Beides können Sie später ändern.",
+    "card": {
+      "title": "Deutsch",
+      "description": "Auf Deutsch einrichten, mit Mails und Berichten auf Deutsch."
+    }
   },
   "token": {
     "title": "Bestätigen Sie, dass Sie diesen Server betreiben",
     "description": "Nur wer Zugriff auf den Server hat, kann {appName} einrichten. Das Setup-Token weist das nach.",
-    "whereLog": "Beim Start hat der api-Container ein einmaliges Setup-Token in sein Log geschrieben. So zeigen Sie es auf dem Server an:",
+    "what": "Das Setup-Token ist ein Einmal-Code, der beweist, dass Sie diesen Server betreiben: Nur wer das Log des Servers lesen kann, sieht es. Es verliert seine Gültigkeit, sobald die Einrichtung abgeschlossen ist.",
+    "whereLog": "Der Installer hat es am Ende der Installation ausgegeben. So zeigen Sie es erneut an, auf dem Server (im Verzeichnis Ihrer Installation; /opt/restow ist der Standard):",
     "whereEnvironment": "Dieser Server nimmt sein Setup-Token aus der Variable RESTOW_SETUP_TOKEN in seiner Umgebung (.env). Geben Sie diesen Wert ein.",
     "restart": "Jeder Neustart der api erzeugt ein neues Token. Verwenden Sie das zuletzt ausgegebene.",
     "label": "Setup-Token",
@@ -110,8 +120,13 @@
     }
   },
   "admin": {
-    "title": "Erstes Admin-Konto",
-    "description": "Dieses Konto ist Provider-Admin: Es richtet {appName} ein und legt Mandanten an.",
+    "title": "Ihre Organisation und das erste Admin-Konto",
+    "description": "Die Organisation ist die, die diese Installation betreibt. Das Admin-Konto ist der Provider-Admin: Er richtet {appName} ein und verwaltet alles darin.",
+    "organisation": {
+      "label": "Name Ihrer Organisation",
+      "placeholder": "Beispiel IT-Service GmbH",
+      "hint": "Die Organisation, die diese Installation betreibt, zum Beispiel Ihre Firma. {appName} legt sie als Ihre eigene Organisation an, den Ort für Ihre eigenen Sicherungen."
+    },
     "name": {
       "label": "Name",
       "placeholder": "Vor- und Nachname"
@@ -142,6 +157,11 @@
   "mail": {
     "title": "Wie versendet {appName} Benachrichtigungen?",
     "description": "Wird für Berichte, Warnungen und Einladungen genutzt. Der Journal-Empfang für das Archiv ist davon getrennt.",
+    "skip": {
+      "action": "Später einrichten",
+      "explanation": "Mail ist optional. Ohne sie verschickt {appName} keine Alarm- und Bericht-Mails, und Einladungen und Passwort-Links gehen nicht per Mail raus: Sie kopieren den Link und geben ihn selbst weiter. Sie können sie später unter Installation → Benachrichtigungs-Mail einrichten.",
+      "skipped": "Sie haben diesen Schritt übersprungen. Füllen Sie das Formular aus und wählen Sie Weiter, um die Mail jetzt einzurichten."
+    },
     "transport": {
       "label": "Transport",
       "smtp": "SMTP-Server",
@@ -179,10 +199,13 @@
   "review": {
     "title": "Überprüfung",
     "description": "Prüfen Sie Ihre Angaben und schließen Sie die Einrichtung ab.",
+    "language": "Sprache",
     "mode": "Betriebsmodus",
     "publicUrl": "Öffentliche URL",
+    "organisation": "Ihre Organisation",
     "admin": "Erstes Admin-Konto",
     "mail": "Mail-Transport",
+    "mailSkipped": "Nicht eingerichtet",
     "sendTest": "Testnachricht",
     "yes": "Ja",
     "no": "Nein",
@@ -198,6 +221,7 @@
     "alreadyConfigured": "Diese Installation ist bereits eingerichtet.",
     "failed": "Die Einrichtung konnte nicht gespeichert werden.",
     "administratorExists": "Eine frühere, nicht abgeschlossene Einrichtung hat bereits einen Administrator angelegt. Fahren Sie mit dessen E-Mail-Adresse und Passwort fort.",
-    "configurationIncomplete": "Die Serverkonfiguration ist unvollständig. Setzen Sie {settings} in der Serverumgebung, starten Sie {appName} neu und schließen Sie dann die Einrichtung ab."
+    "configurationIncomplete": "Die Serverkonfiguration ist unvollständig. Setzen Sie {settings} in der Serverumgebung, starten Sie {appName} neu und schließen Sie dann die Einrichtung ab.",
+    "ownOrganisationFailed": "Die Einrichtung ist gespeichert, Ihre eigene Organisation konnte aber nicht angelegt werden. Legen Sie sie auf der Übersicht an."
   }
 }

@@ -9,7 +9,7 @@ control, and every week reads a sample of each backup back through the restore
 path and compares it with the recorded hashes. A backup only counts as
 restorable once it has been read back.
 
-**Status: beta (0.1.0), the first public release.** Run it alongside your
+**Status: beta (0.2.0).** Run it alongside your
 existing backups, not as your only one, until you have verified restores
 against your own data. Microsoft 365 backup and restore have been tested
 against a simulated Graph API, never against a real Microsoft 365 tenant. What
@@ -45,11 +45,11 @@ Known Issues.
 - **Archive:** Exchange Online journal mail (Business and Service Provider) and
   imported mail files go into an append-only store with a SHA-256 hash chain,
   chain verification and search over subject, extracted text and addresses (not
-  attachments). Business adds enforced retention (fixed at 8 years in 0.1.0) and
+  attachments). Business adds enforced retention (fixed at 8 years in 0.2.0) and
   legal hold, designed for GoBD-compliant use (not certified). Continuous
-  IMAP and Graph archive sync are not part of 0.1.0. On local, NFS and SMB
+  IMAP and Graph archive sync are not part of 0.2.0. On local, NFS and SMB
   targets the archive's immutability is enforced by the application only, and on
-  S3 with Object Lock 0.1.0 locks the archive item records but not the packs
+  S3 with Object Lock 0.2.0 locks the archive item records but not the packs
   that hold the message content; see Known Issues in the changelog.
 - **Import and export of mail files:** bring a legacy mailbox in from EML, MSG, MBOX,
   ZIP or a MailStore export folder (chunked, resumable, encrypted upload or a
@@ -77,7 +77,7 @@ Known Issues.
 - **Standalone restore:** `restow-restore` restores from the chunk store and the
   keys alone, without a running Restow server or database.
 
-Not included in 0.1.0: PST and OST import, PST and MSG export, a Windows agent,
+Not included in 0.2.0: PST and OST import, PST and MSG export, a Windows agent,
 continuous IMAP and Graph archive sync, SharePoint, Teams, Google Workspace and
 public folders. The first backup of a large tenant can take days because
 Microsoft throttles Graph; Restow shows that wait instead of hiding it.
@@ -141,57 +141,121 @@ and it is treated as one:
 
 ## Quickstart
 
-### Platform recommendations
+### Requirements
 
-Run Restow on a **dedicated Linux VM**: Debian 12 or 13, or Ubuntu 22.04, 24.04
-or 26.04, on amd64 or arm64, with at least 4 GiB of memory (8 GiB recommended)
-and at least 10 GiB free for Docker. Put that VM on **other hardware than the
-systems it backs up**: a backup that fails together with the host it protects
-is no backup. Keep the backups **off-site** as well, preferably on
+Run Restow on a **dedicated Linux VM**, and put that VM on **other hardware than
+the systems it backs up**: a backup that fails together with the host it
+protects is no backup. Keep the backups **off-site** as well, preferably on
 S3-compatible object storage with Object Lock; the default target, a Docker
-volume on the VM itself, is meant for a first test. LXC containers work on a
-best-effort basis only (Docker needs nesting and keyctl there, and some hosts
-still break it). Running Restow natively, without Docker, is not supported.
+volume on the VM itself, is meant for a first test. Running Restow natively,
+without Docker, is not supported.
 
-For a public installation you need a domain whose A/AAAA record points at the
-server, with ports 80 and 443 reachable from the internet; Caddy obtains the
-TLS certificate from Let's Encrypt.
+The install script checks the following before it changes anything. A failed
+check stops it; a warning does not.
+
+| What | Requirement | The installer |
+| --- | --- | --- |
+| Operating system | Debian 12 or 13; Ubuntu 22.04, 24.04 or 26.04 LTS | Stops on any other system. |
+| Architecture | amd64 or arm64 | Stops on any other. |
+| Machine | A dedicated VM. LXC, OpenVZ and other containers work on a best-effort basis only (in LXC, Docker needs nesting and keyctl, and some hosts still break it). | Stops inside Docker, Podman and WSL; warns in LXC, OpenVZ and other containers. |
+| Memory | At least 4 GiB assigned to the VM, 8 GiB recommended (mail parsing helper processes use up to 512 MB each). | Counts what the system reports plus the memory the kernel reserves for kdump. Warns below 7 GiB (a VM with 8 GiB shows a little less), stops below 3 GiB. See [Memory on Proxmox and other hypervisors](#memory-on-proxmox-and-other-hypervisors). |
+| Disk | At least 1 GiB free for `/opt/restow`; at least 10 GiB free for Docker's data directory (`/var/lib/docker` by default; images and database), 50 GiB or more recommended, because the backups go into a Docker volume there until you add another storage target. | Stops below 1 GiB for `/opt/restow` or below 10 GiB for Docker; warns below 50 GiB for Docker. On an LVM volume whose volume group has unused space it prints the command that grows it, see [Disk on Ubuntu with LVM](#disk-on-ubuntu-with-lvm). |
+| Clock | Synchronised (NTP): certificates, signature checks and authenticator codes need the right time. | Warns if it is not. |
+| Rights | root, or `sudo` | Stops without. |
+| Tools | `curl`, `awk`, `sed`, `od`, `base64`, `tr`, `df` and `mktemp` | Stops if one is missing. |
+| Docker | Installed by the script from Docker's apt repository when it is missing. Docker from snap is not supported. An installed Docker needs Engine 24.0 and Compose 2.20 or newer. | Stops on Docker from snap, on an older version, and when Docker is missing and packages that conflict with Docker's own are installed (for example `docker.io`, `containerd`, `runc`). |
+| Outbound HTTPS | Port 443 to `github.com`, `ghcr.io`, `registry-1.docker.io`, `tuf-repo-cdn.sigstore.dev` (signature checks) and, when Docker is missing, `download.docker.com` | Stops if one does not answer. |
+| Images | The images of the build and version you install can be pulled from `ghcr.io` without a login. | Asks the registry before it changes anything. Stops if an image is not public or does not exist (check `--version` and `--edition`). |
+| Ports | 80 and 443 free on the host (the Caddy edge). [Behind a reverse proxy](#behind-a-reverse-proxy) (`--behind-proxy`, from 0.2.0) only the one port the proxy forwards to: 443, or 80 for the plain HTTP hop. A journal receiver for Exchange Online (Business and Service Provider) needs one more port, usually 25; you set it up after the installation. | Stops if 80 or 443 is in use (behind a reverse proxy: if the one port it needs is). Does not check the journal port. |
+| Domain | Public installation: a domain whose A or AAAA record points at the server, with ports 80 and 443 reachable from the internet; Caddy gets the Let's Encrypt certificate there. Not needed with `--local` (evaluation only). Behind a reverse proxy: the name your proxy serves; this host needs no DNS record of its own and no inbound port from the internet. | Warns if the domain does not resolve to this host (not behind a reverse proxy: the name points at the proxy, so DNS is not checked). |
+
+#### Memory on Proxmox and other hypervisors
+
+A VM sees less memory than it is given: the kernel and the firmware keep some,
+and where kdump (crash dumps) is enabled, as it can be on Ubuntu, the kernel
+sets aside another 320 to 512 MB for a crash kernel (`crashkernel=` on the
+kernel command line; Ubuntu's default is 320 MB for a machine with 2 to 4 GiB
+and 512 MB for 4 to 32 GiB). `free` does not count that memory. The installer
+adds it back before it judges the memory, so a VM with 4 GiB, which can show as
+little as 3.3 GiB, only gets a warning and the installation goes on.
+
+- Assign at least 4 GiB to the VM, 8 GiB recommended.
+- With ballooning (Proxmox VE: a "Minimum memory" below "Memory"), the VM can
+  be left with less than you assigned. Set "Minimum memory" equal to "Memory".
+- After you change the memory, shut the VM down and start it again. A reboot
+  from inside the VM does not apply the change.
+- Check inside the VM: `free -h` shows what the system sees, and
+  `cat /sys/kernel/kexec_crash_size` the bytes reserved for kdump (`0` or no
+  such file: nothing is reserved; newer kernels also offer
+  `/sys/kernel/kexec/crash_size`).
+
+#### Disk on Ubuntu with LVM
+
+Ubuntu Server's installer sets up LVM and often makes the root logical volume
+smaller than the disk: on a 30 GB disk, `/` can be 15 GB and the rest of the
+volume group stays unused. Docker's data directory (`/var/lib/docker`) lives on
+`/`, so the disk check can stop the installer on a VM whose disk is large
+enough. Check how much of the volume group is unused (column `VFree`), then
+grow the root volume and its file system in one step:
+
+```sh
+sudo vgs
+sudo lvextend -r -l +100%FREE /dev/ubuntu-vg/ubuntu-lv
+```
+
+`ubuntu-vg` and `ubuntu-lv` are Ubuntu's default names; `sudo lvs` shows yours,
+and when the installer finds unused space it prints this command with the
+right names. If `VFree` is 0, there is nothing to extend: the disk itself has to
+be larger.
 
 ### Install with the script (recommended)
 
 Every release carries `install.sh`, which sets up the release stack on such a
 VM in `/opt/restow`. It checks the machine (operating system, architecture,
 virtualization, memory, disk, ports 80 and 443, outbound HTTPS, clock, the
-domain's DNS record, an earlier installation), installs Docker Engine and the
-Compose plugin from Docker's signed apt repository if Docker is missing,
-downloads `docker-compose.yml` and `env.example` of the release and checks them
-against the release's signed `SHA256SUMS`, writes `.env` (mode 0600) with
-freshly generated secrets, checks the cosign signatures of the two images and
-starts the stack. Download it, check it, then run it:
+domain's DNS record, that the images can be pulled without a login, an earlier
+installation), installs Docker Engine and the Compose plugin from Docker's
+signed apt repository if Docker is missing, downloads `docker-compose.yml` and
+`env.example` of the release and checks them against the release's signed
+`SHA256SUMS`, writes `.env` (mode 0600) with freshly generated secrets, checks
+the cosign signatures of the two images and starts the stack. Download it,
+check it, then run it:
 
 ```sh
-curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.1.0/install.sh
-curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.1.0/install.sh.sha256
+curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.0/install.sh
+curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.0/install.sh.sha256
 sha256sum -c install.sh.sha256
 sudo bash install.sh
 ```
 
-It asks for the domain and the build (full or Community, see step 2 below),
-shows its plan, and before it starts the stack shows `RESTOW_MASTER_KEY` once:
-**store it offline then**, it is never shown again and not written to the log.
-At the end it prints the setup URL; the setup wizard asks for the one-time
-setup token, which you read on the server with
-`cd /opt/restow && sudo docker compose logs api | grep 'SETUP TOKEN'`.
+Run without options on a terminal, it starts with a short introduction (what it
+will do, about 10 to 20 minutes, what you need) and asks how Restow is reached:
+**1** public, with its own certificate (a domain that points at the server,
+ports 80 and 443 open to the internet), **2** behind a reverse proxy you already
+run (Nginx Proxy Manager, Traefik, Caddy, ...), **3** a local evaluation (the
+same as `--local`). It then asks for the domain (for option 2 also for the
+proxy's address) and the build (full or Community, see step 2 below), shows its
+plan, and before it starts the stack shows `RESTOW_MASTER_KEY` once: **store it
+offline then**, it is never shown again and not written to the log. At the end it
+waits until the api is healthy, reads the one-time setup token from the api's log
+and prints, as its last lines, a box with the address to open and the token. The
+token goes to the terminal only, never to `/var/log/restow-install.log`; a run
+whose output is collected (no terminal) prints how to read it instead. The setup
+wizard first asks for the language, then for the token, which stays valid until
+the setup is finished. Read it again on the server with
+`cd /opt/restow && sudo docker compose logs api | grep 'SETUP TOKEN'`. (The 0.1.0
+script asks only for the domain and the build, and prints the setup URL and that
+command.)
 
 `install.sh.sha256` only proves that the download is complete. To check that
 the script is the one the release workflow published, verify the signed
 checksum list with [cosign](https://docs.sigstore.dev/cosign/) first:
 
 ```sh
-curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.1.0/SHA256SUMS
-curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.1.0/SHA256SUMS.sigstore.json
+curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.0/SHA256SUMS
+curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.0/SHA256SUMS.sigstore.json
 cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
-  --certificate-identity https://github.com/restow-backup/restow/.github/workflows/release.yml@refs/tags/v0.1.0 \
+  --certificate-identity https://github.com/restow-backup/restow/.github/workflows/release.yml@refs/tags/v0.2.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 sha256sum -c --ignore-missing SHA256SUMS
 ```
@@ -212,6 +276,8 @@ updater stays off unless you ask for it, see [docs/UPDATING.md](docs/UPDATING.md
 `https://localhost` or an internal name such as `restow.internal` over HTTPS
 with a certificate from Caddy's own authority, browsers warn about it and
 passkeys are not offered; `--http-local` is a deprecated name for it),
+`--behind-proxy`, `--proxy-ip` and `--proxy-hop` (from 0.2.0, see
+[Behind a reverse proxy](#behind-a-reverse-proxy) below),
 `--dry-run` (checks only, prints what it would do) and `--skip-signature-check`
 (for tests and unsigned mirrors only, never for production). Its log is
 `/var/log/restow-install.log`, without secrets.
@@ -226,12 +292,62 @@ installation without its `.env`. It never updates an installation (see
 As a shortcut, the script also runs straight from the download:
 
 ```sh
-curl -fsSL https://github.com/restow-backup/restow/releases/download/v0.1.0/install.sh | sudo bash
+curl -fsSL https://github.com/restow-backup/restow/releases/download/v0.2.0/install.sh | sudo bash
 ```
 
 That runs whatever arrives without your own check of the script first. It still
 checks the signatures of everything it downloads afterwards, but prefer the
 steps above on a production server.
+
+#### Behind a reverse proxy
+
+If a reverse proxy you already run holds your public names and certificates,
+Restow needs no public DNS record on its host, no inbound port 80 or 443 from the
+internet and no certificate of its own. The proxy terminates TLS and forwards to
+the Caddy edge on the Restow host, **encrypted by default**: the edge serves
+HTTPS with a certificate from Caddy's own authority. From 0.2.0:
+
+```sh
+sudo bash install.sh --behind-proxy --domain backup.example.com --proxy-ip 192.168.1.20
+```
+
+`--proxy-ip` is the address of the proxy itself as the Restow host sees it (repeat
+the option or separate several with spaces; a bare address gets `/32` or `/128`),
+not your network: Restow believes the client address these peers report in
+`X-Forwarded-For`. It is required with `--non-interactive`. The script checks that
+port 443 is free (port 80 is not needed), does not look at DNS, and writes to
+`.env`:
+
+```sh
+RESTOW_APP_DOMAIN=backup.example.com
+RESTOW_PUBLIC_URL=https://backup.example.com
+RESTOW_EDGE_TLS=internal
+RESTOW_EDGE_TRUSTED_PROXIES=192.168.1.20/32
+RESTOW_HTTP_PORT=127.0.0.1:
+```
+
+HSTS stays off (it belongs to the proxy), and port 80 is published on the
+loopback only. The script copies the root certificate of the edge's own
+authority to `/opt/restow/edge-root-ca.crt`, to verify the edge with. In the
+proxy: **scheme `https`, the Restow host's address, port `443` (not 80, and never
+3000, which is the api on the loopback)**, response buffering off, and for nginx-based
+proxies such as Nginx Proxy Manager, under Advanced:
+
+```nginx
+proxy_ssl_server_name on;
+proxy_ssl_name $host;
+proxy_buffering off;
+```
+
+(`proxy_buffering off` lets the live updates, server-sent events, through.)
+Docker publishes port 443 on every interface and `ufw` rules do not cover it; to
+let only the proxy in, publish it on one address (`RESTOW_HTTPS_PORT=192.168.1.50:443`)
+or use the `DOCKER-USER` chain. The settings of Traefik and Caddy as the proxy,
+the firewall rule, the plain HTTP hop (`--proxy-hop http`, **not encrypted**, for
+a proxy on the same host or in an isolated network, any release) and the manual
+way for an installation made with 0.1.0 (`RESTOW_APP_DOMAIN=http://...`, a
+LAN-only unencrypted hop) are in the documentation:
+[Behind a reverse proxy](https://docs.restowbackup.com/administrators/get-started/#behind-a-reverse-proxy).
 
 ### Install by hand with Docker Compose
 
@@ -241,23 +357,23 @@ step 2.
 
 1. **Get the release stack.** It runs the published, signed images and builds
    nothing. Download `docker-compose.yml` and `env.example` from the
-   [release assets](https://github.com/restow-backup/restow/releases/tag/v0.1.0)
+   [release assets](https://github.com/restow-backup/restow/releases/tag/v0.2.0)
    into an empty directory and run `cp env.example .env`, or clone the tag and
    work in `deploy/release/`:
 
    ```sh
-   git clone --branch v0.1.0 https://github.com/restow-backup/restow.git
+   git clone --branch v0.2.0 https://github.com/restow-backup/restow.git
    cd restow/deploy/release
    cp .env.example .env
    ```
 
 2. **Fill in `.env`.** The comments in the file say how; the sections marked
    optional can stay empty. At minimum the two images of one build, either the
-   full build (`RESTOW_IMAGE=ghcr.io/restow-backup/restow:0.1.0`,
-   `RESTOW_WEB_IMAGE=ghcr.io/restow-backup/restow-web:0.1.0`; Business and
+   full build (`RESTOW_IMAGE=ghcr.io/restow-backup/restow:0.2.0`,
+   `RESTOW_WEB_IMAGE=ghcr.io/restow-backup/restow-web:0.2.0`; Business and
    Service Provider stay locked until a license key is installed) or the
-   Community build (`ghcr.io/restow-backup/restow-community:0.1.0`,
-   `ghcr.io/restow-backup/restow-web-community:0.1.0`; the Apache-2.0 core
+   Community build (`ghcr.io/restow-backup/restow-community:0.2.0`,
+   `ghcr.io/restow-backup/restow-web-community:0.2.0`; the Apache-2.0 core
    alone), then `POSTGRES_PASSWORD`, the three database connection strings
    (`DATABASE_MIGRATION_URL`, `DATABASE_URL`, `DATABASE_PROVIDER_URL`),
    `RESTOW_MASTER_KEY`, `BETTER_AUTH_SECRET`, `RESTOW_PUBLIC_URL` and
@@ -296,17 +412,21 @@ step 2.
    ```
 
    Open `RESTOW_PUBLIC_URL` in a browser. The setup wizard first asks for the
-   one-time setup token, which only someone with access to the server can
-   read: the `api` container prints it to its log at every start until the
-   setup is complete.
+   language (English or Deutsch, preselected from the browser), then for the
+   one-time setup token, which proves that you operate the server and which only
+   someone with access to it can read: the `api` container prints it to its log
+   at every start until the setup is complete.
 
    ```sh
    docker compose logs api | grep 'SETUP TOKEN'
    ```
 
-   Then it shows the operator notice, chooses the operating mode, creates the
-   first administrator (passkey first) and sets up notification mail. Then add
-   a Microsoft 365 tenant or an IMAP mailbox as a source. For an unattended
+   Then it shows the operator notice, chooses the operating mode, asks for the
+   name of your organisation (it becomes your own organisation, the place for
+   your own backups), creates the first administrator (passkey first) and sets
+   up notification mail, which you can skip and set up later under Installation,
+   Settings, Mail. Then add a Microsoft 365 tenant or an IMAP mailbox as
+   a source. For an unattended
    installation, set `RESTOW_SETUP_TOKEN` in `.env` instead (see
    `.env.example`).
 
@@ -382,7 +502,7 @@ All editions are self-hosted, have no mailbox limit and never limit restore.
 
 Every release comes in two builds. The full images (`restow`, `restow-web`)
 contain the Business and Service Provider modules, which an offline-verified
-license key (Ed25519, no phone-home) unlocks at runtime under Admin › License;
+license key (Ed25519, no phone-home) unlocks at runtime under Installation › License;
 without a key they run as Community. The Community images (`restow-community`,
 `restow-web-community`) contain the Apache-2.0 core alone and no license
 screen. Both use the same database, so you can switch by changing the two image

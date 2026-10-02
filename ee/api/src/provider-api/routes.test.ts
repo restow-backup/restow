@@ -65,6 +65,7 @@ const tenantRow = {
   name: "Contoso",
   slug: "contoso",
   status: "active",
+  kind: "customer",
   mailboxCap: null,
   createdAt: new Date("2026-01-01T00:00:00.000Z"),
 };
@@ -159,10 +160,12 @@ describe("GET /provider/users", () => {
     const res = await request("/provider/users?limit=1", { key: "rsk_provider_full" });
     expect(res.status).toBe(200);
     const body = (await res.json()) as {
-      items: { id: string; tenant: { slug: string } }[];
+      items: { id: string; tenant: { slug: string; kind: string } }[];
       next: string;
     };
-    expect(body.items.map((item) => [item.id, item.tenant.slug])).toEqual([[USER_A, "contoso"]]);
+    expect(body.items.map((item) => [item.id, item.tenant.slug, item.tenant.kind])).toEqual([
+      [USER_A, "contoso", "customer"],
+    ]);
     expect(decodeCursor(providerUserCursorSchema, body.next)).toEqual({
       tenantId: TENANT_ID,
       at: "2026-03-01T00:00:00.000Z",

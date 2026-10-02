@@ -2,6 +2,33 @@
 # RESTOW_APP_DOMAIN) and reverse-proxies the API. better-auth (/api/auth/*) and the REST
 # surface (/api/v1/*) both live under /api and go to the api service; everything else is
 # the single-page app.
+
+# Where the certificate of the site comes from: RESTOW_EDGE_TLS (.env, default `acme`).
+#   acme      Caddy's automatic HTTPS, as for every Caddyfile: Let's Encrypt for a public
+#             domain, Caddy's own local authority for localhost, an IP address or an
+#             internal name. This is what every installation did before the variable
+#             existed, and the snippets below add nothing to the configuration.
+#   internal  Caddy's own local certificate authority, whatever the name of the site.
+#             For an edge that sits behind another reverse proxy (the installer's
+#             --behind-proxy): the proxy reaches it over HTTPS at https://<this host>:443
+#             and no public certificate is needed, so no public DNS record and no
+#             inbound port 80. A proxy that sends no SNI (nginx does not send one for an
+#             address) still gets the certificate of RESTOW_APP_DOMAIN (`default_sni`).
+#             The root certificate of that authority is /data/caddy/pki/authorities/local/
+#             root.crt in the caddy-data volume; a proxy may verify the edge with it.
+# Any other value stops Caddy at start with `File to import not found: restow_tls_<value>`.
+# The snippets stand before the global options because those import one of them.
+(restow_tls_acme) {
+}
+(restow_tls_internal) {
+	tls internal
+}
+(restow_sni_acme) {
+}
+(restow_sni_internal) {
+	default_sni {$RESTOW_APP_DOMAIN}
+}
+
 {
 	servers {
 		# Peers whose X-Forwarded-For this Caddy keeps (and appends to) instead of
@@ -9,9 +36,11 @@
 		# which no client ever connects from, so nothing changes for a normal
 		# installation. Set RESTOW_EDGE_TRUSTED_PROXIES (space-separated CIDR ranges, or
 		# `private_ranges`) only when another reverse proxy sits in front of this one,
-		# as with the co-hosted public demo (deploy/demo/README.md).
+		# as with the co-hosted public demo (deploy/demo/README.md) or an installation
+		# behind a reverse proxy of its own (the installer's --behind-proxy).
 		trusted_proxies static {$RESTOW_EDGE_TRUSTED_PROXIES:127.0.0.1/32 ::1/128}
 	}
+	import restow_sni_{$RESTOW_EDGE_TLS:acme}
 }
 
 # Security headers shared by every site this edge serves (the main SPA below and the
@@ -118,6 +147,7 @@
 }
 
 {$RESTOW_APP_DOMAIN} {
+	import restow_tls_{$RESTOW_EDGE_TLS:acme}
 	encode zstd gzip
 	import security_headers
 

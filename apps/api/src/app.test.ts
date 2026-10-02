@@ -62,9 +62,11 @@ async function loadFeatures(): Promise<Feature[]> {
     }
     const meta = (await importModule(`./features/${name}/meta.js`)) as { mountPath?: unknown };
     const module = await importModule(`./features/${name}/routes.js`);
-    const router = module[`${name}Routes`];
+    // A feature folder in kebab case (backup-jobs) exports its router in camel case (backupJobsRoutes).
+    const exported = name.replace(/-([a-z])/g, (_, letter: string) => letter.toUpperCase());
+    const router = module[`${exported}Routes`];
     if (typeof meta.mountPath !== "string" || !isRouter(router)) {
-      throw new Error(`features/${name} must export mountPath and ${name}Routes`);
+      throw new Error(`features/${name} must export mountPath and ${exported}Routes`);
     }
     features.push({
       name,

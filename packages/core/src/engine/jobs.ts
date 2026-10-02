@@ -57,12 +57,16 @@ export interface JobPayloadBase {
   readonly tenantId: string;
   /** Set when the job was enqueued by a schedule. */
   readonly scheduleId?: string;
+  /** Set when the job was queued for a backup job (backup_jobs.id): by the scheduler or "Run now". */
+  readonly backupJobId?: string;
 }
 
 export interface BackupJobPayload extends JobPayloadBase {
   readonly protectedObjectId: string;
   /** Re-enumerate everything instead of continuing from delta state. */
   readonly full?: boolean;
+  /** Queued by "Run now" of a backup job (a person), not planned by the scheduler. */
+  readonly runNow?: true;
 }
 
 export interface RestoreJobPayload extends JobPayloadBase {

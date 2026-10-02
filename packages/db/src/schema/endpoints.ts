@@ -98,6 +98,18 @@ export type EndpointSchedule = {
   timeZone: string;
 };
 
+/**
+ * A time window of the week with its own upload limit (the rules are in @restow/core
+ * backup-jobs/bandwidth.ts): the days it starts on (1 = Monday ... 7 = Sunday), local start and end
+ * as `HH:MM` (the end may be on the next day), and the limit in kbit/s (0 = unlimited).
+ */
+export type EndpointBandwidthWindow = {
+  days: number[];
+  from: string;
+  to: string;
+  kbps: number;
+};
+
 /** What the agent is told to back up and how (the agent contract, docs/AGENT.md). */
 export type EndpointConfig = {
   profile: EndpointProfile;
@@ -108,6 +120,18 @@ export type EndpointConfig = {
   bandwidthKbps: number | null;
   onlyOnAcPower: boolean;
   useVss: boolean;
+  /**
+   * Skip files larger than this many bytes (restic `--exclude-larger-than`). Written from a backup
+   * job only; absent when no job sets it. An agent that does not know the field ignores it.
+   */
+  excludeLargerThanBytes?: number;
+  /**
+   * Windows with their own upload limit, read in the zone of `schedule`; written from a backup job
+   * (or by hand on a machine without one) and absent when there are none. `bandwidthKbps` is the
+   * limit outside every window. The agent never sees them: `GET /agent/v1/config` answers with the
+   * limit that applies at that moment.
+   */
+  bandwidthWindows?: EndpointBandwidthWindow[];
 };
 
 /** Retention of one endpoint's repository (`restic forget --keep-*`). */
@@ -301,6 +325,8 @@ export const endpointRuns = pgTable(
   (t) => [
     index("endpoint_runs_endpoint_started_idx").on(t.endpointId, t.startedAt),
     index("endpoint_runs_tenant_status_idx").on(t.tenantId, t.status),
+    // History lists a tenant's runs newest first (apps/api features/history).
+    index("endpoint_runs_tenant_created_idx").on(t.tenantId, t.createdAt, t.id),
   ],
 );
 
@@ -425,6 +451,8 @@ export const endpointReports = pgTable(
   (t) => [
     index("endpoint_reports_endpoint_checked_idx").on(t.endpointId, t.checkedAt),
     index("endpoint_reports_tenant_kind_idx").on(t.tenantId, t.kind),
+    // Which restore tests of a machine a report rated (History groups the ones that were not).
+    index("endpoint_reports_run_idx").on(t.runId),
   ],
 );
 

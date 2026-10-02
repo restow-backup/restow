@@ -4,8 +4,7 @@ import * as React from "react";
 import { type FieldError, type UseFormReturn, useFieldArray } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 
-import { settingsTo } from "@/features/settings/paths";
-import { sectionSearch } from "@/features/settings/presenters";
+import { installationSectionTo } from "@/features/installation/paths";
 
 import { Field, messageId } from "@/components/forms/field";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -34,10 +33,15 @@ import type { NotificationCategory } from "../../types";
 
 interface StepProps {
   form: UseFormReturn<TenantWizardValues>;
+  /**
+   * Whether the viewer may open the installation's mail settings, which the test mail needs
+   * when no transport is set up (provider admins). Without it the message says whom to ask.
+   */
+  canOpenInstallation?: boolean;
 }
 
 /** Step 3: notification recipients and categories, plus proving the mail transport. */
-export function NotificationsStep({ form }: StepProps) {
+export function NotificationsStep({ form, canOpenInstallation = true }: StepProps) {
   const { t } = useTranslation("tenants");
   const { fields, append, remove } = useFieldArray({
     control: form.control,
@@ -153,12 +157,12 @@ export function NotificationsStep({ form }: StepProps) {
         {t("wizard.notifications.add")}
       </Button>
 
-      <TestMailCard />
+      <TestMailCard canOpenInstallation={canOpenInstallation} />
     </div>
   );
 }
 
-function TestMailCard() {
+function TestMailCard({ canOpenInstallation }: { canOpenInstallation: boolean }) {
   const { t } = useTranslation("tenants");
   const [to, setTo] = React.useState("");
   const test = useSendNotificationTestMail();
@@ -255,10 +259,9 @@ function TestMailCard() {
             <TriangleAlert />
             <AlertDescription className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <span>{t(notificationTestErrorKey(test.error).key)}</span>
-              {notConfigured ? (
+              {notConfigured && canOpenInstallation ? (
                 <Link
-                  to={settingsTo()}
-                  search={sectionSearch("mail") as never}
+                  to={installationSectionTo("mail")}
                   target="_blank"
                   rel="noopener noreferrer"
                   className={cn(buttonVariants({ variant: "outline", size: "sm" }), "shrink-0")}

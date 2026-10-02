@@ -9,25 +9,33 @@ import {
   type LucideIcon,
   Monitor,
   Moon,
+  Palette as PaletteIcon,
   Server,
   Sun,
 } from "lucide-react";
 
-import type { Theme } from "@/components/theme-provider";
-import { DIRECTORY_PATH } from "@/features/directory/search";
-import { TENANT_SETUP_TABS } from "@/features/tenant-setup/tabs";
+import { PALETTES, type Palette, type Theme } from "@/components/theme-provider";
+import { directoryPath } from "@/features/directory/search";
+import { TENANT_SECTION_META } from "@/features/tenant-page/meta";
 import { TENANTS_PATH } from "@/features/tenants/paths";
 import { ACCOUNT_PATH } from "@/lib/entry";
-import { type NavItem, type NavLockContext, type RoleCheck, groupNavItems } from "@/lib/navigation";
+import {
+  type NavItem,
+  type NavLockContext,
+  type RoleCheck,
+  groupNavItems,
+  navGroupLabelKey,
+} from "@/lib/navigation";
 import type { SessionTenant } from "@/lib/session";
 import { canEnterTenant } from "@/lib/tenant";
+import { tenantPagePath } from "@/lib/tenant-paths";
 
 /**
  * What the command palette offers, as plain data: every navigation entry the
  * active role may see and no lock holds closed (the sidebar's filter; locked
  * entries are left out here, upcoming "Soon" entries stay in with a hint),
- * the tabs of the tenant setup area, switching the tenant, appearance,
- * language, account security and signing out. The palette component renders
+ * the tabs of the tenant setup area, switching the tenant, appearance (mode
+ * and colour scheme), language, account security and signing out. The palette component renders
  * the groups and runs the actions; keeping the list pure lets the filters be
  * tested without a browser.
  */
@@ -36,6 +44,7 @@ export type PaletteAction =
   | { kind: "navigate"; to: string; search?: Record<string, unknown> }
   | { kind: "tenant"; tenant: Pick<SessionTenant, "id" | "name"> }
   | { kind: "theme"; theme: Theme }
+  | { kind: "scheme"; palette: Palette }
   | { kind: "language"; language: SupportedLanguage }
   | { kind: "signOut" };
 
@@ -47,7 +56,7 @@ export interface PaletteCommand {
   keywords: string[];
   icon: LucideIcon;
   action: PaletteAction;
-  /** The current theme or language; shown with a check. */
+  /** The current mode, colour scheme or language; shown with a check. */
   current?: boolean;
   /** Offered but not possible right now; `hint` says why. */
   disabled?: boolean;
@@ -74,6 +83,7 @@ export interface PaletteInput {
   activeTenantId: string | null;
   isProviderAdmin: boolean;
   theme: Theme;
+  palette: Palette;
   language: string;
   languages: readonly SupportedLanguage[];
   t: Translate;
@@ -93,7 +103,8 @@ function navigationGroups(input: PaletteInput): PaletteGroup[] {
     .map((group) => ({ ...group, items: group.items.filter((item) => !item.locked) }))
     .filter((group) => group.items.length > 0);
   // A label that appears in more than one section ("Jobs" in Mail & SaaS and
-  // in Servers & endpoints) names its section, so a search result says which.
+  // in Servers & endpoints, "Settings" in Organisation and in Installation)
+  // names its section, so a search result says which.
   const labelCount = new Map<string, number>();
   for (const group of groups) {
     for (const item of group.items) {
@@ -102,7 +113,7 @@ function navigationGroups(input: PaletteInput): PaletteGroup[] {
     }
   }
   return groups.map((group) => {
-    const heading = t(`nav.groups.${group.id}`);
+    const heading = t(navGroupLabelKey(group.id, input.lockContext));
     return {
       id: `nav-${group.id}`,
       heading,
@@ -127,39 +138,47 @@ function navigationGroups(input: PaletteInput): PaletteGroup[] {
 }
 
 /**
- * The tabs of the tenant setup area (they have no menu entries of their
- * own): Protection, Sources, Schedules, Retention, Imports, as far as the
- * role may open them. Protection keeps the id of its former menu entry, so
- * the object search stays tied to it ({@link OBJECTS_NAV_COMMAND_ID}).
+ * The sections of the tenant page of the active tenant (they have no menu
+ * entries of their own; the entry "Tenant settings" is a navigation command like
+ * any other): Connections, Protection, Jobs & schedules and the rest, as far
+ * as the role may open them. Protection keeps the id of its former menu entry,
+ * so the object search stays tied to it ({@link OBJECTS_NAV_COMMAND_ID}). The
+ * overview is the entry itself and is left out; the audit log is an
+ * extension's section and is reached through the page.
  */
 function setupGroup(input: PaletteInput): PaletteGroup | null {
   const { t } = input;
   if (input.activeTenantId === null) {
     return null;
   }
-  const tabs = TENANT_SETUP_TABS.filter((tab) => input.canAccess(input.role, tab.roles));
-  if (tabs.length === 0) {
+  if (!input.canAccess(input.role, ["provider_admin", "tenant_admin"])) {
     return null;
   }
   const managesTenants = input.lockContext.features?.includes("tenants.additional") ?? false;
-  const heading = managesTenants ? t("nav.setup.tenantPage") : t("nav.items.setup");
+  const heading = managesTenants
+    ? t("nav.items.tenantSettings")
+    : t("nav.items.organisationSettings");
+  const sections = TENANT_SECTION_META.filter((meta) => meta.id !== "overview");
   return {
     id: "setup",
     heading,
-    commands: tabs.map((tab) => ({
-      id: tab.id === "protection" ? OBJECTS_NAV_COMMAND_ID : `setup:${tab.id}`,
-      label: t(tab.labelKey),
-      keywords: [tab.id, tab.path, heading],
-      icon: tab.icon,
-      action: { kind: "navigate", to: tab.path },
+    commands: sections.map((meta) => ({
+      id: meta.id === "protection" ? OBJECTS_NAV_COMMAND_ID : `setup:${meta.id}`,
+      label: t(meta.labelKey),
+      keywords: [meta.id, heading],
+      icon: meta.icon,
+      action: {
+        kind: "navigate" as const,
+        to: tenantPagePath(input.activeTenantId as string, meta.id),
+      },
     })),
   };
 }
 
 /**
- * Every tenant except the active one, plus (for a provider admin) a command
- * that opens the tenant creation wizard. Closed tenants stay visible,
- * disabled.
+ * Every tenant except the active one, found by name, slug or customer number,
+ * plus (for a provider admin) a command that opens the tenant creation
+ * wizard. Closed tenants stay visible, disabled.
  */
 function tenantGroup(input: PaletteInput): PaletteGroup | null {
   const { t } = input;
@@ -170,7 +189,7 @@ function tenantGroup(input: PaletteInput): PaletteGroup | null {
     return {
       id: `tenant:${tenant.id}`,
       label: t("search.switchTo", { name: tenant.name }),
-      keywords: [tenant.name, tenant.slug, t("tenant.label")],
+      keywords: [tenant.name, tenant.slug, tenant.customerNumber ?? "", t("tenant.label")],
       icon: Building2,
       action: { kind: "tenant", tenant: { id: tenant.id, name: tenant.name } },
       disabled: !enterable,
@@ -211,6 +230,14 @@ function preferenceGroup(input: PaletteInput): PaletteGroup {
         icon: THEME_ICONS[theme],
         action: { kind: "theme", theme },
         current: input.theme === theme,
+      })),
+      ...PALETTES.map<PaletteCommand>((palette) => ({
+        id: `scheme:${palette}`,
+        label: t("search.scheme", { scheme: t(`theme.palette.${palette}`) }),
+        keywords: [t("theme.palette.label"), t("theme.label"), palette],
+        icon: PaletteIcon,
+        action: { kind: "scheme", palette },
+        current: input.palette === palette,
       })),
       ...input.languages.map<PaletteCommand>((language) => ({
         id: `language:${language}`,
@@ -302,7 +329,7 @@ export function objectGroup(
         // keyword so the palette's own filter never hides a server hit.
         keywords: [search, object.email ?? "", object.externalId, object.sourceName],
         icon: OBJECT_ICONS[object.kind],
-        action: { kind: "navigate", to: DIRECTORY_PATH, search: { q: object.email ?? name } },
+        action: { kind: "navigate", to: directoryPath(), search: { q: object.email ?? name } },
         hint: t(`search.objectKinds.${object.kind}`),
       };
     }),

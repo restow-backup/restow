@@ -1,4 +1,5 @@
 import { Document, Page, StyleSheet, Text, View } from "@react-pdf/renderer";
+import { DEFAULT_PRODUCT_NAME } from "@restow/i18n";
 import type { ReactNode } from "react";
 import { pdfText } from "./text.js";
 import { colors, fontSize, fonts, page, space } from "./theme.js";
@@ -27,13 +28,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  eyebrow: {
+  product: {
     fontFamily: fonts.bold,
-    fontSize: fontSize.small,
-    color: colors.accent,
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
+    fontSize: fontSize.lead,
+    color: colors.text,
     marginBottom: space(1),
+  },
+  // The wordmark's second part: mono, smaller, in the secondary colour.
+  productTag: {
+    fontFamily: fonts.mono,
+    fontSize: fontSize.caption,
+    color: colors.muted,
   },
   title: {
     fontFamily: fonts.bold,
@@ -110,18 +115,34 @@ export function ReportPage(props: ReportPageProps) {
 }
 
 export interface ReportHeaderProps {
-  /** Small line above the title (the product). */
-  readonly eyebrow: string;
+  /** The product name above the title; the default name is set as the wordmark. */
+  readonly product: string;
   readonly title: string;
   readonly subtitle?: string;
   /** Lines of context under the subtitle: period, comparison, generation time. */
   readonly meta?: readonly string[];
 }
 
+/**
+ * The line above the title (brand guide, section 3): while the product has its
+ * default name, the wordmark "restow" in bold and "backup suite" in the mono
+ * face, both lowercase; an operator's own name is printed as written.
+ */
+function ReportProduct(props: { readonly name: string }) {
+  if (props.name !== DEFAULT_PRODUCT_NAME) {
+    return <Text style={styles.product}>{pdfText(props.name)}</Text>;
+  }
+  return (
+    <Text style={styles.product}>
+      restow<Text style={styles.productTag}> backup suite</Text>
+    </Text>
+  );
+}
+
 export function ReportHeader(props: ReportHeaderProps) {
   return (
     <View style={styles.header}>
-      <Text style={styles.eyebrow}>{pdfText(props.eyebrow)}</Text>
+      <ReportProduct name={props.product} />
       <Text style={styles.title}>{pdfText(props.title)}</Text>
       {props.subtitle ? <Text style={styles.subtitle}>{pdfText(props.subtitle)}</Text> : null}
       {(props.meta ?? []).map((line) => (

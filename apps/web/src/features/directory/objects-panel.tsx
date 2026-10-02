@@ -40,6 +40,7 @@ import {
   TableCell,
   TableHead,
   TableHeader,
+  type TablePin,
   TableRow,
 } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -211,7 +212,11 @@ export function ObjectsPanel({
         />
       ) : (
         <div className="rounded-lg border border-border">
-          <Table aria-busy={objects.isFetching || undefined}>
+          <Table
+            aria-busy={objects.isFetching || undefined}
+            className="min-w-[56rem]"
+            scrollLabel={t("title")}
+          >
             <TableHeader>
               {table.getHeaderGroups().map((group) => (
                 <TableRow key={group.id} className="hover:bg-transparent">
@@ -219,7 +224,11 @@ export function ObjectsPanel({
                     const id = header.column.id as ObjectSort;
                     const label = flexRender(header.column.columnDef.header, header.getContext());
                     return (
-                      <TableHead key={header.id} className={columnClass(header.column.id)}>
+                      <TableHead
+                        key={header.id}
+                        pin={columnPin(header.column.id)}
+                        className={columnClass(header.column.id)}
+                      >
                         {SORTABLE.has(id) ? (
                           <SortButton
                             column={id}
@@ -264,7 +273,11 @@ export function ObjectsPanel({
                 table.getRowModel().rows.map((row) => (
                   <TableRow key={row.id}>
                     {row.getVisibleCells().map((cell) => (
-                      <TableCell key={cell.id} className={columnClass(cell.column.id)}>
+                      <TableCell
+                        key={cell.id}
+                        pin={columnPin(cell.column.id)}
+                        className={columnClass(cell.column.id)}
+                      >
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </TableCell>
                     ))}
@@ -401,6 +414,14 @@ function BulkActionBar({
       </div>
     </div>
   );
+}
+
+/**
+ * The name stays on the left while the other columns scroll. It is pinned
+ * where it stands: the selection checkbox in front of it scrolls away under it.
+ */
+function columnPin(columnId: string): TablePin | undefined {
+  return columnId === "name" ? { left: 0, width: 260, edge: true } : undefined;
 }
 
 /** Narrow screens keep name, status and actions; the rest appears from md/lg on. */
@@ -873,7 +894,7 @@ function LoadingRows({ columnIds }: { columnIds: readonly string[] }) {
         // biome-ignore lint/suspicious/noArrayIndexKey: static placeholders
         <TableRow key={index} className="hover:bg-transparent">
           {columnIds.map((id) => (
-            <TableCell key={id} className={columnClass(id)}>
+            <TableCell key={id} pin={columnPin(id)} className={columnClass(id)}>
               {id === "actions" || id === "select" ? null : (
                 <Skeleton className="h-4 w-full max-w-40" />
               )}

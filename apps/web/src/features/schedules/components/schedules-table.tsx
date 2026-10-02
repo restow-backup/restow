@@ -17,6 +17,7 @@ import { jobDetailTo } from "@/features/jobs/paths";
 
 import type { ScheduleItem, ScheduleKind } from "../api.js";
 import {
+  JOB_REPLACED_KINDS,
   JOB_STATUS_TONE,
   KIND_ICON,
   describeCadence,
@@ -50,6 +51,9 @@ const KIND_ORDER: readonly ScheduleKind[] = [
   "archive",
 ];
 
+/** The schedule kind stays in view while the other columns scroll. */
+const PINNED = ["kind"] as const;
+
 /** Every schedule of the tenant: what, for whom, how often, when next and how it went last. */
 export function SchedulesTable({
   items,
@@ -72,6 +76,7 @@ export function SchedulesTable({
     const list: ColumnDef<ScheduleItem>[] = [
       {
         id: "kind",
+        size: 200,
         accessorKey: "kind",
         header: t("table.kind"),
         meta: { label: t("table.kind") },
@@ -80,16 +85,22 @@ export function SchedulesTable({
         sortingFn: (a, b) =>
           KIND_ORDER.indexOf(a.original.kind) - KIND_ORDER.indexOf(b.original.kind),
         cell: ({ row }) => (
-          <StatusBadge
-            tone={row.original.enabled ? "info" : "muted"}
-            icon={KIND_ICON[row.original.kind]}
-          >
-            {kindLabel(row.original.kind)}
-          </StatusBadge>
+          <div className="flex flex-col items-start gap-1">
+            <StatusBadge
+              tone={row.original.enabled ? "info" : "muted"}
+              icon={KIND_ICON[row.original.kind]}
+            >
+              {kindLabel(row.original.kind)}
+            </StatusBadge>
+            {JOB_REPLACED_KINDS.includes(row.original.kind) ? (
+              <span className="text-xs text-muted-foreground">{t("table.legacy")}</span>
+            ) : null}
+          </div>
         ),
       },
       {
         id: "scope",
+        size: 180,
         accessorFn: (item) => describeScope(item, t),
         header: t("table.scope"),
         meta: { label: t("table.scope"), cellClassName: "max-w-56 truncate" },
@@ -97,6 +108,7 @@ export function SchedulesTable({
       },
       {
         id: "cadence",
+        size: 180,
         accessorFn: (item) => describeCadence(item, t, language),
         header: t("table.cadence"),
         meta: { label: t("table.cadence") },
@@ -112,6 +124,7 @@ export function SchedulesTable({
       },
       {
         id: "nextRun",
+        size: 130,
         accessorFn: (item) => (item.enabled ? (item.nextRunAt ?? undefined) : undefined),
         sortUndefined: "last",
         header: t("table.nextRun"),
@@ -125,6 +138,7 @@ export function SchedulesTable({
       },
       {
         id: "lastRun",
+        size: 130,
         accessorFn: (item) => lastActivityAt(item) ?? undefined,
         sortUndefined: "last",
         header: t("table.lastRun"),
@@ -137,6 +151,7 @@ export function SchedulesTable({
       },
       {
         id: "lastJob",
+        size: 130,
         accessorFn: (item) => item.lastJob?.status,
         header: t("table.lastJob"),
         meta: {
@@ -176,6 +191,7 @@ export function SchedulesTable({
       },
       {
         id: "enabled",
+        size: 100,
         accessorKey: "enabled",
         header: t("table.enabled"),
         meta: { label: t("table.enabled") },
@@ -230,6 +246,7 @@ export function SchedulesTable({
       onRetry={onRetry}
       errorTitle={t("errors.load")}
       empty={empty}
+      pinnedColumns={PINNED}
       sorting={{ mode: "client", initial: [{ id: "kind", desc: false }] }}
       pagination={{ mode: "client", pageSize: 25 }}
       toolbar={(table) =>

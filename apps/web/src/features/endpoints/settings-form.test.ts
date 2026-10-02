@@ -268,3 +268,67 @@ describe("checking the draft", () => {
     expect(DEFAULTS.clientSchedule.intervalMinutes).toBe(240);
   });
 });
+
+describe("time windows of a machine without a job", () => {
+  const windows = [
+    { days: [1, 2, 3, 4, 5], from: "08:00", to: "18:00", kbps: 2000 },
+    { days: [1, 2, 3, 4, 5], from: "22:00", to: "06:00", kbps: 0 },
+  ];
+  const withWindows = (): Base => {
+    const base = server();
+    return { ...base, config: { ...base.config, bandwidthKbps: 500, bandwidthWindows: windows } };
+  };
+
+  it("reads them into rows and sends nothing while they are as they were", () => {
+    const draft = draftFromDetail(withWindows(), "UTC");
+    expect(draft.bandwidthWindows.map((row) => row.kbps)).toEqual(["2000", "0"]);
+    expect(buildPatch(withWindows(), draft)).toBeNull();
+    expect(draftFromDetail(server(), "UTC").bandwidthWindows).toEqual([]);
+  });
+
+  it("does not send them again when they were only reordered", () => {
+    const draft = draftFromDetail(withWindows(), "UTC");
+    const reordered = { ...draft, bandwidthWindows: [...draft.bandwidthWindows].reverse() };
+    expect(buildPatch(withWindows(), reordered)).toBeNull();
+  });
+
+  it("sends the windows in the order of the week when they changed, and null when none are left", () => {
+    const draft = draftFromDetail(server(), "UTC");
+    const added = {
+      ...draft,
+      bandwidthWindows: [
+        { key: "w0", days: [7, 6], from: "00:00", to: "00:00", kbps: "0" },
+        { key: "w1", days: [1, 2, 3, 4, 5], from: "08:00", to: "18:00", kbps: "2000" },
+      ],
+    };
+    expect(buildPatch(server(), added)).toEqual({
+      config: {
+        bandwidthWindows: [
+          { days: [1, 2, 3, 4, 5], from: "08:00", to: "18:00", kbps: 2000 },
+          { days: [6, 7], from: "00:00", to: "00:00", kbps: 0 },
+        ],
+      },
+    });
+    const removed = { ...draftFromDetail(withWindows(), "UTC"), bandwidthWindows: [] };
+    expect(buildPatch(withWindows(), removed)).toEqual({ config: { bandwidthWindows: null } });
+    expect(changedSections(withWindows(), removed)).toContain("bandwidthWindows");
+  });
+
+  it("blocks the save while a row is wrong", () => {
+    const draft = draftFromDetail(withWindows(), "UTC");
+    expect(checkDraft(draft, "server").bandwidthWindows).toBeUndefined();
+    const broken = {
+      ...draft,
+      bandwidthWindows: [{ key: "w0", days: [], from: "08:00", to: "18:00", kbps: "5" }],
+    };
+    expect(checkDraft(broken, "server").bandwidthWindows?.code).toBe("windows");
+    const overlapping = {
+      ...draft,
+      bandwidthWindows: [
+        { key: "w0", days: [1], from: "08:00", to: "12:00", kbps: "5" },
+        { key: "w1", days: [1], from: "11:00", to: "14:00", kbps: "5" },
+      ],
+    };
+    expect(checkDraft(overlapping, "server").bandwidthWindows?.code).toBe("windows");
+  });
+});

@@ -309,9 +309,7 @@ export function LoginPage() {
               {passkeyReady || microsoftSignIn ? (
                 <div className="relative flex items-center">
                   <span className="flex-1 border-t border-border" />
-                  <span className="px-3 text-xs uppercase text-muted-foreground">
-                    {t("login.divider")}
-                  </span>
+                  <span className="px-3 text-xs text-muted-foreground">{t("login.divider")}</span>
                   <span className="flex-1 border-t border-border" />
                 </div>
               ) : null}

@@ -84,6 +84,8 @@ async function openBell(items: BellNotification[], extra: Partial<BellList> = {}
         id: "t1",
         name: "Tenant",
         slug: "tenant",
+        kind: "customer",
+        customerNumber: null,
         role: "tenant_admin",
         status: "active",
       },
@@ -233,7 +235,7 @@ describe("the bell badge", () => {
 });
 
 describe("the bell", () => {
-  it("takes an update notification to Settings, Updates and marks it read", async () => {
+  it("takes an update notification to Installation, Updates and marks it read", async () => {
     const requests = await openBell([item({})]);
     const entry = firstEntry();
     expect(entry).not.toBeNull();
@@ -241,7 +243,7 @@ describe("the bell", () => {
     await click(entry);
     await flush(3);
     expect(navigateSpy).toHaveBeenCalledTimes(1);
-    expect(navigateSpy).toHaveBeenCalledWith({ to: "/settings", search: { section: "updates" } });
+    expect(navigateSpy).toHaveBeenCalledWith({ to: "/installation/updates" });
     const read = requests.find((request) => request.path === "/notifications/read");
     expect(read?.body).toEqual({ ids: ["n1"] });
     // The list closes so the page underneath is seen.
@@ -254,10 +256,7 @@ describe("the bell", () => {
       await openBell([item({ id: event, event, message: `About ${event}` })]);
       await click(firstEntry());
       await flush(3);
-      expect(navigateSpy, event).toHaveBeenCalledWith({
-        to: "/settings",
-        search: { section: "updates" },
-      });
+      expect(navigateSpy, event).toHaveBeenCalledWith({ to: "/installation/updates" });
       await mounted?.unmount();
       mounted = null;
       vi.unstubAllGlobals();
@@ -335,13 +334,13 @@ describe("the bell of a provider administrator without a tenant", () => {
     expect(popover()?.querySelector("a")).toBeNull();
   });
 
-  it("marks an entry read on the installation endpoint and still leads an update to Settings", async () => {
+  it("marks an entry read on the installation endpoint and still leads an update to Installation", async () => {
     const requests = await openWithoutTenant([item({})]);
     await click(bellButton());
     await flush(3);
     await click(firstEntry());
     await flush(3);
-    expect(navigateSpy).toHaveBeenCalledWith({ to: "/settings", search: { section: "updates" } });
+    expect(navigateSpy).toHaveBeenCalledWith({ to: "/installation/updates" });
     const read = requests.find((request) => request.method === "POST");
     expect(read?.path).toBe("/notifications/installation/read");
     expect(read?.body).toEqual({ ids: ["n1"] });

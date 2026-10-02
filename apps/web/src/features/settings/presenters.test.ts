@@ -8,51 +8,13 @@ import {
   backupCodesDocument,
   detectDevice,
   formatDuration,
-  parseSettingsSearch,
   parseTotpUri,
   passkeyErrorKey,
   probeTone,
-  sectionSearch,
   settingsErrorKey,
   toPasskeyRows,
   twoFactorErrorKey,
 } from "./presenters";
-
-describe("settings URL state", () => {
-  it("keeps known sections and drops the default and unknown ones", () => {
-    expect(parseSettingsSearch({ section: "mail" })).toEqual({ section: "mail" });
-    expect(parseSettingsSearch({ section: "general" })).toEqual({});
-    expect(parseSettingsSearch({ section: "billing" })).toEqual({});
-    // Sign-in security moved to the account page.
-    expect(parseSettingsSearch({ section: "security" })).toEqual({});
-    expect(parseSettingsSearch(null)).toEqual({});
-    expect(sectionSearch("general")).toEqual({});
-    expect(sectionSearch("danger")).toEqual({ section: "danger" });
-  });
-
-  it("accepts the About tab with an opaque, well-formed requires marker", () => {
-    expect(parseSettingsSearch({ section: "about" })).toEqual({ section: "about" });
-    expect(parseSettingsSearch({ section: "about", requires: "business" })).toEqual({
-      section: "about",
-      requires: "business",
-    });
-    expect(parseSettingsSearch({ section: "about", requires: "reports.timed" })).toEqual({
-      section: "about",
-      requires: "reports.timed",
-    });
-    // Only on About, and only a short lowercase token.
-    expect(parseSettingsSearch({ section: "mail", requires: "business" })).toEqual({
-      section: "mail",
-    });
-    expect(parseSettingsSearch({ section: "about", requires: "<script>" })).toEqual({
-      section: "about",
-    });
-    expect(parseSettingsSearch({ section: "about", requires: "x".repeat(80) })).toEqual({
-      section: "about",
-    });
-    expect(sectionSearch("about")).toEqual({ section: "about" });
-  });
-});
 
 describe("aboutLinks", () => {
   const repository = "https://github.com/restow-backup/restow";

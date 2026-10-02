@@ -364,13 +364,12 @@ describe("JournalSection", () => {
     expect(render(<JournalSection />, setupData)).toBe("");
   });
 
-  it("appears on the core archive page, next to legal holds, once the ee/web extension is registered", () => {
+  it("appears on the core archive page once the ee/web extension is registered, without legal holds, which are a setting of the tenant", () => {
     session("business");
     expect(render(<ArchivePage />)).not.toContain("Exchange journaling");
     registerWebExtension(eeWebExtension);
     const html = render(<ArchivePage />, setupData);
     expect(html).toContain("Exchange journaling");
-    expect(html).toContain("Legal holds");
-    expect(html.indexOf("Exchange journaling")).toBeLessThan(html.indexOf("Legal holds"));
+    expect(html).not.toContain("Legal holds");
   });
 });

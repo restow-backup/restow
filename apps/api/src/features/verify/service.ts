@@ -9,7 +9,7 @@ import {
   users,
   verifyReports,
 } from "@restow/db";
-import { type SQL, and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { type SQL, and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { config } from "../../config.js";
 import { audit } from "../../lib/audit.js";
 import { assertDemoJobNotInFlight } from "../../lib/demo-limits.js";
@@ -363,25 +363,67 @@ async function loadSchedules(
   tx: Transaction,
   tenantId: string,
 ): Promise<ReadinessOverviewDto["schedules"]> {
+  const asDate = (value: string | Date | null) => (value === null ? null : new Date(value));
+  // A schedule a backup job took over is the job's now: the job speaks for it below.
   const rows = await tx
     .select({
       kind: schedules.kind,
-      nextRunAt: sql<Date | null>`min(${schedules.nextRunAt})`.mapWith(
-        (value: string | Date | null) => (value === null ? null : new Date(value)),
-      ),
+      nextRunAt: sql<Date | null>`min(${schedules.nextRunAt})`.mapWith(asDate),
     })
     .from(schedules)
     .where(
       and(
         eq(schedules.tenantId, tenantId),
         eq(schedules.enabled, true),
+        isNull(schedules.supersededByJobId),
         inArray(schedules.kind, ["backup", "verify", "scrub"]),
       ),
     )
     .groupBy(schedules.kind);
+  // Backups and restore checks of the mail jobs: the job's own timer, and the timers of members
+  // that carry a schedule of their own.
+  type Timers = {
+    backup: boolean | null;
+    backup_next: Date | string | null;
+    verify: boolean | null;
+    verify_next: Date | string | null;
+  };
+  const jobTimers = (
+    await tx.execute<Timers>(sql`
+      SELECT bool_or(schedule IS NOT NULL) AS backup,
+             min(next_run_at) FILTER (WHERE schedule IS NOT NULL) AS backup_next,
+             bool_or(verify_schedule IS NOT NULL) AS verify,
+             min(verify_next_run_at) FILTER (WHERE verify_schedule IS NOT NULL) AS verify_next
+        FROM backup_jobs
+       WHERE tenant_id = ${tenantId}::uuid AND kind = 'mail' AND enabled`)
+  ).rows[0];
+  const memberTimers = (
+    await tx.execute<Timers>(sql`
+      SELECT bool_or(jsonb_typeof(m.overrides -> 'schedule') = 'object') AS backup,
+             min(m.next_run_at) FILTER (WHERE jsonb_typeof(m.overrides -> 'schedule') = 'object') AS backup_next,
+             bool_or(jsonb_typeof(m.overrides -> 'verifySchedule') = 'object') AS verify,
+             min(m.verify_next_run_at) FILTER (WHERE jsonb_typeof(m.overrides -> 'verifySchedule') = 'object') AS verify_next
+        FROM backup_job_members m
+        JOIN backup_jobs j ON j.id = m.job_id
+       WHERE m.tenant_id = ${tenantId}::uuid AND j.kind = 'mail' AND j.enabled`)
+  ).rows[0];
+  const earliest = (...dates: (Date | null)[]): Date | null => {
+    const known = dates.filter((date): date is Date => date !== null);
+    return known.length === 0 ? null : new Date(Math.min(...known.map((date) => date.getTime())));
+  };
   const of = (kind: "backup" | "verify" | "scrub"): ScheduleDto | null => {
     const row = rows.find((candidate) => candidate.kind === kind);
-    return row ? { nextRunAt: row.nextRunAt?.toISOString() ?? null } : null;
+    const key = kind === "backup" ? "backup" : kind === "verify" ? "verify" : null;
+    const fromJobs = key !== null && (jobTimers?.[key] === true || memberTimers?.[key] === true);
+    if (!row && !fromJobs) {
+      return null;
+    }
+    const next = earliest(
+      row?.nextRunAt ?? null,
+      key ? asDate(jobTimers?.[`${key}_next`] ?? null) : null,
+      key ? asDate(memberTimers?.[`${key}_next`] ?? null) : null,
+    );
+    return { nextRunAt: next?.toISOString() ?? null };
   };
   return { backup: of("backup"), verify: of("verify"), scrub: of("scrub") };
 }

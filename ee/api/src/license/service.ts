@@ -1,6 +1,7 @@
 import { type Database, type License, license } from "@restow/db";
 import { eq } from "drizzle-orm";
 import {
+  customerTenants,
   loadTenantUsage,
   totalMailboxes,
 } from "../../../../apps/api/src/features/usage/service.js";
@@ -145,7 +146,8 @@ export async function installLicense(
         previousEdition: before.edition,
         previousSource: before.source,
         mailboxesInUse: totalMailboxes(tenants),
-        tenants: tenants.length,
+        // The provider's customers: its own organisation is not one of them.
+        tenants: customerTenants(tenants).length,
       },
     });
     return row;
@@ -182,7 +184,8 @@ export async function removeLicense(db: Database, actor: LicenseActor): Promise<
         keyId: keyIdOf(installed),
         fallbackEdition: environmentEdition(),
         mailboxesInUse: totalMailboxes(tenants),
-        tenants: tenants.length,
+        // The provider's customers: its own organisation is not one of them.
+        tenants: customerTenants(tenants).length,
       },
     });
   });

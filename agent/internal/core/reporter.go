@@ -9,6 +9,12 @@ import (
 	"github.com/restow-backup/restow/agent/internal/restic"
 )
 
+// defaultProgressInterval is how often the latest progress of a run goes to the
+// server: every 5 seconds, which gives the run drawer's charts a point every
+// 5 seconds. The server accepts far more (600 agent calls per 10 minutes, the
+// history keeps points at least 1.5 seconds apart).
+const defaultProgressInterval = 5 * time.Second
+
 // progressReporter forwards the latest progress of a run to the server at most
 // once per interval. Updates come from restic's output reader; sending happens
 // on its own goroutine so a slow server never stalls restic. Progress is
@@ -28,7 +34,7 @@ type progressReporter struct {
 
 func newProgressReporter(srv Server, runID api.Flex, interval time.Duration, onError func(error)) *progressReporter {
 	if interval <= 0 {
-		interval = 10 * time.Second
+		interval = defaultProgressInterval
 	}
 	return &progressReporter{srv: srv, runID: runID, interval: interval, onError: onError,
 		stop: make(chan struct{}), done: make(chan struct{})}

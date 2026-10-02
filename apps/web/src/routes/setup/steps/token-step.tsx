@@ -6,8 +6,12 @@ import { Input } from "@/components/ui/input";
 /** Why the entered setup token was not accepted, when it was not. */
 export type TokenStepError = "required" | "invalid" | "changed" | "failed";
 
-/** The command that shows the token in the api log (docker compose installations). */
-export const SETUP_TOKEN_LOG_COMMAND = "docker compose logs api | grep 'SETUP TOKEN'";
+/**
+ * The command that shows the token in the api log: the installation directory of
+ * the install script (its default), where the compose file and `.env` are.
+ */
+export const SETUP_TOKEN_LOG_COMMAND =
+  "cd /opt/restow && sudo docker compose logs api | grep 'SETUP TOKEN'";
 
 interface TokenStepProps {
   value: string;
@@ -31,6 +35,7 @@ export function TokenStep({ value, onChange, source, checking, error }: TokenSte
 
   return (
     <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">{t("token.what")}</p>
       {source === "environment" ? (
         <p className="text-sm text-muted-foreground">{t("token.whereEnvironment")}</p>
       ) : (

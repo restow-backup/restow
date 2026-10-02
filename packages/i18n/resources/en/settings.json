@@ -1,18 +1,5 @@
 {
-  "nav": "Settings",
-  "title": "Settings",
-  "subtitle": "Operating mode, public address, notification mail and the Microsoft 365 app registration of this installation.",
   "loadError": "The settings could not be loaded",
-  "forbidden": "Only provider administrators can change the settings of this installation.",
-  "sections": {
-    "label": "Settings sections",
-    "general": "General",
-    "mail": "Mail",
-    "microsoft365": "Microsoft 365",
-    "updates": "Updates",
-    "about": "About",
-    "danger": "Danger zone"
-  },
   "account": {
     "title": "Sign-in security",
     "description": "How you sign in to {appName}: passkeys, the authenticator app for the emergency password, and your other sessions."
@@ -53,10 +40,6 @@
       "title": "Switch to local mode?",
       "description": "Without a public URL, passkeys stop working. Admins then sign in with the emergency password and an authenticator code only.",
       "confirm": "Switch to local mode"
-    },
-    "installation": {
-      "title": "Installation",
-      "updatedAt": "Settings last changed"
     }
   },
   "readiness": {
@@ -102,8 +85,16 @@
     "title": "Notification mail",
     "description": "{appName} sends reports, alerts and invitations through this transport. The journal intake for the archive is separate and only receives.",
     "notConfigured": {
-      "title": "No mail transport configured",
-      "description": "{appName} cannot send reports, alerts or invitations until a transport is set up."
+      "title": "No mail transport is set up",
+      "description": "Mail is optional. Without a transport {appName} sends no alert or report e-mails, and invitations and set-password links are not sent by mail: you copy the link and pass it on yourself."
+    },
+    "remove": {
+      "title": "Remove mail configuration",
+      "action": "Remove mail configuration",
+      "description": "Deletes the notification transport and destroys the stored SMTP password. {appName} sends no reports, alerts or invitations until a new transport is set up.",
+      "confirmTitle": "Remove the mail configuration?",
+      "confirmDescription": "Notifications stop right away. The stored SMTP password is deleted and cannot be recovered.",
+      "confirm": "Remove"
     },
     "transport": {
       "label": "Transport",
@@ -134,7 +125,7 @@
       "hint": "Sends as the {appName} app registration through Microsoft Graph. Requires the Mail.Send application permission with admin consent; an application access policy can restrict it to the sender mailbox.",
       "appMissing": {
         "title": "App registration not configured",
-        "description": "No Microsoft 365 app registration is set up. Graph sends as that app; set it up under Settings → Microsoft 365, and grant it Mail.Send."
+        "description": "No Microsoft 365 app registration is set up. Graph sends as that app; set it up under Installation → Microsoft multi-tenant app, and grant it Mail.Send."
       },
       "passwordRemoved": "Saving with Microsoft Graph deletes the stored SMTP password.",
       "sender": "Sender mailbox",
@@ -155,7 +146,7 @@
       "detail": "Response of the mail system",
       "reasons": {
         "timeout": "No answer within 20 seconds. Check host, port and firewall.",
-        "graph_app_missing": "No Microsoft 365 app registration is set up (Settings → Microsoft 365).",
+        "graph_app_missing": "No Microsoft 365 app registration is set up (Installation → Microsoft multi-tenant app).",
         "graph_tenant_missing": "No Entra tenant is set for the sender mailbox.",
         "transport_error": "The mail system refused the connection or the message."
       }
@@ -225,7 +216,7 @@
         "accountTypesValue": "Accounts in any organizational directory (Any Microsoft Entra ID tenant - Multitenant)",
         "redirect": "Redirect URI: select the platform Web and enter exactly this value:",
         "redirectLabel": "Redirect URI (admin consent)",
-        "redirectMissing": "No public URL is set yet. Set it under Settings → General; the redirect URI is derived from it.",
+        "redirectMissing": "No public URL is set yet. Set it under Installation → Server; the redirect URI is derived from it.",
         "register": "Select Register. The overview page then shows the two values you enter in step 4:",
         "openAdminCenter": "Open the Microsoft Entra admin center"
       },
@@ -387,7 +378,7 @@
     "inline": {
       "title": "Set up the Microsoft 365 app registration first",
       "description": "Tenants can be connected once the backup app is registered in Microsoft Entra and entered here. Changes apply right away, without a restart.",
-      "openSettings": "Open in the settings"
+      "openSettings": "Open under Installation"
     }
   },
   "security": {
@@ -509,19 +500,6 @@
       "revoke": "Sign out other sessions",
       "confirmTitle": "Sign out all other sessions?",
       "confirmDescription": "Every other browser and device signed in with your account is signed out immediately."
-    }
-  },
-  "danger": {
-    "title": "Danger zone",
-    "description": "These actions take effect immediately and cannot be undone.",
-    "removeMail": {
-      "title": "Remove mail configuration",
-      "description": "Deletes the notification transport and destroys the stored SMTP password. {appName} sends no reports, alerts or invitations until a new transport is set up.",
-      "notConfigured": "No mail transport is configured, so there is nothing to remove.",
-      "action": "Remove mail configuration",
-      "confirmTitle": "Remove the mail configuration?",
-      "confirmDescription": "Notifications stop right away. The stored SMTP password is deleted and cannot be recovered.",
-      "confirm": "Remove"
     }
   },
   "validation": {

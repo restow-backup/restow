@@ -10,6 +10,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  PIN_FIRST,
   Table,
   TableBody,
   TableCell,
@@ -90,10 +91,12 @@ function ItemsTable({ details, format }: { details: VerifyDetails; format: Verif
             {t(details.scope === "all" ? "report.items.noFailures" : "report.items.empty")}
           </p>
         ) : (
-          <Table>
+          <Table className="min-w-[44rem]" scrollLabel={t("report.items.title")}>
             <TableHeader>
               <TableRow>
-                <TableHead className="pl-6">{t("report.items.columns.item")}</TableHead>
+                <TableHead pin={PIN_FIRST} className="pl-6">
+                  {t("report.items.columns.item")}
+                </TableHead>
                 <TableHead>{t("report.items.columns.type")}</TableHead>
                 <TableHead className="text-right">{t("report.items.columns.size")}</TableHead>
                 <TableHead>{t("report.items.columns.result")}</TableHead>
@@ -103,7 +106,7 @@ function ItemsTable({ details, format }: { details: VerifyDetails; format: Verif
             <TableBody>
               {details.items.map((item) => (
                 <TableRow key={item.path}>
-                  <TableCell className="max-w-md pl-6 align-top">
+                  <TableCell pin={PIN_FIRST} className="max-w-md pl-6 align-top">
                     <code className="break-all font-mono text-xs">{item.path}</code>
                     {item.reason ? (
                       <p className="mt-1 break-words text-xs text-muted-foreground">

@@ -152,6 +152,10 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // --- Tenants and their people -----------------------------------------------
   "GET /api/v1/tenants": view(LIST),
   "POST /api/v1/tenants": configure(PROVIDER),
+  // The operator's own organisation. Creating it spans the installation, and marking a
+  // tenant may move the mark away from another one: both need every tenant.
+  "POST /api/v1/tenants/internal": configure(PROVIDER),
+  "POST /api/v1/tenants/:id/internal": configure(PROVIDER),
   "GET /api/v1/tenants/:id": view(byParam("id")),
   "PATCH /api/v1/tenants/:id": configure(byParam("id")),
   "DELETE /api/v1/tenants/:id": own(byParam("id")),
@@ -174,10 +178,17 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "PATCH /api/v1/settings": own(),
   "POST /api/v1/settings/mail/test": configure(PROVIDER),
   "DELETE /api/v1/settings/mail": own(),
+  // Marking the notification mail as not needed only decides whether the Start checklist asks for
+  // a test mail; it is still a setting of the installation, so it is the owner's, like the mail itself.
+  "PUT /api/v1/settings/mail/not-needed": own(),
   "GET /api/v1/settings/microsoft-app": view(PROVIDER),
   "PUT /api/v1/settings/microsoft-app": own(),
   "POST /api/v1/settings/microsoft-app/test": configure(PROVIDER),
   "DELETE /api/v1/settings/microsoft-app": own(),
+  // The installation's default storage: reading is for every provider admin, the test writes a
+  // probe object to the store, so it is configuration work.
+  "GET /api/v1/settings/default-storage": view(PROVIDER),
+  "POST /api/v1/settings/default-storage/test": configure(PROVIDER),
 
   // --- Updates -------------------------------------------------------------------
   // Reading is for every provider admin; everything that changes something (the source, a
@@ -241,6 +252,38 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/jobs/backup": operate(),
   "POST /api/v1/jobs/:id/cancel": operate(),
   "POST /api/v1/jobs/:id/retry": operate(),
+  // The runs under their documented name: the same routes as /jobs.
+  "GET /api/v1/runs": view(),
+  "GET /api/v1/runs/events": view(),
+  "GET /api/v1/runs/:id": view(),
+  "GET /api/v1/runs/:id/events": view(),
+  "GET /api/v1/runs/objects": view(),
+  "GET /api/v1/runs/objects/:id/snapshots": view(),
+  "POST /api/v1/runs/backup": operate(),
+  "POST /api/v1/runs/:id/cancel": operate(),
+  "POST /api/v1/runs/:id/retry": operate(),
+  // Backup jobs: what is backed up, when, where and for how long. Reading is for every provider
+  // admin (hook texts are masked below the administrator role); running one is an operation;
+  // changing the definition or its scope is configuration work.
+  "GET /api/v1/backup-jobs": view(),
+  "GET /api/v1/backup-jobs/defaults": view(),
+  "GET /api/v1/backup-jobs/candidates": view(),
+  "POST /api/v1/backup-jobs": configure(),
+  "GET /api/v1/backup-jobs/:id": view(),
+  "PATCH /api/v1/backup-jobs/:id": configure(),
+  "DELETE /api/v1/backup-jobs/:id": configure(),
+  "GET /api/v1/backup-jobs/:id/members": view(),
+  "PUT /api/v1/backup-jobs/:id/members": configure(),
+  "POST /api/v1/backup-jobs/:id/members": configure(),
+  "PATCH /api/v1/backup-jobs/:id/members/:targetId": configure(),
+  "DELETE /api/v1/backup-jobs/:id/members/:targetId": configure(),
+  "POST /api/v1/backup-jobs/:id/run": operate(),
+  "GET /api/v1/backup-jobs/:id/runs": view(),
+  // History: the runs of the tenant, mail and agent together, and the live channel that keeps
+  // them current. Reading is for every provider admin, like the runs under /jobs.
+  "GET /api/v1/history": view(),
+  "GET /api/v1/history/:id": view(),
+  "GET /api/v1/live": view(),
   "GET /api/v1/schedules": view(),
   "POST /api/v1/schedules": configure(),
   "PATCH /api/v1/schedules/:id": configure(),
@@ -295,6 +338,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // --- Archive -------------------------------------------------------------------
   "GET /api/v1/archive/status": view(),
   "GET /api/v1/archive/chain/verify": view(),
+  "GET /api/v1/archive/retention": view(),
   "GET /api/v1/archive/report": view(),
   "GET /api/v1/archive/search": operate(),
   "GET /api/v1/archive/items/:id": operate(),
@@ -326,9 +370,10 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // The detail answers every member, but the hook texts only to who may change
   // the configuration (features/endpoints/routes.ts: a hook may hold credentials).
   "GET /api/v1/endpoints": view(),
-  // The tenant-wide switch for automatic agent updates.
+  // The tenant's setting for automatic agent updates, and lifting a machine's own pause.
   "GET /api/v1/endpoints/agent-updates": view(),
   "PUT /api/v1/endpoints/agent-updates": configure(),
+  "DELETE /api/v1/endpoints/agent-updates/machines/:id": configure(),
   "GET /api/v1/endpoints/tokens": view(),
   "POST /api/v1/endpoints/tokens": configure(),
   "DELETE /api/v1/endpoints/tokens/:tokenId": configure(),

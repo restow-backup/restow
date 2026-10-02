@@ -969,7 +969,7 @@ function renderInline(nodes: readonly Inline[], depth: number): React.ReactNode[
 const HEADING_CLASS = [
   "text-sm font-semibold",
   "text-sm font-semibold",
-  "text-xs font-semibold uppercase tracking-wide text-muted-foreground",
+  "text-xs font-semibold text-muted-foreground",
 ] as const;
 
 const ALIGN_CLASS: Record<Exclude<TableAlign, null>, string> = {

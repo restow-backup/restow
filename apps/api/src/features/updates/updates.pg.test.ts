@@ -28,7 +28,7 @@ import {
   settings,
   tenants,
 } from "@restow/db";
-import { and, asc, eq, gte, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, gte, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ProblemError } from "../../problem.js";
 import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
@@ -264,7 +264,16 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
   });
 
   beforeEach(async () => {
-    since = new Date();
+    // The audit chain keeps createdAt strictly increasing (nextCreatedAt bumps a row to the
+    // previous one + 1 ms), so the last row of the case before can sit slightly in the future.
+    // Start the window after it, or that row leaks into this case's reads.
+    const [latest] = await owner
+      .select({ createdAt: auditLog.createdAt })
+      .from(auditLog)
+      .orderBy(desc(auditLog.createdAt))
+      .limit(1);
+    const afterLatest = latest ? latest.createdAt.getTime() + 1 : 0;
+    since = new Date(Math.max(Date.now(), afterLatest));
     // Every case starts from a fresh installation: settings row, no token, no cache, empty outbox.
     await owner.delete(reportDeliveries);
     await owner.delete(reportRules);

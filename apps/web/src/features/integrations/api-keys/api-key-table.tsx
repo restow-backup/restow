@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
+  PIN_FIRST,
   Table,
   TableBody,
   TableCell,
@@ -28,10 +29,10 @@ interface ApiKeyTableProps {
 export function ApiKeyTable({ keys, onRevoke }: ApiKeyTableProps) {
   const { t } = useTranslation("integrations");
   return (
-    <Table>
+    <Table className="min-w-[56rem]" scrollLabel={t("apiKeys.title")}>
       <TableHeader>
         <TableRow>
-          <TableHead>{t("apiKeys.columns.name")}</TableHead>
+          <TableHead pin={PIN_FIRST}>{t("apiKeys.columns.name")}</TableHead>
           <TableHead>{t("apiKeys.columns.key")}</TableHead>
           <TableHead>{t("apiKeys.columns.scopes")}</TableHead>
           <TableHead>{t("apiKeys.columns.lastUsed")}</TableHead>
@@ -57,7 +58,7 @@ function ApiKeyRow({ apiKey, onRevoke }: { apiKey: ApiKey; onRevoke: (key: ApiKe
   const soon = expiresSoon(apiKey, new Date());
   return (
     <TableRow className={revoked ? "text-muted-foreground" : undefined}>
-      <TableCell className="min-w-40">
+      <TableCell pin={PIN_FIRST} className="min-w-40">
         <div className="font-medium">{apiKey.name}</div>
         <div
           className="text-xs text-muted-foreground"

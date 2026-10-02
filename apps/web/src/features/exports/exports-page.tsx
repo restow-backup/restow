@@ -16,6 +16,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  PIN_FIRST,
   Table,
   TableBody,
   TableCell,
@@ -133,10 +134,10 @@ function ExportsTable({ items }: { items: MailExport[] }) {
   );
 
   return (
-    <Table>
+    <Table scrollLabel={t("list.title")}>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          <TableHead>{t("list.columns.created")}</TableHead>
+          <TableHead pin={PIN_FIRST}>{t("list.columns.created")}</TableHead>
           <TableHead className="hidden sm:table-cell">{t("list.columns.origin")}</TableHead>
           <TableHead className="hidden md:table-cell">{t("list.columns.format")}</TableHead>
           <TableHead>{t("list.columns.status")}</TableHead>
@@ -154,7 +155,7 @@ function ExportsTable({ items }: { items: MailExport[] }) {
           const ratio = progressRatio(item.progress);
           return (
             <TableRow key={item.id} className="cursor-pointer" onClick={() => openExport(item.id)}>
-              <TableCell className="whitespace-nowrap">
+              <TableCell pin={PIN_FIRST} className="whitespace-nowrap">
                 <Link
                   to={exportHref(item.id)}
                   onClick={(event) => event.stopPropagation()}

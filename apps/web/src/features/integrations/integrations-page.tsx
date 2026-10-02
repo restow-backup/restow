@@ -2,6 +2,7 @@ import { useNavigate, useSearch } from "@tanstack/react-router";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
+import { useEmbeddedPage } from "@/components/kit/page-context";
 import { PageHeader } from "@/components/page-header";
 import { RequireRole } from "@/components/require-role";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -30,10 +31,11 @@ export function IntegrationsPage() {
 function IntegrationsContent() {
   const { t } = useTranslation("integrations");
   const { tenantName } = useIntegrationsScope();
+  const embedded = useEmbeddedPage();
   const raw = useSearch({ strict: false }) as Record<string, unknown>;
   const search = React.useMemo(() => parseIntegrationsSearch(raw), [raw]);
   const navigate = useNavigate();
-  const tab: IntegrationsTab = search.tab ?? "api-keys";
+  const tab: IntegrationsTab = search.tab === "webhooks" ? "webhooks" : "api-keys";
 
   const selectTab = (value: string) => {
     void navigate({
@@ -43,12 +45,16 @@ function IntegrationsContent() {
     });
   };
 
+  const description = tenantName ? t("tenantScope", { tenant: tenantName }) : t("subtitle");
+
   return (
     <div className="space-y-6">
-      <PageHeader
-        title={t("title")}
-        description={tenantName ? t("tenantScope", { tenant: tenantName }) : t("subtitle")}
-      />
+      {embedded ? (
+        // On the tenant page the section already carries this title.
+        <p className="max-w-prose text-sm text-muted-foreground">{description}</p>
+      ) : (
+        <PageHeader title={t("title")} description={description} />
+      )}
       <Tabs value={tab} onValueChange={selectTab}>
         <TabsList>
           <TabsTrigger value="api-keys">{t("tabs.apiKeys")}</TabsTrigger>

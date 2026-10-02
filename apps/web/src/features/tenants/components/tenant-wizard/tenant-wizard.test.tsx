@@ -206,9 +206,9 @@ describe("ContactsStep", () => {
 });
 
 describe("NotificationsStep", () => {
-  it("says that each category becomes a rule, and offers no licence category", () => {
+  it("says that each category is carried by a rule, and offers no licence category", () => {
     const html = renderStep((form) => <NotificationsStep form={form} />);
-    expect(html).toContain("becomes a rule under Alerts");
+    expect(html).toContain("is carried by a rule of the tenant");
     expect(html).toContain("No notification recipients yet.");
     expect(html).not.toContain("does not send any of these e-mails");
   });
@@ -333,7 +333,7 @@ describe("NotificationsStep: send test mail (interactive)", () => {
     expect(container.textContent).toContain(
       "No mail transport is configured for this installation yet.",
     );
-    expect(container.textContent).toContain("Open Settings");
+    expect(container.textContent).toContain("Open the mail settings");
     // Not the generic fallback, and no stale "ok" outcome shown either.
     expect(container.textContent).not.toContain("Something went wrong");
     expect(container.textContent).not.toContain("Test mail sent to");

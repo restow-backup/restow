@@ -23,6 +23,16 @@ export const tenantStatusEnum = pgEnum("tenant_status", ["active", "suspended", 
 export const tenantLanguageEnum = pgEnum("tenant_language", ["de", "en"]);
 
 /**
+ * What a tenant stands for. `customer` is an organisation the operator looks
+ * after (the default, and what every tenant created before this column existed
+ * is). `internal` is the operator's own organisation: its own mailboxes,
+ * servers and storage. At most one tenant per provider is `internal`
+ * (`tenants_internal_uq`); it is created by the setup wizard, or marked on an
+ * existing installation, and it cannot be deleted while it is internal.
+ */
+export const tenantKindEnum = pgEnum("tenant_kind", ["customer", "internal"]);
+
+/**
  * A tenant is a customer organisation. Every tenant-scoped table
  * carries `tenant_id` and is isolated by Row Level Security (see sql/rls.sql).
  * Provider admins switch tenants explicitly; queries are never cross-tenant.
@@ -46,6 +56,8 @@ export const tenants = pgTable(
     // URL/route-safe short name for tenant switching in the UI and API.
     slug: text("slug").notNull(),
     status: tenantStatusEnum("status").notNull().default("active"),
+    // `customer` or the operator's own organisation (`internal`); see tenantKindEnum.
+    kind: tenantKindEnum("kind").notNull().default("customer"),
     // Mailbox cap the provider agreed with this customer (null = none). A reference
     // value for the provider's dashboards; Restow never blocks protecting mailboxes.
     // The column keeps its historical name so no migration is needed.
@@ -53,6 +65,9 @@ export const tenants = pgTable(
     // When the recommended schedules were applied to this tenant (once). Null
     // until then; set, the scheduler never re-creates a schedule an admin deleted.
     scheduleDefaultsAppliedAt: timestamp("schedule_defaults_applied_at", { withTimezone: true }),
+    // When the schedules and machine configurations of an older release were turned into backup
+    // jobs for this tenant (once; apps/api features/backup-jobs/migration.ts). Null until then.
+    backupJobsMigratedAt: timestamp("backup_jobs_migrated_at", { withTimezone: true }),
     // --- Customer data (SPE tenant wizard: internal customer number, billing
     // address, locale). All nullable: a tenant created without the wizard (or
     // before it existed) simply has none of this set. ---
@@ -78,11 +93,19 @@ export const tenants = pgTable(
     // one. Never the tenant id itself, so a leaked address cannot be turned
     // back into a tenant lookup key by guessing.
     journalToken: text("journal_token"),
+    // The tenant-wide pause of automatic agent updates: no machine of the tenant (also one that
+    // enrols later) installs a new agent release while this is set. A machine can still be paused
+    // on its own (`endpoints.settings.autoUpdatePaused`, an override that outlives a resume here).
+    agentUpdatesPaused: boolean("agent_updates_paused").notNull().default(false),
     ...timestamps(),
   },
   (t) => [
     uniqueIndex("tenants_slug_uq").on(t.slug),
     uniqueIndex("tenants_organization_uq").on(t.organizationId),
+    // At most one own organisation per provider.
+    uniqueIndex("tenants_internal_uq")
+      .on(t.providerId)
+      .where(sql`${t.kind} = 'internal'`),
     uniqueIndex("tenants_customer_number_uq")
       .on(sql`lower(${t.customerNumber})`)
       .where(sql`${t.customerNumber} IS NOT NULL`),
@@ -183,3 +206,4 @@ export type TenantNotificationRecipient = typeof tenantNotificationRecipients.$i
 export type NewTenantNotificationRecipient = typeof tenantNotificationRecipients.$inferInsert;
 export type TenantStatus = (typeof tenantStatusEnum.enumValues)[number];
 export type TenantLanguage = (typeof tenantLanguageEnum.enumValues)[number];
+export type TenantKind = (typeof tenantKindEnum.enumValues)[number];

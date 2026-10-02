@@ -15,6 +15,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  PIN_FIRST,
   Table,
   TableBody,
   TableCell,
@@ -107,10 +108,10 @@ export function DeliveriesCard({ webhookId, webhookActive }: DeliveriesCardProps
             {filter === "all" ? t("deliveries.empty") : t("deliveries.emptyFiltered")}
           </p>
         ) : (
-          <Table>
+          <Table className="min-w-[48rem]" scrollLabel={t("deliveries.title")}>
             <TableHeader>
               <TableRow>
-                <TableHead>{t("deliveries.columns.event")}</TableHead>
+                <TableHead pin={PIN_FIRST}>{t("deliveries.columns.event")}</TableHead>
                 <TableHead>{t("deliveries.columns.status")}</TableHead>
                 <TableHead>{t("deliveries.columns.attempts")}</TableHead>
                 <TableHead>{t("deliveries.columns.created")}</TableHead>
@@ -159,7 +160,7 @@ function DeliveryRow({ delivery, onOpen }: { delivery: Delivery; onOpen: () => v
   const { t, relative, dateTime } = useIntegrationsFormat();
   return (
     <TableRow className="cursor-pointer" onClick={onOpen}>
-      <TableCell>
+      <TableCell pin={PIN_FIRST}>
         <div className="font-medium">
           <EventLabel event={delivery.event} />
         </div>

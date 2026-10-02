@@ -37,12 +37,10 @@ export function Stepper({ activeIndex, onSelect }: StepperProps) {
               {state === "done" ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : index + 1}
               <span className="sr-only">{t(`step.${key}`)}</span>
             </button>
+            {/* Seven steps do not fit with every name written out: the active one is named. */}
             <span
               aria-hidden="true"
-              className={cn(
-                "hidden text-xs sm:inline",
-                state === "todo" ? "text-muted-foreground" : "text-foreground",
-              )}
+              className={cn("hidden text-xs", state === "active" && "text-foreground sm:inline")}
             >
               {t(`step.${key}`)}
             </span>

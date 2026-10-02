@@ -18,6 +18,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   type Database,
+  backupJobs,
   createDb,
   endpointReports,
   endpointRuns,
@@ -448,6 +449,10 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
     c.set("role", role);
     c.set("isProviderAdmin", role === "provider_admin");
     c.set("memberships", []);
+    // A provider team member limited to some tenants (middleware/session.ts loadProviderAccess).
+    if (c.req.header("x-test-limited") === "1") {
+      c.set("providerAccess", { role: "administrator", allTenants: false, tenantIds: new Set() });
+    }
     await next();
   };
 
@@ -462,9 +467,10 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
     role: Role,
     query = "",
     on: Hono = app,
+    headers: Record<string, string> = {},
   ): Promise<{ status: number; body: DashboardDto & { type?: string } }> {
     const response = await on.request(`/dashboard${query}`, {
-      headers: { "x-test-tenant": tenantId, "x-test-role": role },
+      headers: { "x-test-tenant": tenantId, "x-test-role": role, ...headers },
     });
     return { status: response.status, body: (await response.json()) as DashboardDto };
   }
@@ -620,6 +626,19 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
       }
     });
 
+    it("refuses the provider view to a provider team member limited to some tenants", async () => {
+      // The view lists every tenant; a member who may reach only some does not get to see the others.
+      for (const query of ["?provider=true", "?provider=only"]) {
+        const { status } = await dashboard(f.contoso, "provider_admin", query, app, {
+          "x-test-limited": "1",
+        });
+        expect(status, query).toBe(403);
+      }
+      // Their own tenant's page still works.
+      const own = await dashboard(f.contoso, "provider_admin", "", app, { "x-test-limited": "1" });
+      expect(own.status).toBe(200);
+    });
+
     it("leaves the provider view out unless it is asked for", async () => {
       const { body } = await dashboard(f.contoso, "provider_admin");
       expect(body.provider).toBeNull();
@@ -632,6 +651,47 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
         used: 2,
         tenant: { used: 2, cap: 1 },
       });
+    });
+  });
+
+  describe("which parts of the page are asked for", () => {
+    beforeEach(() => setProviderView(true));
+
+    it("answers the setup alone for the sidebar's Start checklist", async () => {
+      const { status, body } = await dashboard(f.contoso, "tenant_admin", "?widgets=setup");
+      expect(status).toBe(200);
+      expect(Object.keys(body.widgets)).toEqual(["setup"]);
+      expect(ok(body.widgets.setup)).toMatchObject({ complete: true, total: 7 });
+    });
+
+    it("leaves out a widget the viewer may not see, even when it is asked for", async () => {
+      const { body } = await dashboard(f.contoso, "tenant_user", "?widgets=setup,recentJobs");
+      expect(Object.keys(body.widgets)).toEqual(["setup"]);
+    });
+
+    it("refuses a widget the page does not know", async () => {
+      for (const query of ["?widgets=nope", "?widgets=setup,nope", "?widgets="]) {
+        const { status } = await dashboard(f.contoso, "tenant_admin", query);
+        expect(status, query).toBe(422);
+      }
+    });
+
+    it("answers the provider view alone for All tenants, reading no tenant widget", async () => {
+      const { status, body } = await dashboard(f.contoso, "provider_admin", "?provider=only");
+      expect(status).toBe(200);
+      expect(body.widgets).toEqual({});
+      // Without the module that builds the matrix the provider view is reported as unavailable.
+      expect(body.provider).toEqual({ state: "error" });
+    });
+
+    it("refuses the provider-only view to tenant admins and while the feature is off", async () => {
+      expect((await dashboard(f.contoso, "tenant_admin", "?provider=only")).status).toBe(403);
+      setProviderView(false);
+      expect((await dashboard(f.contoso, "provider_admin", "?provider=only")).status).toBe(403);
+    });
+
+    it("rejects a provider value it does not know", async () => {
+      expect((await dashboard(f.contoso, "provider_admin", "?provider=maybe")).status).toBe(422);
     });
   });
 
@@ -727,6 +787,177 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
         notificationMail: ["done", null],
       });
       expect(fabrikam.items.every((item) => item.actionable)).toBe(true);
+    });
+
+    describe("the backup schedule step with backup jobs", () => {
+      async function tenantWithoutSchedules(): Promise<string> {
+        const [provider] = await owner.select().from(providers).limit(1);
+        const [row] = await owner
+          .insert(tenants)
+          .values({
+            providerId: (provider as { id: string }).id,
+            name: "Jobs",
+            slug: `jobs-${randomUUID().slice(0, 6)}`,
+          })
+          .returning();
+        return (row as { id: string }).id;
+      }
+      const schedulesStep = async (tenantId: string) => {
+        const setup = ok((await dashboard(tenantId, "tenant_admin")).body.widgets.setup);
+        const item = setup.items.find((entry) => entry.id === "schedules");
+        return item ? [item.state, item.reason] : null;
+      };
+
+      it("counts a mail job with a schedule, not one that is off or never runs, nor a schedule a job took over", async () => {
+        const tenantId = await tenantWithoutSchedules();
+        expect(await schedulesStep(tenantId)).toEqual(["open", "no_backup_schedule"]);
+        const [manual] = await owner
+          .insert(backupJobs)
+          .values({ tenantId, kind: "mail", name: "Manual", scopeMode: "all" })
+          .returning();
+        const schedule = { kind: "interval", intervalMinutes: 480, timeZone: "UTC" } as const;
+        await owner
+          .insert(backupJobs)
+          .values({ tenantId, kind: "mail", name: "Off", schedule, enabled: false });
+        // A machine job is the agent's schedule, not a backup of mail.
+        await owner
+          .insert(backupJobs)
+          .values({ tenantId, kind: "endpoint", name: "Servers", schedule });
+        await owner.execute(
+          sql`INSERT INTO schedules (tenant_id, kind, interval_minutes, timezone, superseded_by_job_id)
+              VALUES (${tenantId}, 'backup', 480, 'UTC', ${manual?.id})`,
+        );
+        expect(await schedulesStep(tenantId)).toEqual(["open", "no_backup_schedule"]);
+        await owner
+          .insert(backupJobs)
+          .values({ tenantId, kind: "mail", name: "Scheduled", schedule });
+        expect(await schedulesStep(tenantId)).toEqual(["done", null]);
+      });
+    });
+
+    describe("the default storage of a tenant without a target of its own", () => {
+      /** A tenant that wrote nothing yet and has no storage target: its data would go to the installation default. */
+      async function bareTenant(): Promise<string> {
+        const [provider] = await owner.select().from(providers).limit(1);
+        const [row] = await owner
+          .insert(tenants)
+          .values({
+            providerId: (provider as { id: string }).id,
+            name: "Bare",
+            slug: `bare-${randomUUID().slice(0, 6)}`,
+          })
+          .returning();
+        return (row as { id: string }).id;
+      }
+      const storageStep = async (tenantId: string) => {
+        const setup = ok((await dashboard(tenantId, "tenant_admin")).body.widgets.setup);
+        const item = setup.items.find((entry) => entry.id === "storage");
+        return item ? [item.state, item.reason] : null;
+      };
+
+      it("asks for a test until the installation or the tenant tested the default", async () => {
+        const tenantId = await bareTenant();
+        expect(await storageStep(tenantId)).toEqual(["open", "default_untested"]);
+      });
+
+      it("counts the installation-level test of the default as tested", async () => {
+        const { audit } = await import("../../lib/audit.js");
+        const tenantId = await bareTenant();
+        // The test belongs to no tenant: the installation page records it in the installation chain.
+        await audit(owner, {
+          action: "settings.default_storage.tested",
+          actor: "admin@provider.test",
+          target: "installation_default",
+          targetType: "storage_location",
+          details: { ok: true, failedStep: null, errorCode: null },
+        });
+        expect(await storageStep(tenantId)).toEqual(["done", null]);
+        const widget = ok((await dashboard(tenantId, "tenant_admin")).body.widgets.storage);
+        expect(widget.target).toEqual({ source: "installation_default", status: "ok" });
+        // Every tenant on the default gets it, and a tenant with a target of its own does not.
+        expect(await storageStep(await bareTenant())).toEqual(["done", null]);
+        expect(await storageStep(f.fabrikam)).toEqual(["attention", "target_error"]);
+      });
+
+      it("lets the newest test decide, whichever chain recorded it", async () => {
+        const { audit } = await import("../../lib/audit.js");
+        const tenantId = await bareTenant();
+        // The installation test of the previous case passed; a newer failing one wins ...
+        await audit(owner, {
+          action: "settings.default_storage.tested",
+          actor: "admin@provider.test",
+          target: "installation_default",
+          targetType: "storage_location",
+          details: { ok: false, failedStep: "write", errorCode: "EACCES" },
+        });
+        expect(await storageStep(tenantId)).toEqual(["attention", "target_error"]);
+        // ... until the tenant itself tests the default and it passes.
+        await audit(owner, {
+          tenantId,
+          action: "storage.default.tested",
+          actor: "admin@bare.test",
+          target: "installation_default",
+          targetType: "storage_location",
+          details: { ok: true },
+        });
+        expect(await storageStep(tenantId)).toEqual(["done", null]);
+      });
+    });
+
+    it("settles the optional notification mail step without a test mail", async () => {
+      const { audit } = await import("../../lib/audit.js");
+      const mailStep = async () => {
+        const setup = ok((await dashboard(f.contoso, "provider_admin")).body.widgets.setup);
+        const item = setup.items.find((entry) => entry.id === "notificationMail");
+        return { complete: setup.complete, done: setup.done, step: [item?.state, item?.reason] };
+      };
+      const testMail = (ok: boolean) =>
+        audit(owner, {
+          action: "settings.mail.tested",
+          actor: "admin@provider.test",
+          target: "admin@provider.test",
+          targetType: "email",
+          details: { transport: "smtp", ok, reason: ok ? null : "connection", unsaved: false },
+        });
+      const keep = one(await owner.select().from(settings));
+      try {
+        // The wizard's skip left no transport: nothing is mailed, so the step is not needed.
+        await owner.update(settings).set({ mailTransport: null, mailConfig: null });
+        expect(await mailStep()).toEqual({
+          complete: true,
+          done: 7,
+          step: ["not_needed", "mail_skipped"],
+        });
+
+        // A transport whose newest test failed needs attention ...
+        await owner
+          .update(settings)
+          .set({ mailTransport: keep.mailTransport, mailConfig: keep.mailConfig });
+        await testMail(false);
+        expect(await mailStep()).toEqual({
+          complete: false,
+          done: 6,
+          step: ["attention", "test_failed"],
+        });
+
+        // ... unless the operator marked the mail as not needed ...
+        await owner.update(settings).set({ mailNotNeeded: true });
+        expect(await mailStep()).toEqual({
+          complete: true,
+          done: 7,
+          step: ["not_needed", "mail_marked"],
+        });
+
+        // ... and a test mail that went out settles it for good.
+        await testMail(true);
+        expect(await mailStep()).toEqual({ complete: true, done: 7, step: ["done", null] });
+      } finally {
+        await owner.update(settings).set({
+          mailTransport: keep.mailTransport,
+          mailConfig: keep.mailConfig,
+          mailNotNeeded: keep.mailNotNeeded,
+        });
+      }
     });
 
     it("shows a failing storage target in the storage widget", async () => {

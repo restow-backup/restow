@@ -10,6 +10,7 @@
 import { randomUUID } from "node:crypto";
 import {
   type Database,
+  backupJobs,
   createDb,
   endpoints,
   importUploads,
@@ -149,6 +150,23 @@ describe.skipIf(!testDatabaseAdminUrl)("audit target names against Postgres", ()
     const labels = await resolveTargetLabels(db, entries);
     expect(targetLabelOf(entries[0] as never, labels)).toBe("Web front");
     expect(targetLabelOf(entries[1] as never, labels)).toBe("db-02");
+  });
+
+  it("names a backup job after itself, and after the name its entry recorded once it is gone", async () => {
+    const [job] = await db
+      .insert(backupJobs)
+      .values({ tenantId, kind: "mail", name: "Mail backup" })
+      .returning();
+    const gone = randomUUID();
+    const entries = [
+      { target: job?.id as string, targetType: "backup_job" },
+      { target: gone, targetType: "backup_job", details: { name: "Deleted job" } },
+      { target: randomUUID(), targetType: "backup_job" },
+    ];
+    const labels = await resolveTargetLabels(db, entries);
+    expect(targetLabelOf(entries[0] as never, labels)).toBe("Mail backup");
+    expect(targetLabelOf(entries[1] as never, labels)).toBe("Deleted job");
+    expect(targetLabelOf(entries[2] as never, labels)).toBeNull();
   });
 
   it("keeps the recorded name for an import that no longer exists, and no label for an unknown id", async () => {

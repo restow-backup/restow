@@ -1,4 +1,4 @@
-import { CircleCheck, Info, Send, TriangleAlert } from "lucide-react";
+import { CircleCheck, Info, Send, Trash2, TriangleAlert } from "lucide-react";
 import * as React from "react";
 import {
   Controller,
@@ -24,10 +24,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "@/components/ui/sonner";
+import { AccessNote, ReadOnlyGroup, useInstallationAccess } from "@/features/installation/access";
 import type { MailTransport, SmtpSecurity } from "@/lib/api";
 import { zodResolver } from "@/lib/form";
 import { useSession } from "@/lib/session";
 import type { InstallationSettings, MailSettings, MailTestResult } from "../api";
+import { ConfirmDialog } from "../components/confirm-dialog";
 import { FormFooter } from "../components/form-footer";
 import {
   type MailFormContext,
@@ -44,7 +46,7 @@ import {
   problemFieldIssues,
   toMailInput,
 } from "../forms";
-import { useMailTest, useUpdateSettings } from "../hooks";
+import { useMailTest, useRemoveMailConfiguration, useUpdateSettings } from "../hooks";
 import { formatDuration, mailTestFailureKey, settingsErrorKey } from "../presenters";
 
 const FORM_ID = "settings-mail-form";
@@ -82,6 +84,7 @@ function applyIssues(form: UseFormReturn<MailFormValues>, error: unknown): boole
 export function MailSection({ settings }: { settings: InstallationSettings }) {
   const { t } = useTranslation("settings");
   const { t: tc } = useTranslation();
+  const access = useInstallationAccess();
   const update = useUpdateSettings();
   const [submitError, setSubmitError] = React.useState<unknown>(null);
 
@@ -122,38 +125,97 @@ export function MailSection({ settings }: { settings: InstallationSettings }) {
 
   return (
     <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle>{t("mail.title")}</CardTitle>
-          <CardDescription>{t("mail.description")}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          {settings.mail.transport === null ? (
-            <Alert variant="warning">
-              <TriangleAlert />
-              <AlertTitle>{t("mail.notConfigured.title")}</AlertTitle>
-              <AlertDescription>{t("mail.notConfigured.description")}</AlertDescription>
-            </Alert>
-          ) : null}
-          <form id={FORM_ID} onSubmit={onSubmit} noValidate className="space-y-5">
-            <MailFields form={form} settings={settings} />
-            {submitError ? (
-              <Alert variant="destructive">
-                <TriangleAlert />
-                <AlertDescription>{tc(settingsErrorKey(submitError))}</AlertDescription>
+      <AccessNote block={access.change} level="owner" />
+      <ReadOnlyGroup closed={access.change !== null}>
+        <Card>
+          <CardHeader>
+            <CardTitle>{t("mail.title")}</CardTitle>
+            <CardDescription>{t("mail.description")}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            {settings.mail.transport === null ? (
+              // The setup wizard lets an operator skip the mail step: no transport is a normal state.
+              <Alert variant="info">
+                <Info />
+                <AlertTitle>{t("mail.notConfigured.title")}</AlertTitle>
+                <AlertDescription>{t("mail.notConfigured.description")}</AlertDescription>
               </Alert>
             ) : null}
-          </form>
-        </CardContent>
-        <FormFooter
-          formId={FORM_ID}
-          dirty={form.formState.isDirty}
-          saving={form.formState.isSubmitting}
-          onDiscard={discard}
-        />
-      </Card>
+            <form id={FORM_ID} onSubmit={onSubmit} noValidate className="space-y-5">
+              <MailFields form={form} settings={settings} />
+              {submitError ? (
+                <Alert variant="destructive">
+                  <TriangleAlert />
+                  <AlertDescription>{tc(settingsErrorKey(submitError))}</AlertDescription>
+                </Alert>
+              ) : null}
+            </form>
+            {settings.mail.transport !== null ? <RemoveMailRow /> : null}
+          </CardContent>
+          <FormFooter
+            formId={FORM_ID}
+            dirty={form.formState.isDirty}
+            saving={form.formState.isSubmitting}
+            onDiscard={discard}
+          />
+        </Card>
+      </ReadOnlyGroup>
 
-      <MailTestCard mailForm={form} />
+      <ReadOnlyGroup closed={access.operate !== null}>
+        <MailTestCard mailForm={form} />
+      </ReadOnlyGroup>
+    </div>
+  );
+}
+
+/**
+ * Removing the transport belongs to the card that sets it: it forgets the
+ * transport and destroys the stored SMTP password, behind a confirmation.
+ */
+function RemoveMailRow() {
+  const { t } = useTranslation("settings");
+  const { t: tc } = useTranslation();
+  const remove = useRemoveMailConfiguration();
+  const [confirming, setConfirming] = React.useState(false);
+
+  const confirm = () => {
+    remove.mutate(undefined, {
+      onSuccess: () => {
+        toast.success(t("toasts.mailRemoved"));
+        setConfirming(false);
+      },
+      onError: (error) => {
+        toast.error(tc(settingsErrorKey(error)));
+        setConfirming(false);
+      },
+    });
+  };
+
+  return (
+    <div className="flex flex-col gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
+      <div className="space-y-1">
+        <p className="text-sm font-medium">{t("mail.remove.title")}</p>
+        <p className="max-w-prose text-sm text-muted-foreground">{t("mail.remove.description")}</p>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        className="shrink-0 border-destructive/40 text-destructive-text hover:bg-destructive/10 hover:text-destructive-text"
+        onClick={() => setConfirming(true)}
+      >
+        <Trash2 aria-hidden="true" />
+        {t("mail.remove.action")}
+      </Button>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={t("mail.remove.confirmTitle")}
+        description={t("mail.remove.confirmDescription")}
+        confirmLabel={t("mail.remove.confirm")}
+        destructive
+        pending={remove.isPending}
+        onConfirm={confirm}
+      />
     </div>
   );
 }

@@ -235,7 +235,7 @@ export function toV1Job(job: JobDto): V1JobDto {
         }
       : null,
     full: job.full,
-    scheduled: job.scheduleId !== null,
+    scheduled: job.scheduleId !== null || job.trigger !== "manual",
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
     startedAt: job.startedAt,
@@ -407,16 +407,60 @@ export function streamJob(c: Context, db: Database, tenantId: string, jobId: str
 // Routes
 // ---------------------------------------------------------------------------
 
+/** The operation ids of the two names of the run routes. */
+interface RunRouteNames {
+  readonly base: "/jobs" | "/runs";
+  readonly list: string;
+  readonly backup: string;
+  readonly get: string;
+  readonly events: string;
+  /** Said in each description: the other name of the same operation. */
+  readonly alias: string;
+}
+
+const RUN_ROUTES: readonly RunRouteNames[] = [
+  {
+    base: "/jobs",
+    list: "listJobs",
+    backup: "startBackup",
+    get: "getJob",
+    events: "streamJobEvents",
+    alias: "Also available as `/runs`.",
+  },
+  {
+    base: "/runs",
+    list: "listRuns",
+    backup: "startRunBackup",
+    get: "getRun",
+    events: "streamRunEvents",
+    alias:
+      "The same as `/jobs`, under the name the product uses for runs (a job is a definition in the product; the API keeps the name `/jobs`).",
+  },
+];
+
+/**
+ * The runs of the product, as the integration API has always called them: jobs. `/runs` is the
+ * same four operations under their documented name (release 0.2.0); `/jobs` keeps working and
+ * means runs, so no integration changes.
+ */
 export function registerJobRoutes(api: IntegrationApi, deps: V1Deps): void {
+  for (const names of RUN_ROUTES) {
+    registerRunRoutes(api, deps, names);
+  }
+}
+
+function registerRunRoutes(api: IntegrationApi, deps: V1Deps, names: RunRouteNames): void {
   const { db } = deps;
   const recordRead = readRecorder(deps);
+  const base = names.base;
 
   api.tenant(
     {
       method: "get",
-      path: "/jobs",
-      operationId: "listJobs",
+      path: base,
+      operationId: names.list,
       summary: "Jobs with progress, failures and duration, newest first",
+      description: names.alias,
       tag: "Jobs",
       scope: "jobs:read",
       audited: true,
@@ -447,11 +491,10 @@ export function registerJobRoutes(api: IntegrationApi, deps: V1Deps): void {
   api.tenant(
     {
       method: "post",
-      path: "/jobs/backup",
-      operationId: "startBackup",
+      path: `${base}/backup`,
+      operationId: names.backup,
       summary: "Back up one object, or every protected object, now",
-      description:
-        "Objects that cannot run are listed under `skipped` with the reason; a single named object that cannot run is a 409 instead.",
+      description: `Objects that cannot run are listed under \`skipped\` with the reason; a single named object that cannot run is a 409 instead. ${names.alias}`,
       tag: "Jobs",
       scope: "restore:write",
       write: true,
@@ -466,9 +509,10 @@ export function registerJobRoutes(api: IntegrationApi, deps: V1Deps): void {
   api.tenant(
     {
       method: "get",
-      path: "/jobs/:id",
-      operationId: "getJob",
+      path: `${base}/:id`,
+      operationId: names.get,
       summary: "One job with its failed items, snapshot and result",
+      description: names.alias,
       tag: "Jobs",
       scope: "jobs:read",
       audited: true,
@@ -491,11 +535,10 @@ export function registerJobRoutes(api: IntegrationApi, deps: V1Deps): void {
   api.tenant(
     {
       method: "get",
-      path: "/jobs/:id/events",
-      operationId: "streamJobEvents",
+      path: `${base}/:id/events`,
+      operationId: names.events,
       summary: "Live progress of one job (server-sent events)",
-      description:
-        "Events: `job` carries the job (same shape as `GET /jobs/{id}` without failures) whenever it changes; `end` ({ id, status }) follows once it finished and closes the stream; `error` means updates are unavailable, reconnect after the `retry` delay. A comment line keeps idle connections open. Streams end after five minutes; reconnect to continue.",
+      description: `Events: \`job\` carries the job (same shape as \`GET ${base}/{id}\` without failures) whenever it changes; \`end\` ({ id, status }) follows once it finished and closes the stream; \`error\` means updates are unavailable, reconnect after the \`retry\` delay. A comment line keeps idle connections open. Streams end after five minutes; reconnect to continue. ${names.alias}`,
       tag: "Jobs",
       scope: "jobs:read",
       audited: true,

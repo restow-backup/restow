@@ -8,6 +8,7 @@ import {
 import { OWNER_ACCESS, type ProviderAccess } from "../../../../apps/api/src/lib/provider-access.js";
 import {
   PROVIDER_ROLE_PROBLEM,
+  type SessionEnv,
   type SessionVariables,
   type TenantEnv,
   assertProviderRoute,
@@ -17,6 +18,7 @@ import { eeProviderRouteRules } from "../provider-rules.js";
 import { JOURNAL_PATH, buildJournalRoutes } from "./routes.js";
 
 vi.mock("./setup.js", () => ({
+  getJournalReceiver: vi.fn(async () => ({ state: "listening" })),
   getJournalSetup: vi.fn(async () => ({ address: "journal+abc234@archive.example.test" })),
   rotateJournalAddress: vi.fn(async () => ({ address: "journal+xyz789@archive.example.test" })),
 }));
@@ -40,13 +42,26 @@ function appFor(access: ProviderAccess): Hono {
     c.set("user", { id: "user-1", email: "admin@provider.test" } as never);
     await next();
   };
+  // The same check for the installation-level route: no tenant, the rule of the matched route.
+  const requireProvider: MiddlewareHandler<SessionEnv> = async (c, next) => {
+    assertProviderRoute(
+      c as never,
+      {
+        isProviderAdmin: true,
+        providerAccess: access,
+      } as unknown as SessionVariables,
+    );
+    await next();
+  };
   const app = new Hono();
   app.onError(errorHandler);
   app.route(
     `/api/v1${JOURNAL_PATH}`,
     buildJournalRoutes({
       db: {} as Database,
+      providerDb: {} as Database,
       requireAdmin,
+      requireProvider,
       environment: () => ({
         journal: {
           port: 2525,
@@ -111,4 +126,26 @@ describe("journal routes and the provider team", () => {
       }
     },
   );
+});
+
+describe("the receiver route and the provider team", () => {
+  const path = `/api/v1${JOURNAL_PATH}/receiver`;
+
+  it("shows the receiver to every role that has every tenant", async () => {
+    for (const role of ["owner", "administrator", "technician", "read_only"] as const) {
+      const response = await appFor(access(role)).request(path);
+      expect(response.status, role).toBe(200);
+      expect(await response.json()).toEqual({ state: "listening" });
+    }
+  });
+
+  it("keeps a member limited to some tenants off it: the receiver concerns all of them", async () => {
+    for (const role of ["administrator", "read_only"] as const) {
+      const response = await appFor(access(role, [TENANT])).request(path);
+      expect(response.status, role).toBe(403);
+      const body = (await response.json()) as { type: string; reason?: string };
+      expect(body.type).toBe(PROVIDER_ROLE_PROBLEM);
+      expect(body.reason).toBe("scope");
+    }
+  });
 });

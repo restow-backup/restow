@@ -122,25 +122,31 @@ describe("EndpointsPage", () => {
     await page.settle();
   }
 
-  it("pauses automatic agent updates for the whole tenant, once it has a machine", async () => {
+  it("no longer carries the pause of agent updates: it is a setting of the tenant page", async () => {
+    fetchAgentUpdates.mockResolvedValue({ paused: false, endpoints: 2, overrides: [] });
     await open("agents");
     expect(document.querySelector('[data-slot="agent-updates"]')).toBeNull();
-    page.unmount();
-    fetchAgentUpdates.mockResolvedValue({ paused: false, endpoints: 2 });
-    setAgentUpdates.mockResolvedValue({ paused: true, endpoints: 2 });
+    expect(fetchAgentUpdates).not.toHaveBeenCalled();
+  });
+
+  it("offers a Proxmox teaser next to the buttons that add an agent, and starts nothing", async () => {
     await open("agents");
-    const card = document.querySelector('[data-slot="agent-updates"]');
-    expect(card?.textContent).toContain("Automatic agent updates");
-    expect(card?.textContent).toContain("signed by the maintainer");
-    const toggle = card?.querySelector('button[role="switch"]') as HTMLButtonElement;
-    expect(toggle.getAttribute("aria-checked")).toBe("true");
-    fetchAgentUpdates.mockResolvedValue({ paused: true, endpoints: 2 });
-    await page.click(toggle);
-    await page.settle();
-    expect(setAgentUpdates).toHaveBeenCalledWith(true);
-    expect(document.querySelector('[data-slot="agent-updates"]')?.textContent).toContain(
-      "Paused for every machine of this tenant",
+    const teaser = document.querySelector<HTMLButtonElement>('[data-slot="proxmox-teaser"]');
+    expect(teaser?.textContent).toContain("Connect Proxmox");
+    expect(teaser?.textContent).toContain("Soon");
+    // The size of the buttons that add an agent, and secondary: they are the page's actions.
+    const header = teaser?.closest('[data-slot="page-header"]');
+    const newClient = [...(header?.querySelectorAll("button") ?? [])].find((button) =>
+      button.textContent?.includes("New client"),
     );
+    expect(teaser?.getAttribute("data-size")).toBe(newClient?.getAttribute("data-size"));
+    expect(teaser?.getAttribute("data-variant")).toBe("outline");
+    // It opens a short explanation instead of a flow.
+    await page.click(teaser as Element);
+    await page.settle();
+    expect(document.body.textContent).toContain("Proxmox VE 8.4 or newer");
+    expect(document.body.textContent).toContain("Coming after 0.2.0");
+    expect(document.querySelector('[role="dialog"]')?.textContent ?? "").not.toContain("Install");
   });
 
   it("asks the API for servers only on the servers page, clients only on clients, all on agents", async () => {

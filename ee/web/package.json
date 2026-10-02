@@ -1,6 +1,6 @@
 {
   "name": "@restow/ee-web",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "Restow Business and Service Provider web modules, loaded by apps/web through apps/web/src/features/ee.ts and bundled into its build.",
@@ -11,8 +11,8 @@
   },
   "dependencies": {
     "@restow/i18n": "workspace:*",
-    "@tanstack/react-query": "^5.62.7",
-    "@tanstack/react-router": "^1.95.0",
+    "@tanstack/react-query": "^5.104.0",
+    "@tanstack/react-router": "^1.170.40",
     "@tanstack/react-table": "^8",
     "lucide-react": "^0.469.0",
     "react": "^19.0.0",

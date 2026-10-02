@@ -1,5 +1,11 @@
 import { countProtectedMailboxes } from "@restow/core";
-import { type Database, type TenantStatus, protectedObjects, tenants } from "@restow/db";
+import {
+  type Database,
+  type TenantKind,
+  type TenantStatus,
+  protectedObjects,
+  tenants,
+} from "@restow/db";
 import { and, asc, eq, ne } from "drizzle-orm";
 import { notImported } from "../../lib/imported-objects.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
@@ -21,6 +27,8 @@ export interface TenantUsageDto {
   name: string;
   slug: string;
   status: TenantStatus;
+  /** `internal`: the operator's own organisation, which is not one of the provider's customers. */
+  kind: TenantKind;
   /** Protected mailboxes in this tenant. */
   mailboxes: number;
   /** Mailbox cap the provider agreed with this customer; null = none. Never enforced. */
@@ -32,6 +40,14 @@ export interface UsageDto {
   /** Protected mailboxes across all tenants (OneDrive does not count twice). */
   mailboxes: number;
   tenants: TenantUsageDto[];
+}
+
+/**
+ * The tenants that are the provider's customers: the operator's own organisation
+ * (`kind = internal`) is protected like any other tenant but is not one of them.
+ */
+export function customerTenants<T extends Pick<TenantUsageDto, "kind">>(usage: readonly T[]): T[] {
+  return usage.filter((tenant) => tenant.kind !== "internal");
 }
 
 /** Protected mailboxes across the installation. */
@@ -71,6 +87,7 @@ export async function loadTenantUsage(providerDb: Database): Promise<TenantUsage
       name: tenants.name,
       slug: tenants.slug,
       status: tenants.status,
+      kind: tenants.kind,
       cap: tenants.mailboxCap,
     })
     .from(tenants)

@@ -56,7 +56,9 @@ regeneration would silently drop. Registry hooks land in `hooks/`.
 
 ## Colour tokens
 
-`src/index.css` defines the tokens for light and dark. Besides the zinc base:
+`src/index.css` defines the tokens for light and dark from the brand palette (Limestone
+page, white cards, Nile text, Lapis primary and active navigation, Silt secondary text; the
+comment on top of the file lists the values). Besides the neutral and primary tokens:
 
 - **Status tones** `success`, `warning`, `destructive`, `info`: `--<tone>` for fills,
   icons and tints, `--<tone>-foreground` for text on a solid fill, and
@@ -77,8 +79,13 @@ dark.
 every tint badge and alert use (it reads the alphas from their sources), chart slots and
 status chart tokens at least 3:1 against `--card` and pairwise distinguishable for
 normal and colour-blind vision, every chart config colour taken from one of the two
-chart palettes, the pre-theme page surface equal to the dark tokens, and no raw hex
-colours in this folder.
+chart palettes, the pre-theme page surface equal to the dark tokens, the brand colours
+themselves (page, text, primary, ring and the status colours), every text
+token at least 4.5:1 on the surface it is set on, and no raw hex colours in this folder.
+
+The typefaces are self-hosted (`src/fonts.css`, `@fontsource` woff2 files bundled into
+`/assets`): Inter Tight is the base font (`font-sans`), IBM Plex Mono the monospace font
+(`font-mono`). `src/fonts.test.ts` fails on any external font URL.
 
 ## Motion
 

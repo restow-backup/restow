@@ -90,7 +90,7 @@ function CommandPalette() {
   const navigate = useNavigate();
   const navItems = useNavItems();
   const { role, features, extensions, tenants, activeTenant, isProviderAdmin } = useSession();
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, palette, setPalette } = useTheme();
   const switchTenant = useSwitchTenant();
   const { signOut } = useSignOut();
   // A command that opens another page hands focus to that page's heading
@@ -121,6 +121,7 @@ function CommandPalette() {
         activeTenantId: activeTenant?.id ?? null,
         isProviderAdmin,
         theme,
+        palette,
         language: i18n.resolvedLanguage ?? i18n.language,
         languages: supportedLanguages,
         t,
@@ -134,6 +135,7 @@ function CommandPalette() {
       activeTenant?.id,
       isProviderAdmin,
       theme,
+      palette,
       i18n,
       t,
     ],
@@ -179,6 +181,9 @@ function CommandPalette() {
         break;
       case "theme":
         setTheme(action.theme);
+        break;
+      case "scheme":
+        setPalette(action.palette);
         break;
       case "language":
         void chooseLanguage(action.language);

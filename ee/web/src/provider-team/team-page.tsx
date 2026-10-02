@@ -12,6 +12,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import {
+  PIN_FIRST,
   Table,
   TableBody,
   TableCell,
@@ -122,10 +123,10 @@ function TeamTable({
   const tenants = useTenantChoices();
   const tenantName = (id: string) => tenants.data?.find((tenant) => tenant.id === id)?.name ?? id;
   return (
-    <Table>
+    <Table className="min-w-[44rem]" scrollLabel={t("title")}>
       <TableHeader>
         <TableRow>
-          <TableHead>{t("columns.member")}</TableHead>
+          <TableHead pin={PIN_FIRST}>{t("columns.member")}</TableHead>
           <TableHead>{t("columns.role")}</TableHead>
           <TableHead>{t("columns.tenants")}</TableHead>
           <TableHead>{t("columns.status")}</TableHead>
@@ -139,7 +140,7 @@ function TeamTable({
       <TableBody>
         {members.map((member) => (
           <TableRow key={member.userId}>
-            <TableCell className="min-w-48">
+            <TableCell pin={PIN_FIRST} className="min-w-48">
               <div className="flex items-center gap-2 font-medium">
                 {member.name || member.email}
                 {member.isYou ? <Badge variant="outline">{t("you")}</Badge> : null}

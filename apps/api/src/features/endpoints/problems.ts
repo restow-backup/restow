@@ -51,4 +51,14 @@ export const ENDPOINT_PROBLEMS = {
   hooksNotAllowed: "urn:restow:problem:endpoint-hooks-not-allowed",
   /** 422: the machine only runs named scripts from its hooks folder, and a hook is not such a name. */
   hookNotAScript: "urn:restow:problem:endpoint-hook-not-a-script",
+  /**
+   * 422: the time windows of the upload limit cannot be saved as sent (a window without days, a time
+   * that is not HH:MM, windows that overlap). `issues[0].path` names the window and its field.
+   */
+  invalidBandwidthWindows: "urn:restow:problem:endpoint-invalid-bandwidth-windows",
+  /**
+   * 409: the machine belongs to a backup job, which decides its schedule, folders, exclusions,
+   * hooks and bandwidth (and the retention when the job sets one). Change the job instead.
+   */
+  configManagedByJob: "urn:restow:problem:endpoint-config-managed-by-job",
 } as const;

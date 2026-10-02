@@ -10,6 +10,7 @@ import { queryClient } from "@/lib/query";
 import { SessionProvider } from "@/lib/session";
 import { router } from "@/router";
 
+import "@/fonts.css";
 import "@/index.css";
 
 const rootElement = document.getElementById("root");

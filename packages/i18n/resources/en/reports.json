@@ -164,8 +164,8 @@
   "nav": "Alerts",
   "page": {
     "title": "Alerts",
-    "subtitle": "Who is told what, when: alerts when something happens, reports at a point in time.",
-    "tenantScope": "Alerts and reports of {tenant}",
+    "subtitle": "Everything that was sent: alerts when something happened, reports on their schedule.",
+    "tenantScope": "Alerts and reports sent for {tenant}",
     "newAlert": "New alert",
     "newReport": "New report",
     "reportLocked": "Reports not available",
@@ -176,7 +176,8 @@
     "noTenant": {
       "title": "No tenant selected",
       "description": "Select a tenant in the top bar to see and change its alerts and reports."
-    }
+    },
+    "manageRules": "Rules and recipients"
   },
   "rules": {
     "loadError": "The rules could not be loaded.",
@@ -222,7 +223,9 @@
     "deleteConfirm": {
       "title": "Delete this rule?",
       "description": "“{name}” stops sending. Its entries in the delivery log stay."
-    }
+    },
+    "panelTitle": "Alert and report rules",
+    "panelDescription": "An alert is sent when something happens, a report at a point in time. The recipients above feed the rules marked with them."
   },
   "deliveries": {
     "title": "Delivery log",
@@ -249,7 +252,7 @@
       "skipped": "Skipped"
     },
     "reasons": {
-      "mail_not_configured": "No mail transport is set up (Settings → Notification mail).",
+      "mail_not_configured": "No mail transport is set up (Installation → Notification mail).",
       "not_available": "Reports are not available on this installation.",
       "webhook_deleted": "The webhook was deleted.",
       "webhook_inactive": "The webhook is paused.",
@@ -328,7 +331,8 @@
       "time": "Enter a time as HH:MM.",
       "cron": "A cron expression has five fields.",
       "recipients": "One of the addresses is not a valid e-mail address."
-    }
+    },
+    "recipientsManaged": "These are the recipients who chose this category under Recipients. Change them there."
   },
   "eventGroups": {
     "jobs": "Jobs",

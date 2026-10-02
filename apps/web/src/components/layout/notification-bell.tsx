@@ -6,11 +6,10 @@ import { useTranslation } from "react-i18next";
 import { RelativeTime } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { installationSectionTo } from "@/features/installation/paths";
 import type { BellList, BellNotification } from "@/features/reports/api";
 import { useBell, useMarkBellRead, useReportsScope } from "@/features/reports/hooks";
 import { REPORTS_PATH } from "@/features/reports/paths";
-import { settingsTo } from "@/features/settings/paths";
-import { sectionSearch } from "@/features/settings/presenters";
 import { cn } from "@/lib/utils";
 
 /**
@@ -147,10 +146,7 @@ export function NotificationBell() {
                     if (!item.read) markRead.mutate({ ids: [item.id] });
                     if (isUpdateEvent(item.event)) {
                       setOpen(false);
-                      void navigate({
-                        to: settingsTo(),
-                        search: sectionSearch("updates") as never,
-                      });
+                      void navigate({ to: installationSectionTo("updates") });
                     }
                   }}
                 >

@@ -27,7 +27,7 @@ describe("report layout", () => {
           footer="Restow layout test"
           pageLabel={(page, total) => `Page ${page} of ${total}`}
         >
-          <ReportHeader eyebrow="Restow" title="Layout" subtitle="東京 office" meta={["Line"]} />
+          <ReportHeader product="Restow" title="Layout" subtitle="東京 office" meta={["Line"]} />
           <Section title="Mailboxes">
             <ReportTable
               rows={rows}
@@ -57,6 +57,31 @@ describe("report layout", () => {
     });
     expect(text.at(-1)).toContain("Closing note 59");
     expect(text[0]).toContain("?? office");
+  });
+
+  it("prints the default product name as the lowercase wordmark and another name as written", async () => {
+    const pageText = async (product: string) => {
+      const buffer = await renderPdf(
+        <ReportDocument title="Header" author={product} language="en" createdAt={new Date(0)}>
+          <ReportPage footer={product} pageLabel={(page, total) => `Page ${page} of ${total}`}>
+            <ReportHeader product={product} title="Header" />
+          </ReportPage>
+        </ReportDocument>,
+      );
+      const pdf = await getDocumentProxy(new Uint8Array(buffer));
+      const { text } = await extractText(pdf, { mergePages: true });
+      return text;
+    };
+
+    const branded = await pageText("Restow");
+    expect(branded).toContain("restow backup suite");
+    // No uppercase label: the wordmark is lowercase, the footer carries the plain name.
+    expect(branded).not.toContain("RESTOW");
+
+    const white = await pageText("Acme Backup");
+    expect(white).toContain("Acme Backup");
+    expect(white).not.toContain("backup suite");
+    expect(white).not.toContain("ACME");
   });
 
   it("says so when a table has no rows", async () => {

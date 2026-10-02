@@ -59,6 +59,15 @@ Postgres-Service bereit und setzt die Variable.
   apps/scheduler `endpoints.pg.test.ts`
 - apps/scheduler: `scheduler.pg.test.ts`, `roles.pg.test.ts` (Scheduler auf den
   provisionierten Rollen, pg-boss als Installationsrolle)
+- Jobs (docs/ARCHITECTURE.md, "Jobs"): packages/db `backup-jobs.pg.test.ts` (RLS, Eindeutigkeiten,
+  Kaskade, `superseded_by_job_id` überlebt das Löschen des Jobs); apps/api
+  `features/backup-jobs/backup-jobs.pg.test.ts` (Routen, 422 mit Feldnamen, ein Objekt in einem Job,
+  Konfiguration der Rechner, Hook-Regel und frische Anmeldung, Jetzt ausführen, Rollen, Mandantentrennung)
+  und `migration.pg.test.ts` (die Migration älterer Installationen gegen realistische Fixtures: Anzahl der
+  Jobs, nichts verloren, Konfigurationen unverändert, zweiter Lauf ändert nichts, Audit);
+  apps/scheduler `jobs.pg.test.ts` (Planung aus Jobs, Mitglieder mit eigenem Takt, übernommene Zeitpläne,
+  geänderter Job zwischen Laden und Einreihen) und `defaults.pg.test.ts` (Standard-Job); apps/worker
+  `handlers/verify-origin.pg.test.ts` und `handlers/retention.pg.test.ts` (Aufbewahrung je Job)
 - apps/worker: `handlers/mail-files.pg.test.ts` (Import, Archivaufnahme mit Hash-Kette, Export
   versiegelt, Bereinigung, Ziel-Postfach für den Restore eines importierten Postfachs)
 - apps/api: `features/imports/imports.pg.test.ts`, `features/exports/exports.pg.test.ts`,

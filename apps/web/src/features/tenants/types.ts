@@ -1,4 +1,4 @@
-import type { TenantRole } from "@/lib/api";
+import type { TenantKind, TenantRole } from "@/lib/api";
 
 /**
  * Shapes of the tenants feature, mirroring the DTOs of
@@ -15,7 +15,11 @@ export interface TenantItem {
   id: string;
   name: string;
   slug: string;
+  /** `internal` for the operator's own organisation (at most one, listed first), else `customer`. */
+  kind: TenantKind;
   status: TenantStatus;
+  /** The provider's customer number; null until set. */
+  customerNumber: string | null;
   organizationId: string | null;
   /** Mailbox cap the provider agreed with the customer; null = none. Never enforced. */
   mailboxCap: number | null;
@@ -196,6 +200,11 @@ export interface CreateTenantInput {
 export type UpdateTenantCustomerInput = {
   [K in keyof CustomerDataInput]?: CustomerDataInput[K] | null;
 };
+
+/** The operator's own organisation, created from its name; the server derives the slug. */
+export interface CreateOwnOrganisationInput {
+  name: string;
+}
 
 export interface UpdateTenantInput {
   name?: string;

@@ -131,6 +131,8 @@ export interface JobPayloadBase {
   readonly jobId: string;
   readonly tenantId: string;
   readonly scheduleId?: string;
+  /** The backup job (backup_jobs.id) this run is for. */
+  readonly backupJobId?: string;
 }
 
 export interface BackupJobPayload extends JobPayloadBase {

@@ -154,7 +154,8 @@
     "access": "Zugriff",
     "report": "Alarme",
     "update": "Updates",
-    "endpoint": "Server und Clients"
+    "endpoint": "Server und Clients",
+    "backup_job": "Jobs (Definitionen)"
   },
   "events": {
     "account": {
@@ -286,10 +287,14 @@
       "requested": "Speicherprüfung gestartet"
     },
     "settings": {
+      "default_storage": {
+        "tested": "Standardspeicher getestet"
+      },
       "disclaimer_accepted": "Hinweis zur Betreiberverantwortung akzeptiert",
       "mail": {
         "removed": "Mailversand entfernt",
-        "tested": "Mailversand getestet"
+        "tested": "Mailversand getestet",
+        "not_needed": "Mailversand als nicht nötig markiert, oder wieder als nötig"
       },
       "microsoft_app": {
         "removed": "Microsoft-365-App-Registrierung entfernt",
@@ -299,7 +304,8 @@
       "updated": "Einstellungen geändert"
     },
     "setup": {
-      "completed": "Installation eingerichtet"
+      "completed": "Installation eingerichtet",
+      "internal_tenant_failed": "Eigene Organisation konnte bei der Einrichtung nicht angelegt werden"
     },
     "snapshot": {
       "mail": {
@@ -378,7 +384,11 @@
         "removed": "Mitglied entfernt",
         "role_changed": "Rolle eines Mitglieds geändert"
       },
-      "updated": "Mandant geändert"
+      "updated": "Mandant geändert",
+      "internal": {
+        "marked": "Mandant als eigene Organisation markiert",
+        "unmarked": "Markierung als eigene Organisation entfernt"
+      }
     },
     "verify": {
       "report": {
@@ -464,6 +474,16 @@
           "revealed": "Repository-Passwort angezeigt"
         }
       }
+    },
+    "backup_job": {
+      "created": "Job angelegt",
+      "updated": "Job geändert",
+      "deleted": "Job gelöscht",
+      "scope": {
+        "changed": "Umfang eines Jobs geändert"
+      },
+      "run_requested": "Ausführung eines Jobs angefordert",
+      "migrated": "Zeitpläne und Rechner-Konfigurationen in Jobs überführt"
     }
   },
   "targetTypes": {
@@ -501,6 +521,8 @@
     "report_rule": "Berichtsregel",
     "update": "Update",
     "endpoint": "Server oder Client",
-    "endpoint_enrollment_token": "Enrollment-Token"
-  }
+    "endpoint_enrollment_token": "Enrollment-Token",
+    "backup_job": "Job (Definition)"
+  },
+  "sectionDescription": "{scope, select, organisation {Das Protokoll dieser Organisation} other {Das Protokoll dieses Mandanten}}: wer wann was getan hat, mit der Hash-Kette, die beweist, dass nichts verändert wurde."
 }

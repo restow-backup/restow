@@ -9,7 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { SlotProps } from "@/lib/extensions";
+import { AccessNote, ReadOnlyGroup, useInstallationAccess } from "@/features/installation/access";
+import type { InstallationSectionProps } from "@/lib/extensions";
 import { formatDateTime } from "@/lib/format";
 
 import { type LicensedEdition, editionAllows, requiredEditionOf, useEdition } from "../edition";
@@ -25,18 +26,19 @@ const ORIGIN_BADGE: Record<Exclude<EditionOrigin, null>, BadgeProps["variant"]> 
 };
 
 /**
- * The license part of Settings, About (slot `settings.about`): the edition in
+ * Installation, License (a section of the installation page): the edition in
  * effect, the installed key (licensee, key ID, dates and the license terms it
  * was issued under), the installation ID a key must be issued for, the
  * verification key, and the form to install or remove a key. A link from a
  * locked feature (`?requires=`) first names the edition that unlocks it.
  */
-export function AboutLicense({ requires }: SlotProps["settings.about"]) {
+export function AboutLicense({ requires }: InstallationSectionProps) {
   const { t } = useTranslation("license");
   const query = useLicenseState();
   const sessionEdition = useEdition();
   const edition = query.data?.edition ?? sessionEdition;
   const required = requiredEditionOf(requires);
+  const access = useInstallationAccess();
 
   return (
     <Card>
@@ -45,6 +47,8 @@ export function AboutLicense({ requires }: SlotProps["settings.about"]) {
         <CardDescription>{t("about.description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        {/* Installing and removing a key is for the owner of the provider team. */}
+        <AccessNote block={access.change} level="owner" />
         {required && !editionAllows(edition, required) ? (
           <RequiredEditionNotice edition={required} />
         ) : null}
@@ -58,7 +62,7 @@ export function AboutLicense({ requires }: SlotProps["settings.about"]) {
             retrying={query.isFetching}
           />
         ) : (
-          <LicenseDetails state={query.data} />
+          <LicenseDetails state={query.data} closed={access.change !== null} />
         )}
       </CardContent>
     </Card>
@@ -78,7 +82,7 @@ function RequiredEditionNotice({ edition }: { edition: LicensedEdition }) {
   );
 }
 
-function LicenseDetails({ state }: { state: LicenseState }) {
+function LicenseDetails({ state, closed }: { state: LicenseState; closed: boolean }) {
   const { t, i18n } = useTranslation("license");
   const { t: tc } = useTranslation();
   const [confirming, setConfirming] = React.useState(false);
@@ -157,22 +161,24 @@ function LicenseDetails({ state }: { state: LicenseState }) {
         ) : null}
       </dl>
 
-      {key ? (
-        <div>
-          <Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
-            <Trash2 />
-            {t("key.remove")}
-          </Button>
-          <RemoveKeyDialog
-            open={confirming}
-            onOpenChange={setConfirming}
-            fallbackEdition={state.environmentEdition}
-          />
-        </div>
-      ) : null}
+      <ReadOnlyGroup closed={closed} className="space-y-6">
+        {key ? (
+          <div>
+            <Button variant="outline" size="sm" onClick={() => setConfirming(true)}>
+              <Trash2 />
+              {t("key.remove")}
+            </Button>
+            <RemoveKeyDialog
+              open={confirming}
+              onOpenChange={setConfirming}
+              fallbackEdition={state.environmentEdition}
+            />
+          </div>
+        ) : null}
 
-      <Separator />
-      <InstallKeyForm state={state} />
+        <Separator />
+        <InstallKeyForm state={state} />
+      </ReadOnlyGroup>
     </>
   );
 }

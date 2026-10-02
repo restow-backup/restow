@@ -1,57 +1,55 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 
-import { useSession } from "@/lib/session";
+import { useLiveOpen } from "@/features/history/live/provider";
+import { ownOrganisationPrompt } from "@/features/tenants/presenters";
+import { providerMay } from "@/lib/provider-role";
+import { hasFeature, sessionScope, useSession } from "@/lib/session";
 
-import { type Dashboard, dashboardKeys, fetchDashboard } from "./api.js";
-import { wantsProviderView } from "./presenters.js";
+import { type Dashboard, type DashboardMode, dashboardKeys, fetchDashboard } from "./api.js";
 
 /** How often the page refreshes itself while open. */
 export const DASHBOARD_REFRESH_MS = 60_000;
 
-/** The two views of a provider admin where the provider view exists. */
-export type DashboardTab = "provider" | "tenant";
-
 /**
- * The start page's one request. It is keyed by the active tenant, so a
- * tenant switch never shows the previous tenant's numbers, and it runs only
- * once the session is settled and a tenant is active.
+ * The start page's one request. It is keyed by the active tenant, so a tenant
+ * switch never shows the previous tenant's numbers, and it runs only once the
+ * session is settled and a tenant is active.
  *
- * Provider admins get the provider view (where the installation enables it,
- * see `wantsProviderView`) in the same request, but only while its tab is shown: the provider view reads
- * every tenant, so the tenant tab's refreshes and opening a tenant from the
- * matrix do not repeat that walk. The provider response carries the active
- * tenant's widgets too; switching to the tenant tab shows them while the
- * tenant-only request runs, instead of skeletons.
+ * The overview follows the tenant switcher. `tenant` is the active tenant's
+ * page; `all` is the provider view alone (the sum across tenants and the tenant
+ * matrix) for "All tenants", asked for only where the session offers that scope.
+ * The two are separate requests: the provider view reads every tenant, and an
+ * ordinary tenant page does not repeat that walk.
  */
-export function useDashboard(tab: DashboardTab) {
-  const queryClient = useQueryClient();
+export function useDashboard(mode: DashboardMode = "tenant") {
+  const session = useSession();
   const {
     status: sessionStatus,
     activeTenant,
     isProviderAdmin,
-    features,
     role,
     tenants,
     setActiveTenant,
-  } = useSession();
+  } = session;
   const tenantId = activeTenant?.id ?? null;
-  const provider = wantsProviderView(isProviderAdmin, features);
-  const withProvider = provider && tab === "provider";
+  const allTenants = mode === "all";
+  // "All tenants" is only ever asked for while the session is in that scope.
+  const enabled =
+    sessionStatus === "authenticated" &&
+    tenantId !== null &&
+    (!allTenants || sessionScope(session) === "all");
 
+  const connected = useLiveOpen();
   const query = useQuery({
-    queryKey: dashboardKeys.page(tenantId, withProvider),
-    queryFn: () => fetchDashboard(withProvider),
-    enabled: sessionStatus === "authenticated" && tenantId !== null,
-    refetchInterval: DASHBOARD_REFRESH_MS,
-    placeholderData: withProvider
-      ? undefined
-      : () => queryClient.getQueryData<Dashboard>(dashboardKeys.page(tenantId, true)),
+    queryKey: dashboardKeys.page(tenantId, mode),
+    queryFn: () => fetchDashboard(mode),
+    enabled,
+    // The live channel brings the news that changes the overview (a run that ended); it polls only while that is down.
+    refetchInterval: connected ? false : DASHBOARD_REFRESH_MS,
   });
 
   return {
     query,
-    /** The provider view exists for this session (the tabs are shown). */
-    provider,
     isProviderAdmin,
     /** Before the response says so, the session's role in the active tenant decides. */
     canAdminister:
@@ -60,7 +58,21 @@ export function useDashboard(tab: DashboardTab) {
     setActiveTenant,
     /** Settled without an active tenant: nothing to show until one is chosen or created. */
     noTenant: sessionStatus === "authenticated" && tenantId === null,
-    /** A provider admin before the first tenant exists (first run after setup). */
-    firstTenantPending: isProviderAdmin && tenants.length === 0,
+    /**
+     * What a provider admin is asked about the own organisation: to set it up
+     * (first run after a failed setup step, or an installation from before it
+     * existed), or to add the first customer. Null for everyone else.
+     */
+    ownOrganisation:
+      sessionStatus === "authenticated"
+        ? ownOrganisationPrompt({
+            tenants,
+            providerAdmin: isProviderAdmin,
+            canManage: providerMay(session, "administrator", { everyTenant: true }),
+            additionalTenants: hasFeature(session, "tenants.additional"),
+          })
+        : null,
   };
 }
+
+export type { Dashboard };

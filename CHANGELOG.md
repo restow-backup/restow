@@ -8,6 +8,480 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [0.2.0] - 2026-10-03
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.2.0 reorganises the web interface around three levels (the installation,
+a tenant, all tenants), adds backup jobs that replace per-object schedules, and
+shows running backups live with throughput charts and a History page. Updating
+from 0.1.0 runs three additive database migrations and, on the first start, moves
+your backup and restore-check schedules and your machines into jobs without
+deleting anything; plan a few minutes for it and read the Upgrade Notes first. The
+install script now covers installations behind a reverse proxy with an encrypted
+hop, which needs the new `docker-compose.yml` of this release.
+
+### Breaking Changes
+
+Three things behave differently for scripts and integrations that talk to the
+API. Nothing changes for the data in your repositories or for the agent API
+that installed agents use.
+
+- **`POST /api/v1/setup` requires `providerName`.** The setup wizard asks for the
+  name of your own organisation, and the call that sets up an installation now
+  needs it. A script that sets up an installation without a browser has to add
+  the field; without it the call is refused with 422.
+- **Backup and restore-check schedules are created through jobs.**
+  `POST /api/v1/schedules` with kind `backup` or `verify` answers 422
+  (`kind_replaced_by_jobs`). Maintenance schedules (retention run, storage check,
+  directory sync, archive sync) are unchanged. Create a backup job instead
+  (`POST /api/v1/backup-jobs`, or Mail & SaaS > Jobs in the web interface).
+  Schedules that existed before the update keep their rows and are shown with
+  `supersededByJobId`.
+- **A machine that belongs to a job is configured from the job.**
+  `PATCH /api/v1/endpoints/:id` answers 409 `endpoint-config-managed-by-job` when
+  it would change folders, exclusions, hooks, bandwidth or the schedule. Change
+  them on the job, or take the machine out of the job first. Display name, the
+  power switch and the storage budget stay editable on the machine.
+
+Web addresses did not break: every old address (`/settings`, `/sources`,
+`/schedules`, `/backup`, `/jobs/<run id>`, `/audit` and more) redirects to its new
+place and keeps its query, so bookmarks and links in mails keep working.
+`/api/v1/jobs` keeps its meaning and its shape; `/api/v1/runs` is the new,
+documented name for the same list.
+
+### Added
+
+#### Backup jobs
+
+- **Jobs.** A job is the definition of what is backed up, when, where and for how
+  long, over many mailboxes, OneDrives, IMAP accounts or machines at once.
+  - **Mail jobs** (Mail & SaaS > Jobs) have a backup schedule, an optional
+    restore-check schedule, a retention policy (or the tenant default) and a
+    scope: the objects you pick, or "every object that is in no other job", which
+    also catches objects added later (one such job per tenant). An object belongs
+    to at most one job.
+  - **Machine jobs** (Servers & endpoints > Jobs) cover servers and clients with an
+    agent: a schedule (every N hours, daily at a time, or when the machine
+    connects), folders, exclusions, a bandwidth limit, optional hooks and how many
+    daily, weekly and monthly restore points to keep.
+  - **Per-member overrides.** One mailbox can run on its own schedule, one machine
+    can have other folders, exclusions, bandwidth, hooks or retention. An override
+    replaces the job's value for that member.
+- **The job pages and the editor.** `/jobs?type=mail` and `/jobs?type=endpoint`
+  list the jobs with scope, schedule, repository, last and next run, status and
+  the result of the last restore check (green only for a passed restore check). A
+  job opens in tabs (Overview, Scope, Settings, Runs). The editor is a side sheet
+  that works with the keyboard; for machine jobs it shows the folders as a tree
+  read from the latest backup, offers exclusions as chips (videos, disk images,
+  temporary files, installers, music, trash and caches, your own patterns, "skip
+  files larger than X GB") and takes a bandwidth limit and hooks.
+- **Run now**, per job or for selected members.
+- **A default mail job for new tenants.** The first active source of a tenant
+  creates one mail job over all objects (backup every 8 hours, restore check every
+  Sunday at 03:00).
+- **Bandwidth time windows.** A machine job keeps its upload limit in kbit/s as the
+  default and can add windows that set another limit for certain days and hours
+  (for example Monday to Friday 08:00 to 18:00: 1000 kbit/s; 0 means unlimited). A
+  window may cross midnight, windows must not overlap (the editor and the API name
+  the later one), the times are read in the time zone of the job's schedule, and
+  the limit that applies when a run starts is used for the whole run. Up to 24
+  windows per job; per machine they are overridden together with the limit. No
+  agent update is needed: the server picks the limit when the agent asks for its
+  configuration.
+- **The size limit works.** Agent 0.2.0 passes "skip files larger than X GB" to
+  restic (`--exclude-larger-than`); the run log says so.
+
+#### Live runs, History and the run drawer
+
+- **Live runs.** One event stream per browser tab (`GET /api/v1/live`) carries
+  running backups with their progress, the jobs' state with last and next run and
+  the machines' connection; pages stop polling while it is open. The top bar says
+  "Live, updated 4 s ago", "Connecting" or "Not connected, retrying", and the pages
+  fall back to polling when the stream is lost.
+- **Throughput and sparklines.** Running backups record what was read and what was
+  written to the repository (up to 300 points per run) and show progress, speed, a
+  sparkline and the time left in the job list and in History.
+- **The run drawer.** A click on a job row or a History row opens the run in a
+  panel from the right: state, progress, summary, two charts on one time axis (one
+  crosshair, keyboard operable), the objects of the same backup run, the timeline
+  and the actions (cancel, retry, edit the job). The address carries `?run=<id>`.
+  The transfer chart shows an average over 15 seconds, because data reaches the
+  repository in packs.
+- **History** (`/history`) lists every run of the tenant, the server's and the
+  agents', in tabs (all, backup, restore, restore check, export, import,
+  maintenance) with a filter per job and paging. A retried restore check is one row
+  ("attempt 3 of 6").
+- **Progress every 5 seconds (agent 0.2.0)** instead of every 10, so the charts get
+  twice the resolution.
+
+#### Interface structure, tenants and branding
+
+- **Three levels.** The menu is organised as Daily, Mail & SaaS, Servers &
+  endpoints, Tenants and Installation. The tenant switcher moved to the top of the
+  sidebar, with a gear for the active tenant's settings; the page header names the
+  level ("Installation", "Own organisation", "Tenant: ...", "All tenants").
+- **The installation page** (`/installation/<section>`): Server, Notification mail,
+  Microsoft multi-tenant app, Journal receiving (Business), Default storage (with a
+  test that belongs to no tenant), Provider API (Service Provider), Updates,
+  License and About. Sections your edition does not include stay visible with a
+  lock. Provider roles that may look but not change see the forms closed with a
+  sentence.
+- **The tenant page** (`/tenants/<tenant>/<section>`): Overview, Connections,
+  Protection, Jobs & schedules, Backup retention, Storage, Agents, Archive,
+  Notifications, Integrations, Members, Audit log and Master data. A tenant's own
+  administrator sees their tenant's page and no other. "Connect Proxmox" is
+  announced on the Inventory page as "Soon" and starts nothing.
+- **Your own organisation.** Every installation can mark one tenant as the
+  operator's own (`kind` internal), listed first, protected from deletion and not
+  counted as a customer in provider figures. The setup wizard asks for its name and
+  creates it with its own key and two alert rules.
+- **"All tenants" scope** for provider administrators: the overview sums the
+  recovery readiness over every tenant and lists "Tenants by need for action"; pages
+  that exist only per tenant ask you to choose one. The entry that lists tenants is
+  now "Manage tenants".
+- **"Start" in the menu** replaces the setup card: it shows how many of the seven
+  steps are done and opens a popover with the steps. The notification mail is the
+  one optional step; an installation that skipped it sees "Start" disappear once
+  the other six are done.
+- **Recovery readiness is linked.** Every row of the readiness tile opens
+  `/verify?state=<state>`, with chips and counts for the five states.
+- **Brand colours and a second colour scheme.** The interface uses the Restow brand
+  colours (Limestone, Nile, Lapis); "Neutral" is the black-and-white look of 0.1.0,
+  chosen per browser in the user menu, in the command palette and on the sign-in and
+  setup pages. Inter Tight and IBM Plex Mono are bundled into the web image as
+  `woff2` files (about 320 KB) and served from `/assets`; nothing is fetched from
+  outside and the Content-Security-Policy is unchanged.
+- **Wide tables scroll inside their own frame** with the first column pinned
+  (two for the audit log), reachable with the keyboard; data views use the full
+  width of the content area.
+
+#### Installation and setup
+
+- **The install script explains itself and asks how Restow is reached**: public
+  with its own certificate, behind a reverse proxy you run, or local evaluation.
+  Every existing option still works; `--non-interactive` asks nothing.
+- **Behind a reverse proxy: `--behind-proxy`** (`--domain`, `--proxy-ip`). Restow
+  then needs no public DNS record, no certificate of its own and no inbound port
+  from the internet. The hop to the proxy is encrypted by default (new setting
+  `RESTOW_EDGE_TLS=internal`; the edge shows a certificate from Caddy's own
+  authority and the script copies its root certificate to
+  `/opt/restow/edge-root-ca.crt`). `--proxy-hop http` selects the unencrypted hop,
+  only for a proxy on the same host or in an isolated network; the script says so.
+  `RESTOW_HTTP_PORT` and `RESTOW_HTTPS_PORT` now accept an address such as
+  `192.168.1.50:443`.
+- **The end of the installation shows the address and the setup token**, and where
+  a proxy must forward to. The token goes to the terminal only, never to
+  `/var/log/restow-install.log`.
+- **The setup wizard starts with the language** (English or Deutsch, also the
+  language of your own organisation) and has seven steps. The notification mail can
+  be skipped ("Skip for now"); `POST /api/v1/setup` accepts `language` and an absent
+  `mail`.
+
+#### Tenants and notifications
+
+- **Agent updates are paused once per tenant** (Tenant page > Agents), which also
+  covers machines enrolled later. A machine with a pause of its own (the old way)
+  stays paused and is listed as an override with "Resume this machine" and "Resume
+  all".
+- **Tenant administrators may read their tenant and edit its notification
+  recipients** (`GET /api/v1/tenants/:id`, `PUT
+  /api/v1/tenants/:id/notification-recipients`), and have an Audit log section on
+  their tenant page.
+- **`GET /api/v1/history`, `GET /api/v1/history/:id`, `GET /api/v1/live`,
+  `/api/v1/backup-jobs`** (session API of the web app), `kind` and `customerNumber`
+  on tenants (`GET /api/v1/me`, `GET /api/v1/tenants`, `GET
+  /api/v1/provider/tenants`), `widgets` and `provider` parameters on `GET
+  /api/v1/dashboard`, and `PUT /api/v1/settings/mail/not-needed`. The integration
+  API is contract 1.2.0 (additive): the runs are also available as `/runs`,
+  `/runs/{id}`, `/runs/backup` and `/runs/{id}/events`.
+- New audit actions: `backup_job.created`, `.updated`, `.deleted`, `.scope.changed`,
+  `.run_requested`, `.migrated` (written by the system), `tenant.internal.marked`,
+  `tenant.internal.unmarked`, `settings.mail.not_needed`,
+  `setup.internal_tenant_failed`.
+
+### Changed
+
+- **Schedules now hold only maintenance** and the schedules of an older release
+  that no job could take over. A restore check after every backup follows the job;
+  retention follows the job that names a policy (a policy scoped to one object still
+  wins), and a retention policy that a job names cannot be deleted (409).
+- **Saving the notification recipients now changes who is mailed.** Each category
+  (failed jobs, readiness turning red, weekly report) is carried by one rule of the
+  tenant, kept up to date from the next alert on. Before, the recipients were used
+  once to create rules and later edits changed nothing. The recipients field of such
+  a rule is read-only in the alert editor.
+- **The default storage counts as tested once the installation tested it**, whether
+  the tenant or the installation ran the test; a newer failed test shows the step
+  as failing.
+- **Provider figures no longer count your own organisation as a customer.** Its
+  objects, failures, mailboxes and storage are still part of the sums; the license
+  audit entries count customers only.
+- **Texts follow the level.** Community and Business pages say "your organisation",
+  never "tenant".
+- **Error text and destructive buttons are easier to read in light mode** (red text
+  contrast now at least 4.5:1, amber of the "Soon" badge a hair darker).
+- **Green means proof only.** A backup that merely completed is Lapis in the PDF
+  statistics report, as in the web charts.
+- **Small headings and badges are in sentence case**, the wordmark reads "restow
+  backup suite" (your own `RESTOW_PRODUCT_NAME` is shown as written), and PDF
+  reports follow the brand palette with the standard PDF fonts.
+- **Capacity planning** (Installation, formerly "Resources") announces 0.5.0.
+- **Where things moved.** Settings > General, Mail, Microsoft 365, Updates, About,
+  Danger zone and Integrations > Provider keys are sections of Installation; Sources,
+  Imports, Protected objects, Schedules, Retention, Repositories, Alert rules,
+  Integrations, Members and the tenant detail page are sections of the tenant page;
+  `/backup` leads to `/jobs?type=mail`.
+- **`docker-compose.yml` of the release passes `RESTOW_EDGE_TLS` to the edge** and
+  documents that the two published host ports accept an address;
+  `RESTOW_EDGE_TLS` is empty in `env.example`.
+- **Dependabot groups its updates** and no longer runs CI twice for its branches;
+  Hono 4.13.10, better-auth and its passkey plugin 1.7.6, TanStack Router 1.170.40
+  and Query 5.104.0 and react-hook-form 7.89.0 were updated (patch and minor, no
+  configuration, API or database change). The build stage `agent-dist` starts from
+  Alpine 3.24; Alpine is not part of the shipped image.
+- **`scripts/release/sign-agent.sh` runs from any directory** and the release
+  workflow explains why a tag signature is not verified (and refuses it when the
+  repository variable `REQUIRE_SIGNED_TAGS` is `true`). Release tooling; operators
+  are not affected.
+
+### Fixed
+
+- **Saving a migrated job reset its timer.** The schedule before and after an edit
+  was compared by how its JSON was ordered and spelled, not by its meaning; it is
+  compared by meaning now, so saving a job without changing its schedule keeps the
+  next run.
+- **Editing notification recipients later changed nothing.** Recipients were only
+  used when the tenant was created; saving them now updates the rules (see
+  Changed).
+- **A tenant that tested the default storage kept the setup reason "the server's
+  default storage has not been tested".** The test was recorded for the installation
+  and the tenant only read its own; the newest test counts now.
+- **A tenant administrator who opened another tenant's address saw "All tenants" in
+  the header.** The header named the wrong level; it names the administrator's own
+  level and the page belongs to Tenant settings in the menu.
+- **Tenant page > Storage showed two "Repositories" headings.** The list is a
+  region of that name with its explanation.
+- **The mail preview tests failed on slow CI runners** (they gave the plain-text
+  fallback half of a short time limit, which a loaded runner spent starting the
+  parser process; this failed the v0.1.0 release CI three times). Each phase has
+  its own limit now. The product's behaviour and its default limits are unchanged.
+
+### Security
+
+No advisory or CVE affects 0.1.0 and is fixed here. Two points concern the update
+of the sign-in library and the new proxy mode.
+
+- **Over-long passwords are refused before they are processed.** better-auth 1.7.6
+  rejects a password longer than its configured maximum on sign-in and on the other
+  password endpoints before it is hashed or compared. Restow accepted passwords of
+  up to 256 characters before and now sets the maximum to 256 explicitly:
+  **operators whose password is between 129 and 256 characters long are
+  unaffected**. The limits are at least 12 and at most 256 characters, as before.
+- **The hop between a reverse proxy and Restow is encrypted by default** with
+  `--behind-proxy`. The plain HTTP hop (`--proxy-hop http`) sends session cookies
+  and passwords unencrypted between the proxy and Restow, and port 80 is open to the
+  network; use it only on the same host or in an isolated network. Docker publishes
+  ports past `ufw`: behind a proxy, publish the edge's port on one address
+  (`RESTOW_HTTPS_PORT=192.168.1.50:443`) or add a rule to Docker's `DOCKER-USER`
+  chain.
+- Typefaces are served by your installation; nothing is requested from Google Fonts
+  or any other host.
+
+### Upgrade Notes
+
+Order: back up (docs/UPDATING.md), replace the compose file if you want the
+encrypted proxy hop, pull the 0.2.0 images, start. Migrations run automatically at
+start.
+
+- **Database: five additive migrations, `0020_tenant_kind`,
+  `0021_tenant_page_settings`, `0022_setup_mail_not_needed`, `0023_backup_jobs` and
+  `0024_run_samples`.** They add
+  columns and tables (with Row Level Security) and delete nothing; each is safe to
+  run twice and needs no downtime. 0020 adds `tenants.kind`, 0021
+  `tenants.agent_updates_paused` and `report_rules.recipient_category`, 0022
+  `settings.mail_not_needed`, 0023 the tables `backup_jobs` and
+  `backup_job_members`, `schedules.superseded_by_job_id` and
+  `tenants.backup_jobs_migrated_at`, and 0024 the table `run_samples` and two byte
+  columns on `job_progress`. Existing runs have no samples; their charts say "No
+  measurements were kept".
+- **Your schedules and machines become jobs when the API starts, once per tenant.**
+  The step runs in the API process before it serves requests, one transaction per
+  tenant. Nothing is deleted, and a second start finds nothing to do.
+  - *Mail.* A tenant's enabled backup and verify schedules become one mail job
+    ("Mail backup" or "Mail-Sicherung" after the tenant's language). A tenant-wide
+    schedule becomes the job's schedule and the job covers every object, so mailboxes
+    added later are backed up. A schedule of one object becomes that object's
+    override only when it protects the object at least as well as the job's schedule
+    at every time of day and week; otherwise it stays exactly as it was and keeps
+    running next to the job, so no object is ever backed up less often than before
+    (nights, weekends, monthly schedules and the further schedules of an object stay
+    as they were). The next run times are carried over, so nothing runs early or is
+    skipped.
+  - *A tenant that already has a mail job* (the step failed at an earlier start and an
+    administrator created a job by hand) keeps all its schedules; they run next to
+    that job. The tenant's audit entry lists them (reason `mail_job_exists`); switch
+    them off under Tenant settings > Jobs & schedules once the job covers the same
+    objects.
+  - *Replaced schedules stay on record* with `superseded_by_job_id`; the scheduler no
+    longer plans them and the API refuses to change them.
+  - *Machines.* Active machines with the same profile, operating system and schedule
+    become one job (for example "Linux servers · daily 02:00"); what most machines of
+    a group share is the job's, a machine that differs gets an override with just the
+    differences. Revoked machines are left out. The step checks that the job
+    reproduces every machine's configuration exactly: nothing is rewritten and no
+    machine gets a new configuration version.
+  - *Audit.* Every tenant gets a `backup_job.migrated` entry written by the system
+    with the numbers; the API log carries the totals at start.
+  - *Failure.* If the step fails for a tenant, the API still starts, nothing of that
+    tenant is changed, its old schedules keep running and the step is tried again at
+    the next start. The API log names the tenant ("a tenant could not be moved to
+    backup jobs and keeps its schedules"). Do not create a mail job by hand for such
+    a tenant, or its old schedules and the new job both run.
+- **Machines in a job are configured from the job.** Tenants created after the update
+  do not get their machines grouped automatically: put a new machine into a job, or
+  leave it with the configuration it enrolled with.
+- **Encrypted proxy hop: replace `docker-compose.yml`.** The 0.1.0 compose file does
+  not pass `RESTOW_EDGE_TLS` to the edge, and changing the image lines in `.env` does
+  not replace it. To switch an installation behind a reverse proxy from the plain
+  HTTP hop to the encrypted one: replace `/opt/restow/docker-compose.yml` with the one
+  of the 0.2.0 release assets, set `RESTOW_APP_DOMAIN=<name>` (without `http://`),
+  `RESTOW_EDGE_TLS=internal` and `RESTOW_HTTP_PORT=127.0.0.1:` in `.env`, run
+  `docker compose up -d`, and set the proxy to scheme `https`, port `443`. In Nginx
+  Proxy Manager add under Advanced `proxy_ssl_server_name on;`,
+  `proxy_ssl_name $host;` and `proxy_buffering off;`. Without these steps an
+  installation made with 0.1.0 keeps working unchanged: the edge behaves as before
+  while `RESTOW_EDGE_TLS` is unset or `acme`, and the script never changes an
+  existing `.env`. `--behind-proxy` itself needs release 0.2.0 or newer;
+  `--proxy-hop http` works with any release.
+- **Reverse proxies must not buffer `text/event-stream` for `/api/v1/live`.** The
+  stream answers with `cache-control: no-cache` and `x-accel-buffering: no`, which
+  nginx honours; switch response buffering off for that path on other proxies. If the
+  stream cannot be held open, the indicator says so and the pages poll. One stream is
+  held per open tab, and only while the tab is in front. A proxy must also pass
+  `/assets/*` through unchanged, as it already does.
+- **Agents update themselves.** An agent asks the server every 6 hours for a newer,
+  signed agent (the 0.2.0 agent ships in the 0.2.0 image), checks the signature
+  against the key compiled into it, replaces itself and its restic where the release
+  pins another one and restarts its service. Machines that are off update when they
+  are next online. The size limit and the 5 second progress need agent 0.2.0. If you
+  paused automatic updates (Tenant page > Agents) or paused one machine, that machine
+  keeps its old agent until you resume or install it again with the install command.
+- **Service Provider installations: mark your own organisation once.** Sign in as an
+  owner or administrator of the provider team; the overview asks you to choose the
+  tenant that holds your own data or to create a new one. Until then everything works
+  as before. A Community or Business installation with exactly one tenant marks it at
+  the first start (audit entry, actor "system"); an installation with several tenants
+  and no Service Provider key is asked the same question.
+- **Automation:** every `POST /api/v1/setup` call needs `providerName`; the tenant
+  lists are ordered own organisation first, then by name; scripts that created
+  backup or verify schedules must create jobs. A script that runs the installer
+  behind a proxy passes `--behind-proxy --domain <name> --proxy-ip <address>
+  --non-interactive`; the setup token is not printed in a run without a terminal,
+  read it from the API's log.
+- **Rolling back to 0.1.x.** Migrations stay applied; 0.1.x ignores the new columns
+  and tables and backups keep running, with these effects:
+  - 0.1.x does not know `superseded_by_job_id` and plans every backup and verify
+    schedule again, the replaced ones included. Their next run times stayed where
+    they were at the upgrade, so right after the rollback every replaced schedule is
+    overdue and runs once (a backup and a restore check of every covered object at
+    once), then on its old cadence.
+  - 0.1.x does not know jobs. A tenant whose first source was connected after the
+    update has only its default mail job and no backup or verify schedule: nothing
+    backs it up on 0.1.x until you choose "Apply recommended schedules" for it.
+    Changes made to a job after the update do not exist on 0.1.x.
+  - Machines keep the configuration last written to them, a job's later change
+    included; the agent ignores `excludeLargerThanBytes`, and 0.1.x lets you change a
+    machine's settings on its page again. A 0.1.x server sends the stored default
+    bandwidth limit and never the size limit or time windows; windows stay in the job
+    and apply again after the next update.
+  - A pause of agent updates set on the tenant after the update is not honoured by
+    0.1.x, which only knows the pause stored on the machines.
+  - Updating to 0.2.0 again does not move a tenant twice. Schedules created on 0.1.x
+    run next to the jobs (backups twice), changes made on 0.1.x to replaced schedules
+    are ignored, and machine settings changed on 0.1.x are overwritten the next time
+    their job is changed. Check each tenant's jobs and its "Jobs & schedules" section
+    after updating again.
+  - Run one scheduler version at a time. A 0.1.x and a 0.2.0 scheduler share the
+    leader lock, so only one plans at a time, but each change of leader between them
+    runs what the other left overdue.
+- **Where to look afterwards:** the tenant's mail job under Mail & SaaS > Jobs, its
+  machine jobs under Servers & endpoints > Jobs, and `backup_job.migrated` in the
+  audit log.
+
+### Known Issues
+
+- Microsoft 365 backup and restore have still never run against a real Microsoft 365
+  tenant; they are covered by tests against a simulated Graph API. Run Restow next to
+  your existing backups and restore a test mailbox before you rely on it.
+- **Jobs write to the tenant's primary storage target.** The editor shows it and the
+  API refuses another; a repository per job comes later. A machine job cannot be
+  paused (the agent decides when to back up; taking machines out of the job ends the
+  management, not the backups), and restore checks of machines follow every backup
+  with no cadence to set.
+- **Schedules the migration could not take over** stay old-style schedules in Tenant
+  settings > Jobs & schedules and keep running next to the job: an object's own
+  schedule that pauses longer than the job's, the further schedules of an object
+  that had several of one kind, a second tenant-wide schedule with another cadence
+  and a cadence the scheduler cannot plan. Move such an object into a job with the
+  schedule you want and then switch the old schedule off. A tenant without a
+  tenant-wide schedule gets a job over exactly the objects that had one of their
+  own; an object that had only one kind of schedule now also gets the other kind
+  (more runs, never fewer).
+- **A run keeps the bandwidth limit of its start**, and time windows apply to
+  backups only, not to restores or restore tests. Throughput of an agent run is
+  derived from the growth of the repository, so another machine writing to the same
+  repository adds to it; runs started before the update and agents that report no
+  progress have no throughput line.
+- **Under "All tenants" there is no cross-tenant history, alert list or object
+  list**; those pages ask for a tenant. The notifications bell, the Statistics tab
+  and the command palette have no "All tenants" scope, and "Start" is hidden there.
+- **The archive retention period cannot be changed yet** (8 years, not settable); the
+  tenant page shows what applies. Google Workspace and Proxmox are announced, not
+  built. Leaving an installation or tenant section with unsaved changes drops them.
+- **Not looked at in a browser:** the layout of the seven-step wizard on a narrow
+  screen was checked in code and tests, not by eye. `--behind-proxy` was verified
+  against stub commands and a real Caddy edge, not on a VM with a real Nginx Proxy
+  Manager since the encrypted hop was added; the plain HTTP hop is the configuration
+  verified by hand on a Proxmox VM.
+- **Deferred to 0.2.1:** context menus, the "assigned to" column and owner of a machine
+  in the machine table, file restore from the machine table with the shared
+  timeline, and simulated runs in the public demo.
+- The checks listed as not run under Verification were not repeated for this
+  entry; the release pipeline runs the smoke checks.
+
+### Verification
+
+Measured on 2026-10-03 on the release candidate (revision `9272693` plus the
+uncommitted 0.2.0 changes; the tag commit differs and the release pipeline repeats
+the smoke on it). Host: Apple M4 MacBook Air, macOS 26.5.2; Node 25.9.0, pnpm 9.15.9,
+Go 1.27.1, restic 0.19.1 (the pinned binary of `agent/dist`), PostgreSQL 16.14
+(local). No Microsoft 365 development tenant was used. Heavy steps ran one after
+another with `VITEST_MAX_FORKS=3`.
+
+- **Lint, typecheck, build:** `pnpm lint` (Biome over 2461 files, the `ee/` import
+  boundary, the former-name and package-file guards), `pnpm build:libs` and
+  `typecheck` over every workspace passed.
+- **Test suites:** Vitest over 13 workspaces with the PostgreSQL suites and
+  `RESTIC_BINARY` set: 770 test files, 9600 tests, all passed (apps/web 3352,
+  apps/api 2825, packages/core 1914, apps/worker 379, packages/i18n 244, ee/api 238,
+  demo seed 172, ee/web 177, packages/db 139, apps/scheduler 65, ee/licensing 59,
+  packages/cli 32, ee/worker 4). The same run without `RESTIC_BINARY` passed 9463
+  tests and skipped 137 (the restic-dependent ones). `deploy/install/test.sh`: 601
+  checks passed under bash 3.2 (macOS).
+- **Endpoint agent:** `gofmt -l` clean, `go vet ./...` and `go test -race ./...` passed
+  for all packages.
+- **Migrations:** 25 (0000 to 0024); the PostgreSQL suites ran against them.
+- **Not run in this pass, and so not claimed:** the release smoke and image builds,
+  Trivy, `pnpm audit`, the license check, gitleaks, ShellCheck, the updater
+  end-to-end test, the installer on VMs and the upgrade path from a 0.1.0 database
+  with the schedule migration (the migration is covered by its own PostgreSQL
+  tests). The release pipeline runs the smoke for both builds on amd64 and arm64 and
+  attaches the smoke reports; this section is completed with their result.
+
 ## [0.1.0] - 2026-10-02
 
 Beta release. First public release of Restow. Run it alongside your existing

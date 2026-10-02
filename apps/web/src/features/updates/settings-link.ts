@@ -1,9 +1,8 @@
 import type { LinkProps } from "@tanstack/react-router";
 
-import { settingsTo } from "@/features/settings/paths";
-import { SETTINGS_PATH } from "@/features/settings/paths";
+import { installationSectionPath, installationSectionTo } from "@/features/installation/paths";
 
-/** Where the Updates tab lives: Settings, section `updates`. */
+/** Where the Updates page lives: Installation, section `updates`. */
 export const UPDATES_SECTION = "updates" as const;
 
 export interface UpdatesTabLink {
@@ -11,16 +10,12 @@ export interface UpdatesTabLink {
   search: never;
 }
 
-/** The link target of Settings, Updates (feature routes join the router at runtime, hence the casts). */
+/** The link target of Installation, Updates (feature routes join the router at runtime, hence the casts). */
 export function updatesTabLink(): UpdatesTabLink {
-  return { to: settingsTo(), search: { section: UPDATES_SECTION } as never };
+  return { to: installationSectionTo(UPDATES_SECTION), search: {} as never };
 }
 
-/** Whether a location is Settings, Updates (the page that carries the recovery steps). */
-export function isUpdatesTab(pathname: string, search: unknown): boolean {
-  const section =
-    typeof search === "object" && search !== null
-      ? (search as { section?: unknown }).section
-      : null;
-  return pathname.replace(/\/+$/, "") === SETTINGS_PATH && section === UPDATES_SECTION;
+/** Whether a location is Installation, Updates (the page that carries the recovery steps). */
+export function isUpdatesTab(pathname: string): boolean {
+  return pathname.replace(/\/+$/, "") === installationSectionPath(UPDATES_SECTION);
 }

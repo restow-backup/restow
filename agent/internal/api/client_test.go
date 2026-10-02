@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -305,6 +306,26 @@ func TestFlexTypes(t *testing.T) {
 	var cfg api.Config
 	if err := jsonUnmarshal(`{"configVersion":7,"bandwidthKbps":null,"hooks":{"pre":null}}`, &cfg); err != nil || cfg.ConfigVersion != "7" || cfg.BandwidthKbps != nil {
 		t.Fatalf("config: %+v %v", cfg, err)
+	}
+}
+
+func TestConfigSizeLimitIsOptional(t *testing.T) {
+	cases := map[string]int64{
+		`{"configVersion":1}`:                                     0,
+		`{"configVersion":1,"excludeLargerThanBytes":null}`:       0,
+		`{"configVersion":1,"excludeLargerThanBytes":0}`:          0,
+		`{"configVersion":1,"excludeLargerThanBytes":5368709120}`: 5368709120,
+	}
+	for body, want := range cases {
+		var cfg api.Config
+		if err := jsonUnmarshal(body, &cfg); err != nil || cfg.ExcludeLargerThanBytes != want {
+			t.Errorf("%s: limit %d, err %v, want %d", body, cfg.ExcludeLargerThanBytes, err, want)
+		}
+	}
+	// An agent of an older release (and a server without a job limit) leave the field out entirely.
+	out, err := json.Marshal(api.Config{ConfigVersion: "1"})
+	if err != nil || strings.Contains(string(out), "excludeLargerThanBytes") {
+		t.Errorf("an unset limit must not be written: %s %v", out, err)
 	}
 }
 

@@ -28,7 +28,14 @@
     "label": "Darstellung",
     "light": "Hell",
     "dark": "Dunkel",
-    "system": "System"
+    "system": "System",
+    "mode": "Modus",
+    "palette": {
+      "label": "Farbschema",
+      "restow": "{appName}",
+      "neutral": "Neutral"
+    },
+    "deviceNote": "Gilt nur für diesen Browser."
   },
   "language": {
     "label": "Sprache",
@@ -42,14 +49,24 @@
       "mail": "Mail & SaaS",
       "endpoints": "Server & Endpunkte",
       "tenants": "Mandanten",
-      "admin": "Verwaltung",
+      "organisation": "Organisation",
+      "installation": "Installation",
       "other": "Weitere"
+    },
+    "scope": {
+      "installation": "Installation",
+      "all": "Alle Mandanten",
+      "internal": "Eigene Organisation · Intern",
+      "tenant": "Mandant: {name}",
+      "organisation": "Organisation: {name}",
+      "dimmedHint": "Gilt je Mandant: erst oben im Menü einen Mandanten wählen."
     },
     "groupMenu": "{group}, Einträge anzeigen",
     "items": {
       "jobs": "Jobs",
-      "setup": "Einrichtung",
-      "resources": "Auslastung"
+      "tenantSettings": "Mandanten-Einstellungen",
+      "organisationSettings": "Einstellungen",
+      "resources": "Kapazitätsplanung"
     },
     "breadcrumb": "Navigationspfad",
     "notifications": "Benachrichtigungen",
@@ -68,17 +85,7 @@
       "newTab": "(öffnet in einem neuen Tab)"
     },
     "setup": {
-      "tabsLabel": "Einrichtung von {tenant}",
-      "tabs": {
-        "protection": "Schutz",
-        "sources": "Quellen",
-        "schedules": "Zeitpläne",
-        "retention": "Aufbewahrung",
-        "imports": "Importe"
-      },
-      "openTenantPage": "Mandantenseite öffnen",
-      "openTenantPageFor": "Mandantenseite öffnen: {name}",
-      "tenantPage": "Mandantenseite"
+      "openTenantPage": "Mandantenseite öffnen"
     }
   },
   "tenant": {
@@ -90,7 +97,12 @@
     "current": "Aktueller Mandant",
     "count": "{count, plural, one {# Mandant} other {# Mandanten}}",
     "switchCurrent": "Mandant wechseln, aktuell: {name}",
-    "search": "Mandanten suchen …",
+    "search": "Nach Name oder Kundennummer suchen …",
+    "organisation": "Organisation",
+    "internal": "Intern",
+    "customerNumber": "Kundennummer",
+    "manageAll": "Mandanten verwalten",
+    "settingsOf": "Einstellungen von {name} öffnen",
     "empty": "Kein passender Mandant.",
     "switched": "Sie arbeiten jetzt in {name}.",
     "closedHint": "nur der Provider kann ihn öffnen",
@@ -110,6 +122,12 @@
         "provider": "Seine Daten werden entfernt; in diesem Mandanten lässt sich nichts mehr ändern.",
         "member": "Seine Seiten sind nicht mehr verfügbar."
       }
+    },
+    "all": {
+      "title": "Alle Mandanten",
+      "count": "{count, plural, one {# Mandant} other {# Mandanten}}",
+      "description": "Summe über alle {count, plural, one {# Mandanten} other {# Mandanten}}",
+      "switched": "Sie sehen jetzt alle Mandanten zusammen."
     }
   },
   "roles": {
@@ -129,6 +147,10 @@
   "loading": {
     "label": "Wird geladen …",
     "session": "Sitzung wird geprüft …"
+  },
+  "table": {
+    "scrollable": "{name}, scrollbar",
+    "scrollableUnnamed": "Scrollbare Tabelle"
   },
   "errors": {
     "title": "Etwas ist schiefgelaufen",
@@ -161,6 +183,7 @@
     "httpsRequired": "Die öffentliche URL muss mit https:// beginnen.",
     "port": "Bitte geben Sie einen Port zwischen 1 und 65535 ein.",
     "minLength": "Mindestens {min} Zeichen.",
+    "maxLength": "Höchstens {max} Zeichen.",
     "passwordMismatch": "Die Passwörter stimmen nicht überein.",
     "totp": "Bitte geben Sie den 6-stelligen Code ein.",
     "emailInUse": "Mit dieser E-Mail-Adresse gibt es bereits ein Konto. Wählen Sie eine andere."
@@ -196,20 +219,20 @@
     },
     "switchTo": "Zu {name} wechseln",
     "theme": "Darstellung: {theme}",
-    "language": "Sprache: {language}"
+    "language": "Sprache: {language}",
+    "scheme": "Farbschema: {scheme}"
   },
   "keys": {
     "ctrl": "Strg"
   },
   "soon": {
-    "mailJobs": {
-      "description": "Jobs für Mail & SaaS legen fest, was gesichert wird, wann, in welches Repository und wie lange, für viele Postfächer, OneDrives und IMAP-Konten zugleich. Vergangene Läufe stehen im Verlauf."
-    },
-    "endpointJobs": {
-      "description": "Jobs für Server und Clients legen Pfade, Hooks, Zeitplan, Repository und Aufbewahrung für viele Rechner zugleich fest, mit Abweichungen je Rechner."
-    },
     "resources": {
-      "description": "Zeigt, wie ausgelastet diese Installation ist, was in der Warteschlange wartet und ob ein weiterer Worker oder ein größerer Server hilft."
+      "description": "Zeigt Auslastung und Wachstum je Mandant und je Repository, mit einer klaren Prognose wie „voll in etwa N Tagen“."
     }
+  },
+  "chooseTenant": {
+    "title": "Mandant wählen",
+    "description": "Diese Seite gilt je Mandant. Wählen Sie einen Mandanten, dann geht es hier mit ihm weiter.",
+    "list": "Mandanten"
   }
 }

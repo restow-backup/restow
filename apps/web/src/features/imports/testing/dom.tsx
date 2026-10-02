@@ -21,6 +21,8 @@ export function sessionValue(
     id: TENANT_ID,
     name: "Acme GmbH",
     slug: "acme",
+    kind: "customer" as const,
+    customerNumber: null,
     role,
     status: "active" as const,
   };

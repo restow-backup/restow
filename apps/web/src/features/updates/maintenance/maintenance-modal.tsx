@@ -136,7 +136,7 @@ export function MaintenanceModal({ onUpdatesTab = false }: { onUpdatesTab?: bool
 /** The modal for the app shell: it steps aside on Settings, Updates, where the recovery steps are. */
 export function ShellMaintenanceModal() {
   const onUpdatesTab = useRouterState({
-    select: (state) => isUpdatesTab(state.location.pathname, state.location.search),
+    select: (state) => isUpdatesTab(state.location.pathname),
   });
   return <MaintenanceModal onUpdatesTab={onUpdatesTab} />;
 }

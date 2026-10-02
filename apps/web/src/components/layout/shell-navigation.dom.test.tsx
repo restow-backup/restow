@@ -15,7 +15,6 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { GroupCrumbMenu } from "@/components/layout/shell-breadcrumbs";
 import { OverviewTabs } from "@/features/dashboard/components/overview-tabs";
-import { TenantSetupTabs } from "@/features/tenant-setup/setup-tabs";
 import { i18n } from "@/i18n";
 import type { PlacedNavItem } from "@/lib/navigation";
 import { type SessionContextValue, StaticSessionProvider } from "@/lib/session";
@@ -43,7 +42,14 @@ afterEach(() => {
 });
 
 function session(role: SessionContextValue["role"]): SessionContextValue {
-  const tenant = { id: "contoso", name: "Contoso", slug: "contoso", role: "tenant_admin" as const };
+  const tenant = {
+    id: "contoso",
+    name: "Contoso",
+    slug: "contoso",
+    kind: "customer" as const,
+    customerNumber: null,
+    role: "tenant_admin" as const,
+  };
   return {
     status: "authenticated",
     user: { id: "u1", name: "Alex", email: "alex@example.test" },
@@ -162,41 +168,34 @@ describe("the group crumb's menu", () => {
     expect(document.activeElement).toBe(trigger);
   });
 
+  it("shows the trigger as the scope pill when the group is named like the scope", async () => {
+    await render(
+      "/history",
+      <GroupCrumbMenu label="Installation" items={DAILY} activeId="history" scope="installation" />,
+    );
+    const trigger = document.querySelector<HTMLButtonElement>('[data-slot="breadcrumb-group"]');
+    // One button: the menu trigger, whose face is the pill (icon, text, chevron).
+    const pill = trigger?.querySelector('[data-slot="scope-pill"]');
+    expect(pill?.getAttribute("data-scope")).toBe("installation");
+    expect(pill?.textContent).toBe("Installation");
+    expect(trigger?.getAttribute("aria-label")).toBe("Installation, show entries");
+    expect(trigger?.getAttribute("aria-haspopup")).toBe("menu");
+    trigger?.focus();
+    await key(trigger as Element, "Enter");
+    expect(document.querySelector('[role="menu"]')).not.toBeNull();
+    await key(document.activeElement as Element, "Escape");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it("opens with Space as well", async () => {
     await render("/history", <GroupCrumbMenu label="Daily" items={DAILY} activeId="history" />);
     const trigger = document.querySelector<HTMLButtonElement>('[data-slot="breadcrumb-group"]');
     trigger?.focus();
     await key(trigger as Element, " ");
     expect(document.querySelector('[role="menu"]')).not.toBeNull();
-  });
-});
-
-describe("the tab bar of the tenant setup area", () => {
-  it("shows the area's tabs above a tab's page, the current one marked", async () => {
-    await render("/schedules", <TenantSetupTabs />);
-    const bar = document.querySelector('nav[aria-label="Setup of Contoso"]');
-    expect(bar).not.toBeNull();
-    const links = [...(bar?.querySelectorAll("a") ?? [])];
-    expect(links.map((link) => [link.textContent, link.getAttribute("href")])).toEqual([
-      ["Protection", "/protected-objects"],
-      ["Sources", "/sources"],
-      ["Schedules", "/schedules"],
-      ["Retention", "/retention"],
-      ["Imports", "/imports"],
-    ]);
-    expect(links.filter((link) => link.getAttribute("aria-current") === "page")).toEqual([
-      links[2],
-    ]);
-  });
-
-  it("stays away from pages below a tab and from roles with a single tab", async () => {
-    await render("/sources/abc", <TenantSetupTabs />);
-    expect(document.querySelector('nav[aria-label="Setup of Contoso"]')).toBeNull();
-    act(() => root?.unmount());
-    host?.remove();
-    // An end user may only read the schedules: no bar for one tab.
-    await render("/schedules", <TenantSetupTabs />, "tenant_user");
-    expect(document.querySelector('nav[aria-label="Setup of Contoso"]')).toBeNull();
   });
 });
 

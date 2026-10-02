@@ -47,6 +47,12 @@ export interface ReportRule {
   periodDays: number;
   sections: ReportSection[];
   emailRecipients: string[];
+  /**
+   * Set when the rule carries one category of the tenant's notification recipients
+   * (`jobFailures`, `readinessRed`, `weeklyReport`): its addresses are the recipients who
+   * chose that category and change only there.
+   */
+  recipientCategory: string | null;
   inApp: boolean;
   webhookId: string | null;
   language: "de" | "en" | null;

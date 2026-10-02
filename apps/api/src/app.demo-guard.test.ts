@@ -71,6 +71,32 @@ describe("demo guard vs. the real app", () => {
     }
   }, 30_000);
 
+  it("refuses every write of backup jobs (creating, changing, scope, deleting, running) and reads them", async () => {
+    const id = PLACEHOLDER_ID;
+    for (const [method, path] of [
+      ["POST", "/api/v1/backup-jobs"],
+      ["PATCH", `/api/v1/backup-jobs/${id}`],
+      ["DELETE", `/api/v1/backup-jobs/${id}`],
+      ["PUT", `/api/v1/backup-jobs/${id}/members`],
+      ["POST", `/api/v1/backup-jobs/${id}/members`],
+      ["PATCH", `/api/v1/backup-jobs/${id}/members/${id}`],
+      ["DELETE", `/api/v1/backup-jobs/${id}/members/${id}`],
+      ["POST", `/api/v1/backup-jobs/${id}/run`],
+      // The same operations on the runs alias (the demo lets a visitor back up, not change jobs).
+      ["POST", `/api/v1/runs/${id}/cancel`],
+    ] as const) {
+      const response = await app.request(path, { method });
+      expect(response.status, `${method} ${path}`).toBe(403);
+      expect(((await response.json()) as { type?: string }).type, `${method} ${path}`).toBe(
+        DEMO_READ_ONLY_PROBLEM,
+      );
+    }
+    // Looking at jobs is a read: the session check answers, not the guard.
+    for (const path of ["/api/v1/backup-jobs", `/api/v1/backup-jobs/${id}/members`]) {
+      expect((await app.request(path)).status, path).toBe(401);
+    }
+  });
+
   it("lets the ZIP download of endpoint files past the guard, and only that endpoint action", async () => {
     // No session: the route itself answers 401, which is what proves the guard let it through.
     const prepare = await app.request(`/api/v1/endpoints/${PLACEHOLDER_ID}/downloads`, {

@@ -1,9 +1,11 @@
+import { Link } from "@tanstack/react-router";
 import { History, Hourglass } from "lucide-react";
 import * as React from "react";
 
 import { RelativeTime, StatusBadge } from "@/components/kit";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { jobDefinitionTo, linkProps } from "@/features/backup-jobs/paths";
 
 import type { EndpointDetail, EndpointTask } from "../api.js";
 import { type EndpointFormat, useEndpointFormat } from "../hooks.js";
@@ -208,6 +210,18 @@ function FactsCard({ detail }: { detail: EndpointDetail }) {
                   ? t("facts.configApplied", { version: detail.configVersion })
                   : t("facts.configRevoked", { version: detail.configVersion })}
             </span>
+          </Fact>
+          <Fact label={t("facts.job")}>
+            {detail.job ? (
+              <Link
+                {...linkProps(jobDefinitionTo(detail.job.id, "endpoint"))}
+                className="rounded-sm font-medium underline-offset-4 outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
+              >
+                {detail.job.name}
+              </Link>
+            ) : (
+              <span className="text-muted-foreground">{t("facts.jobNone")}</span>
+            )}
           </Fact>
           <Fact label={t("facts.added")}>
             <RelativeTime value={detail.createdAt} focusable={false} />

@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { RelativeTime, StatusBadge } from "@/components/kit";
 import { buttonVariants } from "@/components/ui/button";
-import { TableCell, TableRow } from "@/components/ui/table";
+import { PIN_FIRST, TableCell, TableRow } from "@/components/ui/table";
 import type { EndpointReadinessRow } from "@/features/verify/api";
 import { StateBadge } from "@/features/verify/components/status";
 
@@ -55,7 +55,7 @@ export function EndpointReadinessRowView({ row }: { row: EndpointReadinessRow })
   const result = t(endpointResultKey(row));
   return (
     <TableRow data-slot="endpoint-readiness-row">
-      <TableCell className="max-w-md pl-6">
+      <TableCell pin={PIN_FIRST} className="max-w-md pl-6">
         <MachineCell row={row} />
       </TableCell>
       <TableCell className="whitespace-nowrap">

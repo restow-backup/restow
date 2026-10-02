@@ -1,4 +1,5 @@
 import {
+  backupJobs,
   endpoints,
   importUploads,
   mailExports,
@@ -38,6 +39,7 @@ export const LABELLED_TARGET_TYPES = [
   "mail_import",
   "import_upload",
   "endpoint",
+  "backup_job",
 ] as const;
 type LabelledType = (typeof LABELLED_TARGET_TYPES)[number];
 
@@ -60,6 +62,8 @@ export interface TargetRef {
 const DETAIL_NAME: Readonly<Record<string, string>> = {
   import_upload: "fileName",
   mail_import: "name",
+  // A job that was deleted since keeps the name its entries recorded.
+  backup_job: "name",
 };
 
 /** The UUID targets of `entries`, grouped by the type that names them. */
@@ -213,6 +217,18 @@ export async function resolveTargetLabels(
     for (const row of rows) {
       const name = row.fileName.trim();
       if (name) labels.set(labelKey("import_upload", row.id), name);
+    }
+  }
+
+  const jobIds = grouped.get("backup_job");
+  if (jobIds) {
+    const rows = await executor
+      .select({ id: backupJobs.id, name: backupJobs.name })
+      .from(backupJobs)
+      .where(inArray(backupJobs.id, jobIds));
+    for (const row of rows) {
+      const name = row.name.trim();
+      if (name) labels.set(labelKey("backup_job", row.id), name);
     }
   }
 

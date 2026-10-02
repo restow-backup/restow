@@ -38,6 +38,15 @@ export interface EnvironmentInfo {
   publicUrlMismatch: boolean;
 }
 
+/** The operator responsibility notice as this installation holds it (apps/api lib/disclaimer.ts). */
+export interface DisclaimerRecord {
+  /** The version that was accepted; null before the first acceptance. */
+  acceptedVersion: string | null;
+  acceptedAt: string | null;
+  /** The version the server asks to be accepted now. */
+  currentVersion: string;
+}
+
 export interface InstallationSettings {
   operatingMode: OperatingMode | null;
   publicUrl: string | null;
@@ -47,6 +56,7 @@ export interface InstallationSettings {
   capabilities: {
     graphMail: { appConfigured: boolean; defaultTenantId: string | null };
   };
+  disclaimer: DisclaimerRecord;
   updatedAt: string | null;
 }
 

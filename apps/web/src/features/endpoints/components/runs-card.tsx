@@ -6,6 +6,7 @@ import { ErrorState, RelativeTime } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  PIN_FIRST,
   Table,
   TableBody,
   TableCell,
@@ -58,10 +59,12 @@ export function RunsCard({
         {shown.length === 0 ? (
           <p className="px-6 pb-6 text-sm text-muted-foreground">{t("runs.empty")}</p>
         ) : (
-          <Table>
+          <Table scrollLabel={t("runs.title")}>
             <TableHeader>
               <TableRow>
-                <TableHead className="pl-6">{t("runs.columns.kind")}</TableHead>
+                <TableHead pin={PIN_FIRST} className="pl-6">
+                  {t("runs.columns.kind")}
+                </TableHead>
                 <TableHead>{t("runs.columns.status")}</TableHead>
                 <TableHead className="hidden whitespace-nowrap sm:table-cell">
                   {t("runs.columns.started")}
@@ -79,7 +82,7 @@ export function RunsCard({
                 const duration = runDurationMs(run);
                 return (
                   <TableRow key={run.id} data-run-status={run.status}>
-                    <TableCell className="pl-6 whitespace-nowrap">
+                    <TableCell pin={PIN_FIRST} className="pl-6 whitespace-nowrap">
                       <Button
                         variant="link"
                         size="sm"

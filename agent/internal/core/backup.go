@@ -191,6 +191,12 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 		limit = kbpsToKiB(*cfg.BandwidthKbps)
 		rl.Infof("Upload limited to %d KiB/s (configured %d kbit/s).", limit, *cfg.BandwidthKbps)
 	}
+	// Files above the size limit are skipped silently by restic; the log says that the limit is on.
+	var sizeLimit int64
+	if cfg.ExcludeLargerThanBytes > 0 {
+		sizeLimit = cfg.ExcludeLargerThanBytes
+		rl.Infof("Files larger than %s are not backed up (size limit of the backup job).", formatBytes(uint64(sizeLimit)))
+	}
 	if cfg.UseVSS {
 		rl.Infof("Volume Shadow Copy (useVss) is a Windows feature and has no effect on this system.")
 	}
@@ -207,7 +213,7 @@ func (a *Agent) backupStep(rc *runContext, out runOutcome, sources []string) run
 	defer rcancel()
 	res, err := rc.runner.Backup(rctx, restic.BackupOptions{
 		Paths: sources, Excludes: excludes, Host: a.d.State.Hostname, Tags: []string{snapshotTag},
-		LimitUploadKiB: limit,
+		LimitUploadKiB: limit, ExcludeLargerThanBytes: sizeLimit,
 		OnProgress: func(p restic.Progress) {
 			reporter.Update(p)
 			a.log.Debug("backup progress", "files", p.FilesDone, "bytes", formatBytes(p.BytesDone), "percent", int(p.Percent*100))

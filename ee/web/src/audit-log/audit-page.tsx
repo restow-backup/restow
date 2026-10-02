@@ -1,3 +1,4 @@
+import { Navigate } from "@tanstack/react-router";
 import { Building, ScrollText, ShieldAlert } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
@@ -10,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useSession } from "@/lib/session";
+import { tenantPagePath } from "@/lib/tenant-paths";
 import { ChainBrokenAlert, ChainDialog, ChainStatusButton } from "./components/chain-status";
 import { AuditEntriesTable } from "./components/entries-table";
 import { AuditEntrySheet } from "./components/entry-sheet";
@@ -27,6 +29,24 @@ import {
 import { AUDIT_NAMESPACE } from "./i18n";
 import { hasFilters } from "./search";
 
+/**
+ * The audit log of one tenant, as a section of its page (features/tenant-page):
+ * a provider admin reads that tenant's chain, a tenant's own administrator their
+ * tenant's, which is all the API gives them anyway. The tenant is the active one
+ * (the page makes it so before the section renders).
+ */
+export function TenantAuditSection({ tenant }: { tenant: { id: string } }) {
+  return <AuditSection tenantId={tenant.id} />;
+}
+
+function AuditSection({ tenantId }: { tenantId: string }) {
+  const access = useAuditAccess();
+  if (access.kind !== "provider" && access.kind !== "tenant") {
+    return null;
+  }
+  return <AuditLog access={access} scope={{ tenantId, path: tenantPagePath(tenantId, "audit") }} />;
+}
+
 /** Roles that may open the audit log (the API enforces the same). */
 export const AUDIT_ROLES = ["provider_admin", "tenant_admin"] as const;
 
@@ -36,6 +56,12 @@ export const AUDIT_ROLES = ["provider_admin", "tenant_admin"] as const;
  * hashes one click away.
  */
 export function AuditPage() {
+  const { isProviderAdmin, activeTenant, role } = useSession();
+  // A tenant's own administrator reads their tenant's log on the page of the tenant (it is
+  // the same log, narrowed to the tenant); the installation-wide page is the provider's.
+  if (!isProviderAdmin && activeTenant && role === "tenant_admin") {
+    return <Navigate to={tenantPagePath(activeTenant.id, "audit") as never} replace />;
+  }
   return (
     <RequireRole roles={AUDIT_ROLES}>
       <AuditPageContent />
@@ -96,12 +122,26 @@ function ListSkeleton() {
   );
 }
 
-function AuditLog({ access }: { access: Extract<AuditAccess, { kind: "provider" | "tenant" }> }) {
+/** One tenant's log inside its page: the address it lives at, and the tenant it is limited to. */
+interface AuditScope {
+  tenantId: string;
+  path: string;
+}
+
+function AuditLog({
+  access,
+  scope,
+}: {
+  access: Extract<AuditAccess, { kind: "provider" | "tenant" }>;
+  scope?: AuditScope;
+}) {
   const format = useAuditFormat();
   const { t } = format;
   const { tenants } = useSession();
-  const { search, update, clearFilters } = useAuditSearch();
+  const { search: addressed, update, clearFilters } = useAuditSearch(scope?.path);
   const isProvider = access.kind === "provider";
+  // A tenant's own log is that tenant's chain, whatever the address says.
+  const search = scope && isProvider ? { ...addressed, tenant: scope.tenantId } : addressed;
   const chainFilter = isProvider ? search.tenant : undefined;
 
   const { list, entries } = useAuditEntries(access, search);
@@ -111,34 +151,54 @@ function AuditLog({ access }: { access: Extract<AuditAccess, { kind: "provider" 
   const lookup = useAuditEntry(access, search.entry, listed !== undefined);
 
   const [detailsOpen, setDetailsOpen] = React.useState(false);
-  const filtered = hasFilters(search, isProvider);
+  const filtered = hasFilters(search, isProvider && !scope);
   // The tenant column only helps while several chains are listed together.
   const showTenant = isProvider && search.tenant === undefined;
   const openEntry = React.useCallback((entryId: string) => update({ entry: entryId }), [update]);
 
+  const scopeName =
+    access.kind === "tenant"
+      ? access.tenantName
+      : (tenants.find((tenant) => tenant.id === scope?.tenantId)?.name ?? "");
+  const chainActions = (
+    <>
+      <ChainStatusButton
+        verification={verification}
+        format={format}
+        onOpen={() => setDetailsOpen(true)}
+      />
+      <Button
+        variant="outline"
+        onClick={() => void verification.refetch()}
+        loading={verification.isFetching}
+      >
+        {t("chain.verifyNow")}
+      </Button>
+    </>
+  );
+
   return (
     <div className="space-y-6">
-      <PageHeader
-        title={t("title")}
-        description={
-          access.kind === "provider"
-            ? t("subtitle.provider")
-            : t("subtitle.tenant", { tenant: access.tenantName })
-        }
-      >
-        <ChainStatusButton
-          verification={verification}
-          format={format}
-          onOpen={() => setDetailsOpen(true)}
-        />
-        <Button
-          variant="outline"
-          onClick={() => void verification.refetch()}
-          loading={verification.isFetching}
+      {scope ? (
+        // On a tenant's page the log has no heading of its own: the page names it.
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="max-w-prose text-sm text-muted-foreground">
+            {t("subtitle.tenant", { tenant: scopeName })}
+          </p>
+          <div className="flex flex-wrap items-center gap-2">{chainActions}</div>
+        </div>
+      ) : (
+        <PageHeader
+          title={t("title")}
+          description={
+            access.kind === "provider"
+              ? t("subtitle.provider")
+              : t("subtitle.tenant", { tenant: access.tenantName })
+          }
         >
-          {t("chain.verifyNow")}
-        </Button>
-      </PageHeader>
+          {chainActions}
+        </PageHeader>
+      )}
 
       {verification.data?.status === "broken" && !verification.isFetching ? (
         <ChainBrokenAlert
@@ -151,7 +211,7 @@ function AuditLog({ access }: { access: Extract<AuditAccess, { kind: "provider" 
 
       <AuditFilters
         search={search}
-        showTenantFilter={isProvider}
+        showTenantFilter={isProvider && !scope}
         tenants={tenants}
         actions={actions.data ?? []}
         filtered={filtered}
@@ -214,7 +274,7 @@ function AuditLog({ access }: { access: Extract<AuditAccess, { kind: "provider" 
         open={search.entry !== undefined}
         entry={listed ?? lookup.data}
         lookup={lookup}
-        showTenant={isProvider}
+        showTenant={isProvider && !scope}
         format={format}
         onClose={() => update({ entry: undefined })}
       />

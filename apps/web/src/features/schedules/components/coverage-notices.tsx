@@ -1,63 +1,52 @@
-import { Eye, Info, ShieldAlert, Sparkles, TriangleAlert } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { Eye, Info, ListChecks, Sparkles, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { jobsListTo, linkProps } from "@/features/backup-jobs/paths";
 
-import type { ScheduleItem, ScheduleList } from "../api.js";
-import { coverageOf } from "../presenters.js";
+import type { ScheduleList } from "../api.js";
+import { JOB_REPLACED_KINDS, maintenanceKinds } from "../presenters.js";
 
 export interface CoverageNoticesProps {
   list: ScheduleList;
+  /** How many older backup or restore-check schedules are listed (they keep running next to the jobs). */
+  legacy: number;
   canManage: boolean;
-  /** Add the missing recommended schedules. */
+  /** Add the missing recommended schedules (and, where no job covers all objects, the default mail job). */
   onApplyRecommended: () => void;
   applying: boolean;
-  /** Switch a paused schedule back on. */
-  onEnable: (item: ScheduleItem) => void;
-  /** Id of the schedule being switched right now. */
-  pendingId: string | null;
+  /** Offer that action here; the page may offer it elsewhere (an empty state) and not twice. */
+  showApply?: boolean;
 }
 
 /**
- * The plain truth above the table: backups that run only by hand, backups
- * that are never verified, recommendations not set up yet, what retention
- * does, and that tenant users look but do not change. Each problem comes with
- * the action that fixes it (for administrators).
+ * The plain truth above the table: that no job backs up all objects (the server
+ * says so with `backup` or `verify` among the missing kinds: no mail job covers
+ * all objects and no older schedule exists), the maintenance not set up yet, the
+ * older backup schedules that keep running next to the jobs, what retention does,
+ * and that tenant users look but do not change. Each problem comes with the
+ * action that fixes it (for administrators); the recommended set also creates the
+ * default mail job.
  */
 export function CoverageNotices({
   list,
+  legacy,
   canManage,
   onApplyRecommended,
   applying,
-  onEnable,
-  pendingId,
+  showApply = true,
 }: CoverageNoticesProps) {
   const { t } = useTranslation("schedules");
-  const backup = coverageOf(list.items, "backup");
-  const verify = coverageOf(list.items, "verify");
+  const noJob = list.missingKinds.some((kind) => JOB_REPLACED_KINDS.includes(kind));
+  const missing = maintenanceKinds(list.missingKinds);
   const hasRetention = list.items.some((item) => item.kind === "retention" && item.enabled);
-  // Missing kinds already named by a warning above are not repeated in the hint.
-  const otherMissing = list.missingKinds.filter(
-    (kind) =>
-      !(kind === "backup" && backup.state === "missing") &&
-      !(kind === "verify" && verify.state === "missing"),
-  );
 
   const applyButton = (
     <Button size="sm" variant="outline" onClick={onApplyRecommended} loading={applying}>
       <Sparkles aria-hidden="true" />
       {t("actions.applyRecommended")}
-    </Button>
-  );
-  const enableButton = (item: ScheduleItem) => (
-    <Button
-      size="sm"
-      variant="outline"
-      onClick={() => onEnable(item)}
-      loading={pendingId === item.id}
-    >
-      {t("actions.enable")}
     </Button>
   );
 
@@ -70,54 +59,45 @@ export function CoverageNotices({
         </Alert>
       ) : null}
 
-      {backup.state !== "active" ? (
-        <Alert variant="warning" data-notice="backup">
-          <ShieldAlert aria-hidden="true" />
-          <AlertTitle>{t("notices.noBackup.title")}</AlertTitle>
-          <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <span>
-              {backup.state === "paused"
-                ? t("notices.noBackup.paused")
-                : t("notices.noBackup.missing")}
-            </span>
-            {canManage ? (backup.paused ? enableButton(backup.paused) : applyButton) : null}
-          </AlertDescription>
-        </Alert>
-      ) : null}
-
-      {verify.state !== "active" ? (
-        <Alert variant="warning" data-notice="verify">
+      {noJob ? (
+        <Alert variant="warning" data-notice="jobs">
           <TriangleAlert aria-hidden="true" />
-          <AlertTitle>{t("notices.noVerify.title")}</AlertTitle>
+          <AlertTitle>{t("notices.noJob.title")}</AlertTitle>
           <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <span>
-              {verify.state === "paused"
-                ? t("notices.noVerify.paused")
-                : t("notices.noVerify.missing")}
+            <span>{t("notices.noJob.description")}</span>
+            <span className="flex shrink-0 flex-wrap gap-2">
+              <Link
+                {...linkProps(jobsListTo("mail"))}
+                className={buttonVariants({ variant: "outline", size: "sm" })}
+              >
+                <ListChecks aria-hidden="true" />
+                {t("notices.noJob.open")}
+              </Link>
+              {canManage && showApply ? applyButton : null}
             </span>
-            {canManage
-              ? verify.paused
-                ? enableButton(verify.paused)
-                : backup.state === "missing"
-                  ? null
-                  : applyButton
-              : null}
           </AlertDescription>
         </Alert>
       ) : null}
 
-      {otherMissing.length > 0 && backup.state === "active" && verify.state === "active" ? (
+      {missing.length > 0 ? (
         <Alert variant="info" data-notice="recommended">
           <Sparkles aria-hidden="true" />
           <AlertTitle>{t("notices.recommended.title")}</AlertTitle>
           <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <span>
               {t("notices.recommended.description", {
-                kinds: otherMissing.map((kind) => t(`kinds.${kind}`)).join(", "),
+                kinds: missing.map((kind) => t(`kinds.${kind}`)).join(", "),
               })}
             </span>
-            {canManage ? applyButton : null}
+            {canManage && showApply && !noJob ? applyButton : null}
           </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {legacy > 0 ? (
+        <Alert data-notice="legacy">
+          <Info aria-hidden="true" />
+          <AlertDescription>{t("notices.legacy", { count: legacy })}</AlertDescription>
         </Alert>
       ) : null}
 

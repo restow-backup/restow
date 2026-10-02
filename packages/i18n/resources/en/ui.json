@@ -102,5 +102,10 @@
     "scrubbing": "Storage check running",
     "integrityCheck": "Checking integrity",
     "storageMigration": "Storage migration running"
+  },
+  "installationValue": {
+    "label": "Set in the installation.",
+    "open": "Open {section}",
+    "ask": "Whoever runs this installation changes it."
   }
 }

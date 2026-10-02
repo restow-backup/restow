@@ -147,6 +147,8 @@ export class SnapshotWriter {
       logger: ctx.logger,
       signal: ctx.signal,
       packIdGenerator: options.packIdGenerator,
+      // What the run uploads is part of its progress (the run drawer's "transferred" curve).
+      onPackStored: (packBytes) => ctx.progress.transfer?.(packBytes),
     });
   }
 

@@ -129,6 +129,10 @@ export const settings = pgTable(
     passkeyReady: boolean("passkey_ready").notNull().default(false),
     mailTransport: mailTransportEnum("mail_transport"),
     mailConfig: jsonb("mail_config").$type<MailConfig>(),
+    // The operator marked the notification mail as not needed ("Start" checklist, docs/ARCHITECTURE.md):
+    // a configured transport that nobody wants tested no longer keeps the checklist open. An
+    // installation without a transport needs no mark; its checklist item counts as not needed already.
+    mailNotNeeded: boolean("mail_not_needed").notNull().default(false),
     // When the setup wizard finished; null only on a fresh installation.
     setupCompletedAt: timestamp("setup_completed_at", { withTimezone: true }),
     // Operator responsibility notice (the first wizard step, shown once to the

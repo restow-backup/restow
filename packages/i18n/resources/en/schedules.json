@@ -1,15 +1,14 @@
 {
   "nav": "Schedules",
   "page": {
-    "title": "Schedules",
-    "description": "What runs on its own for this tenant: backups, verification, integrity checks, directory sync and retention."
+    "title": "Maintenance schedules",
+    "description": "What runs on its own to keep this tenant's data healthy: integrity checks, directory sync and retention. Backups and their restore checks are backup jobs."
   },
   "actions": {
     "new": "New schedule",
     "applyRecommended": "Apply recommended schedules",
     "edit": "Edit",
     "delete": "Delete",
-    "enable": "Switch on",
     "refresh": "Refresh schedules"
   },
   "kinds": {
@@ -51,7 +50,7 @@
     "custom": "Custom: {cron}"
   },
   "table": {
-    "label": "Schedules",
+    "label": "Maintenance schedules",
     "kind": "Kind",
     "scope": "Applies to",
     "cadence": "Cadence",
@@ -62,7 +61,8 @@
     "paused": "Switched off",
     "noJob": "No run yet",
     "openJob": "Open the last job ({status})",
-    "toggle": "Run {kind} automatically"
+    "toggle": "Run {kind} automatically",
+    "legacy": "Runs next to the jobs"
   },
   "jobStatus": {
     "queued": "Queued",
@@ -79,25 +79,21 @@
     "description": "Select a tenant to see and change its schedules."
   },
   "empty": {
-    "title": "No schedules yet",
-    "description": "Nothing runs on its own: backups, verification and integrity checks happen only when someone starts them."
+    "title": "No maintenance schedules yet",
+    "description": "Nothing keeps the repository healthy on its own: integrity checks, directory sync and retention run only when someone starts them."
   },
   "notices": {
     "readOnly": "You can see the schedules of this tenant. Only tenant administrators can change them.",
-    "noBackup": {
-      "title": "Backups run only when started by hand",
-      "missing": "No schedule backs up all protected objects of this tenant.",
-      "paused": "The backup schedule for all protected objects is switched off."
-    },
-    "noVerify": {
-      "title": "Backups stay unverified",
-      "missing": "No verification schedule exists, so no backup is test-restored and recovery readiness stays unknown.",
-      "paused": "The verification schedule is switched off, so new backups are not test-restored and recovery readiness stays unknown."
+    "noJob": {
+      "title": "Backups are not set up on a schedule",
+      "description": "No mail job covers all protected objects of this tenant, and no older schedule does. Without one, backups and restore checks run only when someone starts them. The recommended set creates the mail job.",
+      "open": "Show the jobs"
     },
     "recommended": {
       "title": "Recommended schedules not set up",
       "description": "Missing: {kinds}."
     },
+    "legacy": "Listed here: {count, plural, one {# older backup or restore-check schedule} other {# older backup and restore-check schedules}}. Schedules like these keep running next to the jobs. Switch one off or delete it once a job covers the same objects.",
     "retention": "Retention applies the retention policies. Until a policy exists, everything is kept."
   },
   "presets": {

@@ -1,0 +1,135 @@
+{
+  "nav": "Settings",
+  "title": "Installation",
+  "forbidden": "The installation settings are for provider administrators. They apply to the whole server: {scope, select, organisation {your organisation} other {all tenants}}.",
+  "scoped": "Your role in the provider team covers selected tenants only. The installation settings concern all tenants at once, so they are not available to you.",
+  "sections": {
+    "label": "Installation sections",
+    "select": "Section",
+    "server": "Server",
+    "mail": "Notification mail",
+    "microsoftApp": "Microsoft multi-tenant app",
+    "journal": "Journal receiving",
+    "defaultStorage": "Default storage",
+    "providerApi": "Provider API",
+    "updates": "Updates",
+    "about": "About"
+  },
+  "descriptions": {
+    "server": "How browsers reach this server and whether passkeys are offered. Applies to {scope, select, organisation {your organisation} other {all tenants}}.",
+    "mail": "The transport for reports, alerts and invitations. Used for {scope, select, organisation {your organisation} other {all tenants}}.",
+    "microsoftApp": "The app registration this installation uses to reach Microsoft 365.",
+    "journal": "The SMTP receiver for Exchange journal reports. One receiver serves {scope, select, organisation {your organisation} other {all tenants}}.",
+    "defaultStorage": "Where data is kept for {scope, select, organisation {your organisation} other {every tenant without a storage target of its own}}.",
+    "providerApi": "Keys for RMM and PSA tools that work across all tenants.",
+    "updates": "Which version runs, which releases exist and how to update.",
+    "about": "Version, source code and licenses of this installation."
+  },
+  "access": {
+    "owner": "You can look at these settings. Changing them needs the Owner role in the provider team.",
+    "administrator": "You can look at this page. Running the test needs the Administrator role in the provider team or higher.",
+    "demo": "This is a public demo. These settings are read-only here."
+  },
+  "locked": {
+    "title": "{section} is not unlocked yet",
+    "description": "The section stays greyed out in the menu until it is unlocked. The page that unlocks it explains what is needed.",
+    "action": "Show how to unlock"
+  },
+  "server": {
+    "facts": {
+      "title": "This server",
+      "environmentUrl": "Address in the server environment",
+      "environmentUrlNotSet": "Not set",
+      "updatedAt": "Settings last changed",
+      "note": "The public URL decides the passkey domain, the redirect addresses for Microsoft sign-in and the address agents enrol against."
+    },
+    "notice": {
+      "title": "Operator notice",
+      "description": "The responsibility notice accepted when this installation was set up. It is shown for reference and cannot be changed.",
+      "accepted": "Accepted on {date} (version {version}).",
+      "acceptedNoDate": "Accepted (version {version}). The date was not recorded.",
+      "outdated": "A newer version of the notice ({current}) is waiting to be accepted. A provider administrator is asked to read it when signing in.",
+      "none": "The notice has not been accepted yet.",
+      "show": "Show the notice",
+      "hide": "Hide the notice"
+    }
+  },
+  "microsoftApp": {
+    "optional": "Optional. This app is only needed when {scope, select, organisation {your organisation is connected by a consent link instead of its own app} other {tenants are connected by a consent link instead of their own app}}."
+  },
+  "defaultStorage": {
+    "loadError": "The default storage could not be read.",
+    "card": {
+      "title": "Default storage",
+      "description": "Where data is kept when {scope, select, organisation {your organisation has} other {a tenant has}} no storage target of its own. The default comes from the server environment and cannot be changed here."
+    },
+    "kind": {
+      "local": "Directory on the server",
+      "s3": "S3-compatible object storage"
+    },
+    "type": "Type",
+    "location": "Location",
+    "copy": "Copy",
+    "noCopy": "No copy configured",
+    "usage": {
+      "label": "In use by",
+      "none": "No tenant. Each tenant has a storage target of its own.",
+      "some": "{using} of {total} tenants",
+      "organisationYes": "Your organisation. It has no storage target of its own.",
+      "organisationNo": "Nobody. Your organisation has a storage target of its own."
+    },
+    "misconfigured": {
+      "title": "The storage settings are invalid",
+      "description": "STORAGE_TARGET, STORAGE_LOCAL_PATH or the S3_* values in the .env file of the server do not describe a usable storage. Correct them and restart {appName}."
+    },
+    "test": {
+      "title": "Test",
+      "description": "Writes, reads, lists and deletes a small object on the default and checks whether it can lock objects. The result is recorded in the audit log.",
+      "action": "Test default storage",
+      "again": "Test again",
+      "never": "Not tested yet.",
+      "passed": "The last test passed {when}, run by {who}.",
+      "failed": "The last test failed {when}, run by {who}.",
+      "failedAt": "It stopped at the step: {step}."
+    },
+    "errors": {
+      "misconfigured": "The storage settings in the environment are invalid, so there is nothing to test."
+    }
+  },
+  "journal": {
+    "loadError": "The journal receiver could not be read.",
+    "receiver": {
+      "title": "Receiver",
+      "description": "{appName} accepts Exchange Online journal reports on this port. The values come from the server environment and are read when the API starts."
+    },
+    "state": {
+      "listening": "Receiving",
+      "down": "Receiver not running",
+      "notConfigured": "Not set up"
+    },
+    "port": "SMTP port",
+    "host": "Journal host",
+    "tls": "TLS certificate",
+    "tlsConfigured": "Configured",
+    "tlsMissing": "Not usable",
+    "maxSize": "Largest report",
+    "maxSizeValue": "{size} MB",
+    "lastReport": "Last journal report",
+    "noReport": "None yet",
+    "last24Hours": "Reports in the last 24 hours",
+    "notSet": "Not set",
+    "checklist": {
+      "title": "What Exchange Online needs from this server"
+    },
+    "perTenant": "The journal address of each tenant, its rotation and the guide for Exchange Online are on the Archive page of that tenant.",
+    "docs": "Read the setup guide"
+  },
+  "providerApi": {
+    "intro": "Provider keys read across all tenants, for RMM and PSA tools. A key belongs to this installation, not to one tenant.",
+    "moved": {
+      "title": "Provider keys moved",
+      "description": "The keys that work across all tenants are under Installation, Provider API now. This page keeps the keys of the active tenant.",
+      "action": "Open Provider API"
+    }
+  }
+}

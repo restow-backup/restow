@@ -8,9 +8,7 @@
   "updated": "Aktualisiert",
   "noTenant": {
     "title": "Kein Mandant ausgewählt",
-    "description": "Wählen Sie oben einen Mandanten, um seine Sicherungen, Wiederherstellbarkeit und seinen Speicher zu sehen.",
-    "firstTenant": "Es gibt noch keinen Mandanten. Legen Sie den ersten an und verbinden Sie dann Microsoft 365 oder IMAP als Quelle.",
-    "openTenants": "Zu den Mandanten"
+    "description": "Wählen Sie oben einen Mandanten, um seine Sicherungen, Wiederherstellbarkeit und seinen Speicher zu sehen."
   },
   "error": {
     "title": "Übersicht nicht verfügbar"
@@ -19,11 +17,6 @@
     "title": "Die Übersicht konnte nicht aktualisiert werden",
     "description": "Die Zahlen unten stammen von der letzten erfolgreichen Aktualisierung,",
     "retry": "Erneut versuchen"
-  },
-  "tabs": {
-    "label": "Ansicht",
-    "provider": "Provider",
-    "tenant": "Mandant"
   },
   "actions": {
     "details": "Details"
@@ -37,21 +30,14 @@
   },
   "setup": {
     "title": "{appName} einrichten",
-    "description": "Die Schritte von einem neuen Mandanten bis zu nachweislich wiederherstellbaren Sicherungen.",
     "progress": "{done} von {total} Schritten erledigt",
     "byProvider": "Erledigt Ihr Provider",
     "byAdmin": "Erledigt ein Administrator",
-    "doneSteps": "Erledigte Schritte",
     "state": {
       "done": "erledigt",
       "open": "offen",
-      "attention": "braucht Aufmerksamkeit"
-    },
-    "complete": {
-      "title": "Einrichtung abgeschlossen",
-      "description": "Alle {total} Schritte sind erledigt.",
-      "show": "Schritte anzeigen",
-      "hide": "Schritte ausblenden"
+      "attention": "braucht Aufmerksamkeit",
+      "not_needed": "nicht nötig"
     },
     "items": {
       "storage": {
@@ -99,9 +85,10 @@
       "consent_pending": "Eine Quelle wartet auf die Zustimmung des Administrators.",
       "no_backup_schedule": "Kein Sicherungszeitplan ist aktiv.",
       "not_green": "Wiederherstellungsprüfungen liefen, aber noch keine war grün.",
-      "not_configured": "Es ist kein Mailversand eingerichtet.",
       "not_tested": "Der Mailversand wurde noch nicht getestet.",
-      "test_failed": "Die letzte Testmail konnte nicht versendet werden."
+      "test_failed": "Die letzte Testmail konnte nicht versendet werden.",
+      "mail_skipped": "Sie haben den Mail-Schritt der Einrichtung übersprungen, deshalb wird nichts gemailt. Unter Installation, Benachrichtigungsmail lässt sich das jederzeit nachholen.",
+      "mail_marked": "Als nicht nötig markiert."
     }
   },
   "readiness": {
@@ -137,7 +124,10 @@
       "title": "Noch nichts zu bewerten",
       "description": "Die Wiederherstellbarkeit erscheint, sobald Objekte geschützt und gesichert sind.",
       "action": "Objekte schützen"
-    }
+    },
+    "legend": "Objekte nach Wiederherstellungszustand",
+    "legendHint": "Jede Zeile öffnet die Tabelle mit genau diesen Objekten.",
+    "open": "{count, plural, one {# Objekt} other {# Objekte}} anzeigen: {label}"
   },
   "lastBackup": {
     "title": "Letzte erfolgreiche Sicherung",
@@ -347,9 +337,9 @@
     },
     "kpis": {
       "tenants": "Mandanten",
-      "tenantsHint": "{count, plural, =0 {Keiner gesperrt} one {# gesperrt} other {# gesperrt}}",
+      "tenantsHint": "Ohne die eigene Organisation. {count, plural, =0 {Keiner gesperrt} one {# gesperrt} other {# gesperrt}}.",
       "notReady": "Nicht bereite Mandanten",
-      "notReadyHint": "Etwas ist nicht wiederherstellbar oder noch nicht bestätigt.",
+      "notReadyHint": "Von {count, plural, one {# Kunde} other {# Kunden}}. Etwas ist nicht wiederherstellbar oder noch nicht bestätigt.",
       "unverified": "Ungeprüfte Sicherungen",
       "unverifiedHint": "Neueste Sicherungen, die noch keine Wiederherstellungsprüfung zurückgelesen hat.",
       "failures": "Fehlgeschlagene Aufträge (24 h)",
@@ -361,8 +351,8 @@
       "incomplete": "{count, plural, one {Ohne # Mandanten, dessen Zahlen nicht gelesen werden konnten.} other {Ohne # Mandanten, deren Zahlen nicht gelesen werden konnten.}}"
     },
     "matrix": {
-      "title": "Zustand der Mandanten",
-      "description": "Alle Mandanten, die mit Handlungsbedarf zuerst.",
+      "title": "Mandanten nach Handlungsbedarf",
+      "description": "Die Mandanten mit Handlungsbedarf zuerst, die eigene Organisation oben. Ein Klick auf eine Zeile wechselt in den Mandanten.",
       "search": "Mandanten suchen …",
       "suspended": "Gesperrt",
       "unavailable": "Nicht verfügbar",
@@ -375,7 +365,8 @@
         "failures": "Fehlgeschlagen (24 h)",
         "lastBackup": "Letzte Sicherung",
         "mailboxes": "Postfächer",
-        "stored": "Gespeichert"
+        "stored": "Gespeichert",
+        "notRestorable": "Nicht wiederherstellbar"
       },
       "actions": {
         "open": "Übersicht öffnen",
@@ -384,7 +375,10 @@
       "filteredEmpty": {
         "title": "Kein Mandant passt",
         "description": "Ändern Sie die Suche oder den Filter, um weitere Mandanten zu sehen."
-      }
+      },
+      "internal": "Intern",
+      "openTenant": "Zu {name} wechseln",
+      "openNotRestorable": "Zu {name} wechseln und die nicht wiederherstellbaren Objekte zeigen"
     },
     "alerts": {
       "title": "Hinweise über alle Mandanten",
@@ -410,11 +404,36 @@
         "title": "Keine Hinweise",
         "description": "Jeder Mandant ist gesichert und geprüft, und keiner liegt über seiner vereinbarten Obergrenze."
       }
+    },
+    "readiness": {
+      "title": "Wiederherstellbarkeit, alle Mandanten",
+      "description": "Jedes Schutzobjekt jedes Mandanten, der gelesen werden konnte, die eigene Organisation eingeschlossen.",
+      "share": "{total, plural, one {von # Schutzobjekt nachweislich wiederherstellbar} other {von # Schutzobjekten nachweislich wiederherstellbar}}",
+      "hint": "Jede Zeile öffnet die Mandanten, die Objekte in diesem Zustand haben."
     }
   },
   "views": {
     "label": "Ansichten der Übersicht",
     "status": "Status",
     "statistics": "Statistik"
+  },
+  "start": {
+    "title": "Start",
+    "label": "Start, {done} von {total} Schritten erledigt",
+    "progress": "{done} von {total} erledigt",
+    "complete": "Einrichtung abgeschlossen. „Start“ verschwindet aus dem Menü.",
+    "attention": "Braucht Aufmerksamkeit.",
+    "popover": {
+      "title": "{name} einrichten",
+      "footer": "„Start“ verschwindet aus dem Menü, sobald alle Schritte erledigt sind."
+    },
+    "notNeeded": {
+      "mark": "Nicht nötig",
+      "undo": "Doch nötig",
+      "marked": "Als nicht nötig markiert.",
+      "unmarked": "Der Schritt ist wieder offen.",
+      "demo": "In der öffentlichen Demo geschlossen.",
+      "role": "Das ändert eine Einstellung der Installation und braucht die Rolle Inhaber im Provider-Team."
+    }
   }
 }

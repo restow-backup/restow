@@ -27,7 +27,7 @@
     },
     "OFL-1.1": {
       "copyleft": "font",
-      "reason": "SIL Open Font License for font files: accepted in the core when a font package is bundled (none is today; the app ships no web fonts). A derived font must stay under the OFL, so it is not allowed in ee/."
+      "reason": "SIL Open Font License for font files: accepted in the core for the font packages the web app bundles and serves itself (@fontsource/inter-tight and @fontsource/ibm-plex-mono, the typefaces of the brand guide); the copyright notices and license text ship in THIRD_PARTY_NOTICES.md. A derived font must stay under the OFL, so it is not allowed in ee/."
     },
     "CC0-1.0": {
       "copyleft": "none",

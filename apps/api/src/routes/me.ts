@@ -1,8 +1,9 @@
-import { type TenantStatus, tenants } from "@restow/db";
-import { asc, inArray } from "drizzle-orm";
+import { type TenantKind, type TenantStatus, tenants } from "@restow/db";
+import { inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { db, providerDb } from "../db.js";
 import { sessionFieldContributions } from "../extensions.js";
+import { internalFirstByName } from "../features/tenants/order.js";
 import { type GatedFeature, enabledFeatures } from "../lib/features.js";
 import {
   type ProviderAccess,
@@ -26,6 +27,9 @@ import type { VersionInfo } from "./v1/version.js";
  * else sees the tenants whose organization they are a member of. The active
  * tenant follows the session's active organization, when it maps to a tenant.
  *
+ * The tenants come with their kind and customer number, the operator's own
+ * organisation first, then the customers by name (features/tenants/order.ts).
+ *
  * Each tenant carries its status, so the tenant switcher can show a suspended
  * tenant as such instead of letting a member run into refused requests. The
  * running version is the same document `/api/v1/status` reports; the shell
@@ -41,6 +45,10 @@ interface MeTenantDto {
   id: string;
   name: string;
   slug: string;
+  /** `internal` for the operator's own organisation (listed first), else `customer`. */
+  kind: TenantKind;
+  /** The provider's customer number; null until set. */
+  customerNumber: string | null;
   /** The user's role in this tenant (provider admins administer every tenant). */
   role: TenantRole;
   /** `suspended` and `deleting` tenants refuse everyone but provider admins. */
@@ -70,6 +78,8 @@ interface TenantRow {
   id: string;
   name: string;
   slug: string;
+  kind: TenantKind;
+  customerNumber: string | null;
   status: TenantStatus;
   organizationId: string | null;
 }
@@ -78,6 +88,8 @@ const tenantColumns = {
   id: tenants.id,
   name: tenants.name,
   slug: tenants.slug,
+  kind: tenants.kind,
+  customerNumber: tenants.customerNumber,
   status: tenants.status,
   organizationId: tenants.organizationId,
 };
@@ -93,7 +105,10 @@ async function visibleTenants(
   memberships: Membership[],
 ): Promise<TenantRow[]> {
   if (isProviderAdmin) {
-    const all = await providerDb.select(tenantColumns).from(tenants).orderBy(asc(tenants.name));
+    const all = await providerDb
+      .select(tenantColumns)
+      .from(tenants)
+      .orderBy(...internalFirstByName);
     // A provider admin limited to some tenants sees only those.
     return providerAccess
       ? all.filter((row) => providerMayEnterTenant(providerAccess, row.id))
@@ -107,7 +122,7 @@ async function visibleTenants(
     .select(tenantColumns)
     .from(tenants)
     .where(inArray(tenants.organizationId, organizationIds))
-    .orderBy(asc(tenants.name));
+    .orderBy(...internalFirstByName);
 }
 
 /** The role a user holds in one tenant; provider admins administer every tenant. */
@@ -153,6 +168,8 @@ me.get("/", requireSession, async (c) => {
       id: row.id,
       name: row.name,
       slug: row.slug,
+      kind: row.kind,
+      customerNumber: row.customerNumber,
       role: roleIn(row, isProviderAdmin, memberships),
       status: row.status,
     })),

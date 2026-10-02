@@ -14,6 +14,7 @@ import { InstallationPanel } from "@/features/tenants/components/installation-pa
 import { i18n } from "@/i18n";
 import {
   ExtensionSlot,
+  extensionInstallationSections,
   registerWebExtension,
   resetWebExtensionsForTesting,
 } from "@/lib/extensions";
@@ -27,9 +28,9 @@ import "./i18n";
 import type { LicenseState } from "./types";
 
 /**
- * What the license module adds to core pages through slots: the license
- * section of Settings, About, the edition badge of the sidebar footer and the
- * reason no further tenant can be created.
+ * What the license module adds to core pages: the license section of the
+ * installation page (a section the extension registers), the edition badge of
+ * the sidebar footer (a slot) and the reason no further tenant can be created.
  */
 
 vi.mock("@/lib/api", async (importOriginal) => ({
@@ -115,7 +116,7 @@ afterEach(() => {
   resetWebExtensionsForTesting();
 });
 
-describe("AboutLicense (slot settings.about)", () => {
+describe("AboutLicense (the license section of the installation page)", () => {
   it("shows Community without a key, the installation and the form to install one", () => {
     const html = render(<AboutLicense requires={null} />, community());
     expect(html).toContain("License");
@@ -189,7 +190,7 @@ describe("TenantsCreationLocked (slot tenants.creationLocked)", () => {
     const html = await renderRouted(<TenantsCreationLocked />);
     expect(html).toContain("Another tenant requires the Service Provider edition");
     expect(html).toContain("The Business edition manages exactly one tenant");
-    expect(html).toContain('href="/settings?section=about&amp;requires=service_provider"');
+    expect(html).toContain('href="/installation/license?requires=service_provider"');
     expect(html).toContain("Open license settings");
     expect(html).not.toMatch(RIGHTS);
   });
@@ -202,9 +203,35 @@ describe("registration", () => {
     expect(render(<ExtensionSlot name="shell.sidebarFooter" props={{}} />)).toContain(
       ">Community<",
     );
-    expect(
-      render(<ExtensionSlot name="settings.about" props={{ requires: null }} />, community()),
-    ).toContain("Install a key");
+  });
+
+  it("adds the sections of the installation page: journal receiving, provider API and the license", () => {
+    expect(extensionInstallationSections()).toEqual([]);
+    registerWebExtension(eeWebExtension);
+    const sections = extensionInstallationSections();
+    expect(sections.map((section) => [section.id, section.order])).toEqual([
+      ["journal", 40],
+      ["provider-api", 60],
+      ["license", 80],
+    ]);
+    const community = { features: [], extensions: { edition: "community" } };
+    const business = { features: [], extensions: { edition: "business" } };
+    const provider = { features: [], extensions: { edition: "service_provider" } };
+    const lockOf = (id: string) => sections.find((section) => section.id === id)?.lock;
+    // Business and Service Provider sections are greyed out below their edition ...
+    expect(lockOf("journal")?.isLocked(community)).toBe(true);
+    expect(lockOf("journal")?.isLocked(business)).toBe(false);
+    expect(lockOf("provider-api")?.isLocked(business)).toBe(true);
+    expect(lockOf("provider-api")?.isLocked(provider)).toBe(false);
+    // ... and lead to the license section, which no edition locks: it is where the key goes in.
+    expect(lockOf("journal")?.to).toBe("/installation/license");
+    expect(lockOf("journal")?.search).toEqual({ requires: "business" });
+    expect(lockOf("provider-api")?.search).toEqual({ requires: "service_provider" });
+    expect(lockOf("license")).toBeUndefined();
+    // The license left About: its old address leads here.
+    expect(sections.find((section) => section.id === "license")?.legacySettingsSection).toBe(
+      "about",
+    );
   });
 
   it("replaces the tenants page's neutral note with the edition's reason", async () => {

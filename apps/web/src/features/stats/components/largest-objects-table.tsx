@@ -14,7 +14,7 @@ import {
   matchesAnyOf,
   rowActionsColumn,
 } from "@/components/kit";
-import { DIRECTORY_PATH } from "@/features/directory/search";
+import { directoryPath } from "@/features/directory/search";
 import { RESTORE_PATHS } from "@/features/restore/navigation";
 import { useSession } from "@/lib/session";
 
@@ -22,6 +22,9 @@ import type { Dataset, LargestObjectRow } from "../api.js";
 import { objectStateTone } from "../presenters.js";
 import { useStatsFormat } from "../use-stats-format.js";
 import { MISSING_LAST, TableCard, rowsOf } from "./table-card.js";
+
+/** The object stays in view while the other columns scroll. */
+const PINNED = ["name"] as const;
 
 interface LargestObjectsTableProps {
   data: Dataset<LargestObjectRow> | undefined;
@@ -62,15 +65,17 @@ export function LargestObjectsTable({ data }: LargestObjectsTableProps) {
     () => [
       {
         accessorKey: "name",
+        size: 288,
         header: t("tables.largest.columns.name"),
         enableHiding: false,
-        meta: { cellClassName: "max-w-72 truncate font-medium" },
+        meta: { cellClassName: "font-medium" },
         cell: ({ row }) => <span title={row.original.name}>{row.original.name}</span>,
       },
       ...(showTenant
         ? [
             {
               id: "tenant",
+              size: 180,
               accessorFn: (row: LargestObjectRow) => row.tenant?.name ?? undefined,
               header: t("tables.largest.columns.tenant"),
               ...MISSING_LAST,
@@ -80,6 +85,7 @@ export function LargestObjectsTable({ data }: LargestObjectsTableProps) {
         : []),
       {
         accessorKey: "kind",
+        size: 130,
         header: t("tables.largest.columns.kind"),
         filterFn: matchesAnyOf,
         enableGlobalFilter: false,
@@ -87,6 +93,7 @@ export function LargestObjectsTable({ data }: LargestObjectsTableProps) {
       },
       {
         accessorKey: "logicalBytes",
+        size: 130,
         header: t("tables.largest.columns.logicalBytes"),
         enableGlobalFilter: false,
         meta: { numeric: true },
@@ -94,6 +101,7 @@ export function LargestObjectsTable({ data }: LargestObjectsTableProps) {
       },
       {
         id: "lastBackupAt",
+        size: 150,
         accessorFn: (row) => row.lastBackupAt ?? undefined,
         header: t("tables.largest.columns.lastBackupAt"),
         ...MISSING_LAST,
@@ -103,6 +111,7 @@ export function LargestObjectsTable({ data }: LargestObjectsTableProps) {
       },
       {
         id: "state",
+        size: 150,
         accessorFn: (row) => row.state ?? undefined,
         header: t("tables.largest.columns.state"),
         ...MISSING_LAST,
@@ -127,7 +136,7 @@ export function LargestObjectsTable({ data }: LargestObjectsTableProps) {
             id: "object",
             label: t("tables.largest.actions.object"),
             icon: Layers,
-            onSelect: () => openIn(row, DIRECTORY_PATH, { q: row.name }),
+            onSelect: () => openIn(row, directoryPath(), { q: row.name }),
           },
         ],
       }),
@@ -152,6 +161,7 @@ export function LargestObjectsTable({ data }: LargestObjectsTableProps) {
         sorting={{ mode: "client", initial: [{ id: "logicalBytes", desc: true }] }}
         pagination={{ mode: "client", pageSize: 10, pageSizes: [10, 25, 50] }}
         maxHeight="none"
+        pinnedColumns={PINNED}
         toolbar={(table) => (
           <>
             <DataTableSearch

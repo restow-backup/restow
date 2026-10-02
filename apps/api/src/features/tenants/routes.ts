@@ -11,11 +11,14 @@ import {
   requireSession,
 } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
-import { parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { parseJsonBody, parseOrProblem, readJsonBody } from "../../schemas.js";
+import { createInternalTenant, markTenantInternal } from "./internal.js";
 import {
   addMemberSchema,
+  createInternalTenantSchema,
   createTenantSchema,
   invitationParamSchema,
+  markInternalTenantSchema,
   memberParamSchema,
   replaceNotificationRecipientsSchema,
   replaceTenantContactsSchema,
@@ -48,6 +51,19 @@ import {
  * Tenant CRUD is reserved for provider admins. Member management is open to the
  * tenant's own admins as well, so a customer can manage who may restore, while
  * the tenant is active; a suspended tenant's members are managed by the provider.
+ *
+ * The operator's own organisation (a tenant of kind `internal`, ./internal.ts):
+ *
+ *   POST   /internal       create it (body: name, optional slug); 201, or 409
+ *                          `internal-tenant-exists` while another tenant is it
+ *   POST   /:id/internal   mark an existing tenant as it (body: optional
+ *                          `confirmSwitch`, required to move the mark from
+ *                          another tenant); 200, or 409 `internal-tenant-exists`
+ *   DELETE /:id            refused for it (409 `internal-tenant-protected`)
+ *
+ * Both POSTs need the administrator role of the provider team with every
+ * tenant (lib/provider-access.ts), are audited, and need no `tenants.additional`
+ * for the installation's first tenant, like any first tenant.
  */
 
 export const tenantsRoutes = new Hono<SessionEnv>();
@@ -84,7 +100,7 @@ async function tenantForAdmin(c: Context<SessionEnv>): Promise<Tenant> {
   }
   if (!decision.allowed) {
     throw new ProblemError(403, "Insufficient role", {
-      detail: "Managing members requires the tenant_admin role.",
+      detail: "Managing this tenant requires the tenant_admin role.",
       extensions: { requiredRole: "tenant_admin", role: decision.role },
     });
   }
@@ -108,9 +124,31 @@ tenantsRoutes.post("/", requireProviderAdmin, async (c) => {
   return c.json(await createTenant(db, providerDb, input, actorOf(c)), 201);
 });
 
-tenantsRoutes.get("/:id", requireProviderAdmin, async (c) => {
+// The operator's own organisation (./internal.ts): created here, or an existing tenant
+// is marked as it. Registered before the routes with an `:id`, which would take
+// "internal" for a tenant id.
+tenantsRoutes.post("/internal", requireProviderAdmin, async (c) => {
+  const input = await parseJsonBody(c.req, createInternalTenantSchema);
+  const actor = actorOf(c);
+  // Like the setup wizard, the one who creates it hears about failed jobs and unproven restores.
+  return c.json(
+    await createInternalTenant(db, providerDb, input, actor, { alertEmail: actor.email }),
+    201,
+  );
+});
+
+tenantsRoutes.post("/:id/internal", requireProviderAdmin, async (c) => {
   const { id } = parseOrProblem(tenantIdParamSchema, c.req.param());
-  return c.json(await getTenant(db, id));
+  // The body is optional: without it the mark is not moved from another tenant.
+  const input = parseOrProblem(markInternalTenantSchema, (await readJsonBody(c.req)) ?? {});
+  return c.json(await markTenantInternal(providerDb, id, input, actorOf(c)));
+});
+
+// The detail also answers the tenant's own admins (the tenant page's overview, master data and
+// notification recipients); to anyone else the tenant does not exist.
+tenantsRoutes.get("/:id", requireSession, async (c) => {
+  const tenant = await tenantForAdmin(c);
+  return c.json(await getTenant(db, tenant.id));
 });
 
 tenantsRoutes.patch("/:id", requireProviderAdmin, async (c) => {
@@ -138,10 +176,11 @@ tenantsRoutes.put("/:id/contacts", requireProviderAdmin, async (c) => {
   return c.json(await replaceTenantContacts(db, id, contacts, actorOf(c)));
 });
 
-tenantsRoutes.put("/:id/notification-recipients", requireProviderAdmin, async (c) => {
-  const { id } = parseOrProblem(tenantIdParamSchema, c.req.param());
+// The recipients are the tenant's own to name: its admins may change them, and the provider.
+tenantsRoutes.put("/:id/notification-recipients", requireSession, async (c) => {
+  const tenant = await tenantForAdmin(c);
   const recipients = await parseJsonBody(c.req, replaceNotificationRecipientsSchema);
-  return c.json(await replaceTenantNotificationRecipients(db, id, recipients, actorOf(c)));
+  return c.json(await replaceTenantNotificationRecipients(db, tenant.id, recipients, actorOf(c)));
 });
 
 // --- Members (provider admin or the tenant's admins) --------------------------

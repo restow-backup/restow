@@ -416,8 +416,12 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
       const [contoso, fabrikam] = view.tenants;
       expect(contoso).toMatchObject({
         loaded: true,
+        kind: "customer",
         readiness: "red",
         protectedObjects: 3,
+        ready: 1,
+        needsAttention: 0,
+        notRestorable: 0,
         unverified: 1,
         noBackup: 1,
         failures24h: 1,
@@ -441,6 +445,7 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
         suspendedTenants: 0,
         unavailableTenants: 0,
         tenantsNotReady: 2,
+        readiness: { total: 5, green: 1, yellow: 0, red: 0, unverified: 2, noBackup: 2 },
         protectedObjects: 5,
         unverifiedObjects: 2,
         failures24h: 2,
@@ -459,6 +464,49 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
         ]),
       );
       expect(view.alerts[0]?.severity).toBe("destructive");
+    });
+
+    it("lists the operator's own organisation, but does not count it as a customer", async () => {
+      const [provider] = await owner.select().from(providers).limit(1);
+      const [own] = await owner
+        .insert(tenants)
+        .values({
+          providerId: (provider as { id: string }).id,
+          name: "Own organisation",
+          slug: `own-${randomUUID().slice(0, 6)}`,
+          kind: "internal",
+        })
+        .returning();
+      const ownId = (own as { id: string }).id;
+      try {
+        const { body } = await dashboard(f.contoso, "provider_admin", "?provider=true");
+        const view = ok(body.provider ?? undefined);
+        expect(view.tenants.map((tenant) => [tenant.name, tenant.kind])).toEqual([
+          ["Contoso", "customer"],
+          ["Fabrikam", "customer"],
+          ["Own organisation", "internal"],
+        ]);
+        // The customers are still two, and the own organisation adds none of the customer figures.
+        expect(view.kpis).toMatchObject({ tenants: 2, suspendedTenants: 0, tenantsNotReady: 2 });
+        expect(view.kpis.readiness).toEqual({
+          total: 5,
+          green: 1,
+          yellow: 0,
+          red: 0,
+          unverified: 2,
+          noBackup: 2,
+        });
+      } finally {
+        await owner.delete(tenants).where(eq(tenants.id, ownId));
+      }
+    });
+
+    it("answers the provider view alone for the All tenants overview", async () => {
+      const { status, body } = await dashboard(f.contoso, "provider_admin", "?provider=only");
+      expect(status).toBe(200);
+      expect(body.widgets).toEqual({});
+      const view = ok(body.provider ?? undefined);
+      expect(view.tenants.map((tenant) => tenant.name)).toEqual(["Contoso", "Fabrikam"]);
     });
   });
 });

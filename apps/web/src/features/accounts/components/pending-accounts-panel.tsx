@@ -32,6 +32,9 @@ interface PendingAccountsPanelProps {
   readOnly?: boolean;
 }
 
+/** The person stays in view while the other columns scroll. */
+const PINNED = ["person"] as const;
+
 /**
  * People a tenant admin provisioned who have not set a password yet: shown
  * next to the members list so a sign-in link nobody has redeemed is never
@@ -103,6 +106,7 @@ export function PendingAccountsPanel({ tenantId, readOnly = false }: PendingAcco
           onRetry={() => void query.refetch()}
           errorTitle={t("accounts:pending.error")}
           columnsMenu={false}
+          pinnedColumns={PINNED}
           pagination={{ mode: "client", pageSize: 10 }}
           toolbar={
             accounts.length > 5
@@ -168,6 +172,7 @@ function pendingAccountColumns(
   return [
     {
       id: "person",
+      size: 240,
       accessorFn: (row) => row.name || row.email,
       header: t("tenants:members.columns.person"),
       cell: ({ row }) => (
@@ -181,11 +186,13 @@ function pendingAccountColumns(
     },
     {
       id: "role",
+      size: 140,
       accessorFn: (row) => t(`tenants:members.roles.${row.role}`),
       header: t("tenants:members.columns.role"),
     },
     {
       id: "status",
+      size: 220,
       accessorFn: (row) => t(linkStatusBadge(row.linkStatus).labelKey),
       header: t("accounts:pending.columns.status"),
       cell: ({ row }) => {
@@ -205,6 +212,7 @@ function pendingAccountColumns(
     },
     {
       id: "actions",
+      size: 176,
       enableSorting: false,
       header: () => <span className="sr-only">{t("tenants:members.columns.actions")}</span>,
       meta: { className: "w-44 text-right" },

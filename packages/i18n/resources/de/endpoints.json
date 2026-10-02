@@ -228,7 +228,8 @@
       "notConfigured": {
         "title": "Keine öffentliche URL gesetzt",
         "description": "Die Adresse {url} im Befehl stammt aus diesem Browser, weil keine öffentliche URL konfiguriert ist. Der Rechner muss genau diese Adresse erreichen können.",
-        "link": "Öffentliche URL in den Einstellungen setzen"
+        "link": "Öffentliche URL in den Einstellungen setzen",
+        "elsewhere": "Die öffentliche Adresse legt der Betreiber dieser Installation fest."
       }
     },
     "status": {
@@ -345,6 +346,8 @@
     "nextRunUnknown": "Noch nicht gemeldet",
     "noNextRun": "Keine, der Rechner ist gesperrt",
     "config": "Konfiguration",
+    "job": "Backup-Job",
+    "jobNone": "Keiner: Der Rechner behält seine bisherige Konfiguration",
     "configApplied": "Version {version}, auf dem Rechner angewendet",
     "configPending": "Version {version} ist gespeichert; der Rechner läuft noch mit Version {applied} und holt die Änderung bei seinem nächsten Kontakt ab",
     "configNone": "keine",
@@ -603,6 +606,11 @@
   },
   "settings": {
     "revokedNote": "Dieser Rechner ist gesperrt. Seine Einstellungen lassen sich nicht mehr ändern.",
+    "managed": {
+      "title": "Dieser Rechner wird vom Job {job} verwaltet",
+      "description": "Zeitplan, Ordner, Ausschlüsse, Befehle, Bandbreitenbegrenzung und Zeitfenster kommen vom Job und werden hier nur gelesen. Ändern Sie sie im Job. Name, Aufbewahrung, Alarme und Kontingent lassen sich hier weiterhin ändern.",
+      "open": "Job öffnen"
+    },
     "general": {
       "title": "Allgemein",
       "name": "Name",
@@ -651,7 +659,7 @@
       "title": "Begrenzungen",
       "description": "Verhindert, dass Sicherungen den Rechner oder sein Netz stören.",
       "bandwidth": "Upload-Begrenzung (kbit/s)",
-      "bandwidthHint": "Leer bedeutet unbegrenzt. 1000 kbit/s sind etwa 1 Mbit/s.",
+      "bandwidthHint": "Leer heißt unbegrenzt. 1000 kbit/s sind etwa 1 Mbit/s. Es gilt außerhalb aller Zeitfenster.",
       "unlimited": "Unbegrenzt",
       "acPower": "Nur am Netzstrom sichern",
       "acPowerHint": "Ein Laptop im Akkubetrieb überspringt die Sicherung, bis er am Strom hängt."
@@ -729,7 +737,8 @@
       "required": "Dieses Feld ist erforderlich.",
       "integer": "Geben Sie eine ganze Zahl ein.",
       "range": "Geben Sie eine Zahl von {min} bis {max} ein.",
-      "notScriptName": "Geben Sie den Namen eines Skripts ein (Buchstaben, Ziffern, Punkt, Bindestrich, Unterstrich), keinen Befehl."
+      "notScriptName": "Geben Sie den Namen eines Skripts ein (Buchstaben, Ziffern, Punkt, Bindestrich, Unterstrich), keinen Befehl.",
+      "windows": "Prüfen Sie die Zeitfenster."
     },
     "sections": {
       "displayName": "Name",
@@ -839,7 +848,9 @@
     "invalidCursor": "Die Ordneransicht ist veraltet. Öffnen Sie den Ordner erneut.",
     "hooksNotAllowed": "Dieser Rechner lässt keine Hooks aus {appName} zu. Ein Administrator des Rechners kann sie dort mit sudo restow-agent hooks scripts oder sudo restow-agent hooks any erlauben.",
     "hookNotAScript": "Dieser Rechner führt nur Skripte aus /etc/restow-agent/hooks.d aus. Geben Sie den Namen eines Skripts dort ein, keinen Befehl.",
-    "recentSignIn": "Bestätigen Sie zuerst, dass Sie es sind: Das Setzen oder Ändern eines Hooks und das Anzeigen des Repository-Passworts erfordern eine Anmeldung aus den letzten 10 Minuten."
+    "configManagedByJob": "Dieser Rechner ist in einem Backup-Job, der seine Konfiguration verwaltet. Zeitplan, Ordner, Ausschlüsse, Befehle und Bandbreitenbegrenzung ändern Sie im Job.",
+    "recentSignIn": "Bestätigen Sie zuerst, dass Sie es sind: Das Setzen oder Ändern eines Hooks und das Anzeigen des Repository-Passworts erfordern eine Anmeldung aus den letzten 10 Minuten.",
+    "invalidBandwidthWindows": "Die Zeitfenster lassen sich so nicht speichern. Prüfen Sie die Tage, die Uhrzeiten und dass sich keine zwei Zeitfenster überschneiden."
   },
   "readinessSection": {
     "overdue": "Überfällig",
@@ -875,13 +886,22 @@
   },
   "agentUpdates": {
     "title": "Automatische Agent-Updates",
-    "description": "Agenten aktualisieren sich selbst auf die neueste Version, die diese Installation mitbringt, und nur auf vom Maintainer signierte Releases. Pausieren Sie die Updates, um alle Rechner dieses Mandanten auf ihrer Version zu halten, etwa um ein Update zuerst zu testen.",
+    "description": "Agents aktualisieren sich selbst auf die neueste Version, die diese Installation mitbringt, und nur auf Releases, die der Maintainer signiert hat. Pausieren Sie das, um jede Maschine auf ihrer Version zu halten, zum Beispiel um ein Update zuerst zu testen. Es ist eine Einstellung für alle Maschinen, auch für später hinzugefügte.",
     "label": "Agenten automatisch aktualisieren",
     "on": "Ein: Die Rechner installieren neue signierte Agent-Releases selbst.",
-    "paused": "Pausiert für alle Rechner dieses Mandanten, auch für später hinzugefügte.",
+    "paused": "Für jede Maschine pausiert, auch für später hinzugefügte.",
     "toast": {
       "on": "Automatische Agent-Updates sind eingeschaltet",
-      "paused": "Automatische Agent-Updates sind pausiert"
+      "paused": "Automatische Agent-Updates sind pausiert",
+      "machineResumed": "Die Maschine folgt wieder der Einstellung",
+      "allResumed": "Alle Maschinen folgen wieder der Einstellung"
+    },
+    "loadError": "Die Einstellung für Agent-Updates konnte nicht geladen werden.",
+    "overrides": {
+      "title": "{count, plural, one {# Maschine ist einzeln pausiert} other {# Maschinen sind einzeln pausiert}}",
+      "description": "Diese Maschinen behalten ihre Version, was die Einstellung oben auch sagt. Sie wurden pausiert, bevor die Pause eine Einstellung für alle Maschinen wurde. Setzen Sie sie fort, damit sie der Einstellung folgen.",
+      "resume": "Diese Maschine fortsetzen",
+      "resumeAll": "Alle fortsetzen"
     }
   },
   "inventory": {
@@ -909,5 +929,10 @@
       "description": "Fügen Sie im Inventar einen Server oder Client hinzu. Sobald er gesichert ist, stellen Sie hier Dateien wieder her.",
       "action": "Zum Inventar"
     }
+  },
+  "proxmox": {
+    "label": "Proxmox verbinden",
+    "title": "Proxmox VE",
+    "description": "Proxmox VE ab 8.4 anbinden und virtuelle Maschinen sowie LXC-Container über die offizielle Backup-Schnittstelle von Proxmox sichern: Nur geänderte Blöcke verlassen den Host, direkt in Ihre {appName}-Repositories. Kommt nach 0.2.0."
   }
 }

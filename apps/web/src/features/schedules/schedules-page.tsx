@@ -71,7 +71,7 @@ export function SchedulesPage() {
 
   const onApplyRecommended = () => {
     apply.mutate(browserTimeZone(), {
-      onSuccess: (result) => toastApplied(t, result.created.length),
+      onSuccess: (result) => toastApplied(t, result.created.length + (result.jobCreated ? 1 : 0)),
       onError: (error) => toastFailed(t, error),
     });
   };

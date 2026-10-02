@@ -238,9 +238,7 @@ function M365Details({ source }: { source: DirectorySource }) {
     <div className="space-y-4">
       {rules ? (
         <section className="space-y-1 text-sm">
-          <h4 className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            {t("sources.rules.title")}
-          </h4>
+          <h4 className="text-xs font-medium text-muted-foreground">{t("sources.rules.title")}</h4>
           <p>
             {rules.mode === "all"
               ? t("sources.rules.all")

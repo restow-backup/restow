@@ -12,7 +12,7 @@ import { audit } from "./lib/audit.js";
 import { sessionAssurancePlugin } from "./lib/auth-hooks.js";
 import { authLogger, writeAuthLog } from "./lib/auth-logger.js";
 import { AUTH_RATE_LIMIT, guardAuthSurface, invitationAnswer } from "./lib/auth-surface.js";
-import { MIN_PASSWORD_LENGTH } from "./lib/password-policy.js";
+import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "./lib/password-policy.js";
 import { clientIpOf, trustedProxies } from "./lib/request.js";
 import { totpIssuer } from "./lib/sign-in-options.js";
 
@@ -182,6 +182,11 @@ const betterAuthInstance = betterAuth({
     disableSignUp: true,
     requireEmailVerification: false,
     minPasswordLength: MIN_PASSWORD_LENGTH,
+    // better-auth defaults to 128 and, since 1.7.6, also refuses a longer password
+    // on sign-in and the other password endpoints before it is checked. Restow
+    // accepts up to MAX_PASSWORD_LENGTH (setup wizard, admin recovery), so the
+    // same limit is set here: a 129-256 character password keeps working.
+    maxPasswordLength: MAX_PASSWORD_LENGTH,
   },
   plugins: [
     passkey({

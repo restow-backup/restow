@@ -12,6 +12,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  PIN_FIRST,
   Table,
   TableBody,
   TableCell,
@@ -51,10 +52,10 @@ export function TenantTable({
 }: TenantTableProps) {
   const { t } = useTranslation("tenants");
   return (
-    <Table>
+    <Table scrollLabel={t("list.title")}>
       <TableHeader>
         <TableRow className="hover:bg-transparent">
-          <TableHead>{t("list.columns.tenant")}</TableHead>
+          <TableHead pin={PIN_FIRST}>{t("list.columns.tenant")}</TableHead>
           <TableHead className="hidden sm:table-cell">{t("list.columns.mailboxes")}</TableHead>
           <TableHead className="hidden lg:table-cell">{t("list.columns.lastBackup")}</TableHead>
           <TableHead className="hidden md:table-cell">{t("list.columns.readiness")}</TableHead>
@@ -70,7 +71,7 @@ export function TenantTable({
           const current = tenant.id === activeTenantId;
           return (
             <TableRow key={tenant.id}>
-              <TableCell className="min-w-0 py-3">
+              <TableCell pin={PIN_FIRST} className="min-w-0 max-w-[22rem] py-3">
                 <div className="flex min-w-0 flex-col items-start gap-1">
                   <Link
                     to={tenantDetailTo(tenant.id)}
@@ -81,11 +82,14 @@ export function TenantTable({
                   <span className="max-w-full truncate font-mono text-xs text-muted-foreground">
                     {tenant.slug}
                   </span>
-                  {tenant.status !== "active" || current ? (
+                  {tenant.status !== "active" || current || tenant.kind === "internal" ? (
                     <span className="flex flex-wrap gap-1">
                       {tenant.status === "active" ? null : (
                         <TenantStatusBadge status={tenant.status} />
                       )}
+                      {tenant.kind === "internal" ? (
+                        <Badge variant="outline">{t("ownOrganisation.badge")}</Badge>
+                      ) : null}
                       {current ? <Badge variant="secondary">{t("list.current")}</Badge> : null}
                     </span>
                   ) : null}
@@ -178,7 +182,12 @@ function RowMenu({ tenant, deleting, onEnter, onOpenSetup, onDelete }: RowMenuPr
         {onDelete ? (
           <>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={onDelete} disabled={deleting} variant="destructive">
+            {/* The own organisation is deleted only after another tenant took its place. */}
+            <DropdownMenuItem
+              onSelect={onDelete}
+              disabled={deleting || tenant.kind === "internal"}
+              variant="destructive"
+            >
               <Trash2 />
               {t("actions.delete")}
             </DropdownMenuItem>

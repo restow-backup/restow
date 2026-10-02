@@ -121,7 +121,7 @@ Alternative: clsx plus tailwind-merge 3 behalten; dann müsste jede neu hinzugef
 Komponente von Hand auf `@/lib/utils` umgestellt werden. Risiko: das Paket ist jung
 (0.x); die Version ist über das Lockfile fest, ein Wechsel zurück betrifft nur
 `lib/utils.ts` und die Importzeile der Komponenten.
-Formulare: react-hook-form (ab 7.55) + zod (ab 3.25). Das shadcn-`form` baut nur auf
+Formulare: react-hook-form (ab 7.89) + zod (ab 3.25). Das shadcn-`form` baut nur auf
 react-hook-form auf; die Verbindung zu zod übernimmt ein kleiner eigener Resolver in
 `apps/web/src/lib/form.ts`, der die Fehler der Schemas auf i18n-Schlüssel abbildet, damit
 zods englische Standardtexte nie in der Oberfläche landen. Die Registry schlägt dafür
@@ -165,7 +165,34 @@ gewählt hat, sieht dieses ab dem Laden des Moduls. Alternative: ein Inline-Skri
 `<head>` von `index.html`, das auch ein abweichend gewähltes Theme vor dem ersten Frame
 setzt; es dupliziert die Logik des Theme-Moduls und bräuchte unter einer künftigen
 Content-Security-Policy einen Hash.
-Keine externen CDNs, Fonts lokal (Inter, Geist Mono).
+Keine externen CDNs. Schriften sind immer selbst gehostet, nie von Google Fonts oder einem
+anderen Dienst; die Content-Security-Policy der Edge erlaubt nur `font-src 'self'`, und eine
+Installation ruft keinen Fremdserver auf. Schriften nach Brand Guide, Abschnitt 5: Inter Tight
+(`@fontsource/inter-tight`, OFL-1.1) für alles, was ein Mensch liest, IBM Plex Mono
+(`@fontsource/ibm-plex-mono`, OFL-1.1) für alles, was eine Maschine erzeugt. Zweck: die
+Dateien kommen mit dem Web-Bundle und werden von der Installation selbst ausgeliefert, damit
+Oberfläche und Wortmarke auf jedem Gerät gleich aussehen. Beide Pakete hängen nur an
+`apps/web` (Kern); die OFL ist in `scripts/ci/license-policy.json` für den Kern erlaubt, nicht
+für `ee/`. Die OFL verlangt Copyright-Vermerk und Lizenztext bei jeder Kopie der Schrift;
+beides steht in `THIRD_PARTY_NOTICES.md` (erzeugt aus den Paketen). Eingebunden sind nur die
+Subsets latin und latin-ext und nur die verwendeten Schnitte (Inter Tight 400, 500, 600, 700;
+IBM Plex Mono 400, 500, 600), aufrecht, als woff2, mit eigenen `@font-face`-Regeln in
+`apps/web/src/fonts.css` (mit `unicode-range`, damit latin-ext nur bei Bedarf geladen wird).
+Vite legt die 14 Dateien (13 bis 38 KB, zusammen rund 320 KB, also nie inline) unter
+`/assets` ab; `apps/web/src/fonts.test.ts` schlägt bei jeder externen Schrift-URL fehl.
+Die latin-Dateien von Inter Tight 400, 500 und 600 (Fließtext, Menüs, Überschriften) lädt der
+Browser vorab: das Vite-Plugin `apps/web/vite/font-preload.ts` setzt beim Build
+`<link rel="preload" as="font" type="font/woff2" crossorigin>` mit den Hash-Namen in
+`dist/index.html`, damit der erste Aufbau nicht auf das Stylesheet warten muss. Fehlt eine
+der drei Dateien im Bundle, bricht der Build ab.
+Alternativen: die Fontsource-CSS-Dateien direkt einbinden (sie bringen zusätzlich woff-Dateien
+mit, die kein unterstützter Browser braucht, und ohne `unicode-range` je Subset); variable
+Schriften (`@fontsource-variable/*`): weniger Dateien, aber IBM Plex Mono gibt es nicht
+variabel, und beide Schriften sollen gleich eingebunden sein; Systemschriften: kein Download,
+aber Wortmarke und Zahlen sehen je Gerät anders aus. PDF-Berichte bleiben bei den
+eingebauten PDF-Schriften (Helvetica, Courier): Einbetten der Fontsource-Dateien machte die
+API von den Schriftpaketen abhängig und bräuchte einen Ersatz für Zeichen außerhalb der
+latin-Subsets.
 Dazu die üblichen shadcn-Hilfen: class-variance-authority (Apache-2.0); cmdk (MIT) für die
 Befehlspalette, date-fns (MIT) für Datumsrechnung (Anzeige und Formatierung über `Intl`).
 Lade-/Aktivitätsanzeige für lang laufende Vorgänge wie Sicherung, Wiederherstellung,
@@ -417,9 +444,11 @@ jedes per Container-Digest oder Commit-SHA gepinnt.
   das Ergebnis liegt intern unter `internal/`. Alternative: FOSSology (GPL-2.0, braucht einen
   Server und eine Datenbank).
 - Dependabot (GitHub-Dienst, `.github/dependabot.yml`): wöchentliche Pull Requests für npm, Go,
-  GitHub Actions und Docker, je Update ein Pull Request ohne Gruppierung; jeder Pull Request läuft
-  durch dieselbe CI, einschließlich der Lizenzprüfung. Alternative: Renovate (mehr
-  Konfiguration, ein weiterer Dienst).
+  GitHub Actions und Docker, Patch- und Minor-Updates gruppiert (seit 0.2.0; vorher je Update ein
+  Pull Request, nach 0.1.0 waren das 13 auf einmal), bekannte Major-Migrationen (vite, vitest,
+  intl-messageformat, archiver) von Hand; jeder Pull Request läuft durch dieselbe CI, einschließlich
+  der Lizenzprüfung, und wird im Entwicklungsbaum nachgezogen statt gemergt (docs/CI.md).
+  Alternative: Renovate (mehr Konfiguration, ein weiterer Dienst).
 - Image-Aufbau: Die Laufzeit startet jede Rolle mit `node`; npm, yarn, corepack und pnpm
   (Build-Werkzeuge des Node-Images) sind aus dem Dateisystem entfernt, ebenso die von
   better-auth als optionale Peers mitinstallierten Werkzeuge (vitest, vite, esbuild,

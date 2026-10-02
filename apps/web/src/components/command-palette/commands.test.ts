@@ -61,17 +61,35 @@ const navItems: NavItem[] = [
     labelKey: "settings:nav",
     icon: Settings,
     roles: ["provider_admin"],
-    group: "admin",
+    group: "installation",
   },
 ];
 
 const tenants: SessionTenant[] = [
-  { id: "contoso", name: "Contoso", slug: "contoso", role: "tenant_admin", status: "active" },
-  { id: "fabrikam", name: "Fabrikam", slug: "fabrikam", role: "tenant_user", status: "active" },
+  {
+    id: "contoso",
+    name: "Contoso",
+    slug: "contoso",
+    kind: "customer",
+    customerNumber: null,
+    role: "tenant_admin",
+    status: "active",
+  },
+  {
+    id: "fabrikam",
+    name: "Fabrikam",
+    slug: "fabrikam",
+    kind: "customer",
+    customerNumber: null,
+    role: "tenant_user",
+    status: "active",
+  },
   {
     id: "northwind",
     name: "Northwind",
     slug: "northwind",
+    kind: "customer",
+    customerNumber: null,
     role: "tenant_user",
     status: "suspended",
   },
@@ -87,6 +105,7 @@ function input(overrides: Partial<PaletteInput> = {}): PaletteInput {
     activeTenantId: "fabrikam",
     isProviderAdmin: false,
     theme: "system",
+    palette: "restow",
     language: "en",
     languages: ["de", "en"],
     t,
@@ -204,18 +223,26 @@ describe("palette navigation", () => {
     expect(all.find((command) => command.id === "nav:restore")?.label).toBe("restore:nav");
   });
 
-  it("offers the tabs of the tenant setup area the role may open, Protection first", () => {
+  it("offers the sections of the tenant page of the active tenant to the roles that may open it", () => {
     const admin = buildPaletteGroups(input({ role: "tenant_admin", activeTenantId: "contoso" }));
     const setup = admin.find((group) => group.id === "setup");
-    expect(setup?.heading).toBe("nav.items.setup");
+    // One organisation: its settings.
+    expect(setup?.heading).toBe("nav.items.organisationSettings");
     expect(setup?.commands.map((command) => [command.id, command.action])).toEqual([
-      ["nav:protected-objects", { kind: "navigate", to: "/protected-objects" }],
-      ["setup:sources", { kind: "navigate", to: "/sources" }],
-      ["setup:schedules", { kind: "navigate", to: "/schedules" }],
-      ["setup:retention", { kind: "navigate", to: "/retention" }],
-      ["setup:imports", { kind: "navigate", to: "/imports" }],
+      ["setup:connections", { kind: "navigate", to: "/tenants/contoso/connections" }],
+      // Protection keeps the id of its former menu entry: the object search is tied to it.
+      ["nav:protected-objects", { kind: "navigate", to: "/tenants/contoso/protection" }],
+      ["setup:jobs", { kind: "navigate", to: "/tenants/contoso/jobs" }],
+      ["setup:retention", { kind: "navigate", to: "/tenants/contoso/retention" }],
+      ["setup:storage", { kind: "navigate", to: "/tenants/contoso/storage" }],
+      ["setup:agents", { kind: "navigate", to: "/tenants/contoso/agents" }],
+      ["setup:archive", { kind: "navigate", to: "/tenants/contoso/archive" }],
+      ["setup:notifications", { kind: "navigate", to: "/tenants/contoso/notifications" }],
+      ["setup:integrations", { kind: "navigate", to: "/tenants/contoso/integrations" }],
+      ["setup:members", { kind: "navigate", to: "/tenants/contoso/members" }],
+      ["setup:master-data", { kind: "navigate", to: "/tenants/contoso/master-data" }],
     ]);
-    // Where tenants are managed it is the tenant page; an end user only reads schedules.
+    // Where tenants are managed they are the tenant's settings; an end user has no tenant page.
     const provider = buildPaletteGroups(
       input({
         role: "provider_admin",
@@ -223,14 +250,14 @@ describe("palette navigation", () => {
         lockContext: { features: ["tenants.additional"], extensions: {} },
       }),
     );
-    expect(provider.find((group) => group.id === "setup")?.heading).toBe("nav.setup.tenantPage");
+    expect(provider.find((group) => group.id === "setup")?.heading).toBe(
+      "nav.items.tenantSettings",
+    );
     const user = buildPaletteGroups(input({ role: "tenant_user" }));
-    expect(
-      user.find((group) => group.id === "setup")?.commands.map((command) => command.id),
-    ).toEqual(["setup:schedules"]);
+    expect(user.find((group) => group.id === "setup")).toBeUndefined();
   });
 
-  it("always offers account security, sign-out, appearance and language", () => {
+  it("always offers account security, sign-out, appearance (mode and colour scheme) and language", () => {
     const ids = commands(buildPaletteGroups(input({ role: null, tenants: [] }))).map(
       (command) => command.id,
     );
@@ -241,17 +268,37 @@ describe("palette navigation", () => {
         "theme:light",
         "theme:dark",
         "theme:system",
+        "scheme:restow",
+        "scheme:neutral",
         "language:de",
         "language:en",
       ]),
     );
   });
 
-  it("marks the current theme and language", () => {
+  it("marks the current mode, colour scheme and language", () => {
     const current = commands(buildPaletteGroups(input({ theme: "dark", language: "de" })))
       .filter((command) => command.current)
       .map((command) => command.id);
-    expect(current).toEqual(["theme:dark", "language:de"]);
+    expect(current).toEqual(["theme:dark", "scheme:restow", "language:de"]);
+    const neutral = commands(buildPaletteGroups(input({ palette: "neutral" })))
+      .filter((command) => command.current)
+      .map((command) => command.id);
+    expect(neutral).toEqual(["theme:system", "scheme:neutral", "language:en"]);
+  });
+
+  it("offers one colour scheme command per scheme, independent of the mode commands", () => {
+    const schemes = commands(buildPaletteGroups(input())).filter((command) =>
+      command.id.startsWith("scheme:"),
+    );
+    expect(schemes.map((command) => command.action)).toEqual([
+      { kind: "scheme", palette: "restow" },
+      { kind: "scheme", palette: "neutral" },
+    ]);
+    // Found by the words a person would type: colour scheme, appearance, the scheme's own name.
+    expect(schemes[1]?.keywords).toEqual(
+      expect.arrayContaining(["theme.palette.label", "theme.label", "neutral"]),
+    );
   });
 });
 
@@ -333,6 +380,8 @@ describe("palette tenant switching", () => {
             id: "22222222-2222-4222-8222-222222222222",
             name: "Fabrikam GmbH",
             slug: "fabrikam-gmbh",
+            kind: "customer",
+            customerNumber: null,
             role: "tenant_user",
             status: "active",
           },
@@ -408,5 +457,133 @@ describe("objectGroup", () => {
     });
     // The typed text stays a keyword, so the client filter keeps server hits.
     expect(group?.commands[0]?.keywords).toContain("anna");
+  });
+});
+
+describe("palette and the menu of 0.2.0", () => {
+  const SETTINGS_ROLES = ["provider_admin", "tenant_admin"];
+  const many = { features: ["tenants.additional" as const], extensions: { unlocked: true } };
+  const one = { features: [], extensions: { unlocked: true } };
+  const menuItems: NavItem[] = [
+    {
+      id: "dashboard",
+      path: "/",
+      labelKey: "dashboard:nav",
+      icon: LayoutDashboard,
+      exact: true,
+      group: "daily",
+    },
+    { id: "restore", path: "/restore", labelKey: "restore:nav", icon: ListChecks, group: "mail" },
+    {
+      id: "archive",
+      path: "/archive",
+      labelKey: "archive:nav",
+      icon: ListChecks,
+      roles: SETTINGS_ROLES,
+      group: "mail",
+    },
+    {
+      id: "tenant-settings",
+      path: "/protected-objects",
+      labelKey: "nav.items.tenantSettings",
+      icon: Settings,
+      roles: SETTINGS_ROLES,
+      group: "tenants",
+      visible: (context) => (context.features ?? []).includes("tenants.additional"),
+    },
+    {
+      id: "organisation-settings",
+      path: "/protected-objects",
+      labelKey: "nav.items.organisationSettings",
+      icon: Settings,
+      roles: SETTINGS_ROLES,
+      group: "tenants",
+      visible: (context) => !(context.features ?? []).includes("tenants.additional"),
+    },
+    {
+      id: "tenants",
+      path: "/tenants",
+      labelKey: "tenants:nav",
+      icon: Building2,
+      roles: ["provider_admin"],
+      group: "tenants",
+    },
+    {
+      id: "settings",
+      path: "/settings",
+      labelKey: "settings:nav",
+      icon: Settings,
+      roles: ["provider_admin"],
+      group: "installation",
+    },
+  ];
+  const provider = { role: "provider_admin", isProviderAdmin: true, navItems: menuItems } as const;
+
+  const navHeadings = (groups: PaletteGroup[]) =>
+    groups.filter((group) => group.id.startsWith("nav-")).map((group) => group.heading);
+
+  it("groups the entries under the sections of the sidebar, in its order", () => {
+    expect(navHeadings(buildPaletteGroups(input({ ...provider, lockContext: many })))).toEqual([
+      "nav.groups.daily",
+      "nav.groups.mail",
+      "nav.groups.tenants",
+      "nav.groups.installation",
+    ]);
+  });
+
+  it("calls the tenants section Organisation where the installation has one organisation", () => {
+    expect(navHeadings(buildPaletteGroups(input({ ...provider, lockContext: one })))).toEqual([
+      "nav.groups.daily",
+      "nav.groups.mail",
+      "nav.groups.organisation",
+      "nav.groups.installation",
+    ]);
+  });
+
+  it("reaches the settings of the active tenant as a command, in either wording", () => {
+    const settingsCommand = (lockContext: typeof one | typeof many, role: string) =>
+      commands(buildPaletteGroups(input({ ...provider, role, lockContext }))).filter(
+        (command) =>
+          command.id === "nav:tenant-settings" || command.id === "nav:organisation-settings",
+      );
+    expect(settingsCommand(many, "provider_admin").map((c) => c.id)).toEqual([
+      "nav:tenant-settings",
+    ]);
+    expect(settingsCommand(one, "provider_admin").map((c) => c.id)).toEqual([
+      "nav:organisation-settings",
+    ]);
+    // A tenant admin of a Service Provider installation has it too.
+    expect(settingsCommand(many, "tenant_admin").map((c) => c.id)).toEqual(["nav:tenant-settings"]);
+    // An end user has neither.
+    expect(settingsCommand(many, "tenant_user")).toEqual([]);
+  });
+
+  it("names the section where a label repeats, so 'Settings' says which one", () => {
+    const withSameLabel = menuItems.map((item) =>
+      item.id === "tenant-settings" || item.id === "organisation-settings"
+        ? { ...item, labelKey: "settings:nav" }
+        : item,
+    );
+    const all = commands(
+      buildPaletteGroups(input({ ...provider, navItems: withSameLabel, lockContext: one })),
+    );
+    expect(all.find((command) => command.id === "nav:organisation-settings")?.label).toBe(
+      "settings:nav · nav.groups.organisation",
+    );
+    expect(all.find((command) => command.id === "nav:settings")?.label).toBe(
+      "settings:nav · nav.groups.installation",
+    );
+  });
+
+  it("switches to a tenant found by its customer number", () => {
+    const numbered: SessionTenant[] = [
+      { ...(tenants[0] as SessionTenant), customerNumber: "KD-10234" },
+      { ...(tenants[1] as SessionTenant), customerNumber: "KD-20456" },
+    ];
+    const groups = buildPaletteGroups(
+      input({ ...provider, tenants: numbered, activeTenantId: "fabrikam" }),
+    );
+    expect(search(groups, "KD-10234")[0]).toBe("tenant:contoso");
+    expect(search(groups, "kd-10234")).not.toContain("nav:dashboard");
   });
 });

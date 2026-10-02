@@ -1,4 +1,4 @@
-import { type TenantRole, unwrapList } from "@/lib/api";
+import { type TenantKind, type TenantRole, unwrapList } from "@/lib/api";
 
 import { tenantRoleFromMemberRole } from "./presenters";
 import {
@@ -53,6 +53,7 @@ function asNullableCount(value: unknown): number | null {
 }
 
 const TENANT_STATUSES: readonly TenantStatus[] = ["active", "suspended", "deleting"];
+const TENANT_KINDS: readonly TenantKind[] = ["customer", "internal"];
 const READINESS: readonly Readiness[] = ["green", "yellow", "red"];
 
 function oneOf<T extends string>(allowed: readonly T[], value: unknown, fallback: T): T {
@@ -74,7 +75,10 @@ export function decodeTenant(payload: unknown): TenantItem {
     id: asString(raw.id),
     name: asString(raw.name),
     slug: asString(raw.slug),
+    // A server from before the own organisation existed sends no kind: all customers.
+    kind: oneOf(TENANT_KINDS, raw.kind, "customer"),
     status: oneOf(TENANT_STATUSES, raw.status, "active"),
+    customerNumber: asNullableString(raw.customerNumber),
     organizationId: asNullableString(raw.organizationId),
     mailboxCap: asNullableCount(raw.mailboxCap),
     createdAt: asNullableString(raw.createdAt),

@@ -164,8 +164,8 @@
   "nav": "Alarme",
   "page": {
     "title": "Alarme",
-    "subtitle": "Wer wann was erfährt: Alarme, wenn etwas passiert, Berichte zu einem Zeitpunkt.",
-    "tenantScope": "Alarme und Berichte von {tenant}",
+    "subtitle": "Alles, was gesendet wurde: Alarme, wenn etwas passiert ist, Berichte zu ihrem Zeitplan.",
+    "tenantScope": "Gesendete Alarme und Berichte von {tenant}",
     "newAlert": "Neuer Alarm",
     "newReport": "Neuer Bericht",
     "reportLocked": "Berichte nicht verfügbar",
@@ -176,7 +176,8 @@
     "noTenant": {
       "title": "Kein Mandant ausgewählt",
       "description": "Wählen Sie oben einen Mandanten, um seine Alarme und Berichte zu sehen und zu ändern."
-    }
+    },
+    "manageRules": "Regeln und Empfänger"
   },
   "rules": {
     "loadError": "Die Regeln konnten nicht geladen werden.",
@@ -222,7 +223,9 @@
     "deleteConfirm": {
       "title": "Diese Regel löschen?",
       "description": "„{name}“ sendet nichts mehr. Ihre Einträge im Zustellprotokoll bleiben erhalten."
-    }
+    },
+    "panelTitle": "Regeln für Alarme und Berichte",
+    "panelDescription": "Ein Alarm wird gesendet, wenn etwas passiert, ein Bericht zu einem Zeitpunkt. Die Empfänger oben speisen die Regeln, die mit ihnen gekennzeichnet sind."
   },
   "deliveries": {
     "title": "Zustellprotokoll",
@@ -249,7 +252,7 @@
       "skipped": "Übersprungen"
     },
     "reasons": {
-      "mail_not_configured": "Kein Mail-Versand eingerichtet (Einstellungen → Benachrichtigungs-Mail).",
+      "mail_not_configured": "Kein Mail-Versand eingerichtet (Installation → Benachrichtigungs-Mail).",
       "not_available": "Berichte sind auf dieser Installation nicht verfügbar.",
       "webhook_deleted": "Der Webhook wurde gelöscht.",
       "webhook_inactive": "Der Webhook ist pausiert.",
@@ -328,7 +331,8 @@
       "time": "Geben Sie eine Uhrzeit als HH:MM ein.",
       "cron": "Ein Cron-Ausdruck hat fünf Felder.",
       "recipients": "Eine der Adressen ist keine gültige E-Mail-Adresse."
-    }
+    },
+    "recipientsManaged": "Das sind die Empfänger, die diese Kategorie unter Empfänger gewählt haben. Ändern Sie sie dort."
   },
   "eventGroups": {
     "jobs": "Aufträge",

@@ -142,13 +142,16 @@ export type SetupItemId = (typeof SETUP_ITEM_IDS)[number];
 
 export interface SetupItem {
   id: SetupItemId;
-  state: "done" | "open" | "attention";
+  /** `not_needed`: an optional step the installation does not want; it counts as settled, like `done`. */
+  state: "done" | "open" | "attention" | "not_needed";
   reason: string | null;
   actionable: boolean;
 }
 
 export interface SetupWidget {
+  /** Every item is settled: done, or not needed. */
   complete: boolean;
+  /** Items settled so far (done, or not needed). */
   done: number;
   total: number;
   items: SetupItem[];
@@ -214,11 +217,15 @@ export type WidgetId = keyof WidgetData;
 
 export type TenantWidgets = { [K in WidgetId]?: WidgetResult<WidgetData[K]> };
 
+export type TenantKind = "customer" | "internal";
+
 interface ProviderTenantRowBase {
   id: string;
   name: string;
   slug: string;
   status: TenantStatus;
+  /** `internal`: the operator's own organisation, which is not one of the provider's customers. */
+  kind: TenantKind;
   /** Protected mailboxes, known for every tenant (counted with the mailbox usage). */
   mailboxes: number;
   mailboxCap: number | null;
@@ -229,9 +236,12 @@ export interface LoadedTenantRow extends ProviderTenantRowBase {
   loaded: true;
   readiness: Readiness | null;
   protectedObjects: number;
+  /** Objects by state, as Recovery readiness rates them. */
+  ready: number;
+  needsAttention: number;
+  notRestorable: number;
   unverified: number;
   noBackup: number;
-  notRestorable: number;
   failures24h: number;
   failuresPrevious24h: number;
   lastBackupAt: string | null;
@@ -244,9 +254,11 @@ export interface UnavailableTenantRow extends ProviderTenantRowBase {
   loaded: false;
   readiness: null;
   protectedObjects: null;
+  ready: null;
+  needsAttention: null;
+  notRestorable: null;
   unverified: null;
   noBackup: null;
-  notRestorable: null;
   failures24h: null;
   failuresPrevious24h: null;
   lastBackupAt: null;
@@ -280,10 +292,21 @@ export interface ProviderAlert {
  * `unavailableTenants` whose figures could not be read.
  */
 export interface ProviderKpis {
+  /** The provider's customers: the own organisation is not counted. */
   tenants: number;
   suspendedTenants: number;
   unavailableTenants: number;
+  /** Customers whose overall readiness is red. */
   tenantsNotReady: number;
+  /** The objects of every tenant that could be read, the own organisation included, by state. */
+  readiness: {
+    total: number;
+    green: number;
+    yellow: number;
+    red: number;
+    unverified: number;
+    noBackup: number;
+  };
   protectedObjects: number;
   unverifiedObjects: number;
   failures24h: number;
@@ -306,16 +329,36 @@ export interface Dashboard {
   provider: WidgetResult<ProviderView> | null;
 }
 
+/** What the page asks for: the active tenant's widgets, or only the provider view ("All tenants"). */
+export type DashboardMode = "tenant" | "all";
+
 export const dashboardKeys = {
-  page: (tenantId: string | null, provider: boolean) =>
-    ["tenant", tenantId, "dashboard", { provider }] as const,
+  page: (tenantId: string | null, mode: DashboardMode) =>
+    ["tenant", tenantId, "dashboard", { mode }] as const,
+  /** The sidebar's Start checklist: the setup widget alone. */
+  setup: (tenantId: string | null) => ["tenant", tenantId, "dashboard", "setup"] as const,
 };
 
 /**
- * The start page of the active tenant; `provider` adds the provider view.
- * The response always carries the active tenant's widgets as well.
+ * The start page of the active tenant. `all` asks for the provider view alone
+ * (`provider=only`): the sum across tenants and the tenant matrix, without
+ * reading the active tenant's own widgets.
  */
-export function fetchDashboard(provider: boolean): Promise<Dashboard> {
-  const query = provider ? "?provider=true" : "";
-  return apiFetch<Dashboard>(`/dashboard${query}`);
+export function fetchDashboard(mode: DashboardMode = "tenant"): Promise<Dashboard> {
+  return apiFetch<Dashboard>(mode === "all" ? "/dashboard?provider=only" : "/dashboard");
+}
+
+/** The setup checklist alone (`widgets=setup`), which is all the sidebar's Start entry needs. */
+export function fetchSetup(): Promise<Dashboard> {
+  return apiFetch<Dashboard>("/dashboard?widgets=setup");
+}
+
+/** Mark the notification mail as not needed, or take the mark back (installation owners). */
+export function setMailNotNeeded(notNeeded: boolean): Promise<{ notNeeded: boolean }> {
+  return apiFetch<{ notNeeded: boolean }>("/settings/mail/not-needed", {
+    method: "PUT",
+    body: { notNeeded },
+    // An installation setting: it belongs to no tenant.
+    tenantId: null,
+  });
 }

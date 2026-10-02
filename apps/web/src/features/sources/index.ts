@@ -1,37 +1,17 @@
-import { createRoute } from "@tanstack/react-router";
-
 import type { NavItem } from "@/lib/navigation";
-import { appLayoutRoute } from "@/routes/tree";
+
 import "./i18n";
-import { parseConsentSearch } from "./presenters";
-import { SourceDetailPage } from "./source-detail-page";
-import { SourcesPage } from "./sources-page";
 
 /**
- * Sources feature: Microsoft 365 tenants (admin consent, permission
- * checklist) and IMAP mailboxes (connection, test). Both routes accept the
- * parameters the admin-consent callback appends; unknown values are dropped.
+ * Sources feature: Microsoft 365 tenants (admin consent, permission checklist)
+ * and IMAP mailboxes (connection, test). Its pages are not routes of their own:
+ * they are the Microsoft 365 and IMAP tabs of the Connections section of the
+ * tenant page and the page of one source below it (features/tenant-page), which
+ * also receives the parameters the admin-consent callback appends. The old
+ * addresses `/sources...` lead there (features/redirects).
  */
 
-export const sourcesRoute = createRoute({
-  getParentRoute: () => appLayoutRoute,
-  path: "/sources",
-  validateSearch: (search: Record<string, unknown>) => parseConsentSearch(search),
-  component: SourcesPage,
-});
+export const routes = [];
 
-export const sourceDetailRoute = createRoute({
-  getParentRoute: () => appLayoutRoute,
-  path: "/sources/$sourceId",
-  validateSearch: (search: Record<string, unknown>) => parseConsentSearch(search),
-  component: SourceDetailPage,
-});
-
-export const routes = [sourcesRoute, sourceDetailRoute];
-
-/**
- * No menu entry of its own: the page is a tab of the tenant setup area
- * (features/tenant-setup), which the menu entry "Setup" or "Open tenant page"
- * opens.
- */
+/** No menu entry: the tenant settings entry opens the tenant page. */
 export const navItems: NavItem[] = [];

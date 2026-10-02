@@ -69,6 +69,7 @@ const KNOWN_REASONS = new Set([
   "httpsRequired",
   "port",
   "minLength",
+  "maxLength",
   "passwordMismatch",
   "totp",
   "emailInUse",

@@ -77,11 +77,6 @@
   "table": {
     "title": "Protected objects",
     "description": "The latest rating per mailbox, drive, IMAP account and machine, worst first.",
-    "filter": {
-      "all": "All ({count})",
-      "attention": "Needs attention ({count})",
-      "waiting": "Waiting for first backup ({count})"
-    },
     "columns": {
       "object": "Object",
       "readiness": "Readiness",
@@ -109,9 +104,8 @@
     "never": "Never",
     "noBackup": "No backup yet",
     "empty": "No protected objects yet.",
-    "emptyAttention": "No object needs attention.",
-    "emptyWaiting": "No object is waiting for its first backup.",
-    "technicalId": "Technical id: {id}"
+    "technicalId": "Technical id: {id}",
+    "emptyState": "No object in this state: {state}."
   },
   "snapshot": {
     "column": "Verification",
@@ -333,5 +327,30 @@
   "error": {
     "overview": "Recovery readiness could not be loaded",
     "report": "The report could not be loaded"
+  },
+  "chips": {
+    "label": "Filter by state",
+    "all": "All"
+  },
+  "allScope": "Which tenants have backups that cannot be restored today?",
+  "allSubtitle": "Across all tenants: the tenants that have objects in each state. Choose a tenant to see its objects.",
+  "byTenant": {
+    "title": "Tenants by recovery state",
+    "columns": {
+      "tenant": "Tenant",
+      "total": "Objects",
+      "go": "Open"
+    },
+    "open": "Switch to {name} and open its recovery readiness",
+    "openState": "Switch to {name} and show: {state}",
+    "error": "The tenants could not be loaded",
+    "loading": "Loading the tenants …",
+    "empty": {
+      "state": "No tenant has objects in this state",
+      "any": "No tenant has protected objects yet",
+      "description": "Choose another state above, or protect objects in a tenant."
+    },
+    "hint": "A click on a row, a name or a count switches into that tenant and opens its table in that state.",
+    "incomplete": "{count, plural, one {# tenant could not be read and is missing here.} other {# tenants could not be read and are missing here.}}"
   }
 }

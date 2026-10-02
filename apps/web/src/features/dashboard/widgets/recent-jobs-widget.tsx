@@ -19,6 +19,9 @@ import { jobStatusView } from "../presenters.js";
 // Derived from the shared queue list so a new queue is never missed here.
 const KNOWN_QUEUES = new Set<string>(JOB_QUEUES);
 
+/** The job stays in view while the other columns scroll. */
+const PINNED = ["queue"] as const;
+
 function useColumns(): ColumnDef<RecentJob>[] {
   const { t, i18n } = useTranslation("dashboard");
   const language = i18n.resolvedLanguage ?? i18n.language;
@@ -26,6 +29,7 @@ function useColumns(): ColumnDef<RecentJob>[] {
     () => [
       {
         id: "queue",
+        size: 170,
         accessorFn: (job) => job.queue,
         header: t("recentJobs.columns.queue"),
         cell: ({ row }) => (
@@ -41,6 +45,7 @@ function useColumns(): ColumnDef<RecentJob>[] {
       },
       {
         id: "object",
+        size: 180,
         accessorFn: (job) => job.object?.displayName ?? "",
         header: t("recentJobs.columns.object"),
         cell: ({ row }) => {
@@ -100,6 +105,7 @@ function useColumns(): ColumnDef<RecentJob>[] {
       },
       {
         id: "progress",
+        size: 140,
         accessorFn: (job) => job.progress?.done ?? -1,
         header: t("recentJobs.columns.progress"),
         cell: ({ row }) => {
@@ -153,6 +159,7 @@ function RecentJobsTable({ items }: { items: RecentJob[] }) {
       getRowId={(job) => job.id}
       columnsMenu={false}
       maxHeight="none"
+      pinnedColumns={PINNED}
       empty={
         <EmptyState
           icon={ListChecks}

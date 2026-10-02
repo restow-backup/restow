@@ -188,6 +188,10 @@ describe("the v1 OpenAPI document", () => {
         "POST /jobs/backup",
         "GET /jobs/{id}",
         "GET /jobs/{id}/events",
+        "GET /runs",
+        "POST /runs/backup",
+        "GET /runs/{id}",
+        "GET /runs/{id}/events",
         "GET /verify/latest",
         "POST /verify",
         "POST /restore",
@@ -264,7 +268,7 @@ describe("the v1 OpenAPI document", () => {
 
   it("carries the contract version and the running build", async () => {
     const info = (await load()).info as JsonSchema;
-    expect(info.version).toBe("1.0.0");
+    expect(info.version).toBe("1.2.0");
     expect(info["x-restow-build"]).toBe("1.4.0");
   });
 });

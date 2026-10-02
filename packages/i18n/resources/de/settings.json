@@ -1,18 +1,5 @@
 {
-  "nav": "Einstellungen",
-  "title": "Einstellungen",
-  "subtitle": "Betriebsmodus, öffentliche Adresse, Benachrichtigungs-Mail und die Microsoft-365-App-Registrierung dieser Installation.",
   "loadError": "Die Einstellungen konnten nicht geladen werden",
-  "forbidden": "Nur Provider-Admins können die Einstellungen dieser Installation ändern.",
-  "sections": {
-    "label": "Bereiche der Einstellungen",
-    "general": "Allgemein",
-    "mail": "Mail",
-    "microsoft365": "Microsoft 365",
-    "updates": "Updates",
-    "about": "Über",
-    "danger": "Gefahrenzone"
-  },
   "account": {
     "title": "Anmeldesicherheit",
     "description": "Wie Sie sich bei {appName} anmelden: Passkeys, die Authenticator-App für das Notfall-Passwort und Ihre anderen Sitzungen."
@@ -53,10 +40,6 @@
       "title": "In den lokalen Modus wechseln?",
       "description": "Ohne öffentliche URL funktionieren Passkeys nicht mehr. Admins melden sich dann nur noch mit dem Notfall-Passwort und einem Authenticator-Code an.",
       "confirm": "In den lokalen Modus wechseln"
-    },
-    "installation": {
-      "title": "Installation",
-      "updatedAt": "Einstellungen zuletzt geändert"
     }
   },
   "readiness": {
@@ -103,7 +86,15 @@
     "description": "Über diesen Transport verschickt {appName} Berichte, Warnungen und Einladungen. Der Journal-Empfang für das Archiv ist davon getrennt und empfängt nur.",
     "notConfigured": {
       "title": "Kein Mail-Transport eingerichtet",
-      "description": "{appName} kann keine Berichte, Warnungen oder Einladungen verschicken, bis ein Transport eingerichtet ist."
+      "description": "Mail ist optional. Ohne Transport verschickt {appName} keine Warn- und Berichtsmails, und Einladungen und Links zum Passwort-Setzen gehen nicht per Mail raus: Sie kopieren den Link und geben ihn selbst weiter."
+    },
+    "remove": {
+      "title": "Mail-Konfiguration entfernen",
+      "action": "Mail-Konfiguration entfernen",
+      "description": "Löscht den Benachrichtigungs-Transport und vernichtet das gespeicherte SMTP-Passwort. {appName} verschickt keine Berichte, Warnungen oder Einladungen mehr, bis ein neuer Transport eingerichtet ist.",
+      "confirmTitle": "Mail-Konfiguration entfernen?",
+      "confirmDescription": "Benachrichtigungen stoppen sofort. Das gespeicherte SMTP-Passwort wird gelöscht und lässt sich nicht wiederherstellen.",
+      "confirm": "Entfernen"
     },
     "transport": {
       "label": "Transport",
@@ -134,7 +125,7 @@
       "hint": "Versendet über die App-Registrierung von {appName} per Microsoft Graph. Benötigt die Anwendungsberechtigung Mail.Send mit Admin-Consent; eine Application Access Policy kann sie auf das Absenderpostfach beschränken.",
       "appMissing": {
         "title": "App-Registrierung nicht eingerichtet",
-        "description": "Es ist keine Microsoft-365-App-Registrierung eingerichtet. Graph versendet als diese App; richten Sie sie unter Einstellungen → Microsoft 365 ein und erteilen Sie ihr Mail.Send."
+        "description": "Es ist keine Microsoft-365-App-Registrierung eingerichtet. Graph versendet als diese App; richten Sie sie unter Installation → Microsoft-Multi-Tenant-App ein und erteilen Sie ihr Mail.Send."
       },
       "passwordRemoved": "Beim Speichern mit Microsoft Graph wird das gespeicherte SMTP-Passwort gelöscht.",
       "sender": "Absenderpostfach",
@@ -155,7 +146,7 @@
       "detail": "Antwort des Mailsystems",
       "reasons": {
         "timeout": "Keine Antwort innerhalb von 20 Sekunden. Prüfen Sie Host, Port und Firewall.",
-        "graph_app_missing": "Es ist keine Microsoft-365-App-Registrierung eingerichtet (Einstellungen → Microsoft 365).",
+        "graph_app_missing": "Es ist keine Microsoft-365-App-Registrierung eingerichtet (Installation → Microsoft-Multi-Tenant-App).",
         "graph_tenant_missing": "Für das Absenderpostfach ist kein Entra-Tenant gesetzt.",
         "transport_error": "Das Mailsystem hat die Verbindung oder die Nachricht abgelehnt."
       }
@@ -225,7 +216,7 @@
         "accountTypesValue": "Konten in einem beliebigen Organisationsverzeichnis (beliebiges Microsoft Entra ID-Verzeichnis - mandantenübergreifend)",
         "redirect": "Umleitungs-URI: Plattform Web wählen und genau diesen Wert eintragen:",
         "redirectLabel": "Umleitungs-URI (Admin-Consent)",
-        "redirectMissing": "Es ist noch keine öffentliche URL gesetzt. Legen Sie sie unter Einstellungen → Allgemein fest; die Umleitungs-URI leitet sich daraus ab.",
+        "redirectMissing": "Es ist noch keine öffentliche URL gesetzt. Legen Sie sie unter Installation → Server fest; die Umleitungs-URI leitet sich daraus ab.",
         "register": "Wählen Sie Registrieren. Die Übersichtsseite zeigt dann die beiden Werte, die Sie in Schritt 4 eintragen:",
         "openAdminCenter": "Microsoft Entra Admin Center öffnen"
       },
@@ -387,7 +378,7 @@
     "inline": {
       "title": "Zuerst die Microsoft-365-App-Registrierung einrichten",
       "description": "Tenants lassen sich verbinden, sobald die Backup-App in Microsoft Entra registriert und hier eingetragen ist. Änderungen gelten sofort, ohne Neustart.",
-      "openSettings": "In den Einstellungen öffnen"
+      "openSettings": "Unter Installation öffnen"
     }
   },
   "security": {
@@ -509,19 +500,6 @@
       "revoke": "Andere Sitzungen abmelden",
       "confirmTitle": "Alle anderen Sitzungen abmelden?",
       "confirmDescription": "Alle anderen Browser und Geräte, die mit Ihrem Konto angemeldet sind, werden sofort abgemeldet."
-    }
-  },
-  "danger": {
-    "title": "Gefahrenzone",
-    "description": "Diese Aktionen wirken sofort und lassen sich nicht rückgängig machen.",
-    "removeMail": {
-      "title": "Mail-Konfiguration entfernen",
-      "description": "Löscht den Benachrichtigungs-Transport und vernichtet das gespeicherte SMTP-Passwort. {appName} verschickt keine Berichte, Warnungen oder Einladungen mehr, bis ein neuer Transport eingerichtet ist.",
-      "notConfigured": "Es ist kein Mail-Transport eingerichtet, es gibt also nichts zu entfernen.",
-      "action": "Mail-Konfiguration entfernen",
-      "confirmTitle": "Mail-Konfiguration entfernen?",
-      "confirmDescription": "Benachrichtigungen stoppen sofort. Das gespeicherte SMTP-Passwort wird gelöscht und lässt sich nicht wiederherstellen.",
-      "confirm": "Entfernen"
     }
   },
   "validation": {

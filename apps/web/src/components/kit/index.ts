@@ -42,17 +42,21 @@ export {
 } from "./kpi-tile.js";
 export {
   DEFAULT_PAGE_WIDTH,
+  EmbeddedPage,
   PageProvider,
   type PageProviderProps,
   type PageWidth,
   documentTitle,
   usePageFrame,
   usePageTitle,
+  useEmbeddedPage,
   usePageWidth,
   usePublishedTitle,
 } from "./page-context.js";
 export { type PageTab, PageTabs, type PageTabsProps } from "./page-tabs.js";
+export { ReadOnlyGroup } from "./read-only-group.js";
 export { RefreshButton, type RefreshButtonProps } from "./refresh-button.js";
+export { SetInInstallation } from "./set-in-installation.js";
 export {
   RelativeTime,
   type RelativeTimeProps,

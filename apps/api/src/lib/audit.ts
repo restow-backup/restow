@@ -40,9 +40,14 @@ export { actorLabel, auditPayload, canonicalJson, chainLockKey, computeChainHash
 /** Well-known audit actions written by the spine. Features add their own. */
 export const AUDIT_ACTIONS = {
   setupCompleted: "setup.completed",
+  // The setup finished but the operator's own organisation could not be created (installation chain).
+  setupInternalTenantFailed: "setup.internal_tenant_failed",
   tenantCreated: "tenant.created",
   tenantUpdated: "tenant.updated",
   tenantDeleted: "tenant.deleted",
+  // A tenant became the operator's own organisation, or stopped being it (tenant chain).
+  tenantInternalMarked: "tenant.internal.marked",
+  tenantInternalUnmarked: "tenant.internal.unmarked",
   tenantMemberAdded: "tenant.member.added",
   tenantMemberInvited: "tenant.member.invited",
   tenantKeyCreated: "tenant.key.created",

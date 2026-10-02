@@ -269,12 +269,3 @@ export function cancelJob(jobId: string): Promise<Job> {
 export function retryJob(jobId: string): Promise<Job> {
   return apiFetch<Job>(`/jobs/${encodeURIComponent(jobId)}/retry`, { method: "POST" });
 }
-
-/** Stream paths (relative to /api/v1) for the live updates. */
-export function jobsEventsPath(queue: JobQueue | null): string {
-  return queue ? `/jobs/events?queue=${encodeURIComponent(queue)}` : "/jobs/events";
-}
-
-export function jobEventsPath(jobId: string): string {
-  return `/jobs/${encodeURIComponent(jobId)}/events`;
-}

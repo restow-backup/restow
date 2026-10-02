@@ -38,13 +38,18 @@ const ALLOWED: Readonly<Record<string, string>> = {
   "./features/verify/components/summary.tsx": "the Ready banner and tile",
   "./features/verify/report-page.tsx": "items that came back byte-exact",
   "./features/dashboard/presenters.ts": "the green readiness segment; a completed restore",
-  "./features/dashboard/widgets/readiness-widget.tsx": "the fill of the green segment",
+  "./features/dashboard/components/readiness-legend.tsx":
+    "the fill of the green segment: the objects a restore check proved",
   "./features/dashboard/widgets/trend-widgets.tsx": "restore checks that passed, over time",
   "./features/stats/presenters.ts": "a rating of green",
   "./features/stats/components/outcome-charts.tsx": "restores that completed; Ready over time",
   "./features/tenants/presenters.ts": "the readiness of a tenant",
   "./features/directory/presenters.ts": "the readiness of a protected object",
+  "./features/backup-jobs/presenters.ts":
+    "the restore checks of a job: green only when every object or machine passed",
   "./features/jobs/presenters.ts": "the readiness badge; a restore that completed",
+  "./features/history/presenters.ts":
+    "a restore check that passed, and a restore that completed (the data is back)",
   "./features/endpoints/presenters.ts":
     "restore and restore test runs; a green restore test report; a restore request that went through",
   // -- a restore that completed: the data is back
@@ -74,6 +79,25 @@ describe("green is proof", () => {
   it("keeps the list honest: every file on it still uses green", () => {
     const stale = Object.keys(ALLOWED).filter((path) => !using.includes(path));
     expect(stale, "These files no longer use green; remove them from ALLOWED.").toEqual([]);
+  });
+
+  it("draws a backup run that merely completed in Lapis (info) in every chart, never green", () => {
+    // The two charts that plot backup outcomes. They may name green for the series next to it
+    // (restores, readiness), so the file-level list above cannot tell; this reads the series.
+    const BACKUP_CHARTS = [
+      "./features/stats/components/outcome-charts.tsx",
+      "./features/dashboard/widgets/trend-widgets.tsx",
+    ];
+    for (const path of BACKUP_CHARTS) {
+      const source = sources[path] ?? "";
+      const tones = [
+        ...source.matchAll(/\bsucceeded:\s*\{[^}]*color:\s*STATUS_CHART_COLOR\.(\w+)/g),
+      ].map(([, tone]) => tone);
+      expect(tones.length, `${path}: no "succeeded" series found`).toBeGreaterThan(0);
+      for (const tone of tones) {
+        expect(tone, `${path}: completed backups are stowed, not proven`).toBe("info");
+      }
+    }
   });
 
   it("never reaches for a raw green", () => {

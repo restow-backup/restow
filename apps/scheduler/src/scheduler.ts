@@ -14,7 +14,15 @@ import { randomUUID } from "node:crypto";
 import type PgBoss from "pg-boss";
 import type { EndpointJobPlanner } from "./endpoints.js";
 import { errorMessage, logger } from "./logger.js";
-import { type ScheduleRow, computeNextRunAt, expandSchedule } from "./planning.js";
+import {
+  type JobUnit,
+  type ScheduleRow,
+  computeNextRunAt,
+  computeUnitNextRunAt,
+  expandJobUnit,
+  expandSchedule,
+  unitNextRunAt,
+} from "./planning.js";
 import { type ReportRuleStore, runDueReports } from "./reports.js";
 import type { ScheduleStore } from "./store.js";
 
@@ -105,6 +113,16 @@ export class SchedulerLoop {
         summary.skipped += outcome.skipped;
         summary.deferred += outcome.deferred;
       }
+      // Backups and restore checks of the mail jobs (release 0.2.0): planned from the job.
+      const units = await this.deps.store.loadDueUnits(now, this.deps.batchSize);
+      summary.schedules += units.length;
+      for (const unit of units) {
+        if (this.stopped || !this.deps.isLeader()) break;
+        const outcome = await this.runUnit(unit, now);
+        summary.enqueued += outcome.enqueued;
+        summary.skipped += outcome.skipped;
+        summary.deferred += outcome.deferred;
+      }
       if (this.deps.reports && !this.stopped && this.deps.isLeader()) {
         const reports = await runDueReports(
           this.deps.reports,
@@ -125,7 +143,12 @@ export class SchedulerLoop {
           logger.info("endpoint jobs queued", { ...planned, at: now.toISOString() });
         }
       }
-      if (due.length > 0 || summary.tenantsInitialised > 0 || summary.reportsFired > 0) {
+      if (
+        due.length > 0 ||
+        units.length > 0 ||
+        summary.tenantsInitialised > 0 ||
+        summary.reportsFired > 0
+      ) {
         logger.info("tick finished", { ...summary, at: now.toISOString() });
       } else {
         logger.debug("no due schedules this tick", { at: now.toISOString() });
@@ -212,6 +235,58 @@ export class SchedulerLoop {
     } catch (err) {
       // Nothing was committed; the schedule stays due and is retried next tick.
       logger.error("schedule enqueue failed", { ...fields, err: errorMessage(err) });
+      return { enqueued: 0, skipped: 0, deferred: 0 };
+    }
+  }
+
+  /**
+   * Plan one unit of a mail job: the backups or restore checks of the job's own objects, or of
+   * one object with a schedule of its own. Same discipline as a schedule: a cadence that cannot
+   * be planned is deferred, a failed enqueue commits nothing and is retried next tick.
+   */
+  private async runUnit(
+    unit: JobUnit,
+    now: Date,
+  ): Promise<{ enqueued: number; skipped: number; deferred: number }> {
+    const fields = {
+      backupJobId: unit.job.id,
+      tenantId: unit.job.tenantId,
+      what: unit.what,
+      scope: unit.level,
+    };
+    let nextRunAt: Date;
+    try {
+      nextRunAt = computeUnitNextRunAt(unit, now);
+    } catch (err) {
+      const deferredUntil = new Date(now.getTime() + this.deps.deferMs);
+      logger.error("backup job cannot be planned, deferring", {
+        ...fields,
+        err: errorMessage(err),
+        until: deferredUntil.toISOString(),
+      });
+      await this.deps.store.deferUnit(unit, deferredUntil);
+      return { enqueued: 0, skipped: 0, deferred: 1 };
+    }
+    try {
+      const targets = await this.deps.store.loadTargets(unit.job.tenantId);
+      const planned = expandJobUnit(unit, targets, this.newJobId);
+      const result = await this.deps.store.enqueueUnit(
+        this.deps.boss,
+        unit,
+        planned,
+        nextRunAt,
+        unitNextRunAt(unit),
+        now,
+      );
+      logger.info("backup job ran", {
+        ...fields,
+        planned: planned.length,
+        ...result,
+        nextRunAt: nextRunAt.toISOString(),
+      });
+      return { ...result, deferred: 0 };
+    } catch (err) {
+      logger.error("backup job enqueue failed", { ...fields, err: errorMessage(err) });
       return { enqueued: 0, skipped: 0, deferred: 0 };
     }
   }

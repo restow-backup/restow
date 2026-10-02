@@ -120,6 +120,7 @@ services:
       RESTOW_APP_DOMAIN: ${RESTOW_APP_DOMAIN:?set RESTOW_APP_DOMAIN in .env (e.g. app.example.com)}
       RESTOW_EDGE_HSTS: ${RESTOW_EDGE_HSTS:-}
       RESTOW_EDGE_TRUSTED_PROXIES: ${RESTOW_EDGE_TRUSTED_PROXIES:-}
+      RESTOW_EDGE_TLS: ${RESTOW_EDGE_TLS:-acme}
     ports:
       - "80:80"
       - "443:443"

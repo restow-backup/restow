@@ -245,6 +245,8 @@ function progress(overrides: Partial<JobProgress> = {}): JobProgress {
     done: 250,
     failed: 1,
     bytes: 200,
+    bytesProcessed: 200,
+    bytesTransferred: 0,
     etaSeconds: 30,
     createdAt: NOW,
     updatedAt: NOW,

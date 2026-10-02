@@ -1,0 +1,135 @@
+{
+  "nav": "Einstellungen",
+  "title": "Installation",
+  "forbidden": "Die Installations-Einstellungen sind für Provider-Administratoren. Sie gelten für den ganzen Server: {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
+  "scoped": "Ihre Rolle im Provider-Team gilt nur für ausgewählte Mandanten. Die Installations-Einstellungen betreffen alle Mandanten zugleich und stehen Ihnen deshalb nicht zur Verfügung.",
+  "sections": {
+    "label": "Bereiche der Installation",
+    "select": "Bereich",
+    "server": "Server",
+    "mail": "Benachrichtigungs-Mail",
+    "microsoftApp": "Microsoft-Multi-Tenant-App",
+    "journal": "Journal-Empfang",
+    "defaultStorage": "Speicher-Standard",
+    "providerApi": "Provider-API",
+    "updates": "Updates",
+    "about": "Über"
+  },
+  "descriptions": {
+    "server": "Wie Browser diesen Server erreichen und ob Passkeys angeboten werden. Gilt für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
+    "mail": "Der Transport für Berichte, Warnungen und Einladungen. Gilt für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
+    "microsoftApp": "Die App-Registrierung, über die diese Installation Microsoft 365 erreicht.",
+    "journal": "Der SMTP-Empfänger für Exchange-Journalberichte. Ein Empfänger bedient {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
+    "defaultStorage": "Wo Daten liegen für {scope, select, organisation {Ihre Organisation} other {jeden Mandanten ohne eigenes Speicherziel}}.",
+    "providerApi": "Schlüssel für RMM- und PSA-Werkzeuge, die über alle Mandanten hinweg arbeiten.",
+    "updates": "Welche Version läuft, welche Releases es gibt und wie Sie aktualisieren.",
+    "about": "Version, Quellcode und Lizenzen dieser Installation."
+  },
+  "access": {
+    "owner": "Sie können diese Einstellungen ansehen. Zum Ändern brauchen Sie die Rolle Inhaber im Provider-Team.",
+    "administrator": "Sie können diese Seite ansehen. Den Test auszuführen erfordert im Provider-Team mindestens die Rolle Administrator.",
+    "demo": "Dies ist eine öffentliche Demo. Diese Einstellungen sind hier schreibgeschützt."
+  },
+  "locked": {
+    "title": "{section} ist noch nicht freigeschaltet",
+    "description": "Der Bereich bleibt im Menü ausgegraut, bis er freigeschaltet ist. Die Seite, die ihn freischaltet, erklärt, was dafür nötig ist.",
+    "action": "Zeigen, wie man freischaltet"
+  },
+  "server": {
+    "facts": {
+      "title": "Dieser Server",
+      "environmentUrl": "Adresse in der Server-Umgebung",
+      "environmentUrlNotSet": "Nicht gesetzt",
+      "updatedAt": "Einstellungen zuletzt geändert",
+      "note": "Die öffentliche URL bestimmt die Passkey-Domain, die Weiterleitungsadressen für die Microsoft-Anmeldung und die Adresse, bei der sich Agenten anmelden."
+    },
+    "notice": {
+      "title": "Betreiberhinweis",
+      "description": "Der Hinweis zur Betreiberverantwortung, der bei der Einrichtung dieser Installation akzeptiert wurde. Er steht hier zur Information und lässt sich nicht ändern.",
+      "accepted": "Akzeptiert am {date} (Version {version}).",
+      "acceptedNoDate": "Akzeptiert (Version {version}). Das Datum wurde nicht festgehalten.",
+      "outdated": "Eine neuere Fassung des Hinweises ({current}) wartet darauf, akzeptiert zu werden. Ein Provider-Administrator wird bei der Anmeldung gebeten, sie zu lesen.",
+      "none": "Der Hinweis wurde noch nicht akzeptiert.",
+      "show": "Hinweis anzeigen",
+      "hide": "Hinweis ausblenden"
+    }
+  },
+  "microsoftApp": {
+    "optional": "Optional. Diese App wird nur gebraucht, wenn {scope, select, organisation {Ihre Organisation per Consent-Link statt über eine eigene App verbunden wird} other {Mandanten per Consent-Link statt über eine eigene App verbunden werden}}."
+  },
+  "defaultStorage": {
+    "loadError": "Der Speicher-Standard konnte nicht gelesen werden.",
+    "card": {
+      "title": "Speicher-Standard",
+      "description": "Wo Daten liegen, wenn {scope, select, organisation {Ihre Organisation kein eigenes Speicherziel hat} other {ein Mandant kein eigenes Speicherziel hat}}. Der Standard kommt aus der Server-Umgebung und lässt sich hier nicht ändern."
+    },
+    "kind": {
+      "local": "Verzeichnis auf dem Server",
+      "s3": "S3-kompatibler Objektspeicher"
+    },
+    "type": "Art",
+    "location": "Ort",
+    "copy": "Kopie",
+    "noCopy": "Keine Kopie eingerichtet",
+    "usage": {
+      "label": "Genutzt von",
+      "none": "Keinem Mandanten. Jeder Mandant hat ein eigenes Speicherziel.",
+      "some": "{using} von {total} Mandanten",
+      "organisationYes": "Ihrer Organisation. Sie hat kein eigenes Speicherziel.",
+      "organisationNo": "Niemandem. Ihre Organisation hat ein eigenes Speicherziel."
+    },
+    "misconfigured": {
+      "title": "Die Speichereinstellungen sind ungültig",
+      "description": "STORAGE_TARGET, STORAGE_LOCAL_PATH oder die S3_*-Werte in der .env-Datei des Servers beschreiben keinen nutzbaren Speicher. Korrigieren Sie sie und starten Sie {appName} neu."
+    },
+    "test": {
+      "title": "Test",
+      "description": "Schreibt, liest, listet und löscht ein kleines Objekt im Standard und prüft, ob er Objekte sperren kann. Das Ergebnis steht im Audit-Log.",
+      "action": "Speicher-Standard testen",
+      "again": "Erneut testen",
+      "never": "Noch nicht getestet.",
+      "passed": "Der letzte Test war erfolgreich {when}, ausgeführt von {who}.",
+      "failed": "Der letzte Test ist fehlgeschlagen {when}, ausgeführt von {who}.",
+      "failedAt": "Er brach bei diesem Schritt ab: {step}."
+    },
+    "errors": {
+      "misconfigured": "Die Speichereinstellungen in der Umgebung sind ungültig, es gibt also nichts zu testen."
+    }
+  },
+  "journal": {
+    "loadError": "Der Journal-Empfänger konnte nicht gelesen werden.",
+    "receiver": {
+      "title": "Empfänger",
+      "description": "{appName} nimmt Exchange-Online-Journalberichte an diesem Port an. Die Werte stammen aus der Server-Umgebung und werden beim Start der API gelesen."
+    },
+    "state": {
+      "listening": "Empfängt",
+      "down": "Empfänger läuft nicht",
+      "notConfigured": "Nicht eingerichtet"
+    },
+    "port": "SMTP-Port",
+    "host": "Journal-Host",
+    "tls": "TLS-Zertifikat",
+    "tlsConfigured": "Eingerichtet",
+    "tlsMissing": "Nicht nutzbar",
+    "maxSize": "Größter Bericht",
+    "maxSizeValue": "{size} MB",
+    "lastReport": "Letzter Journalbericht",
+    "noReport": "Noch keiner",
+    "last24Hours": "Berichte in den letzten 24 Stunden",
+    "notSet": "Nicht gesetzt",
+    "checklist": {
+      "title": "Was Exchange Online von diesem Server braucht"
+    },
+    "perTenant": "Die Journal-Adresse jedes Mandanten, ihre Rotation und die Anleitung für Exchange Online stehen auf der Archiv-Seite dieses Mandanten.",
+    "docs": "Anleitung zur Einrichtung lesen"
+  },
+  "providerApi": {
+    "intro": "Provider-Schlüssel lesen über alle Mandanten hinweg, für RMM- und PSA-Werkzeuge. Ein Schlüssel gehört zur Installation, nicht zu einem einzelnen Mandanten.",
+    "moved": {
+      "title": "Provider-Schlüssel sind umgezogen",
+      "description": "Die Schlüssel, die über alle Mandanten arbeiten, stehen jetzt unter Installation, Provider-API. Diese Seite behält die Schlüssel des aktiven Mandanten.",
+      "action": "Provider-API öffnen"
+    }
+  }
+}

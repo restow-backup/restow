@@ -48,3 +48,33 @@ export async function archiveRetentionPolicyFor(
     return row ? toArchivePolicy(row) : DEFAULT_ARCHIVE_RETENTION_POLICY;
   });
 }
+
+/** What the settings page shows of the archive's retention. */
+export interface ArchiveRetentionView {
+  mode: "from_capture" | "end_of_year";
+  /** Years to keep; null keeps without end. */
+  years: number | null;
+  /** Whether the tenant has a policy of its own or the default applies. */
+  source: "default" | "tenant";
+}
+
+/** The retention that applies to the tenant's archive, and where it comes from. */
+export async function archiveRetentionViewFor(
+  db: DbExecutor,
+  tenantId: string,
+): Promise<ArchiveRetentionView> {
+  return withTenantTx(db, tenantId, async (tx) => {
+    const [row] = await tx
+      .select({ years: retentionPolicies.years, mode: retentionPolicies.mode })
+      .from(retentionPolicies)
+      .where(
+        and(
+          eq(retentionPolicies.tenantId, tenantId),
+          sql`${retentionPolicies.appliesTo}->>'target' = 'archive'`,
+        ),
+      )
+      .limit(1);
+    const policy = row ? toArchivePolicy(row) : DEFAULT_ARCHIVE_RETENTION_POLICY;
+    return { mode: policy.mode, years: policy.years, source: row ? "tenant" : "default" };
+  });
+}

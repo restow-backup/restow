@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { count, render } from "@/components/kit/test-utils";
 import type { EndpointReadinessRow, ObjectReadiness, VerifyObject } from "@/features/verify/api";
+import type { ReadinessState } from "@/features/verify/search";
 import { useVerifyFormat } from "@/features/verify/use-verify";
 import { i18n } from "@/i18n";
 
@@ -91,6 +92,7 @@ function table(
   items: readonly ObjectReadiness[],
   nextBackupAt: string | null = null,
   endpoints: readonly EndpointReadinessRow[] = [],
+  state?: ReadinessState,
 ) {
   return render(
     withFormat((format) => (
@@ -101,9 +103,17 @@ function table(
         startingObjectId={null}
         nextBackupAt={nextBackupAt}
         onCheck={() => {}}
+        state={state}
+        onStateChange={() => {}}
       />
     )),
   );
+}
+
+/** What a state chip says: its figure (the count behind it), or null when there is no such chip. */
+function chipFigure(html: string, state: string): string | null {
+  const chip = new RegExp(`<button[^>]*data-state="${state}"[^>]*>(.*?)</button>`).exec(html);
+  return chip?.[1]?.match(/<span class="font-mono[^"]*">([^<]*)<\/span>/)?.[1] ?? null;
 }
 
 describe("ObjectsTable", () => {
@@ -218,7 +228,7 @@ describe("ObjectsTable", () => {
     expect(html).toContain(">Overdue<");
   });
 
-  it("counts all three tabs from the given items", () => {
+  it("counts the chips from the given items, one per state", () => {
     const html = table([
       readiness({ object: object({ id: "a" }), state: "green" }),
       readiness({ object: object({ id: "b" }), state: "red", readiness: "red" }),
@@ -237,10 +247,40 @@ describe("ObjectsTable", () => {
         overdue: true,
       }),
     ]);
-    expect(html).toContain("All (4)");
-    // "Needs attention" counts the red and the overdue no_backup, not the waiting one.
-    expect(html).toContain("Needs attention (2)");
-    expect(html).toContain("Waiting for first backup (1)");
+    expect(chipFigure(html, "all")).toBe("4");
+    expect(chipFigure(html, "green")).toBe("1");
+    expect(chipFigure(html, "yellow")).toBe("0");
+    expect(chipFigure(html, "red")).toBe("1");
+    expect(chipFigure(html, "unverified")).toBe("0");
+    // Every object without a backup counts, the one still waiting for its first backup as well.
+    expect(chipFigure(html, "no_backup")).toBe("2");
+  });
+
+  it("filters the table to the state the address names, and says when nothing is in it", () => {
+    const items = [
+      readiness({ object: object({ id: "a", displayName: "Ada Example" }), state: "green" }),
+      readiness({
+        object: object({ id: "b", displayName: "Bob Example" }),
+        state: "red",
+        readiness: "red",
+      }),
+    ];
+    const red = table(items, null, [], "red");
+    expect(count(red, "<tr")).toBe(1 + 1);
+    expect(red).toContain("Bob Example");
+    expect(red).not.toContain("Ada Example");
+    // The chips still count everything, and the chosen one is pressed.
+    expect(chipFigure(red, "green")).toBe("1");
+    expect(red).toMatch(/aria-pressed="true"[^>]*data-state="red"/);
+    expect(red).toMatch(/aria-pressed="false"[^>]*data-state="all"/);
+
+    const unverified = table(items, null, [], "unverified");
+    expect(count(unverified, "<tr")).toBe(0);
+    expect(unverified).toContain("No object in this state: Not verified.");
+
+    const all = table(items);
+    expect(all).toMatch(/aria-pressed="true"[^>]*data-state="all"/);
+    expect(count(all, "<tr")).toBe(1 + 2);
   });
 
   it("truncates the result's main line instead of wrapping, keeping the full text as a tooltip", () => {
@@ -325,7 +365,7 @@ describe("ObjectsTable", () => {
       }),
     ];
 
-    it("lists the machines in the same table, so the tabs count what the banner counts", () => {
+    it("lists the machines in the same table, so the chips count what the banner counts", () => {
       const html = table(mailboxes, null, [
         machine({ displayName: "Web front" }),
         machine({
@@ -338,8 +378,8 @@ describe("ObjectsTable", () => {
           checkedAt: null,
         }),
       ]);
-      // Two mailboxes and two machines: four rows, four in the first tab.
-      expect(html).toContain("All (4)");
+      // Two mailboxes and two machines: four rows, four behind "All".
+      expect(chipFigure(html, "all")).toBe("4");
       expect(count(html, "<tr")).toBe(1 + 4);
       expect(html).toContain("Ada Example");
       expect(html).toContain("Web front");
@@ -398,10 +438,11 @@ describe("ObjectsTable", () => {
           latestBackupAt: null,
         }),
       ]);
-      expect(html).toContain("All (4)");
-      // The failed machine and the machine overdue for its first backup, not the one still waiting.
-      expect(html).toContain("Needs attention (2)");
-      expect(html).toContain("Waiting for first backup (1)");
+      expect(chipFigure(html, "all")).toBe("4");
+      expect(chipFigure(html, "green")).toBe("1");
+      expect(chipFigure(html, "red")).toBe("1");
+      // Both machines without a backup, the one still waiting for it as well.
+      expect(chipFigure(html, "no_backup")).toBe("2");
       expect(html).toContain("Not restorable");
       expect(html).toContain("Waiting for first backup");
       expect(html).toContain("No backup within 24 hours of protection starting.");
@@ -419,7 +460,7 @@ describe("ObjectsTable", () => {
 
     it("lists machines even when the tenant has no mailbox at all", () => {
       const html = table([], null, [machine()]);
-      expect(html).toContain("All (1)");
+      expect(chipFigure(html, "all")).toBe("1");
       expect(html).toContain("web-01");
       expect(html).not.toContain("No protected objects yet.");
     });

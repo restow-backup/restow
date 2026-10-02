@@ -19,7 +19,7 @@ import { type BackupSummary, Restic, type ResticNode } from "./restic.js";
  */
 
 /** The version the simulated agents report: the agent's own (agent/dist/VERSION). */
-export const AGENT_VERSION = "0.1.0";
+export const AGENT_VERSION = "0.2.0";
 const SNAPSHOT_TAG = "restow-agent";
 /** Files per restore test. The agent takes up to 20; the demo keeps its nightly reset short. */
 export const SAMPLE_FILES = 6;

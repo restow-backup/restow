@@ -6,15 +6,20 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { ArchivePage } from "@/features/archive/archive-page";
 import { i18n } from "@/i18n";
-import { registerWebExtension, resetWebExtensionsForTesting } from "@/lib/extensions";
+import {
+  ExtensionSlot,
+  registerWebExtension,
+  resetWebExtensionsForTesting,
+} from "@/lib/extensions";
 
 import { eeWebExtension } from "../index";
 import { LegalHoldsSection } from "./legal-holds-section";
 
 /**
  * The legal hold section: shown to a tenant administrator on an edition with
- * legal holds, absent otherwise, and rendered by the core archive page once
- * the ee/web extension is registered (slot `archive.sections`).
+ * legal holds, absent otherwise, and rendered in the archive settings of the
+ * tenant page once the ee/web extension is registered (slot
+ * `tenant.archiveSettings`).
  */
 
 vi.mock("@/lib/api", () => ({
@@ -81,10 +86,13 @@ describe("LegalHoldsSection", () => {
     expect(render(<LegalHoldsSection />)).toBe("");
   });
 
-  it("appears on the core archive page once the ee/web extension is registered", () => {
+  it("appears in the archive settings of the tenant page once the ee/web extension is registered, and not on the daily Archive page", () => {
     session("business");
-    expect(render(<ArchivePage />)).not.toContain("Legal holds");
+    const slot = <ExtensionSlot name="tenant.archiveSettings" props={{ readOnly: false }} />;
+    expect(render(slot)).not.toContain("Legal holds");
     registerWebExtension(eeWebExtension);
-    expect(render(<ArchivePage />)).toContain("Legal holds");
+    expect(render(slot)).toContain("Legal holds");
+    // Legal holds are a setting of the tenant: the Archive page keeps the journal and the archive itself.
+    expect(render(<ArchivePage />)).not.toContain("Legal holds");
   });
 });

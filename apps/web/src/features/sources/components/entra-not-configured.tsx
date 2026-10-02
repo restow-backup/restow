@@ -4,8 +4,8 @@ import { useTranslation } from "react-i18next";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
+import { installationSectionTo } from "@/features/installation/paths";
 import { MicrosoftAppSetup } from "@/features/settings/microsoft-app/microsoft-app-setup";
-import { settingsTo } from "@/features/settings/paths";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import type { EntraAppStatus } from "../types";
@@ -41,7 +41,7 @@ export function EntraNotConfigured({ status }: { status: EntraAppStatus }) {
       <AlertDescription className="space-y-3">
         <p>{t("m365.entra.provider.description")}</p>
         <Link
-          to={settingsTo()}
+          to={installationSectionTo("microsoft-app")}
           className={cn(buttonVariants({ variant: "outline", size: "sm" }), "w-fit")}
         >
           <Settings aria-hidden="true" />

@@ -10,7 +10,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { BackupAllButton } from "@/features/jobs/components/actions";
-import { BACKUP_PATH } from "@/features/jobs/paths";
+import { activeTenantPageTo } from "@/lib/tenant-paths";
 
 import { DIRECTORY_ROLES } from "./access";
 import { useDirectorySources, useDirectoryTenant, useRefreshAfterSync } from "./hooks";
@@ -104,7 +104,7 @@ function DirectoryContent() {
         {/* Backing up lives here since the final menu (0.1.0): all at once,
             or per object with live state on the backup page. */}
         <Link
-          to={BACKUP_PATH as LinkProps["to"]}
+          to={activeTenantPageTo("protection", "backup")}
           className={buttonVariants({ variant: "outline", size: "sm" })}
         >
           {t("backup.perObject")}

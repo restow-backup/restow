@@ -228,7 +228,8 @@
       "notConfigured": {
         "title": "No public URL is set",
         "description": "The address {url} in the command was taken from this browser, because no public URL is configured. The machine must be able to reach exactly this address.",
-        "link": "Set the public URL in the settings"
+        "link": "Set the public URL in the settings",
+        "elsewhere": "Whoever runs this installation sets the public address."
       }
     },
     "status": {
@@ -345,6 +346,8 @@
     "nextRunUnknown": "Not reported yet",
     "noNextRun": "None, the machine is revoked",
     "config": "Configuration",
+    "job": "Backup job",
+    "jobNone": "None: the machine keeps the configuration it has",
     "configApplied": "Version {version}, applied on the machine",
     "configPending": "Version {version} is saved; the machine still runs version {applied} and fetches the change with its next contact",
     "configNone": "none",
@@ -603,6 +606,11 @@
   },
   "settings": {
     "revokedNote": "This machine is revoked. Its settings can no longer be changed.",
+    "managed": {
+      "title": "This machine is managed by the job {job}",
+      "description": "Its schedule, folders, exclusions, commands, bandwidth limit and time windows come from the job and are shown here read-only. Change them in the job. The name, the retention, the alerts and the quota can still be changed here.",
+      "open": "Open the job"
+    },
     "general": {
       "title": "General",
       "name": "Name",
@@ -651,7 +659,7 @@
       "title": "Limits",
       "description": "Keep backups from disturbing the machine or its network.",
       "bandwidth": "Upload limit (kbit/s)",
-      "bandwidthHint": "Empty means unlimited. 1000 kbit/s is about 1 Mbit/s.",
+      "bandwidthHint": "Empty means unlimited. 1000 kbit/s is about 1 Mbit/s. It applies outside every time window.",
       "unlimited": "Unlimited",
       "acPower": "Only back up on AC power",
       "acPowerHint": "A laptop on battery skips the backup until it is plugged in."
@@ -729,7 +737,8 @@
       "required": "This field is required.",
       "integer": "Enter a whole number.",
       "range": "Enter a number from {min} to {max}.",
-      "notScriptName": "Enter the name of a script (letters, digits, dot, dash, underscore), not a command."
+      "notScriptName": "Enter the name of a script (letters, digits, dot, dash, underscore), not a command.",
+      "windows": "Check the time windows."
     },
     "sections": {
       "displayName": "Name",
@@ -839,7 +848,9 @@
     "invalidCursor": "The folder listing is out of date. Open the folder again.",
     "hooksNotAllowed": "This machine does not allow hooks from {appName}. An administrator of the machine can allow them there with sudo restow-agent hooks scripts or sudo restow-agent hooks any.",
     "hookNotAScript": "This machine only runs scripts from /etc/restow-agent/hooks.d. Enter the name of a script there, not a command.",
-    "recentSignIn": "Confirm it is you first: setting or changing a hook and showing the repository password need a sign-in from the last 10 minutes."
+    "configManagedByJob": "This machine is in a backup job, which owns its configuration. Change the schedule, folders, exclusions, commands and bandwidth limit in the job.",
+    "recentSignIn": "Confirm it is you first: setting or changing a hook and showing the repository password need a sign-in from the last 10 minutes.",
+    "invalidBandwidthWindows": "The time windows cannot be saved like this. Check the days, the times and that no two windows overlap."
   },
   "readinessSection": {
     "overdue": "Overdue",
@@ -875,13 +886,22 @@
   },
   "agentUpdates": {
     "title": "Automatic agent updates",
-    "description": "Agents update themselves to the newest version this installation ships, and only to releases signed by the maintainer. Pause it to keep every machine of this tenant on its version, for example to test an update first.",
+    "description": "Agents update themselves to the newest version this installation ships, and only to releases signed by the maintainer. Pause it to keep every machine on its version, for example to test an update first. It is one setting for all machines, also for machines added later.",
     "label": "Update agents automatically",
     "on": "On: the machines install new signed agent releases by themselves.",
-    "paused": "Paused for every machine of this tenant, also for machines added later.",
+    "paused": "Paused for every machine, also for machines added later.",
     "toast": {
       "on": "Automatic agent updates are on",
-      "paused": "Automatic agent updates are paused"
+      "paused": "Automatic agent updates are paused",
+      "machineResumed": "The machine follows the setting again",
+      "allResumed": "All machines follow the setting again"
+    },
+    "loadError": "The setting for agent updates could not be loaded.",
+    "overrides": {
+      "title": "{count, plural, one {# machine is paused on its own} other {# machines are paused on their own}}",
+      "description": "These machines keep their version whatever the setting above says. They were paused before the pause became one setting for all machines. Resume them to let them follow the setting.",
+      "resume": "Resume this machine",
+      "resumeAll": "Resume all"
     }
   },
   "inventory": {
@@ -909,5 +929,10 @@
       "description": "Add a server or client in the inventory. Once it is backed up, restore its files here.",
       "action": "Open inventory"
     }
+  },
+  "proxmox": {
+    "label": "Connect Proxmox",
+    "title": "Proxmox VE",
+    "description": "Connect Proxmox VE 8.4 or newer and back up virtual machines and LXC containers through Proxmox's official backup interface: only changed blocks leave the host, straight into your {appName} repositories. Coming after 0.2.0."
   }
 }
