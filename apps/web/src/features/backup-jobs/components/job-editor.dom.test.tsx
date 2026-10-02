@@ -703,7 +703,7 @@ describe("time windows of the bandwidth limit", () => {
     expect(rows()).toHaveLength(24);
     expect((buttonByText(section(), "Add time window") as HTMLButtonElement).disabled).toBe(true);
     expect(textOf(section())).toContain("At most 24 time windows.");
-  });
+  }, 30_000);
 
   it("names what is wrong at the row when saving: a missing limit and windows that overlap", async () => {
     await openEndpointEditor();

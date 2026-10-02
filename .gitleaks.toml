@@ -15,6 +15,8 @@ paths = [
   '''(^|/)internal/testutil/''',
   # The smoke helper's own unit test feeds made-up setup tokens to its log parser
   '''(^|/)scripts/smoke/lib/restow\.test\.mjs$''',
+  # The installer's shell test suite feeds made-up setup tokens to install.sh
+  '''(^|/)deploy/install/test\.sh$''',
 ]
 regexes = [
   # i18n keys such as "m365.consentResult.granted" in presenters
