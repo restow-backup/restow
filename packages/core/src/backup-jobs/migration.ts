@@ -27,9 +27,15 @@
 // Endpoints, per tenant: the active machines are grouped by profile, operating system and
 // schedule (exactly as the agent reads it, time zone included); every group is one job. The
 // folders, exclusions, hooks, bandwidth and retention that most of a group share are the job's,
-// what differs is the machine's override. Revoked machines are not scheduled and stay out.
+// what differs is the machine's override. Revoked machines are not scheduled and stay out, and
+// so do machines without a schedule (`none`).
 
-import { type AgentConfig, DEFAULT_ENDPOINT_RETENTION } from "../endpoints/config.js";
+import {
+  type ActiveAgentSchedule,
+  type AgentConfig,
+  DEFAULT_ENDPOINT_RETENTION,
+  isUnscheduled,
+} from "../endpoints/config.js";
 import { type Cadence, validateCadence } from "../schedule/index.js";
 import { normalizeBandwidthWindows } from "./bandwidth.js";
 import { OVERRIDABLE_SETTING_KEYS, retentionKey } from "./endpoint-config.js";
@@ -467,7 +473,12 @@ function settingsKey(settings: JobEndpointSettings): string {
  * from one shared job.
  */
 function agentScheduleKey(row: LegacyEndpointRow): string {
-  return JSON.stringify(endpointScheduleOf(jobScheduleFromEndpoint(row.config.schedule)));
+  return JSON.stringify(endpointScheduleOf(jobScheduleFromEndpoint(activeScheduleOf(row))));
+}
+
+/** The schedule of a machine that has one (the planner leaves out machines without). */
+function activeScheduleOf(row: LegacyEndpointRow): ActiveAgentSchedule {
+  return row.config.schedule as ActiveAgentSchedule;
 }
 
 function byEndpointCreation(a: LegacyEndpointRow, b: LegacyEndpointRow): number {
@@ -483,7 +494,10 @@ function byEndpointCreation(a: LegacyEndpointRow, b: LegacyEndpointRow): number 
  */
 export function planEndpointMigration(rows: readonly LegacyEndpointRow[]): EndpointJobPlan[] {
   const groups = new Map<string, LegacyEndpointRow[]>();
-  for (const row of [...rows].sort(byEndpointCreation)) {
+  // A machine without a schedule (`none`, enrolled since 0.2.1) waits for a job of its admin's
+  // choosing; there is nothing to carry over.
+  const scheduled = rows.filter((row) => !isUnscheduled(row.config.schedule));
+  for (const row of scheduled.sort(byEndpointCreation)) {
     const key = `${row.profile}|${row.os}|${agentScheduleKey(row)}`;
     const group = groups.get(key);
     if (group) {
@@ -547,7 +561,7 @@ export function planEndpointMigration(rows: readonly LegacyEndpointRow[]): Endpo
       profile: first.profile,
       // In the shape the agent reads, without a field its kind does not use.
       schedule: jobScheduleFromEndpoint(
-        endpointScheduleOf(jobScheduleFromEndpoint(first.config.schedule)),
+        endpointScheduleOf(jobScheduleFromEndpoint(activeScheduleOf(first))),
       ),
       settings: jobSettings,
       members,

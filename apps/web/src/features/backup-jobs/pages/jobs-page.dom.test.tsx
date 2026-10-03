@@ -66,6 +66,7 @@ const RUNNING = mailJob({
     failed: 0,
     partial: 0,
     running: 2,
+    queued: 0,
     runId: "11111111-1111-4111-8111-111111111111",
   },
   restoreCheck: restoreCheck({ passed: 4, unverified: 0, total: 4 }),
@@ -194,7 +195,7 @@ describe("the list of mail jobs", () => {
     const NEVER = mailJob({
       id: "job-never",
       name: "Fresh job",
-      lastRun: { at: null, failed: 0, partial: 0, running: 0, runId: null },
+      lastRun: { at: null, failed: 0, partial: 0, running: 0, queued: 0, runId: null },
     });
     opened = await openJobs("/jobs?type=mail", {
       routes: {
@@ -221,11 +222,18 @@ describe("the list of mail jobs", () => {
     expect(links.length).toBeGreaterThan(0);
   });
 
-  it("offers Pause on a mail job and Edit, Run now and Delete beside it", async () => {
+  it("offers Pause on a mail job and Open, Edit, Run now, its history and Delete beside it", async () => {
     opened = await openJobs("/jobs?type=mail", mailRoutes());
     await flush(5);
     const items = await openMenu(byLabel("Actions for OneDrive, nightly"));
-    expect(items.map((item) => item.textContent)).toEqual(["Edit", "Run now", "Pause", "Delete"]);
+    expect(items.map((item) => item.textContent)).toEqual([
+      "Open",
+      "Edit",
+      "Run now",
+      "Open history",
+      "Pause",
+      "Delete",
+    ]);
   });
 
   it("asks before deleting and says what stops being backed up", async () => {
@@ -336,7 +344,13 @@ describe("the list of machine jobs", () => {
     expect(text()).toContain("1 with overrides");
     expect(text()).toContain("Daily at");
     const items = await openMenu(byLabel("Actions for Linux servers, daily"));
-    expect(items.map((item) => item.textContent)).toEqual(["Edit", "Run now", "Delete"]);
+    expect(items.map((item) => item.textContent)).toEqual([
+      "Open",
+      "Edit",
+      "Run now",
+      "Open history",
+      "Delete",
+    ]);
   });
 
   it("says what a deleted machine job does to its machines: they keep their configuration", async () => {
@@ -348,7 +362,7 @@ describe("the list of machine jobs", () => {
     await click(items.find((item) => item.textContent === "Delete"));
     await flush(3);
     expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain(
-      "3 servers leave the job and keep the configuration they have now",
+      "3 servers leave the job and are no longer backed up until another job takes them",
     );
   });
 });
@@ -409,12 +423,17 @@ describe("the page closed for the public demo and for a role that may only look"
     expect(button.getAttribute("title")).toContain("This is the public demo");
     const note = slot("access-note");
     expect(note?.getAttribute("data-reason")).toBe("demo");
-    // The row menu is still a menu, with every change disabled and the sentence named.
+    // The row menu is still a menu, with every change disabled and the sentence named; opening
+    // the job and its history only look.
     const trigger = byLabel("Actions for All mailboxes, daily") as HTMLElement;
     expect(describedText(trigger)).toContain("This is the public demo");
     const items = await openMenu(trigger);
-    expect(items.length).toBe(4);
-    for (const item of items) {
+    expect(items.length).toBe(6);
+    const changes = items.filter(
+      (item) => !["Open", "Open history"].includes(item.textContent ?? ""),
+    );
+    expect(changes.length).toBe(4);
+    for (const item of changes) {
       expect(
         item.getAttribute("aria-disabled") ?? item.getAttribute("data-disabled"),
       ).not.toBeNull();

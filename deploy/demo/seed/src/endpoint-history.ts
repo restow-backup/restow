@@ -14,6 +14,7 @@ import {
   planEndpointHistory,
   screenshotsIn,
 } from "./endpoint-files.js";
+import { putMachineInJob } from "./endpoint-job.js";
 import { type ApiClient, ApiRequestError } from "./http-client.js";
 import { mulberry32, seedFrom } from "./prng.js";
 import { startResticProxy } from "./restic-proxy.js";
@@ -165,6 +166,7 @@ export async function runEndpointPhase(
 
   const proxy = await startResticProxy(options.apiBaseUrl, options.seedToken);
   const agents = new Map<string, SimAgent>();
+  const jobs = new Map<string, string>();
   for (const machine of machines) {
     agents.set(
       machine.hostname,
@@ -201,7 +203,7 @@ export async function runEndpointPhase(
       const start = await windowClock();
 
       if (!agent.enrolled) {
-        await enroll(options, machine, agent, tenantId);
+        await enroll(options, machine, agent, tenantId, jobs);
       }
       const written = applyOps(options.root, step.ops, options.screenshotDir, step.at);
       // The heartbeat the agent sends before it works; it also picks up the configuration change.
@@ -268,6 +270,7 @@ async function enroll(
   machine: DemoMachine,
   agent: SimAgent,
   tenantId: string,
+  jobs: Map<string, string>,
 ): Promise<void> {
   const { client, log } = options;
   const path = "/api/v1/endpoints/tokens";
@@ -278,16 +281,22 @@ async function enroll(
     { tenantId, seed: true },
   );
   await agent.enroll(token.token);
-  // What an administrator sets in the UI after the enrollment: the folders to back up.
-  const change = `/api/v1/endpoints/${agent.endpointId}`;
-  await expectOk(
-    client.request("PATCH", change, {
-      tenantId,
-      seed: true,
-      body: { config: { paths: machine.paths.map((p) => hostPath(options.root, p)) } },
-    }),
-    "PATCH",
-    change,
+  // A new machine waits for a backup job (release 0.2.1): the job gives it its folders and
+  // its daily schedule, and the agent fetches that configuration before its first backup.
+  await putMachineInJob(client, jobs, {
+    tenantId,
+    root: options.root,
+    machine,
+    endpointId: agent.endpointId,
+  });
+  const config = await agent.fetchConfig();
+  if (config.paths.length === 0 || config.schedule.kind === "none") {
+    throw new Error(
+      `${machine.hostname} got no folders or no schedule from its backup job (config version ${config.configVersion})`,
+    );
+  }
+  log(
+    `${machine.hostname} is in the backup job of its tenant (config version ${config.configVersion})`,
   );
 }
 

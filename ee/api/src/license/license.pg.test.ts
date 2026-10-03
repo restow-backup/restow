@@ -7,7 +7,7 @@
  * `restow_api_license_test` is recreated there and dropped after). Without it
  * the suite is skipped.
  */
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import {
   type Database,
   auditLog,
@@ -149,6 +149,8 @@ describe.skipIf(!testDatabaseAdminUrl)("license against Postgres", () => {
     // verification key is resolved once per process from the environment.
     process.env.DATABASE_URL = url;
     process.env[LICENSE_PUBLIC_KEY_ENV] = vendor.publicKey;
+    // The secret store seals a key entered on the Community build with the master key.
+    process.env.RESTOW_MASTER_KEY ??= randomBytes(32).toString("base64");
     db = createDb(url);
     f = await seed(db);
     service = await import("./service.js");
@@ -268,5 +270,43 @@ describe.skipIf(!testDatabaseAdminUrl)("license against Postgres", () => {
     expect(state).toMatchObject({ edition: "business", source: "key" });
     const [row] = await db.select().from(license).where(eq(license.active, true));
     expect(row?.mailboxLimit).toBeNull();
+  });
+
+  describe("a key entered on the Community build", () => {
+    const pending = () => import("../../../../apps/api/src/lib/pending-license-key.js");
+
+    it("is verified and installed by the full build, then removed", async () => {
+      const { storePendingLicenseKey, hasPendingLicenseKey } = await pending();
+      await service.removeLicense(db, actor).catch(() => undefined);
+      const token = keyFor("service_provider", f.installationId);
+      // Wrapped by a mail client: whitespace does not matter.
+      await storePendingLicenseKey(db, `${token.slice(0, 30)}\n  ${token.slice(30)}`);
+      expect(await service.applyPendingLicenseKey(db)).toBe("installed");
+      expect(await hasPendingLicenseKey(db)).toBe(false);
+      expect(await gate.currentEdition(db)).toBe("service_provider");
+      const entries = await licenseAudit("license.installed");
+      expect(entries.at(-1)).toMatchObject({ actor: "system", actorUserId: null });
+      expect(await service.applyPendingLicenseKey(db)).toBe("none");
+    });
+
+    it("is dropped, and the rejection audited, when it does not verify", async () => {
+      const { storePendingLicenseKey, hasPendingLicenseKey } = await pending();
+      await storePendingLicenseKey(db, keyFor("business", randomUUID()));
+      expect(await service.applyPendingLicenseKey(db)).toBe("rejected");
+      expect(await hasPendingLicenseKey(db)).toBe(false);
+      const [entry] = await licenseAudit("license.pending_key.rejected");
+      expect(entry?.details).toEqual({ reason: "installation_mismatch" });
+      // The installed key stays in effect.
+      expect(await gate.currentEdition(db)).toBe("service_provider");
+    });
+
+    it("is picked up when the license page is opened", async () => {
+      const { storePendingLicenseKey } = await pending();
+      await storePendingLicenseKey(db, keyFor("business", f.installationId));
+      expect(await service.getLicenseState(db)).toMatchObject({
+        edition: "business",
+        source: "key",
+      });
+    });
   });
 });

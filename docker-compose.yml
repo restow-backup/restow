@@ -152,21 +152,24 @@ services:
   # application's credentials (no env_file: no database password, no master key).
   # Read "The opt-in updater" in docs/UPDATING.md before enabling it.
   #
-  # RESTOW_PROJECT_DIR must be the absolute path of the directory holding this file and .env on
-  # the host (for example /opt/restow). It is mounted at the same path so `docker compose` inside
-  # the updater resolves every relative path the way the host would.
+  # The project directory is mounted at /project; the updater reads its host path from the
+  # mount. Set RESTOW_PROJECT_DIR (the absolute path of this directory) only to mount it at the
+  # same path instead.
   #
-  # Its own image is pinned on its own, never taken from RESTOW_IMAGE: the updater rewrites
-  # RESTOW_IMAGE during an update, and the container with the Docker socket must never start an
-  # image the updater installed. Only the operator moves it to a new version, by setting
-  # RESTOW_UPDATER_IMAGE (or rebuilding restow:local from a checkout) and recreating it. The
-  # updater refuses to update while this service follows RESTOW_IMAGE.
+  # Its image is the application image (there is no separate updater image), but never taken
+  # from RESTOW_IMAGE, which the updater rewrites: here it is restow:local, what
+  # `docker compose build` produces, until RESTOW_UPDATER_IMAGE names another. After an update
+  # from a signed release (image mode) the updater sets RESTOW_UPDATER_IMAGE to that release's
+  # verified image, by digest, and recreates itself (RESTOW_UPDATER_SELF_UPDATE=false switches
+  # that off); an update built from source never moves it. The updater refuses to update while
+  # this service follows RESTOW_IMAGE without RESTOW_UPDATER_IMAGE pinned.
   updater:
     profiles: ["updater"]
     image: ${RESTOW_UPDATER_IMAGE:-restow:local}
     environment:
       ROLE: updater
-      RESTOW_UPDATER_PROJECT_DIR: ${RESTOW_PROJECT_DIR:-/srv/restow}
+      RESTOW_UPDATER_PROJECT_DIR: ${RESTOW_PROJECT_DIR:-}
+      RESTOW_UPDATER_SELF_UPDATE: ${RESTOW_UPDATER_SELF_UPDATE:-true}
       RESTOW_UPDATER_API_URL: http://api:3000
       # Repositories the updater may build an update from (source mode); empty = none, the
       # default. Only the operator sets this, in .env (docs/UPDATING.md, "Two modes").
@@ -175,7 +178,7 @@ services:
       - "8090"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${RESTOW_PROJECT_DIR:-/srv/restow}:${RESTOW_PROJECT_DIR:-/srv/restow}
+      - ${RESTOW_PROJECT_DIR:-.}:${RESTOW_PROJECT_DIR:-/project}
       - restow-updater:/state
       - restow-updater-shared:/updater-shared
     security_opt:

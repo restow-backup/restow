@@ -263,7 +263,12 @@
     },
     "license": {
       "installed": "Lizenz installiert",
-      "removed": "Lizenz entfernt"
+      "removed": "Lizenz entfernt",
+      "pending_key": {
+        "stored": "Lizenzschlüssel für den vollen Build hinterlegt",
+        "removed": "Lizenzschlüssel für den vollen Build entfernt",
+        "rejected": "Lizenzschlüssel aus dem Community-Build abgelehnt"
+      }
     },
     "restore": {
       "cancelled": "Wiederherstellung abgebrochen",
@@ -288,6 +293,8 @@
     },
     "settings": {
       "default_storage": {
+        "removed": "Standardspeicher entfernt, die Server-Umgebung gilt wieder",
+        "saved": "Standardspeicher gespeichert",
         "tested": "Standardspeicher getestet"
       },
       "disclaimer_accepted": "Hinweis zur Betreiberverantwortung akzeptiert",
@@ -343,6 +350,8 @@
     },
     "storage": {
       "default": {
+        "removed": "Standardspeicher entfernt, die Server-Umgebung gilt wieder",
+        "saved": "Standardspeicher gespeichert",
         "tested": "Standardspeicher getestet"
       },
       "migration": {
@@ -435,6 +444,9 @@
       "acknowledged": "Update-Ergebnis bestätigt",
       "settings": {
         "updated": "Update-Einstellungen geändert"
+      },
+      "build_switch": {
+        "scheduled": "Wechsel auf den vollen Build angekündigt"
       }
     },
     "endpoint": {
@@ -447,6 +459,7 @@
       "config": {
         "changed": "Konfiguration des Rechners geändert"
       },
+      "assigned": "Rechner einer Person zugeordnet",
       "backup": {
         "requested": "Sicherung angefordert"
       },

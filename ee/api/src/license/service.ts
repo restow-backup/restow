@@ -7,6 +7,11 @@ import {
 } from "../../../../apps/api/src/features/usage/service.js";
 import { audit } from "../../../../apps/api/src/lib/audit.js";
 import {
+  readPendingLicenseKey,
+  removePendingLicenseKey,
+} from "../../../../apps/api/src/lib/pending-license-key.js";
+import { ProblemError } from "../../../../apps/api/src/problem.js";
+import {
   type LicenseVerificationKey,
   environmentEdition,
   licenseKeyId,
@@ -15,6 +20,7 @@ import {
 } from "../../../licensing/src/index.js";
 import { type LicenseStateDto, buildLicenseState } from "./dto.js";
 import {
+  LICENSE_PROBLEM_TYPES,
   installationNotConfigured,
   licenseNotInstalled,
   licenseRejected,
@@ -40,14 +46,20 @@ import {
 export const LICENSE_AUDIT_ACTIONS = {
   installed: "license.installed",
   removed: "license.removed",
+  /** A key entered on the Community build failed verification here and was dropped. */
+  pendingRejected: "license.pending_key.rejected",
 } as const;
 
 /** Who changes the license, for the audit log. */
 export interface LicenseActor {
-  id: string;
+  /** null for the system (a key entered on the Community build, applied at start). */
+  id: string | null;
   email: string;
   ip: string | null;
 }
+
+/** The actor of a key that was entered on the Community build and is applied here. */
+export const PENDING_KEY_ACTOR: LicenseActor = { id: null, email: "system", ip: null };
 
 let verificationKey: LicenseVerificationKey | undefined;
 
@@ -72,8 +84,45 @@ function stateOf(installed: License | null, installationId: string | null): Lice
   });
 }
 
+export type PendingKeyOutcome = "none" | "installed" | "rejected" | "deferred";
+
+/**
+ * A key entered on the Community build (Installation, Edition) waits in the core's secret
+ * store (apps/api/src/lib/pending-license-key.ts) until this, the full build, runs. It is
+ * verified exactly like a key entered on the License page and then removed: installed when
+ * it verifies, dropped (and the rejection audited) when it does not. It stays when it
+ * cannot be checked yet (no verification key, setup not finished) and is tried again.
+ */
+export async function applyPendingLicenseKey(db: Database): Promise<PendingKeyOutcome> {
+  const key = await readPendingLicenseKey(db);
+  if (!key) {
+    return "none";
+  }
+  try {
+    await installLicense(db, key, PENDING_KEY_ACTOR);
+  } catch (error) {
+    if (error instanceof ProblemError && error.type === LICENSE_PROBLEM_TYPES.invalid) {
+      await removePendingLicenseKey(db);
+      await audit(db, {
+        actor: PENDING_KEY_ACTOR.email,
+        actorUserId: null,
+        action: LICENSE_AUDIT_ACTIONS.pendingRejected,
+        target: (await loadInstallationId(db)) ?? null,
+        targetType: "installation",
+        ip: null,
+        details: { reason: error.extensions?.reason ?? null },
+      });
+      return "rejected";
+    }
+    return "deferred";
+  }
+  await removePendingLicenseKey(db);
+  return "installed";
+}
+
 /** The license in effect and the installed key. */
 export async function getLicenseState(db: Database): Promise<LicenseStateDto> {
+  await applyPendingLicenseKey(db).catch(() => "deferred");
   const [installed, installationId] = await Promise.all([
     loadInstalledLicense(db),
     loadInstallationId(db),

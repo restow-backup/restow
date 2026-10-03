@@ -6,7 +6,7 @@
 #            internal network) that holds the synthetic mailboxes
 #   garage   an S3-compatible object store for the S3 storage-target check
 #   api/worker/scheduler  a bind-mounted directory that stands in for an NFS
-#            or SMB share, and the test-only settings from the generated .env
+#            share, and the test-only settings from the generated .env
 #
 # Every ${VARIABLE} is set by run.mjs in the generated .env; nothing here is a
 # secret and the file is never used outside the smoke.

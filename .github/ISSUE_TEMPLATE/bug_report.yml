@@ -27,7 +27,7 @@ body:
     id: storage
     attributes:
       label: Storage target
-      options: ["Local disk", "S3-compatible (name the provider below)", "NFS", "SMB", "Several targets"]
+      options: ["Local disk", "S3-compatible (name the provider below)", "NFS", "Several targets"]
     validations:
       required: true
   - type: input

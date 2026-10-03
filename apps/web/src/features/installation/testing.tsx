@@ -56,7 +56,12 @@ export const DEFAULT_STORAGE: DefaultStorageView = {
   kind: "local",
   location: "/data/chunks",
   copyLocation: null,
+  source: "environment",
+  problem: null,
+  saved: null,
+  environment: { configured: true, kind: "local", location: "/data/chunks" },
   tenants: { total: 5, usingDefault: 3 },
+  blockers: [],
   lastTest: null,
 };
 

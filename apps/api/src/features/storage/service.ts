@@ -49,6 +49,7 @@ import { productName } from "@restow/i18n";
 import { type SQL, and, asc, count, desc, eq, gte, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
 import { snapshotNotImported } from "../../lib/imported-objects.js";
+import { currentInstallationDefault } from "../../lib/installation-default.js";
 import { deleteSecret, readSecret, replaceSecret, storeSecret } from "../../lib/secrets.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
@@ -97,7 +98,7 @@ import {
 import { type DailyBytes, SERIES_DAYS, type UsageDto, buildUsage, windowStart } from "./usage.js";
 
 /** `storage_migrations.status` values a migration is still in flight under. */
-const UNFINISHED_MIGRATION_STATUSES: readonly StorageMigration["status"][] = [
+export const UNFINISHED_MIGRATION_STATUSES: readonly StorageMigration["status"][] = [
   "queued",
   "copying",
   "verifying",
@@ -173,7 +174,7 @@ export interface Actor {
 export interface StorageDeps {
   /** DNS resolution for the tenant endpoint policy. */
   readonly resolveHost?: HostResolver;
-  /** Environment for the installation default. */
+  /** Environment for the installation default (tests); omitted = the current default. */
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly now?: () => Date;
 }
@@ -411,7 +412,8 @@ function openProblem(error: unknown): ProblemError {
 function defaultUnavailable(): ProblemError {
   return new ProblemError(503, "Installation default storage not configured", {
     type: `${PROBLEM_PREFIX}default-misconfigured`,
-    detail: "The storage settings in the environment (STORAGE_TARGET, S3_*) are invalid.",
+    detail:
+      "The installation default storage is not usable: neither a default saved under Installation, Default storage nor the storage settings in the environment (STORAGE_TARGET, S3_*) can be used.",
   });
 }
 
@@ -537,7 +539,7 @@ async function assertNoActiveEndpoints(db: DbExecutor, tenantId: string): Promis
  * queue never touch storage at all. `verify` and `directory` only read, so
  * they are not in this list.
  */
-const STORAGE_WRITING_QUEUES = [
+export const STORAGE_WRITING_QUEUES = [
   "backup",
   "archive",
   "retention",
@@ -700,10 +702,20 @@ function migrationsByTargetId(
   return byTarget;
 }
 
-/** The environment's default storage, or null when the environment is invalid. */
-function readInstallationDefault(deps: StorageDeps): InstallationDefaultStorage | null {
+/**
+ * The installation default that applies right now (the one saved under
+ * Installation → Default storage, else the environment;
+ * lib/installation-default.ts), or null when it is not usable. `deps.env`
+ * (tests) reads that environment alone.
+ */
+async function readInstallationDefault(
+  deps: StorageDeps,
+): Promise<InstallationDefaultStorage | null> {
+  if (!deps.env) {
+    return currentInstallationDefault();
+  }
   try {
-    return installationDefaultStorage(deps.env ?? process.env);
+    return installationDefaultStorage(deps.env);
   } catch (error) {
     if (error instanceof StorageTargetError) {
       return null;
@@ -807,7 +819,7 @@ export async function listTargets(
       migrationsByTarget: migrationsByTargetId(migrations, eta, jobStatuses),
     };
   });
-  const defaults = readInstallationDefault(deps);
+  const defaults = await readInstallationDefault(deps);
   const inUse = !rows.some((row) => row.role === "primary");
   return {
     items: rows.map((row) => toTargetDto(row, actor, migrationsByTarget.get(row.id) ?? null)),
@@ -849,7 +861,7 @@ export async function createTarget(
     throw ruleProblem("local_requires_provider_admin");
   }
   await enforceEndpointPolicy(location, actor, deps);
-  const defaults = readInstallationDefault(deps);
+  const defaults = await readInstallationDefault(deps);
 
   if (input.role === "primary" && input.migrationMode) {
     const replacesExisting = await withTenantTx(db, tenantId, async (tx) => {
@@ -969,7 +981,7 @@ async function startReplacePrimary(
     // createTarget only calls this once input.migrationMode is set.
     throw new Error("startReplacePrimary requires migrationMode");
   }
-  const defaults = readInstallationDefault(deps);
+  const defaults = await readInstallationDefault(deps);
   const now = deps.now ?? (() => new Date());
 
   try {
@@ -1453,7 +1465,7 @@ export async function updateTarget(
       throw credentialsRequired();
     }
   }
-  const defaults = readInstallationDefault(deps);
+  const defaults = await readInstallationDefault(deps);
 
   const row = await withTenantTx(db, tenantId, async (tx) => {
     const row = await loadTarget(tx, tenantId, id);
@@ -1565,7 +1577,7 @@ async function openPreviousTarget(
   deps: StorageDeps,
 ): Promise<StorageBackend> {
   if (row.kind === "installation_default") {
-    const defaults = readInstallationDefault(deps);
+    const defaults = await readInstallationDefault(deps);
     if (!defaults) {
       throw defaultUnavailable();
     }
@@ -1725,7 +1737,7 @@ export async function deleteTarget(
   actor: Actor,
   deps: StorageDeps = {},
 ): Promise<void> {
-  const defaults = readInstallationDefault(deps);
+  const defaults = await readInstallationDefault(deps);
   const { row, rows } = await withTenantTx(db, tenantId, async (tx) => {
     const row = await loadTarget(tx, tenantId, id);
     const rows = await loadTargets(tx, tenantId);
@@ -1981,7 +1993,7 @@ export async function testInstallationDefault(
   deps: StorageDeps = {},
 ): Promise<ProbeOutcomeDto & { installationDefault: InstallationDefaultDto }> {
   const now = deps.now ?? (() => new Date());
-  const defaults = readInstallationDefault(deps);
+  const defaults = await readInstallationDefault(deps);
   if (!defaults) {
     throw defaultUnavailable();
   }
@@ -2029,7 +2041,7 @@ async function openEffectivePrimary(
       throw openProblem(error);
     });
   }
-  const defaults = readInstallationDefault(deps);
+  const defaults = await readInstallationDefault(deps);
   if (!defaults) {
     throw defaultUnavailable();
   }

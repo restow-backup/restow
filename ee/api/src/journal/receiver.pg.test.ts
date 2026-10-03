@@ -18,13 +18,25 @@ import { createHash, randomBytes } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { EnvKeyProvider, generateDek, kekFromBase64 } from "@restow/core";
+import {
+  EnvKeyProvider,
+  InstallationDefaultResolver,
+  generateDek,
+  kekFromBase64,
+} from "@restow/core";
 import { type Database, archiveItems, createDb, providers, tenantKeys, tenants } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { DEFAULT_ARCHIVE_RETENTION_POLICY } from "../../../../apps/api/src/features/archive/retention-policy.js";
+import { setInstallationDefaultResolver } from "../../../../apps/api/src/lib/installation-default.js";
 import { receiveJournalReport } from "./receiver.js";
+
+// These suites set the installation default in the environment (STORAGE_*); read it from there,
+// uncached, instead of from the installation pool of a configured server
+// (lib/installation-default.ts).
+beforeAll(() => setInstallationDefaultResolver(new InstallationDefaultResolver({ ttlMs: 0 })));
+afterAll(() => setInstallationDefaultResolver(null));
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
 const TEST_DB = "restow_api_journal_test";
@@ -210,11 +222,12 @@ describe.skipIf(!adminUrl)("receiveJournalReport against Postgres", () => {
   }
 
   it("archives a hostile report byte for byte, flagged, when its parse runs over the time limit", async () => {
-    // The envelope text is quoted-printable made of soft line breaks, which mailparser decodes in
-    // time that grows with the square of its length: seconds to minutes on the event loop before.
+    // The envelope text is quoted-printable made of soft line breaks, which mailparser up to 3.9.28
+    // decoded in time that grew with the square of its length (later versions are linear, but 24 MB
+    // still take seconds): seconds to minutes on the event loop before.
     const hostile = reportWithEnvelope(
       ["Content-Type: text/plain", "Content-Transfer-Encoding: quoted-printable"],
-      "=\r\n=3D".repeat(700_000),
+      "=\r\n=3D".repeat(4_000_000),
     );
     const { value: record, ticks } = await ticking(() =>
       receiveJournalReport(tenantId, hostile, {

@@ -86,6 +86,7 @@ export const FAILURE_CODES = [
   "prepare.env_unwritable",
   "prepare.disk_space",
   "prepare.not_newer",
+  "prepare.switch_refused",
   "prepare.compose_unsupported",
   "prepare.updater_image_unpinned",
   "fetch.pull_failed",
@@ -170,9 +171,23 @@ export const sourceRefSchema = z.object({
 });
 export type SourceRef = z.infer<typeof sourceRefSchema>;
 
+/**
+ * The one build switch an update can make: a Community installation moves to the
+ * full build of the same version (`ghcr.io/restow-backup/restow` and `restow-web`).
+ * Never the other way: the full build's data (licensed features, several tenants)
+ * may need modules the Community build does not have.
+ */
+export const BUILD_SWITCH_TARGETS = ["full"] as const;
+export type BuildSwitchTarget = (typeof BUILD_SWITCH_TARGETS)[number];
+
 export const scheduleRequestSchema = z.object({
   release: releaseRefSchema,
   mode: z.enum(UPDATE_MODES),
+  /**
+   * Switch the build instead of the version: `release` is the running version, its
+   * digests are those of the full images, `mode` is `image`. null: a normal update.
+   */
+  switchTo: z.enum(BUILD_SWITCH_TARGETS).nullable().default(null),
   source: sourceRefSchema.nullable().default(null),
   /** Seconds until the update starts; one of {@link LEAD_TIME_PRESETS}. */
   leadSeconds: z
@@ -211,6 +226,8 @@ export const runSchema = z.object({
   /** `r-<epoch ms>`; identifies the run in the UI, the journal and the audit log. */
   id: z.string(),
   mode: z.enum(UPDATE_MODES),
+  /** The run switches a Community installation to the full build of the same version. */
+  switchTo: z.enum(BUILD_SWITCH_TARGETS).nullable().default(null),
   fromVersion: z.string().nullable(),
   targetVersion: z.string(),
   targetTag: z.string(),
@@ -305,6 +322,66 @@ export const capabilitiesSchema = z.object({
 });
 export type Capabilities = z.infer<typeof capabilitiesSchema>;
 
+/**
+ * The updater's own update (self-update.ts, docs/UPDATING.md "The updater updates
+ * itself"). After an image-mode update succeeded with verified signatures, the updater
+ * pins RESTOW_UPDATER_IMAGE to the application image it just verified, by digest, and
+ * recreates its own container through a helper container.
+ *
+ *   pending    RESTOW_UPDATER_IMAGE was written and the helper was started; the new
+ *              updater confirms it when it starts with the target version
+ *   succeeded  the updater now runs the target version
+ *   failed     it did not happen (`reason`); the application update stays successful
+ *   skipped    it was not attempted (`reason`): switched off, `source` mode, or the
+ *              signatures were not verified; the operator moves the updater by hand
+ */
+export const SELF_UPDATE_STATUSES = ["pending", "succeeded", "failed", "skipped"] as const;
+export type SelfUpdateStatus = (typeof SELF_UPDATE_STATUSES)[number];
+
+export const SELF_UPDATE_REASONS = [
+  /** RESTOW_UPDATER_SELF_UPDATE=false. */
+  "disabled",
+  /** The run built from source: nothing is signed, so the updater never runs it. */
+  "source_mode",
+  /** Signature verification is switched off (RESTOW_UPDATER_VERIFY_SIGNATURES=false) or did not pass. */
+  "signature_unverified",
+  /** The compose file does not take the updater's image from RESTOW_UPDATER_IMAGE. */
+  "compose_unsupported",
+  /** RESTOW_UPDATER_IMAGE could not be written to `.env`. */
+  "env_write_failed",
+  /** The helper container that recreates the updater could not be started. */
+  "launch_failed",
+  /** `docker compose up` in the helper container failed. */
+  "helper_failed",
+  /** The helper finished, but the updater still runs the old version. */
+  "not_replaced",
+] as const;
+export type SelfUpdateReason = (typeof SELF_UPDATE_REASONS)[number];
+
+export const selfUpdateRecordSchema = z.object({
+  status: z.enum(SELF_UPDATE_STATUSES),
+  reason: z.enum(SELF_UPDATE_REASONS).nullable().default(null),
+  /** The updater's version before (null for an unversioned local build). */
+  fromVersion: z.string().nullable(),
+  targetVersion: z.string(),
+  /** The image written to RESTOW_UPDATER_IMAGE (`name:tag@sha256:...`); null when nothing was written. */
+  image: z.string().nullable().default(null),
+  startedAt: iso,
+  finishedAt: iso.nullable().default(null),
+  /** Redacted, single-line detail of a failure. */
+  detail: z.string().max(1000).default(""),
+});
+export type SelfUpdateRecord = z.infer<typeof selfUpdateRecordSchema>;
+
+export const selfUpdateViewSchema = z.object({
+  /** RESTOW_UPDATER_SELF_UPDATE is not false. */
+  enabled: z.boolean(),
+  /** Signatures are verified (a self-update needs them). */
+  verifiesSignatures: z.boolean(),
+  last: selfUpdateRecordSchema.nullable(),
+});
+export type SelfUpdateView = z.infer<typeof selfUpdateViewSchema>;
+
 /** `GET /v1/state` (authenticated): everything the api needs. */
 export const stateViewSchema = z.object({
   updaterVersion: z.string().nullable(),
@@ -313,6 +390,8 @@ export const stateViewSchema = z.object({
   history: z.array(runSummarySchema),
   events: z.array(journalEventSchema),
   capabilities: capabilitiesSchema,
+  /** null: an updater that predates its self-update (0.2.0), which never updates itself. */
+  selfUpdate: selfUpdateViewSchema.nullable().default(null),
   serverTime: iso,
 });
 export type StateView = z.infer<typeof stateViewSchema>;
@@ -345,6 +424,8 @@ export type PublicStatus = z.infer<typeof publicStatusSchema>;
 export type MaintenanceStatus = PublicStatus & {
   targetVersion: string | null;
   fromVersion: string | null;
+  /** The run switches the build instead of the version (null: a normal update, or none). */
+  switchTo: BuildSwitchTarget | null;
 };
 
 /** Message parameters a visitor may not see. */
@@ -413,6 +494,7 @@ export function maintenanceStatusOf(
     message: run?.message ?? null,
     targetVersion: run?.targetVersion ?? null,
     fromVersion: run?.fromVersion ?? null,
+    switchTo: run?.switchTo ?? null,
   };
 }
 

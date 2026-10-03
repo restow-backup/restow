@@ -10,6 +10,7 @@ import { EndpointsTable } from "./components/endpoints-table.js";
 import { EnrollDialog } from "./components/enroll-dialog.js";
 import { PendingTokens } from "./components/pending-tokens.js";
 import { ProxmoxTeaser } from "./components/proxmox-teaser.js";
+import { WithoutBackupBanner, canManageJobs } from "./components/without-backup.js";
 import { useEndpoints } from "./hooks.js";
 import { type EndpointArea, type EndpointProfile, profileOfArea } from "./paths.js";
 
@@ -36,7 +37,7 @@ export function EndpointsPage({
   onKindChange?: (kind: EndpointProfile | undefined) => void;
 }) {
   const { t } = useTranslation("endpoints");
-  const { activeTenant, isProviderAdmin } = useSession();
+  const { activeTenant, isProviderAdmin, role } = useSession();
   const profile = profileOfArea(area);
   const endpoints = useEndpoints(profile);
   const [enrolling, setEnrolling] = React.useState<EndpointProfile | null>(null);
@@ -97,6 +98,8 @@ export function EndpointsPage({
 
       <PendingTokens profile={profile} />
 
+      <WithoutBackupBanner items={endpoints.data ?? []} />
+
       <EndpointsTable
         area={area}
         items={endpoints.data}
@@ -104,6 +107,7 @@ export function EndpointsPage({
         fetching={endpoints.isFetching}
         error={endpoints.isError ? endpoints.error : null}
         onRetry={() => void endpoints.refetch()}
+        canManageJobs={canManageJobs(role)}
         empty={
           activeTenant === null ? (
             <EmptyState

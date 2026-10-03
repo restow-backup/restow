@@ -19,7 +19,12 @@ import { cn } from "@/lib/utils";
 
 import type { BackupJob, JobMember } from "../api.js";
 import { overrideGroupsSet } from "../form.js";
-import { MEMBER_KIND_ICON, describeJobSchedule, memberOutcomeTone } from "../presenters.js";
+import {
+  MEMBER_KIND_ICON,
+  describeJobSchedule,
+  memberOutcomeTone,
+  pendingBackupView,
+} from "../presenters.js";
 import { type JobsAccess, closedProps } from "./access-note.js";
 
 export interface MembersTableProps {
@@ -44,6 +49,21 @@ const PINNED = ["name"] as const;
 function timeValue(value: string | null): number {
   const parsed = value ? Date.parse(value) : Number.NaN;
   return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+/** What a requested backup waits for: the machine's next check-in, or its start on the machine. */
+function PendingBackupNote({ pending }: { pending: NonNullable<JobMember["pendingBackup"]> }) {
+  const { t } = useTranslation("backupjobs");
+  const view = pendingBackupView(pending, Date.now());
+  return (
+    <span className="max-w-48 text-xs text-muted-foreground">
+      {view.kind === "starting"
+        ? t("scope.queued.starting")
+        : view.kind === "waiting"
+          ? t("scope.queued.waiting", { count: view.minutes })
+          : t("scope.queued.due")}
+    </span>
+  );
 }
 
 /**
@@ -163,6 +183,7 @@ export function MembersTable({
         meta: { label: t("scope.columns.lastBackup"), headerClassName: "whitespace-nowrap" },
         cell: ({ row }) => {
           const { at, outcome } = row.original.lastBackup;
+          const pending = row.original.pendingBackup;
           const tone = memberOutcomeTone(outcome);
           return (
             <div className="flex flex-col items-start gap-1">
@@ -176,6 +197,7 @@ export function MembersTable({
                   {t(`scope.outcome.${outcome}`)}
                 </StatusBadge>
               ) : null}
+              {pending && outcome === "queued" ? <PendingBackupNote pending={pending} /> : null}
             </div>
           );
         },

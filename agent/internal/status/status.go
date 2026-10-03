@@ -61,6 +61,9 @@ type Status struct {
 	Heartbeat     Heartbeat `json:"heartbeat"`
 	ConfigVersion string    `json:"configVersion,omitempty"`
 	Schedule      string    `json:"schedule,omitempty"`
+	// WaitingForJob is set while the machine is in no backup job (schedule
+	// none): no backup runs until an administrator adds it to one.
+	WaitingForJob bool      `json:"waitingForJob,omitempty"`
 	NextRunAt     time.Time `json:"nextRunAt,omitzero"`
 	LastError     string    `json:"lastError,omitempty"`
 

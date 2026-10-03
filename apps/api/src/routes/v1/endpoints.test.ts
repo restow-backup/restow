@@ -28,6 +28,7 @@ const summary = (overrides: Partial<EndpointSummaryDto> = {}): EndpointSummaryDt
   latestRun: null,
   attention: [],
   job: null,
+  assignedTo: null,
   createdAt: "2026-09-01T00:00:00.000Z",
   revokedAt: null,
   ...overrides,

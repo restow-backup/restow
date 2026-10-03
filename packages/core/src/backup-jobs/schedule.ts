@@ -3,7 +3,7 @@
 // schedule the agent reads, and a key to tell two schedules apart. Pure code, shared by the API
 // (validation, preview, migration) and the scheduler.
 
-import type { AgentSchedule } from "../endpoints/config.js";
+import type { ActiveAgentSchedule } from "../endpoints/config.js";
 import {
   type Cadence,
   type CadenceInput,
@@ -96,7 +96,7 @@ export function jobScheduleFromCadence(cadence: Cadence): JobSchedule {
 }
 
 /** The schedule the agent reads (`GET /agent/v1/config`): only the fields its kind uses, in a fixed order. */
-export function endpointScheduleOf(schedule: JobSchedule): AgentSchedule {
+export function endpointScheduleOf(schedule: JobSchedule): ActiveAgentSchedule {
   switch (schedule.kind) {
     case "daily":
       return {
@@ -121,8 +121,11 @@ export function endpointScheduleOf(schedule: JobSchedule): AgentSchedule {
   }
 }
 
-/** The agent's schedule of a machine as a job schedule (the same shape, so nothing changes). */
-export function jobScheduleFromEndpoint(schedule: AgentSchedule): JobSchedule {
+/**
+ * The agent's schedule of a machine as a job schedule (the same shape, so nothing changes). Only
+ * for a schedule that runs: `none` has no job schedule.
+ */
+export function jobScheduleFromEndpoint(schedule: ActiveAgentSchedule): JobSchedule {
   return {
     kind: schedule.kind,
     ...(schedule.intervalMinutes !== undefined

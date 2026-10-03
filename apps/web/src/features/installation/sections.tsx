@@ -1,10 +1,11 @@
-import { AppWindow, Download, HardDrive, Info, Mail, Server } from "lucide-react";
+import { AppWindow, Download, HardDrive, Info, Layers, Mail, Server } from "lucide-react";
 
 import { AboutSection } from "@/features/settings/sections/about-section";
 import { UpdatesSection } from "@/features/updates/updates-section";
 import { type InstallationSectionSpec, extensionInstallationSections } from "@/lib/extensions";
 
 import { DefaultStorageSection } from "./sections/default-storage-section";
+import { EditionSection } from "./sections/edition-section";
 import { MicrosoftAppSection } from "./sections/microsoft-app-section";
 import { MailSectionPage, ServerSectionPage } from "./sections/settings-sections";
 
@@ -18,7 +19,12 @@ import { MailSectionPage, ServerSectionPage } from "./sections/settings-sections
  *   10 Server   20 Notification mail   30 Microsoft multi-tenant app
  *   40 Journal receiving (Business)    50 Default storage
  *   60 Provider API (Service Provider) 70 Updates
- *   80 License (extension)             90 About
+ *   80 License (extension) or Edition  90 About
+ *
+ * Edition (core) is the Community build's place for what the License section is in the
+ * full build: it says which build runs and offers the switch to the full build. It is
+ * shown only where no extension brings a License section, so the full build keeps its
+ * License section as it is.
  *
  * Team and the audit log are pages of their own in the menu group Installation,
  * not sections: they are lists, this page is settings.
@@ -75,15 +81,33 @@ export const CORE_INSTALLATION_SECTIONS: readonly InstallationSectionSpec[] = [
   },
 ];
 
+/** The Community build's section about the build and the switch to the full build. */
+export const EDITION_SECTION: InstallationSectionSpec = {
+  id: "edition",
+  labelKey: "installation:sections.edition",
+  descriptionKey: "installation:descriptions.edition",
+  icon: Layers,
+  order: 80,
+  component: EditionSection,
+};
+
+/** The id of the section the full build's license module adds. */
+export const LICENSE_SECTION_ID = "license";
+
 /** The core's sections and the ones the extensions add, in sub-navigation order; a core id cannot be replaced. */
 export function installationSections(): InstallationSectionSpec[] {
-  const taken = new Set(CORE_INSTALLATION_SECTIONS.map((spec) => spec.id));
-  const added = extensionInstallationSections().filter((spec) => {
+  const extensionSections = extensionInstallationSections();
+  const fullBuild = extensionSections.some((spec) => spec.id === LICENSE_SECTION_ID);
+  const core = fullBuild
+    ? CORE_INSTALLATION_SECTIONS
+    : [...CORE_INSTALLATION_SECTIONS, EDITION_SECTION];
+  const taken = new Set(core.map((spec) => spec.id));
+  const added = extensionSections.filter((spec) => {
     if (taken.has(spec.id)) {
       return false;
     }
     taken.add(spec.id);
     return true;
   });
-  return [...CORE_INSTALLATION_SECTIONS, ...added].sort((a, b) => a.order - b.order);
+  return [...core, ...added].sort((a, b) => a.order - b.order);
 }

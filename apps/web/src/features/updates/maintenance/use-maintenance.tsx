@@ -7,7 +7,7 @@ import { toast } from "@/components/ui/sonner";
 import { type UpdaterPhase, fetchEdgeStatus, fetchMaintenance } from "../api";
 import "../i18n";
 import { updatesKeys } from "../hooks";
-import { isMaintenanceActive, remainingSeconds, spanLabel } from "../presenters";
+import { isMaintenanceActive, remainingSeconds, spanLabel, switchKey } from "../presenters";
 import {
   type MaintenanceSnapshot,
   type PollDeps,
@@ -113,7 +113,7 @@ export function useMaintenance(options: UseMaintenanceOptions = {}): Maintenance
         remainingSeconds(current.startsAt, Date.now(), snapshot.offsetMs) ?? 0,
       );
       toast.info(
-        t("maintenance.announce.start", {
+        t(switchKey("maintenance.announce.start", current.switchTo), {
           product: tc("app.name"),
           version: current.targetVersion ?? "",
           time: t(span.key, { count: span.count }),

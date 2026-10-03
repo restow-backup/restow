@@ -70,7 +70,8 @@ import {
  *   DELETE /agent-updates/machines/:id          lift one machine's own pause
  *   GET    /:id                                 detail: config, runs, waiting and recent tasks, reports
  *                                               (hook texts only for who may change the configuration)
- *   PATCH  /:id                                 name, paths, excludes, schedule, hooks, bandwidth, retention
+ *   PATCH  /:id                                 name, paths, excludes, schedule, hooks, bandwidth, retention,
+ *                                               the person of the directory the machine is assigned to
  *   POST   /:id/revoke                          refuse the endpoint from now on
  *   POST   /:id/uninstall                       have the agent remove itself, then revoke
  *   POST   /:id/tasks                           back up now, or restore into a new folder on the endpoint

@@ -434,6 +434,12 @@
       "unmarked": "Der Schritt ist wieder offen.",
       "demo": "In der öffentlichen Demo geschlossen.",
       "role": "Das ändert eine Einstellung der Installation und braucht die Rolle Inhaber im Provider-Team."
+    },
+    "dismissed": {
+      "action": "Start ausblenden",
+      "toast": "„Start“ ist ausgeblendet.",
+      "description": "Die Einrichtungsschritte finden Sie weiter auf der Seite jedes Mandanten unter „Einrichtungsschritte anzeigen“.",
+      "undo": "Rückgängig"
     }
   }
 }

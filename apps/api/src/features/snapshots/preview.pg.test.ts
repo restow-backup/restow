@@ -20,6 +20,7 @@ import {
   type ChunkLocation,
   type ChunkRecord,
   ChunkWriter,
+  InstallationDefaultResolver,
   Keyring,
   LocalStorageBackend,
   type PackRecord,
@@ -228,6 +229,11 @@ describe.skipIf(!testDatabaseAdminUrl)("mail preview against Postgres", () => {
     f = await createExplorerFixture(db);
 
     secretsLib = await import("../../lib/secrets.js");
+    // The installation default comes from the environment this suite sets (STORAGE_*), uncached,
+    // not from the installation pool of a configured server (lib/installation-default.ts).
+    (await import("../../lib/installation-default.js")).setInstallationDefaultResolver(
+      new InstallationDefaultResolver({ ttlMs: 0 }),
+    );
     await withTenantTx(db, f.tenantId, (tx) => secretsLib.createTenantKey(tx, f.tenantId));
     const dek = await withTenantTx(db, f.tenantId, (tx) =>
       secretsLib.loadTenantDek(tx, f.tenantId),
@@ -301,7 +307,9 @@ describe.skipIf(!testDatabaseAdminUrl)("mail preview against Postgres", () => {
         "Content-Type: text/plain",
         "Content-Transfer-Encoding: quoted-printable",
         "",
-        "=\r\n=3D".repeat(700_000),
+        // 14.4 MB, under PREVIEW_SIZE_CAP_BYTES: mailparser 3.9.31 decodes it in linear time, still
+        // well over the 400 ms (text: 200 ms) the tests below allow.
+        "=\r\n=3D".repeat(2_400_000),
       ]);
       /**
        * An HTML body longer than the preview formats (MAX_SANITIZED_HTML_CHARS), shorter than the
@@ -384,7 +392,7 @@ describe.skipIf(!testDatabaseAdminUrl)("mail preview against Postgres", () => {
 
       it("answers 'unreadable' with the headers of the manifest for a message that stays slow, instead of hanging", async () => {
         await warm();
-        previewConfig.timeoutMs = 800;
+        previewConfig.timeoutMs = 400;
         const entryId = await insertMailEntry({
           snapshotId: f.mailbox.second,
           protectedObjectId: f.annaMailbox,
@@ -419,7 +427,7 @@ describe.skipIf(!testDatabaseAdminUrl)("mail preview against Postgres", () => {
 
       it("refuses the attachment download of such a message with a problem that says what to do", async () => {
         await warm();
-        previewConfig.timeoutMs = 800;
+        previewConfig.timeoutMs = 400;
         const entryId = await insertMailEntry({
           snapshotId: f.mailbox.second,
           protectedObjectId: f.annaMailbox,

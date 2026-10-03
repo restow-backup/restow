@@ -262,7 +262,7 @@ Vorschau und Journal zusammen.
 - Dedupe: Gleiche Inhalte liegen im Chunk-Store einmal je Mandant. Zielbild, nicht in 0.1.0:
   gleiche Mail an mehrere Postfächer = ein Original mit mehreren Zuordnungen
   (Envelope-Empfänger bleiben je Zuordnung erhalten).
-- Ohne Object Lock (lokaler Speicher, NFS, SMB, S3 ohne Lock): Restow erzwingt Unveränderbarkeit
+- Ohne Object Lock (lokaler Speicher, NFS, S3 ohne Lock): Restow erzwingt Unveränderbarkeit
   nur auf Anwendungsebene (kein Lösch-/Änderungspfad im Code, Kettenprüfung); wer Zugriff auf
   die Dateien oder den Server hat, kann sie ändern oder löschen. Die Seite Repositories zeigt solche
   Ziele als "Kein Hardware-WORM" bzw. "Object Lock nicht aktiviert".
@@ -336,8 +336,8 @@ steht, ist nicht umgesetzt.
   Die Lizenzfähigkeit liest er nur beim Start der API. Nicht umgesetzt: die Prüfung des Absenders (SPF,
   Microsoft-Adressbereiche).
 - **Speicherung.** Originale byte-genau und verschlüsselt im Chunk-Store, je Objekt ein
-  versiegelter Datensatz mit der Hash-Kette. Unveränderbarkeit auf lokalem Speicher, NFS und
-  SMB nur auf Anwendungsebene. Auf S3 mit Object Lock trägt in 0.1.0 nur der Datensatz eine
+  versiegelter Datensatz mit der Hash-Kette. Unveränderbarkeit auf lokalem Speicher und NFS
+  nur auf Anwendungsebene. Auf S3 mit Object Lock trägt in 0.1.0 nur der Datensatz eine
   Retention, nicht die Packs mit dem Nachrichteninhalt; Sicherungsdaten tragen keine.
   Tägliche Archiv-Anker (`archive_anchor`) und externe Zeitstempel gibt es nicht.
 - **Suche.** Volltext (Postgres `simple`, kein Stemming) über Betreff, extrahierten Text
@@ -373,5 +373,5 @@ steht, ist nicht umgesetzt.
 - Kein Ersatz für die Prüfung durch Steuerberater oder Datenschutzbeauftragte.
 - Keine Garantie der Vollständigkeit für IMAP-Archivierung ohne Journaling (Zielbild; die
   IMAP-Archivierung gibt es in 0.1.0 nicht).
-- Keine Hardware-WORM-Garantie: Auf lokalem Speicher, NFS und SMB ist die Unveränderbarkeit nur
+- Keine Hardware-WORM-Garantie: Auf lokalem Speicher und NFS ist die Unveränderbarkeit nur
   Anwendungsebene, und auch auf S3 mit Object Lock sind in 0.1.0 nur die Datensätze gesperrt.

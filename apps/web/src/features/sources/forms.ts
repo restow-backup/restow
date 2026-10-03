@@ -80,6 +80,23 @@ export function isValidPort(value: string): boolean {
   return port >= 1 && port <= 65535;
 }
 
+/**
+ * Microsoft's IMAP servers (Microsoft 365 and Outlook.com). Microsoft switched
+ * off password sign-in for IMAP there and requires OAuth2, which IMAP sources
+ * do not support: such a source can never sign in, whatever the login mode.
+ */
+const MICROSOFT_IMAP_HOSTS = new Set([
+  "outlook.office365.com",
+  "outlook.office.com",
+  "imap-mail.outlook.com",
+  "imap.outlook.com",
+]);
+
+/** Whether `host` is one of Microsoft's IMAP servers (see {@link MICROSOFT_IMAP_HOSTS}). */
+export function isMicrosoftImapHost(host: string): boolean {
+  return MICROSOFT_IMAP_HOSTS.has(host.trim().toLowerCase().replace(/\.$/, ""));
+}
+
 export const IMAP_AUTH_MODES: readonly ImapAuthMode[] = ["shared", "per_mailbox", "master_user"];
 export const MASTER_USER_STYLES = ["dovecot_separator", "sasl_authzid"] as const;
 

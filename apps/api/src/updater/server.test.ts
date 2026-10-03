@@ -134,6 +134,24 @@ describe("GET /v1/state", () => {
       capabilities: { ready: true, blockers: [], runner: "cli", composeFile: "docker-compose.yml" },
     });
     expect(view.capabilities.imageRepository).toBe("ghcr.io/restow-backup/restow");
+    // Without a self-updater the view says so (as an updater of 0.2.0 would, by omission).
+    expect(view.selfUpdate).toBeNull();
+  });
+
+  it("carries the self-update state", async () => {
+    const withSelf = buildServer({
+      engine: h.engine,
+      preflight: h.preflight,
+      secret: SECRET,
+      clock: h.clock,
+      updaterVersion: "0.1.0",
+      logger: h.logger,
+      redactor: h.redactor,
+      selfUpdate: () => ({ enabled: true, verifiesSignatures: true, last: null }),
+    });
+    const response = await withSelf.request("/v1/state", { headers: auth });
+    const view = stateViewSchema.parse(await response.json());
+    expect(view.selfUpdate).toEqual({ enabled: true, verifiesSignatures: true, last: null });
   });
 
   it("caches the capabilities for 30 seconds and refresh=1 recomputes them", async () => {

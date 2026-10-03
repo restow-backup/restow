@@ -304,6 +304,8 @@ export function hasProblems(problems: DraftProblems): boolean {
 export function scheduleOf(draft: SettingsDraft): EndpointSchedule {
   const timeZone = draft.timeZone.trim();
   switch (draft.scheduleKind) {
+    case "none":
+      return { kind: "none", timeZone };
     case "daily":
       return { kind: "daily", timeOfDay: draft.timeOfDay, timeZone };
     case "interval":
@@ -324,6 +326,8 @@ export function scheduleOf(draft: SettingsDraft): EndpointSchedule {
 /** The current schedule reduced to the fields its kind uses, so both sides compare fairly. */
 function normalizedSchedule(schedule: EndpointSchedule): EndpointSchedule {
   switch (schedule.kind) {
+    case "none":
+      return { kind: "none", timeZone: schedule.timeZone };
     case "daily":
       return { kind: "daily", timeOfDay: schedule.timeOfDay ?? "", timeZone: schedule.timeZone };
     case "interval":

@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { serve } from "@hono/node-server";
 import { HttpApiClient } from "./api-client.js";
 import { loadOrCreateSecret } from "./auth.js";
-import { ConfigError, loadConfig } from "./config.js";
+import { ConfigError, loadConfig, resolveProjectLocation } from "./config.js";
 import { DumpStore } from "./dumps.js";
 import { EngineClient } from "./engine-api.js";
 import { UpdateEngine } from "./engine.js";
@@ -15,6 +15,8 @@ import { Preflight } from "./preflight.js";
 import { Redactor } from "./redact.js";
 import { HelperRunner } from "./runner-helper.js";
 import { LocalRunner } from "./runner-local.js";
+import { EngineSelfRecreateLauncher } from "./self-recreate.js";
+import { type OwnImage, SelfUpdater, pinOwnImage } from "./self-update.js";
 import { buildServer } from "./server.js";
 import { formatAllowEntry } from "./source-policy.js";
 import { ArchiveSourceProvider } from "./source.js";
@@ -53,31 +55,49 @@ async function main(): Promise<void> {
   redactor.add(secret);
 
   // The container this process runs in: its compose labels name the project and its
-  // mounts locate the state volume for helper containers.
+  // mounts locate the project directory and the state volume for helper containers.
   const hostname = process.env.HOSTNAME ?? os.hostname();
   const engineClient = new EngineClient({ socketPath: config.dockerSocket, redactor });
-  const selfInspect = async (): Promise<SelfContainer | null> => {
+  const inspectOwn = async () => {
     try {
-      const info = await engineClient.inspectContainer(hostname);
-      if (!info) {
-        return null;
-      }
-      const labels = info.Config?.Labels ?? {};
-      return {
-        id: info.Id,
-        projectName: labels[COMPOSE_PROJECT_LABEL] ?? null,
-        workingDir: labels[COMPOSE_WORKDIR_LABEL] ?? null,
-      };
+      return await engineClient.inspectContainer(hostname);
     } catch {
       return null;
     }
   };
-  const self = await selfInspect();
-  const projectName = config.projectName ?? self?.projectName ?? "restow";
+  const selfInspect = async (): Promise<SelfContainer | null> => {
+    const info = await inspectOwn();
+    if (!info) {
+      return null;
+    }
+    const labels = info.Config?.Labels ?? {};
+    return {
+      id: info.Id,
+      projectName: labels[COMPOSE_PROJECT_LABEL] ?? null,
+      workingDir: labels[COMPOSE_WORKDIR_LABEL] ?? null,
+    };
+  };
+  const ownContainer = await inspectOwn();
+  const ownLabels = ownContainer?.Config?.Labels ?? {};
+  const projectName = config.projectName ?? ownLabels[COMPOSE_PROJECT_LABEL] ?? "restow";
 
-  const local = new LocalRunner({ redactor, cwd: config.projectDir });
+  // RESTOW_PROJECT_DIR is optional: without it the compose file mounts the project at
+  // /project and the bind's source names the host path (config.ts, resolveProjectLocation).
+  const location = resolveProjectLocation(
+    config.projectDir,
+    ownContainer ? { mounts: ownContainer.Mounts ?? [] } : null,
+  );
+  if ("problem" in location) {
+    console.error(`restow updater: ${location.problem}`);
+    process.exit(64);
+  }
+  const { hostDir, localDir } = location;
+
+  // The `docker` binary in this image can run Compose only where the project has the
+  // same path inside and outside the container.
+  const local = new LocalRunner({ redactor, cwd: hostDir });
   let runner: CommandRunner;
-  if (local.available) {
+  if (local.available && hostDir === localDir) {
     runner = local;
   } else {
     const helper = new HelperRunner({
@@ -85,7 +105,7 @@ async function main(): Promise<void> {
       redactor,
       logger,
       cliImage: config.cliImage,
-      projectDir: config.projectDir,
+      projectDir: hostDir,
       stateDir: config.stateDir,
       dockerSocket: config.dockerSocket,
       selfId: hostname,
@@ -96,12 +116,25 @@ async function main(): Promise<void> {
     runner = helper;
   }
 
-  const envFile = new EnvFile(path.join(config.projectDir, ".env"));
+  const envFile = new EnvFile(path.join(localDir, ".env"));
+
+  // First start without RESTOW_UPDATER_IMAGE: pin the image this container runs, by
+  // digest, before anything is checked (self-update.ts). It changes nothing that runs.
+  const ownImage = async (): Promise<OwnImage | null> => {
+    const configured = ownContainer?.Config?.Image;
+    if (!configured) {
+      return null;
+    }
+    const digests = await engineClient.imageRepoDigests(ownContainer?.Image ?? configured);
+    return { configured, repoDigests: digests ?? [] };
+  };
+  await pinOwnImage({ envFile, ownImage, logger });
+
   const dumps = new DumpStore(path.join(config.stateDir, "dumps"));
   const ops = new CliDockerOps({
     runner,
     redactor,
-    projectDir: config.projectDir,
+    projectDir: localDir,
     projectName,
     composeFile: config.composeFile,
     dumpsDir: dumps.directory,
@@ -120,16 +153,42 @@ async function main(): Promise<void> {
     dumps,
     clock: systemClock,
     redactor,
-    projectDir: config.projectDir,
+    projectDir: hostDir,
     stateDir: config.stateDir,
     minFreeMb: config.minFreeMb,
     imageRepository: config.imageRepository,
     webImageRepository: config.webImageRepository,
     sourceAllowlist: config.sourceAllowlist.map(formatAllowEntry),
   });
+  const launcher = new EngineSelfRecreateLauncher({
+    engine: engineClient,
+    redactor,
+    logger,
+    cliImage: config.cliImage,
+    hostProjectDir: hostDir,
+    dockerSocket: config.dockerSocket,
+    projectName,
+    composeFile: config.composeFile,
+  });
+  await launcher.removeFinished();
+  const selfUpdater = new SelfUpdater({
+    enabled: config.selfUpdate,
+    verifySignatures: config.verifySignatures,
+    updaterVersion: config.version,
+    imageRepository: config.imageRepository,
+    envFile,
+    ops,
+    launcher,
+    store,
+    clock: systemClock,
+    logger,
+    redactor,
+  });
+  await selfUpdater.reconcile();
+
   const engine = new UpdateEngine({
     config: {
-      projectDir: config.projectDir,
+      projectDir: hostDir,
       imageVariant: config.imageVariant,
       imageRepository: config.imageRepository,
       webImageRepository: config.webImageRepository,
@@ -147,6 +206,7 @@ async function main(): Promise<void> {
     envFile,
     dumps,
     preflight,
+    selfUpdater,
   });
   await engine.init();
 
@@ -158,10 +218,11 @@ async function main(): Promise<void> {
     updaterVersion: config.version,
     logger,
     redactor,
+    selfUpdate: () => selfUpdater.view(),
   });
   const server = serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
     logger.info(
-      `Updater ${config.version ?? "(unversioned)"} listening on port ${info.port}; project ${projectName} in ${config.projectDir}; runner ${runner.kind}.`,
+      `Updater ${config.version ?? "(unversioned)"} listening on port ${info.port}; project ${projectName} in ${hostDir}${localDir === hostDir ? "" : ` (mounted at ${localDir})`}; runner ${runner.kind}.`,
     );
   });
 

@@ -243,10 +243,13 @@ services:
   # Keeps the simulated machines online (deploy/demo/seed/src/heartbeat.ts): the
   # seed backs them up once, during the nightly reset, and a real agent's
   # heartbeat every five minutes would otherwise be missing, so the file server
-  # would show as silent after two hours. It only sends heartbeats, with the
-  # logins the seed left in `demo-agents`; reset.sh starts it after the seed.
-  # It holds the seed token (the demo guard refuses every write without it) and
-  # nothing else of .env.
+  # would show as silent after two hours. It sends heartbeats with the logins
+  # the seed left in `demo-agents` and, unless RESTOW_DEMO_SIM_RUNS=false, plays
+  # simulated backups with live progress (seed/src/run-simulator.ts; README,
+  # "Simulated live runs"): agent API calls only, nothing uploaded, nothing
+  # stored but the run rows. reset.sh starts it after the seed. It holds the
+  # seed token (the demo guard refuses every write without it) and nothing else
+  # of .env; the RESTOW_DEMO_SIM_* settings come from the compose variables.
   agent-sim:
     image: ${RESTOW_DEMO_SEED_IMAGE:-restow-demo-seed:local}
     pull_policy: never
@@ -257,6 +260,13 @@ services:
       RESTOW_API_URL: http://api:3000
       RESTOW_DEMO_SEED_TOKEN: ${RESTOW_DEMO_SEED_TOKEN:?set RESTOW_DEMO_SEED_TOKEN in .env}
       RESTOW_DEMO_AGENT_STATE: /var/demo/agents/state.json
+      RESTOW_DEMO_SIM_RUNS: ${RESTOW_DEMO_SIM_RUNS:-true}
+      RESTOW_DEMO_SIM_INTERVAL_SECONDS: ${RESTOW_DEMO_SIM_INTERVAL_SECONDS:-240}
+      RESTOW_DEMO_SIM_MIN_DURATION_SECONDS: ${RESTOW_DEMO_SIM_MIN_DURATION_SECONDS:-120}
+      RESTOW_DEMO_SIM_MAX_DURATION_SECONDS: ${RESTOW_DEMO_SIM_MAX_DURATION_SECONDS:-360}
+      RESTOW_DEMO_SIM_PROGRESS_SECONDS: ${RESTOW_DEMO_SIM_PROGRESS_SECONDS:-5}
+    # Lets SIGTERM close a simulated run in progress as interrupted before Docker kills it.
+    stop_grace_period: 15s
     volumes:
       - demo-agents:/var/demo/agents:ro
     depends_on:

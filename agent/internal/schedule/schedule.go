@@ -75,7 +75,7 @@ func FromAPI(s api.Schedule, profile string, jitter time.Duration) (Config, []st
 	var warn []string
 	cfg := Config{Kind: s.Kind, Jitter: jitter}
 	switch s.Kind {
-	case api.ScheduleInterval, api.ScheduleDaily, api.ScheduleOnConnect:
+	case api.ScheduleInterval, api.ScheduleDaily, api.ScheduleOnConnect, api.ScheduleNone:
 	default:
 		if s.Kind != "" {
 			warn = append(warn, fmt.Sprintf("unknown schedule kind %q, using the default of the %s profile", s.Kind, profile))
@@ -180,8 +180,16 @@ func RetryDelay(h History) (time.Duration, bool) {
 	return retryDelays[h.ConsecutiveFailures-1], true
 }
 
+// WaitingForJob is the reason of every decision under the none schedule.
+const WaitingForJob = "waiting for a backup job"
+
 // Evaluate decides whether a backup is due now.
 func Evaluate(cfg Config, h History, now time.Time, reachable bool) Decision {
+	// A machine in no backup job starts nothing: no regular slot, no retry and
+	// no resumption of an interrupted run (it resumes once a job schedules it).
+	if cfg.Kind == api.ScheduleNone {
+		return Decision{Reason: WaitingForJob}
+	}
 	var candidates []time.Time
 	regularDue := false
 	reason := ""

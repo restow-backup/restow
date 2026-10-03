@@ -4,9 +4,11 @@
 // migration and their tests.
 
 import {
+  type ActiveAgentSchedule,
   type AgentConfig,
   type AgentSchedule,
   DEFAULT_ENDPOINT_RETENTION,
+  isUnscheduled,
 } from "../endpoints/config.js";
 import { normalizeBandwidthWindows } from "./bandwidth.js";
 import { endpointScheduleOf, jobScheduleFromEndpoint } from "./schedule.js";
@@ -76,11 +78,15 @@ export function gibToBytes(gib: number): number {
 /**
  * The schedule to write: the job's, in the shape the agent reads, unless the machine's own
  * already means the same (a field its kind does not use, which an older release stored as it was
- * sent, changes nothing for the agent and is not worth a new configuration version).
+ * sent, changes nothing for the agent and is not worth a new configuration version). A machine
+ * without a schedule (`none`: in no job until now) always takes the job's.
  */
 function scheduleToWrite(current: AgentSchedule, schedule: JobSchedule): AgentSchedule {
   const wanted = endpointScheduleOf(schedule);
-  const own = endpointScheduleOf(jobScheduleFromEndpoint(current));
+  if (isUnscheduled(current)) {
+    return wanted;
+  }
+  const own = endpointScheduleOf(jobScheduleFromEndpoint(current as ActiveAgentSchedule));
   return JSON.stringify(own) === JSON.stringify(wanted) ? current : wanted;
 }
 

@@ -2,10 +2,16 @@ import { type Context, Hono } from "hono";
 import { providerDb } from "../../db.js";
 import { acceptDisclaimer } from "../../lib/disclaimer.js";
 import { requestLanguage } from "../../lib/language.js";
+import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
 import { type SessionEnv, refuseApiKeys, requireProviderAdmin } from "../../middleware/session.js";
 import { acceptDisclaimerSchema, parseJsonBody, parseOrProblem } from "../../schemas.js";
-import { getDefaultStorage, testDefaultStorage } from "./default-storage.js";
+import {
+  getDefaultStorage,
+  removeDefaultStorage,
+  saveDefaultStorage,
+  testDefaultStorage,
+} from "./default-storage.js";
 import { saveMicrosoftAppSchema, testMicrosoftAppSchema } from "./microsoft-app/schemas.js";
 import {
   getMicrosoftApp,
@@ -14,7 +20,12 @@ import {
   testMicrosoftApp,
 } from "./microsoft-app/service.js";
 import { browserOrigin } from "./origin.js";
-import { mailNotNeededSchema, mailTestSchema, updateSettingsSchema } from "./schemas.js";
+import {
+  mailNotNeededSchema,
+  mailTestSchema,
+  saveDefaultStorageSchema,
+  updateSettingsSchema,
+} from "./schemas.js";
 import {
   type Actor,
   type RequestContext,
@@ -45,8 +56,14 @@ import {
  *   PUT    /microsoft-app         save it (client secret or certificate are write-only)
  *   POST   /microsoft-app/test    acquire a Graph token and compare the granted permissions
  *   DELETE /microsoft-app         remove the saved registration
- *   GET    /default-storage       the installation's default storage (from the environment), how
- *                                  many tenants keep their data on it, the last test of it
+ *   GET    /default-storage       the installation's default storage (saved here, else from the
+ *                                  environment), how many tenants keep their data on it, which
+ *                                  tenants keep it from moving, the last test of it
+ *   PUT    /default-storage       save it (local path or S3; the key pair is write-only); probed
+ *                                  first, refused (409) while tenants keep data on a default that
+ *                                  would move; owner only, recent sign-in (lib/recent-sign-in.ts)
+ *   DELETE /default-storage       remove the saved default, so the environment applies again
+ *                                  (same checks as PUT)
  *   POST   /default-storage/test  write/read/list/delete probe and Object Lock detection on the
  *                                  default; recorded in the installation audit chain
  *
@@ -147,4 +164,17 @@ settingsRoutes.get("/default-storage", async (c) => {
 
 settingsRoutes.post("/default-storage/test", async (c) => {
   return c.json(await testDefaultStorage(providerDb, actorOf(c)));
+});
+
+// Pointing the default elsewhere decides where every tenant without a storage target of its own
+// keeps its backups, and a local path is part of the host: a recent sign-in on top of the owner role.
+settingsRoutes.put("/default-storage", async (c) => {
+  assertRecentSignIn(c.get("auth").session);
+  const input = await parseJsonBody(c.req, saveDefaultStorageSchema);
+  return c.json(await saveDefaultStorage(providerDb, input, actorOf(c)));
+});
+
+settingsRoutes.delete("/default-storage", async (c) => {
+  assertRecentSignIn(c.get("auth").session);
+  return c.json(await removeDefaultStorage(providerDb, actorOf(c)));
 });

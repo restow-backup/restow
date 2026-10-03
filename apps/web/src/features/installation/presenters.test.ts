@@ -80,10 +80,12 @@ describe("the sections of the core", () => {
 });
 
 describe("installationSections", () => {
-  it("is the core's own where no extension is registered", () => {
-    expect(installationSections().map((section) => section.id)).toEqual(
-      CORE_INSTALLATION_SECTIONS.map((section) => section.id),
-    );
+  it("is the core's own where no extension is registered, with Edition (the Community build)", () => {
+    expect(installationSections().map((section) => section.id)).toEqual([
+      ...CORE_INSTALLATION_SECTIONS.map((section) => section.id).filter((id) => id !== "about"),
+      "edition",
+      "about",
+    ]);
   });
 
   it("places an extension's sections by their order between the core's", () => {

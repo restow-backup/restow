@@ -1,9 +1,12 @@
+import { Link } from "@tanstack/react-router";
 import {
   type Cell,
   type ColumnDef,
   type ColumnFiltersState,
   type Header,
   type PaginationState,
+  type Row,
+  type RowSelectionState,
   type SortingState,
   type Table as TanstackTable,
   type Updater,
@@ -33,6 +36,7 @@ import { useTranslation } from "react-i18next";
 import { ErrorState } from "@/components/error-state";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
@@ -49,6 +53,7 @@ import { UI_NAMESPACE } from "../i18n.js";
 import { columnLabel } from "./columns.js";
 import { DataTableLoadMore, DataTablePagination } from "./pagination.js";
 import { columnPin, declaredWidths, pinningState, truncatedTitle, widthStyle } from "./pinning.js";
+import { type RowAction, RowContextMenu, rowActionsOf } from "./row-actions.js";
 import {
   TABLE_DEFAULTS,
   ariaSortFor,
@@ -168,6 +173,12 @@ export interface DataTableProps<TData, TValue = unknown> {
    * use this for a table whose columns do not.
    */
   minWidth?: number | string;
+  /**
+   * Rows can be selected with a checkbox in front of them. While rows are selected a bar above
+   * the table says how many and offers the `selectionActions` of the row actions (see
+   * `rowActionsColumn`), and the context menu of a selected row offers them too.
+   */
+  selectable?: boolean;
   className?: string;
 }
 
@@ -219,6 +230,7 @@ export function DataTable<TData, TValue = unknown>({
   pinnedColumns,
   onRowClick,
   minWidth,
+  selectable = false,
   className,
 }: DataTableProps<TData, TValue>) {
   const { t } = useTranslation(UI_NAMESPACE);
@@ -239,6 +251,19 @@ export function DataTable<TData, TValue = unknown>({
         : DEFAULT_PAGE_SIZE,
   });
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>([]);
+  const [rowSelection, setRowSelection] = React.useState<RowSelectionState>({});
+  // The row actions of the "…" column are also each row's context menu.
+  const rowActions = React.useMemo(
+    () => rowActionsOf(columns as ColumnDef<TData, unknown>[]),
+    [columns],
+  );
+  const allColumns = React.useMemo(
+    () =>
+      selectable
+        ? [selectionColumn<TData>(rowActions?.name), ...(columns as ColumnDef<TData, unknown>[])]
+        : (columns as ColumnDef<TData, unknown>[]),
+    [columns, selectable, rowActions],
+  );
   const [globalFilter, setGlobalFilter] = React.useState("");
 
   const sortingState = sorting?.mode === "manual" ? sorting.state : clientSorting;
@@ -303,13 +328,18 @@ export function DataTable<TData, TValue = unknown>({
   };
 
   const paginated = pagination?.mode === "client" || pagination?.mode === "manual";
-  const pinKey = (pinnedColumns ?? []).join("\u0000");
-  // biome-ignore lint/correctness/useExhaustiveDependencies: pinKey is the content of pinnedColumns
-  const columnPinning = React.useMemo(() => pinningState(pinnedColumns), [pinKey]);
+  // The selection box stays in front of the pinned columns (pinned columns come first).
+  const pinned =
+    selectable && pinnedColumns && pinnedColumns.length > 0
+      ? [SELECT_COLUMN_ID, ...pinnedColumns]
+      : pinnedColumns;
+  const pinKey = (pinned ?? []).join("\u0000");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: pinKey is the content of pinned
+  const columnPinning = React.useMemo(() => pinningState(pinned), [pinKey]);
   const table = useReactTable<TData>({
     ...TABLE_DEFAULTS,
     data: (data ?? NO_ROWS) as TData[],
-    columns: columns as ColumnDef<TData, unknown>[],
+    columns: allColumns,
     getRowId,
     state: {
       sorting: sortingState,
@@ -317,8 +347,11 @@ export function DataTable<TData, TValue = unknown>({
       columnFilters,
       globalFilter,
       columnPinning,
+      rowSelection,
       ...(paginated ? { pagination: paginationState } : {}),
     },
+    enableRowSelection: selectable,
+    onRowSelectionChange: setRowSelection,
     enableColumnPinning: columnPinning.left?.length !== 0,
     onSortingChange,
     onColumnVisibilityChange,
@@ -410,6 +443,31 @@ export function DataTable<TData, TValue = unknown>({
     ...table.getRightVisibleLeafColumns(),
   ];
   const toolbarContent = typeof toolbar === "function" ? toolbar(table) : toolbar;
+  // Selected rows that still exist (a refetch may have removed some).
+  const selectedRows = selectable ? table.getSelectedRowModel().rows : [];
+  // A selected row among several offers what can be done with all of them.
+  const inSelection = (row: Row<TData>) =>
+    rowActions?.selectionActions !== undefined &&
+    row.getIsSelected() &&
+    table.getSelectedRowModel().rows.length > 1;
+  const contextActions = (row: Row<TData>): readonly RowAction[] => {
+    if (!rowActions) {
+      return [];
+    }
+    if (inSelection(row) && rowActions.selectionActions) {
+      return rowActions.selectionActions(
+        table.getSelectedRowModel().rows.map((selected) => selected.original),
+      );
+    }
+    return rowActions.actions(row.original);
+  };
+  const contextLabel = (row: Row<TData>): string => {
+    if (inSelection(row)) {
+      return t("table.selection.actionsFor", { count: table.getSelectedRowModel().rows.length });
+    }
+    const name = rowActions?.name?.(row.original);
+    return name ? t("table.actions.openFor", { name }) : t("table.actions.open");
+  };
   const showColumnsMenu = columnsMenu && hideable.size > 0;
   const hasToolbar = Boolean(toolbarContent) || Boolean(toolbarActions) || showColumnsMenu;
 
@@ -431,6 +489,14 @@ export function DataTable<TData, TValue = unknown>({
             {showColumnsMenu ? <DataTableViewOptions table={table} /> : null}
           </div>
         </div>
+      ) : null}
+
+      {selectedRows.length > 0 ? (
+        <SelectionBar
+          count={selectedRows.length}
+          actions={rowActions?.selectionActions?.(selectedRows.map((row) => row.original)) ?? []}
+          onClear={() => table.resetRowSelection()}
+        />
       ) : null}
 
       {staleError ? (
@@ -491,30 +557,42 @@ export function DataTable<TData, TValue = unknown>({
           <TableBody>
             {state === "rows" ? (
               rows.map((row) => (
-                <TableRow
+                <RowContextMenu
                   key={row.id}
-                  data-state={row.getIsSelected() ? "selected" : undefined}
-                  className={onRowClick ? "cursor-pointer" : undefined}
-                  onClick={
-                    onRowClick
-                      ? (event) => {
-                          // A control inside the row keeps its own click.
-                          if (
-                            (event.target as HTMLElement).closest(
-                              "a,button,input,select,textarea,label,[role=menuitem],[role=checkbox]",
-                            )
-                          ) {
-                            return;
-                          }
-                          onRowClick(row.original);
-                        }
-                      : undefined
-                  }
+                  enabled={rowActions !== undefined}
+                  actions={() => contextActions(row)}
+                  label={contextLabel(row)}
                 >
-                  {row.getVisibleCells().map((cell) => (
-                    <BodyCell key={cell.id} cell={cell} />
-                  ))}
-                </TableRow>
+                  <TableRow
+                    // The context menu's trigger owns `data-state` (open or closed); the selection
+                    // is `data-selected`, with the tint of the registry's `selected` state.
+                    data-selected={row.getIsSelected() || undefined}
+                    aria-selected={selectable ? row.getIsSelected() : undefined}
+                    className={cn(
+                      "data-[selected=true]:[--row-mix:100%] data-[state=open]:[--row-mix:50%]",
+                      onRowClick && "cursor-pointer",
+                    )}
+                    onClick={
+                      onRowClick
+                        ? (event) => {
+                            // A control inside the row keeps its own click.
+                            if (
+                              (event.target as HTMLElement).closest(
+                                "a,button,input,select,textarea,label,[role=menuitem],[role=checkbox]",
+                              )
+                            ) {
+                              return;
+                            }
+                            onRowClick(row.original);
+                          }
+                        : undefined
+                    }
+                  >
+                    {row.getVisibleCells().map((cell) => (
+                      <BodyCell key={cell.id} cell={cell} />
+                    ))}
+                  </TableRow>
+                </RowContextMenu>
               ))
             ) : state === "loading" ? (
               Array.from({ length: skeletonRows }, (_, index) => (
@@ -530,7 +608,7 @@ export function DataTable<TData, TValue = unknown>({
                         style={pin ? undefined : widthStyle(declaredWidths(column))}
                         className={cn(meta?.className, meta?.cellClassName)}
                       >
-                        {column.id === "actions" ? null : (
+                        {column.id === "actions" || column.id === SELECT_COLUMN_ID ? null : (
                           <Skeleton
                             className={cn(
                               "h-4",
@@ -603,6 +681,123 @@ export function DataTable<TData, TValue = unknown>({
         <DataTablePagination table={table} pageSizes={pagination.pageSizes} />
       ) : null}
     </div>
+  );
+}
+
+const SELECT_COLUMN_ID = "select";
+
+/** The checkbox column of a `selectable` table: the page's rows in the header, one row per cell. */
+function selectionColumn<TData>(
+  name: ((row: TData) => string) | undefined,
+): ColumnDef<TData, unknown> {
+  return {
+    id: SELECT_COLUMN_ID,
+    size: 40,
+    enableSorting: false,
+    enableHiding: false,
+    enableGlobalFilter: false,
+    meta: { className: "w-10" },
+    header: ({ table }) => <SelectPageBox table={table} />,
+    cell: ({ row }) => <SelectRowBox row={row} name={name?.(row.original)} />,
+  };
+}
+
+function SelectPageBox<TData>({ table }: { table: TanstackTable<TData> }) {
+  const { t } = useTranslation(UI_NAMESPACE);
+  const all = table.getIsAllPageRowsSelected();
+  const some = table.getIsSomePageRowsSelected();
+  return (
+    <Checkbox
+      checked={all ? true : some ? "indeterminate" : false}
+      onCheckedChange={(value) => table.toggleAllPageRowsSelected(value === true)}
+      disabled={table.getRowModel().rows.length === 0}
+      aria-label={t("table.selection.selectPage")}
+      className="align-middle"
+    />
+  );
+}
+
+function SelectRowBox<TData>({ row, name }: { row: Row<TData>; name: string | undefined }) {
+  const { t } = useTranslation(UI_NAMESPACE);
+  return (
+    <Checkbox
+      checked={row.getIsSelected()}
+      onCheckedChange={(value) => row.toggleSelected(value === true)}
+      disabled={!row.getCanSelect()}
+      aria-label={name ? t("table.selection.selectRow", { name }) : t("table.selection.select")}
+      className="align-middle"
+    />
+  );
+}
+
+/** Above a table with selected rows: how many, what can be done with them, and a way out. */
+function SelectionBar({
+  count,
+  actions,
+  onClear,
+}: {
+  count: number;
+  actions: readonly RowAction[];
+  onClear: () => void;
+}) {
+  const { t } = useTranslation(UI_NAMESPACE);
+  return (
+    <div
+      data-slot="data-table-selection"
+      className="flex flex-col gap-2 rounded-lg border bg-muted/30 p-3 sm:flex-row sm:items-center sm:justify-between"
+    >
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+        <span className="font-medium">{t("table.selection.count", { count })}</span>
+        <Button
+          variant="link"
+          size="sm"
+          className="h-auto p-0 text-muted-foreground"
+          onClick={onClear}
+        >
+          {t("table.selection.clear")}
+        </Button>
+      </div>
+      {actions.length > 0 ? (
+        <div className="flex flex-wrap gap-2">
+          {actions.map((action) => (
+            <SelectionActionButton key={action.id} action={action} />
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function SelectionActionButton({ action }: { action: RowAction }) {
+  const Icon = action.icon;
+  const variant = action.destructive ? "destructive" : "outline";
+  const content = (
+    <>
+      {Icon ? <Icon aria-hidden="true" /> : null}
+      {action.label}
+    </>
+  );
+  if (action.link && !action.disabled) {
+    return (
+      <Button asChild variant={variant} size="sm" data-action={action.id}>
+        <Link to={action.link.to} search={action.link.search as never} onClick={action.onSelect}>
+          {content}
+        </Link>
+      </Button>
+    );
+  }
+  return (
+    <Button
+      variant={variant}
+      size="sm"
+      disabled={action.disabled}
+      aria-describedby={action.describedBy}
+      title={action.disabled ? action.reason : undefined}
+      onClick={action.onSelect}
+      data-action={action.id}
+    >
+      {content}
+    </Button>
   );
 }
 

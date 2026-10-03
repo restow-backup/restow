@@ -643,14 +643,31 @@ export async function resolveStorageForJob(options: {
    * `runJob`) so a test can fake it without a database.
    */
   readonly getLatestKeepSwitchAt: (tenantId: string) => Promise<Date | null>;
+  /**
+   * The installation default's current generation, read afresh
+   * (apps/worker/src/default-storage.ts). A cached entry that used an older
+   * default is reloaded, the same way as one from before a "keep" switch: the
+   * API refuses to move the default while tenants keep data on it, and this
+   * closes the window in which a worker's cache still points at the old one.
+   * Omitted (tests), the default is not checked.
+   */
+  readonly getDefaultGeneration?: () => Promise<string>;
 }): Promise<StorageTargets> {
-  const { tenantId, queue, storage, getLatestKeepSwitchAt } = options;
+  const { tenantId, queue, storage, getLatestKeepSwitchAt, getDefaultGeneration } = options;
   if (STORAGE_WRITE_QUEUES.has(queue)) {
     const cached = storage.peek(tenantId);
     if (cached) {
-      const cachedGeneration = (cached as Partial<ResolvedTenantStorage>).keepGeneration ?? null;
+      const resolved = cached as Partial<ResolvedTenantStorage>;
+      const cachedGeneration = resolved.keepGeneration ?? null;
       const currentGeneration = await getLatestKeepSwitchAt(tenantId);
+      const usedDefault = resolved.defaultGeneration ?? null;
       if (!sameGeneration(cachedGeneration, currentGeneration)) {
+        storage.invalidate(tenantId);
+      } else if (
+        usedDefault !== null &&
+        getDefaultGeneration &&
+        usedDefault !== (await getDefaultGeneration())
+      ) {
         storage.invalidate(tenantId);
       }
     }
@@ -908,13 +925,28 @@ export interface ResolvedTenantStorage extends StorageTargets {
    * has resolved cannot be trusted to order itself against `switchedAt`).
    */
   readonly keepGeneration: Date | null;
+  /**
+   * The generation of the installation default this value used (core
+   * `installationDefaultGeneration`), or null when it used none: the tenant
+   * has a primary row and no retired default attached. `resolveStorageForJob`
+   * compares it with the current generation, read afresh, before a write-queue
+   * job uses the cached value, so a default changed under Installation,
+   * Default storage is never written to from a stale cache.
+   */
+  readonly defaultGeneration?: string | null;
 }
+
+/** The installation default as `resolveTenantStorage` takes it (apps/worker/src/default-storage.ts). */
+export type TenantStorageDefaults =
+  | StorageTargets
+  | (() => Promise<{ readonly targets: StorageTargets; readonly generation: string }>);
 
 /**
  * The tenant's storage targets from `storage_targets` (one primary, any number
  * of copies, plus any retired "previous" targets a "keep" replacement left
- * attached). A tenant without rows uses the installation defaults from the
- * environment, which is how a fresh Community install works out of the box.
+ * attached). A tenant without rows uses the installation default (saved under
+ * Installation, Default storage, else the environment), which is how a fresh
+ * Community install works out of the box.
  *
  * Same semantics as core `resolveStorageTargets`: without a primary row the
  * installation default is the primary (with its configured copy), and copy
@@ -928,7 +960,8 @@ export async function resolveTenantStorage(options: {
   readonly run: TenantTxRunner;
   readonly tenantId: string;
   readonly secretReader: SecretReader;
-  readonly defaults: StorageTargets;
+  /** Fixed targets (tests), or the process's resolver of the current default, called only when needed. */
+  readonly defaults: TenantStorageDefaults;
   readonly logger: Logger;
 }): Promise<ResolvedTenantStorage> {
   // Both statements run inside the one transaction `run` opens, so the
@@ -945,14 +978,33 @@ export async function resolveTenantStorage(options: {
     const keepGeneration = await latestKeepSwitchAtTx(tx, options.tenantId);
     return { rows, keepGeneration };
   });
+  // Resolved once, and only when this tenant actually uses the default.
+  const resolvedDefault: { used: { targets: StorageTargets; generation: string | null } | null } = {
+    used: null,
+  };
+  const defaults = async (): Promise<StorageTargets> => {
+    if (!resolvedDefault.used) {
+      const source = options.defaults;
+      resolvedDefault.used =
+        typeof source === "function" ? await source() : { targets: source, generation: null };
+    }
+    return resolvedDefault.used.targets;
+  };
   if (rows.length === 0) {
-    return { ...options.defaults, previous: [], keepGeneration };
+    const targets = await defaults();
+    return {
+      primary: targets.primary,
+      copies: targets.copies,
+      previous: [],
+      keepGeneration,
+      defaultGeneration: resolvedDefault.used?.generation ?? null,
+    };
   }
   const primaryRow = rows.find((row) => row.role === "primary");
   const primary = primaryRow
     ? await storageBackendFor(primaryRow, options.secretReader)
-    : options.defaults.primary;
-  const copies: StorageBackend[] = primaryRow ? [] : [...options.defaults.copies];
+    : (await defaults()).primary;
+  const copies: StorageBackend[] = primaryRow ? [] : [...(await defaults()).copies];
   const previous: StorageBackend[] = [];
   for (const row of rows) {
     if (row.role === "copy") {
@@ -960,12 +1012,18 @@ export async function resolveTenantStorage(options: {
     } else if (row.role === "previous") {
       previous.push(
         row.kind === "installation_default"
-          ? options.defaults.primary
+          ? (await defaults()).primary
           : await storageBackendFor(row, options.secretReader),
       );
     }
   }
-  return { primary, copies, previous, keepGeneration };
+  return {
+    primary,
+    copies,
+    previous,
+    keepGeneration,
+    defaultGeneration: resolvedDefault.used?.generation ?? null,
+  };
 }
 
 /** Generic per-tenant cache with a TTL (keyrings, storage targets). */
@@ -1436,8 +1494,15 @@ export interface ProgressSettings {
 /** Everything the runner needs from the process. Built once in index.ts. */
 export interface WorkerRuntime {
   readonly db: Database;
-  /** Installation-default targets, used for tenants without `storage_targets` rows. */
+  /**
+   * The environment's installation-default targets as read at start-up (the
+   * start-up log, tests). Tenants resolve the default that applies right now
+   * (saved under Installation, Default storage, else this one) through the
+   * `storage` cache's loader (index.ts, default-storage.ts).
+   */
   readonly defaultStorage: StorageTargets;
+  /** The current installation default's generation, read afresh (see `resolveStorageForJob`). */
+  readonly defaultStorageGeneration?: () => Promise<string>;
   readonly keyrings: TenantKeyringCache;
   readonly storage: TenantCache<StorageTargets>;
   readonly logger: Logger;
@@ -1650,6 +1715,7 @@ export async function runJob(
         queue,
         storage: runtime.storage,
         getLatestKeepSwitchAt: (tenantId) => latestKeepSwitchAt(run, tenantId),
+        getDefaultGeneration: runtime.defaultStorageGeneration,
       }),
       queue,
     );

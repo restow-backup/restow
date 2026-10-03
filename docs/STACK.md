@@ -325,7 +325,7 @@ Mail-Import und -Export (docs/IMPORT.md, `packages/core/src/mailfiles`):
 ## Speicher und Crypto
 
 - Standardziel: lokaler Speicher im App-Container (Docker-Volume), ohne Zusatzdienst;
-  Zugriff über Node `fs`/Streams. S3 und gemountete Netzlaufwerke (NFS/SMB) sind
+  Zugriff über Node `fs`/Streams. S3 und gemountete Netzlaufwerke (NFS) sind
   gleichwertige, optionale Ziele.
 - @aws-sdk/client-s3 v3 (Apache-2.0) für alle S3-kompatiblen Ziele; Object Lock.
 - Node `crypto` für SHA-256, HMAC, AES-256-GCM; kein externes Crypto-Paket.

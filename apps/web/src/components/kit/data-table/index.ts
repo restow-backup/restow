@@ -4,14 +4,20 @@ export {
   type DataTableProps,
   type DataTableSorting,
 } from "./data-table.js";
+export { columnLabel, matchesAnyOf } from "./columns.js";
 export {
   type RowAction,
   RowActionsMenu,
   type RowActionsMenuProps,
-  columnLabel,
-  matchesAnyOf,
+  type RowActionsColumnOptions,
+  type RowActionsDefinition,
+  RowContextMenu,
+  type RowContextMenuProps,
+  isContextMenuKey,
   rowActionsColumn,
-} from "./columns.js";
+  rowActionsOf,
+  wantsNativeMenu,
+} from "./row-actions.js";
 export {
   DataTableFacetedFilter,
   type DataTableFacetedFilterProps,

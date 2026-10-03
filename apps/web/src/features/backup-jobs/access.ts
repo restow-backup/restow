@@ -14,3 +14,12 @@ export type JobsWriteBlock = WriteBlock;
 export function useJobsWriteBlock(): JobsWriteBlock | null {
   return useTenantWriteBlock();
 }
+
+/**
+ * Jobs are for the tenant's administrators and the provider's admins; end users
+ * follow their own restores in the restore feature. The sidebar hides the entries
+ * for everyone else, and a direct link shows the standard "not permitted" notice
+ * instead of a failing request. Other pages (the inventory of machines) offer
+ * their job actions to these roles only.
+ */
+export const JOB_ROLES = ["provider_admin", "tenant_admin"] as const;

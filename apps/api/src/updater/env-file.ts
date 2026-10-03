@@ -3,9 +3,10 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 
 /**
- * The project's `.env`, edited precisely. The updater changes two variables
- * (RESTOW_IMAGE, RESTOW_WEB_IMAGE) and must leave everything else exactly as the
- * operator wrote it: comments, blank lines, order, quoting, line endings, a missing
+ * The project's `.env`, edited precisely. An update changes two variables
+ * (RESTOW_IMAGE, RESTOW_WEB_IMAGE); the updater's own image (RESTOW_UPDATER_IMAGE)
+ * is written only pinned by digest (self-update.ts). Everything else stays exactly
+ * as the operator wrote it: comments, blank lines, order, quoting, line endings, a missing
  * final newline. A rollback puts the two variables back byte for byte, including
  * "the variable was not there".
  *
@@ -33,11 +34,22 @@ export interface CapturedKey {
 export type CapturedEnv = Record<string, CapturedKey>;
 
 /**
- * The only lines of `.env` the updater ever writes: the images of the application
- * roles and of the web edge. Its own image (RESTOW_UPDATER_IMAGE) and everything
- * else in the file belong to the operator; {@link EnvFile.apply} refuses them.
+ * The lines of `.env` an update writes: the images of the application roles and of
+ * the web edge. Everything else in the file belongs to the operator;
+ * {@link EnvFile.apply} refuses it.
  */
 export const UPDATER_WRITABLE_KEYS: readonly string[] = ["RESTOW_IMAGE", "RESTOW_WEB_IMAGE"];
+
+/**
+ * The updater's own image. Never written by {@link EnvFile.apply}: only
+ * {@link EnvFile.pinUpdaterImage} writes it, and only with a reference pinned by
+ * digest (self-update.ts: the image the updater runs, or a release image whose
+ * signature it verified).
+ */
+export const UPDATER_IMAGE_KEY = "RESTOW_UPDATER_IMAGE";
+
+/** An image reference that names its content by digest (`name[:tag]@sha256:<64 hex>`). */
+const DIGEST_PINNED = /^[a-z0-9][a-z0-9._/:-]{0,199}@sha256:[0-9a-f]{64}$/;
 
 export class EnvFileError extends Error {
   constructor(
@@ -317,6 +329,28 @@ export class EnvFile {
   async restore(captured: CapturedEnv): Promise<void> {
     assertWritableKeys(Object.keys(captured));
     await this.replace(restoreKeys(await this.read(), captured));
+  }
+
+  /**
+   * Set RESTOW_UPDATER_IMAGE to an image pinned by digest; any other value is refused.
+   * Returns what the line was before, for {@link restoreUpdaterImage}.
+   */
+  async pinUpdaterImage(reference: string): Promise<CapturedKey> {
+    if (!DIGEST_PINNED.test(reference)) {
+      throw new EnvFileError(
+        `${UPDATER_IMAGE_KEY} is only written with an image pinned by digest.`,
+        "invalid_value",
+      );
+    }
+    const text = await this.read();
+    const before = captureKeys(text, [UPDATER_IMAGE_KEY])[UPDATER_IMAGE_KEY] as CapturedKey;
+    await this.replace(setKeys(text, { [UPDATER_IMAGE_KEY]: reference }));
+    return before;
+  }
+
+  /** Put RESTOW_UPDATER_IMAGE back as {@link pinUpdaterImage} found it. */
+  async restoreUpdaterImage(before: CapturedKey): Promise<void> {
+    await this.replace(restoreKeys(await this.read(), { [UPDATER_IMAGE_KEY]: before }));
   }
 
   /** Atomic replace (temporary file, fsync, rename), keeping mode and owner. */

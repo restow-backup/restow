@@ -101,7 +101,8 @@
   },
   "errors": {
     "imapNotPerMailbox": "This account's source authenticates every mailbox with its own stored credential; it has no password of its own to set or test.",
-    "imapCredentialNotConfigured": "This mailbox has no password yet; set one first."
+    "imapCredentialNotConfigured": "This mailbox has no password yet; set one first.",
+    "accountHasBackups": "Backups or a legal hold, current or released, exist for this account, so it cannot be removed. Exclude it from protection instead; retention removes the backups when they expire."
   },
   "objects": {
     "search": "Search name, address or id",
@@ -163,7 +164,22 @@
       "title": "Remove {name}?",
       "description": "The account leaves the list. It has no backups, so nothing else is removed.",
       "confirm": "Remove"
+    },
+    "removeBlocked": {
+      "title": "{name} has backups",
+      "hasBackups": "{appName} never deletes backups as a side effect. The existing {count, plural, one {# backup stays} other {# backups stay}} restorable and expire according to the retention settings. To stop new backups, exclude the account from protection instead of removing it.",
+      "legalHold": "A legal hold applies to this account, so it cannot be removed. Its backups are kept and stay restorable until the hold is released.",
+      "alreadyExcluded": "This account is already excluded from protection, so no new backups run.",
+      "exclude": "Exclude from protection"
     }
+  },
+  "rowActions": {
+    "restorePoints": "Open restore points",
+    "explorer": "Restore in the explorer",
+    "newJob": "New job with this object",
+    "newJobFromSelection": "{count, plural, one {New job with # object} other {New job with # objects}}",
+    "selectionMenu": "{count, plural, one {Actions for # selected object} other {Actions for # selected objects}}",
+    "noBackup": "There is no backup of this object yet."
   },
   "bulk": {
     "selected": "{count, plural, one {# selected} other {# selected}}",
@@ -335,10 +351,6 @@
     "fileLoaded": "{name} loaded",
     "fileError": "The file could not be read.",
     "check": "Check list",
-    "singlePassword": {
-      "label": "Password",
-      "hint": "Only used because this source has one password per mailbox; adding several accounts at once still needs the CSV header's own password column."
-    },
     "add": "{count, plural, one {Add # account} other {Add # accounts}}",
     "summary": "{created, plural, =0 {No new accounts} one {# new account} other {# new accounts}}, {existing, plural, =0 {none listed already} one {# listed already} other {# listed already}}",
     "done": "{created, plural, =0 {No new accounts added} one {# account added} other {# accounts added}}.",
@@ -354,7 +366,8 @@
       "displayName": "Name",
       "password": "Password",
       "passwordSet": "Set",
-      "state": "Status"
+      "state": "Status",
+      "passwordMissing": "Not set"
     },
     "issues": {
       "title": "{count, plural, one {# line skipped} other {# lines skipped}}",
@@ -364,6 +377,18 @@
       "duplicate_login": "duplicate login {value}",
       "invalid_email": "invalid address {value}"
     },
-    "failed": "The accounts could not be added."
+    "failed": "The accounts could not be added.",
+    "entries": {
+      "title": "Passwords per mailbox",
+      "password": "Password",
+      "username": "Username (optional)",
+      "hint": "This source has one password per mailbox. Enter the username only if the mailbox signs in with something other than the address above."
+    },
+    "authMode": {
+      "shared": "This source uses one login for all mailboxes: no passwords are needed here.",
+      "per_mailbox": "This source uses one password per mailbox: enter each new mailbox's password below.",
+      "master_user": "This source signs in to every mailbox with a master user: no passwords are needed here.",
+      "change": "Change mode"
+    }
   }
 }

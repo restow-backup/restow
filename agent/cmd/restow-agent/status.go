@@ -197,6 +197,10 @@ func printStatus(w io.Writer, r statusReport) {
 		if rt.Current != nil {
 			p("Running", "%s since %s", rt.Current.Kind, ago(rt.Current.StartedAt))
 		}
+		if rt.WaitingForJob {
+			p("Backups", "waiting for a backup job")
+			p("", "Nothing is backed up until this machine is added to a backup job in the Restow UI.")
+		}
 		if !rt.NextRunAt.IsZero() {
 			p("Next backup", "%s", ago(rt.NextRunAt))
 		}

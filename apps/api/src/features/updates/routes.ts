@@ -9,7 +9,12 @@ import {
 } from "../../middleware/session.js";
 import { parseJsonBody } from "../../schemas.js";
 import { updateService } from "./instance.js";
-import { scheduleUpdateInputSchema, updateSettingsInputSchema } from "./schemas.js";
+import {
+  pendingLicenseKeyInputSchema,
+  scheduleUpdateInputSchema,
+  switchBuildInputSchema,
+  updateSettingsInputSchema,
+} from "./schemas.js";
 import type { Actor, UpdateService } from "./service.js";
 
 /**
@@ -22,6 +27,9 @@ import type { Actor, UpdateService } from "./service.js";
  *   POST   /maintenance             announce an update: { version, leadSeconds }
  *   DELETE /maintenance             cancel an announced update (until it starts)
  *   POST   /maintenance/dismiss     clear a finished run from the tab
+ *   POST   /edition/switch          Community only: switch to the full build of this version
+ *   PUT    /edition/license-key     Community only: keep a license key for the full build
+ *   DELETE /edition/license-key     ... and remove it again
  *
  * /api/v1/maintenance — every signed-in user:
  *
@@ -67,6 +75,22 @@ export function buildUpdatesRoutes(service: UpdateService): Hono<SessionEnv> {
   routes.delete("/maintenance", async (c) => c.json(await service.cancel(actorOf(c))));
 
   routes.post("/maintenance/dismiss", async (c) => c.json(await service.dismiss(actorOf(c))));
+
+  // The build switch decides what code runs, like an update: a recent sign-in as well.
+  routes.post("/edition/switch", async (c) => {
+    const input = await parseJsonBody(c.req, switchBuildInputSchema);
+    assertRecentSignIn(c.get("auth").session);
+    return c.json(await service.switchToFullBuild(input, actorOf(c)));
+  });
+
+  routes.put("/edition/license-key", async (c) => {
+    const input = await parseJsonBody(c.req, pendingLicenseKeyInputSchema);
+    return c.json(await service.storeLicenseKey(input, actorOf(c)));
+  });
+
+  routes.delete("/edition/license-key", async (c) =>
+    c.json(await service.removeLicenseKey(actorOf(c))),
+  );
 
   return routes;
 }

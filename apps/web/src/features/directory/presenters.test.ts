@@ -25,6 +25,7 @@ import {
   pageCount,
   parseExclusionText,
   readinessView,
+  removalBlock,
   rulesComplete,
   sameRules,
   sourceHealth,
@@ -51,6 +52,7 @@ function object(overrides: Partial<ProtectedObject> = {}): ProtectedObject {
     notSelected: false,
     lastBackupAt: null,
     snapshotCount: 0,
+    legalHold: false,
     latestBackupJob: null,
     readiness: null,
     credential: null,
@@ -437,6 +439,9 @@ describe("objectErrorKey", () => {
     expect(objectErrorKey(problem("urn:restow:problem:imap-credential-not-configured"))).toBe(
       "directory:errors.imapCredentialNotConfigured",
     );
+    expect(objectErrorKey(problem("urn:restow:problem:account-has-backups"))).toBe(
+      "directory:errors.accountHasBackups",
+    );
     expect(objectErrorKey(problem("about:blank"))).toBe("common:errors.conflict");
     expect(objectErrorKey(new Error("boom"))).toBe("common:errors.generic");
   });
@@ -481,7 +486,7 @@ describe("availableActions", () => {
     });
   });
 
-  it("removes only manual accounts without backups", () => {
+  it("removes only manual accounts", () => {
     const imap = object({ sourceKind: "imap", kind: "imap", origin: "manual", override: null });
     expect(availableActions(imap)).toEqual({
       include: false,
@@ -489,7 +494,8 @@ describe("availableActions", () => {
       reset: false,
       remove: true,
     });
-    expect(availableActions({ ...imap, snapshotCount: 1 }).remove).toBe(false);
+    expect(availableActions({ ...imap, snapshotCount: 1 }).remove).toBe(true);
+    expect(availableActions({ ...imap, origin: "directory_sync" }).remove).toBe(false);
     expect(availableActions({ ...imap, status: "excluded" }).include).toBe(true);
   });
 });
@@ -709,5 +715,20 @@ describe("where the badges are green", () => {
     expect(STATUS_VARIANT.active).toBe("outline");
     expect(CREDENTIAL_VARIANT.ok).toBe("outline");
     expect(HEALTH_VARIANT.healthy).toBe("outline");
+  });
+});
+
+describe("removalBlock", () => {
+  it("lets an account without backups or holds be deleted", () => {
+    expect(removalBlock(object())).toBeNull();
+  });
+
+  it("blocks an account with backups", () => {
+    expect(removalBlock(object({ snapshotCount: 2 }))).toBe("has_backups");
+  });
+
+  it("lets a legal hold win over backups", () => {
+    expect(removalBlock(object({ snapshotCount: 2, legalHold: true }))).toBe("legal_hold");
+    expect(removalBlock(object({ legalHold: true }))).toBe("legal_hold");
   });
 });

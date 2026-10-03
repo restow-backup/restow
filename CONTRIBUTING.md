@@ -61,7 +61,7 @@ Check out the tag (or your branch) and use the stack at the repository root,
 which builds the images instead of pulling them:
 
 ```sh
-git clone --branch v0.2.0 https://github.com/restow-backup/restow.git
+git clone --branch v0.2.1 https://github.com/restow-backup/restow.git
 cd restow
 cp .env.example .env     # fill it in as described in the README; leave RESTOW_IMAGE and RESTOW_WEB_IMAGE empty
 docker compose up -d --build

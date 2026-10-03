@@ -289,7 +289,7 @@ Source: https://github.com/golang-jwt/jwt (tag v5.3.1).
 - Copyright:
   - `Copyright (c) 2012 Dave Grijalva`
   - `Copyright (c) 2021 golang-jwt maintainers`
-- License text: [text 8](#text-8)
+- License text: [text 9](#text-9)
 
 ### github.com/google/s2a-go v0.1.9
 
@@ -408,7 +408,7 @@ Source: https://github.com/ncw/swift (tag v2.0.5).
 
 - License: MIT
 - Copyright: `Copyright (C) 2012 by Nick Craig-Wood http://www.craig-wood.com/nick/`
-- License text: [text 10](#text-10)
+- License text: [text 8](#text-8)
 
 ### github.com/peterbourgon/unixtransport v0.0.7
 
@@ -424,7 +424,7 @@ Source: https://github.com/philhofer/fwd (tag v1.2.0).
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2015, Philip Hofer`
-- License text: [text 8](#text-8)
+- License text: [text 9](#text-9)
 
 ### github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 
@@ -598,7 +598,7 @@ Source: https://github.com/uber-go/automaxprocs (tag v1.6.0).
 
 - License: MIT
 - Copyright: `Copyright (c) 2017 Uber Technologies, Inc.`
-- License text: [text 10](#text-10)
+- License text: [text 8](#text-8)
 
 ### go.yaml.in/yaml/v3 v3.0.4
 
@@ -726,109 +726,109 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2018 The Go Authors. All rights reserved.`
 - License text: [text 18](#text-18)
 
-## Packages (560)
+## Packages (562)
 
-### @aws-sdk/checksums 3.1001.0
+### @aws-sdk/checksums 3.1001.1
 
 - License: Apache-2.0
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 20](#text-20)
 
-### @aws-sdk/client-s3 3.1136.0
+### @aws-sdk/client-s3 3.1143.0
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 52](#text-52)
 
-### @aws-sdk/core 3.978.0
+### @aws-sdk/core 3.978.1
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 71](#text-71)
 
-### @aws-sdk/credential-provider-env 3.972.71
+### @aws-sdk/credential-provider-env 3.972.72
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 9](#text-9)
+- License text: [text 10](#text-10)
 
-### @aws-sdk/credential-provider-http 3.972.73
+### @aws-sdk/credential-provider-http 3.972.74
 
 - License: Apache-2.0
 - Copyright: no copyright line in the package; author in package.json: AWS SDK for JavaScript Team
 - License text: [text 2](#text-2) (the package ships no license file; this is the text most packages with this license use)
 
-### @aws-sdk/credential-provider-ini 3.973.16
+### @aws-sdk/credential-provider-ini 3.973.17
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 9](#text-9)
+- License text: [text 10](#text-10)
 
-### @aws-sdk/credential-provider-login 3.972.78
+### @aws-sdk/credential-provider-login 3.972.79
 
 - License: Apache-2.0
 - Copyright: no copyright line in the package; author in package.json: AWS SDK for JavaScript Team
 - License text: [text 2](#text-2) (the package ships no license file; this is the text most packages with this license use)
 
-### @aws-sdk/credential-provider-node 3.972.83
+### @aws-sdk/credential-provider-node 3.972.84
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 9](#text-9)
+- License text: [text 10](#text-10)
 
-### @aws-sdk/credential-provider-process 3.972.71
-
-- License: Apache-2.0
-- Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 30](#text-30)
-
-### @aws-sdk/credential-provider-sso 3.973.15
+### @aws-sdk/credential-provider-process 3.972.72
 
 - License: Apache-2.0
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 30](#text-30)
 
-### @aws-sdk/credential-provider-web-identity 3.972.77
+### @aws-sdk/credential-provider-sso 3.973.16
 
 - License: Apache-2.0
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 30](#text-30)
 
-### @aws-sdk/middleware-sdk-s3 3.972.76
+### @aws-sdk/credential-provider-web-identity 3.972.78
+
+- License: Apache-2.0
+- Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
+- License text: [text 30](#text-30)
+
+### @aws-sdk/middleware-sdk-s3 3.972.77
 
 - License: Apache-2.0
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 20](#text-20)
 
-### @aws-sdk/nested-clients 3.997.45
+### @aws-sdk/nested-clients 3.997.46
 
 - License: Apache-2.0
 - Copyright: no copyright line in the package; author in package.json: AWS SDK for JavaScript Team
 - License text: [text 2](#text-2) (the package ships no license file; this is the text most packages with this license use)
 
-### @aws-sdk/signature-v4-multi-region 3.996.46
+### @aws-sdk/signature-v4-multi-region 3.996.47
 
 - License: Apache-2.0
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 20](#text-20)
 
-### @aws-sdk/token-providers 3.1129.0
+### @aws-sdk/token-providers 3.1138.0
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 9](#text-9)
+- License text: [text 10](#text-10)
 
-### @aws-sdk/types 3.974.5
-
-- License: Apache-2.0
-- Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 9](#text-9)
-
-### @aws-sdk/xml-builder 3.972.40
+### @aws-sdk/types 3.974.6
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 9](#text-9)
+- License text: [text 10](#text-10)
+
+### @aws-sdk/xml-builder 3.972.41
+
+- License: Apache-2.0
+- Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
+- License text: [text 10](#text-10)
 
 ### @aws/lambda-invoke-store 0.3.0
 
@@ -1634,7 +1634,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: no copyright line in the package; author in package.json: Diego Muracciole
 - License text: [text 1](#text-1) (the package ships no license file; this is the text most packages with this license use)
 
-### @reduxjs/toolkit 2.12.0
+### @reduxjs/toolkit 2.13.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2018 Mark Erikson`
@@ -1658,7 +1658,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2020 Matthew Miller`
 - License text: [text 40](#text-40)
 
-### @smithy/core 3.34.1
+### @smithy/core 3.35.1
 
 - License: Apache-2.0
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
@@ -1668,27 +1668,27 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 9](#text-9)
+- License text: [text 10](#text-10)
 
 ### @smithy/fetch-http-handler 5.8.0
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 9](#text-9)
+- License text: [text 10](#text-10)
 
 ### @smithy/node-http-handler 4.12.1
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 9](#text-9)
+- License text: [text 10](#text-10)
 
-### @smithy/signature-v4 5.7.3
+### @smithy/signature-v4 5.7.4
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 9](#text-9)
+- License text: [text 10](#text-10)
 
-### @smithy/types 4.18.0
+### @smithy/types 4.19.0
 
 - License: Apache-2.0
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
@@ -1856,6 +1856,12 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) Microsoft Corporation.`
 - License text: [text 6](#text-6)
 
+### @types/node 26.6.4
+
+- License: MIT
+- Copyright: `Copyright (c) Microsoft Corporation.`
+- License text: [text 6](#text-6)
+
 ### @types/pg 8.23.1
 
 - License: MIT
@@ -1940,7 +1946,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media OÜ`
 - License text: [text 1](#text-1), [text 38](#text-38)
 
-### @zone-eu/mailsplit 5.4.17
+### @zone-eu/mailsplit 5.4.19
 
 - License: (MIT OR EUPL-1.1+)
 - Copyright: `Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media OÜ`
@@ -2018,7 +2024,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2010-2018 Caolan McMahon`
-- License text: [text 10](#text-10)
+- License text: [text 8](#text-8)
 
 ### atomic-sleep 1.0.0
 
@@ -2165,7 +2171,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2013 Jake Luer <jake@alogicalparadox.com> (http://alogicalparadox.com)`
-- License text: [text 10](#text-10)
+- License text: [text 8](#text-8)
 
 ### class-variance-authority 0.7.1
 
@@ -2382,7 +2388,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2013 Jake Luer <jake@alogicalparadox.com> (http://alogicalparadox.com)`
-- License text: [text 10](#text-10)
+- License text: [text 8](#text-8)
 
 ### deepmerge 4.3.1
 
@@ -2591,7 +2597,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2015-20 [these people](https://github.com/Rich-Harris/estree-walker/graphs/contributors)`
-- License text: [text 8](#text-8)
+- License text: [text 9](#text-9)
 
 ### event-target-shim 5.0.1
 
@@ -2639,7 +2645,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright 2023 Abdullah Atta`
-- License text: [text 8](#text-8)
+- License text: [text 9](#text-9)
 
 ### fflate 0.8.3
 
@@ -2701,7 +2707,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright Mathias Bynens <https://mathiasbynens.be/>`
 - License text: [text 12](#text-12)
 
-### hono 4.13.10
+### hono 4.13.11
 
 - License: MIT
 - Copyright: `Copyright (c) 2021 - present, Yusuke Wada and Hono contributors`
@@ -2785,13 +2791,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2020-2024 Postal Systems OÜ`
 - License text: [text 25](#text-25)
 
-### immer 10.2.0
-
-- License: MIT
-- Copyright: `Copyright (c) 2017 Michel Weststrate`
-- License text: [text 1](#text-1)
-
-### immer 11.1.18
+### immer 11.1.21
 
 - License: MIT
 - Copyright: `Copyright (c) 2017 Michel Weststrate`
@@ -2819,7 +2819,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (C) 2011 by Beau Gunderson`
-- License text: [text 10](#text-10)
+- License text: [text 8](#text-8)
 
 ### ipv6-normalize 1.0.1
 
@@ -2957,25 +2957,37 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2017 Andris Reinman`
-- License text: [text 10](#text-10)
+- License text: [text 8](#text-8)
+
+### libbase64 1.3.1
+
+- License: MIT
+- Copyright: `Copyright (c) 2014-2017 Andris Reinman`
+- License text: [text 8](#text-8)
 
 ### libmime 5.4.3
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2016 Andris Reinman`
-- License text: [text 10](#text-10)
+- License text: [text 8](#text-8)
 
-### libmime 5.4.4
+### libmime 5.4.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2016 Andris Reinman`
-- License text: [text 10](#text-10)
+- License text: [text 8](#text-8)
 
 ### libqp 2.1.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2022 Andris Reinman`
-- License text: [text 10](#text-10)
+- License text: [text 8](#text-8)
+
+### libqp 2.1.2
+
+- License: MIT
+- Copyright: `Copyright (c) 2014-2022 Andris Reinman`
+- License text: [text 8](#text-8)
 
 ### lightningcss 1.33.0
 
@@ -3081,15 +3093,15 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright 2019 JS Foundation and other contributors`
-- License text: [text 8](#text-8)
+- License text: [text 9](#text-9)
 
 ### magic-string 0.30.21
 
 - License: MIT
 - Copyright: `Copyright 2018 Rich Harris`
-- License text: [text 8](#text-8)
+- License text: [text 9](#text-9)
 
-### mailparser 3.9.28
+### mailparser 3.9.31
 
 - License: MIT
 - Copyright: `Copyright (c) 2020 - 2025 Andris Reinman`
@@ -3137,7 +3149,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright 2020 Andrey Sitnik <andrey@sitnik.es>`
 - License text: [text 19](#text-19)
 
-### nodemailer 10.0.10
+### nodemailer 10.0.12
 
 - License: MIT-0
 - Copyright: `Copyright (c) 2011-2023 Andris Reinman`
@@ -3327,7 +3339,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright Mateo Collina, David Mark Clements, James Sumners`
-- License text: [text 8](#text-8)
+- License text: [text 9](#text-9)
 
 ### png-js 2.0.0
 
@@ -3491,7 +3503,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: no copyright line in the package; author in package.json: Anton Korzunov
 - License text: [text 1](#text-1) (the package ships no license file; this is the text most packages with this license use)
 
-### react-resizable-panels 4.13.3
+### react-resizable-panels 4.14.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2018 Brian Vaughn`
@@ -3537,7 +3549,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2021 Paolo Insogna and the real-require contributors`
 - License text: [text 3](#text-3)
 
-### recharts 3.8.0
+### recharts 3.10.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2015-present recharts`
@@ -3567,12 +3579,6 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - License: MIT
 - Copyright: `Copyright (c) Vsevolod Strukchinsky <floatdrop@gmail.com> (github.com/floatdrop)`
 - License text: [text 4](#text-4)
-
-### reselect 5.1.1
-
-- License: MIT
-- Copyright: `Copyright (c) 2015-2018 Reselect Contributors`
-- License text: [text 3](#text-3)
 
 ### reselect 5.2.0
 
@@ -3632,7 +3638,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2013, 2014, 2015 P'unk Avenue LLC`
-- License text: [text 8](#text-8)
+- License text: [text 9](#text-9)
 
 ### scheduler 0.25.0-rc-603e6108-20241029
 
@@ -3694,7 +3700,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)`
 - License text: [text 5](#text-5)
 
-### shell-quote 1.10.0
+### shell-quote 1.12.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2013 James Halliday (mail@substack.net)`
@@ -3718,7 +3724,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2013-2017 Josh Glazebrook`
 - License text: [text 19](#text-19)
 
-### smtp-server 3.19.13
+### smtp-server 3.19.15
 
 - License: MIT-0
 - Copyright: `Copyright (c) 2015-2025 Andris Reinman`
@@ -3982,17 +3988,23 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) Matteo Collina and Undici contributors`
 - License text: [text 1](#text-1)
 
+### undici-types 8.9.0
+
+- License: MIT
+- Copyright: `Copyright (c) Matteo Collina and Undici contributors`
+- License text: [text 1](#text-1)
+
 ### unicode-properties 1.4.1
 
 - License: MIT
 - Copyright: `Copyright 2018`
-- License text: [text 8](#text-8)
+- License text: [text 9](#text-9)
 
 ### unicode-trie 2.0.0
 
 - License: MIT
 - Copyright: `Copyright 2018`
-- License text: [text 8](#text-8)
+- License text: [text 9](#text-9)
 
 ### use-callback-ref 1.3.3
 
@@ -4064,7 +4076,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright © Domenic Denicola <d@domenic.me>`
-- License text: [text 8](#text-8)
+- License text: [text 9](#text-9)
 
 ### which 2.0.2
 
@@ -4385,7 +4397,7 @@ Used by 41 entries.
 
 ### Text 3
 
-Used by 32 entries.
+Used by 31 entries.
 
 ```text
 The MIT License (MIT)
@@ -4451,7 +4463,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### Text 6
 
-Used by 24 entries.
+Used by 25 entries.
 
 ```text
     MIT License
@@ -4495,6 +4507,30 @@ THIS SOFTWARE.
 
 ### Text 8
 
+Used by 12 entries.
+
+```text
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
+### Text 9
+
 Used by 11 entries.
 
 ```text
@@ -4505,7 +4541,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 9
+### Text 10
 
 Used by 10 entries.
 
@@ -4711,30 +4747,6 @@ Apache License
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
-```
-
-### Text 10
-
-Used by 10 entries.
-
-```text
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
 ```
 
 ### Text 11

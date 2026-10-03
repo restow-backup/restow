@@ -8,8 +8,10 @@ import {
   enableActEnvironment,
   flush,
   json,
+  problem,
   routedFetch,
   sessionAs,
+  type,
 } from "@/features/updates/testing";
 import { i18n } from "@/i18n";
 import { registerWebExtension, resetWebExtensionsForTesting } from "@/lib/extensions";
@@ -123,6 +125,7 @@ describe("who opens the installation page", () => {
       "Microsoft multi-tenant app",
       "Default storage",
       "Updates",
+      "Edition",
       "About",
     ]);
     const current = subnav()?.querySelector('a[aria-current="page"]');
@@ -330,7 +333,8 @@ describe("Default storage", () => {
     expect(text()).toContain("/data/chunks");
     expect(text()).toContain("3 of 5 tenants");
     expect(text()).toContain("No copy configured");
-    expect(text()).toContain("cannot be changed here");
+    expect(text(slot("default-storage-source"))).toBe("The server environment (.env)");
+    expect(slot("default-storage-override")).toBeNull();
     expect(text()).toContain("Not tested yet.");
   });
 
@@ -413,6 +417,94 @@ describe("Default storage", () => {
     expect(slot("last-test")?.textContent).toContain("Write");
   });
 
+  const SAVED_LOCAL = {
+    ...DEFAULT_STORAGE,
+    source: "database",
+    location: "/srv/restow",
+    saved: {
+      kind: "local",
+      local: { basePath: "/srv/restow" },
+      s3: null,
+      updatedAt: "2026-10-02T09:00:00.000Z",
+      updatedBy: "owner@example.test",
+    },
+  };
+
+  it("says when the default saved here takes precedence over the environment", async () => {
+    vi.stubGlobal(
+      "fetch",
+      routes({ "GET /settings/default-storage": () => json(SAVED_LOCAL) }).mock,
+    );
+    await open("/installation/default-storage");
+    expect(text(slot("default-storage-source"))).toContain(
+      "Saved on this page by owner@example.test",
+    );
+    expect(text(slot("default-storage-override"))).toContain("/data/chunks");
+    expect(buttonByText(document.body, "Use the server environment again")).not.toBeNull();
+  });
+
+  it("saves a local path, sends no name or role, and shows the test the server ran", async () => {
+    const probe = {
+      ok: true,
+      checkedAt: "2026-10-02T10:00:00.000Z",
+      durationMs: 9,
+      steps: [{ step: "write", ok: true, durationMs: 3, errorCode: null, error: null }],
+      failedStep: null,
+      errorCode: null,
+      error: null,
+      warnings: [],
+    };
+    const { mock, requests } = routes({
+      "PUT /settings/default-storage": () => json({ probe, objectLock: null, view: SAVED_LOCAL }),
+    });
+    vi.stubGlobal("fetch", mock);
+    await open("/installation/default-storage");
+    await type(document.body.querySelector("#target-base-path"), "/srv/restow");
+    await click(buttonByText(document.body, "Test and save"));
+    await flush(8);
+    expect(requests.filter((request) => request.method === "PUT")).toEqual([
+      {
+        method: "PUT",
+        path: "/settings/default-storage",
+        body: { kind: "local", config: { basePath: "/srv/restow" } },
+      },
+    ]);
+    expect(slot("default-storage-probe")).not.toBeNull();
+    expect(text(slot("default-storage-source"))).toContain("Saved on this page");
+  });
+
+  it("names the tenants that keep data on the default, before and after a refused change", async () => {
+    const blockers = [{ tenantId: "t-1", tenantName: "Contoso", reasons: ["data"] }];
+    const { mock } = routes({
+      "GET /settings/default-storage": () => json({ ...DEFAULT_STORAGE, blockers }),
+      "PUT /settings/default-storage": () =>
+        problem("urn:restow:problem:settings-default-storage-in-use", 409, { blockers }),
+    });
+    vi.stubGlobal("fetch", mock);
+    await open("/installation/default-storage", {
+      session: providerSession("owner", { features: [...TENANT_FEATURES] }),
+    });
+    expect(text(slot("default-storage-blockers"))).toContain("Contoso: has backups here");
+    await type(document.body.querySelector("#target-base-path"), "/srv/elsewhere");
+    await click(buttonByText(document.body, "Test and save"));
+    await flush(8);
+    expect(document.body.querySelectorAll('[data-slot="default-storage-blockers"]')).toHaveLength(
+      2,
+    );
+  });
+
+  it("closes the change to everyone but the owner, and says so", async () => {
+    vi.stubGlobal("fetch", routes().mock);
+    await open("/installation/default-storage", { session: providerSession("administrator") });
+    const configure = slot("default-storage-configure");
+    expect(text(configure?.querySelector('[data-slot="access-note"]'))).toContain(
+      "needs the Owner role",
+    );
+    expect(
+      buttonByText(document.body, "Test and save")?.closest("fieldset[disabled]"),
+    ).not.toBeNull();
+  });
+
   it("says what is wrong, and offers no test, when the environment describes no usable storage", async () => {
     const broken = { ...DEFAULT_STORAGE, configured: false, kind: null, location: null };
     vi.stubGlobal("fetch", routes({ "GET /settings/default-storage": () => json(broken) }).mock);
@@ -479,7 +571,10 @@ describe("a provider role that may look but not change", () => {
     await mounted?.unmount();
     mounted = null;
     await open("/installation/default-storage", { session: providerSession("administrator") });
-    expect(slot("access-note")).toBeNull();
+    // Only the owner's note on changing the default is left; the test is open.
+    expect(
+      [...document.body.querySelectorAll('[data-slot="access-note"]')].map((note) => text(note)),
+    ).toEqual([expect.stringContaining("needs the Owner role")]);
     expect(
       buttonByText(document.body, "Test default storage")?.closest("fieldset[disabled]"),
     ).toBeNull();
@@ -596,6 +691,11 @@ describe("About", () => {
     expect(text()).toContain("0.2.0");
     expect(text()).toContain("abc1234");
     expect(text()).toContain("Apache-2.0");
-    expect(text()).not.toMatch(/edition|license key/i);
+    // The About text itself; the sub-navigation lists the Edition section of the Community build.
+    const content = document.body.cloneNode(true) as HTMLElement;
+    for (const nav of content.querySelectorAll("nav, select")) {
+      nav.remove();
+    }
+    expect(text(content)).not.toMatch(/edition|license key/i);
   });
 });

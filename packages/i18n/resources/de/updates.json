@@ -23,7 +23,8 @@
     "sourceNotAllowed": "Das Bauen von Updates aus dieser Quelle ist auf dem Server abgeschaltet. Der Betreiber muss das Repository zuerst freigeben; bis dahin aktualisieren Sie von Hand.",
     "recentSignIn": "Bestätigen Sie zuerst, dass Sie es sind: Das Ändern der Update-Quelle oder des Zugriffstokens und das Starten eines Updates erfordern eine Anmeldung aus den letzten 10 Minuten.",
     "notVerifiable": "Dieses Release veröffentlicht keinen Image-Digest, daher kann der Updater es nicht prüfen. Aktualisieren Sie von Hand, nachdem Sie das Release geprüft haben.",
-    "invalidSource": "Diese Adresse lässt sich nicht als Update-Quelle verwenden. Geben Sie die https-Adresse eines GitHub-, Forgejo- oder Gitea-Repositorys im öffentlichen Internet ein. Ein Server im eigenen Netz funktioniert nur, wenn der Betreiber seinen Host in der .env-Datei auf dem Server einträgt."
+    "invalidSource": "Diese Adresse lässt sich nicht als Update-Quelle verwenden. Geben Sie die https-Adresse eines GitHub-, Forgejo- oder Gitea-Repositorys im öffentlichen Internet ein. Ein Server im eigenen Netz funktioniert nur, wenn der Betreiber seinen Host in der .env-Datei auf dem Server einträgt.",
+    "switchRefused": "Diese Installation kann hier nicht den Build wechseln. Wechseln Sie von Hand mit den zwei Zeilen für die .env-Datei."
   },
   "form": {
     "unsaved": "Es gibt ungespeicherte Änderungen.",
@@ -75,7 +76,8 @@
       "disk_space": "Es ist nicht genug freier Speicherplatz vorhanden.",
       "not_newer": "Die gewählte Version ist nicht neuer als die laufende.",
       "compose_unsupported": "Diese Version von Docker Compose wird nicht unterstützt.",
-      "updater_image_unpinned": "Der Updater bezieht sein eigenes Image aus den Image-Zeilen, die er bei einem Update umschreibt. Geben Sie ihm ein eigenes, festes Image und erstellen Sie ihn neu; die Schritte stehen unter Installation, Updates."
+      "updater_image_unpinned": "Der Updater bezieht sein eigenes Image aus den Image-Zeilen, die er bei einem Update umschreibt. Geben Sie ihm ein eigenes, festes Image und erstellen Sie ihn neu; die Schritte stehen unter Installation, Updates.",
+      "switch_refused": "Der Wechsel auf den vollen Build wurde abgelehnt: Nur eine Community-Installation wechselt, und zwar auf den vollen Build ihrer eigenen Version."
     },
     "fetch": {
       "pull_failed": "Das neue Image konnte nicht heruntergeladen werden.",
@@ -270,12 +272,14 @@
     },
     "unavailable": {
       "title": "Der Updater läuft nicht",
-      "body": "Von dieser Seite aus lassen sich keine Updates installieren. Aktualisieren Sie mit den Befehlen unten von Hand oder starten Sie den Updater."
+      "body": "Von dieser Seite aus lassen sich keine Updates installieren, solange der Updater nicht läuft. Die Update-Quelle in den Einstellungen legt nur fest, woher Releases kommen: Sie startet den Updater nicht. Starten Sie ihn einmal auf dem Server (siehe unten) oder aktualisieren Sie mit den Befehlen unten von Hand."
     },
     "enable": {
       "title": "Updater starten",
-      "body": "Der Updater ist optional. Läuft er, kann diese Seite ein Update ankündigen, zuerst die Datenbank sichern, die Dienste neu starten und zurücksetzen, wenn die neue Version nicht startet.",
-      "socket": "Der Updater bindet den Docker-Socket ein. Das ist Root-Zugriff auf den Host: Wer den Updater kontrolliert, kontrolliert diesen Server. Starten Sie ihn nur, wenn Sie das akzeptieren."
+      "body": "Der Updater ist optional und wird einmal auf dem Server gestartet, im Ordner mit der docker-compose.yml. Läuft er, kann diese Seite ein Update ankündigen, zuerst die Datenbank sichern, die Dienste neu starten und zurücksetzen, wenn die neue Version nicht startet. In der .env-Datei müssen Sie dafür nichts ändern.",
+      "socket": "Der Updater bindet den Docker-Socket ein. Das ist Root-Zugriff auf den Host: Wer den Updater kontrolliert, kontrolliert diesen Server. Starten Sie ihn nur, wenn Sie das akzeptieren.",
+      "image": "Es gibt kein eigenes Updater-Image: Der Updater läuft mit dem Image der Anwendung ({image}) in einer anderen Rolle. Beim ersten Start hält er dieses Image in der .env-Datei fest (RESTOW_UPDATER_IMAGE), und nach jedem Update aus einem signierten Release zieht er selbst auf die neue Version nach.",
+      "imageGeneric": "Es gibt kein eigenes Updater-Image: Der Updater läuft mit dem Image der Anwendung (RESTOW_IMAGE) in einer anderen Rolle. Beim ersten Start hält er dieses Image in der .env-Datei fest (RESTOW_UPDATER_IMAGE), und nach jedem Update aus einem signierten Release zieht er selbst auf die neue Version nach."
     },
     "blocked": {
       "title": "Updates sind blockiert",
@@ -283,12 +287,12 @@
     },
     "blockers": {
       "docker_unreachable": "Der Updater erreicht Docker nicht. Prüfen Sie, ob der Docker-Socket in den Updater eingebunden ist und Docker läuft.",
-      "compose_missing": "Der Updater findet die docker-compose.yml im Projektordner nicht. Prüfen Sie RESTOW_PROJECT_DIR in der .env-Datei.",
+      "compose_missing": "Der Updater findet die docker-compose.yml im Projektordner nicht. Verwenden Sie die docker-compose.yml dieses Releases oder setzen Sie RESTOW_PROJECT_DIR in der .env-Datei auf den absoluten Pfad des Ordners, in dem sie liegt, und erstellen Sie den Updater neu.",
       "project_dir_mismatch": "Der Projektordner, den der Updater sieht, stimmt nicht mit dem Ordner überein, aus dem diese Installation läuft. Setzen Sie RESTOW_PROJECT_DIR in der .env-Datei auf den absoluten Pfad des Ordners mit der docker-compose.yml und starten Sie den Updater neu.",
       "env_unwritable": "Der Updater kann die .env-Datei nicht schreiben. Er muss dort die neue Image-Referenz eintragen.",
       "disk_space": "Es ist nicht genug freier Speicherplatz für einen Download und die Datenbanksicherung vorhanden.",
       "docker_cli_missing": "Der Updater findet das Docker-Kommandozeilenwerkzeug nicht, das er für Compose braucht.",
-      "updater_image_unpinned": "Der Updater bezieht sein eigenes Image aus RESTOW_IMAGE, der Zeile, die er bei einem Update umschreibt. Ein Update würde damit auch den Updater ersetzen. Verwenden Sie die docker-compose.yml dieses Releases, setzen Sie RESTOW_UPDATER_IMAGE in der .env-Datei und erstellen Sie den Updater neu.",
+      "updater_image_unpinned": "Der Updater bezieht sein eigenes Image aus RESTOW_IMAGE, der Zeile, die er bei einem Update umschreibt, und konnte es nicht selbst festhalten. Setzen Sie RESTOW_UPDATER_IMAGE in der .env-Datei auf das Image der Anwendung (dasselbe Image wie RESTOW_IMAGE; ein eigenes Updater-Image gibt es nicht) oder verwenden Sie die docker-compose.yml dieses Releases und erstellen Sie den Updater neu.",
       "unknown": "Der Updater meldet ein Problem, das diese Version nicht kennt."
     },
     "ready": {
@@ -302,10 +306,9 @@
       "body": "Der Updater baut aus einem eigenen Repository nur, wenn der Betreiber es in der .env-Datei auf dem Server einträgt. Ergänzen Sie diese Zeile in der .env und erstellen Sie den Updater neu:",
       "risk": "Was aus diesem Repository gebaut wird, läuft mit vollem Zugriff auf alle Sicherungen und Schlüssel. Geben Sie nur ein Repository frei, dem Sie so sehr vertrauen wie dem Release selbst. Das Aktualisieren von Hand funktioniert weiterhin."
     },
-    "outdated": "Der Updater läuft in Version {updater}, diese Installation in {running}. Ein Update ersetzt den Updater nie: Er behält das Image aus RESTOW_UPDATER_IMAGE. Um ihn auf {running} zu bringen, setzen Sie RESTOW_UPDATER_IMAGE in der .env-Datei auf das Image dieses Releases (oder bauen restow:local daraus neu, wenn Sie aus dem Quellcode bauen) und erstellen den Updater neu:",
     "incompatible": {
       "title": "Der Updater muss neu erstellt werden",
-      "body": "Der Updater läuft, spricht aber ein älteres Protokoll. Ein Update ersetzt den Updater nie: Setzen Sie RESTOW_UPDATER_IMAGE in der .env-Datei auf das Image dieses Releases (oder bauen restow:local daraus neu, wenn Sie aus dem Quellcode bauen), erstellen Sie den Updater neu und laden Sie diese Seite neu. Bis dahin aktualisieren Sie von Hand."
+      "body": "Der Updater läuft, spricht aber ein älteres Protokoll und ist damit älter als diese Installation. Auch er läuft mit dem Image der Anwendung: Setzen Sie RESTOW_UPDATER_IMAGE in der .env-Datei auf das Image aus RESTOW_IMAGE (oder bauen Sie restow:local neu, wenn Sie aus dem Quellcode bauen), erstellen Sie den Updater neu und laden Sie diese Seite neu. Ab 0.2.1 zieht der Updater nach jedem Update selbst nach. Bis dahin aktualisieren Sie von Hand."
     },
     "busy": {
       "scheduledTitle": "Update auf Version {version} ist angekündigt",
@@ -317,9 +320,28 @@
       "cancelTitle": "Angekündigtes Update abbrechen?",
       "cancelBody": "Der Countdown verschwindet für alle, und es wird nichts geändert. Sie können das Update später erneut ankündigen.",
       "cancelConfirm": "Wartung abbrechen",
-      "cancelKeep": "Beibehalten"
+      "cancelKeep": "Beibehalten",
+      "scheduledTitleSwitch": "Der Wechsel auf den vollen Build ({version}) ist angekündigt",
+      "runningTitleSwitch": "Wechsel auf den vollen Build ({version}) läuft"
     },
-    "demo": "Das ist eine öffentliche Demo. Updates lassen sich hier nicht installieren. Die Versionsinformationen oben bleiben sichtbar."
+    "demo": "Das ist eine öffentliche Demo. Updates lassen sich hier nicht installieren. Die Versionsinformationen oben bleiben sichtbar.",
+    "selfUpdate": {
+      "pending": "Der Updater wechselt gerade selbst auf Version {version}, das Image, dessen Release-Signatur er eben geprüft hat. Das dauert einige Sekunden.",
+      "failed": "Das Update auf {running} ist gelungen, aber der Updater konnte nicht selbst nachziehen und läuft noch in {updater}. {reason} Die .env-Datei nennt das geprüfte Image bereits; erstellen Sie den Updater auf dem Server neu, im Ordner mit der docker-compose.yml:",
+      "skipped": "Der Updater läuft in Version {updater}, diese Installation in {running}. Er hat nicht selbst nachgezogen: {reason} Ziehen Sie ihn von Hand nach: Setzen Sie RESTOW_UPDATER_IMAGE in der .env-Datei auf das Image aus RESTOW_IMAGE (der Updater läuft mit dem Image der Anwendung; ein eigenes gibt es nicht) und erstellen Sie ihn neu:",
+      "on": "Der Updater läuft in Version {updater}, diese Installation in {running}, die nicht über den Updater installiert wurde. Er zieht nach dem nächsten Update aus einem signierten Release selbst nach. Um ihn jetzt nachzuziehen, setzen Sie RESTOW_UPDATER_IMAGE in der .env-Datei auf das Image aus RESTOW_IMAGE und erstellen ihn neu:",
+      "legacy": "Der Updater läuft in Version {updater}, diese Installation in {running}. Dieser Updater ist älter als die Selbstaktualisierung und muss einmal von Hand nachgezogen werden: Setzen Sie RESTOW_UPDATER_IMAGE in der .env-Datei auf das Image aus RESTOW_IMAGE (der Updater läuft mit dem Image der Anwendung; ein eigenes gibt es nicht) und erstellen Sie ihn neu. Danach zieht er bei jedem Update selbst nach.",
+      "reasons": {
+        "disabled": "Seine Selbstaktualisierung ist abgeschaltet (RESTOW_UPDATER_SELF_UPDATE=false).",
+        "source_mode": "Das Update wurde aus dem Quellcode gebaut, und der Updater führt nie ein Image aus, das er selbst gebaut hat.",
+        "signature_unverified": "Die Release-Signatur wurde nicht geprüft, und der Updater zieht nur auf ein signiertes Release nach.",
+        "compose_unsupported": "Die docker-compose.yml bezieht das Image des Updaters nicht aus RESTOW_UPDATER_IMAGE. Verwenden Sie die docker-compose.yml dieses Releases.",
+        "env_write_failed": "Die .env-Datei ließ sich nicht schreiben.",
+        "launch_failed": "Der Hilfscontainer, der den Updater neu erstellt, ließ sich nicht starten.",
+        "helper_failed": "Das Neuerstellen des Updaters ist fehlgeschlagen.",
+        "not_replaced": "Der Updater-Container wurde nicht ersetzt."
+      }
+    }
   },
   "manual": {
     "title": "Von Hand aktualisieren",
@@ -327,7 +349,7 @@
     "yourMode": "Ihre Einrichtung",
     "image": {
       "title": "Veröffentlichte Images",
-      "hint": "Für die Standardquelle. Lädt das neue Release-Image und erstellt die Dienste neu."
+      "hint": "Für die Standardquelle. Setzen Sie zuerst RESTOW_IMAGE und RESTOW_WEB_IMAGE in der .env-Datei auf die neue Version, laden Sie dann die Images und erstellen Sie die Dienste neu."
     },
     "source": {
       "title": "Aus Quellcode gebaut",
@@ -379,7 +401,8 @@
     "outcomeNote": {
       "succeeded": "Die neue Version läuft.",
       "unchanged": "Das Update ist fehlgeschlagen, bevor etwas ersetzt wurde. Die vorherige Version wurde nie angehalten.",
-      "rolled_back": "Das Update ist fehlgeschlagen, bevor die Datenbank migriert wurde. Die vorherige Version läuft wieder."
+      "rolled_back": "Das Update ist fehlgeschlagen, bevor die Datenbank migriert wurde. Die vorherige Version läuft wieder.",
+      "succeededSwitch": "Der volle Build läuft."
     },
     "requestedBy": "Gestartet von",
     "mode": "Modus",
@@ -409,7 +432,10 @@
       "attentionHint": "Blenden Sie den Hinweis erst aus, wenn die Installation wiederhergestellt ist.",
       "confirmTitle": "Hinweis ausblenden?",
       "confirmBody": "Die Wiederherstellungsbefehle verschwinden von dieser Seite. Bewahren Sie sie auf, wenn Sie die Installation noch nicht wiederhergestellt haben."
-    }
+    },
+    "titleSwitch": "Letzter Build-Wechsel",
+    "titleActiveSwitch": "Aktueller Build-Wechsel",
+    "versionSwitch": "Wechsel auf den vollen Build ({to})"
   },
   "recovery": {
     "title": "Das Update erfordert Ihr Eingreifen",
@@ -431,19 +457,25 @@
       "scheduled": "Wartung in {time}: {product} wird auf Version {version} aktualisiert. Speichern Sie Ihre Arbeit.",
       "starting": "Die Wartung beginnt: {product} wird auf Version {version} aktualisiert.",
       "running": "Wartung läuft: {product} wird auf Version {version} aktualisiert.",
-      "attention": "Das letzte Update erfordert Ihr Eingreifen. Ein Administrator muss die Installation wiederherstellen."
+      "attention": "Das letzte Update erfordert Ihr Eingreifen. Ein Administrator muss die Installation wiederherstellen.",
+      "scheduledSwitch": "Wartung in {time}: {product} wechselt auf den vollen Build ({version}). Speichern Sie Ihre Arbeit.",
+      "startingSwitch": "Die Wartung beginnt: {product} wechselt auf den vollen Build ({version}).",
+      "runningSwitch": "Wartung läuft: {product} wechselt auf den vollen Build ({version})."
     },
     "announce": {
       "start": "Wartung angekündigt: {product} wird in {time} auf Version {version} aktualisiert.",
       "minute": "Die Wartung beginnt in einer Minute. Speichern Sie Ihre Arbeit.",
       "seconds": "Die Wartung beginnt in 10 Sekunden.",
-      "starting": "Die Wartung beginnt jetzt."
+      "starting": "Die Wartung beginnt jetzt.",
+      "startSwitch": "Wartung angekündigt: {product} wechselt in {time} auf den vollen Build ({version})."
     },
     "modal": {
       "running": {
         "title": "{product} wird auf Version {version} aktualisiert",
         "titleNoVersion": "{product} wird aktualisiert",
-        "description": "Diese Seite geht automatisch weiter."
+        "description": "Diese Seite geht automatisch weiter.",
+        "titleSwitch": "{product} wechselt auf den vollen Build ({version})",
+        "titleSwitchNoVersion": "{product} wechselt auf den vollen Build"
       },
       "progress": "Fortschritt",
       "percent": "{value} %",
@@ -453,26 +485,34 @@
       "succeeded": {
         "title": "Auf Version {version} aktualisiert",
         "description": "Die neue Version läuft. Diese Seite lädt sich selbst neu.",
-        "reload": "Jetzt neu laden"
+        "reload": "Jetzt neu laden",
+        "titleSwitch": "Auf den vollen Build gewechselt ({version})",
+        "descriptionSwitch": "Der volle Build läuft. Diese Seite lädt sich selbst neu."
       },
       "failed": {
         "reason": "Grund: {reason}",
         "unchanged": {
           "title": "Das Update konnte nicht starten",
-          "description": "Es wurde nichts geändert; die vorherige Version läuft weiter."
+          "description": "Es wurde nichts geändert; die vorherige Version läuft weiter.",
+          "titleSwitch": "Der Wechsel auf den vollen Build konnte nicht starten",
+          "descriptionSwitch": "Es wurde nichts geändert; der Community-Build läuft weiter."
         },
         "rolledBack": {
           "title": "Das Update ist fehlgeschlagen und wurde zurückgesetzt",
-          "description": "Die vorherige Version läuft wieder."
+          "description": "Die vorherige Version läuft wieder.",
+          "titleSwitch": "Der Wechsel auf den vollen Build ist fehlgeschlagen und wurde zurückgesetzt",
+          "descriptionSwitch": "Der Community-Build läuft wieder."
         },
         "needsAttention": {
           "title": "Das Update erfordert Eingreifen",
           "admin": "Das Update ist fehlgeschlagen, nachdem die Datenbank migriert wurde. Ein Administrator muss sie wiederherstellen. Details finden Sie unter Installation, Updates.",
-          "user": "{product} ist nicht verfügbar. Ein Administrator wurde informiert."
+          "user": "{product} ist nicht verfügbar. Ein Administrator wurde informiert.",
+          "titleSwitch": "Der Wechsel auf den vollen Build erfordert Eingreifen"
         },
         "generic": {
           "title": "Das Update wurde nicht abgeschlossen",
-          "description": "{product} ist möglicherweise eingeschränkt, bis ein Administrator es geprüft hat."
+          "description": "{product} ist möglicherweise eingeschränkt, bis ein Administrator es geprüft hat.",
+          "titleSwitch": "Der Wechsel auf den vollen Build wurde nicht abgeschlossen"
         }
       }
     },
@@ -485,7 +525,13 @@
         "unchanged": "Das Update ist fehlgeschlagen, bevor etwas geändert wurde. {reason}",
         "rolled_back": "Das Update ist fehlgeschlagen und wurde zurückgesetzt. {reason}",
         "needs_attention": "Das Update ist fehlgeschlagen, nachdem die Datenbank migriert wurde. {reason}",
-        "interrupted": "Der Updater wurde während des Updates neu gestartet."
+        "interrupted": "Der Updater wurde während des Updates neu gestartet.",
+        "scheduledSwitch": "Der Wechsel auf den vollen Build ({version}) ist für {startsAt} angekündigt.",
+        "startingSwitch": "Der Wechsel auf den vollen Build ({version}) beginnt.",
+        "succeededSwitch": "Auf den vollen Build gewechselt ({version}).",
+        "unchangedSwitch": "Der Wechsel auf den vollen Build ist fehlgeschlagen, bevor etwas geändert wurde. {reason}",
+        "rolled_backSwitch": "Der Wechsel auf den vollen Build ist fehlgeschlagen und wurde zurückgesetzt. {reason}",
+        "needs_attentionSwitch": "Der Wechsel auf den vollen Build ist fehlgeschlagen, nachdem die Datenbank migriert wurde. {reason}"
       },
       "step": {
         "prepare": {
@@ -567,5 +613,49 @@
     "retry": "Jetzt erneut versuchen",
     "progress": "Fortschritt des Updates",
     "stepsLabel": "Schritte des Updates"
+  },
+  "edition": {
+    "title": "Edition",
+    "badge": "Community-Build",
+    "description": "Diese Installation läuft mit dem Community-Build: dem Apache-2.0-Kern ohne die Module Business und Service Provider.",
+    "adds": {
+      "title": "Was der volle Build ergänzt",
+      "business": "Business: das Provider-Team (mehrere Administratoren mit Rollen), die GoBD-Schicht des Archivs (Journal-Empfang, erzwungene Aufbewahrung, Legal Hold), geplante Zusammenfassungsberichte und die Ansicht des Audit-Logs.",
+      "serviceProvider": "Service Provider: mehrere Mandanten, Teammitglieder mit Zugriff auf ausgewählte Mandanten, die mandantenübergreifende API und das Provider-Dashboard.",
+      "license": "Der volle Build läuft als Community, bis ein Lizenzschlüssel installiert ist; der Wechsel allein ändert also sonst nichts. Beide Builds nutzen dieselbe Datenbank."
+    },
+    "switched": "Der Server läuft bereits mit dem vollen Build. Laden Sie diese Seite neu, um den Bereich Lizenz zu sehen.",
+    "switch": {
+      "title": "Auf den vollen Build wechseln",
+      "description": "Stellt diese Installation auf die vollen Images der Version um, die sie gerade ausführt.",
+      "updater": "Der Updater installiert die vollen Images der Version {version}, geprüft gegen die Release-Signatur, nach einer Datenbanksicherung, und setzt zurück, wenn sie nicht starten.",
+      "button": "Auf den vollen Build wechseln",
+      "busy": "Ein Update ist angekündigt oder läuft. Wechseln Sie, wenn es abgeschlossen ist.",
+      "manual": "Wechseln Sie von Hand auf dem Server, im Ordner mit der docker-compose.yml: Setzen Sie diese zwei Zeilen in der .env-Datei, laden Sie dann die Images und erstellen Sie die Dienste neu.",
+      "manualUnknown": "Setzen Sie RESTOW_IMAGE und RESTOW_WEB_IMAGE in der .env-Datei auf die vollen Images (restow und restow-web) der Version, die diese Installation ausführt.",
+      "enableUpdater": "Mit dem Updater erledigt diese Seite den Wechsel für Sie. Starten Sie ihn einmal auf dem Server: {command}",
+      "oneWay": "Der Wechsel geht nur in eine Richtung: Von hier aus wird der volle Build nicht auf Community zurückgestellt.",
+      "announced": "Der Wechsel auf den vollen Build ist angekündigt."
+    },
+    "dialog": {
+      "title": "Auf den vollen Build wechseln?",
+      "description": "Anwendung und Web-Edge werden durch die vollen Images der Version {version} ersetzt. Alle angemeldeten Personen sehen einen Countdown und eine kurze Wartung.",
+      "verify": "Die vollen Images werden gegen die Signatur des Release-Workflows geprüft, bevor etwas angehalten wird.",
+      "updater": "Auch der Updater wechselt auf das volle Image, damit spätere Updates beim vollen Build bleiben.",
+      "oneWay": "Von hier aus gibt es keinen Weg zurück zum Community-Build.",
+      "confirm": "Wechsel ankündigen",
+      "confirmNow": "Jetzt wechseln"
+    },
+    "key": {
+      "title": "Lizenzschlüssel",
+      "description": "Wenn Sie bereits einen Schlüssel für Business oder Service Provider haben, hinterlegen Sie ihn hier. Der Community-Build prüft ihn nicht: Er wird nach dem Wechsel auf den vollen Build geprüft und angewendet.",
+      "label": "Lizenzschlüssel",
+      "replace": "Hinterlegten Schlüssel ersetzen",
+      "save": "Schlüssel hinterlegen",
+      "remove": "Schlüssel entfernen",
+      "saved": "Der Schlüssel ist hinterlegt. Er wird nach dem Wechsel geprüft und angewendet.",
+      "storedTitle": "Ein Schlüssel ist hinterlegt",
+      "stored": "Hinterlegt; er wird nach dem Wechsel auf den vollen Build geprüft und angewendet. Bis dahin schaltet er nichts frei."
+    }
   }
 }

@@ -152,9 +152,9 @@ eines Mandanten über alle Objekte.
   lesbar.
 - Backends: lokaler Speicher im App-Container (Docker-Volume) als Standard ohne
   Zusatzdienst, S3-kompatibel (AWS SDK v3, Pfadstil und virtuelle Hosts) und weiteres
-  gemountetes Dateisystem (NFS/SMB). Object Lock (Retention-Datum) für die Archiv-Datensätze auf
+  gemountetes Dateisystem (NFS). Object Lock (Retention-Datum) für die Archiv-Datensätze auf
   S3-Zielen mit Object Lock; die Packs mit dem Nachrichteninhalt und die Sicherungsdaten tragen
-  in 0.1.0 keine Retention (ARCHIVE.md, "Speicherung"). Auf lokalem Speicher, NFS und SMB gibt es
+  in 0.1.0 keine Retention (ARCHIVE.md, "Speicherung"). Auf lokalem Speicher, NFS gibt es
   keine Hardware-Unveränderbarkeit. Mehrere Ziele je Mandant (Primär plus Kopie) und der Wechsel des Primärziels
   (Speicherziel hinzufügen, Migration mit oder ohne Kopie der Altbestände, Umschalten):
   docs/STORAGE.md.
@@ -263,6 +263,14 @@ wohin und wie lange, für viele Objekte oder Rechner zugleich. Ein **Lauf** ist,
   `GET /agent/v1/config` für den Moment der Anfrage (reine Regel `effectiveBandwidthKbps` im Kern), ohne
   etwas zu schreiben und ohne `config_version` zu ändern. Der Agent liest die Konfiguration zu Beginn jeder
   Sicherung neu und bleibt dafür unverändert.
+- **Rechner ohne Job sichern nicht (seit 0.2.1).** Die Anmeldung schreibt den Zeitplan `none`
+  (`enrolledEndpointConfig`), und ein Rechner, der seinen Job verlässt (Mitglied entfernt, Umfang ohne ihn,
+  Job gelöscht), bekommt ihn zurück (`releaseEndpointConfigs`). Ordner und übrige Einstellungen bleiben
+  gespeichert; `GET /agent/v1/config` liefert bei `none` aber leere `paths` und keine Hooks
+  (`agentFacingConfig`), damit ein Agent vor 0.2.1, der `none` nicht kennt und auf den Standard seines
+  Profils zurückfällt, nichts sichert. "Jetzt sichern" und ein Zeitplan von Hand sind für einen Rechner
+  ohne Job gesperrt (409 `endpoint-no-job`), die Liste markiert ihn mit `no_job`. Rechner, die schon vor
+  0.2.1 ohne Job waren, behalten ihren Zeitplan. Einzelheiten in docs/AGENT.md, "Rechner ohne Job".
 - **Wartung bleibt in `schedules`:** Aufbewahrungslauf, Speicherprüfung (scrub), Verzeichnisabgleich,
   Archiv-Sync. Auch ein Zeitplan älterer Version, den kein Job übernehmen konnte, läuft weiter.
 - **Aufbewahrung Mail.** Die Objekte eines Jobs, der eine Richtlinie nennt, folgen ihr; eine Richtlinie,
@@ -285,7 +293,8 @@ wohin und wie lange, für viele Objekte oder Rechner zugleich. Ein **Lauf** ist,
   den Mandanten verweisen). Hat der Mandant schon einen Mail-Job, bleiben seine Zeitpläne und werden im
   Audit als `mail_job_exists` genannt. Rechner: aktive Rechner mit gleichem Profil, System und Zeitplan
   (so wie der Agent ihn liest, Zeitzone eingeschlossen) ergeben einen Job; die Einstellungen, die die
-  meisten teilen, sind die des Jobs, der Rest ist Override; die Konfigurationen ändern sich dabei nicht. Zusammenfassung als Audit-Eintrag
+  meisten teilen, sind die des Jobs, der Rest ist Override; die Konfigurationen ändern sich dabei nicht.
+  Rechner mit dem Zeitplan `none` (seit 0.2.1) bleiben ohne Job. Zusammenfassung als Audit-Eintrag
   `backup_job.migrated` je Mandant und einer für die Installation. Ein zweiter Lauf ändert nichts.
 - **Neue Mandanten** bekommen den Standard-Job (Sicherung alle 8 Stunden, Restore-Prüfung sonntags
   03:00, Umfang `all`) statt zweier Zeitpläne, sobald sie die erste aktive Quelle haben
@@ -587,17 +596,31 @@ den Docker-Socket. Der Socket ist root auf dem Host; deshalb gilt:
   auf `/public/status`; Phase, Schritt, Fortschritt, Zeiten, Meldungs-Code, Fehlercode). Keine
   Versionen (weder laufende noch Zielversion, auch nicht in Meldungsparametern); die sehen nur
   angemeldete Nutzer über `/api/v1/maintenance`.
-- Eigenes, festes Image: Der Updater-Dienst läuft mit `RESTOW_UPDATER_IMAGE` (Standard
-  `restow:local`), nie mit `RESTOW_IMAGE`. Der Updater schreibt in `.env` ausschließlich
-  `RESTOW_IMAGE` und `RESTOW_WEB_IMAGE` (im Code erzwungen) und blockiert, solange die
-  Compose-Datei sein eigenes Image aus diesen Variablen nimmt (Probe mit Platzhalterwerten,
-  Blocker `updater_image_unpinned`). Damit startet der Container mit dem Socket nie ein Image,
-  das der Updater selbst installiert hat; seine Version ändert nur der Betreiber.
+- Eigenes, per Digest festgehaltenes Image: Der Updater ist das Anwendungs-Image mit
+  `ROLE=updater` (kein eigenes Updater-Image) und läuft mit `RESTOW_UPDATER_IMAGE`, nie mit dem
+  `RESTOW_IMAGE`, das jedes Update umschreibt. Ist `RESTOW_UPDATER_IMAGE` leer, startet der
+  Release-Stack ihn aus `RESTOW_IMAGE` (`${RESTOW_UPDATER_IMAGE:-${RESTOW_IMAGE}}`), und beim
+  ersten Start schreibt er das laufende Image per Digest in `RESTOW_UPDATER_IMAGE`
+  (`self-update.ts`, `pinOwnImage`); das ändert nichts an dem, was läuft. Gelingt das nicht,
+  blockiert er, solange die Compose-Datei sein Image aus `RESTOW_IMAGE`/`RESTOW_WEB_IMAGE`
+  nimmt (Probe mit Platzhalterwerten, Blocker `updater_image_unpinned`).
+- Selbstaktualisierung, signaturgesteuert: Nach einem erfolgreichen Update im Modus `image`,
+  dessen Images die cosign-Prüfung der Release-Identität dieses Tags bestanden haben, setzt der
+  Updater `RESTOW_UPDATER_IMAGE` auf das geprüfte App-Image per Digest (nie per Tag) und lässt
+  einen kurzlebigen Hilfscontainer `docker compose --profile updater up -d --no-deps updater`
+  ausführen (ein Container kann sich nicht selbst neu erzeugen); der neue Updater bestätigt
+  beim Start (Status `selfUpdate` in `status.json`). Nie im Modus `source`, nie ohne
+  Signaturprüfung, abschaltbar mit `RESTOW_UPDATER_SELF_UPDATE=false`. Ein Fehlschlag macht das
+  App-Update nicht rückgängig; der Reiter zeigt den Befehl zum Nachholen. Über das Image des
+  Containers mit dem Socket entscheidet damit die Signatur des Release-Workflows, nicht mehr
+  ein Mensch.
 - Docker-Befehle: Der Updater führt `docker` und `docker compose` aus. Das Image enthält
   kein Docker-CLI; der Updater startet dafür kurzlebige Hilfscontainer aus `docker:27-cli`,
   per Digest gepinnt, über den Socket (oder nutzt ein vorhandenes `docker`-Binary). Das Projektverzeichnis ist unter
-  demselben Pfad wie auf dem Host eingehängt (`RESTOW_PROJECT_DIR`), damit relative Pfade der
-  Compose-Datei stimmen.
+  `/project` eingehängt; den Host-Pfad liest der Updater aus diesem Mount und bindet ihn in den
+  Hilfscontainern unter demselben Pfad wie auf dem Host ein, damit relative Pfade der
+  Compose-Datei stimmen. Mit `RESTOW_PROJECT_DIR` wird es direkt unter dem Host-Pfad
+  eingehängt.
 
 Modi, automatisch aus der Quelle gewählt und im Reiter angezeigt:
 

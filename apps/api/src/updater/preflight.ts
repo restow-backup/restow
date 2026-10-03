@@ -16,8 +16,11 @@ import type { Redactor } from "./redact.js";
  * its own image from RESTOW_IMAGE or RESTOW_WEB_IMAGE. The updater rewrites those
  * two lines, so an updater image that follows them would be replaced by whatever
  * the updater installed the next time the profile is brought up; it must be
- * pinned on its own (RESTOW_UPDATER_IMAGE). Fixing it means recreating the
- * updater, which starts a new process and so a new check.
+ * pinned on its own (RESTOW_UPDATER_IMAGE). The updater writes that line itself on
+ * its first start, with the image it runs by digest (self-update.ts, pinOwnImage),
+ * before the first check; the blocker remains only when that was not possible.
+ * Fixing it by hand means recreating the updater, which starts a new process and so
+ * a new check.
  */
 
 export const PREFLIGHT_TTL_MS = 30_000;
@@ -40,6 +43,7 @@ export interface PreflightOptions {
   dumps: DumpStore;
   clock: Clock;
   redactor: Redactor;
+  /** The project's absolute host path (what the container's compose label must name). */
   projectDir: string;
   stateDir: string;
   minFreeMb: number;
@@ -155,7 +159,7 @@ export class Preflight {
     if (this.updaterImage?.follows) {
       add(
         "updater_image_unpinned",
-        "The updater service takes its image from RESTOW_IMAGE or RESTOW_WEB_IMAGE. Set RESTOW_UPDATER_IMAGE in .env, use the docker-compose.yml of this release and recreate the updater.",
+        "The updater service takes its image from RESTOW_IMAGE or RESTOW_WEB_IMAGE, and RESTOW_UPDATER_IMAGE is empty. The updater pins it to the image it runs when it starts; that did not work (a local build has no digest, or .env is not writable). Set RESTOW_UPDATER_IMAGE in .env to the application image (the same image as RESTOW_IMAGE; there is no separate updater image), or use the docker-compose.yml of this release, then recreate the updater.",
       );
     }
 

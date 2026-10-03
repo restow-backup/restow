@@ -11,16 +11,20 @@ import type { EndpointDetail, EndpointTask } from "../api.js";
 import { type EndpointFormat, useEndpointFormat } from "../hooks.js";
 import {
   configPending,
+  endpointName,
+  isWithoutBackup,
   lastBackupOf,
   quotaPercent,
   retryNotBefore,
   taskOutcomeOf,
   waitingTasks,
 } from "../presenters.js";
+import { AssignmentField } from "./assign-dialog.js";
 import { Fact, Facts } from "./facts.js";
 import { ReportsCard } from "./reports-card.js";
 import { RunsCard } from "./runs-card.js";
 import { ConnectionBadge, OsLabel, TaskStatusBadge } from "./status.js";
+import { WithoutBackupBadge, WithoutBackupNotice } from "./without-backup.js";
 
 function taskLabel(task: EndpointTask, format: EndpointFormat): string {
   const { t } = format;
@@ -140,6 +144,7 @@ function FactsCard({ detail }: { detail: EndpointDetail }) {
   const { t } = format;
   const last = lastBackupOf(detail);
   const pending = detail.status === "active" && configPending(detail);
+  const withoutBackup = isWithoutBackup(detail);
   return (
     <Card data-slot="endpoint-facts">
       <CardHeader>
@@ -191,6 +196,8 @@ function FactsCard({ detail }: { detail: EndpointDetail }) {
           <Fact label={t("facts.nextRun")}>
             {detail.status === "revoked" ? (
               t("facts.noNextRun")
+            ) : withoutBackup && detail.config.schedule.kind === "none" ? (
+              <WithoutBackupBadge />
             ) : (
               <RelativeTime
                 value={detail.nextRunAt}
@@ -219,9 +226,14 @@ function FactsCard({ detail }: { detail: EndpointDetail }) {
               >
                 {detail.job.name}
               </Link>
+            ) : withoutBackup ? (
+              <WithoutBackupBadge />
             ) : (
               <span className="text-muted-foreground">{t("facts.jobNone")}</span>
             )}
+          </Fact>
+          <Fact label={t("facts.assignedTo")}>
+            <AssignmentField endpoint={detail} name={endpointName(detail)} />
           </Fact>
           <Fact label={t("facts.added")}>
             <RelativeTime value={detail.createdAt} focusable={false} />
@@ -344,6 +356,7 @@ export function OverviewTab({
 }) {
   return (
     <div className="grid items-start gap-4 lg:grid-cols-3">
+      <WithoutBackupNotice endpoint={detail} className="lg:col-span-3" />
       <div className="min-w-0 space-y-4 lg:col-span-2">
         <PendingTasksCard tasks={detail.tasks} />
         <RunsCard

@@ -33,7 +33,11 @@ export const users = pgTable(
     displayName: text("display_name"),
     ...timestamps(),
   },
-  (t) => [uniqueIndex("users_tenant_email_uq").on(t.tenantId, t.email)],
+  (t) => [
+    uniqueIndex("users_tenant_email_uq").on(t.tenantId, t.email),
+    // The target of tenant-consistent keys from other tables (endpoints.assigned_user_id).
+    uniqueIndex("users_tenant_id_uq").on(t.tenantId, t.id),
+  ],
 );
 
 /**

@@ -1,13 +1,13 @@
-import { useNavigate } from "@tanstack/react-router";
-import { PlugZap, TriangleAlert } from "lucide-react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { KeyRound, PlugZap, TriangleAlert } from "lucide-react";
 import * as React from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 
 import { Field, messageId } from "@/components/forms/field";
 import { PasswordInput } from "@/components/forms/password-input";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Button } from "@/components/ui/button";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { toast } from "@/components/ui/sonner";
+import { directoryTo } from "@/features/directory/search";
 import { zodResolver } from "@/lib/form";
 import {
   IMAP_AUTH_MODES,
@@ -37,6 +38,7 @@ import {
   fieldMessageKey,
   imapFormFromStored,
   imapFormSchema,
+  isMicrosoftImapHost,
   needsPasswordAgain,
   portForSecurity,
   toCreateImapInput,
@@ -226,6 +228,13 @@ function ImapSourceForm({ source, onDone }: { source?: SourceDto; onDone: () => 
             />
           </Field>
         </div>
+        {isMicrosoftImapHost(values.host ?? "") ? (
+          <Alert variant="warning" data-slot="microsoft-imap-warning">
+            <TriangleAlert />
+            <AlertTitle>{t("form.imap.microsoftWarningTitle")}</AlertTitle>
+            <AlertDescription>{t("form.imap.microsoftWarning")}</AlertDescription>
+          </Alert>
+        ) : null}
 
         <div className="space-y-1.5">
           <Label htmlFor="imap-security">{t("form.imap.security")}</Label>
@@ -313,8 +322,23 @@ function ImapSourceForm({ source, onDone }: { source?: SourceDto; onDone: () => 
           {values.imapAuthMode === "per_mailbox" ? (
             <div className="space-y-1.5">
               <Label>{t("form.imap.password")}</Label>
+              {source ? (
+                // The passwords live on the mailboxes: lead straight to this
+                // source's mailboxes in the directory instead of a dead end.
+                <Link
+                  to={directoryTo()}
+                  search={{ source: source.id } as never}
+                  onClick={onDone}
+                  className={buttonVariants({ variant: "outline", size: "sm" })}
+                >
+                  <KeyRound />
+                  {t("form.imap.authMode.manageMailboxes")}
+                </Link>
+              ) : null}
               <p className="text-sm text-muted-foreground">
-                {t("form.imap.authMode.perMailboxPasswordHint")}
+                {source
+                  ? t("form.imap.authMode.perMailboxPasswordHint")
+                  : t("form.imap.authMode.perMailboxPasswordAfterCreate")}
               </p>
             </div>
           ) : (

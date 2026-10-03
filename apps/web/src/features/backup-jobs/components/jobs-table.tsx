@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
-import { DatabaseBackup, Pause, Pencil, Play, Trash2 } from "lucide-react";
+import { DatabaseBackup, FolderOpen, History, Pause, Pencil, Play, Trash2 } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -59,7 +59,8 @@ function timeValue(value: string | null): number {
  * The jobs of one kind: name with its state, what they cover, when they run,
  * where they write, the last and the next run and how the restore checks stand.
  * A click on a row opens the job; the name is its own link for the keyboard. The
- * menu of a row edits, runs, pauses (mail jobs) and deletes.
+ * menu of a row ("…", or the context menu of the row) opens, edits, runs it now,
+ * opens its runs, pauses (mail jobs) and deletes.
  */
 export function JobsTable({
   kind,
@@ -194,6 +195,12 @@ export function JobsTable({
           const describedBy = closed ? access.noteId : undefined;
           const actions: RowAction[] = [
             {
+              id: "open",
+              label: t("actions.open"),
+              icon: FolderOpen,
+              link: jobDefinitionTo(job.id, job.kind),
+            },
+            {
               id: "edit",
               label: t("actions.edit"),
               icon: Pencil,
@@ -208,6 +215,12 @@ export function JobsTable({
               disabled: closed || job.scope.count === 0,
               describedBy,
               onSelect: () => onRun(job),
+            },
+            {
+              id: "history",
+              label: t("actions.openHistory"),
+              icon: History,
+              link: jobDefinitionTo(job.id, job.kind, "runs"),
             },
           ];
           const change = switchAction(job);

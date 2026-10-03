@@ -3,6 +3,7 @@ import {
   DEFAULT_SCHEDULE_TIMEZONE,
   RECOMMENDED_SCHEDULE_DEFAULTS,
   defaultEndpointConfig,
+  defaultSchedule,
   effectiveSchedule,
   effectiveSettings,
   mailJobObjectIds,
@@ -36,7 +37,7 @@ import type {
   JobRunDto,
   JobScopeDto,
 } from "./dto.js";
-import { earliestOf, iso, jobStateOf, latestOf } from "./dto.js";
+import { earliestOf, iso, jobStateOf, latestOf, nextCheckInOf } from "./dto.js";
 import {
   type EndpointFact,
   type MailFact,
@@ -155,12 +156,15 @@ interface MemberOutcome {
   runId: string | null;
   /** The newest backup of the member that finished. */
   finishedRunId: string | null;
+  /** A requested backup waits for the machine and none is running. */
+  queued?: boolean;
 }
 
 function outcomeCounts(states: readonly MemberOutcome[]): JobLastRunDto {
   let failed = 0;
   let partial = 0;
   let running = 0;
+  let queued = 0;
   let runningRun: string | null = null;
   let newest: { at: Date; runId: string } | null = null;
   for (const state of states) {
@@ -169,6 +173,8 @@ function outcomeCounts(states: readonly MemberOutcome[]): JobLastRunDto {
     else if (state.status === "running" || state.status === "active") {
       running++;
       runningRun ??= state.runId;
+    } else if (state.queued) {
+      queued++;
     }
     if (state.finishedAt && state.finishedRunId && (!newest || state.finishedAt > newest.at)) {
       newest = { at: state.finishedAt, runId: state.finishedRunId };
@@ -179,6 +185,7 @@ function outcomeCounts(states: readonly MemberOutcome[]): JobLastRunDto {
     failed,
     partial,
     running,
+    queued,
     runId: runningRun ?? newest?.runId ?? null,
   };
 }
@@ -251,6 +258,7 @@ function mailJobDto(
       scopeCount: scope.count,
       failed: lastRun.failed,
       running: lastRun.running,
+      queued: lastRun.queued,
       partial: lastRun.partial,
       restore: restoreCheck,
     }),
@@ -258,6 +266,11 @@ function mailJobDto(
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),
   };
+}
+
+/** A backup requested for the machine waits, and none is running now. */
+function memberQueued(fact: EndpointFact): boolean {
+  return fact.pendingBackup !== null && fact.latest?.status !== "running";
 }
 
 function endpointJobDto(
@@ -285,6 +298,7 @@ function endpointJobDto(
       runId: fact.latest?.id ?? null,
       // An agent run that is over is the newest finished one; one still running has no end yet.
       finishedRunId: fact.latest?.finishedAt ? fact.latest.id : null,
+      queued: memberQueued(fact),
     });
     next.push(fact.nextRunAt);
     if (Object.keys(member.overrides).length > 0) overrides++;
@@ -312,6 +326,7 @@ function endpointJobDto(
       scopeCount: scope.count,
       failed: lastRun.failed,
       running: lastRun.running,
+      queued: lastRun.queued,
       partial: lastRun.partial,
       restore: restoreCheck,
     }),
@@ -481,6 +496,7 @@ function mailMembers(
         at: iso(fact?.finishedAt ?? null),
         outcome: mailOutcome(fact?.latest?.status ?? null),
       },
+      pendingBackup: null,
       restoreCheck: {
         state: fact?.restore.state ?? "no_backup",
         checkedAt: iso(fact?.restore.checkedAt ?? null),
@@ -539,8 +555,15 @@ function endpointMembers(
       },
       lastBackup: {
         at: iso(fact.latest?.finishedAt ?? null),
-        outcome: fact.latest?.status ?? null,
+        outcome: memberQueued(fact) ? "queued" : (fact.latest?.status ?? null),
       },
+      pendingBackup: fact.pendingBackup
+        ? {
+            status: fact.pendingBackup.status,
+            requestedAt: fact.pendingBackup.requestedAt.toISOString(),
+            nextCheckInAt: iso(nextCheckInOf(fact.lastSeenAt)),
+          }
+        : null,
       restoreCheck: { state: fact.restore.state, checkedAt: iso(fact.restore.checkedAt) },
       nextRunAt: iso(fact.nextRunAt),
     });
@@ -763,7 +786,7 @@ export async function getDefaults(
     return {
       kind,
       timeZone,
-      schedule: { ...config.schedule },
+      schedule: defaultSchedule("server", timeZone),
       verifySchedule: null,
       settings: {
         paths: config.paths,

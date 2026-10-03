@@ -50,6 +50,7 @@ export function runFixture(overrides: Partial<RunView> = {}): RunView {
   return {
     id: "r-1",
     mode: "image",
+    switchTo: null,
     fromVersion: "0.1.0",
     targetVersion: "0.2.0",
     targetTag: "v0.2.0",
@@ -118,6 +119,8 @@ export function updatesFixture(overrides: Partial<UpdatesView> = {}): UpdatesVie
       blockers: [],
       incompatible: false,
       version: "0.1.0",
+      selfUpdate: { enabled: true, verifiesSignatures: true, last: null },
+      applicationImage: "ghcr.io/restow-backup/restow:0.1.0",
       runner: "cli",
       dumps: [],
       checkedAt: iso(-60),

@@ -2,6 +2,7 @@ import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 
 import { RequireRole } from "@/components/require-role";
 
+import { JOB_ROLES } from "./access.js";
 import type { JobKind } from "./api.js";
 import { JobDetailPage } from "./pages/job-detail-page.js";
 import { JobsPage } from "./pages/jobs-page.js";
@@ -15,13 +16,8 @@ import {
   parseJobsSearch,
 } from "./paths.js";
 
-/**
- * Jobs are for the tenant's administrators and the provider's admins; end users
- * follow their own restores in the restore feature. The sidebar hides the entries
- * for everyone else, and a direct link shows the standard "not permitted" notice
- * instead of a failing request.
- */
-export const JOB_ROLES = ["provider_admin", "tenant_admin"] as const;
+// Who may open the job pages: kept with the other access rules (access.ts).
+export { JOB_ROLES };
 
 /** The jobs of the kind the address names; the editor follows `new` and `select` in the address. */
 export function JobsRoute() {

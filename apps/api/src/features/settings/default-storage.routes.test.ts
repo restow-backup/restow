@@ -5,14 +5,17 @@ import { errorHandler, notFoundHandler } from "../../problem.js";
 /**
  * Route tests of /settings/default-storage: the real router and session
  * middleware, with better-auth's session lookup, the database handles and the
- * feature service replaced at their module boundary. Who may reach the two
- * endpoints, and what each hands to the service.
+ * feature service replaced at their module boundary. Who may reach the
+ * endpoints, what each hands to the service, and that saving or removing the
+ * default needs a recent sign-in.
  */
 
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
   getDefaultStorage: vi.fn(),
   testDefaultStorage: vi.fn(),
+  saveDefaultStorage: vi.fn(),
+  removeDefaultStorage: vi.fn(),
   memberships: [] as unknown[],
 }));
 
@@ -32,6 +35,8 @@ vi.mock("../../db.js", () => {
 vi.mock("./default-storage.js", () => ({
   getDefaultStorage: mocks.getDefaultStorage,
   testDefaultStorage: mocks.testDefaultStorage,
+  saveDefaultStorage: mocks.saveDefaultStorage,
+  removeDefaultStorage: mocks.removeDefaultStorage,
 }));
 
 const { settingsRoutes } = await import("./routes.js");
@@ -44,9 +49,14 @@ function app() {
   return root;
 }
 
-function signedIn(role: "admin" | "user") {
+function signedIn(role: "admin" | "user", createdAt: Date | null = null) {
   mocks.getSession.mockResolvedValue({
-    session: { authMethod: "passkey", impersonatedBy: null, activeOrganizationId: "org-1" },
+    session: {
+      authMethod: "passkey",
+      impersonatedBy: null,
+      activeOrganizationId: "org-1",
+      createdAt,
+    },
     user: {
       id: `${role}-id`,
       email: `${role}@provider.test`,
@@ -57,12 +67,16 @@ function signedIn(role: "admin" | "user") {
   });
 }
 
-async function call(method: string, path: string, key?: string) {
+async function call(method: string, path: string, key?: string, body?: unknown) {
   const headers = new Headers({ "content-type": "application/json" });
   if (key) {
     headers.set("authorization", `Bearer ${key}`);
   }
-  const response = await app().request(`/api/v1/settings${path}`, { method, headers });
+  const response = await app().request(`/api/v1/settings${path}`, {
+    method,
+    headers,
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
   const text = await response.text();
   return { status: response.status, body: text.length > 0 ? JSON.parse(text) : null };
 }
@@ -70,13 +84,19 @@ async function call(method: string, path: string, key?: string) {
 const ENDPOINTS: [string, string][] = [
   ["GET", "/default-storage"],
   ["POST", "/default-storage/test"],
+  ["PUT", "/default-storage"],
+  ["DELETE", "/default-storage"],
 ];
+
+const LOCAL_DEFAULT = { kind: "local", config: { basePath: "/srv/restow" } };
 
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.memberships = [];
   mocks.getDefaultStorage.mockResolvedValue({ configured: true, kind: "local" });
   mocks.testDefaultStorage.mockResolvedValue({ probe: { ok: true }, objectLock: null });
+  mocks.saveDefaultStorage.mockResolvedValue({ probe: { ok: true }, objectLock: null, view: {} });
+  mocks.removeDefaultStorage.mockResolvedValue({ probe: null, objectLock: null, view: {} });
 });
 
 describe("who may use /settings/default-storage", () => {
@@ -123,5 +143,53 @@ describe("who may use /settings/default-storage", () => {
       id: "admin-id",
       email: "admin@provider.test",
     });
+  });
+});
+
+describe("changing the default storage", () => {
+  for (const [method, body] of [
+    ["PUT", LOCAL_DEFAULT],
+    ["DELETE", undefined],
+  ] as const) {
+    it(`${method}: asks for a recent sign-in from an older session`, async () => {
+      signedIn("admin", new Date(Date.now() - 60 * 60 * 1000));
+      const response = await call(method, "/default-storage", undefined, body);
+      expect(response.status).toBe(403);
+      expect(response.body.type).toBe("urn:restow:problem:recent-sign-in-required");
+      expect(mocks.saveDefaultStorage).not.toHaveBeenCalled();
+      expect(mocks.removeDefaultStorage).not.toHaveBeenCalled();
+    });
+  }
+
+  it("saves a local path with a fresh sign-in", async () => {
+    signedIn("admin", new Date());
+    const response = await call("PUT", "/default-storage", undefined, LOCAL_DEFAULT);
+    expect(response.status).toBe(200);
+    expect(mocks.saveDefaultStorage.mock.calls[0]?.[1]).toEqual(LOCAL_DEFAULT);
+    expect(mocks.saveDefaultStorage.mock.calls[0]?.[2]).toMatchObject({ id: "admin-id" });
+  });
+
+  it("passes an S3 default on, the key pair being optional", async () => {
+    signedIn("admin", new Date());
+    const input = {
+      kind: "s3",
+      config: { bucket: "restow-default", endpoint: "https://fsn1.your-objectstorage.com" },
+    };
+    expect((await call("PUT", "/default-storage", undefined, input)).status).toBe(200);
+    expect(mocks.saveDefaultStorage.mock.calls[0]?.[1]).toMatchObject(input);
+  });
+
+  it("refuses a body that is neither a local path nor S3", async () => {
+    signedIn("admin", new Date());
+    const response = await call("PUT", "/default-storage", undefined, { kind: "ftp" });
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(response.status).toBeLessThan(500);
+    expect(mocks.saveDefaultStorage).not.toHaveBeenCalled();
+  });
+
+  it("removes the saved default with a fresh sign-in", async () => {
+    signedIn("admin", new Date());
+    expect((await call("DELETE", "/default-storage")).status).toBe(200);
+    expect(mocks.removeDefaultStorage).toHaveBeenCalledOnce();
   });
 });

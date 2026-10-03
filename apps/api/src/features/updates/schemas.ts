@@ -1,10 +1,12 @@
 import { z } from "zod";
+import { MAX_PENDING_LICENSE_KEY_LENGTH } from "../../lib/pending-license-key.js";
 import {
   type Blocker,
   type DumpInfo,
   LEAD_TIME_PRESETS,
   type MaintenanceStatus,
   type Run,
+  type SelfUpdateView,
 } from "../../updater/protocol.js";
 
 /**
@@ -60,6 +62,42 @@ export const scheduleUpdateInputSchema = z
   })
   .strict();
 export type ScheduleUpdateInput = z.infer<typeof scheduleUpdateInputSchema>;
+
+/** POST /edition/switch: move a Community installation to the full build of its version. */
+export const switchBuildInputSchema = z
+  .object({
+    /** Seconds until the switch starts; one of `leadTimes`. */
+    leadSeconds: z
+      .number()
+      .int()
+      .refine((value) => (LEAD_TIME_PRESETS as readonly number[]).includes(value), {
+        message: "Choose one of the offered lead times.",
+      }),
+  })
+  .strict();
+export type SwitchBuildInput = z.infer<typeof switchBuildInputSchema>;
+
+/**
+ * PUT /edition/license-key: a key kept for the full build (Community installations).
+ * Opaque text: the core neither parses nor verifies it (lib/pending-license-key.ts).
+ */
+export const pendingLicenseKeyInputSchema = z
+  .object({ key: z.string().trim().min(1).max(MAX_PENDING_LICENSE_KEY_LENGTH) })
+  .strict();
+export type PendingLicenseKeyInput = z.infer<typeof pendingLicenseKeyInputSchema>;
+
+/** The build this installation runs, for Installation, Edition. */
+export interface EditionView {
+  /** `community`: the Apache-2.0 core only; `full`: with the Business and Service Provider modules. */
+  build: "full" | "community";
+  /** A license key entered on the Community build waits for the full build. */
+  pendingLicenseKey: boolean;
+  /**
+   * The images of the full build at the running version (Community only; null when the
+   * version is unknown): the two `.env` lines of a switch by hand.
+   */
+  fullImages: { app: string; web: string } | null;
+}
 
 /** Why a check found nothing: machine-readable, translated by the client. */
 export const CHECK_ERROR_CODES = [
@@ -135,8 +173,22 @@ export interface UpdaterView {
    * says to recreate the updater (`docker compose --profile updater up -d updater`).
    */
   incompatible: boolean;
-  /** Version of the running updater; differs from `running` when the updater was not restarted after an update. */
+  /**
+   * Version of the running updater; differs from `running` when the updater did not
+   * (yet) move itself to the release it installed (see `selfUpdate`).
+   */
   version: string | null;
+  /**
+   * The updater's own update: whether it is on and how the last one went. null when no
+   * updater answers, or one that predates it (0.2.0), which never updates itself.
+   */
+  selfUpdate: SelfUpdateView | null;
+  /**
+   * The application image of the running version and build, by tag (for example
+   * `ghcr.io/restow-backup/restow-community:0.2.1`): the updater runs this same image
+   * (`ROLE=updater`), there is no image of its own. null when the version is unknown.
+   */
+  applicationImage: string | null;
   runner: "cli" | "helper" | null;
   dumps: DumpInfo[];
   checkedAt: string | null;
@@ -195,4 +247,6 @@ export interface UpdatesView {
   maintenance: MaintenanceView;
   /** The current or last update run; null when there never was one. */
   run: RunView | null;
+  /** The build and what a switch to the full build needs. */
+  edition: EditionView;
 }

@@ -55,6 +55,25 @@ export function defaultImageRepositories(variant: ImageVariant): { app: string; 
   };
 }
 
+/**
+ * The repositories of the full build that correspond to the Community build's
+ * repositories: the same registry and path without the `-community` suffix
+ * (`ghcr.io/restow-backup/restow-community` -> `ghcr.io/restow-backup/restow`, and a
+ * mirror `registry.example.com/acme/restow-web-community` -> `.../restow-web`). null when
+ * a repository does not end with `-community`: then nobody can tell where the full
+ * images of that mirror are.
+ */
+export function fullBuildRepositories(community: { app: string; web: string }): {
+  app: string;
+  web: string;
+} | null {
+  const strip = (repository: string): string | null =>
+    repository.endsWith("-community") ? repository.slice(0, -"-community".length) : null;
+  const app = strip(community.app);
+  const web = strip(community.web);
+  return app && web ? { app, web } : null;
+}
+
 /** The Dockerfile targets of the application and the web image, of either build. */
 export type BuildTarget = "runtime" | "web" | "runtime-community" | "web-community";
 

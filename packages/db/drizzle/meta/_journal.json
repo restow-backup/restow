@@ -176,6 +176,13 @@
       "when": 1790970340426,
       "tag": "0024_run_samples",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1791040998503,
+      "tag": "0025_endpoint_assigned_user",
+      "breakpoints": true
     }
   ]
 }

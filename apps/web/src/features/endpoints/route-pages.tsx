@@ -67,13 +67,13 @@ export function EndpointDetailRoute() {
   );
 }
 
-/** File restore: the machine comes from `?machine=`. */
+/** File restore: the machine comes from `?machine=`, a mailbox from `?mailbox=`. */
 export function FileRestoreRoute() {
   const raw = useSearch({ strict: false }) as Record<string, unknown>;
-  const { machine } = parseFileRestoreSearch(raw);
+  const { machine, mailbox } = parseFileRestoreSearch(raw);
   return (
     <RequireRole roles={ENDPOINT_ROLES}>
-      <FileRestorePage machineId={machine ?? null} />
+      <FileRestorePage machineId={machine ?? null} mailboxId={mailbox ?? null} />
     </RequireRole>
   );
 }

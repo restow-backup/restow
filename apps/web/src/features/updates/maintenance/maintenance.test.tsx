@@ -283,6 +283,31 @@ describe("the banner", () => {
     expect(spinner?.getAttribute("class")).not.toMatch(/(^|\s)animate-spin/);
   });
 
+  it("words a build switch as a switch, scheduled and running", async () => {
+    useFakeTime();
+    let view = maintenanceFixture({
+      phase: "scheduled",
+      runId: "r-1",
+      targetVersion: "0.2.1",
+      switchTo: "full",
+      startsAt: iso(272),
+      serverTime: iso(0),
+    });
+    const { deps } = sources(() => ({ ...view, serverTime: new Date().toISOString() }));
+    shell(deps);
+    await tick(10);
+    expect(text(banner() as HTMLElement)).toContain(
+      "Maintenance in 04:32: Restow will switch to the full build (0.2.1). Save your work.",
+    );
+    expect(text(banner() as HTMLElement)).not.toContain("updated");
+
+    view = { ...view, phase: "running", startsAt: iso(-10) };
+    await tick(30_000);
+    expect(text(banner() as HTMLElement)).toContain(
+      "Maintenance in progress: Restow is switching to the full build (0.2.1).",
+    );
+  });
+
   it("tells a provider admin about a run that needs attention, with a link to the tab", async () => {
     useFakeTime();
     const { deps } = sources(() =>
@@ -582,6 +607,48 @@ describe("the modal", () => {
     // Everything outside is hidden from assistive technology while the modal is open.
     expect(element.contains(document.activeElement)).toBe(true);
     expect(document.querySelector("[data-radix-focus-guard]")).not.toBeNull();
+  });
+
+  it("words a running build switch as a switch", () => {
+    showModal(
+      maintenanceFixture({
+        phase: "running",
+        runId: "r-1",
+        targetVersion: "0.2.1",
+        switchTo: "full",
+      }),
+    );
+    expect(text(modal() as HTMLElement)).toContain("Restow is switching to the full build (0.2.1)");
+    expect(text(modal() as HTMLElement)).not.toContain("being updated");
+  });
+
+  it("words a succeeded build switch as a switch", () => {
+    showModal(
+      maintenanceFixture({
+        phase: "succeeded",
+        runId: "r-1",
+        outcome: "succeeded",
+        targetVersion: "0.2.1",
+        switchTo: "full",
+      }),
+    );
+    expect(text(modal() as HTMLElement)).toContain("Switched to the full build (0.2.1)");
+    expect(text(modal() as HTMLElement)).toContain("The full build is running.");
+  });
+
+  it("says a failed build switch changed nothing, in the words of a switch", () => {
+    showModal(
+      maintenanceFixture({
+        phase: "failed",
+        runId: "r-1",
+        outcome: "unchanged",
+        failureCode: "prepare.disk_space",
+        switchTo: "full",
+      }),
+    );
+    const element = modal() as HTMLElement;
+    expect(text(element)).toContain("The switch to the full build could not start");
+    expect(text(element)).toContain("the Community build is still running.");
   });
 
   it("says the update succeeded, and reloads on request", () => {

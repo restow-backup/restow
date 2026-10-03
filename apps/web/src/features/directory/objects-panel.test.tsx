@@ -70,6 +70,7 @@ function object(overrides: Partial<ProtectedObject> = {}): ProtectedObject {
     notSelected: false,
     lastBackupAt: null,
     snapshotCount: 0,
+    legalHold: false,
     latestBackupJob: null,
     readiness: null,
     credential: null,

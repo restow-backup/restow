@@ -325,7 +325,7 @@ LABEL org.opencontainers.image.vendor="IT Systeme Flores UG (haftungsbeschraenkt
 # tells the update check and the opt-in updater to stay on the Community images.
 FROM runtime-base AS runtime-community
 COPY --from=deploy-community /prod /prod
-# Release tag and commit of this build (CI: --build-arg RESTOW_VERSION=0.2.0). GET
+# Release tag and commit of this build (CI: --build-arg RESTOW_VERSION=0.2.1). GET
 # /api/v1/status reports them and the opt-in update check compares against the
 # version; empty for local builds. Declared last so a new version does not rebuild
 # the layers above it.

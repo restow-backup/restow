@@ -38,7 +38,7 @@ export const storageTargetSchema = component(
     kind: z
       .enum(["local", "s3", "installation_default"])
       .describe(
-        "`local` is any mounted filesystem (volume, NFS, SMB); `s3` any S3-compatible service; " +
+        "`local` is any mounted filesystem (volume, NFS); `s3` any S3-compatible service; " +
           "`installation_default` is a placeholder with no addressing of its own, standing for the " +
           "environment default a storage migration retired (docs/STORAGE.md).",
       ),

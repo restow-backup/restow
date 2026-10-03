@@ -233,3 +233,34 @@ func TestNextIsEarliestFutureCandidate(t *testing.T) {
 		t.Fatalf("next must be the retry time: %+v", d)
 	}
 }
+
+func TestNoneIsNeverDue(t *testing.T) {
+	cfg, warn := FromAPI(api.Schedule{Kind: api.ScheduleNone, TimeZone: "Europe/Berlin"}, "server", 0)
+	if cfg.Kind != api.ScheduleNone || len(warn) != 0 {
+		t.Fatalf("none must be taken as it is, without a warning: %+v %v", cfg, warn)
+	}
+	now := utc(2026, 9, 30, 22, 30)
+	for name, h := range map[string]History{
+		"never backed up": {EnrolledAt: utc(2026, 9, 1, 0, 0)},
+		"long ago":        {EnrolledAt: utc(2026, 9, 1, 0, 0), LastAttemptAt: utc(2026, 9, 2, 0, 0)},
+		"interrupted":     {LastAttemptAt: now.Add(-time.Hour), Interrupted: true},
+		"failing":         {LastAttemptAt: now.Add(-2 * time.Hour), ConsecutiveFailures: 1},
+	} {
+		for _, reachable := range []bool{true, false} {
+			d := Evaluate(cfg, h, now, reachable)
+			if d.Due || !d.Next.IsZero() || d.Reason != WaitingForJob {
+				t.Errorf("%s (reachable %v): %+v", name, reachable, d)
+			}
+		}
+	}
+}
+
+// An agent older than the none kind falls back to the default of its profile
+// (what this test pins down): the server therefore sends such a machine no
+// paths, see TestUnknownScheduleWithoutPathsBacksNothingUp in package core.
+func TestUnknownKindFallsBackToTheProfileDefault(t *testing.T) {
+	cfg, warn := FromAPI(api.Schedule{Kind: "some_future_kind"}, "server", 0)
+	if cfg.Kind != api.ScheduleDaily || len(warn) != 1 {
+		t.Fatalf("server: %+v %v", cfg, warn)
+	}
+}

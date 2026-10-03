@@ -4,10 +4,11 @@ import {
   DEFAULT_SCHEDULE_TIMEZONE,
   RESTIC_VERSION,
   type RestoreTestTaskParams,
+  agentFacingConfig,
   bandwidthTimeZone,
-  defaultEndpointConfig,
   effectiveBandwidthKbps,
   endpointPasswordKey,
+  enrolledEndpointConfig,
   enrollmentTokenState,
   failureOfRun,
   generateAgentSecret,
@@ -104,14 +105,16 @@ export interface EnrollResponse {
  * (the agent does not know them) and with `bandwidthKbps` as the limit that applies at `now`, the
  * active window's, else the default. The stored configuration and its version are never touched
  * by a window starting or ending, so the agent's cached copy never goes stale because of one; it
- * asks again when a backup starts and then gets the limit of that moment.
+ * asks again when a backup starts and then gets the limit of that moment. A machine in no backup
+ * job (schedule `none`) is sent no folders and no hooks (`agentFacingConfig`): an agent older
+ * than 0.2.1 does not know `none` and would otherwise back them up on its profile's default.
  */
 export function configResponse(
   config: EndpointConfig,
   configVersion: number,
   effective?: { zone: string; now: Date },
 ): AgentConfigResponse {
-  const { bandwidthWindows, ...rest } = config;
+  const { bandwidthWindows, ...rest } = agentFacingConfig(config);
   if (!bandwidthWindows || bandwidthWindows.length === 0 || !effective) {
     return { ...rest, configVersion };
   }
@@ -231,7 +234,9 @@ export async function enrollEndpoint(
         detail: "The tenant of this enrollment token is currently suspended.",
       });
     }
-    const config = defaultEndpointConfig(os, claimed.profile, {
+    // No schedule until an admin puts the machine into a backup job (docs/AGENT.md, "Jobs"); the
+    // profile's folders stay in the configuration for the job editor to start from.
+    const config = enrolledEndpointConfig(os, claimed.profile, {
       timeZone: tenant.timeZone ?? DEFAULT_SCHEDULE_TIMEZONE,
     });
     const stored = await storeSecret(db, {

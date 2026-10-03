@@ -101,7 +101,8 @@
   },
   "errors": {
     "imapNotPerMailbox": "Die Quelle dieses Kontos meldet jedes Postfach mit ihrer eigenen gespeicherten Anmeldung an; es hat kein eigenes Passwort zum Setzen oder Testen.",
-    "imapCredentialNotConfigured": "Dieses Postfach hat noch kein Passwort; zuerst eines setzen."
+    "imapCredentialNotConfigured": "Dieses Postfach hat noch kein Passwort; zuerst eines setzen.",
+    "accountHasBackups": "Für dieses Konto gibt es Sicherungen oder eine Legal Hold, aktiv oder bereits aufgehoben. Es kann deshalb nicht entfernt werden. Schließen Sie es stattdessen vom Schutz aus; die Aufbewahrung entfernt die Sicherungen, wenn sie ablaufen."
   },
   "objects": {
     "search": "Name, Adresse oder ID suchen",
@@ -163,7 +164,22 @@
       "title": "{name} entfernen?",
       "description": "Das Konto verschwindet aus der Liste. Es hat keine Sicherungen, daher wird sonst nichts entfernt.",
       "confirm": "Entfernen"
+    },
+    "removeBlocked": {
+      "title": "{name} hat Sicherungen",
+      "hasBackups": "{appName} löscht Sicherungen nie als Nebeneffekt. {count, plural, one {Die vorhandene Sicherung bleibt wiederherstellbar und läuft gemäß der Aufbewahrung ab.} other {Die # vorhandenen Sicherungen bleiben wiederherstellbar und laufen gemäß der Aufbewahrung ab.}} Um neue Sicherungen zu stoppen, schließen Sie das Konto vom Schutz aus, statt es zu entfernen.",
+      "legalHold": "Für dieses Konto gilt eine Rechtshaltung (Legal Hold), daher kann es nicht entfernt werden. Seine Sicherungen bleiben erhalten und wiederherstellbar, bis die Haltung aufgehoben wird.",
+      "alreadyExcluded": "Dieses Konto ist bereits vom Schutz ausgeschlossen, es laufen keine neuen Sicherungen.",
+      "exclude": "Vom Schutz ausschließen"
     }
+  },
+  "rowActions": {
+    "restorePoints": "Wiederherstellungspunkte öffnen",
+    "explorer": "Im Explorer wiederherstellen",
+    "newJob": "Neuer Job mit diesem Objekt",
+    "newJobFromSelection": "{count, plural, one {Neuer Job mit # Objekt} other {Neuer Job mit # Objekten}}",
+    "selectionMenu": "{count, plural, one {Aktionen für # ausgewähltes Objekt} other {Aktionen für # ausgewählte Objekte}}",
+    "noBackup": "Von diesem Objekt gibt es noch keine Sicherung."
   },
   "bulk": {
     "selected": "{count, plural, one {# ausgewählt} other {# ausgewählt}}",
@@ -335,10 +351,6 @@
     "fileLoaded": "{name} geladen",
     "fileError": "Die Datei konnte nicht gelesen werden.",
     "check": "Liste prüfen",
-    "singlePassword": {
-      "label": "Passwort",
-      "hint": "Wird nur genutzt, weil diese Quelle ein Passwort je Postfach hat. Mehrere Konten auf einmal hinzufügen braucht weiterhin die eigene Passwort-Spalte der CSV-Kopfzeile."
-    },
     "add": "{count, plural, one {# Konto hinzufügen} other {# Konten hinzufügen}}",
     "summary": "{created, plural, =0 {Keine neuen Konten} one {# neues Konto} other {# neue Konten}}, {existing, plural, =0 {keines bereits vorhanden} one {# bereits vorhanden} other {# bereits vorhanden}}",
     "done": "{created, plural, =0 {Keine neuen Konten hinzugefügt} one {# Konto hinzugefügt} other {# Konten hinzugefügt}}.",
@@ -354,7 +366,8 @@
       "displayName": "Name",
       "password": "Passwort",
       "passwordSet": "Gesetzt",
-      "state": "Status"
+      "state": "Status",
+      "passwordMissing": "Nicht gesetzt"
     },
     "issues": {
       "title": "{count, plural, one {# Zeile übersprungen} other {# Zeilen übersprungen}}",
@@ -364,6 +377,18 @@
       "duplicate_login": "doppelter Login {value}",
       "invalid_email": "ungültige Adresse {value}"
     },
-    "failed": "Die Konten konnten nicht hinzugefügt werden."
+    "failed": "Die Konten konnten nicht hinzugefügt werden.",
+    "entries": {
+      "title": "Passwörter je Postfach",
+      "password": "Passwort",
+      "username": "Benutzername (optional)",
+      "hint": "Diese Quelle verwendet ein Passwort je Postfach. Tragen Sie den Benutzernamen nur ein, wenn sich das Postfach mit etwas anderem als der Adresse oben anmeldet."
+    },
+    "authMode": {
+      "shared": "Diese Quelle nutzt eine gemeinsame Anmeldung für alle Postfächer: Hier sind keine Passwörter nötig.",
+      "per_mailbox": "Diese Quelle nutzt ein Passwort je Postfach: Geben Sie unten das Passwort jedes neuen Postfachs ein.",
+      "master_user": "Diese Quelle meldet sich mit einem Master-Benutzer an jedem Postfach an: Hier sind keine Passwörter nötig.",
+      "change": "Modus ändern"
+    }
   }
 }

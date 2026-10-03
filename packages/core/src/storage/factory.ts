@@ -3,7 +3,7 @@
  *
  * A tenant's chunk store lives on one primary target and any number of copy
  * targets (docs/ARCHITECTURE.md, Chunk-Store / Backends). A target is either a
- * mounted filesystem (`local`: the Docker volume, an NFS or SMB mount) or an
+ * mounted filesystem (`local`: the Docker volume, an NFS mount) or an
  * S3-compatible bucket (`s3`: Hetzner Object Storage, Garage, Wasabi, Backblaze
  * B2, AWS). This module turns the stored description of a target into a
  * {@link StorageBackend} and answers the questions an operator asks about it:
@@ -43,7 +43,7 @@ export type StorageRole = "primary" | "copy";
 
 export const STORAGE_KINDS: readonly StorageKind[] = ["local", "s3"];
 
-/** A mounted filesystem: the Docker volume or an NFS/SMB share mounted into the containers. */
+/** A mounted filesystem: the Docker volume or an NFS share mounted into the containers. */
 export interface LocalStorageLocation {
   readonly kind: "local";
   /** Absolute, normalized directory path (no trailing slash). */
@@ -394,6 +394,25 @@ function prefixSegmentsOverlap(a: string | null, b: string | null): boolean {
 }
 
 /**
+ * Whether `next` points at other storage than `current`. Region and addressing
+ * style only describe how to talk to the same bucket, so correcting them never
+ * moves data; the path, the service (endpoint), the bucket and the prefix do.
+ */
+export function storageLocationMoves(current: StorageLocation, next: StorageLocation): boolean {
+  if (current.kind === "local" && next.kind === "local") {
+    return current.basePath !== next.basePath;
+  }
+  if (current.kind === "s3" && next.kind === "s3") {
+    return (
+      current.endpoint !== next.endpoint ||
+      current.bucket !== next.bucket ||
+      current.prefix !== next.prefix
+    );
+  }
+  return true;
+}
+
+/**
  * True when two locations share storage: the same place, or one nested inside
  * the other. A copy that overlaps its primary is not an independent copy.
  */
@@ -634,6 +653,23 @@ function requireValid(kind: StorageKind, config: Record<string, unknown>, variab
 }
 
 /**
+ * STORAGE_COPY_LOCAL_PATH, the mounted share every write to the installation
+ * default is copied to, or null when it is not set. It belongs to the server
+ * (a mount), so it comes from the environment even when the default itself is
+ * configured in the web UI (installation-default.ts).
+ */
+export function environmentDefaultCopy(values: Env = process.env): LocalStorageLocation | null {
+  const copyPath = env(values, "STORAGE_COPY_LOCAL_PATH");
+  return copyPath
+    ? (requireValid(
+        "local",
+        { basePath: copyPath },
+        "STORAGE_COPY_LOCAL_PATH",
+      ) as LocalStorageLocation)
+    : null;
+}
+
+/**
  * Read the installation default exactly as the worker does: STORAGE_TARGET
  * (`local` | `s3`, default local), STORAGE_LOCAL_PATH (default /data/chunks),
  * S3_* and the optional STORAGE_COPY_LOCAL_PATH.
@@ -646,14 +682,7 @@ export function installationDefaultStorage(values: Env = process.env): Installat
       `STORAGE_TARGET must be "local" or "s3", got "${target}"`,
     );
   }
-  const copyPath = env(values, "STORAGE_COPY_LOCAL_PATH");
-  const copy = copyPath
-    ? (requireValid(
-        "local",
-        { basePath: copyPath },
-        "STORAGE_COPY_LOCAL_PATH",
-      ) as LocalStorageLocation)
-    : null;
+  const copy = environmentDefaultCopy(values);
 
   if (target === "local") {
     return {
@@ -735,7 +764,12 @@ export async function resolveStorageTargets(
   rows: readonly StorageTargetRow[],
   options: {
     readonly secrets: SecretReader;
-    readonly defaults: StorageTargets | (() => StorageTargets);
+    /**
+     * The installation default: fixed targets, or a function that resolves
+     * them (the environment, or the default saved in the web UI, see
+     * installation-default.ts), called at most once and only when needed.
+     */
+    readonly defaults: StorageTargets | (() => StorageTargets | Promise<StorageTargets>);
   },
 ): Promise<ResolvedStorageTargets> {
   const primaryRow = rows.find((row) => row.role === "primary");
@@ -743,20 +777,21 @@ export async function resolveStorageTargets(
   const previous: StorageBackend[] = [];
   let primary: StorageBackend;
   // Resolved once, lazily: most tenants have a primary row and no `previous`
-  // one, so the environment (and its S3 credentials) need not be read at all.
+  // one, so the default (and its S3 credentials) need not be read at all.
   let defaultsCache: StorageTargets | undefined;
-  const defaults = (): StorageTargets => {
+  const defaults = async (): Promise<StorageTargets> => {
     if (!defaultsCache) {
       defaultsCache =
-        typeof options.defaults === "function" ? options.defaults() : options.defaults;
+        typeof options.defaults === "function" ? await options.defaults() : options.defaults;
     }
     return defaultsCache;
   };
   if (primaryRow) {
     primary = (await openStorageTarget(primaryRow, options.secrets)).backend;
   } else {
-    primary = defaults().primary;
-    copies.push(...defaults().copies);
+    const resolved = await defaults();
+    primary = resolved.primary;
+    copies.push(...resolved.copies);
   }
   for (const row of rows) {
     if (row.role === "copy") {
@@ -764,7 +799,7 @@ export async function resolveStorageTargets(
     } else if (row.role === "previous") {
       previous.push(
         row.kind === "installation_default"
-          ? defaults().primary
+          ? (await defaults()).primary
           : (await openStorageTarget(row, options.secrets)).backend,
       );
     }

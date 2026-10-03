@@ -14,6 +14,7 @@ const STATUS = {
   outcome: null,
   targetVersion: "0.2.0",
   fromVersion: "0.1.0",
+  switchTo: null,
   startsAt: "2026-09-30T12:00:00.000Z",
   startedAt: "2026-09-30T12:00:01.000Z",
   finishedAt: null,
@@ -75,6 +76,10 @@ describe("parseMaintenance", () => {
   it("adds the version the answering api runs", () => {
     expect(parseMaintenance({ ...STATUS, runningVersion: "0.1.0" })?.runningVersion).toBe("0.1.0");
     expect(parseMaintenance(STATUS)?.runningVersion).toBeNull();
+    // The build switch passes through; a target this page does not know reads as none.
+    expect(parseMaintenance({ ...STATUS, switchTo: "full" })?.switchTo).toBe("full");
+    expect(parseMaintenance({ ...STATUS, switchTo: "other" })?.switchTo).toBeNull();
+    expect(parseMaintenance({ ...STATUS, switchTo: undefined })?.switchTo).toBeNull();
     expect(parseMaintenance({ nope: true })).toBeNull();
   });
 

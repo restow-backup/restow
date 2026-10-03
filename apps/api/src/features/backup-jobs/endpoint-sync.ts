@@ -2,6 +2,8 @@ import {
   buildEndpointConfig,
   effectiveSchedule,
   effectiveSettings,
+  isUnscheduled,
+  noSchedule,
   retentionToWrite,
   sameEndpointConfig,
 } from "@restow/core";
@@ -10,10 +12,11 @@ import {
   type Endpoint,
   type EndpointConfig,
   backupJobMembers,
+  endpointRuns,
   endpointTasks,
   endpoints,
 } from "@restow/db";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import type { Transaction } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { ENDPOINT_AUDIT_ACTIONS, auditEndpoint } from "../endpoints/audit.js";
@@ -30,7 +33,8 @@ import type { JobActor } from "./service-types.js";
  * the machine by hand, so the agent keeps reading `GET /agent/v1/config` and nothing else.
  * Writing is idempotent: a configuration that already is what the job asks for is left alone,
  * version included. The same function runs when a job or its scope changes and when the
- * migration turns the machines of an older installation into jobs.
+ * migration turns the machines of an older installation into jobs. A machine that leaves its job
+ * goes back to the schedule `none` ({@link releaseEndpointConfigs}): backups run only in a job.
  */
 
 export interface SyncOptions {
@@ -230,4 +234,107 @@ export async function syncEndpointConfigs(
     });
   }
   return { updated, unchanged, skipped };
+}
+
+/** Machines that left a job and went back to waiting for one. */
+export interface ReleasedEndpoint {
+  readonly endpointId: string;
+  readonly hostname: string;
+  readonly configVersion: number;
+}
+
+/**
+ * Put machines that left `job` (taken out of it, or the job was deleted) back to the schedule
+ * `none`, so they stop backing up until they are in a job again (release 0.2.1; before, a machine
+ * kept the configuration last written to it). Only the schedule changes: the folders and the rest
+ * stay for the next job to start from, and the server hands an agent none of them while the
+ * schedule is `none` (`configResponse`). A backup request that has not started a run is
+ * dropped; one already running ends as it would. Machines that are in another job by now (moved
+ * into it in the same change) and revoked ones are left alone. Like `syncEndpointConfigs`, it
+ * raises the configuration version and tells the agent to fetch it.
+ */
+export async function releaseEndpointConfigs(
+  tx: Transaction,
+  tenantId: string,
+  job: Pick<BackupJob, "id" | "name">,
+  endpointIds: readonly string[],
+  options: { readonly actor: JobActor; readonly now: Date },
+): Promise<ReleasedEndpoint[]> {
+  if (endpointIds.length === 0) {
+    return [];
+  }
+  const stillInJob = await tx
+    .select({ endpointId: backupJobMembers.endpointId })
+    .from(backupJobMembers)
+    .where(
+      and(
+        eq(backupJobMembers.tenantId, tenantId),
+        inArray(backupJobMembers.endpointId, [...endpointIds]),
+      ),
+    );
+  const member = new Set(stillInJob.map((row) => row.endpointId));
+  const ids = endpointIds.filter((id) => !member.has(id));
+  if (ids.length === 0) {
+    return [];
+  }
+  const rows = await tx
+    .select()
+    .from(endpoints)
+    .where(
+      and(
+        eq(endpoints.tenantId, tenantId),
+        inArray(endpoints.id, ids),
+        ne(endpoints.status, "revoked"),
+      ),
+    )
+    .for("update");
+  const released: ReleasedEndpoint[] = [];
+  for (const endpoint of rows) {
+    await tx
+      .update(endpointTasks)
+      .set({
+        status: "failed",
+        finishedAt: options.now,
+        errorMessage: "the machine left its backup job",
+      })
+      .where(
+        and(
+          eq(endpointTasks.endpointId, endpoint.id),
+          eq(endpointTasks.kind, "backup_now"),
+          inArray(endpointTasks.status, ["pending", "delivered"]),
+          sql`NOT EXISTS (SELECT 1 FROM ${endpointRuns} r WHERE r.task_id = ${endpointTasks.id})`,
+        ),
+      );
+    if (isUnscheduled(endpoint.config.schedule)) {
+      continue;
+    }
+    const schedule = noSchedule(endpoint.config.schedule.timeZone);
+    const configVersion = endpoint.configVersion + 1;
+    await tx
+      .update(endpoints)
+      .set({ config: { ...endpoint.config, schedule }, configVersion })
+      .where(eq(endpoints.id, endpoint.id));
+    await tx.insert(endpointTasks).values({
+      tenantId,
+      endpointId: endpoint.id,
+      kind: "update_config",
+      params: { configVersion },
+      createdBy: options.actor.userId,
+      createdAt: options.now,
+    });
+    await auditEndpoint(tx, {
+      tenantId,
+      actor: options.actor,
+      action: ENDPOINT_AUDIT_ACTIONS.configChanged,
+      endpointId: endpoint.id,
+      details: {
+        hostname: endpoint.hostname,
+        changed: ["config.schedule"],
+        schedule,
+        via: { job: { id: job.id, name: job.name }, left: true },
+      },
+    });
+    released.push({ endpointId: endpoint.id, hostname: endpoint.hostname, configVersion });
+  }
+  return released;
 }

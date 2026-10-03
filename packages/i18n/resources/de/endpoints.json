@@ -95,6 +95,11 @@
       "label": "Noch nie verbunden",
       "hint": "Der Agent hat sich noch nie bei {appName} gemeldet.",
       "message": "Der Agent hat sich noch nie bei {appName} gemeldet. Prüfen Sie, ob der Installationsbefehl auf dem Rechner gelaufen ist und der Rechner diese Adresse erreicht."
+    },
+    "no_job": {
+      "label": "Ohne Backup",
+      "hint": "Der Rechner ist in keinem Backup-Job und wird nicht gesichert.",
+      "message": "Der Rechner ist in keinem Backup-Job und wird deshalb nicht gesichert. Legen Sie einen Job an oder fügen Sie ihn einem bestehenden Job hinzu."
     }
   },
   "list": {
@@ -118,8 +123,25 @@
       "lastBackup": "Letzte Sicherung",
       "lastSeen": "Letzter Kontakt",
       "readiness": "Wiederherstellbarkeit",
+      "job": "Backup-Job",
+      "assignedTo": "Zugeordnet zu",
       "attention": "Handlungsbedarf",
-      "agentVersion": "Agent-Version"
+      "agentVersion": "Agent-Version",
+      "actions": "Aktionen"
+    },
+    "actionsFor": "Aktionen für {name}",
+    "assignedNobody": "Niemandem",
+    "rowActions": {
+      "open": "Rechner öffnen",
+      "restoreFiles": "Dateien wiederherstellen",
+      "noRestorePoint": "Für diesen Rechner gibt es noch keine Sicherung, aus der Sie wiederherstellen könnten.",
+      "revoked": "Der Rechner ist gesperrt.",
+      "newJobFromSelection": "{count, plural, one {Neuer Job mit # Rechner} other {Neuer Job mit # Rechnern}}",
+      "addSelectionToJob": "{count, plural, one {# Rechner zu einem Job hinzufügen…} other {# Rechner zu einem Job hinzufügen…}}"
+    },
+    "jobFilter": {
+      "without": "Ohne Backup",
+      "in_job": "In einem Job"
     },
     "errors": {
       "load": "Die Rechner konnten nicht geladen werden"
@@ -141,6 +163,53 @@
         "title": "Noch keine Clients",
         "description": "Fügen Sie einen Laptop oder Desktop hinzu: {appName} erzeugt einen einmaligen Befehl, der den Backup-Agent installiert. Der Client wird gesichert, sobald er online ist."
       }
+    }
+  },
+  "noJob": {
+    "badge": "Ohne Backup",
+    "hint": "Der Rechner ist in keinem Backup-Job. Erst ein Job legt fest, wann und was gesichert wird.",
+    "title": "Dieser Rechner wird nicht gesichert",
+    "description": "Der Rechner ist in keinem Backup-Job. Ein neu angemeldeter Rechner sichert erst, wenn Sie ihn einem Job hinzufügen; der Job legt Zeitplan, Ordner und Aufbewahrung fest.",
+    "descriptionLegacy": "Der Rechner ist in keinem Backup-Job. Er läuft noch mit dem Zeitplan einer früheren Version weiter, den hier niemand mehr ändern kann. Fügen Sie ihn einem Job hinzu, damit der Job Zeitplan, Ordner und Aufbewahrung festlegt.",
+    "askAdmin": "Bitten Sie eine Administratorin oder einen Administrator des Mandanten, den Rechner einem Backup-Job hinzuzufügen.",
+    "banner": "{count, plural, one {# Rechner ist ohne Backup: Er ist in keinem Backup-Job und wird nicht gesichert.} other {# Rechner sind ohne Backup: Sie sind in keinem Backup-Job und werden nicht gesichert.}}",
+    "createJob": "Job anlegen",
+    "addToJob": "Zu Job hinzufügen…"
+  },
+  "addToJob": {
+    "title": "{count, plural, one {Rechner einem Job hinzufügen} other {# Rechner einem Job hinzufügen}}",
+    "description": "{count, plural, one {Wählen Sie den Backup-Job für {name}. Der Job legt fest, wann und was gesichert wird; der Rechner übernimmt das bei seinem nächsten Kontakt.} other {Wählen Sie den Backup-Job für die # Rechner. Der Job legt fest, wann und was gesichert wird; jeder Rechner übernimmt das bei seinem nächsten Kontakt.}}",
+    "label": "Backup-Job",
+    "loading": "Die Jobs werden geladen …",
+    "noJobs": "Es gibt noch keinen Job für Server und Clients. Legen Sie einen an; der Rechner ist darin schon ausgewählt.",
+    "machines": "{count, plural, one {# Rechner} other {# Rechner}}",
+    "conflict": "{count, plural, one {Der Rechner ist inzwischen im Job {job}. Ein Rechner ist immer nur in einem Job. Mit „Hierher verschieben“ wechselt er in den gewählten Job.} other {# Rechner sind inzwischen in anderen Jobs, zum Beispiel {job}. Ein Rechner ist immer nur in einem Job. Mit „Hierher verschieben“ wechseln sie in den gewählten Job.}}",
+    "cancel": "Abbrechen",
+    "submit": "Hinzufügen",
+    "move": "Hierher verschieben",
+    "added": "{count, plural, one {{name} ist jetzt im Job {job}} other {# Rechner sind jetzt im Job {job}}}",
+    "addedNote": "Der Zeitplan des Jobs gilt ab dem nächsten Kontakt des Rechners."
+  },
+  "assign": {
+    "action": "Zuordnen…",
+    "change": "Ändern…",
+    "title": "{name} einer Person zuordnen",
+    "description": "Wählen Sie die Person, die diesen Rechner nutzt. Die Personen stammen aus dem Verzeichnis des Mandanten (aus Microsoft 365 synchronisiert oder von Hand angelegt); Zugriff auf etwas erhält dadurch niemand.",
+    "current": "Zugeordnet zu",
+    "remove": "Zuordnung aufheben",
+    "search": "Name oder Adresse suchen",
+    "empty": "Das Verzeichnis enthält noch keine Personen.",
+    "noMatch": "Niemand im Verzeichnis passt zur Suche.",
+    "more": "Es passen weitere Personen. Geben Sie mehr vom Namen ein, um die Liste einzugrenzen.",
+    "loadError": "Die Personen des Verzeichnisses konnten nicht geladen werden.",
+    "close": "Schließen",
+    "toast": {
+      "assigned": "{name} ist jetzt {person} zugeordnet",
+      "removed": "{name} ist jetzt niemandem zugeordnet"
+    },
+    "blocked": {
+      "demo": "Das ist die öffentliche Demo: Rechner lassen sich ansehen, aber nicht zuordnen.",
+      "role": "Ihre Rolle im Provider-Team darf Rechner ansehen, aber nicht ändern. Zum Zuordnen eines Rechners ist mindestens die Rolle Administrator nötig."
     }
   },
   "pending": {
@@ -196,6 +265,7 @@
       "hint": "Wird in den Listen statt des Hostnamens angezeigt. Sie können ihn später ändern."
     },
     "honesty": "Der Agent sichert Dateien und Ordner. Er erstellt keine Festplatten-Abbilder; eine Bare-Metal-Wiederherstellung ist nicht möglich.",
+    "jobNote": "Ein neuer Rechner wird erst gesichert, wenn Sie ihn einem Backup-Job hinzufügen. Der Job legt fest, wann und was gesichert wird.",
     "cancel": "Abbrechen",
     "create": "Installationsbefehl erstellen",
     "createAnother": "Neuen Befehl erstellen",
@@ -240,8 +310,8 @@
       "connected": {
         "title": "Verbunden",
         "description": {
-          "server": "Der Server ist angemeldet. Er wird nach seinem Zeitplan gesichert; Sie können auch sofort die erste Sicherung starten.",
-          "client": "Der Client ist angemeldet. Er wird gesichert, sobald er online ist; Sie können auch sofort die erste Sicherung starten."
+          "server": "Der Server ist angemeldet. Gesichert wird er erst, wenn Sie ihn einem Backup-Job hinzufügen: Legen Sie einen Job an oder fügen Sie ihn auf seiner Seite einem bestehenden Job hinzu.",
+          "client": "Der Client ist angemeldet. Gesichert wird er erst, wenn Sie ihn einem Backup-Job hinzufügen: Legen Sie einen Job an oder fügen Sie ihn auf seiner Seite einem bestehenden Job hinzu."
         },
         "open": {
           "server": "Server öffnen",
@@ -316,7 +386,8 @@
       "queued": "Sicherung angefordert",
       "queuedNote": "Der Rechner startet sie bei seinem nächsten Kontakt, meist innerhalb weniger Minuten.",
       "already": "Für diesen Rechner wartet bereits eine Sicherung.",
-      "failed": "Die Sicherung konnte nicht angefordert werden"
+      "failed": "Die Sicherung konnte nicht angefordert werden",
+      "needsJob": "Fügen Sie den Rechner zuerst einem Backup-Job hinzu."
     },
     "test": {
       "label": "Wiederherstellungstest starten",
@@ -347,7 +418,9 @@
     "noNextRun": "Keine, der Rechner ist gesperrt",
     "config": "Konfiguration",
     "job": "Backup-Job",
-    "jobNone": "Keiner: Der Rechner behält seine bisherige Konfiguration",
+    "jobNone": "Keiner: Der Rechner wird nicht gesichert",
+    "assignedTo": "Zugeordnet zu",
+    "assignedNobody": "Niemandem",
     "configApplied": "Version {version}, auf dem Rechner angewendet",
     "configPending": "Version {version} ist gespeichert; der Rechner läuft noch mit Version {applied} und holt die Änderung bei seinem nächsten Kontakt ab",
     "configNone": "keine",
@@ -522,7 +595,8 @@
       "unrecorded": "Von keiner Sicherung gemeldet",
       "future_time": "In der Zukunft datiert",
       "hint": "Die Aufbewahrung behält diesen Snapshot. Prüfen Sie den Rechner: Er könnte kompromittiert sein."
-    }
+    },
+    "timelineLabel": "Sicherungsstände von {name}"
   },
   "browser": {
     "title": "Dateien in Snapshot {id}",
@@ -614,7 +688,9 @@
     "general": {
       "title": "Allgemein",
       "name": "Name",
-      "nameHint": "Wird statt des Hostnamens {hostname} angezeigt. Leer lassen, um den Hostnamen anzuzeigen."
+      "nameHint": "Wird statt des Hostnamens {hostname} angezeigt. Leer lassen, um den Hostnamen anzuzeigen.",
+      "assignedTo": "Zugeordnet zu",
+      "assignedHint": "Die Person aus dem Verzeichnis, die diesen Rechner nutzt. Wird sofort gespeichert, nicht mit der Schaltfläche unten."
     },
     "files": {
       "title": "Was gesichert wird",
@@ -635,6 +711,7 @@
     "schedule": {
       "title": "Zeitplan",
       "description": "Wann der Agent eine Sicherung startet.",
+      "noJobDescription": "Den Zeitplan legt der Backup-Job fest, in dem der Rechner ist.",
       "kind": "Ausführung",
       "kinds": {
         "daily": "Täglich zu einer festen Uhrzeit",
@@ -753,6 +830,7 @@
       "staleAfterDays": "Alarme",
       "quotaGib": "Speicherbudget"
     },
+    "anchors": "Abschnitte der Einstellungen",
     "save": {
       "unsaved": "Nicht gespeicherte Änderungen",
       "clean": "Keine Änderungen",
@@ -849,8 +927,10 @@
     "hooksNotAllowed": "Dieser Rechner lässt keine Hooks aus {appName} zu. Ein Administrator des Rechners kann sie dort mit sudo restow-agent hooks scripts oder sudo restow-agent hooks any erlauben.",
     "hookNotAScript": "Dieser Rechner führt nur Skripte aus /etc/restow-agent/hooks.d aus. Geben Sie den Namen eines Skripts dort ein, keinen Befehl.",
     "configManagedByJob": "Dieser Rechner ist in einem Backup-Job, der seine Konfiguration verwaltet. Zeitplan, Ordner, Ausschlüsse, Befehle und Bandbreitenbegrenzung ändern Sie im Job.",
+    "noJob": "Dieser Rechner ist in keinem Backup-Job und wird deshalb nicht gesichert. Fügen Sie ihn zuerst einem Job hinzu.",
     "recentSignIn": "Bestätigen Sie zuerst, dass Sie es sind: Das Setzen oder Ändern eines Hooks und das Anzeigen des Repository-Passworts erfordern eine Anmeldung aus den letzten 10 Minuten.",
-    "invalidBandwidthWindows": "Die Zeitfenster lassen sich so nicht speichern. Prüfen Sie die Tage, die Uhrzeiten und dass sich keine zwei Zeitfenster überschneiden."
+    "invalidBandwidthWindows": "Die Zeitfenster lassen sich so nicht speichern. Prüfen Sie die Tage, die Uhrzeiten und dass sich keine zwei Zeitfenster überschneiden.",
+    "assigneeUnknown": "Die Person steht nicht (mehr) im Verzeichnis dieses Mandanten. Wählen Sie eine Person aus der Liste."
   },
   "readinessSection": {
     "overdue": "Überfällig",
@@ -916,18 +996,46 @@
   },
   "fileRestore": {
     "title": "Datei-Restore",
-    "subtitle": "Dateien aus einem Sicherungsstand eines Rechners wiederherstellen oder herunterladen.",
-    "machine": "Rechner",
-    "choose": "Rechner wählen",
+    "subtitle": "Dateien und E-Mails aus einem Sicherungsstand eines Rechners oder Postfachs wiederherstellen oder herunterladen.",
+    "machines": "Rechner",
+    "search": "Rechner und Postfächer suchen",
+    "noMatch": "Kein Rechner und kein Postfach passt zur Suche.",
+    "lastBackup": "Letzte Sicherung {time}",
+    "noBackup": "Noch keine Sicherung",
     "noTenant": "Wählen Sie oben einen Mandanten, um Dateien seiner Rechner wiederherzustellen.",
     "pick": {
-      "title": "Rechner wählen",
-      "description": "Wählen Sie oben einen Rechner. Danach wählen Sie einen Sicherungsstand, durchsuchen ihn und stellen Dateien wieder her."
+      "title": "Rechner oder Postfach wählen",
+      "description": "Wählen Sie links einen Rechner oder ein Postfach. Danach wählen Sie einen Sicherungsstand auf der Zeitleiste und stellen Dateien oder E-Mails wieder her."
     },
     "empty": {
-      "title": "Noch keine Rechner",
-      "description": "Fügen Sie im Inventar einen Server oder Client hinzu. Sobald er gesichert ist, stellen Sie hier Dateien wieder her.",
+      "title": "Noch nichts gesichert",
+      "description": "Fügen Sie im Inventar einen Server oder Client hinzu oder schützen Sie Postfächer. Sobald sie gesichert sind, stellen Sie hier Dateien und E-Mails wieder her.",
       "action": "Zum Inventar"
+    },
+    "sources": "Rechner und Postfächer",
+    "noMachines": "Noch kein Rechner.",
+    "mailboxes": "Postfächer",
+    "noMailboxes": "Noch kein Postfach gesichert.",
+    "mailboxesError": "Die Postfächer konnten nicht geladen werden.",
+    "mailbox": {
+      "description": "{count, plural, one {# Sicherungsstand dieses Postfachs.} other {# Sicherungsstände dieses Postfachs.}}",
+      "sequence": "#{sequence}",
+      "items": "{count, plural, one {# Element} other {# Elemente}}",
+      "chosen": "Sicherungsstand #{sequence} vom {time}",
+      "itemsLabel": "Elemente",
+      "sizeLabel": "Größe",
+      "verifiedLabel": "Restore-Prüfung",
+      "explorerNote": "Im Restore-Explorer können Sie E-Mails, Ordner, Kalender und Kontakte dieses Sicherungsstands durchsuchen, lesen und wiederherstellen. Er öffnet sich genau bei diesem Postfach und Sicherungsstand.",
+      "open": "Im Restore-Explorer öffnen",
+      "loadError": "Die Sicherungsstände dieses Postfachs konnten nicht geladen werden",
+      "empty": {
+        "title": "Noch kein Sicherungsstand",
+        "description": "Dieses Postfach hat noch keine abgeschlossene Sicherung. Seine Sicherungsstände erscheinen hier nach der ersten."
+      },
+      "notFound": {
+        "title": "Postfach nicht gefunden",
+        "description": "Dieses Postfach wird in diesem Mandanten nicht gesichert. Wählen Sie links ein anderes."
+      }
     }
   },
   "proxmox": {

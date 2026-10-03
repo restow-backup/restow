@@ -451,6 +451,18 @@ describe("endpoint migration", () => {
     expect(plans[0]?.schedule).toMatchObject({ kind: "daily", timeOfDay: "22:00" });
   });
 
+  it("leaves machines without a schedule out: they wait for a job of the admin's choosing", () => {
+    const plans = planEndpointMigration([
+      machine("a"),
+      machine("waiting", { schedule: { kind: "none", timeZone: ZONE } }),
+    ]);
+    expect(plans).toHaveLength(1);
+    expect(plans[0]?.members.map((m) => m.endpointId)).toEqual(["a"]);
+    expect(
+      planEndpointMigration([machine("w", { schedule: { kind: "none", timeZone: ZONE } })]),
+    ).toEqual([]);
+  });
+
   it("splits by profile, operating system and schedule", () => {
     const plans = planEndpointMigration([
       machine("srv1"),

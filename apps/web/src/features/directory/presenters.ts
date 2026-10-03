@@ -226,8 +226,21 @@ export function availableActions(object: ProtectedObject): {
     include: live && (m365 ? object.override !== "include" : object.status !== "active"),
     exclude: live && (m365 ? object.override !== "exclude" : object.status !== "excluded"),
     reset: m365 && object.override !== null,
-    remove: object.origin === "manual" && object.snapshotCount === 0,
+    remove: object.origin === "manual",
   };
+}
+
+/**
+ * Why removing a manual account must not just delete it: a legal hold beats
+ * backups. Restow never deletes backups as a side effect, so such an account
+ * is excluded from protection instead (the API refuses the delete with 409
+ * `account-has-backups`); null when a plain delete is fine.
+ */
+export function removalBlock(object: ProtectedObject): "legal_hold" | "has_backups" | null {
+  if (object.legalHold) {
+    return "legal_hold";
+  }
+  return object.snapshotCount > 0 ? "has_backups" : null;
 }
 
 /**
@@ -365,6 +378,9 @@ const PROBLEM_KEYS: Record<string, string> = {
   "urn:restow:problem:imap-not-per-mailbox": "directory:errors.imapNotPerMailbox",
   "urn:restow:problem:imap-credential-not-configured":
     "directory:errors.imapCredentialNotConfigured",
+  // Backups, or a legal hold (also a released one), keep the account: the
+  // dialog already explains this for active holds and snapshots it knows of.
+  "urn:restow:problem:account-has-backups": "directory:errors.accountHasBackups",
 };
 
 /** The fully qualified i18n key for a failed call: feature problems first, else the common mapping. */

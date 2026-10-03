@@ -12,6 +12,9 @@ export type SecretKind =
   // sealed JSON document) and the result of its last connection test.
   | "entra_app"
   | "entra_app_test"
+  // The installation default storage saved in the web UI (installation level, one
+  // sealed JSON document with the addressing and, for S3, the key pair).
+  | "default_storage"
   | "entra_client_secret"
   | "imap_password"
   | "oauth_refresh_token"

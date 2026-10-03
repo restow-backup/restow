@@ -186,6 +186,91 @@ func TestNoExistingPathFailsClearly(t *testing.T) {
 	}
 }
 
+func TestNoneScheduleWaitsForAJob(t *testing.T) {
+	h := newHarness(t)
+	h.noHistory = true
+	// What the server sends a machine in no backup job: no paths, no hooks.
+	h.srv.Config.Schedule = api.Schedule{Kind: api.ScheduleNone, TimeZone: "UTC"}
+	h.srv.Config.Paths = nil
+	h.srv.Config.Hooks = api.Hooks{}
+	h.srv.QueueTask(task("t-1", api.TaskBackupNow, nil))
+	h.start()
+	ok := fakeserver.WaitFor(5*time.Second, func() bool { return h.status.Snapshot().WaitingForJob })
+	if !ok {
+		t.Fatalf("status does not say the machine waits for a job: %+v", h.status.Snapshot())
+	}
+	time.Sleep(400 * time.Millisecond)
+	if n := len(h.srv.AllRuns()); n != 0 {
+		t.Fatalf("a machine in no job must not back up, got %d runs", n)
+	}
+	st := h.status.Snapshot()
+	if st.Schedule != "waiting for a backup job" || !st.NextRunAt.IsZero() {
+		t.Fatalf("status: %+v", st)
+	}
+	if strings.Contains(h.commands(), "backup") {
+		t.Fatal("restic must not be started")
+	}
+}
+
+func TestBackupNowRefusesWithoutAJob(t *testing.T) {
+	h := newHarness(t)
+	h.srv.Config.Schedule = api.Schedule{Kind: api.ScheduleNone, TimeZone: "UTC"}
+	h.srv.Config.Paths = nil
+	h.build()
+	if _, err := h.agent.BackupNow(context.Background()); !errors.Is(err, ErrNoJob) {
+		t.Fatalf("err = %v, want ErrNoJob", err)
+	}
+	if n := len(h.srv.AllRuns()); n != 0 {
+		t.Fatalf("no run may be registered, got %d", n)
+	}
+}
+
+func TestJobScheduleEndsTheWait(t *testing.T) {
+	h := newHarness(t)
+	h.srv.Config.Schedule = api.Schedule{Kind: api.ScheduleNone, TimeZone: "UTC"}
+	h.start()
+	fakeserver.WaitFor(5*time.Second, func() bool { return h.status.Snapshot().WaitingForJob })
+	h.srv.Lock()
+	h.srv.Config.Schedule = api.Schedule{Kind: api.ScheduleDaily, TimeOfDay: "03:00", TimeZone: "UTC"}
+	h.srv.Config.Paths = []string{h.src}
+	h.srv.Config.ConfigVersion = "2"
+	h.srv.Unlock()
+	h.srv.QueueTask(task("t-cfg", api.TaskUpdateConfig, nil))
+	ok := fakeserver.WaitFor(5*time.Second, func() bool {
+		st := h.status.Snapshot()
+		return st.ConfigVersion == "2" && !st.WaitingForJob
+	})
+	if !ok {
+		t.Fatalf("still waiting after the job's schedule arrived: %+v", h.status.Snapshot())
+	}
+	h.srv.QueueTask(task("t-1", api.TaskBackupNow, nil))
+	if fin := h.waitRun(1).Finish; fin.Status != api.StatusSucceeded {
+		t.Fatalf("status %s", fin.Status)
+	}
+}
+
+// What an agent older than the none kind does with the configuration of a
+// machine in no job: it does not know the kind and takes its profile's
+// default schedule, but without paths the run stops before restic or a hook
+// starts. Nothing is backed up and no command runs.
+func TestUnknownScheduleWithoutPathsBacksNothingUp(t *testing.T) {
+	h := newHarness(t)
+	h.noHistory = true
+	h.hooksMode = hooks.ModeAny
+	// The fallback schedule comes due (an interval is due at once without history).
+	h.srv.Config.Schedule = api.Schedule{Kind: api.ScheduleInterval, IntervalMinutes: 60}
+	h.srv.Config.Paths = nil
+	h.srv.Config.Hooks = api.Hooks{}
+	h.start()
+	fin := h.waitRun(1).Finish
+	if fin.Status != api.StatusFailed || len(fin.Errors) != 1 || fin.Errors[0].Code != "no_paths" {
+		t.Fatalf("finish: %+v", fin)
+	}
+	if strings.Contains(h.commands(), "backup") {
+		t.Fatal("restic must not be started without paths")
+	}
+}
+
 func TestHooksPreFailureAbortsBackupPostStillRuns(t *testing.T) {
 	h := newHarness(t)
 	h.hooksMode = hooks.ModeAny

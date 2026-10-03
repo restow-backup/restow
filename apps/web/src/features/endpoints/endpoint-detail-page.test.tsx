@@ -589,6 +589,34 @@ describe("EndpointDetailPage", () => {
     expect(mismatches).toContain("File could not be read back");
   });
 
+  it("shows a machine in no job as without backup and offers no backup now", async () => {
+    const base = detail();
+    fetchEndpoint.mockResolvedValue(
+      detail({
+        job: null,
+        attention: ["no_job"],
+        problems: [],
+        config: { ...base.config, schedule: { kind: "none", timeZone: "Europe/Berlin" } },
+      }),
+    );
+    await open();
+    expect(document.querySelector('[data-slot="endpoint-badges"]')?.textContent).toContain(
+      "Without backup",
+    );
+    const notice = document.querySelector('[data-slot="without-backup-notice"]');
+    expect(notice?.textContent).toContain("This machine is not backed up");
+    expect(notice?.textContent).toContain("A newly enrolled machine backs up only once");
+    // Whoever may not manage jobs is told whom to ask.
+    expect(notice?.textContent).toContain("Ask an administrator");
+    // The notice is the explanation; the attention area does not repeat it.
+    expect(
+      document.querySelector('[data-slot="attention-alerts"] [data-attention="no_job"]'),
+    ).toBeNull();
+    const backup = page.byText<HTMLButtonElement>("button", "Back up now");
+    expect(backup.disabled).toBe(true);
+    expect(backup.title).toBe("Add the machine to a backup job first.");
+  });
+
   it("requests a backup now, and says so when one is already waiting", async () => {
     createTask.mockResolvedValue({ alreadyQueued: false, task: {} });
     await open();

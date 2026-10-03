@@ -37,6 +37,8 @@ export interface ContainerMount {
 export interface ContainerInspect {
   Id: string;
   Name?: string;
+  /** The id (`sha256:...`) of the image the container was created from. */
+  Image?: string;
   Config?: { Labels?: Record<string, string> | null; Env?: string[] | null; Image?: string };
   Mounts?: ContainerMount[];
   State?: { Status?: string; Running?: boolean; ExitCode?: number };
@@ -242,6 +244,18 @@ export class EngineClient {
       throw this.failure(response, "Inspecting an image");
     }
     return true;
+  }
+
+  /** The registry digests (`name@sha256:...`) a local image is known by; null when there is no such image. */
+  async imageRepoDigests(reference: string): Promise<string[] | null> {
+    const response = await this.request("GET", `/images/${encodeURI(reference)}/json`);
+    if (response.status === 404) {
+      return null;
+    }
+    const info = this.json<{ RepoDigests?: unknown }>(response, "Inspecting an image");
+    return Array.isArray(info.RepoDigests)
+      ? info.RepoDigests.filter((entry): entry is string => typeof entry === "string")
+      : [];
   }
 
   /** Pull an image; resolves when the stream ends without an error message. */

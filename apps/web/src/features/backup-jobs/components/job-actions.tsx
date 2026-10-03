@@ -6,7 +6,7 @@ import { toast } from "@/components/ui/sonner";
 
 import type { BackupJob, RunBackupJobResult, SkipReason } from "../api.js";
 import { useDeleteBackupJob, useRunBackupJob, useToggleBackupJob } from "../hooks.js";
-import { describeScope } from "../presenters.js";
+import { describeScope, runOutcomeView } from "../presenters.js";
 import { jobErrorKey } from "../problems.js";
 
 /** Why a backup was not queued, as the toast says it. */
@@ -53,13 +53,18 @@ export function useJobActions(options: { onDeleted?: (job: BackupJob) => void } 
               .filter((entry) => entry.count > 0)
               .map((entry) => t(`run.skipped.${entry.reason}`, { count: entry.count }))
               .join(" ");
-            if (result.queued > 0) {
+            const outcome = runOutcomeView(job.kind, result);
+            if (outcome === "queued") {
+              // A machine only gets the request: it starts at the agent's next check-in.
+              const note = job.kind === "endpoint" ? t("toasts.runQueuedNote.endpoint") : "";
               toast.success(
                 t(`toasts.runQueued.${job.kind}`, { count: result.queued, name: job.name }),
-                {
-                  description: skipped || undefined,
-                },
+                { description: [note, skipped].filter(Boolean).join(" ") || undefined },
               );
+            } else if (outcome === "waiting") {
+              toast.info(t("toasts.runWaiting.title"), {
+                description: t("toasts.runWaiting.description", { count: result.skipped.length }),
+              });
             } else {
               toast.info(t("toasts.runNothing", { name: job.name }), {
                 description: skipped || undefined,
@@ -131,8 +136,8 @@ export function useJobActions(options: { onDeleted?: (job: BackupJob) => void } 
 /**
  * The question before a job is deleted: how many objects or machines it
  * covers and what becomes of them. A mail job's objects are no longer backed up on
- * a schedule until another job takes them; a machine keeps the configuration it has
- * and is listed as not in a job.
+ * a schedule until another job takes them; a machine goes back to the schedule `none`
+ * (release 0.2.1: it is not backed up) and is listed as without backup.
  */
 export function DeleteJobDialog({
   job,

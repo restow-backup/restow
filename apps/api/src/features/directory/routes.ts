@@ -11,6 +11,7 @@ import {
   objectCredentialSchema,
   objectParamSchema,
   objectsQuerySchema,
+  peopleQuerySchema,
   protectionOverrideSchema,
   rulesSchema,
   sourceParamSchema,
@@ -24,6 +25,7 @@ import {
   importAccounts,
   importAccountsCsv,
   listObjects,
+  listPeople,
   listSources,
   requestSync,
   searchSourceGroups,
@@ -43,6 +45,7 @@ import {
  *   POST   /sources/:sourceId/sync             sync now ({ full } enumerates everything)
  *   POST   /sources/:sourceId/accounts         add IMAP accounts ({ accounts, dryRun })
  *   POST   /sources/:sourceId/accounts/import  add IMAP accounts from CSV ({ csv, dryRun })
+ *   GET    /people?search=&limit=              people of the directory (for the machine assignment picker)
  *   GET    /objects                            protected objects: filter, search, paginate
  *   POST   /objects/:id/protection             include / exclude / reset one object
  *   POST   /objects/:id/credential              set/replace an IMAP account's own password
@@ -111,6 +114,13 @@ directoryRoutes.post("/sources/:sourceId/accounts/import", tenantAdmin, async (c
     dryRun: input.dryRun,
   });
   return c.json(outcome, input.dryRun ? 200 : 201);
+});
+
+// --- People ---------------------------------------------------------------------------
+
+directoryRoutes.get("/people", tenantAdmin, async (c) => {
+  const query = parseOrProblem(peopleQuerySchema, c.req.query());
+  return c.json(await listPeople(db, c.get("tenantId"), query));
 });
 
 // --- Protected objects ---------------------------------------------------------------

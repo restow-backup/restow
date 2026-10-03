@@ -18,6 +18,7 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import {
   type Database,
+  backupJobMembers,
   backupJobs,
   createDb,
   endpointReports,
@@ -306,12 +307,19 @@ async function seedGlobex(
     onlyOnAcPower: false,
     useVss: false,
   };
+  // Every machine is in a backup job: one in none would need attention for that alone (`no_job`).
+  const machineJob = one(
+    await db
+      .insert(backupJobs)
+      .values({ tenantId, kind: "endpoint", name: "Machines", schedule: config.schedule })
+      .returning(),
+  ).id;
   const endpoint = async (
     hostname: string,
     profile: "server" | "client",
     extra: Partial<typeof endpoints.$inferInsert> = {},
-  ) =>
-    one(
+  ) => {
+    const id = one(
       await db
         .insert(endpoints)
         .values({
@@ -328,6 +336,11 @@ async function seedGlobex(
         })
         .returning(),
     ).id;
+    await db
+      .insert(backupJobMembers)
+      .values({ tenantId, jobId: machineJob, endpointId: id, overrides: {} });
+    return id;
+  };
   const run = async (
     endpointId: string,
     finishedAgo: number,

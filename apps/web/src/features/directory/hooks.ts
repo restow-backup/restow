@@ -9,6 +9,7 @@ import {
   directoryKeys,
   fetchDirectorySources,
   fetchObjects,
+  fetchPeople,
   importAccounts,
   requestSync,
   saveRules,
@@ -84,6 +85,18 @@ export function useRefreshAfterSync(sources: readonly DirectorySource[] | undefi
       void queryClient.invalidateQueries({ queryKey: directoryKeys.objects(tenantId) });
     }
   }, [sources, queryClient, tenantId]);
+}
+
+/** People of the directory matching `search`, for pickers (the machine assignment). */
+export function usePeopleSearch(search: string, active: boolean) {
+  const { tenantId, enabled } = useDirectoryTenant();
+  return useQuery({
+    queryKey: directoryKeys.people(tenantId, search),
+    queryFn: () => fetchPeople(search),
+    enabled: enabled && active,
+    staleTime: 60_000,
+    placeholderData: keepPreviousData,
+  });
 }
 
 export function useGroupSearch(sourceId: string, search: string, active: boolean) {

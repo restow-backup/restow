@@ -27,6 +27,7 @@ function state(overrides: Partial<StateView> = {}): StateView {
       sourceAllowlist: [],
       checkedAt: "2026-10-01T09:00:00.000Z",
     },
+    selfUpdate: null,
     serverTime: "2026-10-01T09:00:00.000Z",
     ...overrides,
   };
@@ -149,6 +150,7 @@ describe("the updater client", () => {
     const request = {
       release: { version: "0.2.0", tag: "v0.2.0", url: null, prerelease: false, digests: {} },
       mode: "image" as const,
+      switchTo: null,
       source: null,
       leadSeconds: 300,
       requestedBy: { userId: "u1", label: "admin@example.com", ip: null },

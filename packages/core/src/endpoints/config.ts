@@ -3,10 +3,15 @@
  * (the `GET /agent/v1/config` contract, docs/AGENT.md).
  *
  * Defaults:
- *   - server profile: daily at 22:00; client profile: `on_connect`, at most one
- *     backup every 4 hours;
- *   - paths per OS (Linux `/etc /home /root /srv /var/www`, macOS `/Users`,
- *     Windows `C:\Users`, plus `C:\ProgramData` for servers);
+ *   - a machine that is in no backup job has the schedule `none`: it waits for a
+ *     job and never backs up on its own ({@link enrolledEndpointConfig}, the
+ *     configuration enrollment writes);
+ *   - the schedule a job editor starts from: server profile daily at 22:00,
+ *     client profile `on_connect`, at most one backup every 4 hours;
+ *   - paths per OS (Linux `/etc /home /root /srv /var/www`, plus `/opt
+ *     /usr/local /var/lib /var/backups` for servers, where applications keep
+ *     their data; macOS `/Users`, Windows `C:\Users`, plus `C:\ProgramData`
+ *     for servers);
  *   - excludes per OS: caches, temporary files, the trash, `node_modules`,
  *     `*.tmp` and the restic cache.
  *
@@ -32,12 +37,28 @@ export function isSupportedEndpointOs(os: string): os is EndpointOsName {
   return (SUPPORTED_ENDPOINT_OS as readonly string[]).includes(os);
 }
 
+/**
+ * When the agent backs up. `none` (release 0.2.1): the machine is in no backup job and waits for
+ * one; the agent never starts a scheduled backup. An agent of an earlier release does not know
+ * the kind, so the server never hands it the folders of such a machine (`agentFacingConfig`).
+ */
+export const AGENT_SCHEDULE_KINDS = ["interval", "daily", "on_connect", "none"] as const;
+export type AgentScheduleKind = (typeof AGENT_SCHEDULE_KINDS)[number];
+
+/** The kind of schedule of a machine in no backup job. */
+export const NO_SCHEDULE_KIND = "none" satisfies AgentScheduleKind;
+
 export interface AgentSchedule {
-  kind: "interval" | "daily" | "on_connect";
+  kind: AgentScheduleKind;
   intervalMinutes?: number;
   timeOfDay?: string;
   timeZone: string;
 }
+
+/** A schedule that runs backups (every kind but `none`). */
+export type ActiveAgentSchedule = AgentSchedule & {
+  kind: Exclude<AgentScheduleKind, typeof NO_SCHEDULE_KIND>;
+};
 
 export interface AgentConfig {
   profile: EndpointProfileName;
@@ -71,7 +92,20 @@ export const DEFAULT_CLIENT_INTERVAL_MINUTES = 4 * 60;
 
 const DEFAULT_PATHS: Record<EndpointOsName, { server: string[]; client: string[] }> = {
   linux: {
-    server: ["/etc", "/home", "/root", "/srv", "/var/www"],
+    // A server's applications keep their data outside the home directories
+    // (databases, containers' volumes, software under /opt): without these a
+    // typical server or LXC container backs up little more than /etc.
+    server: [
+      "/etc",
+      "/home",
+      "/root",
+      "/srv",
+      "/var/www",
+      "/opt",
+      "/usr/local",
+      "/var/lib",
+      "/var/backups",
+    ],
     client: ["/etc", "/home", "/root", "/srv", "/var/www"],
   },
   darwin: { server: ["/Users"], client: ["/Users"] },
@@ -91,6 +125,11 @@ const DEFAULT_EXCLUDES: Record<EndpointOsName, string[]> = {
     "/home/*/.thumbnails",
     "/root/.cache",
     "/var/cache",
+    // Rebuilt from images and package mirrors; the data worth keeping is in
+    // volumes, which a job adds by path where they live elsewhere.
+    "/var/lib/docker",
+    "/var/lib/containerd",
+    "/var/lib/apt/lists",
     "/var/tmp",
     "/tmp",
   ],
@@ -120,13 +159,29 @@ export interface DefaultConfigOptions {
 }
 
 /** The schedule a profile starts with. */
-export function defaultSchedule(profile: EndpointProfileName, timeZone: string): AgentSchedule {
+export function defaultSchedule(
+  profile: EndpointProfileName,
+  timeZone: string,
+): ActiveAgentSchedule {
   return profile === "server"
     ? { kind: "daily", timeOfDay: DEFAULT_SERVER_TIME_OF_DAY, timeZone }
     : { kind: "on_connect", intervalMinutes: DEFAULT_CLIENT_INTERVAL_MINUTES, timeZone };
 }
 
-/** The configuration a new endpoint of `os` and `profile` gets. */
+/** The schedule of a machine in no backup job: nothing runs until a job takes it. */
+export function noSchedule(timeZone: string): AgentSchedule {
+  return { kind: NO_SCHEDULE_KIND, timeZone };
+}
+
+/** Whether a schedule is the `none` of a machine in no backup job. */
+export function isUnscheduled(schedule: Pick<AgentSchedule, "kind"> | null | undefined): boolean {
+  return schedule?.kind === NO_SCHEDULE_KIND;
+}
+
+/**
+ * The configuration of `os` and `profile` with the schedule a job editor starts from. The folders
+ * and exclusions are what a job editor (and `GET /backup-jobs/defaults`) prefills.
+ */
 export function defaultEndpointConfig(
   os: EndpointOsName,
   profile: EndpointProfileName,
@@ -144,6 +199,33 @@ export function defaultEndpointConfig(
     // Windows backs up through a volume shadow copy.
     useVss: os === "windows",
   };
+}
+
+/**
+ * The configuration enrollment writes (release 0.2.1): the defaults of the profile, but the
+ * schedule `none`, so a new machine backs up only once it is in a backup job. The folders and
+ * exclusions stay in it for the job editor to prefill from.
+ */
+export function enrolledEndpointConfig(
+  os: EndpointOsName,
+  profile: EndpointProfileName,
+  options: DefaultConfigOptions,
+): AgentConfig {
+  return { ...defaultEndpointConfig(os, profile, options), schedule: noSchedule(options.timeZone) };
+}
+
+/**
+ * The configuration as an agent receives it. A machine without a schedule gets no folders and no
+ * hooks: an agent of an earlier release does not know the schedule `none` and falls back to the
+ * default schedule of its profile (agent/internal/schedule `FromAPI`); without folders such a
+ * run stops before restic or a hook starts (`no_paths`), so nothing is backed up and no command
+ * runs. An agent of 0.2.1 or later never starts a scheduled backup with `none` anyway.
+ */
+export function agentFacingConfig<T extends AgentConfig>(config: T): T {
+  if (!isUnscheduled(config.schedule)) {
+    return config;
+  }
+  return { ...config, paths: [], hooks: {} };
 }
 
 /** Retention every endpoint starts with (docs/AGENT.md): daily 30, weekly 12, monthly 12. */

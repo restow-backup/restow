@@ -76,3 +76,54 @@ export function notNeededOffer(item: Pick<SetupItem, "id" | "state" | "reason">)
 export function isSettled(item: Pick<SetupItem, "state">): boolean {
   return item.state === "done" || item.state === "not_needed";
 }
+
+/** The part of the Storage API the dismissal needs (injectable for tests). */
+export type DismissStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+
+/**
+ * Whoever does not want the guide can hide the Start entry for good, in every
+ * tenant: an experienced admin sets things up from the pages directly. The choice
+ * is remembered per user in this browser (like the column choices of the tables),
+ * and the steps stay on each tenant's page ("Show setup steps").
+ */
+export function startDismissedKey(userId: string): string {
+  return `restow.start.${userId}.dismissed`;
+}
+
+/** `globalThis.localStorage`, or `null` where reading it is impossible or throws. */
+function defaultDismissStorage(): DismissStorage | null {
+  try {
+    return globalThis.localStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether `userId` hid the Start entry; false when storage is missing or fails. */
+export function readStartDismissed(
+  userId: string,
+  storage: DismissStorage | null = defaultDismissStorage(),
+): boolean {
+  try {
+    return storage?.getItem(startDismissedKey(userId)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+/** Remember (or forget) that `userId` hid the Start entry; silently does nothing when storage fails. */
+export function writeStartDismissed(
+  userId: string,
+  dismissed: boolean,
+  storage: DismissStorage | null = defaultDismissStorage(),
+): void {
+  try {
+    if (dismissed) {
+      storage?.setItem(startDismissedKey(userId), "1");
+    } else {
+      storage?.removeItem(startDismissedKey(userId));
+    }
+  } catch {
+    // The choice still applies until the page is reloaded.
+  }
+}

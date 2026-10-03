@@ -32,8 +32,10 @@
   },
   "actions": {
     "new": "New job",
+    "open": "Open",
     "edit": "Edit",
     "runNow": "Run now",
+    "openHistory": "Open history",
     "pause": "Pause",
     "resume": "Resume",
     "delete": "Delete",
@@ -63,7 +65,7 @@
     },
     "uncovered": {
       "mail": "{count, plural, one {# protected object is in no job and is not backed up on a schedule.} other {# protected objects are in no job and are not backed up on a schedule.}}",
-      "endpoint": "{count, plural, one {# machine is in no job.} other {# machines are in no job.}} A machine without a job keeps the configuration it has; a job manages machines together.",
+      "endpoint": "{count, plural, one {# machine is in no job and is not backed up.} other {# machines are in no job and are not backed up.}} A machine without a job backs nothing up; only a job sets its schedule and folders.",
       "action": "Create a job"
     },
     "empty": {
@@ -73,7 +75,7 @@
       },
       "description": {
         "mail": "Without a job nothing is backed up on a schedule. A job covers mailboxes, OneDrives and IMAP accounts, runs on a schedule and checks that the backups can be restored.",
-        "endpoint": "A job tells the agents which folders to back up, when, and what to leave out. A machine without a job keeps the configuration it has."
+        "endpoint": "A job tells the agents which folders to back up, when, and what to leave out. A machine without a job is not backed up."
       }
     }
   },
@@ -81,6 +83,7 @@
     "paused": "Paused",
     "failing": "Backup failed",
     "running": "Running",
+    "queued": "Queued",
     "attention": "Needs attention",
     "empty": "Empty",
     "ok": "Active"
@@ -88,6 +91,7 @@
   "lastRun": {
     "never": "No backup yet",
     "running": "{count, plural, one {Running now} other {# running}}",
+    "queued": "{count} queued",
     "failed": "{count} failed",
     "partial": "{count} partial"
   },
@@ -178,6 +182,11 @@
       "running": "Running",
       "queued": "Queued"
     },
+    "queued": {
+      "waiting": "Waits for the machine (next check-in in about {count} min)",
+      "due": "Waits for the machine (check-in due)",
+      "starting": "Starting on the machine"
+    },
     "table": {
       "mail": "Objects of the job",
       "endpoint": "Machines of the job"
@@ -206,7 +215,7 @@
       "title": "Remove {name} from the job?",
       "description": {
         "mail": "It is no longer backed up by {job}. Without another job it is not backed up on a schedule.",
-        "endpoint": "It leaves {job} and keeps the configuration it has now. Without another job nothing manages it."
+        "endpoint": "It leaves {job} and is no longer backed up until you add it to another job. Its folders and settings stay for the next job."
       },
       "confirm": "Remove from job"
     }
@@ -397,6 +406,13 @@
       "mail": "{count, plural, one {# backup of {name} queued} other {# backups of {name} queued}}",
       "endpoint": "{count, plural, one {Backup requested from # machine} other {Backup requested from # machines}}"
     },
+    "runQueuedNote": {
+      "endpoint": "The machine starts it at its next check-in, usually within 5 minutes."
+    },
+    "runWaiting": {
+      "title": "Already queued",
+      "description": "{count, plural, one {A backup is waiting for the machine and starts at its next check-in.} other {Backups are waiting for the machines and start at their next check-in.}}"
+    },
     "runNothing": "Nothing started for {name}",
     "failed": "That did not work",
     "overridesSaved": "Overrides of {name} saved",
@@ -416,7 +432,7 @@
     "empty": "The job covers nothing right now.",
     "impact": {
       "mail": "{scope} will no longer be backed up on a schedule until another job takes them.",
-      "endpoint": "{scope} leave the job and keep the configuration they have now; nothing manages them until another job does."
+      "endpoint": "{scope} leave the job and are no longer backed up until another job takes them."
     },
     "after": "The job and its settings cannot be brought back.",
     "confirm": "Delete job"

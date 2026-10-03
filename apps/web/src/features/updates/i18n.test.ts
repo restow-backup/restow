@@ -12,6 +12,7 @@ import {
   FAILURE_CODES,
   LEAD_TIME_PRESETS,
   RUN_OUTCOMES,
+  SELF_UPDATE_REASONS,
   STEP_STATUSES,
   UPDATE_MESSAGE_CODES,
   UPDATE_STEPS,
@@ -131,6 +132,7 @@ describe("updates translations", () => {
       "source.channel.beta.label",
       "steps.status.pending",
       "dumps.title",
+      "edition.title",
     ]);
     const untranslated = [...leaves(en)]
       .filter(([key, text]) => german.get(key) === text && !SAME.has(key))
@@ -176,7 +178,29 @@ describe("updates translations", () => {
       stepLabelKey("fetch", "image"),
       stepLabelKey("fetch", "source"),
       ...STEP_STATUSES.map(stepStatusKey),
-      ...UPDATE_MESSAGE_CODES.map(maintenanceMessageKey),
+      ...UPDATE_MESSAGE_CODES.map((code) => maintenanceMessageKey(code)),
+      ...UPDATE_MESSAGE_CODES.map((code) => maintenanceMessageKey(code, "full")),
+      ...([
+        "run.titleSwitch",
+        "run.titleActiveSwitch",
+        "run.versionSwitch",
+        "run.outcomeNote.succeededSwitch",
+        "updater.busy.scheduledTitleSwitch",
+        "updater.busy.runningTitleSwitch",
+        "maintenance.banner.scheduledSwitch",
+        "maintenance.banner.startingSwitch",
+        "maintenance.banner.runningSwitch",
+        "maintenance.announce.startSwitch",
+        "maintenance.modal.running.titleSwitch",
+        "maintenance.modal.running.titleSwitchNoVersion",
+        "maintenance.modal.succeeded.titleSwitch",
+        "maintenance.modal.succeeded.descriptionSwitch",
+      ] as const),
+      ...(["unchanged", "rolledBack", "needsAttention", "generic"] as const).map(
+        (group) => `maintenance.modal.failed.${group}.titleSwitch`,
+      ),
+      "maintenance.modal.failed.unchanged.descriptionSwitch",
+      "maintenance.modal.failed.rolledBack.descriptionSwitch",
       ...(["scheduled", "running", "cancelled", "failed", ...RUN_OUTCOMES] as const).map(
         (kind) => `run.status.${kind}`,
       ),
@@ -208,6 +232,12 @@ describe("updates translations", () => {
       ...(["unavailable", "ready", "blocked", "busy", "demo"] as const).map(
         (state) => `updater.description.${state}`,
       ),
+      ...(["pending", "failed", "skipped", "on", "legacy"] as const).map(
+        (kind) => `updater.selfUpdate.${kind}`,
+      ),
+      ...SELF_UPDATE_REASONS.map((reason) => `updater.selfUpdate.reasons.${reason}`),
+      "updater.enable.image",
+      "updater.enable.imageGeneric",
       ...(["copy", "stop", "restore", "images", "start"] as const).map(
         (id) => `recovery.steps.${id}`,
       ),

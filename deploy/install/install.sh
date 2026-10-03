@@ -26,8 +26,8 @@
 #
 # Recommended use (README.md, "Install with the script"): download, check, then run.
 #
-#   curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.0/install.sh
-#   curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.0/install.sh.sha256
+#   curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.1/install.sh
+#   curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.1/install.sh.sha256
 #   sha256sum -c install.sh.sha256 && sudo bash install.sh
 #
 # `bash install.sh --help` lists the options and the exit codes. Running it again is
@@ -47,7 +47,7 @@ set -Eeuo pipefail
 # ---- The release this script belongs to ---------------------------------------------
 # The release workflow refuses a tag whose version differs from this line
 # (.github/workflows/release.yml, job verify).
-DEFAULT_VERSION="0.2.0"
+DEFAULT_VERSION="0.2.1"
 
 RELEASE_REPOSITORY="restow-backup/restow"
 RELEASE_URL_DEFAULT="https://github.com/${RELEASE_REPOSITORY}/releases/download"
@@ -1935,7 +1935,7 @@ install_files() {
 # ---- .env ------------------------------------------------------------------------------
 
 write_env() {
-  local target="$OPT_DIR/.env" keys pg_password app_password provider_password auth_secret updater_image="" problem missing value
+  local target="$OPT_DIR/.env" keys pg_password app_password provider_password auth_secret problem missing value
   step "Configuration ($target)"
   if [ -e "$target" ]; then
     die "$EXIT_EXISTING" "$target exists; the installer never overwrites it"
@@ -1975,10 +1975,9 @@ write_env() {
       keys="$keys RESTOW_EDGE_TLS RESTOW_HTTP_PORT"
     fi
   fi
-  if [ "$OPT_UPDATER" = 1 ]; then
-    keys="$keys RESTOW_UPDATER_IMAGE"
-    updater_image=$APP_IMAGE
-  fi
+  # RESTOW_UPDATER_IMAGE stays empty, also with --with-updater: the updater is the application
+  # image, and on its first start it pins the image it runs into .env by digest (stronger than
+  # the tag this script knows), then moves itself after every update from a signed release.
   ENV_TMP="$OPT_DIR/.env.install.$$"
   # shellcheck disable=SC2086 # $keys is a list of key names
   if ! (
@@ -1992,7 +1991,7 @@ write_env() {
     export RI_DATABASE_URL="postgres://restow_app:${app_password}@postgres:5432/restow"
     export RI_DATABASE_PROVIDER_URL="postgres://restow_provider:${provider_password}@postgres:5432/restow"
     export RI_RESTOW_MASTER_KEY="$MASTER_KEY_ONCE" RI_BETTER_AUTH_SECRET="$auth_secret"
-    export RI_RESTOW_PROJECT_DIR="$OPT_DIR" RI_RESTOW_UPDATER_IMAGE="$updater_image"
+    export RI_RESTOW_PROJECT_DIR="$OPT_DIR"
     render_env "$OPT_DIR/env.example" $keys >"$ENV_TMP"
   ); then
     die "$EXIT_ERROR" "could not write the configuration"
@@ -2404,6 +2403,15 @@ print_next_steps() {
   esac
   say "   9. Updates: this installer never updates. Read the release notes, then follow"
   say "      docs/UPDATING.md (https://github.com/restow-backup/restow/blob/main/docs/UPDATING.md)."
+  if [ "$OPT_UPDATER" = 1 ]; then
+    say "      The opt-in updater runs: install updates under Installation > Updates. It runs the"
+    say "      application image ($APP_IMAGE), pins it by digest in .env on its first start"
+    say "      (RESTOW_UPDATER_IMAGE) and moves itself after each signed update. Nothing to edit."
+  else
+    say "      To install updates from the web interface later, start the opt-in updater once:"
+    say "      cd $OPT_DIR && docker compose --profile updater up -d   (no .env change needed; it"
+    say "      runs the application image and mounts the Docker socket: read docs/UPDATING.md)."
+  fi
   say "  10. Back up $OPT_DIR/.env with the master key's offline copy, and the VM itself."
   say "  Documentation: $DOCS_URL"
 }
@@ -2636,7 +2644,10 @@ In short: read the release notes of every version in between; back up the databa
 (docker compose exec -T postgres pg_dump -U restow -Fc restow > restow-\$(date +%F).dump);
 check the new images' signatures (cosign verify, see docs/UPDATING.md); change
 RESTOW_IMAGE and RESTOW_WEB_IMAGE in .env; docker compose pull && docker compose up -d.
-Or switch on the opt-in updater (docs/UPDATING.md, "The opt-in updater").
+Or switch on the opt-in updater once, with no change to .env (docs/UPDATING.md, "The opt-in
+updater"): cd $OPT_DIR && docker compose --profile updater up -d
+It runs the application image (there is no separate updater image), rewrites RESTOW_IMAGE and
+RESTOW_WEB_IMAGE itself and moves itself to every signed release it installs.
 UPGRADE
 }
 
@@ -2762,7 +2773,7 @@ show_plan() {
     docker_action="use the installed Docker, add the Compose plugin"
   fi
   if [ "$OPT_UPDATER" = 1 ]; then
-    updater="on (mounts the Docker socket; docs/UPDATING.md)"
+    updater="on: the application image in the updater role, pinned by digest on its first start (mounts the Docker socket; docs/UPDATING.md)"
   else
     updater="off (opt-in later, docs/UPDATING.md)"
   fi

@@ -35,7 +35,7 @@ import {
 } from "./components/status.js";
 import { useCreateTask, useEndpoint, useRestoreTest } from "./hooks.js";
 import { ENDPOINT_TABS, type EndpointTab, inventoryTo } from "./paths.js";
-import { endpointErrorKey, endpointHostLine, endpointName } from "./presenters.js";
+import { endpointErrorKey, endpointHostLine, endpointName, isWithoutBackup } from "./presenters.js";
 
 const TAB_ICON: Record<EndpointTab, typeof Camera> = {
   overview: LayoutDashboard,
@@ -50,6 +50,8 @@ function ActionButtons({ detail }: { detail: EndpointDetail }) {
   const test = useRestoreTest(detail.id);
   const revoked = detail.status === "revoked";
   const noBackup = detail.readiness.latestSnapshotId === null;
+  // Backups run only in a backup job (release 0.2.1); the server refuses the request otherwise.
+  const noJob = isWithoutBackup(detail);
 
   const runBackup = () =>
     backup.mutate(
@@ -97,7 +99,13 @@ function ActionButtons({ detail }: { detail: EndpointDetail }) {
         {test.isPending ? null : <ShieldCheck aria-hidden="true" />}
         {t("actions.test.label")}
       </Button>
-      <Button size="sm" onClick={runBackup} loading={backup.isPending} disabled={revoked}>
+      <Button
+        size="sm"
+        onClick={runBackup}
+        loading={backup.isPending}
+        disabled={revoked || noJob}
+        title={noJob ? t("actions.backup.needsJob") : undefined}
+      >
         {backup.isPending ? null : <Play aria-hidden="true" />}
         {t("actions.backup.label")}
       </Button>

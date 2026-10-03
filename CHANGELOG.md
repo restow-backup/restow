@@ -8,6 +8,295 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [0.2.1] - 2026-10-03
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.2.1 backs up a machine only once it is in a backup job and shows every
+machine without one, lets you assign a machine to a person of the directory, adds
+context menus to the tables, puts machines and mailboxes on one restore-point
+timeline, makes the installation's default storage configurable in the web
+interface and lets the opt-in updater start with one command and update itself.
+Updating runs one additive migration; read the Upgrade Notes if you enabled the
+updater on 0.2.0 or run agents older than 0.2.1.
+
+### Breaking Changes
+
+- **A machine in no backup job is not backed up.** A newly enrolled machine gets
+  the schedule `none` and starts backing up once it is a member of a job. A machine
+  that leaves its job (removed as a member, left out of a replaced scope, or its job
+  deleted) goes back to `none` with a new configuration version, and a backup
+  request that has not started yet is dropped. Machines that are in no job at the
+  time of the update keep running their own configuration; only newly enrolled
+  machines and machines leaving a job wait. To keep a machine backed up, put it
+  into a job (Servers & endpoints > Jobs, or "Create a job" / "Add to job..." in
+  the machine table).
+- **API: backups of a machine need a job.** `POST /api/v1/endpoints/:id/tasks`
+  with `backup_now`, and `PATCH /api/v1/endpoints/:id` with a schedule other than
+  `none`, answer 409 `urn:restow:problem:endpoint-no-job` for a machine in no job.
+  The machine list marks such a machine with the attention reason `no_job`.
+  Scripts that trigger machine backups must add the machine to a job first.
+
+### Added
+
+#### Machines and backup jobs
+
+- **Machines without backup are visible** (all editions, Servers & endpoints >
+  Machines). The inventory has a "Backup job" column with the job as a link or a
+  "Without backup" warning badge, a filter "Without backup / In a job", and a
+  banner counting the machines without backup. Job administrators get "Create a
+  job" (the job editor with the machine preselected) and "Add to job..." (moves the
+  machine after a confirmation when it is in another job) on each row and on the
+  machine page. "Back up now" is disabled for a machine in no job, and the enroll
+  dialog says that a new machine is backed up only in a job.
+- **The 0.2.1 agent waits for a job.** Under the schedule `none` it starts no
+  scheduled backup, ignores a backup request, and `restow-agent status` says it is
+  waiting for a backup job.
+- **Assign a machine to a person** (all editions). A machine can be assigned to a
+  person of the tenant's protection directory (a user of the directory, not a login
+  account): an "Assigned to" column in the machine table (sortable, filterable by
+  person and by nobody, found by the search), an "Assign to..." dialog that
+  searches the directory and removes an assignment, and the same on the machine's
+  overview and General settings. The assignment is audited as `endpoint.assigned`
+  and cleared when the person leaves the directory. API: `PATCH
+  /api/v1/endpoints/:id` takes `assignedUserId` (422
+  `endpoint-assignee-unknown` for anyone not in the tenant's directory), list and
+  detail carry `assignedTo`, and `GET /api/v1/directory/people?search=` feeds the
+  picker.
+- **"Run now" on a machine job shows what happens.** The agent starts a requested
+  backup at its next check-in (about every 5 minutes); until then the job and its
+  members show "Queued" with the expected check-in, and the toasts say that the
+  backup was requested or is already waiting.
+
+#### Tables and restore
+
+- **Context menus on table rows** (all editions). Right click, the context menu
+  key, Shift+F10 or a long press on a touch screen open the row's actions in the
+  machine, jobs, job members, protected objects (mailboxes) and the other tables
+  with row actions; the "..." menu offers the same entries. Links, fields, selected
+  text and Shift with a right click keep the browser's menu. Selectable tables get
+  checkboxes, a selection bar and "New job from selection" on the context menu of a
+  selected row. The jobs table gains Open and Open history; protected objects offer
+  their restore points, a restore in the explorer, a new job with the object and
+  the protection decisions.
+- **File restore with machines and mailboxes on one timeline** (all editions).
+  File restore lists the tenant's machines and mailboxes in one searchable list.
+  Restore points are shown newest first, grouped by day under sticky separators
+  (Today, Yesterday, weekday and date), with a jump to a date that lands on that
+  day or the nearest earlier one; the Snapshots tab of a machine uses the same
+  timeline. A mailbox's chosen restore point opens in the restore explorer. The
+  machine table links to file restore for a machine.
+
+#### Installation
+
+- **Configurable installation default storage** (Installation > Default storage).
+  The installation owner can save a local path or an S3-compatible bucket as the
+  default storage in the web interface, with a recent sign-in. It is stored sealed
+  with the master key and, once saved, wins over the `STORAGE_*` / `S3_*`
+  environment; removing it brings the environment back. The page shows where the
+  default comes from and the probe the server ran before saving. A change that moves
+  the location is refused (409, tenants named) while any tenant keeps data on the
+  current default, has it attached as a retired target, is migrating off it or has a
+  storage job queued or running. A tenant's storage page always shows the
+  installation default as a choice, with "Use installation default" while the
+  tenant's own primary holds no data. API: `PUT` and `DELETE
+  /api/v1/settings/default-storage`, audited.
+- **The opt-in updater starts with one command.** `docker compose --profile updater
+  up -d` is enough: `RESTOW_PROJECT_DIR` and `RESTOW_UPDATER_IMAGE` are optional.
+  The project directory is mounted at `/project`, and on its first start the
+  updater pins its own image by digest into `RESTOW_UPDATER_IMAGE`, so later
+  rewrites of `RESTOW_IMAGE` do not reach it. The install script no longer writes
+  `RESTOW_UPDATER_IMAGE`. See docs/UPDATING.md.
+- **The updater updates itself.** After an image-mode update whose images passed
+  the signature check, the updater pins `RESTOW_UPDATER_IMAGE` to the verified
+  application image by digest and recreates itself through a short-lived helper
+  container. Never after a source-mode update or with the signature check off;
+  `RESTOW_UPDATER_SELF_UPDATE=false` switches it off. A failed self-update leaves
+  the application update successful, and the Updates tab shows the command that
+  finishes it.
+- **Switch a Community installation to the full build** (Community build,
+  Installation > Edition). The section names the build, lists what Business and
+  Service Provider add and offers a one-way switch to the full build of the same
+  version: with the updater (owner role, recent sign-in, audited as
+  `update.build_switch.scheduled`; the full images are verified against the
+  release signature of the tag, with database dump, health check and rollback), or
+  by hand with the two `.env` lines it shows. A license key can be stored on the
+  Community build; it is kept sealed until the full build verifies and installs it,
+  and a rejected key is dropped and audited. There is no switch back to Community.
+- **"Hide Start"** in the popover of the sidebar's setup guide removes the Start
+  entry in every tenant for that user (remembered in the browser, with an undo
+  toast); the setup steps stay on each tenant's page under "Show setup steps".
+
+#### Public demo
+
+- **Simulated live runs.** The demo's agent sidecar plays backups of the two
+  simulated machines through the real agent API with live progress, about one in
+  ten finishing partial. Configurable with `RESTOW_DEMO_SIM_RUNS`,
+  `RESTOW_DEMO_SIM_INTERVAL_SECONDS`, `RESTOW_DEMO_SIM_MIN_DURATION_SECONDS`,
+  `RESTOW_DEMO_SIM_MAX_DURATION_SECONDS` and `RESTOW_DEMO_SIM_PROGRESS_SECONDS`
+  (deploy/demo/README.md, "Simulated live runs"). The seed puts the demo machines
+  into a daily machine job, since a machine in no job is not backed up.
+
+### Changed
+
+- **Linux servers back up application data by default.** The server profile's
+  default paths add `/opt`, `/usr/local`, `/var/lib` and `/var/backups` to `/etc`,
+  `/home`, `/root`, `/srv` and `/var/www`, and exclude `/var/lib/docker`,
+  `/var/lib/containerd` and `/var/lib/apt/lists`. These are the defaults a newly
+  enrolled server starts with; the client profile is unchanged. Databases under
+  `/var/lib` are backed up as files: for a consistent copy, add a dump command as a
+  hook before the backup.
+- **IMAP sources lead to the mailbox passwords.** In "one password per mailbox"
+  mode, editing a source offers "Manage mailboxes and passwords" (the directory
+  filtered to that source), and a new source says where the passwords go after
+  saving. Entering `outlook.office365.com` or another Microsoft IMAP host shows that
+  Microsoft has disabled password sign-in there and points to the Microsoft 365
+  connection.
+- **Adding mailboxes** shows the source's login mode with a link to change it, a
+  password (and optional username) field per mailbox on a source with one password
+  per mailbox, and afterwards a list of each mailbox as new or already listed and
+  whether a password is set. Pasted CSV keeps working.
+- **Removing a mailbox that has backups** explains that backups are never deleted
+  as a side effect, stay restorable and expire with retention, and offers "Exclude
+  from protection"; under a legal hold it says so, also when a delete is refused.
+- **Machine settings use the full width** in two columns from the xl breakpoint,
+  with a sticky column of jump links from the lg breakpoint.
+- **File restore without the machine dropdown:** the machines are a searchable list
+  beside their restore points; with a single machine it is chosen right away.
+- **SMB/CIFS is no longer named as a supported storage mount.** Network storage for
+  local targets is NFS only in the interface, the API description and the docs.
+  Existing mounted paths keep working.
+- **The Updates tab explains the updater:** choosing an update source does not
+  start it, the one command that does, that the updater is the application image,
+  and the self-update state.
+- **A switch from Community to the full build is worded as a switch** ("switch to
+  the full build (0.2.1)") in the run card, maintenance banner, modal and toasts,
+  not as an update.
+- **Dependencies** (Dependabot #14, patch and minor): hono 4.13.11, mailparser
+  3.9.31 (linear quoted-printable decoding), nodemailer 10.0.12, smtp-server
+  3.19.15, react-resizable-panels 4.14.1, recharts 3.10.1 and @aws-sdk/client-s3
+  3.1143.0. No configuration, API or database change; THIRD_PARTY_NOTICES.md is
+  regenerated.
+
+### Fixed
+
+- **A new Linux server backed up almost nothing** (about 2 MB): the default paths
+  left out `/opt`, `/usr/local` and `/var/lib`, where servers and LXC containers
+  keep their application data (see Changed).
+- **"Run now" on a machine job looked as if nothing happened.** The request stayed
+  invisible until the agent's next check-in and the toast said nothing started; the
+  open request is now read and shown as queued.
+- **The IMAP password column was a dead end** in "one password per mailbox" mode; it
+  now leads to where the passwords are set.
+- **Long webhook URLs pushed the delete dialog wider than the screen** (a Discord
+  webhook URL is one unbreakable word); the description wraps now.
+- **A long press on a touch screen opened an empty row menu**, because no context
+  menu event fires there; the entries are read when the menu opens.
+- **Listing the tenants that keep data on the default storage scanned every pack**;
+  it uses an indexed probe per tenant now.
+
+### Security
+
+No Restow advisory or CVE is fixed in this release. Two points concern the parser
+update and the updater's trust model.
+
+- **mailparser 3.9.31 fixes quadratic quoted-printable decoding** (a crafted
+  message made decoding slow). Restow up to 0.2.0 already contained it by parsing
+  mail in isolated processes with time limits, so it could not stall the service;
+  the update is defence in depth and needs no action.
+- **The updater now changes its own image.** After a successful image-mode update,
+  the release signature, verified by cosign against the release workflow identity
+  of the tag and Sigstore, is what lets the updater (which holds the Docker socket)
+  replace itself with the new application image, pinned by digest. Before, the
+  updater's image changed only by hand. Set `RESTOW_UPDATER_SELF_UPDATE=false` to
+  keep it that way.
+- **`pnpm audit --prod`:** no high or critical findings; 4 moderate ones in
+  transitive dependencies that are not reachable at runtime: esbuild 0.18 (through
+  drizzle-kit, its development server only), vitest and @vitest/mocker 3.2 (a peer
+  of better-auth, not loaded in production) and uuid 8.3 (through @azure/msal-node
+  v3, v5 and v6; the affected buffer API is not used).
+
+### Upgrade Notes
+
+Kind of update: new images, plus manual steps if you enabled the updater on
+0.2.0. Order: back up (docs/UPDATING.md), replace `docker-compose.yml` if you use
+the updater, pull the 0.2.1 images, start. Migrations run automatically at start.
+
+- **Database: one additive migration, `0025_endpoint_assigned_user`.** It adds the
+  nullable column `endpoints.assigned_user_id` with an index, a unique index over
+  `users (tenant_id, id)` and a composite foreign key so that a machine's person
+  always belongs to the machine's tenant. Nothing is deleted. Its duration was not
+  measured on an installation with real metadata.
+- **Machines without a job.** Machines that are in no job at the update keep
+  running their own configuration. Newly enrolled machines and machines that leave
+  a job wait for a job (see Breaking Changes).
+- **Agents older than 0.2.1** do not know the schedule `none`. Until they update
+  themselves (every 6 hours, or when a machine is next online), a machine with the
+  schedule `none` gets no paths and no hooks from the server and reports one failed
+  `no_paths` run per slot of its profile's default schedule, with a `backup.failed`
+  alert each time; nothing is read or written. The agent's self-update ends it. If
+  you paused agent updates (Tenant page > Agents), resume them or put the machine
+  into a job.
+- **If you enabled the updater on 0.2.0:** before or with the update, replace
+  `/opt/restow/docker-compose.yml` with the one of the 0.2.1 release assets (the
+  `updater` service now falls back to `RESTOW_IMAGE` when `RESTOW_UPDATER_IMAGE` is
+  empty and mounts the project directory at `/project`). Install 0.2.1 from
+  Installation > Updates, then delete the `RESTOW_UPDATER_IMAGE` line from `.env`
+  (or set it to the 0.2.1 application image) and run
+  `docker compose --profile updater up -d updater` once. From then on the updater
+  follows signed updates itself.
+- **Environment variables:** new `RESTOW_UPDATER_SELF_UPDATE` (optional, default
+  `true`: the updater moves itself to a verified release after an image-mode
+  update); new `RESTOW_DEMO_SIM_*` (public demo only). `RESTOW_UPDATER_IMAGE` and
+  `RESTOW_PROJECT_DIR` become optional.
+- **Default storage:** once a default storage is saved under Installation > Default
+  storage, it overrides `STORAGE_*` / `S3_*` from the environment; removing it there
+  brings the environment back. Nothing changes until you save one.
+- **Downtime:** the containers restart and the migration runs at start.
+- **Rollback:** the previous tag (the 0.2.0 images) plus `docker compose up -d`, and
+  restore the database dump taken before the update, because a migration ran and
+  migrations are not reversible.
+
+### Known Issues
+
+- **No migration back to the installation default:** a tenant whose own primary
+  storage already holds data cannot move back to the installation default.
+- **Staged uploads and exports are not counted as data on the default storage**
+  when the server decides whether the default may move.
+- **A default-storage change made by another API process is picked up within 30
+  seconds**, not at once.
+- **The switch to the full build and the updater's self-update were not exercised
+  end to end with a real Docker daemon**; they are covered by unit and PostgreSQL
+  tests only.
+- **The integration API does not expose `assignedTo` yet.**
+- **Demo only:** simulated runs report made-up sizes while reusing a snapshot of
+  about 1 MB.
+- **Not part of this release:** the Windows agent and Proxmox.
+- Microsoft 365 backup and restore have still never run against a real Microsoft 365
+  tenant; they are covered by tests against a simulated Graph API.
+
+### Verification
+
+Local runs on 2026-10-03 in a Linux container, on the release candidate before
+the version commit; the release pipeline repeats CI and runs the smoke on the
+tag. No Microsoft 365 development tenant was used.
+
+- **Lint and typecheck** over every workspace passed.
+- **Unit suites** passed: packages/core 1919, apps/api 2161, apps/worker 248, ee
+  174, apps/web 3461, packages/i18n 244, demo seed 204, packages/db 143 (including
+  its PostgreSQL tests).
+- **PostgreSQL suites** against a local PostgreSQL 16 with restic 0.19.1 passed:
+  apps/api 762 (including the endpoint suites), apps/worker 96, ee 66.
+- **Endpoint agent:** `go vet` and `go test` passed.
+- **Installer:** `deploy/install/test.sh`, 601 checks passed.
+- **Not run here, and so not claimed:** the Docker image build, the release smoke
+  (`scripts/smoke`), the updater end-to-end test, and runs against real Microsoft
+  365, IMAP or S3 services. They run in CI and the release pipeline; this section
+  is completed with the smoke reports of the pipeline run.
+
 ## [0.2.0] - 2026-10-03
 
 Beta release. Run it alongside your existing backups, not as your only one, until

@@ -13,6 +13,7 @@
     "defaultStorage": "Default storage",
     "providerApi": "Provider API",
     "updates": "Updates",
+    "edition": "Edition",
     "about": "About"
   },
   "descriptions": {
@@ -23,6 +24,7 @@
     "defaultStorage": "Where data is kept for {scope, select, organisation {your organisation} other {every tenant without a storage target of its own}}.",
     "providerApi": "Keys for RMM and PSA tools that work across all tenants.",
     "updates": "Which version runs, which releases exist and how to update.",
+    "edition": "Which build runs and the switch to the full build.",
     "about": "Version, source code and licenses of this installation."
   },
   "access": {
@@ -61,7 +63,7 @@
     "loadError": "The default storage could not be read.",
     "card": {
       "title": "Default storage",
-      "description": "Where data is kept when {scope, select, organisation {your organisation has} other {a tenant has}} no storage target of its own. The default comes from the server environment and cannot be changed here."
+      "description": "Where data is kept when {scope, select, organisation {your organisation has} other {a tenant has}} no storage target of its own. It is set below or, without a saved setting, comes from the server environment."
     },
     "kind": {
       "local": "Directory on the server",
@@ -80,7 +82,9 @@
     },
     "misconfigured": {
       "title": "The storage settings are invalid",
-      "description": "STORAGE_TARGET, STORAGE_LOCAL_PATH or the S3_* values in the .env file of the server do not describe a usable storage. Correct them and restart {appName}."
+      "description": "STORAGE_TARGET, STORAGE_LOCAL_PATH or the S3_* values in the .env file of the server do not describe a usable storage. Correct them and restart {appName}, or save a default storage below.",
+      "savedTitle": "The saved default storage cannot be used",
+      "savedDescription": "The default storage saved on this page cannot be opened, for example because the master key changed. Save it again below."
     },
     "test": {
       "title": "Test",
@@ -93,7 +97,44 @@
       "failedAt": "It stopped at the step: {step}."
     },
     "errors": {
-      "misconfigured": "The storage settings in the environment are invalid, so there is nothing to test."
+      "misconfigured": "The storage settings in the environment are invalid, so there is nothing to test.",
+      "environmentInvalid": "The storage settings in the server environment are not usable, so the saved setting cannot be removed. Correct them first.",
+      "unreachable": "The location did not pass the test, so nothing was saved.",
+      "inUse": "Backups are kept on the current default storage, so it cannot point elsewhere yet."
+    },
+    "source": {
+      "label": "Set in",
+      "database": "Saved on this page by {who} on {when}",
+      "environment": "The server environment (.env)"
+    },
+    "override": {
+      "title": "The setting saved here takes precedence",
+      "description": "The server environment describes a default storage as well. It applies again once the setting saved here is removed:"
+    },
+    "configure": {
+      "title": "Change default storage",
+      "description": "A directory on the server or S3-compatible object storage, with the same settings as a storage target. Before saving, a small test object is written, read, listed and deleted there; a location that fails is not saved. Access keys are stored encrypted and never shown again.",
+      "testHint": {
+        "local": "The directory must already exist on the server and be writable, for example a mounted volume or share.",
+        "s3": "Leave both key fields empty to keep the saved key pair. It is only used for the endpoint it was saved for."
+      },
+      "save": "Test and save",
+      "saved": "Default storage saved.",
+      "remove": "Use the server environment again",
+      "removeTitle": "Use the server environment again?",
+      "removeDescription": "The setting saved here is removed and the default storage the server environment describes applies again. It is tested first:",
+      "removeConfirm": "Use server environment",
+      "removed": "The server environment applies again."
+    },
+    "blockers": {
+      "title": "{scope, select, organisation {Your organisation keeps backups on the current default} other {Tenants keep backups on the current default}}",
+      "description": "Pointing the default elsewhere would leave these backups behind, so only changes that keep the location are possible: the key pair, the region or the addressing style. First give {scope, select, organisation {your organisation} other {each tenant listed}} a storage target of its own under Storage: replace the primary and move the existing backups, or add a copy and promote it once it is complete.",
+      "reasons": {
+        "data": "has backups here",
+        "previous": "older backups still live here after a replacement",
+        "migration": "is being moved off it right now",
+        "active_job": "a backup or another storage job is queued or running"
+      }
     }
   },
   "journal": {

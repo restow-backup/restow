@@ -2,7 +2,13 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { ConfigError, findComposeFile, loadConfig } from "./config.js";
+import {
+  ConfigError,
+  PROJECT_MOUNT,
+  findComposeFile,
+  loadConfig,
+  resolveProjectLocation,
+} from "./config.js";
 import { DEFAULT_CLI_IMAGE, DEFAULT_COSIGN_IMAGE } from "./signature.js";
 
 const PINNED_CLI = `docker:28-cli@sha256:${"a".repeat(64)}`;
@@ -26,6 +32,7 @@ describe("loadConfig", () => {
       cliImage: DEFAULT_CLI_IMAGE,
       cosignImage: DEFAULT_COSIGN_IMAGE,
       verifySignatures: true,
+      selfUpdate: true,
       healthTimeoutSeconds: 600,
       minFreeMb: 1024,
       dockerSocket: "/var/run/docker.sock",
@@ -109,9 +116,19 @@ describe("loadConfig", () => {
     );
   });
 
-  it("requires the project directory", () => {
-    expect(() => loadConfig({})).toThrow(ConfigError);
+  it("takes the project directory as optional: without it the mount at /project decides", () => {
+    expect(loadConfig({}).projectDir).toBeNull();
+    expect(loadConfig({ RESTOW_UPDATER_PROJECT_DIR: "  " }).projectDir).toBeNull();
     expect(() => loadConfig({ RESTOW_UPDATER_PROJECT_DIR: "relative/path" })).toThrow(ConfigError);
+  });
+
+  it("updates itself by default and only `false` switches that off", () => {
+    expect(loadConfig(REQUIRED).selfUpdate).toBe(true);
+    expect(loadConfig({ ...REQUIRED, RESTOW_UPDATER_SELF_UPDATE: "true" }).selfUpdate).toBe(true);
+    expect(loadConfig({ ...REQUIRED, RESTOW_UPDATER_SELF_UPDATE: "FALSE" }).selfUpdate).toBe(false);
+    expect(() => loadConfig({ ...REQUIRED, RESTOW_UPDATER_SELF_UPDATE: "no" })).toThrow(
+      /RESTOW_UPDATER_SELF_UPDATE must be true or false/,
+    );
   });
 
   it.each([
@@ -132,6 +149,7 @@ describe("loadConfig", () => {
     ["RESTOW_UPDATER_CLI_IMAGE", "docker:27-cli@sha256:abc"],
     ["RESTOW_UPDATER_COSIGN_IMAGE", "ghcr.io/sigstore/cosign/cosign:v3.1.3"],
     ["RESTOW_UPDATER_VERIFY_SIGNATURES", "maybe"],
+    ["RESTOW_UPDATER_SELF_UPDATE", "1"],
     ["RESTOW_UPDATER_HEALTH_TIMEOUT_SECONDS", "5"],
     ["RESTOW_UPDATER_MIN_FREE_MB", "-1"],
     ["RESTOW_UPDATER_SOURCE_HOSTS", "bad host"],
@@ -147,6 +165,7 @@ describe("loadConfig", () => {
       loadConfig({
         RESTOW_UPDATER_API_URL: "http://user:topsecret@api:3000",
         RESTOW_UPDATER_PORT: "-3",
+        RESTOW_UPDATER_PROJECT_DIR: "relative/path",
       });
       expect.unreachable();
     } catch (error) {
@@ -182,5 +201,40 @@ describe("findComposeFile", () => {
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("resolveProjectLocation", () => {
+  const bind = (Source: string, Destination = PROJECT_MOUNT) => ({
+    Type: "bind",
+    Source,
+    Destination,
+  });
+
+  it("uses RESTOW_PROJECT_DIR on both sides when it is set", () => {
+    expect(resolveProjectLocation("/opt/restow", { mounts: [bind("/elsewhere")] })).toEqual({
+      hostDir: "/opt/restow",
+      localDir: "/opt/restow",
+    });
+  });
+
+  it("reads the host path from the bind mount at /project when it is not set", () => {
+    expect(resolveProjectLocation(null, { mounts: [bind("/opt/restow")] })).toEqual({
+      hostDir: "/opt/restow",
+      localDir: PROJECT_MOUNT,
+    });
+  });
+
+  it("names the problem when neither is there, or the source is not a plain path", () => {
+    expect(resolveProjectLocation(null, null)).toHaveProperty("problem");
+    expect(resolveProjectLocation(null, { mounts: [bind("/opt/restow", "/data")] })).toHaveProperty(
+      "problem",
+    );
+    expect(
+      resolveProjectLocation(null, {
+        mounts: [{ Type: "volume", Source: "/var/lib/docker/x", Destination: PROJECT_MOUNT }],
+      }),
+    ).toHaveProperty("problem");
+    expect(resolveProjectLocation(null, { mounts: [bind("/opt/a:b")] })).toHaveProperty("problem");
   });
 });

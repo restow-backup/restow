@@ -26,6 +26,7 @@ import {
 import { Preflight } from "./preflight.js";
 import type { ScheduleRequest } from "./protocol.js";
 import { Redactor } from "./redact.js";
+import { type SelfRecreateHandle, type SelfRecreateLauncher, SelfUpdater } from "./self-update.js";
 import {
   type FetchedSource,
   SourceError,
@@ -152,8 +153,12 @@ export class FakeDockerOps implements DockerOps {
   runnerReady: RunnerReadiness = { ready: true, detail: null };
   /** Compose takes the image from the variables (false: the compose file hard-codes them). */
   honoursVariables = true;
-  /** The `updater` service's image: pinned on its own, or following RESTOW_IMAGE (an old compose file). */
-  updaterImage: "pinned" | "follows" | "none" = "pinned";
+  /**
+   * The `updater` service's image: pinned on its own (a fixed reference), following
+   * RESTOW_IMAGE (an old compose file), `fallback` as the compose files of this release
+   * (`${RESTOW_UPDATER_IMAGE:-${RESTOW_IMAGE}}`), or no such service.
+   */
+  updaterImage: "pinned" | "follows" | "fallback" | "none" = "pinned";
   /** Errors to raise, per operation name, per call number (0-based). */
   private readonly failures = new Map<string, ((call: number) => Failure)[]>();
   private readonly counters = new Map<string, number>();
@@ -293,6 +298,11 @@ export class FakeDockerOps implements DockerOps {
     this.hit("configUpdaterImage", JSON.stringify(env));
     if (this.updaterImage === "none") {
       return null;
+    }
+    if (this.updaterImage === "fallback") {
+      return (
+        (await this.envValue("RESTOW_UPDATER_IMAGE", env)) ?? (await this.imageFor("api", env))
+      );
     }
     return this.updaterImage === "follows"
       ? await this.imageFor("api", env)
@@ -539,6 +549,34 @@ export class FakeSourceProvider implements SourceProvider {
 }
 
 // ---------------------------------------------------------------------------
+// Self-update helper
+// ---------------------------------------------------------------------------
+
+/** The helper container that recreates the updater, scripted. */
+export class FakeLauncher implements SelfRecreateLauncher {
+  launches = 0;
+  launchError: Error | null = null;
+  /** What the helper ends with; null: it does not end in time. */
+  exitCode: number | null = 0;
+  output = "";
+  /** Runs while the old updater waits (e.g. Compose stopping it: `selfUpdater.stop()`). */
+  onWait: (() => void) | null = null;
+
+  async launch(): Promise<SelfRecreateHandle> {
+    this.launches += 1;
+    if (this.launchError) {
+      throw this.launchError;
+    }
+    return {
+      wait: async () => {
+        this.onWait?.();
+        return { exitCode: this.exitCode, output: this.output };
+      },
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Harness
 // ---------------------------------------------------------------------------
 
@@ -576,10 +614,12 @@ export interface Harness {
   dumps: DumpStore;
   redactor: Redactor;
   logger: ReturnType<typeof memoryLogger>;
+  /** The updater's own update; null unless `selfUpdate` was given. */
+  selfUpdater: SelfUpdater | null;
   /** `.env` as it is on disk now. */
   readEnv(): Promise<string>;
   /** Recreate the engine on the same state directory, as after an updater restart. */
-  restart(): Promise<Harness>;
+  restart(overrides?: Partial<HarnessOptions>): Promise<Harness>;
   cleanup(): Promise<void>;
 }
 
@@ -593,6 +633,13 @@ export interface HarnessOptions {
   /** Image mode verifies signatures (default true). */
   verifySignatures?: boolean;
   healthTimeoutSeconds?: number;
+  /** Give the engine a self-updater (self-update.ts). */
+  selfUpdate?: {
+    enabled?: boolean;
+    /** The updater's own version (default 0.1.0, the installed release). */
+    updaterVersion?: string | null;
+    launcher?: SelfRecreateLauncher | null;
+  };
   /** Reuse the directories of another harness (restart). */
   reuse?: { dir: string; clock: FakeClock; ops: FakeDockerOps };
 }
@@ -635,6 +682,27 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     imageRepository: repositories.app,
     webImageRepository: repositories.web,
   });
+  const selfUpdater = options.selfUpdate
+    ? new SelfUpdater({
+        enabled: options.selfUpdate.enabled ?? true,
+        verifySignatures: options.verifySignatures ?? true,
+        updaterVersion:
+          options.selfUpdate.updaterVersion === undefined
+            ? "0.1.0"
+            : options.selfUpdate.updaterVersion,
+        imageRepository: repositories.app,
+        envFile,
+        ops,
+        launcher: options.selfUpdate.launcher === undefined ? null : options.selfUpdate.launcher,
+        store,
+        clock,
+        logger,
+        redactor,
+      })
+    : null;
+  if (selfUpdater) {
+    await selfUpdater.reconcile();
+  }
   const engine = new UpdateEngine({
     config: {
       projectDir,
@@ -655,6 +723,7 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     envFile,
     dumps,
     preflight,
+    ...(selfUpdater ? { selfUpdater } : {}),
   });
 
   const harness: Harness = {
@@ -672,11 +741,12 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
     dumps,
     redactor,
     logger,
+    selfUpdater,
     readEnv: () => fs.readFile(path.join(projectDir, ".env"), "utf8"),
-    restart: async () => {
+    restart: async (overrides = {}) => {
       // The old process is gone: its timers and its next steps must not run any more.
       await engine.shutdown();
-      return await createHarness({ ...options, reuse: { dir, clock, ops } });
+      return await createHarness({ ...options, ...overrides, reuse: { dir, clock, ops } });
     },
     cleanup: async () => {
       await engine.shutdown();
@@ -720,6 +790,7 @@ export function scheduleRequest(
     leadSeconds: 0,
     requestedBy: { userId: "user-1", label: "admin@example.com", ip: "203.0.113.7" },
     ...rest,
+    switchTo: rest.switchTo ?? null,
   };
 }
 

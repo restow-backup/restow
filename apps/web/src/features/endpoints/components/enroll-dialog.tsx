@@ -29,6 +29,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { linkProps, newJobTo } from "@/features/backup-jobs/paths";
 import { cn } from "@/lib/utils";
 
 import {
@@ -41,6 +42,7 @@ import {
 import { useCreateToken, useEndpointFormat, useEnrollmentTokens } from "../hooks.js";
 import { type EndpointProfile, endpointDetailTo } from "../paths.js";
 import { endpointErrorKey } from "../presenters.js";
+import { useCanManageJobs } from "./without-backup.js";
 
 /** The public URL, which the agents enrol against, is set under Installation, Server. */
 const SETTINGS_TO = "/installation/server" as LinkProps["to"];
@@ -186,6 +188,10 @@ function ChooseStep(props: EnrollViewProps) {
       </div>
 
       <p className="text-sm text-muted-foreground">{t("enroll.honesty")}</p>
+      {/* Release 0.2.1: a new machine is backed up only once it is in a backup job. */}
+      <p className="text-sm text-muted-foreground" data-slot="enroll-job-note">
+        {t("enroll.jobNote")}
+      </p>
 
       {props.error ? (
         <Alert variant="destructive">
@@ -282,6 +288,7 @@ function ConnectionStatus({
   onCreateAnother: () => void;
 }) {
   const { t } = useTranslation("endpoints");
+  const canManageJobs = useCanManageJobs();
   if (connection === "connected") {
     return (
       <Alert variant="info" data-connection="connected">
@@ -290,12 +297,26 @@ function ConnectionStatus({
         <AlertDescription>
           <p>{t(`enroll.status.connected.description.${created.profile}`)}</p>
           {endpointId ? (
-            <Link
-              to={endpointDetailTo(endpointId)}
-              className={buttonVariants({ size: "sm", className: "mt-1" })}
-            >
-              {t(`enroll.status.connected.open.${created.profile}`)}
-            </Link>
+            <div className="mt-1 flex flex-wrap gap-2">
+              {canManageJobs ? (
+                <Link
+                  {...linkProps(newJobTo("endpoint", [endpointId]))}
+                  className={buttonVariants({ size: "sm" })}
+                  data-slot="enroll-create-job"
+                >
+                  {t("noJob.createJob")}
+                </Link>
+              ) : null}
+              <Link
+                to={endpointDetailTo(endpointId)}
+                className={buttonVariants({
+                  size: "sm",
+                  variant: canManageJobs ? "outline" : "default",
+                })}
+              >
+                {t(`enroll.status.connected.open.${created.profile}`)}
+              </Link>
+            </div>
           ) : null}
         </AlertDescription>
       </Alert>

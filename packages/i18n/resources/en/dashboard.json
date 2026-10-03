@@ -434,6 +434,12 @@
       "unmarked": "The step is open again.",
       "demo": "Closed in the public demo.",
       "role": "This changes an installation setting and needs the Owner role of the provider team."
+    },
+    "dismissed": {
+      "action": "Hide Start",
+      "toast": "Start is hidden.",
+      "description": "The setup steps stay on each tenant's page under \"Show setup steps\".",
+      "undo": "Undo"
     }
   }
 }

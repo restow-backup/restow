@@ -9,7 +9,10 @@ import {
   dismissRun,
   fetchUpdates,
   patchUpdateSettings,
+  removePendingLicenseKey,
   scheduleUpdate,
+  storePendingLicenseKey,
+  switchToFullBuild,
 } from "./api";
 import { isMaintenanceActive } from "./presenters";
 
@@ -73,6 +76,27 @@ export function useScheduleUpdate() {
     mutationFn: (input: ScheduleUpdateInput) => scheduleUpdate(input),
     onSuccess: write,
   });
+}
+
+export function useSwitchToFullBuild() {
+  const write = useViewWriter();
+  return useMutation({
+    mutationFn: (input: { leadSeconds: number }) => switchToFullBuild(input),
+    onSuccess: write,
+  });
+}
+
+export function useStorePendingLicenseKey() {
+  const write = useViewWriter();
+  return useMutation({
+    mutationFn: (key: string) => storePendingLicenseKey(key),
+    onSuccess: write,
+  });
+}
+
+export function useRemovePendingLicenseKey() {
+  const write = useViewWriter();
+  return useMutation({ mutationFn: removePendingLicenseKey, onSuccess: write });
 }
 
 export function useCancelMaintenance() {

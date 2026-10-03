@@ -33,6 +33,7 @@ import {
   recoveryScript,
   runStatusOf,
   stepLabelKey,
+  switchKey,
   updatesErrorKey,
 } from "../presenters";
 import { ProgressBar } from "../progress-bar";
@@ -53,7 +54,7 @@ export function RunCard({ view, canChange }: { view: UpdatesView; canChange: boo
   const status = runStatusOf(run, phase);
   const dismissable = canDismissRun(phase);
   const needsAttention = run.outcome === "needs_attention";
-  const messageText = describeMessage(run.message);
+  const messageText = describeMessage(run.message, run.switchTo);
 
   const doDismiss = () =>
     dismiss.mutateAsync().then(() => {
@@ -63,11 +64,15 @@ export function RunCard({ view, canChange }: { view: UpdatesView; canChange: boo
   return (
     <Card data-slot="run" data-status={status.kind}>
       <CardHeader>
-        <CardTitle>{active ? t("run.titleActive") : t("run.title")}</CardTitle>
+        <CardTitle>
+          {t(switchKey(active ? "run.titleActive" : "run.title", run.switchTo))}
+        </CardTitle>
         <CardDescription className="[overflow-wrap:anywhere]">
-          {run.fromVersion
-            ? t("run.versions", { from: run.fromVersion, to: run.targetVersion })
-            : t("run.versionTo", { to: run.targetVersion })}
+          {run.switchTo
+            ? t("run.versionSwitch", { to: run.targetVersion })
+            : run.fromVersion
+              ? t("run.versions", { from: run.fromVersion, to: run.targetVersion })
+              : t("run.versionTo", { to: run.targetVersion })}
         </CardDescription>
         <CardAction>
           <StatusBadge tone={status.tone} icon live={status.kind === "running"}>
@@ -117,7 +122,7 @@ export function RunCard({ view, canChange }: { view: UpdatesView; canChange: boo
 
         {run.outcome && run.outcome !== "needs_attention" ? (
           <p className="text-sm text-muted-foreground" data-slot="outcome-note">
-            {t(`run.outcomeNote.${run.outcome}`)}
+            {t(switchKey(`run.outcomeNote.${run.outcome}`, run.switchTo))}
           </p>
         ) : null}
 

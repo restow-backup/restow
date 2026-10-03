@@ -193,7 +193,8 @@ const zone = z
 
 export const scheduleSchema = z
   .object({
-    kind: z.enum(["interval", "daily", "on_connect"]),
+    // `none`: no backups (a machine in no job); any other kind only comes from a backup job.
+    kind: z.enum(["interval", "daily", "on_connect", "none"]),
     intervalMinutes: z
       .number()
       .int()
@@ -282,10 +283,15 @@ export const updateEndpointSchema = z
         quotaGib: z.number().int().min(1).max(MAX_ENDPOINT_QUOTA_GIB).nullable().optional(),
       })
       .optional(),
+    // The person of the tenant's protection directory the machine is assigned to; null removes it.
+    assignedUserId: uuid.nullable().optional(),
   })
   .refine(
     (value) =>
-      value.displayName !== undefined || value.config !== undefined || value.settings !== undefined,
+      value.displayName !== undefined ||
+      value.config !== undefined ||
+      value.settings !== undefined ||
+      value.assignedUserId !== undefined,
     "nothing to change",
   );
 

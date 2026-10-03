@@ -9,7 +9,10 @@ import {
   CircleCheck,
   CircleMinus,
   Cloud,
+  FolderSearch,
+  History,
   Inbox,
+  ListPlus,
   Mail,
   RotateCcw,
   Search,
@@ -20,7 +23,7 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/error-state";
-import { ConfirmDialog } from "@/components/kit";
+import { ConfirmDialog, type RowAction, RowActionsMenu, RowContextMenu } from "@/components/kit";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -44,9 +47,14 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { type JobsAccess, useJobsAccess } from "@/features/backup-jobs/components/access-note";
+import { linkProps, newJobTo } from "@/features/backup-jobs/paths";
+import { fileRestoreMailboxTo } from "@/features/endpoints/paths";
+import { explorerAt } from "@/features/restore/navigation";
 import { errorMessageKey } from "@/lib/api";
 import { formatDateTime, formatInteger, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { Link } from "@tanstack/react-router";
 
 import {
   type BulkSelectionState,
@@ -63,7 +71,7 @@ import {
   toggleRow as toggleRowSelection,
 } from "./bulk-selection";
 import { useBulkSetProtection, useDebouncedValue, useProtectedObjects } from "./hooks";
-import { ObjectActions } from "./object-actions";
+import { useObjectActions } from "./object-actions";
 import { BackupCause, CredentialCause } from "./object-causes";
 import {
   backupFailure,
@@ -134,6 +142,7 @@ export function ObjectsPanel({
   const activeSourceId = search.source ?? (sources.length === 1 ? sources[0]?.id : undefined);
   const activeSource = sources.find((source) => source.id === activeSourceId);
   const [selection, setSelection] = React.useState<BulkSelectionState>(EMPTY_SELECTION);
+  const jobs = useJobsAccess();
   const queryKey = JSON.stringify(query);
   const lastQueryKey = React.useRef(queryKey);
   if (lastQueryKey.current !== queryKey) {
@@ -193,6 +202,7 @@ export function ObjectsPanel({
 
       {activeSourceId !== undefined ? (
         <BulkActionBar
+          jobs={jobs}
           sourceId={activeSourceId}
           sourceKind={activeSource?.kind}
           selection={selection}
@@ -271,7 +281,7 @@ export function ObjectsPanel({
                 </TableRow>
               ) : (
                 table.getRowModel().rows.map((row) => (
-                  <TableRow key={row.id}>
+                  <ObjectRow key={row.id} object={row.original} selection={selection} jobs={jobs}>
                     {row.getVisibleCells().map((cell) => (
                       <TableCell
                         key={cell.id}
@@ -281,7 +291,7 @@ export function ObjectsPanel({
                         {flexRender(cell.column.columnDef.cell, cell.getContext())}
                       </TableCell>
                     ))}
-                  </TableRow>
+                  </ObjectRow>
                 ))
               )}
             </TableBody>
@@ -310,6 +320,7 @@ export function ObjectsPanel({
  * per-object logic on the server.
  */
 function BulkActionBar({
+  jobs,
   sourceId,
   sourceKind,
   selection,
@@ -318,6 +329,7 @@ function BulkActionBar({
   total,
   filter,
 }: {
+  jobs: JobsAccess;
   sourceId: string;
   /** Reset only makes sense for an M365 source (IMAP accounts have no rules to fall back to). */
   sourceKind: DirectorySource["kind"] | undefined;
@@ -372,6 +384,14 @@ function BulkActionBar({
         </Button>
       </div>
       <div className="flex flex-wrap gap-2">
+        {selection.mode === "ids" && !jobs.closed ? (
+          <Button variant="outline" size="sm" asChild data-action="newJobFromSelection">
+            <Link {...linkProps(newJobTo("mail", [...selection.ids]))}>
+              <ListPlus aria-hidden="true" />
+              {t("rowActions.newJobFromSelection", { count: selection.ids.size })}
+            </Link>
+          </Button>
+        ) : null}
         <ConfirmDialog
           trigger={
             <Button variant="outline" size="sm">
@@ -542,9 +562,121 @@ function objectColumns(
     {
       id: "actions",
       header: () => <span className="sr-only">{t("objects.columns.actions")}</span>,
-      cell: ({ row }) => <ObjectActions object={row.original} />,
+      cell: () => <ObjectActionsCell />,
     },
   ];
+}
+
+/** The actions of the row being rendered, for its "…" menu (see `ObjectRow`). */
+const RowActionsContext = React.createContext<{ actions: RowAction[]; name: string } | null>(null);
+
+function ObjectActionsCell() {
+  const row = React.useContext(RowActionsContext);
+  return row ? <RowActionsMenu actions={row.actions} name={row.name} /> : null;
+}
+
+/**
+ * Where an object leads and what it can start: its restore points on the file restore page
+ * (mailboxes and IMAP accounts), a restore in the explorer, and a new job with it. Closed with a
+ * reason while there is nothing to restore, or while the viewer may not change jobs.
+ */
+function objectLinkActions(
+  object: ProtectedObject,
+  t: TFunction<"directory">,
+  jobs: JobsAccess,
+): RowAction[] {
+  const nothing = object.snapshotCount === 0;
+  const reason = nothing ? t("rowActions.noBackup") : undefined;
+  const actions: RowAction[] = [];
+  if (object.kind === "mailbox" || object.kind === "imap") {
+    actions.push({
+      id: "restorePoints",
+      label: t("rowActions.restorePoints"),
+      icon: History,
+      disabled: nothing,
+      reason,
+      link: fileRestoreMailboxTo(object.id),
+    });
+  }
+  actions.push(
+    {
+      id: "explorer",
+      label: t("rowActions.explorer"),
+      icon: FolderSearch,
+      disabled: nothing,
+      reason,
+      link: explorerAt(object.id),
+    },
+    {
+      id: "newJob",
+      label: t("rowActions.newJob"),
+      icon: ListPlus,
+      disabled: jobs.closed,
+      reason: jobs.reason,
+      link: newJobTo("mail", [object.id]),
+    },
+  );
+  return actions;
+}
+
+/**
+ * One row of the objects table with its actions: the "…" menu at its end and the context menu of
+ * the row offer the same entries. A row among several checked ones offers a new job with all of
+ * them.
+ */
+function ObjectRow({
+  object,
+  selection,
+  jobs,
+  children,
+}: {
+  object: ProtectedObject;
+  selection: BulkSelectionState;
+  jobs: JobsAccess;
+  children: React.ReactNode;
+}) {
+  const { t } = useTranslation("directory");
+  const own = useObjectActions(object);
+  const actions = [...objectLinkActions(object, t, jobs), ...own.actions];
+  const name = objectTitle(object);
+  const selected = objectIsSelected(selection, object.id);
+  const several = selected && selection.mode === "ids" && selection.ids.size > 1;
+  const contextActions = (): RowAction[] => {
+    if (!several) {
+      return actions;
+    }
+    return [
+      {
+        id: "newJobFromSelection",
+        label: t("rowActions.newJobFromSelection", { count: selection.ids.size }),
+        icon: ListPlus,
+        disabled: jobs.closed,
+        reason: jobs.reason,
+        link: newJobTo("mail", [...selection.ids]),
+      },
+    ];
+  };
+  const value = { actions, name };
+  return (
+    <RowActionsContext.Provider value={value}>
+      <RowContextMenu
+        actions={contextActions}
+        label={
+          several
+            ? t("rowActions.selectionMenu", { count: selection.ids.size })
+            : t("actions.menu", { name })
+        }
+      >
+        <TableRow
+          data-selected={selected || undefined}
+          className="data-[selected=true]:[--row-mix:100%] data-[state=open]:[--row-mix:50%]"
+        >
+          {children}
+        </TableRow>
+      </RowContextMenu>
+      {own.dialogs}
+    </RowActionsContext.Provider>
+  );
 }
 
 function NameCell({ object }: { object: ProtectedObject }) {

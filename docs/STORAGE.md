@@ -11,15 +11,16 @@ the storage-target lifecycle.
 ## Targets and roles
 
 A tenant's chunk store (packs, manifests, wrapped keys) lives on one or more
-**storage targets**, each a mounted filesystem path (a Docker volume, an NFS or SMB
+**storage targets**, each a mounted filesystem path (a Docker volume or an NFS
 share) or an S3-compatible bucket (Hetzner Object Storage, AWS S3, Wasabi, Backblaze
 B2, Garage — not MinIO, which is no longer open source). Every target has a role:
 
 - **primary** — receives every new backup first. A tenant has at most one. A tenant
-  with no primary target of its own uses the installation's default storage (the
-  environment's `STORAGE_TARGET` / `STORAGE_LOCAL_PATH` / `S3_*` settings) as its
-  primary, so a fresh install works out of the box with a single container plus
-  Postgres.
+  with no primary target of its own uses the installation's default storage as its
+  primary (see "Installation default" below: the default a provider owner saved under
+  Installation → Default storage, otherwise the environment's `STORAGE_TARGET` /
+  `STORAGE_LOCAL_PATH` / `S3_*` settings), so a fresh install works out of the box
+  with a single container plus Postgres.
 - **copy** — receives every new backup too, in addition to the primary. Data written
   before the copy existed is mirrored onto it, verified by hash, during the weekly
   scrub. Any number of copies is allowed; a copy can later be promoted to primary
@@ -43,7 +44,133 @@ health (the result of its last test), and — for S3 targets — whether the buc
 enforces Object Lock (WORM), which matters for the GoBD archive layer
 (`docs/ARCHIVE.md`). In 0.1.0 Object Lock covers only the archive's item records, not
 the packs that hold the message content, and backup data carries no Object Lock
-retention; local, NFS and SMB targets are shown as having no hardware WORM.
+retention; local and NFS targets are shown as having no hardware WORM.
+
+## Installation default
+
+The installation default is the storage every tenant without a primary target of its
+own writes to. It is one location for the whole installation, shown under
+Installation → Default storage (`/installation/default-storage`).
+
+### Where it comes from
+
+1. **Saved in the web UI.** A provider owner can set it on that page: a directory on
+   the server, or an S3-compatible bucket, with the same fields as a tenant's storage
+   target (path; or provider preset, bucket, prefix, endpoint, region, addressing
+   style, access key pair). It is stored as one JSON document sealed in the secret
+   store (`secrets` row without tenant, kind `default_storage`, AES-256-GCM with the
+   installation secrets key derived from `RESTOW_MASTER_KEY`, bound to its row id),
+   the same mechanism as the Microsoft 365 app registration. No table or migration is
+   involved. The access key pair is write-only, like a tenant target's: the page only
+   ever gets back the last four characters of the key id, and saving without a new
+   pair keeps the stored one as long as the endpoint stays the same.
+2. **The environment.** Without a saved default, `STORAGE_TARGET`,
+   `STORAGE_LOCAL_PATH` and `S3_*` apply exactly as before. An installation that never
+   saves one behaves as in earlier releases.
+
+When both exist, the saved default wins, and the page says so (it also shows what
+the environment describes, which applies again once the saved default is removed with
+"Use the server environment again"). `STORAGE_COPY_LOCAL_PATH`, the mounted share every
+default write is also copied to, always comes from the environment: it is part of
+the server, not a setting.
+
+### One resolver for the api and the worker
+
+Every place that needs the default resolves it through one resolver
+(`InstallationDefaultResolver`, `packages/core/src/storage/installation-default.ts`),
+never from `process.env` directly: in the api through `apps/api/src/lib/installation-default.ts`
+(restore downloads, mail previews, imports, agent repositories, the storage page, the
+dashboard, the archive journal receiver), in the worker through
+`apps/worker/src/default-storage.ts` (the per-tenant storage cache and the storage
+migration's source). The scheduler does not touch storage. Answers are cached for 30
+seconds; a save or removal in the api process drops its own cache immediately. Each
+answer carries a generation (`environment`, or the saved row's id and update time).
+Before a job on a queue that writes to storage uses a tenant's cached storage, the
+worker reads the current generation afresh (one cheap query on the installation
+pool) and reloads the tenant when its cached default is older, the same way it
+already re-checks a "keep" switch (`resolveStorageForJob`). So no job writes to a
+default that was changed after the worker cached it.
+
+### Changing it without orphaning data
+
+Pointing the default somewhere else would leave every tenant's data behind on the
+old location, since nothing moves it. `PUT` and `DELETE /api/v1/settings/default-storage`
+therefore refuse (`409`, `urn:restow:problem:settings-default-storage-in-use`, with
+the tenants named in `blockers`) while any tenant
+
+- has no primary target of its own and keeps backups (packs) or agent repositories
+  on the default (`data`),
+- has a retired default attached as its read-only `previous` target, left by a
+  "keep" replacement (`previous`; the placeholder row of kind `installation_default`
+  always opens to the *current* default, so moving it would cut those older backups
+  off),
+- is moving off the default in an unfinished storage migration (`migration`), or
+- has no primary target of its own and a job on a queue that writes to storage
+  queued or running (`active_job`).
+
+The page lists the same tenants with their reasons before anyone tries. They need a
+storage target of their own first (Storage → Add a target → Replace the primary with
+"move existing backups", or a copy promoted once complete); then the default is free
+to move. A change that keeps the location (the key pair, the region, the addressing
+style; the same path, or the same endpoint, bucket and prefix) is always possible. A
+fresh installation without tenant data can change the default freely. The check runs
+twice: before the probe, and again inside the saving transaction under an advisory
+lock, so a tenant that wrote its first pack in between still blocks the change.
+
+When the current default is not usable at all (an invalid environment, or a saved
+document the master key no longer opens), the check is skipped: nothing can be read
+from or written to it as it stands, and the operator is repairing it. Enter the same
+location again in that case.
+
+Before saving, the new location is probed exactly like a tenant target (write, read,
+list and delete a small object below `installation/probes/`, Object Lock detection);
+a directory must already exist. A failing probe refuses the change (`422`,
+`urn:restow:problem:settings-default-storage-unreachable`, with the probe) and nothing
+is saved; the page shows the probe either way. Removing the saved default probes the
+environment's location first, and is refused when the environment describes no
+usable storage (`409`, `...-environment-invalid`).
+
+Saving and removing are for the provider owner only (`own()` in
+`apps/api/src/lib/provider-access.ts`) and need a recent sign-in
+(`apps/api/src/lib/recent-sign-in.ts`), like the other settings that affect the host.
+Every save and removal is written to the installation audit chain
+(`settings.default_storage.saved` / `.removed`, with the old and new location, the
+probe outcome and whether the key pair changed, never the key pair itself). A save's
+probe counts as the default's newest test.
+
+### On a tenant's storage page
+
+The installation default is always shown as an explicit choice. While the tenant has
+no primary target of its own, it is the selected primary ("Selected: new backups of
+this tenant go here"). Once the tenant has a primary of its own, the default is shown
+as not in use. Going back to it is offered ("Use installation default") while that
+primary holds no data yet: the primary is removed and the default applies again,
+under the same rules as removing a primary (`primary_holds_data` refuses it once data
+exists). Going back from a primary that already holds backups is not supported in
+this release (see "Known limitations").
+
+### Tenant separation on a shared default
+
+All tenants on the default share one location; nothing in it is separated by
+location. Separation is the key layout and the per-tenant keys:
+
+- every chunk-store key lives below `tenants/<tenant id>/` (`tenantPrefix`,
+  `packages/core/src/engine/layout.ts`, which refuses ids with characters outside
+  `[A-Za-z0-9._-]`, so no id can escape or nest into another's prefix; the trailing
+  slash keeps an id that is a prefix of another id apart), staging and exports too;
+  agent repositories live below `endpoints/<endpoint id>/`, and an endpoint belongs to
+  exactly one tenant;
+- every pack, manifest and staged or exported file is sealed with the tenant's own
+  data key (DEK), and the DEK is stored only wrapped with the master key
+  (`tenants/<tenant id>/keys/<version>`). Bytes read from another tenant's prefix do
+  not open with a different tenant's key;
+- a tenant's storage is resolved inside its own tenant-pinned transaction (Row Level
+  Security), and every read and write goes through keys built from that tenant's id.
+
+`packages/core/src/storage/installation-default.test.ts` checks that two tenants on
+the default resolve to the same backend but disjoint prefixes, and that one tenant's
+DEK does not open another's sealed content. Changing the default does not change any
+of this: the change only decides where the shared location is.
 
 ## Other data on a target, and its budgets
 
@@ -301,6 +428,18 @@ depends on the old location any more.
 
 Honestly stated rather than hidden, per Restow's own rule that known limits are shown,
 not papered over:
+
+- **There is no migration back to the installation default.** A tenant whose own
+  primary already holds backups cannot replace it with the installation default: a
+  storage migration's destination is always a target row with its own addressing,
+  and the `installation_default` placeholder carries none. The tenant's storage page
+  says so instead of offering it. Going back is possible while the own primary holds
+  no data (it is simply removed). Moving a tenant's data onto the default's location
+  by hand is not supported either.
+- **Changing the installation default never moves data.** It is refused while tenants
+  keep data on the current default (see "Changing it without orphaning data"). Mail
+  file uploads still in staging and unexpired exports are not counted as data there:
+  change the default while no import or export is pending.
 
 - **A "keep" replacement's older packs are outside the weekly scrub's reach.** Once a
   `previous` target holds packs no current primary or copy ever received, the scrub's

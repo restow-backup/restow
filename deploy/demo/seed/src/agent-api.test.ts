@@ -133,4 +133,30 @@ describe("AgentApi", () => {
     expect(await pending).toEqual({ tasks: [] });
     expect(calls).toHaveLength(3);
   });
+
+  it("reports progress of a run", async () => {
+    const calls = stubFetch([{ status: 204 }]);
+    const api = new AgentApi("http://api:3000", "t", { endpointId: "e", secret: "s" });
+    await api.progress("run-1", { filesDone: 3, bytesDone: 4096, currentPath: "/srv/share/a" });
+    expect(calls[0]?.url).toBe("http://api:3000/agent/v1/runs/run-1/progress");
+    expect(calls[0]?.init.method).toBe("POST");
+    expect(JSON.parse(calls[0]?.init.body as string)).toEqual({
+      filesDone: 3,
+      bytesDone: 4096,
+      currentPath: "/srv/share/a",
+    });
+  });
+
+  it("gives up at once when told not to retry", async () => {
+    const calls = stubFetch([{ status: 503 }, { status: 200, body: {} }]);
+    const api = new AgentApi(
+      "http://api:3000",
+      "t",
+      { endpointId: "e", secret: "s" },
+      { retries: 0, timeoutMs: 1000 },
+    );
+    await expect(api.config()).rejects.toMatchObject({ status: 503 });
+    expect(calls).toHaveLength(1);
+    expect((calls[0]?.init as { signal?: AbortSignal }).signal).toBeInstanceOf(AbortSignal);
+  });
 });

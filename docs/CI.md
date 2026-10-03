@@ -253,7 +253,7 @@ Verify an image (the same command for `restow-web`, `restow-community` and
 `restow-web-community`):
 
 ```sh
-cosign verify ghcr.io/restow-backup/restow:0.2.0 \
+cosign verify ghcr.io/restow-backup/restow:0.2.1 \
   --certificate-identity-regexp '^https://github.com/restow-backup/restow/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
@@ -402,7 +402,7 @@ checked in the full run) are reported as skipped with that reason.
 It needs Docker with compose and buildx, Node 22 and, for check 9, `pnpm` (or corepack). It
 copies `deploy/release/docker-compose.yml` into `smoke-out/run/stack`, generates every
 secret of that stack fresh, adds the overlay `scripts/smoke/docker-compose.smoke.yml`
-(Dovecot, Garage, a bind-mounted directory standing in for an NFS or SMB share), starts it
+(Dovecot, Garage, a bind-mounted directory standing in for an NFS share), starts it
 as the compose project `restow-smoke` on the ports from 38300 (`--port-base`), runs the
 checks and removes the stack and its volumes again. Output: `smoke-report.md` (check,
 result, duration, detail and the date of each), the service logs in `smoke-out/logs`, the

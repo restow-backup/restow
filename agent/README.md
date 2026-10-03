@@ -162,6 +162,7 @@ fetched at start, hourly, on an `update_config` task and before every backup.
 | `daily` | Runs at `timeOfDay` in `timeZone` (DST-correct). A missed slot (machine off) is caught up once when the machine is back. A fresh enrollment waits for the next slot. Each endpoint starts 0 to 10 minutes late, derived from its id, so many servers do not hit the instance in the same second. |
 | `interval` | Every `intervalMinutes` (minimum 5). The first run starts right after enrollment. |
 | `on_connect` | Starts as soon as the instance is reachable, at most once per 4 hours (`intervalMinutes`, if the server sends it, overrides the 4 hours). |
+| `none` | Server 0.2.1 and later: the machine is in no backup job. Nothing starts on its own (no slot, no retry, no resumption); a backup request from the server is ignored and `restow-agent backup-now` refuses. Heartbeats, restores and self-updates go on. `restow-agent status` shows "waiting for a backup job". The server sends no paths and no hooks with it, so an older agent, which does not know the kind and falls back to its profile's default, stops such a run with `no_paths` before restic or a hook starts. |
 
 A backup that was interrupted (agent stopped, machine slept, connection lost) resumes as
 soon as the instance is reachable, without waiting for the next slot. After a failed run

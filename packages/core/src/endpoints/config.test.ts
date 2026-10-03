@@ -3,8 +3,12 @@ import {
   DEFAULT_CLIENT_INTERVAL_MINUTES,
   DEFAULT_ENDPOINT_RETENTION,
   SUPPORTED_ENDPOINT_OS,
+  agentFacingConfig,
   defaultEndpointConfig,
+  enrolledEndpointConfig,
   isSupportedEndpointOs,
+  isUnscheduled,
+  noSchedule,
 } from "./config.js";
 
 const options = { timeZone: "Europe/Berlin" };
@@ -40,7 +44,22 @@ describe("agent configuration defaults", () => {
       "/root",
       "/srv",
       "/var/www",
+      "/opt",
+      "/usr/local",
+      "/var/lib",
+      "/var/backups",
     ]);
+    expect(defaultEndpointConfig("linux", "client", options).paths).toEqual([
+      "/etc",
+      "/home",
+      "/root",
+      "/srv",
+      "/var/www",
+    ]);
+    // Container images and package lists are rebuilt, not restored.
+    expect(defaultEndpointConfig("linux", "server", options).excludes).toEqual(
+      expect.arrayContaining(["/var/lib/docker", "/var/lib/containerd", "/var/lib/apt/lists"]),
+    );
     expect(defaultEndpointConfig("darwin", "client", options).paths).toEqual(["/Users"]);
     expect(defaultEndpointConfig("windows", "client", options).paths).toEqual(["C:\\Users"]);
     expect(defaultEndpointConfig("windows", "server", options).paths).toEqual([
@@ -88,5 +107,38 @@ describe("agent configuration defaults", () => {
     expect(isSupportedEndpointOs("darwin")).toBe(true);
     expect(isSupportedEndpointOs("windows")).toBe(false);
     expect(isSupportedEndpointOs("freebsd")).toBe(false);
+  });
+});
+
+describe("a machine in no backup job", () => {
+  it("is enrolled without a schedule, keeping the profile's folders for a job to start from", () => {
+    const config = enrolledEndpointConfig("linux", "server", options);
+    const defaults = defaultEndpointConfig("linux", "server", options);
+    expect(config.schedule).toEqual({ kind: "none", timeZone: "Europe/Berlin" });
+    expect(isUnscheduled(config.schedule)).toBe(true);
+    expect(config.paths).toEqual(defaults.paths);
+    expect(config.excludes).toEqual(defaults.excludes);
+    expect(config.profile).toBe("server");
+    expect(isUnscheduled(defaults.schedule)).toBe(false);
+    expect(isUnscheduled(undefined)).toBe(false);
+  });
+
+  it("hands an agent neither folders nor hooks, so an older agent that does not know `none` backs nothing up", () => {
+    const stored = {
+      ...enrolledEndpointConfig("darwin", "client", options),
+      hooks: { pre: "dump-db" },
+    };
+    const sent = agentFacingConfig(stored);
+    expect(sent.schedule).toEqual(noSchedule("Europe/Berlin"));
+    expect(sent.paths).toEqual([]);
+    expect(sent.hooks).toEqual({});
+    expect(sent.excludes).toEqual(stored.excludes);
+    // The stored configuration keeps them.
+    expect(stored.paths).toEqual(["/Users"]);
+  });
+
+  it("leaves the configuration of a machine with a schedule as it is", () => {
+    const config = defaultEndpointConfig("linux", "server", options);
+    expect(agentFacingConfig(config)).toBe(config);
   });
 });

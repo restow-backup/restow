@@ -190,6 +190,11 @@ describe("SnapshotsTab", () => {
     expect(items[0]?.querySelector('[data-verification="green"]')).not.toBeNull();
     expect(items[1]?.querySelector('[data-verification="unverified"]')).not.toBeNull();
     expect(items[0]?.textContent).toContain("120 files");
+    // One separator per day on the timeline, and the jump to a date above it.
+    expect(
+      document.querySelectorAll('[data-slot="snapshot-list"] [data-slot="timeline-day"]'),
+    ).toHaveLength(2);
+    expect(page.text()).toContain("Jump to date");
     expect(page.text()).toContain("Pick a snapshot");
     // Browsing is audited, so nothing is read before the admin picks a snapshot.
     expect(fetchBrowse).not.toHaveBeenCalled();

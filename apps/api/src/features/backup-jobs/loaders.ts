@@ -4,6 +4,7 @@ import {
   type BackupJobMember,
   backupJobMembers,
   endpointRuns,
+  endpointTasks,
   endpoints,
   jobs,
   protectedObjects,
@@ -170,6 +171,10 @@ export interface EndpointFact {
     status: "running" | "succeeded" | "partial" | "failed";
     finishedAt: Date | null;
   } | null;
+  /** When the agent last contacted the server. */
+  lastSeenAt: Date | null;
+  /** A backup requested by hand that the machine has not started yet (an open `backup_now` task). */
+  pendingBackup: { status: "pending" | "delivered"; requestedAt: Date } | null;
   restore: { state: MemberRestoreState; checkedAt: Date | null };
 }
 
@@ -204,11 +209,30 @@ export async function loadEndpointFacts(
       ),
     )
     .orderBy(endpointRuns.endpointId, desc(endpointRuns.startedAt));
+  // The oldest open request of a machine counts: it is the one the agent receives first.
+  const tasks = await tx
+    .selectDistinctOn([endpointTasks.endpointId], {
+      endpointId: endpointTasks.endpointId,
+      status: endpointTasks.status,
+      createdAt: endpointTasks.createdAt,
+    })
+    .from(endpointTasks)
+    .where(
+      and(
+        eq(endpointTasks.tenantId, tenantId),
+        eq(endpointTasks.kind, "backup_now"),
+        inArray(endpointTasks.status, ["pending", "delivered"]),
+        inArray(endpointTasks.endpointId, ids),
+      ),
+    )
+    .orderBy(endpointTasks.endpointId, asc(endpointTasks.createdAt));
   const readiness = await loadEndpointReadiness(tx, tenantId, ids, now);
   const runBy = new Map(runs.map((run) => [run.endpointId, run]));
+  const taskBy = new Map(tasks.map((task) => [task.endpointId, task]));
   for (const row of rows) {
     const rated = readiness.get(row.id);
     const run = runBy.get(row.id);
+    const task = taskBy.get(row.id);
     result.set(row.id, {
       hostname: row.hostname,
       displayName: row.displayName,
@@ -217,6 +241,11 @@ export async function loadEndpointFacts(
       status: row.status,
       nextRunAt: row.nextRunAt,
       latest: run ? { id: run.id, status: run.status, finishedAt: run.finishedAt } : null,
+      lastSeenAt: row.lastSeenAt,
+      pendingBackup:
+        task && (task.status === "pending" || task.status === "delivered")
+          ? { status: task.status, requestedAt: task.createdAt }
+          : null,
       restore: { state: rated?.state ?? "no_backup", checkedAt: rated?.checkedAt ?? null },
     });
   }

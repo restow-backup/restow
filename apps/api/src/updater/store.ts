@@ -12,6 +12,7 @@ import {
   releaseRefSchema,
   runSchema,
   runSummarySchema,
+  selfUpdateRecordSchema,
   sourceRefSchema,
 } from "./protocol.js";
 
@@ -78,6 +79,8 @@ export const stateFileSchema = z
     history: z.array(runSummarySchema).max(HISTORY_LIMIT),
     events: z.array(journalEventSchema).max(EVENT_LIMIT),
     eventCounter: z.number().int().nonnegative(),
+    /** The updater's last update of itself (self-update.ts); null when there never was one. */
+    selfUpdate: selfUpdateRecordSchema.nullable().default(null),
   })
   .superRefine((state, ctx) => {
     if (state.phase !== "idle" && state.run === null) {
@@ -95,6 +98,7 @@ export function initialState(): StateFile {
     history: [],
     events: [],
     eventCounter: 0,
+    selfUpdate: null,
   };
 }
 

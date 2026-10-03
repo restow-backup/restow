@@ -59,9 +59,15 @@ export function useJobsScope() {
   };
 }
 
-/** Whether any job of the list has a backup running. */
+/** Whether any job of the list has a backup running or waiting for its machine. */
 export function anyRunning(jobs: readonly Pick<BackupJob, "state" | "lastRun">[] | undefined) {
-  return (jobs ?? []).some((job) => job.state === "running" || job.lastRun.running > 0);
+  return (jobs ?? []).some(
+    (job) =>
+      job.state === "running" ||
+      job.state === "queued" ||
+      job.lastRun.running > 0 ||
+      job.lastRun.queued > 0,
+  );
 }
 
 export function refreshIntervalOf(jobs: readonly BackupJob[] | undefined): number {

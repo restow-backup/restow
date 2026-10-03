@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { type AgentConfig as EndpointConfig, defaultEndpointConfig } from "../endpoints/config.js";
+import {
+  type AgentConfig as EndpointConfig,
+  defaultEndpointConfig,
+  noSchedule,
+} from "../endpoints/config.js";
 import {
   buildEndpointConfig,
   configKey,
@@ -81,6 +85,21 @@ describe("building the agent configuration", () => {
       bandwidthKbps: 2000,
     });
     expect("excludeLargerThanBytes" in next).toBe(false);
+  });
+
+  it("gives a machine without a schedule the job's, whatever the job's is", () => {
+    for (const schedule of [
+      { kind: "interval" as const, intervalMinutes: 5, timeZone: ZONE },
+      { kind: "daily" as const, timeOfDay: "00:00", timeZone: ZONE },
+      { kind: "on_connect" as const, intervalMinutes: 240, timeZone: ZONE },
+    ]) {
+      const next = buildEndpointConfig(config({ schedule: noSchedule(ZONE) }), schedule, {});
+      expect(next.schedule).toEqual(schedule);
+    }
+    // A job without a schedule (never for a machine job) leaves the machine waiting.
+    expect(buildEndpointConfig(config({ schedule: noSchedule(ZONE) }), null, {}).schedule).toEqual(
+      noSchedule(ZONE),
+    );
   });
 
   it("adds the size limit in bytes only when the job sets one, and drops it again", () => {

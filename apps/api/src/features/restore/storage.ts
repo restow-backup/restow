@@ -1,4 +1,5 @@
 import {
+  type InstallationDefaultStorage,
   type SecretReader,
   type StorageBackend,
   StorageTargetError,
@@ -8,6 +9,7 @@ import {
 } from "@restow/core";
 import { secrets, storageTargets } from "@restow/db";
 import { and, asc, eq } from "drizzle-orm";
+import { installationDefaultResolver } from "../../lib/installation-default.js";
 import { loadTenantDek, openSecret } from "../../lib/secrets.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
@@ -16,8 +18,9 @@ import { ProblemError } from "../../problem.js";
  * Read access to a tenant's chunk store from the API process, used to stream
  * download restores. Resolution is core's `resolveStorageTargets`, the same
  * the worker writes with: the tenant's primary row wins, without one the
- * installation default (STORAGE_TARGET, STORAGE_LOCAL_PATH, S3_*,
- * STORAGE_COPY_LOCAL_PATH) is the primary, and copy rows always apply, so a
+ * installation default (saved under Installation → Default storage, else
+ * STORAGE_TARGET, STORAGE_LOCAL_PATH, S3_*; plus STORAGE_COPY_LOCAL_PATH) is
+ * the primary, and copy rows always apply, so a
  * download can fall back to every copy a backup was written to. S3
  * credentials are opened from the encrypted secret store; they never leave
  * this process.
@@ -36,19 +39,39 @@ export interface ReadableStorage {
 
 type Env = Record<string, string | undefined>;
 
-/** The installation-default targets, exactly as the worker builds them. */
+function openDefaults(defaults: InstallationDefaultStorage): ReadableStorage {
+  const opened = openInstallationDefault(defaults);
+  return {
+    primary: opened.primary.backend,
+    copies: opened.copy ? [opened.copy.backend] : [],
+  };
+}
+
+function notConfigured(error: unknown): unknown {
+  return error instanceof StorageTargetError
+    ? new ProblemError(503, "Storage not configured", { detail: error.message })
+    : error;
+}
+
+/** The installation-default targets an environment describes (tests, and installs without a saved default). */
 export function defaultStorage(env: Env = process.env): ReadableStorage {
   try {
-    const opened = openInstallationDefault(installationDefaultStorage(env));
-    return {
-      primary: opened.primary.backend,
-      copies: opened.copy ? [opened.copy.backend] : [],
-    };
+    return openDefaults(installationDefaultStorage(env));
   } catch (error) {
-    if (error instanceof StorageTargetError) {
-      throw new ProblemError(503, "Storage not configured", { detail: error.message });
-    }
-    throw error;
+    throw notConfigured(error);
+  }
+}
+
+/**
+ * The installation-default targets that apply right now, exactly as the
+ * worker resolves them: the default saved under Installation → Default
+ * storage, otherwise the environment (lib/installation-default.ts).
+ */
+export async function currentDefaultStorage(): Promise<ReadableStorage> {
+  try {
+    return openDefaults(await installationDefaultResolver().storage());
+  } catch (error) {
+    throw notConfigured(error);
   }
 }
 
@@ -74,7 +97,7 @@ function tenantSecretReader(tx: DbExecutor, tenantId: string): SecretReader {
 export async function resolveTenantStorage(
   db: DbExecutor,
   tenantId: string,
-  defaults: () => ReadableStorage = defaultStorage,
+  defaults: () => ReadableStorage | Promise<ReadableStorage> = currentDefaultStorage,
 ): Promise<ReadableStorage> {
   return withTenantTx(db, tenantId, async (tx) => {
     const rows = await tx

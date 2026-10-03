@@ -43,6 +43,7 @@ export const FAILURE_CODES = [
   "prepare.env_unwritable",
   "prepare.disk_space",
   "prepare.not_newer",
+  "prepare.switch_refused",
   "prepare.compose_unsupported",
   "prepare.updater_image_unpinned",
   "fetch.pull_failed",
@@ -165,6 +166,8 @@ export interface Failure {
 export interface RunView {
   id: string;
   mode: UpdateMode;
+  /** The run switches the build (Community to full) instead of the version. */
+  switchTo: BuildSwitchTarget | null;
   fromVersion: string | null;
   targetVersion: string;
   targetTag: string;
@@ -196,12 +199,17 @@ export interface RunView {
  * The edge's answer names no version (both are null there); the api's
  * `/maintenance` for signed-in users carries them.
  */
+export const BUILD_SWITCH_TARGETS = ["full"] as const;
+export type BuildSwitchTarget = (typeof BUILD_SWITCH_TARGETS)[number];
+
 export interface PublicStatus {
   phase: UpdaterPhase;
   runId: string | null;
   outcome: RunOutcome | null;
   targetVersion: string | null;
   fromVersion: string | null;
+  /** Only the api's `/maintenance` names it; the edge's answer has null. */
+  switchTo: BuildSwitchTarget | null;
   startsAt: string | null;
   startedAt: string | null;
   finishedAt: string | null;
@@ -274,6 +282,39 @@ export interface SourceView {
 
 export type UpdaterAvailability = "unavailable" | "ready" | "blocked" | "busy" | "demo";
 
+export const SELF_UPDATE_REASONS = [
+  "disabled",
+  "source_mode",
+  "signature_unverified",
+  "compose_unsupported",
+  "env_write_failed",
+  "launch_failed",
+  "helper_failed",
+  "not_replaced",
+] as const;
+export type SelfUpdateReason = (typeof SELF_UPDATE_REASONS)[number];
+
+/** The updater's last update of itself (updater protocol, `selfUpdateRecordSchema`). */
+export interface SelfUpdateRecord {
+  status: "pending" | "succeeded" | "failed" | "skipped";
+  reason: SelfUpdateReason | null;
+  fromVersion: string | null;
+  targetVersion: string;
+  /** What was written to RESTOW_UPDATER_IMAGE (`name:tag@sha256:...`). */
+  image: string | null;
+  startedAt: string;
+  finishedAt: string | null;
+  detail: string;
+}
+
+export interface SelfUpdateView {
+  /** RESTOW_UPDATER_SELF_UPDATE is not false. */
+  enabled: boolean;
+  /** The updater verifies release signatures (a self-update needs that). */
+  verifiesSignatures: boolean;
+  last: SelfUpdateRecord | null;
+}
+
 export interface UpdaterView {
   state: UpdaterAvailability;
   blockers: Blocker[];
@@ -283,9 +324,22 @@ export interface UpdaterView {
    */
   incompatible: boolean;
   version: string | null;
+  /** null: no updater answers, or one that predates its self-update (0.2.0). */
+  selfUpdate: SelfUpdateView | null;
+  /** The application image of the running version, by tag: the image the updater runs too. */
+  applicationImage: string | null;
   runner: "cli" | "helper" | null;
   dumps: DumpInfo[];
   checkedAt: string | null;
+}
+
+/** The build this installation runs (Installation, Edition). */
+export interface EditionView {
+  build: "full" | "community";
+  /** A license key entered on the Community build waits for the full build. */
+  pendingLicenseKey: boolean;
+  /** The full build's images at the running version (Community only): the `.env` lines of a switch by hand. */
+  fullImages: { app: string; web: string } | null;
 }
 
 export type CheckState = "disabled" | "pending" | "ok" | "failed";
@@ -323,6 +377,8 @@ export interface UpdatesView {
   leadTimes: readonly number[];
   maintenance: MaintenanceView;
   run: RunView | null;
+  /** The build and what a switch to the full build needs (older servers: absent). */
+  edition?: EditionView;
 }
 
 export interface UpdateSettingsInput {
@@ -348,6 +404,7 @@ export const UPDATE_RUNNING_UNKNOWN_PROBLEM = "urn:restow:problem:update-running
 export const UPDATE_SOURCE_NOT_ALLOWED_PROBLEM = "urn:restow:problem:update-source-not-allowed";
 export const UPDATE_NOT_VERIFIABLE_PROBLEM = "urn:restow:problem:update-not-verifiable";
 export const INVALID_UPDATE_SOURCE_PROBLEM = "urn:restow:problem:invalid-update-source";
+export const BUILD_SWITCH_REFUSED_PROBLEM = "urn:restow:problem:build-switch-refused";
 export { RECENT_SIGN_IN_PROBLEM } from "@/lib/recent-sign-in";
 
 // --- Endpoints -----------------------------------------------------------------------------
@@ -372,6 +429,31 @@ export function scheduleUpdate(input: ScheduleUpdateInput): Promise<UpdatesView>
   return apiFetch<UpdatesView>("/updates/maintenance", {
     method: "POST",
     body: input,
+    tenantId: null,
+  });
+}
+
+/** Community only: switch to the full build of the running version (through the updater). */
+export function switchToFullBuild(input: { leadSeconds: number }): Promise<UpdatesView> {
+  return apiFetch<UpdatesView>("/updates/edition/switch", {
+    method: "POST",
+    body: input,
+    tenantId: null,
+  });
+}
+
+/** Community only: keep a license key for the full build (not checked before the switch). */
+export function storePendingLicenseKey(key: string): Promise<UpdatesView> {
+  return apiFetch<UpdatesView>("/updates/edition/license-key", {
+    method: "PUT",
+    body: { key },
+    tenantId: null,
+  });
+}
+
+export function removePendingLicenseKey(): Promise<UpdatesView> {
+  return apiFetch<UpdatesView>("/updates/edition/license-key", {
+    method: "DELETE",
     tenantId: null,
   });
 }
@@ -489,6 +571,7 @@ export function parsePublicStatus(payload: unknown): PublicStatus | null {
     outcome: oneOf(RUN_OUTCOMES, payload.outcome),
     targetVersion: stringOrNull(payload.targetVersion),
     fromVersion: stringOrNull(payload.fromVersion),
+    switchTo: oneOf(BUILD_SWITCH_TARGETS, payload.switchTo),
     startsAt: stringOrNull(payload.startsAt),
     startedAt: stringOrNull(payload.startedAt),
     finishedAt: stringOrNull(payload.finishedAt),
@@ -518,6 +601,7 @@ export function idleMaintenance(now: Date = new Date()): MaintenanceView {
     outcome: null,
     targetVersion: null,
     fromVersion: null,
+    switchTo: null,
     startsAt: null,
     startedAt: null,
     finishedAt: null,

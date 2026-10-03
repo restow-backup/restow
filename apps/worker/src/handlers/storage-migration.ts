@@ -75,10 +75,8 @@ import {
   type StorageMigrationJobPayload,
   type StorageTargets,
   destinationObjectKeys,
-  installationDefaultStorage,
   metadataMirrorItems,
   mirrorItem,
-  openInstallationDefault,
   openStorageTarget,
   packMirrorItems,
   parseManifestKey,
@@ -98,6 +96,7 @@ import {
 } from "@restow/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { appendAuditEntry } from "../audit.js";
+import { processDefaultStorage } from "../default-storage.js";
 import type { TenantTx, TenantTxRunner } from "../progress.js";
 import {
   type AbortReason,
@@ -989,13 +988,13 @@ export const storageMigrationHandler: JobHandler<"storage_migration"> = {
       );
     }
 
-    const openDefaults = (): StorageTargets => {
-      const opened = openInstallationDefault(installationDefaultStorage(process.env));
-      return { primary: opened.primary.backend, copies: opened.copy ? [opened.copy.backend] : [] };
-    };
+    // The installation default that applies right now (saved under Installation, Default
+    // storage, else the environment): the API refuses to move it while this migration runs.
+    const openDefaults = async (): Promise<StorageTargets> =>
+      (await processDefaultStorage().current()).targets;
     const primarySource = sourceRow
       ? (await openStorageTarget(sourceRow, ctx.secrets)).backend
-      : openDefaults().primary;
+      : (await openDefaults()).primary;
     const destination = (await openStorageTarget(destinationRow, ctx.secrets)).backend;
     // A tenant that chose "keep" for an earlier replacement may still have
     // packs that live only on that retired target: read from it too (never

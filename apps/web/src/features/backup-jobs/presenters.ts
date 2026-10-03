@@ -14,6 +14,7 @@ import type {
   JobState,
   MemberKind,
   Repository,
+  RunBackupJobResult,
 } from "./api.js";
 import { cadenceOfJobSchedule } from "./form.js";
 
@@ -130,7 +131,7 @@ export interface StateView {
 }
 
 /**
- * The badge of a job's state. A running job is Lapis (info), problems are amber or
+ * The badge of a job's state. A running job is Lapis (info), a queued one waits (muted), problems are amber or
  * red, a job that is merely fine is the neutral outline: green is for a restore
  * check that passed, which is what the restore check column says.
  */
@@ -142,6 +143,8 @@ export function stateView(state: JobState): StateView {
       return { tone: "destructive", key: state, live: false };
     case "running":
       return { tone: "info", key: state, live: true };
+    case "queued":
+      return { tone: "muted", key: state, live: false };
     case "attention":
       return { tone: "warning", key: state, live: false };
     case "empty":
@@ -198,6 +201,7 @@ export function restoreCheckView(check: JobRestoreCheck): RestoreCheckView {
 export interface LastRunView {
   at: string | null;
   running: number;
+  queued: number;
   failed: number;
   partial: number;
   /** Nothing ran yet and nothing runs: "No backup yet". */
@@ -205,8 +209,15 @@ export interface LastRunView {
 }
 
 export function lastRunView(job: Pick<BackupJob, "lastRun">): LastRunView {
-  const { at, running, failed, partial } = job.lastRun;
-  return { at, running, failed, partial, never: at === null && running === 0 && failed === 0 };
+  const { at, running, queued, failed, partial } = job.lastRun;
+  return {
+    at,
+    running,
+    queued,
+    failed,
+    partial,
+    never: at === null && running === 0 && queued === 0 && failed === 0,
+  };
 }
 
 export type NextRunView =
@@ -279,4 +290,51 @@ export function memberOutcomeTone(outcome: JobMember["lastBackup"]["outcome"]): 
     default:
       return null;
   }
+}
+
+export type PendingBackupView =
+  | { kind: "starting" }
+  | { kind: "waiting"; minutes: number }
+  /** The check-in is due or unknown: the machine starts it with its next contact. */
+  | { kind: "due" };
+
+/**
+ * What a requested backup that has not started says: on the machine already ("starting"), or
+ * waiting for its next check-in, in whole minutes rounded up.
+ */
+export function pendingBackupView(
+  pending: NonNullable<JobMember["pendingBackup"]>,
+  now: number,
+): PendingBackupView {
+  if (pending.status === "delivered") {
+    return { kind: "starting" };
+  }
+  const at = pending.nextCheckInAt ? Date.parse(pending.nextCheckInAt) : Number.NaN;
+  if (Number.isNaN(at) || at <= now) {
+    return { kind: "due" };
+  }
+  return { kind: "waiting", minutes: Math.max(1, Math.ceil((at - now) / 60_000)) };
+}
+
+/**
+ * What the toast of "Run now" says. A machine backup is only requested: it starts at the machine's
+ * next check-in, so a request that was already waiting is "waiting", not "nothing started".
+ */
+export type RunOutcomeView = "queued" | "waiting" | "nothing";
+
+export function runOutcomeView(
+  kind: BackupJob["kind"],
+  result: Pick<RunBackupJobResult, "queued" | "skipped">,
+): RunOutcomeView {
+  if (result.queued > 0) {
+    return "queued";
+  }
+  if (
+    kind === "endpoint" &&
+    result.skipped.length > 0 &&
+    result.skipped.every((entry) => entry.reason === "already_queued")
+  ) {
+    return "waiting";
+  }
+  return "nothing";
 }

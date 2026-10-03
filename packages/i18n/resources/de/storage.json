@@ -11,7 +11,7 @@
     "title": "Repositories konnten nicht geladen werden"
   },
   "kindLong": {
-    "local": "Serverpfad (Volume, NFS, SMB)",
+    "local": "Serverpfad (Volume, NFS)",
     "s3": "S3-kompatibler Objektspeicher",
     "installation_default": "Abgelöster Installationsstandard"
   },
@@ -33,7 +33,7 @@
   "actions": {
     "add": "Repository hinzufügen",
     "addS3": "S3-kompatibler Speicher",
-    "addLocal": "Serverpfad (Volume, NFS, SMB)",
+    "addLocal": "Serverpfad (Volume, NFS)",
     "localProviderOnly": "Nur für Provider-Admins",
     "addCopy": "Kopie hinzufügen",
     "test": "Testen",
@@ -44,7 +44,8 @@
     "promote": "Zum primären Repository machen",
     "checkCopy": "Kopie prüfen",
     "moreActions": "Weitere Aktionen für {name}",
-    "create": "Repository hinzufügen"
+    "create": "Repository hinzufügen",
+    "useDefault": "Installationsstandard nutzen"
   },
   "usage": {
     "title": "Belegung",
@@ -85,14 +86,23 @@
   },
   "default": {
     "name": "Installationsstandard",
-    "description": "Auf dem Server konfiguriert; gilt, bis dieser Mandant ein eigenes primäres Repository hat.",
+    "description": "Vom Provider für diese Installation festgelegt; gilt, solange dieser Mandant kein eigenes primäres Repository hat.",
     "managedByProvider": "Von Ihrem Provider konfiguriert",
     "copy": "Jeder Schreibvorgang wird zusätzlich in einen zweiten Pfad auf dem Server kopiert.",
     "copyAt": "Jeder Schreibvorgang wird zusätzlich nach {location} kopiert.",
     "notChecked": "In dieser Sitzung nicht getestet. Der Installationsstandard speichert keinen Testverlauf.",
     "misconfigured": {
       "title": "Der Standardspeicher der Installation ist falsch konfiguriert",
-      "description": "Die Speichereinstellungen des Servers (STORAGE_TARGET, S3_*) sind ungültig. Backups dieses Mandanten können erst geschrieben werden, wenn der Provider sie korrigiert oder ein primäres Repository hinzugefügt wird."
+      "description": "Der Speicher-Standard der Installation ist nicht nutzbar. Backups dieses Mandanten können erst geschrieben werden, wenn der Provider ihn korrigiert oder ein primäres Repository hinzugefügt wird."
+    },
+    "inUse": "Ausgewählt: Neue Backups dieses Mandanten gehen hierhin. Um stattdessen ein eigenes Repository zu nutzen, fügen Sie eines mit der Rolle „Primär“ hinzu.",
+    "notInUse": "Nicht in Verwendung: Dieser Mandant hat ein eigenes primäres Repository.",
+    "notInUseBadge": "Nicht in Verwendung",
+    "backBlocked": "Sobald Backups im eigenen Repository des Mandanten liegen, ist ein Wechsel zurück zum Installationsstandard nicht möglich: {appName} kann sie noch nicht dorthin verschieben. Sie bleiben, wo sie sind.",
+    "use": {
+      "title": "Installationsstandard nutzen?",
+      "description": "{name} wird als primäres Repository entfernt, und neue Backups dieses Mandanten gehen an den Installationsstandard. In {name} ist noch nichts gespeichert.",
+      "confirm": "Installationsstandard nutzen"
     }
   },
   "health": {
@@ -197,7 +207,7 @@
     "editTitle": "Repository bearbeiten",
     "description": {
       "s3": "Ein Bucket bei Hetzner Object Storage, Amazon S3, Wasabi, Backblaze B2, Garage oder einem anderen S3-kompatiblen Dienst. Zugangsdaten werden verschlüsselt gespeichert.",
-      "local": "Ein Verzeichnis in den Containern: das Standard-Volume oder eine NFS/SMB-Freigabe, die in die Container api und worker eingebunden ist."
+      "local": "Ein Verzeichnis in den Containern: das Standard-Volume oder eine NFS-Freigabe, die in die Container api und worker eingebunden ist."
     },
     "name": "Name",
     "namePlaceholder": {
@@ -326,7 +336,8 @@
     "testOk": "{name} funktioniert.",
     "testFailed": "Der Test von {name} ist fehlgeschlagen.",
     "migrationCancelled": "Die Migration zu {name} wurde abgebrochen.",
-    "migrationRetried": "Die Migration zu {name} wurde erneut eingeplant."
+    "migrationRetried": "Die Migration zu {name} wurde erneut eingeplant.",
+    "defaultSelected": "Dieser Mandant nutzt wieder den Installationsstandard."
   },
   "errors": {
     "localRequiresProviderAdmin": "Nur ein Provider-Admin kann Serverpfade verwalten.",

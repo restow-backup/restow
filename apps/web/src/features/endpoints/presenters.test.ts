@@ -15,6 +15,9 @@ import {
   type Selection,
   activityKey,
   allState,
+  assigneeFilterOptions,
+  assigneeFilterValue,
+  assigneeName,
   attentionMessage,
   attentionTone,
   configPending,
@@ -30,6 +33,7 @@ import {
   isBelow,
   isKnownAttention,
   isRetryableProblem,
+  isWithoutBackup,
   lastBackupOf,
   listRefetchInterval,
   onlyInterrupted,
@@ -222,6 +226,35 @@ describe("attention", () => {
     expect(
       sortAttention(["never_seen", "silent", "repository_damaged", "silent", "backup_overdue"]),
     ).toEqual(["repository_damaged", "silent", "backup_overdue", "never_seen"]);
+  });
+
+  it("puts a machine without backup after a silent one and before lateness, in amber", () => {
+    expect(sortAttention(["never_seen", "no_job", "silent", "backup_overdue"])).toEqual([
+      "silent",
+      "no_job",
+      "backup_overdue",
+      "never_seen",
+    ]);
+    expect(attentionTone("no_job")).toBe("warning");
+    expect(isKnownAttention("no_job")).toBe(true);
+  });
+
+  it("calls an active machine in no job without backup, and nothing else", () => {
+    expect(isWithoutBackup({ status: "active", job: null })).toBe(true);
+    expect(isWithoutBackup({ status: "active", job: { id: "j", name: "Servers" } })).toBe(false);
+    expect(isWithoutBackup({ status: "revoked", job: null })).toBe(false);
+    // A server before 0.2.0 sends no job at all: nothing is said.
+    expect(isWithoutBackup({ status: "active" })).toBe(false);
+  });
+
+  it("words the refusal of a backup for a machine in no job", () => {
+    const title = "Machine is in no backup job";
+    const refused = new ApiError(
+      409,
+      { type: "urn:restow:problem:endpoint-no-job", title, status: 409 },
+      title,
+    );
+    expect(endpointErrorKey(refused)).toBe("endpoints:errors.noJob");
   });
 
   it("recognises only the codes it can word", () => {
@@ -676,5 +709,35 @@ describe("polling", () => {
     expect(detailRefetchInterval({ ...endpoint(), tasks: [waiting] })).toBe(LIVE_REFRESH_MS);
     expect(detailRefetchInterval({ ...endpoint(), tasks: [] })).toBe(IDLE_REFRESH_MS);
     expect(detailRefetchInterval(undefined)).toBe(IDLE_REFRESH_MS);
+  });
+});
+
+describe("the person a machine is assigned to", () => {
+  const alice = { id: "u1", displayName: "Alice Example", email: "alice@example.com" };
+  const bob = { id: "u2", displayName: " ", email: "bob@example.com" };
+
+  it("names a person by display name, else by address", () => {
+    expect(assigneeName(alice)).toBe("Alice Example");
+    expect(assigneeName(bob)).toBe("bob@example.com");
+  });
+
+  it("filters by person and by nobody, each person once and by name", () => {
+    expect(assigneeFilterValue({ assignedTo: alice })).toBe("u1");
+    expect(assigneeFilterValue({ assignedTo: null })).toBe("unassigned");
+    // A server from before 0.2.1 sends no field at all.
+    expect(assigneeFilterValue({})).toBe("unassigned");
+    expect(
+      assigneeFilterOptions(
+        [{ assignedTo: bob }, { assignedTo: alice }, { assignedTo: null }, { assignedTo: bob }],
+        "Nobody",
+      ),
+    ).toEqual([
+      { value: "unassigned", label: "Nobody" },
+      { value: "u1", label: "Alice Example" },
+      { value: "u2", label: "bob@example.com" },
+    ]);
+    expect(assigneeFilterOptions([{ assignedTo: alice }], "Nobody")).toEqual([
+      { value: "u1", label: "Alice Example" },
+    ]);
   });
 });

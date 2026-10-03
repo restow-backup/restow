@@ -115,6 +115,10 @@ Endpunkt (Linux/macOS)                       Restow-Instanz
      verschlüsselt auf dem Server (`secrets`, Art `endpoint_repository`, Mandanten-DEK).
    - Der Server legt das restic-Repository **selbst** an (`restic init` über den
      Wartungszugang), damit der Agent nie eine Config schreiben oder etwas löschen muss.
+   - `config` hat seit 0.2.1 den Zeitplan `none`: Ein neu angemeldeter Rechner sichert **nichts**, bis
+     ein Admin ihn einem Backup-Job hinzufügt (siehe "Rechner ohne Job"). Gespeichert werden dabei die
+     Ordner und Ausschlüsse des Profils (`enrolledEndpointConfig`), damit der Job-Editor davon ausgehen
+     kann; ausgeliefert werden sie dem Agenten erst mit einem Zeitplan.
 5. Ablauf und Fehlerpfade des Servers: Das Token wird atomar verbraucht
    (`UPDATE ... WHERE used_at IS NULL AND revoked_at IS NULL AND expires_at > now()`);
    zwei gleichzeitige Enrollments mit demselben Token ergeben genau einen Erfolg. Scheitert
@@ -145,7 +149,7 @@ Alle Antworten sind JSON, Fehler `application/problem+json` wie im Rest der API.
 | Aufruf | Zweck |
 | --- | --- |
 | `POST /enroll` | Token gegen Zugangsdaten tauschen (siehe oben). |
-| `GET /config` | `{ profile, schedule, paths, excludes, hooks, bandwidthKbps, onlyOnAcPower, useVss, configVersion }`, bei einem Rechner in einem Job mit Größenlimit zusätzlich `excludeLargerThanBytes` (siehe "Jobs"; ein Agent, der das Feld nicht kennt, ignoriert es). `bandwidthKbps` ist das Limit, das **im Moment der Anfrage** gilt (aktives Zeitfenster des Jobs, sonst der Standard, `null` = unbegrenzt); die Zeitfenster selbst bekommt der Agent nie. `Cache-Control: no-store`. |
+| `GET /config` | `{ profile, schedule, paths, excludes, hooks, bandwidthKbps, onlyOnAcPower, useVss, configVersion }`, bei einem Rechner in einem Job mit Größenlimit zusätzlich `excludeLargerThanBytes` (siehe "Jobs"; ein Agent, der das Feld nicht kennt, ignoriert es). `schedule.kind` ist `interval`, `daily`, `on_connect` oder (seit 0.2.1) `none`; bei `none` sind `paths` leer und `hooks` `{}` (siehe "Rechner ohne Job"). `bandwidthKbps` ist das Limit, das **im Moment der Anfrage** gilt (aktives Zeitfenster des Jobs, sonst der Standard, `null` = unbegrenzt); die Zeitfenster selbst bekommt der Agent nie. `Cache-Control: no-store`. |
 | `POST /heartbeat` | `{ agentVersion, osVersion, state: idle/running, nextRunAt, configVersion, hooks, hookScripts? }` ergibt `{ tasks }`. Alle 5 Minuten (Jitter +-60 s) und sofort beim Start. `hooks` ist die Hook-Regel des Rechners (`off`, `scripts`, `any`), `hookScripts` die Skripte in `/etc/restow-agent/hooks.d` (Regel `scripts`, höchstens 50). |
 | `POST /runs` | `{ kind: backup/restore/verify_sample, taskId?, startedAt }` ergibt `{ runId }`. |
 | `POST /runs/:id/progress` | `{ filesDone, bytesDone, totalFiles?, totalBytes?, currentPath? }`, alle 5 s (Agent ab 0.2.0; 0.1.x: alle 10 s). Das Limit der Agent-API (600 Aufrufe je Endpunkt und 10 Minuten, gleitendes Fenster) lässt das zu: Mit Heartbeat, Konfiguration und Start und Ende des Laufs sind es etwa 125 Aufrufe in 10 Minuten. Der Verlauf (`run_samples`) behält Punkte, die mindestens 1,5 s auseinanderliegen. |
@@ -154,11 +158,19 @@ Alle Antworten sind JSON, Fehler `application/problem+json` wie im Rest der API.
 
 Standardkonfiguration (`packages/core/src/endpoints/config.ts`):
 
-- Server: täglich 22:00 in der Zeitzone des Mandanten (sonst Europe/Berlin). Client:
-  `on_connect`, höchstens eine Sicherung alle 4 Stunden.
-- Pfade je System: Linux `/etc /home /root /srv /var/www`, macOS `/Users`, (Windows später
-  `C:\Users`, bei Servern zusätzlich `C:\ProgramData`).
-- Ausschlüsse je System: Caches, Temp, Papierkorb, `node_modules`, `*.tmp`, der restic-Cache.
+- Zeitplan bei der Anmeldung (seit 0.2.1): `none` in der Zeitzone des Mandanten, gesichert wird erst in
+  einem Job (`enrolledEndpointConfig`). Der Zeitplan, mit dem der Job-Editor beginnt
+  (`defaultEndpointConfig`, `GET /api/v1/backup-jobs/defaults`): Server täglich 22:00 in der Zeitzone
+  des Mandanten (sonst Europe/Berlin), Client `on_connect`, höchstens eine Sicherung alle 4 Stunden.
+- Pfade je System: Linux `/etc /home /root /srv /var/www`, bei Servern zusätzlich `/opt
+  /usr/local /var/lib /var/backups` (dort liegen die Daten der Anwendungen, etwa in einem
+  LXC-Container); macOS `/Users`, (Windows später `C:\Users`, bei Servern zusätzlich
+  `C:\ProgramData`).
+- Ausschlüsse je System: Caches, Temp, Papierkorb, `node_modules`, `*.tmp`, der restic-Cache;
+  unter Linux außerdem `/var/lib/docker`, `/var/lib/containerd` und `/var/lib/apt/lists`
+  (Images und Paketlisten werden neu geladen, nicht wiederhergestellt). Datenbanken unter
+  `/var/lib` werden als Dateien gesichert; für ein konsistentes Abbild braucht es einen
+  Dump-Befehl vor der Sicherung.
 - `onlyOnAcPower: false` für beide Profile: Eine Sicherung, die nie läuft, ist schlimmer als
   eine im Akkubetrieb. Einstellbar.
 - `bandwidthKbps` ist in Kilobit pro Sekunde (kbit/s) angegeben; `null` heißt unbegrenzt.
@@ -191,9 +203,26 @@ liest weiter `GET /config` und kennt nur `config`.
   die frische Anmeldung (`recent-sign-in-required`), bevor irgendetwas geschrieben wird.
 - **Von Hand ändern geht dann nicht mehr:** `PATCH /api/v1/endpoints/:id` mit einer `config`, die ein
   vom Job entschiedenes Feld ändert (oder einer `settings.retention`, wenn der Job sie setzt), antwortet
-  409 `endpoint-config-managed-by-job` mit dem Job. Anzeigename, `onlyOnAcPower` und Speicherbudget
-  bleiben änderbar. Wer einen Rechner aus dem Job nimmt oder den Job löscht, behält die zuletzt
-  geschriebene Konfiguration und kann sie wieder von Hand ändern.
+  409 `endpoint-config-managed-by-job` mit dem Job. Anzeigename, `onlyOnAcPower`, Speicherbudget
+  und die zugeordnete Person bleiben änderbar.
+- **Zugeordnete Person (seit 0.2.1):** `PATCH /api/v1/endpoints/:id` nimmt `assignedUserId`, eine
+  Person aus dem Schutzverzeichnis des Mandanten (`users`, kein Anmeldekonto; `null` hebt die
+  Zuordnung auf). Liste und Detail tragen sie als `assignedTo` (`id`, `displayName`, `email`). Eine
+  Person eines anderen Mandanten oder eine unbekannte antwortet 422 `endpoint-assignee-unknown`; die
+  Datenbank sichert das zusätzlich mit einem Schlüssel über (`tenant_id`, `assigned_user_id`) ab
+  (Migration 0025). Verlässt die Person das Verzeichnis, wird nur die Zuordnung geleert. Die
+  Zuordnung ändert keine Konfiguration (keine neue `config_version`) und wird als
+  `endpoint.assigned` auditiert. Die Auswahl in der Oberfläche liest
+  `GET /api/v1/directory/people?search=`.
+- **Einen Job verlassen heißt: keine Sicherung mehr (seit 0.2.1).** Wer einen Rechner aus dem Job nimmt
+  (`DELETE .../members/:id`, ein `PUT .../members` ohne ihn) oder den Job löscht, setzt ihn auf den
+  Zeitplan `none` zurück (`releaseEndpointConfigs` in `endpoint-sync.ts`): neue `config_version`,
+  `update_config`-Aufgabe, Audit `endpoint.config.changed` mit `via.job` und `left: true`. Eine
+  `backup_now`-Aufgabe, für die noch kein Lauf begann, endet `failed` ("the machine left its backup
+  job"); ein laufender Lauf endet, wie er endet. Ordner, Ausschlüsse, Hooks und Bandbreite bleiben in
+  der Konfiguration stehen (für den nächsten Job), der Agent bekommt sie mit `none` aber nicht. Ein
+  Rechner, der in einen anderen Job **verschoben** wird (`move`), bekommt sofort dessen Zeitplan, ohne
+  Pause dazwischen. Bis 0.2.0 behielt ein Rechner ohne Job die zuletzt geschriebene Konfiguration.
 - **Größenlimit.** `excludeLargerThanBytes` wird nur geschrieben, wenn ein Job eines setzt (sonst bleibt
   `config` Byte für Byte, wie sie war). Der Agent ab 0.2.0 reicht es als `--exclude-larger-than <Bytes>`
   an restic weiter (reine Zahl, restic 0.19.1 liest sie ohne Einheit) und schreibt ins Lauf-Log, dass
@@ -228,17 +257,56 @@ liest weiter `GET /config` und kennt nur `config`.
   - **Override je Rechner:** Limit und Fenster sind eine Einstellung (Gruppe "Bandbreite" im Override). Hat ein
     Mitglied ein eigenes `bandwidthKbps` (auch eines aus der Zeit vor den Fenstern), gelten die Fenster des
     Jobs für es nicht; `bandwidthWindows` allein behält den Standard des Jobs; `[]` heißt "keine Fenster".
-  - **Rechner ohne Job:** Ein Rechner, der den Job verlassen hat, behält die zuletzt geschriebenen Fenster.
-    `PATCH /api/v1/endpoints/:id` nimmt `config.bandwidthWindows` an (`null` oder `[]` entfernt sie; 422
+  - **Rechner ohne Job:** Ein Rechner, der den Job verlassen hat, behält die zuletzt geschriebenen Fenster
+    (sie wirken erst wieder in einem Job). `PATCH /api/v1/endpoints/:id` nimmt `config.bandwidthWindows` an (`null` oder `[]` entfernt sie; 422
     `endpoint-invalid-bandwidth-windows` mit dem Pfad); in einem Job antwortet es wie bei jedem Feld des Jobs
     mit 409 `endpoint-config-managed-by-job`.
 - **Ein Job lässt sich bei Rechnern nicht pausieren** (`enabled=false` antwortet 422 `pause_not_supported`):
-  Der Agent entscheidet, wann er sichert. Rechner aus dem Job nehmen beendet die Verwaltung, nicht die
-  Sicherung.
+  Der Agent entscheidet, wann er sichert. Einen Rechner aus dem Job nehmen beendet seine Sicherung (siehe
+  oben).
 - **Nicht der Scheduler plant Rechner-Jobs.** Der Agent läuft nach seinem Zeitplan; der Scheduler plant
   weiter nur Aufbewahrung, Prüfung und Restore-Test aus dem Zustand der Endpunktzeilen
   (`apps/scheduler/src/endpoints.ts`). "Jetzt ausführen" eines Jobs (`POST /api/v1/backup-jobs/:id/run`)
   legt je Rechner eine `backup_now`-Aufgabe an (eine wartende genügt).
+
+### Rechner ohne Job (seit 0.2.1)
+
+Gesichert wird nur, was in einem Backup-Job steht. Ein Rechner in keinem Job hat den Zeitplan `none`
+(`EndpointSchedule.kind`, nur die Zeitzone ist gesetzt): neu angemeldete Rechner von Anfang an, andere,
+sobald sie ihren Job verlassen. Rechner, die schon vor 0.2.1 ohne Job waren, behalten ihren Zeitplan und
+sichern weiter; es gibt keine Datenmigration, die sie anhält (die Migration nach 0.2.0 lässt Rechner mit
+`none` aus, `planEndpointMigration`).
+
+- **Agent ab 0.2.1:** Mit `none` startet er keine geplante Sicherung, keine Wiederholung und setzt
+  keinen unterbrochenen Lauf fort (`schedule.Evaluate`); Heartbeat, Konfigurationsabruf, Restore,
+  Restore-Test und Selbstaktualisierung laufen weiter. Eine `backup_now`-Aufgabe ignoriert er (der
+  Server stellt keine zu), `restow-agent backup-now` bricht mit einem Hinweis ab, ohne einen Lauf
+  anzumelden, und `restow-agent status` zeigt "Configuration: version N, waiting for a backup job" und
+  "Backups: waiting for a backup job".
+- **Ältere Agenten (0.2.0 und früher)** kennen `none` nicht: `schedule.FromAPI` schreibt eine Warnung ins
+  Log und nimmt den Standard des Profils (Server täglich 22:00, Client `on_connect` alle 4 Stunden), der
+  Konfigurationsabruf selbst scheitert nicht. Darum liefert `GET /agent/v1/config` (`configResponse`,
+  `agentFacingConfig` im Kern) einem Rechner mit `none` **leere `paths` und keine Hooks**. Ein älterer
+  Agent bricht den fälligen Lauf dann in `doBackup` mit `no_paths` ab, bevor restic oder ein Hook startet:
+  Es wird nichts gesichert und kein Befehl ausgeführt. Der Preis: Bis er sich auf 0.2.1 aktualisiert hat
+  (Selbstaktualisierung, ausgesetzt solange der Mandant Agent-Updates pausiert), meldet ein solcher
+  Agent zu seinen Standardzeiten (plus bis zu fünf Wiederholungen) einen fehlgeschlagenen Lauf
+  `no_paths`, der wie jeder fehlgeschlagene Lauf `backup.failed` auslöst. Neu angemeldete Rechner
+  betrifft das nicht, denn das Installationsskript holt den Agenten der Instanz.
+- **Server:** `POST /api/v1/endpoints/:id/tasks` mit `backup_now` antwortet für einen Rechner ohne Job
+  409 `endpoint-no-job`, die Oberfläche bietet "Jetzt sichern" dann nicht an. `PATCH
+  /api/v1/endpoints/:id` nimmt für einen Rechner ohne Job keinen anderen Zeitplan als `none` an (409
+  `endpoint-no-job`); `none` selbst ist erlaubt (hält einen Rechner einer älteren Version an), ebenso
+  Ordner, Ausschlüsse, Hooks, Bandbreite und alles Übrige, das erst in einem Job wirkt. In einem Job
+  bleibt es bei 409 `endpoint-config-managed-by-job`.
+- **Sichtbar:** Die Liste der Rechner trägt den Handlungsbedarf `no_job` (zählt in "brauchen
+  Aufmerksamkeit" der Übersicht und in `endpoints.needingAttention` von `GET /api/v1/status`); ohne
+  Erklärung in `problems`, die Seite des Rechners zeigt den Zustand mit "Job anlegen" und "Zu Job
+  hinzufügen". Ein Client ohne Job löst nach 7 Tagen ohne gute Sicherung wie jeder Client
+  `endpoint.stale` aus.
+- **In einen Job:** Anlegen mit `scope.members`, `POST .../members` oder `PUT .../members` schreiben den
+  Zeitplan des Jobs über `none` (`buildEndpointConfig` übernimmt ihn immer, wenn der Rechner `none`
+  hat) und erhöhen `config_version`; der Agent holt die Konfiguration mit der `update_config`-Aufgabe.
 
 ### Aufgaben (`tasks`)
 
@@ -362,7 +430,7 @@ Implementiert das Protokoll v2 des REST-Backends von restic
 **Ablage.** Die Objekte liegen im Primärziel des Mandanten unter `endpoints/<endpointId>/`,
 im Ordnerlayout des restic-rest-servers (`config`, `data/<xx>/<id>`, `index/<id>`,
 `keys/<id>`, `locks/<id>`, `snapshots/<id>`). Bei einem lokalen Ziel ist der Ordner damit
-ein gewöhnliches restic-Repository (siehe "Restore ohne Restow"). Lokal, S3, NFS/SMB
+ein gewöhnliches restic-Repository (siehe "Restore ohne Restow"). Lokal, S3, NFS
 funktionieren gleich. Alles wird gestreamt, nichts komplett im Speicher gehalten.
 
 **Autorisierung** (`packages/core/src/endpoints/restic-authz.ts`, getestet als Matrix):
@@ -751,7 +819,9 @@ hier.
 | `endpoint-hooks-not-allowed` | 409 | Hooks wurden für einen Rechner gesetzt, der Hooks des Servers nicht zulässt (Regel `off`) oder keine Regel meldet (Agent einer Vorabversion). Leeren geht immer. |
 | `endpoint-hook-not-a-script` | 422 | Der Rechner führt nur Skripte aus `/etc/restow-agent/hooks.d` aus (Regel `scripts`), und ein Hook ist kein Skriptname. |
 | `recent-sign-in-required` | 403 | Hook setzen oder ändern bzw. Repository-Passwort anzeigen, aber die Anmeldung der Sitzung ist älter als zehn Minuten (`apps/api/src/lib/recent-sign-in.ts`, Feld `maxAgeSeconds`). Die Oberfläche fragt "Bestätigen Sie, dass Sie es sind" und wiederholt die Aktion. |
+| `endpoint-no-job` | 409 | Der Rechner ist in keinem Backup-Job: "Jetzt sichern" oder ein anderer Zeitplan als `none` wird abgelehnt, gesichert wird nur in einem Job (seit 0.2.1). |
 | `endpoint-config-managed-by-job` | 409 | Der Rechner gehört zu einem Job, der Zeitplan, Ordner, Ausschlüsse, Hooks und Bandbreite (und die Aufbewahrung, wenn der Job sie setzt) entscheidet; den Job ändern oder den Rechner aus ihm nehmen. Die Antwort nennt den Job (`job.id`, `job.name`). |
+| `endpoint-assignee-unknown` | 422 | Die Person, der der Rechner zugeordnet werden soll (`PATCH /api/v1/endpoints/:id` mit `assignedUserId`), steht nicht (mehr) im Verzeichnis des Mandanten. Feld `field` ist `assignedUserId`. |
 | `endpoint-invalid-bandwidth-windows` | 422 | Die Zeitfenster der Bandbreite eines Rechners ohne Job lassen sich nicht speichern (kein Tag, keine Uhrzeit `HH:MM`, Limit außerhalb 0 bis 10000000, Fenster überschneiden sich, mehr als 24). `issues[0].path` nennt Fenster und Feld, `code` ist `bandwidth_window_days_required`, `_days_invalid`, `_time_invalid`, `_kbps_invalid`, `bandwidth_windows_too_many` oder `bandwidth_window_overlap`. Im Job antwortet dieselbe Prüfung als `invalid-backup-job` (422) mit denselben Codes. |
 | `unsupported-os` | 422 | Betriebssystem nicht unterstützt (Windows ist geplant, nicht ausgeliefert). |
 | `enrollment-token-invalid` | 401 | Das Enrollment-Token ist unbekannt, abgelaufen, widerrufen oder verwendet. |

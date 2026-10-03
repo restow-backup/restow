@@ -42,6 +42,9 @@ const service = {
   cancel: vi.fn(),
   dismiss: vi.fn(),
   maintenance: vi.fn(),
+  switchToFullBuild: vi.fn(),
+  storeLicenseKey: vi.fn(),
+  removeLicenseKey: vi.fn(),
 };
 
 function app() {
@@ -95,6 +98,9 @@ const TAB: [string, string, unknown?][] = [
   ["POST", "/api/v1/updates/maintenance", { version: "0.2.0", leadSeconds: 300 }],
   ["DELETE", "/api/v1/updates/maintenance"],
   ["POST", "/api/v1/updates/maintenance/dismiss", {}],
+  ["POST", "/api/v1/updates/edition/switch", { leadSeconds: 300 }],
+  ["PUT", "/api/v1/updates/edition/license-key", { key: "restow-license-v1.a.b" }],
+  ["DELETE", "/api/v1/updates/edition/license-key"],
 ];
 
 /** Everything that changes something is the owner's; the other team roles only read. */
@@ -104,6 +110,9 @@ const OWNER_ONLY = new Set([
   "POST /api/v1/updates/maintenance",
   "DELETE /api/v1/updates/maintenance",
   "POST /api/v1/updates/maintenance/dismiss",
+  "POST /api/v1/updates/edition/switch",
+  "PUT /api/v1/updates/edition/license-key",
+  "DELETE /api/v1/updates/edition/license-key",
 ]);
 
 beforeEach(() => {
@@ -186,6 +195,7 @@ describe("what needs a recent sign-in", () => {
     ["PATCH", "/api/v1/updates/settings", { enabled: true, sourceUrl: "https://x.example/a/b" }],
     ["POST", "/api/v1/updates/maintenance", { version: "0.2.0", leadSeconds: 0 }],
     ["POST", "/api/v1/updates/maintenance", { version: "0.2.0", leadSeconds: 3600 }],
+    ["POST", "/api/v1/updates/edition/switch", { leadSeconds: 0 }],
   ];
 
   for (const [method, path, body] of STEP_UP) {
@@ -197,6 +207,7 @@ describe("what needs a recent sign-in", () => {
       expect(response.body.maxAgeSeconds).toBe(600);
       expect(service.saveSettings).not.toHaveBeenCalled();
       expect(service.schedule).not.toHaveBeenCalled();
+      expect(service.switchToFullBuild).not.toHaveBeenCalled();
     });
 
     it(`${method} ${path} ${JSON.stringify(body)}: served 9 minutes after the sign-in`, async () => {
@@ -362,5 +373,42 @@ describe("who may see the maintenance state", () => {
     signedIn("admin");
     expect((await call("POST", "/api/v1/maintenance", { body: {} })).status).toBe(404);
     expect((await call("DELETE", "/api/v1/maintenance")).status).toBe(404);
+  });
+});
+
+describe("the build switch and the pending license key", () => {
+  it("takes only a lead time for the switch, and passes it on", async () => {
+    signedIn("admin");
+    expect(
+      (await call("POST", "/api/v1/updates/edition/switch", { body: { leadSeconds: 7 } })).status,
+    ).toBe(422);
+    expect(
+      (
+        await call("POST", "/api/v1/updates/edition/switch", {
+          body: { leadSeconds: 300, to: "community" },
+        })
+      ).status,
+    ).toBe(422);
+    expect(service.switchToFullBuild).not.toHaveBeenCalled();
+    await call("POST", "/api/v1/updates/edition/switch", { body: { leadSeconds: 300 } });
+    expect(service.switchToFullBuild).toHaveBeenCalledWith(
+      { leadSeconds: 300 },
+      expect.objectContaining({ email: "admin@provider.test" }),
+    );
+  });
+
+  it("stores a key without a fresh sign-in, but never an empty one", async () => {
+    signedIn("admin", { signedInSecondsAgo: 11 * 60 });
+    expect(
+      (await call("PUT", "/api/v1/updates/edition/license-key", { body: { key: "  " } })).status,
+    ).toBe(422);
+    const response = await call("PUT", "/api/v1/updates/edition/license-key", {
+      body: { key: " restow-license-v1.a.b " },
+    });
+    expect(response.status).toBe(200);
+    expect(service.storeLicenseKey).toHaveBeenCalledWith(
+      { key: "restow-license-v1.a.b" },
+      expect.anything(),
+    );
   });
 });

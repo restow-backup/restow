@@ -17,8 +17,8 @@ import { secrets } from "./secrets.js";
 import { tenants } from "./tenants.js";
 
 /**
- * Backend family. `local` covers every mounted filesystem (Docker volume, NFS,
- * SMB); `s3` covers all S3-compatible services (Garage, Hetzner, Wasabi, B2,
+ * Backend family. `local` covers every mounted filesystem (Docker volume, NFS);
+ * `s3` covers all S3-compatible services (Garage, Hetzner, Wasabi, B2,
  * AWS — not MinIO, which is no longer open source). `installation_default` is
  * a placeholder row with no config of its own: it stands for whatever the
  * environment configures as the default target, needed when that default
@@ -59,7 +59,7 @@ export const storageTargetStatusEnum = pgEnum("storage_target_status", [
 ]);
 
 export type LocalStorageTargetConfig = {
-  // Absolute path inside the container (a volume or NFS/SMB mount).
+  // Absolute path inside the container (a volume or NFS mount).
   basePath: string;
 };
 

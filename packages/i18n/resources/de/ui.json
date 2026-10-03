@@ -31,6 +31,14 @@
       "open": "Aktionen öffnen",
       "openFor": "Aktionen für {name}"
     },
+    "selection": {
+      "count": "{count, plural, one {# Zeile ausgewählt} other {# Zeilen ausgewählt}}",
+      "clear": "Auswahl aufheben",
+      "select": "Zeile auswählen",
+      "selectRow": "{name} auswählen",
+      "selectPage": "Alle Zeilen dieser Seite auswählen",
+      "actionsFor": "{count, plural, one {Aktionen für # ausgewählte Zeile} other {Aktionen für # ausgewählte Zeilen}}"
+    },
     "pagination": {
       "label": "Seitennavigation",
       "range": "{from}–{to} von {total}",
@@ -107,5 +115,14 @@
     "label": "Wird in der Installation festgelegt.",
     "open": "{section} öffnen",
     "ask": "Das ändert der Betreiber dieser Installation."
+  },
+  "timeline": {
+    "today": "Heute",
+    "yesterday": "Gestern",
+    "count": "{count, plural, one {# Sicherungsstand} other {# Sicherungsstände}}",
+    "jump": "Zu Datum springen",
+    "jumpHint": "Tage mit Sicherungsständen sind hervorgehoben. Ein Tag ohne Sicherungsstand öffnet den nächstfrüheren Tag.",
+    "jumped": "Angezeigt werden die Sicherungsstände vom {day}.",
+    "jumpedEarlier": "Am {date} gibt es keinen Sicherungsstand. Angezeigt wird der nächstfrühere Tag, {day}."
   }
 }

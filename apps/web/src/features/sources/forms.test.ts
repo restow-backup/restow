@@ -7,6 +7,7 @@ import {
   fieldMessageKey,
   imapFormFromStored,
   imapFormSchema,
+  isMicrosoftImapHost,
   isValidHost,
   isValidPort,
   isValidTenantHint,
@@ -62,6 +63,21 @@ describe("host and port", () => {
     expect(portForSecurity("993", "starttls")).toBe("143");
     expect(portForSecurity("", "tls")).toBe("993");
     expect(portForSecurity("1993", "starttls")).toBe("1993");
+  });
+});
+
+describe("isMicrosoftImapHost", () => {
+  it("recognises Microsoft's IMAP servers, whatever the case or a trailing dot", () => {
+    expect(isMicrosoftImapHost("outlook.office365.com")).toBe(true);
+    expect(isMicrosoftImapHost(" Outlook.Office.com ")).toBe(true);
+    expect(isMicrosoftImapHost("imap-mail.outlook.com.")).toBe(true);
+  });
+
+  it("leaves every other server alone", () => {
+    expect(isMicrosoftImapHost("imap.gmail.com")).toBe(false);
+    expect(isMicrosoftImapHost("mail.example.com")).toBe(false);
+    expect(isMicrosoftImapHost("outlook.office365.com.example.com")).toBe(false);
+    expect(isMicrosoftImapHost("")).toBe(false);
   });
 });
 

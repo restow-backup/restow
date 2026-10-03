@@ -65,8 +65,13 @@ export interface DashboardDeps {
   db: Database;
   /** The installation pool, for installation-level facts and the tenant list. */
   providerDb: Database;
-  /** Environment of the installation default storage. */
+  /** Environment of the installation default storage (used when `defaultStorageConfigured` is absent). */
   env: NodeJS.ProcessEnv;
+  /**
+   * Whether the installation default that applies right now (saved under Installation → Default
+   * storage, else the environment) is usable; omitted, the environment alone decides.
+   */
+  defaultStorageConfigured?: () => Promise<boolean>;
   now: () => Date;
 }
 
@@ -410,6 +415,7 @@ export async function loadDashboard(
         tenantId,
         deps.env,
         installationTest.ok ? installationTest.value : null,
+        deps.defaultStorageConfigured ? await deps.defaultStorageConfigured() : undefined,
       );
     }),
     load("mail", needs("setup"), () => loadMailFacts(deps.db, deps.providerDb)),

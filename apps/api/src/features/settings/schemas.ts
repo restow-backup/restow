@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { localConfigSchema, s3ConfigSchema, s3CredentialsSchema } from "../storage/schemas.js";
 
 /**
  * Request schemas for the installation settings (same style as
@@ -189,3 +190,23 @@ export type MailTestInput = z.infer<typeof mailTestSchema>;
 /** Body of `PUT /settings/mail/not-needed`: mark the notification mail as not needed, or take the mark back. */
 export const mailNotNeededSchema = z.object({ notNeeded: z.boolean() }).strict();
 export type MailNotNeededInput = z.infer<typeof mailNotNeededSchema>;
+
+// --- Default storage ------------------------------------------------------------
+
+/**
+ * The installation default storage saved under Installation → Default storage
+ * (default-storage.ts): a local path or an S3-compatible bucket, with the same
+ * fields as a tenant's storage target. The S3 key pair is write-only: without
+ * one, the saved pair is kept as long as the endpoint stays the same.
+ */
+export const saveDefaultStorageSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("local"), config: localConfigSchema }).strict(),
+  z
+    .object({
+      kind: z.literal("s3"),
+      config: s3ConfigSchema,
+      credentials: s3CredentialsSchema.optional(),
+    })
+    .strict(),
+]);
+export type SaveDefaultStorageInput = z.infer<typeof saveDefaultStorageSchema>;

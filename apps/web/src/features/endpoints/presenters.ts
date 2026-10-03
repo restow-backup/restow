@@ -6,6 +6,7 @@ import type {
   Attention,
   BrowseEntry,
   EffectiveSettings,
+  EndpointAssignee,
   EndpointReport,
   EndpointSummary,
   EndpointTask,
@@ -137,6 +138,7 @@ const ATTENTION_ORDER: readonly Attention[] = [
   "restore_test_failed",
   "last_backup_failed",
   "silent",
+  "no_job",
   "backup_overdue",
   "never_seen",
 ];
@@ -146,9 +148,60 @@ const ATTENTION_TONE: Record<Attention, StatusTone> = {
   restore_test_failed: "destructive",
   last_backup_failed: "destructive",
   silent: "destructive",
+  no_job: "warning",
   backup_overdue: "warning",
   never_seen: "warning",
 };
+
+/**
+ * Whether an active machine is in no backup job, so nothing backs it up (release 0.2.1). An
+ * answer without the field (a server before 0.2.0) says nothing about it.
+ */
+export function isWithoutBackup(endpoint: Pick<EndpointSummary, "status" | "job">): boolean {
+  return endpoint.status === "active" && endpoint.job === null;
+}
+
+/** The name of the person a machine is assigned to: the display name, else the address. */
+export function assigneeName(person: Pick<EndpointAssignee, "displayName" | "email">): string {
+  return person.displayName?.trim() || person.email;
+}
+
+/** The value of the "Assigned to" filter: the person's id, or nobody. */
+export const UNASSIGNED = "unassigned";
+
+export function assigneeFilterValue(endpoint: Pick<EndpointSummary, "assignedTo">): string {
+  return endpoint.assignedTo?.id ?? UNASSIGNED;
+}
+
+/**
+ * The options of the "Assigned to" filter: "Nobody" first when a machine is unassigned, then each
+ * person once, by name.
+ */
+export function assigneeFilterOptions(
+  items: readonly Pick<EndpointSummary, "assignedTo">[],
+  nobody: string,
+): { value: string; label: string }[] {
+  const people = new Map<string, string>();
+  let unassigned = false;
+  for (const item of items) {
+    if (item.assignedTo) {
+      people.set(item.assignedTo.id, assigneeName(item.assignedTo));
+    } else {
+      unassigned = true;
+    }
+  }
+  const sorted = [...people.entries()]
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: "base" }));
+  return unassigned ? [{ value: UNASSIGNED, label: nobody }, ...sorted] : sorted;
+}
+
+/** The machines a "without backup" notice counts. */
+export function withoutBackup<T extends Pick<EndpointSummary, "status" | "job">>(
+  items: readonly T[] | undefined,
+): T[] {
+  return (items ?? []).filter(isWithoutBackup);
+}
 
 export function attentionTone(attention: Attention): StatusTone {
   return ATTENTION_TONE[attention];
@@ -743,8 +796,10 @@ const PROBLEM_KEYS: Readonly<Record<string, string>> = {
   "urn:restow:problem:endpoint-hooks-not-allowed": "endpoints:errors.hooksNotAllowed",
   "urn:restow:problem:endpoint-hook-not-a-script": "endpoints:errors.hookNotAScript",
   "urn:restow:problem:endpoint-config-managed-by-job": "endpoints:errors.configManagedByJob",
+  "urn:restow:problem:endpoint-no-job": "endpoints:errors.noJob",
   "urn:restow:problem:endpoint-invalid-bandwidth-windows":
     "endpoints:errors.invalidBandwidthWindows",
+  "urn:restow:problem:endpoint-assignee-unknown": "endpoints:errors.assigneeUnknown",
   [RECENT_SIGN_IN_PROBLEM]: "endpoints:errors.recentSignIn",
 };
 

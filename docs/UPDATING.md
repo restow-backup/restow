@@ -22,8 +22,8 @@ does not run the updater.
 An installation made with the install script (`install.sh`, README.md) lives in
 `/opt/restow` unless you chose another `--dir`; run the commands below there. The
 script itself never updates: run again, it only checks the images named in `.env`
-and makes sure the stack runs. It sets `RESTOW_PROJECT_DIR` already, and with
-`--with-updater` also `RESTOW_UPDATER_IMAGE`.
+and makes sure the stack runs. It sets `RESTOW_PROJECT_DIR`; with `--with-updater`
+it also starts the updater, which needs nothing else in `.env`.
 
 ## Before every update
 
@@ -95,7 +95,8 @@ docker compose up -d
 If the updater ever wrote `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE` into `.env`,
 those two lines decide which images the services run. Change them, or remove
 them to go back to building from the source checkout. `RESTOW_UPDATER_IMAGE`
-is yours alone: the updater never writes it.
+names the updater's own image; the updater writes it only pinned by digest
+(see [The updater updates itself](#the-updater-updates-itself)).
 
 Watch the migrations and the start:
 
@@ -211,12 +212,13 @@ something can start any container with any mount, read any file and change
 anything on the machine. That is why it is a Compose profile that does
 nothing until you start it, and why it is built as small as it can be:
 
-- It is a separate process and container (`ROLE=updater`, the same application
-  image, but its own pinned copy: `RESTOW_UPDATER_IMAGE`, see below). It
+- It is a separate process and container (`ROLE=updater`): the same application
+  image, there is no separate updater image, but its own pinned copy of it
+  (`RESTOW_UPDATER_IMAGE`, pinned by digest, see below). It
   has no database access and no application secret: it does not get `.env` as
   an environment, so no database password and not `RESTOW_MASTER_KEY`. (It does
   read and rewrite the `.env` file in the mounted project directory, because it
-  has to change the two image lines; it takes the database user and name from
+  has to change the image lines; it takes the database user and name from
   it for the backup, and registers every credential-like value in it so that
   none can reach a log.)
 - It listens only on the internal Docker network. No port is published.
@@ -227,10 +229,15 @@ nothing until you start it, and why it is built as small as it can be:
   failure code) is the only thing the public edge forwards to it. It names no
   version and nothing about the installation; signed-in users see the versions
   in the web interface.
-- It never runs an image it installed. Its own image is `RESTOW_UPDATER_IMAGE`,
-  a line it never writes; it rewrites only `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE`.
-  It refuses to update while the Compose file still takes the updater's image
-  from `RESTOW_IMAGE` (the blocker "updater image not pinned").
+- Its own image never follows `RESTOW_IMAGE`, the line every update rewrites. It
+  runs `RESTOW_UPDATER_IMAGE`, pinned by digest, and moves to a new image only
+  after an update in image mode succeeded whose images passed the signature
+  check below: then it pins that release's verified application image, by
+  digest, and recreates itself. No person checks that image; the release
+  workflow's signature does ([The updater updates itself](#the-updater-updates-itself)).
+  It never runs an image it built from source. It refuses to update while
+  `RESTOW_UPDATER_IMAGE` is empty and the Compose file would take the updater's
+  image from `RESTOW_IMAGE` (the blocker "updater image not pinned").
 - In image mode it installs only release images signed by the project's
   release workflow (see [What is verified](#what-is-verified)).
 - `source` mode, which builds an image from a repository, is off unless the
@@ -245,61 +252,143 @@ hand is fully supported and takes a few commands.
 
 ### Enabling it
 
-1. Set the absolute path of the directory that holds `docker-compose.yml` and
-   `.env` in `.env` (the updater mounts it at the same path, so relative paths
-   in the Compose file resolve as they do on the host), and the updater's own
-   image:
+Run this once, on the server, in the directory that holds `docker-compose.yml`
+and `.env` (`/opt/restow` for an installation made with the install script):
 
-   ```sh
-   RESTOW_PROJECT_DIR=/opt/restow
-   # Built from source: leave it empty, the updater runs restow:local.
-   # Published images: the release you run, checked first (see below), of the
-   # same build as RESTOW_IMAGE (restow-community:X.Y.Z for the Community build).
-   RESTOW_UPDATER_IMAGE=ghcr.io/restow-backup/restow:X.Y.Z
-   ```
+```sh
+docker compose --profile updater up -d
+```
 
-   The updater installs the images of the build it runs from: the full build
-   updates to `restow` and `restow-web`, the Community build to
-   `restow-community` and `restow-web-community` (the image says which,
-   `RESTOW_IMAGE_VARIANT`). An updater of the other build than the api refuses
-   every update, because the digests the api reads from the release notes are
-   those of the api's own build.
+Nothing has to be set in `.env` for it, and choosing an update source under
+Installation, Updates does not start it: only this command does.
 
-   With the published images, check the image's signature before you give it
-   the Docker socket:
+- **There is no separate updater image.** The updater is the application image
+  (the one in `RESTOW_IMAGE`, for example
+  `ghcr.io/restow-backup/restow-community:0.2.1`) started with `ROLE=updater`;
+  every release image since 0.2.0 contains it. `RESTOW_UPDATER_IMAGE` is
+  optional. While it is empty, the release stack's Compose file starts the
+  updater from `RESTOW_IMAGE`, and on that first start the updater writes
+  `RESTOW_UPDATER_IMAGE` into `.env` itself, pinned by digest to the image it
+  runs (`ghcr.io/restow-backup/restow:0.2.1@sha256:...`). Pinning changes
+  nothing that runs; it only makes sure that the next rewrite of `RESTOW_IMAGE`
+  does not reach the updater. If it cannot pin (a locally built image has no
+  registry digest, `.env` is not writable), the tab shows the blocker "updater
+  image not pinned" and no update starts.
+- **The project directory.** The Compose file mounts the directory at
+  `/project`, and the updater reads its path on the host from that mount.
+  `RESTOW_PROJECT_DIR` (the absolute path, which the install script sets) is
+  optional: when it is set, the directory is mounted at the same path instead.
+- **The build.** The updater installs the images of the build it runs from: the
+  full build updates to `restow` and `restow-web`, the Community build to
+  `restow-community` and `restow-web-community` (the image says which,
+  `RESTOW_IMAGE_VARIANT`). Starting it from `RESTOW_IMAGE` keeps it on the
+  build of the installation. If you set `RESTOW_UPDATER_IMAGE` yourself, use an
+  image of the same build: an updater of the other build refuses every update,
+  because the digests the api reads from the release notes are those of the
+  api's own build. The one exception is the explicit switch of a Community
+  installation to the full build ([Switching to the full build](#switching-to-the-full-build)).
 
-   ```sh
-   cosign verify ghcr.io/restow-backup/restow:X.Y.Z \
-     --certificate-identity https://github.com/restow-backup/restow/.github/workflows/release.yml@refs/tags/vX.Y.Z \
-     --certificate-oidc-issuer https://token.actions.githubusercontent.com
-   ```
+To check the image's signature before you give it the Docker socket (the
+install script already did this for the images it installed):
 
-2. Start the updater next to the rest of the stack:
+```sh
+cosign verify ghcr.io/restow-backup/restow:X.Y.Z \
+  --certificate-identity https://github.com/restow-backup/restow/.github/workflows/release.yml@refs/tags/vX.Y.Z \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
 
-   ```sh
-   docker compose --profile updater up -d
-   ```
-
-3. Open Installation, Updates. The Install card says whether the updater is ready
-   or what blocks it (Docker not reachable, Docker command line image not
-   pulled yet, Compose file not found, project directory not matching
-   `RESTOW_PROJECT_DIR`, `.env` not writable, not enough free space, the
-   updater's image not pinned). The first start pulls the Docker command line
-   image (see below), which needs access to Docker Hub; until then the card
-   says it is preparing.
+Then open Installation, Updates. The Install card says whether the updater is
+ready or what blocks it (Docker not reachable, Docker command line image not
+pulled yet, Compose file not found, project directory not matching
+`RESTOW_PROJECT_DIR`, `.env` not writable, not enough free space, the updater's
+image not pinned). The first start pulls the Docker command line image (see
+below), which needs access to Docker Hub; until then the card says it is
+preparing.
 
 To remove it again: `docker compose --profile updater rm -sf updater`. The
 updater's volume (`restow-updater`, holding the database dumps) stays until you
 remove it with `docker volume rm`.
 
-**The updater is never updated by an update.** It keeps running the image named
-in `RESTOW_UPDATER_IMAGE` (or `restow:local`), whatever it installs: the container
-that holds the Docker socket only changes when you change it. To move it to the
-version the installation runs, check the new image's signature as above, set
-`RESTOW_UPDATER_IMAGE` to it (or rebuild `restow:local` from the release when you
-build from source), then recreate it:
-`docker compose --profile updater up -d updater`. The tab reminds you when its
-version differs from the running one.
+### The updater updates itself
+
+After an update in **image** mode succeeded, and only when the release's images
+passed the signature check of [What is verified](#what-is-verified) in that
+run, the updater moves itself to the same release:
+
+1. It asks Compose which image the `updater` service would run with
+   `RESTOW_UPDATER_IMAGE` set to the release's application image by the
+   verified digest (`<repository>:<version>@sha256:<digest>`). If the Compose
+   file does not take the updater's image from that variable, nothing is
+   written.
+2. It writes that reference into `RESTOW_UPDATER_IMAGE`: a digest, never a tag,
+   so what runs next is exactly the content whose signature was checked.
+3. A short-lived helper container (the pinned Docker command line image, no
+   network of its own) runs
+   `docker compose --profile updater up -d --no-deps updater` in the project
+   directory: a process cannot recreate its own container from inside.
+4. The new updater reports in with the new version, and the tab shows it.
+
+It never moves itself after an update built from source (nothing is signed
+there), when the signature check is switched off
+(`RESTOW_UPDATER_VERIFY_SIGNATURES=false`) or when you switch it off with
+`RESTOW_UPDATER_SELF_UPDATE=false` in `.env` (then recreate the updater). In
+those cases the tab says that the updater runs an older version and shows what
+to do by hand: set `RESTOW_UPDATER_IMAGE` to the image in `RESTOW_IMAGE` and run
+`docker compose --profile updater up -d updater`.
+
+If the self-update fails, the application update stays successful. The tab
+shows a warning with the reason and the command that finishes it:
+`docker compose --profile updater up -d updater` (`.env` already names the
+verified image). If a new updater does not start at all, put the previous value
+back into `RESTOW_UPDATER_IMAGE` (the updater's log names it) and run the same
+command.
+
+**The trust model.** The container that holds the Docker socket is root on the
+host, so its image matters more than any other. Up to 0.2.0 a person decided
+when it changed. Now the release workflow's keyless signature decides: the
+updater moves only to an image that Sigstore's transparency log records as
+signed by `release.yml` of exactly the tag being installed, and only by the
+digest that signature covers. Whoever can make the project's release workflow
+sign an image can therefore replace the updater, as they could already replace
+the application with it. If that is not acceptable for you, set
+`RESTOW_UPDATER_SELF_UPDATE=false` and move the updater by hand.
+
+### Switching to the full build
+
+A Community installation (`restow-community`, `restow-web-community`) has a section
+Installation, Edition. It says which build runs, what the Business and Service Provider
+modules add, and switches to the full build of the version it runs now:
+
+- **With the updater** (ready, published images): *Switch to the full build* announces
+  the switch like an update, with a lead time and a countdown for everyone, and needs
+  the provider team's owner role and a recent sign-in. The api reads the release of the
+  running version once from the update source (also when the daily check is off) and
+  takes the digests of the full images from its notes (`restow:` and `restow-web:`).
+  The updater then runs the normal pipeline: it verifies both full images against the
+  release workflow's signature of that tag, dumps the database, writes
+  `RESTOW_IMAGE=ghcr.io/restow-backup/restow:<version>` and
+  `RESTOW_WEB_IMAGE=ghcr.io/restow-backup/restow-web:<version>` into `.env`, recreates
+  the services and rolls back to the Community images if the full build does not
+  start (both builds share one migration set, so nothing is migrated). A mirror is
+  respected: `.../restow-community` becomes `.../restow` in the same registry. When the
+  switch succeeded the updater moves itself to the full image too, by the verified
+  digest ([The updater updates itself](#the-updater-updates-itself)), so later updates
+  stay on the full build. If that self-update is off or fails, move the updater by
+  hand, as the tab says: until then it refuses further updates, because it would
+  install Community images on a full installation.
+- **Without the updater**, the section shows the two `.env` lines to copy and
+  `docker compose pull && docker compose up -d`.
+
+Only this one direction exists: the updater refuses a switch on a full installation,
+and the protocol has no switch to Community (data of licensed features may need
+modules the Community build does not have).
+
+A license key can be entered in the same section before the switch. The Community
+build keeps it, unread and unverified, in the encrypted secret store (kind
+`pending_license_key`); it unlocks nothing there. When the full build starts, and
+whenever its License page is opened, it verifies the key exactly like one entered on
+that page and installs it, then removes the stored text; a key that does not verify is
+removed and the rejection audited (`license.pending_key.rejected`).
 
 ### Two modes
 
@@ -488,7 +577,7 @@ updater only (`ROLE=updater`):
 
 | Variable                                 | Default                          | Meaning                                                       |
 | ---------------------------------------- | -------------------------------- | ------------------------------------------------------------- |
-| `RESTOW_UPDATER_PROJECT_DIR`             | (required, set from `RESTOW_PROJECT_DIR`) | Absolute host path of the Compose project, mounted at the same path. |
+| `RESTOW_UPDATER_PROJECT_DIR`             | (empty: the mount at `/project`; set from `RESTOW_PROJECT_DIR`) | Absolute host path of the Compose project, mounted at the same path. Empty: the project is mounted at `/project` and its host path is read from the mount. |
 | `RESTOW_UPDATER_IMAGE_REPOSITORY`        | `ghcr.io/restow-backup/restow` (Community build: `ghcr.io/restow-backup/restow-community`) | Application image repository for `image` mode (a mirror needs the signatures too). Passed from `.env`. |
 | `RESTOW_UPDATER_WEB_IMAGE_REPOSITORY`    | `ghcr.io/restow-backup/restow-web` (Community build: `ghcr.io/restow-backup/restow-web-community`) | Web image repository for `image` mode. Passed from `.env`.    |
 | `RESTOW_IMAGE_VARIANT`                   | set by the image (`full` or `community`) | The build the updater belongs to; picks the two defaults above and the targets of `source` mode. Never set it yourself: an unknown value stops the updater. |
@@ -496,12 +585,13 @@ updater only (`ROLE=updater`):
 | `RESTOW_UPDATER_MIN_FREE_MB`             | `1024`                           | Free space required in the updater's volume.                  |
 | `RESTOW_UPDATER_CLI_IMAGE`               | `docker:27-cli@sha256:851f91d2…` | Image used to run `docker` and `docker compose` (see below); must carry a digest. |
 | `RESTOW_UPDATER_COSIGN_IMAGE`            | `ghcr.io/sigstore/cosign/cosign:v3.1.3@sha256:9e5c2f2e…` | The cosign image that verifies signatures; must carry a digest. |
-| `RESTOW_UPDATER_VERIFY_SIGNATURES`       | `true`                           | `false` skips the signature check (test installations, unsigned mirrors); digests stay required. Set it in a Compose override only. |
+| `RESTOW_UPDATER_VERIFY_SIGNATURES`       | `true`                           | `false` skips the signature check (test installations, unsigned mirrors); digests stay required. Set it in a Compose override only. It also stops the updater from updating itself. |
+| `RESTOW_UPDATER_SELF_UPDATE`             | `true`                           | `false`: the updater does not move itself to a release it installed ([The updater updates itself](#the-updater-updates-itself)). Passed from `.env`. |
 | `RESTOW_UPDATER_SOURCE_HOSTS`            | (empty: `source` mode off)       | Repositories (`host/owner/repo`) or hosts `source` mode may build from, comma-separated. Passed from `.env`. |
 
 The Compose file itself reads `RESTOW_UPDATER_IMAGE` from `.env` for the updater
-service's image (default `restow:local` in `docker-compose.yml`, required in the
-release stack's file).
+service's image (default `restow:local` in `docker-compose.yml`; in the release
+stack's file `RESTOW_IMAGE` until the updater has pinned it on its first start).
 
 The published image contains no Docker command line. The updater therefore runs
 each `docker` and `docker compose` command in a short-lived helper container of
@@ -564,7 +654,10 @@ version can still read what the old one wrote.
   and run `docker compose up -d` again; with the release stack, put the previous
   tags back into `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE` first. The updater does
   this by itself when a new version does not start and its database migrations
-  had not run.
+  had not run (it moves itself only after a successful update, so a rolled
+  back update leaves the updater where it was). After rolling back by hand,
+  the updater may run a newer version than the application; that is harmless,
+  and the next update aligns them again.
 - **With migrations:** migrations are not reversible. Stop the stack, restore
   the database dump taken before the update, then start the previous version:
 

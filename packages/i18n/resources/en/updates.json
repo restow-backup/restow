@@ -23,7 +23,8 @@
     "sourceNotAllowed": "Building updates from this source is turned off on the server. The operator has to allow the repository first; until then, update by hand.",
     "recentSignIn": "Confirm it is you first: changing the update source or the access token and starting an update need a sign-in from the last 10 minutes.",
     "notVerifiable": "This release publishes no image digest, so the updater cannot verify it. Update by hand after checking the release.",
-    "invalidSource": "This address cannot be used as the update source. Enter the https address of a GitHub, Forgejo or Gitea repository on the public internet. A server on your own network works only when the operator names its host in the .env file on the server."
+    "invalidSource": "This address cannot be used as the update source. Enter the https address of a GitHub, Forgejo or Gitea repository on the public internet. A server on your own network works only when the operator names its host in the .env file on the server.",
+    "switchRefused": "This installation cannot switch builds here. Switch by hand with the two lines for the .env file."
   },
   "form": {
     "unsaved": "You have unsaved changes.",
@@ -75,7 +76,8 @@
       "disk_space": "There is not enough free disk space.",
       "not_newer": "The chosen version is not newer than the running one.",
       "compose_unsupported": "This version of Docker Compose is not supported.",
-      "updater_image_unpinned": "The updater takes its own image from the image lines it rewrites during an update. Give it its own pinned image and recreate it; the steps are under Installation, Updates."
+      "updater_image_unpinned": "The updater takes its own image from the image lines it rewrites during an update. Give it its own pinned image and recreate it; the steps are under Installation, Updates.",
+      "switch_refused": "The switch to the full build was refused: only a Community installation switches, to the full build of its own version."
     },
     "fetch": {
       "pull_failed": "The new image could not be downloaded.",
@@ -270,12 +272,14 @@
     },
     "unavailable": {
       "title": "The updater is not running",
-      "body": "Updates cannot be installed from this page. Update by hand with the commands below, or start the updater."
+      "body": "Updates cannot be installed from this page until the updater runs. Choosing an update source under Settings only says where releases come from: it does not start the updater. Start it once on the server (see below), or update by hand with the commands below."
     },
     "enable": {
       "title": "Start the updater",
-      "body": "The updater is optional. Once it runs, this page can announce an update, take a database backup first, restart the services and roll back if the new version does not start.",
-      "socket": "The updater mounts the Docker socket. That is root access to the host: whoever controls the updater controls this server. Start it only if you accept that."
+      "body": "The updater is optional and is started once, on the server, in the folder that holds docker-compose.yml. Once it runs, this page can announce an update, take a database backup first, restart the services and roll back if the new version does not start. Nothing has to be changed in the .env file for it.",
+      "socket": "The updater mounts the Docker socket. That is root access to the host: whoever controls the updater controls this server. Start it only if you accept that.",
+      "image": "There is no separate updater image: the updater runs the application image ({image}) in another role. On its first start it pins that image in the .env file (RESTOW_UPDATER_IMAGE), and after every update from a signed release it moves itself to the new version.",
+      "imageGeneric": "There is no separate updater image: the updater runs the application image (RESTOW_IMAGE) in another role. On its first start it pins that image in the .env file (RESTOW_UPDATER_IMAGE), and after every update from a signed release it moves itself to the new version."
     },
     "blocked": {
       "title": "Updates are blocked",
@@ -283,12 +287,12 @@
     },
     "blockers": {
       "docker_unreachable": "The updater cannot reach Docker. Check that the Docker socket is mounted into the updater and that Docker is running.",
-      "compose_missing": "The updater cannot find docker-compose.yml in the project folder. Check RESTOW_PROJECT_DIR in the .env file.",
+      "compose_missing": "The updater cannot find docker-compose.yml in the project folder. Use the docker-compose.yml of this release, or set RESTOW_PROJECT_DIR in the .env file to the absolute path of the folder that holds it, then recreate the updater.",
       "project_dir_mismatch": "The project folder the updater sees does not match the folder this installation runs from. Set RESTOW_PROJECT_DIR in the .env file to the absolute path of the folder that holds docker-compose.yml, then restart the updater.",
       "env_unwritable": "The updater cannot write the .env file. It has to write the new image reference there.",
       "disk_space": "There is not enough free disk space for a download and the database backup.",
       "docker_cli_missing": "The updater cannot find the Docker command line tool it needs to run Compose.",
-      "updater_image_unpinned": "The updater takes its own image from RESTOW_IMAGE, the line it rewrites during an update, so an update would also replace the updater. Use the docker-compose.yml of this release, set RESTOW_UPDATER_IMAGE in the .env file and recreate the updater.",
+      "updater_image_unpinned": "The updater takes its own image from RESTOW_IMAGE, the line it rewrites during an update, and could not pin it by itself. Set RESTOW_UPDATER_IMAGE in the .env file to the application image (the same image as RESTOW_IMAGE; there is no separate updater image), or use the docker-compose.yml of this release, then recreate the updater.",
       "unknown": "The updater reported a problem this version does not know."
     },
     "ready": {
@@ -302,10 +306,9 @@
       "body": "The updater builds from a custom repository only when the operator names it in the .env file on the server. Add this line to .env, then recreate the updater:",
       "risk": "What is built from that repository runs with full access to all backups and keys. Allow only a repository you trust as much as the release itself. Updating by hand keeps working."
     },
-    "outdated": "The updater runs version {updater} while this installation runs {running}. An update never replaces the updater: it keeps the image named in RESTOW_UPDATER_IMAGE. To move it to {running}, set RESTOW_UPDATER_IMAGE in the .env file to the image of that release (or rebuild restow:local from it when you build from source), then recreate the updater:",
     "incompatible": {
       "title": "The updater must be recreated",
-      "body": "The updater is running but speaks an older protocol. An update never replaces the updater: set RESTOW_UPDATER_IMAGE in the .env file to the image of this release (or rebuild restow:local from it when you build from source), recreate the updater and reload this page. Until then, update by hand."
+      "body": "The updater is running but speaks an older protocol, so it is older than this installation. It runs the application image too: set RESTOW_UPDATER_IMAGE in the .env file to the image in RESTOW_IMAGE (or rebuild restow:local when you build from source), recreate the updater and reload this page. From 0.2.1 on, the updater moves itself after each update. Until then, update by hand."
     },
     "busy": {
       "scheduledTitle": "Update to version {version} is announced",
@@ -317,9 +320,28 @@
       "cancelTitle": "Cancel the announced update?",
       "cancelBody": "The countdown disappears for everyone and nothing is changed. You can announce the update again later.",
       "cancelConfirm": "Cancel maintenance",
-      "cancelKeep": "Keep it"
+      "cancelKeep": "Keep it",
+      "scheduledTitleSwitch": "The switch to the full build ({version}) is announced",
+      "runningTitleSwitch": "Switching to the full build ({version})"
     },
-    "demo": "This is a public demo. Updates cannot be installed here. The version information above stays visible."
+    "demo": "This is a public demo. Updates cannot be installed here. The version information above stays visible.",
+    "selfUpdate": {
+      "pending": "The updater is moving itself to version {version}, the image whose release signature it just verified. This takes a few seconds.",
+      "failed": "The update to {running} succeeded, but the updater could not move itself to it and still runs {updater}. {reason} The .env file already names the verified image; recreate the updater on the server, in the folder that holds docker-compose.yml:",
+      "skipped": "The updater runs version {updater} while this installation runs {running}. It did not move itself: {reason} Move it by hand: set RESTOW_UPDATER_IMAGE in the .env file to the image in RESTOW_IMAGE (the updater runs the application image; there is no separate one), then recreate it:",
+      "on": "The updater runs version {updater} while this installation runs {running}, which was not installed by the updater. It moves itself after the next update it installs from a signed release. To move it now, set RESTOW_UPDATER_IMAGE in the .env file to the image in RESTOW_IMAGE, then recreate it:",
+      "legacy": "The updater runs version {updater} while this installation runs {running}. This updater is older than the self-update and has to be moved once by hand: set RESTOW_UPDATER_IMAGE in the .env file to the image in RESTOW_IMAGE (the updater runs the application image; there is no separate one), then recreate it. From then on it follows every update by itself.",
+      "reasons": {
+        "disabled": "Its self-update is switched off (RESTOW_UPDATER_SELF_UPDATE=false).",
+        "source_mode": "The update was built from source, and the updater never runs an image it built itself.",
+        "signature_unverified": "The release signature was not verified, and the updater moves itself only to a signed release.",
+        "compose_unsupported": "The docker-compose.yml does not take the updater's image from RESTOW_UPDATER_IMAGE. Use the docker-compose.yml of this release.",
+        "env_write_failed": "The .env file could not be written.",
+        "launch_failed": "The helper container that recreates the updater could not be started.",
+        "helper_failed": "Recreating the updater failed.",
+        "not_replaced": "The updater container was not replaced."
+      }
+    }
   },
   "manual": {
     "title": "Update by hand",
@@ -327,7 +349,7 @@
     "yourMode": "Your setup",
     "image": {
       "title": "Published images",
-      "hint": "For the default source. Pulls the new release image and recreates the services."
+      "hint": "For the default source. First set RESTOW_IMAGE and RESTOW_WEB_IMAGE in the .env file to the new version, then pull the images and recreate the services."
     },
     "source": {
       "title": "Built from source",
@@ -379,7 +401,8 @@
     "outcomeNote": {
       "succeeded": "The new version is running.",
       "unchanged": "The update failed before anything was replaced. The previous version never stopped.",
-      "rolled_back": "The update failed before the database was migrated. The previous version runs again."
+      "rolled_back": "The update failed before the database was migrated. The previous version runs again.",
+      "succeededSwitch": "The full build is running."
     },
     "requestedBy": "Started by",
     "mode": "Mode",
@@ -409,7 +432,10 @@
       "attentionHint": "Dismiss only after the installation is restored.",
       "confirmTitle": "Dismiss this notice?",
       "confirmBody": "The recovery commands disappear from this page. Keep them if you have not restored the installation yet."
-    }
+    },
+    "titleSwitch": "Last switch of the build",
+    "titleActiveSwitch": "Current switch of the build",
+    "versionSwitch": "Switch to the full build ({to})"
   },
   "recovery": {
     "title": "The update needs your attention",
@@ -431,19 +457,25 @@
       "scheduled": "Maintenance in {time}: {product} will be updated to version {version}. Save your work.",
       "starting": "Maintenance is starting: {product} is being updated to version {version}.",
       "running": "Maintenance in progress: {product} is being updated to version {version}.",
-      "attention": "The last update needs attention. An administrator has to restore the installation."
+      "attention": "The last update needs attention. An administrator has to restore the installation.",
+      "scheduledSwitch": "Maintenance in {time}: {product} will switch to the full build ({version}). Save your work.",
+      "startingSwitch": "Maintenance is starting: {product} is switching to the full build ({version}).",
+      "runningSwitch": "Maintenance in progress: {product} is switching to the full build ({version})."
     },
     "announce": {
       "start": "Maintenance announced: {product} will be updated to version {version} in {time}.",
       "minute": "Maintenance starts in one minute. Save your work.",
       "seconds": "Maintenance starts in 10 seconds.",
-      "starting": "Maintenance is starting now."
+      "starting": "Maintenance is starting now.",
+      "startSwitch": "Maintenance announced: {product} will switch to the full build ({version}) in {time}."
     },
     "modal": {
       "running": {
         "title": "{product} is being updated to version {version}",
         "titleNoVersion": "{product} is being updated",
-        "description": "This page continues automatically."
+        "description": "This page continues automatically.",
+        "titleSwitch": "{product} is switching to the full build ({version})",
+        "titleSwitchNoVersion": "{product} is switching to the full build"
       },
       "progress": "Progress",
       "percent": "{value} %",
@@ -453,26 +485,34 @@
       "succeeded": {
         "title": "Updated to version {version}",
         "description": "The new version is running. This page reloads by itself.",
-        "reload": "Reload now"
+        "reload": "Reload now",
+        "titleSwitch": "Switched to the full build ({version})",
+        "descriptionSwitch": "The full build is running. This page reloads by itself."
       },
       "failed": {
         "reason": "Reason: {reason}",
         "unchanged": {
           "title": "The update could not start",
-          "description": "Nothing was changed; the previous version is still running."
+          "description": "Nothing was changed; the previous version is still running.",
+          "titleSwitch": "The switch to the full build could not start",
+          "descriptionSwitch": "Nothing was changed; the Community build is still running."
         },
         "rolledBack": {
           "title": "The update failed and was rolled back",
-          "description": "The previous version runs again."
+          "description": "The previous version runs again.",
+          "titleSwitch": "The switch to the full build failed and was rolled back",
+          "descriptionSwitch": "The Community build runs again."
         },
         "needsAttention": {
           "title": "The update needs attention",
           "admin": "The update failed after the database was migrated. An administrator has to restore it. Details are under Installation, Updates.",
-          "user": "{product} is unavailable. An administrator has been informed."
+          "user": "{product} is unavailable. An administrator has been informed.",
+          "titleSwitch": "The switch to the full build needs attention"
         },
         "generic": {
           "title": "The update did not complete",
-          "description": "{product} may be limited until an administrator has checked it."
+          "description": "{product} may be limited until an administrator has checked it.",
+          "titleSwitch": "The switch to the full build did not complete"
         }
       }
     },
@@ -485,7 +525,13 @@
         "unchanged": "The update failed before anything was changed. {reason}",
         "rolled_back": "The update failed and was rolled back. {reason}",
         "needs_attention": "The update failed after the database was migrated. {reason}",
-        "interrupted": "The updater restarted during the update."
+        "interrupted": "The updater restarted during the update.",
+        "scheduledSwitch": "The switch to the full build ({version}) is announced for {startsAt}.",
+        "startingSwitch": "Starting the switch to the full build ({version}).",
+        "succeededSwitch": "Switched to the full build ({version}).",
+        "unchangedSwitch": "The switch to the full build failed before anything was changed. {reason}",
+        "rolled_backSwitch": "The switch to the full build failed and was rolled back. {reason}",
+        "needs_attentionSwitch": "The switch to the full build failed after the database was migrated. {reason}"
       },
       "step": {
         "prepare": {
@@ -567,5 +613,49 @@
     "retry": "Try again now",
     "progress": "Update progress",
     "stepsLabel": "Steps of the update"
+  },
+  "edition": {
+    "title": "Edition",
+    "badge": "Community build",
+    "description": "This installation runs the Community build: the Apache-2.0 core, without the Business and Service Provider modules.",
+    "adds": {
+      "title": "What the full build adds",
+      "business": "Business: the provider team (several administrators with roles), the archive's GoBD layer (journal receiver, enforced retention, legal hold), scheduled summary reports and the audit log viewer.",
+      "serviceProvider": "Service Provider: multiple tenants, team members limited to chosen tenants, the cross-tenant API and the provider dashboard.",
+      "license": "The full build runs as Community until a license key is installed, so switching changes nothing else by itself. Both builds use the same database."
+    },
+    "switched": "The server already runs the full build. Reload this page to see the License section.",
+    "switch": {
+      "title": "Switch to the full build",
+      "description": "Moves this installation to the full images of the version it runs now.",
+      "updater": "The updater installs the full images of version {version}, checked against the release signature, after a database backup, and rolls back if they do not start.",
+      "button": "Switch to the full build",
+      "busy": "An update is announced or running. Switch when it has finished.",
+      "manual": "Switch by hand on the server, in the folder that holds docker-compose.yml: set these two lines in the .env file, then pull the images and recreate the services.",
+      "manualUnknown": "Set RESTOW_IMAGE and RESTOW_WEB_IMAGE in the .env file to the full images (restow and restow-web) of the version this installation runs.",
+      "enableUpdater": "With the updater, this page does the switch for you. Start it once on the server: {command}",
+      "oneWay": "The switch goes one way only: the full build is not switched back to Community from here.",
+      "announced": "The switch to the full build is announced."
+    },
+    "dialog": {
+      "title": "Switch to the full build?",
+      "description": "The application and the web edge are replaced by the full images of version {version}. Everyone who is signed in sees a countdown and a short maintenance.",
+      "verify": "The full images are checked against the signature of the release workflow before anything is stopped.",
+      "updater": "The updater moves to the full image as well, so later updates stay on the full build.",
+      "oneWay": "There is no way back to the Community build from here.",
+      "confirm": "Announce the switch",
+      "confirmNow": "Switch now"
+    },
+    "key": {
+      "title": "License key",
+      "description": "If you already have a key for Business or Service Provider, store it here. The Community build does not check it: it is checked and applied after the switch to the full build.",
+      "label": "License key",
+      "replace": "Replace the stored key",
+      "save": "Store key",
+      "remove": "Remove key",
+      "saved": "The key is stored. It is checked and applied after the switch.",
+      "storedTitle": "A key is stored",
+      "stored": "Stored; it is checked and applied after switching to the full build. Until then it unlocks nothing."
+    }
   }
 }

@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { i18n } from "@/i18n";
 
+import type { SkipReason } from "./api.js";
 import { endpointJob, mailJob, member, restoreCheck } from "./fixtures.js";
 import "./i18n.js";
 import {
@@ -11,9 +12,11 @@ import {
   lastRunView,
   memberOutcomeTone,
   nextRunView,
+  pendingBackupView,
   repositoryLabel,
   restoreCheckView,
   retentionLabel,
+  runOutcomeView,
   scheduleUsesZone,
   scopeNote,
   stateView,
@@ -156,12 +159,21 @@ describe("state, runs and the next run", () => {
   it("maps every state to a tone; running is the Lapis one and a job that is merely fine is neutral", () => {
     expect(stateView("running")).toMatchObject({ tone: "info", live: true });
     expect(stateView("ok")).toMatchObject({ tone: "neutral", key: "ok" });
+    expect(stateView("queued")).toMatchObject({ tone: "muted", key: "queued", live: false });
     expect(stateView("failing").tone).toBe("destructive");
     expect(stateView("attention").tone).toBe("warning");
     expect(stateView("paused").tone).toBe("muted");
     expect(stateView("empty").tone).toBe("muted");
     // Green is for a passed restore check: no state is green.
-    for (const state of ["paused", "failing", "running", "attention", "empty", "ok"] as const) {
+    for (const state of [
+      "paused",
+      "failing",
+      "running",
+      "queued",
+      "attention",
+      "empty",
+      "ok",
+    ] as const) {
       expect(stateView(state).tone).not.toBe("success");
     }
   });
@@ -169,17 +181,29 @@ describe("state, runs and the next run", () => {
   it("tells a job that never ran from one that runs or failed", () => {
     expect(
       lastRunView(
-        mailJob({ lastRun: { at: null, failed: 0, partial: 0, running: 0, runId: null } }),
+        mailJob({
+          lastRun: { at: null, failed: 0, partial: 0, running: 0, queued: 0, runId: null },
+        }),
       ).never,
     ).toBe(true);
     expect(
-      lastRunView(mailJob({ lastRun: { at: null, failed: 0, partial: 0, running: 2, runId: "r" } }))
-        .never,
+      lastRunView(
+        mailJob({
+          lastRun: { at: null, failed: 0, partial: 0, running: 2, queued: 0, runId: "r" },
+        }),
+      ).never,
     ).toBe(false);
     expect(
       lastRunView(
         mailJob({
-          lastRun: { at: "2026-10-02T09:00:00Z", failed: 1, partial: 0, running: 0, runId: "r" },
+          lastRun: {
+            at: "2026-10-02T09:00:00Z",
+            failed: 1,
+            partial: 0,
+            running: 0,
+            queued: 0,
+            runId: "r",
+          },
         }),
       ),
     ).toMatchObject({
@@ -205,6 +229,57 @@ describe("state, runs and the next run", () => {
       nextRunView({ ...base, nextRunAt: null, schedule: { kind: "on_connect", timeZone: "UTC" } }),
     ).toEqual({ kind: "onConnect" });
     expect(nextRunView({ ...base, nextRunAt: null })).toEqual({ kind: "unknown" });
+  });
+
+  it("tells a job with a request waiting for its machine from one that never ran", () => {
+    const view = lastRunView(
+      mailJob({
+        lastRun: { at: null, failed: 0, partial: 0, running: 0, queued: 1, runId: null },
+      }),
+    );
+    expect(view).toMatchObject({ queued: 1, never: false });
+  });
+
+  it("says what a requested machine backup waits for", () => {
+    const now = Date.parse("2026-10-02T10:00:00.000Z");
+    const pending = (over: Partial<NonNullable<ReturnType<typeof member>["pendingBackup"]>>) => ({
+      status: "pending" as const,
+      requestedAt: "2026-10-02T09:58:00.000Z",
+      nextCheckInAt: "2026-10-02T10:03:30.000Z",
+      ...over,
+    });
+    expect(pendingBackupView(pending({}), now)).toEqual({ kind: "waiting", minutes: 4 });
+    expect(pendingBackupView(pending({ nextCheckInAt: "2026-10-02T10:00:10.000Z" }), now)).toEqual({
+      kind: "waiting",
+      minutes: 1,
+    });
+    expect(pendingBackupView(pending({ nextCheckInAt: "2026-10-02T09:59:00.000Z" }), now)).toEqual({
+      kind: "due",
+    });
+    expect(pendingBackupView(pending({ nextCheckInAt: null }), now)).toEqual({ kind: "due" });
+    expect(pendingBackupView(pending({ status: "delivered" }), now)).toEqual({ kind: "starting" });
+  });
+
+  it("words the toast of a run request: waiting is not nothing started", () => {
+    const skipped = (reason: SkipReason) => ({ targetId: "m1", name: "m1", reason });
+    expect(runOutcomeView("endpoint", { queued: 1, skipped: [skipped("already_queued")] })).toBe(
+      "queued",
+    );
+    expect(runOutcomeView("endpoint", { queued: 0, skipped: [skipped("already_queued")] })).toBe(
+      "waiting",
+    );
+    expect(
+      runOutcomeView("endpoint", {
+        queued: 0,
+        skipped: [skipped("already_queued"), skipped("revoked")],
+      }),
+    ).toBe("nothing");
+    expect(runOutcomeView("endpoint", { queued: 0, skipped: [skipped("revoked")] })).toBe(
+      "nothing",
+    );
+    expect(runOutcomeView("mail", { queued: 0, skipped: [skipped("already_queued")] })).toBe(
+      "nothing",
+    );
   });
 
   it("names the tone of a member's last backup only when it needs a word", () => {

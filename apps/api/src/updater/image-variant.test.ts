@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildTargetsOf,
   defaultImageRepositories,
+  fullBuildRepositories,
   imageNamesOf,
   imageVariantOf,
   parseImageVariant,
@@ -42,5 +43,31 @@ describe("image variant", () => {
     });
     expect(buildTargetsOf("full")).toEqual({ app: "runtime", web: "web" });
     expect(buildTargetsOf("community")).toEqual({ app: "runtime-community", web: "web-community" });
+  });
+});
+
+describe("fullBuildRepositories", () => {
+  it("drops the -community suffix, also of a mirror", () => {
+    expect(
+      fullBuildRepositories({
+        app: "ghcr.io/restow-backup/restow-community",
+        web: "ghcr.io/restow-backup/restow-web-community",
+      }),
+    ).toEqual({ app: "ghcr.io/restow-backup/restow", web: "ghcr.io/restow-backup/restow-web" });
+    expect(
+      fullBuildRepositories({
+        app: "registry.example.com/acme/restow-community",
+        web: "registry.example.com/acme/restow-web-community",
+      }),
+    ).toEqual({
+      app: "registry.example.com/acme/restow",
+      web: "registry.example.com/acme/restow-web",
+    });
+    expect(
+      fullBuildRepositories({
+        app: "registry.example.com/x/app",
+        web: "registry.example.com/x/web",
+      }),
+    ).toBeNull();
   });
 });

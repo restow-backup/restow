@@ -64,9 +64,16 @@ export interface UpdaterViewInput {
   state: StateView | null;
   demo: boolean;
   incompatible: boolean;
+  /** See UpdaterView.applicationImage. */
+  applicationImage?: string | null;
 }
 
-export function updaterViewOf({ state, demo, incompatible }: UpdaterViewInput): UpdaterView {
+export function updaterViewOf({
+  state,
+  demo,
+  incompatible,
+  applicationImage = null,
+}: UpdaterViewInput): UpdaterView {
   const availability: UpdaterAvailability = demo
     ? "demo"
     : !state
@@ -81,6 +88,8 @@ export function updaterViewOf({ state, demo, incompatible }: UpdaterViewInput): 
     blockers: state?.capabilities.blockers ?? [],
     incompatible: incompatible && !demo,
     version: state?.updaterVersion ?? null,
+    selfUpdate: state?.selfUpdate ?? null,
+    applicationImage,
     runner: state?.capabilities.runner ?? null,
     dumps: state?.capabilities.dumps ?? [],
     checkedAt: state?.capabilities.checkedAt ?? null,

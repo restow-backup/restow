@@ -29,6 +29,8 @@ import {
 } from "@restow/core";
 import {
   auditLog,
+  backupJobMembers,
+  backupJobs,
   endpointEnrollmentTokens,
   endpointReports,
   endpointRepositoryLocks,
@@ -39,6 +41,7 @@ import {
   endpoints,
   secrets,
   tenants,
+  users,
   webhookDeliveries,
   webhooks,
 } from "@restow/db";
@@ -179,6 +182,36 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
     return row;
   }
 
+  const DAILY = { kind: "daily" as const, timeOfDay: "22:00", timeZone: "Europe/Berlin" };
+
+  /** Give a machine a schedule, as one in no job of an earlier release still has it. */
+  async function withSchedule(who: Enrolled): Promise<void> {
+    const row = await endpointRow(who.endpointId);
+    if (!row) throw new Error("no such machine");
+    await fixture.db
+      .update(endpoints)
+      .set({ config: { ...row.config, schedule: DAILY } })
+      .where(eq(endpoints.id, who.endpointId));
+  }
+
+  /** Put a machine into a backup job of its own (backups run only in a job, release 0.2.1). */
+  async function inJob(who: Enrolled, tenantId = fixture.tenantId): Promise<void> {
+    const [job] = await fixture.db
+      .insert(backupJobs)
+      .values({
+        tenantId,
+        kind: "endpoint",
+        name: `Job ${randomUUID().slice(0, 8)}`,
+        schedule: DAILY,
+        settings: {},
+      })
+      .returning();
+    await fixture.db
+      .insert(backupJobMembers)
+      .values({ tenantId, jobId: job?.id ?? "", endpointId: who.endpointId, overrides: {} });
+    await withSchedule(who);
+  }
+
   describe("enrollment", () => {
     it("creates a one-time token that is stored only as a hash and audited", async () => {
       const created = await token("server");
@@ -247,10 +280,12 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
         `rest:https://restow.test.example/agent/restic/${body.endpointId}/`,
       );
       expect(body.repository.password.length).toBeGreaterThanOrEqual(40);
+      // In no backup job yet: no schedule, and the agent is handed no folders (an older agent
+      // that does not know `none` backs nothing up either).
       expect(body.config).toMatchObject({
         profile: "server",
-        schedule: { kind: "daily", timeOfDay: "22:00" },
-        paths: ["/etc", "/home", "/root", "/srv", "/var/www"],
+        schedule: { kind: "none" },
+        paths: [],
         hooks: {},
         bandwidthKbps: null,
         onlyOnAcPower: false,
@@ -259,6 +294,21 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
       });
 
       const row = await endpointRow(body.endpointId);
+      // The stored configuration keeps the profile's folders for a job to start from.
+      expect(row?.config).toMatchObject({
+        schedule: { kind: "none" },
+        paths: [
+          "/etc",
+          "/home",
+          "/root",
+          "/srv",
+          "/var/www",
+          "/opt",
+          "/usr/local",
+          "/var/lib",
+          "/var/backups",
+        ],
+      });
       expect(row).toMatchObject({
         tenantId: fixture.tenantId,
         hostname: "web-01",
@@ -431,10 +481,11 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
       expect(before?.lastSeenAt).toBeInstanceOf(Date);
       const response = await agentRequest(who, "/config");
       expect(response.status).toBe(200);
+      // A new machine waits for a backup job: no schedule, and no folders handed out.
       expect(await response.json()).toMatchObject({
         profile: "client",
-        schedule: { kind: "on_connect", intervalMinutes: 240 },
-        paths: ["/Users"],
+        schedule: { kind: "none" },
+        paths: [],
         configVersion: 1,
       });
     }, 30_000);
@@ -484,8 +535,22 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
   });
 
   describe("heartbeat and tasks", () => {
+    it("refuses a backup request for a machine in no backup job", async () => {
+      const who = await enrolled("server");
+      await expect(
+        service.createTask(
+          shared.db,
+          fixture.tenantId,
+          who.endpointId,
+          { kind: "backup_now" },
+          actor(),
+        ),
+      ).rejects.toMatchObject({ status: 409, type: "urn:restow:problem:endpoint-no-job" });
+    }, 30_000);
+
     it("delivers a backup request once", async () => {
       const who = await enrolled("server");
+      await inJob(who);
       const created = await service.createTask(
         shared.db,
         fixture.tenantId,
@@ -535,6 +600,8 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
 
     it("tells an agent with an old configuration to fetch the new one", async () => {
       const who = await enrolled("server", fixture.tenantId, "linux", { hooks: "any" });
+      // A machine in no job that still has the schedule of an earlier release.
+      await withSchedule(who);
       const changed = await service.updateEndpoint(
         shared.db,
         fixture.tenantId,
@@ -603,6 +670,108 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
       expect(text).not.toContain("secret-token");
     }, 30_000);
 
+    it("assigns a machine to a person of the tenant's directory, audited, and refuses anyone else", async () => {
+      const who = await enrolled("client", fixture.tenantId);
+      const suffix = randomUUID().slice(0, 8);
+      const [alice] = await fixture.db
+        .insert(users)
+        .values({
+          tenantId: fixture.tenantId,
+          email: `alice-${suffix}@contoso.example`,
+          displayName: "Alice Example",
+        })
+        .returning();
+      const [mallory] = await fixture.db
+        .insert(users)
+        .values({ tenantId: fixture.otherTenantId, email: `mallory-${suffix}@fabrikam.example` })
+        .returning();
+      const aliceId = alice?.id ?? "";
+
+      const result = await service.updateEndpoint(
+        shared.db,
+        fixture.tenantId,
+        who.endpointId,
+        { assignedUserId: aliceId },
+        actor(),
+      );
+      expect(result.changed).toEqual(["assignedUserId"]);
+      const person = { id: aliceId, displayName: "Alice Example", email: alice?.email };
+      const detail = await service.getEndpoint(
+        shared.db,
+        fixture.tenantId,
+        who.endpointId,
+        instance.url,
+      );
+      expect(detail.assignedTo).toEqual(person);
+      const listed = await service.listEndpoints(shared.db, fixture.tenantId);
+      expect(listed.items.find((item) => item.id === who.endpointId)?.assignedTo).toEqual(person);
+      // No configuration changed: the agent is not asked to fetch anything.
+      expect((await endpointRow(who.endpointId))?.configVersion).toBe(who.config.configVersion);
+      const [entry] = await fixture.db
+        .select()
+        .from(auditLog)
+        .where(and(eq(auditLog.action, "endpoint.assigned"), eq(auditLog.target, who.endpointId)));
+      expect(entry?.details).toMatchObject({ assignedUserId: aliceId, previousUserId: null });
+      const configEntries = await fixture.db
+        .select()
+        .from(auditLog)
+        .where(
+          and(eq(auditLog.action, "endpoint.config.changed"), eq(auditLog.target, who.endpointId)),
+        );
+      expect(configEntries).toEqual([]);
+
+      // A person of another tenant, or one that does not exist, is not in this directory.
+      for (const stranger of [mallory?.id ?? "", randomUUID()]) {
+        await expect(
+          service.updateEndpoint(
+            shared.db,
+            fixture.tenantId,
+            who.endpointId,
+            { assignedUserId: stranger },
+            actor(),
+          ),
+        ).rejects.toMatchObject({
+          status: 422,
+          type: "urn:restow:problem:endpoint-assignee-unknown",
+        });
+      }
+      expect((await endpointRow(who.endpointId))?.assignedUserId).toBe(aliceId);
+
+      // The picker finds her by a part of her name, and only the tenant's own people.
+      const directory = await import("../directory/service.js");
+      const found = await directory.listPeople(shared.db, fixture.tenantId, {
+        search: "alice ex",
+        limit: 20,
+      });
+      expect(found.items.map((item) => item.id)).toEqual([aliceId]);
+      const foreign = await directory.listPeople(shared.db, fixture.tenantId, {
+        search: "mallory",
+        limit: 20,
+      });
+      expect(foreign.items).toEqual([]);
+
+      // null removes the assignment; a person leaving the directory clears it as well.
+      await service.updateEndpoint(
+        shared.db,
+        fixture.tenantId,
+        who.endpointId,
+        { assignedUserId: null },
+        actor(),
+      );
+      expect((await endpointRow(who.endpointId))?.assignedUserId).toBeNull();
+      await service.updateEndpoint(
+        shared.db,
+        fixture.tenantId,
+        who.endpointId,
+        { assignedUserId: aliceId },
+        actor(),
+      );
+      await fixture.db.delete(users).where(eq(users.id, aliceId));
+      const after = await endpointRow(who.endpointId);
+      expect(after?.assignedUserId).toBeNull();
+      expect(after?.tenantId).toBe(fixture.tenantId);
+    }, 30_000);
+
     it("removes the agent on request and revokes the endpoint once it is told", async () => {
       const who = await enrolled("client");
       await service.requestUninstall(shared.db, fixture.tenantId, who.endpointId, actor());
@@ -623,6 +792,7 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
 
     it("expires a task nobody picked up", async () => {
       const who = await enrolled("server");
+      await inJob(who);
       const { task } = await service.createTask(
         shared.db,
         fixture.tenantId,
@@ -1899,6 +2069,7 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
         kind: "retention",
         summary: {},
       });
+      await inJob(theirs, fixture.otherTenantId);
       await service.createTask(
         shared.db,
         fixture.otherTenantId,
@@ -2134,6 +2305,7 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
           finishedAt: new Date(base - (90 - index) * 60_000),
         })),
       );
+      await inJob(who);
       await service.createTask(
         shared.db,
         fixture.tenantId,

@@ -186,8 +186,11 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/settings/microsoft-app/test": configure(PROVIDER),
   "DELETE /api/v1/settings/microsoft-app": own(),
   // The installation's default storage: reading is for every provider admin, the test writes a
-  // probe object to the store, so it is configuration work.
+  // probe object to the store, so it is configuration work. Saving or removing it decides where
+  // every tenant without a target of its own keeps its backups: the owner's (plus a recent sign-in).
   "GET /api/v1/settings/default-storage": view(PROVIDER),
+  "PUT /api/v1/settings/default-storage": own(),
+  "DELETE /api/v1/settings/default-storage": own(),
   "POST /api/v1/settings/default-storage/test": configure(PROVIDER),
 
   // --- Updates -------------------------------------------------------------------
@@ -200,6 +203,9 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/updates/maintenance": own(),
   "DELETE /api/v1/updates/maintenance": own(),
   "POST /api/v1/updates/maintenance/dismiss": own(),
+  "POST /api/v1/updates/edition/switch": own(),
+  "PUT /api/v1/updates/edition/license-key": own(),
+  "DELETE /api/v1/updates/edition/license-key": own(),
   // The maintenance state is for everyone who is signed in.
   "GET /api/v1/maintenance": view(NONE),
 
@@ -235,6 +241,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/directory/sources/:sourceId/accounts": configure(),
   "POST /api/v1/directory/sources/:sourceId/accounts/import": configure(),
   "POST /api/v1/directory/sources/:sourceId/protection/bulk": configure(),
+  "GET /api/v1/directory/people": view(),
   "GET /api/v1/directory/objects": view(),
   "POST /api/v1/directory/objects/:id/protection": configure(),
   "POST /api/v1/directory/objects/:id/credential": configure(),

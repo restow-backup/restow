@@ -132,6 +132,8 @@ export interface ProtectedObject {
   notSelected: boolean;
   lastBackupAt: string | null;
   snapshotCount: number;
+  /** An active legal hold sits on this object: it cannot be removed and its backups are kept. */
+  legalHold: boolean;
   latestBackupJob: {
     id: string;
     status: JobStatus;
@@ -229,6 +231,22 @@ export interface BulkProtectionResult {
 }
 
 export type GroupKind = "microsoft365" | "security" | "mail_security" | "distribution";
+
+/**
+ * A person of the tenant's protection directory (synced from Microsoft 365 or added by hand),
+ * not a login account: what a machine can be assigned to (`GET /directory/people`).
+ */
+export interface DirectoryPerson {
+  id: string;
+  displayName: string | null;
+  email: string;
+}
+
+export interface PeoplePage {
+  items: DirectoryPerson[];
+  /** More people match than were returned: narrow the search. */
+  more: boolean;
+}
 
 export interface GroupSummary {
   id: string;

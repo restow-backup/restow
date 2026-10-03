@@ -191,13 +191,14 @@ export interface BackupJobLive {
   id: string;
   kind: "mail" | "endpoint";
   enabled: boolean;
-  state: "paused" | "failing" | "running" | "attention" | "empty" | "ok";
+  state: "paused" | "failing" | "running" | "queued" | "attention" | "empty" | "ok";
   scope: { count: number; byKind: Record<string, number>; overrides: number };
   lastRun: {
     at: string | null;
     failed: number;
     partial: number;
     running: number;
+    queued: number;
     runId: string | null;
   };
   nextRunAt: string | null;

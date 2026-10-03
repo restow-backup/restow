@@ -9,7 +9,7 @@ control, and every week reads a sample of each backup back through the restore
 path and compares it with the recorded hashes. A backup only counts as
 restorable once it has been read back.
 
-**Status: beta (0.2.0).** Run it alongside your
+**Status: beta (0.2.1).** Run it alongside your
 existing backups, not as your only one, until you have verified restores
 against your own data. Microsoft 365 backup and restore have been tested
 against a simulated Graph API, never against a real Microsoft 365 tenant. What
@@ -45,11 +45,11 @@ Known Issues.
 - **Archive:** Exchange Online journal mail (Business and Service Provider) and
   imported mail files go into an append-only store with a SHA-256 hash chain,
   chain verification and search over subject, extracted text and addresses (not
-  attachments). Business adds enforced retention (fixed at 8 years in 0.2.0) and
+  attachments). Business adds enforced retention (fixed at 8 years in 0.2.1) and
   legal hold, designed for GoBD-compliant use (not certified). Continuous
-  IMAP and Graph archive sync are not part of 0.2.0. On local, NFS and SMB
+  IMAP and Graph archive sync are not part of 0.2.1. On local and NFS
   targets the archive's immutability is enforced by the application only, and on
-  S3 with Object Lock 0.2.0 locks the archive item records but not the packs
+  S3 with Object Lock 0.2.1 locks the archive item records but not the packs
   that hold the message content; see Known Issues in the changelog.
 - **Import and export of mail files:** bring a legacy mailbox in from EML, MSG, MBOX,
   ZIP or a MailStore export folder (chunked, resumable, encrypted upload or a
@@ -60,7 +60,7 @@ Known Issues.
   anything leaves the server. Deduplication stays within a tenant. One master key
   (`RESTOW_MASTER_KEY`) wraps every tenant key: whoever holds it and can read the
   storage can decrypt it, so keep it offline and apart from the storage.
-- **Storage you choose:** local disk, S3-compatible object storage, NFS or SMB,
+- **Storage you choose:** local disk, S3-compatible object storage or NFS,
   with a copy target next to the primary, promotion of a copy and replacement of
   the primary without losing access to existing backups.
 - **Multi-tenant** for IT service providers (Service Provider edition), with a
@@ -77,7 +77,7 @@ Known Issues.
 - **Standalone restore:** `restow-restore` restores from the chunk store and the
   keys alone, without a running Restow server or database.
 
-Not included in 0.2.0: PST and OST import, PST and MSG export, a Windows agent,
+Not included in 0.2.1: PST and OST import, PST and MSG export, a Windows agent,
 continuous IMAP and Graph archive sync, SharePoint, Teams, Google Workspace and
 public folders. The first backup of a large tenant can take days because
 Microsoft throttles Graph; Restow shows that wait instead of hiding it.
@@ -135,7 +135,7 @@ and it is treated as one:
 | Microsoft 365 | Microsoft Graph only (delta queries, own throttling layer), MSAL for app authentication |
 | IMAP and SMTP | imapflow, mailparser, smtp-server for journal receipt |
 | Endpoint agent | Go with the standard library only, driving restic; Linux and macOS |
-| Storage | Own chunk store: content-defined chunking, SHA-256, AES-256-GCM, pack files; local disk, S3-compatible, NFS, SMB |
+| Storage | Own chunk store: content-defined chunking, SHA-256, AES-256-GCM, pack files; local disk, S3-compatible, NFS |
 | Delivery | Two builds of every release (full and Community), each an application image with the roles api, worker and scheduler (plus the optional, opt-in updater) and a web image with Caddy for TLS and the web interface; Docker Compose |
 | Tests and checks | Vitest, Playwright, Go tests, Biome, TypeScript strict, gitleaks, `pnpm audit`, Trivy |
 
@@ -222,8 +222,8 @@ the cosign signatures of the two images and starts the stack. Download it,
 check it, then run it:
 
 ```sh
-curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.0/install.sh
-curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.0/install.sh.sha256
+curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.1/install.sh
+curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.1/install.sh.sha256
 sha256sum -c install.sh.sha256
 sudo bash install.sh
 ```
@@ -252,10 +252,10 @@ the script is the one the release workflow published, verify the signed
 checksum list with [cosign](https://docs.sigstore.dev/cosign/) first:
 
 ```sh
-curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.0/SHA256SUMS
-curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.0/SHA256SUMS.sigstore.json
+curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.1/SHA256SUMS
+curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.1/SHA256SUMS.sigstore.json
 cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
-  --certificate-identity https://github.com/restow-backup/restow/.github/workflows/release.yml@refs/tags/v0.2.0 \
+  --certificate-identity https://github.com/restow-backup/restow/.github/workflows/release.yml@refs/tags/v0.2.1 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 sha256sum -c --ignore-missing SHA256SUMS
 ```
@@ -292,7 +292,7 @@ installation without its `.env`. It never updates an installation (see
 As a shortcut, the script also runs straight from the download:
 
 ```sh
-curl -fsSL https://github.com/restow-backup/restow/releases/download/v0.2.0/install.sh | sudo bash
+curl -fsSL https://github.com/restow-backup/restow/releases/download/v0.2.1/install.sh | sudo bash
 ```
 
 That runs whatever arrives without your own check of the script first. It still
@@ -357,23 +357,23 @@ step 2.
 
 1. **Get the release stack.** It runs the published, signed images and builds
    nothing. Download `docker-compose.yml` and `env.example` from the
-   [release assets](https://github.com/restow-backup/restow/releases/tag/v0.2.0)
+   [release assets](https://github.com/restow-backup/restow/releases/tag/v0.2.1)
    into an empty directory and run `cp env.example .env`, or clone the tag and
    work in `deploy/release/`:
 
    ```sh
-   git clone --branch v0.2.0 https://github.com/restow-backup/restow.git
+   git clone --branch v0.2.1 https://github.com/restow-backup/restow.git
    cd restow/deploy/release
    cp .env.example .env
    ```
 
 2. **Fill in `.env`.** The comments in the file say how; the sections marked
    optional can stay empty. At minimum the two images of one build, either the
-   full build (`RESTOW_IMAGE=ghcr.io/restow-backup/restow:0.2.0`,
-   `RESTOW_WEB_IMAGE=ghcr.io/restow-backup/restow-web:0.2.0`; Business and
+   full build (`RESTOW_IMAGE=ghcr.io/restow-backup/restow:0.2.1`,
+   `RESTOW_WEB_IMAGE=ghcr.io/restow-backup/restow-web:0.2.1`; Business and
    Service Provider stay locked until a license key is installed) or the
-   Community build (`ghcr.io/restow-backup/restow-community:0.2.0`,
-   `ghcr.io/restow-backup/restow-web-community:0.2.0`; the Apache-2.0 core
+   Community build (`ghcr.io/restow-backup/restow-community:0.2.1`,
+   `ghcr.io/restow-backup/restow-web-community:0.2.1`; the Apache-2.0 core
    alone), then `POSTGRES_PASSWORD`, the three database connection strings
    (`DATABASE_MIGRATION_URL`, `DATABASE_URL`, `DATABASE_PROVIDER_URL`),
    `RESTOW_MASTER_KEY`, `BETTER_AUTH_SECRET`, `RESTOW_PUBLIC_URL` and
@@ -460,7 +460,7 @@ cd / && sudo rm -r /opt/restow                          # .env holds RESTOW_MAST
 ```
 
 Keep an offline copy of `RESTOW_MASTER_KEY` as long as backups on other
-storage (S3, NFS, SMB) may still be needed: `restow-restore` reads them with the
+storage (S3, NFS) may still be needed: `restow-restore` reads them with the
 key alone. Those backups are not deleted by the steps above; remove them in the
 storage itself. Docker stays installed.
 
@@ -506,7 +506,11 @@ license key (Ed25519, no phone-home) unlocks at runtime under Installation › L
 without a key they run as Community. The Community images (`restow-community`,
 `restow-web-community`) contain the Apache-2.0 core alone and no license
 screen. Both use the same database, so you can switch by changing the two image
-lines in `.env`. Mailbox and tenant counts are an honour rule of the license
+lines in `.env`; a Community installation also offers the switch to the full build
+under Installation › Edition, done by the opt-in updater when it runs (the full images
+of the same version, signature-checked, with a backup and a rollback), and keeps a
+license key entered there until the full build checks and applies it. The switch
+goes one way: from Community to the full build. Mailbox and tenant counts are an honour rule of the license
 terms, not a limit in the software. Prices and terms:
 [restowbackup.com](https://restowbackup.com).
 

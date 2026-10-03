@@ -31,6 +31,7 @@ function sampleRun(id: string): Run {
   return {
     id,
     mode: "image",
+    switchTo: null,
     fromVersion: "0.1.0",
     targetVersion: "0.2.0",
     targetTag: "v0.2.0",

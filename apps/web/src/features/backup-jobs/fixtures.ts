@@ -47,6 +47,7 @@ export function mailJob(over: Partial<BackupJob> = {}): BackupJob {
       failed: 0,
       partial: 0,
       running: 0,
+      queued: 0,
       runId: "22222222-2222-4222-8222-222222222222",
     },
     nextRunAt: iso(1080),
@@ -81,6 +82,7 @@ export function endpointJob(over: Partial<BackupJob> = {}): BackupJob {
       failed: 0,
       partial: 0,
       running: 0,
+      queued: 0,
       runId: "55555555-5555-4555-8555-555555555555",
     },
     nextRunAt: iso(18),
@@ -117,6 +119,7 @@ export function member(over: Partial<JobMember> = {}): JobMember {
     },
     lastBackup: { at: iso(-42), outcome: "succeeded" },
     restoreCheck: { state: "green", checkedAt: iso(-300) },
+    pendingBackup: null,
     nextRunAt: iso(18),
     ...over,
   };

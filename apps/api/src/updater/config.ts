@@ -26,8 +26,13 @@ export interface UpdaterConfig {
   stateDir: string;
   /** Holds the shared secret; the api mounts it read-only. */
   sharedDir: string;
-  /** Absolute host path of the compose project, mounted at the same path inside the container. */
-  projectDir: string;
+  /**
+   * Absolute host path of the compose project, mounted at the same path inside the
+   * container (RESTOW_UPDATER_PROJECT_DIR, from RESTOW_PROJECT_DIR). null: not set; the
+   * project is then mounted at {@link PROJECT_MOUNT} and its host path is read from the
+   * container's own mount (resolveProjectLocation).
+   */
+  projectDir: string | null;
   /** Compose project name; null until it is taken from the container's own label. */
   projectName: string | null;
   /** A compose file named explicitly; null lets Compose find the default file(s) in the project. */
@@ -52,6 +57,12 @@ export interface UpdaterConfig {
    * test installation or a mirror without signatures; the run records it.
    */
   verifySignatures: boolean;
+  /**
+   * After a successful image-mode update with verified signatures, move the updater to
+   * the verified image of that release and recreate it (self-update.ts). On unless
+   * RESTOW_UPDATER_SELF_UPDATE=false.
+   */
+  selfUpdate: boolean;
   healthTimeoutSeconds: number;
   minFreeMb: number;
   dockerSocket: string;
@@ -70,6 +81,17 @@ export class ConfigError extends Error {
     this.name = "ConfigError";
   }
 }
+
+/** Switches the updater's own update off when `false` (self-update.ts). */
+export const SELF_UPDATE_VARIABLE = "RESTOW_UPDATER_SELF_UPDATE";
+
+/**
+ * Where the compose files mount the project when RESTOW_PROJECT_DIR is not set
+ * (`${RESTOW_PROJECT_DIR:-.}:${RESTOW_PROJECT_DIR:-/project}`): Compose resolves `.`
+ * to the project's absolute host path, which the updater reads back from its own
+ * container's mount.
+ */
+export const PROJECT_MOUNT = "/project";
 
 export const COMPOSE_FILE_CANDIDATES = [
   "docker-compose.yml",
@@ -109,21 +131,30 @@ function integer(
   return value;
 }
 
-function absolutePath(env: Env, name: string, fallback: string | null, problems: string[]): string {
-  const raw = text(env, name) ?? fallback;
-  if (raw === null) {
-    problems.push(`${name} is required`);
-    return "/";
-  }
-  if (!path.posix.isAbsolute(raw) || /[\0\n\r:,]/.test(raw)) {
-    problems.push(`${name} must be an absolute path without ':' or ','`);
-    return "/";
-  }
-  if (raw.split("/").includes("..")) {
-    problems.push(`${name} must not contain '..'`);
+/** A plain absolute path (no ':' or ',', which would break a bind specification); null when it is not one. */
+function plainAbsolutePath(raw: string): string | null {
+  if (!path.posix.isAbsolute(raw) || /[\0\n\r:,]/.test(raw) || raw.split("/").includes("..")) {
+    return null;
   }
   const normalized = path.posix.normalize(raw);
   return normalized.length > 1 ? normalized.replace(/\/+$/, "") : normalized;
+}
+
+function absolutePath(env: Env, name: string, fallback: string, problems: string[]): string {
+  return optionalAbsolutePath(env, name, problems) ?? fallback;
+}
+
+function optionalAbsolutePath(env: Env, name: string, problems: string[]): string | null {
+  const raw = text(env, name);
+  if (raw === undefined) {
+    return null;
+  }
+  const value = plainAbsolutePath(raw);
+  if (value === null) {
+    problems.push(`${name} must be an absolute path without ':', ',' or '..'`);
+    return "/";
+  }
+  return value;
 }
 
 function repository(env: Env, name: string, fallback: string, problems: string[]): string {
@@ -141,7 +172,7 @@ export function loadConfig(env: Env): UpdaterConfig {
   const port = integer(env, "RESTOW_UPDATER_PORT", UPDATER_DEFAULT_PORT, 1, 65535, problems);
   const stateDir = absolutePath(env, "RESTOW_UPDATER_STATE_DIR", "/state", problems);
   const sharedDir = absolutePath(env, "RESTOW_UPDATER_SHARED_DIR", "/updater-shared", problems);
-  const projectDir = absolutePath(env, "RESTOW_UPDATER_PROJECT_DIR", null, problems);
+  const projectDir = optionalAbsolutePath(env, "RESTOW_UPDATER_PROJECT_DIR", problems);
   const dockerSocket = absolutePath(
     env,
     "RESTOW_UPDATER_DOCKER_SOCKET",
@@ -216,6 +247,11 @@ export function loadConfig(env: Env): UpdaterConfig {
     problems.push("RESTOW_UPDATER_VERIFY_SIGNATURES must be true or false");
   }
   const verifySignatures = verifyRaw !== "false";
+  const selfUpdateRaw = text(env, SELF_UPDATE_VARIABLE)?.toLowerCase() ?? "true";
+  if (selfUpdateRaw !== "true" && selfUpdateRaw !== "false") {
+    problems.push(`${SELF_UPDATE_VARIABLE} must be true or false`);
+  }
+  const selfUpdate = selfUpdateRaw !== "false";
 
   const healthTimeoutSeconds = integer(
     env,
@@ -250,6 +286,7 @@ export function loadConfig(env: Env): UpdaterConfig {
     cliImage,
     cosignImage,
     verifySignatures,
+    selfUpdate,
     healthTimeoutSeconds,
     minFreeMb,
     dockerSocket,
@@ -275,4 +312,45 @@ export async function findComposeFile(
     }
   }
   return null;
+}
+
+/** Where the project is on the host (for helper containers and Compose) and inside this container (for files). */
+export interface ProjectLocation {
+  /** Absolute host path: helper containers bind it at the same path and run Compose there. */
+  hostDir: string;
+  /** Where this process reads `.env` and the compose file. Equal to `hostDir` when RESTOW_PROJECT_DIR is set. */
+  localDir: string;
+}
+
+export interface SelfMounts {
+  mounts: readonly { Type: string; Source: string; Destination: string }[];
+}
+
+/**
+ * The project's location. RESTOW_UPDATER_PROJECT_DIR (the operator's RESTOW_PROJECT_DIR)
+ * wins: mounted at the same path on both sides. Without it, the compose file mounts the
+ * project directory at {@link PROJECT_MOUNT} and the bind's source is the host path.
+ */
+export function resolveProjectLocation(
+  configured: string | null,
+  self: SelfMounts | null,
+): ProjectLocation | { problem: string } {
+  if (configured !== null) {
+    return { hostDir: configured, localDir: configured };
+  }
+  const mount = self?.mounts.find(
+    (entry) => entry.Destination === PROJECT_MOUNT && entry.Type === "bind",
+  );
+  if (!mount) {
+    return {
+      problem: `RESTOW_UPDATER_PROJECT_DIR is not set and no project directory is mounted at ${PROJECT_MOUNT}. Use the docker-compose.yml of this release, or set RESTOW_PROJECT_DIR in .env to the absolute path of the directory that holds docker-compose.yml.`,
+    };
+  }
+  const hostDir = plainAbsolutePath(mount.Source);
+  if (hostDir === null) {
+    return {
+      problem: `The project directory is mounted from ${mount.Source}, which is not a plain absolute path. Set RESTOW_PROJECT_DIR in .env.`,
+    };
+  }
+  return { hostDir, localDir: PROJECT_MOUNT };
 }

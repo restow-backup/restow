@@ -87,6 +87,17 @@ describe("decideProviderRoute", () => {
     });
   });
 
+  it("lets only the owner save or remove the default storage", () => {
+    const path = "/api/v1/settings/default-storage";
+    for (const method of ["PUT", "DELETE"] as const) {
+      expect(decideProviderRoute(access("administrator"), method, path, {})).toMatchObject({
+        allowed: false,
+        required: "owner",
+      });
+      expect(decideProviderRoute(access("owner"), method, path, {}).allowed).toBe(true);
+    }
+  });
+
   it("lets a technician operate but not configure", () => {
     const tech = access("technician");
     expect(decideProviderRoute(tech, "POST", "/api/v1/jobs/backup", {}).allowed).toBe(true);

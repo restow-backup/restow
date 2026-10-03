@@ -38,7 +38,9 @@ export function ConfirmDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+          {/* A webhook URL is one long word (Discord's carries a ~70-character token): let it
+              wrap anywhere, or it widens the dialog past the screen. */}
+          <DialogDescription className="[overflow-wrap:anywhere]">{description}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>

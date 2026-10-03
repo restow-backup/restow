@@ -1,6 +1,6 @@
 import { type DumpStore, KEEP_DUMPS, dumpFileName } from "./dumps.js";
 import { type CapturedEnv, type EnvFile, EnvFileError, postgresSettings } from "./env-file.js";
-import type { ImageVariant } from "./image-variant.js";
+import { type ImageVariant, fullBuildRepositories } from "./image-variant.js";
 import type { Logger } from "./logger.js";
 import { type ApiClient, type Clock, type DockerOps, OpsError, type TimerHandle } from "./ops.js";
 import type { Preflight } from "./preflight.js";
@@ -23,6 +23,7 @@ import {
   progressOf,
 } from "./protocol.js";
 import { type Redactor, clip, sensitiveEnvValues } from "./redact.js";
+import type { SelfUpdater } from "./self-update.js";
 import { isNewerVersion, sameVersion, targetVersionOf } from "./semver.js";
 import { RELEASE_SIGNATURE_ISSUER, releaseSignerIdentity } from "./signature.js";
 import { SourceError, type SourceProvider, buildImages, sourceImageTags } from "./source.js";
@@ -201,6 +202,8 @@ export interface EngineDeps {
   envFile: EnvFile;
   dumps: DumpStore;
   preflight: Preflight;
+  /** Moves the updater to the release a successful image-mode run installed (self-update.ts). */
+  selfUpdater?: SelfUpdater;
 }
 
 export interface EngineView {
@@ -306,6 +309,27 @@ export class UpdateEngine {
         );
       }
     }
+    if (request.switchTo !== null) {
+      // The one build switch: a Community installation to the full build of the same version.
+      if (request.mode !== "image") {
+        throw new EngineError(
+          "invalid_request",
+          "A build switch installs the signed release images.",
+        );
+      }
+      if (this.deps.config.imageVariant !== "community") {
+        throw new EngineError(
+          "invalid_request",
+          "Only a Community installation switches builds, and only to the full build.",
+        );
+      }
+      if (!this.switchRepositories()) {
+        throw new EngineError(
+          "invalid_request",
+          "The image repositories do not end with -community, so the full build's repositories are unknown.",
+        );
+      }
+    }
     if (request.mode === "source") {
       if (!request.source) {
         throw new EngineError("invalid_request", "Source mode needs a source.");
@@ -333,7 +357,14 @@ export class UpdateEngine {
       );
     }
     const running = await this.detectRunningVersion();
-    if (running !== null && isNewerVersion(running, target) === false) {
+    if (request.switchTo !== null) {
+      if (running === null || !sameVersion(running, target)) {
+        throw new EngineError(
+          "invalid_request",
+          `A build switch stays on the running version (${running ?? "unknown"}), not ${target}.`,
+        );
+      }
+    } else if (running !== null && isNewerVersion(running, target) === false) {
       throw new EngineError(
         "not_newer",
         `Version ${target} is not newer than the running version ${running}.`,
@@ -347,6 +378,7 @@ export class UpdateEngine {
     const run: Run = {
       id: `r-${now.getTime()}`,
       mode: request.mode,
+      switchTo: request.switchTo,
       fromVersion: running,
       targetVersion: target,
       targetTag: request.release.tag,
@@ -435,6 +467,7 @@ export class UpdateEngine {
   /** Stop timers and refuse to begin further steps; the store is flushed. */
   async shutdown(): Promise<void> {
     this.shuttingDown = true;
+    this.deps.selfUpdater?.stop();
     this.clearTimer();
     await this.deps.store.flush();
   }
@@ -514,6 +547,20 @@ export class UpdateEngine {
   }
 
   private async executeSteps(exec: Exec): Promise<void> {
+    await this.runSteps(exec);
+    const state = this.deps.store.state;
+    if (state.phase === "succeeded" && state.run && this.deps.selfUpdater && !this.shuttingDown) {
+      // After the run is recorded as succeeded: whatever happens here, it stays succeeded.
+      const repositories = this.repositoriesOf(state.run);
+      await this.deps.selfUpdater.afterRun(
+        state.run,
+        state.runContext?.digests.app,
+        repositories?.app ?? this.deps.config.imageRepository,
+      );
+    }
+  }
+
+  private async runSteps(exec: Exec): Promise<void> {
     try {
       await this.stepPrepare(exec);
       await this.stepFetch(exec);
@@ -578,7 +625,19 @@ export class UpdateEngine {
     const run = this.run();
     const from = await this.detectRunningVersion();
     run.fromVersion = from ?? run.fromVersion;
-    if (run.fromVersion !== null && isNewerVersion(run.fromVersion, exec.target) === false) {
+    if (run.switchTo !== null) {
+      if (
+        config.imageVariant !== "community" ||
+        run.fromVersion === null ||
+        !sameVersion(run.fromVersion, exec.target)
+      ) {
+        throw new StepFailure(
+          "prepare.switch_refused",
+          "prepare",
+          `A build switch moves a Community installation to the full build of its own version (running ${run.fromVersion ?? "unknown"}, build ${config.imageVariant ?? "full"}, target ${exec.target}).`,
+        );
+      }
+    } else if (run.fromVersion !== null && isNewerVersion(run.fromVersion, exec.target) === false) {
       throw new StepFailure(
         "prepare.not_newer",
         "prepare",
@@ -586,12 +645,20 @@ export class UpdateEngine {
       );
     }
 
+    const repositories = this.repositoriesOf(run);
+    if (!repositories) {
+      throw new StepFailure(
+        "prepare.switch_refused",
+        "prepare",
+        "The image repositories do not end with -community, so the full build's repositories are unknown.",
+      );
+    }
     exec.images =
       run.mode === "source"
         ? sourceImageTags(exec.target, config.imageVariant)
         : {
-            app: `${config.imageRepository}:${exec.target}`,
-            web: `${config.webImageRepository}:${exec.target}`,
+            app: `${repositories.app}:${exec.target}`,
+            web: `${repositories.web}:${exec.target}`,
           };
 
     await this.note({ code: "step.prepare.verifying_compose" });
@@ -646,6 +713,20 @@ export class UpdateEngine {
     return this.deps.config.verifySignatures !== false;
   }
 
+  /** The full build's repositories next to this Community installation's ones; null when unknown. */
+  private switchRepositories(): { app: string; web: string } | null {
+    const { config } = this.deps;
+    return fullBuildRepositories({ app: config.imageRepository, web: config.webImageRepository });
+  }
+
+  /** Where a run's images come from: the build's own repositories, or the full build's for a switch. */
+  private repositoriesOf(run: Run): { app: string; web: string } | null {
+    const { config } = this.deps;
+    return run.switchTo === "full"
+      ? this.switchRepositories()
+      : { app: config.imageRepository, web: config.webImageRepository };
+  }
+
   /**
    * Image mode. Nothing is pulled that is not verified first, and nothing verified
    * is replaced on the way:
@@ -662,6 +743,10 @@ export class UpdateEngine {
     const { ops, config } = this.deps;
     const run = this.run();
     const context = this.context();
+    const repositories = this.repositoriesOf(run) ?? {
+      app: config.imageRepository,
+      web: config.webImageRepository,
+    };
     const detail: StepState["detail"] = { app: exec.images.app };
 
     const appDigest = context.digests.app;
@@ -689,7 +774,7 @@ export class UpdateEngine {
     const checks: { kind: "app" | "web"; repository: string; image: string; digest: string }[] = [
       {
         kind: "app",
-        repository: config.imageRepository,
+        repository: repositories.app,
         image: exec.images.app,
         digest: appDigest,
       },
@@ -697,7 +782,7 @@ export class UpdateEngine {
     if (webDigest) {
       checks.push({
         kind: "web",
-        repository: config.webImageRepository,
+        repository: repositories.web,
         image: exec.images.web,
         digest: webDigest,
       });

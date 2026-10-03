@@ -138,6 +138,8 @@
         "none": "None (unencrypted, development only)"
       },
       "securityNoneWarning": "Unencrypted IMAP sends the password in clear text. Use this only against a local test server.",
+      "microsoftWarningTitle": "Microsoft does not allow password sign-in here",
+      "microsoftWarning": "Microsoft 365 and Outlook.com have switched off IMAP sign-in with a username and password, so this connection cannot sign in in any login mode. Back up Microsoft 365 mailboxes with a Microsoft 365 connection instead.",
       "username": "Username",
       "usernamePlaceholder": "alice@example.com",
       "usernameHintMasterUser": "Not used to sign in with a master account: the master account's own login below is. Kept only as a label.",
@@ -160,6 +162,8 @@
           "master_user": "One master account logs in and impersonates every mailbox. Use this when your provider supports a Dovecot-style master user or SASL authzid impersonation."
         },
         "perMailboxPasswordHint": "Set from the Directory tab, one password per mailbox.",
+        "perMailboxPasswordAfterCreate": "After saving, add the mailboxes with their passwords under Directory.",
+        "manageMailboxes": "Manage mailboxes and passwords",
         "perMailboxTestHint": "Each mailbox's login is tested individually from the Directory tab, not here.",
         "masterUserTestHint": "The master login can only be tested against a real mailbox, so {appName} tests it once you save. Test an individual mailbox's login from the Directory tab.",
         "masterUsername": "Master account login",

@@ -80,6 +80,14 @@ export interface FinishRequest {
   logTail: string;
 }
 
+export interface ProgressRequest {
+  filesDone: number;
+  bytesDone: number;
+  totalFiles?: number;
+  totalBytes?: number;
+  currentPath?: string;
+}
+
 export interface Credentials {
   endpointId: string;
   secret: string;
@@ -96,11 +104,19 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export interface AgentApiOptions {
+  /** How often a 429/502/503/504 is tried again (default 5). */
+  retries?: number;
+  /** Give up on a request after this long; none by default. */
+  timeoutMs?: number;
+}
+
 export class AgentApi {
   constructor(
     private readonly baseUrl: string,
     private readonly seedToken: string,
     private credentials?: Credentials,
+    private readonly options: AgentApiOptions = {},
   ) {}
 
   /** The login every call after the enrollment uses. */
@@ -119,11 +135,13 @@ export class AgentApi {
     if (this.credentials) {
       headers.authorization = basicAuthorization(this.credentials);
     }
+    const retries = this.options.retries ?? 5;
     for (let attempt = 0; ; attempt++) {
       const response = await fetch(`${this.baseUrl}${path}`, {
         method,
         headers,
         body: body === undefined ? undefined : JSON.stringify(body),
+        ...(this.options.timeoutMs ? { signal: AbortSignal.timeout(this.options.timeoutMs) } : {}),
       });
       const text = await response.text();
       let parsed: unknown = null;
@@ -135,7 +153,7 @@ export class AgentApi {
         }
       }
       if (response.status >= 400) {
-        if (RETRY_STATUSES.has(response.status) && attempt < 5) {
+        if (RETRY_STATUSES.has(response.status) && attempt < retries) {
           await sleep(2000 * (attempt + 1));
           continue;
         }
@@ -164,6 +182,10 @@ export class AgentApi {
   }): Promise<string> {
     const answer = await this.call<{ runId: string }>("POST", "/agent/v1/runs", request);
     return String(answer.runId);
+  }
+
+  async progress(runId: string, request: ProgressRequest): Promise<void> {
+    await this.call("POST", `/agent/v1/runs/${runId}/progress`, request);
   }
 
   async finishRun(runId: string, request: FinishRequest): Promise<void> {

@@ -61,4 +61,14 @@ export const ENDPOINT_PROBLEMS = {
    * hooks and bandwidth (and the retention when the job sets one). Change the job instead.
    */
   configManagedByJob: "urn:restow:problem:endpoint-config-managed-by-job",
+  /**
+   * 409: the machine is in no backup job, and backups run only in a job (release 0.2.1): a backup
+   * on request, or a schedule other than `none`, is refused. Add the machine to a job instead.
+   */
+  noJob: "urn:restow:problem:endpoint-no-job",
+  /**
+   * 422: the person a machine was to be assigned to is not in the tenant's protection directory
+   * (removed meanwhile, or of another tenant).
+   */
+  assigneeUnknown: "urn:restow:problem:endpoint-assignee-unknown",
 } as const;

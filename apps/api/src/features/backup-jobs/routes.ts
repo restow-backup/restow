@@ -156,7 +156,7 @@ export function buildBackupJobsRoutes(deps: BackupJobsRoutesDeps): Hono<TenantEn
 
   routes.delete("/:id", admin, async (c) => {
     const { id } = parseOrProblem(jobParamSchema, c.req.param());
-    await deleteBackupJob(deps.db, c.get("tenantId"), id, actorOf(c));
+    await deleteBackupJob(deps.db, c.get("tenantId"), id, actorOf(c), now());
     return c.body(null, 204);
   });
 

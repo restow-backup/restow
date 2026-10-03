@@ -1,17 +1,6 @@
-import type { Column, ColumnDef, Row, RowData } from "@tanstack/react-table";
-import { Ellipsis, type LucideIcon } from "lucide-react";
-import { useTranslation } from "react-i18next";
+import type { Column, Row, RowData } from "@tanstack/react-table";
 
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-
-import { UI_NAMESPACE } from "../i18n.js";
+import type { RowActionsDefinition } from "./row-actions.js";
 import { columnDefLabel } from "./state.js";
 
 declare module "@tanstack/react-table" {
@@ -34,6 +23,11 @@ declare module "@tanstack/react-table" {
      * the cell's own value when it is plain text; a custom cell titles itself.
      */
     cellTitle?: (row: TData) => string | undefined;
+    /**
+     * The row actions of the table (set by `rowActionsColumn`): `DataTable` offers them as the
+     * context menu of each row as well.
+     */
+    rowActions?: RowActionsDefinition<unknown>;
   }
 }
 
@@ -57,106 +51,10 @@ export function matchesAnyOf<TData extends RowData>(
   return filterValue.includes(row.getValue(columnId));
 }
 
-/** One entry of a row's action menu. */
-export interface RowAction {
-  id: string;
-  label: string;
-  icon?: LucideIcon;
-  onSelect: () => void;
-  /** Deletes, revokes or stops something; listed last, separated and in red. */
-  destructive?: boolean;
-  disabled?: boolean;
-  /** Id of the element that says why the action is disabled (`aria-describedby` of the entry). */
-  describedBy?: string;
-}
-
-export interface RowActionsMenuProps {
-  actions: readonly RowAction[];
-  /** Name of the row for the trigger's label, "Actions for <name>". */
-  name?: string;
-  /** Id of the element that says why the entries are closed, named by the trigger (`aria-describedby`). */
-  describedBy?: string;
-}
-
-/**
- * The "…" menu of a row. Destructive actions come last, after a separator;
- * they should open a ConfirmDialog rather than act at once.
- */
-export function RowActionsMenu({ actions, name, describedBy }: RowActionsMenuProps) {
-  const { t } = useTranslation(UI_NAMESPACE);
-  if (actions.length === 0) {
-    return null;
-  }
-  const regular = actions.filter((action) => !action.destructive);
-  const destructive = actions.filter((action) => action.destructive);
-  const label = name ? t("table.actions.openFor", { name }) : t("table.actions.open");
-
-  const item = (action: RowAction) => {
-    const Icon = action.icon;
-    return (
-      <DropdownMenuItem
-        key={action.id}
-        variant={action.destructive ? "destructive" : "default"}
-        disabled={action.disabled}
-        aria-describedby={action.describedBy}
-        onSelect={action.onSelect}
-      >
-        {Icon ? <Icon aria-hidden="true" /> : null}
-        {action.label}
-      </DropdownMenuItem>
-    );
-  };
-
-  return (
-    // Not modal: a dialog opened from an item must not inherit the menu's pointer lock.
-    <DropdownMenu modal={false}>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon-sm" aria-label={label} aria-describedby={describedBy}>
-          <Ellipsis aria-hidden="true" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="min-w-44">
-        {regular.map(item)}
-        {regular.length > 0 && destructive.length > 0 ? <DropdownMenuSeparator /> : null}
-        {destructive.map(item)}
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
-}
-
-function ActionsHeader() {
-  const { t } = useTranslation(UI_NAMESPACE);
-  return <span className="sr-only">{t("table.actions.column")}</span>;
-}
-
-export interface RowActionsColumnOptions<TData> {
-  /** The actions of one row; an empty list renders no menu. */
-  actions: (row: TData) => readonly RowAction[];
-  /** Name of the row for the trigger's screen-reader label. */
-  name?: (row: TData) => string;
-  /** Id of the element that says why entries are closed (see `RowActionsMenu`). */
-  describedBy?: string;
-}
-
-/** A trailing column with each row's action menu (never sortable or hideable). */
-export function rowActionsColumn<TData>({
-  actions,
-  name,
-  describedBy,
-}: RowActionsColumnOptions<TData>): ColumnDef<TData, unknown> {
-  return {
-    id: "actions",
-    header: () => <ActionsHeader />,
-    cell: ({ row }) => (
-      <RowActionsMenu
-        actions={actions(row.original)}
-        name={name?.(row.original)}
-        describedBy={describedBy}
-      />
-    ),
-    enableSorting: false,
-    enableHiding: false,
-    size: 48,
-    meta: { className: "w-12 text-right" },
-  };
-}
+export {
+  type RowAction,
+  RowActionsMenu,
+  type RowActionsMenuProps,
+  type RowActionsColumnOptions,
+  rowActionsColumn,
+} from "./row-actions.js";

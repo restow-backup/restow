@@ -1,4 +1,9 @@
-import { type StorageLocation, type StorageRole, storageLocationsOverlap } from "@restow/core";
+import {
+  type StorageLocation,
+  type StorageRole,
+  storageLocationMoves,
+  storageLocationsOverlap,
+} from "@restow/core";
 
 /**
  * Every kind a `storage_targets` row can carry, including `installation_default`
@@ -216,17 +221,7 @@ export function decidePromote(
  * data; the path, the service (endpoint), the bucket and the prefix do.
  */
 export function movesLocation(current: StorageLocation, next: StorageLocation): boolean {
-  if (current.kind === "local" && next.kind === "local") {
-    return current.basePath !== next.basePath;
-  }
-  if (current.kind === "s3" && next.kind === "s3") {
-    return (
-      current.endpoint !== next.endpoint ||
-      current.bucket !== next.bucket ||
-      current.prefix !== next.prefix
-    );
-  }
-  return true;
+  return storageLocationMoves(current, next);
 }
 
 /**

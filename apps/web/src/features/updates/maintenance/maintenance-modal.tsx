@@ -30,7 +30,7 @@ import { type MaintenanceView, type StepStatus, UPDATE_STEPS, type UpdateStepId 
 import { ProgressBar } from "../progress-bar";
 import "../i18n";
 import { useUpdateMessage } from "../messages";
-import { failureKey, stepLabelKey, stepStatusKey } from "../presenters";
+import { failureKey, stepLabelKey, stepStatusKey, switchKey } from "../presenters";
 import { isUpdatesTab, updatesTabLink } from "../settings-link";
 import { type ModalState, modalStateOf } from "./maintenance-state";
 import { useMaintenanceState } from "./use-maintenance";
@@ -147,7 +147,7 @@ function RunningContent({ view, unreachable }: { view: MaintenanceView; unreacha
   const { t } = useTranslation("updates");
   const { t: tc } = useTranslation();
   const product = tc("app.name");
-  const messageText = useUpdateMessage()(view.message);
+  const messageText = useUpdateMessage()(view.message, view.switchTo);
 
   return (
     <>
@@ -158,8 +158,16 @@ function RunningContent({ view, unreachable }: { view: MaintenanceView; unreacha
         <div className="min-w-0 space-y-1">
           <DialogTitle className="text-lg leading-snug font-semibold [overflow-wrap:anywhere]">
             {view.targetVersion
-              ? t("maintenance.modal.running.title", { product, version: view.targetVersion })
-              : t("maintenance.modal.running.titleNoVersion", { product })}
+              ? t(switchKey("maintenance.modal.running.title", view.switchTo), {
+                  product,
+                  version: view.targetVersion,
+                })
+              : t(
+                  view.switchTo
+                    ? "maintenance.modal.running.titleSwitchNoVersion"
+                    : "maintenance.modal.running.titleNoVersion",
+                  { product },
+                )}
           </DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
             {t("maintenance.modal.running.description")}
@@ -268,10 +276,12 @@ function SucceededContent({ view, unreachable }: { view: MaintenanceView; unreac
         </span>
         <div className="min-w-0 space-y-1">
           <DialogTitle className="text-lg leading-snug font-semibold [overflow-wrap:anywhere]">
-            {t("maintenance.modal.succeeded.title", { version: view.targetVersion ?? "" })}
+            {t(switchKey("maintenance.modal.succeeded.title", view.switchTo), {
+              version: view.targetVersion ?? "",
+            })}
           </DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
-            {t("maintenance.modal.succeeded.description")}
+            {t(switchKey("maintenance.modal.succeeded.description", view.switchTo))}
           </DialogDescription>
         </div>
       </div>
@@ -325,14 +335,20 @@ function FailedContent({
         </span>
         <div className="min-w-0 space-y-2">
           <DialogTitle className="text-lg leading-snug font-semibold [overflow-wrap:anywhere]">
-            {t(`maintenance.modal.failed.${group}.title`)}
+            {t(switchKey(`maintenance.modal.failed.${group}.title`, view.switchTo))}
           </DialogTitle>
           <DialogDescription className="text-sm text-muted-foreground">
             {attention
               ? isProviderAdmin
                 ? t("maintenance.modal.failed.needsAttention.admin")
                 : t("maintenance.modal.failed.needsAttention.user", { product: tc("app.name") })
-              : t(`maintenance.modal.failed.${group}.description`, { product: tc("app.name") })}
+              : t(
+                  // Only the two groups that name the running build have a switch wording.
+                  group === "unchanged" || group === "rolledBack"
+                    ? switchKey(`maintenance.modal.failed.${group}.description`, view.switchTo)
+                    : `maintenance.modal.failed.${group}.description`,
+                  { product: tc("app.name") },
+                )}
           </DialogDescription>
           {reason ? (
             <p className="text-sm" data-slot="maintenance-reason">

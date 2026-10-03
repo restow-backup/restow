@@ -46,6 +46,10 @@ export class FakeEngineApi {
   self: unknown = null;
   /** Ids returned by the label listing. */
   labelled: string[] = [];
+  /** Registry digests an image inspect reports, by image name. */
+  repoDigests = new Map<string, string[]>();
+  /** Inspect answers for other containers than the updater's own: whether each runs. */
+  running = new Map<string, boolean>();
   private readonly waiters = new Map<string, () => void>();
 
   async start(): Promise<void> {
@@ -120,6 +124,8 @@ export class FakeEngineApi {
       const id = decodeURIComponent(containerMatch[1] as string);
       if (this.self && (id === "self-host" || id === (this.self as { Id: string }).Id)) {
         this.json(response, 200, this.self);
+      } else if (this.running.has(id)) {
+        this.json(response, 200, { Id: id, State: { Running: this.running.get(id) } });
       } else {
         this.json(response, 404, { message: `No such container: ${id}` });
       }
@@ -128,7 +134,10 @@ export class FakeEngineApi {
     if (method === "GET" && route.startsWith("/images/") && route.endsWith("/json")) {
       const name = decodeURIComponent(route.slice("/images/".length, -"/json".length));
       if (this.images.has(name)) {
-        this.json(response, 200, { Id: "sha256:abc" });
+        this.json(response, 200, {
+          Id: "sha256:abc",
+          RepoDigests: this.repoDigests.get(name) ?? [],
+        });
       } else {
         this.json(response, 404, { message: `No such image: ${name}` });
       }

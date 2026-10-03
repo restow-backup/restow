@@ -1,5 +1,6 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { db, providerDb } from "../../db.js";
+import { currentInstallationDefault } from "../../lib/installation-default.js";
 import { type TenantEnv, requireTenant } from "../../middleware/session.js";
 import { parseOrProblem } from "../../schemas.js";
 import { dashboardQuerySchema } from "./schemas.js";
@@ -39,6 +40,7 @@ export const dashboardRoutes = createDashboardRoutes({
   db,
   providerDb,
   env: process.env,
+  defaultStorageConfigured: async () => (await currentInstallationDefault()) !== null,
   now: () => new Date(),
   access: requireTenant("tenant_user"),
 });

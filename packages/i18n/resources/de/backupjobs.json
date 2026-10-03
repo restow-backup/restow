@@ -32,8 +32,10 @@
   },
   "actions": {
     "new": "Neuer Job",
+    "open": "Öffnen",
     "edit": "Bearbeiten",
     "runNow": "Jetzt ausführen",
+    "openHistory": "Verlauf öffnen",
     "pause": "Pausieren",
     "resume": "Fortsetzen",
     "delete": "Löschen",
@@ -63,7 +65,7 @@
     },
     "uncovered": {
       "mail": "{count, plural, one {# geschütztes Objekt ist in keinem Job und wird nicht nach Zeitplan gesichert.} other {# geschützte Objekte sind in keinem Job und werden nicht nach Zeitplan gesichert.}}",
-      "endpoint": "{count, plural, one {# Rechner ist in keinem Job.} other {# Rechner sind in keinem Job.}} Ein Rechner ohne Job behält seine bisherige Konfiguration; ein Job verwaltet Rechner gemeinsam.",
+      "endpoint": "{count, plural, one {# Rechner ist in keinem Job und wird nicht gesichert.} other {# Rechner sind in keinem Job und werden nicht gesichert.}} Ein Rechner ohne Job sichert nichts; erst ein Job legt Zeitplan und Ordner fest.",
       "action": "Job anlegen"
     },
     "empty": {
@@ -73,7 +75,7 @@
       },
       "description": {
         "mail": "Ohne Job wird nichts nach Zeitplan gesichert. Ein Job umfasst Postfächer, OneDrives und IMAP-Konten, läuft nach Zeitplan und prüft, ob sich die Sicherungen wiederherstellen lassen.",
-        "endpoint": "Ein Job sagt den Agents, welche Ordner sie wann sichern und was sie auslassen. Ein Rechner ohne Job behält seine bisherige Konfiguration."
+        "endpoint": "Ein Job sagt den Agents, welche Ordner sie wann sichern und was sie auslassen. Ein Rechner ohne Job wird nicht gesichert."
       }
     }
   },
@@ -81,6 +83,7 @@
     "paused": "Pausiert",
     "failing": "Sicherung fehlgeschlagen",
     "running": "Läuft",
+    "queued": "Eingereiht",
     "attention": "Braucht Aufmerksamkeit",
     "empty": "Leer",
     "ok": "Aktiv"
@@ -88,6 +91,7 @@
   "lastRun": {
     "never": "Noch keine Sicherung",
     "running": "{count, plural, one {Läuft gerade} other {# laufen}}",
+    "queued": "{count} eingereiht",
     "failed": "{count} fehlgeschlagen",
     "partial": "{count} teilweise"
   },
@@ -178,6 +182,11 @@
       "running": "Läuft",
       "queued": "Wartet"
     },
+    "queued": {
+      "waiting": "Wartet auf den Rechner (nächster Kontakt in etwa {count} Min.)",
+      "due": "Wartet auf den Rechner (Kontakt fällig)",
+      "starting": "Startet auf dem Rechner"
+    },
     "table": {
       "mail": "Objekte des Jobs",
       "endpoint": "Rechner des Jobs"
@@ -206,7 +215,7 @@
       "title": "{name} aus dem Job entfernen?",
       "description": {
         "mail": "Es wird nicht mehr von {job} gesichert. Ohne einen anderen Job wird es nicht nach Zeitplan gesichert.",
-        "endpoint": "Er verlässt {job} und behält die Konfiguration, die er jetzt hat. Ohne einen anderen Job verwaltet ihn nichts."
+        "endpoint": "Er verlässt {job} und wird nicht mehr gesichert, bis Sie ihn einem anderen Job hinzufügen. Seine Ordner und Einstellungen bleiben für den nächsten Job stehen."
       },
       "confirm": "Aus dem Job entfernen"
     }
@@ -397,6 +406,13 @@
       "mail": "{count, plural, one {# Sicherung von {name} eingereiht} other {# Sicherungen von {name} eingereiht}}",
       "endpoint": "{count, plural, one {Sicherung bei # Rechner angefordert} other {Sicherung bei # Rechnern angefordert}}"
     },
+    "runQueuedNote": {
+      "endpoint": "Der Rechner startet sie bei seinem nächsten Kontakt, meist innerhalb von 5 Minuten."
+    },
+    "runWaiting": {
+      "title": "Bereits eingereiht",
+      "description": "{count, plural, one {Eine Sicherung wartet auf den Rechner und startet bei seinem nächsten Kontakt.} other {Sicherungen warten auf die Rechner und starten bei deren nächstem Kontakt.}}"
+    },
     "runNothing": "Für {name} wurde nichts gestartet",
     "failed": "Das hat nicht geklappt",
     "overridesSaved": "Abweichungen von {name} gespeichert",
@@ -416,7 +432,7 @@
     "empty": "Der Job umfasst im Moment nichts.",
     "impact": {
       "mail": "{scope} werden nicht mehr nach Zeitplan gesichert, bis ein anderer Job sie übernimmt.",
-      "endpoint": "{scope} verlassen den Job und behalten die Konfiguration, die sie jetzt haben; nichts verwaltet sie, bis ein anderer Job es tut."
+      "endpoint": "{scope} verlassen den Job und werden nicht mehr gesichert, bis ein anderer Job sie aufnimmt."
     },
     "after": "Der Job und seine Einstellungen lassen sich nicht zurückholen.",
     "confirm": "Job löschen"

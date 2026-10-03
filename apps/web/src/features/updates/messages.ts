@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import { formatDateTime } from "@/lib/format";
 
-import { UPDATE_MESSAGE_CODES, type UpdateMessage } from "./api";
+import { type BuildSwitchTarget, UPDATE_MESSAGE_CODES, type UpdateMessage } from "./api";
 import "./i18n";
 import { failureKey, isFailureCode, maintenanceMessageKey } from "./presenters";
 
@@ -55,15 +55,18 @@ export function messageParams(
  * The translated text of an updater message, or `null` when there is none: a
  * code this version does not know is never shown as a raw code.
  */
-export function useUpdateMessage(): (message: UpdateMessage | null | undefined) => string | null {
+export function useUpdateMessage(): (
+  message: UpdateMessage | null | undefined,
+  switchTo?: BuildSwitchTarget | null,
+) => string | null {
   const { t, i18n } = useTranslation("updates");
   const language = i18n.resolvedLanguage ?? i18n.language;
   return React.useCallback(
-    (message) => {
+    (message, switchTo) => {
       if (!message || !isKnownMessageCode(message.code)) {
         return null;
       }
-      const key = maintenanceMessageKey(message.code);
+      const key = maintenanceMessageKey(message.code, switchTo);
       if (!i18n.exists(`updates:${key}`)) {
         return null;
       }

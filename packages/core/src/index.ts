@@ -32,6 +32,7 @@ export * from "./storage/backend.js";
 export * from "./storage/local.js";
 export * from "./storage/s3.js";
 export * from "./storage/factory.js";
+export * from "./storage/installation-default.js";
 export * from "./storage/copy.js";
 
 // Engine framework

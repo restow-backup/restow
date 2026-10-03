@@ -26,6 +26,19 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
   };
 });
 
+// The job actions read who may change jobs from the session; here the viewer may.
+vi.mock("@/features/backup-jobs/components/access-note", () => ({
+  useJobsAccess: () => ({ block: null, closed: false, noteId: "note", reason: undefined }),
+  closedProps: () => ({}),
+}));
+
+// So may the assignment; "Back up now" needs no query client to be rendered.
+vi.mock("@/features/tenant-page/access", () => ({ useTenantWriteBlock: () => null }));
+vi.mock("../hooks.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../hooks.js")>()),
+  useBackupNow: () => ({ request: () => {}, pending: false }),
+}));
+
 beforeAll(async () => {
   await i18n.changeLanguage("en");
 });
@@ -207,6 +220,59 @@ describe("EndpointsTable", () => {
     expect(html).toContain("Last backup failed");
     // Two are shown, the rest is counted.
     expect(html).toContain("+2 more");
+  });
+
+  it("names the job of a machine, links it, and marks one in no job as without backup", () => {
+    const html = table([
+      endpoint({ id: "a", hostname: "in-job", job: { id: "job-1", name: "Web servers" } }),
+      endpoint({ id: "b", hostname: "no-job", job: null, attention: ["no_job"] }),
+      endpoint({ id: "c", hostname: "gone", job: null, status: "revoked" }),
+    ]);
+    expect(html).toContain("Backup job");
+    expect(html).toContain("Web servers");
+    expect(html).toContain('href="/jobs/definitions/job-1"');
+    // Only the active machine in no job is without backup, and it says so once (not again under
+    // what needs attention).
+    expect(count(html, 'data-slot="without-backup"')).toBe(1);
+    expect(html).toContain("Without backup");
+    expect(html).not.toContain('data-attention="no_job"');
+  });
+
+  it("gives every machine its actions, and selection boxes to those who may manage jobs", () => {
+    const items = [
+      endpoint({ id: "a", hostname: "in-job", job: { id: "job-1", name: "Web servers" } }),
+      endpoint({ id: "b", hostname: "no-job", job: null }),
+    ];
+    const plain = table(items);
+    expect(count(plain, 'aria-label="Actions for')).toBe(2);
+    expect(plain).toContain('aria-label="Actions for no-job"');
+    expect(plain).not.toContain('role="checkbox"');
+    const html = table(items, { canManageJobs: true });
+    expect(html).toContain('aria-label="Select no-job"');
+    expect(html).toContain('aria-label="Select all rows on this page"');
+  });
+
+  it("says whom a machine is assigned to, and nobody when it is not", () => {
+    const html = table([
+      endpoint({
+        id: "a",
+        hostname: "laptop-01",
+        assignedTo: { id: "u1", displayName: "Alice Example", email: "alice@example.com" },
+      }),
+      endpoint({
+        id: "b",
+        hostname: "laptop-02",
+        assignedTo: { id: "u2", displayName: null, email: "bob@example.com" },
+      }),
+      endpoint({ id: "c", hostname: "laptop-03", assignedTo: null }),
+    ]);
+    expect(html).toContain("Assigned to");
+    expect(html).toContain("Alice Example");
+    expect(html).toContain("alice@example.com");
+    expect(html).toContain("bob@example.com");
+    expect(html).toContain(">Nobody<");
+    // A filter by person (and nobody) beside the search.
+    expect(html).toMatch(/border-dashed[^>]*>.*?Assigned to<\/button>/);
   });
 
   it("greys a revoked machine out and says it is revoked", () => {

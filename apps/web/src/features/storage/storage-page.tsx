@@ -181,6 +181,13 @@ function Targets({
   onAddCopy: () => void;
 }) {
   const { t } = useTranslation("storage");
+  const defaultCard = (
+    <DefaultTargetCard
+      installationDefault={list.installationDefault}
+      primary={list.items.find((target) => target.role === "primary") ?? null}
+      tenantHasData={list.tenantHasData}
+    />
+  );
   return (
     <div className="space-y-4">
       {hasSecondLocation(list) ? null : (
@@ -196,13 +203,14 @@ function Targets({
           </AlertDescription>
         </Alert>
       )}
+      {/* The installation default is always shown as an explicit choice: the primary while
+          the tenant has none of its own (first), otherwise "not in use" (last). */}
       <div className="grid grid-cols-1 gap-4 *:min-w-0 lg:grid-cols-2 2xl:grid-cols-3">
-        {list.installationDefault.inUse ? (
-          <DefaultTargetCard installationDefault={list.installationDefault} />
-        ) : null}
+        {list.installationDefault.inUse ? defaultCard : null}
         {list.items.map((target) => (
           <TargetCard key={target.id} target={target} onAction={onAction} />
         ))}
+        {list.installationDefault.inUse ? null : defaultCard}
       </div>
     </div>
   );

@@ -8,7 +8,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { i18n } from "@/i18n";
 
 import "./i18n";
-import { SetCredentialDialog } from "./object-actions";
+import { RemoveBlockedDialog, SetCredentialDialog } from "./object-actions";
 import type { ProtectedObject } from "./types";
 
 /**
@@ -68,6 +68,7 @@ const imapObject: ProtectedObject = {
   notSelected: false,
   lastBackupAt: null,
   snapshotCount: 0,
+  legalHold: false,
   latestBackupJob: null,
   readiness: null,
   credential: {
@@ -223,5 +224,69 @@ describe("SetCredentialDialog", () => {
     const reopened = document.body.querySelector<HTMLInputElement>("#credential-password");
     expect(reopened?.value).toBe("");
     expect(document.body.textContent).not.toContain(GENERIC_ERROR);
+  });
+});
+
+describe("RemoveBlockedDialog", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  function mount(
+    block: "legal_hold" | "has_backups",
+    props: { canExclude?: boolean; onExclude?: () => void } = {},
+  ) {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root.render(
+        <I18nextProvider i18n={i18n}>
+          <RemoveBlockedDialog
+            object={{ ...imapObject, snapshotCount: 3, legalHold: block === "legal_hold" }}
+            block={block}
+            canExclude={props.canExclude ?? true}
+            pending={false}
+            open
+            onOpenChange={() => undefined}
+            onExclude={props.onExclude ?? (() => undefined)}
+          />
+        </I18nextProvider>,
+      );
+    });
+  }
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  const buttonLabels = () =>
+    [...document.body.querySelectorAll("button")].map((button) => button.textContent?.trim());
+
+  it("explains that backups stay and offers to exclude the account", async () => {
+    const onExclude = vi.fn();
+    mount("has_backups", { onExclude });
+    expect(document.body.textContent).toContain("never deletes backups");
+    expect(buttonLabels()).not.toContain("Remove");
+    const exclude = [...document.body.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Exclude from protection",
+    );
+    expect(exclude).toBeDefined();
+    await click(exclude as HTMLButtonElement);
+    expect(onExclude).toHaveBeenCalledTimes(1);
+  });
+
+  it("says so instead of offering the button when the account is already excluded", () => {
+    mount("has_backups", { canExclude: false });
+    expect(buttonLabels()).not.toContain("Exclude from protection");
+    expect(document.body.textContent).toContain("already excluded");
+  });
+
+  it("shows only a note for a legal hold", () => {
+    mount("legal_hold");
+    expect(document.body.textContent).toContain("legal hold");
+    expect(buttonLabels()).not.toContain("Exclude from protection");
   });
 });

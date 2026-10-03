@@ -2,11 +2,10 @@ import { Camera } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { EmptyState, ErrorState, RelativeTime, StatusBadge } from "@/components/kit";
+import { EmptyState, ErrorState, RestoreTimeline, StatusBadge } from "@/components/kit";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { SnapshotVerificationBadge } from "@/features/verify/components/snapshot-verification-badge";
-import { cn } from "@/lib/utils";
 
 import { toast } from "@/components/ui/sonner";
 
@@ -23,6 +22,7 @@ import {
   type Selection,
   effectiveFileCount,
   endpointErrorKey,
+  endpointName,
   isRetryableProblem,
   selectionLimits,
   toggleAll,
@@ -38,81 +38,56 @@ export function newestFirst(snapshots: readonly EndpointSnapshot[]): EndpointSna
   return [...snapshots].sort((a, b) => Date.parse(b.time) - Date.parse(a.time));
 }
 
-function SnapshotList({
-  snapshots,
-  selectedId,
-  onSelect,
-}: {
-  snapshots: readonly EndpointSnapshot[];
-  selectedId: string | null;
-  onSelect: (snapshot: EndpointSnapshot) => void;
-}) {
+const idOfSnapshot = (snapshot: EndpointSnapshot) => snapshot.id;
+const timeOfSnapshot = (snapshot: EndpointSnapshot) => snapshot.time;
+
+/** What a machine's restore point shows below its time on the timeline. */
+function SnapshotDetails({ snapshot }: { snapshot: EndpointSnapshot }) {
   const format = useEndpointFormat();
   const { t } = format;
   return (
-    <ul className="max-h-80 divide-y overflow-y-auto lg:max-h-[34rem]" data-slot="snapshot-list">
-      {snapshots.map((snapshot) => {
-        const selected = snapshot.id === selectedId;
-        return (
-          <li key={snapshot.id}>
-            <button
-              type="button"
-              onClick={() => onSelect(snapshot)}
-              aria-current={selected ? "true" : undefined}
-              className={cn(
-                "flex w-full flex-col gap-1 px-4 py-3 text-left text-sm outline-none transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset",
-                selected && "bg-accent",
-              )}
-            >
-              <span className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
-                <span className="font-medium">
-                  {format.dateTime(snapshot.time) ?? snapshot.time}
-                </span>
-                <code className="font-mono text-xs text-muted-foreground">{snapshot.shortId}</code>
-              </span>
-              <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-                <RelativeTime value={snapshot.time} focusable={false} />
-                {snapshot.totalFilesProcessed !== null ? (
-                  <span>{t("snapshots.files", { count: snapshot.totalFilesProcessed })}</span>
-                ) : null}
-                {snapshot.totalBytesProcessed !== null ? (
-                  <span>{format.bytes(snapshot.totalBytesProcessed)}</span>
-                ) : null}
-              </span>
-              {snapshot.paths.length > 0 ? (
-                <span
-                  className="truncate font-mono text-xs text-muted-foreground"
-                  title={snapshot.paths.join(", ")}
-                >
-                  {snapshot.paths.join(", ")}
-                </span>
-              ) : null}
-              <span
-                onClick={(event) => event.stopPropagation()}
-                onKeyDown={(event) => event.stopPropagation()}
-              >
-                <SnapshotVerificationBadge
-                  verification={{ ...snapshot.verification, reportId: null }}
-                  focusable={false}
-                />
-              </span>
-              {snapshot.flags.length > 0 ? (
-                <span className="flex flex-wrap items-center gap-1.5" data-slot="snapshot-flags">
-                  {snapshot.flags.map((flag) => (
-                    <StatusBadge key={flag} tone="destructive" icon>
-                      {t(`snapshots.flags.${flag}`)}
-                    </StatusBadge>
-                  ))}
-                  <span className="text-xs text-muted-foreground">{t("snapshots.flags.hint")}</span>
-                </span>
-              ) : null}
-            </button>
-          </li>
-        );
-      })}
-    </ul>
+    <>
+      <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+        <code className="font-mono">{snapshot.shortId}</code>
+        {snapshot.totalFilesProcessed !== null ? (
+          <span>{t("snapshots.files", { count: snapshot.totalFilesProcessed })}</span>
+        ) : null}
+        {snapshot.totalBytesProcessed !== null ? (
+          <span>{format.bytes(snapshot.totalBytesProcessed)}</span>
+        ) : null}
+      </span>
+      {snapshot.paths.length > 0 ? (
+        <span
+          className="truncate font-mono text-xs text-muted-foreground"
+          title={snapshot.paths.join(", ")}
+        >
+          {snapshot.paths.join(", ")}
+        </span>
+      ) : null}
+      <span
+        onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => event.stopPropagation()}
+      >
+        <SnapshotVerificationBadge
+          verification={{ ...snapshot.verification, reportId: null }}
+          focusable={false}
+        />
+      </span>
+      {snapshot.flags.length > 0 ? (
+        <span className="flex flex-wrap items-center gap-1.5" data-slot="snapshot-flags">
+          {snapshot.flags.map((flag) => (
+            <StatusBadge key={flag} tone="destructive" icon>
+              {t(`snapshots.flags.${flag}`)}
+            </StatusBadge>
+          ))}
+          <span className="text-xs text-muted-foreground">{t("snapshots.flags.hint")}</span>
+        </span>
+      ) : null}
+    </>
   );
 }
+
+const renderSnapshot = (snapshot: EndpointSnapshot) => <SnapshotDetails snapshot={snapshot} />;
 
 /**
  * The restore points of a machine and a browser for the files in one of them.
@@ -223,7 +198,16 @@ export function SnapshotsTab({
           <CardDescription>{t("snapshots.description", { count: list.length })}</CardDescription>
         </CardHeader>
         <CardContent className="p-0">
-          <SnapshotList snapshots={list} selectedId={snapshotId} onSelect={pick} />
+          <RestoreTimeline
+            items={list}
+            idOf={idOfSnapshot}
+            timeOf={timeOfSnapshot}
+            selectedId={snapshotId}
+            onSelect={pick}
+            renderDetails={renderSnapshot}
+            label={t("snapshots.timelineLabel", { name: endpointName(detail) })}
+            slot="snapshot-list"
+          />
         </CardContent>
       </Card>
 

@@ -2,6 +2,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tansta
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
+import { toast } from "@/components/ui/sonner";
 import { useLiveOpen } from "@/features/history/live/provider";
 import { formatBytes, formatDateTime, formatInteger } from "@/lib/format";
 import { useSession } from "@/lib/session";
@@ -37,6 +38,7 @@ import {
   IDLE_REFRESH_MS,
   RUN_REFRESH_MS,
   detailRefetchInterval,
+  endpointErrorKey,
   listRefetchInterval,
   waitingTasks,
 } from "./presenters.js";
@@ -231,6 +233,48 @@ export function useCreateTask(endpointId: string) {
   return useMutation({
     mutationFn: (input: CreateTaskInput) => createTask(endpointId, input),
     onSettled: () => refresh(endpointId),
+  });
+}
+
+/**
+ * "Back up now" for any machine (the row actions of the machine table): asks for the backup and
+ * says so in a toast, worded like the button on the machine's page.
+ */
+export function useBackupNow() {
+  const { t } = useTranslation("endpoints");
+  const refresh = useRefreshEndpoint();
+  const mutation = useMutation({
+    mutationFn: (endpointId: string) => createTask(endpointId, { kind: "backup_now" }),
+    onSettled: (_result, _error, endpointId) => refresh(endpointId),
+  });
+  const { mutate } = mutation;
+  const request = React.useCallback(
+    (endpointId: string) =>
+      mutate(endpointId, {
+        onSuccess: (result) => {
+          if (result.alreadyQueued) {
+            toast.info(t("actions.backup.already"));
+          } else {
+            toast.success(t("actions.backup.queued"), {
+              description: t("actions.backup.queuedNote"),
+            });
+          }
+        },
+        onError: (error) =>
+          toast.error(t("actions.backup.failed"), { description: t(endpointErrorKey(error)) }),
+      }),
+    [mutate, t],
+  );
+  return { request, pending: mutation.isPending };
+}
+
+/** Assign a machine to a person of the directory, or to nobody (`null`). */
+export function useAssignEndpoint() {
+  const refresh = useRefreshEndpoint();
+  return useMutation({
+    mutationFn: ({ endpointId, userId }: { endpointId: string; userId: string | null }) =>
+      updateEndpoint(endpointId, { assignedUserId: userId }),
+    onSettled: (_result, _error, { endpointId }) => refresh(endpointId),
   });
 }
 

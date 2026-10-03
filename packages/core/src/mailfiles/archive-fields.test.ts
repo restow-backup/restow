@@ -62,7 +62,7 @@ describe("extractArchiveFields", () => {
 
   it("gives empty fields, marked, to a message that runs over its time, and parses the next one", async () => {
     const bomb = Buffer.from(
-      `From: a@example.test\r\nSubject: slow\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n${"=\r\n=3D".repeat(700_000)}`,
+      `From: a@example.test\r\nSubject: slow\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n${"=\r\n=3D".repeat(4_000_000)}`,
     );
     const slow = await extractArchiveFields(bomb, { timeoutMs: 400 });
     expect(slow).toMatchObject({ unavailable: true, subject: null, bodyText: "" });

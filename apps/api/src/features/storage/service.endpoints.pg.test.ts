@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { defaultEndpointConfig, endpointPrefix } from "@restow/core";
+import { InstallationDefaultResolver, defaultEndpointConfig, endpointPrefix } from "@restow/core";
 import {
   type Database,
   createDb,
@@ -28,6 +28,7 @@ import {
 import { eq } from "drizzle-orm";
 import PgBoss from "pg-boss";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { setInstallationDefaultResolver } from "../../lib/installation-default.js";
 import { ProblemError } from "../../problem.js";
 import {
   dropDatabase,
@@ -35,6 +36,12 @@ import {
   testDatabaseAdminUrl,
 } from "../snapshots/testing/explorer-fixture.js";
 import { createTarget, deleteTarget, promoteTarget, updateTarget } from "./service.js";
+
+// These suites set the installation default in the environment (STORAGE_*); read it from there,
+// uncached, instead of from the installation pool of a configured server
+// (lib/installation-default.ts).
+beforeAll(() => setInstallationDefaultResolver(new InstallationDefaultResolver({ ttlMs: 0 })));
+afterAll(() => setInstallationDefaultResolver(null));
 
 const DATABASE = "restow_api_storage_endpoints_test";
 

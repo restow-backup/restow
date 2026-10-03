@@ -3,9 +3,18 @@ import type { Database, StoredUpdateCheck } from "@restow/db";
 import { notifications, settings } from "@restow/db";
 import { eq, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
+import {
+  hasPendingLicenseKey,
+  removePendingLicenseKey,
+  storePendingLicenseKey,
+} from "../../lib/pending-license-key.js";
 import { ProblemError } from "../../problem.js";
 import { isUpdateAvailable, parseVersion } from "../../routes/v1/version.js";
-import { imageVariantOf } from "../../updater/image-variant.js";
+import {
+  defaultImageRepositories,
+  fullBuildRepositories,
+  imageVariantOf,
+} from "../../updater/image-variant.js";
 import {
   type Blocker,
   type JournalEvent,
@@ -24,9 +33,12 @@ import { type FetchLike, fetchReleases, releasesForChannel } from "./feed.js";
 import { raiseUpdateAvailable } from "./notify.js";
 import type {
   CheckError,
+  EditionView,
   MaintenanceView,
+  PendingLicenseKeyInput,
   ScheduleUpdateInput,
   SourceView,
+  SwitchBuildInput,
   UpdateSettingsInput,
   UpdatesView,
 } from "./schemas.js";
@@ -64,6 +76,11 @@ export const UPDATE_AUDIT_ACTIONS = {
   failed: "update.failed",
   settingsUpdated: "update.settings.updated",
   acknowledged: "update.acknowledged",
+  /** A Community installation announced its switch to the full build. */
+  switchScheduled: "update.build_switch.scheduled",
+  /** A license key was stored for the full build, or removed again (never its text). */
+  pendingLicenseKeyStored: "license.pending_key.stored",
+  pendingLicenseKeyRemoved: "license.pending_key.removed",
 } as const;
 
 export const UPDATE_PROBLEMS = {
@@ -82,6 +99,10 @@ export const UPDATE_PROBLEMS = {
   notVerifiable: "urn:restow:problem:update-not-verifiable",
   updaterError: "urn:restow:problem:updater-error",
   setupIncomplete: "urn:restow:problem:setup-incomplete",
+  /** The build switch is refused: not a Community installation, or not the published images. */
+  switchRefused: "urn:restow:problem:build-switch-refused",
+  /** The license key belongs on the license page of the full build. */
+  licenseKeyNotPending: "urn:restow:problem:license-key-not-pending",
 } as const;
 
 /** The check runs once a day; after a failure it tries again after an hour at the earliest. */
@@ -446,11 +467,221 @@ export class UpdateService {
         state: updaterState,
         demo: this.demo,
         incompatible: this.incompatible,
+        applicationImage: running
+          ? `${defaultImageRepositories(imageVariantOf(this.env)).app}:${running}`
+          : null,
       }),
       leadTimes: LEAD_TIME_PRESETS,
       maintenance: maintenanceViewOf(updaterState, running, now),
       run: runToShow(updaterState),
+      edition: await this.editionView(running),
     };
+  }
+
+  // -------------------------------------------------------------------------
+  // The build: Community, and the switch to the full build
+  // -------------------------------------------------------------------------
+
+  private get build(): "full" | "community" {
+    return imageVariantOf(this.env);
+  }
+
+  /**
+   * The full build's repositories: the release images, or the full build's names next to a
+   * mirror of the Community images (RESTOW_UPDATER_IMAGE_REPOSITORY in .env).
+   */
+  private fullRepositories(): { app: string; web: string } {
+    const app = this.env.RESTOW_UPDATER_IMAGE_REPOSITORY?.trim();
+    const web = this.env.RESTOW_UPDATER_WEB_IMAGE_REPOSITORY?.trim();
+    const mirrored = app && web ? fullBuildRepositories({ app, web }) : null;
+    return mirrored ?? defaultImageRepositories("full");
+  }
+
+  private async editionView(running: string | null): Promise<EditionView> {
+    const build = this.build;
+    const repositories = this.fullRepositories();
+    let pending = false;
+    if (build === "community" && !this.demo) {
+      try {
+        pending = await hasPendingLicenseKey(this.deps.db);
+      } catch {
+        pending = false;
+      }
+    }
+    return {
+      build,
+      pendingLicenseKey: pending,
+      fullImages:
+        build === "community" && running
+          ? { app: `${repositories.app}:${running}`, web: `${repositories.web}:${running}` }
+          : null,
+    };
+  }
+
+  private refuseOnFullBuild(detail: string): void {
+    if (this.demo) {
+      throw new ProblemError(403, "Demo installation is read-only", {
+        type: "urn:restow:problem:demo-read-only",
+        detail: "The demo installation cannot be changed.",
+      });
+    }
+    if (this.build !== "community") {
+      throw new ProblemError(409, "This installation runs the full build", {
+        type: UPDATE_PROBLEMS.licenseKeyNotPending,
+        detail,
+      });
+    }
+  }
+
+  /** Keep a license key for the full build (Community only). It is not verified here. */
+  async storeLicenseKey(input: PendingLicenseKeyInput, actor: Actor): Promise<UpdatesView> {
+    this.refuseOnFullBuild("Enter the license key on the License page.");
+    const replaced = await hasPendingLicenseKey(this.deps.db);
+    await storePendingLicenseKey(this.deps.db, input.key);
+    await audit(this.deps.db, {
+      tenantId: null,
+      actor: actor.email,
+      actorUserId: actor.id,
+      action: UPDATE_AUDIT_ACTIONS.pendingLicenseKeyStored,
+      target: null,
+      targetType: "installation",
+      ip: actor.ip,
+      details: { replaced, verified: false },
+    });
+    return this.view();
+  }
+
+  async removeLicenseKey(actor: Actor): Promise<UpdatesView> {
+    this.refuseOnFullBuild("Remove the license key on the License page.");
+    if (await removePendingLicenseKey(this.deps.db)) {
+      await audit(this.deps.db, {
+        tenantId: null,
+        actor: actor.email,
+        actorUserId: actor.id,
+        action: UPDATE_AUDIT_ACTIONS.pendingLicenseKeyRemoved,
+        target: null,
+        targetType: "installation",
+        ip: actor.ip,
+        details: {},
+      });
+    }
+    return this.view();
+  }
+
+  /**
+   * Announce the switch of this Community installation to the full build of the running
+   * version: the updater verifies the full images against the release workflow's
+   * signature of that tag and installs them like an update (backup, rollback). One way only.
+   */
+  async switchToFullBuild(input: SwitchBuildInput, actor: Actor): Promise<UpdatesView> {
+    if (this.demo) {
+      throw new ProblemError(403, "Demo installation is read-only", {
+        type: "urn:restow:problem:demo-read-only",
+        detail: "The demo installation cannot be changed.",
+      });
+    }
+    if (this.build !== "community") {
+      throw new ProblemError(409, "Already the full build", {
+        type: UPDATE_PROBLEMS.switchRefused,
+        detail: "Only a Community installation switches builds, and only to the full build.",
+      });
+    }
+    const { db, state: cache } = this.deps;
+    const row = await this.reload();
+    if (!row) {
+      throw setupIncomplete();
+    }
+    const snapshot = cache.get();
+    const running = cache.runningVersion();
+    if (!running || !parseVersion(running)) {
+      throw new ProblemError(409, "Running version unknown", {
+        type: UPDATE_PROBLEMS.runningUnknown,
+        detail: "This build does not report a release version; switch by hand.",
+      });
+    }
+    if (!snapshot.source.isDefault) {
+      throw new ProblemError(409, "Only the published images switch builds", {
+        type: UPDATE_PROBLEMS.switchRefused,
+        detail:
+          "This installation is updated from a custom source; switch by hand (change the two image lines in .env).",
+      });
+    }
+    const state = await this.requireUpdater();
+    if (state.phase === "scheduled" || state.phase === "running") {
+      throw new ProblemError(409, "An update is already announced", {
+        type: UPDATE_PROBLEMS.busy,
+        detail: "An update is already announced or running.",
+      });
+    }
+    if (!state.capabilities.ready) {
+      throw blocked(state.capabilities.blockers);
+    }
+    // The digests of the full images, read from the notes of the running version's release
+    // (this request reads the release list once, also when the daily check is off).
+    const result = await fetchReleases({
+      releasesUrl: snapshot.source.releasesUrl,
+      token: null,
+      allowPrivateNetworks: false,
+      imageVariant: "full",
+      fetch: this.deps.fetch,
+      now: () => this.now().getTime(),
+    });
+    const release = result.ok
+      ? result.releases.find((candidate) => candidate.version === running)
+      : undefined;
+    if (!release) {
+      throw new ProblemError(409, "Release not found", {
+        type: UPDATE_PROBLEMS.versionUnknown,
+        detail: `The release of the running version ${running} could not be read from the update source; switch by hand.`,
+      });
+    }
+    if (!release.digests.app || !release.digests.web) {
+      throw new ProblemError(409, "This release cannot be verified", {
+        type: UPDATE_PROBLEMS.notVerifiable,
+        detail:
+          "The release publishes no digests of the full images, so the updater cannot verify them. Switch by hand after checking the images.",
+      });
+    }
+    const request: ScheduleRequest = {
+      release: {
+        version: release.version,
+        tag: release.tag,
+        url: release.url,
+        prerelease: release.prerelease,
+        digests: release.digests,
+      },
+      mode: "image",
+      switchTo: "full",
+      source: null,
+      leadSeconds: input.leadSeconds,
+      requestedBy: { userId: actor.id, label: actor.email, ip: actor.ip },
+    };
+    let after: StateView;
+    try {
+      after = await this.deps.updater.schedule(request);
+    } catch (error) {
+      throw mapUpdaterError(error);
+    }
+    cache.setMaintenance(maintenanceSummaryOf(after));
+    await audit(db, {
+      tenantId: null,
+      actor: actor.email,
+      actorUserId: actor.id,
+      action: UPDATE_AUDIT_ACTIONS.switchScheduled,
+      target: release.version,
+      targetType: "update",
+      ip: actor.ip,
+      details: {
+        version: release.version,
+        tag: release.tag,
+        from: "community",
+        to: "full",
+        leadSeconds: input.leadSeconds,
+        startsAt: after.run?.startsAt ?? null,
+        runId: after.run?.id ?? null,
+      },
+    });
+    return this.view();
   }
 
   // -------------------------------------------------------------------------
@@ -682,6 +913,7 @@ export class UpdateService {
         digests: release.digests,
       },
       mode,
+      switchTo: null,
       source,
       leadSeconds: input.leadSeconds,
       requestedBy: { userId: actor.id, label: actor.email, ip: actor.ip },

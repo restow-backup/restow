@@ -18,6 +18,10 @@ import (
 // ErrBusy is returned by BackupNow when another run holds the run lock.
 var ErrBusy = lock.ErrLocked
 
+// ErrNoJob is returned when the machine is in no backup job (schedule none):
+// it has nothing to back up until an administrator adds it to a job.
+var ErrNoJob = errors.New("this machine is in no backup job; add it to a backup job in the Restow UI (Backup jobs) to back it up")
+
 // snapshotTag marks snapshots created by the agent.
 const snapshotTag = "restow-agent"
 
@@ -60,6 +64,12 @@ func (a *Agent) runBackup(ctx context.Context, j job) (runOutcome, error) {
 			a.noteServerError("fetching the configuration", err)
 		}
 		return runOutcome{}, err
+	}
+	if cfg.Schedule.Kind == api.ScheduleNone {
+		// Nothing to back up: no run is started (a scheduled start never gets here,
+		// a request from the server is not sent for such a machine).
+		a.log.Info("not backing up: this machine is in no backup job", "trigger", j.trigger)
+		return runOutcome{}, ErrNoJob
 	}
 	rc, err := a.beginRun(ctx, api.RunBackup, j, cfg)
 	if err != nil {

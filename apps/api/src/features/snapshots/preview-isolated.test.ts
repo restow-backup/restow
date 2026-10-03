@@ -19,10 +19,14 @@ const HTML_MAIL = mail(
   '<p onclick="x()">Hello <b>Board</b></p><script>alert(1)</script>',
 );
 
-/** Soft line breaks: mailparser decodes them in time that grows with the square of the body. */
+/**
+ * 24 MB of soft line breaks. mailparser up to 3.9.28 decoded them in time that grew with the
+ * square of the body; later versions are linear, but this body still takes seconds, well over
+ * the limits below.
+ */
 const QP_BOMB = mail(
   "Content-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable",
-  "=\r\n=3D".repeat(700_000),
+  "=\r\n=3D".repeat(4_000_000),
 );
 
 /**

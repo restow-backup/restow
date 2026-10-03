@@ -114,6 +114,7 @@ function idleState(over: Partial<StateView> = {}): StateView {
     history: [],
     events: [],
     capabilities: capabilities(),
+    selfUpdate: null,
     serverTime: "2026-10-01T09:00:00.000Z",
     ...over,
   };
@@ -138,6 +139,7 @@ class ScriptedUpdater implements UpdaterClient {
       run: {
         id: "r-1",
         mode: request.mode,
+        switchTo: request.switchTo,
         fromVersion: "0.1.0",
         targetVersion: request.release.version,
         targetTag: request.release.tag,
@@ -957,6 +959,7 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
           digests: { app: DIGEST },
         },
         mode: "image",
+        switchTo: null,
         source: null,
         leadSeconds: 300,
         requestedBy: { userId: "owner-1", label: "owner@provider.test", ip: "192.0.2.10" },
@@ -1139,6 +1142,7 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
         targetVersion: null,
         fromVersion: null,
         runningVersion: "0.1.0",
+        switchTo: null,
       });
       await service.schedule({ version: "0.2.0", leadSeconds: 300 }, actor);
       const view = await service.maintenance();
@@ -1166,6 +1170,7 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
           "startsAt",
           "step",
           "steps",
+          "switchTo",
           "targetVersion",
         ].sort(),
       );
@@ -1178,6 +1183,81 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
         phase: "scheduled",
         targetVersion: "0.2.0",
         startsAt: "2026-10-01T09:01:00.000Z",
+      });
+    });
+  });
+
+  describe("the Community build", () => {
+    const COMMUNITY = { RESTOW_IMAGE_VARIANT: "community" };
+    const FULL_APP = `sha256:${"a".repeat(64)}`;
+    const FULL_WEB = `sha256:${"b".repeat(64)}`;
+    const notes = `notes\nrestow-community: ${DIGEST}\nrestow: ${FULL_APP}\nrestow-web: ${FULL_WEB}`;
+
+    it("names the full images of the running version for a switch by hand", async () => {
+      const { service } = build(COMMUNITY);
+      const view = await service.view();
+      expect(view.edition).toEqual({
+        build: "community",
+        pendingLicenseKey: false,
+        fullImages: {
+          app: "ghcr.io/restow-backup/restow:0.1.0",
+          web: "ghcr.io/restow-backup/restow-web:0.1.0",
+        },
+      });
+      expect((await build().service.view()).edition).toMatchObject({
+        build: "full",
+        fullImages: null,
+      });
+    });
+
+    it("hands the updater a switch to the full images of the same version, and audits it", async () => {
+      feed.respondWith(githubReleases({ tag: "v0.1.0", body: notes }));
+      const { service } = build(COMMUNITY);
+      // The daily check is off: the switch reads the release once by itself.
+      await service.switchToFullBuild({ leadSeconds: 0 }, actor);
+      expect(updater.scheduled[0]).toMatchObject({
+        release: { version: "0.1.0", tag: "v0.1.0", digests: { app: FULL_APP, web: FULL_WEB } },
+        mode: "image",
+        switchTo: "full",
+        source: null,
+      });
+      const [entry] = await auditRows("update.build_switch.scheduled");
+      expect(entry?.details).toMatchObject({ version: "0.1.0", from: "community", to: "full" });
+    });
+
+    it("refuses a switch on the full build, and without digests of the full images", async () => {
+      await expect(
+        build().service.switchToFullBuild({ leadSeconds: 0 }, actor),
+      ).rejects.toMatchObject({ status: 409, type: "urn:restow:problem:build-switch-refused" });
+      feed.respondWith(githubReleases({ tag: "v0.1.0", body: `restow-community: ${DIGEST}` }));
+      await expect(
+        build(COMMUNITY).service.switchToFullBuild({ leadSeconds: 0 }, actor),
+      ).rejects.toMatchObject({ status: 409, type: "urn:restow:problem:update-not-verifiable" });
+      expect(updater.scheduled).toEqual([]);
+    });
+
+    it("keeps a license key sealed for the full build, never returning or auditing it", async () => {
+      const { service } = build(COMMUNITY);
+      const key = "restow-license-v1.eyJwYXlsb2FkIjoxfQ.c2lnbmF0dXJl";
+      const view = await service.storeLicenseKey(
+        { key: `${key.slice(0, 20)}\n${key.slice(20)}` },
+        actor,
+      );
+      expect(view.edition.pendingLicenseKey).toBe(true);
+      expect(JSON.stringify(view)).not.toContain(key.slice(20));
+      const rows = await owner
+        .select()
+        .from(secrets)
+        .where(eq(secrets.kind, "pending_license_key"));
+      expect(rows).toHaveLength(1);
+      expect(rows[0]?.ciphertext).not.toContain(key.slice(20));
+      const { readPendingLicenseKey } = await import("../../lib/pending-license-key.js");
+      expect(await readPendingLicenseKey(providerDb)).toBe(key);
+      const [entry] = await auditRows("license.pending_key.stored");
+      expect(JSON.stringify(entry)).not.toContain(key.slice(20));
+      expect((await service.removeLicenseKey(actor)).edition.pendingLicenseKey).toBe(false);
+      await expect(build().service.storeLicenseKey({ key }, actor)).rejects.toMatchObject({
+        status: 409,
       });
     });
   });

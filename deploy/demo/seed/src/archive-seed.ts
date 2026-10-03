@@ -8,7 +8,7 @@ import { buildMbox } from "./mbox.js";
 /**
  * The demo's mail archive (deploy/demo/README.md, "The mail archive").
  *
- * Restow 0.2.0 has no continuous IMAP archive sync: an archive item is written
+ * Restow 0.2.1 has no continuous IMAP archive sync: an archive item is written
  * by the journal receiver (Business, needs a TLS certificate and Exchange Online)
  * or by a mail file import with "archive at the same time" (docs/IMPORT.md,
  * docs/ARCHIVE.md). The demo has no Exchange, so it uses the import: for one

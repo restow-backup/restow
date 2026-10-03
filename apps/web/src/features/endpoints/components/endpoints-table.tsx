@@ -1,6 +1,15 @@
 import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Info, TriangleAlert } from "lucide-react";
+import {
+  FolderOpen,
+  FolderSearch,
+  Info,
+  ListChecks,
+  ListPlus,
+  Play,
+  TriangleAlert,
+  UserRound,
+} from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -9,14 +18,29 @@ import {
   DataTableFacetedFilter,
   DataTableSearch,
   RelativeTime,
+  type RowAction,
   StatusBadge,
   matchesAnyOf,
+  rowActionsColumn,
 } from "@/components/kit";
+import { useJobsAccess } from "@/features/backup-jobs/components/access-note";
+import { newJobTo } from "@/features/backup-jobs/paths";
 import { cn } from "@/lib/utils";
 
-import type { EndpointSummary, ReadinessState } from "../api.js";
-import { type EndpointArea, endpointDetailTo } from "../paths.js";
-import { endpointHostLine, endpointName, lastBackupOf } from "../presenters.js";
+import type { Attention, EndpointSummary, ReadinessState } from "../api.js";
+import { useBackupNow } from "../hooks.js";
+import { type EndpointArea, endpointDetailTo, fileRestoreTo } from "../paths.js";
+import {
+  assigneeFilterOptions,
+  assigneeFilterValue,
+  assigneeName,
+  endpointHostLine,
+  endpointName,
+  isWithoutBackup,
+  lastBackupOf,
+} from "../presenters.js";
+import { AddToJobDialog, type JobCandidate } from "./add-to-job-dialog.js";
+import { AssignDialog, type AssignTarget, useAssignAccess } from "./assign-dialog.js";
 import {
   ActivityBadge,
   AttentionBadges,
@@ -26,6 +50,7 @@ import {
   ProfileIcon,
   ReadinessBadge,
 } from "./status.js";
+import { JobCell } from "./without-backup.js";
 
 export interface EndpointsTableProps {
   area: EndpointArea;
@@ -36,6 +61,11 @@ export interface EndpointsTableProps {
   onRetry: () => void;
   /** Shown instead of the table body when there is no machine yet. */
   empty: React.ReactNode;
+  /**
+   * The viewer may manage backup jobs: a machine without backup gets "Create job" and "Add to
+   * job" on its row.
+   */
+  canManageJobs?: boolean;
 }
 
 /** Worst first, the order an admin should look at machines in. */
@@ -48,6 +78,20 @@ const READINESS_RANK: Record<ReadinessState, number> = {
 };
 
 const READINESS_ORDER = ["red", "no_backup", "unverified", "yellow", "green"] as const;
+
+/** The values of the job filter: in no job (not backed up), or in one. */
+type JobFilterValue = "without" | "in_job";
+const JOB_FILTER_ORDER: readonly JobFilterValue[] = ["without", "in_job"];
+
+function jobFilterValue(endpoint: EndpointSummary): JobFilterValue | "other" {
+  if (endpoint.job) return "in_job";
+  return isWithoutBackup(endpoint) ? "without" : "other";
+}
+
+/** The job column says "without backup" already; the attention column leaves it out. */
+function otherAttention(attention: readonly Attention[]): Attention[] {
+  return attention.filter((item) => item !== "no_job");
+}
 /** The machine stays in view while the other columns scroll. */
 const PINNED = ["name"] as const;
 
@@ -90,10 +134,34 @@ function LastBackupCell({ endpoint }: { endpoint: EndpointSummary }) {
   );
 }
 
+/** The person a machine is assigned to, or that it is assigned to nobody. */
+function AssigneeCell({ endpoint }: { endpoint: EndpointSummary }) {
+  const { t } = useTranslation("endpoints");
+  const person = endpoint.assignedTo;
+  if (!person) {
+    return <span className="text-muted-foreground">{t("list.assignedNobody")}</span>;
+  }
+  return (
+    <div className="min-w-0" title={person.email}>
+      <span className="block truncate">{assigneeName(person)}</span>
+      {person.displayName ? (
+        <span className="block truncate text-xs text-muted-foreground">{person.email}</span>
+      ) : null}
+    </div>
+  );
+}
+
 /**
  * Servers, clients or every machine with an agent: name, system, connection,
- * last backup, last contact, the rating of the newest backup and what needs
- * attention. The agents list adds the profile and the agent version.
+ * last backup, last contact, the rating of the newest backup, the backup job
+ * (or that the machine is without backup), the person it is assigned to and what
+ * needs attention. The agents list adds the profile and the agent version.
+ *
+ * Every row has its actions in the "…" menu and as the context menu of the row
+ * (right click, the context menu key, Shift+F10): open the machine, back it up now,
+ * restore its files, assign it to a person; administrators of jobs also create a job
+ * for a machine without backup or add it to one. They can select machines and make a
+ * new job from the selection, or add the selection to a job.
  */
 export function EndpointsTable({
   area,
@@ -103,9 +171,16 @@ export function EndpointsTable({
   error,
   onRetry,
   empty,
+  canManageJobs = false,
 }: EndpointsTableProps) {
   const { t } = useTranslation("endpoints");
   const showAgentColumns = area === "agents";
+  const [adding, setAdding] = React.useState<JobCandidate[] | null>(null);
+  const [assigning, setAssigning] = React.useState<AssignTarget | null>(null);
+  const jobsAccess = useJobsAccess();
+  const assignAccess = useAssignAccess();
+  const backup = useBackupNow();
+  const requestBackup = backup.request;
 
   const columns = React.useMemo<ColumnDef<EndpointSummary>[]>(() => {
     const list: ColumnDef<EndpointSummary>[] = [
@@ -113,8 +188,14 @@ export function EndpointsTable({
         id: "name",
         // Pinned (see `pinnedColumns`): the width is fixed.
         size: 288,
-        // The search reads the label and the host name.
-        accessorFn: (endpoint) => `${endpointName(endpoint)} ${endpoint.hostname}`,
+        // The search reads the label, the host name and the person it is assigned to.
+        accessorFn: (endpoint) =>
+          [
+            endpointName(endpoint),
+            endpoint.hostname,
+            endpoint.assignedTo ? assigneeName(endpoint.assignedTo) : "",
+            endpoint.assignedTo?.email ?? "",
+          ].join(" "),
         header: t("list.columns.name"),
         meta: { label: t("list.columns.name") },
         enableHiding: false,
@@ -243,13 +324,64 @@ export function EndpointsTable({
         ),
       },
       {
+        id: "job",
+        size: 170,
+        accessorFn: jobFilterValue,
+        enableGlobalFilter: false,
+        header: t("list.columns.job"),
+        meta: { label: t("list.columns.job"), headerClassName: "whitespace-nowrap" },
+        filterFn: matchesAnyOf,
+        sortingFn: (a, b) =>
+          (a.original.job?.name ?? "").localeCompare(b.original.job?.name ?? "", undefined, {
+            sensitivity: "base",
+            numeric: true,
+          }),
+        cell: ({ row }) => (
+          <Dimmed revoked={row.original.status === "revoked"}>
+            <JobCell endpoint={row.original} />
+          </Dimmed>
+        ),
+      },
+      {
+        id: "assignedTo",
+        size: 180,
+        accessorFn: assigneeFilterValue,
+        enableGlobalFilter: false,
+        header: t("list.columns.assignedTo"),
+        meta: {
+          label: t("list.columns.assignedTo"),
+          headerClassName: "whitespace-nowrap",
+          className: "hidden lg:table-cell",
+        },
+        filterFn: matchesAnyOf,
+        // By name; machines assigned to nobody come last.
+        sortingFn: (a, b) => {
+          const left = a.original.assignedTo;
+          const right = b.original.assignedTo;
+          if (!left || !right) {
+            return left ? -1 : right ? 1 : 0;
+          }
+          return assigneeName(left).localeCompare(assigneeName(right), undefined, {
+            sensitivity: "base",
+            numeric: true,
+          });
+        },
+        cell: ({ row }) => (
+          <Dimmed revoked={row.original.status === "revoked"}>
+            <AssigneeCell endpoint={row.original} />
+          </Dimmed>
+        ),
+      },
+      {
         id: "attention",
         size: 200,
-        accessorFn: (endpoint) => endpoint.attention.length,
+        accessorFn: (endpoint) => otherAttention(endpoint.attention).length,
         enableGlobalFilter: false,
         header: t("list.columns.attention"),
         meta: { label: t("list.columns.attention"), cellClassName: "max-w-64" },
-        cell: ({ row }) => <AttentionBadges attention={row.original.attention} max={2} />,
+        cell: ({ row }) => (
+          <AttentionBadges attention={otherAttention(row.original.attention)} max={2} />
+        ),
       },
     );
 
@@ -275,8 +407,120 @@ export function EndpointsTable({
         ),
       });
     }
+    const jobsClosed = jobsAccess.closed ? jobsAccess.reason : undefined;
+    const candidate = (endpoint: EndpointSummary): JobCandidate => ({
+      id: endpoint.id,
+      name: endpointName(endpoint),
+    });
+    list.push(
+      rowActionsColumn<EndpointSummary>({
+        name: endpointName,
+        actions: (endpoint): RowAction[] => {
+          const name = endpointName(endpoint);
+          const revoked = endpoint.status === "revoked";
+          const withoutBackup = isWithoutBackup(endpoint);
+          const actions: RowAction[] = [
+            {
+              id: "open",
+              label: t("list.rowActions.open"),
+              icon: FolderOpen,
+              link: { to: endpointDetailTo(endpoint.id) },
+            },
+            {
+              id: "backup",
+              label: t("actions.backup.label"),
+              icon: Play,
+              // Backups run only in a backup job; the server refuses the request otherwise (409).
+              disabled: revoked || withoutBackup,
+              reason: revoked
+                ? t("list.rowActions.revoked")
+                : withoutBackup
+                  ? t("actions.backup.needsJob")
+                  : undefined,
+              onSelect: () => requestBackup(endpoint.id),
+            },
+            {
+              id: "restore",
+              label: t("list.rowActions.restoreFiles"),
+              icon: FolderSearch,
+              disabled: endpoint.readiness.latestSnapshotId === null,
+              reason:
+                endpoint.readiness.latestSnapshotId === null
+                  ? t("list.rowActions.noRestorePoint")
+                  : undefined,
+              link: fileRestoreTo(endpoint.id),
+            },
+          ];
+          if (canManageJobs && withoutBackup) {
+            actions.push(
+              {
+                id: "createJob",
+                label: t("noJob.createJob"),
+                icon: ListPlus,
+                disabled: jobsAccess.closed,
+                reason: jobsClosed,
+                link: newJobTo("endpoint", [endpoint.id]),
+              },
+              {
+                id: "addToJob",
+                label: t("noJob.addToJob"),
+                icon: ListChecks,
+                disabled: jobsAccess.closed,
+                reason: jobsClosed,
+                onSelect: () => setAdding([candidate(endpoint)]),
+              },
+            );
+          }
+          actions.push({
+            id: "assign",
+            label: t("assign.action"),
+            icon: UserRound,
+            disabled: revoked || assignAccess.closed,
+            reason: revoked ? t("list.rowActions.revoked") : assignAccess.reason,
+            onSelect: () =>
+              setAssigning({ id: endpoint.id, name, assignedTo: endpoint.assignedTo ?? null }),
+          });
+          return actions;
+        },
+        selectionActions: canManageJobs
+          ? (selected): RowAction[] => {
+              const active = selected.filter((endpoint) => endpoint.status === "active");
+              return [
+                {
+                  id: "newJobFromSelection",
+                  label: t("list.rowActions.newJobFromSelection", { count: active.length }),
+                  icon: ListPlus,
+                  disabled: jobsAccess.closed || active.length === 0,
+                  reason: jobsClosed,
+                  link: newJobTo(
+                    "endpoint",
+                    active.map((endpoint) => endpoint.id),
+                  ),
+                },
+                {
+                  id: "addSelectionToJob",
+                  label: t("list.rowActions.addSelectionToJob", { count: active.length }),
+                  icon: ListChecks,
+                  disabled: jobsAccess.closed || active.length === 0,
+                  reason: jobsClosed,
+                  onSelect: () => setAdding(active.map(candidate)),
+                },
+              ];
+            }
+          : undefined,
+      }) as ColumnDef<EndpointSummary>,
+    );
     return list;
-  }, [t, showAgentColumns]);
+  }, [
+    t,
+    showAgentColumns,
+    canManageJobs,
+    jobsAccess.closed,
+    jobsAccess.reason,
+    assignAccess.closed,
+    assignAccess.reason,
+    requestBackup,
+  ]);
 
   const present = new Set((items ?? []).map((endpoint) => endpoint.readiness.state));
   const readinessOptions = READINESS_ORDER.filter((state) => present.has(state)).map((state) => ({
@@ -287,46 +531,90 @@ export function EndpointsTable({
   const profileOptions = (["server", "client"] as const)
     .filter((profile) => profilesPresent.has(profile))
     .map((profile) => ({ value: profile, label: t(`profile.${profile}`) }));
+  const jobValues = new Set((items ?? []).map(jobFilterValue));
+  const jobOptions = JOB_FILTER_ORDER.filter((value) => jobValues.has(value)).map((value) => ({
+    value,
+    label: t(`list.jobFilter.${value}`),
+  }));
+  const assigneeOptions = assigneeFilterOptions(items ?? [], t("list.assignedNobody"));
 
   return (
-    <DataTable
-      id={`endpoints-${area}`}
-      label={t(`areas.${area}.title`)}
-      columns={columns}
-      data={items}
-      getRowId={(endpoint) => endpoint.id}
-      loading={loading}
-      fetching={fetching}
-      error={error}
-      onRetry={onRetry}
-      errorTitle={t("list.errors.load")}
-      empty={empty}
-      pinnedColumns={PINNED}
-      sorting={{ mode: "client", initial: [{ id: "name", desc: false }] }}
-      pagination={{ mode: "client", pageSize: 25 }}
-      toolbar={(table) => (
-        <>
-          <DataTableSearch
-            value={String(table.getState().globalFilter ?? "")}
-            onChange={(value) => table.setGlobalFilter(value)}
-            placeholder={t("list.search")}
-          />
-          {readinessOptions.length > 1 ? (
-            <DataTableFacetedFilter
-              title={t("list.columns.readiness")}
-              options={readinessOptions}
-              column={table.getColumn("readiness")}
+    <>
+      <DataTable
+        id={`endpoints-${area}`}
+        label={t(`areas.${area}.title`)}
+        columns={columns}
+        data={items}
+        getRowId={(endpoint) => endpoint.id}
+        loading={loading}
+        fetching={fetching}
+        error={error}
+        onRetry={onRetry}
+        errorTitle={t("list.errors.load")}
+        empty={empty}
+        pinnedColumns={PINNED}
+        // Selecting machines serves the job actions: a new job from them, or an existing one.
+        selectable={canManageJobs}
+        sorting={{ mode: "client", initial: [{ id: "name", desc: false }] }}
+        pagination={{ mode: "client", pageSize: 25 }}
+        toolbar={(table) => (
+          <>
+            <DataTableSearch
+              value={String(table.getState().globalFilter ?? "")}
+              onChange={(value) => table.setGlobalFilter(value)}
+              placeholder={t("list.search")}
             />
-          ) : null}
-          {showAgentColumns && profileOptions.length > 1 ? (
-            <DataTableFacetedFilter
-              title={t("list.columns.profile")}
-              options={profileOptions}
-              column={table.getColumn("profile")}
-            />
-          ) : null}
-        </>
-      )}
-    />
+            {readinessOptions.length > 1 ? (
+              <DataTableFacetedFilter
+                title={t("list.columns.readiness")}
+                options={readinessOptions}
+                column={table.getColumn("readiness")}
+              />
+            ) : null}
+            {showAgentColumns && profileOptions.length > 1 ? (
+              <DataTableFacetedFilter
+                title={t("list.columns.profile")}
+                options={profileOptions}
+                column={table.getColumn("profile")}
+              />
+            ) : null}
+            {jobOptions.length > 1 ? (
+              <DataTableFacetedFilter
+                title={t("list.columns.job")}
+                options={jobOptions}
+                column={table.getColumn("job")}
+              />
+            ) : null}
+            {assigneeOptions.length > 1 ? (
+              <DataTableFacetedFilter
+                title={t("list.columns.assignedTo")}
+                options={assigneeOptions}
+                column={table.getColumn("assignedTo")}
+              />
+            ) : null}
+          </>
+        )}
+      />
+      {/* Mounted while a row asks for it: the dialog loads the jobs only then. */}
+      {canManageJobs && adding !== null ? (
+        <AddToJobDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setAdding(null);
+          }}
+          endpoints={adding}
+        />
+      ) : null}
+      {/* Likewise: the people of the directory are searched only while it is open. */}
+      {assigning !== null ? (
+        <AssignDialog
+          open
+          onOpenChange={(open) => {
+            if (!open) setAssigning(null);
+          }}
+          target={assigning}
+        />
+      ) : null}
+    </>
   );
 }

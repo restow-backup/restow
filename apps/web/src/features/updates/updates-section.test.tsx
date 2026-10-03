@@ -648,6 +648,8 @@ describe("the updater", () => {
           state: "unavailable",
           blockers: [],
           incompatible: false,
+          selfUpdate: null,
+          applicationImage: null,
           version: null,
           runner: null,
           dumps: [],
@@ -677,6 +679,13 @@ describe("the updater", () => {
 
     const enable = text(slot("enable-updater", root) as HTMLElement);
     expect(enable).toContain("docker compose --profile updater up -d");
+    // The source setting does not start it, and there is no separate image to find.
+    expect(text(slot("updater-unavailable", root) as HTMLElement)).toContain(
+      "it does not start the updater",
+    );
+    expect(text(slot("updater-image-note", root) as HTMLElement)).toContain(
+      "There is no separate updater image",
+    );
     expect(text(slot("socket-warning", root) as HTMLElement)).toContain("mounts the Docker socket");
     expect(text(slot("socket-warning", root) as HTMLElement)).toContain("root access to the host");
     // Every command can be copied.
@@ -693,6 +702,8 @@ describe("the updater", () => {
           state: "unavailable",
           blockers: [],
           incompatible: false,
+          selfUpdate: null,
+          applicationImage: null,
           version: null,
           runner: null,
           dumps: [],
@@ -713,6 +724,8 @@ describe("the updater", () => {
           state: "unavailable",
           blockers: [],
           incompatible: true,
+          selfUpdate: null,
+          applicationImage: null,
           version: "0.0.9",
           runner: "cli",
           dumps: [],
@@ -745,6 +758,66 @@ describe("the updater", () => {
     expect(slot("updater-outdated", same)).toBeNull();
   });
 
+  it("says when the updater is replacing itself, and shows a failed self-update with the command", async () => {
+    const record = {
+      status: "pending" as const,
+      reason: null,
+      fromVersion: "0.0.9",
+      targetVersion: "0.1.0",
+      image: `ghcr.io/restow-backup/restow:0.1.0@sha256:${"a".repeat(64)}`,
+      startedAt: "2026-10-03T10:00:00.000Z",
+      finishedAt: null,
+      detail: "",
+    };
+    const base = updatesFixture().updater;
+    const pending = show(
+      updatesFixture({
+        updater: {
+          ...base,
+          version: "0.0.9",
+          selfUpdate: { enabled: true, verifiesSignatures: true, last: record },
+        },
+      }),
+    );
+    const note = slot("updater-outdated", pending) as HTMLElement;
+    expect(note.dataset.kind).toBe("pending");
+    expect(text(note)).toContain("moving itself to version 0.1.0");
+    await mounted?.unmount();
+    mounted = null;
+
+    const failed = show(
+      updatesFixture({
+        updater: {
+          ...base,
+          version: "0.0.9",
+          selfUpdate: {
+            enabled: true,
+            verifiesSignatures: true,
+            last: { ...record, status: "failed", reason: "helper_failed", detail: "exit code 1" },
+          },
+        },
+      }),
+    );
+    const warning = slot("updater-outdated", failed) as HTMLElement;
+    expect(warning.dataset.kind).toBe("failed");
+    expect(text(warning)).toContain("Recreating the updater failed.");
+    expect(text(warning)).toContain("exit code 1");
+    expect(text(warning)).toContain("docker compose --profile updater up -d updater");
+    expect(text(warning)).not.toContain("RESTOW_UPDATER_IMAGE=ghcr.io");
+  });
+
+  it("asks to move an updater that cannot update itself once, with the .env line", () => {
+    const root = show(
+      updatesFixture({
+        updater: { ...updatesFixture().updater, version: "0.0.9", selfUpdate: null },
+      }),
+    );
+    const note = slot("updater-outdated", root) as HTMLElement;
+    expect(note.dataset.kind).toBe("legacy");
+    expect(text(note)).toContain("RESTOW_UPDATER_IMAGE=ghcr.io/restow-backup/restow:0.1.0");
+    expect(text(note)).toContain("docker compose --profile updater up -d updater");
+  });
+
   it("lists what blocks the updater, translated, with the detail, and nothing to install", () => {
     const root = show(
       updatesFixture({
@@ -755,6 +828,8 @@ describe("the updater", () => {
             { code: "docker_unreachable", detail: null },
           ],
           incompatible: false,
+          selfUpdate: null,
+          applicationImage: null,
           version: "0.1.0",
           runner: "cli",
           dumps: [],
@@ -1190,6 +1265,37 @@ describe("the run panel", () => {
     await flush(5);
     expect(requests.some((request) => request.path === "/updates/maintenance/dismiss")).toBe(true);
     expect(slot("run")).toBeNull();
+  });
+
+  it("words the run of a build switch as a switch, not as an update", async () => {
+    const done = updatesFixture({
+      running: "0.2.1",
+      latest: releaseFixture(),
+      updateAvailable: false,
+      releases: [],
+      maintenance: maintenanceFixture(),
+      run: runFixture({
+        switchTo: "full",
+        fromVersion: "0.2.1",
+        targetVersion: "0.2.1",
+        message: { code: "run.succeeded", params: { version: "0.2.1" } },
+      }),
+    });
+    const { mock } = routedFetch({
+      "GET /updates": () => json(done),
+      "GET /maintenance": () => json(maintenanceFixture()),
+    });
+    vi.stubGlobal("fetch", mock);
+    mounted = mount(<UpdatesSection />);
+    await flush(5);
+
+    const run = slot("run") as HTMLElement;
+    expect(text(run)).toContain("Last switch of the build");
+    expect(text(run)).toContain("Switch to the full build (0.2.1)");
+    expect(text(run)).toContain("The full build is running.");
+    expect(text(run)).toContain("Switched to the full build (0.2.1).");
+    expect(text(run)).not.toContain("Last update");
+    expect(text(run)).not.toContain("Version 0.2.1 to 0.2.1");
   });
 
   it("explains a failure that changed nothing and one that was rolled back", async () => {

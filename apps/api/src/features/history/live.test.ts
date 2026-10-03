@@ -53,7 +53,7 @@ function definition(overrides: Partial<BackupJobLiveDto> = {}): BackupJobLiveDto
     enabled: true,
     state: "ok",
     scope: { count: 2, byKind: { mailbox: 2 }, overrides: 0 },
-    lastRun: { at: null, failed: 0, partial: 0, running: 0, runId: null },
+    lastRun: { at: null, failed: 0, partial: 0, running: 0, queued: 0, runId: null },
     nextRunAt: "2026-10-02T12:00:00.000Z",
     restoreCheck: {
       passed: 0,
@@ -244,7 +244,9 @@ describe("the live step", () => {
       runs: [run({ id: "a", state: "running" })],
       jobs: [legacy("a")],
       definitions: [
-        definition({ lastRun: { at: null, failed: 0, partial: 0, running: 1, runId: "a" } }),
+        definition({
+          lastRun: { at: null, failed: 0, partial: 0, running: 1, queued: 0, runId: "a" },
+        }),
       ],
     });
     const step = createLiveStep(s.live);
@@ -258,7 +260,14 @@ describe("the live step", () => {
     s.state.runs = [run({ id: "a", state: "succeeded", updatedAt: "2026-10-02T10:00:06.000Z" })];
     s.state.definitions = [
       definition({
-        lastRun: { at: "2026-10-02T10:00:06.000Z", failed: 0, partial: 0, running: 0, runId: "a" },
+        lastRun: {
+          at: "2026-10-02T10:00:06.000Z",
+          failed: 0,
+          partial: 0,
+          running: 0,
+          queued: 0,
+          runId: "a",
+        },
       }),
     ];
     const done = await step();

@@ -24,10 +24,6 @@ const CONTAINER = /(^|:)container$/;
 
 /** Files (relative to the repo root) that may cap a width, and for which classes. */
 const ALLOWED: Record<string, { classes: readonly string[]; reason: string }> = {
-  "apps/web/src/features/endpoints/components/settings-tab.tsx": {
-    classes: ["max-w-3xl"],
-    reason: "settings form of one machine",
-  },
   "apps/web/src/features/endpoints/components/danger-zone.tsx": {
     classes: ["max-w-xl"],
     reason: "running text next to a destructive button",

@@ -2,7 +2,16 @@ import { describe, expect, it } from "vitest";
 
 import type { SetupItem, SetupWidget } from "@/features/dashboard/api";
 
-import { canSeeStart, justCompleted, notNeededOffer, startView } from "./presenters";
+import {
+  type DismissStorage,
+  canSeeStart,
+  justCompleted,
+  notNeededOffer,
+  readStartDismissed,
+  startDismissedKey,
+  startView,
+  writeStartDismissed,
+} from "./presenters";
 
 const item = (over: Partial<SetupItem> = {}): SetupItem => ({
   id: "storage",
@@ -93,5 +102,45 @@ describe("Not needed", () => {
     expect(notNeededOffer(item({ id: "storage", state: "open" }))).toBeNull();
     expect(notNeededOffer(item({ id: "source", state: "attention" }))).toBeNull();
     expect(notNeededOffer(item({ id: "notificationMail", state: "done" }))).toBeNull();
+  });
+});
+
+describe("Start dismissal", () => {
+  const memory = (): DismissStorage & { data: Map<string, string> } => {
+    const data = new Map<string, string>();
+    return {
+      data,
+      getItem: (key) => data.get(key) ?? null,
+      setItem: (key, value) => void data.set(key, value),
+      removeItem: (key) => void data.delete(key),
+    };
+  };
+
+  it("remembers the choice per user and forgets it again", () => {
+    const storage = memory();
+    expect(readStartDismissed("u1", storage)).toBe(false);
+    writeStartDismissed("u1", true, storage);
+    expect(readStartDismissed("u1", storage)).toBe(true);
+    expect(readStartDismissed("u2", storage)).toBe(false);
+    expect(storage.data.get(startDismissedKey("u1"))).toBe("1");
+    writeStartDismissed("u1", false, storage);
+    expect(readStartDismissed("u1", storage)).toBe(false);
+  });
+
+  it("treats missing or failing storage as not hidden, without throwing", () => {
+    const failing: DismissStorage = {
+      getItem: () => {
+        throw new Error("blocked");
+      },
+      setItem: () => {
+        throw new Error("blocked");
+      },
+      removeItem: () => {
+        throw new Error("blocked");
+      },
+    };
+    expect(readStartDismissed("u1", null)).toBe(false);
+    expect(readStartDismissed("u1", failing)).toBe(false);
+    expect(() => writeStartDismissed("u1", true, failing)).not.toThrow();
   });
 });

@@ -39,13 +39,16 @@ import {
   remainingSeconds,
   runStatusOf,
   safeReleaseUrl,
+  selfUpdateNote,
   settingsFormOf,
   shellQuote,
   sourceUrlIssueKey,
   spanLabel,
   stepLabelKey,
   stepStatusKey,
+  switchKey,
   tokenIntentReady,
+  updaterImageLine,
   updatesErrorKey,
   validateSourceUrl,
 } from "./presenters";
@@ -551,5 +554,93 @@ describe("commands", () => {
       "# .env: remove the line RESTOW_WEB_IMAGE",
       "docker compose up -d",
     ]);
+  });
+});
+
+describe("selfUpdateNote", () => {
+  const record = (over: Record<string, unknown> = {}) => ({
+    status: "failed" as const,
+    reason: "helper_failed" as const,
+    fromVersion: "0.1.0",
+    targetVersion: "0.2.0",
+    image: `ghcr.io/restow-backup/restow:0.2.0@sha256:${"a".repeat(64)}`,
+    startedAt: "2026-10-03T10:00:00.000Z",
+    finishedAt: "2026-10-03T10:00:05.000Z",
+    detail: "exit 1",
+    ...over,
+  });
+  const at = (selfUpdate: UpdatesView["updater"]["selfUpdate"], version = "0.1.0") => ({
+    running: "0.2.0",
+    mode: "image" as const,
+    updater: { ...updatesFixture().updater, version, selfUpdate },
+  });
+  const on = { enabled: true, verifiesSignatures: true, last: null };
+
+  it("says nothing while the updater runs the installation's version", () => {
+    expect(selfUpdateNote(updatesFixture())).toBeNull();
+    expect(selfUpdateNote(at({ ...on, last: record() }, "0.2.0"))).toBeNull();
+  });
+
+  it("follows the last self-update for the running version", () => {
+    expect(selfUpdateNote(at({ ...on, last: record({ status: "pending" }) }))).toEqual({
+      kind: "pending",
+      version: "0.2.0",
+    });
+    expect(selfUpdateNote(at({ ...on, last: record() }))).toEqual({
+      kind: "failed",
+      reason: "helper_failed",
+      detail: "exit 1",
+    });
+    expect(
+      selfUpdateNote(at({ ...on, last: record({ status: "skipped", reason: "source_mode" }) })),
+    ).toEqual({ kind: "skipped", reason: "source_mode" });
+  });
+
+  it("explains an updater that did not try, or cannot", () => {
+    expect(selfUpdateNote(at(on))).toEqual({ kind: "on" });
+    // A record of an older version does not describe the running one.
+    expect(selfUpdateNote(at({ ...on, last: record({ targetVersion: "0.1.5" }) }))).toEqual({
+      kind: "on",
+    });
+    expect(selfUpdateNote(at({ ...on, enabled: false }))).toEqual({
+      kind: "skipped",
+      reason: "disabled",
+    });
+    expect(selfUpdateNote(at({ ...on, verifiesSignatures: false }))).toEqual({
+      kind: "skipped",
+      reason: "signature_unverified",
+    });
+    expect(selfUpdateNote(at(null))).toEqual({ kind: "legacy" });
+  });
+
+  it("offers the .env line with the application image in image mode only", () => {
+    expect(updaterImageLine(updatesFixture())).toBe(
+      "RESTOW_UPDATER_IMAGE=ghcr.io/restow-backup/restow:0.1.0",
+    );
+    expect(updaterImageLine({ ...updatesFixture(), mode: "source" })).toBeNull();
+  });
+});
+
+describe("the wording of a build switch", () => {
+  it("names the switch variant of a key only for a switch", () => {
+    expect(switchKey("run.title", null)).toBe("run.title");
+    expect(switchKey("run.title", undefined)).toBe("run.title");
+    expect(switchKey("run.title", "full")).toBe("run.titleSwitch");
+  });
+
+  it("has a message wording for the run's own messages, but not for the interruption", () => {
+    expect(maintenanceMessageKey("run.scheduled")).toBe("maintenance.messages.run.scheduled");
+    expect(maintenanceMessageKey("run.scheduled", "full")).toBe(
+      "maintenance.messages.run.scheduledSwitch",
+    );
+    expect(maintenanceMessageKey("run.rolled_back", "full")).toBe(
+      "maintenance.messages.run.rolled_backSwitch",
+    );
+    expect(maintenanceMessageKey("run.interrupted", "full")).toBe(
+      "maintenance.messages.run.interrupted",
+    );
+    expect(maintenanceMessageKey("step.fetch.pulling", "full")).toBe(
+      "maintenance.messages.step.fetch.pulling",
+    );
   });
 });

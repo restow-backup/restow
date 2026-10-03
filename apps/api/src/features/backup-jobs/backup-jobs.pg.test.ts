@@ -15,7 +15,7 @@
  * `restow_api_backup_jobs_test` is recreated there and dropped after, the roles with it).
  */
 import { randomBytes, randomUUID } from "node:crypto";
-import { defaultEndpointConfig } from "@restow/core";
+import { defaultEndpointConfig, enrolledEndpointConfig } from "@restow/core";
 import {
   type Database,
   auditLog,
@@ -1026,6 +1026,21 @@ describe.skipIf(!testDatabaseAdminUrl)("backup jobs against Postgres", () => {
     const again = await json<RunBackupJobResult>(await call("POST", `/${job?.id}/run`), 202);
     expect(again.queued).toBe(0);
     expect(again.skipped.every((skip) => skip.reason === "already_queued")).toBe(true);
+    // The request shows until the machine starts it: as queued backup of the members and the job.
+    const queuedMembers = await json<BackupJobMembersDto>(
+      await call("GET", `/${job?.id}/members`),
+      200,
+    );
+    const waiting = queuedMembers.items.filter((member) => member.pendingBackup);
+    expect(waiting.length).toBe(first.queued);
+    for (const member of waiting) {
+      expect(member.pendingBackup?.status).toBe("pending");
+      if (member.lastBackup.outcome !== "running") {
+        expect(member.lastBackup.outcome).toBe("queued");
+      }
+    }
+    const queuedJob = await json<BackupJobDto>(await call("GET", `/${job?.id}`), 200);
+    expect(queuedJob.lastRun.queued).toBeGreaterThanOrEqual(0);
     const outside = await json<RunBackupJobResult>(
       await call("POST", `/${job?.id}/run`, { body: { targetIds: [machines.nohooks] } }),
       202,
@@ -1428,8 +1443,11 @@ describe.skipIf(!testDatabaseAdminUrl)("backup jobs against Postgres", () => {
     it("lets a machine without a job set, change and remove its own windows, checked like a job's", async () => {
       const { updateEndpoint } = await import("../endpoints/service.js");
       const actor = { label: "admin", userId: adminId, ip: null };
-      // Leave the job: the machine keeps the configuration last written to it.
+      // Leave the job: the machine waits for another (no schedule); the rest of its configuration
+      // stays its own.
       expect((await call("DELETE", `/${jobId}`)).status).toBe(204);
+      // It keeps the time zone the job gave it (set to Asia/Tokyo by a test above).
+      expect((await machine(id))?.config.schedule).toMatchObject({ kind: "none" });
       const free = await updateEndpoint(
         appDb,
         contoso,
@@ -1476,6 +1494,152 @@ describe.skipIf(!testDatabaseAdminUrl)("backup jobs against Postgres", () => {
       );
       expect(removed.changed).toEqual(["config.bandwidthWindows"]);
       expect("bandwidthWindows" in ((await machine(id))?.config ?? {})).toBe(false);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // A machine in no job (release 0.2.1)
+  // -------------------------------------------------------------------------
+
+  describe("a machine in no job", () => {
+    it("backs up only through a job, and stops again when it leaves it", async () => {
+      const service = await import("../endpoints/service.js");
+      const actor = { label: "admin", userId: adminId, ip: null };
+      const [row] = await owner
+        .insert(endpoints)
+        .values({
+          tenantId: contoso,
+          hostname: "fresh01",
+          os: "linux",
+          arch: "amd64",
+          profile: "server",
+          secretHash: randomUUID(),
+          config: enrolledEndpointConfig("linux", "server", { timeZone: ZONE }),
+          settings: { agent: { hooks: "off" } },
+        })
+        .returning();
+      const id = row?.id ?? "";
+      const noJob = { status: 409, type: "urn:restow:problem:endpoint-no-job" };
+      // No backup on request and no schedule by hand; `none` and the folders are accepted.
+      await expect(
+        service.createTask(appDb, contoso, id, { kind: "backup_now" }, actor),
+      ).rejects.toMatchObject(noJob);
+      await expect(
+        service.updateEndpoint(
+          appDb,
+          contoso,
+          id,
+          { config: { schedule: { kind: "daily", timeOfDay: "01:00", timeZone: ZONE } } },
+          actor,
+        ),
+      ).rejects.toMatchObject(noJob);
+      const kept = await service.updateEndpoint(
+        appDb,
+        contoso,
+        id,
+        { config: { schedule: { kind: "none", timeZone: ZONE }, paths: ["/etc", "/srv"] } },
+        actor,
+      );
+      expect(kept.changed).toEqual(["config.paths"]);
+      // The list does not call it healthy.
+      const listed = await service.listEndpoints(appDb, contoso);
+      expect(listed.items.find((item) => item.id === id)).toMatchObject({
+        job: null,
+        attention: ["never_seen", "no_job"],
+      });
+
+      // In a job, the job's schedule reaches the machine, with a new version for the agent.
+      const job = await json<BackupJobDto>(
+        await call("POST", "", { body: machineJob("Fresh", [id]) }),
+        201,
+      );
+      const started = await machine(id);
+      expect(started?.config.schedule).toEqual({
+        kind: "daily",
+        timeOfDay: "02:30",
+        timeZone: ZONE,
+      });
+      expect(started?.configVersion).toBe(3);
+      await service.createTask(appDb, contoso, id, { kind: "backup_now" }, actor);
+
+      // Taken out of the job, it waits again: schedule `none`, a new version, the waiting request
+      // dropped; its folders stay for the next job.
+      await json<BackupJobDto>(await call("DELETE", `/${job.id}/members/${id}`), 200);
+      const stopped = await machine(id);
+      expect(stopped?.config.schedule).toEqual({ kind: "none", timeZone: ZONE });
+      expect(stopped?.config.paths).toEqual(["/srv", "/data"]);
+      expect(stopped?.configVersion).toBe(4);
+      const tasks = await owner
+        .select()
+        .from(endpointTasks)
+        .where(eq(endpointTasks.endpointId, id));
+      expect(
+        tasks.filter((task) => task.kind === "update_config").map((task) => task.params),
+      ).toContainEqual({ configVersion: 4 });
+      expect(tasks.find((task) => task.kind === "backup_now")).toMatchObject({
+        status: "failed",
+        errorMessage: "the machine left its backup job",
+      });
+      const entries = await audits("endpoint.config.changed", id);
+      expect(entries.map((entry) => entry.details)).toContainEqual(
+        expect.objectContaining({
+          changed: ["config.schedule"],
+          via: { job: { id: job.id, name: "Fresh" }, left: true },
+        }),
+      );
+
+      // Back in through the scope, out through a scope without it.
+      await json<BackupJobDto>(
+        await call("PUT", `/${job.id}/members`, { body: { members: [{ id }] } }),
+        200,
+      );
+      expect((await machine(id))?.config.schedule.kind).toBe("daily");
+      await json<BackupJobDto>(
+        await call("PUT", `/${job.id}/members`, { body: { members: [] } }),
+        200,
+      );
+      expect((await machine(id))?.config.schedule.kind).toBe("none");
+
+      // Added again, then the job is deleted: waiting again.
+      await json<BackupJobDto>(
+        await call("POST", `/${job.id}/members`, { body: { members: [{ id }] } }),
+        200,
+      );
+      expect((await machine(id))?.config.schedule.kind).toBe("daily");
+      expect((await call("DELETE", `/${job.id}`)).status).toBe(204);
+      expect((await machine(id))?.config.schedule.kind).toBe("none");
+    });
+
+    it("moves a machine from one job to another without a pause in between", async () => {
+      const [row] = await owner
+        .insert(endpoints)
+        .values({
+          tenantId: contoso,
+          hostname: "fresh02",
+          os: "linux",
+          arch: "amd64",
+          profile: "server",
+          secretHash: randomUUID(),
+          config: enrolledEndpointConfig("linux", "server", { timeZone: ZONE }),
+          settings: { agent: { hooks: "off" } },
+        })
+        .returning();
+      const id = row?.id ?? "";
+      await json<BackupJobDto>(await call("POST", "", { body: machineJob("First", [id]) }), 201);
+      await json<BackupJobDto>(
+        await call("POST", "", {
+          body: machineJob("Second", [id], {
+            moveMembers: true,
+            schedule: { kind: "interval", intervalMinutes: 60, timeZone: ZONE },
+          }),
+        }),
+        201,
+      );
+      expect((await machine(id))?.config.schedule).toEqual({
+        kind: "interval",
+        intervalMinutes: 60,
+        timeZone: ZONE,
+      });
     });
   });
 });

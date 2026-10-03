@@ -22,6 +22,12 @@ const (
 	ScheduleInterval  = "interval"
 	ScheduleDaily     = "daily"
 	ScheduleOnConnect = "on_connect"
+	// ScheduleNone (server 0.2.1 and later): the machine is in no backup job
+	// and backs up nothing until an administrator adds it to one. The server
+	// also sends no paths and no hooks with it, so an agent that does not know
+	// the kind (it falls back to the default schedule of its profile) stops
+	// such a run with no_paths before restic or a hook starts.
+	ScheduleNone = "none"
 )
 
 // Task kinds.

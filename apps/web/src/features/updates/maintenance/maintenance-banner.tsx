@@ -6,8 +6,9 @@ import { useTranslation } from "react-i18next";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
+import type { BuildSwitchTarget } from "../api";
 import "../i18n";
-import { formatClock, spanLabel } from "../presenters";
+import { formatClock, spanLabel, switchKey } from "../presenters";
 import { updatesTabLink } from "../settings-link";
 import { bannerStateOf } from "./maintenance-state";
 import { type AnnouncementStage, nextStage, stageFor, useCountdown } from "./use-countdown";
@@ -48,6 +49,7 @@ function ScheduledBanner() {
   const remaining = useCountdown(view?.startsAt, snapshot?.offsetMs ?? 0);
   const product = tc("app.name");
   const version = view?.targetVersion ?? "";
+  const switchTo = view?.switchTo ?? null;
   const starting = remaining !== null && remaining <= 0;
 
   return (
@@ -56,15 +58,15 @@ function ScheduledBanner() {
         <Wrench className="mt-0.5 size-4 shrink-0 text-warning-text sm:mt-0" aria-hidden="true" />
         <span className="block min-w-0 flex-1 tabular-nums [overflow-wrap:anywhere]">
           {starting
-            ? t("maintenance.banner.starting", { product, version })
-            : t("maintenance.banner.scheduled", {
+            ? t(switchKey("maintenance.banner.starting", switchTo), { product, version })
+            : t(switchKey("maintenance.banner.scheduled", switchTo), {
                 product,
                 version,
                 time: formatClock(remaining ?? 0),
               })}
         </span>
       </output>
-      <Announcement remaining={remaining} product={product} version={version} />
+      <Announcement remaining={remaining} product={product} version={version} switchTo={switchTo} />
     </div>
   );
 }
@@ -77,10 +79,12 @@ export function Announcement({
   remaining,
   product,
   version,
+  switchTo = null,
 }: {
   remaining: number | null;
   product: string;
   version: string;
+  switchTo?: BuildSwitchTarget | null;
 }) {
   const { t } = useTranslation("updates");
   const [stage, setStage] = React.useState<AnnouncementStage>(() => stageFor(remaining));
@@ -94,7 +98,7 @@ export function Announcement({
   let text: string;
   if (stage === "start") {
     const span = spanLabel(initialRemaining ?? 0);
-    text = t("maintenance.announce.start", {
+    text = t(switchKey("maintenance.announce.start", switchTo), {
       product,
       version,
       time: t(span.key, { count: span.count }),
@@ -121,7 +125,7 @@ function RunningBanner() {
           aria-hidden="true"
         />
         <span className="block min-w-0 flex-1 [overflow-wrap:anywhere]">
-          {t("maintenance.banner.running", {
+          {t(switchKey("maintenance.banner.running", snapshot?.view.switchTo), {
             product: tc("app.name"),
             version: snapshot?.view.targetVersion ?? "",
           })}

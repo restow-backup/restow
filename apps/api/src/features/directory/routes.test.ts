@@ -119,3 +119,19 @@ describe("per-mailbox credential endpoints: tenant_admin only", () => {
     expect(script.pending()).toBe(0);
   });
 });
+
+describe("people of the directory: tenant_admin only", () => {
+  it("refuses a plain tenant member the people picker", async () => {
+    signedIn(tenantMember);
+    const { app: hono, script } = app([
+      [{ organizationId: ORGANIZATION, role: "member" }],
+      [tenantRow()],
+    ]);
+    const res = await hono.request("/directory/people?search=ali", {
+      headers: { [TENANT_HEADER]: TENANT },
+    });
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { title: string }).title).toBe("Insufficient role");
+    expect(script.pending()).toBe(0);
+  });
+});

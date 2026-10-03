@@ -11,6 +11,7 @@ import type {
   ObjectsFilter,
   ObjectsPage,
   ObjectsQuery,
+  PeoplePage,
   ProtectedObject,
   ProtectionAction,
   ProtectionResult,
@@ -30,6 +31,8 @@ export const directoryKeys = {
   objects: (tenantId: string | null) => ["tenant", tenantId, "directory", "objects"] as const,
   objectsPage: (tenantId: string | null, query: ObjectsQuery) =>
     ["tenant", tenantId, "directory", "objects", query] as const,
+  people: (tenantId: string | null, search: string) =>
+    ["tenant", tenantId, "directory", "people", search] as const,
   groups: (tenantId: string | null, sourceId: string, search: string) =>
     ["tenant", tenantId, "directory", "groups", sourceId, search] as const,
 };
@@ -75,6 +78,12 @@ export async function fetchDirectorySources(): Promise<DirectorySource[]> {
 
 export function fetchObjects(query: ObjectsQuery): Promise<ObjectsPage> {
   return apiFetch<ObjectsPage>(`${base}/objects?${objectsSearchParams(query).toString()}`);
+}
+
+/** People of the directory whose name, address or UPN contains `search` (all when empty). */
+export function fetchPeople(search: string, limit = 20): Promise<PeoplePage> {
+  const params = new URLSearchParams({ search, limit: String(limit) });
+  return apiFetch<PeoplePage>(`${base}/people?${params.toString()}`);
 }
 
 export async function searchGroups(sourceId: string, search: string): Promise<GroupSummary[]> {

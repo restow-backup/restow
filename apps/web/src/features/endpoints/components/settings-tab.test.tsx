@@ -253,7 +253,10 @@ describe("SettingsTab", () => {
       "fetch",
       routedFetch({
         "GET /setup/state": () =>
-          json({ passkeyReady: { ready: true, reasons: [], rpId: null, origin: null } }),
+          json({
+            passkeyReady: { ready: true, reasons: [], rpId: null, origin: null },
+            demo: { enabled: false, email: null, password: null },
+          }),
       }).mock,
     );
     try {
@@ -522,6 +525,17 @@ describe("SettingsTab", () => {
     await open({ job: null });
     expect(document.querySelector('[data-slot="managed-by-job"]')).toBeNull();
     expect(document.querySelector("fieldset[disabled]")).toBeNull();
+  });
+
+  it("shows a machine in no job as without backup instead of a schedule it cannot have", async () => {
+    await open({ job: null });
+    const notice = document.querySelector('[data-slot="without-backup-notice"]');
+    expect(notice?.textContent).toContain("This machine is not backed up");
+    // The schedule comes from a job only; its fields are not offered.
+    expect(document.getElementById("settings-schedule-kind")).toBeNull();
+    expect(document.getElementById("settings-time")).toBeNull();
+    // The folders stay the machine's own (a job may start from them).
+    expect(page.text()).toContain("Folders to back up");
   });
 
   it("locks the form for a revoked machine", async () => {

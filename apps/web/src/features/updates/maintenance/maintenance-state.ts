@@ -99,9 +99,11 @@ function fromEdge(
   const sameRun = edge.runId !== null && edge.runId === previous.view.runId;
   const targetVersion = edge.targetVersion ?? (sameRun ? previous.view.targetVersion : null);
   const fromVersion = edge.fromVersion ?? (sameRun ? previous.view.fromVersion : null);
+  const switchTo = edge.switchTo ?? (sameRun ? previous.view.switchTo : null);
   return {
     view: {
       ...edge,
+      switchTo,
       targetVersion,
       fromVersion,
       message: withKnownVersion(edge.message, targetVersion, fromVersion),

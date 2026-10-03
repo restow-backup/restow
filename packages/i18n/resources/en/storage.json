@@ -11,7 +11,7 @@
     "title": "Repositories could not be loaded"
   },
   "kindLong": {
-    "local": "Server path (volume, NFS, SMB)",
+    "local": "Server path (volume, NFS)",
     "s3": "S3-compatible object storage",
     "installation_default": "Retired installation default"
   },
@@ -33,7 +33,7 @@
   "actions": {
     "add": "Add repository",
     "addS3": "S3-compatible storage",
-    "addLocal": "Server path (volume, NFS, SMB)",
+    "addLocal": "Server path (volume, NFS)",
     "localProviderOnly": "Provider admins only",
     "addCopy": "Add copy",
     "test": "Test",
@@ -44,7 +44,8 @@
     "promote": "Make primary",
     "checkCopy": "Check copy",
     "moreActions": "More actions for {name}",
-    "create": "Add repository"
+    "create": "Add repository",
+    "useDefault": "Use installation default"
   },
   "usage": {
     "title": "Usage",
@@ -85,14 +86,23 @@
   },
   "default": {
     "name": "Installation default",
-    "description": "Configured on the server; used until this tenant has a primary repository of its own.",
+    "description": "Set by the provider for this installation; used while this tenant has no primary repository of its own.",
     "managedByProvider": "Configured by your provider",
     "copy": "Every write is also copied to a second path on the server.",
     "copyAt": "Every write is also copied to {location}.",
     "notChecked": "Not tested in this session. The installation default keeps no test history.",
     "misconfigured": {
       "title": "Installation default storage is misconfigured",
-      "description": "The server's storage settings (STORAGE_TARGET, S3_*) are invalid. This tenant's backups cannot be written until the provider fixes them or a primary repository is added."
+      "description": "The installation's default storage is not usable. This tenant's backups cannot be written until the provider fixes it or a primary repository is added."
+    },
+    "inUse": "Selected: new backups of this tenant go here. To use a repository of its own instead, add one with the role \"Primary\".",
+    "notInUse": "Not in use: this tenant has a primary repository of its own.",
+    "notInUseBadge": "Not in use",
+    "backBlocked": "Going back to the installation default is not possible once backups exist in the tenant's own repository: {appName} cannot move them there yet. They stay where they are.",
+    "use": {
+      "title": "Use the installation default?",
+      "description": "{name} is removed as the primary repository, and new backups of this tenant go to the installation default. Nothing is stored in {name} yet.",
+      "confirm": "Use installation default"
     }
   },
   "health": {
@@ -197,7 +207,7 @@
     "editTitle": "Edit repository",
     "description": {
       "s3": "A bucket at Hetzner Object Storage, Amazon S3, Wasabi, Backblaze B2, Garage or another S3-compatible service. Credentials are stored encrypted.",
-      "local": "A directory inside the containers: the default volume or an NFS/SMB share mounted into the api and worker containers."
+      "local": "A directory inside the containers: the default volume or an NFS share mounted into the api and worker containers."
     },
     "name": "Name",
     "namePlaceholder": {
@@ -326,7 +336,8 @@
     "testOk": "{name} works.",
     "testFailed": "The test of {name} failed.",
     "migrationCancelled": "The migration to {name} was cancelled.",
-    "migrationRetried": "The migration to {name} was queued again."
+    "migrationRetried": "The migration to {name} was queued again.",
+    "defaultSelected": "This tenant uses the installation default again."
   },
   "errors": {
     "localRequiresProviderAdmin": "Only a provider admin can manage server paths.",

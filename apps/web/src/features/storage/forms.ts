@@ -68,6 +68,13 @@ export function presetForEndpoint(endpoint: string | null): S3Preset {
   return PRESET_HOSTS.find(([, suffix]) => host.endsWith(suffix))?.[0] ?? "other";
 }
 
+/**
+ * What the form needs to know about a stored location: its S3 settings, for
+ * keeping the saved key pair (a target, or the installation default saved
+ * under Installation, Default storage).
+ */
+export type StoredLocation = Pick<StorageTargetDto, "s3">;
+
 export interface TargetFormValues {
   name: string;
   role: AssignableRole;
@@ -173,7 +180,7 @@ function endpointOrigin(value: string): string | null {
  */
 export function needsCredentialsAgain(
   values: Pick<TargetFormValues, "endpoint">,
-  stored: StorageTargetDto | null,
+  stored: StoredLocation | null,
 ): boolean {
   if (!stored?.s3?.hasCredentials) {
     return true;
@@ -185,7 +192,7 @@ export function needsCredentialsAgain(
  * `create` requires everything; `edit` keeps the stored key pair unless both
  * fields are filled (or the endpoint changes, which needs the pair again).
  */
-export function targetFormSchema(kind: EditableKind, stored: StorageTargetDto | null) {
+export function targetFormSchema(kind: EditableKind, stored: StoredLocation | null) {
   return z
     .object({
       name: z.string().trim().min(1, "required").max(200, "too_long"),
@@ -364,6 +371,24 @@ export function toProbeInput(
     return { kind, config: s3Config(values), targetId: stored.id };
   }
   return null;
+}
+
+/** A location as the installation default storage takes it: without name, role or target. */
+export type LocationInput =
+  | { kind: "local"; config: { basePath: string } }
+  | {
+      kind: "s3";
+      config: S3ConfigInput;
+      credentials?: { accessKeyId: string; secretAccessKey: string };
+    };
+
+/** The location from validated form values; empty credentials keep the stored pair. */
+export function toLocationInput(kind: EditableKind, values: TargetFormValues): LocationInput {
+  if (kind === "local") {
+    return { kind, config: { basePath: values.basePath.trim() } };
+  }
+  const pair = credentials(values);
+  return { kind, config: s3Config(values), ...(pair ? { credentials: pair } : {}) };
 }
 
 /** Form field of an API problem field (`credentials` belongs to the key pair). */

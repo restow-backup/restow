@@ -21,11 +21,12 @@ import { pathToFileURL } from "node:url";
  *   DATABASE_URL                 required, the application role (subject to RLS)
  *   DATABASE_PROVIDER_URL        required, the installation role (BYPASSRLS)
  *   RESTOW_MASTER_KEY            required, base64 32-byte KEK (EnvKeyProvider)
- *   STORAGE_TARGET               local | s3 (default local)
+ *   STORAGE_TARGET               local | s3 (default local); the installation default unless one
+ *                                is saved under Installation, Default storage (default-storage.ts)
  *   STORAGE_LOCAL_PATH           root of the local target (default /data/chunks)
  *   S3_ENDPOINT/S3_REGION/S3_BUCKET/S3_ACCESS_KEY_ID/S3_SECRET_ACCESS_KEY/S3_PREFIX
  *   S3_FORCE_PATH_STYLE          "false" for virtual-hosted buckets (default true)
- *   STORAGE_COPY_LOCAL_PATH      optional second target (a mounted NFS/SMB share)
+ *   STORAGE_COPY_LOCAL_PATH      optional second target (a mounted NFS share)
  *   WORKER_CONCURRENCY           parallel jobs per queue in this process (default 2)
  *   WORKER_TENANT_CONCURRENCY    parallel jobs per tenant in this process (default 2)
  *   WORKER_POLL_SECONDS          pg-boss polling interval (default 2)
@@ -73,6 +74,7 @@ import {
   safeErrorMessage,
 } from "@restow/db";
 import PgBoss from "pg-boss";
+import { configureDefaultStorage } from "./default-storage.js";
 import { registerEndpointJobs } from "./endpoints/register.js";
 import { configureEntraApp } from "./entra-app.js";
 import { extensionHandlers, extensionRetentionTasks } from "./extensions.js";
@@ -244,7 +246,13 @@ async function main(): Promise<void> {
   // The Microsoft 365 app registration: environment first, else the one saved
   // in the web UI (an installation secret, read on the installation pool).
   configureEntraApp({ providerDb, masterKey: config.masterKey });
+  // The environment's default, for the start-up log; tenants resolve the default that applies
+  // right now (saved under Installation, Default storage, else the environment) on every load.
   const defaultStorage = createStorageTargets(config.storage);
+  const installationDefault = configureDefaultStorage({
+    providerDb,
+    masterKey: config.masterKey,
+  });
   const keyProvider = createKeyProvider(config);
   const shutdown = new AbortController();
 
@@ -252,7 +260,7 @@ async function main(): Promise<void> {
     loadTenantKeyring({ db, tenantId, keyProvider }),
   );
   // A tenant's targets come from `storage_targets` (falling back to the
-  // installation defaults); resolving them also mirrors the wrapped DEKs so
+  // installation default, default-storage.ts); resolving them also mirrors the wrapped DEKs so
   // every target is self-sufficient for a standalone restore.
   const storage = new TenantCache<StorageTargets>(async (tenantId) => {
     const run = tenantRunner(db, tenantId);
@@ -262,7 +270,7 @@ async function main(): Promise<void> {
       run,
       tenantId,
       secretReader: new PgSecretReader(run, tenantId, keys),
-      defaults: defaultStorage,
+      defaults: () => installationDefault.current(),
       logger: tenantLogger,
     });
     await mirrorTenantKeys({ run, tenantId, storage: targets, logger: tenantLogger });
@@ -272,6 +280,7 @@ async function main(): Promise<void> {
   const runtime: WorkerRuntime = {
     db,
     defaultStorage,
+    defaultStorageGeneration: () => installationDefault.generation(),
     keyrings,
     storage,
     logger,

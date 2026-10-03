@@ -50,6 +50,8 @@ func cmdBackupNow(args []string, stdout, stderr io.Writer) int {
 	out, err := a.BackupNow(ctx)
 	if err != nil {
 		switch {
+		case errors.Is(err, core.ErrNoJob):
+			fmt.Fprintln(stderr, "This machine is waiting for a backup job: nothing is backed up until an administrator adds it to a backup job in the Restow UI.")
 		case errors.Is(err, core.ErrBusy):
 			fmt.Fprintln(stderr, "A backup or restore is already running on this machine (started by the service or another terminal). Check with: restow-agent status")
 		case api.IsNetworkError(err) || api.IsServerReachable(err):

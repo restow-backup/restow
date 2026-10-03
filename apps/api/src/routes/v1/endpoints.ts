@@ -49,10 +49,11 @@ export const endpointSchema = component(
           "restore_test_failed",
           "repository_damaged",
           "never_seen",
+          "no_job",
         ]),
       )
       .describe(
-        "Why the machine needs attention: a server that stopped reporting, a client without a good backup for days, a failed backup, a failed restore test, a damaged repository, or an agent that never reported.",
+        "Why the machine needs attention: a server that stopped reporting, a client without a good backup for days, a failed backup, a failed restore test, a damaged repository, an agent that never reported, or a machine in no backup job (nothing backs it up).",
       ),
     createdAt: timestampSchema,
   }),

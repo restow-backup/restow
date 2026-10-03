@@ -388,10 +388,11 @@ vi.setConfig({ testTimeout: 60_000 });
 
 describe("parseMessageMeta in a child process", () => {
   it("gives a message whose parse runs over its time limit empty metadata, marked, and carries on", async () => {
-    // Quoted-printable soft line breaks: mailparser decodes them in time that grows with the square
-    // of the body (18 MB took 48 seconds), a message made of nothing else is a way to stall a worker.
+    // Quoted-printable soft line breaks: mailparser up to 3.9.28 decoded them in time that grew with
+    // the square of the body (18 MB took 48 seconds); later versions are linear, but 24 MB still take
+    // seconds, far over the limit.
     const bomb = Buffer.from(
-      `From: a@example.test\r\nSubject: slow\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n${"=\r\n=3D".repeat(700_000)}`,
+      `From: a@example.test\r\nSubject: slow\r\nContent-Type: text/plain\r\nContent-Transfer-Encoding: quoted-printable\r\n\r\n${"=\r\n=3D".repeat(4_000_000)}`,
     );
     let ticks = 0;
     const timer = setInterval(() => ticks++, 10);

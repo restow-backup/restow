@@ -116,7 +116,14 @@ export async function loadInstallationDefaultTest(
     })
     .from(auditLog)
     .where(
-      and(isNull(auditLog.tenantId), eq(auditLog.action, DEFAULT_STORAGE_AUDIT_ACTIONS.tested)),
+      and(
+        isNull(auditLog.tenantId),
+        // Saving a default probes it first; that probe counts as its newest test.
+        inArray(auditLog.action, [
+          DEFAULT_STORAGE_AUDIT_ACTIONS.tested,
+          DEFAULT_STORAGE_AUDIT_ACTIONS.saved,
+        ]),
+      ),
     )
     .orderBy(desc(auditLog.createdAt))
     .limit(1);
@@ -128,6 +135,7 @@ async function storageHealth(
   tenantId: string,
   env: NodeJS.ProcessEnv,
   installationTest: DefaultStorageTest | null,
+  defaultConfigured: boolean | undefined,
 ): Promise<StorageTargetHealth> {
   const [primary] = await tx
     .select({ status: storageTargets.status })
@@ -137,7 +145,7 @@ async function storageHealth(
   if (primary) {
     return { source: "tenant", status: primary.status };
   }
-  if (!installationDefaultConfigured(env)) {
+  if (!(defaultConfigured ?? installationDefaultConfigured(env))) {
     return { source: "installation_default", status: "misconfigured" };
   }
   // The default has no probe row of its own: data written to it proves it
@@ -187,6 +195,8 @@ export async function loadTenantFacts(
    * caller on the installation pool; null when there is none, or it could not be read.
    */
   installationTest: DefaultStorageTest | null,
+  /** Whether the current installation default is usable; omitted, `env` alone decides. */
+  defaultConfigured?: boolean,
 ): Promise<TenantFacts> {
   return withTenantTx(db, tenantId, async (tx) => {
     const kindRows = await tx
@@ -300,7 +310,7 @@ export async function loadTenantFacts(
     const prunedSnapshots = snapshotRow?.pruned ?? 0;
     return {
       kinds,
-      storage: await storageHealth(tx, tenantId, env, installationTest),
+      storage: await storageHealth(tx, tenantId, env, installationTest, defaultConfigured),
       setup: {
         sources: {
           active: sourceCount("active"),

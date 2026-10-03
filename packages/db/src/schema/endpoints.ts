@@ -15,6 +15,7 @@ import { user } from "./auth.js";
 import { recoveryReadinessEnum } from "./jobs.js";
 import { secrets } from "./secrets.js";
 import { tenants } from "./tenants.js";
+import { users } from "./users.js";
 
 /**
  * Endpoint backup: servers and clients backed up by the Restow agent with
@@ -89,7 +90,12 @@ export type EndpointReportKind = (typeof endpointReportKindEnum.enumValues)[numb
 
 /** When the agent backs up (the `GET /agent/v1/config` contract). */
 export type EndpointSchedule = {
-  kind: "interval" | "daily" | "on_connect";
+  /**
+   * `none` (release 0.2.1): the machine is in no backup job and backs up nothing until it is put
+   * into one (the schedule enrollment writes, and the one a machine gets back when it leaves its
+   * job).
+   */
+  kind: "interval" | "daily" | "on_connect" | "none";
   /** `interval`: minutes between backups; `on_connect`: the least minutes between two backups. */
   intervalMinutes?: number;
   /** `daily`: local time `HH:MM`. */
@@ -235,11 +241,17 @@ export const endpoints = pgTable(
     maintenanceLockedSince: timestamp("maintenance_locked_since", { withTimezone: true }),
     lockedAlertedAt: timestamp("locked_alerted_at", { withTimezone: true }),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    // The person of the tenant's protection directory (`users`, not a login account) the machine
+    // is assigned to (release 0.2.1). Cleared when that person leaves the directory. The migration
+    // adds a second key over (tenant_id, assigned_user_id), so the person is always one of the
+    // machine's own tenant (drizzle/0025_endpoint_assigned_user.sql).
+    assignedUserId: uuid("assigned_user_id").references(() => users.id, { onDelete: "set null" }),
     ...timestamps(),
   },
   (t) => [
     index("endpoints_tenant_profile_idx").on(t.tenantId, t.profile, t.status),
     index("endpoints_status_seen_idx").on(t.status, t.lastSeenAt),
+    index("endpoints_assigned_user_idx").on(t.assignedUserId),
   ],
 );
 

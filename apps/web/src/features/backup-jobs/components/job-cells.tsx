@@ -3,6 +3,7 @@ import {
   CalendarClock,
   CircleDashed,
   CircleX,
+  Clock,
   Info,
   LoaderCircle,
   type LucideIcon,
@@ -38,6 +39,7 @@ const STATE_ICON: Readonly<Record<JobState, LucideIcon>> = {
   paused: Pause,
   failing: CircleX,
   running: LoaderCircle,
+  queued: Clock,
   attention: TriangleAlert,
   empty: CircleDashed,
   ok: Info,
@@ -180,6 +182,11 @@ export function LastRunCell({ job }: { job: BackupJob }) {
           className="whitespace-nowrap [&>svg]:motion-safe:animate-spin"
         >
           {t("lastRun.running", { count: view.running })}
+        </StatusBadge>
+      ) : null}
+      {view.queued > 0 ? (
+        <StatusBadge tone="muted" icon={Clock} className="whitespace-nowrap">
+          {t("lastRun.queued", { count: view.queued })}
         </StatusBadge>
       ) : null}
       {lead ? <RunProgressCell run={lead} /> : null}

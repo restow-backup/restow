@@ -9,8 +9,8 @@ Every release comes in two builds. Pick one and use both of its images:
 
 | Build | `RESTOW_IMAGE` | `RESTOW_WEB_IMAGE` | Contains |
 | --- | --- | --- | --- |
-| full | `ghcr.io/restow-backup/restow:0.2.0` | `ghcr.io/restow-backup/restow-web:0.2.0` | the Apache-2.0 core plus the Business and Service Provider modules (Restow Enterprise License), which stay locked until a license key is installed |
-| Community | `ghcr.io/restow-backup/restow-community:0.2.0` | `ghcr.io/restow-backup/restow-web-community:0.2.0` | the Apache-2.0 core only: every backup source and every restore, for one tenant |
+| full | `ghcr.io/restow-backup/restow:0.2.1` | `ghcr.io/restow-backup/restow-web:0.2.1` | the Apache-2.0 core plus the Business and Service Provider modules (Restow Enterprise License), which stay locked until a license key is installed |
+| Community | `ghcr.io/restow-backup/restow-community:0.2.1` | `ghcr.io/restow-backup/restow-web-community:0.2.1` | the Apache-2.0 core only: every backup source and every restore, for one tenant |
 
 Take the full build if you may want the Business or Service Provider features later: a
 license key unlocks them without changing images. Take the Community build if you want the
@@ -58,23 +58,33 @@ the directory) and set `JOURNAL_TLS_CERT_PATH` and `JOURNAL_TLS_KEY_PATH` in `.e
 `.env.example`. A renewed certificate in those files is picked up within minutes, without a
 restart. Details: the [Exchange journaling guide](https://docs.restowbackup.com/administrators/exchange-journaling/).
 
-Update by changing the two image lines in `.env` (or with the opt-in updater, compose
-profile `updater`) and running `docker compose pull && docker compose up -d`; read
-[docs/UPDATING.md](../../docs/UPDATING.md) and the release notes first. The opt-in updater
-runs its own image, `RESTOW_UPDATER_IMAGE` in `.env` (required to start the profile), which
-it never changes; it installs only release images signed by the release workflow, and only
-those of the build it runs from. So set `RESTOW_UPDATER_IMAGE` to an image of the same build
-as `RESTOW_IMAGE` (`restow-community` for the Community build): the update check of the api
-reads the digests of its own build from the release notes, and an updater of the other build
-refuses them. Building an update from a source repository instead is off until you name that
+Update by hand by changing the two image lines in `.env` and running
+`docker compose pull && docker compose up -d`; read [docs/UPDATING.md](../../docs/UPDATING.md)
+and the release notes first. Or start the opt-in updater once, in this directory, with
+`docker compose --profile updater up -d`: nothing has to be set in `.env` for it, and from
+then on updates are installed from the web interface (Installation, Updates) and the updater
+rewrites the image lines itself. There is no separate updater image: the updater is the
+application image of `RESTOW_IMAGE` started with `ROLE=updater`. On its first start it pins
+that image by digest in `RESTOW_UPDATER_IMAGE` (optional, leave it empty), so later rewrites
+of `RESTOW_IMAGE` do not reach it, and after each update whose images passed the signature
+check of the release workflow it moves itself to that release's image, by digest
+(`RESTOW_UPDATER_SELF_UPDATE=false` switches that off). It installs only release images
+signed by the release workflow, and only those of the build it runs from, which is the build
+of `RESTOW_IMAGE` when it pinned itself. Building an update from a source repository instead is off until you name that
 repository in `RESTOW_UPDATER_SOURCE_HOSTS`; changing the update source and announcing an update
 need a sign-in from the last ten minutes.
+
+A Community installation switches to the full build under Installation, Edition: with the
+updater it is done for you (the full images of the same version, signature-checked, with a
+database backup and a rollback); without it the section shows the two `.env` lines. A
+license key entered there is checked and applied by the full build after the switch. The
+switch goes one way only (docs/UPDATING.md, "Switching to the full build").
 
 Every image of a release is signed with cosign (keyless, GitHub OIDC). For the Community
 build, verify `restow-community` and `restow-web-community` the same way:
 
 ```sh
-cosign verify ghcr.io/restow-backup/restow:0.2.0 \
+cosign verify ghcr.io/restow-backup/restow:0.2.1 \
   --certificate-identity-regexp '^https://github.com/restow-backup/restow/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```

@@ -138,6 +138,8 @@
         "none": "Keine (unverschlüsselt, nur Entwicklung)"
       },
       "securityNoneWarning": "Unverschlüsseltes IMAP überträgt das Passwort im Klartext. Nur gegen einen lokalen Testserver verwenden.",
+      "microsoftWarningTitle": "Microsoft erlaubt hier keine Anmeldung mit Passwort",
+      "microsoftWarning": "Microsoft 365 und Outlook.com haben die IMAP-Anmeldung mit Benutzername und Passwort abgeschaltet. Diese Verbindung kann sich deshalb in keinem Anmeldemodus anmelden. Sichern Sie Postfächer aus Microsoft 365 stattdessen über eine Microsoft-365-Verbindung.",
       "username": "Benutzername",
       "usernamePlaceholder": "alice@example.com",
       "usernameHintMasterUser": "Wird bei Master-User nicht zur Anmeldung verwendet: maßgeblich ist die Anmeldung des Master-Accounts weiter unten. Dient hier nur als Bezeichnung.",
@@ -160,6 +162,8 @@
           "master_user": "Ein Master-Account meldet sich an und übernimmt jedes Postfach. Geeignet, wenn der Anbieter einen Dovecot-Master-User oder SASL-AUTHZID-Impersonation unterstützt."
         },
         "perMailboxPasswordHint": "Wird im Reiter Verzeichnis gesetzt, ein Passwort je Postfach.",
+        "perMailboxPasswordAfterCreate": "Legen Sie nach dem Speichern die Postfächer mit ihren Passwörtern im Reiter Verzeichnis an.",
+        "manageMailboxes": "Postfächer und Passwörter verwalten",
         "perMailboxTestHint": "Die Anmeldung jedes Postfachs wird einzeln im Reiter Verzeichnis getestet, nicht hier.",
         "masterUserTestHint": "Die Master-Anmeldung lässt sich nur gegen ein echtes Postfach testen, deshalb testet {appName} sie nach dem Speichern. Die Anmeldung eines einzelnen Postfachs wird im Reiter Verzeichnis getestet.",
         "masterUsername": "Anmeldung des Master-Accounts",

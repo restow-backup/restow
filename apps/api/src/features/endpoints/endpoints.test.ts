@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ResticError, defaultEndpointConfig } from "@restow/core";
+import { ResticError, defaultEndpointConfig, enrolledEndpointConfig } from "@restow/core";
 import type { Endpoint, EndpointRun, EndpointTask } from "@restow/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FailureTracker } from "./agent-auth.js";
@@ -37,6 +37,7 @@ import {
   storageOf,
   toRunDetail,
   toRunSummary,
+  toSummary,
   toTask,
 } from "./dto.js";
 import { isInsecureTransport } from "./instance-url.js";
@@ -410,6 +411,19 @@ describe("the configuration an agent is served", () => {
     expect(configResponse(stored, 1).bandwidthKbps).toBe(500);
   });
 
+  it("hands a machine in no job neither folders nor hooks, so an older agent backs nothing up", () => {
+    const waiting = {
+      ...enrolledEndpointConfig("linux", "server", { timeZone: "Europe/Berlin" }),
+      hooks: { pre: "dump" },
+    };
+    const answer = configResponse(waiting, 2);
+    expect(answer.schedule).toEqual({ kind: "none", timeZone: "Europe/Berlin" });
+    expect(answer.paths).toEqual([]);
+    expect(answer.hooks).toEqual({});
+    expect(answer.excludes).toEqual(waiting.excludes);
+    expect(answer.configVersion).toBe(2);
+  });
+
   it("reads the windows on the wall clock of the zone it is given", () => {
     const instant = new Date("2026-10-06T16:30:00Z");
     expect(configResponse(stored, 1, { zone: "Europe/Berlin", now: instant }).bandwidthKbps).toBe(
@@ -615,6 +629,12 @@ describe("request schemas", () => {
 
   it("validates a configuration change", () => {
     expect(updateEndpointSchema.safeParse({}).success).toBe(false);
+    // `none` stops the backups of a machine in no job; it needs nothing but the zone.
+    expect(
+      updateEndpointSchema.safeParse({
+        config: { schedule: { kind: "none", timeZone: "Europe/Berlin" } },
+      }).success,
+    ).toBe(true);
     expect(updateEndpointSchema.safeParse({ config: { paths: [] } }).success).toBe(false);
     expect(updateEndpointSchema.safeParse({ config: { paths: ["relative/path"] } }).success).toBe(
       false,
@@ -647,6 +667,14 @@ describe("request schemas", () => {
         settings: { retention: { keepDaily: -1, keepWeekly: 1, keepMonthly: 1 } },
       }).success,
     ).toBe(false);
+  });
+
+  it("takes the person a machine is assigned to, or null to remove it", () => {
+    const person = "6b1c4d2e-0000-4000-8000-0000000000aa";
+    expect(updateEndpointSchema.safeParse({ assignedUserId: person }).success).toBe(true);
+    expect(updateEndpointSchema.safeParse({ assignedUserId: null }).success).toBe(true);
+    expect(updateEndpointSchema.safeParse({ assignedUserId: "alice" }).success).toBe(false);
+    expect(updateEndpointSchema.safeParse({ assignedUserId: "" }).success).toBe(false);
   });
 
   it("creates tokens for a profile and system", () => {
@@ -790,6 +818,25 @@ describe("what needs attention", () => {
     latestBackupAt: now,
   } as const;
 
+  it("names the person a machine is assigned to in its summary, or nobody", () => {
+    const machine = endpoint({
+      id: "e1",
+      hostname: "laptop-01",
+      displayName: null,
+      os: "linux",
+      arch: "amd64",
+      lastBackupAt: null,
+      nextRunAt: null,
+      revokedAt: null,
+      assignedUserId: "u1",
+    });
+    const person = { id: "u1", displayName: "Alice Example", email: "alice@example.com" };
+    expect(toSummary(machine, null, green, now, NO_RATED_TESTS, null, person).assignedTo).toEqual(
+      person,
+    );
+    expect(toSummary(machine, null, green, now, NO_RATED_TESTS).assignedTo).toBeNull();
+  });
+
   it("is quiet for a healthy endpoint", () => {
     expect(attentionOf(endpoint({}), null, green, now)).toEqual([]);
   });
@@ -813,6 +860,15 @@ describe("what needs attention", () => {
     });
     expect(attentionOf(client, null, green, now)).toEqual(["backup_overdue"]);
     expect(attentionOf(endpoint({ lastSeenAt: null }), null, green, now)).toContain("never_seen");
+  });
+
+  it("names a machine in no backup job, but only when the membership is known", () => {
+    expect(attentionOf(endpoint({}), null, green, now, false)).toEqual(["no_job"]);
+    expect(attentionOf(endpoint({}), null, green, now, true)).toEqual([]);
+    expect(attentionOf(endpoint({}), null, green, now)).toEqual([]);
+    expect(attentionOf(endpoint({ status: "revoked" }), null, green, now, false)).toEqual([]);
+    // It has no explanation of its own in the problems: the machine page shows the state.
+    expect(problemsOf(endpoint({}), null, green, now)).toEqual([]);
   });
 
   it("does not call a run the agent only lost to a restart a failed backup", () => {
@@ -1117,6 +1173,8 @@ describe("problem types", () => {
     expect(ENDPOINT_PROBLEMS.queueNotReady).toBe("urn:restow:problem:endpoint-queue-not-ready");
     expect(ENDPOINT_PROBLEMS.pathNotFound).toBe("urn:restow:problem:endpoint-path-not-found");
     expect(ENDPOINT_PROBLEMS.tokenSettled).toBe("urn:restow:problem:endpoint-token-settled");
+    expect(ENDPOINT_PROBLEMS.noJob).toBe("urn:restow:problem:endpoint-no-job");
+    expect(ENDPOINT_PROBLEMS.assigneeUnknown).toBe("urn:restow:problem:endpoint-assignee-unknown");
   });
 
   it("keeps the busy answer of the restic gate on its documented type", () => {

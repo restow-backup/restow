@@ -59,12 +59,14 @@ const HONEST = report(
 );
 
 /**
- * A hostile report: its envelope text is quoted-printable made of soft line
- * breaks, which mailparser decodes in time that grows with the square of the
- * body (the class of input fixed for imports and previews in 0.1.1).
+ * A hostile report: its envelope text is 24 MB of quoted-printable made of soft
+ * line breaks. mailparser up to 3.9.28 decoded this in time that grew with the
+ * square of the body (the class of input fixed for imports and previews in
+ * 0.1.1); later versions decode it in linear time, but still far slower than
+ * the short limits below, so it always runs over them.
  */
 const HOSTILE = report(
-  `Content-Type: text/plain${CRLF}Content-Transfer-Encoding: quoted-printable${CRLF}${CRLF}${"=\r\n=3D".repeat(700_000)}${CRLF}`,
+  `Content-Type: text/plain${CRLF}Content-Transfer-Encoding: quoted-printable${CRLF}${CRLF}${"=\r\n=3D".repeat(4_000_000)}${CRLF}`,
 );
 
 afterAll(async () => {
@@ -114,7 +116,7 @@ describe("parseJournalReportIsolated", { timeout: 120_000 }, () => {
       value: isolated,
       ticks,
       ms,
-    } = await ticking(() => parseJournalReportIsolated(HOSTILE, { timeoutMs: 1000 }));
+    } = await ticking(() => parseJournalReportIsolated(HOSTILE, { timeoutMs: 500 }));
     expect(isolated.parseLimit).toBe("timeout");
     expect(isolated.flags).toEqual(["report-parse-timeout", "original-message-missing"]);
     expect(isolated.originalIsRawReport).toBe(true);
@@ -149,9 +151,9 @@ describe("parseJournalReportIsolated", { timeout: 120_000 }, () => {
   it("refuses a report only when no process can take it now, before anything is parsed", async () => {
     configureIsolation({ workers: 1, maxQueued: 0 });
     try {
-      // Half the limit the timeout test above already proves too short for HOSTILE on CI runners,
-      // so the first report is still running (and then times out) when the second one arrives.
-      const running = parseJournalReportIsolated(HOSTILE, { timeoutMs: 500 });
+      // A limit the timeout test above already proves too short for HOSTILE, long enough that
+      // the first report is still running (and then times out) when the second one arrives.
+      const running = parseJournalReportIsolated(HOSTILE, { timeoutMs: 300 });
       const refused = await parseJournalReportIsolated(HONEST).catch((e: unknown) => e);
       expect(refused).toBeInstanceOf(JournalParserBusyError);
       expect((await running).parseLimit).toBe("timeout");

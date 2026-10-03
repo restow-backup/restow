@@ -37,6 +37,21 @@ export function restoreTo(path: string): LinkProps["to"] {
   return path as LinkProps["to"];
 }
 
+/**
+ * The explorer opened at one account and, if given, one of its restore
+ * points, as `<Link {...target}>` takes it (file restore links here for a
+ * mailbox).
+ */
+export function explorerAt(
+  objectId: string,
+  snapshotId?: string,
+): { to: LinkProps["to"]; search: ExplorerSearch } {
+  return {
+    to: restoreTo(RESTORE_PATHS.explorer),
+    search: compactSearch({ object: objectId, snapshot: snapshotId }),
+  };
+}
+
 export function jobHref(restoreId: string): LinkProps["to"] {
   return restoreTo(`${RESTORE_PATHS.jobs}/${encodeURIComponent(restoreId)}`);
 }

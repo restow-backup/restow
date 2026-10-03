@@ -66,6 +66,7 @@ import {
   type ObjectCredentialInput,
   type ObjectsFilter,
   type ObjectsQuery,
+  type PeopleQuery,
   type ProtectionOverrideInput,
   type RulesInput,
 } from "./schemas.js";
@@ -180,6 +181,8 @@ export interface ProtectedObjectDto {
   notSelected: boolean;
   lastBackupAt: string | null;
   snapshotCount: number;
+  /** An active legal hold is placed on this object: it cannot be removed, and its backups are kept. */
+  legalHold: boolean;
   latestBackupJob: {
     id: string;
     status: Job["status"];
@@ -423,6 +426,46 @@ async function toSourceDto(
     imapAuthMode: source.kind === "imap" ? (source.config.imapAuthMode ?? "shared") : null,
     counts,
   };
+}
+
+/** A person of the protection directory (not a login account), for pickers. */
+export interface DirectoryPersonDto {
+  id: string;
+  displayName: string | null;
+  email: string;
+}
+
+/**
+ * People of the tenant's protection directory whose name, address or UPN contains `search`, by
+ * name; at most `limit` of them and whether there are more. The machine table assigns machines to
+ * them (features/endpoints).
+ */
+export async function listPeople(
+  db: Database,
+  tenantId: string,
+  query: PeopleQuery,
+): Promise<{ items: DirectoryPersonDto[]; more: boolean }> {
+  return withTenantTx(db, tenantId, async (tx) => {
+    const pattern = query.search ? containsPattern(query.search) : null;
+    const rows = await tx
+      .select({ id: users.id, displayName: users.displayName, email: users.email })
+      .from(users)
+      .where(
+        and(
+          eq(users.tenantId, tenantId),
+          pattern
+            ? or(
+                ilike(users.displayName, pattern),
+                ilike(users.email, pattern),
+                ilike(users.upn, pattern),
+              )
+            : undefined,
+        ),
+      )
+      .orderBy(asc(sql`lower(coalesce(${users.displayName}, ${users.email}))`), asc(users.id))
+      .limit(query.limit + 1);
+    return { items: rows.slice(0, query.limit), more: rows.length > query.limit };
+  });
 }
 
 /** Every source of the tenant with its rules, sync state and object counts. */
@@ -682,12 +725,19 @@ function baseObjectQuery(tx: Transaction) {
 interface BackupFacts {
   lastBackupAt: Date | null;
   snapshotCount: number;
+  legalHold: boolean;
   latestJob: { id: string; status: Job["status"]; at: Date; failure: unknown } | null;
   readiness: { rating: RecoveryReadiness; checkedAt: Date } | null;
 }
 
 function emptyFacts(): BackupFacts {
-  return { lastBackupAt: null, snapshotCount: 0, latestJob: null, readiness: null };
+  return {
+    lastBackupAt: null,
+    snapshotCount: 0,
+    legalHold: false,
+    latestJob: null,
+    readiness: null,
+  };
 }
 
 /** Last completed snapshot, latest backup job and the rating of that snapshot per object. */
@@ -719,6 +769,23 @@ async function backupFacts(
     const entry = factsOf(row.objectId);
     entry.snapshotCount = row.total;
     entry.lastBackupAt = row.lastBackupAt ? new Date(row.lastBackupAt) : null;
+  }
+
+  const holdRows = await tx
+    .select({ objectId: legalHolds.protectedObjectId })
+    .from(legalHolds)
+    .where(
+      and(
+        eq(legalHolds.tenantId, tenantId),
+        eq(legalHolds.active, true),
+        inArray(legalHolds.protectedObjectId, objectIds),
+      ),
+    )
+    .groupBy(legalHolds.protectedObjectId);
+  for (const row of holdRows) {
+    if (row.objectId) {
+      factsOf(row.objectId).legalHold = true;
+    }
   }
 
   const jobRows = await tx
@@ -823,6 +890,7 @@ async function toObjectDtos(
       notSelected: isNotSelected(row.sourceKind, config.mode, row.object.status, override),
       lastBackupAt: iso(fact.lastBackupAt),
       snapshotCount: fact.snapshotCount,
+      legalHold: fact.legalHold,
       latestBackupJob: fact.latestJob
         ? {
             id: fact.latestJob.id,

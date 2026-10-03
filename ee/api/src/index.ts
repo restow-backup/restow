@@ -4,6 +4,7 @@ import { journalRoutes } from "./journal/routes.js";
 import { journalReceiverService } from "./journal/service.js";
 import { legalHoldRoutes } from "./legal-holds/routes.js";
 import { licenseFeatureGate } from "./license/gate.js";
+import { pendingLicenseKeyService } from "./license/pending.js";
 import { licenseRouteContribution } from "./license/routes.js";
 import { editionSessionField } from "./license/session.js";
 import { registerProviderRoutes } from "./provider-api/routes.js";
@@ -32,7 +33,7 @@ export const eeApiExtension: ApiExtension = {
   integrationRoutes: [registerProviderRoutes],
   authRouteGuards: [microsoftSignInGuard],
   signInProviders: [microsoftSignInProvider],
-  services: [journalReceiverService],
+  services: [journalReceiverService, pendingLicenseKeyService],
   hooks: { ...reportsExtensionHooks, providerDashboard: providerDashboardLoader },
   featureGate: licenseFeatureGate,
   sessionFields: [editionSessionField],

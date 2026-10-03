@@ -72,13 +72,16 @@ function PlainAlert({ detail, item }: { detail: EndpointDetail; item: Attention 
  * What an admin should look at first, heaviest first. Every reason the server
  * explains (`problems`) shows with the shared failure explanation: what
  * happened, why, what to do. The others (and an older server without
- * explanations) show a plain sentence.
+ * explanations) show a plain sentence. A machine in no backup job (`no_job`)
+ * has its own notice with what to do on the overview and in the settings.
  */
 export function AttentionArea({ detail }: { detail: EndpointDetail }) {
   if (detail.status !== "active") {
     return null;
   }
-  const attention = sortAttention(detail.attention.filter(isKnownAttention));
+  const attention = sortAttention(
+    detail.attention.filter((item) => isKnownAttention(item) && item !== "no_job"),
+  );
   if (attention.length === 0) {
     return null;
   }

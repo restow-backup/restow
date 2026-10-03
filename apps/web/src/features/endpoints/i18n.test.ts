@@ -49,6 +49,7 @@ const VALUES = {
   max: 50,
   default: 240,
   name: "web-01",
+  person: "Alice Example",
   url: "https://restow.example",
   time: "30 Sep 2026",
   hostname: "web-01",
@@ -78,6 +79,7 @@ const VALUES = {
   tokenFile: "/root/restow-enrollment.token",
   fingerprint: "0123456789abcdef",
   job: "Linux servers, daily",
+  sequence: 12,
 };
 
 describe("endpoints translations", () => {
@@ -164,6 +166,7 @@ describe("endpoints translations", () => {
         "restore_test_failed",
         "repository_damaged",
         "never_seen",
+        "no_job",
       ].flatMap((a) => [`attention.${a}.label`, `attention.${a}.hint`, `attention.${a}.message`]),
       ...["running", "succeeded", "partial", "failed"].map((s) => `runStatus.${s}`),
       ...["backup", "restore", "verify_sample"].flatMap((k) => [`runKind.${k}`, `activity.${k}`]),

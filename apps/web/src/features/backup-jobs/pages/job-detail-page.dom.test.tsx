@@ -308,7 +308,7 @@ describe("the page of a machine job", () => {
     await flush(3);
     const dialog = document.querySelector('[role="alertdialog"]') as HTMLElement;
     expect(dialog.textContent).toContain("Remove DC01 from the job?");
-    expect(dialog.textContent).toContain("keeps the configuration it has now");
+    expect(dialog.textContent).toContain("is no longer backed up until you add it to another job");
     await click(buttonByText(dialog, "Remove from job"));
     await flush(4);
     expect(opened.requests.some((request) => request.method === "DELETE")).toBe(true);

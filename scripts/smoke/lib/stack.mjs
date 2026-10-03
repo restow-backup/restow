@@ -108,8 +108,8 @@ export class Stack {
     const env = {
       RESTOW_IMAGE: `${APP_IMAGE}:${this.tag}`,
       RESTOW_WEB_IMAGE: `${WEB_IMAGE}:${this.tag}`,
-      // The opt-in updater's own image, which the release compose file requires for the
-      // `updater` profile; check 1 validates the file with that profile. The profile is
+      // The opt-in updater's own image (optional: the release compose file falls back to
+      // RESTOW_IMAGE); check 1 validates the file with the `updater` profile. The profile is
       // never started here.
       RESTOW_UPDATER_IMAGE: `${APP_IMAGE}:${this.tag}`,
       RESTOW_PUBLIC_URL: this.publicUrl,

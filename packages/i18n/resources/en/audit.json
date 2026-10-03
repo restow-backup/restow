@@ -263,7 +263,12 @@
     },
     "license": {
       "installed": "License installed",
-      "removed": "License removed"
+      "removed": "License removed",
+      "pending_key": {
+        "stored": "License key stored for the full build",
+        "removed": "License key for the full build removed",
+        "rejected": "License key from the Community build rejected"
+      }
     },
     "restore": {
       "cancelled": "Restore cancelled",
@@ -288,6 +293,8 @@
     },
     "settings": {
       "default_storage": {
+        "removed": "Default storage removed, the server environment applies again",
+        "saved": "Default storage saved",
         "tested": "Default storage tested"
       },
       "disclaimer_accepted": "Operator responsibility notice accepted",
@@ -343,6 +350,8 @@
     },
     "storage": {
       "default": {
+        "removed": "Default storage removed, the server environment applies again",
+        "saved": "Default storage saved",
         "tested": "Default storage tested"
       },
       "migration": {
@@ -435,6 +444,9 @@
       "acknowledged": "Update result acknowledged",
       "settings": {
         "updated": "Update settings changed"
+      },
+      "build_switch": {
+        "scheduled": "Switch to the full build announced"
       }
     },
     "endpoint": {
@@ -447,6 +459,7 @@
       "config": {
         "changed": "Machine configuration changed"
       },
+      "assigned": "Machine assigned to a person",
       "backup": {
         "requested": "Backup requested"
       },

@@ -502,10 +502,15 @@ func (a *Agent) applyConfig(cfg *api.Config, why string) {
 		a.log.Info("configuration loaded", "version", cfg.ConfigVersion.String(), "profile", cfg.Profile,
 			"schedule", describe(sc), "paths", len(cfg.Paths), "reason", why)
 	}
+	waiting := sc.Kind == api.ScheduleNone
+	if changed && waiting {
+		a.log.Info("this machine is in no backup job; no backups run until an administrator adds it to one in the Restow UI")
+	}
 	_ = a.d.Status.Update(func(s *status.Status) {
 		s.ConfigVersion = cfg.ConfigVersion.String()
 		s.Schedule = describe(sc)
 		s.Profile = cfg.Profile
+		s.WaitingForJob = waiting
 	})
 }
 
@@ -519,6 +524,8 @@ func describe(sc schedule.Config) string {
 		return fmt.Sprintf("daily at %02d:%02d %s", h, m, sc.Location)
 	case api.ScheduleOnConnect:
 		return fmt.Sprintf("on connect, at most once per %s", sc.Interval)
+	case api.ScheduleNone:
+		return schedule.WaitingForJob
 	}
 	return sc.Kind
 }
@@ -577,6 +584,12 @@ func (a *Agent) dispatchTasks(ctx context.Context, tasks []api.Task) {
 		a.log.Info("task received", "task", t.ID.String(), "kind", t.Kind)
 		switch t.Kind {
 		case api.TaskBackupNow:
+			if cfg := a.currentConfig(); cfg != nil && cfg.Schedule.Kind == api.ScheduleNone {
+				// The server does not ask a machine in no job to back up; a request that
+				// crossed the change of its configuration is dropped here.
+				a.log.Warn("ignoring a backup request: this machine is in no backup job", "task", t.ID.String())
+				continue
+			}
 			a.enqueue(job{kind: jobBackup, trigger: triggerTask, task: &t})
 		case api.TaskRestore:
 			a.enqueue(job{kind: jobRestore, trigger: triggerTask, task: &t})

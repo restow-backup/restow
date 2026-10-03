@@ -25,14 +25,15 @@ export type AgentState = "idle" | "running";
 export type ReadinessState = "green" | "yellow" | "red" | "unverified" | "no_backup";
 export type ReadinessRating = "green" | "yellow" | "red";
 
-/** Why a machine needs attention; the web app words them. */
+/** Why a machine needs attention; the web app words them. `no_job`: in no backup job, nothing backs it up. */
 export type Attention =
   | "silent"
   | "backup_overdue"
   | "last_backup_failed"
   | "restore_test_failed"
   | "repository_damaged"
-  | "never_seen";
+  | "never_seen"
+  | "no_job";
 
 export interface EndpointReadiness {
   state: ReadinessState;
@@ -97,13 +98,26 @@ export interface EndpointSummary {
   latestRun: RunSummary | null;
   attention: Attention[];
   /**
-   * The backup job the machine belongs to (release 0.2.0); null when it is in none and keeps the
-   * configuration it has. While it is in a job the job owns its configuration (`config`): schedule,
-   * folders, exclusions, hooks and bandwidth. Absent on servers from before 0.2.0, which read as null.
+   * The backup job the machine belongs to (release 0.2.0); null when it is in none. Since 0.2.1 a
+   * machine in no job is not backed up (its schedule is `none`). While it is in a job the job owns
+   * its configuration (`config`): schedule, folders, exclusions, hooks and bandwidth. Absent on
+   * servers from before 0.2.0.
    */
   job?: { id: string; name: string } | null;
+  /**
+   * The person of the tenant's protection directory the machine is assigned to (release 0.2.1);
+   * null when nobody. Absent on servers from before 0.2.1.
+   */
+  assignedTo?: EndpointAssignee | null;
   createdAt: string;
   revokedAt: string | null;
+}
+
+/** A person of the protection directory (not a login account), as a machine names it. */
+export interface EndpointAssignee {
+  id: string;
+  displayName: string | null;
+  email: string;
 }
 
 export interface RunError {
@@ -179,7 +193,8 @@ export interface EndpointReport {
   checkedAt: string;
 }
 
-export type ScheduleKind = "interval" | "daily" | "on_connect";
+/** `none` (0.2.1): a machine in no backup job; nothing runs until a job sets a schedule. */
+export type ScheduleKind = "interval" | "daily" | "on_connect" | "none";
 
 /** When the agent backs up (the agent contract, docs/AGENT.md). */
 export interface EndpointSchedule {
@@ -445,6 +460,8 @@ export interface UpdateEndpointInput {
     /** GiB; `null` returns to the installation's default. */
     quotaGib?: number | null;
   };
+  /** The person of the directory the machine is assigned to; `null` removes the assignment. */
+  assignedUserId?: string | null;
 }
 
 export type CreateTaskInput =

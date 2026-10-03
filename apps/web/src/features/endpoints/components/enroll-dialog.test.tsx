@@ -9,8 +9,13 @@ import { type Mounted, mount } from "../dom-harness.js";
 import "../i18n.js";
 import { EnrollDialog, defaultOs, enrollStatusOf, isSelectableOs } from "./enroll-dialog.js";
 
+const viewer = vi.hoisted(() => ({ role: null as string | null }));
 vi.mock("@/lib/session", () => ({
-  useSession: () => ({ status: "authenticated", activeTenant: { id: "t-1", name: "Contoso" } }),
+  useSession: () => ({
+    status: "authenticated",
+    activeTenant: { id: "t-1", name: "Contoso" },
+    role: viewer.role,
+  }),
 }));
 // Dialogs render in place, and links are plain anchors, so no router or portal target is needed.
 vi.mock("radix-ui", async (importOriginal) => {
@@ -286,6 +291,32 @@ describe("EnrollDialog", () => {
       connected?.querySelector('a[href="/inventory/22222222-2222-4222-8222-222222222222"]'),
     ).not.toBeNull();
     expect(document.querySelector('[data-connection="waiting"]')).toBeNull();
+  });
+
+  it("says a new machine is backed up only once it is in a backup job", async () => {
+    await open();
+    expect(document.querySelector('[data-slot="enroll-job-note"]')?.textContent).toContain(
+      "backed up only once you add it to a backup job",
+    );
+  });
+
+  it("offers a job for the connected machine to those who may manage jobs", async () => {
+    viewer.role = "tenant_admin";
+    try {
+      createToken.mockResolvedValue(created());
+      fetchTokens.mockResolvedValue([
+        token({ state: "used", usedByEndpointId: "22222222-2222-4222-8222-222222222222" }),
+      ]);
+      await open();
+      await create();
+      const connected = document.querySelector('[data-connection="connected"]');
+      expect(connected?.textContent).toContain("backed up only once you add it to a backup job");
+      expect(
+        connected?.querySelector('[data-slot="enroll-create-job"]')?.getAttribute("href"),
+      ).toBe("/jobs");
+    } finally {
+      viewer.role = null;
+    }
   });
 
   it("links a connected client to its page in the inventory", async () => {

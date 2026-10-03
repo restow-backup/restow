@@ -35,14 +35,19 @@ import type { EndpointReadinessDto } from "./readiness.js";
  * secret and the repository password are never part of a response.
  */
 
-/** Why an endpoint needs attention, machine-readable; the web app words them. */
+/**
+ * Why an endpoint needs attention, machine-readable; the web app words them. `no_job`: the
+ * machine is in no backup job, so nothing backs it up (it has no explanation in `problems`; the
+ * machine page shows the state with what to do instead).
+ */
 export type EndpointAttention =
   | "silent"
   | "backup_overdue"
   | "last_backup_failed"
   | "restore_test_failed"
   | "repository_damaged"
-  | "never_seen";
+  | "never_seen"
+  | "no_job";
 
 export interface ReadinessDto {
   state: EndpointReadinessDto["state"];
@@ -105,8 +110,20 @@ export interface EndpointSummaryDto {
   attention: EndpointAttention[];
   /** The backup job the machine belongs to; null for a machine in no job. */
   job: { id: string; name: string } | null;
+  /**
+   * The person of the tenant's protection directory the machine is assigned to (release 0.2.1);
+   * null when it is assigned to nobody.
+   */
+  assignedTo: EndpointAssigneeDto | null;
   createdAt: string;
   revokedAt: string | null;
+}
+
+/** A person of the protection directory (`users`, not a login account), as a machine names it. */
+export interface EndpointAssigneeDto {
+  id: string;
+  displayName: string | null;
+  email: string;
 }
 
 export interface RunDetailDto extends RunSummaryDto {
@@ -482,12 +499,16 @@ export function toReadiness(readiness: EndpointReadinessDto): ReadinessDto {
   };
 }
 
-/** What needs an admin's eye, in order of weight. */
+/**
+ * What needs an admin's eye, in order of weight. `inJob` false adds `no_job`; left out (callers
+ * that do not know the membership), nothing is said about it.
+ */
 export function attentionOf(
   endpoint: Endpoint,
   latestRun: EndpointRun | null,
   readiness: EndpointReadinessDto,
   now: Date,
+  inJob?: boolean,
 ): EndpointAttention[] {
   if (endpoint.status !== "active") {
     return [];
@@ -524,6 +545,9 @@ export function attentionOf(
       readiness.basis === "repository_check" ? "repository_damaged" : "restore_test_failed",
     );
   }
+  if (inJob === false) {
+    attention.push("no_job");
+  }
   return attention;
 }
 
@@ -534,6 +558,7 @@ export function toSummary(
   now: Date,
   rated: RatedTests,
   job: { id: string; name: string } | null = null,
+  assignedTo: EndpointAssigneeDto | null = null,
 ): EndpointSummaryDto {
   return {
     id: endpoint.id,
@@ -553,8 +578,9 @@ export function toSummary(
     nextRunAt: iso(endpoint.nextRunAt),
     readiness: toReadiness(readiness),
     latestRun: latestRun ? toRunSummary(latestRun, rated) : null,
-    attention: attentionOf(endpoint, latestRun, readiness, now),
+    attention: attentionOf(endpoint, latestRun, readiness, now, job !== null),
     job,
+    assignedTo,
     createdAt: endpoint.createdAt.toISOString(),
     revokedAt: iso(endpoint.revokedAt),
   };

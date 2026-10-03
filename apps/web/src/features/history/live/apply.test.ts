@@ -87,7 +87,7 @@ function job(overrides: Partial<BackupJob> = {}): BackupJob {
     repository: { id: null, name: null, kind: "installation_default", role: null, status: null },
     retention: { policyId: null, policyName: null, keep: null },
     scope: { count: 2, byKind: { mailbox: 2 }, overrides: 0 },
-    lastRun: { at: null, failed: 0, partial: 0, running: 0, runId: null },
+    lastRun: { at: null, failed: 0, partial: 0, running: 0, queued: 0, runId: null },
     nextRunAt: "2026-10-02T12:00:00.000Z",
     restoreCheck: {
       passed: 0,
@@ -464,7 +464,7 @@ describe("backup jobs", () => {
       data: JSON.stringify(
         live({
           state: "running",
-          lastRun: { at: null, failed: 0, partial: 0, running: 2, runId: "run-1" },
+          lastRun: { at: null, failed: 0, partial: 0, running: 2, queued: 0, runId: "run-1" },
           nextRunAt: "2026-10-02T20:00:00.000Z",
         }),
       ),

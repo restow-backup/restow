@@ -21,9 +21,11 @@ import {
   clockOffset,
   formatClock,
   isSourceInstallRefused,
-  isUpdaterOutdated,
   manualUpdateCommands,
+  selfUpdateNote,
   sourceAllowlistLine,
+  switchKey,
+  updaterImageLine,
   updatesErrorKey,
 } from "../presenters";
 import { ProgressBar } from "../progress-bar";
@@ -73,28 +75,9 @@ export function UpdaterCard({
               />
             </AlertDescription>
           </Alert>
-        ) : isUpdaterOutdated(view) ? (
-          <Alert
-            variant="info"
-            data-slot="updater-outdated"
-            className="has-[>svg]:grid-cols-[calc(var(--spacing)*4)_minmax(0,1fr)]"
-          >
-            <Info />
-            <AlertDescription className="min-w-0 grid-cols-[minmax(0,1fr)] justify-items-stretch">
-              <p>
-                {t("updater.outdated", {
-                  updater: view.updater.version ?? "",
-                  running: view.running ?? "",
-                })}
-              </p>
-              <CommandBlock
-                command={RECREATE_UPDATER_COMMAND}
-                copyLabel={t("commands.copy")}
-                className="w-full"
-              />
-            </AlertDescription>
-          </Alert>
-        ) : null}
+        ) : (
+          <SelfUpdateNoteView view={view} />
+        )}
         {state === "unavailable" ? <Unavailable view={view} /> : null}
         {state === "blocked" ? <Blocked view={view} /> : null}
         {state === "ready" ? <Ready view={view} canChange={canChange} /> : null}
@@ -112,6 +95,57 @@ export function UpdaterCard({
         ) : null}
       </CardContent>
     </Card>
+  );
+}
+
+// --- The updater's own version ---------------------------------------------------------------------
+
+/**
+ * The updater runs another version than the installation: whether it is replacing
+ * itself, why it did not, or (for an updater that cannot) how to move it once.
+ */
+function SelfUpdateNoteView({ view }: { view: UpdatesView }) {
+  const { t } = useTranslation("updates");
+  const note = selfUpdateNote(view);
+  if (!note) {
+    return null;
+  }
+  const values = { updater: view.updater.version ?? "", running: view.running ?? "" };
+  const reason =
+    (note.kind === "failed" || note.kind === "skipped") && note.reason
+      ? t(`updater.selfUpdate.reasons.${note.reason}`)
+      : "";
+  const envLine = updaterImageLine(view);
+  // A failed self-update already wrote the verified image: recreating is all that is left.
+  const commands =
+    note.kind === "failed" || note.kind === "pending" || !envLine
+      ? [RECREATE_UPDATER_COMMAND]
+      : [envLine, RECREATE_UPDATER_COMMAND];
+  const failed = note.kind === "failed";
+  return (
+    <Alert
+      variant={failed ? "warning" : "info"}
+      data-slot="updater-outdated"
+      data-kind={note.kind}
+      className="has-[>svg]:grid-cols-[calc(var(--spacing)*4)_minmax(0,1fr)]"
+    >
+      {failed ? <TriangleAlert /> : <Info />}
+      <AlertDescription className="min-w-0 grid-cols-[minmax(0,1fr)] justify-items-stretch">
+        <p>
+          {note.kind === "pending"
+            ? t("updater.selfUpdate.pending", { version: note.version })
+            : t(`updater.selfUpdate.${note.kind}`, { ...values, reason })}
+        </p>
+        {note.kind === "failed" && note.detail ? (
+          <p className="font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]">
+            {note.detail}
+          </p>
+        ) : null}
+        {note.kind === "pending" ? null : (
+          <CommandList commands={commands} copyLabel={t("commands.copy")} />
+        )}
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -139,6 +173,11 @@ function Unavailable({ view }: { view: UpdatesView }) {
           <p className="text-sm text-muted-foreground">{t("updater.enable.body")}</p>
         </div>
         <CommandBlock command={ENABLE_UPDATER_COMMAND} copyLabel={t("commands.copy")} />
+        <p className="text-sm text-muted-foreground" data-slot="updater-image-note">
+          {view.updater.applicationImage
+            ? t("updater.enable.image", { image: view.updater.applicationImage })
+            : t("updater.enable.imageGeneric")}
+        </p>
         <Alert variant="warning" data-slot="socket-warning">
           <ShieldAlert />
           <AlertDescription>{t("updater.enable.socket")}</AlertDescription>
@@ -315,8 +354,8 @@ function Busy({
         <Loader2 className="motion-safe:animate-spin" />
         <AlertTitle>
           {scheduled
-            ? t("updater.busy.scheduledTitle", { version })
-            : t("updater.busy.runningTitle", { version })}
+            ? t(switchKey("updater.busy.scheduledTitle", maintenance.switchTo), { version })
+            : t(switchKey("updater.busy.runningTitle", maintenance.switchTo), { version })}
         </AlertTitle>
         <AlertDescription>
           {scheduled ? (

@@ -60,6 +60,13 @@ export const groupSearchQuerySchema = z.object({
   search: z.string().trim().max(256).default(""),
 });
 
+/** GET /people query: a search over name, address and UPN, and how many to return. */
+export const peopleQuerySchema = z.object({
+  search: z.string().trim().max(200).default(""),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+export type PeopleQuery = z.infer<typeof peopleQuerySchema>;
+
 /** An identity on the exclusion list: object id, UPN or address. */
 const identitySchema = z.string().trim().min(1).max(320);
 

@@ -30,7 +30,7 @@ restow-restore endpoint-password --storage <dir> [--storage <dir> ...] --key <fi
   tool loads that tenant's keys from `--key` first and then opens the manifest. Read
   from the store, a sealed manifest must sit under the key it was sealed for; a copy
   under another snapshot's key is refused. A local copy of the file can be anywhere.
-- `--storage` Path to a local storage backend root (a mounted S3 bucket, NFS/SMB
+- `--storage` Path to a local storage backend root (a mounted S3 bucket, NFS
   share or plain directory — anything the local backend can read). Repeatable: give
   the current primary first, then any earlier target a "keep" storage-target
   replacement left attached read-only (`docs/STORAGE.md`, "Replace the primary").

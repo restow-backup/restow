@@ -37,6 +37,25 @@ describe("agent state file", () => {
       /incomplete/,
     );
   });
+
+  it("carries what the run simulator needs, and checks it", () => {
+    const full: AgentStateEntry = {
+      ...ENTRY,
+      tenant: "example-trading",
+      paths: ["/srv/share", "/etc/samba"],
+      lastSnapshotId: "0123456789abcdef".repeat(4),
+    };
+    expect(parseState(serializeState([full])).agents[0]).toEqual(full);
+    expect(() => parseState(serializeState([{ ...full, lastSnapshotId: "../x" }]))).toThrow(
+      /incomplete/,
+    );
+    expect(() => parseState(serializeState([{ ...full, paths: [1] as never }]))).toThrow(
+      /incomplete/,
+    );
+    expect(() => parseState(serializeState([{ ...full, tenant: 7 as never }]))).toThrow(
+      /incomplete/,
+    );
+  });
 });
 
 describe("nextRunFor", () => {

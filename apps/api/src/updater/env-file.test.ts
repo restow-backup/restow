@@ -267,6 +267,52 @@ describe("EnvFile", () => {
     expect(await fs.readFile(target, "utf8")).toBe(original);
   });
 
+  it("writes its own image only pinned by digest, and puts it back exactly", async () => {
+    const pinned = `ghcr.io/restow-backup/restow:0.2.1@sha256:${"e".repeat(64)}`;
+    const original = "RESTOW_IMAGE=a:1\nRESTOW_UPDATER_IMAGE=\nPOSTGRES_PASSWORD=pw";
+    await fs.writeFile(target, original);
+    for (const value of [
+      "ghcr.io/restow-backup/restow:0.2.1",
+      "evil:1 # x",
+      `x@sha256:${"e".repeat(10)}`,
+    ]) {
+      await expect(file.pinUpdaterImage(value)).rejects.toMatchObject({ reason: "invalid_value" });
+    }
+    expect(await fs.readFile(target, "utf8")).toBe(original);
+    const before = await file.pinUpdaterImage(pinned);
+    expect(before).toEqual({ present: true, line: "RESTOW_UPDATER_IMAGE=", value: "" });
+    expect(await fs.readFile(target, "utf8")).toBe(
+      `RESTOW_IMAGE=a:1\nRESTOW_UPDATER_IMAGE=${pinned}\nPOSTGRES_PASSWORD=pw`,
+    );
+    await file.restoreUpdaterImage(before);
+    expect(await fs.readFile(target, "utf8")).toBe(original);
+  });
+
+  it("appends its own image when .env has no line for it", async () => {
+    const pinned = `ghcr.io/restow-backup/restow-community:0.2.1@sha256:${"e".repeat(64)}`;
+    await fs.writeFile(target, "RESTOW_IMAGE=a:1\n");
+    const before = await file.pinUpdaterImage(pinned);
+    expect(await fs.readFile(target, "utf8")).toBe(
+      `RESTOW_IMAGE=a:1\nRESTOW_UPDATER_IMAGE=${pinned}\n`,
+    );
+    await file.restoreUpdaterImage(before);
+    expect(await fs.readFile(target, "utf8")).toBe("RESTOW_IMAGE=a:1\n");
+  });
+
+  it("appends the image lines an update writes when .env has none", async () => {
+    await fs.writeFile(target, "POSTGRES_PASSWORD=pw\n");
+    const captured = await file.capture(KEYS);
+    await file.apply({
+      RESTOW_IMAGE: "ghcr.io/restow-backup/restow-community:0.2.1",
+      RESTOW_WEB_IMAGE: "ghcr.io/restow-backup/restow-web-community:0.2.1",
+    });
+    expect(await fs.readFile(target, "utf8")).toBe(
+      "POSTGRES_PASSWORD=pw\nRESTOW_IMAGE=ghcr.io/restow-backup/restow-community:0.2.1\nRESTOW_WEB_IMAGE=ghcr.io/restow-backup/restow-web-community:0.2.1\n",
+    );
+    await file.restore(captured);
+    expect(await fs.readFile(target, "utf8")).toBe("POSTGRES_PASSWORD=pw\n");
+  });
+
   it("reports a missing file", async () => {
     await expect(file.read()).rejects.toMatchObject({ reason: "missing" });
     await expect(file.assertWritable()).rejects.toMatchObject({ reason: "missing" });

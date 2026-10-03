@@ -1,5 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
-import { Check, Minus, Rocket, TriangleAlert } from "lucide-react";
+import { Check, EyeOff, Minus, Rocket, TriangleAlert } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -15,9 +15,10 @@ import { LinkButton } from "@/features/dashboard/components/link-button";
 import { setupItemPath, to } from "@/features/dashboard/paths";
 import { useInstallationAccess } from "@/features/installation/access";
 import { errorMessageKey } from "@/lib/api";
+import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
-import { notNeededOffer } from "./presenters";
+import { notNeededOffer, readStartDismissed, writeStartDismissed } from "./presenters";
 import { useStart } from "./use-start";
 import "@/features/dashboard/i18n";
 
@@ -28,17 +29,28 @@ import "@/features/dashboard/i18n";
  * gone, and a toast said so once. The ticks are the primary colour, not green:
  * green is the proof of a passed restore check, and a done step is only in order.
  * Collapsed, the sidebar keeps the rocket with the ring around it; in the phone
- * menu the entry sits at its bottom.
+ * menu the entry sits at its bottom. Whoever does not want the guide hides it for
+ * good from the popover ("Hide Start"); the steps stay on the tenant page, and the
+ * toast that confirms it can bring the entry back.
  */
 export function StartEntry() {
   const { t } = useTranslation("dashboard");
   const start = useStart();
+  const userId = useSession().user?.id ?? null;
   const { state, isMobile, setOpenMobile } = useSidebar();
   const [open, setOpen] = React.useState(false);
+  const [dismissed, setDismissed] = React.useState(() =>
+    userId ? readStartDismissed(userId) : false,
+  );
   const collapsed = state === "collapsed" && !isMobile;
 
+  // Another user signing in in the same tab reads their own choice.
+  React.useEffect(() => {
+    setDismissed(userId ? readStartDismissed(userId) : false);
+  }, [userId]);
+
   const { view, setup } = start;
-  if (!view || !setup) {
+  if (!view || !setup || dismissed || !userId) {
     return null;
   }
   const progress = t("start.progress", { done: view.done, total: view.total });
@@ -48,6 +60,18 @@ export function StartEntry() {
     if (isMobile) {
       setOpenMobile(false);
     }
+  };
+  const hide = (hidden: boolean) => {
+    writeStartDismissed(userId, hidden);
+    setDismissed(hidden);
+  };
+  const dismiss = () => {
+    close();
+    hide(true);
+    toast.success(t("start.dismissed.toast"), {
+      description: t("start.dismissed.description"),
+      action: { label: t("start.dismissed.undo"), onClick: () => hide(false) },
+    });
   };
 
   return (
@@ -119,9 +143,19 @@ export function StartEntry() {
               />
             ))}
           </ul>
-          <p className="px-2.5 pt-2 pb-1.5 text-xs text-muted-foreground">
-            {t("start.popover.footer")}
-          </p>
+          <div className="flex items-end justify-between gap-2 px-2.5 pt-2 pb-1.5">
+            <p className="text-xs text-muted-foreground">{t("start.popover.footer")}</p>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="shrink-0 text-muted-foreground"
+              onClick={dismiss}
+              data-slot="start-dismiss"
+            >
+              <EyeOff />
+              {t("start.dismissed.action")}
+            </Button>
+          </div>
         </PopoverContent>
       </Popover>
     </div>

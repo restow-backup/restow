@@ -14,6 +14,8 @@ import {
   enrollmentTokenState,
   generateEnrollmentToken,
   isSupportedEndpointOs,
+  isUnscheduled,
+  noSchedule,
   normalizeBandwidthWindows,
   openRepository,
   resolveSelection,
@@ -36,6 +38,7 @@ import {
   endpointTasks,
   endpoints,
   tenants,
+  users,
 } from "@restow/db";
 import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, ne, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -54,6 +57,7 @@ import { isSafeOrigin } from "./distribution.js";
 import {
   type BrowseDto,
   type CreatedTokenDto,
+  type EndpointAssigneeDto,
   type EndpointDetailDto,
   type EndpointSummaryDto,
   type EnrollmentTokenDto,
@@ -203,6 +207,33 @@ export async function loadRatedTests(
   return { runs: ratedRuns, tasks: ratedTasks };
 }
 
+/**
+ * The people of the tenant's protection directory the given ids name, by id (the persons machines
+ * are assigned to). An id that is not in the directory is missing from the map.
+ */
+export async function loadAssignees(
+  tx: Transaction,
+  tenantId: string,
+  ids: readonly (string | null)[],
+): Promise<Map<string, EndpointAssigneeDto>> {
+  const wanted = [...new Set(ids.filter((id): id is string => id !== null))];
+  if (wanted.length === 0) {
+    return new Map();
+  }
+  const rows = await tx
+    .select({ id: users.id, displayName: users.displayName, email: users.email })
+    .from(users)
+    .where(and(eq(users.tenantId, tenantId), inArray(users.id, wanted)));
+  return new Map(rows.map((row) => [row.id, row]));
+}
+
+function assigneeOf(
+  map: ReadonlyMap<string, EndpointAssigneeDto>,
+  endpoint: Pick<Endpoint, "assignedUserId">,
+): EndpointAssigneeDto | null {
+  return endpoint.assignedUserId ? (map.get(endpoint.assignedUserId) ?? null) : null;
+}
+
 export async function listEndpoints(
   database: Database,
   tenantId: string,
@@ -225,6 +256,11 @@ export async function listEndpoints(
     const readiness = await loadEndpointReadiness(tx, tenantId, ids, now);
     const rated = await loadRatedTests(tx, tenantId, [...runs.values()]);
     const jobsOf = await jobsOfEndpoints(tx, tenantId, ids);
+    const assignees = await loadAssignees(
+      tx,
+      tenantId,
+      rows.map((row) => row.assignedUserId),
+    );
     return {
       items: rows.map((row) =>
         toSummary(
@@ -234,6 +270,7 @@ export async function listEndpoints(
           now,
           rated,
           jobsOf.get(row.id) ?? null,
+          assigneeOf(assignees, row),
         ),
       ),
     };
@@ -330,6 +367,7 @@ export async function getEndpoint(
     const readiness = await loadEndpointReadiness(tx, tenantId, [id], now);
     const rated = await loadRatedTests(tx, tenantId, runs, recentTasks);
     const jobsOf = await jobsOfEndpoints(tx, tenantId, [id]);
+    const assignees = await loadAssignees(tx, tenantId, [endpoint.assignedUserId]);
     const summary = toSummary(
       endpoint,
       runs[0] ?? null,
@@ -337,6 +375,7 @@ export async function getEndpoint(
       now,
       rated,
       jobsOf.get(id) ?? null,
+      assigneeOf(assignees, endpoint),
     );
     const retention = latestPerKind.find((report) => report.kind === "retention");
     const [tenantUsage] = await tx
@@ -742,6 +781,24 @@ export interface UpdateEndpointOptions {
   readonly confirmHookChange?: () => void;
 }
 
+/** A 409 for what only a machine in a backup job can do. */
+function notInJob(detail: string): ProblemError {
+  return new ProblemError(409, "Machine is in no backup job", {
+    type: ENDPOINT_PROBLEMS.noJob,
+    detail,
+  });
+}
+
+/** A 422 for a person who is not in the tenant's protection directory. */
+function assigneeUnknown(): ProblemError {
+  return new ProblemError(422, "Person not in the directory", {
+    type: ENDPOINT_PROBLEMS.assigneeUnknown,
+    detail:
+      "The person is not in this tenant's directory (any more). Choose a person from the directory.",
+    extensions: { field: "assignedUserId" },
+  });
+}
+
 function configManagedByJob(job: { id: string; name: string }): ProblemError {
   return new ProblemError(409, "Configuration managed by a backup job", {
     type: ENDPOINT_PROBLEMS.configManagedByJob,
@@ -776,6 +833,22 @@ export async function updateEndpoint(
         changed.push("displayName");
       }
     }
+    // The person the machine is assigned to: one of the tenant's protection directory, or nobody.
+    let assignment: { previousUserId: string | null; person: EndpointAssigneeDto | null } | null =
+      null;
+    if (change.assignedUserId !== undefined && change.assignedUserId !== endpoint.assignedUserId) {
+      const wanted = change.assignedUserId;
+      const person =
+        wanted === null
+          ? null
+          : ((await loadAssignees(tx, tenantId, [wanted])).get(wanted) ?? null);
+      if (wanted !== null && person === null) {
+        throw assigneeUnknown();
+      }
+      set.assignedUserId = wanted;
+      changed.push("assignedUserId");
+      assignment = { previousUserId: endpoint.assignedUserId, person };
+    }
     const details: Record<string, unknown> = {};
     if (change.config?.bandwidthWindows) {
       const problem = bandwidthWindowsProblem(change.config.bandwidthWindows, [
@@ -793,6 +866,16 @@ export async function updateEndpoint(
       const applied = applyConfigChange(endpoint.config, change.config);
       if (managed && applied.changed.some((key) => key !== "onlyOnAcPower")) {
         throw configManagedByJob(managed.job);
+      }
+      // Backups run only in a job (release 0.2.1): a machine in none may stop its schedule (`none`)
+      // but not start one. Its folders and the rest stay changeable; they take effect in a job.
+      if (applied.changed.includes("schedule")) {
+        if (!isUnscheduled(applied.config.schedule)) {
+          throw notInJob(
+            "Backups run in backup jobs: add this machine to a job, which sets when it backs up.",
+          );
+        }
+        applied.config.schedule = noSchedule(applied.config.schedule.timeZone);
       }
       if (applied.changed.includes("hooks")) {
         assertHooksAllowed(applied.config.hooks, endpoint.settings);
@@ -850,13 +933,31 @@ export async function updateEndpoint(
         createdAt: now,
       });
     }
-    await auditEndpoint(tx, {
-      tenantId,
-      actor,
-      action: ENDPOINT_AUDIT_ACTIONS.configChanged,
-      endpointId: id,
-      details: { hostname: endpoint.hostname, changed, ...details },
-    });
+    // The assignment has an audit entry of its own; everything else is a change of the machine.
+    const configChanges = changed.filter((key) => key !== "assignedUserId");
+    if (configChanges.length > 0) {
+      await auditEndpoint(tx, {
+        tenantId,
+        actor,
+        action: ENDPOINT_AUDIT_ACTIONS.configChanged,
+        endpointId: id,
+        details: { hostname: endpoint.hostname, changed: configChanges, ...details },
+      });
+    }
+    if (assignment) {
+      await auditEndpoint(tx, {
+        tenantId,
+        actor,
+        action: ENDPOINT_AUDIT_ACTIONS.assigned,
+        endpointId: id,
+        details: {
+          hostname: endpoint.hostname,
+          assignedUserId: assignment.person?.id ?? null,
+          assignedEmail: assignment.person?.email ?? null,
+          previousUserId: assignment.previousUserId,
+        },
+      });
+    }
     return { configVersion: set.configVersion ?? endpoint.configVersion, changed };
   });
 }
@@ -922,6 +1023,11 @@ export async function createTask(
       throw new ProblemError(422, "Validation failed", {
         detail: "A restore names a snapshot by its full id.",
       });
+    }
+    if (input.kind === "backup_now" && !(await jobWithOverridesOf(tx, tenantId, id))) {
+      throw notInJob(
+        "This machine is in no backup job, so it has nothing to back up. Add it to a job first.",
+      );
     }
     // One waiting backup request is enough.
     if (input.kind === "backup_now") {

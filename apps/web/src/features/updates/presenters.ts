@@ -2,7 +2,9 @@ import type { StatusTone } from "@/components/kit/status-badge";
 import { ApiError, errorMessageKey } from "@/lib/api";
 import {
   BLOCKER_CODES,
+  BUILD_SWITCH_REFUSED_PROBLEM,
   type BlockerCode,
+  type BuildSwitchTarget,
   CHECK_ERROR_CODES,
   type CheckErrorCode,
   FAILURE_CODES,
@@ -14,6 +16,7 @@ import {
   type Recovery,
   type RunOutcome,
   type RunView,
+  type SelfUpdateReason,
   type StepStatus,
   UPDATER_BLOCKED_PROBLEM,
   UPDATER_UNAVAILABLE_PROBLEM,
@@ -52,6 +55,7 @@ const PROBLEM_KEYS: Record<string, string> = {
   [RECENT_SIGN_IN_PROBLEM]: "updates:errors.recentSignIn",
   [UPDATE_NOT_VERIFIABLE_PROBLEM]: "updates:errors.notVerifiable",
   [INVALID_UPDATE_SOURCE_PROBLEM]: "updates:errors.invalidSource",
+  [BUILD_SWITCH_REFUSED_PROBLEM]: "updates:errors.switchRefused",
 };
 
 /** The i18n key (with namespace) that explains a failed updates request. */
@@ -455,6 +459,82 @@ export function isUpdaterOutdated(view: Pick<UpdatesView, "running" | "updater">
   );
 }
 
+/** What the tab says about the updater's own version (docs/UPDATING.md, "The updater updates itself"). */
+export type SelfUpdateNote =
+  /** It is replacing itself right now. */
+  | { kind: "pending"; version: string }
+  /** It tried for the running version and did not manage; the application update stands. */
+  | { kind: "failed"; reason: SelfUpdateReason | null; detail: string }
+  /** It did not try (switched off, source mode, no verified signature). */
+  | { kind: "skipped"; reason: SelfUpdateReason | null }
+  /** It updates itself, but the application was updated some other way (by hand). */
+  | { kind: "on" }
+  /** An updater older than its self-update (0.2.0): moved by hand once. */
+  | { kind: "legacy" };
+
+export function selfUpdateNote(
+  view: Pick<UpdatesView, "running" | "updater">,
+): SelfUpdateNote | null {
+  if (!isUpdaterOutdated(view)) {
+    return null;
+  }
+  const selfUpdate = view.updater.selfUpdate;
+  if (!selfUpdate) {
+    return { kind: "legacy" };
+  }
+  const last = selfUpdate.last;
+  if (last && last.targetVersion === view.running) {
+    switch (last.status) {
+      case "pending":
+        return { kind: "pending", version: last.targetVersion };
+      case "failed":
+        return { kind: "failed", reason: last.reason, detail: last.detail };
+      case "skipped":
+        return { kind: "skipped", reason: last.reason };
+      default:
+        break;
+    }
+  }
+  if (!selfUpdate.enabled) {
+    return { kind: "skipped", reason: "disabled" };
+  }
+  if (!selfUpdate.verifiesSignatures) {
+    return { kind: "skipped", reason: "signature_unverified" };
+  }
+  return { kind: "on" };
+}
+
+/** The `.env` line that moves the updater to the application image by hand (image mode only). */
+export function updaterImageLine(view: Pick<UpdatesView, "mode" | "updater">): string | null {
+  return view.mode === "image" && view.updater.applicationImage
+    ? `RESTOW_UPDATER_IMAGE=${view.updater.applicationImage}`
+    : null;
+}
+
+/**
+ * How Installation, Edition switches a Community installation to the full build: through
+ * the updater (it runs, is ready, and the installation uses the published images), not now
+ * (an update is announced or running), or by hand.
+ */
+export type EditionSwitchPath = "updater" | "busy" | "manual";
+
+export function editionSwitchPath(
+  view: Pick<UpdatesView, "updater" | "mode" | "demo">,
+): EditionSwitchPath {
+  if (view.updater.state === "busy") {
+    return "busy";
+  }
+  return view.updater.state === "ready" && view.mode === "image" && !view.demo
+    ? "updater"
+    : "manual";
+}
+
+/** The two `.env` lines of the switch by hand; null when the running version is unknown. */
+export function manualSwitchLines(view: Pick<UpdatesView, "edition">): string[] | null {
+  const images = view.edition?.fullImages;
+  return images ? [`RESTOW_IMAGE=${images.app}`, `RESTOW_WEB_IMAGE=${images.web}`] : null;
+}
+
 export interface ManualUpdate {
   image: string[];
   source: string[];
@@ -537,6 +617,16 @@ export function recoveryScript(recovery: Recovery): string {
 // --- Maintenance messages ---------------------------------------------------------------------------------
 
 /** The key of an updater message code; the caller checks that a translation exists. */
-export function maintenanceMessageKey(code: string): string {
-  return `maintenance.messages.${code}`;
+export function maintenanceMessageKey(code: string, switchTo?: BuildSwitchTarget | null): string {
+  const key = `maintenance.messages.${code}`;
+  // The run's own messages have a wording for the build switch; `run.interrupted` has none.
+  return switchTo && code.startsWith("run.") && code !== "run.interrupted" ? `${key}Switch` : key;
+}
+
+/**
+ * The key of the wording for a build switch next to the one of a normal update
+ * (`run.title` and `run.titleSwitch`).
+ */
+export function switchKey(key: string, switchTo: BuildSwitchTarget | null | undefined): string {
+  return switchTo ? `${key}Switch` : key;
 }

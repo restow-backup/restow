@@ -15,11 +15,12 @@ export type JobOrigin = "user" | "migration";
  *   paused     switched off
  *   failing    the last backup of a member failed
  *   running    a backup is running now
+ *   queued     a backup was requested and waits for the machine (it starts at the next check-in)
  *   attention  something needs a look: a partial backup, a failed restore check, or nothing backed up yet
  *   empty      no object or machine in scope
  *   ok         nothing to report (this says the backups ran, not that they are restorable)
  */
-export type JobState = "paused" | "failing" | "running" | "attention" | "empty" | "ok";
+export type JobState = "paused" | "failing" | "running" | "queued" | "attention" | "empty" | "ok";
 
 export interface RepositoryDto {
   /** The storage target; null when the tenant has none of its own (the installation default). */
@@ -54,6 +55,8 @@ export interface JobLastRunDto {
   failed: number;
   partial: number;
   running: number;
+  /** Machines with a requested backup that waits for them (and no backup running): the agent starts it at its next check-in. */
+  queued: number;
   /**
    * The run to open for "the job's current or last run": a backup that is running now, else the
    * newest that finished; null when no member was ever backed up. History opens it by this id.
@@ -131,9 +134,22 @@ export interface BackupJobMemberDto {
     settings: JobEndpointSettings;
   };
   lastBackup: {
+    /** When the newest backup finished; a queued backup does not change it. */
     at: string | null;
+    /** `queued` while a requested backup waits for the machine and none is running. */
     outcome: "succeeded" | "partial" | "failed" | "running" | "queued" | null;
   };
+  /**
+   * Machines: the backup requested by hand that the machine has not started yet. `pending` is not
+   * picked up by the agent yet, `delivered` is on the machine and starts. `nextCheckInAt` is when
+   * the agent is expected to ask next (its last contact plus the check-in interval); null when
+   * it never did.
+   */
+  pendingBackup: {
+    status: "pending" | "delivered";
+    requestedAt: string;
+    nextCheckInAt: string | null;
+  } | null;
   restoreCheck: { state: MemberRestoreState; checkedAt: string | null };
   nextRunAt: string | null;
 }
@@ -230,6 +246,7 @@ export function jobStateOf(input: {
   scopeCount: number;
   failed: number;
   running: number;
+  queued?: number;
   partial: number;
   restore: Pick<JobRestoreCheckDto, "failed" | "warning" | "unverified" | "noBackup">;
 }): JobState {
@@ -245,6 +262,9 @@ export function jobStateOf(input: {
   if (input.running > 0) {
     return "running";
   }
+  if ((input.queued ?? 0) > 0) {
+    return "queued";
+  }
   if (
     input.partial > 0 ||
     input.restore.failed > 0 ||
@@ -254,6 +274,14 @@ export function jobStateOf(input: {
     return "attention";
   }
   return "ok";
+}
+
+/** How often the machine agent asks the server for work (agent/internal/core/agent.go, `HeartbeatInterval`). */
+export const AGENT_CHECK_IN_MS = 5 * 60_000;
+
+/** When the agent is expected to ask next: its last contact plus the check-in interval. */
+export function nextCheckInOf(lastSeenAt: Date | null): Date | null {
+  return lastSeenAt ? new Date(lastSeenAt.getTime() + AGENT_CHECK_IN_MS) : null;
 }
 
 /** The earliest of some times, ignoring the missing ones. */

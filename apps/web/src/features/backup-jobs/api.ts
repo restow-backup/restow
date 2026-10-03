@@ -20,11 +20,12 @@ export type JobOrigin = "user" | "migration";
 
 /**
  * How a job stands, worst first: paused (switched off), failing (the last
- * backup of an object failed), running, attention (a partial backup, a failed
+ * backup of an object failed), running, queued (a machine
+ * backup was requested and waits for the machine), attention (a partial backup, a failed
  * or missing restore check, or nothing backed up yet), empty (nothing in
  * scope), ok. `ok` says the backups ran, not that they are restorable.
  */
-export type JobState = "paused" | "failing" | "running" | "attention" | "empty" | "ok";
+export type JobState = "paused" | "failing" | "running" | "queued" | "attention" | "empty" | "ok";
 
 // --- Schedule and settings (packages/core backup-jobs/types.ts) -------------------
 
@@ -109,6 +110,8 @@ export interface JobLastRun {
   failed: number;
   partial: number;
   running: number;
+  /** Machines with a requested backup that waits for them (none running): it starts at their next check-in. */
+  queued: number;
   /**
    * The run to open for "the job's current or last run": a backup that is running now, else the
    * newest that finished; null when no member was ever backed up.
@@ -182,6 +185,16 @@ export interface JobMember {
     settings: JobEndpointSettings;
   };
   lastBackup: { at: string | null; outcome: MemberOutcome | null };
+  /**
+   * Machines: the backup requested by hand that the machine has not started yet. `pending` waits
+   * for the next check-in (`nextCheckInAt`, null when the machine never contacted the server),
+   * `delivered` is on the machine already.
+   */
+  pendingBackup: {
+    status: "pending" | "delivered";
+    requestedAt: string;
+    nextCheckInAt: string | null;
+  } | null;
   restoreCheck: { state: MemberRestoreState; checkedAt: string | null };
   nextRunAt: string | null;
 }

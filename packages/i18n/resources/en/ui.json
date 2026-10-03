@@ -31,6 +31,14 @@
       "open": "Open actions",
       "openFor": "Actions for {name}"
     },
+    "selection": {
+      "count": "{count, plural, one {# row selected} other {# rows selected}}",
+      "clear": "Clear selection",
+      "select": "Select row",
+      "selectRow": "Select {name}",
+      "selectPage": "Select all rows on this page",
+      "actionsFor": "{count, plural, one {Actions for # selected row} other {Actions for # selected rows}}"
+    },
     "pagination": {
       "label": "Pagination",
       "range": "{from}–{to} of {total}",
@@ -107,5 +115,14 @@
     "label": "Set in the installation.",
     "open": "Open {section}",
     "ask": "Whoever runs this installation changes it."
+  },
+  "timeline": {
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "count": "{count, plural, one {# restore point} other {# restore points}}",
+    "jump": "Jump to date",
+    "jumpHint": "Days with restore points are highlighted. A day without one opens the nearest earlier day.",
+    "jumped": "Showing the restore points of {day}.",
+    "jumpedEarlier": "No restore point on {date}. Showing {day}, the nearest earlier day."
   }
 }

@@ -2,7 +2,7 @@
  * Local filesystem storage backend.
  *
  * The default in-container target (a Docker volume) and also how a mounted
- * NFS/SMB share is used: give it the mount path as the root. Uses node:fs streams
+ * NFS share is used: give it the mount path as the root. Uses node:fs streams
  * so large packs never need to be fully buffered.
  *
  * Writes are atomic and durable: the bytes go to a temporary file next to the

@@ -392,7 +392,7 @@ write, so a visitor cannot install or remove a key either.
    schedules, first backups + verification, the simulated machines, the mail
    archive);
 5. only if the seed succeeded, `up -d agent-sim` (the heartbeat sidecar of
-   the simulated machines) and then `up -d --no-build --wait web` — the one
+   the simulated machines, which also plays their simulated live runs) and then `up -d --no-build --wait web` — the one
    container anything outside this compose project can reach. If the seed
    failed, `web` stays down and the run exits non-zero: an unconfigured or
    half-seeded installation is never published (security review finding 1).
@@ -506,8 +506,8 @@ How it works (`seed/src/endpoint-files.ts`, `endpoint-agent.ts`,
 - **The agent, played by the seed.** For each machine the seed creates an
   enrollment token through the admin API, enrolls with `POST /agent/v1/enroll`
   reporting `os` (`linux` or `darwin`), architecture and OS version (that is what
-  makes the UI show Linux and macOS), sets the folders to back up the way an
-  administrator does in the settings, sends heartbeats, fetches the
+  makes the UI show Linux and macOS), puts the machine into a backup job, sends
+  heartbeats, fetches the
   configuration, and runs the same restic the product ships (pinned, in the seed
   image) with the agent's own command line (`--host <hostname> --tag
   restow-agent`, exclude patterns, `--retry-lock`) against the api's restic REST
@@ -523,6 +523,22 @@ How it works (`seed/src/endpoint-files.ts`, `endpoint-agent.ts`,
   one) is swapped for the proxy's, and the public demo is unaffected (an
   enrollment never checks the transport; only the install command shown in the
   UI warns about plain http).
+- **A backup job per tenant.** Since release 0.2.1 a newly enrolled machine has
+  the schedule `none` and no folders until it is a member of a backup job, and
+  would show as "Without backup". So right after enrolling a machine the seed does
+  what an administrator does in the UI, over the real API
+  (`seed/src/endpoint-job.ts`, with the seed token like every seed write): it
+  creates a machine job named "Machines" in the machine's tenant (`POST
+  /api/v1/backup-jobs`, kind `endpoint`, daily at 02:00 Europe/Berlin) with the
+  machine as member and its own folders as the member's setting (a further machine
+  of the same tenant joins through `POST /backup-jobs/{id}/members`). The server
+  writes the schedule and folders into the machine's configuration, bumps the
+  configuration version and queues an `update_config` task; the simulated agent
+  fetches the configuration again before its first backup and the seed stops when
+  it still has no folders or no schedule. Every backup, and the run simulator,
+  then uses that configuration. The demo guard needs no exception: the seed token
+  already opens every write for the seed, a visitor still cannot create or change
+  a job.
 - **History.** One snapshot per simulated day for the last
   `RESTOW_DEMO_HISTORY_DAYS` days (default 30), stamped with the moment it
   stands for (`restic backup --time`): the server nightly at 22:00 Berlin time,
@@ -552,9 +568,10 @@ How it works (`seed/src/endpoint-files.ts`, `endpoint-agent.ts`,
 - **Online between resets.** The seed backs the machines up once, during the
   nightly reset. A real agent also sends a heartbeat every five minutes, and a
   server that is silent for two hours counts as down, so a small sidecar
-  (`agent-sim`, `seed/src/heartbeat.ts`, 96 MB, no other duty) keeps sending
-  heartbeats with the logins the seed leaves on the `demo-agents` volume.
-  It never starts a backup or a restore.
+  (`agent-sim`, `seed/src/heartbeat.ts`, 96 MB) keeps sending heartbeats with
+  the logins the seed leaves on the `demo-agents` volume. Its only other duty
+  is the simulated live runs (see "Simulated live runs"); it never runs restic,
+  never uploads anything and never starts a real backup or a restore.
 - **What a visitor can do.** Browse the snapshots and folders of both
   machines, search the reports, and download files or folders as a ZIP (the demo
   guard allows `POST /api/v1/endpoints/:id/downloads`, rate-limited per
@@ -563,8 +580,9 @@ How it works (`seed/src/endpoint-files.ts`, `endpoint-agent.ts`,
   changing its settings and revealing its repository password are refused.
 
 Honest limits of the simulation: a restore test samples 6 files per backup (the
-agent takes up to 20) to keep the nightly reset short; runs last seconds, so no
-live progress is reported; Windows is not part of Restow 0.2.0 and not
+agent takes up to 20) to keep the nightly reset short; the seed's own runs last
+seconds, so the live progress a visitor sees comes from the simulated runs (see
+"Simulated live runs"); Windows is not part of Restow 0.2.1 and not
 simulated. The first retention and repository check of each machine ran early
 in the history, so right after a reset the machine page shows them as weeks old
 and the repository size as "not measured yet"; the scheduler repeats both at
@@ -572,11 +590,72 @@ its next hourly pass (its jobs are spaced by the hour) and the page fills in. Th
 machines' repositories (about a megabyte each) live in the capped `demo-data`
 volume with everything else.
 
+## Simulated live runs
+
+A real backup of the demo's few megabytes is over in seconds, so without help a
+visitor would almost never see a backup running. The agent sidecar (`agent-sim`)
+therefore plays backups of the two simulated machines that run for minutes, with
+live progress, through the same agent API a real agent uses
+(`seed/src/run-sim.ts` plans them, `seed/src/run-simulator.ts` plays them):
+
+- **What a run sends.** `POST /agent/v1/runs` (a scheduled backup), then
+  `POST /agent/v1/runs/:id/progress` every 5 seconds with files and bytes done,
+  the totals and the current file, then `POST /agent/v1/runs/:id/finish`, with the
+  machine's own login and the seed token, like the seed. The server turns that
+  into the run's progress, its throughput history (`run_samples`) and the live
+  channel, exactly as for a real machine: the run shows as running in History
+  and on the machine, with percentage, ETA, current file, the throughput chart and
+  the run detail panel, and ends with statistics and a run log. The machine's
+  heartbeat says "running" meanwhile.
+- **What it looks like.** Each run lasts 2 to 6 minutes over a made-up data set
+  of the machine's size (about 28,000 files and 18 GiB for `fileserver-01`,
+  about 13,000 files and 12 GiB for `laptop-jdoe`), at a pace that drifts, bursts
+  through large files and crawls through small ones. The first report comes
+  before the scanner has counted, without totals. About one run in ten ends
+  **partial**, with one file that could not be read (`read_error`); the others
+  succeed.
+- **When.** One machine runs at a time per tenant (the two machines belong to
+  different tenants) and at most two at once. Whenever nothing runs, the next
+  run starts within 20 seconds; a machine otherwise rests about four minutes
+  (±50 %) after each of its runs, so at almost any moment one run is going and
+  now and then both are. That is a few hundred runs per machine and day, in the
+  run history and the per-day run counts; the nightly reset clears them.
+- **Nothing stored.** No file is read and nothing is uploaded, so the
+  repositories and the capped `demo-data` volume do not grow. A finished run
+  reports the machine's newest real snapshot again (the seed records its id in
+  the `demo-agents` state file), with statistics that say what that means:
+  every file unmodified, nothing added. The restore tests, the sample hashes and
+  the readiness stay the ones the seed proved; the "uploaded" throughput chart
+  stays at zero, which is what the server measures. Only the run rows and their
+  throughput points go to Postgres.
+- **Stopping and outages.** On SIGTERM (`docker compose stop`, the nightly
+  reset) a run in progress is closed as *interrupted*, as a real agent restarted
+  mid-run reports it (no alert, no failed backup), and the sidecar exits within
+  8 seconds. The ids of the runs in flight are kept in a small file in the
+  container's `/tmp`; a sidecar that was killed instead closes them the same way
+  when it starts again. While the API is away the simulator backs off (5
+  seconds, doubling, at most 5 minutes); a run the server no longer knows is
+  dropped.
+- **Settings** (`.env`, passed to `agent-sim` by `docker-compose.yml`):
+  `RESTOW_DEMO_SIM_RUNS` (default `true`; `false` leaves only the heartbeats),
+  `RESTOW_DEMO_SIM_INTERVAL_SECONDS` (rest per machine, default 240),
+  `RESTOW_DEMO_SIM_MIN_DURATION_SECONDS` / `RESTOW_DEMO_SIM_MAX_DURATION_SECONDS`
+  (default 120 / 360, clamped to 20-3600) and `RESTOW_DEMO_SIM_PROGRESS_SECONDS`
+  (default 5, clamped to 2-60, well inside the agent API's 600 calls per machine
+  and 10 minutes). A value that is not a number stops the sidecar with an error
+  instead of being ignored. Change them with `docker compose up -d agent-sim`.
+
+The mail side needs none of this: the recommended schedules back every mailbox
+up for real every 8 hours, and a visitor's "Back up now" starts a real backup
+(one per tenant at a time); both report their progress through the worker
+(`job_progress`) and show live, but over the demo's small mailboxes they finish
+in seconds.
+
 ## The mail archive
 
-Restow 0.2.0 has **no continuous IMAP (or Graph) archive sync**: the worker has
+Restow 0.2.1 has **no continuous IMAP (or Graph) archive sync**: the worker has
 no handler for the archive queue and the schedule kind is not offered (the
-README and the changelog say so too). An archive item in 0.2.0 is written by
+README and the changelog say so too). An archive item in 0.2.1 is written by
 the journal receiver (Exchange Online journaling, Business edition, needs a TLS
 certificate) or by a mail file import with "also archive" (`docs/IMPORT.md`,
 `docs/ARCHIVE.md`). The demo has no Exchange, so its archive is filled by the
@@ -590,7 +669,7 @@ import (`seed/src/archive-seed.ts`):
   under Sources as the import source), and for each message an archive item:
   stored byte-exact, chained into the tenant's hash chain, indexed for full text
   search, with the retention date of the archive's fixed default policy (8 years
-  from the end of the year of capture; Restow 0.2.0 has no API or screen to set
+  from the end of the year of capture; Restow 0.2.1 has no API or screen to set
   another archive policy, so the seed does not invent one).
 - The archive page shows the items, search finds them, and the chain
   verification is green. One example **legal hold** is placed on the Example

@@ -4,7 +4,21 @@ import {
   bulkProtectionSchema,
   objectsFilterSchema,
   objectsQuerySchema,
+  peopleQuerySchema,
 } from "./schemas.js";
+
+describe("peopleQuerySchema", () => {
+  it("searches everyone by default and caps the page", () => {
+    expect(peopleQuerySchema.parse({})).toEqual({ search: "", limit: 20 });
+    expect(peopleQuerySchema.parse({ search: "  ali ", limit: "5" })).toEqual({
+      search: "ali",
+      limit: 5,
+    });
+    expect(peopleQuerySchema.safeParse({ limit: "0" }).success).toBe(false);
+    expect(peopleQuerySchema.safeParse({ limit: "101" }).success).toBe(false);
+    expect(peopleQuerySchema.safeParse({ search: "x".repeat(201) }).success).toBe(false);
+  });
+});
 
 describe("objectsQuerySchema", () => {
   it("reads `sharedOrBlocked` from the query string as `true`/`false` text", () => {

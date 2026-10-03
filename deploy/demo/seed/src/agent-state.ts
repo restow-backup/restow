@@ -6,7 +6,8 @@ import { nextDailyRun } from "./tz.js";
  * volume only the seed and the sidecar mount. A real agent keeps the same in
  * `/etc/restow-agent/state.json` (mode 0600). The sidecar keeps the machines
  * "online" between the nightly resets, as a real agent does with its heartbeat
- * every five minutes, so the server list never shows a made-up outage.
+ * every five minutes, so the server list never shows a made-up outage, and
+ * plays the machines' simulated live runs with them (run-sim.ts).
  */
 
 export interface AgentStateEntry {
@@ -18,6 +19,12 @@ export interface AgentStateEntry {
   configVersion: number;
   profile: "server" | "client";
   schedule: { kind: string; timeOfDay?: string; timeZone?: string; intervalMinutes?: number };
+  /** The tenant the machine belongs to (company.ts slug): the run simulator runs one job per tenant at a time. */
+  tenant?: string;
+  /** The folders the machine backs up, for the simulated runs' "current file". */
+  paths?: string[];
+  /** The newest real snapshot of the machine, which a simulated run reports again (run-sim.ts). */
+  lastSnapshotId?: string;
 }
 
 export interface AgentStateFile {
@@ -25,6 +32,8 @@ export interface AgentStateFile {
   agents: AgentStateEntry[];
 }
 
+/** A full restic snapshot id. */
+const SNAPSHOT_ID = /^[0-9a-f]{64}$/;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function serializeState(agents: readonly AgentStateEntry[]): string {
@@ -57,7 +66,12 @@ export function parseState(text: string): AgentStateFile {
       typeof entry.configVersion !== "number" ||
       (entry.profile !== "server" && entry.profile !== "client") ||
       typeof entry.schedule !== "object" ||
-      entry.schedule === null
+      entry.schedule === null ||
+      (entry.tenant !== undefined && typeof entry.tenant !== "string") ||
+      (entry.paths !== undefined &&
+        (!Array.isArray(entry.paths) || entry.paths.some((path) => typeof path !== "string"))) ||
+      (entry.lastSnapshotId !== undefined &&
+        (typeof entry.lastSnapshotId !== "string" || !SNAPSHOT_ID.test(entry.lastSnapshotId)))
     ) {
       throw new Error(`agent ${index} of the state file is incomplete`);
     }

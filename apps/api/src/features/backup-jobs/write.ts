@@ -35,7 +35,7 @@ import { backupBlockedReason } from "../jobs/dto.js";
 import { isMissingQueueSchema } from "../jobs/queue.js";
 import { enqueueBackup } from "../jobs/service.js";
 import type { BackupJobDto, RunBackupJobResult } from "./dto.js";
-import { syncEndpointConfigs } from "./endpoint-sync.js";
+import { releaseEndpointConfigs, syncEndpointConfigs } from "./endpoint-sync.js";
 import { sameJson } from "./json.js";
 import { loadAllMembers, loadObjectInfos, loadPrimaryTarget, objectName } from "./loaders.js";
 import { type ReadOptions, jobDto, loadJob } from "./read.js";
@@ -887,16 +887,26 @@ export async function deleteBackupJob(
   tenantId: string,
   id: string,
   actor: JobActor,
+  now: Date = new Date(),
 ): Promise<void> {
   await withTenantTx(db, tenantId, async (tx) => {
     const job = await loadJob(tx, tenantId, id);
     const members = await tx
-      .select({ id: backupJobMembers.id })
+      .select({ id: backupJobMembers.id, endpointId: backupJobMembers.endpointId })
       .from(backupJobMembers)
       .where(eq(backupJobMembers.jobId, id));
     // The schedules this job replaced stay replaced (no foreign key on purpose): deleting a job
-    // never revives them. Machines keep the configuration last written to them.
+    // never revives them. Its machines go back to waiting for a job (schedule `none`).
     await tx.delete(backupJobs).where(eq(backupJobs.id, id));
+    if (job.kind === "endpoint") {
+      await releaseEndpointConfigs(
+        tx,
+        tenantId,
+        job,
+        members.flatMap((member) => (member.endpointId ? [member.endpointId] : [])),
+        { actor, now },
+      );
+    }
     await auditJob(tx, tenantId, actor, BACKUP_JOB_AUDIT_ACTIONS.deleted, id, {
       ...definitionOf(job),
       members: members.length,
@@ -995,6 +1005,13 @@ export async function replaceMembers(
         now,
         confirmHookChange: context.confirmHookChange,
       });
+      await releaseEndpointConfigs(
+        tx,
+        tenantId,
+        job,
+        removed.map((member) => targetOf(member)),
+        { actor, now },
+      );
     }
     if (added.length + removed.length + overridesChanged > 0 || mode !== job.scopeMode) {
       await auditMoved(tx, tenantId, actor, moved, { id, name: job.name });
@@ -1094,6 +1111,9 @@ export async function removeMember(
       });
     }
     await tx.delete(backupJobMembers).where(eq(backupJobMembers.id, member.id));
+    if (job.kind === "endpoint") {
+      await releaseEndpointConfigs(tx, tenantId, job, [targetId], { actor, now });
+    }
     await auditJob(tx, tenantId, actor, BACKUP_JOB_AUDIT_ACTIONS.scopeChanged, id, {
       name: job.name,
       mode: job.scopeMode,

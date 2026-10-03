@@ -19,7 +19,7 @@ import { type BackupSummary, Restic, type ResticNode } from "./restic.js";
  */
 
 /** The version the simulated agents report: the agent's own (agent/dist/VERSION). */
-export const AGENT_VERSION = "0.2.0";
+export const AGENT_VERSION = "0.2.1";
 const SNAPSHOT_TAG = "restow-agent";
 /** Files per restore test. The agent takes up to 20; the demo keeps its nightly reset short. */
 export const SAMPLE_FILES = 6;
@@ -195,6 +195,9 @@ export interface AgentState {
   configVersion: number;
   profile: "server" | "client";
   schedule: AgentConfig["schedule"];
+  tenant?: string;
+  paths?: string[];
+  lastSnapshotId?: string;
 }
 
 export class SimAgent {
@@ -206,6 +209,7 @@ export class SimAgent {
   private config: AgentConfig | null = null;
   private resticVersion = "";
   private clock: () => Date = () => new Date();
+  private lastSnapshotId: string | null = null;
 
   constructor(private readonly options: SimAgentOptions) {}
 
@@ -262,6 +266,10 @@ export class SimAgent {
       configVersion: this.configVersion,
       profile: machine.kind,
       schedule: this.config?.schedule ?? { kind: "daily" },
+      // What the run simulator of the sidecar needs (run-sim.ts).
+      tenant: machine.tenantSlug,
+      paths: [...(this.config?.paths ?? [])],
+      ...(this.lastSnapshotId ? { lastSnapshotId: this.lastSnapshotId } : {}),
     };
   }
 
@@ -398,6 +406,7 @@ export class SimAgent {
         `Some files could not be read (${result.errors.length} errors); the snapshot is incomplete. Details are listed in the errors of this run.`,
       );
     }
+    this.lastSnapshotId = result.snapshotId;
     const sample = await this.collectSample(runner, result.snapshotId, log, rng);
     const status = result.partial ? "partial" : "succeeded";
     log.info(`Run finished: ${status}.`);

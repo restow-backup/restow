@@ -5,6 +5,7 @@ import type { Logger } from "./logger.js";
 import type { Clock } from "./ops.js";
 import type { Preflight } from "./preflight.js";
 import {
+  type SelfUpdateView,
   type StateView,
   type UpdaterError,
   type UpdaterErrorCode,
@@ -37,6 +38,8 @@ export interface ServerDeps {
   updaterVersion: string | null;
   logger: Logger;
   redactor: Redactor;
+  /** The updater's own update (self-update.ts); null when this updater has none. */
+  selfUpdate?: () => SelfUpdateView | null;
 }
 
 const STATUS_OF: Record<UpdaterErrorCode, 401 | 404 | 409 | 422 | 500> = {
@@ -83,6 +86,7 @@ export function buildServer(deps: ServerDeps): Hono {
       history: view.history,
       events: view.events,
       capabilities: await deps.preflight.get(refresh),
+      selfUpdate: deps.selfUpdate?.() ?? null,
       serverTime: deps.clock.now().toISOString(),
     };
   };

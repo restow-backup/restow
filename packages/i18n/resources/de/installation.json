@@ -13,6 +13,7 @@
     "defaultStorage": "Speicher-Standard",
     "providerApi": "Provider-API",
     "updates": "Updates",
+    "edition": "Edition",
     "about": "Über"
   },
   "descriptions": {
@@ -23,6 +24,7 @@
     "defaultStorage": "Wo Daten liegen für {scope, select, organisation {Ihre Organisation} other {jeden Mandanten ohne eigenes Speicherziel}}.",
     "providerApi": "Schlüssel für RMM- und PSA-Werkzeuge, die über alle Mandanten hinweg arbeiten.",
     "updates": "Welche Version läuft, welche Releases es gibt und wie Sie aktualisieren.",
+    "edition": "Welcher Build läuft und der Wechsel auf den vollen Build.",
     "about": "Version, Quellcode und Lizenzen dieser Installation."
   },
   "access": {
@@ -61,7 +63,7 @@
     "loadError": "Der Speicher-Standard konnte nicht gelesen werden.",
     "card": {
       "title": "Speicher-Standard",
-      "description": "Wo Daten liegen, wenn {scope, select, organisation {Ihre Organisation kein eigenes Speicherziel hat} other {ein Mandant kein eigenes Speicherziel hat}}. Der Standard kommt aus der Server-Umgebung und lässt sich hier nicht ändern."
+      "description": "Wo Daten liegen, wenn {scope, select, organisation {Ihre Organisation kein eigenes Speicherziel hat} other {ein Mandant kein eigenes Speicherziel hat}}. Er wird unten festgelegt oder kommt, ohne gespeicherte Einstellung, aus der Server-Umgebung."
     },
     "kind": {
       "local": "Verzeichnis auf dem Server",
@@ -80,7 +82,9 @@
     },
     "misconfigured": {
       "title": "Die Speichereinstellungen sind ungültig",
-      "description": "STORAGE_TARGET, STORAGE_LOCAL_PATH oder die S3_*-Werte in der .env-Datei des Servers beschreiben keinen nutzbaren Speicher. Korrigieren Sie sie und starten Sie {appName} neu."
+      "description": "STORAGE_TARGET, STORAGE_LOCAL_PATH oder die S3_*-Werte in der .env-Datei des Servers beschreiben keinen nutzbaren Speicher. Korrigieren Sie sie und starten Sie {appName} neu, oder speichern Sie unten einen Speicher-Standard.",
+      "savedTitle": "Der gespeicherte Speicher-Standard ist nicht nutzbar",
+      "savedDescription": "Der auf dieser Seite gespeicherte Speicher-Standard lässt sich nicht öffnen, zum Beispiel weil sich der Hauptschlüssel geändert hat. Speichern Sie ihn unten erneut."
     },
     "test": {
       "title": "Test",
@@ -93,7 +97,44 @@
       "failedAt": "Er brach bei diesem Schritt ab: {step}."
     },
     "errors": {
-      "misconfigured": "Die Speichereinstellungen in der Umgebung sind ungültig, es gibt also nichts zu testen."
+      "misconfigured": "Die Speichereinstellungen in der Umgebung sind ungültig, es gibt also nichts zu testen.",
+      "environmentInvalid": "Die Speichereinstellungen in der Server-Umgebung sind nicht nutzbar, daher lässt sich die gespeicherte Einstellung nicht entfernen. Korrigieren Sie sie zuerst.",
+      "unreachable": "Der Ort hat den Test nicht bestanden, es wurde nichts gespeichert.",
+      "inUse": "Im aktuellen Speicher-Standard liegen Backups, daher kann er noch nicht auf einen anderen Ort zeigen."
+    },
+    "source": {
+      "label": "Festgelegt in",
+      "database": "Auf dieser Seite gespeichert von {who} am {when}",
+      "environment": "Der Server-Umgebung (.env)"
+    },
+    "override": {
+      "title": "Die hier gespeicherte Einstellung hat Vorrang",
+      "description": "Die Server-Umgebung beschreibt ebenfalls einen Speicher-Standard. Er gilt wieder, sobald die hier gespeicherte Einstellung entfernt wird:"
+    },
+    "configure": {
+      "title": "Speicher-Standard ändern",
+      "description": "Ein Verzeichnis auf dem Server oder S3-kompatibler Objektspeicher, mit denselben Einstellungen wie ein Speicherziel. Vor dem Speichern wird dort ein kleines Testobjekt geschrieben, gelesen, gelistet und gelöscht; ein Ort, der den Test nicht besteht, wird nicht gespeichert. Zugangsschlüssel werden verschlüsselt gespeichert und nie wieder angezeigt.",
+      "testHint": {
+        "local": "Das Verzeichnis muss auf dem Server bereits existieren und beschreibbar sein, zum Beispiel ein eingebundenes Volume oder eine Freigabe.",
+        "s3": "Lassen Sie beide Schlüsselfelder leer, um das gespeicherte Schlüsselpaar zu behalten. Es wird nur für den Endpunkt verwendet, für den es gespeichert wurde."
+      },
+      "save": "Testen und speichern",
+      "saved": "Speicher-Standard gespeichert.",
+      "remove": "Wieder die Server-Umgebung nutzen",
+      "removeTitle": "Wieder die Server-Umgebung nutzen?",
+      "removeDescription": "Die hier gespeicherte Einstellung wird entfernt, und der Speicher-Standard aus der Server-Umgebung gilt wieder. Er wird vorher getestet:",
+      "removeConfirm": "Server-Umgebung nutzen",
+      "removed": "Die Server-Umgebung gilt wieder."
+    },
+    "blockers": {
+      "title": "{scope, select, organisation {Ihre Organisation hat Backups im aktuellen Standard} other {Mandanten haben Backups im aktuellen Standard}}",
+      "description": "Würde der Standard auf einen anderen Ort zeigen, blieben diese Backups zurück. Deshalb sind nur Änderungen möglich, die den Ort beibehalten: Schlüsselpaar, Region oder Adressierung. Geben Sie zuerst {scope, select, organisation {Ihrer Organisation} other {jedem aufgeführten Mandanten}} unter Speicher ein eigenes Speicherziel: Ersetzen Sie das primäre Repository und verschieben Sie die vorhandenen Backups, oder fügen Sie eine Kopie hinzu und machen Sie sie zum primären Repository, sobald sie vollständig ist.",
+      "reasons": {
+        "data": "hat hier Backups",
+        "previous": "ältere Backups liegen nach einem Wechsel noch hier",
+        "migration": "wird gerade von hier verschoben",
+        "active_job": "ein Backup oder ein anderer Speicherjob ist eingeplant oder läuft"
+      }
     }
   },
   "journal": {

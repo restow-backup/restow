@@ -16,11 +16,13 @@ import { randomBytes } from "node:crypto";
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { LocalStorageBackend } from "@restow/core";
 import {
   type Database,
   auditLog,
   createDb,
   providers,
+  secrets,
   settings,
   storageTargets,
   tenants,
@@ -37,6 +39,7 @@ import {
 const DATABASE = "restow_api_defstorage_test";
 
 type Service = typeof import("./default-storage.js");
+type DefaultStorageDeps = import("./default-storage.js").DefaultStorageDeps;
 
 const actor = { id: "provider-admin", email: "admin@provider.test", ip: "192.0.2.10" };
 
@@ -207,5 +210,197 @@ describe.skipIf(!testDatabaseAdminUrl)("default storage against Postgres", () =>
       .from(auditLog)
       .where(eq(auditLog.action, "settings.default_storage.tested"));
     expect(own.every((entry) => entry.tenantId === null)).toBe(true);
+  });
+
+  describe("saving the default in the web UI", () => {
+    const env = () => ({ STORAGE_TARGET: "local", STORAGE_LOCAL_PATH: join(root, "env-chunks") });
+    const saved = () =>
+      db
+        .select()
+        .from(secrets)
+        .where(and(isNull(secrets.tenantId), eq(secrets.kind, "default_storage")));
+    const fakeOpen: NonNullable<DefaultStorageDeps["open"]> = (location) => ({
+      location,
+      backend: new LocalStorageBackend(join(root, "unused")),
+      probe: async () => ({
+        ok: true,
+        checkedAt: "2026-10-02T12:00:00.000Z",
+        durationMs: 1,
+        failedStep: null,
+        errorCode: null,
+        error: null,
+        steps: [],
+        warnings: [],
+      }),
+      detectObjectLock: async () => ({
+        status: "disabled",
+        mode: null,
+        defaultRetentionDays: null,
+        defaultRetentionYears: null,
+        reason: null,
+        detail: null,
+        checkedAt: "2026-10-02T12:00:00.000Z",
+      }),
+    });
+
+    it("refuses a location that fails the probe and saves nothing", async () => {
+      await expect(
+        service.saveDefaultStorage(
+          providerDb,
+          { kind: "local", config: { basePath: join(root, "does-not-exist") } },
+          actor,
+          { env: env() },
+        ),
+      ).rejects.toMatchObject({
+        status: 422,
+        type: "urn:restow:problem:settings-default-storage-unreachable",
+      });
+      expect(await saved()).toHaveLength(0);
+    });
+
+    it("saves a reachable local path; it wins over the environment and the view says so", async () => {
+      const path = join(root, "gui-chunks");
+      await mkdir(path, { recursive: true });
+      const result = await service.saveDefaultStorage(
+        providerDb,
+        { kind: "local", config: { basePath: path } },
+        actor,
+        { env: env() },
+      );
+      expect(result.probe?.ok).toBe(true);
+      expect(result.view).toMatchObject({
+        configured: true,
+        source: "database",
+        location: path,
+        saved: { kind: "local", local: { basePath: path }, updatedBy: "admin@provider.test" },
+        environment: { configured: true, location: join(root, "env-chunks") },
+      });
+      expect(await saved()).toHaveLength(1);
+      const [entry] = await db
+        .select()
+        .from(auditLog)
+        .where(eq(auditLog.action, "settings.default_storage.saved"));
+      expect(entry).toMatchObject({
+        tenantId: null,
+        details: { ok: true, location: path, previousSource: "environment" },
+      });
+    });
+
+    it("keeps an S3 key pair write-only and only for the endpoint it was saved for", async () => {
+      const config = {
+        bucket: "restow-default",
+        endpoint: "https://fsn1.your-objectstorage.com",
+        region: "fsn1",
+      };
+      // The current default (gui-chunks) holds no tenant data yet, so it may move.
+      const result = await service.saveDefaultStorage(
+        providerDb,
+        {
+          kind: "s3",
+          config,
+          credentials: { accessKeyId: "AKIAEXAMPLE1234", secretAccessKey: "very-secret-key" },
+        },
+        actor,
+        { env: env(), open: fakeOpen },
+      );
+      expect(result.view.saved?.s3).toMatchObject({
+        hasCredentials: true,
+        accessKeyIdHint: "1234",
+      });
+      expect(JSON.stringify(result)).not.toContain("very-secret-key");
+
+      // Same endpoint, no pair: the saved one is kept.
+      await expect(
+        service.saveDefaultStorage(
+          providerDb,
+          { kind: "s3", config: { ...config, region: "nbg1" } },
+          actor,
+          { env: env(), open: fakeOpen },
+        ),
+      ).resolves.toMatchObject({
+        view: { saved: { s3: { region: "nbg1", hasCredentials: true } } },
+      });
+
+      // Another endpoint needs the pair again.
+      await expect(
+        service.saveDefaultStorage(
+          providerDb,
+          { kind: "s3", config: { ...config, endpoint: "https://s3.example.net" } },
+          actor,
+          { env: env(), open: fakeOpen },
+        ),
+      ).rejects.toMatchObject({
+        status: 422,
+        type: "urn:restow:problem:settings-default-storage-credentials-required",
+      });
+    });
+
+    it("refuses to move the default while a tenant keeps data on it, naming the tenant", async () => {
+      const path = join(root, "gui-chunks");
+      await service.saveDefaultStorage(
+        providerDb,
+        { kind: "local", config: { basePath: path } },
+        actor,
+        { env: env() },
+      );
+      // Northwind retired the default with a "keep" replacement: its older backups still live there.
+      const [northwind] = await db.select().from(tenants).where(eq(tenants.slug, "northwind"));
+      await db.insert(storageTargets).values({
+        tenantId: northwind?.id ?? "",
+        kind: "installation_default",
+        role: "previous",
+        config: {},
+      });
+      const elsewhere = join(root, "elsewhere");
+      await mkdir(elsewhere, { recursive: true });
+      const refused = service.saveDefaultStorage(
+        providerDb,
+        { kind: "local", config: { basePath: elsewhere } },
+        actor,
+        { env: env() },
+      );
+      await expect(refused).rejects.toMatchObject({
+        status: 409,
+        type: "urn:restow:problem:settings-default-storage-in-use",
+        extensions: {
+          blockers: [{ tenantId: northwind?.id, tenantName: "Northwind", reasons: ["previous"] }],
+        },
+      });
+      // The view lists the same tenant; removing the saved default (back to the environment) is refused too.
+      const view = await service.getDefaultStorage(providerDb, { env: env() });
+      expect(view.blockers.map((blocker) => blocker.tenantName)).toEqual(["Northwind"]);
+      await mkdir(join(root, "env-chunks"), { recursive: true });
+      await expect(
+        service.removeDefaultStorage(providerDb, actor, { env: env() }),
+      ).rejects.toMatchObject({
+        status: 409,
+      });
+      // Saving the same location again (nothing moves) stays possible.
+      await expect(
+        service.saveDefaultStorage(
+          providerDb,
+          { kind: "local", config: { basePath: path } },
+          actor,
+          { env: env() },
+        ),
+      ).resolves.toMatchObject({ view: { location: path } });
+
+      await db.delete(storageTargets).where(eq(storageTargets.kind, "installation_default"));
+    });
+
+    it("removes the saved default, so the environment applies again", async () => {
+      const result = await service.removeDefaultStorage(providerDb, actor, { env: env() });
+      expect(result.view).toMatchObject({
+        source: "environment",
+        location: join(root, "env-chunks"),
+        saved: null,
+      });
+      expect(await saved()).toHaveLength(0);
+      const removed = await db
+        .select()
+        .from(auditLog)
+        .where(eq(auditLog.action, "settings.default_storage.removed"));
+      expect(removed).toHaveLength(1);
+    });
   });
 });

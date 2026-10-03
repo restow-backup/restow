@@ -57,6 +57,15 @@ export { type PageTab, PageTabs, type PageTabsProps } from "./page-tabs.js";
 export { ReadOnlyGroup } from "./read-only-group.js";
 export { RefreshButton, type RefreshButtonProps } from "./refresh-button.js";
 export { SetInInstallation } from "./set-in-installation.js";
+export { RestoreTimeline, type RestoreTimelineProps } from "./restore-timeline.js";
+export {
+  type DayRelation,
+  type TimelineDay,
+  dayAtOrBefore,
+  dayRelation,
+  groupByLocalDay,
+  localDayKey,
+} from "./restore-timeline-model.js";
 export {
   RelativeTime,
   type RelativeTimeProps,

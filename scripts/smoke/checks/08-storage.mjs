@@ -1,6 +1,6 @@
 /**
  * Check 8: storage targets. S3 (Garage in a container), a local path, and a
- * bind-mounted directory that stands in for an NFS or SMB share each take
+ * bind-mounted directory that stands in for an NFS share each take
  * writes, serve reads and pass a scrub. Every target belongs to its own
  * tenant: a mailbox is backed up to it (write), the restore check reads the
  * data back (read) and a scrub job verifies the packs (scrub).
@@ -120,7 +120,7 @@ export async function storageTargets(ctx, check) {
     },
     {
       key: "nfs",
-      title: "mounted directory (NFS/SMB stand-in)",
+      title: "mounted directory (NFS stand-in)",
       login: "nfsbox@smoke.test",
       prepare: () => mkdirSync(join(stack.nfsDir, "restow"), { recursive: true }),
       body: () => ({

@@ -85,11 +85,45 @@ export function parseDetailSearch(search: Record<string, unknown>): { tab?: Endp
   return tab === "overview" ? {} : { tab };
 }
 
-/** Search of the file restore page: the chosen machine. */
-export function parseFileRestoreSearch(search: Record<string, unknown>): { machine?: string } {
-  return typeof search.machine === "string" &&
-    search.machine.length > 0 &&
-    search.machine.length <= 64
-    ? { machine: search.machine }
-    : {};
+/**
+ * Search of the file restore page: the chosen machine (`?machine=`) or the
+ * chosen mailbox (`?mailbox=`, a protected mail object of the restore
+ * explorer). Only one is chosen at a time; given both, the machine wins.
+ */
+export interface FileRestoreSearch {
+  machine?: string;
+  mailbox?: string;
+}
+
+function searchId(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 && value.length <= 64 ? value : null;
+}
+
+export function parseFileRestoreSearch(search: Record<string, unknown>): FileRestoreSearch {
+  const machine = searchId(search.machine);
+  if (machine) {
+    return { machine };
+  }
+  const mailbox = searchId(search.mailbox);
+  return mailbox ? { mailbox } : {};
+}
+
+/** A link target as `<Link {...target}>` or `navigate(target)` take it. */
+export interface FileRestoreTarget {
+  to: LinkProps["to"];
+  search: FileRestoreSearch;
+}
+
+/**
+ * File restore with this machine chosen: its restore points and the file
+ * browser. The machine table's "Restore files" leads here
+ * (`<Link {...fileRestoreTo(id)}>`).
+ */
+export function fileRestoreTo(machineId: string): FileRestoreTarget {
+  return { to: FILE_RESTORE_PATH as LinkProps["to"], search: { machine: machineId } };
+}
+
+/** File restore with this mailbox chosen: its restore points on the same timeline. */
+export function fileRestoreMailboxTo(mailboxId: string): FileRestoreTarget {
+  return { to: FILE_RESTORE_PATH as LinkProps["to"], search: { mailbox: mailboxId } };
 }

@@ -620,7 +620,12 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
       defaults: storage,
       logger: noopLogger,
     });
-    expect(defaults).toEqual({ ...storage, previous: [], keepGeneration: null });
+    expect(defaults).toEqual({
+      ...storage,
+      previous: [],
+      keepGeneration: null,
+      defaultGeneration: null,
+    });
 
     await db.insert(storageTargets).values([
       {

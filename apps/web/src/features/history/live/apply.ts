@@ -387,7 +387,11 @@ export function applyDefinition(context: LiveContext, live: BackupJobLive): void
       return job;
     }
     // Its runs moved: the members' last backups and checks, and the runs tab, moved with them.
-    if (job.lastRun.at !== live.lastRun.at || job.lastRun.running !== live.lastRun.running) {
+    if (
+      job.lastRun.at !== live.lastRun.at ||
+      job.lastRun.running !== live.lastRun.running ||
+      job.lastRun.queued !== live.lastRun.queued
+    ) {
       moved = true;
     }
     return mergeDefinition(job, live);

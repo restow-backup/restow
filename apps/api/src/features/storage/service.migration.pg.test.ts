@@ -16,6 +16,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  InstallationDefaultResolver,
   LocalStorageBackend,
   manifestKey,
   packKey,
@@ -41,6 +42,7 @@ import {
 import { eq } from "drizzle-orm";
 import PgBoss from "pg-boss";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { setInstallationDefaultResolver } from "../../lib/installation-default.js";
 import { ProblemError } from "../../problem.js";
 import {
   dropDatabase,
@@ -57,6 +59,12 @@ import {
   retryMigration,
   updateTarget,
 } from "./service.js";
+
+// These suites set the installation default in the environment (STORAGE_*); read it from there,
+// uncached, instead of from the installation pool of a configured server
+// (lib/installation-default.ts).
+beforeAll(() => setInstallationDefaultResolver(new InstallationDefaultResolver({ ttlMs: 0 })));
+afterAll(() => setInstallationDefaultResolver(null));
 
 const DATABASE = "restow_api_storage_migration_test";
 

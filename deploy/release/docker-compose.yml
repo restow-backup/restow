@@ -15,16 +15,17 @@
 #   cp env.example .env     # (a repository checkout calls it .env.example) then fill in every empty value
 #   docker compose up -d
 #
-# The version to run is named by RESTOW_IMAGE and RESTOW_WEB_IMAGE in .env (the
-# opt-in updater writes the same two variables). Update by changing them and
-# running `docker compose pull && docker compose up -d` (docs/UPDATING.md).
+# The version to run is named by RESTOW_IMAGE and RESTOW_WEB_IMAGE in .env. The
+# opt-in updater (profile `updater`, below) rewrites both itself, with no edit by
+# hand; without it, update by changing them and running
+# `docker compose pull && docker compose up -d` (docs/UPDATING.md).
 # No secret is written in this file: every value comes from .env.
 
 name: restow
 
 # Shared configuration for the three server roles (same image, same env).
 x-restow-app: &restow-app
-  image: ${RESTOW_IMAGE:?set RESTOW_IMAGE in .env (for example ghcr.io/restow-backup/restow:0.2.0 or ghcr.io/restow-backup/restow-community:0.2.0)}
+  image: ${RESTOW_IMAGE:?set RESTOW_IMAGE in .env (for example ghcr.io/restow-backup/restow:0.2.1 or ghcr.io/restow-backup/restow-community:0.2.1)}
   env_file:
     - .env
   depends_on:
@@ -123,7 +124,7 @@ services:
   # for RESTOW_APP_DOMAIN, which must resolve to this host with ports 80 and 443
   # reachable), and proxies /api/* to the api.
   caddy:
-    image: ${RESTOW_WEB_IMAGE:?set RESTOW_WEB_IMAGE in .env (for example ghcr.io/restow-backup/restow-web:0.2.0 or ghcr.io/restow-backup/restow-web-community:0.2.0)}
+    image: ${RESTOW_WEB_IMAGE:?set RESTOW_WEB_IMAGE in .env (for example ghcr.io/restow-backup/restow-web:0.2.1 or ghcr.io/restow-backup/restow-web-community:0.2.1)}
     environment:
       RESTOW_APP_DOMAIN: ${RESTOW_APP_DOMAIN:?set RESTOW_APP_DOMAIN in .env (for example app.example.com)}
       RESTOW_EDGE_HSTS: ${RESTOW_EDGE_HSTS:-}
@@ -148,20 +149,29 @@ services:
   # Applies an update from the Updates tab (Settings): pulls the new images, dumps the
   # database, recreates the services and rolls back when the new version does not come up.
   # WARNING: it mounts the Docker socket, which is root on the host. Nothing runs unless you
-  # start it (docker compose --profile updater up -d). Read "The opt-in updater" in
-  # docs/UPDATING.md first. RESTOW_PROJECT_DIR must be the absolute path of the directory
-  # that holds this file and .env on the host (for example /opt/restow).
-  # Its own image is RESTOW_UPDATER_IMAGE, set in .env before the profile is started: never
-  # RESTOW_IMAGE, which the updater rewrites, so the container with the Docker socket never runs
-  # an image the updater installed. Only the operator changes it (docs/UPDATING.md). It must be
-  # an image of the same build as RESTOW_IMAGE: the updater installs the images of the build it
-  # runs from (full or Community), unless the two repositories below name others.
+  # start it, once, in this directory: docker compose --profile updater up -d
+  # Read "The opt-in updater" in docs/UPDATING.md first. Nothing has to be set in .env for it.
+  #
+  # Its image: there is no separate updater image. The updater is the application image
+  # (RESTOW_IMAGE, for example ghcr.io/restow-backup/restow:0.2.1) started with ROLE=updater.
+  # RESTOW_UPDATER_IMAGE is optional: while it is empty this service starts the image in
+  # RESTOW_IMAGE, and on that first start the updater writes RESTOW_UPDATER_IMAGE into .env,
+  # pinned by digest to the image it runs. From then on the updater's image no longer follows
+  # RESTOW_IMAGE (which every update rewrites); it changes only when an update from a signed
+  # release succeeded: the updater sets RESTOW_UPDATER_IMAGE to that release's verified image,
+  # by digest, and recreates itself (RESTOW_UPDATER_SELF_UPDATE=false switches that off).
+  #
+  # The project directory is mounted at /project and the updater reads its host path from the
+  # mount. Set RESTOW_PROJECT_DIR (absolute path of this directory, e.g. /opt/restow) only to
+  # mount it at the same path instead (the installer does that).
   updater:
     profiles: ["updater"]
-    image: ${RESTOW_UPDATER_IMAGE:-}
+    image: ${RESTOW_UPDATER_IMAGE:-${RESTOW_IMAGE:?set RESTOW_IMAGE in .env}}
     environment:
       ROLE: updater
-      RESTOW_UPDATER_PROJECT_DIR: ${RESTOW_PROJECT_DIR:-/srv/restow}
+      RESTOW_UPDATER_PROJECT_DIR: ${RESTOW_PROJECT_DIR:-}
+      # The updater moves itself to every signed release it installed; false keeps it where it is.
+      RESTOW_UPDATER_SELF_UPDATE: ${RESTOW_UPDATER_SELF_UPDATE:-true}
       RESTOW_UPDATER_API_URL: http://api:3000
       # Repositories the updater may build an update from (source mode); empty = none, the
       # default. Only the operator sets this, in .env (docs/UPDATING.md, "Two modes").
@@ -175,7 +185,7 @@ services:
       - "8090"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - ${RESTOW_PROJECT_DIR:-/srv/restow}:${RESTOW_PROJECT_DIR:-/srv/restow}
+      - ${RESTOW_PROJECT_DIR:-.}:${RESTOW_PROJECT_DIR:-/project}
       - restow-updater:/state
       - restow-updater-shared:/updater-shared
     security_opt:

@@ -95,6 +95,11 @@
       "label": "Never connected",
       "hint": "The agent has not contacted {appName} yet.",
       "message": "The agent has not contacted {appName} yet. Check that the install command ran on the machine and that the machine can reach this address."
+    },
+    "no_job": {
+      "label": "Without backup",
+      "hint": "The machine is in no backup job and is not backed up.",
+      "message": "The machine is in no backup job, so it is not backed up. Create a job or add it to an existing one."
     }
   },
   "list": {
@@ -118,8 +123,25 @@
       "lastBackup": "Last backup",
       "lastSeen": "Last contact",
       "readiness": "Recovery readiness",
+      "job": "Backup job",
+      "assignedTo": "Assigned to",
       "attention": "Needs attention",
-      "agentVersion": "Agent version"
+      "agentVersion": "Agent version",
+      "actions": "Actions"
+    },
+    "actionsFor": "Actions for {name}",
+    "assignedNobody": "Nobody",
+    "rowActions": {
+      "open": "Open machine",
+      "restoreFiles": "Restore files",
+      "noRestorePoint": "The machine has no backup to restore from yet.",
+      "revoked": "The machine is revoked.",
+      "newJobFromSelection": "{count, plural, one {New job with # machine} other {New job with # machines}}",
+      "addSelectionToJob": "{count, plural, one {Add # machine to a job…} other {Add # machines to a job…}}"
+    },
+    "jobFilter": {
+      "without": "Without backup",
+      "in_job": "In a job"
     },
     "errors": {
       "load": "The machines could not be loaded"
@@ -141,6 +163,53 @@
         "title": "No clients yet",
         "description": "Add a laptop or desktop: {appName} creates a one-time command that installs the backup agent. The client is backed up whenever it is online."
       }
+    }
+  },
+  "noJob": {
+    "badge": "Without backup",
+    "hint": "The machine is in no backup job. Only a job decides when and what is backed up.",
+    "title": "This machine is not backed up",
+    "description": "The machine is in no backup job. A newly enrolled machine backs up only once you add it to a job; the job sets the schedule, the folders and the retention.",
+    "descriptionLegacy": "The machine is in no backup job. It still runs the schedule of an earlier release, which can no longer be changed here. Add it to a job so the job sets the schedule, the folders and the retention.",
+    "askAdmin": "Ask an administrator of the tenant to add the machine to a backup job.",
+    "banner": "{count, plural, one {# machine is without backup: it is in no backup job and is not backed up.} other {# machines are without backup: they are in no backup job and are not backed up.}}",
+    "createJob": "Create a job",
+    "addToJob": "Add to job…"
+  },
+  "addToJob": {
+    "title": "{count, plural, one {Add the machine to a job} other {Add # machines to a job}}",
+    "description": "{count, plural, one {Choose the backup job for {name}. The job decides when and what is backed up; the machine picks it up with its next contact.} other {Choose the backup job for the # machines. The job decides when and what is backed up; each machine picks it up with its next contact.}}",
+    "label": "Backup job",
+    "loading": "Loading the jobs …",
+    "noJobs": "There is no job for servers and clients yet. Create one; the machine is already chosen in it.",
+    "machines": "{count, plural, one {# machine} other {# machines}}",
+    "conflict": "{count, plural, one {The machine is in the job {job} by now. A machine is in one job at a time. \"Move here\" moves it to the chosen job.} other {# machines are in other jobs by now, for example {job}. A machine is in one job at a time. \"Move here\" moves them to the chosen job.}}",
+    "cancel": "Cancel",
+    "submit": "Add",
+    "move": "Move here",
+    "added": "{count, plural, one {{name} is now in the job {job}} other {# machines are now in the job {job}}}",
+    "addedNote": "The job's schedule applies from the machine's next contact."
+  },
+  "assign": {
+    "action": "Assign to…",
+    "change": "Change…",
+    "title": "Assign {name} to a person",
+    "description": "Choose the person who uses this machine. The people come from the directory of the tenant (synced from Microsoft 365 or added by hand); nobody gets access to anything by it.",
+    "current": "Assigned to",
+    "remove": "Remove assignment",
+    "search": "Search name or address",
+    "empty": "The directory has no people yet.",
+    "noMatch": "Nobody in the directory matches the search.",
+    "more": "More people match. Type more of the name to narrow the list.",
+    "loadError": "The people of the directory could not be loaded.",
+    "close": "Close",
+    "toast": {
+      "assigned": "{name} is assigned to {person}",
+      "removed": "{name} is assigned to nobody now"
+    },
+    "blocked": {
+      "demo": "This is the public demo: machines can be viewed, but not assigned.",
+      "role": "Your role in the provider team may view machines, but not change them. Assigning a machine needs at least the Administrator role."
     }
   },
   "pending": {
@@ -196,6 +265,7 @@
       "hint": "Shown in the lists instead of the host name. You can change it later."
     },
     "honesty": "The agent backs up files and folders. It does not create disk images, and a bare-metal restore is not possible.",
+    "jobNote": "A new machine is backed up only once you add it to a backup job. The job decides when and what is backed up.",
     "cancel": "Cancel",
     "create": "Create install command",
     "createAnother": "Create a new command",
@@ -240,8 +310,8 @@
       "connected": {
         "title": "Connected",
         "description": {
-          "server": "The server has enrolled. It will be backed up on its schedule; you can also start the first backup right away.",
-          "client": "The client has enrolled. It will be backed up whenever it is online; you can also start the first backup right away."
+          "server": "The server has enrolled. It is backed up only once you add it to a backup job: create a job, or add it to an existing one on its page.",
+          "client": "The client has enrolled. It is backed up only once you add it to a backup job: create a job, or add it to an existing one on its page."
         },
         "open": {
           "server": "Open the server",
@@ -316,7 +386,8 @@
       "queued": "Backup requested",
       "queuedNote": "The machine starts it with its next contact, usually within a few minutes.",
       "already": "A backup is already waiting for this machine.",
-      "failed": "The backup could not be requested"
+      "failed": "The backup could not be requested",
+      "needsJob": "Add the machine to a backup job first."
     },
     "test": {
       "label": "Run restore test",
@@ -347,7 +418,9 @@
     "noNextRun": "None, the machine is revoked",
     "config": "Configuration",
     "job": "Backup job",
-    "jobNone": "None: the machine keeps the configuration it has",
+    "jobNone": "None: the machine is not backed up",
+    "assignedTo": "Assigned to",
+    "assignedNobody": "Nobody",
     "configApplied": "Version {version}, applied on the machine",
     "configPending": "Version {version} is saved; the machine still runs version {applied} and fetches the change with its next contact",
     "configNone": "none",
@@ -522,7 +595,8 @@
       "unrecorded": "Not reported by any backup",
       "future_time": "Dated in the future",
       "hint": "Retention keeps this snapshot. Check the machine: it may be compromised."
-    }
+    },
+    "timelineLabel": "Restore points of {name}"
   },
   "browser": {
     "title": "Files in snapshot {id}",
@@ -614,7 +688,9 @@
     "general": {
       "title": "General",
       "name": "Name",
-      "nameHint": "Shown instead of the host name {hostname}. Leave empty to show the host name."
+      "nameHint": "Shown instead of the host name {hostname}. Leave empty to show the host name.",
+      "assignedTo": "Assigned to",
+      "assignedHint": "The person of the directory who uses this machine. Saved at once, not with the button below."
     },
     "files": {
       "title": "What is backed up",
@@ -635,6 +711,7 @@
     "schedule": {
       "title": "Schedule",
       "description": "When the agent starts a backup.",
+      "noJobDescription": "The backup job the machine is in sets the schedule.",
       "kind": "Run",
       "kinds": {
         "daily": "Daily at a fixed time",
@@ -753,6 +830,7 @@
       "staleAfterDays": "Alerts",
       "quotaGib": "Storage budget"
     },
+    "anchors": "Settings sections",
     "save": {
       "unsaved": "Unsaved changes",
       "clean": "No changes",
@@ -849,8 +927,10 @@
     "hooksNotAllowed": "This machine does not allow hooks from {appName}. An administrator of the machine can allow them there with sudo restow-agent hooks scripts or sudo restow-agent hooks any.",
     "hookNotAScript": "This machine only runs scripts from /etc/restow-agent/hooks.d. Enter the name of a script there, not a command.",
     "configManagedByJob": "This machine is in a backup job, which owns its configuration. Change the schedule, folders, exclusions, commands and bandwidth limit in the job.",
+    "noJob": "This machine is in no backup job, so it is not backed up. Add it to a job first.",
     "recentSignIn": "Confirm it is you first: setting or changing a hook and showing the repository password need a sign-in from the last 10 minutes.",
-    "invalidBandwidthWindows": "The time windows cannot be saved like this. Check the days, the times and that no two windows overlap."
+    "invalidBandwidthWindows": "The time windows cannot be saved like this. Check the days, the times and that no two windows overlap.",
+    "assigneeUnknown": "The person is not in the directory of this tenant (any more). Choose a person from the list."
   },
   "readinessSection": {
     "overdue": "Overdue",
@@ -916,18 +996,46 @@
   },
   "fileRestore": {
     "title": "File restore",
-    "subtitle": "Restore or download files from a restore point of a machine.",
-    "machine": "Machine",
-    "choose": "Choose a machine",
+    "subtitle": "Restore or download files and mails from a restore point of a machine or a mailbox.",
+    "machines": "Machines",
+    "search": "Search machines and mailboxes",
+    "noMatch": "No machine or mailbox matches the search.",
+    "lastBackup": "Last backup {time}",
+    "noBackup": "No backup yet",
     "noTenant": "Choose a tenant at the top to restore files of its machines.",
     "pick": {
-      "title": "Choose a machine",
-      "description": "Choose a machine above. Then pick a restore point, browse it and restore files."
+      "title": "Choose a machine or mailbox",
+      "description": "Choose a machine or a mailbox on the left. Then pick a restore point on its timeline and restore files or mails."
     },
     "empty": {
-      "title": "No machines yet",
-      "description": "Add a server or client in the inventory. Once it is backed up, restore its files here.",
+      "title": "Nothing backed up yet",
+      "description": "Add a server or client in the inventory, or protect mailboxes. Once they are backed up, restore their files and mails here.",
       "action": "Open inventory"
+    },
+    "sources": "Machines and mailboxes",
+    "noMachines": "No machine yet.",
+    "mailboxes": "Mailboxes",
+    "noMailboxes": "No mailbox backed up yet.",
+    "mailboxesError": "The mailboxes could not be loaded.",
+    "mailbox": {
+      "description": "{count, plural, one {# restore point of this mailbox.} other {# restore points of this mailbox.}}",
+      "sequence": "#{sequence}",
+      "items": "{count, plural, one {# item} other {# items}}",
+      "chosen": "Restore point #{sequence} of {time}",
+      "itemsLabel": "Items",
+      "sizeLabel": "Size",
+      "verifiedLabel": "Restore check",
+      "explorerNote": "Mails, folders, calendars and contacts of this restore point are browsed, read and restored in the restore explorer. It opens at exactly this mailbox and restore point.",
+      "open": "Open in restore explorer",
+      "loadError": "The restore points of this mailbox could not be loaded",
+      "empty": {
+        "title": "No restore point yet",
+        "description": "This mailbox has no completed backup yet. Its restore points appear here after the first one."
+      },
+      "notFound": {
+        "title": "Mailbox not found",
+        "description": "This mailbox is not backed up in this tenant. Choose another one on the left."
+      }
     }
   },
   "proxmox": {

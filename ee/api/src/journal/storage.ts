@@ -5,6 +5,7 @@
  * full, writable {@link StorageTargets} the receiver's chunk writer needs.
  */
 import {
+  type InstallationDefaultStorage,
   type SecretReader,
   StorageTargetError,
   type StorageTargets,
@@ -14,25 +15,46 @@ import {
 } from "@restow/core";
 import { secrets, storageTargets } from "@restow/db";
 import { and, asc, eq } from "drizzle-orm";
+import { installationDefaultResolver } from "../../../../apps/api/src/lib/installation-default.js";
 import { loadTenantDek, openSecret } from "../../../../apps/api/src/lib/secrets.js";
 import { type DbExecutor, withTenantTx } from "../../../../apps/api/src/lib/tenant-context.js";
 import { ProblemError } from "../../../../apps/api/src/problem.js";
 
 type Env = Record<string, string | undefined>;
 
-/** The installation-default targets, exactly as the worker and the restore reader build them. */
+function openDefaults(defaults: InstallationDefaultStorage): StorageTargets {
+  const opened = openInstallationDefault(defaults);
+  return {
+    primary: opened.primary.backend,
+    copies: opened.copy ? [opened.copy.backend] : [],
+  };
+}
+
+function notConfigured(error: unknown): unknown {
+  return error instanceof StorageTargetError
+    ? new ProblemError(503, "Storage not configured", { detail: error.message })
+    : error;
+}
+
+/** The installation-default targets an environment describes (tests). */
 export function defaultWritableStorage(env: Env = process.env): StorageTargets {
   try {
-    const opened = openInstallationDefault(installationDefaultStorage(env));
-    return {
-      primary: opened.primary.backend,
-      copies: opened.copy ? [opened.copy.backend] : [],
-    };
+    return openDefaults(installationDefaultStorage(env));
   } catch (error) {
-    if (error instanceof StorageTargetError) {
-      throw new ProblemError(503, "Storage not configured", { detail: error.message });
-    }
-    throw error;
+    throw notConfigured(error);
+  }
+}
+
+/**
+ * The installation-default targets that apply right now, exactly as the worker
+ * and the restore reader resolve them: the default saved under Installation →
+ * Default storage, otherwise the environment.
+ */
+export async function currentDefaultWritableStorage(): Promise<StorageTargets> {
+  try {
+    return openDefaults(await installationDefaultResolver().storage());
+  } catch (error) {
+    throw notConfigured(error);
   }
 }
 
@@ -57,7 +79,7 @@ function tenantSecretReader(tx: DbExecutor, tenantId: string): SecretReader {
 export async function resolveTenantWritableStorage(
   db: DbExecutor,
   tenantId: string,
-  defaults: () => StorageTargets = defaultWritableStorage,
+  defaults: () => StorageTargets | Promise<StorageTargets> = currentDefaultWritableStorage,
 ): Promise<StorageTargets> {
   return withTenantTx(db, tenantId, async (tx) => {
     const rows = await tx
