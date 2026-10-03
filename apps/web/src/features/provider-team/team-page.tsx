@@ -1,14 +1,16 @@
-import { Link2, Pencil, Plus, ShieldAlert, Trash2 } from "lucide-react";
+import { KeyRound, Link2, Pencil, Plus, ShieldAlert, Trash2 } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
+import { useConfirmIdentity } from "@/components/confirm-identity-dialog";
 import { ErrorState } from "@/components/error-state";
-import { ConfirmDialog, CopyButton, RelativeTime, usePageWidth } from "@/components/kit";
+import { ConfirmDialog, RelativeTime, usePageWidth } from "@/components/kit";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import {
@@ -20,23 +22,25 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { setPasswordLink } from "@/features/accounts/paths";
+import { isRecentSignInRequired } from "@/lib/recent-sign-in";
 
 import type { Invitation, TeamMember } from "./api";
 import {
   useReissueInvitation,
   useRemoveMember,
+  useResetAccess,
   useTeam,
   useTeamScope,
   useTenantChoices,
 } from "./hooks";
-import { MemberDialog } from "./member-dialog";
+import { IssuedLinkResult, MemberDialog } from "./member-dialog";
 import { STATUS_VARIANT, teamErrorKey } from "./presenters";
 
 /**
- * The provider team (Service Provider edition): every provider admin with
- * their role, tenants and sign-in state. Owners invite, change and remove;
- * everyone else with every tenant sees the team read-only.
+ * Members (the provider team, every edition): every provider admin with
+ * their role, tenants and sign-in state. Owners invite, change, remove and
+ * reset the access of a member who lost their way to sign in; everyone else
+ * with every tenant sees the members read-only.
  */
 export function TeamPage() {
   const { t } = useTranslation("team");
@@ -189,16 +193,47 @@ function MemberActions({
   const { t: tAny } = useTranslation();
   const remove = useRemoveMember();
   const reissue = useReissueInvitation();
+  const reset = useResetAccess();
+  const identity = useConfirmIdentity();
   const [confirmOpen, setConfirmOpen] = React.useState(false);
-  const [reissued, setReissued] = React.useState<Invitation | null>(null);
+  const [resetOpen, setResetOpen] = React.useState(false);
+  const [issued, setIssued] = React.useState<{
+    invitation: Invitation;
+    kind: "invitation" | "reset";
+  } | null>(null);
   const label = member.name || member.email;
 
   const onReissue = async () => {
     try {
       const result = await reissue.mutateAsync(member.userId);
       toast.success(t("toasts.reissued"));
-      setReissued(result);
+      setIssued({ invitation: result, kind: "invitation" });
     } catch (error) {
+      toast.error(tAny(teamErrorKey(error)));
+    }
+  };
+
+  /**
+   * Resetting needs a recent sign-in (the new link opens the member's
+   * account): an older session confirms it is them first, then the reset
+   * runs again. From the question dialog a failure stays in the dialog;
+   * after the confirmation it is a toast.
+   */
+  const runReset = async (fromDialog: boolean): Promise<void> => {
+    try {
+      const result = await reset.mutateAsync(member.userId);
+      toast.success(t("toasts.accessReset"));
+      setResetOpen(false);
+      setIssued({ invitation: result, kind: "reset" });
+    } catch (error) {
+      if (isRecentSignInRequired(error)) {
+        setResetOpen(false);
+        identity.ask(() => void runReset(false));
+        return;
+      }
+      if (fromDialog) {
+        throw error;
+      }
       toast.error(tAny(teamErrorKey(error)));
     }
   };
@@ -217,6 +252,17 @@ function MemberActions({
           {t("actions.reissue")}
         </Button>
       )}
+      {member.status === "active" && !member.isYou ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setResetOpen(true)}
+          aria-label={t("actions.resetAccessLabel", { name: label })}
+        >
+          <KeyRound aria-hidden="true" />
+          {t("actions.resetAccess")}
+        </Button>
+      ) : null}
       <Button
         variant="ghost"
         size="sm"
@@ -249,32 +295,33 @@ function MemberActions({
           toast.success(t("toasts.removed"));
         }}
       />
-      {reissued?.setPasswordToken ? (
-        <ReissuedLink invitation={reissued} onClose={() => setReissued(null)} />
-      ) : null}
+      <ConfirmDialog
+        open={resetOpen}
+        onOpenChange={setResetOpen}
+        title={t("resetAccess.title", { name: label })}
+        description={t("resetAccess.description")}
+        confirmLabel={t("resetAccess.confirm")}
+        destructive
+        pending={reset.isPending}
+        error={
+          reset.error && !isRecentSignInRequired(reset.error)
+            ? tAny(teamErrorKey(reset.error))
+            : undefined
+        }
+        onConfirm={() => runReset(true)}
+      />
+      {identity.dialog}
+      <Dialog open={issued !== null} onOpenChange={(open) => (open ? undefined : setIssued(null))}>
+        <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
+          {issued ? (
+            <IssuedLinkResult
+              invitation={issued.invitation}
+              kind={issued.kind}
+              onDone={() => setIssued(null)}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
-  );
-}
-
-/** A reissued link that could not be mailed, for the owner to hand over. */
-function ReissuedLink({ invitation, onClose }: { invitation: Invitation; onClose: () => void }) {
-  const { t } = useTranslation("team");
-  const link = setPasswordLink(window.location.origin, invitation.setPasswordToken ?? "");
-  return (
-    <ConfirmDialog
-      open
-      onOpenChange={(open) => (open ? undefined : onClose())}
-      title={t("link.title")}
-      description={t("link.copy", { email: invitation.member.email })}
-      confirmLabel={t("link.done")}
-      onConfirm={onClose}
-    >
-      <div className="flex items-center gap-2">
-        <code className="min-w-0 flex-1 break-all rounded bg-muted px-2 py-1.5 font-mono text-xs">
-          {link}
-        </code>
-        <CopyButton value={link} />
-      </div>
-    </ConfirmDialog>
   );
 }

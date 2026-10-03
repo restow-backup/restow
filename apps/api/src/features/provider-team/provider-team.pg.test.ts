@@ -6,13 +6,20 @@
  *   - an owner invites a technician limited to one tenant; the invitation
  *     link sets a password and the technician signs in;
  *   - the technician sees only that tenant, cannot reach the other one,
- *     cannot create tenants, change the team or install a licence;
+ *     cannot create tenants, change the team or the installation settings;
  *   - the owner widens the technician to read-only on every tenant: both
  *     tenants become visible, still no changes;
  *   - the last owner can neither step down nor leave; with a second owner
  *     the first may;
  *   - removing a member ends their session and deletes the account;
  *   - every change is in the installation's audit log;
+ *   - without the gated feature `providerTeam.tenantScope` (Community and
+ *     Business) a member gets every tenant; an existing limit stays as it is;
+ *   - an owner resets an active member's access: password, authenticator app
+ *     and sessions gone, a fresh link to hand over; the member chooses a new
+ *     password and sets up the authenticator app again. Nobody resets
+ *     themselves, and an owner without a team row (the setup's first admin)
+ *     can be reset too;
  *   - the tenant role cannot read the team tables at all.
  *
  * Runs when RESTOW_TEST_DATABASE_URL points at a Postgres server as a
@@ -34,15 +41,11 @@ import { symmetricDecrypt } from "better-auth/crypto";
 import { eq, like } from "drizzle-orm";
 import type { Hono } from "hono";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  registerApiExtension,
-  resetExtensionsForTesting,
-} from "../../../../apps/api/src/extensions.js";
-import { dropDatabase } from "../../../../apps/api/src/features/snapshots/testing/explorer-fixture.js";
-import { provisionTestRoles } from "../../../../apps/api/src/testing/database-roles.js";
-import { installTestLicense } from "../license/testing.js";
+import { registerApiExtension, resetExtensionsForTesting } from "../../extensions.js";
+import { dropDatabase } from "../../features/snapshots/testing/explorer-fixture.js";
+import { provisionTestRoles } from "../../testing/database-roles.js";
 
-const DATABASE = `restow_ee_provider_team_test_${randomBytes(4).toString("hex")}`;
+const DATABASE = `restow_provider_team_test_${randomBytes(4).toString("hex")}`;
 const PUBLIC_URL = "http://localhost:3000";
 const testDatabaseAdminUrl = process.env.RESTOW_TEST_DATABASE_URL;
 
@@ -56,13 +59,15 @@ describe.skipIf(!testDatabaseAdminUrl)("the provider team against Postgres", () 
   let owner: Database;
   let appRole: Database;
   let app: Hono;
-  let authModule: typeof import("../../../../apps/api/src/auth.js");
-  let accounts: typeof import("../../../../apps/api/src/features/accounts/service.js");
+  let authModule: typeof import("../../auth.js");
+  let accounts: typeof import("../../features/accounts/service.js");
   let sharedDb: Database;
   let tenantA: string;
   let tenantB: string;
   let ownerCookie: string;
   let ownerId: string;
+  /** Whether the test feature gate opens `providerTeam.tenantScope` (Service Provider). */
+  let tenantScopeOn = true;
 
   function authPost(path: string, body: unknown, cookie?: string): Promise<Response> {
     return authModule.auth.handler(
@@ -177,18 +182,21 @@ describe.skipIf(!testDatabaseAdminUrl)("the provider team against Postgres", () 
     process.env.RESTOW_MASTER_KEY = randomBytes(32).toString("base64");
     process.env.BETTER_AUTH_SECRET = randomBytes(32).toString("base64");
     process.env.RESTOW_PUBLIC_URL = PUBLIC_URL;
-    // The team and the license routes are ee/ route groups: the app is
-    // assembled with the ee/ extension, as apps/api/src/ee.ts does, and the
-    // Service Provider edition is in effect through an installed license row.
-    await installTestLicense(owner, "service_provider");
+    // The team is the core's. Limiting a member to chosen tenants is the gated
+    // feature `providerTeam.tenantScope`: a test feature gate opens it while
+    // `tenantScopeOn` says so (in the full build ee/ decides by the license).
+    registerApiExtension({
+      name: "test-tenant-scope",
+      featureGate: {
+        isEnabled: async (_db, feature) => feature === "providerTeam.tenantScope" && tenantScopeOn,
+      },
+    });
 
-    authModule = await import("../../../../apps/api/src/auth.js");
-    accounts = await import("../../../../apps/api/src/features/accounts/service.js");
-    const shared = await import("../../../../apps/api/src/db.js");
+    authModule = await import("../../auth.js");
+    accounts = await import("../../features/accounts/service.js");
+    const shared = await import("../../db.js");
     sharedDb = shared.db as Database;
-    const { eeApiExtension } = await import("../index.js");
-    registerApiExtension(eeApiExtension);
-    const { buildApp } = await import("../../../../apps/api/src/app.js");
+    const { buildApp } = await import("../../app.js");
     app = buildApp();
 
     const [provider] = await owner.insert(providers).values({ name: "Provider" }).returning();
@@ -232,7 +240,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the provider team against Postgres", () 
 
   afterAll(async () => {
     resetExtensionsForTesting();
-    const shared = await import("../../../../apps/api/src/db.js");
+    const shared = await import("../../db.js");
     await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
     await appRole?.$client.end();
     await owner?.$client.end();
@@ -240,6 +248,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the provider team against Postgres", () 
   });
 
   let tech: { userId: string; cookie: string };
+  let secondOwner: { userId: string; cookie: string };
 
   it("lets an owner invite a technician limited to one tenant", async () => {
     tech = await inviteAndSignIn("tech@provider.example", {
@@ -285,7 +294,9 @@ describe.skipIf(!testDatabaseAdminUrl)("the provider team against Postgres", () 
         })
       ).status,
     ).toBe(403);
-    expect((await call("POST", "/license", tech.cookie, { key: "x" })).status).toBe(403);
+    // Installation-wide routes: the settings (every tenant) and their change (owners).
+    expect((await call("GET", "/settings", tech.cookie)).status).toBe(403);
+    expect((await call("PATCH", "/settings", tech.cookie, {})).status).toBe(403);
     const me = (await (await call("GET", "/me", tech.cookie)).json()) as {
       provider: { role: string; allTenants: boolean };
       tenants: Array<{ id: string }>;
@@ -304,7 +315,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the provider team against Postgres", () 
       items: Array<{ id: string }>;
     };
     expect(list.items.map((t) => t.id).sort()).toEqual([tenantA, tenantB].sort());
-    expect((await call("GET", "/license", tech.cookie)).status).toBe(200);
+    expect((await call("GET", "/settings", tech.cookie)).status).toBe(200);
     expect((await call("GET", "/provider-team", tech.cookie)).status).toBe(200);
     expect((await call("DELETE", `/tenants/${tenantB}`, tech.cookie)).status).toBe(403);
   });
@@ -317,11 +328,11 @@ describe.skipIf(!testDatabaseAdminUrl)("the provider team against Postgres", () 
     expect(demote.status).toBe(409);
     expect((await call("DELETE", `/provider-team/${ownerId}`, ownerCookie)).status).toBe(409);
 
-    const second = await inviteAndSignIn("owner2@provider.example", {
+    secondOwner = await inviteAndSignIn("owner2@provider.example", {
       role: "owner",
       allTenants: true,
     });
-    expect(second.userId).toBeTruthy();
+    expect(secondOwner.userId).toBeTruthy();
     const nowAllowed = await call("PATCH", `/provider-team/${ownerId}`, ownerCookie, {
       role: "owner",
       allTenants: true,
@@ -355,6 +366,196 @@ describe.skipIf(!testDatabaseAdminUrl)("the provider team against Postgres", () 
         "provider_team.member_removed",
       ]),
     );
+  });
+
+  it("gives every member every tenant where the tenant scope is not offered", async () => {
+    tenantScopeOn = false;
+    try {
+      const limited = await call("POST", "/provider-team", ownerCookie, {
+        email: "limited@provider.example",
+        name: "Limited",
+        role: "technician",
+        allTenants: false,
+        tenantIds: [tenantA],
+      });
+      expect(limited.status).toBe(403);
+      expect(((await limited.json()) as { type: string }).type).toBe(
+        "urn:restow:problem:feature-unavailable",
+      );
+      const everyTenant = await call("POST", "/provider-team", ownerCookie, {
+        email: "ops@provider.example",
+        name: "Ops",
+        role: "technician",
+        allTenants: true,
+      });
+      expect(everyTenant.status).toBe(201);
+      const ops = ((await everyTenant.json()) as { member: { userId: string } }).member.userId;
+      expect(
+        (
+          await call("PATCH", `/provider-team/${ops}`, ownerCookie, {
+            role: "technician",
+            allTenants: false,
+            tenantIds: [tenantA],
+          })
+        ).status,
+      ).toBe(403);
+      expect(
+        (
+          await call("PATCH", `/provider-team/${ops}`, ownerCookie, {
+            role: "administrator",
+            allTenants: true,
+          })
+        ).status,
+      ).toBe(200);
+    } finally {
+      tenantScopeOn = true;
+    }
+  });
+
+  it("keeps an existing limit when only the role changes, and widens it on request", async () => {
+    const invited = await call("POST", "/provider-team", ownerCookie, {
+      email: "scoped@provider.example",
+      name: "Scoped",
+      role: "technician",
+      allTenants: false,
+      tenantIds: [tenantA],
+    });
+    expect(invited.status).toBe(201);
+    const scoped = ((await invited.json()) as { member: { userId: string } }).member.userId;
+    tenantScopeOn = false;
+    try {
+      const roleOnly = await call("PATCH", `/provider-team/${scoped}`, ownerCookie, {
+        role: "read_only",
+        allTenants: false,
+        tenantIds: [tenantA],
+      });
+      expect(roleOnly.status).toBe(200);
+      expect(await roleOnly.json()).toMatchObject({
+        role: "read_only",
+        allTenants: false,
+        tenantIds: [tenantA],
+      });
+      const other = await call("PATCH", `/provider-team/${scoped}`, ownerCookie, {
+        role: "read_only",
+        allTenants: false,
+        tenantIds: [tenantB],
+      });
+      expect(other.status).toBe(403);
+      const widened = await call("PATCH", `/provider-team/${scoped}`, ownerCookie, {
+        role: "read_only",
+        allTenants: true,
+      });
+      expect(widened.status).toBe(200);
+    } finally {
+      tenantScopeOn = true;
+    }
+  });
+
+  it("refuses to reset your own access, or a member who has not signed in yet", async () => {
+    const self = await call(
+      "POST",
+      `/provider-team/${secondOwner.userId}/reset-access`,
+      secondOwner.cookie,
+    );
+    expect(self.status).toBe(409);
+    expect(((await self.json()) as { type: string }).type).toBe(
+      "urn:restow:problem:provider-team-reset-self",
+    );
+    const [pending] = await owner
+      .select({ id: user.id })
+      .from(user)
+      .where(eq(user.email, "ops@provider.example"));
+    const notActive = await call(
+      "POST",
+      `/provider-team/${pending?.id}/reset-access`,
+      secondOwner.cookie,
+    );
+    expect(notActive.status).toBe(409);
+    expect(((await notActive.json()) as { type: string }).type).toBe(
+      "urn:restow:problem:provider-team-not-active",
+    );
+  });
+
+  it("resets an active member's access: sign-in methods gone, a fresh link, a new start", async () => {
+    // The first owner (no team row) resets the second owner.
+    const reset = await call(
+      "POST",
+      `/provider-team/${secondOwner.userId}/reset-access`,
+      ownerCookie,
+    );
+    expect(reset.status).toBe(200);
+    const result = (await reset.json()) as {
+      member: { status: string; email: string };
+      setPasswordToken: string | null;
+      mailOutcome: string;
+    };
+    expect(result.mailOutcome).toBe("not_configured");
+    expect(result.setPasswordToken).toBeTruthy();
+    expect(result.member).toMatchObject({ status: "invited", email: "owner2@provider.example" });
+
+    // Every session of the member ended, the password and the authenticator app are gone.
+    expect((await call("GET", "/me", secondOwner.cookie)).status).toBe(401);
+    const passwords = await owner
+      .select({ id: account.id })
+      .from(account)
+      .where(eq(account.userId, secondOwner.userId));
+    expect(passwords).toEqual([]);
+    const factors = await owner
+      .select({ id: twoFactor.id })
+      .from(twoFactor)
+      .where(eq(twoFactor.userId, secondOwner.userId));
+    expect(factors).toEqual([]);
+    const [row] = await owner
+      .select({ twoFactorEnabled: user.twoFactorEnabled })
+      .from(user)
+      .where(eq(user.id, secondOwner.userId));
+    expect(row?.twoFactorEnabled).toBe(false);
+
+    // The link sets a new password; the member sets up the authenticator app again.
+    const password = `pw-${randomBytes(12).toString("hex")}`;
+    await accounts.redeemSetPasswordToken(
+      sharedDb,
+      { token: result.setPasswordToken as string, password },
+      { ip: "203.0.113.9" },
+    );
+    secondOwner = {
+      userId: secondOwner.userId,
+      cookie: await signIn(secondOwner.userId, "owner2@provider.example", password),
+    };
+    expect((await call("GET", "/provider-team", secondOwner.cookie)).status).toBe(200);
+
+    const [entry] = await owner
+      .select({ actor: auditLog.actor, details: auditLog.details })
+      .from(auditLog)
+      .where(eq(auditLog.action, "provider_team.access_reset"));
+    expect(entry).toMatchObject({
+      actor: "owner@provider.example",
+      details: {
+        email: "owner2@provider.example",
+        role: "owner",
+        passwordRemoved: true,
+        authenticatorRemoved: true,
+        sessionsEnded: expect.any(Number),
+      },
+    });
+  });
+
+  it("resets the setup's first owner, who has no team row, so the link still works", async () => {
+    const reset = await call("POST", `/provider-team/${ownerId}/reset-access`, secondOwner.cookie);
+    expect(reset.status).toBe(200);
+    const result = (await reset.json()) as { setPasswordToken: string | null };
+    expect((await call("GET", "/me", ownerCookie)).status).toBe(401);
+    const password = `pw-${randomBytes(12).toString("hex")}`;
+    await accounts.redeemSetPasswordToken(
+      sharedDb,
+      { token: result.setPasswordToken as string, password },
+      { ip: "203.0.113.9" },
+    );
+    ownerCookie = await signIn(ownerId, "owner@provider.example", password);
+    const me = (await (await call("GET", "/me", ownerCookie)).json()) as {
+      provider: { role: string; allTenants: boolean };
+    };
+    expect(me.provider).toEqual({ role: "owner", allTenants: true });
   });
 
   it("keeps the team tables out of the tenant role's reach", async () => {

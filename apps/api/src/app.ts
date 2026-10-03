@@ -35,6 +35,8 @@ import { mountPath as importsMountPath } from "./features/imports/meta.js";
 import { importsRoutes } from "./features/imports/routes.js";
 import { mountPath as jobsMountPath } from "./features/jobs/meta.js";
 import { jobsRoutes } from "./features/jobs/routes.js";
+import { mountPath as providerTeamMountPath } from "./features/provider-team/meta.js";
+import { providerTeamRoutes } from "./features/provider-team/routes.js";
 import {
   NOTIFICATIONS_MOUNT_PATH,
   REPORTS_MOUNT_PATH,
@@ -182,6 +184,7 @@ export function buildApp() {
   app.route(`${API_V1}${tenantsMountPath}`, tenantsRoutes);
   app.route(`${API_V1}${accountsMountPath}`, accountsRoutes);
   app.route(`${API_V1}${accountsPublicMountPath}`, accountsPublicRoutes);
+  app.route(`${API_V1}${providerTeamMountPath}`, providerTeamRoutes);
   app.route(`${API_V1}${sourcesMountPath}`, sourcesRoutes);
   app.route(`${API_V1}${directoryMountPath}`, directoryRoutes);
   app.route(`${API_V1}${schedulesMountPath}`, schedulesRoutes);

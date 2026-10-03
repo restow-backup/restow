@@ -172,6 +172,15 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/tenants/:tenantId/accounts/:userId/reissue": configure(TENANT),
   "GET /api/v1/tenant": view(),
 
+  // --- The provider team (features/provider-team) ---------------------------------
+  // Reading for every provider admin with every tenant, changing it for owners.
+  "GET /api/v1/provider-team": view(PROVIDER),
+  "POST /api/v1/provider-team": own(),
+  "PATCH /api/v1/provider-team/:userId": own(),
+  "DELETE /api/v1/provider-team/:userId": own(),
+  "POST /api/v1/provider-team/:userId/reissue": own(),
+  "POST /api/v1/provider-team/:userId/reset-access": own(),
+
   // --- Installation settings and usage ------------------------------------------
   "GET /api/v1/usage": view(PROVIDER),
   "GET /api/v1/settings": view(PROVIDER),

@@ -9,6 +9,7 @@ import * as history from "@/features/history";
 import * as mailImports from "@/features/imports";
 import * as installation from "@/features/installation";
 import * as integrations from "@/features/integrations";
+import * as providerTeam from "@/features/provider-team";
 import * as redirects from "@/features/redirects";
 import * as reports from "@/features/reports";
 import * as restore from "@/features/restore";
@@ -60,6 +61,7 @@ const features = [
   storage,
   integrations,
   installation,
+  providerTeam,
   settings,
   redirects,
 ] as const;
@@ -82,8 +84,9 @@ interface Placement {
  *   (Organisation)       "Settings" instead of "Tenant settings" and no
  *                        "Tenants" wording where the installation has one
  *                        organisation (lib/navigation.ts `navGroupLabelKey`)
- *   Installation         Settings (the installation page and its sections), Team,
- *                        Audit log, License, Resources (soon)
+ *   Installation         Settings (the installation page and its sections), Members
+ *                        (the provider team, id `team`), Audit log, License,
+ *                        Resources (soon)
  *
  * "Jobs" are the job definitions (features/backup-jobs): the two entries share
  * the address `/jobs` and differ by `?type=mail|endpoint`. Their runs are History.

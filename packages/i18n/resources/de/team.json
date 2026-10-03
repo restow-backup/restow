@@ -1,10 +1,10 @@
 {
-  "nav": "Team",
-  "title": "Provider-Team",
+  "nav": "Mitglieder",
+  "title": "Mitglieder",
   "subtitle": "Wer diese Installation verwaltet, mit welcher Rolle und in welchen Mandanten.",
   "invite": "Mitglied einladen",
-  "loadError": "Das Team konnte nicht geladen werden.",
-  "ownersOnly": "Nur Inhaber können das Team ändern.",
+  "loadError": "Die Mitglieder konnten nicht geladen werden.",
+  "ownersOnly": "Nur Inhaber können die Mitglieder ändern.",
   "you": "Sie",
   "columns": {
     "member": "Mitglied",
@@ -38,7 +38,9 @@
     "allHint": "Gilt auch für später angelegte Mandanten.",
     "ownerHint": "Inhaber haben immer alle Mandanten.",
     "pick": "Mandanten",
-    "noTenants": "Es gibt noch keine Mandanten."
+    "noTenants": "Es gibt noch keine Mandanten.",
+    "locked": "In dieser Installation haben alle Mitglieder alle Mandanten.",
+    "kept": "Dieses Mitglied bleibt auf die bisher gewählten Mandanten beschränkt. Sie können ihm alle Mandanten geben; die Auswahl der Mandanten lässt sich hier nicht ändern."
   },
   "status": {
     "active": "Aktiv",
@@ -58,7 +60,7 @@
     }
   },
   "dialog": {
-    "inviteTitle": "Ins Provider-Team einladen",
+    "inviteTitle": "Mitglied einladen",
     "inviteDescription": "Die Person erhält einen Link, um ein Passwort zu wählen, und richtet danach eine Authenticator-App ein.",
     "editTitle": "Rolle und Mandanten ändern",
     "editDescription": "Gilt für {name} ab der nächsten Anfrage.",
@@ -68,32 +70,42 @@
   },
   "link": {
     "title": "Einladung bereit",
-    "sent": "Die Einladung ging per E-Mail an {email}. Der Link funktioniert einmal, 72 Stunden lang.",
-    "copy": "Es konnte keine E-Mail gesendet werden. Geben Sie diesen Link selbst an {email} weiter; er funktioniert einmal, 72 Stunden lang.",
+    "resetTitle": "Zugang zurückgesetzt",
+    "description": "{email} öffnet diesen Link einmal, wählt ein Passwort und richtet danach eine Authenticator-App ein.",
     "done": "Fertig"
   },
   "actions": {
     "edit": "Rolle ändern",
     "editLabel": "Rolle und Mandanten von {name} ändern",
     "remove": "Entfernen",
-    "removeLabel": "{name} aus dem Team entfernen",
+    "removeLabel": "{name} aus den Mitgliedern entfernen",
     "reissue": "Neuer Einladungslink",
-    "reissueLabel": "Neuen Einladungslink für {name} erstellen"
+    "reissueLabel": "Neuen Einladungslink für {name} erstellen",
+    "resetAccess": "Zugang zurücksetzen",
+    "resetAccessLabel": "Zugang von {name} zurücksetzen"
   },
   "remove": {
-    "title": "{name} aus dem Team entfernen?",
+    "title": "{name} aus den Mitgliedern entfernen?",
     "description": "Die Sitzungen enden sofort, eine offene Einladung funktioniert nicht mehr. Ein Konto, das zu keinem Mandanten gehört, wird gelöscht.",
     "confirm": "Entfernen"
+  },
+  "resetAccess": {
+    "title": "Zugang von {name} zurücksetzen?",
+    "description": "Passwort, Passkeys und Authenticator-App werden entfernt, alle Sitzungen enden sofort. Das Mitglied erhält einen neuen Link, um ein Passwort zu wählen und die Authenticator-App neu einzurichten; kann keine E-Mail gesendet werden, geben Sie Link und Benutzernamen selbst weiter.",
+    "confirm": "Zugang zurücksetzen"
   },
   "toasts": {
     "invited": "Einladung erstellt",
     "updated": "Änderungen gespeichert",
     "removed": "Mitglied entfernt",
-    "reissued": "Neuer Einladungslink erstellt"
+    "reissued": "Neuer Einladungslink erstellt",
+    "accessReset": "Zugang zurückgesetzt"
   },
   "errors": {
-    "lastOwner": "Das Team behält immer mindestens einen Inhaber. Machen Sie zuerst jemand anderen zum Inhaber.",
+    "lastOwner": "Es gibt immer mindestens einen Inhaber. Machen Sie zuerst jemand anderen zum Inhaber.",
     "accountExists": "Zu dieser Adresse gibt es schon ein Konto. Laden Sie die Person mit einer anderen Adresse ein.",
-    "noTenants": "Wählen Sie mindestens einen Mandanten, oder geben Sie dem Mitglied alle Mandanten."
+    "noTenants": "Wählen Sie mindestens einen Mandanten, oder geben Sie dem Mitglied alle Mandanten.",
+    "resetSelf": "Ihren eigenen Zugang können Sie hier nicht zurücksetzen. Das kann ein anderer Inhaber oder die Kommandozeile (restow admin recover).",
+    "notActive": "Dieses Mitglied hat sich noch nicht angemeldet. Erstellen Sie stattdessen einen neuen Einladungslink."
   }
 }

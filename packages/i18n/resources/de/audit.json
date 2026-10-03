@@ -421,7 +421,8 @@
       "member_invited": "Teammitglied eingeladen",
       "member_updated": "Rolle eines Teammitglieds geändert",
       "member_removed": "Teammitglied entfernt",
-      "link_reissued": "Team-Einladungslink neu erstellt"
+      "link_reissued": "Team-Einladungslink neu erstellt",
+      "access_reset": "Zugang eines Teammitglieds zurückgesetzt"
     },
     "access": {
       "denied": "Aktion verweigert"

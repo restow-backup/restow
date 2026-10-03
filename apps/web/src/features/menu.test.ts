@@ -43,6 +43,7 @@ const SERVICE_PROVIDER = context("service_provider", [
   "stats.allTenants",
   "dashboard.allTenants",
   "reports.timed",
+  "providerTeam.tenantScope",
 ]);
 
 function menu(role: string | null, ctx: NavLockContext): Record<string, string[]> {
@@ -63,7 +64,7 @@ const MAIL = ["mail-jobs", "restore", "archive", "exports"];
 const ENDPOINTS = ["endpoint-jobs", "inventory", "file-restore"];
 
 describe("the menu per edition", () => {
-  it("Community, provider admin: the one organisation's settings, the licensed entries greyed out", () => {
+  it("Community, provider admin: the one organisation's settings, the members, the licensed entries greyed out", () => {
     expect(menu("provider_admin", COMMUNITY)).toEqual({
       daily: DAILY,
       mail: MAIL,
@@ -72,17 +73,12 @@ describe("the menu per edition", () => {
       // list of all tenants stays as a greyed-out entry. Repositories, integrations,
       // members and the rest are sections of the settings page, not entries.
       tenants: ["organisation-settings", "tenants (locked)"],
-      installation: [
-        "settings",
-        "team (locked)",
-        "audit (locked)",
-        "license",
-        "resources (soon 0.5.0)",
-      ],
+      // Members (the provider team, id `team`) is in every edition (0.3.0).
+      installation: ["settings", "team", "audit (locked)", "license", "resources (soon 0.5.0)"],
     });
   });
 
-  it("Business, provider admin: audit log and team open, all tenants still locked", () => {
+  it("Business, provider admin: audit log open, all tenants still locked", () => {
     expect(menu("provider_admin", BUSINESS)).toEqual({
       daily: DAILY,
       mail: MAIL,
@@ -315,6 +311,7 @@ describe("the menu per edition", () => {
         "nav.items.tenantSettings",
         "nav.items.organisationSettings",
         "installation:nav",
+        "team:nav",
         "storage:nav",
         "license:nav",
         "nav.items.resources",
@@ -328,6 +325,7 @@ describe("the menu per edition", () => {
       "Mandanten-Einstellungen",
       "Einstellungen",
       "Einstellungen",
+      "Mitglieder",
       "Repositories",
       "Lizenz",
       "Kapazitätsplanung",
@@ -348,6 +346,7 @@ describe("the menu per edition", () => {
         "tenants:nav.tenants",
         "nav.items.tenantSettings",
         "nav.items.organisationSettings",
+        "team:nav",
         "storage:nav",
         "license:nav",
         "nav.items.resources",
@@ -358,6 +357,7 @@ describe("the menu per edition", () => {
       "Manage tenants",
       "Tenant settings",
       "Settings",
+      "Members",
       "Repositories",
       "License",
       "Capacity planning",

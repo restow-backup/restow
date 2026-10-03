@@ -77,6 +77,13 @@ export interface SlotProps {
    * renders its own short note as the fallback.
    */
   "tenants.creationLocked": Record<string, never>;
+  /**
+   * Replaces the member dialog's neutral note under the locked choice
+   * "Selected tenants" where the installation does not enable the gated
+   * feature `providerTeam.tenantScope` (features/provider-team/member-dialog.tsx):
+   * the core renders its own short note as the fallback.
+   */
+  "team.tenantScopeLocked": Record<string, never>;
 }
 
 export type SlotName = keyof SlotProps;

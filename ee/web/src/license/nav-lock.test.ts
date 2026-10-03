@@ -76,7 +76,7 @@ describe("the ee extension's locks", () => {
     const ids = (eeWebExtension.navItems ?? [])
       .filter((item) => item.lock?.isLocked(context("community")))
       .map((item) => item.id);
-    expect(ids).toEqual(["audit", "team"]);
+    expect(ids).toEqual(["audit"]);
     for (const item of eeWebExtension.navItems ?? []) {
       expect(item.lock?.isLocked(context("business")) ?? false).toBe(false);
     }
@@ -92,10 +92,10 @@ describe("the ee extension's locks", () => {
 
   it("places the ee entries in Installation, where the operator's level lives", () => {
     const placed = (eeWebExtension.navItems ?? []).map((item) => [item.id, item.group]);
+    // Members (the provider team) is the core's since 0.3.0, in every edition.
     expect(placed).toEqual([
       ["audit", "installation"],
       ["license", "installation"],
-      ["team", "installation"],
     ]);
   });
 
@@ -105,7 +105,7 @@ describe("the ee extension's locks", () => {
     expect((eeWebExtension.tenantSections ?? []).map((section) => section.id)).toEqual(["audit"]);
   });
 
-  it("leaves the three edition entries locked for Community and open from Business, in the menu", () => {
+  it("leaves the edition entries locked for Community and open from Business, in the menu", () => {
     const items: NavItem[] = [
       ...(eeWebExtension.navItems ?? []),
       // A core entry the extension locks by id: all tenants (Service Provider).
@@ -130,15 +130,15 @@ describe("the ee extension's locks", () => {
       );
     expect(lockedIn("community")).toEqual({
       tenants: ["tenants (locked)"],
-      installation: ["team (locked)", "audit (locked)", "license"],
+      installation: ["audit (locked)", "license"],
     });
     expect(lockedIn("business")).toEqual({
       tenants: ["tenants (locked)"],
-      installation: ["team", "audit", "license"],
+      installation: ["audit", "license"],
     });
     expect(lockedIn("service_provider")).toEqual({
       tenants: ["tenants"],
-      installation: ["team", "audit", "license"],
+      installation: ["audit", "license"],
     });
   });
 

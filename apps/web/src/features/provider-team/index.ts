@@ -4,14 +4,15 @@ import { Users } from "lucide-react";
 import type { NavItem } from "@/lib/navigation";
 import { appLayoutRoute } from "@/routes/tree";
 
-import { editionLock } from "../license/nav-lock";
-import "./i18n";
 import { TeamPage } from "./team-page";
 
 /**
- * The team page (Business and Service Provider, `provider.team`):
- * installation-wide, so provider admins only; on Community the menu entry
- * shows locked like every other licensed feature.
+ * Members (the provider team), in every edition: who administers this
+ * installation, with which role, and the owner's invitations, changes, removals
+ * and access resets. Installation-wide, so provider admins only. Limiting a
+ * member to chosen tenants is the gated feature `providerTeam.tenantScope`
+ * (Service Provider in the full build); without it every member has every
+ * tenant. The address stays `/team`, the id of the menu entry `team`.
  */
 export const TEAM_ROUTE_PATH = "/team";
 
@@ -21,7 +22,9 @@ export const teamRoute = createRoute({
   component: TeamPage,
 });
 
-export const teamNavItems: NavItem[] = [
+export const routes = [teamRoute];
+
+export const navItems: NavItem[] = [
   {
     id: "team",
     path: TEAM_ROUTE_PATH,
@@ -30,6 +33,5 @@ export const teamNavItems: NavItem[] = [
     roles: ["provider_admin"],
     group: "installation",
     order: 20,
-    lock: editionLock("business"),
   },
 ];

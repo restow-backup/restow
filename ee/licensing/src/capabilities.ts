@@ -24,8 +24,9 @@ export const CAPABILITIES = [
   "provider.tenantManagement",
   /** Per-tenant reporting rolled up across every tenant (Service Provider). */
   "provider.tenantReporting",
-  /** The provider team: several admins with roles and tenant scopes (Business+). */
-  "provider.team",
+  /** Members of the provider team limited to chosen tenants (Service Provider). The
+   *  team itself, several admins with roles, is in every edition (the core). */
+  "provider.teamTenantScope",
   /** Microsoft/Entra end-user sign-in, i.e. SSO login (Business+). Graph as a
    *  backup source with admin consent is Community and unaffected by this. */
   "auth.microsoftSso",
@@ -52,7 +53,7 @@ export const CAPABILITY_MIN_EDITION: Readonly<Record<Capability, LicenseEdition>
   "provider.crossTenantApi": "service_provider",
   "provider.tenantManagement": "service_provider",
   "provider.tenantReporting": "service_provider",
-  "provider.team": "business",
+  "provider.teamTenantScope": "service_provider",
   "auth.microsoftSso": "business",
   "reports.scheduled": "business",
   "audit.log": "business",

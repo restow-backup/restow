@@ -421,7 +421,8 @@
       "member_invited": "Team member invited",
       "member_updated": "Team member's role changed",
       "member_removed": "Team member removed",
-      "link_reissued": "Team invitation link reissued"
+      "link_reissued": "Team invitation link reissued",
+      "access_reset": "Team member's access reset"
     },
     "access": {
       "denied": "Action refused"

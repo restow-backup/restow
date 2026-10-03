@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PROVIDER_ROLES } from "../../../../apps/api/src/lib/provider-access.js";
+import { PROVIDER_ROLES } from "../../lib/provider-access.js";
 
 /** The most tenants one member can be limited to by hand; "every tenant" has no limit. */
 export const MAX_SCOPED_TENANTS = 1000;
