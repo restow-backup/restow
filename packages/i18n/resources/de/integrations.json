@@ -221,7 +221,7 @@
     "delete": "Löschen",
     "deleteConfirm": {
       "title": "Webhook löschen?",
-      "description": "{appName} ruft {url} nicht mehr auf. Das Zustellprotokoll und das Signatur-Secret werden mit gelöscht.",
+      "description": "{appName} ruft diese URL nicht mehr auf. Das Zustellprotokoll und das Signatur-Secret werden mit gelöscht.",
       "confirm": "Webhook löschen"
     },
     "loadError": "Die Webhooks konnten nicht geladen werden."
@@ -229,13 +229,18 @@
   "webhookForm": {
     "createTitle": "Webhook hinzufügen",
     "editTitle": "Webhook bearbeiten",
-    "description": "{appName} sendet für jedes gewählte Ereignis einen signierten JSON-POST an die URL.",
+    "description": "{appName} sendet für jedes gewählte Ereignis einen POST an die URL: signiertes JSON oder eine Chatnachricht für Discord, Slack oder Microsoft Teams.",
     "name": "Name",
     "namePlaceholder": "z. B. RMM-Alarme",
     "nameHint": "Optional; hilft, Webhooks auseinanderzuhalten.",
     "url": "URL",
     "urlPlaceholder": "https://rmm.example.com/hooks/restow",
     "urlHint": "Lokale und private Netzadressen werden abgelehnt, sofern der Betreiber sie nicht freigibt.",
+    "format": "Format",
+    "formatHint": "Wie die Anfragen aussehen. Wird beim Eingeben aus der URL gewählt; ändern Sie es, wenn der Empfänger etwas anderes erwartet.",
+    "formatDetected": "An der URL erkannt.",
+    "chatUnsigned": "Chatdienste können keine Signatur prüfen. Diese Nachrichten werden daher ohne Signatur gesendet, und es wird kein Secret angezeigt. Behandeln Sie die URL wie ein Passwort: Wer sie kennt, kann in den Kanal schreiben.",
+    "newSecret": "Nach dem Speichern erzeugt {appName} ein neues Signatur-Secret für diesen Webhook und zeigt es einmal an.",
     "events": "Ereignisse",
     "eventsHint": "{appName} ruft die URL nur für diese Ereignisse auf.",
     "active": "Aktiv",
@@ -252,6 +257,24 @@
       "eventsRequired": "Wählen Sie mindestens ein Ereignis."
     }
   },
+  "formats": {
+    "restow": {
+      "label": "{appName}-JSON (signiert)",
+      "description": "Das Ereignis als JSON mit HMAC-Signatur, für RMM-, PSA- und Ticketsysteme und eigene Empfänger."
+    },
+    "discord": {
+      "label": "Discord",
+      "description": "Eine Nachricht mit Embed für einen Discord-Kanal-Webhook. Wird ohne Signatur gesendet."
+    },
+    "slack": {
+      "label": "Slack",
+      "description": "Eine Block-Kit-Nachricht für einen eingehenden Slack-Webhook. Wird ohne Signatur gesendet."
+    },
+    "teams": {
+      "label": "Microsoft Teams",
+      "description": "Eine Adaptive Card für einen Teams-Workflow, der bei einer Webhook-Anfrage in einem Kanal postet (Workflows, Power Automate). Wird ohne Signatur gesendet."
+    }
+  },
   "detail": {
     "back": "Zurück zu den Webhooks",
     "notFound": {
@@ -259,6 +282,7 @@
       "description": "Er wurde möglicherweise gelöscht oder gehört zu einem anderen Mandanten."
     },
     "sendTest": "Testereignis senden",
+    "testHint": "Der Test kommt im gewählten Format an.",
     "rotateSecret": "Secret erneuern",
     "rotateConfirm": {
       "title": "Signatur-Secret erneuern?",
@@ -268,6 +292,7 @@
     "configuration": "Konfiguration",
     "url": "URL",
     "events": "Ereignisse",
+    "format": "Format",
     "noEvents": "Keine Ereignisse abonniert. Bearbeiten Sie den Webhook und wählen Sie mindestens eines, sonst erhält er nichts.",
     "status": "Status",
     "created": "Angelegt",
@@ -275,6 +300,7 @@
     "secret": "Signatur-Secret",
     "secretConfigured": "Verschlüsselt gespeichert",
     "secretMissing": "Fehlt: Erneuern Sie das Secret, um eines zu erzeugen",
+    "secretNotUsed": "Nicht verwendet: Chatnachrichten werden nicht signiert",
     "pausedNotice": {
       "title": "Dieser Webhook ist pausiert",
       "description": "Er erhält keine Ereignisse und keine Testereignisse, bis er aktiviert wird."
@@ -344,7 +370,8 @@
     "eventHeader": "Der Ereignisname, z. B. job.failed.",
     "deliveryHeader": "Die Zustell-ID; die id im Body kennzeichnet das Ereignis über Wiederholungen hinweg.",
     "attemptHeader": "Die Nummer des Versuchs, ab 1.",
-    "retries": "Jede Antwort außer 2xx gilt als Fehler und wird nach 1 Min., 5 Min., 15 Min., 1 Std., 3 Std., 6 Std. und 12 Std. wiederholt. HTTP 410 beendet die Zustellung sofort."
+    "retries": "Jede Antwort außer 2xx gilt als Fehler und wird nach 1 Min., 5 Min., 15 Min., 1 Std., 3 Std., 6 Std. und 12 Std. wiederholt. HTTP 410 beendet die Zustellung sofort.",
+    "chat": "Webhooks im Format Discord, Slack oder Microsoft Teams erhalten stattdessen eine lesbare Chatnachricht, ohne Signatur und ohne diese Header. Antwortet der Chatdienst mit 400, 401, 403, 404, 410, 413 oder 422, endet die Zustellung sofort; 429 und Serverfehler werden wiederholt, nach der Wartezeit, die der Dienst nennt."
   },
   "toasts": {
     "keyCreated": "API-Schlüssel erstellt.",

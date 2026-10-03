@@ -10,6 +10,7 @@ import {
   type WebhookDeliveryEvent,
   type WebhookEnvelope,
   type WebhookEvent,
+  type WebhookFormat,
   buildWebhookEnvelope,
   generateWebhookSecret,
   queueWebhookDelivery,
@@ -69,6 +70,9 @@ export interface WebhookDto {
   url: string;
   events: WebhookEvent[];
   active: boolean;
+  /** `restow` (signed JSON) or the chat service the messages are shaped for. */
+  format: WebhookFormat;
+  /** Whether a signing secret is stored; only the `restow` format uses it. */
   secretConfigured: boolean;
   createdAt: string;
   updatedAt: string;
@@ -137,6 +141,7 @@ export function toWebhookDto(row: WebhookRow, stats: WebhookStatsDto = EMPTY_STA
     url: row.url,
     events: WEBHOOK_EVENTS.filter((event) => row.events.includes(event)),
     active: row.active,
+    format: row.format,
     secretConfigured: row.secretRef !== null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -187,6 +192,9 @@ export function describeChanges(
   }
   if (patch.active !== undefined && patch.active !== before.active) {
     changes.active = patch.active;
+  }
+  if (patch.format !== undefined && patch.format !== before.format) {
+    changes.format = patch.format;
   }
   return changes;
 }
@@ -337,6 +345,9 @@ export async function createWebhook(
         extensions: { limit: MAX_WEBHOOKS_PER_TENANT },
       });
     }
+    // Every webhook gets a secret, also one in a chat format that sends no signature: switched
+    // to `restow` later, it signs from the first delivery on (the web UI then rotates the secret
+    // to show one), and the answer keeps one shape for every format.
     const secret = generateWebhookSecret();
     const ref = await storeSecret(tx, {
       tenantId,
@@ -351,6 +362,7 @@ export async function createWebhook(
         url: input.url,
         events: input.events,
         active: input.active,
+        format: input.format,
         secretRef: ref.id,
       })
       .returning();
@@ -364,6 +376,7 @@ export async function createWebhook(
         urlOrigin: urlOrigin(row.url),
         events: input.events,
         active: row.active,
+        format: row.format,
       }),
     );
     return { ...toWebhookDto(row), secret };
@@ -390,6 +403,7 @@ export async function updateWebhook(
         ...(patch.url !== undefined ? { url: patch.url } : {}),
         ...(patch.events !== undefined ? { events: patch.events } : {}),
         ...(patch.active !== undefined ? { active: patch.active } : {}),
+        ...(patch.format !== undefined ? { format: patch.format } : {}),
       })
       .where(and(eq(webhooks.tenantId, tenantId), eq(webhooks.id, id)))
       .returning();

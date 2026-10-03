@@ -1,4 +1,4 @@
-import { AlertTriangle, LockOpen } from "lucide-react";
+import { AlertTriangle, KeyRound, LockOpen, MessageSquare } from "lucide-react";
 import * as React from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
@@ -16,22 +16,34 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { toast } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
 import { zodResolver } from "@/lib/form";
 
 import { SecretReveal } from "../components/secret-reveal";
-import { useCreateWebhook, useUpdateWebhook } from "../hooks";
+import { useCreateWebhook, useRotateSecret, useUpdateWebhook } from "../hooks";
 import {
   type WebhookFormValues,
+  detectWebhookFormat,
+  formatFollowsUrl,
   integrationErrorKey,
   isInsecureUrl,
+  isSignedFormat,
+  needsNewSecret,
+  suggestedFormat,
   toWebhookInput,
   webhookFormFrom,
   webhookFormSchema,
   webhookPatch,
 } from "../presenters";
-import type { Webhook } from "../types";
+import { WEBHOOK_FORMATS, type Webhook, type WebhookFormat } from "../types";
 import { EventPicker } from "./event-picker";
 
 interface WebhookFormDialogProps {
@@ -46,7 +58,9 @@ interface WebhookFormDialogProps {
 /**
  * Add or edit a webhook. A new webhook's signing secret is revealed once in
  * the same dialog, which can only be left after it was copied or its safe
- * storage confirmed.
+ * storage confirmed; so is the new secret of a chat webhook switched to the
+ * signed format. A webhook in a chat format (Discord, Slack, Teams) is sent
+ * unsigned, so its secret is never shown.
  */
 export function WebhookFormDialog({
   open,
@@ -100,7 +114,15 @@ export function WebhookFormDialog({
             onDone={finish}
           />
         ) : (
-          <WebhookForm webhook={webhook} onCreated={setCreated} onDone={close} />
+          <WebhookForm
+            webhook={webhook}
+            onSecret={setCreated}
+            onDone={close}
+            onCreatedUnsigned={(id) => {
+              close();
+              onCreated?.(id);
+            }}
+          />
         )}
       </DialogContent>
     </Dialog>
@@ -109,26 +131,44 @@ export function WebhookFormDialog({
 
 function WebhookForm({
   webhook,
-  onCreated,
+  onSecret,
   onDone,
+  onCreatedUnsigned,
 }: {
   webhook?: Webhook;
-  onCreated: (created: { id: string; secret: string }) => void;
+  /** A secret to reveal: of a new signed webhook, or of one switched to the signed format. */
+  onSecret: (created: { id: string; secret: string }) => void;
   onDone: () => void;
+  /** A new chat webhook: there is no secret to show. */
+  onCreatedUnsigned: (id: string) => void;
 }) {
   const { t } = useTranslation("integrations");
   const create = useCreateWebhook();
   const update = useUpdateWebhook();
+  const rotate = useRotateSecret();
   const [submitError, setSubmitError] = React.useState<unknown>(null);
+  // The format follows the URL until it is picked by hand.
+  const [followUrl, setFollowUrl] = React.useState(() => formatFollowsUrl(webhook));
   const form = useForm<WebhookFormValues>({
     resolver: zodResolver(webhookFormSchema),
     defaultValues: webhookFormFrom(webhook),
   });
   const errors = form.formState.errors;
   const url = useWatch({ control: form.control, name: "url" });
+  const format = useWatch({ control: form.control, name: "format" });
+  const detected = detectWebhookFormat(url ?? "");
   const reason = (message: string | undefined) =>
     message ? t(`webhookForm.errors.${message}`) : undefined;
-  const busy = create.isPending || update.isPending;
+  const busy = create.isPending || update.isPending || rotate.isPending;
+
+  React.useEffect(() => {
+    if (followUrl) {
+      const next = suggestedFormat(url ?? "");
+      if (form.getValues("format") !== next) {
+        form.setValue("format", next, { shouldDirty: true });
+      }
+    }
+  }, [url, followUrl, form]);
 
   const onSubmit = form.handleSubmit(async (values) => {
     setSubmitError(null);
@@ -136,13 +176,23 @@ function WebhookForm({
       if (!webhook) {
         const result = await create.mutateAsync(toWebhookInput(values));
         toast.success(t("toasts.webhookCreated"));
-        onCreated({ id: result.id, secret: result.secret });
+        if (isSignedFormat(result.format)) {
+          onSecret({ id: result.id, secret: result.secret });
+        } else {
+          onCreatedUnsigned(result.id);
+        }
         return;
       }
       const patch = webhookPatch(values, webhook);
       if (Object.keys(patch).length > 0) {
         await update.mutateAsync({ id: webhook.id, patch });
         toast.success(t("toasts.webhookUpdated"));
+      }
+      if (needsNewSecret(webhook, values.format)) {
+        // The secret of a chat webhook was never shown: the receiver gets a fresh one.
+        const rotated = await rotate.mutateAsync(webhook.id);
+        onSecret({ id: rotated.id, secret: rotated.secret });
+        return;
       }
       onDone();
     } catch (error) {
@@ -183,6 +233,56 @@ function WebhookForm({
           <Alert variant="warning">
             <LockOpen />
             <AlertDescription>{t("webhooks.insecureHint")}</AlertDescription>
+          </Alert>
+        ) : null}
+
+        <Controller
+          control={form.control}
+          name="format"
+          render={({ field }) => (
+            <Field
+              id="webhook-format"
+              label={t("webhookForm.format")}
+              hint={
+                detected !== null && detected === field.value
+                  ? `${t(`formats.${field.value}.description`)} ${t("webhookForm.formatDetected")}`
+                  : t(`formats.${field.value}.description`)
+              }
+            >
+              <Select
+                value={field.value}
+                onValueChange={(value) => {
+                  setFollowUrl(false);
+                  field.onChange(value as WebhookFormat);
+                }}
+              >
+                <SelectTrigger
+                  id="webhook-format"
+                  className="w-full sm:w-80"
+                  aria-describedby={messageId("webhook-format")}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {WEBHOOK_FORMATS.map((option) => (
+                    <SelectItem key={option} value={option}>
+                      {t(`formats.${option}.label`)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
+        />
+        {!isSignedFormat(format) ? (
+          <Alert variant="info">
+            <MessageSquare />
+            <AlertDescription>{t("webhookForm.chatUnsigned")}</AlertDescription>
+          </Alert>
+        ) : needsNewSecret(webhook, format) ? (
+          <Alert variant="info">
+            <KeyRound />
+            <AlertDescription>{t("webhookForm.newSecret")}</AlertDescription>
           </Alert>
         ) : null}
 

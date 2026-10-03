@@ -366,6 +366,31 @@ Die Job-Definitionen (`/api/v1/backup-jobs`) sind Session-API und nicht Teil der
 Webhooks je Mandant (Ereignis,
 HMAC-Signatur). Jeder lesende Zugriff auf Nutzer-/Backupdaten ist auditiert.
 
+Jeder Webhook hat ein Format (`webhooks.format`, Migration 0026, seit 0.3.0; Vertrag 1.3.0,
+additiv). `restow` (Standard, alle bestehenden Webhooks) ist der signierte JSON-Umschlag mit
+`X-Restow-Signature`, `X-Restow-Event`, `X-Restow-Delivery` und `X-Restow-Attempt`. `discord`,
+`slack` und `teams` sind Chatnachrichten in der Form, die die eingehenden Webhooks dieser Dienste
+annehmen: Discord `content` plus ein Embed (Titel, Beschreibung, Farbe nach Schwere, Felder,
+Zeitstempel, `allowed_mentions` leer), Slack `text` als Rückfall plus Blöcke (Header, Section,
+Context), Teams eine Adaptive Card in `{"type":"message","attachments":[...]}` (Workflows /
+Power Automate, "Post to a channel when a webhook request is received"; die alten
+Office-365-Connectors `*.webhook.office.com` nehmen dieselbe Form an). Die Weboberfläche wählt das
+Format beim Eingeben der URL (`discord.com`/`discordapp.com` mit `/api/webhooks/`,
+`hooks.slack.com`, `*.webhook.office.com`, `*.logic.azure.com`, `*.powerautomate.com`,
+`*.powerplatform.com`); es lässt sich von Hand ändern. Chatformate werden ohne Signatur und ohne
+die `X-Restow-*`-Header gesendet, die Oberfläche zeigt für sie kein Secret (gespeichert wird
+trotzdem eines, damit ein Wechsel zu `restow` sofort signiert; die Oberfläche erneuert es dann und
+zeigt es einmal). Der Worker rendert die Nachricht erst beim Zustellen aus dem gespeicherten
+Umschlag (`apps/worker/src/handlers/webhook-formats.ts`), in der Sprache des Mandanten (sonst der
+Installation) mit denselben Texten wie die Alarm-Mails (Ursache, Schritte), mit Link auf die
+öffentliche URL aus den Einstellungen (sonst `RESTOW_PUBLIC_URL`) und gekürzt auf die Grenzen des
+Dienstes (Discord: Inhalt 2000, Titel 256, Beschreibung 4096, Feldwert 1024, Embed gesamt 6000;
+Slack: Header 150, Section 3000; Teams: Text 4000). Das Zustellprotokoll zeigt weiter den
+Umschlag. Antwortet ein Chatdienst mit 400, 401, 403, 404, 410, 413 oder 422, endet die
+Zustellung sofort (URL oder Nachricht falsch, ein gelöschter Discord-Webhook antwortet 404);
+429 und 5xx werden wiederholt, frühestens nach `Retry-After`. Für `restow` beendet weiter nur 410
+die Zustellung sofort.
+
 ## Berichte und Benachrichtigungen
 
 Regeln je Mandant in `report_rules`, zwei Auslöser:

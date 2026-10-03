@@ -2,5 +2,51 @@
   "test": {
     "subject": "{appName}: notification test",
     "body": "This is a test notification from {appName}. You received it, so the mail delivery is configured correctly. No further action is needed."
+  },
+  "chat": {
+    "job": {
+      "failed": "{job} failed: {target}",
+      "completed": "{job} completed: {target}"
+    },
+    "jobs": {
+      "backup": "Backup",
+      "restore": "Restore",
+      "verify": "Restore check",
+      "archive": "Archive sync",
+      "directory": "Directory sync",
+      "retention": "Retention run",
+      "scrub": "Storage check",
+      "storage_migration": "Storage migration",
+      "import": "Import",
+      "export": "Export",
+      "endpoint_backup": "Machine backup",
+      "endpoint_restore": "Machine restore",
+      "endpoint_verify_sample": "Machine restore test",
+      "other": "Job"
+    },
+    "verify": {
+      "green": "Restore check passed: {target}",
+      "yellow": "Restore check needs attention: {target}",
+      "red": "Restore check failed: {target}",
+      "summary": "{checked, plural, one {# item checked} other {# items checked}}, {mismatched} with differences, {missing} missing."
+    },
+    "test": {
+      "title": "Test message from {appName}",
+      "body": "{appName} can post to this channel. Alerts for the events this webhook subscribes to will appear here."
+    },
+    "unknown": "{appName} event: {event}",
+    "fields": {
+      "tenant": "Tenant",
+      "target": "Concerns",
+      "duration": "Duration",
+      "error": "Error",
+      "cause": "Cause",
+      "todo": "What to do",
+      "reasons": "Reasons",
+      "snapshot": "Restore point",
+      "rule": "Rule"
+    },
+    "open": "Open in {appName}",
+    "footer": "{appName} · {tenant}"
   }
 }
