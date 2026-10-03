@@ -7,10 +7,17 @@ export interface Logger {
   error(message: string): void;
 }
 
-/** Writes `<time> <level> [updater] <message>` to stdout (info) or stderr (warn, error). */
-export function consoleLogger(redactor: Redactor, now: () => Date = () => new Date()): Logger {
+/**
+ * Writes `<time> <level> [<tag>] <message>` to stdout (info) or stderr (warn, error).
+ * The tag names the process (`updater`, or `mounter`, which shares this module).
+ */
+export function consoleLogger(
+  redactor: Redactor,
+  now: () => Date = () => new Date(),
+  tag = "updater",
+): Logger {
   const write = (level: string, sink: (line: string) => void, message: string): void => {
-    sink(`${now().toISOString()} ${level} [updater] ${redactor.oneLine(message, 4000)}`);
+    sink(`${now().toISOString()} ${level} [${tag}] ${redactor.oneLine(message, 4000)}`);
   };
   return {
     info: (message) => write("INFO", (line) => console.log(line), message),

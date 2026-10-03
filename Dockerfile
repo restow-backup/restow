@@ -247,9 +247,9 @@ COPY <<'EOF' /usr/local/bin/restow-entrypoint
 set -eu
 ROLE="${ROLE:-api}"
 case "$ROLE" in
-  api|worker|scheduler|updater) ;;
+  api|worker|scheduler|updater|mounter) ;;
   *)
-    echo "restow: unknown ROLE '$ROLE' (expected: api | worker | scheduler | updater)" >&2
+    echo "restow: unknown ROLE '$ROLE' (expected: api | worker | scheduler | updater | mounter)" >&2
     exit 64
     ;;
 esac
@@ -258,6 +258,12 @@ esac
 if [ "$ROLE" = updater ]; then
   echo "restow: starting role 'updater'" >&2
   exec node /prod/api/dist/apps/api/src/updater/main.js
+fi
+# The opt-in mounter (compose profile `mounts`, docs/MOUNTS.md) adds NFS shares as Docker
+# volumes; like the updater it lives in the api package and needs no database access.
+if [ "$ROLE" = mounter ]; then
+  echo "restow: starting role 'mounter'" >&2
+  exec node /prod/api/dist/apps/api/src/mounter/main.js
 fi
 DIR="/prod/$ROLE"
 # The api role applies database migrations (Drizzle migrations + RLS + the
