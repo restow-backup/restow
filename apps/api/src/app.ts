@@ -35,6 +35,8 @@ import { mountPath as importsMountPath } from "./features/imports/meta.js";
 import { importsRoutes } from "./features/imports/routes.js";
 import { mountPath as jobsMountPath } from "./features/jobs/meta.js";
 import { jobsRoutes } from "./features/jobs/routes.js";
+import { mountPath as mountsMountPath } from "./features/mounts/meta.js";
+import { mountsRoutes } from "./features/mounts/routes.js";
 import { mountPath as providerTeamMountPath } from "./features/provider-team/meta.js";
 import { providerTeamRoutes } from "./features/provider-team/routes.js";
 import {
@@ -211,6 +213,7 @@ export function buildApp() {
   app.route(`${API_V1}${endpointsMountPath}`, endpointsRoutes);
   app.route(`${API_V1}${updatesMountPath}`, updatesRoutes);
   app.route(`${API_V1}${maintenanceMountPath}`, maintenanceRoutes);
+  app.route(`${API_V1}${mountsMountPath}`, mountsRoutes);
 
   // Extension route groups, each behind the guard its extension supplies.
   for (const contribution of sessionRouteContributions()) {

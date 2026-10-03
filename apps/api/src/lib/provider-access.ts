@@ -218,6 +218,16 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // The maintenance state is for everyone who is signed in.
   "GET /api/v1/maintenance": view(NONE),
 
+  // --- Network shares (the opt-in mounter, docs/MOUNTS.md) -----------------------
+  // Reading is for every provider admin (the storage form offers the paths of the shares);
+  // adding, removing and testing a share run containers on the host and restart the api and
+  // the worker: the owner's (adding and removing with a recent sign-in, features/mounts).
+  "GET /api/v1/mounts": view(PROVIDER),
+  "GET /api/v1/mounts/paths": view(PROVIDER),
+  "POST /api/v1/mounts": own(),
+  "DELETE /api/v1/mounts/:name": own(),
+  "POST /api/v1/mounts/test": own(),
+
   // --- API keys -----------------------------------------------------------------
   "GET /api/v1/api-keys": view(),
   "POST /api/v1/api-keys": configure(),

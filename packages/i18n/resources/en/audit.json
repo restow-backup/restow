@@ -155,7 +155,8 @@
     "report": "Alerts",
     "update": "Updates",
     "endpoint": "Servers and clients",
-    "backup_job": "Backup jobs"
+    "backup_job": "Backup jobs",
+    "mount": "Network shares"
   },
   "events": {
     "account": {
@@ -498,6 +499,11 @@
       },
       "run_requested": "Backup job run requested",
       "migrated": "Schedules and machine configurations turned into backup jobs"
+    },
+    "mount": {
+      "add_requested": "Network share added",
+      "remove_requested": "Network share removed",
+      "tested": "Network share tested"
     }
   },
   "targetTypes": {
@@ -536,7 +542,8 @@
     "update": "Update",
     "endpoint": "Server or client",
     "endpoint_enrollment_token": "Enrollment token",
-    "backup_job": "Backup job"
+    "backup_job": "Backup job",
+    "mount": "Network share"
   },
   "sectionDescription": "The log of this {scope, select, organisation {organisation} other {tenant}}: who did what, when, with the hash chain that proves it was not changed."
 }
