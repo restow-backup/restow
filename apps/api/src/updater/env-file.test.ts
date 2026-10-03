@@ -299,6 +299,21 @@ describe("EnvFile", () => {
     expect(await fs.readFile(target, "utf8")).toBe("RESTOW_IMAGE=a:1\n");
   });
 
+  it("pins the mounter's image the same way and refuses any other line", async () => {
+    const pinned = `ghcr.io/restow-backup/restow:0.3.0@sha256:${"f".repeat(64)}`;
+    await fs.writeFile(target, "RESTOW_IMAGE=a:1\n");
+    await file.pinImage("RESTOW_MOUNTER_IMAGE", pinned);
+    expect(await fs.readFile(target, "utf8")).toBe(
+      `RESTOW_IMAGE=a:1\nRESTOW_MOUNTER_IMAGE=${pinned}\n`,
+    );
+    await expect(file.pinImage("RESTOW_IMAGE", pinned)).rejects.toMatchObject({
+      reason: "invalid_setting",
+    });
+    await expect(file.pinImage("RESTOW_MOUNTER_IMAGE", "x:1")).rejects.toMatchObject({
+      reason: "invalid_value",
+    });
+  });
+
   it("appends the image lines an update writes when .env has none", async () => {
     await fs.writeFile(target, "POSTGRES_PASSWORD=pw\n");
     const captured = await file.capture(KEYS);

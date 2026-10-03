@@ -366,6 +366,31 @@ Die Job-Definitionen (`/api/v1/backup-jobs`) sind Session-API und nicht Teil der
 Webhooks je Mandant (Ereignis,
 HMAC-Signatur). Jeder lesende Zugriff auf Nutzer-/Backupdaten ist auditiert.
 
+Jeder Webhook hat ein Format (`webhooks.format`, Migration 0026, seit 0.3.0; Vertrag 1.3.0,
+additiv). `restow` (Standard, alle bestehenden Webhooks) ist der signierte JSON-Umschlag mit
+`X-Restow-Signature`, `X-Restow-Event`, `X-Restow-Delivery` und `X-Restow-Attempt`. `discord`,
+`slack` und `teams` sind Chatnachrichten in der Form, die die eingehenden Webhooks dieser Dienste
+annehmen: Discord `content` plus ein Embed (Titel, Beschreibung, Farbe nach Schwere, Felder,
+Zeitstempel, `allowed_mentions` leer), Slack `text` als Rückfall plus Blöcke (Header, Section,
+Context), Teams eine Adaptive Card in `{"type":"message","attachments":[...]}` (Workflows /
+Power Automate, "Post to a channel when a webhook request is received"; die alten
+Office-365-Connectors `*.webhook.office.com` nehmen dieselbe Form an). Die Weboberfläche wählt das
+Format beim Eingeben der URL (`discord.com`/`discordapp.com` mit `/api/webhooks/`,
+`hooks.slack.com`, `*.webhook.office.com`, `*.logic.azure.com`, `*.powerautomate.com`,
+`*.powerplatform.com`); es lässt sich von Hand ändern. Chatformate werden ohne Signatur und ohne
+die `X-Restow-*`-Header gesendet, die Oberfläche zeigt für sie kein Secret (gespeichert wird
+trotzdem eines, damit ein Wechsel zu `restow` sofort signiert; die Oberfläche erneuert es dann und
+zeigt es einmal). Der Worker rendert die Nachricht erst beim Zustellen aus dem gespeicherten
+Umschlag (`apps/worker/src/handlers/webhook-formats.ts`), in der Sprache des Mandanten (sonst der
+Installation) mit denselben Texten wie die Alarm-Mails (Ursache, Schritte), mit Link auf die
+öffentliche URL aus den Einstellungen (sonst `RESTOW_PUBLIC_URL`) und gekürzt auf die Grenzen des
+Dienstes (Discord: Inhalt 2000, Titel 256, Beschreibung 4096, Feldwert 1024, Embed gesamt 6000;
+Slack: Header 150, Section 3000; Teams: Text 4000). Das Zustellprotokoll zeigt weiter den
+Umschlag. Antwortet ein Chatdienst mit 400, 401, 403, 404, 410, 413 oder 422, endet die
+Zustellung sofort (URL oder Nachricht falsch, ein gelöschter Discord-Webhook antwortet 404);
+429 und 5xx werden wiederholt, frühestens nach `Retry-After`. Für `restow` beendet weiter nur 410
+die Zustellung sofort.
+
 ## Berichte und Benachrichtigungen
 
 Regeln je Mandant in `report_rules`, zwei Auslöser:
@@ -462,6 +487,12 @@ alle Schritte erledigt oder nicht nötig, verschwindet „Start" aus dem Menü.
   Passkeys entfernen, alle Sessions beenden, Audit `account.access_recovered` (Akteur
   `system`, `via: command_line`) in der Installationskette. Danach Anmeldung mit dem neuen
   Passwort und Pflicht zur TOTP-Einrichtung wie nach dem Setup.
+  Jedes andere Mitglied setzt ein Owner im Browser zurück (Installation › Mitglieder,
+  „Zugang zurücksetzen“, `POST /api/v1/provider-team/:userId/reset-access`, mit kürzlicher
+  Anmeldung): in einer Transaktion Passwort (Credential-Konto), Passkeys, TOTP und alle
+  Sessions entfernen und einen neuen Set-Password-Link ausstellen (ohne Mail-Dienst zum
+  Kopieren angezeigt, mit dem Benutzernamen), Audit `provider_team.access_reset`. Nicht für
+  den eigenen Zugang und nie für den letzten Owner.
 
 - Betreiberhinweis (erster Schritt): Vor allem anderen muss der Betreiber den Hinweis zur
   eigenen Verantwortung annehmen (Restow ist Backup- und Archivwerkzeug; Hardware, Speicher,
@@ -697,6 +728,35 @@ Versionsinformationen. Rechte: der Reiter ist für Provider-Admins; Lesen für j
 ändert (Einstellungen, Prüfung auslösen, Wartung ankündigen, abbrechen, Ergebnis bestätigen), nur
 `owner`.
 
+## Netzlaufwerke: der Mounter (opt-in)
+
+Ein weiterer eigener Prozess im selben Image (`ROLE=mounter`, Compose-Profil `mounts`, Code in
+`apps/api/src/mounter`), unabhängig vom Updater; Betriebsdoku in `docs/MOUNTS.md`. Er bindet
+NFS-Freigaben als Docker-Volumes des `local`-Treibers in `api` und `worker` unter
+`/mnt/restow/<name>` ein, damit ein Speicherziel der Art "Verzeichnis" dorthin zeigen kann.
+
+- Quelle der Wahrheit ist die Compose-Override-Datei des Projekts: die Liste `x-restow-mounts`,
+  je Freigabe ein Volume `restow-nfs-<name>-<hash8>` (Hash über die Einstellungen, geänderte
+  Einstellungen ergeben ein neues Volume) und die `volumes:`-Einträge von `api` und `worker`.
+  Bearbeitet über die Document-API des `yaml`-Pakets, sodass Inhalte und Kommentare des
+  Betreibers erhalten bleiben (`override.ts`).
+- Ablauf einer Änderung (`engine.ts`): prüfen, Freigabe testen (temporäres Volume mit
+  `soft,timeo=50,retrans=1`, kurzlebiger Container schreibt und löscht eine Datei), Override
+  schreiben und `docker compose config -q`, `up -d --no-deps --no-build --pull never api worker`,
+  auf Gesundheit warten, nicht mehr benutzte Volumes entfernen. Jeder Fehler nach dem Schreiben
+  stellt die vorige Override-Datei wieder her (und erstellt die Dienste erneut).
+- Dieselben Grenzen wie beim Updater: Docker-Socket, daher opt-in, nur internes Netz (Port
+  8091), gemeinsames Secret im Volume `restow-mounter-shared` (in der API nur lesend), keine
+  Anwendungs-Zugangsdaten, eigenes per Digest festgehaltenes Image (`RESTOW_MOUNTER_IMAGE`).
+  Er nutzt die Bausteine des Updaters (Secret, Engine-API-Client, Runner, Redaktion, Logger),
+  ein eigener Grenztest lässt nur diese und die eigenen Dateien zu.
+- Die API (`features/mounts`) leitet weiter: Lesen für Provider-Admins mit allen Mandanten,
+  Hinzufügen, Entfernen und Testen nur `owner`, Hinzufügen und Entfernen mit frischer Anmeldung;
+  alles im Installations-Audit-Log. Sie lehnt Änderungen ab, solange Jobs oder Endpoint-Läufe
+  laufen, und das Entfernen einer Freigabe, die ein Speicherziel oder der Standardspeicher nutzt.
+- Nur NFS. Das Protokollfeld (`protocol`) lässt Platz für ein weiteres Protokoll (SMB) über
+  denselben Container.
+
 ## Erweiterungsschnittstelle und `ee/`
 
 Entscheidung vom 01.10.2026 (Plan D8): Der Kern steht unter Apache-2.0 und weiß nichts von
@@ -720,7 +780,10 @@ API (`apps/api/src/extensions.ts`, `ApiExtension`):
   Mandant, wenn schon einer existiert), `apiKeys.provider` (Provider-Keys und die
   mandantenübergreifenden Operationen der Integrations-API), `stats.allTenants`
   (Statistik über alle Mandanten), `dashboard.allTenants` (Provider-Ansicht des Dashboards),
-  `reports.timed` (zeitgesteuerte Berichte). Ohne registrierte Schranke ist jede davon aus;
+  `reports.timed` (zeitgesteuerte Berichte), `providerTeam.tenantScope` (Mitglieder des
+  Provider-Teams auf ausgewählte Mandanten beschränken; ohne sie hat jedes Mitglied alle
+  Mandanten, eine schon gespeicherte Beschränkung bleibt bestehen und wirkt weiter). Ohne
+  registrierte Schranke ist jede davon aus;
   der Kern antwortet dann 403 `urn:restow:problem:feature-unavailable`. Eine Schranke kann
   ihr eigenes Problem liefern (`unavailable`): `ee/` antwortet wie bisher 403
   `urn:restow:problem:edition-required` mit `requiredEdition`, `edition`, `capability`.
@@ -739,7 +802,7 @@ Web (`apps/web/src/lib/extensions.tsx`, `WebExtension`): Seiten (`routes`), Men�
 `isLocked`, Ziel, Hinweistext), Sperren für Menüeinträge des Kerns per ID (`navLocks`) und
 Abschnitte der Installationsseite (`installationSections`, `/installation/<abschnitt>`, mit
 optionalem `lock` und `legacySettingsSection` für die alte Adresse unter `/settings`) und
-Slots (`shell.sidebarFooter`, `tenants.creationLocked`,
+Slots (`shell.sidebarFooter`, `tenants.creationLocked`, `team.tenantScopeLocked`,
 `archive.sections`, `dashboard.provider`). Die Seitenleiste zeigt einen gesperrten Eintrag
 ausgegraut mit Schloss und schickt ihn nach Installation → Lizenz (`/installation/license`,
 dorthin führt auch der Eintrag Installation › Lizenz der vollen Images); ein gesperrter

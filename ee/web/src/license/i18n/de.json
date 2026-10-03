@@ -81,5 +81,10 @@
       "description": "Die {edition, select, community {Community} business {Business} other {Service Provider}}-Edition verwaltet genau einen Mandanten, und diese Installation hat ihn bereits. Für mehrere Mandanten ist ein Service-Provider-Lizenzschlüssel nötig.",
       "action": "Lizenz öffnen"
     }
+  },
+  "teamScope": {
+    "title": "Mitglieder auf ausgewählte Mandanten zu beschränken erfordert die Service-Provider-Edition",
+    "description": "In der {edition, select, community {Community} business {Business} other {Service Provider}}-Edition haben alle Mitglieder alle Mandanten.",
+    "action": "Lizenz öffnen"
   }
 }

@@ -64,6 +64,13 @@ export interface HelperRunnerOptions {
   dockerSocket: string;
   /** Id or name of the updater's own container (the container's hostname). */
   selfId: string;
+  /**
+   * Label that marks this runner's helpers (default {@link HELPER_LABEL}). The mounter
+   * uses its own, so neither process removes the other's running helpers on start.
+   */
+  helperLabel?: string;
+  /** Name prefix of the helper containers (default `restow-updater-helper`). */
+  namePrefix?: string;
 }
 
 type Preparation =
@@ -79,6 +86,10 @@ export class HelperRunner implements CommandRunner {
 
   constructor(private readonly options: HelperRunnerOptions) {}
 
+  private get label(): string {
+    return this.options.helperLabel ?? HELPER_LABEL;
+  }
+
   async ping(): Promise<void> {
     await this.options.engine.ping();
   }
@@ -88,7 +99,7 @@ export class HelperRunner implements CommandRunner {
     const { engine, logger } = this.options;
     let removed = 0;
     try {
-      for (const id of await engine.listContainersByLabel(`${HELPER_LABEL}=1`)) {
+      for (const id of await engine.listContainersByLabel(`${this.label}=1`)) {
         await engine.removeContainer(id);
         removed += 1;
       }
@@ -128,12 +139,12 @@ export class HelperRunner implements CommandRunner {
     const engine = options.engine;
     const self = await engine.inspectContainer(options.selfId);
     if (!self) {
-      throw new Error("The updater's own container could not be found through the Docker socket.");
+      throw new Error("The process's own container could not be found through the Docker socket.");
     }
     const mount = (self.Mounts ?? []).find((entry) => entry.Destination === options.stateDir);
     if (!mount) {
       throw new Error(
-        `No volume or directory is mounted at ${options.stateDir} in the updater container.`,
+        `No volume or directory is mounted at ${options.stateDir} in this container.`,
       );
     }
     const source = mount.Type === "volume" ? mount.Name : mount.Source;
@@ -197,7 +208,7 @@ export class HelperRunner implements CommandRunner {
       Cmd: wrapCommand(spec),
       WorkingDir: projectDir,
       Env: env,
-      Labels: { [HELPER_LABEL]: "1" },
+      Labels: { [this.label]: "1" },
       NetworkDisabled: true,
       HostConfig: {
         Binds: [
@@ -216,7 +227,7 @@ export class HelperRunner implements CommandRunner {
     try {
       id = await engine.createContainer(
         body,
-        `restow-updater-helper-${randomBytes(6).toString("hex")}`,
+        `${this.options.namePrefix ?? "restow-updater-helper"}-${randomBytes(6).toString("hex")}`,
       );
       await engine.startContainer(id);
       const controller = new AbortController();

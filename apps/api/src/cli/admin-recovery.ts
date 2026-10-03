@@ -1,18 +1,10 @@
 import { randomUUID } from "node:crypto";
-import {
-  type Database,
-  account,
-  passkey,
-  providerMembers,
-  session,
-  settings,
-  twoFactor,
-  user,
-} from "@restow/db";
+import { type Database, account, passkey, providerMembers, settings, user } from "@restow/db";
 import { and, asc, count, eq, like } from "drizzle-orm";
 import { auth } from "../auth.js";
 import { audit } from "../lib/audit.js";
 import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "../lib/password-policy.js";
+import { resetSignInMethods } from "../lib/sign-in-reset.js";
 import type { DbExecutor } from "../lib/tenant-context.js";
 import { PROVIDER_ADMIN_USER_ROLE, isProviderAdminRole } from "../middleware/rbac.js";
 
@@ -26,7 +18,7 @@ import { PROVIDER_ADMIN_USER_ROLE, isProviderAdminRole } from "../middleware/rba
  * Whoever can run a command in the api container already controls the server,
  * its database and its keys, so this is where recovery lives. It is limited to
  * owners: every other member of the provider team is reset by an owner in
- * Settings > Team.
+ * Installation > Members ("Reset access", features/provider-team).
  *
  * Recovery, in one transaction on the installation pool:
  *   - sets the new password the operator typed (the credential account is
@@ -34,7 +26,8 @@ import { PROVIDER_ADMIN_USER_ROLE, isProviderAdminRole } from "../middleware/rba
  *   - removes the authenticator app (TOTP) and every passkey: a lost device
  *     must not keep working (and a password sign-in is refused while an
  *     account has a passkey but no authenticator app, lib/auth-hooks.ts),
- *   - ends every session of the account,
+ *   - ends every session of the account (both: lib/sign-in-reset.ts, shared
+ *     with the owner's "Reset access" of a team member),
  *   - writes `account.access_recovered` to the installation audit chain.
  *
  * The owner then signs in with the new password and has to set up an
@@ -176,7 +169,7 @@ export async function recoveryTarget(
   if (member && member.role !== "owner") {
     throw new RecoveryError(
       "not_owner",
-      `${email} is a member of the provider team with the role ${member.role}, not an owner. An owner resets their access in Settings > Team.`,
+      `${email} is a member of the provider team with the role ${member.role}, not an owner. An owner resets their access in Installation > Members (Reset access).`,
     );
   }
   if (target.banned) {
@@ -234,30 +227,15 @@ export async function recoverAdminAccess(
       });
     }
 
-    const removedFactors = await tx
-      .delete(twoFactor)
-      .where(eq(twoFactor.userId, target.id))
-      .returning({ id: twoFactor.id });
-    await tx
-      .update(user)
-      .set({ twoFactorEnabled: false, updatedAt: new Date() })
-      .where(eq(user.id, target.id));
-    const removedPasskeys = await tx
-      .delete(passkey)
-      .where(eq(passkey.userId, target.id))
-      .returning({ id: passkey.id });
-    const endedSessions = await tx
-      .delete(session)
-      .where(eq(session.userId, target.id))
-      .returning({ id: session.id });
+    const reset = await resetSignInMethods(tx, target.id, { removePassword: false });
 
     const result: RecoveryResult = {
       userId: target.id,
       email,
       passwordCreated: credential === undefined,
-      authenticatorRemoved: removedFactors.length > 0,
-      passkeysRemoved: removedPasskeys.length,
-      sessionsEnded: endedSessions.length,
+      authenticatorRemoved: reset.authenticatorRemoved,
+      passkeysRemoved: reset.passkeysRemoved,
+      sessionsEnded: reset.sessionsEnded,
     };
     await audit(tx, {
       actor: "system",

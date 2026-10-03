@@ -18,7 +18,7 @@ import {
   sendTestEvent,
   updateWebhook,
 } from "../../features/webhooks/service.js";
-import { WEBHOOK_EVENTS, WEBHOOK_TEST_EVENT } from "../../lib/webhooks.js";
+import { WEBHOOK_EVENTS, WEBHOOK_FORMATS, WEBHOOK_TEST_EVENT } from "../../lib/webhooks.js";
 import { type IntegrationApi, READ_ERRORS, type V1Deps, WRITE_ERRORS } from "./api.js";
 import { component } from "./components.js";
 import { idParamSchema, nextCursorSchema, timestampSchema, uuidSchema } from "./schemas.js";
@@ -36,11 +36,20 @@ export const SIGNATURE_HEADER = "X-Restow-Signature";
 export const SIGNATURE_FORMAT = "sha256=<hex>";
 
 const DELIVERY_NOTE =
-  "Deliveries are POSTed as JSON with `X-Restow-Signature: sha256=<hex>`, the HMAC-SHA-256 of the raw body under the webhook's secret, and retried with backoff.";
+  "Deliveries are POSTed as JSON and retried with backoff. In the `restow` format (the default) each carries `X-Restow-Signature: sha256=<hex>`, the HMAC-SHA-256 of the raw body under the webhook's secret. The formats `discord`, `slack` and `teams` post a readable chat message in that service's incoming-webhook shape instead, without a signature; the answers 400, 401, 403, 404, 410, 413 and 422 end such a delivery at once.";
 
 export const webhookEventSchema = component(
   "WebhookEvent",
   z.enum(WEBHOOK_EVENTS).describe("An event a webhook can subscribe to."),
+);
+
+export const webhookFormatSchema = component(
+  "WebhookFormat",
+  z
+    .enum(WEBHOOK_FORMATS)
+    .describe(
+      "Shape of the requests: `restow` is the signed JSON envelope; `discord`, `slack` and `teams` (Workflows / Power Automate) are unsigned chat messages for those services' incoming webhooks.",
+    ),
 );
 
 export const deliveryStatusSchema = component(
@@ -58,7 +67,10 @@ export const webhookSchema = component(
     url: z.string(),
     events: z.array(webhookEventSchema),
     active: z.boolean(),
-    secretConfigured: z.boolean().describe("A signing secret is stored for the webhook."),
+    format: webhookFormatSchema,
+    secretConfigured: z
+      .boolean()
+      .describe("A signing secret is stored for the webhook (only the `restow` format signs)."),
     createdAt: timestampSchema,
     updatedAt: timestampSchema,
     stats: z.object({
@@ -148,6 +160,7 @@ export function toV1Webhook(webhook: WebhookDto): V1WebhookDto {
     url: webhook.url,
     events: webhook.events,
     active: webhook.active,
+    format: webhook.format,
     secretConfigured: webhook.secretConfigured,
     createdAt: webhook.createdAt,
     updatedAt: webhook.updatedAt,
@@ -255,7 +268,7 @@ export function registerWebhookRoutes(api: IntegrationApi, deps: V1Deps): void {
       method: "patch",
       path: "/webhooks/:id",
       operationId: "updateWebhook",
-      summary: "Change a webhook's name, URL, events or active state",
+      summary: "Change a webhook's name, URL, events, format or active state",
       tag: "Webhooks",
       scope: "webhooks:manage",
       write: true,

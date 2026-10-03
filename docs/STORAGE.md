@@ -13,7 +13,9 @@ the storage-target lifecycle.
 A tenant's chunk store (packs, manifests, wrapped keys) lives on one or more
 **storage targets**, each a mounted filesystem path (a Docker volume or an NFS
 share) or an S3-compatible bucket (Hetzner Object Storage, AWS S3, Wasabi, Backblaze
-B2, Garage — not MinIO, which is no longer open source). Every target has a role:
+B2, Garage — not MinIO, which is no longer open source). An NFS share can be added from
+the web interface with the opt-in mounter (Installation > Mounts, `docs/MOUNTS.md`); it
+then appears in the api and the worker at `/mnt/restow/<name>`. Every target has a role:
 
 - **primary** — receives every new backup first. A tenant has at most one. A tenant
   with no primary target of its own uses the installation's default storage as its

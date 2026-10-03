@@ -31,5 +31,9 @@ describe("minEditionFor", () => {
   it("matches the capability table", () => {
     expect(minEditionFor("archive.legalHold")).toBe("business");
     expect(minEditionFor("provider.crossTenantApi")).toBe("service_provider");
+    // The provider team is in every edition (the core); limiting a member to
+    // chosen tenants is the Service Provider part of it.
+    expect(minEditionFor("provider.teamTenantScope")).toBe("service_provider");
+    expect((CAPABILITIES as readonly string[]).includes("provider.team")).toBe(false);
   });
 });

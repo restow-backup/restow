@@ -29,6 +29,7 @@ export {
 } from "./confirm-dialog.js";
 export { CopyButton, type CopyButtonProps } from "./copy-button.js";
 export { EmptyState, type EmptyStateProps } from "./empty-state.js";
+export { DisabledReason, type DisabledReasonProps } from "./disabled-reason.js";
 export { HintTooltip, type HintTooltipProps } from "./hint-tooltip.js";
 export { IconButton, type IconButtonProps } from "./icon-button.js";
 export {

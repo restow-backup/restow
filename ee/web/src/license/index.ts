@@ -6,6 +6,7 @@ import type { NavItem } from "@/lib/navigation";
 
 import { AboutLicense } from "./components/about-license";
 import { EditionBadge } from "./components/edition-badge";
+import { TeamScopeLocked } from "./components/team-scope-locked";
 import { TenantsCreationLocked } from "./components/tenants-creation-locked";
 import "./i18n";
 import { LICENSE_SECTION_ID, editionLock } from "./nav-lock";
@@ -14,7 +15,8 @@ import { LICENSE_SECTION_ID, editionLock } from "./nav-lock";
  * The license module of ee/web: the edition read from the session
  * (`edition.ts`), locks by edition (`nav-lock.ts`) and what it adds to core
  * pages: the license section of the installation page, the edition badge in
- * the sidebar footer and the reason no further tenant can be created. The core
+ * the sidebar footer, the reason no further tenant can be created and the
+ * reason a member cannot be limited to chosen tenants. The core
  * never names an edition itself.
  */
 
@@ -26,6 +28,7 @@ export { LICENSE_SECTION_ID, editionLock } from "./nav-lock";
 export const licenseSlots = {
   "shell.sidebarFooter": EditionBadge,
   "tenants.creationLocked": TenantsCreationLocked,
+  "team.tenantScopeLocked": TeamScopeLocked,
 } satisfies NonNullable<WebExtension["slots"]>;
 
 /**

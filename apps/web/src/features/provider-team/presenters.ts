@@ -29,6 +29,27 @@ export function scopeIsValid(draft: ScopeDraft): boolean {
   return normalized.allTenants || normalized.tenantIds.length > 0;
 }
 
+/**
+ * How the tenant scope may be chosen in the member dialog:
+ *
+ *   open    limiting a member to chosen tenants is offered here (the gated
+ *           feature `providerTeam.tenantScope`)
+ *   kept    it is not, but the member already is limited (from before): the
+ *           limit can stay exactly as it is, or be widened to every tenant
+ *   locked  it is not: every member has every tenant, the choice is shown locked
+ */
+export type TenantScopeChoice = "open" | "kept" | "locked";
+
+export function tenantScopeChoice(input: {
+  tenantScope: boolean;
+  member: { allTenants: boolean } | null;
+}): TenantScopeChoice {
+  if (input.tenantScope) {
+    return "open";
+  }
+  return input.member && !input.member.allTenants ? "kept" : "locked";
+}
+
 export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** The i18n key for a failed team request: the team's own refusals first, then the shared ones. */
@@ -41,6 +62,10 @@ export function teamErrorKey(error: unknown): string {
         return "team:errors.accountExists";
       case "urn:restow:problem:provider-team-no-tenants":
         return "team:errors.noTenants";
+      case "urn:restow:problem:provider-team-reset-self":
+        return "team:errors.resetSelf";
+      case "urn:restow:problem:provider-team-not-active":
+        return "team:errors.notActive";
     }
   }
   return `common:${errorMessageKey(error)}`;

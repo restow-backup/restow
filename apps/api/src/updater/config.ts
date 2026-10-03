@@ -132,7 +132,7 @@ function integer(
 }
 
 /** A plain absolute path (no ':' or ',', which would break a bind specification); null when it is not one. */
-function plainAbsolutePath(raw: string): string | null {
+export function plainAbsolutePath(raw: string): string | null {
   if (!path.posix.isAbsolute(raw) || /[\0\n\r:,]/.test(raw) || raw.split("/").includes("..")) {
     return null;
   }
@@ -334,6 +334,7 @@ export interface SelfMounts {
 export function resolveProjectLocation(
   configured: string | null,
   self: SelfMounts | null,
+  variable = "RESTOW_UPDATER_PROJECT_DIR",
 ): ProjectLocation | { problem: string } {
   if (configured !== null) {
     return { hostDir: configured, localDir: configured };
@@ -343,7 +344,7 @@ export function resolveProjectLocation(
   );
   if (!mount) {
     return {
-      problem: `RESTOW_UPDATER_PROJECT_DIR is not set and no project directory is mounted at ${PROJECT_MOUNT}. Use the docker-compose.yml of this release, or set RESTOW_PROJECT_DIR in .env to the absolute path of the directory that holds docker-compose.yml.`,
+      problem: `${variable} is not set and no project directory is mounted at ${PROJECT_MOUNT}. Use the docker-compose.yml of this release, or set RESTOW_PROJECT_DIR in .env to the absolute path of the directory that holds docker-compose.yml.`,
     };
   }
   const hostDir = plainAbsolutePath(mount.Source);

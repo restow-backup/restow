@@ -38,6 +38,9 @@ Variable werden sie übersprungen und als "skipped" gemeldet; CI stellt dafür e
 Postgres-Service bereit und setzt die Variable.
 
 - apps/api: `features/usage/usage.pg.test.ts`,
+  `features/provider-team/provider-team.pg.test.ts` (Mitglieder: Einladung, Rollen,
+  Mandantenbeschränkung nur mit dem freigeschalteten Merkmal `providerTeam.tenantScope`,
+  Zugang zurücksetzen), `cli/admin-recovery.pg.test.ts`,
   `features/restore/restore.pg.test.ts`, `features/snapshots/explorer.pg.test.ts`,
   `features/snapshots/preview.pg.test.ts`, `features/snapshots/routes.pg.test.ts`,
   `features/webhooks/integrations.pg.test.ts`
@@ -46,7 +49,7 @@ Postgres-Service bereit und setzt die Variable.
   `ee/api/src/audit-log/audit.pg.test.ts`,
   `journal/receiver.pg.test.ts`, `journal/setup.pg.test.ts`,
   `legal-holds/legal-holds.pg.test.ts`, `provider-api/tenants.pg.test.ts`,
-  `provider-dashboard/view.pg.test.ts`, `provider-team/provider-team.pg.test.ts`,
+  `provider-dashboard/view.pg.test.ts`,
   `reports/summary.pg.test.ts`, `ee/worker/src/archive-retention/archive-retention.pg.test.ts`
 - apps/worker: `framework.pg.test.ts` sowie die Postgres-Abschnitte von
   `handlers/restore.test.ts`, `handlers/webhooks.test.ts` und `handlers/audit-anchor.test.ts`

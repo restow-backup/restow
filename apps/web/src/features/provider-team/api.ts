@@ -1,9 +1,10 @@
 import { type ProviderRole, apiFetch } from "@/lib/api";
 
 /**
- * Typed client for /api/v1/provider-team (ee/api/src/provider-team). The
- * routes answer 404 without the `provider.team` capability (Business and
- * up), so the page only calls them on those editions.
+ * Typed client for /api/v1/provider-team (apps/api features/provider-team),
+ * in every edition. A member limited to chosen tenants needs the gated
+ * feature `providerTeam.tenantScope`; without it the API refuses a limit
+ * with 403 (`feature-unavailable`, or `edition-required` from ee/).
  */
 
 export type MemberStatus = "active" | "invited" | "invitation_expired";
@@ -31,6 +32,7 @@ export interface InviteMemberInput extends MemberScopeInput {
   name: string;
 }
 
+/** An invitation, a reissued invitation link or a reset of a member's access. */
 export interface Invitation {
   member: TeamMember;
   /** Only when the link could not be mailed; the owner hands it over. */
@@ -60,6 +62,17 @@ export function removeMember(userId: string): Promise<void> {
 
 export function reissueInvitation(userId: string): Promise<Invitation> {
   return apiFetch<Invitation>(`${memberPath(userId)}/reissue`, { method: "POST", tenantId: null });
+}
+
+/**
+ * Take an active member's password, passkeys, authenticator app and sessions
+ * away and issue a fresh set-password link (owners; needs a recent sign-in).
+ */
+export function resetAccess(userId: string): Promise<Invitation> {
+  return apiFetch<Invitation>(`${memberPath(userId)}/reset-access`, {
+    method: "POST",
+    tenantId: null,
+  });
 }
 
 export const teamKeys = {

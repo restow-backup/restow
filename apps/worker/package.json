@@ -17,6 +17,7 @@
   "dependencies": {
     "@restow/core": "workspace:*",
     "@restow/db": "workspace:*",
+    "@restow/i18n": "workspace:*",
     "drizzle-orm": "^0.45.3",
     "imapflow": "^1.0.171",
     "pg-boss": "^10.1.5"

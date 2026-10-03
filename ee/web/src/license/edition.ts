@@ -58,6 +58,7 @@ const FEATURE_EDITION: Readonly<Record<GatedFeature, LicensedEdition>> = {
   "stats.allTenants": "service_provider",
   "dashboard.allTenants": "service_provider",
   "reports.timed": "business",
+  "providerTeam.tenantScope": "service_provider",
 };
 
 /**

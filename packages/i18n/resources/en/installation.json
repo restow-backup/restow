@@ -11,6 +11,7 @@
     "microsoftApp": "Microsoft multi-tenant app",
     "journal": "Journal receiving",
     "defaultStorage": "Default storage",
+    "mounts": "Mounts",
     "providerApi": "Provider API",
     "updates": "Updates",
     "edition": "Edition",
@@ -22,6 +23,7 @@
     "microsoftApp": "The app registration this installation uses to reach Microsoft 365.",
     "journal": "The SMTP receiver for Exchange journal reports. One receiver serves {scope, select, organisation {your organisation} other {all tenants}}.",
     "defaultStorage": "Where data is kept for {scope, select, organisation {your organisation} other {every tenant without a storage target of its own}}.",
+    "mounts": "Network shares (NFS) used as backup storage.",
     "providerApi": "Keys for RMM and PSA tools that work across all tenants.",
     "updates": "Which version runs, which releases exist and how to update.",
     "edition": "Which build runs and the switch to the full build.",
@@ -171,6 +173,174 @@
       "title": "Provider keys moved",
       "description": "The keys that work across all tenants are under Installation, Provider API now. This page keeps the keys of the active tenant.",
       "action": "Open Provider API"
+    }
+  },
+  "mounts": {
+    "loadError": "The mounts could not be loaded.",
+    "intro": "Network shares (NFS) that {appName} uses as backup storage. Each share appears in the api and the worker at {path}; a storage target of the kind \"directory\" then points there.",
+    "unavailable": {
+      "title": "The mounter is not running",
+      "description": "Network shares are added by the mounter, an optional container next to {appName}. It is off by default. To use it, run this command once in the directory that holds docker-compose.yml:",
+      "security": "The mounter has access to the Docker socket, which amounts to root access on the host. Read the documentation on mounts before you enable it.",
+      "reason": {
+        "disabled": "The connection to the mounter is switched off on this server.",
+        "no_secret": "The mounter has not started yet, or its shared secret is not readable.",
+        "unreachable": "Nothing answers at the mounter's address.",
+        "timeout": "The mounter did not answer in time.",
+        "incompatible": "The mounter answered in a format this version does not understand. Recreate it with the image of this version."
+      },
+      "demo": "Network shares cannot be added in the demo."
+    },
+    "list": {
+      "title": "Shares",
+      "description": "Shares that are mounted into the api and the worker.",
+      "empty": "No shares yet.",
+      "add": "Add share",
+      "server": "Server",
+      "export": "Export",
+      "version": "NFS version",
+      "path": "Path in {appName}",
+      "readOnly": "Read-only",
+      "test": "Test",
+      "remove": "Remove",
+      "copyPath": "Copy path",
+      "storageHint": "To keep backups on a share, add a storage target of the kind \"directory\" with the share's path, or a folder below it."
+    },
+    "blockers": {
+      "title": "Shares cannot be changed right now",
+      "docker_unreachable": "The mounter cannot reach Docker.",
+      "docker_cli_missing": "The mounter is still preparing its Docker tools. Try again in a minute.",
+      "compose_missing": "The mounter finds no compose file in the project directory.",
+      "compose_file_variable": "COMPOSE_FILE is set in .env. Docker Compose would then not read the override file the shares are written to.",
+      "override_invalid": "The compose override file cannot be read. Correct it by hand first."
+    },
+    "operation": {
+      "title": {
+        "add": "Adding the share {name}",
+        "remove": "Removing the share {name}"
+      },
+      "status": {
+        "running": "Running",
+        "succeeded": "Completed",
+        "failed": "Failed, nothing was changed",
+        "rolled_back": "Failed, the previous state was restored",
+        "needs_attention": "Failed, please check the server"
+      },
+      "progress": "Progress",
+      "restart": "The api and the worker restart during this step. This page may not respond for a moment.",
+      "requestedBy": "Started by {who}, {when}",
+      "warnings": "Notes",
+      "needsAttention": "The previous state could not be restored automatically. Check docker-compose.override.yml in the project directory and run docker compose up -d. The documentation on mounts describes the steps.",
+      "dismissHint": "The next change replaces this report."
+    },
+    "steps": {
+      "validate": "Check the settings",
+      "probe": "Test the share",
+      "write": "Write the configuration",
+      "apply": "Restart the api and the worker",
+      "health": "Wait until they are ready",
+      "cleanup": "Clean up"
+    },
+    "stepStatus": {
+      "pending": "Pending",
+      "running": "Running",
+      "done": "Done",
+      "failed": "Failed",
+      "skipped": "Skipped"
+    },
+    "failures": {
+      "validate": {
+        "invalid": "The settings are not valid.",
+        "exists": "A share with this name exists already.",
+        "not_found": "There is no share with this name.",
+        "conflict": "The compose override already mounts something at this path.",
+        "limit": "The maximum number of shares is reached."
+      },
+      "prepare": {
+        "compose_missing": "No compose file was found in the project directory.",
+        "compose_file_variable": "COMPOSE_FILE is set in .env.",
+        "docker_unreachable": "Docker is not reachable."
+      },
+      "probe": {
+        "mount_failed": "The share could not be mounted. Check the server address, the export path, the NFS version and whether the server exports the path to this host.",
+        "not_writable": "The share was mounted but is not writable. Check the permissions on the server (root squash maps root to an unprivileged user).",
+        "timeout": "The server did not answer in time.",
+        "failed": "The test of the share failed."
+      },
+      "write": {
+        "invalid_override": "The compose override file cannot be changed.",
+        "failed": "The compose override file could not be written.",
+        "config_invalid": "Docker Compose did not accept the new configuration."
+      },
+      "apply": {
+        "failed": "The api and the worker could not be restarted with the share."
+      },
+      "health": {
+        "timeout": "The api or the worker did not become ready in time.",
+        "crashed": "The api or the worker stopped after the restart."
+      },
+      "interrupted": "The mounter stopped while the change was running."
+    },
+    "dialog": {
+      "title": "Add an NFS share",
+      "description": "The share is tested first. Adding it restarts the api and the worker, which takes a moment.",
+      "name": "Name",
+      "nameHint": "1 to 32 characters: lower-case letters, digits and hyphens. The share appears at {path}.",
+      "server": "Server",
+      "serverHint": "Host name, IPv4 or IPv6 address of the NFS server.",
+      "serverPlaceholder": "nas.example.lan",
+      "export": "Export path",
+      "exportHint": "The path the server exports, for example /volume1/backup.",
+      "exportPlaceholder": "/volume1/backup",
+      "version": "NFS version",
+      "readOnly": "Read-only",
+      "readOnlyHint": "Mount the share read-only. Backups cannot be written to it.",
+      "test": "Test connection",
+      "testing": "Testing ...",
+      "add": "Add share",
+      "invalid": {
+        "name": "Use 1 to 32 characters: a-z, 0-9 and hyphens, not at the start or end.",
+        "server": "Enter a host name or an IP address, without commas, spaces or \"=\".",
+        "export": "Enter an absolute path, without commas, spaces, \":\", \"=\" or \"..\"."
+      }
+    },
+    "test": {
+      "ok": "The share is reachable and writable.",
+      "okReadOnly": "The share is reachable and readable.",
+      "failed": "The test failed.",
+      "detail": "Details: {detail}"
+    },
+    "remove": {
+      "title": "Remove the share {name}?",
+      "description": "The share is unmounted from the api and the worker, which restart. The data on the server is not touched.",
+      "confirm": "Remove share",
+      "inUse": "The share is still used by these storage locations:",
+      "installationDefault": "the installation default storage"
+    },
+    "toast": {
+      "adding": "The share is being added.",
+      "removing": "The share is being removed."
+    },
+    "errors": {
+      "unavailable": "The mounter is not running.",
+      "jobsRunning": "Backups or restores are running. Changing a share restarts the api and the worker; try again when they have finished.",
+      "inUse": "The share is still used by a storage location.",
+      "demo": "Network shares cannot be changed in the demo.",
+      "rejected": {
+        "busy": "Another change to the shares is running.",
+        "blocked": "The mounter cannot change shares right now.",
+        "exists": "A share with this name exists already.",
+        "not_found": "There is no share with this name.",
+        "conflict": "The compose override already mounts something at this path.",
+        "limit": "The maximum number of shares is reached.",
+        "invalid_request": "The mounter did not accept the settings.",
+        "generic": "The mounter refused the change."
+      },
+      "generic": "The request failed."
+    },
+    "storageHint": {
+      "label": "Mounted network shares",
+      "use": "Use {path}"
     }
   }
 }

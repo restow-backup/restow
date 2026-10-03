@@ -18,6 +18,10 @@ import type { DbExecutor } from "./tenant-context.js";
  *   dashboard.allTenants  the provider view of the dashboard
  *   reports.timed         time-triggered summary reports (alerts on events are
  *                         always on)
+ *   providerTeam.tenantScope
+ *                         limiting a member of the provider team to chosen
+ *                         tenants; without it every member has every tenant
+ *                         (features/provider-team)
  */
 export const GATED_FEATURES = [
   "tenants.additional",
@@ -25,6 +29,7 @@ export const GATED_FEATURES = [
   "stats.allTenants",
   "dashboard.allTenants",
   "reports.timed",
+  "providerTeam.tenantScope",
 ] as const;
 
 export type GatedFeature = (typeof GATED_FEATURES)[number];

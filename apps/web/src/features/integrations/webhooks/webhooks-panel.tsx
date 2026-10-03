@@ -15,6 +15,7 @@ import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/error-state";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -39,7 +40,13 @@ import {
 import { ConfirmDialog } from "../components/confirm-dialog";
 import { useDeleteWebhook, useIntegrationsScope, useUpdateWebhook, useWebhooks } from "../hooks";
 import { webhookDetailTo } from "../paths";
-import { displayUrl, eventKey, integrationErrorKey, isInsecureUrl } from "../presenters";
+import {
+  displayUrl,
+  eventKey,
+  integrationErrorKey,
+  isInsecureUrl,
+  isSignedFormat,
+} from "../presenters";
 import type { Webhook } from "../types";
 import { useIntegrationsFormat } from "../use-format";
 import { SignatureHelp } from "./signature-help";
@@ -199,9 +206,8 @@ function WebhookList() {
           }
         }}
         title={t("webhooks.deleteConfirm.title")}
-        description={t("webhooks.deleteConfirm.description", {
-          url: deleting ? displayUrl(deleting.url) : "",
-        })}
+        description={t("webhooks.deleteConfirm.description")}
+        detail={deleting ? displayUrl(deleting.url) : null}
         confirmLabel={t("webhooks.deleteConfirm.confirm")}
         destructive
         pending={remove.isPending}
@@ -240,6 +246,11 @@ function WebhookRow({
             {displayUrl(webhook.url)}
           </span>
           {isInsecureUrl(webhook.url) ? <InsecureBadge /> : null}
+          {isSignedFormat(webhook.format) ? null : (
+            <Badge variant="secondary" className="shrink-0">
+              {t(`formats.${webhook.format}.label`)}
+            </Badge>
+          )}
         </div>
       </TableCell>
       <TableCell className="text-sm">

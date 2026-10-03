@@ -12,7 +12,6 @@ import {
 import { providerApiInstallationSections } from "./provider-api";
 import { ProviderView } from "./provider-dashboard/provider-view";
 import { ReadinessByTenant } from "./provider-dashboard/readiness-by-tenant";
-import { teamNavItems, teamRoute } from "./provider-team";
 
 /**
  * Entry of the Business and Service Provider web modules (ee/README.md),
@@ -22,8 +21,8 @@ import { teamNavItems, teamRoute } from "./provider-team";
  */
 export const eeWebExtension: WebExtension = {
   name: "ee",
-  routes: [...auditRoutes, teamRoute],
-  navItems: [...auditNavItems, ...licenseNavItems, ...teamNavItems],
+  routes: auditRoutes,
+  navItems: [...auditNavItems, ...licenseNavItems],
   navLocks: licenseNavLocks,
   tenantSections: auditTenantSections,
   installationSections: [

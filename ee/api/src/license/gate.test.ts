@@ -127,6 +127,7 @@ describe("licenseFeatureGate", () => {
       "apiKeys.provider",
       "stats.allTenants",
       "dashboard.allTenants",
+      "providerTeam.tenantScope",
     ] as const) {
       expect(await licenseFeatureGate.isEnabled(fakeDb("business"), feature)).toBe(false);
       expect(await licenseFeatureGate.isEnabled(fakeDb("service_provider"), feature)).toBe(true);

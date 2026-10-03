@@ -356,6 +356,7 @@ export type ProviderRole = "owner" | "administrator" | "technician" | "read_only
  * - `stats.allTenants`     the statistics over every tenant
  * - `dashboard.allTenants` the provider view of the dashboard
  * - `reports.timed`        time-triggered report rules
+ * - `providerTeam.tenantScope` limiting a member of the provider team to chosen tenants
  */
 export const GATED_FEATURES = [
   "tenants.additional",
@@ -363,6 +364,7 @@ export const GATED_FEATURES = [
   "stats.allTenants",
   "dashboard.allTenants",
   "reports.timed",
+  "providerTeam.tenantScope",
 ] as const;
 
 export type GatedFeature = (typeof GATED_FEATURES)[number];

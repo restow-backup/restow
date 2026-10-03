@@ -74,6 +74,9 @@ importers:
       smtp-server:
         specifier: ^3.19.15
         version: 3.19.15
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
       zod:
         specifier: ^3.24.0
         version: 3.25.76
@@ -242,6 +245,9 @@ importers:
       '@restow/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@restow/i18n':
+        specifier: workspace:*
+        version: link:../../packages/i18n
       drizzle-orm:
         specifier: ^0.45.3
         version: 0.45.3(@types/pg@8.23.1)(gel@2.2.1)(kysely@0.29.6)(pg@8.23.0)
@@ -8481,8 +8487,7 @@ snapshots:
 
   yallist@3.1.1: {}
 
-  yaml@2.9.1:
-    optional: true
+  yaml@2.9.1: {}
 
   yauzl@3.4.0:
     dependencies:
