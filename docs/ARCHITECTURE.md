@@ -728,6 +728,35 @@ Versionsinformationen. Rechte: der Reiter ist für Provider-Admins; Lesen für j
 ändert (Einstellungen, Prüfung auslösen, Wartung ankündigen, abbrechen, Ergebnis bestätigen), nur
 `owner`.
 
+## Netzlaufwerke: der Mounter (opt-in)
+
+Ein weiterer eigener Prozess im selben Image (`ROLE=mounter`, Compose-Profil `mounts`, Code in
+`apps/api/src/mounter`), unabhängig vom Updater; Betriebsdoku in `docs/MOUNTS.md`. Er bindet
+NFS-Freigaben als Docker-Volumes des `local`-Treibers in `api` und `worker` unter
+`/mnt/restow/<name>` ein, damit ein Speicherziel der Art "Verzeichnis" dorthin zeigen kann.
+
+- Quelle der Wahrheit ist die Compose-Override-Datei des Projekts: die Liste `x-restow-mounts`,
+  je Freigabe ein Volume `restow-nfs-<name>-<hash8>` (Hash über die Einstellungen, geänderte
+  Einstellungen ergeben ein neues Volume) und die `volumes:`-Einträge von `api` und `worker`.
+  Bearbeitet über die Document-API des `yaml`-Pakets, sodass Inhalte und Kommentare des
+  Betreibers erhalten bleiben (`override.ts`).
+- Ablauf einer Änderung (`engine.ts`): prüfen, Freigabe testen (temporäres Volume mit
+  `soft,timeo=50,retrans=1`, kurzlebiger Container schreibt und löscht eine Datei), Override
+  schreiben und `docker compose config -q`, `up -d --no-deps --no-build --pull never api worker`,
+  auf Gesundheit warten, nicht mehr benutzte Volumes entfernen. Jeder Fehler nach dem Schreiben
+  stellt die vorige Override-Datei wieder her (und erstellt die Dienste erneut).
+- Dieselben Grenzen wie beim Updater: Docker-Socket, daher opt-in, nur internes Netz (Port
+  8091), gemeinsames Secret im Volume `restow-mounter-shared` (in der API nur lesend), keine
+  Anwendungs-Zugangsdaten, eigenes per Digest festgehaltenes Image (`RESTOW_MOUNTER_IMAGE`).
+  Er nutzt die Bausteine des Updaters (Secret, Engine-API-Client, Runner, Redaktion, Logger),
+  ein eigener Grenztest lässt nur diese und die eigenen Dateien zu.
+- Die API (`features/mounts`) leitet weiter: Lesen für Provider-Admins mit allen Mandanten,
+  Hinzufügen, Entfernen und Testen nur `owner`, Hinzufügen und Entfernen mit frischer Anmeldung;
+  alles im Installations-Audit-Log. Sie lehnt Änderungen ab, solange Jobs oder Endpoint-Läufe
+  laufen, und das Entfernen einer Freigabe, die ein Speicherziel oder der Standardspeicher nutzt.
+- Nur NFS. Das Protokollfeld (`protocol`) lässt Platz für ein weiteres Protokoll (SMB) über
+  denselben Container.
+
 ## Erweiterungsschnittstelle und `ee/`
 
 Entscheidung vom 01.10.2026 (Plan D8): Der Kern steht unter Apache-2.0 und weiß nichts von
