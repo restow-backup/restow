@@ -35,8 +35,8 @@
     "@kenjiuno/msgreader": "^1.28.0",
     "archiver": "^7.0.1",
     "imapflow": "^1.0.171",
-    "mailparser": "^3.9.31",
-    "nodemailer": "^10.0.12",
+    "mailparser": "^3.9.32",
+    "nodemailer": "^10.0.13",
     "yauzl": "^3.4.0"
   },
   "devDependencies": {

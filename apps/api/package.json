@@ -24,14 +24,14 @@
     "@restow/i18n": "workspace:*",
     "better-auth": "^1.7.6",
     "drizzle-orm": "^0.45.3",
-    "hono": "^4.13.11",
+    "hono": "^4.13.12",
     "imapflow": "^1.0.171",
-    "mailparser": "^3.9.31",
-    "nodemailer": "^10.0.12",
+    "mailparser": "^3.9.32",
+    "nodemailer": "^10.0.13",
     "pg-boss": "^10.1.5",
     "react": "^19.0.0",
     "sanitize-html": "^2.17.7",
-    "smtp-server": "^3.19.15",
+    "smtp-server": "^3.19.16",
     "zod": "^3.24.0"
   },
   "devDependencies": {
