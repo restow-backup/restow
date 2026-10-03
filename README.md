@@ -105,8 +105,7 @@ Microsoft throttles Graph; Restow shows that wait instead of hiding it.
 ## Screenshots
 
 From the public demo, which runs the Service Provider edition with synthetic data
-(the audit log viewer and the team page are Business and Service Provider
-features), unretouched.
+(the audit log viewer is a Business and Service Provider feature), unretouched.
 
 | | |
 | --- | --- |
@@ -115,7 +114,7 @@ features), unretouched.
 | ![Statistics](docs/images/screenshots/statistics.png) | ![Audit log](docs/images/screenshots/audit-log.png) |
 | Overview, Statistics tab: backups, restores, storage growth and checks over 30 days. | Audit log (Business and Service Provider): who did what, when, for whom; the chain is verifiable. |
 | ![Alerts](docs/images/screenshots/alerts-and-reports.png) | ![Team](docs/images/screenshots/team.png) |
-| Alerts: who is told what, and when, by e-mail, bell or webhook, and scheduled reports. | Team (Business and Service Provider): several administrators with roles and, with Service Provider, chosen tenants. |
+| Alerts: who is told what, and when, by e-mail, bell or webhook, and scheduled reports. | Members: several administrators with roles in every edition and, with Service Provider, limited to chosen tenants. |
 
 ## How Restow is built
 
@@ -507,7 +506,10 @@ docker compose exec api restow admin recover --email owner@example.com
 owner's authenticator app and passkeys and ends all their sessions. The owner
 signs in with the new password and sets up an authenticator app again before
 anything else. The recovery is recorded in the audit log. It works for owners
-only; an owner resets every other administrator in the web interface.
+only; an owner resets every other administrator in the web interface
+(Installation › Members, *Reset access*: password, passkeys and authenticator
+app are removed, the sessions end, and the administrator gets a new link to
+choose a password).
 `docker compose exec api restow help` lists the options.
 
 ## Editions
@@ -516,8 +518,8 @@ All editions are self-hosted, have no mailbox limit and never limit restore.
 
 | Edition | For | Price |
 | --- | --- | --- |
-| **Community** | One organisation: every backup source and restore function, endpoint backup, mail import and export, the archive (search, hash chain), alerts, dashboard and statistics, the REST API, tenant members with self-service restore. One provider administrator. Apache-2.0, no license key. | Free |
-| **Business** | Adds the provider team (several administrators with roles), the archive's GoBD layer (journal receiver, enforced retention, legal hold), scheduled summary reports and the audit log viewer. CSV and PDF export of the audit log is planned. Still one organisation. | One-time purchase |
+| **Community** | One organisation: every backup source and restore function, endpoint backup, mail import and export, the archive (search, hash chain), alerts, dashboard and statistics, the REST API, tenant members with self-service restore. Several provider administrators with roles (owner, administrator, technician, read only), each with every tenant. Apache-2.0, no license key. | Free |
+| **Business** | Adds the archive's GoBD layer (journal receiver, enforced retention, legal hold), scheduled summary reports and the audit log viewer. CSV and PDF export of the audit log is planned. Still one organisation. | One-time purchase |
 | **Service Provider** | Adds multiple tenants, team members limited to chosen tenants, the cross-tenant API and the provider dashboard. | One-time purchase |
 
 Every release comes in two builds. The full images (`restow`, `restow-web`)

@@ -462,6 +462,12 @@ alle Schritte erledigt oder nicht nötig, verschwindet „Start" aus dem Menü.
   Passkeys entfernen, alle Sessions beenden, Audit `account.access_recovered` (Akteur
   `system`, `via: command_line`) in der Installationskette. Danach Anmeldung mit dem neuen
   Passwort und Pflicht zur TOTP-Einrichtung wie nach dem Setup.
+  Jedes andere Mitglied setzt ein Owner im Browser zurück (Installation › Mitglieder,
+  „Zugang zurücksetzen“, `POST /api/v1/provider-team/:userId/reset-access`, mit kürzlicher
+  Anmeldung): in einer Transaktion Passwort (Credential-Konto), Passkeys, TOTP und alle
+  Sessions entfernen und einen neuen Set-Password-Link ausstellen (ohne Mail-Dienst zum
+  Kopieren angezeigt, mit dem Benutzernamen), Audit `provider_team.access_reset`. Nicht für
+  den eigenen Zugang und nie für den letzten Owner.
 
 - Betreiberhinweis (erster Schritt): Vor allem anderen muss der Betreiber den Hinweis zur
   eigenen Verantwortung annehmen (Restow ist Backup- und Archivwerkzeug; Hardware, Speicher,
@@ -720,7 +726,10 @@ API (`apps/api/src/extensions.ts`, `ApiExtension`):
   Mandant, wenn schon einer existiert), `apiKeys.provider` (Provider-Keys und die
   mandantenübergreifenden Operationen der Integrations-API), `stats.allTenants`
   (Statistik über alle Mandanten), `dashboard.allTenants` (Provider-Ansicht des Dashboards),
-  `reports.timed` (zeitgesteuerte Berichte). Ohne registrierte Schranke ist jede davon aus;
+  `reports.timed` (zeitgesteuerte Berichte), `providerTeam.tenantScope` (Mitglieder des
+  Provider-Teams auf ausgewählte Mandanten beschränken; ohne sie hat jedes Mitglied alle
+  Mandanten, eine schon gespeicherte Beschränkung bleibt bestehen und wirkt weiter). Ohne
+  registrierte Schranke ist jede davon aus;
   der Kern antwortet dann 403 `urn:restow:problem:feature-unavailable`. Eine Schranke kann
   ihr eigenes Problem liefern (`unavailable`): `ee/` antwortet wie bisher 403
   `urn:restow:problem:edition-required` mit `requiredEdition`, `edition`, `capability`.
@@ -739,7 +748,7 @@ Web (`apps/web/src/lib/extensions.tsx`, `WebExtension`): Seiten (`routes`), Men�
 `isLocked`, Ziel, Hinweistext), Sperren für Menüeinträge des Kerns per ID (`navLocks`) und
 Abschnitte der Installationsseite (`installationSections`, `/installation/<abschnitt>`, mit
 optionalem `lock` und `legacySettingsSection` für die alte Adresse unter `/settings`) und
-Slots (`shell.sidebarFooter`, `tenants.creationLocked`,
+Slots (`shell.sidebarFooter`, `tenants.creationLocked`, `team.tenantScopeLocked`,
 `archive.sections`, `dashboard.provider`). Die Seitenleiste zeigt einen gesperrten Eintrag
 ausgegraut mit Schloss und schickt ihn nach Installation → Lizenz (`/installation/license`,
 dorthin führt auch der Eintrag Installation › Lizenz der vollen Images); ein gesperrter
