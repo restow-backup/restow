@@ -19,6 +19,7 @@ import {
   addImapMailbox,
   createTenant,
   listTenants,
+  ownOrganisationOf,
   setUpInstallation,
   signIn,
   waitForSnapshot,
@@ -335,7 +336,11 @@ async function upgradeFromPrevious(ctx) {
     await stack.waitForApi();
     const before = await appliedMigrations(stack);
     const { api, totpSecret } = await setUpInstallation(stack);
-    const tenant = await createTenant(api, "Upgrade Tenant", "upgrade");
+    // From 0.2.0 on the setup creates the own organisation, and an installation without a
+    // license key has only that one tenant; 0.1.0 created none, so the check made its own.
+    const tenant =
+      ownOrganisationOf(await listTenants(api)) ??
+      (await createTenant(api, "Upgrade Tenant", "upgrade"));
     const login = "upgrade@smoke.test";
     const imap = await ImapClient.connect({
       host: "127.0.0.1",
@@ -371,8 +376,9 @@ async function upgradeFromPrevious(ctx) {
       );
     }
     const again = await signIn(stack, totpSecret);
-    // 0.1.0 knew no own organisation. This installation can have only one tenant (no license
-    // key) and has exactly one, so the first start of the new version marked it as the own one.
+    // This installation can have only one tenant (no license key) and has exactly one: the own
+    // organisation, either created by the previous release's setup or, coming from 0.1.0
+    // (which knew none), marked as the own one on the first start of the new version.
     const upgraded = await listTenants(again);
     if (upgraded.length !== 1 || upgraded[0].id !== tenant.id || upgraded[0].kind !== "internal") {
       throw new Error(
@@ -396,7 +402,7 @@ async function upgradeFromPrevious(ctx) {
     );
     void queued;
     void ADMIN;
-    return `${before} -> ${after} migrations on a database with a tenant and a backup; the tenant became the own organisation, the backup is still there and proven restorable`;
+    return `${before} -> ${after} migrations on a database with a tenant and a backup; the tenant is the own organisation, the backup is still there and proven restorable`;
   } finally {
     await stack.down();
   }
