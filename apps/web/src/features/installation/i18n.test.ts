@@ -207,6 +207,9 @@ describe("installation translations", () => {
       when: "2 hours ago",
       who: "admin@example.test",
       step: "Write",
+      name: "nas",
+      path: "/mnt/restow/nas",
+      detail: "mount.nfs: access denied by server",
     };
     for (const language of ["en", "de"]) {
       await i18n.changeLanguage(language);

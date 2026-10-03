@@ -1,4 +1,4 @@
-import { AppWindow, Download, HardDrive, Info, Layers, Mail, Server } from "lucide-react";
+import { AppWindow, Download, HardDrive, Info, Layers, Mail, Network, Server } from "lucide-react";
 
 import { AboutSection } from "@/features/settings/sections/about-section";
 import { UpdatesSection } from "@/features/updates/updates-section";
@@ -7,6 +7,7 @@ import { type InstallationSectionSpec, extensionInstallationSections } from "@/l
 import { DefaultStorageSection } from "./sections/default-storage-section";
 import { EditionSection } from "./sections/edition-section";
 import { MicrosoftAppSection } from "./sections/microsoft-app-section";
+import { MountsSection } from "./sections/mounts-section";
 import { MailSectionPage, ServerSectionPage } from "./sections/settings-sections";
 
 /**
@@ -17,7 +18,7 @@ import { MailSectionPage, ServerSectionPage } from "./sections/settings-sections
  * `InstallationSectionSpec`):
  *
  *   10 Server   20 Notification mail   30 Microsoft multi-tenant app
- *   40 Journal receiving (Business)    50 Default storage
+ *   40 Journal receiving (Business)    50 Default storage    55 Mounts
  *   60 Provider API (Service Provider) 70 Updates
  *   80 License (extension) or Edition  90 About
  *
@@ -62,6 +63,16 @@ export const CORE_INSTALLATION_SECTIONS: readonly InstallationSectionSpec[] = [
     icon: HardDrive,
     order: 50,
     component: DefaultStorageSection,
+  },
+  {
+    // NFS shares through the opt-in mounter (docs/MOUNTS.md), right after the default
+    // storage they usually serve.
+    id: "mounts",
+    labelKey: "installation:sections.mounts",
+    descriptionKey: "installation:descriptions.mounts",
+    icon: Network,
+    order: 55,
+    component: MountsSection,
   },
   {
     id: "updates",
