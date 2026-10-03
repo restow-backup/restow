@@ -65,6 +65,11 @@ export interface MounterClientOptions {
   timeoutMs?: number;
   /** A test mounts the share: it may take as long as the mounter's probe timeout. */
   testTimeoutMs?: number;
+  /**
+   * Starting a change re-checks Docker and Compose first (the operation itself runs in
+   * the background), which can take longer than a state read.
+   */
+  changeTimeoutMs?: number;
 }
 
 export function createMounterClient(options: MounterClientOptions): MounterClient {
@@ -72,6 +77,7 @@ export function createMounterClient(options: MounterClientOptions): MounterClien
   const now = options.now ?? Date.now;
   const timeoutMs = options.timeoutMs ?? 5000;
   const testTimeoutMs = options.testTimeoutMs ?? 90_000;
+  const changeTimeoutMs = options.changeTimeoutMs ?? 30_000;
   const base = options.url ? options.url.replace(/\/+$/, "") : null;
   const secrets = new SecretReader(options.secretFile, options.readFile ?? readUtf8, now);
   let lastFailure: MounterFailure | null = base ? null : "disabled";
@@ -159,11 +165,16 @@ export function createMounterClient(options: MounterClientOptions): MounterClien
       }
     },
     async add(addRequest) {
-      return toState(await request("POST", "/v1/mounts", addRequest));
+      return toState(await request("POST", "/v1/mounts", addRequest, changeTimeoutMs));
     },
     async remove(name, removeRequest) {
       return toState(
-        await request("DELETE", `/v1/mounts/${encodeURIComponent(name)}`, removeRequest),
+        await request(
+          "DELETE",
+          `/v1/mounts/${encodeURIComponent(name)}`,
+          removeRequest,
+          changeTimeoutMs,
+        ),
       );
     },
     async test(target) {
