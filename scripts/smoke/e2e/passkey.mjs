@@ -113,7 +113,7 @@ async function signInWithPassword() {
     .fill(totp(env("TOTP_SECRET")));
   await page.getByRole("button", { name: "Verify code" }).click();
   await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 20_000 });
-  await page.waitForLoadState("networkidle");
+  await page.waitForLoadState("load");
 }
 
 /**
@@ -186,7 +186,7 @@ try {
   let passkeyAdded = false;
   if (signedIn) {
     passkeyAdded = await step("register a passkey with the virtual authenticator", async () => {
-      await page.goto(`${BASE_URL}/account`, { waitUntil: "networkidle" });
+      await page.goto(`${BASE_URL}/account`, { waitUntil: "load" });
       await page.getByRole("button", { name: "Add passkey" }).first().click();
       await page.getByRole("dialog").getByRole("button", { name: "Create passkey" }).click();
       await page.getByText("Passkey added.").first().waitFor({ timeout: 15_000 });
@@ -215,7 +215,7 @@ try {
       await page.goto(`${BASE_URL}/login`, { waitUntil: "networkidle" });
       await page.getByRole("button", { name: "Sign in with passkey" }).click();
       await page.waitForURL((url) => !url.pathname.startsWith("/login"), { timeout: 20_000 });
-      await page.waitForLoadState("networkidle");
+      await page.waitForLoadState("load");
       const me = await apiGet("/api/v1/me");
       assert(me.status === 200, `GET /api/v1/me answered ${me.status}`);
       assert(me.body?.user?.email === env("ADMIN_EMAIL"), "the session belongs to another account");
@@ -225,7 +225,7 @@ try {
 
   if (passkeyAdded && env("TENANT_WIZARD", "run") !== "skip") {
     await step("create a tenant through the wizard", async () => {
-      await page.goto(`${BASE_URL}/tenants`, { waitUntil: "networkidle" });
+      await page.goto(`${BASE_URL}/tenants`, { waitUntil: "load" });
       await page.getByRole("button", { name: "New tenant" }).click();
       const dialog = page.getByRole("dialog");
       await dialog.locator("input[name=name]").fill(TENANT_NAME);

@@ -271,13 +271,19 @@ export async function waitForSnapshot(
 
 /** "Back up now"; returns the queued job ids. */
 export async function backUpNow(api, tenantId, objectId) {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
+  for (let attempt = 0; attempt < 90; attempt += 1) {
     const response = await api.request("POST", "/api/v1/jobs/backup", {
       tenantId,
       body: { protectedObjectId: objectId },
     });
     if (response.status < 400) {
-      return response.body.queued.map((job) => job.id);
+      const ids = response.body.queued.map((job) => job.id);
+      if (ids.length > 0) return ids;
+      // Nothing queued: a backup of this object is already queued or running
+      // (since 0.2.0 the job scheduler plans it). Wait it out and ask again, so
+      // the backup we wait for starts after the caller's changes.
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      continue;
     }
     // Another backup of the same object may still be running (the recommended
     // schedule or the follow-up of the first one): wait it out.
