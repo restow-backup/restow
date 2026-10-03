@@ -149,9 +149,18 @@ describe("UploadPanel", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       await pick(view.container, [textFile("inbox.eml", "Subject: hi\n")]);
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(10_000);
-      });
+      // The retries wait 0.5, 1 and 2 s. Move the clock on a second at a time until the panel gives
+      // up, however long the file takes to reach its first request on a busy machine: one jump
+      // made before the first request leaves the waits to run in real time, past the test's limit.
+      for (
+        let step = 0;
+        step < 120 && !text(view.container).includes("The server could not be reached");
+        step++
+      ) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1_000);
+        });
+      }
     } finally {
       vi.useRealTimers();
     }

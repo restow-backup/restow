@@ -1,7 +1,8 @@
 /**
  * Check 10 (endpoint backup, when this build has it):
  * the agent is installed from the running stack with the real install script,
- * enrolls with a one-time token, backs up a folder, and a restore task puts the
+ * enrolls with a one-time token, is put into a backup job (from 0.2.1 a machine
+ * in no job backs nothing up), backs up a folder, and a restore task puts the
  * folder back into a new directory where every file matches by SHA-256.
  *
  * The client is a small Linux container on the host network; it trusts the
@@ -231,6 +232,23 @@ export async function endpoint(ctx, check) {
         throw new Error(`${items.length} endpoints are listed`);
       }
       return items[0].id;
+    });
+
+    await check.step("a backup job of the folder takes the machine", async () => {
+      // From 0.2.1 an enrolled machine waits for a job and backs nothing up on its own; the
+      // agent fetches the job's configuration before the backup below.
+      const job = await api.post(
+        "/api/v1/backup-jobs",
+        {
+          kind: "endpoint",
+          name: "Smoke machines",
+          schedule: { kind: "daily", timeOfDay: "03:00", timeZone: "UTC" },
+          settings: { paths: ["/srv/smoke-data"] },
+          scope: { mode: "selected", members: [{ id: endpointId }] },
+        },
+        { tenantId },
+      );
+      return `job "${job.name}" backs up /srv/smoke-data`;
     });
 
     const snapshot = await check.step(
