@@ -13,14 +13,14 @@
     "@restow/core": "workspace:*",
     "@restow/db": "workspace:*",
     "@restow/i18n": "workspace:*",
-    "better-auth": "^1.7.6",
+    "better-auth": "^1.7.7",
     "drizzle-orm": "^0.45.3",
-    "hono": "^4.13.11",
-    "smtp-server": "^3.19.15",
+    "hono": "^4.13.12",
+    "smtp-server": "^3.19.16",
     "zod": "^3.24.0"
   },
   "devDependencies": {
     "@types/smtp-server": "^3.5.13",
-    "nodemailer": "^10.0.12"
+    "nodemailer": "^10.0.14"
   }
 }
