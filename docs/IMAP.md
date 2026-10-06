@@ -166,9 +166,9 @@ Mail aus einem IMAP-Postfach kommt nur über den Datei-Import (Export des Postfa
   `*.protection.outlook.com`; den SPF des Absenders zu prüfen ist noch nicht umgesetzt (Journal-Reports
   kommen von der Tenant-Domain bzw. `MicrosoftExchange329e71ec88ae4615bbc36ab6ce41109e@<tenant>.onmicrosoft.com`).
 - Verarbeitung: Report parsen (Envelope-Text: Sender, Message-Id, Recipients mit
-  To/Cc/Bcc-Kennzeichnung), Original aus Anhang extrahieren, beides speichern. Eine
-  Zuordnung zu Postfächern über die Envelope-Empfänger gibt es in 0.1.0 nicht: Die
-  Empfänger stehen im Umschlag des Archivobjekts, das Objekt selbst gehört keinem Postfach.
+  To/Cc/Bcc-Kennzeichnung), Original aus Anhang extrahieren, beides speichern. Ab 0.3.0
+  ordnet der Empfänger jeden Report den Postfächern zu, deren Adresse der Umschlag nennt
+  (docs/ARCHIVE.md, "Zuordnung zu Postfächern"); vorher gehörte ein Report keinem Postfach.
   Geparst wird in einem Parser-Prozess der API mit Zeit- und Speichergrenze
   (docs/ARCHIVE.md, "Lesen der Reports"); ein Report, der sie überschreitet, wird roh
   archiviert und markiert. Sind alle Parser-Prozesse belegt und die Warteschlange voll,
