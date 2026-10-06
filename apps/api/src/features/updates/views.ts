@@ -91,6 +91,7 @@ export function updaterViewOf({
     selfUpdate: state?.selfUpdate ?? null,
     applicationImage,
     runner: state?.capabilities.runner ?? null,
+    signatureChecks: state?.capabilities.signatureChecks ?? null,
     dumps: state?.capabilities.dumps ?? [],
     checkedAt: state?.capabilities.checkedAt ?? null,
   };

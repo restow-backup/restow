@@ -232,6 +232,9 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/sources/entra/status": view(),
   "POST /api/v1/sources/imap/test": configure(),
   "POST /api/v1/sources/:id/consent-link": configure(),
+  "PUT /api/v1/sources/:id/own-app": configure(),
+  // Attaches the provider's own Microsoft 365 tenant to a customer tenant: owner only.
+  "POST /api/v1/sources/:id/connect-own-tenant": own(TENANT),
   "POST /api/v1/sources/:id/verify": operate(),
   "POST /api/v1/sources/:id/test": operate(),
   "GET /api/v1/directory/sources": view(),

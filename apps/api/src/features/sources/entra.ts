@@ -1,4 +1,6 @@
 import {
+  type AppCredentials,
+  ClientCredentialsTokenProvider,
   ENTRA_APP_SECRET_KIND,
   type EntraAppEnvironment,
   type EntraAppResolution,
@@ -9,11 +11,13 @@ import {
   type ResolvedEntraApp,
   TenantTokenProviders,
   adminConsentRedirectUri,
+  appCredentialsFingerprint,
+  parseSourceAppSecret,
 } from "@restow/core";
-import { findInstallationSecret } from "@restow/db";
+import { type Database, findInstallationSecret } from "@restow/db";
 import { type Config, config as processConfig } from "../../config.js";
 import { providerDb } from "../../db.js";
-import { installationSecretsKey } from "../../lib/secrets.js";
+import { installationSecretsKey, readSecret } from "../../lib/secrets.js";
 import { ProblemError } from "../../problem.js";
 
 /**
@@ -40,6 +44,8 @@ export interface EntraAppStatus {
   redirectUri: string | null;
   /** Why the app is not usable, for an honest empty state. */
   reasons: EntraAppProblem[];
+  /** The directory (tenant) ID the app lives in, when known: that tenant needs no consent. */
+  homeTenantId: string | null;
 }
 
 export type EntraAppProblem =
@@ -130,6 +136,7 @@ export function entraAppStatus(
     credential: resolution.status === "ready" ? resolution.app.credentialKind : null,
     redirectUri: publicOrigin ? adminConsentRedirectUri(publicOrigin) : null,
     reasons,
+    homeTenantId: resolution.status === "ready" ? resolution.app.homeTenantId : null,
   };
 }
 
@@ -191,5 +198,87 @@ export function resetTokenProviders(): void {
 /** A throttled Graph client bound to one customer tenant. */
 export function graphClientFor(entraTenantId: string): GraphClient {
   const provider = tokenProviderFor(entraTenantId);
+  return new FetchGraphClient({ accessTokenProvider: () => provider.getToken() });
+}
+
+// --- A source's own Graph app ------------------------------------------------------
+
+/** The columns of a source row the per-source providers need. */
+export interface SourceAppRef {
+  id: string;
+  tenantId: string;
+  entraTenantId: string;
+  secretRef: string | null;
+}
+
+/**
+ * The credentials of the source's own Graph app (a customer's app entered by hand), or
+ * null when the source uses the shared backup app. An older plain client secret on the
+ * source is not a document and also answers null: it never was an app of its own.
+ */
+export async function sourceAppCredentials(
+  db: Database,
+  source: Pick<SourceAppRef, "tenantId" | "secretRef">,
+): Promise<AppCredentials | null> {
+  if (!source.secretRef) {
+    return null;
+  }
+  const plaintext = await readSecret(db, { id: source.secretRef, tenantId: source.tenantId });
+  return plaintext ? parseSourceAppSecret(plaintext) : null;
+}
+
+const sourceProviders = new Map<string, ClientCredentialsTokenProvider>();
+const SOURCE_PROVIDER_LIMIT = 256;
+
+/** Token cache of one source's own app, keyed so a changed credential never meets an old token. */
+function ownProvider(source: SourceAppRef, app: AppCredentials): ClientCredentialsTokenProvider {
+  const key = `${source.id}:${source.entraTenantId}:${appCredentialsFingerprint(app)}`;
+  let provider = sourceProviders.get(key);
+  if (!provider) {
+    provider = new ClientCredentialsTokenProvider({ tenantId: source.entraTenantId, app });
+    if (sourceProviders.size >= SOURCE_PROVIDER_LIMIT) {
+      const oldest = sourceProviders.keys().next().value;
+      if (oldest !== undefined) {
+        sourceProviders.delete(oldest);
+      }
+    }
+    sourceProviders.set(key, provider);
+  }
+  return provider;
+}
+
+/** Drop the cached tokens of a source's own app (credential replaced, source deleted). */
+export function forgetSourceProviders(sourceId: string): void {
+  for (const key of [...sourceProviders.keys()]) {
+    if (key.startsWith(`${sourceId}:`)) {
+      sourceProviders.delete(key);
+    }
+  }
+}
+
+/**
+ * A token provider for a connected source: its own Graph app when it has one, otherwise
+ * the shared backup app. Follows the stored credential at every call.
+ */
+export function tokenProviderForSource(
+  db: Database,
+  source: SourceAppRef,
+): RefreshableTokenProvider & { invalidate(): void } {
+  const shared = tokenProviderFor(source.entraTenantId);
+  return {
+    getToken: async () => {
+      const own = await sourceAppCredentials(db, source);
+      return own ? ownProvider(source, own).getToken() : shared.getToken();
+    },
+    invalidate: () => {
+      forgetSourceProviders(source.id);
+      shared.invalidate();
+    },
+  };
+}
+
+/** A Graph client for a connected source, with its own app when it has one. */
+export function graphClientForSource(db: Database, source: SourceAppRef): GraphClient {
+  const provider = tokenProviderForSource(db, source);
   return new FetchGraphClient({ accessTokenProvider: () => provider.getToken() });
 }

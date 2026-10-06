@@ -8,6 +8,46 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [0.2.2] - 2026-10-06
+
+Hotfix release for 0.2.1.
+
+### Fixed
+
+- **Your own Microsoft 365 tenant needs no consent link.** The tenant the backup app
+  lives in is now connected directly from the source's page ("Connect own tenant
+  directly", provider owners only): a working app token for that tenant is the proof,
+  so the admin-consent round trip, which failed with AADSTS700016 there, is skipped.
+  Other tenants still consent through the link. The directory (tenant) ID of the app
+  (GUID) under Settings, Microsoft 365 must be set for this; the status of the app now
+  reports it.
+- **Microsoft 365 per eigener Graph-App.** Eine Quelle lässt sich entweder per Consent-Einladung
+  (gemeinsame Restow-App) oder über eine Graph-App verbinden, die der Kunde in seinem Tenant selbst angelegt
+  hat (Tenant-ID, Anwendungs-ID, Secret oder Zertifikat). Die Zugangsdaten werden verschlüsselt in der
+  Organisation gespeichert, und ein funktionierendes Token ist der Nachweis. Die Verbindungskarte nennt
+  vorher ausdrücklich, zu welcher Organisation die Quelle gehört. Der Worker, die Verzeichnisabfrage und die
+  Prüfung nutzen die App der Quelle (docs/ENTRA-SETUP.md).
+- **Alpha builds for testing.** `alpha/*` branches build unsigned test images
+  (`ghcr.io/restow-backup/restow-alpha`) and announce them as pre-releases of the alpha repository.
+  On Installation, Updates, the alpha channel is one click ("Use the alpha channel"); the tab warns
+  while the updater does not verify signatures and while the alpha source is selected. The updater
+  reports whether it verifies signatures (`signatureChecks`). Needs a one-time `.env` change on the
+  test installation (docs/UPDATING.md, "Alpha builds").
+- **Installation settings stay at the bottom of the menu.** The Installation section is pinned below the
+  scrolling sections, set apart and labelled "Applies to every organisation of this installation", so
+  what is installation-wide is told apart from what belongs to the active organisation.
+- **One organisation, several Microsoft 365 tenants, each on its own terms.** Every Microsoft 365 source
+  has its own connection (consent invitation or its own Graph app), its own protection scope and its own
+  credentials; none of it is shared between the tenants of an organisation or between organisations.
+- **Hetzner Object Storage.** The provider preset has a location selector (Falkenstein,
+  Nuremberg, Helsinki) that sets endpoint and region together, so the preset works for
+  every location without switching to "other S3 service". Buckets with a dot in their
+  name are always addressed by path, since they cannot be reached below the provider's
+  wildcard certificate.
+- **Object Lock detection** accepts what S3-compatible services such as Hetzner actually
+  send (flag in another case, or a configuration that only carries its default rule), so
+  a bucket created with Object Lock is no longer shown as "not active".
+
 ## [0.2.1] - 2026-10-03
 
 Beta release. Run it alongside your existing backups, not as your only one, until

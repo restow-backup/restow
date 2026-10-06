@@ -16,6 +16,8 @@ export type SecretKind =
   // sealed JSON document with the addressing and, for S3, the key pair).
   | "default_storage"
   | "entra_client_secret"
+  // A customer's own Graph app for one Microsoft 365 source (tenant level, one sealed JSON document).
+  | "m365_app"
   | "imap_password"
   | "oauth_refresh_token"
   | "smtp_password"

@@ -52,6 +52,7 @@ describe("entra configuration status", () => {
       credential: null,
       redirectUri: null,
       reasons: ["no_client_id", "no_credential", "no_public_url"],
+      homeTenantId: null,
     });
     expect(entraCredentialProblems({ status: "none", clientId })).toEqual(["no_credential"]);
   });
@@ -64,7 +65,21 @@ describe("entra configuration status", () => {
       credential: "secret",
       redirectUri: "https://restow.example.com/api/v1/sources/m365/consent/callback",
       reasons: [],
+      homeTenantId: null,
     });
+  });
+
+  it("names the tenant the app lives in, so that tenant needs no consent link", () => {
+    const base = ready();
+    if (base.status !== "ready") {
+      throw new Error("fixture");
+    }
+    const home = "4f87bba3-94be-4e93-b8cc-8aac907aaf54";
+    const withHome: EntraAppResolution = {
+      status: "ready",
+      app: { ...base.app, homeTenantId: home },
+    };
+    expect(entraAppStatus(withHome, origin).homeTenantId).toBe(home);
   });
 
   it("says when a configured registration cannot be used", () => {

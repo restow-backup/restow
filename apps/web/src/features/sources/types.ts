@@ -93,7 +93,26 @@ export interface ConsentError {
   at: string;
 }
 
+export interface OwnAppInfo {
+  clientId: string;
+  credentialKind: "secret" | "certificate";
+  authorityHost: string | null;
+  updatedAt: string;
+  updatedBy: string;
+}
+
+export interface OwnAppInput {
+  tenantId: string;
+  clientId: string;
+  credentialKind: "secret" | "certificate";
+  clientSecret?: string | null;
+  certificatePem?: string | null;
+}
+
 export interface M365SourceDto {
+  /** `consent`: the shared backup app after admin consent; `own_app`: the customer's own app. */
+  connectionMode: "consent" | "own_app";
+  ownApp: OwnAppInfo | null;
   entraTenantId: string | null;
   entraTenantHint: string | null;
   consentGrantedAt: string | null;
@@ -198,6 +217,8 @@ export interface EntraAppStatus {
   credential: "secret" | "certificate" | null;
   redirectUri: string | null;
   reasons: EntraAppProblem[];
+  /** The tenant the backup app lives in, when known: it is connected without consent. */
+  homeTenantId: string | null;
 }
 
 export interface ConsentLinkDto {

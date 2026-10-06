@@ -259,6 +259,13 @@
       "cancel": "Cancel",
       "placeholder": "Paste a token",
       "newPlaceholder": "Paste the new token"
+    },
+    "alpha": {
+      "use": "Use the alpha channel",
+      "hint": "Sets the source to the alpha repository and the channel to Beta.",
+      "warningTitle": "Alpha: unsigned test builds",
+      "warningBody": "Alpha versions are test builds with hotfixes. Their images are not signed, not tested extensively and meant for test installations only, never for production data. Anyone with write access to the alpha repository can deliver code that runs with the database and the master key.",
+      "setup": "Once on the server: in .env set RESTOW_UPDATER_IMAGE_REPOSITORY and RESTOW_UPDATER_WEB_IMAGE_REPOSITORY to the alpha images (…/restow-alpha and …/restow-alpha-web) and RESTOW_UPDATER_VERIFY_SIGNATURES=false, then recreate the updater. After that, alpha updates run from this page."
     }
   },
   "updater": {
@@ -341,6 +348,10 @@
         "helper_failed": "Recreating the updater failed.",
         "not_replaced": "The updater container was not replaced."
       }
+    },
+    "signaturesOff": {
+      "title": "The updater does not verify signatures",
+      "body": "Signature verification is switched off (RESTOW_UPDATER_VERIFY_SIGNATURES=false). What is installed is whatever lies under the published digest in the configured repository. For test installations only: switch it back on for production."
     }
   },
   "manual": {

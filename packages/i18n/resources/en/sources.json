@@ -29,6 +29,7 @@
     "addImap": "IMAP mailbox",
     "addImport": "Import mail files",
     "createLink": "Create consent link",
+    "connectOwnTenant": "Connect own tenant directly",
     "reconnect": "Create new consent link",
     "verify": "Verify permissions",
     "verifyAgain": "Verify again",
@@ -42,7 +43,9 @@
     "openConsent": "Open consent page",
     "copyLink": "Copy link",
     "backToList": "All sources",
-    "moreActions": "More actions"
+    "moreActions": "More actions",
+    "connectOwnApp": "Connect with own app",
+    "replaceOwnApp": "Replace credentials"
   },
   "list": {
     "empty": {
@@ -85,13 +88,21 @@
     "notFound": "This source does not exist or belongs to another tenant."
   },
   "errors": {
+    "ownTenantUnknown": "The app does not know its own tenant (GUID). Enter it under Settings, Microsoft 365, or use the consent link.",
+    "ownTenantMismatch": "The tenant ID of this source is not the tenant the app lives in.",
+    "ownTenantNoToken": "The app could not sign in to its own tenant. Use the consent link.",
+    "ownTenantAlreadyConnected": "This source is already connected to a Microsoft 365 tenant.",
+    "tenantAlreadyConnected": "This Microsoft 365 tenant is already connected to another source.",
     "nameTaken": "A source with this name already exists in this tenant.",
     "passwordRequired": "Enter the password again: the stored one is only used for the server and username it was saved for.",
     "entraNotConfigured": "The Entra backup app of this installation is not configured.",
     "consentRequired": "Grant admin consent first; only then can the permissions be verified.",
     "sourceIncomplete": "The stored connection is incomplete. Edit the source and enter the password again.",
     "perMailboxNoSourceTest": "This source has no password of its own; every mailbox authenticates with its own. Test each one from the accounts list instead.",
-    "imapHostNotAllowed": "This IMAP server is in a loopback, private or link-local network. Only a provider admin can connect a source to an internal server; link-local addresses are never used."
+    "imapHostNotAllowed": "This IMAP server is in a loopback, private or link-local network. Only a provider admin can connect a source to an internal server; link-local addresses are never used.",
+    "ownAppInvalid": "The app details are not usable. Check tenant ID, application ID and credentials.",
+    "ownAppNoToken": "Microsoft did not issue a token for this app in this tenant.",
+    "sourceUsesOwnApp": "This source is connected through its own app. It has no consent link."
   },
   "detail": {
     "created": "Created {when}",
@@ -193,9 +204,12 @@
     "connect": {
       "title": "Connect Microsoft 365",
       "description": "A Global Admin of the customer opens the consent link, signs in to their tenant and grants the application permissions for the whole organisation. Microsoft then asks them to sign in once more, so {appName} can confirm the organisation and the admin role before it connects anything. {appName} then verifies every permission.",
+      "ownTenant": {
+        "hint": "The app lives in your own tenant. No consent link is needed here: {appName} connects it directly, provided the app already has its permissions there."
+      },
       "consentExplainer": {
         "title": "One app registration, one consent per organisation",
-        "sharedApp": "The Microsoft 365 app registration under Installation → Microsoft multi-tenant app is shared by every {appName} tenant on this installation, including your own organisation. It is not specific to this customer, so every Microsoft 365 organisation {appName} backs up, including yours if you back up your own tenant, needs to grant it consent once, through a link like this one.",
+        "sharedApp": "The Microsoft 365 app registration under Installation → Microsoft multi-tenant app is shared by every tenant of this {appName} installation. The tenant the app lives in (your own) is connected directly, without a consent link. Every other Microsoft 365 organisation has to consent once through a link like this one.",
         "secondSignIn": "The second sign-in is not a second consent: it lets {appName} confirm which organisation and which admin just granted consent, before connecting anything to this source.",
         "portalConsent": "Already clicked \"Grant admin consent\" for this app in the Entra admin portal? That still has to run through this link once: the portal grants the permissions, but only this flow tells {appName} which of its tenants they belong to."
       },
@@ -215,7 +229,18 @@
       "consented": "Admin consent granted {when}",
       "consent": "Admin consent",
       "tenantId": "Entra tenant ID",
-      "reconsentHint": "Run the consent again after permissions were added to the app registration. The link only works in the tenant that is already connected."
+      "reconsentHint": "Run the consent again after permissions were added to the app registration. The link only works in the tenant that is already connected.",
+      "organisation": {
+        "title": "This source belongs to the organisation “{name}”",
+        "body": "Everything backed up here lands in this organisation. To back up into another one, switch the organisation at the top first."
+      },
+      "method": {
+        "label": "How should Microsoft 365 be connected?",
+        "consent": "Consent invitation",
+        "own_app": "Own Graph app",
+        "consentHint": "An admin of the customer grants the shared {appName} app its permissions through a link.",
+        "own_appHint": "You create an app in the tenant yourself and enter its credentials here. No consent link, no shared app."
+      }
     },
     "consentError": {
       "title": "Last consent attempt failed",
@@ -331,6 +356,30 @@
       "tenant_mismatch": "The consent was granted in a different Microsoft 365 tenant than the one this source is connected to. Nothing was changed; create a separate source for the other tenant.",
       "invalid_state": "The consent link was invalid or has expired. Create a new link.",
       "unknown_source": "The source this consent belongs to no longer exists."
+    },
+    "ownApp": {
+      "description": "The source uses an app that was created in the Microsoft 365 tenant itself. The credentials are stored encrypted and never shown again.",
+      "steps": {
+        "one": "In the tenant's Entra portal, create an app under App registrations (this directory only).",
+        "two": "Under API permissions, add the Microsoft Graph application permissions and grant admin consent (Mail.Read, User.Read.All, Group.Read.All, Files.Read.All and what your backup needs).",
+        "three": "Create a client secret or certificate and enter it here with the tenant ID and application ID."
+      },
+      "tenantId": "Directory (tenant) ID",
+      "tenantIdHint": "GUID of the Microsoft 365 tenant.",
+      "clientId": "Application (client) ID",
+      "clientIdHint": "GUID of the app registration.",
+      "invalidGuid": "Enter a valid GUID.",
+      "credentialKind": "Credential",
+      "kinds": {
+        "secret": "Client secret",
+        "certificate": "Certificate"
+      },
+      "clientSecret": "Client secret",
+      "secretHint": "The secret's value, not its ID.",
+      "replaceHint": "Enter a new value to replace the credentials.",
+      "certificate": "Certificate and private key (PEM)",
+      "certificateHint": "One PEM file with an unencrypted private key and the certificate.",
+      "credentialRequired": "Enter the credentials."
     }
   },
   "imap": {
@@ -393,9 +442,11 @@
     "resumed": "Source resumed.",
     "verified": "Verification finished.",
     "tested": "Connection test finished.",
+    "ownTenantConnected": "Own tenant connected.",
     "linkCreated": "Consent link created.",
     "copied": "Link copied to the clipboard.",
-    "copyFailed": "The link could not be copied. Select it and copy it manually."
+    "copyFailed": "The link could not be copied. Select it and copy it manually.",
+    "ownAppConnected": "Source connected with its own app."
   },
   "consentLanding": {
     "product": "{appName}",

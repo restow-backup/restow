@@ -101,6 +101,7 @@ function capabilities(over: Partial<StateView["capabilities"]> = {}): StateView[
     webImageRepository: "ghcr.io/restow-backup/restow-web",
     dumps: [],
     sourceAllowlist: [],
+    signatureChecks: true,
     checkedAt: "2026-10-01T09:00:00.000Z",
     ...over,
   };

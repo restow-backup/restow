@@ -14,6 +14,15 @@ import type { SourceProvider } from "./schemas.js";
 export const DEFAULT_SOURCE_URL = "https://github.com/restow-backup/restow";
 const DEFAULT_REPOSITORY = "restow-backup/restow";
 
+/**
+ * The project's alpha repository: its releases announce unsigned test builds (images in
+ * ghcr.io/restow-backup/restow-alpha, digests in the notes). They are installed like the
+ * published images, so an updater that verifies signatures refuses them; the operator
+ * switches that check off for a test installation (docs/UPDATING.md, "Alpha builds").
+ */
+export const ALPHA_SOURCE_URL = "https://github.com/restow-backup/restow-alpha";
+const ALPHA_REPOSITORY = "restow-backup/restow-alpha";
+
 /** How many releases one request asks for (one page covers the recent history). */
 const PAGE_SIZE = 30;
 
@@ -29,6 +38,8 @@ export interface ParsedSource {
   archiveUrl: (tag: string) => string | null;
   /** The project's own public repository: releases come with published images. */
   isDefault: boolean;
+  /** The project's alpha repository: unsigned test builds that are installed as images too. */
+  isAlpha: boolean;
 }
 
 export type SourceProblem = "invalid_url" | "not_https" | "credentials_in_url" | "not_a_repository";
@@ -69,6 +80,7 @@ function github(owner: string, repo: string, url: string): ParsedSource {
     archiveUrl: (tag) =>
       `https://api.github.com/repos/${repository}/tarball/${encodeURIComponent(tag)}`,
     isDefault: repository.toLowerCase() === DEFAULT_REPOSITORY,
+    isAlpha: repository.toLowerCase() === ALPHA_REPOSITORY,
   };
 }
 
@@ -82,6 +94,7 @@ function forgejo(origin: string, prefix: string, owner: string, repo: string): P
     releasesUrl: `${api}/releases?limit=${PAGE_SIZE}`,
     archiveUrl: (tag) => `${api}/archive/${encodeURIComponent(tag)}.tar.gz`,
     isDefault: false,
+    isAlpha: false,
   };
 }
 
@@ -198,6 +211,7 @@ export function parseEnvironmentSource(value: string | undefined): ParsedSource 
     releasesUrl: raw,
     archiveUrl: () => null,
     isDefault: false,
+    isAlpha: false,
   };
 }
 

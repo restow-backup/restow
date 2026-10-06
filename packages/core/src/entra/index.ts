@@ -18,6 +18,7 @@ export * from "./verify.js";
 export * from "./certificate.js";
 export * from "./app-registration.js";
 export * from "./app-test.js";
+export * from "./source-app.js";
 export {
   type AccessTokenProvider,
   type AppCredentials,

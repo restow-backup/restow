@@ -48,6 +48,24 @@ export const PRESET_DEFAULTS: Record<
   other: { endpoint: "", region: "", forcePathStyle: true },
 };
 
+/** Hetzner Object Storage locations: each has its own endpoint and region. */
+export const HETZNER_LOCATIONS = ["fsn1", "nbg1", "hel1"] as const;
+export type HetznerLocation = (typeof HETZNER_LOCATIONS)[number];
+
+export function hetznerEndpoint(location: HetznerLocation): string {
+  return `https://${location}.your-objectstorage.com`;
+}
+
+/** The Hetzner location an endpoint belongs to, or null for any other host. */
+export function hetznerLocationForEndpoint(endpoint: string | null): HetznerLocation | null {
+  try {
+    const host = new URL(endpoint ?? "").hostname;
+    return HETZNER_LOCATIONS.find((l) => host === `${l}.your-objectstorage.com`) ?? null;
+  } catch {
+    return null;
+  }
+}
+
 const PRESET_HOSTS: readonly [S3Preset, string][] = [
   ["hetzner", "your-objectstorage.com"],
   ["wasabi", "wasabisys.com"],

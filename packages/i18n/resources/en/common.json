@@ -44,6 +44,8 @@
   },
   "nav": {
     "label": "Main navigation",
+    "installationLabel": "Installation-wide navigation",
+    "installationHint": "Applies to every organisation of this installation.",
     "groups": {
       "daily": "Daily",
       "mail": "Mail & SaaS",

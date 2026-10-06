@@ -51,6 +51,8 @@ export interface PreflightOptions {
   webImageRepository: string;
   /** What `source` mode may build from, as written in RESTOW_UPDATER_SOURCE_HOSTS (empty: off). */
   sourceAllowlist?: readonly string[];
+  /** The updater verifies release signatures (default); false when the operator switched that off. */
+  verifySignatures?: boolean;
 }
 
 export interface CheckOptions {
@@ -179,6 +181,7 @@ export class Preflight {
       webImageRepository: this.options.webImageRepository,
       dumps: dumpList,
       sourceAllowlist: [...(this.options.sourceAllowlist ?? [])],
+      signatureChecks: this.options.verifySignatures !== false,
       checkedAt: clock.now().toISOString(),
     };
   }
