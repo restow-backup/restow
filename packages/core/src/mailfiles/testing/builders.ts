@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
 import { deflateRawSync } from "node:zlib";
 import { Attachment, CFB, Email } from "@tutao/oxmsg";
-import archiver from "archiver";
+import { ZipArchive } from "archiver";
 import {
   type HeaderField,
   type MimePart,
@@ -204,7 +204,7 @@ const ZIP_DATE = new Date(Date.UTC(2024, 0, 15, 10, 0, 0));
 
 /** A ZIP made with archiver (the library the export uses). Fixed timestamps, so byte-stable. */
 export async function buildZip(entries: readonly ZipEntryInput[]): Promise<Buffer> {
-  const archive = archiver("zip", { zlib: { level: 6 } });
+  const archive = new ZipArchive({ zlib: { level: 6 } });
   const chunks: Buffer[] = [];
   const done = new Promise<Buffer>((resolve, reject) => {
     archive.on("data", (chunk: Buffer) => chunks.push(chunk));

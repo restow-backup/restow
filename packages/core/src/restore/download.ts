@@ -21,7 +21,7 @@
 import { createHash } from "node:crypto";
 import { PassThrough, type Readable, type Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import archiver from "archiver";
+import { ZipArchive } from "archiver";
 import { type ChunkReader, JobAbortedError } from "../engine/chunkstore.js";
 import { downloadKey } from "../engine/layout.js";
 import type { JobContext, RestoreEngine, RestoreRequest } from "../engine/types.js";
@@ -310,7 +310,7 @@ export function createRestoreArchive(options: CreateRestoreArchiveOptions): {
   stream: Readable;
   completed: Promise<ArchiveSummary>;
 } {
-  const archive = archiver("zip", {
+  const archive = new ZipArchive({
     zlib: { level: options.level ?? 6 },
     ...(options.comment !== undefined ? { comment: options.comment } : {}),
   });
