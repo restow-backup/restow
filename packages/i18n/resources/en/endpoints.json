@@ -996,47 +996,24 @@
   },
   "fileRestore": {
     "title": "File restore",
-    "subtitle": "Restore or download files and mails from a restore point of a machine or a mailbox.",
+    "subtitle": "Restore or download files from a restore point of a server or client. Mailboxes, OneDrives and IMAP accounts are restored in the restore explorer.",
     "machines": "Machines",
-    "search": "Search machines and mailboxes",
-    "noMatch": "No machine or mailbox matches the search.",
+    "search": "Search machines",
+    "noMatch": "No machine matches the search.",
     "lastBackup": "Last backup {time}",
     "noBackup": "No backup yet",
     "noTenant": "Choose a tenant at the top to restore files of its machines.",
     "pick": {
-      "title": "Choose a machine or mailbox",
-      "description": "Choose a machine or a mailbox on the left. Then pick a restore point on its timeline and restore files or mails."
+      "title": "Choose a machine",
+      "description": "Choose a machine on the left. Then choose a restore point on the timeline and restore files."
     },
     "empty": {
       "title": "Nothing backed up yet",
-      "description": "Add a server or client in the inventory, or protect mailboxes. Once they are backed up, restore their files and mails here.",
+      "description": "Add a server or client in the inventory. Once it is backed up, restore its files here.",
       "action": "Open inventory"
     },
-    "sources": "Machines and mailboxes",
-    "noMachines": "No machine yet.",
-    "mailboxes": "Mailboxes",
-    "noMailboxes": "No mailbox backed up yet.",
-    "mailboxesError": "The mailboxes could not be loaded.",
-    "mailbox": {
-      "description": "{count, plural, one {# restore point of this mailbox.} other {# restore points of this mailbox.}}",
-      "sequence": "#{sequence}",
-      "items": "{count, plural, one {# item} other {# items}}",
-      "chosen": "Restore point #{sequence} of {time}",
-      "itemsLabel": "Items",
-      "sizeLabel": "Size",
-      "verifiedLabel": "Restore check",
-      "explorerNote": "Mails, folders, calendars and contacts of this restore point are browsed, read and restored in the restore explorer. It opens at exactly this mailbox and restore point.",
-      "open": "Open in restore explorer",
-      "loadError": "The restore points of this mailbox could not be loaded",
-      "empty": {
-        "title": "No restore point yet",
-        "description": "This mailbox has no completed backup yet. Its restore points appear here after the first one."
-      },
-      "notFound": {
-        "title": "Mailbox not found",
-        "description": "This mailbox is not backed up in this tenant. Choose another one on the left."
-      }
-    }
+    "sources": "Machines",
+    "noMachines": "No machine yet."
   },
   "proxmox": {
     "label": "Connect Proxmox",

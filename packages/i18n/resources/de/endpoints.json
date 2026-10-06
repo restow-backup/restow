@@ -996,47 +996,24 @@
   },
   "fileRestore": {
     "title": "Datei-Restore",
-    "subtitle": "Dateien und E-Mails aus einem Sicherungsstand eines Rechners oder Postfachs wiederherstellen oder herunterladen.",
+    "subtitle": "Dateien aus einem Sicherungsstand eines Servers oder Clients wiederherstellen oder herunterladen. Postfächer, OneDrives und IMAP-Konten stellen Sie im Restore-Explorer wieder her.",
     "machines": "Rechner",
-    "search": "Rechner und Postfächer suchen",
-    "noMatch": "Kein Rechner und kein Postfach passt zur Suche.",
+    "search": "Rechner suchen",
+    "noMatch": "Kein Rechner passt zur Suche.",
     "lastBackup": "Letzte Sicherung {time}",
     "noBackup": "Noch keine Sicherung",
     "noTenant": "Wählen Sie oben einen Mandanten, um Dateien seiner Rechner wiederherzustellen.",
     "pick": {
-      "title": "Rechner oder Postfach wählen",
-      "description": "Wählen Sie links einen Rechner oder ein Postfach. Danach wählen Sie einen Sicherungsstand auf der Zeitleiste und stellen Dateien oder E-Mails wieder her."
+      "title": "Rechner wählen",
+      "description": "Wählen Sie links einen Rechner. Danach wählen Sie einen Sicherungsstand auf der Zeitleiste und stellen Dateien wieder her."
     },
     "empty": {
       "title": "Noch nichts gesichert",
-      "description": "Fügen Sie im Inventar einen Server oder Client hinzu oder schützen Sie Postfächer. Sobald sie gesichert sind, stellen Sie hier Dateien und E-Mails wieder her.",
+      "description": "Fügen Sie im Inventar einen Server oder Client hinzu. Sobald er gesichert ist, stellen Sie hier seine Dateien wieder her.",
       "action": "Zum Inventar"
     },
-    "sources": "Rechner und Postfächer",
-    "noMachines": "Noch kein Rechner.",
-    "mailboxes": "Postfächer",
-    "noMailboxes": "Noch kein Postfach gesichert.",
-    "mailboxesError": "Die Postfächer konnten nicht geladen werden.",
-    "mailbox": {
-      "description": "{count, plural, one {# Sicherungsstand dieses Postfachs.} other {# Sicherungsstände dieses Postfachs.}}",
-      "sequence": "#{sequence}",
-      "items": "{count, plural, one {# Element} other {# Elemente}}",
-      "chosen": "Sicherungsstand #{sequence} vom {time}",
-      "itemsLabel": "Elemente",
-      "sizeLabel": "Größe",
-      "verifiedLabel": "Restore-Prüfung",
-      "explorerNote": "Im Restore-Explorer können Sie E-Mails, Ordner, Kalender und Kontakte dieses Sicherungsstands durchsuchen, lesen und wiederherstellen. Er öffnet sich genau bei diesem Postfach und Sicherungsstand.",
-      "open": "Im Restore-Explorer öffnen",
-      "loadError": "Die Sicherungsstände dieses Postfachs konnten nicht geladen werden",
-      "empty": {
-        "title": "Noch kein Sicherungsstand",
-        "description": "Dieses Postfach hat noch keine abgeschlossene Sicherung. Seine Sicherungsstände erscheinen hier nach der ersten."
-      },
-      "notFound": {
-        "title": "Postfach nicht gefunden",
-        "description": "Dieses Postfach wird in diesem Mandanten nicht gesichert. Wählen Sie links ein anderes."
-      }
-    }
+    "sources": "Rechner",
+    "noMachines": "Noch kein Rechner."
   },
   "proxmox": {
     "label": "Proxmox verbinden",

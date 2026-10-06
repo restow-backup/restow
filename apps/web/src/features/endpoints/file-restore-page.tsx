@@ -1,28 +1,13 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import {
-  Boxes,
-  Building2,
-  Camera,
-  FolderSearch,
-  Mail,
-  MailSearch,
-  Search,
-  Server,
-} from "lucide-react";
+import { Boxes, Building2, FolderSearch, Search, Server } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { EmptyState, ErrorState, PageHeader, RestoreTimeline } from "@/components/kit";
-import { Button, buttonVariants } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { EmptyState, ErrorState, PageHeader } from "@/components/kit";
+import { buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { ListedSnapshot, SnapshotObject } from "@/features/restore/api";
-import { objectLabel } from "@/features/restore/explorer/entry-icon";
-import { restorePointTime } from "@/features/restore/explorer/restore-point-label";
-import { explorerAt } from "@/features/restore/navigation";
-import { useSnapshotObjects, useSnapshots } from "@/features/restore/use-restore-data";
-import { SnapshotVerificationBadge } from "@/features/verify/components/snapshot-verification-badge";
 import { ApiError } from "@/lib/api";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -30,40 +15,23 @@ import { cn } from "@/lib/utils";
 import type { EndpointSummary } from "./api.js";
 import { SnapshotsTab } from "./components/snapshots-tab.js";
 import { type EndpointFormat, useEndpoint, useEndpointFormat, useEndpoints } from "./hooks.js";
-import {
-  type FileRestoreSearch,
-  type FileRestoreTarget,
-  endpointDetailTo,
-  fileRestoreMailboxTo,
-  fileRestoreTo,
-  inventoryTo,
-} from "./paths.js";
+import { type FileRestoreTarget, endpointDetailTo, fileRestoreTo, inventoryTo } from "./paths.js";
 import { endpointHostLine, endpointName } from "./presenters.js";
 
 /**
- * File restore: choose a machine or a mailbox, then one of its restore
- * points. Both kinds show their restore points on the same timeline (newest
- * first, one separator per day, a jump to a date). For a machine the file
- * browser and restore dialog of its own page (tab Snapshots) sit next to it;
- * a mailbox's restore point opens in the restore explorer, which reads,
- * selects and restores mails, calendars and contacts. Side by side from the
- * extra-large breakpoint on: the searchable list (a quarter), then the
- * restore points and what is in the chosen one. The choice stays in the URL
- * (`?machine=` or `?mailbox=`); with a single machine or mailbox it is
- * chosen right away.
+ * File restore of servers and clients: choose a machine, then one of its
+ * restore points; the file browser and restore dialog of its own page (tab
+ * Snapshots) sit next to the timeline. Machines only: mailboxes, OneDrives
+ * and IMAP accounts are restored in the restore explorer (Mail & SaaS).
+ * Side by side from the extra-large breakpoint on: the searchable list (a
+ * quarter), then the restore points and what is in the chosen one. The choice
+ * stays in the URL (`?machine=`); with a single machine it is chosen right away.
  */
-export function FileRestorePage({
-  machineId,
-  mailboxId = null,
-}: {
-  machineId: string | null;
-  mailboxId?: string | null;
-}) {
+export function FileRestorePage({ machineId }: { machineId: string | null }) {
   const { t } = useTranslation("endpoints");
   const { activeTenant } = useSession();
   const navigate = useNavigate();
   const machines = useEndpoints(undefined);
-  const objects = useSnapshotObjects();
   const choose = (target: FileRestoreTarget) => {
     void navigate({ to: target.to, search: target.search as never, replace: true });
   };
@@ -99,14 +67,9 @@ export function FileRestorePage({
   }
 
   const list = machines.data ?? [];
-  // A mailbox list that cannot be loaded says so in its group; the machines still work.
-  const mailboxes = mailboxesOf(objects.data ?? []);
-  const settled = !machines.isPending && !objects.isPending;
-  const only = settled ? onlyChoice(list, mailboxes) : null;
-  const selectedMachine = machineId ?? (mailboxId === null ? (only?.machine ?? null) : null);
-  const selectedMailbox = selectedMachine === null ? (mailboxId ?? only?.mailbox ?? null) : null;
+  const selectedMachine = machineId ?? (!machines.isPending ? onlyMachine(list) : null);
 
-  if (settled && list.length === 0 && mailboxes.length === 0 && !objects.isError) {
+  if (!machines.isPending && list.length === 0) {
     return (
       <div className="space-y-6">
         {header}
@@ -124,37 +87,18 @@ export function FileRestorePage({
     );
   }
 
-  const mailbox = mailboxes.find((candidate) => candidate.id === selectedMailbox) ?? null;
-
   return (
     <div className="space-y-6">
       {header}
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,3fr)]">
-        <SourcePicker
+        <MachinePicker
           machines={list}
           machinesPending={machines.isPending}
-          mailboxes={mailboxes}
-          mailboxesPending={objects.isPending}
-          mailboxesError={objects.isError}
-          onRetryMailboxes={() => void objects.refetch()}
-          retryingMailboxes={objects.isFetching}
           selectedMachine={selectedMachine}
-          selectedMailbox={selectedMailbox}
           onSelect={choose}
         />
         {selectedMachine ? (
           <MachineRestorePoints key={selectedMachine} machineId={selectedMachine} />
-        ) : selectedMailbox && mailbox ? (
-          <MailboxRestorePoints key={selectedMailbox} mailbox={mailbox} />
-        ) : selectedMailbox && objects.isPending ? (
-          <Skeleton className="h-64 w-full" aria-busy="true" />
-        ) : selectedMailbox && !objects.isError ? (
-          <EmptyState
-            variant="plain"
-            icon={MailSearch}
-            title={t("fileRestore.mailbox.notFound.title")}
-            description={t("fileRestore.mailbox.notFound.description")}
-          />
         ) : (
           <EmptyState
             variant="plain"
@@ -168,27 +112,9 @@ export function FileRestorePage({
   );
 }
 
-/** Mailboxes among the protected objects of the tenant (not OneDrive), by name. */
-export function mailboxesOf(objects: readonly SnapshotObject[]): SnapshotObject[] {
-  return objects
-    .filter((object) => object.kind === "mailbox" || object.kind === "imap")
-    .sort((a, b) => objectLabel(a).localeCompare(objectLabel(b)));
-}
-
-/** The one machine or mailbox to choose right away, when there is exactly one of all. */
-export function onlyChoice(
-  machines: readonly Pick<EndpointSummary, "id">[],
-  mailboxes: readonly Pick<SnapshotObject, "id">[],
-): FileRestoreSearch | null {
-  if (machines.length + mailboxes.length !== 1) {
-    return null;
-  }
-  const machine = machines[0];
-  if (machine) {
-    return { machine: machine.id };
-  }
-  const mailbox = mailboxes[0];
-  return mailbox ? { mailbox: mailbox.id } : null;
+/** The one machine to choose right away, when the tenant has exactly one. */
+export function onlyMachine(machines: readonly Pick<EndpointSummary, "id">[]): string | null {
+  return machines.length === 1 ? (machines[0]?.id ?? null) : null;
 }
 
 function matchesText(values: readonly (string | null | undefined)[], text: string): boolean {
@@ -204,56 +130,26 @@ export function machineMatches(machine: EndpointSummary, text: string): boolean 
   return matchesText([machine.displayName, machine.hostname], text);
 }
 
-/** Whether `mailbox` matches the search text: name, address or owner. */
-export function mailboxMatches(
-  mailbox: Pick<SnapshotObject, "displayName" | "externalId" | "ownerEmail">,
-  text: string,
-): boolean {
-  return matchesText([mailbox.displayName, mailbox.externalId, mailbox.ownerEmail], text);
-}
-
 const ROW_CLASS =
   "flex w-full flex-col gap-0.5 px-4 py-3 text-left text-sm outline-none transition-colors hover:bg-accent focus-visible:bg-accent focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:ring-inset";
 
-/**
- * The machines and the mailboxes of the tenant in one searchable list, in two
- * groups; a click opens the restore points of the one clicked.
- */
-function SourcePicker({
+/** The machines of the tenant in one searchable list; a click opens the restore points of the one clicked. */
+function MachinePicker({
   machines,
   machinesPending,
-  mailboxes,
-  mailboxesPending,
-  mailboxesError,
-  onRetryMailboxes,
-  retryingMailboxes,
   selectedMachine,
-  selectedMailbox,
   onSelect,
 }: {
   machines: readonly EndpointSummary[];
   machinesPending: boolean;
-  mailboxes: readonly SnapshotObject[];
-  mailboxesPending: boolean;
-  mailboxesError: boolean;
-  onRetryMailboxes: () => void;
-  retryingMailboxes: boolean;
   selectedMachine: string | null;
-  selectedMailbox: string | null;
   onSelect: (target: FileRestoreTarget) => void;
 }) {
   const format = useEndpointFormat();
   const { t } = format;
   const [text, setText] = React.useState("");
   const shownMachines = machines.filter((machine) => machineMatches(machine, text));
-  const shownMailboxes = mailboxes.filter((mailbox) => mailboxMatches(mailbox, text));
-  const searching = text.trim().length > 0;
-  const nothing =
-    searching &&
-    !machinesPending &&
-    !mailboxesPending &&
-    shownMachines.length === 0 &&
-    shownMailboxes.length === 0;
+  const nothing = text.trim().length > 0 && !machinesPending && shownMachines.length === 0;
 
   return (
     <Card className="gap-0 overflow-hidden py-0" data-slot="machine-picker">
@@ -278,66 +174,29 @@ function SourcePicker({
         {nothing ? (
           <p className="px-4 py-6 text-sm text-muted-foreground">{t("fileRestore.noMatch")}</p>
         ) : (
-          <>
-            <PickerGroup
-              icon={Server}
-              title={t("fileRestore.machines")}
-              pending={machinesPending}
-              hidden={searching && shownMachines.length === 0}
-              slot="machine-list"
-            >
-              {shownMachines.length === 0 ? (
-                <li className="px-4 py-3 text-xs text-muted-foreground">
-                  {t("fileRestore.noMachines")}
-                </li>
-              ) : (
-                shownMachines.map((machine) => (
-                  <MachineRow
-                    key={machine.id}
-                    machine={machine}
-                    format={format}
-                    selected={machine.id === selectedMachine}
-                    onSelect={() => onSelect(fileRestoreTo(machine.id))}
-                  />
-                ))
-              )}
-            </PickerGroup>
-            <PickerGroup
-              icon={Mail}
-              title={t("fileRestore.mailboxes")}
-              pending={mailboxesPending}
-              hidden={searching && !mailboxesError && shownMailboxes.length === 0}
-              slot="mailbox-list"
-            >
-              {mailboxesError ? (
-                <li className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-xs text-muted-foreground">
-                  <span>{t("fileRestore.mailboxesError")}</span>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={onRetryMailboxes}
-                    disabled={retryingMailboxes}
-                  >
-                    {t("common:actions.retry")}
-                  </Button>
-                </li>
-              ) : shownMailboxes.length === 0 ? (
-                <li className="px-4 py-3 text-xs text-muted-foreground">
-                  {t("fileRestore.noMailboxes")}
-                </li>
-              ) : (
-                shownMailboxes.map((mailbox) => (
-                  <MailboxRow
-                    key={mailbox.id}
-                    mailbox={mailbox}
-                    format={format}
-                    selected={mailbox.id === selectedMailbox}
-                    onSelect={() => onSelect(fileRestoreMailboxTo(mailbox.id))}
-                  />
-                ))
-              )}
-            </PickerGroup>
-          </>
+          <PickerGroup
+            icon={Server}
+            title={t("fileRestore.machines")}
+            pending={machinesPending}
+            hidden={false}
+            slot="machine-list"
+          >
+            {shownMachines.length === 0 ? (
+              <li className="px-4 py-3 text-xs text-muted-foreground">
+                {t("fileRestore.noMachines")}
+              </li>
+            ) : (
+              shownMachines.map((machine) => (
+                <MachineRow
+                  key={machine.id}
+                  machine={machine}
+                  format={format}
+                  selected={machine.id === selectedMachine}
+                  onSelect={() => onSelect(fileRestoreTo(machine.id))}
+                />
+              ))
+            )}
+          </PickerGroup>
         )}
       </CardContent>
     </Card>
@@ -422,41 +281,6 @@ function MachineRow({
   );
 }
 
-function MailboxRow({
-  mailbox,
-  format,
-  selected,
-  onSelect,
-}: {
-  mailbox: SnapshotObject;
-  format: EndpointFormat;
-  selected: boolean;
-  onSelect: () => void;
-}) {
-  const { t } = format;
-  const name = objectLabel(mailbox);
-  const address = mailbox.externalId !== name ? mailbox.externalId : null;
-  const lastBackup = mailbox.latestSnapshotAt ? format.dateTime(mailbox.latestSnapshotAt) : null;
-  return (
-    <li>
-      <button
-        type="button"
-        onClick={onSelect}
-        aria-current={selected ? "true" : undefined}
-        className={cn(ROW_CLASS, selected && "bg-accent")}
-      >
-        <span className="truncate font-medium">{name}</span>
-        {address ? <span className="truncate text-xs text-muted-foreground">{address}</span> : null}
-        <span className="text-xs text-muted-foreground">
-          {lastBackup
-            ? t("fileRestore.lastBackup", { time: lastBackup })
-            : t("fileRestore.noBackup")}
-        </span>
-      </button>
-    </li>
-  );
-}
-
 /** The restore points, file browser and restore of one machine. */
 function MachineRestorePoints({ machineId }: { machineId: string }) {
   const { t } = useTranslation("endpoints");
@@ -483,133 +307,5 @@ function MachineRestorePoints({ machineId }: { machineId: string }) {
       detail={query.data}
       onShowOverview={() => void navigate({ to: endpointDetailTo(machineId) })}
     />
-  );
-}
-
-const idOfRestorePoint = (point: ListedSnapshot) => point.id;
-const timeOfRestorePoint = (point: ListedSnapshot) => restorePointTime(point);
-
-/** What a mailbox's restore point shows below its time on the timeline. */
-function MailboxPointDetails({ point }: { point: ListedSnapshot }) {
-  const format = useEndpointFormat();
-  const { t } = format;
-  return (
-    <>
-      <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-        <span>{t("fileRestore.mailbox.sequence", { sequence: point.sequence })}</span>
-        <span>{t("fileRestore.mailbox.items", { count: point.itemCount })}</span>
-        <span>{format.bytes(point.byteSize)}</span>
-      </span>
-      <span>
-        <SnapshotVerificationBadge verification={point.verification} focusable={false} />
-      </span>
-    </>
-  );
-}
-
-const renderRestorePoint = (point: ListedSnapshot) => <MailboxPointDetails point={point} />;
-
-/**
- * The restore points of one mailbox on the timeline, and the chosen one with
- * the way into the restore explorer. The explorer is where mails, calendars
- * and contacts are browsed, read, selected and restored; duplicating it here
- * would give two places that do the same and drift apart, so the link opens
- * it at exactly this mailbox and restore point. The newest restore point is
- * chosen to begin with: unlike a machine's files, nothing is read before the
- * explorer opens.
- */
-function MailboxRestorePoints({ mailbox }: { mailbox: SnapshotObject }) {
-  const format = useEndpointFormat();
-  const { t } = format;
-  const points = useSnapshots(mailbox.id);
-  const [pointId, setPointId] = React.useState<string | null>(null);
-  const list = points.data ?? [];
-  const point = list.find((item) => item.id === pointId) ?? list[0] ?? null;
-  const name = objectLabel(mailbox);
-
-  if (points.isError) {
-    return (
-      <ErrorState
-        title={t("fileRestore.mailbox.loadError")}
-        error={points.error}
-        onRetry={() => void points.refetch()}
-        retrying={points.isFetching}
-      />
-    );
-  }
-  if (points.isPending) {
-    return (
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]" aria-busy="true">
-        <Skeleton className="h-64 w-full" />
-        <Skeleton className="h-64 w-full" />
-      </div>
-    );
-  }
-  if (list.length === 0 || point === null) {
-    return (
-      <EmptyState
-        icon={Camera}
-        title={t("fileRestore.mailbox.empty.title")}
-        description={t("fileRestore.mailbox.empty.description")}
-      />
-    );
-  }
-
-  const explorer = explorerAt(mailbox.id, point.id);
-  const time = format.dateTime(restorePointTime(point)) ?? restorePointTime(point);
-  return (
-    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
-      <Card className="gap-0 overflow-hidden py-0" data-slot="mailbox-points-card">
-        <CardHeader className="border-b py-4">
-          <CardTitle className="text-base">{t("snapshots.title")}</CardTitle>
-          <CardDescription>
-            {t("fileRestore.mailbox.description", { count: list.length })}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="p-0">
-          <RestoreTimeline
-            items={list}
-            idOf={idOfRestorePoint}
-            timeOf={timeOfRestorePoint}
-            selectedId={point.id}
-            onSelect={(next) => setPointId(next.id)}
-            renderDetails={renderRestorePoint}
-            label={t("snapshots.timelineLabel", { name })}
-            slot="mailbox-point-list"
-          />
-        </CardContent>
-      </Card>
-
-      <Card className="min-w-0 gap-0 py-0" data-slot="mailbox-point-card">
-        <CardHeader className="gap-1 border-b py-4">
-          <CardTitle className="text-base">
-            {t("fileRestore.mailbox.chosen", { sequence: point.sequence, time })}
-          </CardTitle>
-          <CardDescription>{name}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4 py-4">
-          <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[auto_1fr]">
-            <dt className="text-muted-foreground">{t("fileRestore.mailbox.itemsLabel")}</dt>
-            <dd>{format.integer(point.itemCount)}</dd>
-            <dt className="text-muted-foreground">{t("fileRestore.mailbox.sizeLabel")}</dt>
-            <dd>{format.bytes(point.byteSize)}</dd>
-            <dt className="text-muted-foreground">{t("fileRestore.mailbox.verifiedLabel")}</dt>
-            <dd>
-              <SnapshotVerificationBadge verification={point.verification} />
-            </dd>
-          </dl>
-          <p className="text-sm text-muted-foreground">{t("fileRestore.mailbox.explorerNote")}</p>
-          <Link
-            to={explorer.to}
-            search={explorer.search as never}
-            className={buttonVariants({ size: "sm" })}
-            data-slot="open-explorer"
-          >
-            <MailSearch aria-hidden="true" />
-            {t("fileRestore.mailbox.open")}
-          </Link>
-        </CardContent>
-      </Card>
-    </div>
   );
 }
