@@ -29,6 +29,12 @@ export interface RepositoryDto {
   kind: "local" | "s3" | "installation_default";
   role: "primary" | "copy" | "previous" | null;
   status: "unverified" | "ok" | "error" | null;
+  /**
+   * Whether the target's bucket enforces S3 Object Lock (WORM): what the last
+   * check of the target found. False for a local target; null for the
+   * installation default, whose bucket this view does not know.
+   */
+  objectLock: boolean | null;
 }
 
 export interface JobRetentionDto {

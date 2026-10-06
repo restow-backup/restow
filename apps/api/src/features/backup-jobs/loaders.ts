@@ -270,7 +270,14 @@ type TargetRow = Awaited<ReturnType<typeof loadPrimaryTarget>>;
 
 export function repositoryDto(target: TargetRow): RepositoryDto {
   if (!target) {
-    return { id: null, name: null, kind: "installation_default", role: null, status: null };
+    return {
+      id: null,
+      name: null,
+      kind: "installation_default",
+      role: null,
+      status: null,
+      objectLock: null,
+    };
   }
   return {
     id: target.id,
@@ -278,6 +285,10 @@ export function repositoryDto(target: TargetRow): RepositoryDto {
     kind: target.kind,
     role: target.role,
     status: target.status,
+    objectLock:
+      target.kind === "s3"
+        ? (target.config as { objectLock?: boolean }).objectLock === true
+        : false,
   };
 }
 

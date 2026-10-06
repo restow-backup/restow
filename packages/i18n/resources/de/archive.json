@@ -20,7 +20,9 @@
     "dateTo": "Bis Datum",
     "results": "{count, plural, one {# Treffer} other {# Treffer}}",
     "empty": "Keine archivierten Mails entsprechen dieser Suche.",
-    "emptyTenant": "Für diesen Mandanten wurde noch nichts archiviert."
+    "emptyTenant": "Für diesen Mandanten wurde noch nichts archiviert.",
+    "mailbox": "Postfach",
+    "allMailboxes": "Alle Postfächer"
   },
   "table": {
     "subject": "Betreff",
@@ -163,6 +165,12 @@
       "description": "Der Name, an den Exchange Online seine Journal-Berichte liefert. Er ist für jeden Mandanten dieses Servers derselbe.",
       "none": "Nicht gesetzt",
       "section": "Journal-Empfang"
+    },
+    "job": {
+      "title": "Journaling in Exchange",
+      "description": "Exchange stellt die Journal-Reports dieses Mandanten an diese Adresse zu. Konnektor und Journalregel richten Sie einmal pro Mandant ein; die Anleitung steht im Archiv.",
+      "guide": "Anleitung im Archiv öffnen",
+      "edition": "Die Erfassung über Exchange-Journaling gehört zur Business-Edition. Ohne sie bleibt die Einstellung gespeichert, es wird aber nichts archiviert."
     }
   },
   "flags": {

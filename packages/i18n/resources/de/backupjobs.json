@@ -537,6 +537,15 @@
       },
       "policy": "Aufbewahrungsrichtlinie"
     },
+    "archive": {
+      "title": "Archiv",
+      "description": "Revisionssicheres Archiv über Exchange-Journaling: Jede E-Mail wird erfasst, sobald Exchange sie zustellt, unabhängig vom Zeitplan der Sicherung.",
+      "switch": "Postfächer dieses Jobs archivieren",
+      "hint": "Das Archiv nimmt jede Journal-Mail auf und ordnet sie den Postfächern zu, die sie empfangen oder gesendet haben. Mails an Postfächer außerhalb eines Archiv-Jobs werden trotzdem archiviert, nur keinem Job zugeordnet.",
+      "noObjectLock": "Der Speicher dieses Mandanten hat kein Object Lock. Das Archiv ist dann nur auf Anwendungsebene unveränderbar: Wer Zugriff auf den Speicher oder den Server hat, kann Daten ändern oder löschen.",
+      "objectLockUnknown": "Das Archiv liegt im Standardspeicher der Installation. Ob dieser Object Lock hat, sehen Sie unter Speicher.",
+      "edition": "Die Erfassung über Exchange-Journaling gehört zur Business-Edition. Ohne sie bleibt die Einstellung gespeichert, es wird aber nichts archiviert."
+    },
     "folders": {
       "title": "Ordner",
       "description": "Die Ordner, die jeder Rechner dieses Jobs sichert."

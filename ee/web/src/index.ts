@@ -3,6 +3,7 @@ import type { WebExtension } from "@/lib/extensions";
 import { ArchiveSections, ArchiveSettingsSections } from "./archive-sections";
 import { auditNavItems, auditRoutes, auditTenantSections } from "./audit-log";
 import { journalInstallationSections } from "./journal";
+import { JobArchiveSetup } from "./journal/job-archive-setup";
 import {
   licenseInstallationSections,
   licenseNavItems,
@@ -33,6 +34,7 @@ export const eeWebExtension: WebExtension = {
   slots: {
     "archive.sections": ArchiveSections,
     "tenant.archiveSettings": ArchiveSettingsSections,
+    "jobs.archiveSetup": JobArchiveSetup,
     "dashboard.provider": ProviderView,
     "verify.byTenant": ReadinessByTenant,
     ...licenseSlots,

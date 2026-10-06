@@ -30,6 +30,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { CadenceFields } from "@/features/schedules/components/cadence-fields";
+import { ExtensionSlot } from "@/lib/extensions";
 import { isRecentSignInRequired } from "@/lib/recent-sign-in";
 import { cn } from "@/lib/utils";
 
@@ -677,6 +678,57 @@ function EditorForm({
                       </SelectContent>
                     </Select>
                   </Field>
+                </EditorSection>
+
+                <EditorSection
+                  id={ids("archive")}
+                  title={t("editor.archive.title")}
+                  description={t("editor.archive.description")}
+                >
+                  <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+                    <div className="space-y-0.5">
+                      <Label htmlFor={ids("archive-on")}>{t("editor.archive.switch")}</Label>
+                      <p
+                        id={messageId(ids("archive-on"))}
+                        className="text-xs text-muted-foreground"
+                      >
+                        {t("editor.archive.hint")}
+                      </p>
+                    </div>
+                    <Switch
+                      id={ids("archive-on")}
+                      checked={draft.archive}
+                      onCheckedChange={(checked) => edit({ archive: checked })}
+                      aria-describedby={messageId(ids("archive-on"))}
+                    />
+                  </div>
+                  {draft.archive ? (
+                    <>
+                      {defaults.repository.objectLock === false ? (
+                        <Alert variant="warning" data-slot="archive-object-lock">
+                          <TriangleAlert aria-hidden="true" />
+                          <AlertDescription>{t("editor.archive.noObjectLock")}</AlertDescription>
+                        </Alert>
+                      ) : defaults.repository.objectLock === null ? (
+                        <p
+                          className="text-xs text-muted-foreground"
+                          data-slot="archive-object-lock"
+                        >
+                          {t("editor.archive.objectLockUnknown")}
+                        </p>
+                      ) : null}
+                      <ExtensionSlot
+                        name="jobs.archiveSetup"
+                        props={{ archive: draft.archive }}
+                        fallback={
+                          <Alert data-slot="archive-edition">
+                            <Info aria-hidden="true" />
+                            <AlertDescription>{t("editor.archive.edition")}</AlertDescription>
+                          </Alert>
+                        }
+                      />
+                    </>
+                  ) : null}
                 </EditorSection>
               </>
             ) : (

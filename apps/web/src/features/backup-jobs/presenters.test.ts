@@ -308,7 +308,14 @@ describe("pause, repository and retention", () => {
     expect(repositoryLabel(mailJob().repository, t("en"))).toBe("Primary S3");
     expect(
       repositoryLabel(
-        { id: null, name: null, kind: "installation_default", role: null, status: null },
+        {
+          id: null,
+          name: null,
+          kind: "installation_default",
+          role: null,
+          status: null,
+          objectLock: null,
+        },
         t("en"),
       ),
     ).toBe("Default repository of the installation");

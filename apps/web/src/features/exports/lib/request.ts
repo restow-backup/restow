@@ -23,6 +23,8 @@ export type ArchiveExportScope =
       filter: ArchiveExportFilter;
       /** How many results the search has, when known. */
       total: number | null;
+      /** The name of the mailbox `filter.mailbox` names, for the dialog only (never sent). */
+      mailboxLabel?: string;
     };
 
 /** Where an export comes from: a snapshot of a mailbox, or the archive. */
