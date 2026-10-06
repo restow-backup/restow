@@ -21,6 +21,12 @@ Hotfix release for 0.2.1.
   Other tenants still consent through the link. The directory (tenant) ID of the app
   (GUID) under Settings, Microsoft 365 must be set for this; the status of the app now
   reports it.
+- **Microsoft 365 per eigener Graph-App.** Eine Quelle lässt sich entweder per Consent-Einladung
+  (gemeinsame Restow-App) oder über eine Graph-App verbinden, die der Kunde in seinem Tenant selbst angelegt
+  hat (Tenant-ID, Anwendungs-ID, Secret oder Zertifikat). Die Zugangsdaten werden verschlüsselt in der
+  Organisation gespeichert, und ein funktionierendes Token ist der Nachweis. Die Verbindungskarte nennt
+  vorher ausdrücklich, zu welcher Organisation die Quelle gehört. Der Worker, die Verzeichnisabfrage und die
+  Prüfung nutzen die App der Quelle (docs/ENTRA-SETUP.md).
 - **Hetzner Object Storage.** The provider preset has a location selector (Falkenstein,
   Nuremberg, Helsinki) that sets endpoint and region together, so the preset works for
   every location without switching to "other S3 service". Buckets with a dot in their

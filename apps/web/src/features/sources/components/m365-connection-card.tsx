@@ -22,6 +22,7 @@ import { useConnectOwnTenant, useConsentLink, useEntraStatus } from "../use-sour
 import { CopyField } from "./copy-field";
 import { DetailsItem, DetailsList } from "./details-list";
 import { EntraNotConfigured } from "./entra-not-configured";
+import { OwnAppForm } from "./own-app-form";
 
 /** A consent link together with the source state it was issued against. */
 interface IssuedLink {
@@ -67,7 +68,15 @@ export function M365ConnectionCard({ source, onWaitingChange }: M365ConnectionCa
   const entra = useEntraStatus(true);
   const consentLink = useConsentLink(source.id);
   const ownTenant = useConnectOwnTenant(source.id);
-  const { isProviderAdmin } = useSession();
+  const { isProviderAdmin, tenants, activeTenant } = useSession();
+  const ownAppMode = m365?.connectionMode === "own_app";
+  const [method, setMethod] = React.useState<"consent" | "own_app">(
+    ownAppMode ? "own_app" : "consent",
+  );
+  const [replacingOwnApp, setReplacingOwnApp] = React.useState(false);
+  // The organisation the source (and with it every backup of this tenant) belongs to.
+  const organisation =
+    tenants.find((candidate) => candidate.id === source.tenantId)?.name ?? activeTenant?.name ?? "";
   const [issued, setIssued] = React.useState<IssuedLink | null>(null);
   const [reconsent, setReconsent] = React.useState(false);
   const [tenantHint, setTenantHint] = React.useState(m365?.entraTenantHint ?? "");
@@ -139,6 +148,16 @@ export function M365ConnectionCard({ source, onWaitingChange }: M365ConnectionCa
             <DetailsItem label={t("m365.connect.tenantId")}>
               <span className="font-mono text-xs">{m365?.entraTenantId}</span>
             </DetailsItem>
+            {ownAppMode && m365?.ownApp ? (
+              <>
+                <DetailsItem label={t("m365.ownApp.clientId")}>
+                  <span className="font-mono text-xs">{m365.ownApp.clientId}</span>
+                </DetailsItem>
+                <DetailsItem label={t("m365.ownApp.credentialKind")}>
+                  {t(`m365.ownApp.kinds.${m365.ownApp.credentialKind}`)}
+                </DetailsItem>
+              </>
+            ) : null}
             <DetailsItem label={t("m365.connect.consent")}>
               <span className="inline-flex items-center gap-1.5">
                 <CircleCheck aria-hidden="true" className="size-4" />
@@ -149,6 +168,39 @@ export function M365ConnectionCard({ source, onWaitingChange }: M365ConnectionCa
             </DetailsItem>
           </DetailsList>
         ) : (
+          <div className="space-y-4">
+            <Alert variant="info">
+              <Info />
+              <AlertTitle>
+                {t("m365.connect.organisation.title", { name: organisation })}
+              </AlertTitle>
+              <AlertDescription>{t("m365.connect.organisation.body")}</AlertDescription>
+            </Alert>
+            <div className="space-y-1.5">
+              <p className="text-sm font-medium">{t("m365.connect.method.label")}</p>
+              <fieldset className="flex flex-wrap gap-2 min-w-0 border-0 p-0">
+                <legend className="sr-only">{t("m365.connect.method.label")}</legend>
+                {(["consent", "own_app"] as const).map((option) => (
+                  <Button
+                    key={option}
+                    type="button"
+                    size="sm"
+                    variant={method === option ? "default" : "outline"}
+                    aria-pressed={method === option}
+                    onClick={() => setMethod(option)}
+                  >
+                    {t(`m365.connect.method.${option}`)}
+                  </Button>
+                ))}
+              </fieldset>
+              <p className="text-xs text-muted-foreground">
+                {t(`m365.connect.method.${method}Hint`)}
+              </p>
+            </div>
+          </div>
+        )}
+
+        {!connected && method === "consent" ? (
           <div className="space-y-4">
             <div className="space-y-2">
               <p className="text-sm text-muted-foreground">{t("m365.connect.description")}</p>
@@ -174,7 +226,7 @@ export function M365ConnectionCard({ source, onWaitingChange }: M365ConnectionCa
               </AlertDescription>
             </Alert>
           </div>
-        )}
+        ) : null}
 
         {shownError && errorMessage ? (
           <Alert variant="destructive">
@@ -196,76 +248,95 @@ export function M365ConnectionCard({ source, onWaitingChange }: M365ConnectionCa
           </Alert>
         ) : null}
 
-        {entra.isPending ? (
-          <Skeleton className="h-9 w-48" />
-        ) : entra.isError ? (
-          <ErrorState
-            error={entra.error}
-            onRetry={() => void entra.refetch()}
-            retrying={entra.isFetching}
-          />
-        ) : !canCreateLink && entra.data ? (
-          <EntraNotConfigured status={entra.data} />
-        ) : connected && !reconsent ? (
-          <Button variant="outline" size="sm" onClick={() => setReconsent(true)}>
-            <RefreshCw />
-            {t("actions.reconnect")}
-          </Button>
-        ) : (
-          <div className="space-y-3">
-            {connected ? (
-              <p className="text-sm text-muted-foreground">{t("m365.connect.reconsentHint")}</p>
+        {method === "own_app" && (!connected || ownAppMode) ? (
+          connected && !replacingOwnApp ? (
+            <Button variant="outline" size="sm" onClick={() => setReplacingOwnApp(true)}>
+              <RefreshCw />
+              {t("actions.replaceOwnApp")}
+            </Button>
+          ) : (
+            <OwnAppForm
+              source={source}
+              onConnected={() => setReplacingOwnApp(false)}
+              onCancel={connected ? () => setReplacingOwnApp(false) : undefined}
+            />
+          )
+        ) : null}
+
+        {method === "consent" && !ownAppMode ? (
+          <>
+            {entra.isPending ? (
+              <Skeleton className="h-9 w-48" />
+            ) : entra.isError ? (
+              <ErrorState
+                error={entra.error}
+                onRetry={() => void entra.refetch()}
+                retrying={entra.isFetching}
+              />
+            ) : !canCreateLink && entra.data ? (
+              <EntraNotConfigured status={entra.data} />
+            ) : connected && !reconsent ? (
+              <Button variant="outline" size="sm" onClick={() => setReconsent(true)}>
+                <RefreshCw />
+                {t("actions.reconnect")}
+              </Button>
             ) : (
-              <Field
-                id="consent-tenant"
-                label={t("form.m365.tenantHint")}
-                hint={t("form.m365.tenantHintHelp")}
-                error={hintInvalid ? tc("sources:validation.tenantHint") : undefined}
-                className="max-w-md"
-              >
-                <Input
-                  id="consent-tenant"
-                  autoComplete="off"
-                  spellCheck={false}
-                  value={tenantHint}
-                  placeholder={t("form.m365.tenantHintPlaceholder")}
-                  aria-invalid={hintInvalid}
-                  aria-describedby={messageId("consent-tenant")}
-                  onChange={(event) => {
-                    setTenantHint(event.target.value);
-                    setHintInvalid(false);
-                  }}
-                />
-              </Field>
-            )}
-            {canConnectOwnTenant ? (
-              <div className="space-y-1.5 rounded-lg border border-border bg-muted/30 p-3">
-                <p className="text-sm">{t("m365.connect.ownTenant.hint")}</p>
-                <Button onClick={connectOwn} loading={ownTenant.isPending}>
-                  {t("actions.connectOwnTenant")}
+              <div className="space-y-3">
+                {connected ? (
+                  <p className="text-sm text-muted-foreground">{t("m365.connect.reconsentHint")}</p>
+                ) : (
+                  <Field
+                    id="consent-tenant"
+                    label={t("form.m365.tenantHint")}
+                    hint={t("form.m365.tenantHintHelp")}
+                    error={hintInvalid ? tc("sources:validation.tenantHint") : undefined}
+                    className="max-w-md"
+                  >
+                    <Input
+                      id="consent-tenant"
+                      autoComplete="off"
+                      spellCheck={false}
+                      value={tenantHint}
+                      placeholder={t("form.m365.tenantHintPlaceholder")}
+                      aria-invalid={hintInvalid}
+                      aria-describedby={messageId("consent-tenant")}
+                      onChange={(event) => {
+                        setTenantHint(event.target.value);
+                        setHintInvalid(false);
+                      }}
+                    />
+                  </Field>
+                )}
+                {canConnectOwnTenant ? (
+                  <div className="space-y-1.5 rounded-lg border border-border bg-muted/30 p-3">
+                    <p className="text-sm">{t("m365.connect.ownTenant.hint")}</p>
+                    <Button onClick={connectOwn} loading={ownTenant.isPending}>
+                      {t("actions.connectOwnTenant")}
+                    </Button>
+                    {ownTenant.error ? (
+                      <p role="alert" className="text-sm text-destructive">
+                        {tc(sourceErrorKey(ownTenant.error))}
+                      </p>
+                    ) : null}
+                  </div>
+                ) : null}
+                <Button
+                  variant={canConnectOwnTenant ? "outline" : "default"}
+                  onClick={createLink}
+                  loading={consentLink.isPending}
+                >
+                  {consentLink.isPending ? null : <Link2 />}
+                  {issued ? t("actions.reconnect") : t("actions.createLink")}
                 </Button>
-                {ownTenant.error ? (
+                {consentLink.error ? (
                   <p role="alert" className="text-sm text-destructive">
-                    {tc(sourceErrorKey(ownTenant.error))}
+                    {tc(sourceErrorKey(consentLink.error))}
                   </p>
                 ) : null}
               </div>
-            ) : null}
-            <Button
-              variant={canConnectOwnTenant ? "outline" : "default"}
-              onClick={createLink}
-              loading={consentLink.isPending}
-            >
-              {consentLink.isPending ? null : <Link2 />}
-              {issued ? t("actions.reconnect") : t("actions.createLink")}
-            </Button>
-            {consentLink.error ? (
-              <p role="alert" className="text-sm text-destructive">
-                {tc(sourceErrorKey(consentLink.error))}
-              </p>
-            ) : null}
-          </div>
-        )}
+            )}
+          </>
+        ) : null}
 
         {issued ? (
           <IssuedLinkPanel issued={issued.link} expired={expired} waiting={waiting} />

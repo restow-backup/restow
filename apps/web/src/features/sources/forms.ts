@@ -341,6 +341,11 @@ export function portForSecurity(currentPort: string, next: ImapSecurity): string
 const TENANT_HINT =
   /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+)$/i;
 
+/** A directory (tenant) or application (client) ID. */
+export function isGuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
 /** Empty (let the admin pick), a tenant id (GUID) or a verified domain. */
 export function isValidTenantHint(value: string): boolean {
   const hint = value.trim();

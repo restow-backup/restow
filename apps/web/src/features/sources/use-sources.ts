@@ -3,6 +3,7 @@ import * as React from "react";
 
 import { useSession } from "@/lib/session";
 import {
+  connectOwnApp,
   connectOwnTenant,
   createConsentLink,
   createSource,
@@ -17,7 +18,13 @@ import {
   verifySource,
 } from "./api";
 import { removeSource, upsertSource } from "./cache";
-import type { CreateSourceInput, ImapTestInput, SourceDto, UpdateSourceInput } from "./types";
+import type {
+  CreateSourceInput,
+  ImapTestInput,
+  OwnAppInput,
+  SourceDto,
+  UpdateSourceInput,
+} from "./types";
 
 /** How often the detail page asks whether the admin consent has come back. */
 export const CONSENT_POLL_INTERVAL_MS = 4_000;
@@ -121,6 +128,14 @@ export function useConnectOwnTenant(sourceId: string) {
   const store = useStoreSource();
   return useMutation({
     mutationFn: () => connectOwnTenant(sourceId),
+    onSuccess: (result) => store(result.source),
+  });
+}
+
+export function useConnectOwnApp(sourceId: string) {
+  const store = useStoreSource();
+  return useMutation({
+    mutationFn: (input: OwnAppInput) => connectOwnApp(sourceId, input),
     onSuccess: (result) => store(result.source),
   });
 }

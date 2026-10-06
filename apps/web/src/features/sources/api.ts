@@ -5,6 +5,7 @@ import type {
   EntraAppStatus,
   ImapProbeResult,
   ImapTestInput,
+  OwnAppInput,
   SourceDto,
   TestResultDto,
   UpdateSourceInput,
@@ -65,6 +66,14 @@ export function createConsentLink(
   return apiFetch<ConsentLinkDto>(sourcePath(sourceId, "consent-link"), {
     method: "POST",
     body: tenant === undefined ? {} : { tenant },
+  });
+}
+
+/** Connect through a Graph app of the customer's own (the credential is sealed on the server). */
+export function connectOwnApp(sourceId: string, input: OwnAppInput): Promise<VerifyResultDto> {
+  return apiFetch<VerifyResultDto>(sourcePath(sourceId, "own-app"), {
+    method: "PUT",
+    body: input,
   });
 }
 

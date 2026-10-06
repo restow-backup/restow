@@ -43,7 +43,9 @@
     "openConsent": "Consent-Seite öffnen",
     "copyLink": "Link kopieren",
     "backToList": "Alle Quellen",
-    "moreActions": "Weitere Aktionen"
+    "moreActions": "Weitere Aktionen",
+    "connectOwnApp": "Mit eigener App verbinden",
+    "replaceOwnApp": "Zugangsdaten ersetzen"
   },
   "list": {
     "empty": {
@@ -97,7 +99,10 @@
     "consentRequired": "Erteilen Sie zuerst den Admin-Consent; erst dann lassen sich die Berechtigungen prüfen.",
     "sourceIncomplete": "Die gespeicherte Verbindung ist unvollständig. Bearbeiten Sie die Quelle und geben Sie das Passwort erneut ein.",
     "perMailboxNoSourceTest": "Diese Quelle hat kein eigenes Passwort; jedes Postfach meldet sich mit seinem eigenen an. Testen Sie stattdessen jedes einzeln aus der Kontenliste.",
-    "imapHostNotAllowed": "Dieser IMAP-Server liegt in einem Loopback-, privaten oder Link-Local-Netz. Nur ein Provider-Admin kann eine Quelle mit einem internen Server verbinden; Link-Local-Adressen werden nie verwendet."
+    "imapHostNotAllowed": "Dieser IMAP-Server liegt in einem Loopback-, privaten oder Link-Local-Netz. Nur ein Provider-Admin kann eine Quelle mit einem internen Server verbinden; Link-Local-Adressen werden nie verwendet.",
+    "ownAppInvalid": "Die Angaben zur App sind nicht verwendbar. Prüfen Sie Tenant-ID, Anwendungs-ID und Zugangsdaten.",
+    "ownAppNoToken": "Microsoft hat für diese App in diesem Tenant kein Token ausgestellt.",
+    "sourceUsesOwnApp": "Diese Quelle ist über eine eigene App verbunden. Es gibt dafür keinen Consent-Link."
   },
   "detail": {
     "created": "Angelegt {when}",
@@ -224,7 +229,18 @@
       "consented": "Admin-Consent erteilt {when}",
       "consent": "Admin-Consent",
       "tenantId": "Entra-Tenant-ID",
-      "reconsentHint": "Wiederholen Sie den Consent, nachdem der App-Registrierung Berechtigungen hinzugefügt wurden. Der Link funktioniert nur im bereits verbundenen Tenant."
+      "reconsentHint": "Wiederholen Sie den Consent, nachdem der App-Registrierung Berechtigungen hinzugefügt wurden. Der Link funktioniert nur im bereits verbundenen Tenant.",
+      "organisation": {
+        "title": "Diese Quelle gehört zur Organisation „{name}“",
+        "body": "Alles, was hier gesichert wird, landet in dieser Organisation. Soll es in einer anderen landen, wechseln Sie oben zuerst die Organisation."
+      },
+      "method": {
+        "label": "Wie soll Microsoft 365 verbunden werden?",
+        "consent": "Consent-Einladung",
+        "own_app": "Eigene Graph-App",
+        "consentHint": "Ein Admin des Kunden erteilt der gemeinsamen {appName}-App per Link die Berechtigungen.",
+        "own_appHint": "Sie legen im Tenant selbst eine App an und tragen deren Zugangsdaten hier ein. Kein Consent-Link, keine gemeinsame App."
+      }
     },
     "consentError": {
       "title": "Letzter Consent-Versuch fehlgeschlagen",
@@ -340,6 +356,30 @@
       "tenant_mismatch": "Der Consent wurde in einem anderen Microsoft-365-Tenant erteilt als dem, mit dem diese Quelle verbunden ist. Es wurde nichts geändert; legen Sie für den anderen Tenant eine eigene Quelle an.",
       "invalid_state": "Der Consent-Link war ungültig oder ist abgelaufen. Erzeugen Sie einen neuen Link.",
       "unknown_source": "Die Quelle zu diesem Consent existiert nicht mehr."
+    },
+    "ownApp": {
+      "description": "Die Quelle nutzt eine App, die im Microsoft-365-Tenant selbst angelegt wurde. Die Zugangsdaten werden verschlüsselt gespeichert und nie wieder angezeigt.",
+      "steps": {
+        "one": "Im Entra-Portal des Tenants unter App-Registrierungen eine App anlegen (nur dieses Verzeichnis).",
+        "two": "Unter API-Berechtigungen die Anwendungsberechtigungen von Microsoft Graph hinzufügen und Admin-Consent erteilen (Mail.Read, User.Read.All, Group.Read.All, Files.Read.All und was Ihre Sicherung braucht).",
+        "three": "Ein Client-Secret oder Zertifikat anlegen und hier mit Tenant-ID und Anwendungs-ID eintragen."
+      },
+      "tenantId": "Verzeichnis-ID (Tenant)",
+      "tenantIdHint": "GUID des Microsoft-365-Tenants.",
+      "clientId": "Anwendungs-ID (Client)",
+      "clientIdHint": "GUID der App-Registrierung.",
+      "invalidGuid": "Bitte eine gültige GUID eintragen.",
+      "credentialKind": "Anmeldeart",
+      "kinds": {
+        "secret": "Client-Secret",
+        "certificate": "Zertifikat"
+      },
+      "clientSecret": "Client-Secret",
+      "secretHint": "Der Wert des Secrets, nicht die Secret-ID.",
+      "replaceHint": "Neuen Wert eintragen, um die Zugangsdaten zu ersetzen.",
+      "certificate": "Zertifikat und privater Schlüssel (PEM)",
+      "certificateHint": "Eine PEM-Datei mit unverschlüsseltem privaten Schlüssel und dem Zertifikat.",
+      "credentialRequired": "Bitte die Zugangsdaten eintragen."
     }
   },
   "imap": {
@@ -405,7 +445,8 @@
     "ownTenantConnected": "Eigener Tenant verbunden.",
     "linkCreated": "Consent-Link erzeugt.",
     "copied": "Link in die Zwischenablage kopiert.",
-    "copyFailed": "Der Link konnte nicht kopiert werden. Markieren und kopieren Sie ihn manuell."
+    "copyFailed": "Der Link konnte nicht kopiert werden. Markieren und kopieren Sie ihn manuell.",
+    "ownAppConnected": "Quelle mit eigener App verbunden."
   },
   "consentLanding": {
     "product": "{appName}",

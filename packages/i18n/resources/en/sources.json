@@ -43,7 +43,9 @@
     "openConsent": "Open consent page",
     "copyLink": "Copy link",
     "backToList": "All sources",
-    "moreActions": "More actions"
+    "moreActions": "More actions",
+    "connectOwnApp": "Connect with own app",
+    "replaceOwnApp": "Replace credentials"
   },
   "list": {
     "empty": {
@@ -97,7 +99,10 @@
     "consentRequired": "Grant admin consent first; only then can the permissions be verified.",
     "sourceIncomplete": "The stored connection is incomplete. Edit the source and enter the password again.",
     "perMailboxNoSourceTest": "This source has no password of its own; every mailbox authenticates with its own. Test each one from the accounts list instead.",
-    "imapHostNotAllowed": "This IMAP server is in a loopback, private or link-local network. Only a provider admin can connect a source to an internal server; link-local addresses are never used."
+    "imapHostNotAllowed": "This IMAP server is in a loopback, private or link-local network. Only a provider admin can connect a source to an internal server; link-local addresses are never used.",
+    "ownAppInvalid": "The app details are not usable. Check tenant ID, application ID and credentials.",
+    "ownAppNoToken": "Microsoft did not issue a token for this app in this tenant.",
+    "sourceUsesOwnApp": "This source is connected through its own app. It has no consent link."
   },
   "detail": {
     "created": "Created {when}",
@@ -224,7 +229,18 @@
       "consented": "Admin consent granted {when}",
       "consent": "Admin consent",
       "tenantId": "Entra tenant ID",
-      "reconsentHint": "Run the consent again after permissions were added to the app registration. The link only works in the tenant that is already connected."
+      "reconsentHint": "Run the consent again after permissions were added to the app registration. The link only works in the tenant that is already connected.",
+      "organisation": {
+        "title": "This source belongs to the organisation “{name}”",
+        "body": "Everything backed up here lands in this organisation. To back up into another one, switch the organisation at the top first."
+      },
+      "method": {
+        "label": "How should Microsoft 365 be connected?",
+        "consent": "Consent invitation",
+        "own_app": "Own Graph app",
+        "consentHint": "An admin of the customer grants the shared {appName} app its permissions through a link.",
+        "own_appHint": "You create an app in the tenant yourself and enter its credentials here. No consent link, no shared app."
+      }
     },
     "consentError": {
       "title": "Last consent attempt failed",
@@ -340,6 +356,30 @@
       "tenant_mismatch": "The consent was granted in a different Microsoft 365 tenant than the one this source is connected to. Nothing was changed; create a separate source for the other tenant.",
       "invalid_state": "The consent link was invalid or has expired. Create a new link.",
       "unknown_source": "The source this consent belongs to no longer exists."
+    },
+    "ownApp": {
+      "description": "The source uses an app that was created in the Microsoft 365 tenant itself. The credentials are stored encrypted and never shown again.",
+      "steps": {
+        "one": "In the tenant's Entra portal, create an app under App registrations (this directory only).",
+        "two": "Under API permissions, add the Microsoft Graph application permissions and grant admin consent (Mail.Read, User.Read.All, Group.Read.All, Files.Read.All and what your backup needs).",
+        "three": "Create a client secret or certificate and enter it here with the tenant ID and application ID."
+      },
+      "tenantId": "Directory (tenant) ID",
+      "tenantIdHint": "GUID of the Microsoft 365 tenant.",
+      "clientId": "Application (client) ID",
+      "clientIdHint": "GUID of the app registration.",
+      "invalidGuid": "Enter a valid GUID.",
+      "credentialKind": "Credential",
+      "kinds": {
+        "secret": "Client secret",
+        "certificate": "Certificate"
+      },
+      "clientSecret": "Client secret",
+      "secretHint": "The secret's value, not its ID.",
+      "replaceHint": "Enter a new value to replace the credentials.",
+      "certificate": "Certificate and private key (PEM)",
+      "certificateHint": "One PEM file with an unencrypted private key and the certificate.",
+      "credentialRequired": "Enter the credentials."
     }
   },
   "imap": {
@@ -405,7 +445,8 @@
     "ownTenantConnected": "Own tenant connected.",
     "linkCreated": "Consent link created.",
     "copied": "Link copied to the clipboard.",
-    "copyFailed": "The link could not be copied. Select it and copy it manually."
+    "copyFailed": "The link could not be copied. Select it and copy it manually.",
+    "ownAppConnected": "Source connected with its own app."
   },
   "consentLanding": {
     "product": "{appName}",
