@@ -175,7 +175,8 @@ export function toDirectoryUser(entry: UserDeltaEntry): DirectoryUserRecord | nu
     displayName: entry.displayName?.trim() || null,
     accountEnabled: typeof entry.accountEnabled === "boolean" ? entry.accountEnabled : null,
     userType: entry.userType ?? null,
-    mailAddresses: entry.proxyAddresses === undefined ? null : smtpAddresses(entry.proxyAddresses, mail),
+    mailAddresses:
+      entry.proxyAddresses === undefined ? null : smtpAddresses(entry.proxyAddresses, mail),
   };
 }
 
