@@ -81,6 +81,8 @@ export interface BackupJobDto {
   kind: JobKindName;
   name: string;
   enabled: boolean;
+  /** Mail jobs: the job's mailboxes are expected in the journal archive (#32). Machine jobs: false. */
+  archive: boolean;
   origin: JobOrigin;
   scopeMode: JobScopeMode;
   /** Null: no schedule, the job runs when someone starts it. */

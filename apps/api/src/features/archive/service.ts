@@ -5,7 +5,12 @@
  * is audited (docs/ARCHIVE.md).
  */
 import { archive } from "@restow/core";
-import { type ArchiveEnvelope, archiveAnchor, archiveItems } from "@restow/db";
+import {
+  type ArchiveEnvelope,
+  archiveAnchor,
+  archiveItemOfMailbox,
+  archiveItems,
+} from "@restow/db";
 import { type SQL, and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
@@ -86,7 +91,7 @@ export type ArchiveFilter = Pick<
 export function archiveSearchConditions(tenantId: string, query: ArchiveFilter): SQL[] {
   const conditions = [eq(archiveItems.tenantId, tenantId)];
   if (query.mailbox) {
-    conditions.push(eq(archiveItems.protectedObjectId, query.mailbox));
+    conditions.push(archiveItemOfMailbox(query.mailbox));
   }
   if (query.dateFrom) {
     conditions.push(gte(messageDate, query.dateFrom));

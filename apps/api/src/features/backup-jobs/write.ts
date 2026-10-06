@@ -575,6 +575,7 @@ function definitionOf(job: BackupJob): Record<string, unknown> {
     name: job.name,
     scopeMode: job.scopeMode,
     enabled: job.enabled,
+    archive: job.archive,
     schedule: job.schedule,
     verifySchedule: job.verifySchedule,
     retentionPolicyId: job.retentionPolicyId,
@@ -604,6 +605,9 @@ export async function createBackupJob(
   }
   if (kind === "endpoint" && input.enabled === false) {
     throw jobProblem(["enabled"], "pause_not_supported", pauseMessage());
+  }
+  if (kind === "endpoint" && input.archive) {
+    throw jobProblem(["archive"], "archive_not_supported", archiveMessage());
   }
   return withTenantTx(db, tenantId, async (tx) => {
     const storageTargetId = await checkRepository(tx, tenantId, input.storageTargetId);
@@ -643,6 +647,7 @@ export async function createBackupJob(
           retentionPolicyId,
           settings,
           enabled: input.enabled,
+          archive: input.archive,
           origin: "user",
           nextRunAt: nextOf(schedule, now, null),
           verifyNextRunAt: kind === "mail" ? nextOf(verifySchedule, now, null) : null,
@@ -671,6 +676,11 @@ export async function createBackupJob(
     });
     return jobDto(tx, tenantId, job.id, options, now);
   });
+}
+
+/** Why a machine job cannot archive: the archive is mail captured by journaling. */
+function archiveMessage(): string {
+  return "Archiving is for mail jobs: Exchange journals every mail of their mailboxes to the archive. A machine job keeps snapshots only.";
 }
 
 function pauseMessage(): string {
@@ -752,6 +762,7 @@ function describeChanges(before: BackupJob, after: BackupJob): Record<string, un
   };
   compare("name", before.name, after.name);
   compare("enabled", before.enabled, after.enabled);
+  compare("archive", before.archive, after.archive);
   if (!sameSchedule(before.schedule, after.schedule)) {
     changes.schedule = { from: before.schedule, to: after.schedule };
   }
@@ -816,6 +827,9 @@ export async function updateBackupJob(
     if (kind === "endpoint" && patch.enabled === false) {
       throw jobProblem(["enabled"], "pause_not_supported", pauseMessage());
     }
+    if (kind === "endpoint" && patch.archive) {
+      throw jobProblem(["archive"], "archive_not_supported", archiveMessage());
+    }
     const settings =
       patch.settings !== undefined
         ? checkedSettings(kind, patch.settings, { requirePaths: true })
@@ -842,6 +856,7 @@ export async function updateBackupJob(
         retentionPolicyId,
         settings,
         enabled,
+        archive: patch.archive ?? before.archive,
         // A new or resumed cadence starts from its last run; an untouched one keeps its timer.
         ...(kind === "mail" && (scheduleChanged || resumed)
           ? { nextRunAt: nextOf(base.schedule, now, before.lastRunAt) }

@@ -48,3 +48,5 @@ export * from "./repository-lock.js";
 
 // The throughput history of runs (sparklines and the run drawer's charts).
 export * from "./run-samples.js";
+// How the archive is filtered and held by mailbox, journal assignments included (#32).
+export * from "./archive-mailboxes.js";

@@ -10,6 +10,7 @@
  */
 import {
   type Database,
+  archiveItemMailboxes,
   archiveItems,
   auditLog,
   createDb,
@@ -61,18 +62,22 @@ async function seedItem(
     chainHash: string;
   },
 ) {
-  await db.insert(archiveItems).values({
-    tenantId,
-    protectedObjectId: overrides.protectedObjectId ?? null,
-    messageId: `msg-${overrides.chainHash}`,
-    itemHash: `hash-${overrides.chainHash}`,
-    prevChainHash: null,
-    chainHash: overrides.chainHash,
-    receivedAt: overrides.receivedAt,
-    capturedVia: "journal",
-    retentionUntil: overrides.retentionUntil,
-    storagePath: `tenants/${tenantId}/archive/item-${overrides.chainHash}`,
-  });
+  const [row] = await db
+    .insert(archiveItems)
+    .values({
+      tenantId,
+      protectedObjectId: overrides.protectedObjectId ?? null,
+      messageId: `msg-${overrides.chainHash}`,
+      itemHash: `hash-${overrides.chainHash}`,
+      prevChainHash: null,
+      chainHash: overrides.chainHash,
+      receivedAt: overrides.receivedAt,
+      capturedVia: "journal",
+      retentionUntil: overrides.retentionUntil,
+      storagePath: `tenants/${tenantId}/archive/item-${overrides.chainHash}`,
+    })
+    .returning({ id: archiveItems.id });
+  return row?.id as string;
 }
 
 describe.skipIf(!adminUrl)("runArchiveRetention against Postgres", () => {
@@ -146,6 +151,63 @@ describe.skipIf(!adminUrl)("runArchiveRetention against Postgres", () => {
       expect((deletionEntries[0]?.details as { itemHash?: string } | null)?.itemHash).toBe(
         "hash-expired",
       );
+    } finally {
+      await db.$client.end();
+    }
+  }, 60_000);
+
+  it("a mailbox-scoped hold also blocks the journal reports assigned to that mailbox", async () => {
+    const url = await recreateTestDatabase(adminUrl as string);
+    const db = createDb(url);
+    try {
+      const [provider] = await db.insert(providers).values({ name: "Provider" }).returning();
+      const [tenant] = await db
+        .insert(tenants)
+        .values({ providerId: provider?.id as string, name: "Contoso", slug: "contoso" })
+        .returning();
+      const tenantId = tenant?.id as string;
+      const [source] = await db
+        .insert(sources)
+        .values({ tenantId, kind: "m365", name: "Contoso M365", status: "active" })
+        .returning();
+      const [held, free] = await db
+        .insert(protectedObjects)
+        .values([
+          { tenantId, sourceId: source?.id as string, kind: "mailbox", externalId: "oid-held" },
+          { tenantId, sourceId: source?.id as string, kind: "mailbox", externalId: "oid-free" },
+        ])
+        .returning();
+      // Journal reports carry no protected_object_id; their mailboxes are assignments.
+      const toHeld = await seedItem(db, tenantId, {
+        receivedAt: daysAgo(3000),
+        retentionUntil: daysAgo(1),
+        chainHash: "journal-held",
+      });
+      const toFree = await seedItem(db, tenantId, {
+        receivedAt: daysAgo(3000),
+        retentionUntil: daysAgo(1),
+        chainHash: "journal-free",
+      });
+      await db.insert(archiveItemMailboxes).values([
+        { tenantId, archiveItemId: toHeld, protectedObjectId: held?.id as string },
+        { tenantId, archiveItemId: toHeld, protectedObjectId: free?.id as string },
+        { tenantId, archiveItemId: toFree, protectedObjectId: free?.id as string },
+      ]);
+      await db.insert(legalHolds).values({
+        tenantId,
+        reason: "Litigation (one mailbox)",
+        protectedObjectId: held?.id as string,
+        active: true,
+      });
+
+      const summary = await runArchiveRetention(db, tenantId, { dryRun: false }, () => NOW);
+
+      expect(summary).toMatchObject({ deleted: 1, held: 1 });
+      const remaining = await db
+        .select({ chainHash: archiveItems.chainHash })
+        .from(archiveItems)
+        .where(eq(archiveItems.tenantId, tenantId));
+      expect(remaining.map((row) => row.chainHash)).toEqual(["journal-held"]);
     } finally {
       await db.$client.end();
     }
