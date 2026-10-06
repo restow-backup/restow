@@ -21,6 +21,14 @@
  *   X-Restow-Attempt: <n>
  *   X-Restow-Signature: sha256=<hex HMAC-SHA-256 of the raw body under the webhook secret>
  *
+ * in the `restow` format. A webhook in a chat format (`discord`, `slack`,
+ * `teams`, see ./webhook-formats.ts) gets a readable message rendered from the
+ * stored envelope instead, with Content-Type and User-Agent only: those
+ * services cannot check a signature. Their answers 400, 401, 403, 404, 410,
+ * 413 and 422 mean the URL or the message is wrong (a deleted Discord webhook
+ * answers 404), so such a delivery is given up at once instead of retried for
+ * a day; 429 and 5xx are retried, honouring Retry-After.
+ *
  * Targets are checked after DNS resolution, at connect time: loopback and
  * private networks only with RESTOW_WEBHOOK_ALLOW_PRIVATE=true, link-local
  * (cloud metadata), multicast and reserved ranges never. Redirects are not
@@ -35,7 +43,17 @@ import { type LookupAddress, lookup as dnsLookup } from "node:dns";
 import http from "node:http";
 import https from "node:https";
 import { type LookupFunction, isIP } from "node:net";
-import { type Database, type Job, safeErrorMessage, webhookDeliveries, webhooks } from "@restow/db";
+import {
+  type Database,
+  type Job,
+  protectedObjects,
+  safeErrorMessage,
+  settings,
+  tenants,
+  webhookDeliveries,
+  webhooks,
+} from "@restow/db";
+import { type SupportedLanguage, defaultLanguage } from "@restow/i18n";
 import { and, eq, inArray, lt, sql } from "drizzle-orm";
 import {
   PgSecretReader,
@@ -44,6 +62,13 @@ import {
   tenantRunner,
   withTenantTx,
 } from "./framework.js";
+import {
+  type ChatContext,
+  type WebhookFormat,
+  buildChatMessage,
+  isChatFormat,
+  renderChatBody,
+} from "./webhook-formats.js";
 
 type Logger = WorkerRuntime["logger"];
 
@@ -203,6 +228,11 @@ export function signWebhookBody(secret: string, body: string): string {
   return `sha256=${createHmac("sha256", secret).update(body, "utf8").digest("hex")}`;
 }
 
+/** Headers of a chat delivery: the services read the body only, and nothing is signed. */
+export function chatDeliveryHeaders(): Record<string, string> {
+  return { "Content-Type": "application/json", "User-Agent": USER_AGENT };
+}
+
 export function deliveryHeaders(input: {
   event: string;
   deliveryId: string;
@@ -260,8 +290,9 @@ export function parseRetryAfter(value: string | null | undefined, now: Date): nu
     return null;
   }
   let ms: number;
-  if (/^\d+$/.test(raw)) {
-    ms = Number(raw) * 1000;
+  // Whole seconds per RFC 9110; some chat services send fractions (Discord: "0.35").
+  if (/^\d+(?:\.\d+)?$/.test(raw)) {
+    ms = Math.ceil(Number(raw) * 1000);
   } else {
     const at = Date.parse(raw);
     if (Number.isNaN(at)) {
@@ -338,12 +369,36 @@ const PERMANENT_CODES: ReadonlySet<DeliveryErrorCode> = new Set([
   "webhook_disabled",
 ]);
 
-/** Failures a retry cannot fix: configuration problems, and 410 Gone. */
-export function isPermanentFailure(failure: DeliveryFailure): boolean {
-  return (
-    PERMANENT_CODES.has(failure.code) ||
-    (failure.code === "http_error" && failure.httpStatus === 410)
-  );
+/**
+ * Answers of a chat service that a retry cannot change: a malformed or
+ * oversized message (400, 413, 422), a URL whose token is wrong, revoked or
+ * deleted (401, 403, 404), a channel that is gone (410). 408, 429 and 5xx
+ * stay retryable.
+ */
+export const CHAT_PERMANENT_STATUSES: ReadonlySet<number> = new Set([
+  400, 401, 403, 404, 410, 413, 422,
+]);
+
+/**
+ * Failures a retry cannot fix: configuration problems, 410 Gone, and for a
+ * chat format the answers in {@link CHAT_PERMANENT_STATUSES}. An own receiver
+ * (`restow`) may answer 4xx while it is being deployed, so it keeps its
+ * retries.
+ */
+export function isPermanentFailure(
+  failure: DeliveryFailure,
+  format: WebhookFormat = "restow",
+): boolean {
+  if (PERMANENT_CODES.has(failure.code)) {
+    return true;
+  }
+  if (failure.code !== "http_error" || failure.httpStatus === null) {
+    return false;
+  }
+  if (failure.httpStatus === 410) {
+    return true;
+  }
+  return isChatFormat(format) && CHAT_PERMANENT_STATUSES.has(failure.httpStatus);
 }
 
 export interface ReceiverResponse {
@@ -661,6 +716,8 @@ export function planAfterAttempt(input: {
   failure: DeliveryFailure | null;
   now: Date;
   random?: () => number;
+  /** The webhook's format; decides which HTTP answers are final. */
+  format?: WebhookFormat;
 }): AttemptPlan {
   const attempts = input.attemptsBefore + 1;
   if (input.failure === null) {
@@ -673,7 +730,7 @@ export function planAfterAttempt(input: {
     };
   }
   const lastError = formatDeliveryError(input.failure);
-  if (isPermanentFailure(input.failure) || attempts >= WEBHOOK_MAX_ATTEMPTS) {
+  if (isPermanentFailure(input.failure, input.format) || attempts >= WEBHOOK_MAX_ATTEMPTS) {
     return { status: "failed", attempts, lastError, nextAttemptAt: null, deliveredAt: null };
   }
   const backoff = retryDelayMs(attempts, input.random);
@@ -704,6 +761,7 @@ export interface LoadedDelivery extends DueDelivery {
   url: string;
   active: boolean;
   secretRef: string | null;
+  format: WebhookFormat;
 }
 
 export interface DeliveryStore {
@@ -761,6 +819,7 @@ export class PgDeliveryStore implements DeliveryStore {
           url: webhooks.url,
           active: webhooks.active,
           secretRef: webhooks.secretRef,
+          format: webhooks.format,
         })
         .from(webhookDeliveries)
         .innerJoin(webhooks, eq(webhooks.id, webhookDeliveries.webhookId))
@@ -798,6 +857,77 @@ export class PgDeliveryStore implements DeliveryStore {
       .returning({ id: webhookDeliveries.id });
     return deleted.length;
   }
+}
+
+/** What a chat message needs besides the envelope: language, tenant name, link base, object name. */
+export type ChatContextSource = (delivery: LoadedDelivery) => Promise<ChatContext>;
+
+function originOf(value: string | null | undefined): string | null {
+  const raw = value?.trim();
+  if (!raw) {
+    return null;
+  }
+  try {
+    const url = new URL(raw);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The protected object a job event names, when the event itself has no name for it. */
+function jobObjectId(payload: Record<string, unknown>): string | null {
+  const data = payload.data as { job?: { protectedObjectId?: unknown } } | undefined;
+  const id = data?.job?.protectedObjectId;
+  return typeof id === "string" && isUuid(id) ? id : null;
+}
+
+/**
+ * Postgres source: the tenant's name and language (the installation default
+ * when it has none, like the alert mails), the public URL from Settings (else
+ * RESTOW_PUBLIC_URL) and the protected object's name. Reads run on the
+ * dispatcher's installation pool, the tenant's rows tenant-pinned.
+ */
+export function pgChatContextSource(db: Database, env: Env = process.env): ChatContextSource {
+  return async (delivery) => {
+    const [installation] = await db
+      .select({ publicUrl: settings.publicUrl })
+      .from(settings)
+      .limit(1);
+    const objectId = jobObjectId(delivery.payload);
+    const { tenant, objectName } = await withTenantTx(db, delivery.tenantId, async (tx) => {
+      const [row] = await tx
+        .select({ name: tenants.name, language: tenants.language })
+        .from(tenants)
+        .where(eq(tenants.id, delivery.tenantId))
+        .limit(1);
+      let name: string | null = null;
+      if (objectId) {
+        const [object] = await tx
+          .select({
+            displayName: protectedObjects.displayName,
+            externalId: protectedObjects.externalId,
+          })
+          .from(protectedObjects)
+          .where(
+            and(
+              eq(protectedObjects.tenantId, delivery.tenantId),
+              eq(protectedObjects.id, objectId),
+            ),
+          )
+          .limit(1);
+        name = object ? object.displayName?.trim() || object.externalId : null;
+      }
+      return { tenant: row ?? null, objectName: name };
+    });
+    const language: SupportedLanguage = tenant?.language ?? defaultLanguage;
+    return {
+      language,
+      tenantName: tenant?.name ?? delivery.tenantId,
+      publicUrl: originOf(installation?.publicUrl) ?? originOf(env.RESTOW_PUBLIC_URL),
+      objectName,
+    };
+  };
 }
 
 /** Opens a webhook's signing secret; null when the secret row is gone. */
@@ -880,6 +1010,8 @@ export function webhookOptionsFromEnv(env: Env = process.env): WebhookDispatcher
 export interface WebhookDispatcherDeps {
   readonly store: DeliveryStore;
   readonly secrets: SecretSource;
+  /** Loads what chat formats render with; without one, they render with neutral defaults. */
+  readonly chatContext?: ChatContextSource;
   readonly transport: WebhookTransport;
   readonly logger: Logger;
   readonly now: () => Date;
@@ -958,12 +1090,14 @@ export class WebhookDispatcher {
         failure,
         now,
         random: this.deps.random,
+        format: delivery.format,
       });
       await this.deps.store.record(due, plan, now);
       const fields = {
         webhookId: delivery.webhookId,
         event: delivery.event,
         host: hostOf(delivery.url),
+        format: delivery.format,
         attempt: plan.attempts,
         status: plan.status,
         ...(plan.lastError ? { error: plan.lastError } : {}),
@@ -998,6 +1132,56 @@ export class WebhookDispatcher {
     if (!delivery.active) {
       return new DeliveryFailure("webhook_disabled");
     }
+    const prepared = isChatFormat(delivery.format)
+      ? await this.prepareChat(delivery, delivery.format)
+      : await this.prepareSigned(delivery);
+    if (prepared instanceof DeliveryFailure) {
+      return prepared;
+    }
+    const request: WebhookHttpRequest = {
+      url: delivery.url,
+      body: prepared.body,
+      headers: prepared.headers,
+      timeoutMs: this.options.timeoutMs,
+      signal: this.controller.signal,
+    };
+    try {
+      return failureForResponse(await this.deps.transport(request), this.deps.now());
+    } catch (error) {
+      if (error instanceof DeliveryInterrupted || this.controller.signal.aborted) {
+        throw new DeliveryInterrupted();
+      }
+      return failureForError(error, false);
+    }
+  }
+
+  /** A chat message rendered from the stored envelope, unsigned. */
+  private async prepareChat(
+    delivery: LoadedDelivery,
+    format: Exclude<WebhookFormat, "restow">,
+  ): Promise<{ body: string; headers: Record<string, string> } | DeliveryFailure> {
+    let context: ChatContext;
+    try {
+      context = this.deps.chatContext
+        ? await this.deps.chatContext(delivery)
+        : {
+            language: defaultLanguage,
+            tenantName: delivery.tenantId,
+            publicUrl: null,
+            objectName: null,
+          };
+    } catch {
+      // A database hiccup: retried like any failure, visible in the log.
+      return new DeliveryFailure("internal", "message context could not be loaded");
+    }
+    const message = buildChatMessage(delivery.event, delivery.payload, context);
+    return { body: renderChatBody(format, message), headers: chatDeliveryHeaders() };
+  }
+
+  /** The envelope as stored, signed with the webhook's secret. */
+  private async prepareSigned(
+    delivery: LoadedDelivery,
+  ): Promise<{ body: string; headers: Record<string, string> } | DeliveryFailure> {
     if (!delivery.secretRef) {
       return new DeliveryFailure("secret_missing");
     }
@@ -1012,8 +1196,7 @@ export class WebhookDispatcher {
       return new DeliveryFailure("secret_missing");
     }
     const body = JSON.stringify(delivery.payload);
-    const request: WebhookHttpRequest = {
-      url: delivery.url,
+    return {
       body,
       headers: deliveryHeaders({
         event: delivery.event,
@@ -1021,17 +1204,7 @@ export class WebhookDispatcher {
         attempt: delivery.attempts + 1,
         signature: signWebhookBody(secret, body),
       }),
-      timeoutMs: this.options.timeoutMs,
-      signal: this.controller.signal,
     };
-    try {
-      return failureForResponse(await this.deps.transport(request), this.deps.now());
-    } catch (error) {
-      if (error instanceof DeliveryInterrupted || this.controller.signal.aborted) {
-        throw new DeliveryInterrupted();
-      }
-      return failureForError(error, false);
-    }
   }
 
   /** Delete finished deliveries past the retention, at most once per prune interval. */
@@ -1126,6 +1299,7 @@ export const webhooksHandler = {
       {
         store: new PgDeliveryStore(runtime.db),
         secrets: keyringSecretSource(runtime),
+        chatContext: pgChatContextSource(runtime.db),
         transport: createHttpTransport({ allowPrivateNetworks: options.allowPrivateNetworks }),
         logger: runtime.logger.child({ component: "webhooks" }),
         now: runtime.now,

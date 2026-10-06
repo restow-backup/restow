@@ -171,4 +171,30 @@ describe("the real workspace", () => {
     ]);
     assert.equal(plan.eeDirectory, true);
   });
+
+  it("keeps the provider team (Members) in the Community build: it lives in the core, not in ee/", () => {
+    for (const file of [
+      "apps/api/src/features/provider-team/routes.ts",
+      "apps/api/src/features/provider-team/service.ts",
+      "apps/web/src/features/provider-team/team-page.tsx",
+      "apps/web/src/features/provider-team/member-dialog.tsx",
+    ]) {
+      assert.equal(existsSync(join(repoRoot, file)), true, file);
+    }
+    for (const dir of ["ee/api/src/provider-team", "ee/web/src/provider-team"]) {
+      assert.equal(existsSync(join(repoRoot, dir)), false, dir);
+    }
+    // Mounted by the core app and listed by the core's feature registry, not by an ee/ entry.
+    assert.match(
+      readFileSync(join(repoRoot, "apps/api/src/app.ts"), "utf8"),
+      /features\/provider-team\/routes\.js/,
+    );
+    assert.match(
+      readFileSync(join(repoRoot, "apps/web/src/features/registry.ts"), "utf8"),
+      /@\/features\/provider-team/,
+    );
+    for (const entry of ["ee/api/src/index.ts", "ee/web/src/index.ts"]) {
+      assert.equal(/provider-team/.test(readFileSync(join(repoRoot, entry), "utf8")), false, entry);
+    }
+  });
 });

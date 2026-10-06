@@ -5,8 +5,9 @@ import { ProblemError } from "../problem.js";
  * (docs/UPDATING.md, "Confirming it is you"; docs/AGENT.md): changing the
  * update source or its access token and announcing an update
  * (features/updates/routes.ts), setting or changing an endpoint's hooks, which
- * run as root on the machine, and showing an endpoint's repository password
- * (features/endpoints/routes.ts). A session cookie alone is not enough for
+ * run as root on the machine, showing an endpoint's repository password
+ * (features/endpoints/routes.ts), and resetting the access of a provider team
+ * member, which issues a link into their account (features/provider-team). A session cookie alone is not enough for
  * them; the session must have been opened recently, with the strong sign-in
  * this installation requires anyway (lib/session-assurance.ts): a passkey with user
  * verification, the emergency password together with the authenticator code,

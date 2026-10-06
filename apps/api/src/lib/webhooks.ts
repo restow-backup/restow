@@ -27,6 +27,21 @@ export const WEBHOOK_EVENTS = ["job.failed", "job.completed", "verify.completed"
 
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
 
+/**
+ * What a webhook's requests look like (mirrors the `webhook_format` enum):
+ * `restow` is the signed JSON envelope below; `discord`, `slack` and `teams`
+ * are chat messages rendered by the worker in the shape that service's
+ * incoming webhooks accept, sent without a signature.
+ */
+export const WEBHOOK_FORMATS = ["restow", "discord", "slack", "teams"] as const;
+
+export type WebhookFormat = (typeof WEBHOOK_FORMATS)[number];
+
+/** Chat formats carry no signature: the receiving services cannot check one. */
+export function isSignedFormat(format: WebhookFormat): boolean {
+  return format === "restow";
+}
+
 /** Sent by "Send test event"; not subscribable, delivered to the one webhook asked. */
 export const WEBHOOK_TEST_EVENT = "webhook.test";
 

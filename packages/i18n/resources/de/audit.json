@@ -155,7 +155,8 @@
     "report": "Alarme",
     "update": "Updates",
     "endpoint": "Server und Clients",
-    "backup_job": "Jobs (Definitionen)"
+    "backup_job": "Jobs (Definitionen)",
+    "mount": "Netzlaufwerke"
   },
   "events": {
     "account": {
@@ -427,7 +428,8 @@
       "member_invited": "Teammitglied eingeladen",
       "member_updated": "Rolle eines Teammitglieds geändert",
       "member_removed": "Teammitglied entfernt",
-      "link_reissued": "Team-Einladungslink neu erstellt"
+      "link_reissued": "Team-Einladungslink neu erstellt",
+      "access_reset": "Zugang eines Teammitglieds zurückgesetzt"
     },
     "access": {
       "denied": "Aktion verweigert"
@@ -503,6 +505,11 @@
       },
       "run_requested": "Ausführung eines Jobs angefordert",
       "migrated": "Zeitpläne und Rechner-Konfigurationen in Jobs überführt"
+    },
+    "mount": {
+      "add_requested": "Netzlaufwerk hinzugefügt",
+      "remove_requested": "Netzlaufwerk entfernt",
+      "tested": "Netzlaufwerk getestet"
     }
   },
   "targetTypes": {
@@ -541,7 +548,8 @@
     "update": "Update",
     "endpoint": "Server oder Client",
     "endpoint_enrollment_token": "Enrollment-Token",
-    "backup_job": "Job (Definition)"
+    "backup_job": "Job (Definition)",
+    "mount": "Netzlaufwerk"
   },
   "sectionDescription": "{scope, select, organisation {Das Protokoll dieser Organisation} other {Das Protokoll dieses Mandanten}}: wer wann was getan hat, mit der Hash-Kette, die beweist, dass nichts verändert wurde."
 }

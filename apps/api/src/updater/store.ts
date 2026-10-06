@@ -231,12 +231,18 @@ export function parseState(raw: string): ParseResult {
   return { ok: true, state: result.data };
 }
 
-async function writeAtomic(filePath: string, payload: string): Promise<void> {
+/**
+ * Write a file atomically: temporary file, fsync, rename. `mode` defaults to 0600 (the
+ * updater's state); the mounter writes the compose override with the mode it had, or 0644.
+ */
+export async function writeAtomic(filePath: string, payload: string, mode = 0o600): Promise<void> {
   const directory = path.dirname(filePath);
   const temporary = `${filePath}.${process.pid}.tmp`;
-  const handle = await fs.open(temporary, "w", 0o600);
+  const handle = await fs.open(temporary, "w", mode);
   try {
     await handle.writeFile(payload, "utf8");
+    // The process umask must not narrow what the caller asked for.
+    await handle.chmod(mode);
     await handle.sync();
   } catch (error) {
     await handle.close().catch(() => undefined);

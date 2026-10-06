@@ -2,5 +2,51 @@
   "test": {
     "subject": "{appName}: Testbenachrichtigung",
     "body": "Dies ist eine Testbenachrichtigung von {appName}. Sie ist angekommen, der Mailversand ist also richtig eingerichtet. Sie müssen nichts weiter tun."
+  },
+  "chat": {
+    "job": {
+      "failed": "{job} fehlgeschlagen: {target}",
+      "completed": "{job} abgeschlossen: {target}"
+    },
+    "jobs": {
+      "backup": "Sicherung",
+      "restore": "Wiederherstellung",
+      "verify": "Restore-Prüfung",
+      "archive": "Archiv-Abgleich",
+      "directory": "Verzeichnisabgleich",
+      "retention": "Aufbewahrungslauf",
+      "scrub": "Speicherprüfung",
+      "storage_migration": "Speichermigration",
+      "import": "Import",
+      "export": "Export",
+      "endpoint_backup": "Sicherung eines Rechners",
+      "endpoint_restore": "Wiederherstellung auf einem Rechner",
+      "endpoint_verify_sample": "Restore-Test eines Rechners",
+      "other": "Auftrag"
+    },
+    "verify": {
+      "green": "Restore-Prüfung bestanden: {target}",
+      "yellow": "Restore-Prüfung mit Hinweisen: {target}",
+      "red": "Restore-Prüfung nicht bestanden: {target}",
+      "summary": "{checked, plural, one {# Element geprüft} other {# Elemente geprüft}}, {mismatched} mit Abweichungen, {missing} fehlend."
+    },
+    "test": {
+      "title": "Testnachricht von {appName}",
+      "body": "{appName} kann in diesen Kanal schreiben. Alarme zu den Ereignissen, die dieser Webhook abonniert hat, erscheinen hier."
+    },
+    "unknown": "Ereignis von {appName}: {event}",
+    "fields": {
+      "tenant": "Mandant",
+      "target": "Betrifft",
+      "duration": "Dauer",
+      "error": "Fehler",
+      "cause": "Ursache",
+      "todo": "Was zu tun ist",
+      "reasons": "Gründe",
+      "snapshot": "Sicherungsstand",
+      "rule": "Regel"
+    },
+    "open": "In {appName} öffnen",
+    "footer": "{appName} · {tenant}"
   }
 }

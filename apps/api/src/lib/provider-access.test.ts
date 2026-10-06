@@ -169,6 +169,37 @@ describe("decideProviderRoute", () => {
     ).toBe(false);
   });
 
+  it("shows the team to every provider admin with every tenant and lets only owners change it", () => {
+    const changes = [
+      ["POST", "/api/v1/provider-team"],
+      ["PATCH", "/api/v1/provider-team/:userId"],
+      ["DELETE", "/api/v1/provider-team/:userId"],
+      ["POST", "/api/v1/provider-team/:userId/reissue"],
+      ["POST", "/api/v1/provider-team/:userId/reset-access"],
+    ] as const;
+    for (const [method, path] of changes) {
+      // The core's own table, not an extension's: the team is in every edition.
+      expect(PROVIDER_ROUTE_RULES[`${method} ${path}`], path).toEqual({
+        min: "owner",
+        scope: { kind: "provider" },
+      });
+      for (const role of ["administrator", "technician", "read_only"] as const) {
+        expect(decideProviderRoute(access(role), method, path, {})).toEqual({
+          allowed: false,
+          reason: "role",
+          required: "owner",
+        });
+      }
+      expect(decideProviderRoute(access("owner"), method, path, {}).allowed).toBe(true);
+    }
+    expect(decideProviderRoute(access("read_only"), "GET", "/api/v1/provider-team", {})).toEqual({
+      allowed: true,
+    });
+    expect(
+      decideProviderRoute(access("administrator", [TENANT_A]), "GET", "/api/v1/provider-team", {}),
+    ).toEqual({ allowed: false, reason: "scope" });
+  });
+
   it("applies the rules an extension contributes for its own routes", () => {
     const path = "/api/v1/example/secret";
     expect(providerRouteRule(`GET ${path}`)).toBeNull();

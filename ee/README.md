@@ -82,7 +82,7 @@ installation without a key runs as Community.
 | Archive deletion runs | `archive.retentionEnforcement` (Business) | `worker/src/archive-retention` | retention tasks |
 | Audit log viewer (search, details, chain verification) | `audit.log` (Business) | `api/src/audit-log`, `web/src/audit-log` | session routes (guarded), routes and a locked nav entry |
 | Microsoft (Entra ID) sign-in for end users | `auth.microsoftSso` (Business) | `api/src/sso` | better-auth plugin, auth route guard, sign-in provider |
-| Provider team (roles, tenant scopes) | `provider.team` (Business) | `api/src/provider-team`, `web/src/provider-team` | session routes (guarded), routes and a locked nav entry |
+| Members of the provider team limited to chosen tenants (the team itself, several admins with roles, is the core's in every edition: `apps/api/src/features/provider-team`, `apps/web/src/features/provider-team`) | `provider.teamTenantScope` (Service Provider) | `api/src/license/gate.ts`, `web/src/license/components/team-scope-locked.tsx` | feature gate `providerTeam.tenantScope`, `team.tenantScopeLocked` slot |
 | Scheduled summary reports | `reports.scheduled` (Business) | `api/src/reports` | `reportSummary` feature hook, feature gate `reports.timed` |
 | Further tenants beyond the installation's first | `provider.tenantManagement` (Service Provider) | `api/src/license/gate.ts`, nav lock of the core's tenants entry in `web/src/license` | feature gate `tenants.additional`, nav locks |
 | Cross-tenant provider API (`/provider/*`) and provider API keys (Installation → Provider API) | `provider.crossTenantApi` (Service Provider) | `api/src/provider-api`, `web/src/provider-api` | integration routes, feature gate `apiKeys.provider`, `installationSections` |
@@ -99,7 +99,8 @@ API (`apps/api/src/extensions.ts`, `ApiExtension`):
 - `featureGate`: decides the core functions that exist only when an extension
   enables them (`apps/api/src/lib/features.ts`, `GATED_FEATURES`:
   `tenants.additional`, `apiKeys.provider`, `stats.allTenants`,
-  `dashboard.allTenants`, `reports.timed`). With no gate registered all are
+  `dashboard.allTenants`, `reports.timed`, `providerTeam.tenantScope`). With no
+  gate registered all are
   off and the core answers 403 `urn:restow:problem:feature-unavailable`.
   `ee/` maps each to a capability (`FEATURE_CAPABILITIES`) and answers 403
   `urn:restow:problem:edition-required` (with `requiredEdition`, `edition`,
@@ -138,8 +139,9 @@ Web (`apps/web/src/lib/extensions.tsx`, `WebExtension`):
 - `slots` (one component per slot; `ExtensionSlot` may render a `fallback`):
   `shell.sidebarFooter` (the edition
   badge), `tenants.creationLocked` (why no further tenant can be created; the
-  core's neutral note is the fallback), `archive.sections`,
-  `dashboard.provider`.
+  core's neutral note is the fallback), `team.tenantScopeLocked` (why a member
+  cannot be limited to chosen tenants; the core's neutral note is the
+  fallback), `archive.sections`, `dashboard.provider`.
 - The session (`apps/web/src/lib/session.tsx`) exposes `features` (the gated
   core functions that are on, `hasFeature`) and `extensions` (what `/me`
   carries under `extensions`); `ee/web/src/license/edition.ts` reads the
@@ -159,6 +161,14 @@ Web (`apps/web/src/lib/extensions.tsx`, `WebExtension`):
   creates the installation's first tenant. Whether a further one may be
   created is the feature gate's decision (`tenants.additional`); the core
   only checks whether a tenant exists, it counts nothing.
+- **The provider team (Members).** Several provider admins with roles
+  (owner, administrator, technician, read only): inviting, changing,
+  removing, reissuing a link and resetting a member's access are the core's
+  in every edition (`apps/api/src/features/provider-team`,
+  `apps/web/src/features/provider-team`; moved out of `ee/` and relicensed
+  to Apache-2.0 by the licensor in 0.3.0). Limiting a member to chosen
+  tenants is the feature gate's decision (`providerTeam.tenantScope`,
+  Service Provider); without it every member has every tenant.
 - **Usage figures.** The rule for counting protected mailboxes
   (`packages/core/src/usage/mailboxes.ts`) and `GET /api/v1/usage` are the
   core's: dashboards, tenant pages and the integration API show them, and

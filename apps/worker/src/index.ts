@@ -51,6 +51,8 @@ import { pathToFileURL } from "node:url";
  *   WEBHOOK_CONCURRENCY          deliveries sent in parallel by this process
  *   WEBHOOK_TIMEOUT_MS           per-request timeout of a delivery
  *   RESTOW_WEBHOOK_ALLOW_PRIVATE "true" permits webhook targets in private networks
+ *   RESTOW_PUBLIC_URL            links in chat webhook messages, when Settings name no public URL
+ *   RESTOW_PRODUCT_NAME          the product name chat webhook messages use (branding)
  *   LOG_LEVEL                    debug | info | warn | error (default info)
  */
 import {
@@ -73,6 +75,7 @@ import {
   retryConcurrentSetup,
   safeErrorMessage,
 } from "@restow/db";
+import { PRODUCT_NAME_ENV, configureProductName } from "@restow/i18n";
 import PgBoss from "pg-boss";
 import { configureDefaultStorage } from "./default-storage.js";
 import { registerEndpointJobs } from "./endpoints/register.js";
@@ -227,6 +230,8 @@ function createKeyProvider(config: WorkerConfig): KeyProvider {
 
 async function main(): Promise<void> {
   const config = loadConfig();
+  // Branding: `{appName}` in the chat messages of webhooks names the product like the api does.
+  configureProductName(process.env[PRODUCT_NAME_ENV]);
   const logger = createLogger({ level: config.logLevel, fields: { component: "worker" } });
   // The Business/Service Provider modules register with the extension
   // points (extensions.ts) before anything below reads them.

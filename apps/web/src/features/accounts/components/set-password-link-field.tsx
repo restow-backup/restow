@@ -31,16 +31,27 @@ const MAIL_OUTCOME_ICON: Record<MailOutcome, typeof Mail> = {
   failed: TriangleAlert,
 };
 
+/**
+ * What the field needs of an issued link: a tenant account's provisioning
+ * result, or a provider team invitation or access reset (features/provider-team).
+ */
+export type IssuedSetPasswordLink = Pick<
+  ProvisionResult,
+  "email" | "linkExpiresAt" | "setPasswordToken" | "mailOutcome"
+>;
+
 interface SetPasswordLinkFieldProps {
   id: string;
-  result: ProvisionResult;
+  result: IssuedSetPasswordLink;
   /** The absolute address to show and copy (see {@link useAbsoluteSetPasswordLink}). */
   link: string;
 }
 
 /**
  * A freshly (re)issued set-password link: whether it could also be emailed,
- * when it expires, and a read-only field with the kit's copy button. Shown
+ * when it expires, and, when it is there to be handed over, the username (the
+ * account's email address) and the link, each in a read-only field with the
+ * kit's copy button. Shown
  * exactly once per token — the server itself never lets it be read back.
  * Pure (the link is a prop, not fetched here), so it renders without a query
  * client in tests; {@link ConnectedSetPasswordLinkField} is what callers use.
@@ -65,6 +76,27 @@ export function SetPasswordLinkField({ id, result, link }: SetPasswordLinkFieldP
           {expires ? t("provision.expires", { date: expires }) : t("provision.expiresUnknown")}
         </AlertDescription>
       </Alert>
+      {canCopy ? (
+        <div className="space-y-1.5">
+          <Label htmlFor={`${id}-username`}>{t("provision.usernameLabel")}</Label>
+          <div className="flex gap-2">
+            <Input
+              id={`${id}-username`}
+              readOnly
+              value={result.email}
+              aria-label={t("provision.usernameLabel")}
+              className="font-mono text-xs"
+              onFocus={(event) => event.currentTarget.select()}
+            />
+            <CopyButton
+              value={result.email}
+              label={t("provision.copyUsername")}
+              variant="outline"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">{t("provision.usernameHint")}</p>
+        </div>
+      ) : null}
       {canCopy ? (
         <div className="space-y-1.5">
           <Label htmlFor={id}>{t("provision.linkLabel")}</Label>

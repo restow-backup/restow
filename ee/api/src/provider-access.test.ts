@@ -46,8 +46,12 @@ describe("provider team rules of the assembled app, with ee/", () => {
   it("has the ee routes registered at all", () => {
     const routes = registeredRoutes();
     expect(routes.has("GET /api/v1/archive/journal")).toBe(true);
-    expect(routes.has("GET /api/v1/provider-team")).toBe(true);
     expect(routes.has("GET /api/v1/license")).toBe(true);
+    // The provider team is the core's (every edition); ee/ adds no rule for it.
+    expect(routes.has("GET /api/v1/provider-team")).toBe(true);
+    expect(
+      Object.keys(eeProviderRouteRules).filter((key) => key.includes("/provider-team")),
+    ).toEqual([]);
   });
 
   it("covers every registered route with a rule or the public list", () => {

@@ -61,6 +61,18 @@ export interface CreateContainerBody {
   };
 }
 
+export interface CreateVolumeBody {
+  Name: string;
+  Driver: string;
+  DriverOpts?: Record<string, string>;
+  Labels?: Record<string, string>;
+}
+
+export interface VolumeSummary {
+  Name: string;
+  Labels: Record<string, string> | null;
+}
+
 export interface LogLimits {
   /** Keep at most this many bytes of stdout (the beginning). */
   maxStdoutBytes: number;
@@ -431,6 +443,34 @@ export class EngineClient {
         (error) => reject(this.wrap(error)),
       );
     });
+  }
+
+  // -- Volumes (the mounter: NFS probe volumes and its managed volumes) -------
+
+  /** Create a volume; returns its name. */
+  async createVolume(spec: CreateVolumeBody): Promise<string> {
+    const response = await this.request("POST", "/volumes/create", { body: spec });
+    return this.json<{ Name: string }>(response, "Creating a volume").Name;
+  }
+
+  /** Remove a volume; a volume that does not exist counts as removed. Throws when it is in use. */
+  async removeVolume(name: string): Promise<void> {
+    const response = await this.request("DELETE", `/volumes/${encodeURIComponent(name)}`);
+    if (response.status !== 204 && response.status !== 404) {
+      throw this.failure(response, "Removing a volume");
+    }
+  }
+
+  /** Volumes that carry every one of these labels (`key` or `key=value`). */
+  async listVolumes(labels: readonly string[]): Promise<VolumeSummary[]> {
+    const response = await this.request("GET", "/volumes", {
+      query: { filters: JSON.stringify({ label: labels }) },
+    });
+    const body = this.json<{ Volumes?: VolumeSummary[] | null }>(response, "Listing volumes");
+    return (body.Volumes ?? []).map((volume) => ({
+      Name: volume.Name,
+      Labels: volume.Labels ?? {},
+    }));
   }
 
   /** Ids of all containers (running or not) that carry a label. */

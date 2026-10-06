@@ -10,7 +10,6 @@ import { editionSessionField } from "./license/session.js";
 import { registerProviderRoutes } from "./provider-api/routes.js";
 import { providerDashboardLoader } from "./provider-dashboard/view.js";
 import { eeProviderRouteRules } from "./provider-rules.js";
-import { providerTeamRoutes } from "./provider-team/routes.js";
 import { reportsExtensionHooks } from "./reports/summary.js";
 import { microsoftSignInGuard, microsoftSignInProvider } from "./sso/access.js";
 
@@ -23,13 +22,7 @@ import { microsoftSignInGuard, microsoftSignInProvider } from "./sso/access.js";
  */
 export const eeApiExtension: ApiExtension = {
   name: "ee",
-  sessionRoutes: [
-    licenseRouteContribution,
-    auditLogRoutes,
-    journalRoutes,
-    legalHoldRoutes,
-    providerTeamRoutes,
-  ],
+  sessionRoutes: [licenseRouteContribution, auditLogRoutes, journalRoutes, legalHoldRoutes],
   integrationRoutes: [registerProviderRoutes],
   authRouteGuards: [microsoftSignInGuard],
   signInProviders: [microsoftSignInProvider],

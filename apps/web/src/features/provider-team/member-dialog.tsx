@@ -1,9 +1,8 @@
-import { CheckCircle2, Mail } from "lucide-react";
+import { CheckCircle2, Lock } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { Field, messageId } from "@/components/forms/field";
-import { CopyButton } from "@/components/kit";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -19,18 +18,20 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast } from "@/components/ui/sonner";
-import { setPasswordLink } from "@/features/accounts/paths";
+import { ConnectedSetPasswordLinkField } from "@/features/accounts/components/set-password-link-field";
 import type { ProviderRole } from "@/lib/api";
+import { ExtensionSlot } from "@/lib/extensions";
 import { PROVIDER_ROLES } from "@/lib/provider-role";
 
 import type { Invitation, TeamMember } from "./api";
-import { useInviteMember, useTenantChoices, useUpdateMember } from "./hooks";
+import { useInviteMember, useTeamScope, useTenantChoices, useUpdateMember } from "./hooks";
 import {
   EMAIL_PATTERN,
   type ScopeDraft,
   normalizeDraft,
   scopeIsValid,
   teamErrorKey,
+  tenantScopeChoice,
 } from "./presenters";
 
 interface MemberDialogProps {
@@ -42,8 +43,13 @@ interface MemberDialogProps {
 
 /**
  * Invite a provider admin, or change a member's role and tenants. After an
- * invitation the same dialog says where the link went, or shows it for the
- * owner to hand over when no mail could be sent.
+ * invitation the same dialog says where the link went, or shows it (with the
+ * username) for the owner to hand over when no mail could be sent.
+ *
+ * Limiting a member to chosen tenants is offered only where the installation
+ * enables the gated feature `providerTeam.tenantScope`; elsewhere the choice
+ * shows locked, with the reason an extension words in the slot
+ * `team.tenantScopeLocked` (the core says it neutrally).
  */
 export function MemberDialog({ member, open, onOpenChange }: MemberDialogProps) {
   const [invitation, setInvitation] = React.useState<Invitation | null>(null);
@@ -55,7 +61,7 @@ export function MemberDialog({ member, open, onOpenChange }: MemberDialogProps) 
     <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
       <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
         {invitation ? (
-          <InvitationResult invitation={invitation} onDone={close} />
+          <IssuedLinkResult invitation={invitation} kind="invitation" onDone={close} />
         ) : (
           <MemberForm
             key={member?.userId ?? "new"}
@@ -86,6 +92,7 @@ function MemberForm({
   const invite = useInviteMember();
   const update = useUpdateMember();
   const tenants = useTenantChoices();
+  const scopeChoice = tenantScopeChoice({ tenantScope: useTeamScope().tenantScope, member });
   const [email, setEmail] = React.useState("");
   const [name, setName] = React.useState("");
   const [draft, setDraft] = React.useState<ScopeDraft>({
@@ -220,7 +227,12 @@ function MemberForm({
               <RadioGroup
                 value={draft.allTenants ? "all" : "selected"}
                 onValueChange={(value) =>
-                  setDraft((current) => ({ ...current, allTenants: value === "all" }))
+                  setDraft((current) =>
+                    // A limit from before comes back exactly as it was.
+                    value === "selected" && scopeChoice === "kept" && member
+                      ? { ...current, allTenants: false, tenantIds: member.tenantIds }
+                      : { ...current, allTenants: value === "all" },
+                  )
                 }
                 className="gap-2"
               >
@@ -233,11 +245,34 @@ function MemberForm({
                     </span>
                   </span>
                 </Label>
-                <Label htmlFor="team-scope-selected" className="flex items-start gap-3 font-normal">
-                  <RadioGroupItem id="team-scope-selected" value="selected" className="mt-0.5" />
-                  <span className="font-medium">{t("scope.selected")}</span>
+                <Label
+                  htmlFor="team-scope-selected"
+                  className="flex items-start gap-3 font-normal has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60"
+                >
+                  <RadioGroupItem
+                    id="team-scope-selected"
+                    value="selected"
+                    className="mt-0.5"
+                    disabled={scopeChoice === "locked"}
+                  />
+                  <span className="flex items-center gap-1.5 font-medium">
+                    {scopeChoice === "locked" ? (
+                      <Lock className="size-3.5" aria-hidden="true" />
+                    ) : null}
+                    {t("scope.selected")}
+                  </span>
                 </Label>
               </RadioGroup>
+              {scopeChoice === "locked" ? (
+                <ExtensionSlot
+                  name="team.tenantScopeLocked"
+                  props={{}}
+                  fallback={<p className="text-sm text-muted-foreground">{t("scope.locked")}</p>}
+                />
+              ) : null}
+              {scopeChoice === "kept" ? (
+                <p className="text-sm text-muted-foreground">{t("scope.kept")}</p>
+              ) : null}
               {draft.allTenants ? null : (
                 <div className="ml-7 max-h-56 space-y-2 overflow-y-auto rounded-md border p-3">
                   {tenants.data && tenants.data.length > 0 ? (
@@ -250,6 +285,7 @@ function MemberForm({
                         <Checkbox
                           id={`team-tenant-${tenant.id}`}
                           checked={draft.tenantIds.includes(tenant.id)}
+                          disabled={scopeChoice !== "open"}
                           onCheckedChange={(checked) => toggleTenant(tenant.id, checked === true)}
                         />
                         {tenant.name}
@@ -286,36 +322,42 @@ function MemberForm({
   );
 }
 
-function InvitationResult({ invitation, onDone }: { invitation: Invitation; onDone: () => void }) {
+/**
+ * Where a freshly issued set-password link went (an invitation, a reissued
+ * invitation link or a reset of a member's access): the shared field of the
+ * accounts feature says whether it was mailed and when it expires, and shows
+ * the username and the link, built on the installation's public URL, to copy
+ * when the owner has to hand them over.
+ */
+export function IssuedLinkResult({
+  invitation,
+  kind,
+  onDone,
+}: {
+  invitation: Invitation;
+  kind: "invitation" | "reset";
+  onDone: () => void;
+}) {
   const { t } = useTranslation("team");
   const email = invitation.member.email;
-  const link = invitation.setPasswordToken
-    ? setPasswordLink(window.location.origin, invitation.setPasswordToken)
-    : null;
   return (
     <>
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2">
           <CheckCircle2 className="size-5" aria-hidden="true" />
-          {t("link.title")}
+          {kind === "reset" ? t("link.resetTitle") : t("link.title")}
         </DialogTitle>
-        <DialogDescription>
-          {link ? t("link.copy", { email }) : t("link.sent", { email })}
-        </DialogDescription>
+        <DialogDescription>{t("link.description", { email })}</DialogDescription>
       </DialogHeader>
-      {link ? (
-        <div className="flex items-center gap-2">
-          <code className="min-w-0 flex-1 truncate rounded bg-muted px-2 py-1.5 font-mono text-xs">
-            {link}
-          </code>
-          <CopyButton value={link} />
-        </div>
-      ) : (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Mail className="size-4" aria-hidden="true" />
-          {email}
-        </p>
-      )}
+      <ConnectedSetPasswordLinkField
+        id="provider-team-set-password-link"
+        result={{
+          email,
+          linkExpiresAt: invitation.linkExpiresAt,
+          setPasswordToken: invitation.setPasswordToken,
+          mailOutcome: invitation.mailOutcome,
+        }}
+      />
       <DialogFooter>
         <Button onClick={onDone}>{t("link.done")}</Button>
       </DialogFooter>

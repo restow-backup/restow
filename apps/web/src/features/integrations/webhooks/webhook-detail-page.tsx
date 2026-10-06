@@ -48,6 +48,7 @@ import {
   eventKey,
   integrationErrorKey,
   isInsecureUrl,
+  isSignedFormat,
 } from "../presenters";
 import type { Webhook } from "../types";
 import { useIntegrationsFormat } from "../use-format";
@@ -183,7 +184,12 @@ function WebhookView({ webhook }: { webhook: Webhook }) {
     <div className="space-y-6">
       <BackLink />
       <PageHeader title={name} description={displayUrl(webhook.url)}>
-        <Button onClick={test} loading={sendTest.isPending} disabled={!webhook.active}>
+        <Button
+          onClick={test}
+          loading={sendTest.isPending}
+          disabled={!webhook.active}
+          title={t("detail.testHint")}
+        >
           <Send aria-hidden="true" />
           {t("detail.sendTest")}
         </Button>
@@ -202,10 +208,12 @@ function WebhookView({ webhook }: { webhook: Webhook }) {
               {webhook.active ? <Pause aria-hidden="true" /> : <Play aria-hidden="true" />}
               {webhook.active ? t("webhooks.pause") : t("webhooks.activate")}
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => setConfirmRotate(true)}>
-              <KeyRound aria-hidden="true" />
-              {t("detail.rotateSecret")}
-            </DropdownMenuItem>
+            {isSignedFormat(webhook.format) ? (
+              <DropdownMenuItem onSelect={() => setConfirmRotate(true)}>
+                <KeyRound aria-hidden="true" />
+                {t("detail.rotateSecret")}
+              </DropdownMenuItem>
+            ) : null}
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => setConfirmDelete(true)} variant="destructive">
               <Trash2 aria-hidden="true" />
@@ -242,7 +250,8 @@ function WebhookView({ webhook }: { webhook: Webhook }) {
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
         title={t("webhooks.deleteConfirm.title")}
-        description={t("webhooks.deleteConfirm.description", { url: displayUrl(webhook.url) })}
+        description={t("webhooks.deleteConfirm.description")}
+        detail={displayUrl(webhook.url)}
         confirmLabel={t("webhooks.deleteConfirm.confirm")}
         destructive
         pending={remove.isPending}
@@ -286,6 +295,12 @@ function ConfigurationCard({ webhook }: { webhook: Webhook }) {
             </dd>
           </div>
           <div className="space-y-1">
+            <dt className="text-xs text-muted-foreground">{t("detail.format")}</dt>
+            <dd title={t(`formats.${webhook.format}.description`)}>
+              {t(`formats.${webhook.format}.label`)}
+            </dd>
+          </div>
+          <div className="space-y-1">
             <dt className="text-xs text-muted-foreground">{t("detail.status")}</dt>
             <dd className="flex flex-col items-start gap-1">
               <WebhookHealthBadge webhook={webhook} />
@@ -294,9 +309,15 @@ function ConfigurationCard({ webhook }: { webhook: Webhook }) {
           </div>
           <div className="space-y-1">
             <dt className="text-xs text-muted-foreground">{t("detail.secret")}</dt>
-            <dd className={webhook.secretConfigured ? undefined : "text-destructive"}>
-              {webhook.secretConfigured ? t("detail.secretConfigured") : t("detail.secretMissing")}
-            </dd>
+            {isSignedFormat(webhook.format) ? (
+              <dd className={webhook.secretConfigured ? undefined : "text-destructive"}>
+                {webhook.secretConfigured
+                  ? t("detail.secretConfigured")
+                  : t("detail.secretMissing")}
+              </dd>
+            ) : (
+              <dd className="text-muted-foreground">{t("detail.secretNotUsed")}</dd>
+            )}
           </div>
           <div className="space-y-1">
             <dt className="text-xs text-muted-foreground">{t("detail.created")}</dt>

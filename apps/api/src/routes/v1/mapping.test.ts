@@ -398,6 +398,7 @@ describe("webhooks", () => {
       url: "https://psa.example/hooks/restow",
       events: ["job.failed"],
       active: true,
+      format: "restow",
       secretConfigured: true,
       createdAt: NOW.toISOString(),
       updatedAt: NOW.toISOString(),
@@ -407,6 +408,24 @@ describe("webhooks", () => {
     const mapped = toV1WebhookWithSecret(created);
     expect(webhookWithSecretSchema.parse(mapped)).toEqual(mapped);
     expect(mapped.signature).toEqual({ header: "X-Restow-Signature", format: "sha256=<hex>" });
+    expect(mapped.format).toBe("restow");
+  });
+
+  it("names the format of a chat webhook", () => {
+    const mapped = toV1WebhookWithSecret({
+      id: OBJECT_ID,
+      name: "Ops channel",
+      url: "https://discord.com/api/webhooks/1/token",
+      events: ["job.failed"],
+      active: true,
+      format: "discord",
+      secretConfigured: true,
+      createdAt: NOW.toISOString(),
+      updatedAt: NOW.toISOString(),
+      stats: { pending: 0, failedLast24h: 0, deliveredLast24h: 0, lastDelivery: null },
+      secret: "whsec_example",
+    });
+    expect(webhookWithSecretSchema.parse(mapped).format).toBe("discord");
   });
 
   it("maps a delivery with its parsed error", () => {

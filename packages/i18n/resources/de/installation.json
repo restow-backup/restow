@@ -11,6 +11,7 @@
     "microsoftApp": "Microsoft-Multi-Tenant-App",
     "journal": "Journal-Empfang",
     "defaultStorage": "Speicher-Standard",
+    "mounts": "Netzlaufwerke",
     "providerApi": "Provider-API",
     "updates": "Updates",
     "edition": "Edition",
@@ -22,6 +23,7 @@
     "microsoftApp": "Die App-Registrierung, über die diese Installation Microsoft 365 erreicht.",
     "journal": "Der SMTP-Empfänger für Exchange-Journalberichte. Ein Empfänger bedient {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
     "defaultStorage": "Wo Daten liegen für {scope, select, organisation {Ihre Organisation} other {jeden Mandanten ohne eigenes Speicherziel}}.",
+    "mounts": "Netzwerkfreigaben (NFS) als Backup-Speicher.",
     "providerApi": "Schlüssel für RMM- und PSA-Werkzeuge, die über alle Mandanten hinweg arbeiten.",
     "updates": "Welche Version läuft, welche Releases es gibt und wie Sie aktualisieren.",
     "edition": "Welcher Build läuft und der Wechsel auf den vollen Build.",
@@ -171,6 +173,174 @@
       "title": "Provider-Schlüssel sind umgezogen",
       "description": "Die Schlüssel, die über alle Mandanten arbeiten, stehen jetzt unter Installation, Provider-API. Diese Seite behält die Schlüssel des aktiven Mandanten.",
       "action": "Provider-API öffnen"
+    }
+  },
+  "mounts": {
+    "loadError": "Die Netzlaufwerke konnten nicht geladen werden.",
+    "intro": "Netzwerkfreigaben (NFS), die {appName} als Backup-Speicher nutzt. Jede Freigabe erscheint in API und Worker unter {path}; ein Speicherziel der Art \"Verzeichnis\" zeigt dann dorthin.",
+    "unavailable": {
+      "title": "Der Mounter läuft nicht",
+      "description": "Netzlaufwerke fügt der Mounter hinzu, ein optionaler Container neben {appName}. Er ist standardmäßig aus. Um ihn zu nutzen, führen Sie diesen Befehl einmal in dem Verzeichnis aus, das docker-compose.yml enthält:",
+      "security": "Der Mounter hat Zugriff auf den Docker-Socket, was Root-Zugriff auf den Host bedeutet. Lesen Sie die Dokumentation zu Netzlaufwerken, bevor Sie ihn einschalten.",
+      "reason": {
+        "disabled": "Die Verbindung zum Mounter ist auf diesem Server ausgeschaltet.",
+        "no_secret": "Der Mounter ist noch nicht gestartet, oder sein gemeinsames Geheimnis ist nicht lesbar.",
+        "unreachable": "Unter der Adresse des Mounters antwortet nichts.",
+        "timeout": "Der Mounter hat nicht rechtzeitig geantwortet.",
+        "incompatible": "Der Mounter antwortet in einem Format, das diese Version nicht versteht. Erstellen Sie ihn mit dem Image dieser Version neu."
+      },
+      "demo": "In der Demo können keine Netzlaufwerke hinzugefügt werden."
+    },
+    "list": {
+      "title": "Freigaben",
+      "description": "Freigaben, die in API und Worker eingebunden sind.",
+      "empty": "Noch keine Freigaben.",
+      "add": "Freigabe hinzufügen",
+      "server": "Server",
+      "export": "Export",
+      "version": "NFS-Version",
+      "path": "Pfad in {appName}",
+      "readOnly": "Schreibgeschützt",
+      "test": "Testen",
+      "remove": "Entfernen",
+      "copyPath": "Pfad kopieren",
+      "storageHint": "Um Backups auf einer Freigabe abzulegen, legen Sie ein Speicherziel der Art \"Verzeichnis\" mit dem Pfad der Freigabe oder einem Ordner darunter an."
+    },
+    "blockers": {
+      "title": "Freigaben können gerade nicht geändert werden",
+      "docker_unreachable": "Der Mounter erreicht Docker nicht.",
+      "docker_cli_missing": "Der Mounter bereitet seine Docker-Werkzeuge noch vor. Versuchen Sie es in einer Minute erneut.",
+      "compose_missing": "Der Mounter findet im Projektverzeichnis keine Compose-Datei.",
+      "compose_file_variable": "In .env ist COMPOSE_FILE gesetzt. Docker Compose würde dann die Override-Datei, in die die Freigaben geschrieben werden, nicht lesen.",
+      "override_invalid": "Die Compose-Override-Datei kann nicht gelesen werden. Korrigieren Sie sie zuerst von Hand."
+    },
+    "operation": {
+      "title": {
+        "add": "Freigabe {name} wird hinzugefügt",
+        "remove": "Freigabe {name} wird entfernt"
+      },
+      "status": {
+        "running": "Läuft",
+        "succeeded": "Abgeschlossen",
+        "failed": "Fehlgeschlagen, nichts wurde geändert",
+        "rolled_back": "Fehlgeschlagen, der vorherige Zustand wurde wiederhergestellt",
+        "needs_attention": "Fehlgeschlagen, bitte prüfen Sie den Server"
+      },
+      "progress": "Fortschritt",
+      "restart": "API und Worker starten in diesem Schritt neu. Diese Seite reagiert dabei kurz nicht.",
+      "requestedBy": "Gestartet von {who}, {when}",
+      "warnings": "Hinweise",
+      "needsAttention": "Der vorherige Zustand konnte nicht automatisch wiederhergestellt werden. Prüfen Sie docker-compose.override.yml im Projektverzeichnis und führen Sie docker compose up -d aus. Die Dokumentation zu Netzlaufwerken beschreibt die Schritte.",
+      "dismissHint": "Die nächste Änderung ersetzt diesen Bericht."
+    },
+    "steps": {
+      "validate": "Einstellungen prüfen",
+      "probe": "Freigabe testen",
+      "write": "Konfiguration schreiben",
+      "apply": "API und Worker neu starten",
+      "health": "Warten, bis sie bereit sind",
+      "cleanup": "Aufräumen"
+    },
+    "stepStatus": {
+      "pending": "Ausstehend",
+      "running": "Läuft",
+      "done": "Erledigt",
+      "failed": "Fehlgeschlagen",
+      "skipped": "Übersprungen"
+    },
+    "failures": {
+      "validate": {
+        "invalid": "Die Einstellungen sind ungültig.",
+        "exists": "Eine Freigabe mit diesem Namen gibt es bereits.",
+        "not_found": "Eine Freigabe mit diesem Namen gibt es nicht.",
+        "conflict": "Die Compose-Override-Datei bindet unter diesem Pfad bereits etwas ein.",
+        "limit": "Die Höchstzahl an Freigaben ist erreicht."
+      },
+      "prepare": {
+        "compose_missing": "Im Projektverzeichnis wurde keine Compose-Datei gefunden.",
+        "compose_file_variable": "In .env ist COMPOSE_FILE gesetzt.",
+        "docker_unreachable": "Docker ist nicht erreichbar."
+      },
+      "probe": {
+        "mount_failed": "Die Freigabe konnte nicht eingebunden werden. Prüfen Sie Serveradresse, Exportpfad, NFS-Version und ob der Server den Pfad für diesen Host freigibt.",
+        "not_writable": "Die Freigabe wurde eingebunden, ist aber nicht beschreibbar. Prüfen Sie die Berechtigungen auf dem Server (Root Squash bildet root auf einen Benutzer ohne Rechte ab).",
+        "timeout": "Der Server hat nicht rechtzeitig geantwortet.",
+        "failed": "Der Test der Freigabe ist fehlgeschlagen."
+      },
+      "write": {
+        "invalid_override": "Die Compose-Override-Datei kann nicht geändert werden.",
+        "failed": "Die Compose-Override-Datei konnte nicht geschrieben werden.",
+        "config_invalid": "Docker Compose hat die neue Konfiguration nicht angenommen."
+      },
+      "apply": {
+        "failed": "API und Worker konnten mit der Freigabe nicht neu gestartet werden."
+      },
+      "health": {
+        "timeout": "API oder Worker wurden nicht rechtzeitig bereit.",
+        "crashed": "API oder Worker haben sich nach dem Neustart beendet."
+      },
+      "interrupted": "Der Mounter wurde beendet, während die Änderung lief."
+    },
+    "dialog": {
+      "title": "NFS-Freigabe hinzufügen",
+      "description": "Die Freigabe wird zuerst getestet. Beim Hinzufügen starten API und Worker neu, das dauert einen Moment.",
+      "name": "Name",
+      "nameHint": "1 bis 32 Zeichen: Kleinbuchstaben, Ziffern und Bindestriche. Die Freigabe erscheint unter {path}.",
+      "server": "Server",
+      "serverHint": "Hostname, IPv4- oder IPv6-Adresse des NFS-Servers.",
+      "serverPlaceholder": "nas.example.lan",
+      "export": "Exportpfad",
+      "exportHint": "Der Pfad, den der Server freigibt, zum Beispiel /volume1/backup.",
+      "exportPlaceholder": "/volume1/backup",
+      "version": "NFS-Version",
+      "readOnly": "Schreibgeschützt",
+      "readOnlyHint": "Die Freigabe schreibgeschützt einbinden. Backups können dann nicht darauf geschrieben werden.",
+      "test": "Verbindung testen",
+      "testing": "Wird getestet ...",
+      "add": "Freigabe hinzufügen",
+      "invalid": {
+        "name": "Verwenden Sie 1 bis 32 Zeichen: a-z, 0-9 und Bindestriche, nicht am Anfang oder Ende.",
+        "server": "Geben Sie einen Hostnamen oder eine IP-Adresse ein, ohne Kommas, Leerzeichen oder \"=\".",
+        "export": "Geben Sie einen absoluten Pfad ein, ohne Kommas, Leerzeichen, \":\", \"=\" oder \"..\"."
+      }
+    },
+    "test": {
+      "ok": "Die Freigabe ist erreichbar und beschreibbar.",
+      "okReadOnly": "Die Freigabe ist erreichbar und lesbar.",
+      "failed": "Der Test ist fehlgeschlagen.",
+      "detail": "Details: {detail}"
+    },
+    "remove": {
+      "title": "Freigabe {name} entfernen?",
+      "description": "Die Freigabe wird aus API und Worker ausgehängt, die dafür neu starten. Die Daten auf dem Server bleiben unberührt.",
+      "confirm": "Freigabe entfernen",
+      "inUse": "Die Freigabe wird noch von diesen Speicherorten genutzt:",
+      "installationDefault": "der Standardspeicher der Installation"
+    },
+    "toast": {
+      "adding": "Die Freigabe wird hinzugefügt.",
+      "removing": "Die Freigabe wird entfernt."
+    },
+    "errors": {
+      "unavailable": "Der Mounter läuft nicht.",
+      "jobsRunning": "Es laufen Backups oder Wiederherstellungen. Eine Änderung an den Freigaben startet API und Worker neu; versuchen Sie es erneut, wenn sie abgeschlossen sind.",
+      "inUse": "Die Freigabe wird noch von einem Speicherort genutzt.",
+      "demo": "In der Demo können Netzlaufwerke nicht geändert werden.",
+      "rejected": {
+        "busy": "Eine andere Änderung an den Freigaben läuft gerade.",
+        "blocked": "Der Mounter kann Freigaben gerade nicht ändern.",
+        "exists": "Eine Freigabe mit diesem Namen gibt es bereits.",
+        "not_found": "Eine Freigabe mit diesem Namen gibt es nicht.",
+        "conflict": "Die Compose-Override-Datei bindet unter diesem Pfad bereits etwas ein.",
+        "limit": "Die Höchstzahl an Freigaben ist erreicht.",
+        "invalid_request": "Der Mounter hat die Einstellungen nicht angenommen.",
+        "generic": "Der Mounter hat die Änderung abgelehnt."
+      },
+      "generic": "Die Anfrage ist fehlgeschlagen."
+    },
+    "storageHint": {
+      "label": "Eingebundene Netzlaufwerke",
+      "use": "{path} verwenden"
     }
   }
 }

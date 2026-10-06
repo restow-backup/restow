@@ -10,7 +10,15 @@ import {
 } from "@restow/db";
 import { eq, inArray, like, sql } from "drizzle-orm";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
-import { auth } from "../../../../apps/api/src/auth.js";
+import { auth } from "../../auth.js";
+import { audit } from "../../lib/audit.js";
+import { requireFeature } from "../../lib/features.js";
+import type { requestLanguage } from "../../lib/language.js";
+import type { ProviderRole } from "../../lib/provider-access.js";
+import { resetSignInMethods } from "../../lib/sign-in-reset.js";
+import type { DbExecutor } from "../../lib/tenant-context.js";
+import { PROVIDER_ADMIN_USER_ROLE, isProviderAdminRole } from "../../middleware/rbac.js";
+import { ProblemError } from "../../problem.js";
 import {
   type MailOutcome,
   emailProviderInvitation,
@@ -19,24 +27,17 @@ import {
   invalidatePreviousLinks,
   issueProviderInvitationLink,
   revealSetPasswordToken,
-} from "../../../../apps/api/src/features/accounts/service.js";
-import { audit } from "../../../../apps/api/src/lib/audit.js";
-import type { requestLanguage } from "../../../../apps/api/src/lib/language.js";
-import type { ProviderRole } from "../../../../apps/api/src/lib/provider-access.js";
-import type { DbExecutor } from "../../../../apps/api/src/lib/tenant-context.js";
-import {
-  PROVIDER_ADMIN_USER_ROLE,
-  isProviderAdminRole,
-} from "../../../../apps/api/src/middleware/rbac.js";
-import { ProblemError } from "../../../../apps/api/src/problem.js";
+} from "../accounts/service.js";
 import type { InviteMemberInput, UpdateMemberInput } from "./schemas.js";
 
 type SupportedLanguage = ReturnType<typeof requestLanguage>;
 
 /**
- * The provider team (Business and Service Provider, capability `provider.team`):
- * several provider admins, each with a role and a tenant scope
- * (apps/api lib/provider-access.ts decides what each may do).
+ * The provider team, in every edition: several provider admins, each with a
+ * role and a tenant scope (lib/provider-access.ts decides what each may do).
+ * Limiting a member to chosen tenants is the gated core feature
+ * `providerTeam.tenantScope` (lib/features.ts); where no feature gate opens
+ * it, every member has every tenant (see {@link assertScopeAllowed}).
  *
  * A provider admin is a better-auth user whose `role` is `admin`; the team
  * row narrows that down. A provider admin without a row is an owner with
@@ -55,6 +56,7 @@ export const TEAM_AUDIT_ACTIONS = {
   updated: "provider_team.member_updated",
   removed: "provider_team.member_removed",
   linkReissued: "provider_team.link_reissued",
+  accessReset: "provider_team.access_reset",
 } as const;
 
 export interface TeamActor {
@@ -183,6 +185,32 @@ function normalizeScope(input: {
   return { allTenants: false, tenantIds };
 }
 
+/**
+ * A member limited to chosen tenants needs the gated feature
+ * `providerTeam.tenantScope`; every tenant is always allowed. A scope that
+ * stays exactly as stored (`current`) is accepted without it, so an owner can
+ * still change the role of a member who was limited while the feature was on;
+ * an existing limit keeps applying (it only ever narrows access).
+ */
+async function assertScopeAllowed(
+  providerDb: Database,
+  scope: { allTenants: boolean; tenantIds: string[] },
+  current?: { allTenants: boolean; tenantIds: readonly string[] },
+): Promise<void> {
+  if (scope.allTenants) {
+    return;
+  }
+  if (
+    current &&
+    !current.allTenants &&
+    current.tenantIds.length === scope.tenantIds.length &&
+    scope.tenantIds.every((id) => current.tenantIds.includes(id))
+  ) {
+    return;
+  }
+  await requireFeature(providerDb, "providerTeam.tenantScope");
+}
+
 async function assertTenantsExist(providerDb: Database, tenantIds: string[]): Promise<void> {
   if (tenantIds.length === 0) {
     return;
@@ -230,7 +258,7 @@ async function toDto(
   };
 }
 
-async function scopesOf(providerDb: Database, userIds: string[]): Promise<Map<string, string[]>> {
+async function scopesOf(providerDb: DbExecutor, userIds: string[]): Promise<Map<string, string[]>> {
   const scopes = new Map<string, string[]>();
   if (userIds.length === 0) {
     return scopes;
@@ -302,6 +330,7 @@ export async function inviteMember(
   language: SupportedLanguage,
 ): Promise<InvitationResult> {
   const scope = normalizeScope(input);
+  await assertScopeAllowed(deps.providerDb, scope);
   await assertTenantsExist(deps.providerDb, scope.tenantIds);
   const [existing] = await deps.providerDb
     .select({ id: user.id })
@@ -381,6 +410,12 @@ export async function updateMember(
       throw notAMemberProblem();
     }
     const before = effectiveRole(target);
+    const storedAllTenants = before === "owner" || (target.allTenants ?? true);
+    const stored = await scopesOf(tx, [userId]);
+    await assertScopeAllowed(deps.providerDb, scope, {
+      allTenants: storedAllTenants,
+      tenantIds: stored.get(userId) ?? [],
+    });
     if (before === "owner" && input.role !== "owner" && ownerCount(admins) <= 1) {
       throw lastOwnerProblem();
     }
@@ -494,5 +529,86 @@ export async function reissueInvitation(
     setPasswordToken: invitation.token,
     linkExpiresAt: invitation.expiresAt.toISOString(),
     mailOutcome: invitation.mailOutcome,
+  };
+}
+
+/**
+ * Reset the access of an active member who lost their passkeys, their
+ * authenticator app or their password (the owner's counterpart of the
+ * command-line recovery, cli/admin-recovery.ts, which is for owners). In one
+ * transaction: the password (`credential` account row), every passkey and the
+ * authenticator app go, every session ends, and a fresh set-password link is
+ * issued; the member then chooses a new password and sets up a second factor
+ * again, exactly like after an invitation. Nobody resets their own access
+ * here, and the last owner is never reset (an owner's way back in is the
+ * command line).
+ */
+export async function resetAccess(
+  deps: TeamDeps,
+  userId: string,
+  actor: TeamActor,
+  language: SupportedLanguage,
+): Promise<InvitationResult> {
+  if (userId === actor.userId) {
+    throw problem(
+      409,
+      "provider-team-reset-self",
+      "Not your own access",
+      "You cannot reset your own access here. Another owner can, or the command line (restow admin recover).",
+    );
+  }
+  const link = await deps.providerDb.transaction(async (tx) => {
+    await tx.execute(TEAM_LOCK);
+    const admins = await loadAdmins(tx);
+    const target = admins.find((row) => row.id === userId);
+    if (!target) {
+      throw notAMemberProblem();
+    }
+    const role = effectiveRole(target);
+    if (role === "owner" && ownerCount(admins) <= 1) {
+      throw lastOwnerProblem();
+    }
+    if (!(await hasSignInMethod(tx, userId))) {
+      throw problem(
+        409,
+        "provider-team-not-active",
+        "Not signed in yet",
+        "This member has not set up a way to sign in yet. Create a new invitation link instead.",
+      );
+    }
+    const reset = await resetSignInMethods(tx, userId, { removePassword: true });
+    // The link is redeemed only for a provider admin with a team row
+    // (accounts/service.ts): an owner without one (the setup's first admin)
+    // gets the row their effective role already is.
+    if (target.teamRole === null) {
+      await tx
+        .insert(providerMembers)
+        .values({ userId, role: "owner", allTenants: true })
+        .onConflictDoNothing();
+    }
+    const issued = await issueProviderInvitationLink(tx, userId);
+    await audit(tx, {
+      tenantId: null,
+      actor: actor.email,
+      actorUserId: actor.userId,
+      action: TEAM_AUDIT_ACTIONS.accessReset,
+      target: userId,
+      targetType: "user",
+      ip: actor.ip,
+      details: { email: target.email, role, ...reset },
+    });
+    return { ...issued, email: target.email };
+  });
+
+  const mailOutcome = await emailProviderInvitation(deps.db, {
+    email: link.email,
+    token: link.token,
+    language,
+  });
+  return {
+    member: await memberDto(deps, userId, actor.userId),
+    setPasswordToken: revealSetPasswordToken(mailOutcome, link.token),
+    linkExpiresAt: link.expiresAt.toISOString(),
+    mailOutcome,
   };
 }

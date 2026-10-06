@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { WEBHOOK_EVENTS } from "../../lib/webhooks.js";
+import { WEBHOOK_EVENTS, WEBHOOK_FORMATS } from "../../lib/webhooks.js";
 
 /** Request schemas of the webhooks feature (same style as apps/api/src/schemas.ts). */
 
@@ -49,6 +49,9 @@ export const webhookUrlSchema = z
 
 export const webhookEventSchema = z.enum(WEBHOOK_EVENTS);
 
+/** `restow` (signed JSON, the default) or a chat service's message shape. */
+export const webhookFormatSchema = z.enum(WEBHOOK_FORMATS);
+
 const eventsSchema = z
   .array(webhookEventSchema)
   .min(1)
@@ -68,6 +71,7 @@ export const createWebhookSchema = z.object({
   url: webhookUrlSchema,
   events: eventsSchema,
   active: z.boolean().default(true),
+  format: webhookFormatSchema.default("restow"),
 });
 export type CreateWebhookInput = z.infer<typeof createWebhookSchema>;
 
@@ -77,6 +81,7 @@ export const updateWebhookSchema = z
     url: webhookUrlSchema.optional(),
     events: eventsSchema.optional(),
     active: z.boolean().optional(),
+    format: webhookFormatSchema.optional(),
   })
   .refine((patch) => Object.values(patch).some((value) => value !== undefined), {
     message: "Nothing to update.",

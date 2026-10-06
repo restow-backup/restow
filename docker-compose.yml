@@ -10,6 +10,7 @@
 #   docker compose --profile dev up -d     # add the Vite dev server (hot reload)
 #   docker compose --profile mail up -d    # add Mailpit (dev SMTP for notifications)
 #   docker compose --profile updater up -d # add the opt-in updater (read docs/UPDATING.md first)
+#   docker compose --profile mounts up -d mounter # add the opt-in NFS mounter (docs/MOUNTS.md)
 
 name: restow
 
@@ -54,6 +55,8 @@ services:
       # Where the api looks for the opt-in updater. Nothing answers there unless the updater
       # profile runs. The shared secret comes from the updater's volume, mounted read-only below.
       RESTOW_UPDATER_URL: ${RESTOW_UPDATER_URL:-http://updater:8090}
+      # Where the api looks for the opt-in mounter (profile `mounts`, docs/MOUNTS.md).
+      RESTOW_MOUNTER_URL: ${RESTOW_MOUNTER_URL:-http://mounter:8091}
     # Loopback only — Caddy reaches the api over the compose network (api:3000).
     ports:
       - "127.0.0.1:${RESTOW_API_PORT:-3000}:3000"
@@ -81,6 +84,8 @@ services:
       - ${JOURNAL_TLS_DIR:-./journal-tls}:/etc/restow/journal-tls:ro
       # The updater's shared secret (empty until the updater profile ran once).
       - restow-updater-shared:/updater-shared:ro
+      # The mounter's shared secret (empty until the mounts profile ran once).
+      - restow-mounter-shared:/mounter-shared:ro
     healthcheck:
       test:
         - CMD
@@ -195,6 +200,46 @@ services:
       start_period: 10s
     restart: unless-stopped
 
+  # --- Optional: the mounter (profile: mounts), OPT-IN ---
+  # Adds NFS shares as backup storage from the web interface (Installation > Mounts): it
+  # writes them into docker-compose.override.yml in this directory as Docker volumes, mounts
+  # them into the api and the worker at /mnt/restow/<name> and recreates those two services.
+  # WARNING: it mounts the Docker socket, which is root on the host. Nothing runs unless you
+  # start it, once, in this directory: docker compose --profile mounts up -d mounter
+  # Read docs/MOUNTS.md first. It does not need the updater, and the updater does not need it.
+  #
+  # Like the updater it is the application image started with ROLE=mounter. While
+  # RESTOW_MOUNTER_IMAGE is empty it starts the image named below, and on that first start it
+  # writes RESTOW_MOUNTER_IMAGE into .env, pinned by digest to the image it runs (a local
+  # build has no digest and is not pinned). It reaches nobody but the api over the internal
+  # network (no published port) and holds none of the application's credentials (no env_file).
+  mounter:
+    profiles: ["mounts"]
+    image: ${RESTOW_MOUNTER_IMAGE:-restow:local}
+    environment:
+      ROLE: mounter
+      RESTOW_MOUNTER_PROJECT_DIR: ${RESTOW_PROJECT_DIR:-}
+    expose:
+      - "8091"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${RESTOW_PROJECT_DIR:-.}:${RESTOW_PROJECT_DIR:-/project}
+      - restow-mounter:/state
+      - restow-mounter-shared:/mounter-shared
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8091/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+
   # --- Optional: Vite dev server with hot reload (profile: dev) ---
   web:
     profiles: ["dev"]
@@ -237,3 +282,7 @@ volumes:
   # secret the api reads. Created empty even without the updater profile.
   restow-updater:
   restow-updater-shared:
+  # The opt-in mounter: its operation log and the shared secret the api reads. Created empty
+  # even without the mounts profile.
+  restow-mounter:
+  restow-mounter-shared:

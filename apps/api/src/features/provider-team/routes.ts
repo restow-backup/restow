@@ -1,15 +1,10 @@
-import type { Database } from "@restow/db";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
-import { db, providerDb } from "../../../../apps/api/src/db.js";
-import type { SessionRouteContribution } from "../../../../apps/api/src/extensions.js";
-import { requestLanguage } from "../../../../apps/api/src/lib/language.js";
-import { clientIp } from "../../../../apps/api/src/lib/request.js";
-import {
-  type SessionEnv,
-  requireProviderAdmin,
-} from "../../../../apps/api/src/middleware/session.js";
-import { parseJsonBody, parseOrProblem } from "../../../../apps/api/src/schemas.js";
-import { capabilityGuard } from "../license/gate.js";
+import { db, providerDb } from "../../db.js";
+import { requestLanguage } from "../../lib/language.js";
+import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
+import { clientIp } from "../../lib/request.js";
+import { type SessionEnv, requireProviderAdmin } from "../../middleware/session.js";
+import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { inviteMemberSchema, memberParamSchema, updateMemberSchema } from "./schemas.js";
 import {
   type TeamActor,
@@ -18,22 +13,27 @@ import {
   listTeam,
   reissueInvitation,
   removeMember,
+  resetAccess,
   updateMember,
 } from "./service.js";
 
 /**
- * /api/v1/provider-team: the provider's own admins, their roles and tenants.
+ * /api/v1/provider-team: the provider's own admins, their roles and tenants
+ * (every edition; limiting a member to chosen tenants is the gated feature
+ * `providerTeam.tenantScope`, see ./service.ts).
  *
- *   GET    /                  the team (every provider admin)
- *   POST   /                  invite a new provider admin
- *   PATCH  /:userId           change role and tenants
- *   DELETE /:userId           remove from the team
- *   POST   /:userId/reissue   a fresh invitation link
+ *   GET    /                       the team (every provider admin)
+ *   POST   /                       invite a new provider admin
+ *   PATCH  /:userId                change role and tenants
+ *   DELETE /:userId                remove from the team
+ *   POST   /:userId/reissue        a fresh invitation link (not signed in yet)
+ *   POST   /:userId/reset-access   take an active member's sign-in methods
+ *                                  away and issue a fresh set-password link
+ *                                  (needs a recent sign-in)
  *
  * Provider admins only; what each may do here (reading: everyone with every
  * tenant; changing: owners) is the provider team rule of each route
- * (apps/api lib/provider-access.ts), applied by `requireProviderAdmin`.
- * Mounted behind the `provider.team` capability: without it, 404.
+ * (lib/provider-access.ts), applied by `requireProviderAdmin`.
  */
 
 export interface ProviderTeamRoutesDeps extends TeamDeps {
@@ -75,18 +75,19 @@ export function buildProviderTeamRoutes(deps: ProviderTeamRoutesDeps): Hono<Sess
     return c.json(await reissueInvitation(team, userId, actorOf(c), requestLanguage(c)));
   });
 
+  routes.post("/:userId/reset-access", deps.requireProvider, async (c) => {
+    const { userId } = parseOrProblem(memberParamSchema, c.req.param());
+    // The new link opens the member's account; a stolen or forgotten owner
+    // session must not hand it out (lib/recent-sign-in.ts).
+    assertRecentSignIn(c.get("auth").session);
+    return c.json(await resetAccess(team, userId, actorOf(c), requestLanguage(c)));
+  });
+
   return routes;
 }
 
-/** Mount path below /api/v1 of the provider team routes. */
-export const PROVIDER_TEAM_PATH = "/provider-team";
-
-export const providerTeamRoutes: SessionRouteContribution = {
-  path: PROVIDER_TEAM_PATH,
-  guard: capabilityGuard(db, "provider.team"),
-  routes: buildProviderTeamRoutes({
-    providerDb: providerDb as Database,
-    db: db as Database,
-    requireProvider: requireProviderAdmin,
-  }),
-};
+export const providerTeamRoutes = buildProviderTeamRoutes({
+  providerDb,
+  db,
+  requireProvider: requireProviderAdmin,
+});

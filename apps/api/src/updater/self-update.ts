@@ -379,16 +379,23 @@ export type PinResult = "pinned" | "already_set" | "local_image" | "failed";
 /**
  * First start: when `.env` names no RESTOW_UPDATER_IMAGE, write the image this
  * container already runs, by digest. Later rewrites of RESTOW_IMAGE then no longer
- * reach the updater's image. Never throws.
+ * reach the updater's image. Never throws. The mounter pins RESTOW_MOUNTER_IMAGE the
+ * same way (`key`, `role`).
  */
 export async function pinOwnImage(deps: {
   envFile: EnvFile;
   ownImage: () => Promise<OwnImage | null>;
   logger: Logger;
+  /** The `.env` line to pin (default RESTOW_UPDATER_IMAGE). */
+  key?: string;
+  /** What the process is called in the log lines (default `updater`). */
+  role?: string;
 }): Promise<PinResult> {
   const { envFile, logger } = deps;
+  const key = deps.key ?? UPDATER_IMAGE_KEY;
+  const role = deps.role ?? "updater";
   try {
-    const current = envValueOf(await envFile.read(), UPDATER_IMAGE_KEY);
+    const current = envValueOf(await envFile.read(), key);
     if (current !== null && current !== "") {
       return "already_set";
     }
@@ -396,17 +403,15 @@ export async function pinOwnImage(deps: {
     const pinned = own ? pinnedReferenceOf(own) : null;
     if (!pinned) {
       logger.info(
-        `${UPDATER_IMAGE_KEY} is not set and this updater runs ${own?.configured ?? "an image it cannot inspect"}, which has no registry digest; it is not pinned.`,
+        `${key} is not set and this ${role} runs ${own?.configured ?? "an image it cannot inspect"}, which has no registry digest; it is not pinned.`,
       );
       return "local_image";
     }
-    await envFile.pinUpdaterImage(pinned);
-    logger.info(
-      `${UPDATER_IMAGE_KEY} was empty; pinned it to the image this updater runs: ${pinned}.`,
-    );
+    await envFile.pinImage(key, pinned);
+    logger.info(`${key} was empty; pinned it to the image this ${role} runs: ${pinned}.`);
     return "pinned";
   } catch (error) {
-    logger.warn(`${UPDATER_IMAGE_KEY} could not be pinned: ${(error as Error).message}`);
+    logger.warn(`${key} could not be pinned: ${(error as Error).message}`);
     return "failed";
   }
 }

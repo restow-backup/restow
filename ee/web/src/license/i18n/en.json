@@ -81,5 +81,10 @@
       "description": "The {edition, select, community {Community} business {Business} other {Service Provider}} edition manages exactly one tenant, and this installation already has it. Managing several tenants requires a Service Provider license key.",
       "action": "Open license settings"
     }
+  },
+  "teamScope": {
+    "title": "Limiting members to chosen tenants requires the Service Provider edition",
+    "description": "In the {edition, select, community {Community} business {Business} other {Service Provider}} edition every member has every tenant.",
+    "action": "Open license settings"
   }
 }

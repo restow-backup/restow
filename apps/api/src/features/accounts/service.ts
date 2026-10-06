@@ -17,7 +17,7 @@ import { config } from "../../config.js";
 import { providerDb } from "../../db.js";
 import { audit } from "../../lib/audit.js";
 import { authCall } from "../../lib/auth-errors.js";
-import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
+import { type DbExecutor, isTransaction, withTenantTx } from "../../lib/tenant-context.js";
 import {
   type TenantRole,
   isProviderAdminRole,
@@ -234,7 +234,7 @@ interface LinkValue {
   userId: string;
   /**
    * The tenant the link was issued for; null for an invitation into the
-   * provider team (ee/api provider-team), which belongs to no tenant.
+   * provider team (features/provider-team), which belongs to no tenant.
    */
   tenantId: string | null;
   used: boolean;
@@ -356,13 +356,15 @@ export async function invalidatePreviousLinks(db: DbExecutor, userId: string): P
  * reading as valid, nor a pointer that outlives the link it points to.
  */
 async function issueSetPasswordLink(
-  db: Database,
+  db: DbExecutor,
   input: { userId: string; tenantId: string | null; issuedByProviderAdmin: boolean },
 ): Promise<{ token: string; expiresAt: Date }> {
   const token = generateToken();
   const linkIdentifier = identifierOf(token);
   const expiresAt = new Date(Date.now() + LINK_TTL_MS);
-  await db.transaction(async (tx) => {
+  // Inside a caller's transaction (a team member's access reset) the link is
+  // part of that transaction; on a pool it gets one of its own.
+  const write = async (tx: DbExecutor) => {
     await invalidatePreviousLinks(tx, input.userId);
     await tx.insert(verification).values({
       id: randomUUID(),
@@ -381,7 +383,12 @@ async function issueSetPasswordLink(
       value: encodePointerValue({ linkIdentifier }),
       expiresAt,
     });
-  });
+  };
+  if (isTransaction(db)) {
+    await write(db);
+  } else {
+    await db.transaction(write);
+  }
   return { token, expiresAt };
 }
 
@@ -410,13 +417,14 @@ export const setPasswordPath = (token: string): string =>
   `/accounts/set-password/${encodeURIComponent(token)}`;
 
 /**
- * A set-password link for a new member of the provider team (ee/api
- * provider-team): the same single-use, 72h link as a tenant account's, bound
- * to no tenant. Redeeming it requires the person to still be a provider admin
- * with a team row by then; removing them from the team revokes it.
+ * A set-password link for a member of the provider team (features/provider-team:
+ * an invitation, or a reset of their access): the same single-use, 72h link as
+ * a tenant account's, bound to no tenant. Redeeming it requires the person to
+ * still be a provider admin with a team row by then; removing them from the
+ * team revokes it. `db` may be a transaction the link becomes part of.
  */
 export async function issueProviderInvitationLink(
-  db: Database,
+  db: DbExecutor,
   userId: string,
 ): Promise<{ token: string; expiresAt: Date }> {
   return issueSetPasswordLink(db, { userId, tenantId: null, issuedByProviderAdmin: true });

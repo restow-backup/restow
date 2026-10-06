@@ -34,10 +34,21 @@ Known Issues.
   backups but never delete or overwrite one, with retention decided by the
   server and a storage budget per machine and per tenant. Hooks run only where
   root on the machine allowed them. Restores go into a new folder, never over
-  existing files. Included in the Community edition.
+  existing files. A machine backs up only once it is in a backup job: the
+  inventory marks every machine without one ("Without backup") and offers to
+  create a job for it or add it to an existing one. Servers back up their
+  application data (`/opt`, `/usr/local`, `/var/lib`, `/var/backups`) besides
+  `/etc`, `/home` and `/srv` by default, and every machine can be assigned to a
+  person of the directory. Included in the Community edition.
+- **Backup jobs:** one job covers many mailboxes or machines with one schedule,
+  one set of folders and one retention, with per-member overrides. "Run now" on
+  machines shows the request as queued until the agent picks it up at its next
+  check-in.
 - **Restore** of a single mail, a folder, a file, a file version or a whole
   account, next to the original, never over it; or as a ZIP download. People
-  with the role "user" restore only their own mailbox and OneDrive.
+  with the role "user" restore only their own mailbox and OneDrive. File restore
+  lists machines and mailboxes side by side, with their restore points on one
+  timeline by day and a jump to any date.
 - **Restore checks:** every week a sample of every backup is read back through
   the restore path and compared with the recorded hashes; the result is shown
   per mailbox, OneDrive and machine as recovery readiness. The checks do not
@@ -62,7 +73,9 @@ Known Issues.
   storage can decrypt it, so keep it offline and apart from the storage.
 - **Storage you choose:** local disk, S3-compatible object storage or NFS,
   with a copy target next to the primary, promotion of a copy and replacement of
-  the primary without losing access to existing backups.
+  the primary without losing access to existing backups. The installation's
+  default storage is set in the web interface (or the environment); tenants on it
+  stay separated by their own prefix and key.
 - **Multi-tenant** for IT service providers (Service Provider edition), with a
   REST API (OpenAPI) and webhooks for RMM and PSA tools. The other editions run
   one organisation.
@@ -76,6 +89,13 @@ Known Issues.
   daily. The viewer, with filter and chain verification, is a Business feature.
 - **Standalone restore:** `restow-restore` restores from the chunk store and the
   keys alone, without a running Restow server or database.
+- **Updates from the web interface:** the opt-in updater installs signed releases
+  with a database backup first and an automatic rollback, starts with one
+  command and keeps itself current after every signed update. A Community
+  installation switches to the full build from Installation › Edition.
+- **Built for daily work:** right-click or ⋯ on any table row for its actions,
+  multi-selection to put several machines or mailboxes into a new job, full-width
+  tables, German and English.
 
 Not included in 0.2.1: PST and OST import, PST and MSG export, a Windows agent,
 continuous IMAP and Graph archive sync, SharePoint, Teams, Google Workspace and
@@ -85,8 +105,7 @@ Microsoft throttles Graph; Restow shows that wait instead of hiding it.
 ## Screenshots
 
 From the public demo, which runs the Service Provider edition with synthetic data
-(the audit log viewer and the team page are Business and Service Provider
-features), unretouched.
+(the audit log viewer is a Business and Service Provider feature), unretouched.
 
 | | |
 | --- | --- |
@@ -95,7 +114,7 @@ features), unretouched.
 | ![Statistics](docs/images/screenshots/statistics.png) | ![Audit log](docs/images/screenshots/audit-log.png) |
 | Overview, Statistics tab: backups, restores, storage growth and checks over 30 days. | Audit log (Business and Service Provider): who did what, when, for whom; the chain is verifiable. |
 | ![Alerts](docs/images/screenshots/alerts-and-reports.png) | ![Team](docs/images/screenshots/team.png) |
-| Alerts: who is told what, and when, by e-mail, bell or webhook, and scheduled reports. | Team (Business and Service Provider): several administrators with roles and, with Service Provider, chosen tenants. |
+| Alerts: who is told what, and when, by e-mail, bell or webhook, and scheduled reports. | Members: several administrators with roles in every edition and, with Service Provider, limited to chosen tenants. |
 
 ## How Restow is built
 
@@ -487,7 +506,10 @@ docker compose exec api restow admin recover --email owner@example.com
 owner's authenticator app and passkeys and ends all their sessions. The owner
 signs in with the new password and sets up an authenticator app again before
 anything else. The recovery is recorded in the audit log. It works for owners
-only; an owner resets every other administrator in the web interface.
+only; an owner resets every other administrator in the web interface
+(Installation › Members, *Reset access*: password, passkeys and authenticator
+app are removed, the sessions end, and the administrator gets a new link to
+choose a password).
 `docker compose exec api restow help` lists the options.
 
 ## Editions
@@ -496,8 +518,8 @@ All editions are self-hosted, have no mailbox limit and never limit restore.
 
 | Edition | For | Price |
 | --- | --- | --- |
-| **Community** | One organisation: every backup source and restore function, endpoint backup, mail import and export, the archive (search, hash chain), alerts, dashboard and statistics, the REST API, tenant members with self-service restore. One provider administrator. Apache-2.0, no license key. | Free |
-| **Business** | Adds the provider team (several administrators with roles), the archive's GoBD layer (journal receiver, enforced retention, legal hold), scheduled summary reports and the audit log viewer. CSV and PDF export of the audit log is planned. Still one organisation. | One-time purchase |
+| **Community** | One organisation: every backup source and restore function, endpoint backup, mail import and export, the archive (search, hash chain), alerts, dashboard and statistics, the REST API, tenant members with self-service restore. Several provider administrators with roles (owner, administrator, technician, read only), each with every tenant. Apache-2.0, no license key. | Free |
+| **Business** | Adds the archive's GoBD layer (journal receiver, enforced retention, legal hold), scheduled summary reports and the audit log viewer. CSV and PDF export of the audit log is planned. Still one organisation. | One-time purchase |
 | **Service Provider** | Adds multiple tenants, team members limited to chosen tenants, the cross-tenant API and the provider dashboard. | One-time purchase |
 
 Every release comes in two builds. The full images (`restow`, `restow-web`)

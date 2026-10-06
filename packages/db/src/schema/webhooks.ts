@@ -22,7 +22,16 @@ export const webhookDeliveryStatusEnum = pgEnum("webhook_delivery_status", [
 ]);
 
 /**
- * Outbound webhook subscription per tenant. Payloads are signed with HMAC-SHA-256
+ * What a webhook's requests look like: `restow` is the signed JSON envelope
+ * (X-Restow-Signature) for RMM, PSA and own receivers; `discord`, `slack` and
+ * `teams` are chat messages in the shape of that service's incoming webhooks
+ * (Teams: Workflows / Power Automate), sent without a signature because those
+ * services cannot check one.
+ */
+export const webhookFormatEnum = pgEnum("webhook_format", ["restow", "discord", "slack", "teams"]);
+
+/**
+ * Outbound webhook subscription per tenant. Payloads of the `restow` format are signed with HMAC-SHA-256
  * using the secret behind `secretRef` (stored encrypted, never here). `events`
  * lists the subscribed event names (e.g. "backup.completed", "restore.failed");
  * an empty list subscribes to nothing.
@@ -39,6 +48,7 @@ export const webhooks = pgTable(
     secretRef: uuid("secret_ref").references(() => secrets.id, { onDelete: "set null" }),
     events: text("events").array().notNull().default(sql`'{}'::text[]`),
     active: boolean("active").notNull().default(true),
+    format: webhookFormatEnum("format").notNull().default("restow"),
     ...timestamps(),
   },
   (t) => [index("webhooks_tenant_idx").on(t.tenantId)],
@@ -79,3 +89,4 @@ export type NewWebhook = typeof webhooks.$inferInsert;
 export type WebhookDelivery = typeof webhookDeliveries.$inferSelect;
 export type NewWebhookDelivery = typeof webhookDeliveries.$inferInsert;
 export type WebhookDeliveryStatus = (typeof webhookDeliveryStatusEnum.enumValues)[number];
+export type WebhookFormat = (typeof webhookFormatEnum.enumValues)[number];

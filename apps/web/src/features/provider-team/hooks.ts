@@ -2,9 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { fetchTenants, queryKeys } from "@/lib/api";
 import { providerMay } from "@/lib/provider-role";
-import { useSession } from "@/lib/session";
-
-import { editionAllows, readEdition } from "../license/edition";
+import { hasFeature, useSession } from "@/lib/session";
 
 import {
   type InviteMemberInput,
@@ -13,6 +11,7 @@ import {
   inviteMember,
   reissueInvitation,
   removeMember,
+  resetAccess,
   teamKeys,
   updateMember,
 } from "./api";
@@ -20,15 +19,15 @@ import {
 /**
  * Who may see and change the team: every provider admin whose role covers
  * every tenant may look (the API's rule, apps/api lib/provider-access.ts);
- * only owners change it. Business and Service Provider (`provider.team`).
+ * only owners change it. `tenantScope`: whether a member may be limited to
+ * chosen tenants here (the gated feature `providerTeam.tenantScope`).
  */
 export function useTeamScope() {
   const session = useSession();
-  const licensed = editionAllows(readEdition(session.extensions), "business");
   return {
-    licensed,
-    canView: licensed && providerMay(session, "read_only", { everyTenant: true }),
-    canManage: licensed && providerMay(session, "owner", { everyTenant: true }),
+    canView: providerMay(session, "read_only", { everyTenant: true }),
+    canManage: providerMay(session, "owner", { everyTenant: true }),
+    tenantScope: hasFeature(session, "providerTeam.tenantScope"),
     isProviderAdmin: session.isProviderAdmin,
   };
 }
@@ -78,6 +77,14 @@ export function useReissueInvitation() {
   const invalidate = useInvalidateTeam();
   return useMutation({
     mutationFn: (userId: string) => reissueInvitation(userId),
+    onSettled: invalidate,
+  });
+}
+
+export function useResetAccess() {
+  const invalidate = useInvalidateTeam();
+  return useMutation({
+    mutationFn: (userId: string) => resetAccess(userId),
     onSettled: invalidate,
   });
 }
