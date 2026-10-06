@@ -130,7 +130,7 @@ Source: https://github.com/Azure/azure-sdk-for-go (tag sdk/azcore/v1.21.1, folde
 
 - License: MIT
 - Copyright: `Copyright (c) Microsoft Corporation.`
-- License text: [text 22](#text-22)
+- License text: [text 23](#text-23)
 
 ### github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.13.1
 
@@ -138,7 +138,7 @@ Source: https://github.com/Azure/azure-sdk-for-go (tag sdk/azidentity/v1.13.1, f
 
 - License: MIT
 - Copyright: `Copyright (c) Microsoft Corporation.`
-- License text: [text 22](#text-22)
+- License text: [text 23](#text-23)
 
 ### github.com/Azure/azure-sdk-for-go/sdk/internal v1.12.0
 
@@ -146,7 +146,7 @@ Source: https://github.com/Azure/azure-sdk-for-go (tag sdk/internal/v1.12.0, fol
 
 - License: MIT
 - Copyright: `Copyright (c) Microsoft Corporation.`
-- License text: [text 22](#text-22)
+- License text: [text 23](#text-23)
 
 ### github.com/Azure/azure-sdk-for-go/sdk/storage/azblob v1.7.0
 
@@ -726,7 +726,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2018 The Go Authors. All rights reserved.`
 - License text: [text 18](#text-18)
 
-## Packages (562)
+## Packages (564)
 
 ### @aws-sdk/checksums 3.1001.1
 
@@ -734,7 +734,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 20](#text-20)
 
-### @aws-sdk/client-s3 3.1143.0
+### @aws-sdk/client-s3 3.1146.0
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
@@ -840,7 +840,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) Microsoft Corporation. All rights reserved.`
-- License text: [text 22](#text-22)
+- License text: [text 23](#text-23)
 
 ### @azure/msal-node 2.16.3
 
@@ -854,49 +854,49 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2014-present Sebastian McKenzie and other contributors`
 - License text: [text 32](#text-32)
 
-### @better-auth/core 1.7.6
+### @better-auth/core 1.7.7
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 15](#text-15)
 
-### @better-auth/drizzle-adapter 1.7.6
+### @better-auth/drizzle-adapter 1.7.7
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 15](#text-15)
 
-### @better-auth/kysely-adapter 1.7.6
+### @better-auth/kysely-adapter 1.7.7
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 15](#text-15)
 
-### @better-auth/memory-adapter 1.7.6
+### @better-auth/memory-adapter 1.7.7
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 15](#text-15)
 
-### @better-auth/mongo-adapter 1.7.6
+### @better-auth/mongo-adapter 1.7.7
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 15](#text-15)
 
-### @better-auth/passkey 1.7.6
+### @better-auth/passkey 1.7.7
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 15](#text-15)
 
-### @better-auth/prisma-adapter 1.7.6
+### @better-auth/prisma-adapter 1.7.7
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 15](#text-15)
 
-### @better-auth/telemetry 1.7.6
+### @better-auth/telemetry 1.7.7
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
@@ -948,25 +948,25 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-present Floating UI contributors`
-- License text: [text 23](#text-23)
+- License text: [text 24](#text-24)
 
 ### @floating-ui/dom 1.8.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-present Floating UI contributors`
-- License text: [text 23](#text-23)
+- License text: [text 24](#text-24)
 
 ### @floating-ui/react-dom 2.1.9
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-present Floating UI contributors`
-- License text: [text 23](#text-23)
+- License text: [text 24](#text-24)
 
 ### @floating-ui/utils 0.2.12
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-present Floating UI contributors`
-- License text: [text 23](#text-23)
+- License text: [text 24](#text-24)
 
 ### @fontsource/ibm-plex-mono 5.3.0
 
@@ -1730,13 +1730,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2021-present Tanner Linsley`
 - License text: [text 1](#text-1)
 
-### @tanstack/react-router 1.170.40
+### @tanstack/react-router 1.170.41
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-present Tanner Linsley`
 - License text: [text 1](#text-1)
 
-### @tanstack/react-store 0.11.1
+### @tanstack/react-store 0.11.2
 
 - License: MIT
 - Copyright: `Copyright (c) 2021 Tanner Linsley`
@@ -1748,13 +1748,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2016 Tanner Linsley`
 - License text: [text 1](#text-1)
 
-### @tanstack/router-core 1.171.33
+### @tanstack/router-core 1.171.34
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-present Tanner Linsley`
 - License text: [text 1](#text-1)
 
-### @tanstack/store 0.11.1
+### @tanstack/store 0.11.2
 
 - License: MIT
 - Copyright: `Copyright (c) 2021 Tanner Linsley`
@@ -1946,7 +1946,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media OÜ`
 - License text: [text 1](#text-1), [text 38](#text-38)
 
-### @zone-eu/mailsplit 5.4.19
+### @zone-eu/mailsplit 5.4.20
 
 - License: (MIT OR EUPL-1.1+)
 - Copyright: `Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media OÜ`
@@ -2089,7 +2089,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2014 Jameson Little`
 - License text: [text 4](#text-4)
 
-### better-auth 1.7.6
+### better-auth 1.7.7
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
@@ -2707,7 +2707,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright Mathias Bynens <https://mathiasbynens.be/>`
 - License text: [text 12](#text-12)
 
-### hono 4.13.11
+### hono 4.13.13
 
 - License: MIT
 - Copyright: `Copyright (c) 2021 - present, Yusuke Wada and Hono contributors`
@@ -2789,7 +2789,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2020-2024 Postal Systems OÜ`
-- License text: [text 25](#text-25)
+- License text: [text 22](#text-22)
 
 ### immer 11.1.21
 
@@ -2935,11 +2935,11 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2022 Sami Koskimäki`
 - License text: [text 3](#text-3)
 
-### launder 1.7.1
+### launder 1.7.2
 
 - License: MIT
-- Copyright: no copyright line in the package; author in package.json: Apostrophe Technologies, Inc.
-- License text: [text 1](#text-1) (the package ships no license file; this is the text most packages with this license use)
+- Copyright: `Copyright (c) 2021 Apostrophe Technologies, Inc.`
+- License text: [text 9](#text-9)
 
 ### lazystream 1.0.1
 
@@ -2959,7 +2959,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2014-2017 Andris Reinman`
 - License text: [text 8](#text-8)
 
-### libbase64 1.3.1
+### libbase64 1.3.2
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2017 Andris Reinman`
@@ -2971,7 +2971,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2014-2016 Andris Reinman`
 - License text: [text 8](#text-8)
 
-### libmime 5.4.6
+### libmime 5.4.7
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2016 Andris Reinman`
@@ -3101,11 +3101,11 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright 2018 Rich Harris`
 - License text: [text 9](#text-9)
 
-### mailparser 3.9.31
+### mailparser 3.9.36
 
 - License: MIT
 - Copyright: `Copyright (c) 2020 - 2025 Andris Reinman`
-- License text: [text 25](#text-25)
+- License text: [text 22](#text-22)
 
 ### media-engine 2.0.0
 
@@ -3149,11 +3149,17 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright 2020 Andrey Sitnik <andrey@sitnik.es>`
 - License text: [text 19](#text-19)
 
-### nodemailer 10.0.12
+### nodemailer 10.0.14
 
 - License: MIT-0
 - Copyright: `Copyright (c) 2011-2023 Andris Reinman`
-- License text: [text 25](#text-25)
+- License text: [text 22](#text-22)
+
+### nodemailer 10.0.15
+
+- License: MIT-0
+- Copyright: `Copyright (c) 2011-2023 Andris Reinman`
+- License text: [text 22](#text-22)
 
 ### normalize-path 3.0.0
 
@@ -3257,7 +3263,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2014 Andrew Kelley`
 - License text: [text 129](#text-129)
 
-### pg 8.23.0
+### pg 8.23.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2010 - 2021 Brian Carlson`
@@ -3269,13 +3275,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2016 Tim Jones`
 - License text: [text 3](#text-3)
 
-### pg-cloudflare 1.4.0
+### pg-cloudflare 1.4.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2010 - 2021 Brian Carlson`
 - License text: [text 1](#text-1)
 
-### pg-connection-string 2.14.0
+### pg-connection-string 2.14.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2014 Iced Development`
@@ -3294,6 +3300,12 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - License text: [text 1](#text-1)
 
 ### pg-protocol 1.16.0
+
+- License: MIT
+- Copyright: `Copyright (c) 2010 - 2021 Brian Carlson`
+- License text: [text 1](#text-1)
+
+### pg-protocol 1.16.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2010 - 2021 Brian Carlson`
@@ -3449,7 +3461,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) Meta Platforms, Inc. and affiliates.`
 - License text: [text 1](#text-1)
 
-### react-day-picker 10.0.1
+### react-day-picker 10.0.2
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2026 Giampaolo Bellavite <io@gpbl.dev> and contributors`
@@ -3521,7 +3533,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright:
   - `Copyright Node.js contributors. All rights reserved.`
   - `Copyright Joyent, Inc. and other Node contributors. All rights reserved.`
-- License text: [text 24](#text-24)
+- License text: [text 25](#text-25)
 
 ### readable-stream 4.7.0
 
@@ -3529,7 +3541,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright:
   - `Copyright Node.js contributors. All rights reserved.`
   - `Copyright Joyent, Inc. and other Node contributors. All rights reserved.`
-- License text: [text 24](#text-24)
+- License text: [text 25](#text-25)
 
 ### readdir-glob 1.1.3
 
@@ -3634,7 +3646,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2018 Nikita Skovoroda <chalkerx@gmail.com>`
 - License text: [text 1](#text-1)
 
-### sanitize-html 2.17.7
+### sanitize-html 2.18.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2013, 2014, 2015 P'unk Avenue LLC`
@@ -3724,11 +3736,11 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2013-2017 Josh Glazebrook`
 - License text: [text 19](#text-19)
 
-### smtp-server 3.19.15
+### smtp-server 3.19.17
 
 - License: MIT-0
 - Copyright: `Copyright (c) 2015-2025 Andris Reinman`
-- License text: [text 25](#text-25)
+- License text: [text 22](#text-22)
 
 ### socks 2.8.9
 
@@ -3808,7 +3820,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright:
   - `Copyright Node.js contributors. All rights reserved.`
   - `Copyright Joyent, Inc. and other Node contributors. All rights reserved.`
-- License text: [text 24](#text-24)
+- License text: [text 25](#text-25)
 
 ### string_decoder 1.3.0
 
@@ -3816,7 +3828,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright:
   - `Copyright Node.js contributors. All rights reserved.`
   - `Copyright Joyent, Inc. and other Node contributors. All rights reserved.`
-- License text: [text 24](#text-24)
+- License text: [text 25](#text-25)
 
 ### strip-ansi 6.0.1
 
@@ -4531,7 +4543,7 @@ THE SOFTWARE.
 
 ### Text 9
 
-Used by 11 entries.
+Used by 12 entries.
 
 ```text
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
@@ -5450,6 +5462,27 @@ terms above.
 
 ### Text 22
 
+Used by 5 entries.
+
+```text
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### Text 23
+
 Used by 4 entries.
 
 ```text
@@ -5474,7 +5507,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE
 ```
 
-### Text 23
+### Text 24
 
 Used by 4 entries.
 
@@ -5499,7 +5532,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 24
+### Text 25
 
 Used by 4 entries.
 
@@ -5549,27 +5582,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
 """
-```
-
-### Text 25
-
-Used by 4 entries.
-
-```text
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
 ```
 
 ### Text 26
