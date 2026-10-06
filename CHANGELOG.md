@@ -10,43 +10,116 @@ private repository.
 
 ## [0.2.2] - 2026-10-06
 
-Hotfix release for 0.2.1.
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.2.2 lets every Microsoft 365 source connect either through the consent
+invitation or through a Graph app of its own, connects the tenant the backup app lives
+in without a consent link, fixes the Hetzner Object Storage preset and the Object Lock
+detection, and adds an alpha channel for test builds to the updater tab. Updating needs
+no migration and no manual step; read the Upgrade Notes if you want to test alpha builds.
+
+### Breaking Changes
+
+None.
+
+### Added
+
+#### Microsoft 365
+
+- **A Graph app of your own for a source (all editions).** Besides the consent
+  invitation with the shared backup app, a source can be connected through an app the
+  customer created by hand in their own tenant (tenant ID, application ID, client secret
+  or certificate). A token for exactly that tenant is the proof; the credential is sealed in the
+  organisation's secret store and never shown again, and entering new values replaces it.
+  The worker, the group picker of the directory and the permission check use the source's
+  own app. Sources with their own app have no consent link. The connection card names the
+  organisation the source belongs to before anything is connected.
+  See docs/ENTRA-SETUP.md ("Alternative: eine eigene App pro Quelle").
+- **The tenant the backup app lives in connects without a consent link.** "Connect own
+  tenant directly" on the source page (provider owners only) uses a working app token
+  for the home tenant as proof, so the consent round trip, which failed with
+  AADSTS700016 there, is skipped. It needs the directory (tenant) ID (a GUID) of the app
+  under Settings, Microsoft 365.
+
+#### Updates
+
+- **Alpha channel for test builds.** Builds of the `alpha/*` branches
+  (`.github/workflows/alpha.yml`) push unsigned images to
+  `ghcr.io/restow-backup/restow-alpha` and announce themselves as pre-releases of the alpha
+  repository. On Installation, Updates, "Use the alpha channel" selects that source in one
+  click. The tab warns while the alpha source is selected and while the updater does not
+  verify signatures (the updater now reports this as `signatureChecks`).
+
+### Changed
+
+- The Installation section of the menu is pinned to the bottom, set apart and labelled as
+  applying to every organisation of the installation, so installation-wide settings are
+  told apart from those of the active organisation.
+- The Hetzner Object Storage preset has a location selector (Falkenstein, Nuremberg,
+  Helsinki) that sets endpoint and region together.
 
 ### Fixed
 
-- **Your own Microsoft 365 tenant needs no consent link.** The tenant the backup app
-  lives in is now connected directly from the source's page ("Connect own tenant
-  directly", provider owners only): a working app token for that tenant is the proof,
-  so the admin-consent round trip, which failed with AADSTS700016 there, is skipped.
-  Other tenants still consent through the link. The directory (tenant) ID of the app
-  (GUID) under Settings, Microsoft 365 must be set for this; the status of the app now
-  reports it.
-- **Microsoft 365 per eigener Graph-App.** Eine Quelle lässt sich entweder per Consent-Einladung
-  (gemeinsame Restow-App) oder über eine Graph-App verbinden, die der Kunde in seinem Tenant selbst angelegt
-  hat (Tenant-ID, Anwendungs-ID, Secret oder Zertifikat). Die Zugangsdaten werden verschlüsselt in der
-  Organisation gespeichert, und ein funktionierendes Token ist der Nachweis. Die Verbindungskarte nennt
-  vorher ausdrücklich, zu welcher Organisation die Quelle gehört. Der Worker, die Verzeichnisabfrage und die
-  Prüfung nutzen die App der Quelle (docs/ENTRA-SETUP.md).
-- **Alpha builds for testing.** `alpha/*` branches build unsigned test images
-  (`ghcr.io/restow-backup/restow-alpha`) and announce them as pre-releases of the alpha repository.
-  On Installation, Updates, the alpha channel is one click ("Use the alpha channel"); the tab warns
-  while the updater does not verify signatures and while the alpha source is selected. The updater
-  reports whether it verifies signatures (`signatureChecks`). Needs a one-time `.env` change on the
-  test installation (docs/UPDATING.md, "Alpha builds").
-- **Installation settings stay at the bottom of the menu.** The Installation section is pinned below the
-  scrolling sections, set apart and labelled "Applies to every organisation of this installation", so
-  what is installation-wide is told apart from what belongs to the active organisation.
-- **One organisation, several Microsoft 365 tenants, each on its own terms.** Every Microsoft 365 source
-  has its own connection (consent invitation or its own Graph app), its own protection scope and its own
-  credentials; none of it is shared between the tenants of an organisation or between organisations.
-- **Hetzner Object Storage.** The provider preset has a location selector (Falkenstein,
-  Nuremberg, Helsinki) that sets endpoint and region together, so the preset works for
-  every location without switching to "other S3 service". Buckets with a dot in their
-  name are always addressed by path, since they cannot be reached below the provider's
-  wildcard certificate.
-- **Object Lock detection** accepts what S3-compatible services such as Hetzner actually
-  send (flag in another case, or a configuration that only carries its default rule), so
-  a bucket created with Object Lock is no longer shown as "not active".
+- A source for the tenant of the backup app could not be connected: the page only knew the
+  consent link, which Entra refuses for an app that is not installed in that tenant (AADSTS700016).
+- A bucket with a dot in its name could not be reached with the Hetzner preset, because the
+  provider's wildcard certificate does not cover the extra label; such buckets are now always
+  addressed by path.
+- A bucket created with Object Lock was shown as "not active": S3-compatible services such as
+  Hetzner answer in another case or send only the default rule, which the detection did not
+  accept.
+
+### Security
+
+- The dependency audit failed on new advisories in the test tooling (`tinypool` below
+  2.1.2 and `source-map-js` below 1.2.2, both reached only through `vitest`). Neither is part
+  of a shipped image; both are overridden to the patched versions.
+- Connecting the tenant of the backup app without consent is restricted to provider owners,
+  to the home tenant set by the provider (a GUID), and to a source that is not connected yet, so
+  no organisation can bind a foreign tenant this way.
+- The credentials of a source's own Graph app are sealed with the organisation's key, are never
+  returned by the API and are not written to the audit log.
+
+### Upgrade Notes
+
+Kind of update: new image, no manual steps. Follow [Updating](docs/UPDATING.md): in the
+updater tab, or `docker compose pull && docker compose up -d`.
+
+- Database migrations: none.
+- New or changed environment variables: none. To test alpha builds, set
+  `RESTOW_UPDATER_IMAGE_REPOSITORY`, `RESTOW_UPDATER_WEB_IMAGE_REPOSITORY` and
+  `RESTOW_UPDATER_VERIFY_SIGNATURES=false` once on a test installation (docs/UPDATING.md,
+  "Alpha builds"). Do not do this on an installation with production data.
+- Expected downtime: the containers restart once.
+- Rollback: the previous tag plus `docker compose up -d`; no migration ran, so no database
+  restore is needed.
+
+### Known Issues
+
+- Connecting through a Graph app of your own and connecting the home tenant directly were
+  tested with unit tests and the CI suites only, not against a real Microsoft 365 tenant. The
+  Postgres-backed paths of the new routes have no tests of their own yet.
+- The Hetzner preset and the Object Lock detection were not tested against a real Hetzner bucket.
+- A source connected by consent cannot be switched to a Graph app of its own in the interface.
+- The alpha channel needs a repository secret (`ALPHA_RELEASE_TOKEN`) and a first commit in the
+  alpha repository before builds are announced to the updater.
+- A tag signature is reported by the release workflow but not required for this release.
+
+### Verification
+
+Verified by the continuous integration of the release commit: lint, type check, build of all
+packages and of the web bundle, unit and Postgres test suites, installer tests, dependency
+audit and licenses, secret scan, workflow lint, the Go agent, and the build of the full and
+Community images.
+
+Run locally before the release: unit tests of core (1930 tests), api (2150), worker (248) and
+web (the storage, sources, updates and layout suites, all passing).
+
+Not run: any check against a real Microsoft 365 or Hetzner account. The release smoke checks
+of the pipeline are added below by the release workflow.
 
 ## [0.2.1] - 2026-10-03
 
