@@ -27,6 +27,12 @@ Hotfix release for 0.2.1.
   Organisation gespeichert, und ein funktionierendes Token ist der Nachweis. Die Verbindungskarte nennt
   vorher ausdrücklich, zu welcher Organisation die Quelle gehört. Der Worker, die Verzeichnisabfrage und die
   Prüfung nutzen die App der Quelle (docs/ENTRA-SETUP.md).
+- **Alpha builds for testing.** `alpha/*` branches build unsigned test images
+  (`ghcr.io/restow-backup/restow-alpha`) and announce them as pre-releases of the alpha repository.
+  On Installation, Updates, the alpha channel is one click ("Use the alpha channel"); the tab warns
+  while the updater does not verify signatures and while the alpha source is selected. The updater
+  reports whether it verifies signatures (`signatureChecks`). Needs a one-time `.env` change on the
+  test installation (docs/UPDATING.md, "Alpha builds").
 - **Hetzner Object Storage.** The provider preset has a location selector (Falkenstein,
   Nuremberg, Helsinki) that sets endpoint and region together, so the preset works for
   every location without switching to "other S3 service". Buckets with a dot in their

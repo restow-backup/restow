@@ -160,9 +160,9 @@ export function privateNetworksAllowedFor(
  */
 export function sourceAllowedBy(
   state: StateView | null,
-  source: { isDefault: boolean; archiveUrl: (tag: string) => string | null },
+  source: { isDefault: boolean; isAlpha?: boolean; archiveUrl: (tag: string) => string | null },
 ): boolean | null {
-  if (source.isDefault) {
+  if (source.isDefault || source.isAlpha) {
     return true;
   }
   if (!state) {
@@ -430,6 +430,7 @@ export class UpdateService {
       provider: snapshot.source.provider,
       repository: snapshot.source.repository,
       isDefault: snapshot.source.isDefault,
+      isAlpha: snapshot.source.isAlpha,
     };
     return {
       running,
@@ -445,7 +446,7 @@ export class UpdateService {
           ? { url: this.env.RESTOW_UPDATE_CHECK_URL.trim() }
           : null,
       source,
-      mode: snapshot.source.isDefault ? "image" : "source",
+      mode: snapshot.source.isDefault || snapshot.source.isAlpha ? "image" : "source",
       sourceAllowed: this.demo ? null : sourceAllowedBy(updaterState, snapshot.source),
       check: {
         enabled: snapshot.enabled,
@@ -874,7 +875,7 @@ export class UpdateService {
       throw blocked(state.capabilities.blockers);
     }
 
-    const mode = snapshot.source.isDefault ? "image" : "source";
+    const mode = snapshot.source.isDefault || snapshot.source.isAlpha ? "image" : "source";
     if (mode === "image" && !release.digests.app) {
       // The updater installs a release image only by its published digest and signature.
       throw new ProblemError(409, "This release cannot be verified", {

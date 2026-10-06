@@ -259,6 +259,13 @@
       "cancel": "Abbrechen",
       "placeholder": "Token einfügen",
       "newPlaceholder": "Neuen Token einfügen"
+    },
+    "alpha": {
+      "use": "Alpha-Kanal verwenden",
+      "hint": "Setzt die Quelle auf das Alpha-Repository und den Kanal Beta.",
+      "warningTitle": "Alpha: nicht signierte Test-Builds",
+      "warningBody": "Alpha-Versionen sind Test-Builds mit Hotfixes. Ihre Images sind nicht signiert, nicht ausführlich getestet und nur für Testinstallationen gedacht, nie für Produktivdaten. Wer Schreibzugriff auf das Alpha-Repository hat, kann Code liefern, der mit der Datenbank und dem Master-Key läuft.",
+      "setup": "Einmalig auf dem Server: in der .env RESTOW_UPDATER_IMAGE_REPOSITORY und RESTOW_UPDATER_WEB_IMAGE_REPOSITORY auf die Alpha-Images (…/restow-alpha und …/restow-alpha-web) und RESTOW_UPDATER_VERIFY_SIGNATURES=false setzen, dann den Updater neu erstellen. Danach laufen Alpha-Updates über diese Seite."
     }
   },
   "updater": {
@@ -341,6 +348,10 @@
         "helper_failed": "Das Neuerstellen des Updaters ist fehlgeschlagen.",
         "not_replaced": "Der Updater-Container wurde nicht ersetzt."
       }
+    },
+    "signaturesOff": {
+      "title": "Der Updater prüft keine Signaturen",
+      "body": "Die Signaturprüfung ist abgeschaltet (RESTOW_UPDATER_VERIFY_SIGNATURES=false). Installiert wird, was unter dem veröffentlichten Digest im konfigurierten Repository liegt. Nur für Testinstallationen: auf einer Produktivinstallation wieder einschalten."
     }
   },
   "manual": {

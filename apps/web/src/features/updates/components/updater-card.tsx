@@ -58,6 +58,13 @@ export function UpdaterCard({
         <CardDescription>{t(`updater.description.${state}`)}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-6" data-slot="updater" data-state={state}>
+        {view.updater.signatureChecks === false ? (
+          <Alert variant="warning" data-slot="signatures-off">
+            <ShieldAlert />
+            <AlertTitle>{t("updater.signaturesOff.title")}</AlertTitle>
+            <AlertDescription>{t("updater.signaturesOff.body")}</AlertDescription>
+          </Alert>
+        ) : null}
         {view.updater.incompatible ? (
           <Alert
             variant="warning"

@@ -159,6 +159,7 @@ async function main(): Promise<void> {
     imageRepository: config.imageRepository,
     webImageRepository: config.webImageRepository,
     sourceAllowlist: config.sourceAllowlist.map(formatAllowEntry),
+    verifySignatures: config.verifySignatures,
   });
   const launcher = new EngineSelfRecreateLauncher({
     engine: engineClient,

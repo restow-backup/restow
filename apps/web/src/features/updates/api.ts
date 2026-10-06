@@ -278,7 +278,12 @@ export interface SourceView {
   provider: SourceProvider;
   repository: string | null;
   isDefault: boolean;
+  /** The project's alpha repository: unsigned test builds, installed as images. */
+  isAlpha: boolean;
 }
+
+/** The project's alpha repository (docs/UPDATING.md, "Alpha builds"). */
+export const ALPHA_SOURCE_URL = "https://github.com/restow-backup/restow-alpha";
 
 export type UpdaterAvailability = "unavailable" | "ready" | "blocked" | "busy" | "demo";
 
@@ -329,6 +334,8 @@ export interface UpdaterView {
   /** The application image of the running version, by tag: the image the updater runs too. */
   applicationImage: string | null;
   runner: "cli" | "helper" | null;
+  /** false: the updater does not verify release signatures (switched off by the operator). null: no updater answers. */
+  signatureChecks: boolean | null;
   dumps: DumpInfo[];
   checkedAt: string | null;
 }

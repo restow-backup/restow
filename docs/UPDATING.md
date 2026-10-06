@@ -430,6 +430,30 @@ Restow picks the mode from the update source and shows it in the tab:
   it). The api reads the same variable to let the update check reach the listed
   host on a private network.
 
+### Alpha builds
+
+For testing a fix before it is released, the project publishes **unsigned alpha builds**:
+every build of the `alpha/*` branches (`.github/workflows/alpha.yml`) pushes the images to
+`ghcr.io/restow-backup/restow-alpha` and `ghcr.io/restow-backup/restow-alpha-web` and announces
+itself as a pre-release of `https://github.com/restow-backup/restow-alpha`, with the image
+digests in the notes like a release. They are not signed, not smoke-tested and not meant for
+production data.
+
+Once, on a test installation, in `.env`:
+
+```sh
+RESTOW_UPDATER_IMAGE_REPOSITORY=ghcr.io/restow-backup/restow-alpha
+RESTOW_UPDATER_WEB_IMAGE_REPOSITORY=ghcr.io/restow-backup/restow-alpha-web
+RESTOW_UPDATER_VERIFY_SIGNATURES=false
+```
+
+then `docker compose --profile updater up -d updater`. From then on, on this tab: *Use the alpha
+channel* (sets the source to the alpha repository and the channel to Beta), save, check, install.
+The tab warns while the updater does not verify signatures and while the alpha repository is the
+source; each run records `signatureVerified: false`. The digest the alpha release published is
+still required and the pulled image must carry it. To go back to the signed releases, remove the
+three lines, recreate the updater and use the default source again.
+
 ### What is verified
 
 In **image** mode, before anything is stopped:

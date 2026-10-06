@@ -13,7 +13,12 @@ name: Alpha images
 # editing RESTOW_IMAGE and RESTOW_WEB_IMAGE in its .env and recreating the containers.
 # Never use them for production data. Releases are made by release.yml only.
 #
-# Only GITHUB_TOKEN is used. Set the visibility of the two packages (or log in with a
+# The updater of an installation reads its releases from a repository, so every build also
+# announces itself as a pre-release of the alpha repository (restow-alpha), with the image
+# digests in the notes in the format of the project's releases. That needs the repository
+# secret ALPHA_RELEASE_TOKEN (a fine-grained token with Contents: write on that repository);
+# without it the images are still pushed and the run says that no release was announced.
+# Only the registry login uses GITHUB_TOKEN. Set the visibility of the two packages (or log in with a
 # token that can read packages) before an installation pulls them.
 
 on:
@@ -69,6 +74,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push the application image
+        id: app
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -92,6 +98,7 @@ jobs:
           cache-to: type=gha,scope=alpha,mode=max
 
       - name: Build and push the web edge image
+        id: web
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
@@ -132,3 +139,34 @@ jobs:
             echo
             echo "Then \`docker compose pull && docker compose up -d\`."
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Announce the build as a pre-release of the alpha repository
+        env:
+          GH_TOKEN: ${{ secrets.ALPHA_RELEASE_TOKEN }}
+          ALPHA_REPOSITORY: ${{ vars.ALPHA_REPOSITORY || format('{0}/restow-alpha', github.repository_owner) }}
+          VERSION: ${{ steps.names.outputs.version }}
+          APP_DIGEST: ${{ steps.app.outputs.digest }}
+          WEB_DIGEST: ${{ steps.web.outputs.digest }}
+          SHA: ${{ github.sha }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GH_TOKEN}" ]; then
+            echo "::warning::ALPHA_RELEASE_TOKEN is not set: the images are pushed, but no release announces them, so the updater will not offer this build."
+            exit 0
+          fi
+          notes="$(mktemp)"
+          {
+            echo "Unsigned alpha build ${VERSION} of ${SERVER_URL}/${REPOSITORY} at ${SHA}."
+            echo
+            echo "For test installations only: these images are not signed."
+            echo
+            echo "restow: ${APP_DIGEST}"
+            echo "restow-web: ${WEB_DIGEST}"
+          } > "$notes"
+          gh release create "v${VERSION}" \
+            --repo "$ALPHA_REPOSITORY" \
+            --title "Alpha ${VERSION}" \
+            --notes-file "$notes" \
+            --prerelease

@@ -317,6 +317,12 @@ export const capabilitiesSchema = z.object({
    * `source` mode is off. (Defaults to empty for an updater that predates the field.)
    */
   sourceAllowlist: z.array(z.string().max(300)).max(100).default([]),
+  /**
+   * Whether the updater checks the release signature of the images it installs. false when the
+   * operator switched it off (RESTOW_UPDATER_VERIFY_SIGNATURES=false): the tab then warns that
+   * an installed image is identified by its published digest only. (true for an older updater.)
+   */
+  signatureChecks: z.boolean().default(true),
   /** When the preflight ran. */
   checkedAt: iso,
 });

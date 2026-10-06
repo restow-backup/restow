@@ -176,7 +176,7 @@ describe("toDto", () => {
       ...baseRow,
       entraTenantId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
       secretRef: "11111111-2222-3333-4444-555555555555",
-      config: { ownApp } satisfies SourceConfigExt,
+      config: { ownApp } as SourceConfigExt,
     });
     expect(dto.m365).toMatchObject({ connectionMode: "own_app", ownApp });
     expect(JSON.stringify(dto)).not.toContain("11111111-2222");
