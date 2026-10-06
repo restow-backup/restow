@@ -1,0 +1,134 @@
+name: Alpha images
+
+# Unsigned alpha images for testing a fix on a real installation before it is released.
+#
+# Pushing a branch named `alpha/<anything>` (or running the workflow by hand) builds the
+# full application image and the web edge image for linux/amd64 and pushes them to
+#
+#   ghcr.io/<owner>/restow-alpha:<version>-alpha.<run number>
+#   ghcr.io/<owner>/restow-alpha-web:<version>-alpha.<run number>
+#
+# These images are NOT signed, carry no SBOM and are not smoke-tested: the updater
+# refuses them (it verifies the release signature), so an installation takes them by
+# editing RESTOW_IMAGE and RESTOW_WEB_IMAGE in its .env and recreating the containers.
+# Never use them for production data. Releases are made by release.yml only.
+#
+# Only GITHUB_TOKEN is used. Set the visibility of the two packages (or log in with a
+# token that can read packages) before an installation pulls them.
+
+on:
+  push:
+    # The hotfix branch builds alpha images too until 0.2.2 is released; drop it then.
+    branches: ["alpha/**", "claude/quirky-brown-bw3p1c"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alpha-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and push alpha images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Name the images
+        id: names
+        env:
+          OWNER: ${{ github.repository_owner }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+          base="$(node -p "require('./package.json').version")"
+          version="${base}-alpha.${RUN_NUMBER}"
+          owner="$(printf '%s' "$OWNER" | tr '[:upper:]' '[:lower:]')"
+          {
+            echo "version=$version"
+            echo "app=ghcr.io/${owner}/restow-alpha"
+            echo "web=ghcr.io/${owner}/restow-alpha-web"
+            echo "created=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push the application image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: runtime
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.names.outputs.app }}:${{ steps.names.outputs.version }}
+            ${{ steps.names.outputs.app }}:alpha
+          build-args: |
+            RESTOW_VERSION=${{ steps.names.outputs.version }}
+            RESTOW_REVISION=${{ github.sha }}
+            RESTOW_CREATED=${{ steps.names.outputs.created }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.description=Unsigned alpha build, for testing only
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=alpha
+          cache-to: type=gha,scope=alpha,mode=max
+
+      - name: Build and push the web edge image
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          target: web
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ steps.names.outputs.web }}:${{ steps.names.outputs.version }}
+            ${{ steps.names.outputs.web }}:alpha
+          build-args: |
+            RESTOW_VERSION=${{ steps.names.outputs.version }}
+            RESTOW_REVISION=${{ github.sha }}
+            RESTOW_CREATED=${{ steps.names.outputs.created }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.description=Unsigned alpha build, for testing only
+          provenance: false
+          sbom: false
+          cache-from: type=gha,scope=alpha
+          cache-to: type=gha,scope=alpha,mode=max
+
+      - name: Say how to use it
+        env:
+          APP: ${{ steps.names.outputs.app }}
+          WEB: ${{ steps.names.outputs.web }}
+          VERSION: ${{ steps.names.outputs.version }}
+        run: |
+          {
+            echo "### Alpha images (unsigned, testing only)"
+            echo
+            echo "In the installation's \`.env\`:"
+            echo
+            echo '```'
+            echo "RESTOW_IMAGE=${APP}:${VERSION}"
+            echo "RESTOW_WEB_IMAGE=${WEB}:${VERSION}"
+            echo '```'
+            echo
+            echo "Then \`docker compose pull && docker compose up -d\`."
+          } >> "$GITHUB_STEP_SUMMARY"
