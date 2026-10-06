@@ -1,12 +1,12 @@
 import { PassThrough } from "node:stream";
-import archiver from "archiver";
+import { TarArchive } from "archiver";
 import { describe, expect, it } from "vitest";
 import { parsePax, readTar } from "./tar.js";
 
 async function tarOf(
   entries: { name: string; content?: string; directory?: boolean }[],
 ): Promise<Buffer> {
-  const archive = archiver("tar");
+  const archive = new TarArchive();
   const sink = new PassThrough();
   const chunks: Buffer[] = [];
   sink.on("data", (chunk: Buffer) => chunks.push(chunk));
