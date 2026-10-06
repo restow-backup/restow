@@ -49,6 +49,12 @@ export interface DirectoryUserRecord {
   readonly accountEnabled: boolean | null;
   /** `Member` or `Guest`; null when unknown. */
   readonly userType: string | null;
+  /**
+   * Every SMTP address of the mailbox (primary and aliases), lowercase, from
+   * `proxyAddresses`. Null when the entry did not carry `proxyAddresses`: the
+   * stored addresses stay as they are then (an incremental entry names only what changed).
+   */
+  readonly mailAddresses: readonly string[] | null;
 }
 
 /** The directory user a known object belongs to, as stored by an earlier run. */
@@ -169,7 +175,31 @@ export function toDirectoryUser(entry: UserDeltaEntry): DirectoryUserRecord | nu
     displayName: entry.displayName?.trim() || null,
     accountEnabled: typeof entry.accountEnabled === "boolean" ? entry.accountEnabled : null,
     userType: entry.userType ?? null,
+    mailAddresses: entry.proxyAddresses === undefined ? null : smtpAddresses(entry.proxyAddresses, mail),
   };
+}
+
+/**
+ * The SMTP addresses among Entra's `proxyAddresses` (`SMTP:` primary, `smtp:`
+ * aliases; `SIP:`, `X500:` and the like are left out), plus `mail`, lowercase
+ * and without duplicates. The journal receiver matches recipients against them.
+ */
+export function smtpAddresses(
+  proxyAddresses: readonly string[] | null | undefined,
+  mail: string | null,
+): string[] {
+  const addresses = new Set<string>();
+  for (const entry of proxyAddresses ?? []) {
+    const match = /^smtp:(.+)$/i.exec(entry.trim());
+    const address = match?.[1]?.trim().toLowerCase();
+    if (address?.includes("@")) {
+      addresses.add(address);
+    }
+  }
+  if (mail) {
+    addresses.add(mail.trim().toLowerCase());
+  }
+  return [...addresses];
 }
 
 export function isGuest(user: Pick<DirectoryUserRecord, "userType">): boolean {

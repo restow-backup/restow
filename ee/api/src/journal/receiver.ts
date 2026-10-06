@@ -34,6 +34,7 @@ import { sql } from "drizzle-orm";
 import { PgArchiveCatalog } from "../../../../apps/api/src/features/archive/catalog.js";
 import { type DbExecutor, withTenantTx } from "../../../../apps/api/src/lib/tenant-context.js";
 import { PgChunkIndex, loadTenantKeyring, tenantRunner } from "./chunkstore.js";
+import { assignArchiveItemMailboxes, envelopeAddresses } from "./mailboxes.js";
 import { resolveTenantWritableStorage } from "./storage.js";
 
 /** Per-tenant lock key for the archive chain, distinct from the audit chain's own lock key. */
@@ -100,6 +101,14 @@ export async function receiveJournalReport(
       logger: deps.logger,
     });
     await catalog.append(record);
+    // The mailboxes the envelope names (#32); none keeps the item the tenant's only.
+    const mailboxes = await assignArchiveItemMailboxes(
+      tx,
+      tenantId,
+      record.id,
+      envelopeAddresses(parsed.envelope),
+    );
+    deps.logger?.debug("journal report assigned to mailboxes", { itemId: record.id, mailboxes });
     return record;
   });
 }

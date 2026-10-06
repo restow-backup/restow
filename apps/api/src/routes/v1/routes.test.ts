@@ -137,6 +137,7 @@ function directoryUser(id: string, email: string, createdAt: string, tenantId = 
     email,
     upn: email,
     displayName: email.split("@")[0] ?? null,
+    mailAddresses: [email],
     createdAt: new Date(createdAt),
     updatedAt: new Date(createdAt),
   };
