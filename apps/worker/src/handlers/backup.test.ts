@@ -409,6 +409,27 @@ describe("runtime state", () => {
     expect(sink.failures).toEqual([{ itemRef: "item-1", reason: "410 Gone" }]);
   });
 
+  it("forwards the processed bytes and the transferred packs", async () => {
+    const inner = new ProgressTracker({ sink: new MemoryProgressSink(), flushIntervalMs: 0 });
+    const recorder = new PhaseRecorder(
+      inner,
+      async () => {},
+      new RecordingLogger(),
+      () => new Date(0),
+    );
+
+    recorder.advance(1, 10, 25);
+    recorder.transfer(64);
+    recorder.transfer(16);
+    await recorder.finish();
+
+    expect(recorder.snapshot()).toMatchObject({
+      bytes: 10,
+      bytesProcessed: 25,
+      bytesTransferred: 80,
+    });
+  });
+
   it("logs a failed persist and keeps going", async () => {
     const logger = new RecordingLogger();
     const inner = new ProgressTracker({ sink: new MemoryProgressSink(), flushIntervalMs: 0 });
