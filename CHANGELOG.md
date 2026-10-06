@@ -33,6 +33,12 @@ Hotfix release for 0.2.1.
   while the updater does not verify signatures and while the alpha source is selected. The updater
   reports whether it verifies signatures (`signatureChecks`). Needs a one-time `.env` change on the
   test installation (docs/UPDATING.md, "Alpha builds").
+- **Installation settings stay at the bottom of the menu.** The Installation section is pinned below the
+  scrolling sections, set apart and labelled "Applies to every organisation of this installation", so
+  what is installation-wide is told apart from what belongs to the active organisation.
+- **One organisation, several Microsoft 365 tenants, each on its own terms.** Every Microsoft 365 source
+  has its own connection (consent invitation or its own Graph app), its own protection scope and its own
+  credentials; none of it is shared between the tenants of an organisation or between organisations.
 - **Hetzner Object Storage.** The provider preset has a location selector (Falkenstein,
   Nuremberg, Helsinki) that sets endpoint and region together, so the preset works for
   every location without switching to "other S3 service". Buckets with a dot in their
