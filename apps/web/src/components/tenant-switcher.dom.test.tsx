@@ -322,8 +322,15 @@ describe("the trigger", () => {
      */
     function shape(): string[] {
       const button = trigger();
+      // An icon's own classes (lucide-shield, lucide-building-2 and its aliases) collapse into one mark.
+      const iconless = (classes: string) =>
+        [
+          ...new Set(
+            classes.split(" ").map((name) => (name.startsWith("lucide-") ? "lucide-mark" : name)),
+          ),
+        ].join(" ");
       const walk = (element: Element, depth: number): string[] => [
-        `${depth}:${element.tagName}:${(element.getAttribute("class") ?? "").replace(/lucide-(shield|building2)/, "lucide-mark")}`,
+        `${depth}:${element.tagName}:${iconless(element.getAttribute("class") ?? "")}`,
         ...(element.tagName === "svg" ? [] : [...element.children])
           .filter(
             (child) =>
