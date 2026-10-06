@@ -29,6 +29,7 @@
     "addImap": "IMAP mailbox",
     "addImport": "Import mail files",
     "createLink": "Create consent link",
+    "connectOwnTenant": "Connect own tenant directly",
     "reconnect": "Create new consent link",
     "verify": "Verify permissions",
     "verifyAgain": "Verify again",
@@ -193,9 +194,12 @@
     "connect": {
       "title": "Connect Microsoft 365",
       "description": "A Global Admin of the customer opens the consent link, signs in to their tenant and grants the application permissions for the whole organisation. Microsoft then asks them to sign in once more, so {appName} can confirm the organisation and the admin role before it connects anything. {appName} then verifies every permission.",
+      "ownTenant": {
+        "hint": "The app lives in your own tenant. No consent link is needed here: {appName} connects it directly, provided the app already has its permissions there."
+      },
       "consentExplainer": {
         "title": "One app registration, one consent per organisation",
-        "sharedApp": "The Microsoft 365 app registration under Installation → Microsoft multi-tenant app is shared by every {appName} tenant on this installation, including your own organisation. It is not specific to this customer, so every Microsoft 365 organisation {appName} backs up, including yours if you back up your own tenant, needs to grant it consent once, through a link like this one.",
+        "sharedApp": "The Microsoft 365 app registration under Installation → Microsoft multi-tenant app is shared by every tenant of this {appName} installation. The tenant the app lives in (your own) is connected directly, without a consent link. Every other Microsoft 365 organisation has to consent once through a link like this one.",
         "secondSignIn": "The second sign-in is not a second consent: it lets {appName} confirm which organisation and which admin just granted consent, before connecting anything to this source.",
         "portalConsent": "Already clicked \"Grant admin consent\" for this app in the Entra admin portal? That still has to run through this link once: the portal grants the permissions, but only this flow tells {appName} which of its tenants they belong to."
       },
@@ -393,6 +397,7 @@
     "resumed": "Source resumed.",
     "verified": "Verification finished.",
     "tested": "Connection test finished.",
+    "ownTenantConnected": "Own tenant connected.",
     "linkCreated": "Consent link created.",
     "copied": "Link copied to the clipboard.",
     "copyFailed": "The link could not be copied. Select it and copy it manually."

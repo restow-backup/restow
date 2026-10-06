@@ -1,6 +1,6 @@
 {
   "name": "@restow/scheduler",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "description": "Restow scheduler: a single leader-elected process that enqueues due backup, verify, retention and scrub jobs onto pg-boss.",

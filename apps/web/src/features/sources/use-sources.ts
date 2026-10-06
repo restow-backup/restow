@@ -3,6 +3,7 @@ import * as React from "react";
 
 import { useSession } from "@/lib/session";
 import {
+  connectOwnTenant,
   createConsentLink,
   createSource,
   deleteSource,
@@ -113,6 +114,14 @@ export function useDeleteSource(sourceId: string) {
       );
       queryClient.removeQueries({ queryKey: sourceKeys.detail(tenantId, sourceId) });
     },
+  });
+}
+
+export function useConnectOwnTenant(sourceId: string) {
+  const store = useStoreSource();
+  return useMutation({
+    mutationFn: () => connectOwnTenant(sourceId),
+    onSuccess: (result) => store(result.source),
   });
 }
 

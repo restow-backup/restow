@@ -340,6 +340,9 @@
       "imap": {
         "probed": "IMAP server probed"
       },
+      "own_tenant": {
+        "connected": "Own tenant connected without consent"
+      },
       "tested": "Connection tested",
       "updated": "Source changed",
       "verified": "Permissions verified"

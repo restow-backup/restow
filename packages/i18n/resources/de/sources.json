@@ -29,6 +29,7 @@
     "addImap": "IMAP-Postfach",
     "addImport": "Mail-Dateien importieren",
     "createLink": "Consent-Link erzeugen",
+    "connectOwnTenant": "Eigenen Tenant direkt verbinden",
     "reconnect": "Neuen Consent-Link erzeugen",
     "verify": "Berechtigungen prüfen",
     "verifyAgain": "Erneut prüfen",
@@ -193,9 +194,12 @@
     "connect": {
       "title": "Microsoft 365 verbinden",
       "description": "Ein Global Admin des Kunden öffnet den Consent-Link, meldet sich in seinem Tenant an und erteilt die Anwendungsberechtigungen für die ganze Organisation. Danach bittet Microsoft ihn um eine weitere Anmeldung, mit der {appName} Organisation und Admin-Rolle bestätigt, bevor irgendetwas verbunden wird. {appName} prüft danach jede Berechtigung.",
+      "ownTenant": {
+        "hint": "Die App liegt in Ihrem eigenen Tenant. Hier ist kein Consent-Link nötig: {appName} verbindet ihn direkt, sofern die App dort bereits die Berechtigungen hat."
+      },
       "consentExplainer": {
         "title": "Eine App-Registrierung, ein Consent je Organisation",
-        "sharedApp": "Die Microsoft-365-App-Registrierung unter Installation → Microsoft-Multi-Tenant-App wird von allen Mandanten dieser Installation von {appName} gemeinsam genutzt, auch von Ihrer eigenen Organisation. Sie ist nicht speziell für diesen Kunden, daher muss jede Microsoft-365-Organisation, die {appName} sichert (auch Ihre eigene, falls Sie Ihren eigenen Tenant sichern), ihr einmal über einen Link wie diesen Consent erteilen.",
+        "sharedApp": "Die Microsoft-365-App-Registrierung unter Installation → Microsoft-Multi-Tenant-App wird von allen Mandanten dieser Installation von {appName} gemeinsam genutzt. Der Tenant, in dem die App liegt (Ihr eigener), wird direkt verbunden, ohne Consent-Link. Jede andere Microsoft-365-Organisation muss einmal über einen Link wie diesen Consent erteilen.",
         "secondSignIn": "Die zweite Anmeldung ist kein zweiter Consent: Sie lässt {appName} bestätigen, welche Organisation und welcher Admin gerade den Consent erteilt haben, bevor irgendetwas mit dieser Quelle verbunden wird.",
         "portalConsent": "Haben Sie für diese App im Entra-Portal bereits auf \"Admin-Consent erteilen\" geklickt? Das muss trotzdem einmal über diesen Link laufen: Das Portal erteilt die Berechtigungen, aber erst dieser Ablauf sagt {appName}, zu welchem seiner Mandanten sie gehören."
       },
@@ -393,6 +397,7 @@
     "resumed": "Quelle fortgesetzt.",
     "verified": "Prüfung abgeschlossen.",
     "tested": "Verbindungstest abgeschlossen.",
+    "ownTenantConnected": "Eigener Tenant verbunden.",
     "linkCreated": "Consent-Link erzeugt.",
     "copied": "Link in die Zwischenablage kopiert.",
     "copyFailed": "Der Link konnte nicht kopiert werden. Markieren und kopieren Sie ihn manuell."

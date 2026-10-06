@@ -340,6 +340,9 @@
       "imap": {
         "probed": "IMAP-Server abgefragt"
       },
+      "own_tenant": {
+        "connected": "Eigener Tenant ohne Consent verbunden"
+      },
       "tested": "Verbindung getestet",
       "updated": "Quelle geändert",
       "verified": "Berechtigungen geprüft"

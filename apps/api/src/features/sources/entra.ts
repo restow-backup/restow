@@ -40,6 +40,8 @@ export interface EntraAppStatus {
   redirectUri: string | null;
   /** Why the app is not usable, for an honest empty state. */
   reasons: EntraAppProblem[];
+  /** The directory (tenant) ID the app lives in, when known: that tenant needs no consent. */
+  homeTenantId: string | null;
 }
 
 export type EntraAppProblem =
@@ -130,6 +132,7 @@ export function entraAppStatus(
     credential: resolution.status === "ready" ? resolution.app.credentialKind : null,
     redirectUri: publicOrigin ? adminConsentRedirectUri(publicOrigin) : null,
     reasons,
+    homeTenantId: resolution.status === "ready" ? resolution.app.homeTenantId : null,
   };
 }
 

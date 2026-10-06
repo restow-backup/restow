@@ -8,6 +8,28 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [0.2.2] - 2026-10-06
+
+Hotfix release for 0.2.1.
+
+### Fixed
+
+- **Your own Microsoft 365 tenant needs no consent link.** The tenant the backup app
+  lives in is now connected directly from the source's page ("Connect own tenant
+  directly", provider admins only): a working app token for that tenant is the proof,
+  so the admin-consent round trip, which failed with AADSTS700016 there, is skipped.
+  Other tenants still consent through the link. The directory (tenant) ID of the app
+  under Settings, Microsoft 365 must be set for this; the status of the app now
+  reports it.
+- **Hetzner Object Storage.** The provider preset has a location selector (Falkenstein,
+  Nuremberg, Helsinki) that sets endpoint and region together, so the preset works for
+  every location without switching to "other S3 service". Buckets with a dot in their
+  name are always addressed by path, since they cannot be reached below the provider's
+  wildcard certificate.
+- **Object Lock detection** accepts what S3-compatible services such as Hetzner actually
+  send (flag in another case, or a configuration that only carries its default rule), so
+  a bucket created with Object Lock is no longer shown as "not active".
+
 ## [0.2.1] - 2026-10-03
 
 Beta release. Run it alongside your existing backups, not as your only one, until

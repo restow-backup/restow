@@ -68,6 +68,11 @@ export function createConsentLink(
   });
 }
 
+/** Connect the tenant the backup app lives in, without an admin-consent round trip. */
+export function connectOwnTenant(sourceId: string): Promise<VerifyResultDto> {
+  return apiFetch<VerifyResultDto>(sourcePath(sourceId, "connect-own-tenant"), { method: "POST" });
+}
+
 export function verifySource(sourceId: string): Promise<VerifyResultDto> {
   return apiFetch<VerifyResultDto>(sourcePath(sourceId, "verify"), { method: "POST" });
 }

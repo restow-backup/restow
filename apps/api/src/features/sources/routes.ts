@@ -14,6 +14,7 @@ import {
 import {
   type Actor,
   type ConsentResult,
+  connectOwnTenant,
   createConsentLink,
   createSource,
   deleteSource,
@@ -46,6 +47,7 @@ import {
  *   PATCH  /:id                   update (name, pause/resume, tenant hint, IMAP connection, password)
  *   DELETE /:id                   delete (and its secret); refused while it holds data
  *   POST   /:id/consent-link      signed admin-consent link
+ *   POST   /:id/connect-own-tenant connect the app's own tenant without consent (provider admin)
  *   POST   /:id/verify            verify permissions + test call (m365)
  *   POST   /:id/test              probe the stored connection and record it (imap)
  */
@@ -231,6 +233,10 @@ sourcesRoutes.post("/:id/consent-link", tenantAdmin, async (c) => {
     observedOrigin: observedOrigin(c),
   });
   return c.json(link, 201);
+});
+
+sourcesRoutes.post("/:id/connect-own-tenant", tenantAdmin, async (c) => {
+  return c.json(await connectOwnTenant(db, providerDb, c.get("tenantId"), sourceId(c), actorOf(c)));
 });
 
 sourcesRoutes.post("/:id/verify", tenantAdmin, async (c) => {

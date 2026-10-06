@@ -13,11 +13,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { Spinner } from "@/components/ui/spinner";
 import { formatDateTime, formatRelative } from "@/lib/format";
+import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 import { isValidTenantHint } from "../forms";
 import { consentErrorMessage, isCurrentConsentError, sourceErrorKey } from "../presenters";
 import type { ConsentLinkDto, SourceDto } from "../types";
-import { useConsentLink, useEntraStatus } from "../use-sources";
+import { useConnectOwnTenant, useConsentLink, useEntraStatus } from "../use-sources";
 import { CopyField } from "./copy-field";
 import { DetailsItem, DetailsList } from "./details-list";
 import { EntraNotConfigured } from "./entra-not-configured";
@@ -65,6 +66,8 @@ export function M365ConnectionCard({ source, onWaitingChange }: M365ConnectionCa
 
   const entra = useEntraStatus(true);
   const consentLink = useConsentLink(source.id);
+  const ownTenant = useConnectOwnTenant(source.id);
+  const { isProviderAdmin } = useSession();
   const [issued, setIssued] = React.useState<IssuedLink | null>(null);
   const [reconsent, setReconsent] = React.useState(false);
   const [tenantHint, setTenantHint] = React.useState(m365?.entraTenantHint ?? "");
@@ -109,6 +112,18 @@ export function M365ConnectionCard({ source, onWaitingChange }: M365ConnectionCa
   const shownError = isCurrentConsentError(consentError, grantedAt) ? consentError : null;
   const errorMessage = shownError ? consentErrorMessage(shownError) : null;
   const canCreateLink = entra.data?.configured === true;
+  // The app lives in this tenant already: nothing to consent to, a working token is the proof.
+  const homeTenantId = entra.data?.homeTenantId?.toLowerCase() ?? null;
+  const hint = tenantHint.trim().toLowerCase();
+  const canConnectOwnTenant =
+    isProviderAdmin &&
+    !connected &&
+    homeTenantId !== null &&
+    (hint === "" || hint === homeTenantId);
+  const connectOwn = () =>
+    ownTenant.mutate(undefined, {
+      onSuccess: () => toast.success(t("toasts.ownTenantConnected")),
+    });
 
   return (
     <Card>
@@ -221,7 +236,24 @@ export function M365ConnectionCard({ source, onWaitingChange }: M365ConnectionCa
                 />
               </Field>
             )}
-            <Button onClick={createLink} loading={consentLink.isPending}>
+            {canConnectOwnTenant ? (
+              <div className="space-y-1.5 rounded-lg border border-border bg-muted/30 p-3">
+                <p className="text-sm">{t("m365.connect.ownTenant.hint")}</p>
+                <Button onClick={connectOwn} loading={ownTenant.isPending}>
+                  {t("actions.connectOwnTenant")}
+                </Button>
+                {ownTenant.error ? (
+                  <p role="alert" className="text-sm text-destructive">
+                    {tc(sourceErrorKey(ownTenant.error))}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+            <Button
+              variant={canConnectOwnTenant ? "outline" : "default"}
+              onClick={createLink}
+              loading={consentLink.isPending}
+            >
               {consentLink.isPending ? null : <Link2 />}
               {issued ? t("actions.reconnect") : t("actions.createLink")}
             </Button>

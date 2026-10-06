@@ -94,6 +94,7 @@ export const SOURCE_AUDIT_ACTIONS = {
   consentLinkCreated: "source.consent.link_created",
   consentSignInStarted: "source.consent.sign_in_started",
   consentGranted: "source.consent.granted",
+  ownTenantConnected: "source.own_tenant.connected",
   consentDenied: "source.consent.denied",
   consentRejected: "source.consent.rejected",
   verified: "source.verified",
@@ -1707,6 +1708,123 @@ export async function handleConsentCallback(
     );
   }
   return acceptAdminConsent(db, state, query, requestIp, context);
+}
+
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+function tenantConflictProblem(conflict: BindingConflict): ProblemError {
+  return new ProblemError(409, "Tenant cannot be connected", {
+    type: `urn:restow:problem:${conflict.replaceAll("_", "-")}`,
+    detail:
+      conflict === "tenant_already_connected"
+        ? "This Microsoft 365 tenant is already connected to another source."
+        : "This source is connected to a different Microsoft 365 tenant.",
+  });
+}
+
+/**
+ * Connect the app's own tenant (the home tenant of the registration) without an admin
+ * consent round trip: the app already lives there, so there is nothing to consent to and no
+ * second party to prove. A working token for that tenant is the proof. Restricted to provider
+ * admins and to the home tenant the provider configured, so a tenant admin can never bind a
+ * foreign Entra tenant this way.
+ */
+export async function connectOwnTenant(
+  db: Database,
+  installation: Database,
+  tenantId: string,
+  id: string,
+  actor: Actor,
+): Promise<VerifyResultDto> {
+  await rejectImportSource(db, tenantId, id);
+  const resolution = await resolveEntraApp();
+  const problems = entraCredentialProblems(resolution);
+  if (problems.length > 0 || resolution.status !== "ready") {
+    throw entraNotConfigured(problems);
+  }
+  if (!actor.isProviderAdmin) {
+    throw new ProblemError(403, "Provider role required", {
+      type: "urn:restow:problem:own-tenant-provider-only",
+      detail: "Only a provider admin can connect the tenant the backup app lives in.",
+    });
+  }
+  const homeTenantId = resolution.app.homeTenantId?.toLowerCase() ?? null;
+  if (!homeTenantId) {
+    throw new ProblemError(409, "Home tenant unknown", {
+      type: "urn:restow:problem:own-tenant-unknown",
+      detail:
+        "The backup app has no home tenant set. Enter the directory (tenant) ID of the app under Settings, Microsoft 365, or use the consent link.",
+    });
+  }
+  const source = await withTenantTx(db, tenantId, async (tx) =>
+    requireM365(await requireSource(tx, tenantId, id)),
+  );
+  const hint = configOf(source).entraTenantHint?.trim().toLowerCase() || null;
+  if (hint && GUID.test(hint) && hint !== homeTenantId) {
+    throw new ProblemError(409, "Not the home tenant", {
+      type: "urn:restow:problem:own-tenant-mismatch",
+      detail: "The tenant ID of this source is not the tenant the backup app lives in.",
+    });
+  }
+  const conflict = bindingConflict(
+    source,
+    homeTenantId,
+    await entraTenantBoundElsewhere(installation, id, homeTenantId),
+  );
+  if (conflict) {
+    throw tenantConflictProblem(conflict);
+  }
+
+  const verification = await runVerification(homeTenantId);
+  if (!verification.tokenAcquired) {
+    throw new ProblemError(409, "Backup app not usable in this tenant", {
+      type: "urn:restow:problem:own-tenant-no-token",
+      detail:
+        verification.tokenError?.message ??
+        "The backup app could not sign in to its own tenant. Use the consent link instead.",
+    });
+  }
+
+  const updated = await withTenantTx(db, tenantId, async (tx) => {
+    const fresh = await requireSource(tx, tenantId, id);
+    const taken = await bindSource(
+      tx,
+      fresh,
+      {
+        tenantId: homeTenantId,
+        objectId: actor.id,
+        username: `${actor.email} (own tenant)`,
+        name: null,
+        roleTemplateIds: null,
+      },
+      new Date(),
+    );
+    if (taken) {
+      throw tenantConflictProblem(taken);
+    }
+    const row = await applyVerification(tx, await requireSource(tx, tenantId, id), verification);
+    await audit(tx, {
+      tenantId,
+      actor: actor.email,
+      actorUserId: actor.id,
+      action: SOURCE_AUDIT_ACTIONS.ownTenantConnected,
+      target: id,
+      targetType: "source",
+      ip: actor.ip,
+      details: {
+        entraTenantId: homeTenantId,
+        ok: verification.ok,
+        missing: verification.permissions?.missing ?? [],
+      },
+    });
+    return row;
+  });
+  await enqueueInitialDirectorySync(db, tenantId, id, {
+    label: actor.email,
+    userId: actor.id,
+    ip: actor.ip,
+  });
+  return { source: toDto(updated), verification };
 }
 
 /** "Verify permissions": token, permission diff and a first Graph call, stored on the source. */

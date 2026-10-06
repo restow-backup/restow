@@ -198,6 +198,8 @@ export interface EntraAppStatus {
   credential: "secret" | "certificate" | null;
   redirectUri: string | null;
   reasons: EntraAppProblem[];
+  /** The tenant the backup app lives in, when known: it is connected without consent. */
+  homeTenantId: string | null;
 }
 
 export interface ConsentLinkDto {
