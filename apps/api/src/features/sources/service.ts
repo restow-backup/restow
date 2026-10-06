@@ -1748,19 +1748,27 @@ export async function connectOwnTenant(
       detail: "Only a provider admin can connect the tenant the backup app lives in.",
     });
   }
-  const homeTenantId = resolution.app.homeTenantId?.toLowerCase() ?? null;
-  if (!homeTenantId) {
+  const homeTenantId = resolution.app.homeTenantId?.trim().toLowerCase() ?? null;
+  if (!homeTenantId || !GUID.test(homeTenantId)) {
+    // A domain would be stored as the binding and slip past the uniqueness check, which
+    // compares tenant ids: only the GUID of the directory is accepted here.
     throw new ProblemError(409, "Home tenant unknown", {
       type: "urn:restow:problem:own-tenant-unknown",
       detail:
-        "The backup app has no home tenant set. Enter the directory (tenant) ID of the app under Settings, Microsoft 365, or use the consent link.",
+        "The backup app has no home tenant ID (GUID) set. Enter the directory (tenant) ID of the app under Settings, Microsoft 365, or use the consent link.",
     });
   }
   const source = await withTenantTx(db, tenantId, async (tx) =>
     requireM365(await requireSource(tx, tenantId, id)),
   );
+  if (source.entraTenantId) {
+    throw new ProblemError(409, "Already connected", {
+      type: "urn:restow:problem:own-tenant-already-connected",
+      detail: "This source is already connected to a Microsoft 365 tenant.",
+    });
+  }
   const hint = configOf(source).entraTenantHint?.trim().toLowerCase() || null;
-  if (hint && GUID.test(hint) && hint !== homeTenantId) {
+  if (hint && hint !== homeTenantId) {
     throw new ProblemError(409, "Not the home tenant", {
       type: "urn:restow:problem:own-tenant-mismatch",
       detail: "The tenant ID of this source is not the tenant the backup app lives in.",
@@ -1787,6 +1795,13 @@ export async function connectOwnTenant(
 
   const updated = await withTenantTx(db, tenantId, async (tx) => {
     const fresh = await requireSource(tx, tenantId, id);
+    // Verification took a network round trip: a consent may have bound the source meanwhile.
+    if (fresh.entraTenantId) {
+      throw new ProblemError(409, "Already connected", {
+        type: "urn:restow:problem:own-tenant-already-connected",
+        detail: "This source is already connected to a Microsoft 365 tenant.",
+      });
+    }
     const taken = await bindSource(
       tx,
       fresh,

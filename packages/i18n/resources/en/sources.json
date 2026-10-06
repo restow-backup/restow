@@ -86,6 +86,11 @@
     "notFound": "This source does not exist or belongs to another tenant."
   },
   "errors": {
+    "ownTenantUnknown": "The app does not know its own tenant (GUID). Enter it under Settings, Microsoft 365, or use the consent link.",
+    "ownTenantMismatch": "The tenant ID of this source is not the tenant the app lives in.",
+    "ownTenantNoToken": "The app could not sign in to its own tenant. Use the consent link.",
+    "ownTenantAlreadyConnected": "This source is already connected to a Microsoft 365 tenant.",
+    "tenantAlreadyConnected": "This Microsoft 365 tenant is already connected to another source.",
     "nameTaken": "A source with this name already exists in this tenant.",
     "passwordRequired": "Enter the password again: the stored one is only used for the server and username it was saved for.",
     "entraNotConfigured": "The Entra backup app of this installation is not configured.",

@@ -115,11 +115,13 @@ export function M365ConnectionCard({ source, onWaitingChange }: M365ConnectionCa
   // The app lives in this tenant already: nothing to consent to, a working token is the proof.
   const homeTenantId = entra.data?.homeTenantId?.toLowerCase() ?? null;
   const hint = tenantHint.trim().toLowerCase();
+  const storedHint = (m365?.entraTenantHint ?? "").trim().toLowerCase();
   const canConnectOwnTenant =
     isProviderAdmin &&
     !connected &&
     homeTenantId !== null &&
-    (hint === "" || hint === homeTenantId);
+    (hint === "" || hint === homeTenantId) &&
+    (storedHint === "" || storedHint === homeTenantId);
   const connectOwn = () =>
     ownTenant.mutate(undefined, {
       onSuccess: () => toast.success(t("toasts.ownTenantConnected")),

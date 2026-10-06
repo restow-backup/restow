@@ -16,10 +16,10 @@ Hotfix release for 0.2.1.
 
 - **Your own Microsoft 365 tenant needs no consent link.** The tenant the backup app
   lives in is now connected directly from the source's page ("Connect own tenant
-  directly", provider admins only): a working app token for that tenant is the proof,
+  directly", provider owners only): a working app token for that tenant is the proof,
   so the admin-consent round trip, which failed with AADSTS700016 there, is skipped.
   Other tenants still consent through the link. The directory (tenant) ID of the app
-  under Settings, Microsoft 365 must be set for this; the status of the app now
+  (GUID) under Settings, Microsoft 365 must be set for this; the status of the app now
   reports it.
 - **Hetzner Object Storage.** The provider preset has a location selector (Falkenstein,
   Nuremberg, Helsinki) that sets endpoint and region together, so the preset works for

@@ -86,6 +86,11 @@
     "notFound": "Diese Quelle existiert nicht oder gehört zu einem anderen Mandanten."
   },
   "errors": {
+    "ownTenantUnknown": "Die App kennt ihren eigenen Tenant (GUID) nicht. Tragen Sie ihn unter Einstellungen, Microsoft 365 ein oder nutzen Sie den Consent-Link.",
+    "ownTenantMismatch": "Die Tenant-ID dieser Quelle ist nicht der Tenant, in dem die App liegt.",
+    "ownTenantNoToken": "Die App konnte sich nicht in ihrem eigenen Tenant anmelden. Nutzen Sie den Consent-Link.",
+    "ownTenantAlreadyConnected": "Diese Quelle ist bereits mit einem Microsoft-365-Tenant verbunden.",
+    "tenantAlreadyConnected": "Dieser Microsoft-365-Tenant ist bereits mit einer anderen Quelle verbunden.",
     "nameTaken": "In diesem Mandanten gibt es bereits eine Quelle mit diesem Namen.",
     "passwordRequired": "Geben Sie das Passwort erneut ein: Das gespeicherte wird nur für den Server und Benutzernamen verwendet, für die es gespeichert wurde.",
     "entraNotConfigured": "Die Entra-Backup-App dieser Installation ist nicht konfiguriert.",
