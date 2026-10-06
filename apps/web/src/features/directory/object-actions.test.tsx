@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { type Root, createRoot } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { type MockInstance, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { i18n } from "@/i18n";
 
@@ -111,7 +111,7 @@ async function click(element: Element) {
 describe("SetCredentialDialog", () => {
   let container: HTMLDivElement;
   let root: Root;
-  let consoleError: ReturnType<typeof vi.spyOn>;
+  let consoleError: MockInstance<typeof console.error>;
 
   let queryClient: QueryClient;
 
