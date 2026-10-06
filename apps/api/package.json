@@ -15,31 +15,31 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@azure/msal-node": "^2.16.0",
-    "@better-auth/passkey": "^1.7.6",
-    "@hono/node-server": "^1.13.0",
+    "@azure/msal-node": "^2.16.3",
+    "@better-auth/passkey": "^1.7.7",
+    "@hono/node-server": "^1.19.17",
     "@react-pdf/renderer": "^4.9.0",
     "@restow/core": "workspace:*",
     "@restow/db": "workspace:*",
     "@restow/i18n": "workspace:*",
-    "better-auth": "^1.7.6",
+    "better-auth": "^1.7.7",
     "drizzle-orm": "^0.45.3",
-    "hono": "^4.13.11",
-    "imapflow": "^1.0.171",
-    "mailparser": "^3.9.31",
-    "nodemailer": "^10.0.12",
-    "pg-boss": "^10.1.5",
-    "react": "^19.0.0",
-    "sanitize-html": "^2.17.7",
-    "smtp-server": "^3.19.15",
-    "zod": "^3.24.0"
+    "hono": "^4.13.13",
+    "imapflow": "^1.7.8",
+    "mailparser": "^3.9.36",
+    "nodemailer": "^10.0.15",
+    "pg-boss": "^10.4.2",
+    "react": "^19.3.0",
+    "sanitize-html": "^2.18.0",
+    "smtp-server": "^3.19.17",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/mailparser": "^3.9.0",
-    "@types/react": "^19.0.2",
-    "@types/sanitize-html": "^2.16.1",
+    "@types/react": "^19.3.0",
+    "@types/sanitize-html": "^2.16.2",
     "@types/smtp-server": "^3.5.13",
-    "tsx": "^4.19.0",
+    "tsx": "^4.23.15",
     "unpdf": "^1.8.1"
   }
 }
