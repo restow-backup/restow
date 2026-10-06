@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { SnapshotObject } from "@/features/restore/api";
 
-import { accountKeywords, matchesAccountType, sortAccounts } from "./accounts";
+import { accountAddress, accountKeywords, matchesAccountType, sortAccounts } from "./accounts";
 
 function object(patch: Partial<SnapshotObject>): SnapshotObject {
   return {
@@ -49,5 +49,46 @@ describe("accountKeywords", () => {
       "owner@y.com",
     ]);
     expect(accountKeywords(object({ ownerEmail: null }))).toEqual(["anna@example.com", "mailbox"]);
+  });
+});
+
+describe("accountAddress", () => {
+  it("shows the owner's primary address for a mailbox and a OneDrive, never the Entra id", () => {
+    const guid = "f257f896-b28a-4b6d-9d66-f7919b00c781";
+    expect(
+      accountAddress(
+        object({ externalId: guid, displayName: "Lucas Flores", ownerEmail: "lucas@example.com" }),
+      ),
+    ).toBe("lucas@example.com");
+    expect(
+      accountAddress(
+        object({
+          kind: "onedrive",
+          externalId: guid,
+          displayName: "Lucas Flores",
+          ownerEmail: "lucas@example.com",
+        }),
+      ),
+    ).toBe("lucas@example.com");
+    expect(accountAddress(object({ externalId: guid, displayName: "Lucas Flores" }))).toBeNull();
+  });
+
+  it("shows an IMAP account's login, and nothing that only repeats the name", () => {
+    expect(
+      accountAddress(
+        object({
+          kind: "imap",
+          sourceKind: "imap",
+          externalId: "info@example.com",
+          displayName: "Info",
+        }),
+      ),
+    ).toBe("info@example.com");
+    expect(
+      accountAddress(object({ kind: "imap", sourceKind: "imap", externalId: "info@example.com" })),
+    ).toBeNull();
+    expect(
+      accountAddress(object({ ownerEmail: "Anna@Example.com", displayName: "anna@example.com" })),
+    ).toBeNull();
   });
 });
