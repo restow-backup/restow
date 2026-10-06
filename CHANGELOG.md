@@ -77,6 +77,10 @@ None.
 - The dependency audit failed on new advisories in the test tooling (`tinypool` below
   2.1.2 and `source-map-js` below 1.2.2, both reached only through `vitest`). Neither is part
   of a shipped image; both are overridden to the patched versions.
+- The images apply the Debian security updates of the base image when they are built. The
+  release smoke refused the first 0.2.2 build because the base image still carried
+  `perl-base` 5.36.0-7+deb12u3, which has three critical vulnerabilities fixed in
+  5.36.0-7+deb12u4. No release image ever contained the unpatched package.
 - Connecting the tenant of the backup app without consent is restricted to provider owners,
   to the home tenant set by the provider (a GUID), and to a source that is not connected yet, so
   no organisation can bind a foreign tenant this way.
