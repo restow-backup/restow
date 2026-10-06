@@ -42,7 +42,7 @@ import { type FailureDto, causeToRecord, failureDto } from "../failures/dto.js";
 import { causeOfImapProbe } from "../failures/probe.js";
 import type { JobThrottleDto } from "../jobs/dto.js";
 import { enqueueFirstBackups } from "../jobs/service.js";
-import { graphClientFor } from "../sources/entra.js";
+import { graphClientForSource } from "../sources/entra.js";
 import { storedHostMayBePrivate } from "../sources/imap-host.js";
 import {
   type ImapProbeFailure,
@@ -607,7 +607,15 @@ export async function searchSourceGroups(
     });
   }
   try {
-    return await searchGroups(graphClientFor(source.entraTenantId), search);
+    return await searchGroups(
+      graphClientForSource(db, {
+        id: source.id,
+        tenantId,
+        entraTenantId: source.entraTenantId,
+        secretRef: source.secretRef,
+      }),
+      search,
+    );
   } catch (error) {
     throw graphProblem(error);
   }

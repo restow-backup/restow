@@ -340,6 +340,9 @@
       "imap": {
         "probed": "IMAP-Server abgefragt"
       },
+      "own_app": {
+        "connected": "Eigene Graph-App der Quelle verbunden"
+      },
       "own_tenant": {
         "connected": "Eigener Tenant ohne Consent verbunden"
       },

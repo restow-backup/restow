@@ -149,6 +149,8 @@ describe("toDto", () => {
     });
     expect(dto.imap).toBeNull();
     expect(dto.m365).toEqual({
+      connectionMode: "consent",
+      ownApp: null,
       entraTenantId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
       entraTenantHint: "contoso.onmicrosoft.com",
       consentGrantedAt: "2026-09-03T00:00:00.000Z",
@@ -160,6 +162,24 @@ describe("toDto", () => {
     // The directory feature owns the scope; it is not part of this DTO.
     expect(JSON.stringify(dto)).not.toContain("exclude");
     expect(dto.createdAt).toBe("2026-09-01T00:00:00.000Z");
+  });
+
+  it("reports a source with an app of its own, without any credential", () => {
+    const ownApp = {
+      clientId: "486a2769-5d9c-402a-8a83-c3bc9b980e47",
+      credentialKind: "secret" as const,
+      authorityHost: null,
+      updatedAt: "2026-10-06T10:00:00.000Z",
+      updatedBy: "admin@example.test",
+    };
+    const dto = toDto({
+      ...baseRow,
+      entraTenantId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
+      secretRef: "11111111-2222-3333-4444-555555555555",
+      config: { ownApp } satisfies SourceConfigExt,
+    });
+    expect(dto.m365).toMatchObject({ connectionMode: "own_app", ownApp });
+    expect(JSON.stringify(dto)).not.toContain("11111111-2222");
   });
 
   it("renders an IMAP source without ever exposing the secret reference's content", () => {

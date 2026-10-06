@@ -65,6 +65,7 @@ import {
   buildCause,
   encryptChunk,
   entraAppCredentialsOf,
+  parseSourceAppSecret,
   singletonKeyFor,
   toTokenCallback,
 } from "@restow/core";
@@ -698,6 +699,22 @@ export async function appCredentialsForSource(
 ): Promise<AppCredentials> {
   const { ctx, source } = deps;
   const perSourceSecret = source.secretRef ? await ctx.secrets.get(source.secretRef) : null;
+  if (perSourceSecret) {
+    // The source's own Graph app (a customer's app entered by hand): nothing of the shared
+    // registration is involved.
+    let own: AppCredentials | null;
+    try {
+      own = parseSourceAppSecret(perSourceSecret);
+    } catch (error) {
+      throw new InvalidPayloadError(
+        error instanceof Error ? error.message : "the saved app of this source is unusable",
+        buildCause("config.app_not_configured"),
+      );
+    }
+    if (own) {
+      return own;
+    }
+  }
   const resolution = await settings.entraApp.resolve();
   if (perSourceSecret) {
     const app = resolution.status === "ready" ? resolution.app.credentials : null;

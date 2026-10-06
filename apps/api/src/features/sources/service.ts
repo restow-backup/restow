@@ -1,19 +1,25 @@
 import {
   type AppCredentials,
+  ClientCredentialsTokenProvider,
   type ConnectionVerification,
   type ConsentIdentityFailure,
   type ConsentIdentityProof,
   type ConsentStatePayload,
   type ConsentingAdmin,
+  FetchGraphClient,
   type PermissionDiff,
+  SOURCE_APP_SECRET_KIND,
+  type SourceAppFormInput,
   adminConsentRedirectUri,
   buildAdminConsentUrl,
   buildConsentSignInUrl,
+  buildSourceApp,
   causeOfVerification,
   parseAdminConsentCallback,
   parseConsentSignInCallback,
   proveConsentingAdmin,
   readDirectoryState,
+  serializeSourceAppDocument,
   signConsentState,
   verifyConsentState,
   verifyTenantConnection,
@@ -49,10 +55,13 @@ import {
   entraCredentialProblems,
   entraNotConfigured,
   entraProblems,
+  forgetSourceProviders,
   forgetTokenProvider,
   graphClientFor,
+  graphClientForSource,
   resolveEntraApp,
   tokenProviderFor,
+  tokenProviderForSource,
 } from "./entra.js";
 import {
   type ImapHostContext,
@@ -89,6 +98,7 @@ import type {
 /** Audit actions written by this feature. */
 export const SOURCE_AUDIT_ACTIONS = {
   created: "source.created",
+  ownAppConnected: "source.own_app.connected",
   updated: "source.updated",
   deleted: "source.deleted",
   consentLinkCreated: "source.consent.link_created",
@@ -148,9 +158,23 @@ export interface SourceConfigExt extends SourceConfig {
   consentError?: ConsentError | null;
   lastVerification?: ConnectionVerification | null;
   lastProbe?: ImapProbeResult | null;
+  /** m365: public facts of the source's own Graph app; its credential is a sealed secret. */
+  ownApp?: OwnAppInfo | null;
+}
+
+/** What the UI may know about a source's own Graph app: never its credential. */
+export interface OwnAppInfo {
+  clientId: string;
+  credentialKind: "secret" | "certificate";
+  authorityHost: string | null;
+  updatedAt: string;
+  updatedBy: string;
 }
 
 export interface M365SourceDto {
+  /** `consent`: the shared backup app after admin consent; `own_app`: the customer's own app. */
+  connectionMode: "consent" | "own_app";
+  ownApp: OwnAppInfo | null;
   entraTenantId: string | null;
   entraTenantHint: string | null;
   consentGrantedAt: string | null;
@@ -295,6 +319,8 @@ export function toDto(row: Source, importedMailboxes: number | null = null): Sou
     return {
       ...base,
       m365: {
+        connectionMode: cfg.ownApp ? "own_app" : "consent",
+        ownApp: cfg.ownApp ?? null,
         entraTenantId: row.entraTenantId,
         entraTenantHint: cfg.entraTenantHint ?? null,
         consentGrantedAt: iso(row.consentGrantedAt),
@@ -1214,6 +1240,9 @@ export async function createConsentLink(
   return withTenantTx(db, tenantId, async (tx) => {
     const source = requireM365(await requireSource(tx, tenantId, id));
     const cfg = configOf(source);
+    if (cfg.ownApp) {
+      throw ownAppSourceProblem();
+    }
     const tenantHint = consentLinkTarget(source.entraTenantId, cfg.entraTenantHint, options.tenant);
     if (!source.entraTenantId && tenantHint !== (cfg.entraTenantHint ?? null)) {
       // Remember what the admin chose for the next link.
@@ -1281,6 +1310,32 @@ async function runVerification(entraTenantId: string): Promise<ConnectionVerific
   return verifyTenantConnection({
     tokenProvider: tokenProviderFor(entraTenantId),
     graph: graphClientFor(entraTenantId),
+  });
+}
+
+/** Verification with the source's own app when it has one, else the shared backup app. */
+async function runSourceVerification(
+  db: Database,
+  source: Pick<Source, "id" | "tenantId" | "secretRef">,
+  entraTenantId: string,
+): Promise<ConnectionVerification> {
+  const ref = {
+    id: source.id,
+    tenantId: source.tenantId,
+    entraTenantId,
+    secretRef: source.secretRef,
+  };
+  return verifyTenantConnection({
+    tokenProvider: tokenProviderForSource(db, ref),
+    graph: graphClientForSource(db, ref),
+  });
+}
+
+function ownAppSourceProblem(): ProblemError {
+  return new ProblemError(409, "Source uses its own app", {
+    type: "urn:restow:problem:source-uses-own-app",
+    detail:
+      "This source is connected through an app of its own, so there is no consent link for it. Replace the app's credentials instead.",
   });
 }
 
@@ -1761,6 +1816,9 @@ export async function connectOwnTenant(
   const source = await withTenantTx(db, tenantId, async (tx) =>
     requireM365(await requireSource(tx, tenantId, id)),
   );
+  if (configOf(source).ownApp) {
+    throw ownAppSourceProblem();
+  }
   if (source.entraTenantId) {
     throw new ProblemError(409, "Already connected", {
       type: "urn:restow:problem:own-tenant-already-connected",
@@ -1842,6 +1900,130 @@ export async function connectOwnTenant(
   return { source: toDto(updated), verification };
 }
 
+/**
+ * Connect a source through a Graph app of the customer's own, created by hand in the
+ * customer's tenant (docs/ENTRA-SETUP.md, "Your own app per source"), instead of the
+ * admin-consent round trip with the shared backup app. Whoever holds a working credential
+ * for an app in that tenant is the proof: the token request is answered by that tenant
+ * only. The credential is sealed in the tenant's secret store; the source keeps only the
+ * public facts. Calling it again replaces the credential (rotation) for the same tenant.
+ */
+export async function connectOwnApp(
+  db: Database,
+  installation: Database,
+  tenantId: string,
+  id: string,
+  actor: Actor,
+  input: SourceAppFormInput,
+): Promise<VerifyResultDto> {
+  await rejectImportSource(db, tenantId, id);
+  const built = buildSourceApp(input);
+  if (!built.ok) {
+    throw new ProblemError(422, "Invalid app details", {
+      type: "urn:restow:problem:own-app-invalid",
+      detail: `The app details are not usable (${built.problem}).`,
+      extensions: { field: built.problem },
+    });
+  }
+  const source = await withTenantTx(db, tenantId, async (tx) =>
+    requireM365(await requireSource(tx, tenantId, id)),
+  );
+  const conflict = bindingConflict(
+    source,
+    built.tenantId,
+    await entraTenantBoundElsewhere(installation, id, built.tenantId),
+  );
+  if (conflict) {
+    throw tenantConflictProblem(conflict);
+  }
+
+  const provider = new ClientCredentialsTokenProvider({
+    tenantId: built.tenantId,
+    app: built.credentials,
+  });
+  const verification = await verifyTenantConnection({
+    tokenProvider: provider,
+    graph: new FetchGraphClient({ accessTokenProvider: () => provider.getToken() }),
+  });
+  if (!verification.tokenAcquired) {
+    throw new ProblemError(409, "The app could not sign in", {
+      type: "urn:restow:problem:own-app-no-token",
+      detail:
+        verification.tokenError?.message ??
+        "Microsoft did not issue a token for this app in this tenant.",
+      extensions: { hint: verification.tokenError?.hint ?? null },
+    });
+  }
+
+  const at = new Date();
+  const updated = await withTenantTx(db, tenantId, async (tx) => {
+    const fresh = await requireSource(tx, tenantId, id);
+    // Verification took a network round trip: re-check the binding against the fresh row.
+    const raced = bindingConflict(fresh, built.tenantId, false);
+    if (raced) {
+      throw tenantConflictProblem(raced);
+    }
+    const plaintext = serializeSourceAppDocument(built.document);
+    let secretRef = fresh.secretRef;
+    if (secretRef) {
+      await replaceSecret(tx, { id: secretRef, tenantId }, plaintext);
+    } else {
+      secretRef = (await storeSecret(tx, { tenantId, kind: SOURCE_APP_SECRET_KIND, plaintext })).id;
+    }
+    const info: OwnAppInfo = {
+      clientId: built.document.clientId,
+      credentialKind: built.document.credentialKind,
+      authorityHost: built.document.authorityHost,
+      updatedAt: at.toISOString(),
+      updatedBy: actor.email,
+    };
+    try {
+      await tx.transaction(async (savepoint) => {
+        await savepoint
+          .update(sources)
+          .set({
+            entraTenantId: built.tenantId,
+            secretRef,
+            consentGrantedAt: fresh.consentGrantedAt ?? at,
+            consentBy: `${actor.email} (own app)`,
+            config: mergeConfig({ ownApp: info, consentError: null }),
+          })
+          .where(and(eq(sources.tenantId, tenantId), eq(sources.id, id)));
+      });
+    } catch (error) {
+      if (isUniqueViolation(error, ENTRA_TENANT_UNIQUE_INDEX)) {
+        throw tenantConflictProblem("tenant_already_connected");
+      }
+      throw error;
+    }
+    const row = await applyVerification(tx, await requireSource(tx, tenantId, id), verification);
+    await audit(tx, {
+      tenantId,
+      actor: actor.email,
+      actorUserId: actor.id,
+      action: SOURCE_AUDIT_ACTIONS.ownAppConnected,
+      target: id,
+      targetType: "source",
+      ip: actor.ip,
+      details: {
+        entraTenantId: built.tenantId,
+        clientId: info.clientId,
+        credentialKind: info.credentialKind,
+        ok: verification.ok,
+        missing: verification.permissions?.missing ?? [],
+      },
+    });
+    return row;
+  });
+  forgetSourceProviders(id);
+  await enqueueInitialDirectorySync(db, tenantId, id, {
+    label: actor.email,
+    userId: actor.id,
+    ip: actor.ip,
+  });
+  return { source: toDto(updated), verification };
+}
+
 /** "Verify permissions": token, permission diff and a first Graph call, stored on the source. */
 export async function verifySource(
   db: Database,
@@ -1850,13 +2032,14 @@ export async function verifySource(
   actor: Actor,
 ): Promise<VerifyResultDto> {
   await rejectImportSource(db, tenantId, id);
-  const problems = entraCredentialProblems(await resolveEntraApp());
-  if (problems.length > 0) {
-    throw entraNotConfigured(problems);
-  }
   const source = await withTenantTx(db, tenantId, async (tx) =>
     requireM365(await requireSource(tx, tenantId, id)),
   );
+  // A source with an app of its own does not depend on the shared registration.
+  const problems = configOf(source).ownApp ? [] : entraCredentialProblems(await resolveEntraApp());
+  if (problems.length > 0) {
+    throw entraNotConfigured(problems);
+  }
   if (!source.entraTenantId) {
     throw new ProblemError(409, "Admin consent required", {
       type: "urn:restow:problem:consent-required",
@@ -1864,7 +2047,7 @@ export async function verifySource(
     });
   }
 
-  const verification = await runVerification(source.entraTenantId);
+  const verification = await runSourceVerification(db, source, source.entraTenantId);
   const updated = await withTenantTx(db, tenantId, async (tx) => {
     const fresh = await requireSource(tx, tenantId, id);
     const row = await applyVerification(tx, fresh, verification);
