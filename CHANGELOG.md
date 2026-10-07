@@ -19,7 +19,7 @@ Restow 0.3.0 backs up Proxmox VE virtual machines and containers (preview), moun
 NFS shares from the web interface, lets Community run several administrators, and
 sends notifications to Discord, Slack and Teams and through Microsoft 365 or Google
 Workspace. The overview, the backup jobs and the archive now say plainly what is and
-is not protected. Five database migrations run on update; read the Upgrade Notes.
+is not protected. Six database migrations run on update; read the Upgrade Notes.
 
 ### Breaking Changes
 
@@ -40,7 +40,9 @@ is not protected. Five database migrations run on update; read the Upgrade Notes
 - Backup of VMs and containers on Proxmox VE 8.4 and newer through the Backup
   Provider API: VM disks over NBD with dirty bitmaps, only changed 4 MiB blocks are
   uploaded; containers through restic; restore as a new VMID into the pool
-  `restow-restore`. Servers & endpoints › VMs & containers. See docs/PVE.md.
+  `restow-restore`. Servers & clients › VMs & containers. See docs/PVE.md.
+- Guests count in readiness, the Status tab, the provider view, statistics,
+  warnings and `backup.overdue`.
 - The node side is a storage plugin shim (a separate work under AGPL-3.0-or-later)
   and the helper `restow-pve` (Apache-2.0), installed with `/install/pve.sh`.
 
@@ -59,6 +61,10 @@ is not protected. Five database migrations run on update; read the Upgrade Notes
 - Before a change of the public URL or the operating mode makes passkeys unusable,
   the settings name the affected accounts and refuse a self-lockout. Moving the
   authenticator app to a new phone keeps the old one until the new one is confirmed.
+- Your account: change your password, see and sign out your sessions. The login page
+  offers "Lost access?": a reset link by mail when notification mail is set up (the
+  second factor stays), and always the way back through an owner or
+  `restow admin recover`.
 - Notification mail through Microsoft 365 (own app with Mail.Send, or the backup app)
   or Google Workspace (service account with gmail.send), with guides and plain error
   messages.
@@ -66,10 +72,11 @@ is not protected. Five database migrations run on update; read the Upgrade Notes
 #### Alerts and overview
 
 - Webhook formats Discord, Slack and Microsoft Teams, chosen from the URL.
-- New event `backup.overdue` for mailboxes, OneDrives, IMAP accounts and machines,
-  aware of the job schedules.
+- New event `backup.overdue` for mailboxes, OneDrives, IMAP accounts, machines and
+  Proxmox guests, aware of the job schedules; an alert rule can set its own deadline
+  (24 to 720 hours).
 - Warnings: the reasons why single items were not backed up (folder, subject, date,
-  cause, what to do), and acknowledging warnings with a note (/warnings).
+  cause, what to do), and acknowledging warnings with a note (menu entry Warnings).
 - The bell leads to the cause; a Notifications page keeps the history; under All
   tenants the bell and the alerts cover every tenant.
 - Exports: audit log (CSV, JSON with hashes, Business), delivery logs (CSV).
@@ -79,7 +86,9 @@ is not protected. Five database migrations run on update; read the Upgrade Notes
 - Archive per mail job, journal reports assigned to the mailboxes they name (#36).
 - The chain check verifies every link, the daily anchors (now written every night)
   and optionally a sample of message contents. Archived messages can be read and
-  downloaded as .eml.
+  downloaded as .eml; search with paging and sender, date and mailbox filters; a
+  notice says how the storage protects archived mail.
+- Legal holds: release with a required, audited reason; holds on a single mailbox.
 
 ### Changed
 
@@ -92,7 +101,13 @@ is not protected. Five database migrations run on update; read the Upgrade Notes
 - The guide for an own Graph app lists every permission with a copy button and says
   that no redirect URI is needed.
 - Disabled controls say why. Locked features name their edition and link only where
-  the viewer may go. German texts follow one glossary (docs/GLOSSARY.md).
+  the viewer may go. German and English texts follow one glossary
+  (docs/GLOSSARY.md): Speicherort, Lauf, Restore-Prüfung, Rechner, Mandant.
+- Menu names: "Server & Clients" (was "Server & Endpunkte"), "Server & Betrieb" for
+  the installation settings, "Ihre Organisation", "Benutzer" on the tenant page.
+- Restore and export failures are explained in words, the raw text collapsed; the
+  target folder of a machine restore is checked first; file restore gives the files
+  half the width.
 
 ### Fixed
 
@@ -105,6 +120,8 @@ is not protected. Five database migrations run on update; read the Upgrade Notes
 - Webhook alerts were logged as sent when they were only queued.
 - "Chain intact" checked only stored hashes, so deleting the newest entries passed.
 - Overview › Statistics kept showing all tenants after switching into a tenant.
+- Moving the authenticator app to a new phone switched the old one off before the new
+  one was confirmed.
 
 ### Security
 
@@ -114,9 +131,9 @@ is not protected. Five database migrations run on update; read the Upgrade Notes
 
 ### Upgrade Notes
 
-New image; migrations run on start. Five migrations: `0026_webhook_format`,
+New image; migrations run on start. Six migrations: `0026_webhook_format`,
 `0027_job_archive`, `0028_pve`, `0029_warning_acknowledgements`,
-`0030_mail_transport_google` (duration on the verification installation: to be
+`0030_mail_transport_google`, `0031_report_rule_overdue_deadline` (duration on the verification installation: to be
 filled in).
 
 - New optional environment variables: `RESTOW_MOUNTER_IMAGE` (the mounter pins it on
