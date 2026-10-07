@@ -24,7 +24,18 @@ import {
   generateDek,
   kekFromBase64,
 } from "@restow/core";
-import { type Database, archiveItems, createDb, providers, tenantKeys, tenants } from "@restow/db";
+import {
+  type Database,
+  archiveItemMailboxes,
+  archiveItems,
+  createDb,
+  protectedObjects,
+  providers,
+  sources,
+  tenantKeys,
+  tenants,
+  users,
+} from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -60,10 +71,14 @@ async function recreateTestDatabase(base: string): Promise<string> {
   return url;
 }
 
-function rawJournalReport(subject: string): Buffer {
+function rawJournalReport(
+  subject: string,
+  envelope: { sender?: string; recipients?: string[] } = {},
+): Buffer {
+  const recipients = envelope.recipients ?? ["mailbox@contoso.example"];
   const original = [
     "From: sender@contoso.example",
-    "To: mailbox@contoso.example",
+    `To: ${recipients[0]}`,
     `Subject: ${subject}`,
     "Message-ID: <msg-1@contoso.example>",
     "",
@@ -71,9 +86,9 @@ function rawJournalReport(subject: string): Buffer {
     "",
   ].join("\r\n");
   const report = [
-    "Sender: journal@contoso.example",
+    `Sender: ${envelope.sender ?? "journal@contoso.example"}`,
     "Message-Id: <journal-1@contoso.example>",
-    "Recipient: mailbox@contoso.example",
+    ...recipients.map((recipient) => `Recipient: ${recipient}`),
     "",
     original,
   ].join("\r\n");
@@ -155,6 +170,94 @@ describe.skipIf(!adminUrl)("receiveJournalReport against Postgres", () => {
       .from(archiveItems)
       .where(eq(archiveItems.tenantId, tenantId));
     expect(rows).toHaveLength(2);
+  }, 60_000);
+
+  it("assigns a report to every mailbox its envelope names, by address, alias or as the sender", async () => {
+    const kek = (globalThis as { __journalTestKek?: Buffer }).__journalTestKek as Buffer;
+    const deps = {
+      db,
+      keyProvider: new EnvKeyProvider(kek),
+      now: () => new Date("2026-01-06T09:00:00Z"),
+      retentionPolicyFor: async () => DEFAULT_ARCHIVE_RETENTION_POLICY,
+    };
+    const [source] = await db
+      .insert(sources)
+      .values({ tenantId, kind: "m365", name: "Contoso M365", status: "active" })
+      .returning();
+    const [anna, bob] = await db
+      .insert(users)
+      .values([
+        {
+          tenantId,
+          email: "anna@contoso.example",
+          upn: "anna@contoso.onmicrosoft.com",
+          mailAddresses: ["anna@contoso.example", "info@contoso.example"],
+        },
+        { tenantId, email: "bob@contoso.example", upn: "bob@contoso.example" },
+      ])
+      .returning();
+    const [annaBox, bobBox] = await db
+      .insert(protectedObjects)
+      .values([
+        {
+          tenantId,
+          sourceId: source?.id as string,
+          userId: anna?.id,
+          kind: "mailbox" as const,
+          externalId: "oid-anna",
+        },
+        {
+          tenantId,
+          sourceId: source?.id as string,
+          userId: bob?.id,
+          kind: "mailbox" as const,
+          externalId: "oid-bob",
+        },
+        // Anna's OneDrive is not a mailbox: never assigned.
+        {
+          tenantId,
+          sourceId: source?.id as string,
+          userId: anna?.id,
+          kind: "onedrive" as const,
+          externalId: "drive-anna",
+        },
+      ])
+      .returning();
+
+    const sent = await receiveJournalReport(
+      tenantId,
+      rawJournalReport("To the info alias", {
+        sender: "Bob@Contoso.example",
+        recipients: ["INFO@contoso.example", "someone@elsewhere.example"],
+      }),
+      deps,
+    );
+    const outside = await receiveJournalReport(
+      tenantId,
+      rawJournalReport("Nobody of ours", {
+        sender: "a@elsewhere.example",
+        recipients: ["b@elsewhere.example"],
+      }),
+      deps,
+    );
+
+    const assigned = async (itemId: string) =>
+      (
+        await db
+          .select({ objectId: archiveItemMailboxes.protectedObjectId })
+          .from(archiveItemMailboxes)
+          .where(eq(archiveItemMailboxes.archiveItemId, itemId))
+      )
+        .map((row) => row.objectId)
+        .sort();
+    expect(await assigned(sent.id)).toEqual([annaBox?.id, bobBox?.id].sort());
+    // Archived all the same, assigned to the tenant only.
+    expect(await assigned(outside.id)).toEqual([]);
+    const archived = await db
+      .select({ id: archiveItems.id })
+      .from(archiveItems)
+      .where(eq(archiveItems.id, outside.id));
+    expect(archived).toHaveLength(1);
   }, 60_000);
 
   it("archives a malformed report instead of dropping it, flagged as incomplete", async () => {

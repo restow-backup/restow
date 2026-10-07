@@ -16,6 +16,13 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   PIN_FIRST,
   Table,
   TableBody,
@@ -25,6 +32,9 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ExportDialog, type ExportDialogRequest } from "@/features/exports/export-dialog";
+import type { SnapshotObject } from "@/features/restore/api";
+import { objectLabel } from "@/features/restore/explorer/entry-icon";
+import { useSnapshotObjects } from "@/features/restore/use-restore-data";
 import { ExtensionSlot } from "@/lib/extensions";
 
 import type { ArchiveSearchParams, ArchiveSearchResult, ArchiveSource } from "./api.js";
@@ -41,6 +51,28 @@ const SOURCE_KEYS: Readonly<Record<ArchiveSource, { list: string; detail: string
   imap_sync: { list: "table.sources.imap_sync", detail: "detail.sourceImapSync" },
   file_import: { list: "table.sources.file_import", detail: "detail.sourceFileImport" },
 };
+
+const ALL_MAILBOXES = "all";
+
+/**
+ * The mailboxes the archive can be narrowed to (Microsoft 365 and IMAP, not
+ * OneDrive), named with their address so two of the same name stay apart.
+ * Journal reports count under every mailbox they were assigned to (#32).
+ */
+export function mailboxesOfArchive(
+  objects: readonly SnapshotObject[],
+): { id: string; label: string }[] {
+  return objects
+    .filter((object) => object.kind === "mailbox" || object.kind === "imap")
+    .map((object) => {
+      const name = objectLabel(object);
+      // The owner's address, or an IMAP account's login; never the opaque Entra id.
+      const address = object.ownerEmail ?? (object.kind === "imap" ? object.externalId : null);
+      const repeats = !address || address.toLowerCase() === name.toLowerCase();
+      return { id: object.id, label: repeats ? name : `${name} (${address})` };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
 
 /**
  * /archive: full text search over the tenant's archive, one item's detail
@@ -60,6 +92,10 @@ export function ArchivePage() {
 
   const [q, setQ] = React.useState("");
   const [hasAttachment, setHasAttachment] = React.useState(false);
+  const [mailbox, setMailbox] = React.useState<string | null>(null);
+  const objects = useSnapshotObjects();
+  const mailboxes = mailboxesOfArchive(objects.data ?? []);
+  const mailboxLabel = mailboxes.find((candidate) => candidate.id === mailbox)?.label;
   const [selected, setSelected] = React.useState<string | null>(null);
   const [checked, setChecked] = React.useState<ReadonlySet<string>>(new Set());
   const [exportRequest, setExportRequest] = React.useState<ExportDialogRequest | null>(null);
@@ -67,6 +103,7 @@ export function ArchivePage() {
   const params: ArchiveSearchParams = {
     q: q.trim() || undefined,
     hasAttachment: hasAttachment ? true : undefined,
+    mailbox: mailbox ?? undefined,
     limit: 50,
   };
   const search = useArchiveSearch(params);
@@ -145,8 +182,13 @@ export function ArchivePage() {
           ? { kind: "items", itemIds: checkedIds }
           : {
               kind: "filter",
-              filter: { q: params.q, hasAttachment: params.hasAttachment },
+              filter: {
+                q: params.q,
+                hasAttachment: params.hasAttachment,
+                mailbox: params.mailbox,
+              },
               total: search.data?.total ?? null,
+              ...(mailboxLabel ? { mailboxLabel } : {}),
             },
     });
 
@@ -167,6 +209,28 @@ export function ArchivePage() {
             onChange={(event) => setQ(event.target.value)}
           />
         </div>
+        {mailboxes.length > 0 ? (
+          <Select
+            value={mailbox ?? ALL_MAILBOXES}
+            onValueChange={(value) => setMailbox(value === ALL_MAILBOXES ? null : value)}
+          >
+            <SelectTrigger
+              className="w-full sm:w-64"
+              aria-label={t("search.mailbox")}
+              data-slot="archive-mailbox"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL_MAILBOXES}>{t("search.allMailboxes")}</SelectItem>
+              {mailboxes.map((candidate) => (
+                <SelectItem key={candidate.id} value={candidate.id}>
+                  {candidate.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : null}
         <div className="flex items-center gap-2 text-sm">
           <Checkbox
             id="archive-has-attachment"

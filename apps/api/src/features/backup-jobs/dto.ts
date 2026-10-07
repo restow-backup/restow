@@ -29,6 +29,12 @@ export interface RepositoryDto {
   kind: "local" | "s3" | "installation_default";
   role: "primary" | "copy" | "previous" | null;
   status: "unverified" | "ok" | "error" | null;
+  /**
+   * Whether the target's bucket enforces S3 Object Lock (WORM): what the last
+   * check of the target found. False for a local target; null for the
+   * installation default, whose bucket this view does not know.
+   */
+  objectLock: boolean | null;
 }
 
 export interface JobRetentionDto {
@@ -81,6 +87,8 @@ export interface BackupJobDto {
   kind: JobKindName;
   name: string;
   enabled: boolean;
+  /** Mail jobs: the job's mailboxes are expected in the journal archive (#32). Machine jobs: false. */
+  archive: boolean;
   origin: JobOrigin;
   scopeMode: JobScopeMode;
   /** Null: no schedule, the job runs when someone starts it. */

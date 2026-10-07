@@ -445,12 +445,18 @@ function SnapshotScopeSummary({
 }
 
 /** The parts of an archive search that narrow it, as short readable lines. */
-function filterLines(filter: ArchiveExportFilter, t: TFunction): string[] {
+function filterLines(
+  filter: ArchiveExportFilter,
+  t: TFunction,
+  mailboxLabel: string | undefined,
+): string[] {
   const clean = cleanFilter(filter);
   const lines: string[] = [];
   if (clean.q) lines.push(t("dialog.scope.archive.filter.q", { q: clean.q }));
   if (clean.mailbox)
-    lines.push(t("dialog.scope.archive.filter.mailbox", { mailbox: clean.mailbox }));
+    lines.push(
+      t("dialog.scope.archive.filter.mailbox", { mailbox: mailboxLabel ?? clean.mailbox }),
+    );
   if (clean.from) lines.push(t("dialog.scope.archive.filter.from", { from: clean.from }));
   if (clean.dateFrom)
     lines.push(t("dialog.scope.archive.filter.dateFrom", { date: clean.dateFrom }));
@@ -470,7 +476,7 @@ function ArchiveScopeSummary({ scope }: { scope: ArchiveExportScope }) {
       </p>
     );
   }
-  const lines = filterLines(scope.filter, t);
+  const lines = filterLines(scope.filter, t, scope.mailboxLabel);
   return (
     <div className="space-y-1.5 rounded-md border border-border px-3 py-2 text-sm">
       <p className="font-medium">

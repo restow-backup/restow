@@ -231,6 +231,29 @@ Vorschau und Journal zusammen.
   Umschlag (darüber `recipients-truncated`; der archivierte Report enthält alle). Ein ehrlicher
   Report bis zur Größengrenze bleibt so weit unter dem Speicher seines Prozesses.
 
+### Zuordnung zu Postfächern und Archiv je Job (ab 0.3.0)
+
+Ein Journal-Report nennt Empfänger und Absender, kein Postfach. Der Empfänger ordnet jeden
+archivierten Report in derselben Transaktion allen geschützten Postfächern des Mandanten zu,
+deren Adresse der Umschlag nennt: als Empfänger, als Absender (gesendete Mail), als Postfach, für
+das ein Stellvertreter gesendet hat, oder als Postfach, das weitergeleitet hat. Verglichen wird
+klein geschrieben mit primärer Adresse, UPN und allen SMTP-Aliasen aus `proxyAddresses`, die die
+Verzeichnissynchronisierung speichert (`users.mail_addresses`); ein IMAP-Konto über seinen Login.
+Die Zuordnung steht in `archive_item_mailboxes` (nur hinzufügen, nie ändern, wie
+`archive_items`).
+
+- Ein Report, der kein Postfach des Mandanten nennt, wird trotzdem archiviert und gehört dann nur
+  dem Mandanten. Nichts wird verworfen.
+- Im Editor eines Mail-Jobs schaltet "Postfächer dieses Jobs archivieren" das Archiv für den Job
+  ein. Die Erfassung hängt nicht daran: Exchange journalisiert nach seiner Journalregel, Restow
+  archiviert jeden Report. Der Schalter sagt, welche Postfächer im Archiv erwartet werden, und
+  zeigt Journal-Adresse und Empfangsstatus (Business). Ein Maschinen-Job kann nicht archivieren.
+- Object Lock ist keine Voraussetzung. Ohne Object Lock zeigt der Editor den Hinweis, dass das
+  Archiv dann nur auf Anwendungsebene unveränderbar ist (Abschnitt "Speicherung").
+- Suche, Export und Legal Hold je Postfach berücksichtigen zugeordnete Journal-Reports.
+- Reports, die vor 0.3.0 eingegangen sind, haben keine Zuordnung; sie gehören weiter nur dem
+  Mandanten.
+
 ### Grenzen
 
 - Journaling erfasst ab der Aktivierung. Was vorher im Postfach lag, erfasst das Archiv in
@@ -283,9 +306,9 @@ sind Edition Business und Service Provider.
   Jahresende", wie AO § 147 Abs. 4 rechnet).
 - Legal Hold mit Grund, Anleger, Datum; blockiert Löschung, wird auditiert. In 0.1.0 gilt er
   mandantenweit oder je Postfach, nicht je Suchergebnis (Zielbild). Ein Hold je Postfach schützt
-  nur Archivobjekte, die einem Postfach zugeordnet sind (Datei-Import mit "gleichzeitig
-  archivieren"); Journal-Objekte tragen in 0.1.0 keine Postfach-Zuordnung und werden nur von
-  einem mandantenweiten Hold geschützt.
+  die Archivobjekte, die diesem Postfach gehören: aus dem Datei-Import mit "gleichzeitig
+  archivieren" und, ab 0.3.0, die Journal-Reports, die ihm zugeordnet sind (Abschnitt "Zuordnung
+  zu Postfächern"). Reports ohne Zuordnung schützt nur ein mandantenweiter Hold.
 - Löschlauf: täglich (Aufgabe `retention`, empfohlener Zeitplan 04:30), löscht nur abgelaufene
   Objekte ohne Hold und schreibt jede Löschung ins Audit-Log. Zielbild, nicht in 0.1.0: ein
   Löschprotokoll (Anzahl, Zeitraum, Hashes der gelöschten Objekte) als eigener Eintrag der Kette.

@@ -122,6 +122,14 @@ export const backupJobs = pgTable(
     }),
     settings: jsonb("settings").$type<BackupJobSettings>().notNull().default({}),
     enabled: boolean("enabled").notNull().default(true),
+    /**
+     * Mail jobs: the job's mailboxes are archived through journaling (docs/ARCHIVE.md).
+     * Capture never depends on it: the journal receiver archives every report it gets
+     * and assigns it to the mailboxes it names. The flag says which mailboxes the
+     * operator expects in the archive, so the job can show and check their capture.
+     * Always false for endpoint jobs.
+     */
+    archive: boolean("archive").notNull().default(false),
     origin: text("origin").$type<BackupJobOrigin>().notNull().default("user"),
     nextRunAt: timestamp("next_run_at", { withTimezone: true }),
     lastRunAt: timestamp("last_run_at", { withTimezone: true }),

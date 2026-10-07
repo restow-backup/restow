@@ -108,6 +108,8 @@ export const createBackupJobSchema = z.object({
   retentionPolicyId: uuid.nullable().optional(),
   settings: jobSettingsSchema.default({}),
   enabled: z.boolean().default(true),
+  /** Mail jobs: the job's mailboxes are archived through journaling (#32). Machine jobs: always false. */
+  archive: z.boolean().default(false),
   /** Take objects and machines that belong to another job instead of refusing them. */
   moveMembers: z.boolean().default(false),
 });
@@ -122,6 +124,7 @@ export const updateBackupJobSchema = z
     retentionPolicyId: uuid.nullable().optional(),
     settings: jobSettingsSchema.optional(),
     enabled: z.boolean().optional(),
+    archive: z.boolean().optional(),
   })
   .refine((patch) => Object.values(patch).some((value) => value !== undefined), {
     message: "Nothing to update.",

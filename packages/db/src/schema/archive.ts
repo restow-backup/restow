@@ -104,6 +104,35 @@ export const archiveItems = pgTable(
   ],
 );
 
+/**
+ * The mailboxes an archived mail belongs to. A journal report names its recipients
+ * (and sender), not one mailbox, so the receiver assigns the item to every protected
+ * mailbox whose address the envelope names. `archive_items` stays untouched
+ * (append-only); an item without a row here belongs to the tenant as a whole.
+ * Assignments are never changed, only added; they go with their item (retention run)
+ * or their mailbox (deleted object).
+ */
+export const archiveItemMailboxes = pgTable(
+  "archive_item_mailboxes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "restrict" }),
+    archiveItemId: uuid("archive_item_id")
+      .notNull()
+      .references(() => archiveItems.id, { onDelete: "cascade" }),
+    protectedObjectId: uuid("protected_object_id")
+      .notNull()
+      .references(() => protectedObjects.id, { onDelete: "cascade" }),
+    ...createdOnly(),
+  },
+  (t) => [
+    uniqueIndex("archive_item_mailboxes_item_object_uq").on(t.archiveItemId, t.protectedObjectId),
+    index("archive_item_mailboxes_object_idx").on(t.tenantId, t.protectedObjectId),
+  ],
+);
+
 /** Daily anchor of the archive hash chain (date, last chain value, count). */
 export const archiveAnchor = pgTable(
   "archive_anchor",

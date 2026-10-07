@@ -23,12 +23,18 @@
  *
  * Legal hold coverage: a tenant-wide hold (no `protected_object_id`) blocks
  * every item; a hold scoped to a mailbox blocks items captured for that
- * mailbox. A hold scoped to a search query (`legal_holds.scope`) is not
+ * mailbox and journal reports assigned to it (archive_item_mailboxes). A hold scoped to a search query (`legal_holds.scope`) is not
  * evaluated here (a known limitation): query-scoped holds need the same
  * search machinery as features/archive/search.ts.
  */
 import { archive } from "@restow/core";
-import { type Database, archiveItems, legalHolds, retentionPolicies } from "@restow/db";
+import {
+  type Database,
+  archiveItemMailboxIds,
+  archiveItems,
+  legalHolds,
+  retentionPolicies,
+} from "@restow/db";
 import { and, eq, lte, sql } from "drizzle-orm";
 import { appendAuditEntry } from "../../../../apps/worker/src/audit.js";
 import type { WorkerJobContext } from "../../../../apps/worker/src/handlers/framework.js";
@@ -90,11 +96,15 @@ async function loadHolds(providerDb: Database, tenantId: string): Promise<HoldSc
   return { tenantWide, protectedObjectIds };
 }
 
-function isHeld(protectedObjectId: string | null, holds: HoldScope): boolean {
+/**
+ * Whether a hold covers an item: a tenant-wide hold, or a hold on any mailbox
+ * the item belongs to (its own, or a journal report's assignments, #32).
+ */
+function isHeld(mailboxIds: readonly string[], holds: HoldScope): boolean {
   if (holds.tenantWide) {
     return true;
   }
-  return protectedObjectId !== null && holds.protectedObjectIds.has(protectedObjectId);
+  return mailboxIds.some((id) => holds.protectedObjectIds.has(id));
 }
 
 /** The task's own run, separated from {@link createArchiveRetentionTask} so tests can call it directly. */
@@ -113,7 +123,7 @@ export async function runArchiveRetention(
       id: archiveItems.id,
       itemHash: archiveItems.itemHash,
       chainHash: archiveItems.chainHash,
-      protectedObjectId: archiveItems.protectedObjectId,
+      mailboxIds: archiveItemMailboxIds,
       retentionUntil: archiveItems.retentionUntil,
     })
     .from(archiveItems)
@@ -123,7 +133,7 @@ export async function runArchiveRetention(
   let held = 0;
 
   for (const item of candidates) {
-    const itemHeld = isHeld(item.protectedObjectId, holds);
+    const itemHeld = isHeld(item.mailboxIds ?? [], holds);
     if (!archive.isDueForDeletion(item.retentionUntil, itemHeld, currentTime)) {
       if (itemHeld) {
         held++;

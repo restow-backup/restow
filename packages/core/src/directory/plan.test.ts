@@ -10,6 +10,7 @@ import {
   isPartialEntry,
   planDirectory,
   probeTargets,
+  smtpAddresses,
   toDirectoryUser,
 } from "./plan.js";
 import { DEFAULT_PROTECTION_RULES, normalizeRules } from "./rules.js";
@@ -73,6 +74,8 @@ describe("toDirectoryUser", () => {
       displayName: "Alice Example",
       accountEnabled: true,
       userType: "Member",
+      // The fixture's entry carries no proxyAddresses: the stored ones stay.
+      mailAddresses: null,
     });
     const noMail = toDirectoryUser({
       id: "user-x",
@@ -84,6 +87,32 @@ describe("toDirectoryUser", () => {
     });
     expect(noMail?.email).toBe("x@contoso.example");
     expect(noMail?.mail).toBeNull();
+  });
+
+  it("keeps every SMTP address of the mailbox, lowercase, and nothing else", () => {
+    const user = toDirectoryUser({
+      id: "user-y",
+      userPrincipalName: "y@contoso.onmicrosoft.com",
+      displayName: "Y",
+      accountEnabled: true,
+      userType: "Member",
+      mail: "Yvonne@Contoso.example",
+      proxyAddresses: [
+        "SMTP:Yvonne@Contoso.example",
+        "smtp:info@contoso.example",
+        "smtp:y@contoso.onmicrosoft.com",
+        "SIP:yvonne@contoso.example",
+        "X500:/o=ExchangeLabs/ou=Exchange",
+        "smtp:not-an-address",
+      ],
+    });
+    expect(user?.mailAddresses).toEqual([
+      "yvonne@contoso.example",
+      "info@contoso.example",
+      "y@contoso.onmicrosoft.com",
+    ]);
+    expect(smtpAddresses(undefined, null)).toEqual([]);
+    expect(smtpAddresses([], "A@B.example")).toEqual(["a@b.example"]);
   });
 
   it("recognises partial and removed entries", () => {

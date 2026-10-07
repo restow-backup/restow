@@ -180,9 +180,31 @@ describe("saving a new mail job", () => {
       scope: { mode: "selected", members: [{ id: "o1" }, { id: "o2" }] },
     });
     expect(body).not.toHaveProperty("moveMembers");
+    expect(body).not.toHaveProperty("archive");
     // The editor closes and the address drops the editor.
     expect(slot("job-editor")).toBeNull();
     expect(opened?.where().search).toEqual({ type: "mail" });
+  });
+
+  it("archives the mailboxes on request, warns without Object Lock and says that capture needs Business", async () => {
+    let body: unknown = null;
+    await open("/jobs?type=mail&new=1", {
+      ...MAIL_ROUTES,
+      "POST /backup-jobs": (request) => {
+        body = request.body;
+        return json(mailJob({ id: "new", name: "Archived" }), 201);
+      },
+    });
+    expect(slot("archive-object-lock")).toBeNull();
+    await typeInto(field("Name"), "Archived");
+    await click(field("Archive this job's mailboxes"));
+    // The fixture's repository is an S3 bucket without Object Lock.
+    expect(slot("archive-object-lock")?.textContent).toContain("no Object Lock");
+    // No extension in this build: the core's own note.
+    expect(slot("archive-edition")?.textContent).toContain("Business edition");
+    await click(buttonByText(editor(), "Create job"));
+    await flush(5);
+    expect(body).toMatchObject({ kind: "mail", name: "Archived", archive: true });
   });
 
   it("covers everything by default when no other job does, and offers that choice only then", async () => {

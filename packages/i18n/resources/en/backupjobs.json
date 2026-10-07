@@ -537,6 +537,15 @@
       },
       "policy": "Retention policy"
     },
+    "archive": {
+      "title": "Archive",
+      "description": "Tamper-evident archive through Exchange journaling: every mail is captured as soon as Exchange delivers it, independent of the backup schedule.",
+      "switch": "Archive this job's mailboxes",
+      "hint": "The archive takes in every journal report and assigns it to the mailboxes that received or sent it. Mail for mailboxes outside an archiving job is archived all the same, only not assigned to a job.",
+      "noObjectLock": "This tenant's storage has no Object Lock. The archive is then immutable at application level only: whoever can reach the storage or the server can change or delete data.",
+      "objectLockUnknown": "The archive is kept in the installation's default storage. Whether it has Object Lock is shown under Storage.",
+      "edition": "Capture through Exchange journaling is part of the Business edition. Without it the setting is kept, but nothing is archived."
+    },
     "folders": {
       "title": "Folders",
       "description": "The folders every machine of this job backs up."

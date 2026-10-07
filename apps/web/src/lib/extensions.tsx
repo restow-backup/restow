@@ -67,6 +67,13 @@ export interface SlotProps {
    */
   "tenant.archiveSettings": { readOnly: boolean };
   /**
+   * The archive section of a mail job's editor (features/backup-jobs, job-editor.tsx):
+   * what the Business modules show about journaling (the journal address and
+   * whether reports arrive) while the job archives. The core's fallback says
+   * that capture needs the Business edition.
+   */
+  "jobs.archiveSetup": { archive: boolean };
+  /**
    * The sidebar footer row next to the running version
    * (components/layout/app-sidebar.tsx); hidden while the sidebar is collapsed.
    */

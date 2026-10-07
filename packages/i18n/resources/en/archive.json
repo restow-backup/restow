@@ -20,7 +20,9 @@
     "dateTo": "To date",
     "results": "{count, plural, one {# result} other {# results}}",
     "empty": "No archived mail matches this search.",
-    "emptyTenant": "Nothing has been archived for this tenant yet."
+    "emptyTenant": "Nothing has been archived for this tenant yet.",
+    "mailbox": "Mailbox",
+    "allMailboxes": "All mailboxes"
   },
   "table": {
     "subject": "Subject",
@@ -163,6 +165,12 @@
       "description": "The name Exchange Online delivers its journal reports to. It is the same for every tenant of this server.",
       "none": "Not set",
       "section": "Journal receiving"
+    },
+    "job": {
+      "title": "Journaling in Exchange",
+      "description": "Exchange delivers this tenant's journal reports to this address. Set up the connector and the journal rule once per tenant; the guide is in the archive.",
+      "guide": "Open the guide in the archive",
+      "edition": "Capture through Exchange journaling is part of the Business edition. Without it the setting is kept, but nothing is archived."
     }
   },
   "flags": {

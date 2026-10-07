@@ -14,11 +14,14 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { archive } from "@restow/core";
 import {
   type Database,
+  archiveItemMailboxes,
   archiveItems,
   auditLog,
   createDb,
+  protectedObjects,
   providers,
   retentionPolicies,
+  sources as sourcesTable,
   tenants,
 } from "@restow/db";
 import { eq } from "drizzle-orm";
@@ -169,6 +172,39 @@ describe.skipIf(!testDatabaseAdminUrl)("archive against Postgres", () => {
 
     const auditRows = await owner.select().from(auditLog).where(eq(auditLog.tenantId, contoso));
     expect(auditRows.some((row) => row.action === "archive.searched")).toBe(true);
+  });
+
+  it("finds a journal report under every mailbox it was assigned to", async () => {
+    const [source] = await owner
+      .insert(sourcesTable)
+      .values({ tenantId: contoso, kind: "m365", name: "Contoso M365", status: "active" })
+      .returning();
+    const [anna, bob] = await owner
+      .insert(protectedObjects)
+      .values([
+        { tenantId: contoso, sourceId: source?.id ?? "", kind: "mailbox", externalId: "oid-anna" },
+        { tenantId: contoso, sourceId: source?.id ?? "", kind: "mailbox", externalId: "oid-bob" },
+      ])
+      .returning();
+    const [lunch] = await owner
+      .select({ id: archiveItems.id })
+      .from(archiveItems)
+      .where(eq(archiveItems.messageId, "msg-c2"));
+    await owner.insert(archiveItemMailboxes).values({
+      tenantId: contoso,
+      archiveItemId: lunch?.id ?? "",
+      protectedObjectId: anna?.id ?? "",
+    });
+
+    const search = async (mailbox: string) =>
+      (await (
+        await app.request(`/archive/search?mailbox=${mailbox}`, {
+          headers: { "x-restow-tenant": contoso },
+        })
+      ).json()) as { items: { subject: string }[]; total: number };
+    const ofAnna = await search(anna?.id ?? "");
+    expect(ofAnna.items.map((item) => item.subject)).toEqual(["Lunch plans"]);
+    expect((await search(bob?.id ?? "")).total).toBe(0);
   });
 
   it("never returns another tenant's items, even with a matching query", async () => {

@@ -84,6 +84,12 @@ export interface Repository {
   kind: "local" | "s3" | "installation_default";
   role: "primary" | "copy" | "previous" | null;
   status: "unverified" | "ok" | "error" | null;
+  /**
+   * Whether the target's bucket enforces S3 Object Lock (WORM): what the last
+   * check of the target found. False for a local target; null for the
+   * installation default, whose bucket this view does not know.
+   */
+  objectLock: boolean | null;
 }
 
 export interface JobRetentionView {
@@ -135,6 +141,8 @@ export interface BackupJob {
   kind: JobKind;
   name: string;
   enabled: boolean;
+  /** Mail jobs: the job's mailboxes are archived through journaling. Machine jobs: false. */
+  archive: boolean;
   origin: JobOrigin;
   scopeMode: JobScopeMode;
   /** Null: no schedule, the job runs when someone starts it. */
@@ -298,6 +306,8 @@ export interface CreateBackupJobInput {
   retentionPolicyId?: string | null;
   settings?: JobEndpointSettings;
   enabled?: boolean;
+  /** Mail jobs: archive the job's mailboxes through journaling. */
+  archive?: boolean;
   /** Take objects and machines that belong to another job instead of refusing them. */
   moveMembers?: boolean;
 }
@@ -311,6 +321,7 @@ export interface UpdateBackupJobInput {
   retentionPolicyId?: string | null;
   settings?: JobEndpointSettings;
   enabled?: boolean;
+  archive?: boolean;
 }
 
 export interface ReplaceMembersInput {

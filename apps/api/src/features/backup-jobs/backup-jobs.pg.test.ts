@@ -401,6 +401,37 @@ describe.skipIf(!testDatabaseAdminUrl)("backup jobs against Postgres", () => {
     expect(await audits("backup_job.updated", job.id)).toHaveLength(3);
   });
 
+  it("archives a mail job's mailboxes on request and audits the switch", async () => {
+    const job = await json<BackupJobDto>(
+      await call("POST", "", {
+        body: {
+          kind: "mail",
+          name: "Archived",
+          schedule: mailSchedule,
+          archive: true,
+          scope: { mode: "selected", members: [] },
+        },
+      }),
+      201,
+    );
+    expect(job.archive).toBe(true);
+    const off = await json<BackupJobDto>(
+      await call("PATCH", `/${job.id}`, { body: { archive: false } }),
+      200,
+    );
+    expect(off.archive).toBe(false);
+    const [entry] = await audits("backup_job.updated", job.id);
+    expect(entry?.details).toMatchObject({ changes: { archive: { from: true, to: false } } });
+
+    const plain = await json<BackupJobDto>(
+      await call("POST", "", {
+        body: { kind: "mail", name: "Not archived", scope: { mode: "selected", members: [] } },
+      }),
+      201,
+    );
+    expect(plain.archive).toBe(false);
+  });
+
   it("keeps a job's timers when it is saved with the same schedule written in another way", async () => {
     // The editor sends the whole schedule on every save, the keys in its own order, a cron
     // expression with its own spacing. The stored document is the database's (jsonb keeps keys
@@ -547,6 +578,8 @@ describe.skipIf(!testDatabaseAdminUrl)("backup jobs against Postgres", () => {
         ["verifySchedule"],
       ],
       [machineJob("x", [machines.web01 ?? ""], { enabled: false }), ["enabled"]],
+      // Archiving is journaling of mailboxes: a machine job has nothing to archive.
+      [machineJob("x", [machines.web01 ?? ""], { archive: true }), ["archive"]],
       [
         machineJob("x", [machines.web01 ?? ""], { scope: { mode: "all", members: [] } }),
         ["scope", "mode"],
