@@ -29,7 +29,7 @@ import type { DbExecutor } from "./tenant-context.js";
  */
 
 /** Version of the notice text; bump together with any change of the wording. */
-export const DISCLAIMER_VERSION = "2026-10-01";
+export const DISCLAIMER_VERSION = "2026-10-07";
 
 /** Problem type of a setup request made before the notice was accepted. */
 export const DISCLAIMER_REQUIRED_PROBLEM = "urn:restow:problem:disclaimer-required";

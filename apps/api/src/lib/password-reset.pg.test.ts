@@ -17,7 +17,19 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import { createOTP } from "@better-auth/utils/otp";
-import { type Database, account, auditLog, createDb, settings, twoFactor, user } from "@restow/db";
+import {
+  type Database,
+  account,
+  auditLog,
+  createDb,
+  member,
+  organization,
+  providers,
+  settings,
+  tenants,
+  twoFactor,
+  user,
+} from "@restow/db";
 import { symmetricDecrypt } from "better-auth/crypto";
 import { eq, isNull } from "drizzle-orm";
 import type { Hono } from "hono";
@@ -275,6 +287,48 @@ describe.skipIf(!testDatabaseAdminUrl)("the own password against Postgres", () =
     expect(entries).toHaveLength(1);
     expect(entries[0]?.target).toBe(id);
     expect(entries[0]?.details).toMatchObject({ otherSessionsEnded: true });
+  });
+
+  it("records a tenant user's password change in that tenant's audit log", async () => {
+    const email = "tenant-user@example.com";
+    const { id, cookie } = await createAccount(email, "tenant-password-1", {
+      authenticator: true,
+    });
+    // A user of a tenant only: no installation administrator role.
+    await owner.update(user).set({ role: "user" }).where(eq(user.id, id));
+    const organizationId = randomUUID();
+    await owner
+      .insert(organization)
+      .values({ id: organizationId, name: "Contoso", slug: "contoso-pw", createdAt: new Date() });
+    const [provider] = await owner.insert(providers).values({ name: "Provider" }).returning();
+    const [tenant] = await owner
+      .insert(tenants)
+      .values({
+        providerId: provider?.id as string,
+        organizationId,
+        name: "Contoso",
+        slug: "contoso-pw",
+      })
+      .returning();
+    await owner.insert(member).values({
+      id: randomUUID(),
+      organizationId,
+      userId: id,
+      role: "member",
+      createdAt: new Date(),
+    });
+
+    const changed = await authCall(
+      "/change-password",
+      { currentPassword: "tenant-password-1", newPassword: "tenant-password-2" },
+      cookie,
+    );
+    expect(changed.status).toBe(200);
+
+    const entries = (await owner.select().from(auditLog)).filter(
+      (entry) => entry.action === "account.password_changed" && entry.target === id,
+    );
+    expect(entries.map((entry) => entry.tenantId)).toEqual([tenant?.id]);
   });
 
   it("lists the own sessions and signs one of them out", async () => {

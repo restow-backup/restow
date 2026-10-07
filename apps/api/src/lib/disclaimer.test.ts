@@ -43,8 +43,8 @@ const notice = { en: setupEn.disclaimer as Tree, de: setupDe.disclaimer as Tree 
  * (lib/disclaimer.ts) and paste the new digests, in the same change.
  */
 const PINNED_DIGESTS: Record<"en" | "de", string> = {
-  en: "dfa3cf80534cb5c7a210bae6410d2a929bfeb9a5f8ee2b45a3a9c4a2a8f06159",
-  de: "d8c52bef2eb1cb9fdda6332088c296e649d955c405a7b2ac20459ee9fc626ae4",
+  en: "5c68a55f6652eb7103308ecb2e7414d9a3608b02fccbb96b2217907e75d0ed79",
+  de: "69573476353d8febc064c88bd58e7150aa775c7e84dbe5c14e6d05fb34e8dbee",
 };
 
 describe("isDisclaimerAccepted", () => {

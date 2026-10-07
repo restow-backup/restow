@@ -48,11 +48,11 @@
       },
       "storage": {
         "title": "Hardware und Speicher",
-        "body": "Sie sind verantwortlich für die Server, Datenträger, Netzwerke und Speicherziele darunter sowie für deren Redundanz, Kapazität und Zustand. Fällt ein Speicherziel aus, läuft es voll, geht es verloren oder wird es nicht getrennt gesichert, kann {appName} das weder beheben noch die Daten zurückbringen."
+        "body": "Sie sind verantwortlich für die Server, Datenträger, Netzwerke und Speicherorte darunter sowie für deren Redundanz, Kapazität und Zustand. Fällt ein Speicherort aus, läuft es voll, geht es verloren oder wird es nicht getrennt gesichert, kann {appName} das weder beheben noch die Daten zurückbringen."
       },
       "immutability": {
         "title": "Ransomware und Löschen",
-        "body": "Daten sind nur dann unveränderbar, wenn der Speicher sie dazu macht. Ist auf dem Speicherziel kein WORM oder Object Lock eingerichtet, kann jeder, der es erreicht, auch Ransomware oder ein kompromittiertes Konto, Ihre Sicherungen und Ihr Archiv ändern oder löschen. Den Speicher gegen Ransomware und Löschen zu schützen, liegt bei Ihnen."
+        "body": "Daten sind nur dann unveränderbar, wenn der Speicher sie dazu macht. Ist auf dem Speicherort kein WORM oder Object Lock eingerichtet, kann jeder, der es erreicht, auch Ransomware oder ein kompromittiertes Konto, Ihre Sicherungen und Ihr Archiv ändern oder löschen. Den Speicher gegen Ransomware und Löschen zu schützen, liegt bei Ihnen."
       },
       "keys": {
         "title": "Verschlüsselungsschlüssel",
@@ -63,8 +63,8 @@
         "body": "Sie sind verantwortlich für die Sicherheit von Server, Netzwerk, Konten und Zugangsdaten, die {appName} und seinen Speicher erreichen: Updates, Firewall, HTTPS, starke Anmeldung und wer worauf zugreifen darf."
       },
       "restore": {
-        "title": "Restore regelmäßig testen",
-        "body": "Testen Sie Wiederherstellungen regelmäßig und prüfen Sie die Ergebnisse, zusätzlich zur Prüfung, die {appName} selbst durchführt. Eine Sicherung, die Sie nie wiederhergestellt haben, ist keine, auf die Sie sich verlassen können."
+        "title": "Wiederherstellung regelmäßig testen",
+        "body": "Testen Sie Wiederherstellungen regelmäßig und prüfen Sie die Ergebnisse, zusätzlich zur Restore-Prüfung, die {appName} selbst durchführt. Eine Sicherung, die Sie nie wiederhergestellt haben, ist keine, auf die Sie sich verlassen können."
       },
       "gobd": {
         "title": "Archiv und GoBD",

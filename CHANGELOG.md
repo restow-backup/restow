@@ -139,6 +139,8 @@ filled in).
 - New optional environment variables: `RESTOW_MOUNTER_IMAGE` (the mounter pins it on
   its first start; leave empty) and `RESTOW_MOUNTER_URL` (default
   `http://mounter:8091`).
+- The setup notice changed (storage location, restore check): every installation asks
+  its provider admin once to accept it again.
 - `docker-compose.yml` gains the `mounter` service in the profile `mounts`; replace
   your compose file with the one of this release (the updater does this for you).
 - Rollback: restore the database dump taken before the update and start the 0.2.2

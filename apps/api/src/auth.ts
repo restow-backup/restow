@@ -124,9 +124,9 @@ async function auditInvitationAnswer(input: {
 
 /**
  * `hooks.after`: the signed-in person changed their own password
- * (`/change-password`, Account › Sign-in security). Written to the
- * installation audit chain, like the reset by mail and the recovery on the
- * command line.
+ * (`/change-password`, Account › Sign-in security). Written to the audit
+ * chain of each tenant the person belongs to and, for provider members and
+ * administrators, to the installation chain (lib/password-reset.ts).
  */
 async function auditPasswordChange(input: {
   path: string;

@@ -48,11 +48,11 @@
       },
       "storage": {
         "title": "Hardware and storage",
-        "body": "You are responsible for the servers, disks, networks and storage targets underneath, and for their redundancy, capacity and health. If a storage target fails, runs full, is lost or is not backed up separately, {appName} cannot repair that or bring the data back."
+        "body": "You are responsible for the servers, disks, networks and storage locations underneath, and for their redundancy, capacity and health. If a storage location fails, runs full, is lost or is not backed up separately, {appName} cannot repair that or bring the data back."
       },
       "immutability": {
         "title": "Ransomware and deletion",
-        "body": "Data is only immutable if the storage makes it so. Without WORM or Object Lock configured on the storage target, anyone who can reach it, ransomware and a compromised account included, can change or delete your backups and archive. Protecting the storage against ransomware and deletion is your responsibility."
+        "body": "Data is only immutable if the storage makes it so. Without WORM or Object Lock configured on the storage location, anyone who can reach it, ransomware and a compromised account included, can change or delete your backups and archive. Protecting the storage against ransomware and deletion is your responsibility."
       },
       "keys": {
         "title": "Encryption keys",
@@ -64,7 +64,7 @@
       },
       "restore": {
         "title": "Test your restores",
-        "body": "Test restores regularly and check the results, in addition to the verification {appName} runs itself. A backup you have never restored is one you cannot rely on."
+        "body": "Test restores regularly and check the results, in addition to the restore check {appName} runs itself. A backup you have never restored is one you cannot rely on."
       },
       "gobd": {
         "title": "Archive and GoBD",

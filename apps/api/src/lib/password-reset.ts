@@ -1,4 +1,12 @@
-import { type Database, account, settings, user } from "@restow/db";
+import {
+  type Database,
+  account,
+  member,
+  providerMembers,
+  settings,
+  tenants,
+  user,
+} from "@restow/db";
 import { type SupportedLanguage, createI18n } from "@restow/i18n";
 import { and, eq } from "drizzle-orm";
 import { config } from "../config.js";
@@ -197,7 +205,39 @@ export function ipOfRequest(request: Request | undefined): string | null {
   return request ? (clientIpOf((name) => request.headers.get(name) ?? undefined) ?? null) : null;
 }
 
-/** Write a password change or reset of `person` to the installation audit chain. */
+/**
+ * Where a password event of `person` is recorded: the audit chain of every
+ * tenant they are a user of, so that tenant's admins see it, and the
+ * installation chain for provider members, administrators and anyone in no
+ * tenant.
+ */
+export async function passwordAuditTargets(
+  db: Database,
+  personId: string,
+): Promise<(string | null)[]> {
+  const memberships = await db
+    .select({ tenantId: tenants.id })
+    .from(member)
+    .innerJoin(tenants, eq(tenants.organizationId, member.organizationId))
+    .where(eq(member.userId, personId));
+  const [provider] = await db
+    .select({ id: providerMembers.id })
+    .from(providerMembers)
+    .where(eq(providerMembers.userId, personId))
+    .limit(1);
+  const [person] = await db
+    .select({ role: user.role })
+    .from(user)
+    .where(eq(user.id, personId))
+    .limit(1);
+  const targets: (string | null)[] = [...new Set(memberships.map((row) => row.tenantId))];
+  if (provider || person?.role === "admin" || targets.length === 0) {
+    targets.push(null);
+  }
+  return targets;
+}
+
+/** Write a password change or reset of `person` to the audit chains it belongs in. */
 export async function auditPasswordEvent(
   db: Database,
   action: (typeof PASSWORD_AUDIT_ACTIONS)[keyof typeof PASSWORD_AUDIT_ACTIONS],
@@ -206,16 +246,18 @@ export async function auditPasswordEvent(
   details?: Record<string, unknown>,
 ): Promise<void> {
   try {
-    await audit(db, {
-      tenantId: null,
-      actor: person.email,
-      actorUserId: person.id,
-      action,
-      target: person.id,
-      targetType: "user",
-      ip,
-      ...(details ? { details } : {}),
-    });
+    for (const tenantId of await passwordAuditTargets(db, person.id)) {
+      await audit(db, {
+        tenantId,
+        actor: person.email,
+        actorUserId: person.id,
+        action,
+        target: person.id,
+        targetType: "user",
+        ip,
+        ...(details ? { details } : {}),
+      });
+    }
   } catch (error) {
     writeAuthLog("error", "PASSWORD_AUDIT_FAILED", error);
   }
