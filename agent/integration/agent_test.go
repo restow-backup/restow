@@ -348,9 +348,18 @@ func TestInterruptedBackupResumes(t *testing.T) {
 	if fin2.Status != api.StatusSucceeded || fin2.SnapshotID == "" {
 		t.Fatalf("resumed backup: %s %+v\n%s", fin2.Status, fin2.Errors, fin2.LogTail)
 	}
-	st, _ = status.Load(e.layout.StatusFile())
-	if st.Interrupted || st.ConsecutiveFailures != 0 || st.LastSuccessAt.IsZero() {
-		t.Fatalf("status after resume: %+v", st)
+	// The agent reports the finished run before it writes the status file, so the
+	// file may still show the run as running for a moment.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		st, _ = status.Load(e.layout.StatusFile())
+		if st != nil && !st.Interrupted && st.ConsecutiveFailures == 0 && !st.LastSuccessAt.IsZero() {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("status after resume: %+v", st)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
 
