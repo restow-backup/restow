@@ -207,7 +207,8 @@ describe("webhooks", () => {
       format: "restow",
     });
     const messages = result.success ? [] : result.error.issues.map((issue) => issue.message);
-    expect(messages).toEqual(["scheme", "eventsRequired"]);
+    // No event is allowed: a webhook only rules send to.
+    expect(messages).toEqual(["scheme"]);
     expect(
       webhookFormSchema.safeParse({
         name: "",

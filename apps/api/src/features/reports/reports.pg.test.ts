@@ -376,6 +376,47 @@ describe.skipIf(!testDatabaseAdminUrl)("alerts and reports against Postgres", ()
       event: "report.alert",
       data: { rule: { id: rule.id } },
     });
+
+    // Handed over is not delivered: the log shows the webhook's own outcome.
+    const log = async () =>
+      (
+        (await (
+          await call("GET", `/reports/deliveries?ruleId=${rule.id}`)
+        ).json()) as ReportDeliveryDto[]
+      )[0];
+    expect(await log()).toMatchObject({
+      channel: "webhook",
+      status: "pending",
+      webhook: { id: hook?.id, deliveryId: handed[0]?.id },
+    });
+    expect((await (await call("GET", "/reports/rules")).json()) as ReportRuleDto[]).toContainEqual(
+      expect.objectContaining({
+        id: rule.id,
+        lastDelivery: expect.objectContaining({ status: "pending" }),
+      }),
+    );
+    await owner
+      .update(webhookDeliveries)
+      .set({ status: "failed", lastError: "HTTP 404" })
+      .where(eq(webhookDeliveries.id, handed[0]?.id ?? ""));
+    expect(await log()).toMatchObject({ status: "failed", lastError: "HTTP 404" });
+    const failedOnly = (await (
+      await call("GET", "/reports/deliveries?status=failed")
+    ).json()) as ReportDeliveryDto[];
+    expect(failedOnly.map((row) => row.id)).toContain((await log())?.id);
+    await owner
+      .update(webhookDeliveries)
+      .set({ status: "delivered", lastError: null, deliveredAt: clock })
+      .where(eq(webhookDeliveries.id, handed[0]?.id ?? ""));
+    expect(await log()).toMatchObject({ status: "sent" });
+
+    // The log as CSV, with the same filters.
+    const csv = await call("GET", `/reports/deliveries/export?ruleId=${rule.id}`);
+    expect(csv.status).toBe(200);
+    expect(csv.headers.get("content-type")).toContain("text/csv");
+    const text = await csv.text();
+    expect(text).toContain("createdAt,tenant,rule");
+    expect(text).toContain("To RMM");
   });
 
   it("lists the bell per tenant and marks entries read", async () => {
@@ -487,5 +528,48 @@ describe.skipIf(!testDatabaseAdminUrl)("alerts and reports against Postgres", ()
       items: { tenantId: string | null }[];
     };
     expect(own.items.some((item) => item.tenantId === null)).toBe(false);
+  });
+
+  it("pages through the notification history beyond the bell", async () => {
+    await owner.insert(notifications).values(
+      Array.from({ length: 35 }, (_, index) => ({
+        tenantId: fabrikam,
+        level: index % 2 === 0 ? ("error" as const) : ("info" as const),
+        event: "backup.failed",
+        message: `History ${index}`,
+        createdAt: new Date(clock.getTime() - index * 60_000),
+      })),
+    );
+    const first = (await (
+      await call("GET", "/notifications/history?limit=20", {
+        tenant: fabrikam,
+        role: "tenant_user",
+      })
+    ).json()) as { items: { message: string }[]; next: string | null };
+    expect(first.items).toHaveLength(20);
+    expect(first.next).not.toBeNull();
+    const second = (await (
+      await call(
+        "GET",
+        `/notifications/history?limit=20&before=${encodeURIComponent(first.next ?? "")}`,
+        {
+          tenant: fabrikam,
+          role: "tenant_user",
+        },
+      )
+    ).json()) as { items: { message: string }[]; next: string | null };
+    expect(second.items.length).toBeGreaterThanOrEqual(15);
+    expect(second.items.map((item) => item.message)).not.toContain(first.items[0]?.message);
+    const attention = (await (
+      await call("GET", "/notifications/history?level=attention&limit=200", { tenant: fabrikam })
+    ).json()) as { items: { level: string }[] };
+    expect(attention.items.every((item) => item.level !== "info")).toBe(true);
+  });
+
+  it("keeps the views across tenants behind the Service Provider gate", async () => {
+    const response = await app.request("/notifications/provider/deliveries", {
+      headers: { "x-test-provider": "1" },
+    });
+    expect(response.status).toBe(403);
   });
 });

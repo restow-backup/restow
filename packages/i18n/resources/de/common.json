@@ -1,7 +1,7 @@
 {
   "app": {
     "name": "{appName}",
-    "tagline": "{appName}. Backup, dessen Wiederherstellbarkeit du belegen kannst."
+    "tagline": "{appName}. Backup, dessen Wiederherstellbarkeit Sie belegen können."
   },
   "actions": {
     "save": "Speichern",
@@ -172,7 +172,8 @@
     "forbiddenTitle": "Kein Zugriff",
     "roleInTenant": "Ihre Rolle in {tenant}: {role}.",
     "providerRole": "Ihre Rolle im Provider-Team erlaubt das nicht.",
-    "providerScope": "Dieser Mandant gehört nicht zu Ihren Mandanten im Provider-Team."
+    "providerScope": "Dieser Mandant gehört nicht zu Ihren Mandanten im Provider-Team.",
+    "tenantNotAccessible": "Sie haben keinen Zugriff auf den Mandanten, den der Link nennt. Es wird der zuletzt gewählte Mandant angezeigt."
   },
   "notFound": {
     "title": "Seite nicht gefunden",

@@ -133,12 +133,12 @@
     "export": "Export",
     "impersonation": "Handeln für andere",
     "import": "Import",
-    "job": "Jobs",
+    "job": "Läufe",
     "legal_hold": "Legal Hold",
     "license": "Lizenz",
     "restore": "Wiederherstellung",
-    "retention": "Aufbewahrung",
-    "retention_policy": "Aufbewahrung",
+    "retention": "Aufbewahrungsläufe",
+    "retention_policy": "Aufbewahrungsrichtlinien",
     "schedule": "Zeitpläne",
     "scrub": "Speicherprüfung",
     "settings": "Einstellungen",
@@ -155,7 +155,7 @@
     "report": "Alarme",
     "update": "Updates",
     "endpoint": "Server und Clients",
-    "backup_job": "Jobs (Definitionen)",
+    "backup_job": "Backup-Jobs",
     "mount": "Netzlaufwerke",
     "pve": "Proxmox VE",
     "warning": "Warnungen"
@@ -547,6 +547,9 @@
     "warning": {
       "acknowledged": "Warnung bestätigt",
       "acknowledgement_revoked": "Bestätigung einer Warnung zurückgenommen"
+    },
+    "audit": {
+      "exported": "Audit-Log exportiert"
     }
   },
   "targetTypes": {
@@ -593,5 +596,13 @@
     "pve_job": "Backup-Job (VMs und Container)",
     "pve_enrollment_token": "Enrollment-Token (Proxmox VE)"
   },
-  "sectionDescription": "{scope, select, organisation {Das Protokoll dieser Organisation} other {Das Protokoll dieses Mandanten}}: wer wann was getan hat, mit der Hash-Kette, die beweist, dass nichts verändert wurde."
+  "sectionDescription": "{scope, select, organisation {Das Protokoll dieser Organisation} other {Das Protokoll dieses Mandanten}}: wer wann was getan hat, mit der Hash-Kette, die beweist, dass nichts verändert wurde.",
+  "export": {
+    "action": "Exportieren",
+    "csv": "Als CSV (Tabelle)",
+    "json": "Als JSON (mit Hashes zur Kettenprüfung)",
+    "preparing": "Export wird erstellt …",
+    "done": "Export heruntergeladen. Er ist im Audit-Log vermerkt.",
+    "failed": "Der Export ist fehlgeschlagen."
+  }
 }

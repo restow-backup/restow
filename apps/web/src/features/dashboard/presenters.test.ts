@@ -87,6 +87,7 @@ describe("tones", () => {
       unverified: 2,
       noBackup: 1,
       overdue: 0,
+      withoutJob: 0,
       running: 0,
       lastCheckedAt: null,
     };
@@ -211,17 +212,22 @@ describe("storage", () => {
 describe("servers and clients", () => {
   const widget = (overrides: Partial<EndpointsWidget> = {}): EndpointsWidget => ({
     protected: 4,
+    machines: 4,
+    withoutJob: 0,
     servers: 3,
     clients: 1,
     readiness: { green: 4, yellow: 0, red: 0, unverified: 0, noBackup: 0 },
     notReady: 0,
     failedLastBackup: 0,
     needingAttention: 0,
+    otherAttention: 0,
     lastSuccessAt: "2026-09-30T10:00:00.000Z",
     ...overrides,
   });
   const none = widget({
     protected: 0,
+    machines: 0,
+    withoutJob: 0,
     servers: 0,
     clients: 0,
     readiness: { green: 0, yellow: 0, red: 0, unverified: 0, noBackup: 0 },
@@ -267,13 +273,24 @@ describe("servers and clients", () => {
   it("lists what needs an admin, worst first, and leaves out what is fine", () => {
     expect(endpointFindings(widget())).toEqual([]);
     expect(
-      endpointFindings(widget({ notReady: 3, failedLastBackup: 1, needingAttention: 3 })),
+      endpointFindings(
+        widget({
+          notReady: 3,
+          failedLastBackup: 1,
+          withoutJob: 1,
+          needingAttention: 4,
+          otherAttention: 3,
+        }),
+      ),
     ).toEqual([
       { key: "notReady", count: 3, tone: "destructive" },
       { key: "failedLastBackup", count: 1, tone: "destructive" },
+      { key: "withoutJob", count: 1, tone: "warning" },
       { key: "attention", count: 3, tone: "warning" },
     ]);
-    expect(endpointFindings(widget({ needingAttention: 1 }))).toEqual([
+    // A machine in no job alone keeps the fleet from green.
+    expect(endpointsOverall(widget({ withoutJob: 1, needingAttention: 1 }))).toBe("yellow");
+    expect(endpointFindings(widget({ needingAttention: 1, otherAttention: 1 }))).toEqual([
       { key: "attention", count: 1, tone: "warning" },
     ]);
   });

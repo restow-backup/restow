@@ -23,6 +23,7 @@ import {
   renderDiscord,
   renderSlack,
   renderTeams,
+  tenantAddressed,
   truncate,
 } from "./webhook-formats.js";
 
@@ -88,6 +89,11 @@ describe("text helpers", () => {
       "https://backup.example.com/history/j-1",
     );
     expect(linkTo(null, "/history/j-1")).toBeNull();
+    // The link names its tenant, so it opens that tenant in the web app (`?forTenant=`).
+    expect(tenantAddressed("/history/j-1", "t-1")).toBe("/history/j-1?forTenant=t-1");
+    expect(tenantAddressed("/verify?state=red", "t-1")).toBe("/verify?state=red&forTenant=t-1");
+    expect(tenantAddressed("/tenants/t-1/integrations", "t-1")).toBe("/tenants/t-1/integrations");
+    expect(tenantAddressed("/history/j-1", null)).toBe("/history/j-1");
     expect(linkTo("javascript:alert(1)", "/x")).toBeNull();
     expect(linkTo("not a url", "/x")).toBeNull();
   });
@@ -116,7 +122,10 @@ describe("buildChatMessage", () => {
       title: "Backup failed: anna@contoso.example",
       text: "Consent missing",
       timestamp: "2026-09-23T11:59:00.000Z",
-      link: { label: "Open in Restow", url: "https://backup.example.com/history/j-1" },
+      link: {
+        label: "Open in Restow",
+        url: "https://backup.example.com/history/j-1?forTenant=11111111-1111-4111-8111-111111111111",
+      },
       footer: "Restow · Contoso",
     });
     const names = msg.fields.map((field) => field.name);
@@ -173,7 +182,9 @@ describe("buildChatMessage", () => {
       severity: "success",
       title: "Restore check passed: Fileserver",
       text: "1 item checked, 0 with differences, 0 missing.",
-      link: { url: "https://backup.example.com/verify/reports/rep-1" },
+      link: {
+        url: "https://backup.example.com/verify/reports/rep-1?forTenant=11111111-1111-4111-8111-111111111111",
+      },
     });
     expect(
       buildChatMessage(
@@ -226,7 +237,9 @@ describe("buildChatMessage", () => {
       title: "[Contoso] Backup failed: anna",
       text: "Backup failed: anna (Contoso).\n\nTenant: Contoso",
       fields: [{ name: "Rule", value: "Failed backups" }],
-      link: { url: "https://backup.example.com/history/j-9" },
+      link: {
+        url: "https://backup.example.com/history/j-9?forTenant=11111111-1111-4111-8111-111111111111",
+      },
     });
     const recovered = buildChatMessage(
       "report.alert",
@@ -234,7 +247,9 @@ describe("buildChatMessage", () => {
       EN,
     );
     expect(recovered.severity).toBe("success");
-    expect(recovered.link?.url).toBe("https://backup.example.com/alerts");
+    expect(recovered.link?.url).toBe(
+      "https://backup.example.com/alerts?forTenant=11111111-1111-4111-8111-111111111111",
+    );
   });
 
   it("leaves the link out without a public URL and survives unknown events", () => {

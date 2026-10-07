@@ -49,6 +49,7 @@ import {
 } from "../presenters";
 import type { Webhook } from "../types";
 import { useIntegrationsFormat } from "../use-format";
+import { WebhookRulesNotice } from "./rules-using-webhook";
 import { SignatureHelp } from "./signature-help";
 import { WebhookFormDialog } from "./webhook-form-dialog";
 import { InsecureBadge, WebhookHealthBadge, WebhookStatsLine } from "./webhook-status";
@@ -207,7 +208,14 @@ function WebhookList() {
         }}
         title={t("webhooks.deleteConfirm.title")}
         description={t("webhooks.deleteConfirm.description")}
-        detail={deleting ? displayUrl(deleting.url) : null}
+        detail={
+          deleting ? (
+            <div className="space-y-3">
+              <div>{displayUrl(deleting.url)}</div>
+              <WebhookRulesNotice webhookId={deleting.id} />
+            </div>
+          ) : null
+        }
         confirmLabel={t("webhooks.deleteConfirm.confirm")}
         destructive
         pending={remove.isPending}

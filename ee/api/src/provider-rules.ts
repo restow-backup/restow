@@ -22,6 +22,7 @@ export const eeProviderRouteRules: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/audit/:id": view(),
   "GET /api/v1/audit/actions": view(),
   "GET /api/v1/audit/verify": view(),
+  "GET /api/v1/audit/export": view(),
 
   // Legal holds.
   "GET /api/v1/archive/legal-holds": view(),

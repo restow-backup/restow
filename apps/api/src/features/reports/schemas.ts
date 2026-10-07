@@ -128,9 +128,28 @@ export const reportRuleParamSchema = z.object({ id: z.string().uuid() });
 export const listDeliveriesQuerySchema = z.object({
   ruleId: z.string().uuid().optional(),
   status: z.enum(["pending", "sent", "failed", "skipped"]).optional(),
+  /** Only rows created before this moment: the next older page (the `createdAt` of the last row). */
+  before: z.string().datetime({ offset: true }).optional(),
   limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 export type ListDeliveriesQuery = z.infer<typeof listDeliveriesQuerySchema>;
+
+/** The CSV export of the delivery log: the same filters, more rows at once. */
+export const exportDeliveriesQuerySchema = listDeliveriesQuerySchema.extend({
+  limit: z.coerce.number().int().min(1).max(10_000).default(5_000),
+});
+
+export const listNotificationsQuerySchema = z.object({
+  before: z.string().datetime({ offset: true }).optional(),
+  /** `attention`: warnings and errors. */
+  level: z.enum(["info", "warning", "error", "attention"]).optional(),
+  unread: z
+    .enum(["true", "false"])
+    .optional()
+    .transform((value) => value === "true"),
+  limit: z.coerce.number().int().min(1).max(200).default(50),
+});
+export type ListNotificationsQuery = z.infer<typeof listNotificationsQuerySchema>;
 
 export const markNotificationsReadSchema = z
   .object({

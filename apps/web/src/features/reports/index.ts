@@ -4,7 +4,8 @@ import { BellRing } from "lucide-react";
 import type { NavItem } from "@/lib/navigation";
 import { appLayoutRoute } from "@/routes/tree";
 
-import { REPORTS_PATH } from "./paths.js";
+import { NotificationsPage } from "./notifications-page.js";
+import { NOTIFICATIONS_PATH, REPORTS_PATH } from "./paths.js";
 import { REPORTS_ROLES } from "./presenters.js";
 import { ReportsPage } from "./reports-page.js";
 
@@ -21,7 +22,14 @@ export const reportsRoute = createRoute({
   component: ReportsPage,
 });
 
-export const routes = [reportsRoute];
+/** Every notification of the bell, beyond its newest 30 (linked from the bell, no menu entry). */
+export const notificationsRoute = createRoute({
+  getParentRoute: () => appLayoutRoute,
+  path: NOTIFICATIONS_PATH,
+  component: NotificationsPage,
+});
+
+export const routes = [reportsRoute, notificationsRoute];
 
 export const navItems: NavItem[] = [
   {

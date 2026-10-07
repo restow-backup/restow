@@ -12,6 +12,9 @@ import { getActiveTenantId } from "@/lib/tenant";
 const rawBaseUrl = import.meta.env.VITE_API_URL as string | undefined;
 const API_BASE_URL = (rawBaseUrl ?? "/api/v1").replace(/\/+$/, "");
 
+/** The OpenAPI description of the integration API (served by the API without a session). */
+export const OPENAPI_DOCUMENT_URL = `${API_BASE_URL}/openapi.json`;
+
 /** Header carrying the tenant a request is scoped to (see the spine contract). */
 export const TENANT_HEADER = "X-Restow-Tenant";
 

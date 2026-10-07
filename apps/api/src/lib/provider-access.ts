@@ -469,8 +469,16 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "DELETE /api/v1/reports/rules/:id": configure(),
   "POST /api/v1/reports/rules/:id/test": operate(),
   "GET /api/v1/reports/deliveries": view(),
+  "GET /api/v1/reports/deliveries/export": view(),
   "GET /api/v1/notifications": view(),
   "POST /api/v1/notifications/read": view(),
+  "GET /api/v1/notifications/history": view(),
+  // "All tenants": every tenant's notifications and alert deliveries, narrowed by the handler to
+  // the tenants the member's team role covers (and the installation's own entries).
+  "GET /api/v1/notifications/provider": view(LIST),
+  "POST /api/v1/notifications/provider/read": view(LIST),
+  "GET /api/v1/notifications/provider/deliveries": view(LIST),
+  "GET /api/v1/notifications/provider/deliveries/export": view(LIST),
   // The installation-level entries alone, for a provider admin with no tenant open. The same
   // entries already reach every provider admin through the bell of any tenant they enter.
   "GET /api/v1/notifications/installation": view(NONE),
@@ -484,6 +492,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/webhooks/:id/secret": configure(),
   "POST /api/v1/webhooks/:id/test": operate(),
   "GET /api/v1/webhooks/:id/deliveries": view(),
+  "GET /api/v1/webhooks/:id/deliveries/export": view(),
   "GET /api/v1/webhooks/:id/deliveries/:deliveryId": view(),
   "POST /api/v1/webhooks/:id/deliveries/:deliveryId/redeliver": operate(),
 

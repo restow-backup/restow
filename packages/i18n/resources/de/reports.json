@@ -9,7 +9,7 @@
   },
   "unavailable": {
     "no_tenants": "Es wird noch kein Mandant verwaltet.",
-    "no_protected_objects": "Noch ist nichts geschützt: kein Postfach, kein OneDrive und kein IMAP-Konto.",
+    "no_protected_objects": "Noch ist nichts geschützt: kein Postfach, kein OneDrive, kein IMAP-Konto und kein Rechner.",
     "no_backups_yet": "Bis zum Ende dieses Zeitraums war noch keine Sicherung abgeschlossen.",
     "no_microsoft_365_source": "Es ist keine Microsoft-365-Quelle verbunden. Drosselung gibt es nur bei Microsoft Graph."
   },
@@ -169,22 +169,19 @@
     "newAlert": "Neuer Alarm",
     "newReport": "Neuer Bericht",
     "reportLocked": "Berichte nicht verfügbar",
-    "tabs": {
-      "rules": "Regeln",
-      "deliveries": "Zustellprotokoll"
-    },
     "noTenant": {
       "title": "Kein Mandant ausgewählt",
       "description": "Wählen Sie oben einen Mandanten, um seine Alarme und Berichte zu sehen und zu ändern."
     },
-    "manageRules": "Regeln und Empfänger"
+    "manageRules": "Regeln und Empfänger",
+    "allTenants": "Gesendete Alarme und Berichte aller Mandanten, das Neueste zuerst."
   },
   "rules": {
     "loadError": "Die Regeln konnten nicht geladen werden.",
     "alerts": {
       "title": "Alarme",
       "description": "Werden gesendet, wenn etwas passiert: eine fehlgeschlagene Sicherung, eine nicht bestandene Restore-Prüfung, beschädigter Speicher.",
-      "empty": "Noch kein Alarm. Fehlgeschlagene Aufträge und Änderungen der Wiederherstellbarkeit erscheinen trotzdem in der Glocke."
+      "empty": "Noch kein Alarm. Fehlgeschlagene Läufe und Änderungen der Wiederherstellbarkeit erscheinen trotzdem in der Glocke."
     },
     "reports": {
       "title": "Berichte",
@@ -225,11 +222,12 @@
       "description": "„{name}“ sendet nichts mehr. Ihre Einträge im Zustellprotokoll bleiben erhalten."
     },
     "panelTitle": "Regeln für Alarme und Berichte",
-    "panelDescription": "Ein Alarm wird gesendet, wenn etwas passiert, ein Bericht zu einem Zeitpunkt. Die Empfänger oben speisen die Regeln, die mit ihnen gekennzeichnet sind."
+    "panelDescription": "Ein Alarm wird gesendet, wenn etwas passiert, ein Bericht zu einem Zeitpunkt. Die Empfänger oben speisen die Regeln, die mit ihnen gekennzeichnet sind.",
+    "noChannel": "Sendet nichts: kein Kanal"
   },
   "deliveries": {
     "title": "Zustellprotokoll",
-    "description": "Alles, was die Regeln gesendet haben oder senden wollten, das Neueste zuerst. Fehlgeschlagene Mails werden viermal über etwa 80 Minuten wiederholt.",
+    "description": "Alles, was die Regeln gesendet haben oder senden wollten, das Neueste zuerst. Fehlgeschlagene Mails werden viermal über etwa 80 Minuten wiederholt; ein Webhook-Alarm zeigt die Antwort des Empfängers.",
     "loadError": "Das Zustellprotokoll konnte nicht geladen werden.",
     "empty": "Noch nichts gesendet.",
     "summary": "Bericht",
@@ -238,7 +236,8 @@
       "rule": "Regel",
       "what": "Betrifft",
       "channel": "Kanal",
-      "status": "Status"
+      "status": "Status",
+      "tenant": "Mandant"
     },
     "channel": {
       "email": "E-Mail",
@@ -249,16 +248,36 @@
       "pending": "In Warteschlange",
       "sent": "Gesendet",
       "failed": "Fehlgeschlagen",
-      "skipped": "Übersprungen"
+      "skipped": "Übersprungen",
+      "handedOver": "An Webhook übergeben"
     },
     "reasons": {
-      "mail_not_configured": "Kein Mail-Versand eingerichtet (Installation → Benachrichtigungs-Mail).",
+      "mail_not_configured": "Kein Mailversand eingerichtet (Installation › Benachrichtigungsmail).",
       "not_available": "Berichte sind auf dieser Installation nicht verfügbar.",
       "webhook_deleted": "Der Webhook wurde gelöscht.",
       "webhook_inactive": "Der Webhook ist pausiert.",
       "no_recipient": "Kein Empfänger.",
-      "demo_mode": "Demo: Nichts verlässt diesen Server."
-    }
+      "demo_mode": "Demo: Nichts verlässt diesen Server.",
+      "no_webhook": "Kein Webhook gewählt.",
+      "send_failed": "Der Mailserver hat die Nachricht nicht angenommen."
+    },
+    "descriptionAllTenants": "Was die Regeln aller Mandanten gesendet haben oder senden wollten, das Neueste zuerst.",
+    "technicalDetail": "Technisches Detail",
+    "filters": {
+      "status": "Status",
+      "allStatuses": "Alle Status",
+      "rule": "Regel",
+      "allRules": "Alle Regeln"
+    },
+    "export": {
+      "action": "Als CSV exportieren",
+      "preparing": "Export wird erstellt …",
+      "done": "Export heruntergeladen.",
+      "failed": "Der Export ist fehlgeschlagen."
+    },
+    "loadMore": "Ältere laden",
+    "openRule": "Regel unter Mandant › Benachrichtigungen öffnen",
+    "openWebhook": "Zustellung am Webhook ansehen"
   },
   "editor": {
     "title": {
@@ -281,9 +300,9 @@
       "schedule": "z. B. Wochenbericht"
     },
     "events": "Alarm senden, wenn",
-    "eventsHint": "Jedes Ereignis erscheint außerdem in der Glocke, mit oder ohne Regel.",
+    "eventsHint": "Die Glocke meldet jedes Ereignis, mit oder ohne Regel. Eine Regel schickt es zusätzlich per E-Mail oder Webhook.",
     "throttle": "Wiederholte Alarme",
-    "throttleHint": "Wie oft dieselbe Regel zum selben Postfach oder Auftragstyp alarmieren darf.",
+    "throttleHint": "Wie oft dieselbe Regel zum selben Objekt oder Laufart alarmieren darf.",
     "throttleOptions": {
       "0": "Jedes Mal",
       "15": "Höchstens alle 15 Minuten",
@@ -303,7 +322,7 @@
     "cron": "Cron-Ausdruck",
     "cronHint": "Fünf Felder: Minute, Stunde, Tag im Monat, Monat, Wochentag.",
     "timezone": "Zeitzone",
-    "timezoneHint": "IANA-Name, z. B. Europe/Berlin.",
+    "timezoneHint": "IANA-Name, z. B. Europe/Berlin. Die Liste schlägt bekannte Zeitzonen vor.",
     "period": "Umfasst",
     "periodDays": "{count, plural, one {den letzten Tag} other {die letzten # Tage}}",
     "sections": "Inhalt",
@@ -313,7 +332,7 @@
     "recipientsPlaceholder": "z. B. it@beispiel.de",
     "inApp": "Auch in der Glocke anzeigen",
     "inAppHint": "Ein Eintrag in der Glocke, sobald der Bericht gesendet wurde, für alle in diesem Mandanten.",
-    "bellAlways": "Alarme erscheinen immer auch in der Glocke.",
+    "bellAlways": "Die Glocke erhält jeden Alarm ohnehin; diese Regel ist für E-Mail und Webhook. Wählen Sie dazu mindestens einen der beiden.",
     "webhook": "Webhook",
     "webhookHint": "Zusätzlich als signierter Webhook (report.alert oder report.summary), z. B. an ein RMM, Teams oder ein Ticketsystem.",
     "noWebhook": "Kein Webhook",
@@ -330,7 +349,8 @@
       "channels": "Fügen Sie eine E-Mail-Adresse oder einen Webhook hinzu (bei Berichten auch die Glocke).",
       "time": "Geben Sie eine Uhrzeit als HH:MM ein.",
       "cron": "Ein Cron-Ausdruck hat fünf Felder.",
-      "recipients": "Eine der Adressen ist keine gültige E-Mail-Adresse."
+      "recipients": "Eine der Adressen ist keine gültige E-Mail-Adresse.",
+      "timezone": "Diese Zeitzone ist unbekannt. Wählen Sie eine aus der Liste, z. B. Europe/Berlin."
     },
     "recipientsManaged": "Das sind die Empfänger, die diese Kategorie unter Empfänger gewählt haben. Ändern Sie sie dort."
   },
@@ -342,7 +362,8 @@
   },
   "events": {
     "backup": {
-      "failed": "Sicherung fehlgeschlagen"
+      "failed": "Sicherung fehlgeschlagen",
+      "overdue": "Sicherung überfällig"
     },
     "restore": {
       "failed": "Wiederherstellung fehlgeschlagen",
@@ -375,10 +396,11 @@
   },
   "eventHints": {
     "backup": {
-      "failed": "Ein Sicherungsauftrag eines Postfachs, OneDrives oder IMAP-Kontos wurde nicht abgeschlossen."
+      "failed": "Ein Sicherungslauf eines Postfachs, OneDrives, IMAP-Kontos, Servers oder Clients wurde nicht abgeschlossen.",
+      "overdue": "Ein Postfach, OneDrive, IMAP-Konto, Server oder Client hatte länger keine erfolgreiche Sicherung, als seine Backup-Jobs vorsehen (doppelter längster Abstand der Zeitpläne, ohne Zeitplan zwei Tage). Einmal je Objekt, bis wieder eine Sicherung gelingt."
     },
     "restore": {
-      "failed": "Eine Wiederherstellung oder ein Download konnte nicht abgeschlossen werden.",
+      "failed": "Eine Wiederherstellung oder ein Download, auch eines Servers oder Clients, konnte nicht abgeschlossen werden.",
       "completed": "Eine Wiederherstellung oder ein Download ist fertig."
     },
     "archive": {
@@ -388,9 +410,9 @@
       "failed": "Das Lesen von Nutzern und Postfächern aus Microsoft 365 ist fehlgeschlagen."
     },
     "verify": {
-      "red": "Eine Wiederherstellung wäre nicht vollständig: Die neueste Sicherung hat ihre Prüfung nicht bestanden.",
+      "red": "Eine Wiederherstellung wäre nicht vollständig: Die neueste Sicherung eines Postfachs, OneDrives, IMAP-Kontos, Servers oder Clients hat ihre Restore-Prüfung nicht bestanden.",
       "yellow": "Die Prüfung ist mit Hinweisen bestanden.",
-      "recovered": "Ein Postfach, das rot oder gelb war, ist wieder grün."
+      "recovered": "Ein Postfach, OneDrive, IMAP-Konto, Server oder Client, das rot oder gelb war, ist wieder grün."
     },
     "scrub": {
       "corrupt": "Die Speicherprüfung hat beschädigte oder fehlende Pack-Dateien gefunden.",
@@ -445,7 +467,7 @@
     "testPrefix": "Test: ",
     "alertIntro": "{event}: {target} ({tenant}).",
     "summaryIntro": "Zusammenfassung für {tenant}, {from} bis {to}.",
-    "footer": "Sie erhalten diese Nachricht wegen der Regel „{rule}“ in {appName}. Ändern oder pausieren Sie sie unter Alarme.",
+    "footer": "Sie erhalten diese Nachricht wegen der Regel „{rule}“ in {appName}. Ändern oder pausieren Sie sie unter Mandant › Benachrichtigungen.",
     "version": "Neue Version",
     "running": "Laufende Version",
     "releaseNotes": "Release Notes",
@@ -473,11 +495,15 @@
     "markAll": "Alle gelesen",
     "empty": "Nichts Neues.",
     "unread": "ungelesen",
-    "manage": "Alarme"
+    "manage": "Alarme",
+    "showAll": "Alle anzeigen",
+    "titleAllTenants": "Benachrichtigungen aller Mandanten",
+    "installation": "Installation"
   },
   "bellEvents": {
     "backup": {
-      "failed": "Sicherung fehlgeschlagen: {object}"
+      "failed": "Sicherung fehlgeschlagen: {object}",
+      "overdue": "Keine erfolgreiche Sicherung {days, plural, one {seit über # Tag} other {seit über # Tagen}}: {object}"
     },
     "restore": {
       "failed": "Wiederherstellung fehlgeschlagen: {object}",
@@ -520,18 +546,54 @@
     "deleted": "Regel gelöscht.",
     "paused": "Regel pausiert.",
     "resumed": "Regel fortgesetzt.",
-    "testQueued": "{count, plural, one {Test für # Kanal eingereiht; siehe Zustellprotokoll.} other {Test für # Kanäle eingereiht; siehe Zustellprotokoll.}}"
+    "testQueued": "{count, plural, one {Test für # Kanal eingereiht.} other {Test für # Kanäle eingereiht.}}",
+    "testNothing": "Diese Regel hat keinen Kanal: Es wurde nichts gesendet. Fügen Sie eine E-Mail-Adresse oder einen Webhook hinzu.",
+    "openLog": "Zustellprotokoll öffnen"
   },
   "errors": {
     "network": "Der Server ist nicht erreichbar.",
     "featureUnavailable": "Zeitgesteuerte Berichte sind auf dieser Installation nicht verfügbar.",
     "invalid": "Die Regel kann nicht gespeichert werden: {detail}",
     "notFound": "Die Regel existiert nicht mehr.",
-    "generic": "Das hat nicht funktioniert. Bitte versuchen Sie es erneut."
+    "codes": {
+      "events_required": "Wählen Sie mindestens ein Ereignis.",
+      "sections_required": "Wählen Sie mindestens einen Abschnitt.",
+      "channel_required": "Fügen Sie eine E-Mail-Adresse oder einen Webhook hinzu (bei Berichten auch die Glocke).",
+      "webhook_not_found": "Der gewählte Webhook existiert nicht mehr.",
+      "installation_event": "Dieses Ereignis betrifft die Installation und kann nur von Provider-Administratoren gewählt werden.",
+      "recipients_managed": "Die Empfänger dieser Regel sind die Benachrichtigungsempfänger des Mandanten; ändern Sie sie dort.",
+      "cadence_missing": "Legen Sie fest, wie oft der Bericht gesendet wird.",
+      "cadence_ambiguous": "Verwenden Sie entweder ein Intervall oder einen Cron-Ausdruck, nicht beides.",
+      "interval_not_integer": "Das Intervall muss in ganzen Minuten angegeben werden.",
+      "interval_out_of_range": "Das Intervall muss zwischen 15 Minuten und 31 Tagen liegen.",
+      "cron_invalid": "Der Cron-Ausdruck ist ungültig. Er hat fünf Felder: Minute, Stunde, Tag im Monat, Monat, Wochentag.",
+      "cron_never_matches": "Der Cron-Ausdruck trifft nie zu.",
+      "cron_too_frequent": "Der Cron-Ausdruck würde öfter als alle 15 Minuten senden.",
+      "timezone_unknown": "Die Zeitzone ist unbekannt. Wählen Sie eine aus der Liste, z. B. Europe/Berlin.",
+      "unknown": "Eine Angabe ist ungültig. Prüfen Sie die Felder und versuchen Sie es erneut."
+    }
   },
   "defaultRules": {
     "jobFailures": "Fehlgeschlagene Aufträge",
     "readinessRed": "Wiederherstellbarkeit gefährdet",
     "weeklyReport": "Wochenbericht"
+  },
+  "history": {
+    "title": "Benachrichtigungen",
+    "description": "Alles, was die Glocke für {tenant} gemeldet hat, das Neueste zuerst. Ein Klick öffnet die Ursache.",
+    "descriptionAllTenants": "Alles, was die Glocke für alle Mandanten gemeldet hat, das Neueste zuerst. Ein Klick wechselt in den Mandanten und öffnet die Ursache.",
+    "descriptionInstallation": "Meldungen der Installation, das Neueste zuerst.",
+    "level": "Stufe",
+    "levels": {
+      "all": "Alle Stufen",
+      "attention": "Fehler und Warnungen",
+      "error": "Fehler",
+      "warning": "Warnungen",
+      "info": "Informationen"
+    },
+    "unreadOnly": "Nur ungelesene",
+    "empty": "Keine Benachrichtigungen.",
+    "loadError": "Die Benachrichtigungen konnten nicht geladen werden.",
+    "loadMore": "Ältere laden"
   }
 }

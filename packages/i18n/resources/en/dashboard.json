@@ -116,35 +116,43 @@
     },
     "noBackup": {
       "title": "{count, plural, one {# object without a backup} other {# objects without a backup}}",
-      "description": "Nothing can be restored for these objects until their first backup completes."
+      "description": "Nothing can be restored for these objects until their first backup completes.",
+      "action": "Show objects"
     },
     "overdue": "{count, plural, one {# rating overdue} other {# ratings overdue}}",
     "running": "{count, plural, one {# check running} other {# checks running}}",
     "empty": {
       "title": "Nothing to rate yet",
-      "description": "Recovery readiness appears once objects are protected and backed up.",
+      "description": "Recovery readiness appears once objects or machines are protected and backed up.",
       "action": "Protect objects"
     },
     "legend": "Objects by recovery state",
     "legendHint": "Every row opens the table of exactly those objects.",
-    "open": "Show {count, plural, one {# object} other {# objects}}: {label}"
+    "open": "Show {count, plural, one {# object} other {# objects}}: {label}",
+    "withoutJob": {
+      "title": "{count, plural, one {# machine in no backup job} other {# machines in no backup job}}",
+      "description": "These machines are no longer backed up. Their existing restore points keep their rating; new ones are only made once you add the machine to a backup job.",
+      "action": "Open machines"
+    }
   },
   "lastBackup": {
     "title": "Last successful backup",
-    "description": "The newest run per data type that finished without failed items.",
+    "description": "The newest successful run per data type. It counts as stale once it is more than twice the longest planned gap of the backup jobs old.",
     "never": "No successful backup yet",
-    "stale": "Older than 2 days",
     "types": {
       "mail": "Exchange mailboxes",
       "onedrive": "OneDrive",
       "imap": "IMAP mailboxes",
-      "archive": "Archive"
+      "archive": "Archive",
+      "machines": "Servers and clients"
     },
     "empty": {
       "title": "No backups yet",
-      "description": "Nothing is protected yet, so there is no backup to report.",
+      "description": "Nothing is protected yet, neither mailboxes, OneDrives and IMAP accounts nor machines.",
       "action": "Connect a source"
-    }
+    },
+    "staleDays": "{count, plural, one {Older than # day} other {Older than # days}}",
+    "staleHours": "{count, plural, one {Older than # hour} other {Older than # hours}}"
   },
   "protectedObjects": {
     "title": "Protected objects",
@@ -155,11 +163,14 @@
     "link": "Open protected objects",
     "empty": {
       "title": "Nothing protected yet",
-      "description": "Mailboxes, OneDrives and IMAP accounts appear here once they are protected.",
+      "description": "Mailboxes, OneDrives, IMAP accounts and machines appear here once they are protected.",
       "action": "Protect objects"
     },
     "acknowledged": "{count, plural, one {# warning acknowledged} other {# warnings acknowledged}}",
-    "warningsLink": "See the warnings"
+    "warningsLink": "See the warnings",
+    "withMachines": "{count, plural, one {including # machine} other {including # machines}}",
+    "noBackup": "{count, plural, one {# without a backup} other {# without a backup}}",
+    "withoutJob": "{count, plural, one {# machine in no backup job} other {# machines in no backup job}}"
   },
   "storage": {
     "title": "Stored",
@@ -189,14 +200,15 @@
   "endpoints": {
     "title": "Servers and clients",
     "description": "Machines backed up by the agent, and whether their backups are proven restorable.",
-    "summary": "{count, plural, one {# machine protected} other {# machines protected}} ({servers, plural, one {# server} other {# servers}}, {clients, plural, one {# client} other {# clients}}).",
+    "summary": "{count, plural, one {# machine protected} other {# machines protected}} ({servers, plural, one {# server} other {# servers}}, {clients, plural, one {# client} other {# clients}} in total).",
     "lastBackup": "Last backup",
     "neverBacked": "No successful backup yet",
     "allGood": "Every machine is proven restorable and its last backup succeeded.",
     "findings": {
       "notReady": "{count, plural, one {# machine not proven restorable} other {# machines not proven restorable}}",
       "failedLastBackup": "{count, plural, one {# machine: the last backup failed} other {# machines: the last backup failed}}",
-      "attention": "{count, plural, one {# machine needs attention} other {# machines need attention}}"
+      "attention": "{count, plural, one {# machine needs attention} other {# machines need attention}}",
+      "withoutJob": "{count, plural, one {# machine in no backup job, not backed up} other {# machines in no backup job, not backed up}}"
     }
   },
   "backupSuccess": {
@@ -344,8 +356,8 @@
       "notReadyHint": "Of {count, plural, one {# customer} other {# customers}}. Something cannot be restored or is not proven yet.",
       "unverified": "Unverified backups",
       "unverifiedHint": "Newest backups not yet read back by a restore check.",
-      "failures": "Failed jobs (24 h)",
-      "failuresHint": "Jobs of any kind that failed in the last 24 hours.",
+      "failures": "Failed runs (24 h)",
+      "failuresHint": "Runs of any kind, servers and clients included, that failed in the last 24 hours.",
       "failuresPeriod": "vs. the 24 hours before",
       "mailboxes": "Protected mailboxes",
       "stored": "Stored",
@@ -396,15 +408,19 @@
         "unavailable": "The tenant's figures could not be read.",
         "storage_error": "The repository fails its probe.",
         "not_restorable": "{count, plural, one {# object cannot be restored.} other {# objects cannot be restored.}}",
-        "failed_jobs": "{count, plural, one {# job failed in the last 24 hours.} other {# jobs failed in the last 24 hours.}}",
+        "failed_jobs": "{count, plural, one {# run failed in the last 24 hours.} other {# runs failed in the last 24 hours.}}",
         "over_cap": "{count, plural, one {# mailbox above the cap agreed for this tenant.} other {# mailboxes above the cap agreed for this tenant.}}",
         "unverified": "{count, plural, one {# backup not verified yet.} other {# backups not verified yet.}}",
         "no_backup": "{count, plural, one {# object without a backup.} other {# objects without a backup.}}",
-        "stale_backup": "No successful backup for more than 2 days. Last one:"
+        "stale_backup": "No successful backup for more than {count} hours (twice the longest gap of the schedules). Last:",
+        "machine_backup_failed": "{count, plural, one {The last backup of # machine failed.} other {The last backup of # machines failed.}}",
+        "machines_without_job": "{count, plural, one {# machine is in no backup job and is not backed up.} other {# machines are in no backup job and are not backed up.}}",
+        "needs_attention": "{count, plural, one {# object needs attention (gaps or an overdue restore check).} other {# objects need attention (gaps or an overdue restore check).}}",
+        "nothing_protected": "The tenant protects nothing yet."
       },
       "empty": {
         "title": "No alerts",
-        "description": "Every tenant is backed up and verified, and none is above its agreed cap."
+        "description": "Every tenant protects objects or machines, everything is backed up and proven restorable, and none is over its agreed cap."
       }
     },
     "readiness": {

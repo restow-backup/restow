@@ -129,6 +129,8 @@ const data: WidgetData = {
       archive: null,
     },
     protectedKinds: { mailbox: 4, onedrive: 2, imap: 0 },
+    machines: { protected: 0, withoutJob: 0, lastSuccessAt: null },
+    staleAfterHours: { mail: 48, machines: 48 },
   },
   readiness: {
     overall: "red",
@@ -139,6 +141,7 @@ const data: WidgetData = {
     unverified: 2,
     noBackup: 1,
     overdue: 0,
+    withoutJob: 0,
     running: 1,
     lastCheckedAt: new Date(Date.now() - 7_200_000).toISOString(),
   },
@@ -150,6 +153,8 @@ const data: WidgetData = {
     failed: 1,
     withItemFailures: 2,
     runningBackups: 0,
+    machines: { protected: 0, withoutJob: 0, failedLastBackup: 0 },
+    noBackup: 0,
   },
   storage: {
     logicalBytes: 4_000_000_000,
@@ -163,12 +168,15 @@ const data: WidgetData = {
   },
   endpoints: {
     protected: 6,
+    machines: 6,
+    withoutJob: 0,
     servers: 4,
     clients: 2,
     readiness: { green: 3, yellow: 0, red: 1, unverified: 1, noBackup: 1 },
     notReady: 3,
     failedLastBackup: 1,
     needingAttention: 3,
+    otherAttention: 3,
     lastSuccessAt: new Date(Date.now() - 7_200_000).toISOString(),
   },
   backupTrend: {
@@ -333,7 +341,7 @@ describe("servers and clients", () => {
     expectTranslated(html);
     expect(html).toContain('data-widget="endpoints"');
     expect(html).toContain("Servers and clients");
-    expect(html).toContain("6 machines protected (4 servers, 2 clients).");
+    expect(html).toContain("6 machines protected (4 servers, 2 clients in total).");
     expect(html).toContain("3 machines not proven restorable");
     expect(html).toContain("1 machine: the last backup failed");
     expect(html).toContain("3 machines need attention");
@@ -367,6 +375,7 @@ describe("servers and clients", () => {
           notReady: 0,
           failedLastBackup: 0,
           needingAttention: 0,
+          otherAttention: 0,
         })}
         {...state}
       />,
@@ -382,19 +391,22 @@ describe("servers and clients", () => {
       <EndpointsWidget
         view={ready({
           protected: 1,
+          machines: 1,
+          withoutJob: 0,
           servers: 1,
           clients: 0,
           readiness: { green: 0, yellow: 0, red: 0, unverified: 0, noBackup: 1 },
           notReady: 1,
           failedLastBackup: 0,
           needingAttention: 0,
+          otherAttention: 0,
           lastSuccessAt: null,
         })}
         {...state}
       />,
     );
     expect(html).toContain("No successful backup yet");
-    expect(html).toContain("1 machine protected (1 server, 0 clients).");
+    expect(html).toContain("1 machine protected (1 server, 0 clients in total).");
     expect(html).toContain("1 machine not proven restorable");
   });
 
@@ -403,7 +415,7 @@ describe("servers and clients", () => {
     try {
       const html = render(<EndpointsWidget view={ready(data.endpoints)} {...state} />);
       expect(html).toContain("Server und Clients");
-      expect(html).toContain("6 Rechner geschützt (4 Server, 2 Clients).");
+      expect(html).toContain("6 Rechner geschützt (4 Server, 2 Clients insgesamt).");
       expect(html).toContain("3 Rechner nicht nachweislich wiederherstellbar");
       expect(html).toContain("1 Rechner: letzte Sicherung fehlgeschlagen");
       expect(html).toContain("3 Rechner brauchen Aufmerksamkeit");
@@ -441,6 +453,8 @@ describe("last backup", () => {
         view={ready({
           lastSuccess: { mail: null, onedrive: null, imap: null, archive: null },
           protectedKinds: { mailbox: 0, onedrive: 0, imap: 0 },
+          machines: { protected: 0, withoutJob: 0, lastSuccessAt: null },
+          staleAfterHours: { mail: 48, machines: 48 },
         })}
         {...state}
         canAdminister
@@ -449,6 +463,85 @@ describe("last backup", () => {
     expect(empty).toContain('data-state="empty"');
     expect(empty).toContain("No backups yet");
     expect(empty).toContain('href="/sources"');
+  });
+});
+
+describe("machines on the status tab", () => {
+  it("lists servers and clients as a type of their own and judges them by their schedule", () => {
+    const html = render(
+      <LastBackupWidget
+        view={ready({
+          ...data.lastBackup,
+          protectedKinds: { mailbox: 0, onedrive: 0, imap: 0 },
+          lastSuccess: { mail: null, onedrive: null, imap: null, archive: null },
+          machines: {
+            protected: 2,
+            withoutJob: 0,
+            lastSuccessAt: new Date(Date.now() - 5 * 86_400_000).toISOString(),
+          },
+          staleAfterHours: { mail: 48, machines: 336 },
+        })}
+        {...state}
+        canAdminister
+      />,
+    );
+    expect(html).toContain('data-type="machines"');
+    expect(html).toContain("Servers and clients");
+    // Weekly: five days old is not stale yet.
+    expect(html).not.toContain("Older than");
+    const daily = render(
+      <LastBackupWidget
+        view={ready({
+          ...data.lastBackup,
+          machines: {
+            protected: 1,
+            withoutJob: 0,
+            lastSuccessAt: new Date(Date.now() - 5 * 86_400_000).toISOString(),
+          },
+        })}
+        {...state}
+        canAdminister
+      />,
+    );
+    expect(daily).toContain("Older than 2 days");
+  });
+
+  it("counts machines in a job as protected and never says 'no failures' without runs", () => {
+    const html = render(
+      <ProtectedObjectsWidget
+        view={ready({
+          ...data.protectedObjects,
+          active: 0,
+          failed: 0,
+          withItemFailures: 0,
+          machines: { protected: 3, withoutJob: 1, failedLastBackup: 0 },
+          noBackup: 2,
+        })}
+        {...state}
+        canAdminister
+      />,
+    );
+    expect(html).not.toContain('data-state="empty"');
+    expect(html).toContain("including 3 machines");
+    expect(html).toContain("2 without a backup");
+    expect(html).toContain("1 machine in no backup job");
+    expect(html).not.toContain("No failures in the latest runs");
+  });
+
+  it("flags machines in no backup job on the readiness card", () => {
+    const html = render(
+      <ReadinessWidget
+        view={ready({ ...data.readiness, withoutJob: 2, overall: "yellow" as const })}
+        {...state}
+        canAdminister
+      />,
+    );
+    expectTranslated(html);
+    expect(html).toContain('data-flag="without-job"');
+    expect(html).toContain("2 machines in no backup job");
+    expect(html).toContain('href="/inventory"');
+    // The red box of objects without a backup has a way to them, too.
+    expect(html).toContain('href="/verify?state=no_backup"');
   });
 });
 
@@ -904,12 +997,15 @@ describe("widget registry", () => {
         state: "ok",
         data: {
           protected: 0,
+          machines: 0,
+          withoutJob: 0,
           servers: 0,
           clients: 0,
           readiness: { green: 0, yellow: 0, red: 0, unverified: 0, noBackup: 0 },
           notReady: 0,
           failedLastBackup: 0,
           needingAttention: 0,
+          otherAttention: 0,
           lastSuccessAt: null,
         },
       });

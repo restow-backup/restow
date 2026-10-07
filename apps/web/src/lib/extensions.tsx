@@ -91,6 +91,12 @@ export interface SlotProps {
    * the core renders its own short note as the fallback.
    */
   "team.tenantScopeLocked": Record<string, never>;
+  /**
+   * Replaces the neutral "Reports not available" of a tenant's rules (features/reports,
+   * AlertRulesPanel) where the installation does not enable `reports.timed`: an extension says
+   * which edition has them and, to whom may open it, where the key goes.
+   */
+  "reports.scheduleLocked": Record<string, never>;
 }
 
 export type SlotName = keyof SlotProps;

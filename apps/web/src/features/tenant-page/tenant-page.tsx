@@ -102,9 +102,13 @@ function OpenTenantPage({
       label: t(entry.labelKey),
       icon: entry.icon,
       to: tenantPagePath(tenant.id, entry.id),
+      // The lock leads to the page that unlocks it (Installation, License), which only provider
+      // administrators may open; everyone else stays on the section, which says who can unlock it.
       locked:
         isLocked && entry.lock
-          ? { to: entry.lock.to, search: entry.lock.search, hint: t(entry.lock.hintKey) }
+          ? session.isProviderAdmin
+            ? { to: entry.lock.to, search: entry.lock.search, hint: t(entry.lock.hintKey) }
+            : { to: tenantPagePath(tenant.id, entry.id), hint: t(entry.lock.hintKey) }
           : undefined,
     }),
   );
@@ -187,6 +191,7 @@ function SectionSkeleton() {
  */
 function LockedSection({ spec }: { spec: TenantSectionSpec }) {
   const { t } = useTranslation();
+  const { isProviderAdmin } = useSession();
   const lock = spec.lock;
   if (!lock) {
     return null;
@@ -202,15 +207,22 @@ function LockedSection({ spec }: { spec: TenantSectionSpec }) {
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         <p className="max-w-prose text-sm text-muted-foreground">
-          {t("tenantpage:locked.description")}
+          {t(
+            isProviderAdmin
+              ? "tenantpage:locked.description"
+              : "tenantpage:locked.descriptionTenant",
+          )}
         </p>
-        <Link
-          to={lock.to as never}
-          search={lock.search as never}
-          className={cn(buttonVariants({ variant: "outline", size: "sm" }), "w-fit")}
-        >
-          {t("tenantpage:locked.action")}
-        </Link>
+        {/* The license page belongs to the installation: only its administrators can open it. */}
+        {isProviderAdmin ? (
+          <Link
+            to={lock.to as never}
+            search={lock.search as never}
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "w-fit")}
+          >
+            {t("tenantpage:locked.action")}
+          </Link>
+        ) : null}
       </CardContent>
     </Card>
   );

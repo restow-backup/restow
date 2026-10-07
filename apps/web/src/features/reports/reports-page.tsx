@@ -1,7 +1,8 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
   BellRing,
   Building,
+  Download,
   FileBarChart,
   Lock,
   MoreHorizontal,
@@ -36,6 +37,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import {
@@ -48,9 +56,23 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { activeTenantPageTo } from "@/lib/tenant-paths";
+import { endpointDetailTo } from "@/features/endpoints/paths";
+import { webhookDetailTo } from "@/features/integrations/paths";
+import { downloadFile } from "@/features/stats/download";
+import { errorMessageKey } from "@/lib/api";
+import { ExtensionSlot } from "@/lib/extensions";
+import { useSession } from "@/lib/session";
+import { activeTenantPageTo, tenantPageTo } from "@/lib/tenant-paths";
 
-import type { DeliveryStatus, ReportRule, ReportTrigger } from "./api";
+import {
+  DELIVERIES_EXPORT_PATH,
+  type DeliveryStatus,
+  PROVIDER_DELIVERIES_EXPORT_PATH,
+  type ReportDelivery,
+  type ReportRule,
+  type ReportTrigger,
+  deliveryQuery,
+} from "./api";
 import {
   useDeleteRule,
   useReportCatalog,
@@ -60,6 +82,7 @@ import {
   useTestRule,
   useUpdateRule,
 } from "./hooks";
+import { reportsTo } from "./paths";
 import { REPORTS_ROLES, channelSummary, presetOf } from "./presenters";
 import { reportErrorMessage } from "./report-errors";
 import { RuleFormDialog } from "./rule-form-dialog";
@@ -93,6 +116,15 @@ function AlertsContent() {
   const { t } = useTranslation("reports");
   const scope = useReportsScope();
 
+  if (scope.allTenants) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title={t("page.title")} description={t("page.allTenants")} />
+        <DeliveryLog allTenants />
+      </div>
+    );
+  }
+
   if (scope.tenantId === null) {
     return (
       <div className="space-y-6">
@@ -125,7 +157,7 @@ function AlertsContent() {
           </Link>
         }
       />
-      <DeliveryLog />
+      <DeliveryLog allTenants={false} />
     </div>
   );
 }
@@ -161,9 +193,15 @@ export function AlertRulesPanel() {
                   {t("page.newReport")}
                 </Button>
               ) : catalog.data ? (
-                <StatusBadge tone="muted" icon={Lock} className="self-center">
-                  {t("page.reportLocked")}
-                </StatusBadge>
+                <ExtensionSlot
+                  name="reports.scheduleLocked"
+                  props={{}}
+                  fallback={
+                    <StatusBadge tone="muted" icon={Lock} className="self-center">
+                      {t("page.reportLocked")}
+                    </StatusBadge>
+                  }
+                />
               ) : null}
             </div>
           }
@@ -362,12 +400,15 @@ function RuleRow({
   const { t } = useTranslation("reports");
   const update = useUpdateRule();
   const test = useTestRule();
+  const navigate = useNavigate();
   const channels = channelSummary(rule);
   const parts = [
     channels.recipients > 0 ? t("rules.recipients", { count: channels.recipients }) : null,
     channels.inApp ? t("rules.bell") : null,
     channels.webhook ? t("rules.webhook") : null,
   ].filter((part): part is string => part !== null);
+  // A rule whose only webhook was deleted keeps running but reaches nobody: say so.
+  const silent = rule.enabled && parts.length === 0;
 
   return (
     <TableRow>
@@ -388,7 +429,15 @@ function RuleRow({
       <TableCell>
         <TriggerSummary rule={rule} />
       </TableCell>
-      <TableCell className="text-sm">{parts.join(" · ")}</TableCell>
+      <TableCell className="text-sm">
+        {silent ? (
+          <StatusBadge tone="warning" icon data-flag="no-channel">
+            {t("rules.noChannel")}
+          </StatusBadge>
+        ) : (
+          parts.join(" · ")
+        )}
+      </TableCell>
       <TableCell>
         {rule.lastDelivery ? (
           <span className="flex flex-wrap items-center gap-2">
@@ -422,7 +471,14 @@ function RuleRow({
               onSelect={() =>
                 test.mutate(rule.id, {
                   onSuccess: (result) =>
-                    toast.success(t("toasts.testQueued", { count: result.queued })),
+                    result.queued === 0
+                      ? toast.warning(t("toasts.testNothing"))
+                      : toast.success(t("toasts.testQueued", { count: result.queued }), {
+                          action: {
+                            label: t("toasts.openLog"),
+                            onClick: () => void navigate({ to: reportsTo() }),
+                          },
+                        }),
                   onError: (error) => toast.error(reportErrorMessage(error, t)),
                 })
               }
@@ -458,37 +514,162 @@ function RuleRow({
   );
 }
 
-function DeliveryLog() {
+/** The reason a delivery failed or was skipped, when the server named a known one. */
+export const DELIVERY_REASONS = [
+  "mail_not_configured",
+  "not_available",
+  "webhook_deleted",
+  "webhook_inactive",
+  "no_recipient",
+  "no_webhook",
+  "demo_mode",
+  "send_failed",
+] as const;
+
+function isKnownReason(value: string): boolean {
+  return (DELIVERY_REASONS as readonly string[]).includes(value);
+}
+
+/**
+ * Why a delivery failed or was skipped: a known reason in words, anything else (an SMTP server's
+ * or a receiver's own answer, in whatever language it speaks) folded away as technical detail.
+ */
+function DeliveryReason({ error }: { error: string }) {
   const { t } = useTranslation("reports");
-  const query = useReportDeliveries(null);
-  if (query.isPending) {
-    return <Skeleton className="h-40 w-full" />;
-  }
-  if (query.error) {
+  if (isKnownReason(error)) {
     return (
-      <ErrorState
-        title={t("deliveries.loadError")}
-        error={query.error}
-        onRetry={() => void query.refetch()}
-        retrying={query.isFetching}
-      />
+      <span className="mt-1 block text-xs text-muted-foreground">
+        {t(`deliveries.reasons.${error}`)}
+      </span>
     );
   }
-  const rows = query.data ?? [];
+  return (
+    <details className="mt-1 text-xs text-muted-foreground">
+      <summary className="cursor-pointer select-none">{t("deliveries.technicalDetail")}</summary>
+      <span className="mt-1 block break-words font-mono">{error}</span>
+    </details>
+  );
+}
+
+const STATUSES: readonly DeliveryStatus[] = ["pending", "sent", "failed", "skipped"];
+
+/** Where the subject of a delivery lives, in the active tenant (null: no page for it). */
+function subjectPath(row: ReportDelivery): string | null {
+  const subject = row.subject;
+  if (!subject) return null;
+  if (subject.endpointId) return String(endpointDetailTo(subject.endpointId));
+  if (subject.jobId) return `/history/${encodeURIComponent(subject.jobId)}`;
+  return null;
+}
+
+function DeliveryLog({ allTenants }: { allTenants: boolean }) {
+  const { t } = useTranslation("reports");
+  const { t: tc } = useTranslation("common");
+  const session = useSession();
+  const [status, setStatus] = React.useState<DeliveryStatus | null>(null);
+  const [ruleId, setRuleId] = React.useState<string | null>(null);
+  const rules = useReportRules();
+  const filters = { status, ruleId: allTenants ? null : ruleId };
+  const query = useReportDeliveries(filters);
+  const [exporting, setExporting] = React.useState(false);
+
+  async function exportCsv() {
+    setExporting(true);
+    const toastId = toast.loading(t("deliveries.export.preparing"));
+    try {
+      const filename = await downloadFile({
+        path: `${allTenants ? PROVIDER_DELIVERIES_EXPORT_PATH : DELIVERIES_EXPORT_PATH}${deliveryQuery(filters)}`,
+        accept: "text/csv",
+        fallbackName: "alert-deliveries.csv",
+      });
+      toast.success(t("deliveries.export.done"), { id: toastId, description: filename });
+    } catch (error) {
+      toast.error(t("deliveries.export.failed"), {
+        id: toastId,
+        description: tc(errorMessageKey(error)),
+      });
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  const openInTenant = (tenantId: string | undefined) => {
+    if (allTenants && tenantId) session.setActiveTenant(tenantId);
+  };
+
+  const rows = query.items;
   return (
     <Card>
       <CardHeader>
         <CardTitle>{t("deliveries.title")}</CardTitle>
-        <CardDescription>{t("deliveries.description")}</CardDescription>
+        <CardDescription>
+          {allTenants ? t("deliveries.descriptionAllTenants") : t("deliveries.description")}
+        </CardDescription>
       </CardHeader>
-      <CardContent>
-        {rows.length === 0 ? (
+      <CardContent className="space-y-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <Select
+            value={status ?? "all"}
+            onValueChange={(value) => setStatus(value === "all" ? null : (value as DeliveryStatus))}
+          >
+            <SelectTrigger className="w-48" aria-label={t("deliveries.filters.status")}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">{t("deliveries.filters.allStatuses")}</SelectItem>
+              {STATUSES.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {t(`deliveries.status.${option}`)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {allTenants ? null : (
+            <Select
+              value={ruleId ?? "all"}
+              onValueChange={(value) => setRuleId(value === "all" ? null : value)}
+            >
+              <SelectTrigger className="w-64" aria-label={t("deliveries.filters.rule")}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t("deliveries.filters.allRules")}</SelectItem>
+                {(rules.data ?? []).map((rule) => (
+                  <SelectItem key={rule.id} value={rule.id}>
+                    {rule.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="ml-auto"
+            loading={exporting}
+            onClick={() => void exportCsv()}
+          >
+            <Download aria-hidden="true" />
+            {t("deliveries.export.action")}
+          </Button>
+        </div>
+        {query.isPending ? (
+          <Skeleton className="h-40 w-full" />
+        ) : query.error ? (
+          <ErrorState
+            title={t("deliveries.loadError")}
+            error={query.error}
+            onRetry={() => void query.refetch()}
+            retrying={query.isFetching}
+          />
+        ) : rows.length === 0 ? (
           <EmptyState icon={Send} title={t("deliveries.empty")} />
         ) : (
           <Table className="min-w-[48rem]" scrollLabel={t("deliveries.title")}>
             <TableHeader>
               <TableRow>
                 <TableHead pin={PIN_FIRST}>{t("deliveries.columns.time")}</TableHead>
+                {allTenants ? <TableHead>{t("deliveries.columns.tenant")}</TableHead> : null}
                 <TableHead>{t("deliveries.columns.rule")}</TableHead>
                 <TableHead>{t("deliveries.columns.what")}</TableHead>
                 <TableHead>{t("deliveries.columns.channel")}</TableHead>
@@ -496,49 +677,107 @@ function DeliveryLog() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell pin={PIN_FIRST} className="whitespace-nowrap">
-                    <RelativeTime value={row.createdAt} />
-                  </TableCell>
-                  <TableCell className="max-w-48 truncate">{row.ruleName}</TableCell>
-                  <TableCell className="max-w-64">
-                    <span className="block truncate">
-                      {row.kind === "summary"
-                        ? t("deliveries.summary")
-                        : row.event
-                          ? t(`events.${row.event}`)
-                          : "–"}
-                    </span>
-                    {row.target ? (
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {row.target}
-                      </span>
+              {rows.map((row) => {
+                const tenantId = row.tenant?.id;
+                const path = allTenants ? null : subjectPath(row);
+                return (
+                  <TableRow key={row.id} data-delivery={row.id}>
+                    <TableCell pin={PIN_FIRST} className="whitespace-nowrap">
+                      <RelativeTime value={row.createdAt} />
+                    </TableCell>
+                    {allTenants ? (
+                      <TableCell className="max-w-48 truncate">
+                        {tenantId ? (
+                          <Link
+                            to={tenantPageTo(tenantId, "overview")}
+                            className="text-primary hover:underline"
+                          >
+                            {row.tenant?.name}
+                          </Link>
+                        ) : null}
+                      </TableCell>
                     ) : null}
-                  </TableCell>
-                  <TableCell className="max-w-56">
-                    <span className="block">{t(`deliveries.channel.${row.channel}`)}</span>
-                    {row.recipient ? (
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {row.recipient}
+                    <TableCell className="max-w-48 truncate">
+                      {row.ruleId ? (
+                        <Link
+                          to={
+                            tenantId
+                              ? tenantPageTo(tenantId, "notifications")
+                              : activeTenantPageTo("notifications")
+                          }
+                          className="text-primary hover:underline"
+                          title={t("deliveries.openRule")}
+                        >
+                          {row.ruleName}
+                        </Link>
+                      ) : (
+                        row.ruleName
+                      )}
+                    </TableCell>
+                    <TableCell className="max-w-64">
+                      <span className="block truncate">
+                        {row.kind === "summary"
+                          ? t("deliveries.summary")
+                          : row.event
+                            ? t(`events.${row.event}`)
+                            : "–"}
                       </span>
-                    ) : null}
-                  </TableCell>
-                  <TableCell className="max-w-64">
-                    <StatusBadge tone={STATUS_TONE[row.status]}>
-                      {t(`deliveries.status.${row.status}`)}
-                    </StatusBadge>
-                    {row.lastError ? (
-                      <span className="mt-1 block text-xs text-muted-foreground">
-                        {t(`deliveries.reasons.${row.lastError}`, { defaultValue: row.lastError })}
-                      </span>
-                    ) : null}
-                  </TableCell>
-                </TableRow>
-              ))}
+                      {row.target ? (
+                        path ? (
+                          <Link
+                            to={path as never}
+                            className="block truncate text-xs text-primary hover:underline"
+                          >
+                            {row.target}
+                          </Link>
+                        ) : (
+                          <span className="block truncate text-xs text-muted-foreground">
+                            {row.target}
+                          </span>
+                        )
+                      ) : null}
+                    </TableCell>
+                    <TableCell className="max-w-56">
+                      <span className="block">{t(`deliveries.channel.${row.channel}`)}</span>
+                      {row.recipient ? (
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {row.recipient}
+                        </span>
+                      ) : null}
+                      {row.webhook && !allTenants ? (
+                        <Link
+                          to={webhookDetailTo(row.webhook.id)}
+                          className="block text-xs text-primary hover:underline"
+                          onClick={() => openInTenant(tenantId)}
+                        >
+                          {t("deliveries.openWebhook")}
+                        </Link>
+                      ) : null}
+                    </TableCell>
+                    <TableCell className="max-w-64">
+                      <StatusBadge tone={STATUS_TONE[row.status]}>
+                        {row.channel === "webhook" && row.status === "pending"
+                          ? t("deliveries.status.handedOver")
+                          : t(`deliveries.status.${row.status}`)}
+                      </StatusBadge>
+                      {row.lastError ? <DeliveryReason error={row.lastError} /> : null}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         )}
+        {query.hasNextPage ? (
+          <Button
+            variant="outline"
+            size="sm"
+            loading={query.isFetchingNextPage}
+            onClick={() => void query.fetchNextPage()}
+          >
+            {t("deliveries.loadMore")}
+          </Button>
+        ) : null}
       </CardContent>
     </Card>
   );

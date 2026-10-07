@@ -6,6 +6,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 
+import { reportKeys } from "@/features/reports/api";
 import { queryKeys } from "@/lib/api";
 import { useSession } from "@/lib/session";
 
@@ -220,7 +221,13 @@ export function useReplaceTenantNotificationRecipients(tenantId: string) {
   return useMutation({
     mutationFn: (recipients: NotificationRecipientInput[]) =>
       replaceTenantNotificationRecipients(tenantId, recipients),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: tenantKeys.detail(tenantId) }),
+    // Saving the recipients rewrites the rules that carry their categories (addresses, rules
+    // added or removed): the rule list below them must not keep the old counts.
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: tenantKeys.detail(tenantId) }),
+        queryClient.invalidateQueries({ queryKey: reportKeys.all(tenantId) }),
+      ]),
   });
 }
 

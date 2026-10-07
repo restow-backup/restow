@@ -7,6 +7,9 @@ import type { LinkProps } from "@tanstack/react-router";
  */
 export const REPORTS_PATH = "/alerts";
 
+/** Every notification the bell ever showed, a page at a time, with filters. */
+export const NOTIFICATIONS_PATH = "/notifications";
+
 export function reportsTo(): LinkProps["to"] {
   return REPORTS_PATH as LinkProps["to"];
 }

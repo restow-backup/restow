@@ -77,6 +77,14 @@ export const endpointCountsSchema = component(
   "EndpointCounts",
   z.object({
     total: z.number().int().describe("Endpoints that are not revoked."),
+    withoutJob: z
+      .number()
+      .int()
+      .describe("Endpoints that are not revoked but in no backup job: nothing backs them up."),
+    failedLastBackup: z
+      .number()
+      .int()
+      .describe("Endpoints whose newest backup run failed (a restart of the agent is no failure)."),
     servers: z.number().int(),
     clients: z.number().int(),
     revoked: z.number().int(),
@@ -122,6 +130,8 @@ export function countEndpoints(items: readonly EndpointSummaryDto[]): EndpointCo
     .at(-1);
   return {
     total: active.length,
+    withoutJob: active.filter((item) => item.attention.includes("no_job")).length,
+    failedLastBackup: active.filter((item) => item.attention.includes("last_backup_failed")).length,
     servers: active.filter((item) => item.profile === "server").length,
     clients: active.filter((item) => item.profile === "client").length,
     revoked: items.length - active.length,

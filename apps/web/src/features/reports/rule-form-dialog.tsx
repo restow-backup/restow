@@ -38,6 +38,7 @@ import {
   emptyRuleForm,
   eventGroupsFor,
   formToInput,
+  knownTimeZones,
   ruleToForm,
   validateRuleForm,
 } from "./presenters";
@@ -73,6 +74,7 @@ export function RuleFormDialog({
   const webhooks = useWebhooks();
   const { isProviderAdmin } = useReportsScope();
   const pending = create.isPending || update.isPending;
+  const timeZones = React.useMemo(knownTimeZones, []);
 
   React.useEffect(() => {
     if (open) {
@@ -278,13 +280,24 @@ export function RuleFormDialog({
                   id="rule-timezone"
                   label={t("editor.timezone")}
                   hint={t("editor.timezoneHint")}
+                  error={error("timezone")}
                 >
+                  {/* Suggestions from the zones the browser knows; a typo is caught before saving. */}
                   <Input
                     id="rule-timezone"
                     value={form.timezone}
                     className="font-mono"
+                    list="rule-timezones"
+                    autoComplete="off"
+                    aria-invalid={errors.timezone !== undefined}
+                    aria-describedby={messageId("rule-timezone")}
                     onChange={(e) => set("timezone", e.target.value)}
                   />
+                  <datalist id="rule-timezones">
+                    {timeZones.map((zone) => (
+                      <option key={zone} value={zone} />
+                    ))}
+                  </datalist>
                 </Field>
                 <Field id="rule-period" label={t("editor.period")}>
                   <Select

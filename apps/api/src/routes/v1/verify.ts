@@ -102,6 +102,12 @@ export const readinessSummarySchema = component(
       .describe("Objects whose newest backup was not verified yet, whatever older backups scored."),
     noBackup: z.number().int(),
     overdue: z.number().int(),
+    withoutJob: z
+      .number()
+      .int()
+      .describe(
+        "Servers and clients in no backup job: rated by their old backups, but nothing backs them up. Any of them makes `overall` at least yellow.",
+      ),
     overall: readinessSchema
       .nullable()
       .describe(

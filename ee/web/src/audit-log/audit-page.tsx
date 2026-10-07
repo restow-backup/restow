@@ -15,6 +15,7 @@ import { tenantPagePath } from "@/lib/tenant-paths";
 import { ChainBrokenAlert, ChainDialog, ChainStatusButton } from "./components/chain-status";
 import { AuditEntriesTable } from "./components/entries-table";
 import { AuditEntrySheet } from "./components/entry-sheet";
+import { AuditExportMenu } from "./components/export-menu";
 import { AuditFilters } from "./components/filters";
 import {
   type AuditAccess,
@@ -27,7 +28,7 @@ import {
   useChainVerification,
 } from "./hooks";
 import { AUDIT_NAMESPACE } from "./i18n";
-import { hasFilters } from "./search";
+import { hasFilters, toAuditQuery } from "./search";
 
 /**
  * The audit log of one tenant, as a section of its page (features/tenant-page):
@@ -162,6 +163,7 @@ function AuditLog({
       : (tenants.find((tenant) => tenant.id === scope?.tenantId)?.name ?? "");
   const chainActions = (
     <>
+      <AuditExportMenu query={toAuditQuery(search, isProvider)} />
       <ChainStatusButton
         verification={verification}
         format={format}

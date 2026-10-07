@@ -115,6 +115,18 @@ export function formatDuration(ms: number): string {
   return rest > 0 ? `${hours} h ${rest} min` : `${hours} h`;
 }
 
+/**
+ * A path that names its tenant (`?forTenant=`, which the web app honours with an access check):
+ * the link opens the tenant the message is about, not the one the reader's browser chose last.
+ * Paths below `/tenants/<id>` name it already.
+ */
+export function tenantAddressed(path: string, tenantId: string | null): string {
+  if (!tenantId || path.startsWith("/tenants/")) {
+    return path;
+  }
+  return `${path}${path.includes("?") ? "&" : "?"}forTenant=${encodeURIComponent(tenantId)}`;
+}
+
 /** `<origin><path>`, or null without a usable public URL. */
 export function linkTo(publicUrl: string | null, path: string): string | null {
   if (!publicUrl) {
@@ -253,7 +265,7 @@ export function buildChatMessage(
   };
   const tenantField: ChatField = { name: t("notifications:chat.fields.tenant"), value: tenant };
   const link = (path: string | null): ChatMessage["link"] => {
-    const url = path ? linkTo(context.publicUrl, path) : null;
+    const url = path ? linkTo(context.publicUrl, tenantAddressed(path, envelope.tenantId)) : null;
     return url ? { label: t("notifications:chat.open"), url } : null;
   };
 

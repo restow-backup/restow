@@ -53,6 +53,7 @@ import {
 import type { Webhook } from "../types";
 import { useIntegrationsFormat } from "../use-format";
 import { DeliveriesCard } from "./deliveries-card";
+import { WebhookRulesNotice } from "./rules-using-webhook";
 import { WebhookFormDialog } from "./webhook-form-dialog";
 import { InsecureBadge, WebhookHealthBadge, WebhookStatsLine } from "./webhook-status";
 
@@ -251,7 +252,12 @@ function WebhookView({ webhook }: { webhook: Webhook }) {
         onOpenChange={setConfirmDelete}
         title={t("webhooks.deleteConfirm.title")}
         description={t("webhooks.deleteConfirm.description")}
-        detail={displayUrl(webhook.url)}
+        detail={
+          <div className="space-y-3">
+            <div>{displayUrl(webhook.url)}</div>
+            <WebhookRulesNotice webhookId={webhook.id} />
+          </div>
+        }
         confirmLabel={t("webhooks.deleteConfirm.confirm")}
         destructive
         pending={remove.isPending}

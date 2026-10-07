@@ -48,12 +48,15 @@ describe("summarizeEndpoints", () => {
   it("reports zeros for a tenant without endpoints, which the page answers with no card", () => {
     expect(summarizeEndpoints([])).toEqual({
       protected: 0,
+      machines: 0,
+      withoutJob: 0,
       servers: 0,
       clients: 0,
       readiness: { green: 0, yellow: 0, red: 0, unverified: 0, noBackup: 0 },
       notReady: 0,
       failedLastBackup: 0,
       needingAttention: 0,
+      otherAttention: 0,
       lastSuccessAt: null,
     });
   });
@@ -65,7 +68,18 @@ describe("summarizeEndpoints", () => {
       machine("laptop", { profile: "client" }),
       machine("retired", { profile: "server", status: "revoked" }),
     ]);
-    expect(widget).toMatchObject({ protected: 3, servers: 2, clients: 1 });
+    expect(widget).toMatchObject({ protected: 3, machines: 3, servers: 2, clients: 1 });
+  });
+
+  it("does not count a machine in no backup job as protected", () => {
+    const widget = summarizeEndpoints([
+      machine("web"),
+      machine("orphan", { attention: ["no_job"] }),
+      machine("old", { state: "green", attention: ["no_job"] }),
+    ]);
+    expect(widget).toMatchObject({ protected: 1, machines: 3, withoutJob: 2 });
+    expect(widget.needingAttention).toBe(2);
+    expect(widget.otherAttention).toBe(0);
   });
 
   it("rates the machines as the verify page does and sums what is not proven restorable", () => {

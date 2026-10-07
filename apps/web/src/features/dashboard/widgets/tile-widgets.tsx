@@ -14,6 +14,20 @@ import { TileWidget, type WidgetStateProps } from "../components/widget-frame.js
 import { PATHS, to } from "../paths.js";
 import { dedupSaving } from "../presenters.js";
 
+/**
+ * "No errors in the latest runs" only when there were runs to judge: nothing failed, nothing left
+ * items behind, everything protected has a backup and no machine is left without a job.
+ */
+export function protectedHealthy(data: ObjectsData): boolean {
+  return (
+    data.failed === 0 &&
+    data.withItemFailures === 0 &&
+    data.machines.failedLastBackup === 0 &&
+    data.machines.withoutJob === 0 &&
+    data.noBackup === 0
+  );
+}
+
 function useLanguage(): string {
   const { i18n } = useTranslation();
   return i18n.resolvedLanguage ?? i18n.language;
@@ -24,8 +38,10 @@ function useLanguage(): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Objects under protection and how their latest runs ended. Runs that left
- * items behind are counted apart from failed runs, never as successes.
+ * Objects under protection and how their latest runs ended, servers and
+ * clients in a backup job included. Runs that left items behind are counted
+ * apart from failed runs, never as successes; "no errors" is said only when
+ * everything protected has at least one backup and nothing failed.
  */
 export function ProtectedObjectsWidget({
   canAdminister,
@@ -40,7 +56,7 @@ export function ProtectedObjectsWidget({
       label={t("protectedObjects.title")}
       icon={ShieldCheck}
       empty={(data) =>
-        data.active === 0
+        data.active + data.machines.protected + data.machines.withoutJob === 0
           ? {
               icon: ShieldCheck,
               title: t("protectedObjects.empty.title"),
@@ -58,15 +74,32 @@ export function ProtectedObjectsWidget({
         <KpiTile
           label={t("protectedObjects.title")}
           icon={ShieldCheck}
-          value={formatInteger(data.active, language)}
+          value={formatInteger(data.active + data.machines.protected, language)}
           hint={
             <span className="flex flex-wrap gap-1.5">
-              {data.failed === 0 && data.withItemFailures === 0 ? (
+              {data.machines.protected > 0 ? (
+                <span className="w-full text-xs text-muted-foreground" data-line="machines">
+                  {t("protectedObjects.withMachines", { count: data.machines.protected })}
+                </span>
+              ) : null}
+              {protectedHealthy(data) ? (
                 <StatusBadge tone="neutral">{t("protectedObjects.healthy")}</StatusBadge>
               ) : null}
-              {data.failed > 0 ? (
+              {data.failed + data.machines.failedLastBackup > 0 ? (
                 <StatusBadge tone="destructive">
-                  {t("protectedObjects.failed", { count: data.failed })}
+                  {t("protectedObjects.failed", {
+                    count: data.failed + data.machines.failedLastBackup,
+                  })}
+                </StatusBadge>
+              ) : null}
+              {data.noBackup > 0 ? (
+                <StatusBadge tone="warning">
+                  {t("protectedObjects.noBackup", { count: data.noBackup })}
+                </StatusBadge>
+              ) : null}
+              {data.machines.withoutJob > 0 ? (
+                <StatusBadge tone="warning">
+                  {t("protectedObjects.withoutJob", { count: data.machines.withoutJob })}
                 </StatusBadge>
               ) : null}
               {data.withItemFailures > 0 ? (

@@ -37,7 +37,8 @@
   "locked": {
     "title": "{section} ist nicht freigeschaltet",
     "description": "Der Bereich bleibt in der Liste, damit Sie sehen, dass es ihn gibt. Die Lizenzseite zeigt, was ihn freischaltet, und nimmt den Schlüssel entgegen.",
-    "action": "Lizenzseite öffnen"
+    "action": "Lizenzseite öffnen",
+    "descriptionTenant": "Der Bereich bleibt in der Liste, damit Sie sehen, dass es ihn gibt. Freischalten kann ihn die Administration der Installation (Ihr Provider) mit einem Lizenzschlüssel."
   },
   "states": {
     "notYours": {

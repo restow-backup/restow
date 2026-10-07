@@ -52,9 +52,9 @@ export const webhookEventSchema = z.enum(WEBHOOK_EVENTS);
 /** `restow` (signed JSON, the default) or a chat service's message shape. */
 export const webhookFormatSchema = z.enum(WEBHOOK_FORMATS);
 
+// Empty: a webhook only alert and report rules send to (a Teams channel for alerts, say).
 const eventsSchema = z
   .array(webhookEventSchema)
-  .min(1)
   .max(WEBHOOK_EVENTS.length * 2)
   .transform((events) => WEBHOOK_EVENTS.filter((event) => events.includes(event)));
 

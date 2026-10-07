@@ -33,6 +33,7 @@ import { LOGIN_PATH, loginRedirectFor } from "@/lib/entry";
 import { onUnauthorized } from "@/lib/query";
 import { isTenantOnlyPage } from "@/lib/scope";
 import { sessionScope, useSession } from "@/lib/session";
+import { TenantFromAddress } from "@/lib/tenant-address";
 
 /** Route id of the authenticated shell (`appLayoutRoute` in routes/tree.ts). */
 const APP_ROUTE_ID = "/app";
@@ -97,6 +98,8 @@ export function AppLayout() {
       <ShellFrame>
         <ShellOutlet />
       </ShellFrame>
+      {/* A link that names its tenant (`?forTenant=`) opens that tenant. */}
+      <TenantFromAddress />
       {/* An installation that predates the operator notice asks its provider admin once. */}
       <DisclaimerDialog />
     </>

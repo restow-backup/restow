@@ -39,7 +39,10 @@ export interface RuleFormState {
 }
 
 export type RuleFormErrors = Partial<
-  Record<"name" | "events" | "sections" | "channels" | "time" | "cron" | "recipients", string>
+  Record<
+    "name" | "events" | "sections" | "channels" | "time" | "cron" | "timezone" | "recipients",
+    string
+  >
 >;
 
 export const THROTTLE_OPTIONS = [0, 15, 60, 240, 1440] as const;
@@ -50,6 +53,7 @@ export const EVENT_GROUPS: Record<
 > = {
   jobs: [
     "backup.failed",
+    "backup.overdue",
     "restore.failed",
     "restore.completed",
     "archive.failed",
@@ -187,6 +191,29 @@ export function parseRecipients(text: string): { valid: string[]; invalid: strin
   return { valid, invalid };
 }
 
+/** The IANA zones this browser knows, for the time zone suggestions (empty where it cannot say). */
+export function knownTimeZones(): string[] {
+  try {
+    const zones = (Intl as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf?.(
+      "timeZone",
+    );
+    return zones ? [...zones, ...(zones.includes("UTC") ? [] : ["UTC"])] : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Whether `zone` is a time zone this browser can use (the server checks it the same way). */
+export function isKnownTimeZone(zone: string): boolean {
+  if (zone.trim().length === 0) return false;
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: zone.trim() });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Problems of the form as translation keys (namespace `reports`); empty when it can be saved. */
 export function validateRuleForm(form: RuleFormState): RuleFormErrors {
   const errors: RuleFormErrors = {};
@@ -201,6 +228,8 @@ export function validateRuleForm(form: RuleFormState): RuleFormErrors {
     } else if (!TIME.test(form.time)) {
       errors.time = "editor.errors.time";
     }
+    // Said here, in the reader's language, instead of after saving by the server.
+    if (!isKnownTimeZone(form.timezone)) errors.timezone = "editor.errors.timezone";
   }
   const hasChannel =
     recipients.valid.length > 0 ||

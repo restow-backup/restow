@@ -281,6 +281,7 @@ describe("verification report", () => {
       unverified: 0,
       noBackup: 0,
       overdue: 0,
+      withoutJob: 0,
       overall: "green",
       lastCheckedAt: NOW.toISOString(),
       running: 0,

@@ -9,6 +9,7 @@
 /** Events the product raises. Each one belongs to a group the rule editor shows together. */
 export const REPORT_EVENTS = [
   "backup.failed",
+  "backup.overdue",
   "restore.failed",
   "restore.completed",
   "archive.failed",
@@ -36,6 +37,9 @@ export interface ReportEventInfo {
 
 export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> = {
   "backup.failed": { group: "jobs", level: "error" },
+  // No successful backup of a mailbox, OneDrive, IMAP account, server or client for longer than
+  // its jobs' schedules allow (twice the longest planned gap; apps/worker overdue.ts).
+  "backup.overdue": { group: "jobs", level: "warning" },
   "restore.failed": { group: "jobs", level: "error" },
   "restore.completed": { group: "jobs", level: "info" },
   "archive.failed": { group: "jobs", level: "error" },

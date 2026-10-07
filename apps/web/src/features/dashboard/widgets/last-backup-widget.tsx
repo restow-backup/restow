@@ -1,4 +1,12 @@
-import { Archive, Cloud, DatabaseBackup, type LucideIcon, Mail, MailOpen } from "lucide-react";
+import {
+  Archive,
+  Cloud,
+  DatabaseBackup,
+  type LucideIcon,
+  Mail,
+  MailOpen,
+  Server,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { RelativeTime, StatusBadge, useMinuteClock } from "@/components/kit";
@@ -8,14 +16,15 @@ import type { LastBackupWidget as LastBackupData } from "../api.js";
 import { LinkButton } from "../components/link-button.js";
 import { WidgetCard, type WidgetStateProps } from "../components/widget-frame.js";
 import { PATHS, to } from "../paths.js";
-import { isStale } from "../presenters.js";
+import { isStale, staleBound } from "../presenters.js";
 
-type BackupType = "mail" | "onedrive" | "imap" | "archive";
+type BackupType = "mail" | "onedrive" | "imap" | "machines" | "archive";
 
 const TYPE_ICON: Readonly<Record<BackupType, LucideIcon>> = {
   mail: Mail,
   onedrive: Cloud,
   imap: MailOpen,
+  machines: Server,
   archive: Archive,
 };
 
@@ -24,6 +33,8 @@ interface TypeRow {
   at: string | null;
   /** Objects of this type under protection; null for the archive, which has none of its own. */
   protectedCount: number | null;
+  /** Hours without a successful backup after which the row reads as overdue; null: never. */
+  staleAfterHours: number | null;
 }
 
 /**
@@ -31,20 +42,57 @@ interface TypeRow {
  * something. A type nobody uses is not presented as "never backed up".
  */
 export function backupTypeRows(data: LastBackupData): TypeRow[] {
+  const mail = data.staleAfterHours.mail;
   const rows: TypeRow[] = [
-    { type: "mail", at: data.lastSuccess.mail, protectedCount: data.protectedKinds.mailbox },
+    {
+      type: "mail",
+      at: data.lastSuccess.mail,
+      protectedCount: data.protectedKinds.mailbox,
+      staleAfterHours: mail,
+    },
     {
       type: "onedrive",
       at: data.lastSuccess.onedrive,
       protectedCount: data.protectedKinds.onedrive,
+      staleAfterHours: mail,
     },
-    { type: "imap", at: data.lastSuccess.imap, protectedCount: data.protectedKinds.imap },
+    {
+      type: "imap",
+      at: data.lastSuccess.imap,
+      protectedCount: data.protectedKinds.imap,
+      staleAfterHours: mail,
+    },
+    // Servers and clients backed up by the agent; a machine in no job still shows the row.
+    {
+      type: "machines",
+      at: data.machines.lastSuccessAt,
+      protectedCount: data.machines.protected + data.machines.withoutJob,
+      staleAfterHours: data.staleAfterHours.machines,
+    },
   ];
   const used = rows.filter((row) => (row.protectedCount ?? 0) > 0 || row.at !== null);
   if (data.lastSuccess.archive) {
-    used.push({ type: "archive", at: data.lastSuccess.archive, protectedCount: null });
+    // The archive captures continuously; it has no schedule to be late against.
+    used.push({
+      type: "archive",
+      at: data.lastSuccess.archive,
+      protectedCount: null,
+      staleAfterHours: null,
+    });
   }
   return used;
+}
+
+function StaleBadge({ hours }: { hours: number }) {
+  const { t } = useTranslation("dashboard");
+  const bound = staleBound(hours);
+  return (
+    <StatusBadge tone="warning">
+      {t(bound.unit === "days" ? "lastBackup.staleDays" : "lastBackup.staleHours", {
+        count: bound.count,
+      })}
+    </StatusBadge>
+  );
 }
 
 function LastBackupSkeleton() {
@@ -85,8 +133,8 @@ function LastBackupBody({ rows }: { rows: TypeRow[] }) {
                 </StatusBadge>
               ) : (
                 <>
-                  {isStale(row.at, now) ? (
-                    <StatusBadge tone="warning">{t("lastBackup.stale")}</StatusBadge>
+                  {row.staleAfterHours !== null && isStale(row.at, now, row.staleAfterHours) ? (
+                    <StaleBadge hours={row.staleAfterHours} />
                   ) : null}
                   <RelativeTime value={row.at} />
                 </>

@@ -59,6 +59,10 @@ function row(name: string, over: Partial<LoadedTenantRow> = {}): LoadedTenantRow
     mailboxCap: null,
     physicalBytes: 1,
     storageError: false,
+    staleAfterHours: 48,
+    machines: 0,
+    machinesWithoutJob: 0,
+    machinesFailed: 0,
     ...over,
   };
 }
@@ -84,6 +88,10 @@ const unread = (name: string): UnavailableTenantRow => ({
   mailboxCap: null,
   physicalBytes: null,
   storageError: null,
+  staleAfterHours: null,
+  machines: null,
+  machinesWithoutJob: null,
+  machinesFailed: null,
 });
 
 const TENANTS = [

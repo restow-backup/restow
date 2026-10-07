@@ -48,9 +48,24 @@ export interface LastBackupWidget {
   /** Newest successful run per type (a run that left failed items does not count). */
   lastSuccess: TenantSummaryDto["lastSuccess"];
   protectedKinds: ObjectKindCounts;
+  /** Servers and clients backed up by the agent: how many are protected and their newest good backup. */
+  machines: { protected: number; withoutJob: number; lastSuccessAt: string | null };
+  /**
+   * After how many hours without a successful backup a type reads as overdue, from the
+   * schedules of the tenant's enabled jobs (twice the longest planned gap, two days without any).
+   */
+  staleAfterHours: { mail: number; machines: number };
 }
 
-export type ProtectedObjectsWidget = TenantSummaryDto["objects"];
+/**
+ * Protected objects and how their latest runs ended, with the servers and clients next to them:
+ * a machine in a backup job is protected like a mailbox, one in no job is not.
+ */
+export type ProtectedObjectsWidget = TenantSummaryDto["objects"] & {
+  machines: { protected: number; withoutJob: number; failedLastBackup: number };
+  /** Protected objects and machines without any backup yet (no run can have been fine). */
+  noBackup: number;
+};
 
 export interface ReadinessWidget {
   /** Worst rating over all objects; null without protected objects. */
@@ -63,6 +78,8 @@ export interface ReadinessWidget {
   unverified: number;
   noBackup: number;
   overdue: number;
+  /** Machines in no backup job; any of them keeps `overall` from green. */
+  withoutJob: number;
   running: number;
   lastCheckedAt: string | null;
 }
@@ -224,11 +241,15 @@ export interface MailboxUsageWidget {
  * Servers and clients backed up by the agent (docs/AGENT.md). They also count
  * in the `readiness` widget's totals; this one says which of them need an
  * admin. The API returns it with zeros when the tenant has no endpoint; the
- * page shows the card only for `protected > 0`.
+ * page shows the card only for `machines > 0`.
  */
 export interface EndpointsWidget {
-  /** Machines under protection: endpoints that are not revoked. */
+  /** Machines under protection: endpoints that are not revoked and belong to a backup job. */
   protected: number;
+  /** Endpoints that are not revoked, in a job or not; the page shows the card for `machines > 0`. */
+  machines: number;
+  /** Machines in no backup job: nothing backs them up, so they are not protected. */
+  withoutJob: number;
   servers: number;
   clients: number;
   /**
@@ -249,6 +270,8 @@ export interface EndpointsWidget {
   failedLastBackup: number;
   /** Machines with at least one reason to look at them (silent, overdue, failed, damaged ...). */
   needingAttention: number;
+  /** Machines with a reason to look at them other than being in no backup job. */
+  otherAttention: number;
   /** Newest good backup of any protected machine; null when none exists. */
   lastSuccessAt: string | null;
 }
@@ -298,12 +321,20 @@ export interface LoadedTenantRowDto extends ProviderTenantRowBase {
   notRestorable: number;
   unverified: number;
   noBackup: number;
-  /** Jobs of any kind that ended failed in the last 24 hours. */
+  /** Jobs of any kind, and backups and restores of servers and clients, that failed in the last 24 hours. */
   failures24h: number;
   /** The same count for the 24 hours before, for the trend. */
   failuresPrevious24h: number;
-  /** Newest successful backup of any type (mail, OneDrive, IMAP); null when there is none. */
+  /** Newest successful backup of any type (mail, OneDrive, IMAP, servers and clients); null when there is none. */
   lastBackupAt: string | null;
+  /** After how many hours without a successful backup the tenant reads as stale (by its jobs' schedules). */
+  staleAfterHours: number;
+  /** Servers and clients in a backup job. */
+  machines: number;
+  /** Servers and clients in no backup job: nothing backs them up. */
+  machinesWithoutJob: number;
+  /** Servers and clients whose newest backup run failed. */
+  machinesFailed: number;
   physicalBytes: number;
   storageError: boolean;
 }
@@ -324,6 +355,10 @@ export interface UnavailableTenantRowDto extends ProviderTenantRowBase {
   failures24h: null;
   failuresPrevious24h: null;
   lastBackupAt: null;
+  staleAfterHours: null;
+  machines: null;
+  machinesWithoutJob: null;
+  machinesFailed: null;
   physicalBytes: null;
   storageError: null;
 }
@@ -339,6 +374,10 @@ export const PROVIDER_ALERT_KINDS = [
   "unverified",
   "no_backup",
   "stale_backup",
+  "machine_backup_failed",
+  "machines_without_job",
+  "needs_attention",
+  "nothing_protected",
 ] as const;
 export type ProviderAlertKind = (typeof PROVIDER_ALERT_KINDS)[number];
 

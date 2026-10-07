@@ -31,10 +31,12 @@ import {
   BACKUP_TREND_DAYS,
   FORECAST_DAYS,
   HISTORY_DAYS,
+  type StaleThresholds,
   type TenantFacts,
   type TenantTrends,
   loadInstallationDefaultTest,
   loadMailFacts,
+  loadStaleThresholds,
   loadTenantCap,
   loadTenantFacts,
   loadTenantTrends,
@@ -250,6 +252,7 @@ interface Sources {
   jobs: Settled<RecentJobsWidget>;
   mailboxes: Settled<MailboxUsageWidget>;
   endpoints: Settled<EndpointsWidget>;
+  stale: Settled<StaleThresholds>;
 }
 
 function buildWidgets(
@@ -271,10 +274,19 @@ function buildWidgets(
         );
         break;
       case "lastBackup":
-        widgets.lastBackup = widget([summary, facts], () => ({
-          lastSuccess: value(summary).lastSuccess,
-          protectedKinds: value(facts).kinds,
-        }));
+        widgets.lastBackup = widget([summary, facts, sources.endpoints, sources.stale], () => {
+          const machines = value(sources.endpoints);
+          return {
+            lastSuccess: value(summary).lastSuccess,
+            protectedKinds: value(facts).kinds,
+            machines: {
+              protected: machines.protected,
+              withoutJob: machines.withoutJob,
+              lastSuccessAt: machines.lastSuccessAt,
+            },
+            staleAfterHours: value(sources.stale),
+          };
+        });
         break;
       case "readiness":
         widgets.readiness = widget([summary], () => {
@@ -288,13 +300,25 @@ function buildWidgets(
             unverified: readiness.unverified,
             noBackup: readiness.noBackup,
             overdue: readiness.overdue,
+            withoutJob: readiness.withoutJob,
             running: readiness.running,
             lastCheckedAt: readiness.lastCheckedAt,
           };
         });
         break;
       case "protectedObjects":
-        widgets.protectedObjects = widget([summary], () => value(summary).objects);
+        widgets.protectedObjects = widget([summary, sources.endpoints], () => {
+          const machines = value(sources.endpoints);
+          return {
+            ...value(summary).objects,
+            machines: {
+              protected: machines.protected,
+              withoutJob: machines.withoutJob,
+              failedLastBackup: machines.failedLastBackup,
+            },
+            noBackup: value(summary).readiness.noBackup,
+          };
+        });
         break;
       case "storage":
         widgets.storage = widget([summary, facts], () => ({
@@ -399,7 +423,7 @@ export async function loadDashboard(
     needed ? settle(source, tenantId, run) : Promise.resolve(NOT_NEEDED as Settled<T>);
 
   const readUsage = usageReader(deps.providerDb);
-  const [summary, facts, mail, trends, jobs, mailboxes, endpoints] = await Promise.all([
+  const [summary, facts, mail, trends, jobs, mailboxes, endpoints, stale] = await Promise.all([
     load("summary", needs("lastBackup", "readiness", "protectedObjects", "storage"), () =>
       loadTenantSummary(deps.db, tenantId, now),
     ),
@@ -425,7 +449,11 @@ export async function loadDashboard(
     load("jobs", needs("recentJobs"), () => loadRecentJobs(deps.db, tenantId, now)),
     load("mailboxes", needs("mailboxUsage"), () => loadMailboxUsage(deps, viewer, readUsage)),
     // Its own source: a failing endpoint query fails this card only.
-    load("endpoints", needs("endpoints"), () => loadEndpointsWidget(deps.db, tenantId, now)),
+    // The last-backup card and the protected-objects tile count the machines as well.
+    load("endpoints", needs("endpoints", "lastBackup", "protectedObjects"), () =>
+      loadEndpointsWidget(deps.db, tenantId, now),
+    ),
+    load("stale", needs("lastBackup"), () => loadStaleThresholds(deps.db, tenantId, now)),
   ]);
 
   let provider: DashboardDto["provider"] = null;
@@ -448,7 +476,7 @@ export async function loadDashboard(
     tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug, status: tenant.status },
     widgets: buildWidgets(
       wanted,
-      { summary, facts, mail, trends, jobs, mailboxes, endpoints },
+      { summary, facts, mail, trends, jobs, mailboxes, endpoints, stale },
       viewer,
       now,
     ),

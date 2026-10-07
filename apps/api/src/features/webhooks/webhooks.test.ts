@@ -156,9 +156,9 @@ describe("webhook request schemas", () => {
     ).toBe(true);
   });
 
-  it("refuse unknown events, empty subscriptions and bad URLs", () => {
+  it("refuse unknown events and bad URLs, and allow a webhook only rules send to", () => {
     const base = { url: "https://x.example", events: ["job.failed"] };
-    expect(createWebhookSchema.safeParse({ ...base, events: [] }).success).toBe(false);
+    expect(createWebhookSchema.safeParse({ ...base, events: [] }).success).toBe(true);
     expect(createWebhookSchema.safeParse({ ...base, events: ["job.started"] }).success).toBe(false);
     expect(createWebhookSchema.safeParse({ ...base, url: "ftp://x.example" }).success).toBe(false);
   });

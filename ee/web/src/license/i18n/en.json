@@ -21,7 +21,13 @@
     "loadError": "License status unavailable",
     "terms": "License terms",
     "termsLink": "View the license terms",
-    "opensInNewTab": "(opens in a new tab)"
+    "opensInNewTab": "(opens in a new tab)",
+    "getKey": "A license key for Business or Service Provider is issued by the vendor; give the installation ID below when you ask for one.",
+    "getKeyLink": "Compare editions and request a key",
+    "unlocks": {
+      "business": "Business unlocks, among others, the audit log, scheduled reports, journal receiving for the archive, legal holds and sign-in with Microsoft.",
+      "service_provider": "Service Provider also unlocks further tenants, the view across all tenants, the provider API and members limited to chosen tenants."
+    }
   },
   "key": {
     "title": "License key",
@@ -86,5 +92,10 @@
     "title": "Limiting members to chosen tenants requires the Service Provider edition",
     "description": "In the {edition, select, community {Community} business {Business} other {Service Provider}} edition every member has every tenant.",
     "action": "Open license settings"
+  },
+  "reports": {
+    "locked": "Reports: available in Business",
+    "action": "Open the license page",
+    "askProvider": "The administrators of the installation (your provider) can unlock them."
   }
 }

@@ -93,9 +93,9 @@
   },
   "readiness": {
     "title": "Wiederherstellbarkeit",
-    "description": "Ob eine Wiederherstellungsprüfung die Sicherungen als wiederherstellbar bestätigt hat.",
+    "description": "Ob eine Restore-Prüfung die Sicherungen als wiederherstellbar nachgewiesen hat.",
     "lastCheck": "Letzte Prüfung",
-    "neverChecked": "Noch keine Wiederherstellungsprüfung",
+    "neverChecked": "Noch keine Restore-Prüfung",
     "overall": {
       "green": "Bereit",
       "yellow": "Braucht Aufmerksamkeit",
@@ -106,45 +106,53 @@
       "green": "Bereit",
       "yellow": "Braucht Aufmerksamkeit",
       "red": "Nicht wiederherstellbar",
-      "unverified": "Noch nicht geprüft",
+      "unverified": "Nicht nachgewiesen",
       "noBackup": "Noch keine Sicherung"
     },
     "unverified": {
       "title": "{count, plural, one {# Sicherung noch nicht geprüft} other {# Sicherungen noch nicht geprüft}}",
-      "description": "Die neueste Sicherung dieser Objekte wurde noch von keiner Wiederherstellungsprüfung zurückgelesen. Eine Sicherung zählt erst, wenn eine Wiederherstellung sie bestätigt hat.",
+      "description": "Den neuesten Sicherungsstand dieser Objekte hat noch keine Restore-Prüfung zurückgelesen. Eine Sicherung zählt erst, wenn eine Wiederherstellung sie bestätigt hat.",
       "action": "Jetzt prüfen"
     },
     "noBackup": {
       "title": "{count, plural, one {# Objekt ohne Sicherung} other {# Objekte ohne Sicherung}}",
-      "description": "Für diese Objekte kann nichts wiederhergestellt werden, bis ihre erste Sicherung abgeschlossen ist."
+      "description": "Für diese Objekte kann nichts wiederhergestellt werden, bis ihre erste Sicherung abgeschlossen ist.",
+      "action": "Objekte anzeigen"
     },
     "overdue": "{count, plural, one {# Bewertung überfällig} other {# Bewertungen überfällig}}",
     "running": "{count, plural, one {# Prüfung läuft} other {# Prüfungen laufen}}",
     "empty": {
       "title": "Noch nichts zu bewerten",
-      "description": "Die Wiederherstellbarkeit erscheint, sobald Objekte geschützt und gesichert sind.",
+      "description": "Die Wiederherstellbarkeit erscheint, sobald Objekte oder Rechner geschützt und gesichert sind.",
       "action": "Objekte schützen"
     },
     "legend": "Objekte nach Wiederherstellungszustand",
     "legendHint": "Jede Zeile öffnet die Tabelle mit genau diesen Objekten.",
-    "open": "{count, plural, one {# Objekt} other {# Objekte}} anzeigen: {label}"
+    "open": "{count, plural, one {# Objekt} other {# Objekte}} anzeigen: {label}",
+    "withoutJob": {
+      "title": "{count, plural, one {# Rechner in keinem Backup-Job} other {# Rechner in keinem Backup-Job}}",
+      "description": "Diese Rechner werden nicht mehr gesichert. Ihre bisherigen Sicherungsstände bleiben bewertet, neue entstehen erst, wenn Sie den Rechner einem Backup-Job zuordnen.",
+      "action": "Rechner öffnen"
+    }
   },
   "lastBackup": {
     "title": "Letzte erfolgreiche Sicherung",
-    "description": "Der neueste Lauf je Datentyp, der ohne fehlgeschlagene Elemente endete.",
+    "description": "Der neueste erfolgreiche Lauf je Datentyp. Als veraltet gilt, was mehr als doppelt so lange zurückliegt wie der längste geplante Abstand der Backup-Jobs.",
     "never": "Noch keine erfolgreiche Sicherung",
-    "stale": "Älter als 2 Tage",
     "types": {
       "mail": "Exchange-Postfächer",
       "onedrive": "OneDrive",
       "imap": "IMAP-Postfächer",
-      "archive": "Archiv"
+      "archive": "Archiv",
+      "machines": "Server und Clients"
     },
     "empty": {
       "title": "Noch keine Sicherungen",
-      "description": "Noch ist nichts geschützt, daher gibt es keine Sicherung zu melden.",
+      "description": "Noch ist nichts geschützt, weder Postfächer, OneDrives und IMAP-Konten noch Rechner.",
       "action": "Quelle verbinden"
-    }
+    },
+    "staleDays": "{count, plural, one {Älter als # Tag} other {Älter als # Tage}}",
+    "staleHours": "{count, plural, one {Älter als # Stunde} other {Älter als # Stunden}}"
   },
   "protectedObjects": {
     "title": "Geschützte Objekte",
@@ -155,11 +163,14 @@
     "link": "Geschützte Objekte öffnen",
     "empty": {
       "title": "Noch nichts geschützt",
-      "description": "Postfächer, OneDrives und IMAP-Konten erscheinen hier, sobald sie geschützt sind.",
+      "description": "Postfächer, OneDrives, IMAP-Konten und Rechner erscheinen hier, sobald sie geschützt sind.",
       "action": "Objekte schützen"
     },
     "acknowledged": "{count, plural, one {# Warnung bestätigt} other {# Warnungen bestätigt}}",
-    "warningsLink": "Warnungen ansehen"
+    "warningsLink": "Warnungen ansehen",
+    "withMachines": "{count, plural, one {davon # Rechner} other {davon # Rechner}}",
+    "noBackup": "{count, plural, one {# ohne Sicherung} other {# ohne Sicherung}}",
+    "withoutJob": "{count, plural, one {# Rechner in keinem Backup-Job} other {# Rechner in keinem Backup-Job}}"
   },
   "storage": {
     "title": "Gespeichert",
@@ -189,14 +200,15 @@
   "endpoints": {
     "title": "Server und Clients",
     "description": "Vom Agenten gesicherte Rechner und ob ihre Sicherungen nachweislich wiederherstellbar sind.",
-    "summary": "{count, plural, one {# Rechner geschützt} other {# Rechner geschützt}} ({servers, plural, one {# Server} other {# Server}}, {clients, plural, one {# Client} other {# Clients}}).",
+    "summary": "{count, plural, one {# Rechner geschützt} other {# Rechner geschützt}} ({servers, plural, one {# Server} other {# Server}}, {clients, plural, one {# Client} other {# Clients}} insgesamt).",
     "lastBackup": "Letzte Sicherung",
     "neverBacked": "Noch keine erfolgreiche Sicherung",
     "allGood": "Jeder Rechner ist nachweislich wiederherstellbar und seine letzte Sicherung war erfolgreich.",
     "findings": {
       "notReady": "{count, plural, one {# Rechner nicht nachweislich wiederherstellbar} other {# Rechner nicht nachweislich wiederherstellbar}}",
       "failedLastBackup": "{count, plural, one {# Rechner: letzte Sicherung fehlgeschlagen} other {# Rechner: letzte Sicherung fehlgeschlagen}}",
-      "attention": "{count, plural, one {# Rechner braucht Aufmerksamkeit} other {# Rechner brauchen Aufmerksamkeit}}"
+      "attention": "{count, plural, one {# Rechner braucht Aufmerksamkeit} other {# Rechner brauchen Aufmerksamkeit}}",
+      "withoutJob": "{count, plural, one {# Rechner in keinem Backup-Job, wird nicht gesichert} other {# Rechner in keinem Backup-Job, werden nicht gesichert}}"
     }
   },
   "backupSuccess": {
@@ -344,8 +356,8 @@
       "notReadyHint": "Von {count, plural, one {# Kunde} other {# Kunden}}. Etwas ist nicht wiederherstellbar oder noch nicht bestätigt.",
       "unverified": "Ungeprüfte Sicherungen",
       "unverifiedHint": "Neueste Sicherungen, die noch keine Wiederherstellungsprüfung zurückgelesen hat.",
-      "failures": "Fehlgeschlagene Aufträge (24 h)",
-      "failuresHint": "Aufträge jeder Art, die in den letzten 24 Stunden fehlgeschlagen sind.",
+      "failures": "Fehlgeschlagene Läufe (24 h)",
+      "failuresHint": "Läufe jeder Art, auch von Server und Clients, die in den letzten 24 Stunden fehlgeschlagen sind.",
       "failuresPeriod": "ggü. den 24 Stunden davor",
       "mailboxes": "Geschützte Postfächer",
       "stored": "Gespeichert",
@@ -396,15 +408,19 @@
         "unavailable": "Die Zahlen des Mandanten konnten nicht gelesen werden.",
         "storage_error": "Das Repository besteht seine Prüfung nicht.",
         "not_restorable": "{count, plural, one {# Objekt ist nicht wiederherstellbar.} other {# Objekte sind nicht wiederherstellbar.}}",
-        "failed_jobs": "{count, plural, one {# Auftrag ist in den letzten 24 Stunden fehlgeschlagen.} other {# Aufträge sind in den letzten 24 Stunden fehlgeschlagen.}}",
+        "failed_jobs": "{count, plural, one {# Lauf ist in den letzten 24 Stunden fehlgeschlagen.} other {# Läufe sind in den letzten 24 Stunden fehlgeschlagen.}}",
         "over_cap": "{count, plural, one {# Postfach über der für diesen Mandanten vereinbarten Obergrenze.} other {# Postfächer über der für diesen Mandanten vereinbarten Obergrenze.}}",
         "unverified": "{count, plural, one {# Sicherung noch nicht geprüft.} other {# Sicherungen noch nicht geprüft.}}",
         "no_backup": "{count, plural, one {# Objekt ohne Sicherung.} other {# Objekte ohne Sicherung.}}",
-        "stale_backup": "Seit mehr als 2 Tagen keine erfolgreiche Sicherung. Letzte:"
+        "stale_backup": "Länger als {count} Stunden keine erfolgreiche Sicherung (doppelter längster Abstand der Zeitpläne). Letzte:",
+        "machine_backup_failed": "{count, plural, one {Bei # Rechner ist die letzte Sicherung fehlgeschlagen.} other {Bei # Rechnern ist die letzte Sicherung fehlgeschlagen.}}",
+        "machines_without_job": "{count, plural, one {# Rechner ist in keinem Backup-Job und wird nicht gesichert.} other {# Rechner sind in keinem Backup-Job und werden nicht gesichert.}}",
+        "needs_attention": "{count, plural, one {# Objekt braucht Aufmerksamkeit (Lücken oder überfällige Restore-Prüfung).} other {# Objekte brauchen Aufmerksamkeit (Lücken oder überfällige Restore-Prüfung).}}",
+        "nothing_protected": "Der Mandant schützt noch nichts."
       },
       "empty": {
         "title": "Keine Hinweise",
-        "description": "Jeder Mandant ist gesichert und geprüft, und keiner liegt über seiner vereinbarten Obergrenze."
+        "description": "Jeder Mandant schützt Objekte oder Rechner, alles ist gesichert und nachweislich wiederherstellbar, und keiner liegt über seiner vereinbarten Obergrenze."
       }
     },
     "readiness": {

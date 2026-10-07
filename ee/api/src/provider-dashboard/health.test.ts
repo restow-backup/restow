@@ -123,8 +123,37 @@ describe("tenant matrix rows", () => {
       failures24h: null,
       failuresPrevious24h: null,
       lastBackupAt: null,
+      staleAfterHours: null,
+      machines: null,
+      machinesWithoutJob: null,
+      machinesFailed: null,
       physicalBytes: null,
       storageError: null,
+    });
+  });
+
+  it("counts servers and clients: their newest backup, the ones in no job and failed ones", () => {
+    const result = tenantRow(
+      tenant("Contoso"),
+      {
+        summary: summary(),
+        ...HEALTHY,
+        machines: {
+          total: 3,
+          withoutJob: 1,
+          failedLastBackup: 1,
+          lastSuccessAt: "2026-09-23T11:00:00.000Z",
+        },
+        staleAfterHours: 336,
+      },
+      { mailboxes: 3, cap: null },
+    );
+    expect(result).toMatchObject({
+      machines: 2,
+      machinesWithoutJob: 1,
+      machinesFailed: 1,
+      lastBackupAt: "2026-09-23T11:00:00.000Z",
+      staleAfterHours: 336,
     });
   });
 });
@@ -155,8 +184,38 @@ describe("provider alerts", () => {
       ["over_cap", "warning", 2],
       ["unverified", "warning", 3],
       ["no_backup", "warning", 1],
-      ["stale_backup", "warning", null],
+      ["stale_backup", "warning", STALE_BACKUP_HOURS],
     ]);
+  });
+
+  it("flags machines that failed or are in no job, and ratings that need attention", () => {
+    const kinds = alertsFor(
+      row("Contoso", { machines: 2, machinesFailed: 1, machinesWithoutJob: 2, needsAttention: 1 }),
+      NOW,
+    ).map((alert) => [alert.kind, alert.count]);
+    expect(kinds).toEqual([
+      ["machine_backup_failed", 1],
+      ["machines_without_job", 2],
+      ["needs_attention", 1],
+    ]);
+  });
+
+  it("judges a stale backup by the tenant's schedules", () => {
+    const fourDays = new Date(NOW.getTime() - 96 * 3_600_000).toISOString();
+    expect(alertsFor(row("Weekly", { lastBackupAt: fourDays, staleAfterHours: 336 }), NOW)).toEqual(
+      [],
+    );
+    expect(
+      alertsFor(row("Daily", { lastBackupAt: fourDays, staleAfterHours: 48 }), NOW).map(
+        (alert) => alert.kind,
+      ),
+    ).toEqual(["stale_backup"]);
+  });
+
+  it("never calls a customer that protects nothing secured", () => {
+    expect(
+      alertsFor(row("Empty", { protectedObjects: 0, machines: 0 }), NOW).map((alert) => alert.kind),
+    ).toEqual(["nothing_protected"]);
   });
 
   it("reports a tenant it could not read instead of skipping it", () => {

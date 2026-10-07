@@ -76,6 +76,10 @@ function row(name: string, overrides: Partial<LoadedTenantRow> = {}): LoadedTena
     mailboxCap: null,
     physicalBytes: 1_000_000,
     storageError: false,
+    staleAfterHours: 48,
+    machines: 0,
+    machinesWithoutJob: 0,
+    machinesFailed: 0,
     ...overrides,
   };
 }
@@ -103,6 +107,10 @@ function unread(name: string): UnavailableTenantRow {
     mailboxCap: null,
     physicalBytes: null,
     storageError: null,
+    staleAfterHours: null,
+    machines: null,
+    machinesWithoutJob: null,
+    machinesFailed: null,
   };
 }
 
@@ -161,7 +169,7 @@ describe("provider view", () => {
     expect(html).toContain("Protected mailboxes");
     expect(html).not.toContain("Unlimited");
     expect(html).toContain("Alerts across tenants");
-    expect(html).toContain("2 jobs failed in the last 24 hours.");
+    expect(html).toContain("2 runs failed in the last 24 hours.");
     expect(html).toContain("Tenants by need for action");
     // Unverified backups are flagged in the matrix.
     expect(html).toContain('data-flag="unverified"');

@@ -16,6 +16,7 @@ import {
   queueWebhookDelivery,
 } from "../../lib/webhooks.js";
 import { ProblemError } from "../../problem.js";
+import { toCsv } from "../stats/csv.js";
 import { decodeDeliveryCursor, encodeDeliveryCursor } from "./cursor.js";
 import { type DeliveryErrorDto, parseDeliveryError } from "./delivery-error.js";
 import type { CreateWebhookInput, DeliveriesQuery, UpdateWebhookInput } from "./schemas.js";
@@ -640,4 +641,49 @@ export async function redeliver(
 /** The subscribable events, for integrations discovering the contract. */
 export function listEvents(): { items: readonly WebhookEvent[]; test: WebhookDeliveryEvent } {
   return { items: WEBHOOK_EVENTS, test: WEBHOOK_TEST_EVENT };
+}
+
+/** More deliveries than this are not exported at once (the log keeps 30 days anyway). */
+export const MAX_DELIVERY_EXPORT = 10_000;
+
+/** A webhook's delivery log as CSV, with the list's status filter, newest first. */
+export async function deliveriesCsv(
+  db: Database,
+  tenantId: string,
+  webhookId: string,
+  status: DeliveriesQuery["status"],
+): Promise<string> {
+  const items: DeliveryDto[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await listDeliveries(db, tenantId, webhookId, { status, limit: 200, cursor });
+    items.push(...page.items);
+    cursor = page.next ?? undefined;
+  } while (cursor && items.length < MAX_DELIVERY_EXPORT);
+  return toCsv(
+    [
+      "createdAt",
+      "event",
+      "eventId",
+      "status",
+      "attempts",
+      "deliveredAt",
+      "error",
+      "httpStatus",
+      "detail",
+    ],
+    items
+      .slice(0, MAX_DELIVERY_EXPORT)
+      .map((item) => [
+        item.createdAt,
+        item.event,
+        item.eventId,
+        item.status,
+        item.attempts,
+        item.deliveredAt,
+        item.lastError?.code ?? null,
+        item.lastError?.httpStatus ?? null,
+        item.lastError?.detail ?? null,
+      ]),
+  );
 }

@@ -162,11 +162,16 @@ describe("WebhookFormDialog", () => {
     expect(document.body.textContent).toContain("creates a new signing secret");
     await click(buttonByText(document.body, "Save changes"));
     await flush(6);
-    expect(requests.map((request) => `${request.method} ${request.path}`)).toEqual([
-      `PATCH /webhooks/${HOOK_ID}`,
-      `POST /webhooks/${HOOK_ID}/secret`,
-    ]);
-    expect(requests[0]?.body).toEqual({ url: "https://rmm.example.com/hooks", format: "restow" });
+    expect(
+      requests
+        // The form reads the rules that send to the webhook; only the writes matter here.
+        .filter((request) => request.method !== "GET")
+        .map((request) => `${request.method} ${request.path}`),
+    ).toEqual([`PATCH /webhooks/${HOOK_ID}`, `POST /webhooks/${HOOK_ID}/secret`]);
+    expect(requests.find((request) => request.method === "PATCH")?.body).toEqual({
+      url: "https://rmm.example.com/hooks",
+      format: "restow",
+    });
     expect(document.body.textContent).toContain("Copy the signing secret now");
     const shown = [...document.querySelectorAll("input")].map((input) => input.value);
     expect(shown).toContain("whsec_fresh");

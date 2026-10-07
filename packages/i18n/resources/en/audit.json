@@ -133,12 +133,12 @@
     "export": "Export",
     "impersonation": "Impersonation",
     "import": "Import",
-    "job": "Jobs",
+    "job": "Runs",
     "legal_hold": "Legal hold",
     "license": "License",
     "restore": "Restore",
-    "retention": "Retention",
-    "retention_policy": "Retention",
+    "retention": "Retention runs",
+    "retention_policy": "Retention policies",
     "schedule": "Schedules",
     "scrub": "Storage check",
     "settings": "Settings",
@@ -547,6 +547,9 @@
     "warning": {
       "acknowledged": "Warning acknowledged",
       "acknowledgement_revoked": "Warning acknowledgement revoked"
+    },
+    "audit": {
+      "exported": "Audit log exported"
     }
   },
   "targetTypes": {
@@ -593,5 +596,13 @@
     "pve_job": "Backup job (VMs and containers)",
     "pve_enrollment_token": "Enrollment token (Proxmox VE)"
   },
-  "sectionDescription": "The log of this {scope, select, organisation {organisation} other {tenant}}: who did what, when, with the hash chain that proves it was not changed."
+  "sectionDescription": "The log of this {scope, select, organisation {organisation} other {tenant}}: who did what, when, with the hash chain that proves it was not changed.",
+  "export": {
+    "action": "Export",
+    "csv": "As CSV (spreadsheet)",
+    "json": "As JSON (with hashes to check the chain)",
+    "preparing": "Preparing the export …",
+    "done": "Export downloaded. It is recorded in the audit log.",
+    "failed": "The export failed."
+  }
 }

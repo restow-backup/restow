@@ -52,7 +52,9 @@
       "description": "Alle Integrationen, die „{name}“ ({prefix}…) verwenden, funktionieren sofort nicht mehr. Der Widerruf lässt sich nicht rückgängig machen; der Schlüssel bleibt für den Prüfpfad in der Liste.",
       "confirm": "Schlüssel widerrufen"
     },
-    "loadError": "Die API-Schlüssel konnten nicht geladen werden."
+    "loadError": "Die API-Schlüssel konnten nicht geladen werden.",
+    "reference": "API-Referenz (OpenAPI)",
+    "opensInNewTab": "(öffnet in einem neuen Tab)"
   },
   "providerKeys": {
     "title": "Provider-Schlüssel",
@@ -170,11 +172,11 @@
     },
     "report_alert": {
       "label": "Alarm aus einer Regel",
-      "description": "Gesendet von einer Alarm-Regel unter Alarme, die diesen Webhook nennt."
+      "description": "Gesendet von einer Alarm-Regel unter Mandant › Benachrichtigungen, die diesen Webhook nennt."
     },
     "report_summary": {
       "label": "Bericht aus einer Regel",
-      "description": "Gesendet von einer Berichts-Regel unter Alarme, die diesen Webhook nennt."
+      "description": "Gesendet von einer Berichts-Regel unter Mandant › Benachrichtigungen, die diesen Webhook nennt."
     },
     "unknown": {
       "label": "Anderes Ereignis",
@@ -222,7 +224,9 @@
     "deleteConfirm": {
       "title": "Webhook löschen?",
       "description": "{appName} ruft diese URL nicht mehr auf. Das Zustellprotokoll und das Signatur-Secret werden mit gelöscht.",
-      "confirm": "Webhook löschen"
+      "confirm": "Webhook löschen",
+      "rules": "{count, plural, one {Diese Regel sendet an den Webhook:} other {Diese # Regeln senden an den Webhook:}}",
+      "rulesAlone": "{count, plural, one {Eine davon hat keinen anderen Kanal und sendet danach nichts mehr.} other {# davon haben keinen anderen Kanal und senden danach nichts mehr.}}"
     },
     "loadError": "Die Webhooks konnten nicht geladen werden."
   },
@@ -242,7 +246,7 @@
     "chatUnsigned": "Chatdienste können keine Signatur prüfen. Diese Nachrichten werden daher ohne Signatur gesendet, und es wird kein Secret angezeigt. Behandeln Sie die URL wie ein Passwort: Wer sie kennt, kann in den Kanal schreiben.",
     "newSecret": "Nach dem Speichern erzeugt {appName} ein neues Signatur-Secret für diesen Webhook und zeigt es einmal an.",
     "events": "Ereignisse",
-    "eventsHint": "{appName} ruft die URL nur für diese Ereignisse auf.",
+    "eventsHint": "{appName} ruft die URL für die gewählten Ereignisse auf. Alarm- und Berichtsregeln, die diesen Webhook nennen, senden zusätzlich report.alert und report.summary. Ohne Ereignis erhält er nur diese.",
     "active": "Aktiv",
     "activeHint": "Ein pausierter Webhook erhält nichts; wartende Wiederholungen enden.",
     "submitCreate": "Webhook hinzufügen",
@@ -253,9 +257,9 @@
       "urlTooLong": "Höchstens 2048 Zeichen.",
       "url": "Geben Sie eine vollständige URL ein, z. B. https://rmm.example.com/hooks/restow.",
       "scheme": "Nur http://- und https://-URLs können Webhooks empfangen.",
-      "credentials": "Entfernen Sie Benutzername und Passwort aus der URL; die Signatur weist {appName} aus.",
-      "eventsRequired": "Wählen Sie mindestens ein Ereignis."
-    }
+      "credentials": "Entfernen Sie Benutzername und Passwort aus der URL; die Signatur weist {appName} aus."
+    },
+    "eventsRules": "{count, plural, one {Zusätzlich sendet # Regel unter Mandant › Benachrichtigungen an diesen Webhook.} other {Zusätzlich senden # Regeln unter Mandant › Benachrichtigungen an diesen Webhook.}}"
   },
   "formats": {
     "restow": {
@@ -361,6 +365,12 @@
       "webhook_disabled": "Der Webhook wurde pausiert, bevor diese Zustellung hinausging.",
       "internal": "{appName} konnte diese Zustellung nicht vorbereiten. Sie wird wiederholt.",
       "unknown": "Die Zustellung ist fehlgeschlagen."
+    },
+    "export": {
+      "action": "CSV",
+      "preparing": "Export wird erstellt …",
+      "done": "Export heruntergeladen.",
+      "failed": "Der Export ist fehlgeschlagen."
     }
   },
   "signature": {

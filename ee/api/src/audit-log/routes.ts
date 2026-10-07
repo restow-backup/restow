@@ -3,6 +3,9 @@ import { type Context, Hono } from "hono";
 import { config } from "../../../../apps/api/src/config.js";
 import { db, providerDb } from "../../../../apps/api/src/db.js";
 import type { SessionRouteContribution } from "../../../../apps/api/src/extensions.js";
+import { contentDisposition } from "../../../../apps/api/src/features/restore/headers.js";
+import { audit } from "../../../../apps/api/src/lib/audit.js";
+import { clientIp } from "../../../../apps/api/src/lib/request.js";
 import {
   type SessionEnv,
   TENANT_HEADER,
@@ -12,8 +15,14 @@ import {
 import { parseOrProblem } from "../../../../apps/api/src/schemas.js";
 import { capabilityGuard } from "../license/gate.js";
 import { type AuditEntryDto, redactAuditEntryForDemo } from "./dto.js";
+import { auditCsv, auditJson, collectAuditExport } from "./export.js";
 import { mountPath } from "./meta.js";
-import { chainQuerySchema, entryIdParamSchema, listAuditQuerySchema } from "./schemas.js";
+import {
+  chainQuerySchema,
+  entryIdParamSchema,
+  exportAuditQuerySchema,
+  listAuditQuerySchema,
+} from "./schemas.js";
 import {
   type AuditScope,
   getAuditEntry,
@@ -87,6 +96,46 @@ auditRoutes.get("/", async (c) => {
   const selection = selectChains(scope, query.tenant);
   const page = await listAuditEntries(poolFor(scope), selection, query);
   return c.json({ ...page, items: page.items.map(redact) });
+});
+
+/** Action of the audit entry an export leaves: who took the log away, and which part of it. */
+export const AUDIT_EXPORTED_ACTION = "audit.exported";
+
+// The matching entries as CSV or JSON (with the hashes, oldest first) for an auditor.
+auditRoutes.get("/export", async (c) => {
+  const { format, ...filters } = parseOrProblem(exportAuditQuerySchema, c.req.query());
+  const scope = await scopeOf(c);
+  const selection = selectChains(scope, filters.tenant);
+  const pool = poolFor(scope);
+  const exported = await collectAuditExport(pool, selection, filters, redact);
+  const now = new Date();
+  const user = c.get("user");
+  // Taking the log away is itself on the record, in the chain it was taken from.
+  await audit(pool, {
+    tenantId: selection.kind === "tenant" ? selection.tenantId : null,
+    actor: user.email,
+    actorUserId: user.id,
+    action: AUDIT_EXPORTED_ACTION,
+    target: null,
+    targetType: null,
+    ip: clientIp(c),
+    details: { format, filters, entries: exported.entries.length, truncated: exported.truncated },
+  });
+  const day = now.toISOString().slice(0, 10);
+  const headers = {
+    "content-disposition": contentDisposition(`audit-log-${day}.${format}`),
+    "cache-control": "no-store",
+  };
+  if (format === "json") {
+    return c.body(JSON.stringify(auditJson(exported, filters, now), null, 2), 200, {
+      ...headers,
+      "content-type": "application/json; charset=utf-8",
+    });
+  }
+  return c.body(auditCsv(exported.entries), 200, {
+    ...headers,
+    "content-type": "text/csv; charset=utf-8",
+  });
 });
 
 auditRoutes.get("/actions", async (c) => {

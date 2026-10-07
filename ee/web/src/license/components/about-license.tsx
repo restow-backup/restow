@@ -14,7 +14,12 @@ import type { InstallationSectionProps } from "@/lib/extensions";
 import { formatDateTime } from "@/lib/format";
 
 import { type LicensedEdition, editionAllows, requiredEditionOf, useEdition } from "../edition";
-import { type EditionOrigin, editionOrigin, licenseTermsUrl } from "../presenters";
+import {
+  type EditionOrigin,
+  editionOrigin,
+  licenseRequestUrl,
+  licenseTermsUrl,
+} from "../presenters";
 import type { LicenseState } from "../types";
 import { useLicenseState } from "../use-license";
 import { InstallKeyForm } from "./install-key-form";
@@ -52,6 +57,7 @@ export function AboutLicense({ requires }: InstallationSectionProps) {
         {required && !editionAllows(edition, required) ? (
           <RequiredEditionNotice edition={required} />
         ) : null}
+        <GetKeyNotice />
         {query.isPending ? (
           <LicenseSkeleton />
         ) : query.isError ? (
@@ -77,7 +83,28 @@ function RequiredEditionNotice({ edition }: { edition: LicensedEdition }) {
       className="rounded-md border border-primary/40 bg-primary/5 px-4 py-3 text-sm"
       data-required-edition={edition}
     >
-      {t("about.requiredEdition", { edition: t(`edition.${edition}`) })}
+      {t("about.requiredEdition", { edition: t(`edition.${edition}`) })}{" "}
+      {t(`about.unlocks.${edition}`)}
+    </p>
+  );
+}
+
+/** Where a key comes from: the vendor's website compares the editions and takes the request. */
+function GetKeyNotice() {
+  const { t, i18n } = useTranslation("license");
+  return (
+    <p className="text-sm text-muted-foreground" data-slot="get-key">
+      {t("about.getKey")}{" "}
+      <a
+        href={licenseRequestUrl(i18n.resolvedLanguage ?? i18n.language)}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="inline-flex items-center gap-1 font-medium text-primary underline underline-offset-2 hover:no-underline"
+      >
+        {t("about.getKeyLink")}
+        <ExternalLink className="size-3.5" aria-hidden="true" />
+        <span className="sr-only">{t("about.opensInNewTab")}</span>
+      </a>
     </p>
   );
 }

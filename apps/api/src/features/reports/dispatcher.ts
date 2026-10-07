@@ -32,6 +32,9 @@ import "./hooks.js";
  */
 
 const CLAIM_BATCH = 20;
+
+/** Where a handed-over webhook alert keeps the id of its `webhook_deliveries` row. */
+export const WEBHOOK_DELIVERY_KEY = "webhookDeliveryId";
 const LEASE_SECONDS = 120;
 const POLL_MS = 15_000;
 
@@ -53,7 +56,14 @@ export interface DispatcherDeps {
 }
 
 type Outcome =
-  | { status: "sent" }
+  | {
+      status: "sent";
+      /**
+       * A webhook delivery is only handed over here: the worker sends it. Its id is kept on the
+       * row (`payload.webhookDeliveryId`) so the log shows the webhook's own outcome.
+       */
+      webhookDeliveryId?: string;
+    }
   | { status: "skipped"; reason: string }
   | { status: "retry"; error: string };
 
@@ -104,7 +114,21 @@ export async function recordOutcome(
   if (outcome.status === "sent") {
     await db
       .update(reportDeliveries)
-      .set({ status: "sent", sentAt: now, leaseUntil: null, lastError: null, updatedAt: now })
+      .set({
+        status: "sent",
+        sentAt: now,
+        leaseUntil: null,
+        lastError: null,
+        updatedAt: now,
+        ...(outcome.webhookDeliveryId
+          ? {
+              payload: {
+                ...(delivery.payload ?? {}),
+                [WEBHOOK_DELIVERY_KEY]: outcome.webhookDeliveryId,
+              },
+            }
+          : {}),
+      })
       .where(eq(reportDeliveries.id, delivery.id));
     return;
   }
@@ -217,27 +241,30 @@ export async function deliver(deps: DispatcherDeps, delivery: ReportDelivery): P
   if (!hook) return { status: "skipped", reason: "webhook_deleted" };
   if (!hook.active) return { status: "skipped", reason: "webhook_inactive" };
   const event = delivery.kind === "event" ? "report.alert" : "report.summary";
-  await deps.providerDb.insert(webhookDeliveries).values({
-    tenantId: delivery.tenantId,
-    webhookId: hook.id,
-    event,
-    payload: {
-      id: randomUUID(),
-      event,
-      version: 1,
-      createdAt: now.toISOString(),
+  const [queued] = await deps.providerDb
+    .insert(webhookDeliveries)
+    .values({
       tenantId: delivery.tenantId,
-      data: {
-        rule: { id: delivery.ruleId, name: delivery.ruleName },
-        subject: message.subject,
-        text: message.text,
-        ...delivery.payload,
+      webhookId: hook.id,
+      event,
+      payload: {
+        id: randomUUID(),
+        event,
+        version: 1,
+        createdAt: now.toISOString(),
+        tenantId: delivery.tenantId,
+        data: {
+          rule: { id: delivery.ruleId, name: delivery.ruleName },
+          subject: message.subject,
+          text: message.text,
+          ...delivery.payload,
+        },
       },
-    },
-    status: "pending",
-    nextAttemptAt: now,
-  });
-  return { status: "sent" };
+      status: "pending",
+      nextAttemptAt: now,
+    })
+    .returning({ id: webhookDeliveries.id });
+  return { status: "sent", webhookDeliveryId: queued?.id };
 }
 
 /** One pass: claim, send, record. Returns how many rows were handled. */

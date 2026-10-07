@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest";
 import {
+  DEFAULT_STALE_BACKUP_HOURS,
+  MIN_STALE_BACKUP_HOURS,
   endpointScheduleOf,
   jobScheduleFromCadence,
   jobScheduleFromEndpoint,
+  longestPlannedGapMinutes,
   mailCadenceOf,
   normalizeMailSchedule,
   runsAtLeastAsOften,
   scheduleGaps,
   scheduleKey,
+  staleBackupHours,
   validateJobSchedule,
 } from "./schedule.js";
 
@@ -161,5 +165,42 @@ describe("schedule keys and gaps", () => {
     expect(runsAtLeastAsOften(office, daily)).toBe(false);
     expect(runsAtLeastAsOften(daily, hourly)).toBe(false);
     expect(runsAtLeastAsOften(null, daily)).toBe(false);
+  });
+});
+
+describe("staleBackupHours", () => {
+  it("falls back to two days without a usable schedule", () => {
+    expect(staleBackupHours([], NOW)).toBe(DEFAULT_STALE_BACKUP_HOURS);
+    expect(staleBackupHours([null, { kind: "on_connect", timeZone: ZONE }], NOW)).toBe(48);
+  });
+
+  it("allows twice the longest gap of the most relaxed schedule", () => {
+    expect(staleBackupHours([{ kind: "daily", timeOfDay: "22:00", timeZone: ZONE }], NOW)).toBe(48);
+    // Weekly on Sunday: a backup five days old is not overdue yet.
+    expect(staleBackupHours([{ kind: "cron", cron: "0 2 * * 0", timeZone: "UTC" }], NOW)).toBe(336);
+    expect(
+      staleBackupHours(
+        [
+          { kind: "interval", intervalMinutes: 60, timeZone: ZONE },
+          { kind: "cron", cron: "0 2 * * 0", timeZone: "UTC" },
+        ],
+        NOW,
+      ),
+    ).toBe(336);
+  });
+
+  it("never reads a single missed run of a frequent job as overdue", () => {
+    expect(staleBackupHours([{ kind: "interval", intervalMinutes: 60, timeZone: ZONE }], NOW)).toBe(
+      MIN_STALE_BACKUP_HOURS,
+    );
+  });
+
+  it("knows the gap of every endpoint schedule kind", () => {
+    expect(
+      longestPlannedGapMinutes({ kind: "daily", timeOfDay: "01:00", timeZone: ZONE }, NOW),
+    ).toBe(1440);
+    expect(
+      longestPlannedGapMinutes({ kind: "on_connect", intervalMinutes: 720, timeZone: ZONE }, NOW),
+    ).toBe(720);
   });
 });

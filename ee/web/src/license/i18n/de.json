@@ -21,7 +21,13 @@
     "loadError": "Lizenzstatus nicht verfügbar",
     "terms": "Lizenzbedingungen",
     "termsLink": "Lizenzbedingungen ansehen",
-    "opensInNewTab": "(öffnet in einem neuen Tab)"
+    "opensInNewTab": "(öffnet in einem neuen Tab)",
+    "getKey": "Einen Lizenzschlüssel für Business oder Service Provider erhalten Sie beim Hersteller; geben Sie dabei die Installations-ID unten an.",
+    "getKeyLink": "Editionen vergleichen und Schlüssel anfordern",
+    "unlocks": {
+      "business": "Business schaltet unter anderem das Audit-Log, zeitgesteuerte Berichte, den Journal-Empfang des Archivs, rechtliche Aufbewahrungen und die Anmeldung mit Microsoft frei.",
+      "service_provider": "Service Provider schaltet zusätzlich weitere Mandanten, die Ansicht über alle Mandanten, die Provider-API und Mitglieder mit gewählten Mandanten frei."
+    }
   },
   "key": {
     "title": "Lizenzschlüssel",
@@ -86,5 +92,10 @@
     "title": "Mitglieder auf ausgewählte Mandanten zu beschränken erfordert die Service-Provider-Edition",
     "description": "In der {edition, select, community {Community} business {Business} other {Service Provider}}-Edition haben alle Mitglieder alle Mandanten.",
     "action": "Lizenz öffnen"
+  },
+  "reports": {
+    "locked": "Berichte: verfügbar in Business",
+    "action": "Lizenzseite öffnen",
+    "askProvider": "Freischalten kann die Administration der Installation (Ihr Provider)."
   }
 }

@@ -45,6 +45,7 @@ import {
 } from "../presenters";
 import { WEBHOOK_FORMATS, type Webhook, type WebhookFormat } from "../types";
 import { EventPicker } from "./event-picker";
+import { useRuleCount } from "./rules-using-webhook";
 
 interface WebhookFormDialogProps {
   open: boolean;
@@ -154,6 +155,7 @@ function WebhookForm({
     defaultValues: webhookFormFrom(webhook),
   });
   const errors = form.formState.errors;
+  const ruleCount = useRuleCount(webhook?.id);
   const url = useWatch({ control: form.control, name: "url" });
   const format = useWatch({ control: form.control, name: "format" });
   const detected = detectWebhookFormat(url ?? "");
@@ -311,6 +313,7 @@ function WebhookForm({
               value={field.value}
               onChange={field.onChange}
               error={reason(errors.events?.message)}
+              rules={ruleCount}
             />
           )}
         />

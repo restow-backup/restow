@@ -6,6 +6,7 @@ import type {
   TenantKind,
   TenantStatus,
 } from "../../../../apps/api/src/features/dashboard/dto.js";
+import type { EndpointCountsDto } from "../../../../apps/api/src/routes/v1/endpoints.js";
 import type { TenantSummaryDto } from "../../../../apps/api/src/routes/v1/status.js";
 
 /**
@@ -14,7 +15,11 @@ import type { TenantSummaryDto } from "../../../../apps/api/src/routes/v1/status
  * figures are read one tenant at a time by loadProviderView in service.ts.
  */
 
-/** No successful backup for this long while objects are protected: the tenant is stale. */
+/**
+ * No successful backup for this long while objects are protected: the tenant is stale. The bound
+ * of a tenant follows the schedules of its jobs (`staleAfterHours` of its facts); this one applies
+ * when the facts carry none.
+ */
 export const STALE_BACKUP_HOURS = 48;
 
 const HOUR_MS = 60 * 60 * 1000;
@@ -33,6 +38,13 @@ export interface TenantHealthFacts {
   failures24h: number;
   failuresPrevious24h: number;
   storageError: boolean;
+  /** The tenant's servers and clients (GET /status `endpoints`); absent, the tenant has none. */
+  machines?: Pick<
+    EndpointCountsDto,
+    "total" | "withoutJob" | "failedLastBackup" | "lastSuccessAt"
+  > | null;
+  /** After how many hours without a successful backup the tenant reads as stale (by its schedules). */
+  staleAfterHours?: number;
 }
 
 /** The tenant's protected mailboxes and the cap agreed with its customer (from the mailbox usage). */
@@ -80,11 +92,16 @@ export function tenantRow(
       failures24h: null,
       failuresPrevious24h: null,
       lastBackupAt: null,
+      staleAfterHours: null,
+      machines: null,
+      machinesWithoutJob: null,
+      machinesFailed: null,
       physicalBytes: null,
       storageError: null,
     };
   }
   const { summary } = facts;
+  const machines = facts.machines ?? null;
   return {
     ...base,
     loaded: true,
@@ -101,7 +118,12 @@ export function tenantRow(
       summary.lastSuccess.mail,
       summary.lastSuccess.onedrive,
       summary.lastSuccess.imap,
+      machines?.lastSuccessAt ?? null,
     ]),
+    staleAfterHours: facts.staleAfterHours ?? STALE_BACKUP_HOURS,
+    machines: machines ? machines.total - machines.withoutJob : 0,
+    machinesWithoutJob: machines?.withoutJob ?? 0,
+    machinesFailed: machines?.failedLastBackup ?? 0,
     physicalBytes: summary.storage.physicalBytes,
     storageError: facts.storageError,
   };
@@ -136,6 +158,9 @@ export function alertsFor(row: ProviderTenantRowDto, now: Date): ProviderAlertDt
   if (row.failures24h > 0) {
     alerts.push(alert("failed_jobs", "destructive", row.failures24h));
   }
+  if (row.machinesFailed > 0) {
+    alerts.push(alert("machine_backup_failed", "destructive", row.machinesFailed));
+  }
   if (row.mailboxCap !== null && row.mailboxes > row.mailboxCap) {
     alerts.push(alert("over_cap", "warning", row.mailboxes - row.mailboxCap));
   }
@@ -145,12 +170,29 @@ export function alertsFor(row: ProviderTenantRowDto, now: Date): ProviderAlertDt
   if (row.noBackup > 0) {
     alerts.push(alert("no_backup", "warning", row.noBackup));
   }
+  if (row.machinesWithoutJob > 0) {
+    alerts.push(alert("machines_without_job", "warning", row.machinesWithoutJob));
+  }
+  if (row.needsAttention > 0) {
+    // Proven restorable with gaps, or a rating that is overdue: not "secured and checked".
+    alerts.push(alert("needs_attention", "warning", row.needsAttention));
+  }
+  const protects = row.protectedObjects + row.machines > 0;
   if (
-    row.protectedObjects > 0 &&
+    protects &&
     row.lastBackupAt !== null &&
-    now.getTime() - Date.parse(row.lastBackupAt) > STALE_BACKUP_HOURS * HOUR_MS
+    now.getTime() - Date.parse(row.lastBackupAt) > row.staleAfterHours * HOUR_MS
   ) {
-    alerts.push(alert("stale_backup", "warning", null, row.lastBackupAt));
+    alerts.push(alert("stale_backup", "warning", row.staleAfterHours, row.lastBackupAt));
+  }
+  if (
+    !protects &&
+    row.machinesWithoutJob === 0 &&
+    row.status === "active" &&
+    row.kind !== "internal"
+  ) {
+    // A customer that protects nothing is not "secured": say so instead of staying silent.
+    alerts.push(alert("nothing_protected", "warning", null));
   }
   return alerts;
 }

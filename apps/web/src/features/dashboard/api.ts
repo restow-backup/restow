@@ -25,6 +25,10 @@ export interface LastBackupWidget {
     archive: string | null;
   };
   protectedKinds: Record<ObjectKind, number>;
+  /** Servers and clients: how many a backup job protects, how many are in none, their newest good backup. */
+  machines: { protected: number; withoutJob: number; lastSuccessAt: string | null };
+  /** Hours without a successful backup after which a type reads as overdue (from its jobs' schedules). */
+  staleAfterHours: { mail: number; machines: number };
 }
 
 export interface ProtectedObjectsWidget {
@@ -38,6 +42,10 @@ export interface ProtectedObjectsWidget {
   /** Objects whose warning an administrator acknowledged (absent from an older server). */
   acknowledgedWarnings?: number;
   runningBackups: number;
+  /** Servers and clients: in a backup job (protected), in none, and with a failed newest backup. */
+  machines: { protected: number; withoutJob: number; failedLastBackup: number };
+  /** Protected objects and machines without any backup yet. */
+  noBackup: number;
 }
 
 export interface ReadinessWidget {
@@ -49,6 +57,8 @@ export interface ReadinessWidget {
   unverified: number;
   noBackup: number;
   overdue: number;
+  /** Machines in no backup job; any of them keeps `overall` from green. */
+  withoutJob: number;
   running: number;
   lastCheckedAt: string | null;
 }
@@ -175,11 +185,15 @@ export interface MailboxUsageWidget {
 /**
  * Servers and clients backed up by the agent. They also count in the
  * readiness widget's totals. The server answers with zeros for a tenant
- * without endpoints; the page shows the card only when `protected > 0`.
+ * without endpoints; the page shows the card only when `machines > 0`.
  */
 export interface EndpointsWidget {
-  /** Machines under protection: endpoints that are not revoked. */
+  /** Machines under protection: endpoints that are not revoked and belong to a backup job. */
   protected: number;
+  /** Endpoints that are not revoked, in a job or not. */
+  machines: number;
+  /** Machines in no backup job: nothing backs them up. */
+  withoutJob: number;
   servers: number;
   clients: number;
   /** The protected machines by the rating of their newest backup (as the verify page rates them). */
@@ -196,6 +210,8 @@ export interface EndpointsWidget {
   failedLastBackup: number;
   /** Machines with at least one reason to look at them. */
   needingAttention: number;
+  /** Machines with a reason to look at them other than being in no backup job. */
+  otherAttention: number;
   /** Newest good backup of any protected machine. */
   lastSuccessAt: string | null;
 }
@@ -248,6 +264,12 @@ export interface LoadedTenantRow extends ProviderTenantRowBase {
   failures24h: number;
   failuresPrevious24h: number;
   lastBackupAt: string | null;
+  /** Hours without a successful backup after which the tenant reads as stale (by its schedules). */
+  staleAfterHours: number;
+  /** Servers and clients in a backup job, in none, and with a failed newest backup. */
+  machines: number;
+  machinesWithoutJob: number;
+  machinesFailed: number;
   physicalBytes: number;
   storageError: boolean;
 }
@@ -265,6 +287,10 @@ export interface UnavailableTenantRow extends ProviderTenantRowBase {
   failures24h: null;
   failuresPrevious24h: null;
   lastBackupAt: null;
+  staleAfterHours: null;
+  machines: null;
+  machinesWithoutJob: null;
+  machinesFailed: null;
   physicalBytes: null;
   storageError: null;
 }
@@ -279,7 +305,11 @@ export type ProviderAlertKind =
   | "over_cap"
   | "unverified"
   | "no_backup"
-  | "stale_backup";
+  | "stale_backup"
+  | "machine_backup_failed"
+  | "machines_without_job"
+  | "needs_attention"
+  | "nothing_protected";
 
 export interface ProviderAlert {
   tenantId: string;

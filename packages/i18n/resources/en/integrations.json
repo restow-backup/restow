@@ -52,7 +52,9 @@
       "description": "Every integration using \"{name}\" ({prefix}…) stops working immediately. Revoking cannot be undone; the key stays listed for the audit trail.",
       "confirm": "Revoke key"
     },
-    "loadError": "The API keys could not be loaded."
+    "loadError": "The API keys could not be loaded.",
+    "reference": "API reference (OpenAPI)",
+    "opensInNewTab": "(opens in a new tab)"
   },
   "providerKeys": {
     "title": "Provider keys",
@@ -170,11 +172,11 @@
     },
     "report_alert": {
       "label": "Alert from a rule",
-      "description": "Sent by an alert rule under Alerts that names this webhook."
+      "description": "Sent by an alert rule under Tenant › Notifications that names this webhook."
     },
     "report_summary": {
       "label": "Report from a rule",
-      "description": "Sent by a report rule under Alerts that names this webhook."
+      "description": "Sent by a report rule under Tenant › Notifications that names this webhook."
     },
     "unknown": {
       "label": "Other event",
@@ -222,7 +224,9 @@
     "deleteConfirm": {
       "title": "Delete webhook?",
       "description": "{appName} stops calling this URL. The delivery log and the signing secret are deleted with it.",
-      "confirm": "Delete webhook"
+      "confirm": "Delete webhook",
+      "rules": "{count, plural, one {This rule sends to the webhook:} other {These # rules send to the webhook:}}",
+      "rulesAlone": "{count, plural, one {One of them has no other channel and will send nothing afterwards.} other {# of them have no other channel and will send nothing afterwards.}}"
     },
     "loadError": "The webhooks could not be loaded."
   },
@@ -242,7 +246,7 @@
     "chatUnsigned": "Chat services cannot check a signature, so these messages are sent without one and no secret is shown. Treat the URL like a password: whoever knows it can post to the channel.",
     "newSecret": "After saving, {appName} creates a new signing secret for this webhook and shows it once.",
     "events": "Events",
-    "eventsHint": "{appName} calls the URL for these events only.",
+    "eventsHint": "{appName} calls the URL for the chosen events. Alert and report rules that name this webhook also send report.alert and report.summary. With no event, it receives only those.",
     "active": "Active",
     "activeHint": "A paused webhook receives nothing; queued retries end.",
     "submitCreate": "Add webhook",
@@ -253,9 +257,9 @@
       "urlTooLong": "At most 2048 characters.",
       "url": "Enter a complete URL, e.g. https://rmm.example.com/hooks/restow.",
       "scheme": "Only http:// and https:// URLs can receive webhooks.",
-      "credentials": "Remove the user name and password from the URL; the signature authenticates {appName}.",
-      "eventsRequired": "Choose at least one event."
-    }
+      "credentials": "Remove the user name and password from the URL; the signature authenticates {appName}."
+    },
+    "eventsRules": "{count, plural, one {# rule under Tenant › Notifications also sends to this webhook.} other {# rules under Tenant › Notifications also send to this webhook.}}"
   },
   "formats": {
     "restow": {
@@ -361,6 +365,12 @@
       "webhook_disabled": "The webhook was paused before this delivery went out.",
       "internal": "{appName} could not prepare this delivery. It is retried.",
       "unknown": "The delivery failed."
+    },
+    "export": {
+      "action": "CSV",
+      "preparing": "Preparing the export …",
+      "done": "Export downloaded.",
+      "failed": "The export failed."
     }
   },
   "signature": {

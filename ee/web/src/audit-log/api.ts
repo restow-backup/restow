@@ -113,6 +113,11 @@ function queryString(params: Record<string, string | number | undefined>): strin
   return encoded ? `?${encoded}` : "";
 }
 
+/** The export of the filtered log (GET /audit/export), as CSV or JSON. */
+export function auditExportPath(query: AuditQuery, format: "csv" | "json"): string {
+  return `/audit/export${queryString({ ...query, format })}`;
+}
+
 export function fetchAuditEntries(query: AuditQuery, cursor: string | null): Promise<AuditPage> {
   return apiFetch<AuditPage>(
     `/audit${queryString({ ...query, limit: AUDIT_PAGE_SIZE, cursor: cursor ?? undefined })}`,

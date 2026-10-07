@@ -292,3 +292,57 @@ export function scheduleGaps(schedule: JobSchedule, now: Date): ScheduleGaps | n
 export function runsAtLeastAsOften(own: ScheduleGaps | null, base: ScheduleGaps | null): boolean {
   return own !== null && base !== null && own.max <= base.min;
 }
+
+/** Without a schedule to judge by, a backup older than this reads as overdue. */
+export const DEFAULT_STALE_BACKUP_HOURS = 48;
+/** Never sooner than this: a single missed run of an hourly job is not yet "overdue". */
+export const MIN_STALE_BACKUP_HOURS = 24;
+
+/**
+ * The longest stretch without a backup a job's schedule plans, in minutes: the longest gap of
+ * a mail schedule, the interval of an endpoint interval, a day for `daily`, and the least time
+ * between two backups of `on_connect` when it sets one. Null when the schedule says nothing
+ * usable (a schedule that cannot be planned, `on_connect` without a minimum).
+ */
+export function longestPlannedGapMinutes(schedule: JobSchedule, now: Date): number | null {
+  switch (schedule.kind) {
+    case "daily":
+      return 24 * 60;
+    case "on_connect":
+      return typeof schedule.intervalMinutes === "number" ? schedule.intervalMinutes : null;
+    case "interval":
+      return typeof schedule.intervalMinutes === "number" && schedule.intervalMinutes > 0
+        ? schedule.intervalMinutes
+        : null;
+    default: {
+      const gaps = scheduleGaps(schedule, now);
+      return gaps === null || !Number.isFinite(gaps.max) ? null : gaps.max;
+    }
+  }
+}
+
+/**
+ * After how many hours without a successful backup something protected by these schedules reads
+ * as overdue: twice the longest planned gap of the most relaxed schedule (a weekly job is not
+ * overdue on day three), at least {@link MIN_STALE_BACKUP_HOURS}. Without any usable schedule the
+ * fixed {@link DEFAULT_STALE_BACKUP_HOURS} applies.
+ */
+export function staleBackupHours(
+  schedules: readonly (JobSchedule | null | undefined)[],
+  now: Date,
+): number {
+  let longest: number | null = null;
+  for (const schedule of schedules) {
+    if (!schedule) {
+      continue;
+    }
+    const gap = longestPlannedGapMinutes(schedule, now);
+    if (gap !== null && (longest === null || gap > longest)) {
+      longest = gap;
+    }
+  }
+  if (longest === null) {
+    return DEFAULT_STALE_BACKUP_HOURS;
+  }
+  return Math.max(MIN_STALE_BACKUP_HOURS, Math.ceil((2 * longest) / 60));
+}

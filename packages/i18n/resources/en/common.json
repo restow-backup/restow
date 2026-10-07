@@ -172,7 +172,8 @@
     "forbiddenTitle": "No access",
     "roleInTenant": "Your role in {tenant}: {role}.",
     "providerRole": "Your role in the provider team does not allow this.",
-    "providerScope": "This tenant is not one of your tenants in the provider team."
+    "providerScope": "This tenant is not one of your tenants in the provider team.",
+    "tenantNotAccessible": "You have no access to the tenant the link names. The tenant chosen last is shown."
   },
   "notFound": {
     "title": "Page not found",

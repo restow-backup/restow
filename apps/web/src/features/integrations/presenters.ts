@@ -314,7 +314,8 @@ export const webhookFormSchema = z.object({
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue });
       }
     }),
-  events: z.array(z.enum(WEBHOOK_EVENTS)).min(1, "eventsRequired"),
+  // Empty is allowed: then only the alert and report rules that name the webhook send to it.
+  events: z.array(z.enum(WEBHOOK_EVENTS)),
   active: z.boolean(),
   format: z.enum(WEBHOOK_FORMATS),
 });

@@ -841,7 +841,10 @@ describe("WebhookDispatcher", () => {
     );
     const body = JSON.parse(request?.body ?? "{}");
     expect(body.embeds[0].title).toBe("Backup failed: anna@contoso.example");
-    expect(body.embeds[0].url).toBe("https://backup.example.com/history/j-1");
+    // The link names its tenant, so it opens that tenant in the web app.
+    expect(body.embeds[0].url).toBe(
+      "https://backup.example.com/history/j-1?forTenant=11111111-1111-4111-8111-111111111111",
+    );
     expect(body.allowed_mentions).toEqual({ parse: [] });
     // The log keeps the envelope; only the request body is the chat message.
     expect(store.rows.get(row.id)).toMatchObject({ status: "delivered", payload: row.payload });
@@ -1276,7 +1279,7 @@ describe.skipIf(!adminUrl)("webhook deliveries against Postgres", () => {
       const body = JSON.parse(request?.body ?? "{}");
       expect(body.blocks[0].text.text).toContain("Restore-Prüfung nicht bestanden: Fileserver");
       expect(JSON.stringify(body)).toContain(
-        "<https://backup.example.com/verify/reports/rep-1|In Restow öffnen>",
+        `<https://backup.example.com/verify/reports/rep-1?forTenant=${tenantId}|In Restow öffnen>`,
       );
       const [row] = await db
         .select()

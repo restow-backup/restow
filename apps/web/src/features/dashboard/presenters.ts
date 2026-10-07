@@ -193,11 +193,22 @@ export function jobStatusView(job: RecentJob): {
   }
 }
 
-/** No successful backup for this long reads as overdue (the provider view uses the same bound). */
+/**
+ * Without a bound from the schedules, no successful backup for this long reads as overdue. The
+ * server sends the bound of each kind (`staleAfterHours`: twice the longest planned gap of the
+ * tenant's jobs), and the provider view judges each tenant by its own.
+ */
 export const STALE_BACKUP_HOURS = 48;
 
-export function isStale(iso: string | null, now: number): boolean {
-  return iso !== null && now - Date.parse(iso) > STALE_BACKUP_HOURS * 3_600_000;
+export function isStale(iso: string | null, now: number, hours = STALE_BACKUP_HOURS): boolean {
+  return iso !== null && now - Date.parse(iso) > hours * 3_600_000;
+}
+
+/** A bound in hours as the page words it: whole days from two days on. */
+export function staleBound(hours: number): { unit: "hours" | "days"; count: number } {
+  return hours >= 48
+    ? { unit: "days", count: Math.round(hours / 24) }
+    : { unit: "hours", count: hours };
 }
 
 // ---------------------------------------------------------------------------
@@ -206,7 +217,8 @@ export function isStale(iso: string | null, now: number): boolean {
 
 /**
  * Whether the servers and clients card is on the page. The server answers
- * with zeros for a tenant without endpoints, and then the page shows nothing
+ * with zeros for a tenant without endpoints (a tenant whose machines are all in
+ * no backup job still gets the card: it says they are not protected), and then the page shows nothing
  * rather than an empty card; while the answer is not in yet there is no way to
  * know, so nothing is shown (a skeleton would flash for most tenants). A
  * failed source does show its card, with the retry: the tenant may well have
@@ -219,7 +231,7 @@ export function showEndpoints(view: WidgetView<EndpointsWidget>): boolean {
     case "error":
       return true;
     case "ready":
-      return view.data.protected > 0;
+      return view.data.machines > 0;
   }
 }
 
@@ -228,23 +240,28 @@ export function showEndpoints(view: WidgetView<EndpointsWidget>): boolean {
  * any machine is not proven restorable (a failed restore test, a backup no
  * restore test has read back, no backup yet), otherwise yellow when something
  * needs attention (a backup proven with gaps, a failed last backup, a silent
- * server, a client without a recent backup), otherwise green. Null without
- * machines.
+ * server, a client without a recent backup, a machine in no backup job),
+ * otherwise green. Null without machines.
  */
 export function endpointsOverall(widget: EndpointsWidget): Readiness | null {
-  if (widget.protected === 0) {
+  if (widget.machines === 0) {
     return null;
   }
   if (widget.notReady > 0) {
     return "red";
   }
-  if (widget.readiness.yellow > 0 || widget.failedLastBackup > 0 || widget.needingAttention > 0) {
+  if (
+    widget.readiness.yellow > 0 ||
+    widget.failedLastBackup > 0 ||
+    widget.needingAttention > 0 ||
+    widget.withoutJob > 0
+  ) {
     return "yellow";
   }
   return "green";
 }
 
-export type EndpointFindingKey = "notReady" | "failedLastBackup" | "attention";
+export type EndpointFindingKey = "notReady" | "failedLastBackup" | "withoutJob" | "attention";
 
 export interface EndpointFinding {
   key: EndpointFindingKey;
@@ -261,7 +278,10 @@ export function endpointFindings(widget: EndpointsWidget): EndpointFinding[] {
   const findings: EndpointFinding[] = [
     { key: "notReady", count: widget.notReady, tone: "destructive" },
     { key: "failedLastBackup", count: widget.failedLastBackup, tone: "destructive" },
-    { key: "attention", count: widget.needingAttention, tone: "warning" },
+    // Nothing backs these up: not protected, whatever an old backup of them scores.
+    { key: "withoutJob", count: widget.withoutJob, tone: "warning" },
+    // The other reasons to look at a machine; one in no job is already counted above.
+    { key: "attention", count: widget.otherAttention, tone: "warning" },
   ];
   return findings.filter((finding) => finding.count > 0);
 }

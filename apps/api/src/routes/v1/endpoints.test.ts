@@ -57,10 +57,12 @@ describe("endpoints in the integration API", () => {
         lastSuccessAt: "2026-09-29T00:00:00.000Z",
       }),
       summary({ status: "revoked", attention: ["silent"] }),
-      summary({ attention: ["last_backup_failed"], lastSuccessAt: null }),
+      summary({ attention: ["last_backup_failed", "no_job"], lastSuccessAt: null }),
     ]);
     expect(counts).toEqual({
       total: 3,
+      withoutJob: 1,
+      failedLastBackup: 1,
       servers: 2,
       clients: 1,
       revoked: 1,

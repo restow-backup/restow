@@ -16,6 +16,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/sonner";
+import { ApiReferenceLink } from "./api-reference-link";
 
 interface SecretRevealProps {
   /** An API key token or a webhook signing secret. */
@@ -94,7 +95,10 @@ export function SecretReveal({ kind, value, onReadyChange, onDone }: SecretRevea
           </Button>
         </div>
         {kind === "key" ? (
-          <p className="text-xs text-muted-foreground">{t("reveal.keyUsage")}</p>
+          <div className="space-y-1">
+            <p className="text-xs text-muted-foreground">{t("reveal.keyUsage")}</p>
+            <ApiReferenceLink />
+          </div>
         ) : null}
       </div>
 

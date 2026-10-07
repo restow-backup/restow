@@ -5,6 +5,7 @@ import { RelativeTime, StatusBadge } from "@/components/kit";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 
+import { inventoryTo } from "@/features/endpoints/paths";
 import { verifyLink } from "@/features/verify/search";
 import type { ReadinessWidget as ReadinessData } from "../api.js";
 import { LinkButton } from "../components/link-button.js";
@@ -75,7 +76,28 @@ function ReadinessBody({ data, canAdminister }: { data: ReadinessData; canAdmini
         <Alert variant="destructive" data-flag="no-backup">
           <CircleAlert />
           <AlertTitle>{t("readiness.noBackup.title", { count: data.noBackup })}</AlertTitle>
-          <AlertDescription>{t("readiness.noBackup.description")}</AlertDescription>
+          <AlertDescription className="gap-2">
+            <p>{t("readiness.noBackup.description")}</p>
+            {canAdminister ? (
+              <LinkButton {...verifyLink("no_backup")} size="xs" className="mt-1">
+                {t("readiness.noBackup.action")}
+              </LinkButton>
+            ) : null}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {data.withoutJob > 0 ? (
+        <Alert variant="warning" data-flag="without-job">
+          <TriangleAlert />
+          <AlertTitle>{t("readiness.withoutJob.title", { count: data.withoutJob })}</AlertTitle>
+          <AlertDescription className="gap-2">
+            <p>{t("readiness.withoutJob.description")}</p>
+            {canAdminister ? (
+              <LinkButton to={inventoryTo()} size="xs" className="mt-1">
+                {t("readiness.withoutJob.action")}
+              </LinkButton>
+            ) : null}
+          </AlertDescription>
         </Alert>
       ) : null}
 

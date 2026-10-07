@@ -37,7 +37,8 @@
   "locked": {
     "title": "{section} is not unlocked",
     "description": "The section stays in the list so that you can see it exists. The license page shows what unlocks it and takes the key.",
-    "action": "Open the license page"
+    "action": "Open the license page",
+    "descriptionTenant": "The section stays in the list so you can see that it exists. The administrators of the installation (your provider) can unlock it with a license key."
   },
   "states": {
     "notYours": {

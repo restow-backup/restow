@@ -1,5 +1,9 @@
 import type { ProviderDashboardLoader } from "../../../../apps/api/src/features/dashboard/hooks.js";
-import { loadTenantHealthExtras } from "../../../../apps/api/src/features/dashboard/queries.js";
+import {
+  loadStaleThresholds,
+  loadTenantHealthExtras,
+} from "../../../../apps/api/src/features/dashboard/queries.js";
+import { loadEndpointCounts } from "../../../../apps/api/src/routes/v1/endpoints.js";
 import { loadTenantSummary } from "../../../../apps/api/src/routes/v1/status.js";
 import { providerAlerts, providerKpis, tenantRow } from "./health.js";
 
@@ -14,10 +18,17 @@ export const providerDashboardLoader: ProviderDashboardLoader = {
   async load({ db, now, tenants, settle }) {
     const rows = [];
     for (const tenant of tenants) {
-      const facts = await settle("provider.tenant", tenant.id, async () => ({
-        summary: await loadTenantSummary(db, tenant.id, now),
-        ...(await loadTenantHealthExtras(db, tenant.id, now)),
-      }));
+      const facts = await settle("provider.tenant", tenant.id, async () => {
+        const stale = await loadStaleThresholds(db, tenant.id, now);
+        const machines = await loadEndpointCounts(db, tenant.id, now);
+        return {
+          summary: await loadTenantSummary(db, tenant.id, now),
+          ...(await loadTenantHealthExtras(db, tenant.id, now)),
+          machines,
+          // The tenant is stale only once every kind it protects is: the most relaxed bound applies.
+          staleAfterHours: Math.max(stale.mail, machines.total > 0 ? stale.machines : 0),
+        };
+      });
       rows.push(
         tenantRow(tenant, facts.ok ? facts.value : null, {
           mailboxes: tenant.mailboxes,

@@ -69,7 +69,7 @@ function EndpointsBody({ data }: { data: EndpointsData }) {
           <div
             key={segment.key}
             className={cn("h-full", SEGMENT_FILL[segment.tone])}
-            style={{ width: `${(segment.count / Math.max(1, data.protected)) * 100}%` }}
+            style={{ width: `${(segment.count / Math.max(1, data.machines)) * 100}%` }}
           />
         ))}
       </div>

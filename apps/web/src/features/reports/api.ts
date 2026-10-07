@@ -8,6 +8,7 @@ import { apiFetch } from "@/lib/api";
 
 export const REPORT_EVENTS = [
   "backup.failed",
+  "backup.overdue",
   "restore.failed",
   "restore.completed",
   "archive.failed",
@@ -95,6 +96,19 @@ export interface ReportDelivery {
   createdAt: string;
   sentAt: string | null;
   target: string | null;
+  /** What the alert is about, for links: the protected object, the machine, the run. */
+  subject?: { objectId: string | null; endpointId: string | null; jobId: string | null };
+  /** A webhook alert: the webhook and the delivery it was handed to (its outcome is `status`). */
+  webhook?: { id: string; deliveryId: string | null } | null;
+  /** In the view across tenants: whose alert it is. */
+  tenant?: { id: string; name: string };
+}
+
+/** Filters of the delivery log (all optional); `before` pages back. */
+export interface DeliveryFilters {
+  ruleId?: string | null;
+  status?: DeliveryStatus | null;
+  before?: string | null;
 }
 
 export interface ReportCatalog {
@@ -107,6 +121,8 @@ export interface ReportCatalog {
 export interface BellNotification {
   id: string;
   tenantId: string | null;
+  /** In the lists across tenants: the tenant's name, for the entry and its link. */
+  tenant?: { id: string; name: string };
   level: "info" | "warning" | "error";
   event: string;
   message: string;
@@ -126,12 +142,46 @@ export interface BellList {
   unreadAttention?: number;
 }
 
+/** A page of the notification history (GET /notifications/history). */
+export interface NotificationPage {
+  items: BellNotification[];
+  /** Pass as `before` for the next older page; null at the end. */
+  next: string | null;
+}
+
+export interface NotificationFilters {
+  level?: "info" | "warning" | "error" | "attention" | null;
+  unread?: boolean;
+}
+
 export const reportKeys = {
   all: (tenantId: string | null) => ["tenant", tenantId, "reports"] as const,
   rules: (tenantId: string | null) => ["tenant", tenantId, "reports", "rules"] as const,
   catalog: (tenantId: string | null) => ["tenant", tenantId, "reports", "catalog"] as const,
-  deliveries: (tenantId: string | null, ruleId: string | null) =>
-    ["tenant", tenantId, "reports", "deliveries", ruleId] as const,
+  deliveries: (tenantId: string | null, filters: DeliveryFilters = {}) =>
+    [
+      "tenant",
+      tenantId,
+      "reports",
+      "deliveries",
+      filters.ruleId ?? null,
+      filters.status ?? null,
+    ] as const,
+  history: (tenantId: string | null, filters: NotificationFilters = {}) =>
+    [
+      "tenant",
+      tenantId,
+      "notifications",
+      "history",
+      filters.level ?? null,
+      !!filters.unread,
+    ] as const,
+  /** Every covered tenant's notifications and deliveries ("All tenants", Service Provider). */
+  providerBell: ["provider", "notifications"] as const,
+  providerHistory: (filters: NotificationFilters = {}) =>
+    ["provider", "notifications", "history", filters.level ?? null, !!filters.unread] as const,
+  providerDeliveries: (filters: DeliveryFilters = {}) =>
+    ["provider", "deliveries", filters.status ?? null] as const,
   bell: (tenantId: string | null) => ["tenant", tenantId, "notifications"] as const,
   /** The installation-level bell of a provider administrator who has no tenant open. */
   installationBell: ["installation", "notifications"] as const,
@@ -149,10 +199,51 @@ export const deleteRule = (id: string) =>
   apiFetch<void>(`${base}/rules/${encodeURIComponent(id)}`, { method: "DELETE" });
 export const testRule = (id: string) =>
   apiFetch<{ queued: number }>(`${base}/rules/${encodeURIComponent(id)}/test`, { method: "POST" });
-export const fetchDeliveries = (ruleId: string | null) =>
+/** The query string of the delivery filters (empty when there are none). */
+export function deliveryQuery(filters: DeliveryFilters, limit?: number): string {
+  const params = new URLSearchParams();
+  if (filters.ruleId) params.set("ruleId", filters.ruleId);
+  if (filters.status) params.set("status", filters.status);
+  if (filters.before) params.set("before", filters.before);
+  if (limit) params.set("limit", String(limit));
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+/** Rows per page of the delivery log. */
+export const DELIVERY_PAGE = 50;
+
+export const fetchDeliveries = (filters: DeliveryFilters = {}) =>
+  apiFetch<ReportDelivery[]>(`${base}/deliveries${deliveryQuery(filters, DELIVERY_PAGE)}`);
+
+/** The delivery log as CSV (through apiFetch, so the active tenant goes along). */
+export const DELIVERIES_EXPORT_PATH = `${base}/deliveries/export`;
+export const PROVIDER_DELIVERIES_EXPORT_PATH = "/notifications/provider/deliveries/export";
+
+export const fetchProviderDeliveries = (filters: DeliveryFilters = {}) =>
   apiFetch<ReportDelivery[]>(
-    `${base}/deliveries${ruleId ? `?ruleId=${encodeURIComponent(ruleId)}` : ""}`,
+    `/notifications/provider/deliveries${deliveryQuery(filters, DELIVERY_PAGE)}`,
   );
+
+function historyQuery(filters: NotificationFilters, before: string | null): string {
+  const params = new URLSearchParams();
+  if (filters.level) params.set("level", filters.level);
+  if (filters.unread) params.set("unread", "true");
+  if (before) params.set("before", before);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+export const fetchHistory = (filters: NotificationFilters, before: string | null) =>
+  apiFetch<NotificationPage>(`/notifications/history${historyQuery(filters, before)}`);
+
+/** Every covered tenant's notifications with their tenant ("All tenants", Service Provider). */
+export const fetchProviderHistory = (filters: NotificationFilters, before: string | null) =>
+  apiFetch<NotificationPage & { unread: number; unreadAttention: number }>(
+    `/notifications/provider${historyQuery(filters, before)}`,
+  );
+export const markProviderBellRead = (body: { ids?: string[]; all?: true }) =>
+  apiFetch<{ updated: number }>("/notifications/provider/read", { method: "POST", body });
 
 export const fetchBell = () => apiFetch<BellList>("/notifications");
 export const markBellRead = (body: { ids?: string[]; all?: true }) =>

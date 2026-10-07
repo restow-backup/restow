@@ -547,6 +547,19 @@ describe.skipIf(!testDatabaseAdminUrl)("API keys and webhooks against Postgres",
       const listed = (await hooks.listWebhooks(db, tenantId)).find((item) => item.id === hook.id);
       expect(listed?.stats.pending).toBe(5);
       expect(listed?.stats.lastDelivery?.id).toBe(seen[0]);
+
+      // The same log as CSV, for proof that a receiver was told.
+      const csv = await app.request(`/webhooks/${hook.id}/deliveries/export`, bearer(manager));
+      expect(csv.status).toBe(200);
+      expect(csv.headers.get("content-type")).toContain("text/csv");
+      const lines = (await csv.text())
+        .replace(/^\uFEFF/, "")
+        .trim()
+        .split("\r\n");
+      expect(lines[0]).toBe(
+        "createdAt,event,eventId,status,attempts,deliveredAt,error,httpStatus,detail",
+      );
+      expect(lines).toHaveLength(6);
     });
 
     it("queues test events and redelivers finished deliveries with the same event id", async () => {

@@ -1,3 +1,4 @@
+import { reportKeys } from "@/features/reports/api";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 
@@ -186,6 +187,8 @@ export function useDeleteWebhook() {
       queryClient.setQueryData<Webhook[]>(integrationKeys.webhooks(tenantId), (current) =>
         current?.filter((webhook) => webhook.id !== id),
       );
+      // Rules that sent to it lost that channel on the server: the rule list must show it.
+      void queryClient.invalidateQueries({ queryKey: reportKeys.all(tenantId) });
     },
   });
 }

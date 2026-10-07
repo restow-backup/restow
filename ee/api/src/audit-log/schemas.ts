@@ -51,6 +51,23 @@ export const listAuditQuerySchema = z
   });
 export type ListAuditQuery = z.infer<typeof listAuditQuerySchema>;
 
+/** The export: the list's filters, without paging, and the file format. */
+export const exportAuditQuerySchema = z
+  .object({
+    tenant: chainFilterSchema.optional(),
+    action: z.string().trim().max(200).regex(ACTION_PATTERN).optional(),
+    actor: optionalText(200),
+    target: optionalText(500),
+    from: instant.optional(),
+    to: instant.optional(),
+    format: z.enum(["csv", "json"]).default("csv"),
+  })
+  .refine((query) => !query.from || !query.to || Date.parse(query.from) < Date.parse(query.to), {
+    message: "`from` must be before `to`.",
+    path: ["to"],
+  });
+export type ExportAuditQuery = z.infer<typeof exportAuditQuerySchema>;
+
 /** Query of the action facet list and of the chain verification. */
 export const chainQuerySchema = z.object({
   tenant: chainFilterSchema.optional(),
