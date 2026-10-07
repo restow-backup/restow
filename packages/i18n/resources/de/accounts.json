@@ -35,7 +35,7 @@
       "description": "Der vorherige Link für {email} funktioniert nicht mehr; stattdessen diesen weitergeben."
     },
     "errors": {
-      "crossTenant": "Dieses Konto gehört bereits zu einem anderen Mandanten. Nur eine Provider-Administratorin/ein Provider-Administrator kann es hier zusätzlich hinzufügen.",
+      "crossTenant": "Dieses Konto gehört bereits zu einem anderen Mandanten. Nur ein Inhaber oder Administrator der Installation kann es hier zusätzlich hinzufügen.",
       "providerAdminTarget": "Dieses Konto verwaltet die gesamte Installation und erreicht bereits jeden Mandanten.",
       "notPending": "Diese Person kann sich bereits anmelden; es gibt keinen Link zum erneuten Ausstellen."
     }
@@ -86,18 +86,18 @@
     "linkStatus": {
       "used": {
         "title": "Dieser Link wurde bereits verwendet",
-        "description": "Mit diesem Link wurde bereits ein Passwort gesetzt. Stattdessen anmelden, oder eine Administratorin/einen Administrator um einen neuen Link bitten.",
-        "descriptionWithEmail": "Für {email} wurde mit diesem Link bereits ein Passwort gesetzt. Stattdessen anmelden, oder eine Administratorin/einen Administrator um einen neuen Link bitten."
+        "description": "Mit diesem Link wurde bereits ein Passwort gesetzt. Melden Sie sich an, oder bitten Sie die Person, die Sie eingeladen hat, um einen neuen Link.",
+        "descriptionWithEmail": "Für {email} wurde mit diesem Link bereits ein Passwort gesetzt. Melden Sie sich an, oder bitten Sie die Person, die Sie eingeladen hat, um einen neuen Link."
       },
       "expired": {
         "title": "Dieser Link ist abgelaufen",
-        "description": "Anmelde-Links sind 72 Stunden gültig. Eine Administratorin/einen Administrator um einen neuen Link bitten.",
-        "descriptionWithEmail": "Der Link für {email} ist älter als 72 Stunden. Eine Administratorin/einen Administrator um einen neuen Link bitten."
+        "description": "Anmelde-Links sind 72 Stunden gültig. Bitten Sie die Person, die Sie eingeladen hat, um einen neuen Link.",
+        "descriptionWithEmail": "Der Link für {email} ist älter als 72 Stunden. Bitten Sie die Person, die Sie eingeladen hat, um einen neuen Link."
       },
       "invalid": {
         "title": "Dieser Link ist ungültig",
-        "description": "Er könnte falsch eingegeben oder bereits entfernt worden sein. Eine Administratorin/einen Administrator um einen neuen Link bitten.",
-        "descriptionWithEmail": "Er könnte falsch eingegeben oder bereits entfernt worden sein. Eine Administratorin/einen Administrator um einen neuen Link bitten."
+        "description": "Er könnte falsch eingegeben oder bereits entfernt worden sein. Bitten Sie die Person, die Sie eingeladen hat, um einen neuen Link.",
+        "descriptionWithEmail": "Er könnte falsch eingegeben oder bereits entfernt worden sein. Bitten Sie die Person, die Sie eingeladen hat, um einen neuen Link."
       }
     },
     "rateLimited": "Zu viele Versuche. Bitte kurz warten und erneut versuchen.",

@@ -1,5 +1,5 @@
 {
-  "title": "{scope, select, organisation {Settings} other {Tenant settings}}",
+  "title": "{scope, select, organisation {Your organisation} other {Tenant settings}}",
   "sections": {
     "label": "{scope, select, organisation {Sections of your organisation} other {Sections of this tenant}}",
     "select": "Section",
@@ -13,7 +13,7 @@
     "archive": "Archive",
     "notifications": "Notifications",
     "integrations": "Integrations",
-    "members": "Members",
+    "members": "Users",
     "masterData": "Master data"
   },
   "descriptions": {

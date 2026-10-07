@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { useConfirmIdentity } from "@/components/confirm-identity-dialog";
 import { ErrorState } from "@/components/error-state";
+import { ConfirmDialog } from "@/components/kit";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -43,6 +44,8 @@ import {
 import { providerMay } from "@/lib/provider-role";
 import { isRecentSignInRequired } from "@/lib/recent-sign-in";
 import { useSession } from "@/lib/session";
+
+import { AccessNote } from "../access";
 
 /**
  * Installation, Edition: shown on the Community build only (sections.tsx). It says which
@@ -93,6 +96,8 @@ export function EditionContent({ view, canManage }: { view: UpdatesView; canMana
 
   return (
     <div className="space-y-6" data-slot="edition">
+      {/* Why the switch and the key below are closed: the demo, or a role below Owner. */}
+      <AccessNote block={view.demo ? "demo" : canManage ? null : "role"} level="owner" />
       <Card>
         <CardHeader>
           <CardTitle className="flex flex-wrap items-center gap-2">
@@ -285,6 +290,7 @@ function LicenseKeyCard({ view, canChange }: { view: UpdatesView; canChange: boo
   const store = useStorePendingLicenseKey();
   const remove = useRemovePendingLicenseKey();
   const [key, setKey] = React.useState("");
+  const [confirmRemove, setConfirmRemove] = React.useState(false);
   const pending = view.edition?.pendingLicenseKey === true;
   const fieldId = React.useId();
 
@@ -353,13 +359,30 @@ function LicenseKeyCard({ view, canChange }: { view: UpdatesView; canChange: boo
                 variant="outline"
                 loading={remove.isPending}
                 disabled={!canChange}
-                onClick={() => remove.mutate()}
+                onClick={() => {
+                  remove.reset();
+                  setConfirmRemove(true);
+                }}
               >
                 {t("edition.key.remove")}
               </Button>
             ) : null}
           </div>
         </form>
+        <ConfirmDialog
+          open={confirmRemove}
+          onOpenChange={setConfirmRemove}
+          title={t("edition.key.removeDialog.title")}
+          description={t("edition.key.removeDialog.description")}
+          confirmLabel={t("edition.key.removeDialog.confirm")}
+          destructive
+          pending={remove.isPending}
+          error={remove.isError ? t(updatesErrorKey(remove.error)) : undefined}
+          onConfirm={async () => {
+            await remove.mutateAsync();
+            toast.success(t("edition.key.removed"));
+          }}
+        />
       </CardContent>
     </Card>
   );

@@ -14,7 +14,13 @@ import {
   patchSettings,
   sendTestMail,
 } from "./api";
-import { type AuthClientError, type PasskeyRow, toPasskeyRows } from "./presenters";
+import {
+  type AuthClientError,
+  type PasskeyRow,
+  type SessionRow,
+  toPasskeyRows,
+  toSessionRows,
+} from "./presenters";
 
 /**
  * TanStack Query wiring for the settings page. Installation settings are not
@@ -27,6 +33,7 @@ export const settingsKeys = {
   passkeyReadiness: ["settings", "passkey-readiness"] as const,
   passkeyImpact: ["settings", "passkey-impact"] as const,
   passkeys: ["auth", "passkeys"] as const,
+  sessions: ["auth", "sessions"] as const,
 };
 
 export function useInstallationSettings() {
@@ -138,12 +145,73 @@ export function useDeletePasskey() {
 }
 
 export function useRevokeOtherSessions() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async () => {
       const { error } = await authClient.revokeOtherSessions();
       if (error) {
         throw new AuthRequestError(error);
       }
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: settingsKeys.sessions }),
+  });
+}
+
+/** Every signed-in browser and device of the own account (current one first). */
+export function useSessions(currentToken: string | null) {
+  return useQuery({
+    queryKey: [...settingsKeys.sessions, currentToken] as const,
+    queryFn: async (): Promise<SessionRow[]> => {
+      const { data, error } = await authClient.listSessions();
+      if (error) {
+        throw new AuthRequestError(error);
+      }
+      return toSessionRows(data ?? [], currentToken);
+    },
+    staleTime: 30_000,
+  });
+}
+
+/** Sign one other session out. */
+export function useRevokeSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (token: string) => {
+      const { error } = await authClient.revokeSession({ token });
+      if (error) {
+        throw new AuthRequestError(error);
+      }
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: settingsKeys.sessions }),
+  });
+}
+
+export interface ChangePasswordInput {
+  currentPassword: string;
+  newPassword: string;
+  revokeOtherSessions: boolean;
+}
+
+/**
+ * Change the own password (better-auth `/change-password`): the current one
+ * is checked; with `revokeOtherSessions` every other browser is signed out
+ * and this one gets a fresh session.
+ */
+export function useChangePassword() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: ChangePasswordInput) => {
+      const { error } = await authClient.changePassword(input);
+      if (error) {
+        throw new AuthRequestError(error);
+      }
+    },
+    onSuccess: async (_data, input) => {
+      if (input.revokeOtherSessions) {
+        // The session was replaced: read it (and its token) again.
+        await queryClient.invalidateQueries({ queryKey: queryKeys.authSession });
+      }
+      await queryClient.invalidateQueries({ queryKey: settingsKeys.sessions });
     },
   });
 }

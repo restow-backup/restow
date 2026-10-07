@@ -30,7 +30,7 @@ import {
 import { useProvisionAccount } from "@/features/accounts/hooks";
 import { type Message, provisionError } from "@/features/accounts/presenters";
 import type { ProvisionResult } from "@/features/accounts/types";
-import type { TenantRole } from "@/lib/api";
+import { type TenantRole, notificationMailConfigured } from "@/lib/api";
 import { zodResolver } from "@/lib/form";
 import { setupStateQueryOptions } from "@/routes/tree";
 
@@ -108,7 +108,7 @@ export function InviteMemberDialog({
 }: InviteMemberDialogProps) {
   const microsoftSignIn = useMicrosoftSignInAvailable();
   const setup = useQuery(setupStateQueryOptions);
-  const mailConfigured = Boolean(setup.data?.mailTransport);
+  const mailConfigured = notificationMailConfigured(setup.data);
   const [provisioned, setProvisioned] = React.useState<ProvisionResult | null>(null);
   // Remount the form for "invite another" so it starts empty again.
   const [formKey, setFormKey] = React.useState(0);

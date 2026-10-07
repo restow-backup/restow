@@ -165,7 +165,9 @@
       "provisioned": "Konto bereitgestellt",
       "password_link_issued": "Passwort-Link ausgestellt",
       "password_set": "Passwort gesetzt",
-      "access_recovered": "Admin-Zugang über die Kommandozeile des Servers wiederhergestellt"
+      "access_recovered": "Admin-Zugang über die Kommandozeile des Servers wiederhergestellt",
+      "password_reset": "Passwort über den Link aus der E-Mail neu gesetzt",
+      "password_changed": "Eigenes Passwort geändert"
     },
     "api": {
       "archive": {

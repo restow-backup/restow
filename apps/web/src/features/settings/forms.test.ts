@@ -4,6 +4,7 @@ import type { InstallationSettings } from "./api";
 import {
   type MailFormContext,
   type MailFormValues,
+  changePasswordSchema,
   fieldMessageKey,
   generalFormSchema,
   leavesPublicMode,
@@ -351,5 +352,36 @@ describe("authenticator forms", () => {
   it("requires the password before any change to the second factor", () => {
     expect(passwordConfirmSchema.safeParse({ password: "" }).success).toBe(false);
     expect(passwordConfirmSchema.safeParse({ password: "correct horse" }).success).toBe(true);
+  });
+});
+
+describe("changePasswordSchema", () => {
+  const valid = {
+    current: "the-current-one",
+    password: "a-brand-new-password",
+    confirm: "a-brand-new-password",
+    revokeOtherSessions: true,
+  };
+  const reasons = (values: typeof valid) => {
+    const result = changePasswordSchema.safeParse(values);
+    return result.success ? [] : result.error.issues.map((issue) => issue.message);
+  };
+
+  it("takes the current password and a new one typed twice", () => {
+    expect(reasons(valid)).toEqual([]);
+  });
+
+  it("refuses a short, a mistyped or an unchanged new password, and a missing current one", () => {
+    expect(reasons({ ...valid, password: "short", confirm: "short" })).toContain("minLength");
+    expect(reasons({ ...valid, confirm: "something-else-1" })).toContain("passwordMismatch");
+    expect(
+      reasons({
+        ...valid,
+        password: valid.current.padEnd(14, "x"),
+        current: valid.current.padEnd(14, "x"),
+        confirm: valid.current.padEnd(14, "x"),
+      }),
+    ).toContain("samePassword");
+    expect(reasons({ ...valid, current: "" })).toContain("required");
   });
 });

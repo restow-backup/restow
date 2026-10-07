@@ -65,7 +65,7 @@
   },
   "remove": {
     "title": "Remove the license key?",
-    "description": "Without a key, this installation runs as {edition, select, community {Community} business {Business} other {Service Provider}}. The removal is recorded in the audit log.",
+    "description": "Without a key, this installation runs as {edition, select, community {Community} business {Business} other {Service Provider}}. The removal is logged.",
     "confirm": "Remove"
   },
   "toasts": {

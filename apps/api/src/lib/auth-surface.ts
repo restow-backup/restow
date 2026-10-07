@@ -69,6 +69,13 @@ export const AUTH_RATE_LIMIT = {
     "/two-factor/*": { window: 60, max: 5 },
     // Confirming a new authenticator app (lib/authenticator-replace.ts) checks a code too.
     "/two-factor/replace/*": { window: 60, max: 5 },
+    // Changing one's own password checks the current one.
+    "/change-password": { window: 60, max: 5 },
+    // "Forgot your password?" (lib/password-reset.ts): every request may send a
+    // mail, so few per IP; each account gets at most one mail per 5 minutes on top.
+    "/request-password-reset": { window: 15 * 60, max: 5 },
+    // Setting the new password with the token from that mail.
+    "/reset-password": { window: 60, max: 10 },
   },
 } satisfies RateLimitOptions;
 

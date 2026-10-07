@@ -87,14 +87,14 @@
     "existing": {
       "title": "Hinweis zur Verantwortung des Betreibers",
       "description": "Diese Installation wurde eingerichtet, bevor es diesen Hinweis gab, oder der Hinweis wurde aktualisiert. Bitte lesen und akzeptieren Sie ihn, um {appName} weiter zu nutzen.",
-      "needAdministrator": "Ein Owner oder Administrator des Provider-Teams muss diesen Hinweis zuerst akzeptieren. Bitten Sie eine dieser Personen, sich anzumelden und ihn zu akzeptieren, oder melden Sie sich ab.",
+      "needAdministrator": "Ein Inhaber oder Administrator der Installation muss diesen Hinweis zuerst akzeptieren. Bitten Sie eine dieser Personen, sich anzumelden und ihn zu akzeptieren, oder melden Sie sich ab.",
       "accept": "Akzeptieren und fortfahren",
       "signOut": "Abmelden"
     }
   },
   "mode": {
     "title": "Wie betreiben Sie {appName}?",
-    "description": "Der Modus lässt sich später in den Einstellungen ändern.",
+    "description": "Der Modus lässt sich später unter Installation › Server & Betrieb › Server ändern.",
     "local": "Lokaler Modus",
     "localDescription": "Erreichbar über IP-Adresse oder localhost, ohne öffentliche Domain. Anmeldung per Notfall-Passwort.",
     "public": "Öffentlicher Modus",
@@ -159,7 +159,7 @@
     "description": "Wird für Berichte, Warnungen und Einladungen genutzt. Der Journal-Empfang für das Archiv ist davon getrennt.",
     "skip": {
       "action": "Später einrichten",
-      "explanation": "Mail ist optional. Ohne sie verschickt {appName} keine Alarm- und Bericht-Mails, und Einladungen und Passwort-Links gehen nicht per Mail raus: Sie kopieren den Link und geben ihn selbst weiter. Sie können sie später unter Installation → Benachrichtigungs-Mail einrichten.",
+      "explanation": "Mail ist optional. Ohne sie verschickt {appName} keine Alarm- und Bericht-Mails, und Einladungen und Passwort-Links gehen nicht per Mail raus: Sie kopieren den Link und geben ihn selbst weiter. Sie können sie später unter Installation › Server & Betrieb › Benachrichtigungs-Mail einrichten.",
       "skipped": "Sie haben diesen Schritt übersprungen. Füllen Sie das Formular aus und wählen Sie Weiter, um die Mail jetzt einzurichten."
     },
     "transport": {
@@ -195,7 +195,7 @@
       "label": "Testnachricht an das Admin-Konto senden",
       "hint": "Zeigt sofort, ob der Transport funktioniert. Ein Fehlschlag blockiert die Einrichtung nicht."
     },
-    "laterTransports": "Microsoft 365 mit eigener App-Registrierung und Google Workspace richten Sie nach der Einrichtung unter Installation → Benachrichtigungs-Mail ein. Dort führt eine Anleitung durch die Schritte, und Sie senden vor dem Speichern eine Testnachricht."
+    "laterTransports": "Microsoft 365 mit eigener App-Registrierung und Google Workspace richten Sie nach der Einrichtung unter Installation › Server & Betrieb › Benachrichtigungs-Mail ein. Dort führt eine Anleitung durch die Schritte, und Sie senden vor dem Speichern eine Testnachricht."
   },
   "review": {
     "title": "Überprüfung",
@@ -212,12 +212,13 @@
     "no": "Nein",
     "finish": "Einrichtung abschließen",
     "submitting": "Einrichtung wird gespeichert …",
-    "signingIn": "Anmeldung läuft …"
+    "signingIn": "Anmeldung läuft …",
+    "next": "Als Nächstes: Nach dem Abschluss sind Sie angemeldet und richten die Authenticator-App ein. Halten Sie Ihr Smartphone bereit; das Passwort müssen Sie dafür nicht noch einmal eingeben."
   },
   "result": {
     "success": "Einrichtung abgeschlossen. Willkommen bei {appName}.",
     "testSendOk": "Die Testnachricht wurde versendet.",
-    "testSendFailed": "Die Testnachricht konnte nicht versendet werden. {reason} Prüfen Sie den Transport unter Installation → Benachrichtigungs-Mail und senden Sie dort erneut eine Testnachricht.",
+    "testSendFailed": "Die Testnachricht konnte nicht versendet werden. {reason} Prüfen Sie den Transport unter Installation › Server & Betrieb › Benachrichtigungs-Mail und senden Sie dort erneut eine Testnachricht.",
     "signInFailed": "Die Einrichtung ist gespeichert, die automatische Anmeldung hat aber nicht geklappt. Bitte melden Sie sich manuell an.",
     "alreadyConfigured": "Diese Installation ist bereits eingerichtet.",
     "failed": "Die Einrichtung konnte nicht gespeichert werden.",

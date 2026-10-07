@@ -16,7 +16,10 @@
     "passkeyRemoved": "Passkey entfernt.",
     "authenticatorEnabled": "Authenticator-App eingerichtet.",
     "backupCodesRenewed": "Neue Wiederherstellungscodes erstellt. Die bisherigen gelten nicht mehr.",
-    "sessionsRevoked": "Alle anderen Sitzungen wurden abgemeldet."
+    "sessionsRevoked": "Alle anderen Sitzungen wurden abgemeldet.",
+    "passwordChanged": "Passwort geändert.",
+    "passwordChangedOthersSignedOut": "Passwort geändert. Alle anderen Sitzungen wurden abgemeldet.",
+    "sessionRevoked": "Sitzung abgemeldet."
   },
   "general": {
     "mode": {
@@ -138,7 +141,7 @@
       "hint": "Versendet über Microsoft Graph als Anwendung mit der Anwendungsberechtigung Mail.Send. Ein SMTP-Ausgang ist nicht nötig.",
       "appMissing": {
         "title": "App-Registrierung nicht eingerichtet",
-        "description": "Es ist keine Microsoft-365-App-Registrierung der Sicherung eingerichtet. Wählen Sie eine eigene App-Registrierung für Benachrichtigungen oder richten Sie die App unter Installation → Microsoft-Multi-Tenant-App ein und erteilen Sie ihr Mail.Send."
+        "description": "Es ist keine Microsoft-365-App-Registrierung der Sicherung eingerichtet. Wählen Sie eine eigene App-Registrierung für Benachrichtigungen oder richten Sie die App unter Installation › Server & Betrieb › Microsoft-Multi-Tenant-App ein und erteilen Sie ihr Mail.Send."
       },
       "sender": "Absenderpostfach",
       "senderPlaceholder": "benachrichtigungen@contoso.com",
@@ -152,7 +155,7 @@
         "ownHint": "Eine Single-Tenant-App nur mit Mail.Send, die sich auf das Absenderpostfach beschränken lässt.",
         "backup": "App-Registrierung der Sicherung verwenden",
         "backupHint": "Die App der Sicherung braucht dafür zusätzlich Mail.Send, und diese Berechtigung gilt dann für alle Postfächer ihres Tenants.",
-        "backupUnavailable": "Es ist keine App-Registrierung der Sicherung eingerichtet (Installation → Microsoft-Multi-Tenant-App)."
+        "backupUnavailable": "Es ist keine App-Registrierung der Sicherung eingerichtet (Installation › Server & Betrieb › Microsoft-Multi-Tenant-App)."
       },
       "senderHint": "Ein Postfach in Exchange Online, zum Beispiel ein freigegebenes Postfach. Die Nachrichten erscheinen nicht in dessen Gesendeten Elementen.",
       "directoryId": "Verzeichnis-ID (Mandant)",
@@ -191,7 +194,7 @@
         "smtp_auth_failed": "Der SMTP-Server hat die Anmeldung abgelehnt. Prüfen Sie Benutzername und Passwort.",
         "smtp_connection_failed": "Der SMTP-Server ist nicht erreichbar. Prüfen Sie Host, Port und Firewall.",
         "smtp_tls_failed": "Die verschlüsselte Verbindung kam nicht zustande. Prüfen Sie die Verbindungssicherheit, den Port und das Zertifikat des Servers.",
-        "graph_app_missing": "Es ist keine App-Registrierung der Sicherung eingerichtet (Installation → Microsoft-Multi-Tenant-App).",
+        "graph_app_missing": "Es ist keine App-Registrierung der Sicherung eingerichtet (Installation › Server & Betrieb › Microsoft-Multi-Tenant-App).",
         "graph_credential_missing": "Für die eigene App-Registrierung ist kein Schlüssel gespeichert. Tragen Sie ihn erneut ein.",
         "graph_tenant_missing": "Für das Absenderpostfach ist kein Entra-Tenant gesetzt.",
         "graph_tenant_not_found": "Microsoft kennt diesen Tenant nicht. Prüfen Sie die Verzeichnis-ID.",
@@ -392,7 +395,7 @@
         "accountTypesValue": "Konten in einem beliebigen Organisationsverzeichnis (beliebiges Microsoft Entra ID-Verzeichnis - mandantenübergreifend)",
         "redirect": "Umleitungs-URI: Plattform Web wählen und genau diesen Wert eintragen:",
         "redirectLabel": "Umleitungs-URI (Admin-Consent)",
-        "redirectMissing": "Es ist noch keine öffentliche URL gesetzt. Legen Sie sie unter Installation → Server fest; die Umleitungs-URI leitet sich daraus ab.",
+        "redirectMissing": "Es ist noch keine öffentliche URL gesetzt. Legen Sie sie unter Installation › Server & Betrieb › Server fest; die Umleitungs-URI leitet sich daraus ab.",
         "register": "Wählen Sie Registrieren. Die Übersichtsseite zeigt dann die beiden Werte, die Sie in Schritt 4 eintragen:",
         "openAdminCenter": "Microsoft Entra Admin Center öffnen"
       },
@@ -553,7 +556,7 @@
     "copy": "{label} kopieren",
     "inline": {
       "title": "Zuerst die Microsoft-365-App-Registrierung einrichten",
-      "description": "Tenants lassen sich verbinden, sobald die Backup-App in Microsoft Entra registriert und hier eingetragen ist. Änderungen gelten sofort, ohne Neustart.",
+      "description": "Mandanten lassen sich verbinden, sobald die Backup-App in Microsoft Entra registriert und hier eingetragen ist. Änderungen gelten sofort, ohne Neustart.",
       "openSettings": "Unter Installation öffnen"
     }
   },
@@ -563,7 +566,7 @@
       "description": "Ohne Passwort anmelden, mit Touch ID, Windows Hello, dem Smartphone oder einem Sicherheitsschlüssel. Passkeys sind an {domain} gebunden.",
       "descriptionNoDomain": "Ohne Passwort anmelden, mit Touch ID, Windows Hello, dem Smartphone oder einem Sicherheitsschlüssel.",
       "add": "Passkey hinzufügen",
-      "openGeneral": "Betriebsmodus öffnen",
+      "openGeneral": "Server-Einstellungen öffnen",
       "unsupported": "Dieser Browser kann keine Passkeys erstellen. Nutzen Sie einen aktuellen Browser, um einen hinzuzufügen.",
       "empty": "Sie haben noch keinen Passkey. Bis dahin melden Sie sich mit dem Notfall-Passwort und einem Authenticator-Code an.",
       "emptyNoAuthenticator": "Sie haben noch keinen Passkey und keine Authenticator-App. Fügen Sie hier einen Passkey hinzu oder richten Sie unten die Authenticator-App ein.",
@@ -590,9 +593,11 @@
       },
       "removeDialog": {
         "title": "Passkey entfernen?",
-        "description": "Mit „{name}“ ist keine Anmeldung mehr möglich. Ohne Passkey melden Sie sich mit dem Notfall-Passwort und einem Authenticator-Code an.",
+        "description": "Mit „{name}“ ist keine Anmeldung mehr möglich. Danach melden Sie sich mit Ihrem Passwort und einem Code aus Ihrer Authenticator-App an.",
         "descriptionSso": "Mit „{name}“ ist keine Anmeldung mehr möglich. Ohne Passkey melden Sie sich mit Ihrem Microsoft-Konto an.",
-        "confirm": "Passkey entfernen"
+        "confirm": "Passkey entfernen",
+        "descriptionOthers": "Mit „{name}“ ist keine Anmeldung mehr möglich. Ihre anderen Passkeys funktionieren weiter.",
+        "descriptionNoAuthenticator": "Mit „{name}“ ist keine Anmeldung mehr möglich. Danach melden Sie sich mit Ihrem Passwort an und müssen sofort eine Authenticator-App einrichten. Richten Sie sie am besten jetzt unten ein, bevor Sie den Passkey entfernen."
       },
       "errors": {
         "cancelled": "Der Passkey-Dialog wurde abgebrochen oder ist abgelaufen. Es wurde nichts geändert.",
@@ -601,7 +606,8 @@
         "userVerification": "Der Authenticator kann Sie nicht per PIN oder Biometrie prüfen, was {appName} voraussetzt.",
         "verificationFailed": "Der Server konnte den neuen Passkey nicht prüfen. Bitte erneut versuchen.",
         "generic": "Die Passkey-Aktion ist fehlgeschlagen. Bitte erneut versuchen."
-      }
+      },
+      "removeBlocked": "Dieser Passkey ist Ihr einziger Weg, sich anzumelden. Fügen Sie zuerst einen weiteren Passkey hinzu; sonst kann nur ein Inhaber Ihren Zugang zurücksetzen."
     },
     "authenticator": {
       "title": "Authenticator-App",
@@ -638,7 +644,9 @@
         "code": "Code aus der App",
         "codePlaceholder": "123456",
         "codeHint": "Wird der Code abgelehnt, prüfen Sie, ob Ihr Smartphone die Uhrzeit automatisch einstellt.",
-        "confirm": "Prüfen und aktivieren"
+        "confirm": "Prüfen und aktivieren",
+        "starting": "Die Einrichtung startet …",
+        "passwordLeadAgain": "Bitte bestätigen Sie Ihr Passwort noch einmal, damit die Einrichtung starten kann."
       },
       "codes": {
         "enabled": "Die Authenticator-App ist eingerichtet. Ab jetzt fragt {appName} nach dem Passwort einen Code ab.",
@@ -673,10 +681,41 @@
     },
     "sessions": {
       "title": "Sitzungen",
-      "description": "Meldet Ihr Konto in allen anderen Browsern und auf allen anderen Geräten ab. Dieser Browser bleibt angemeldet.",
+      "description": "Die Browser und Geräte, in denen Ihr Konto angemeldet ist. Melden Sie einzelne ab oder alle außer diesem.",
       "revoke": "Andere Sitzungen abmelden",
       "confirmTitle": "Alle anderen Sitzungen abmelden?",
-      "confirmDescription": "Alle anderen Browser und Geräte, die mit Ihrem Konto angemeldet sind, werden sofort abgemeldet."
+      "confirmDescription": "Alle anderen Browser und Geräte, die mit Ihrem Konto angemeldet sind, werden sofort abgemeldet.",
+      "loadError": "Die Sitzungen konnten nicht geladen werden",
+      "current": "Dieser Browser",
+      "lastActive": "Zuletzt aktiv",
+      "signedIn": "angemeldet",
+      "ip": "IP {ip}",
+      "browserOn": "{browser} auf {device}",
+      "unknownDevice": "Unbekanntes Gerät",
+      "revokeOne": "Abmelden",
+      "revokeOneLabel": "Sitzung {device} abmelden",
+      "revokeOneTitle": "Diese Sitzung abmelden?",
+      "revokeOneDescription": "{device} wird sofort abgemeldet. Wer dort weiterarbeiten will, muss sich neu anmelden."
+    },
+    "password": {
+      "title": "Passwort",
+      "description": "Ihr Passwort gilt nur zusammen mit einem Code aus Ihrer Authenticator-App. Ändern Sie es, wenn Sie vermuten, dass jemand es kennt.",
+      "change": "Passwort ändern",
+      "dialog": {
+        "title": "Passwort ändern",
+        "description": "Geben Sie Ihr aktuelles Passwort und zweimal das neue ein. Die Authenticator-App bleibt eingerichtet."
+      },
+      "current": "Aktuelles Passwort",
+      "new": "Neues Passwort",
+      "confirm": "Neues Passwort wiederholen",
+      "revokeOthers": "Alle anderen Sitzungen abmelden",
+      "revokeOthersHint": "Empfohlen, wenn jemand Ihr bisheriges Passwort kennen könnte. Dieser Browser bleibt angemeldet.",
+      "submit": "Passwort ändern",
+      "errors": {
+        "current": "Das aktuelle Passwort ist falsch.",
+        "policy": "Das neue Passwort braucht mindestens {min} Zeichen.",
+        "tooMany": "Zu viele Versuche. Bitte warten Sie eine Minute."
+      }
     }
   },
   "validation": {
@@ -687,7 +726,8 @@
     "tenantId": "Geben Sie eine Tenant-ID oder eine verifizierte Domain wie contoso.onmicrosoft.com ein.",
     "host": "Geben Sie einen Hostnamen oder eine IP-Adresse ein.",
     "tenantGuid": "Tragen Sie die Verzeichnis-ID (GUID) aus der Übersicht der App-Registrierung ein.",
-    "serviceAccountKey": "Das ist kein Schlüssel eines Dienstkontos. Fügen Sie den vollständigen Inhalt der JSON-Schlüsseldatei ein."
+    "serviceAccountKey": "Das ist kein Schlüssel eines Dienstkontos. Fügen Sie den vollständigen Inhalt der JSON-Schlüsseldatei ein.",
+    "samePassword": "Das neue Passwort muss sich vom aktuellen unterscheiden."
   },
   "errors": {
     "setupIncomplete": "Die Einrichtung ist noch nicht abgeschlossen. Schließen Sie zuerst den Einrichtungsassistenten ab.",

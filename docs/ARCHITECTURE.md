@@ -505,6 +505,20 @@ alle Schritte erledigt oder nicht nötig, verschwindet „Start" aus dem Menü.
   Sessions entfernen und einen neuen Set-Password-Link ausstellen (ohne Mail-Dienst zum
   Kopieren angezeigt, mit dem Benutzernamen), Audit `provider_team.access_reset`. Nicht für
   den eigenen Zugang und nie für den letzten Owner.
+- Eigenes Passwort (`apps/api/src/lib/password-reset.ts`): Unter Konto › Anmeldesicherheit
+  ändert jede Person mit Passwort es selbst (better-auth `/change-password`, aktuelles
+  Passwort nötig, wahlweise alle anderen Sitzungen beenden; Audit
+  `account.password_changed`), sieht ihre Sitzungen und meldet einzelne ab.
+  „Passwort vergessen?“ auf der Anmeldeseite: nur mit Benachrichtigungs-Mail und öffentlicher
+  URL, nicht in der Demo (`passwordReset` in `GET /api/v1/setup/state`). Die Mail ersetzt
+  nur das Passwort, nie den zweiten Faktor: Einen Link (30 Minuten, auf
+  `<öffentliche URL>/reset-password`) bekommt nur ein Konto mit Passwort und
+  Authenticator-App, höchstens eine Mail je Konto in 5 Minuten, Anfragen je IP begrenzt
+  (`/request-password-reset` 5 in 15 Minuten). Die Antwort ist für bekannte und unbekannte
+  Adressen gleich, die Mail geht im Hintergrund raus. Das neue Passwort beendet alle
+  Sitzungen (Audit `account.password_reset`); die Authenticator-App bleibt. Wer auch sie
+  verloren hat, wird von einem Owner zurückgesetzt oder nutzt `restow admin recover`; die
+  Anmeldeseite nennt beide Wege.
 
 - Betreiberhinweis (erster Schritt): Vor allem anderen muss der Betreiber den Hinweis zur
   eigenen Verantwortung annehmen (Restow ist Backup- und Archivwerkzeug; Hardware, Speicher,

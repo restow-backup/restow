@@ -90,6 +90,19 @@ describe("the Edition section", () => {
     expect(text(slot("edition-adds") as HTMLElement)).toContain("Service Provider");
   });
 
+  it("does not sell the team as a Business feature: members exist in every edition", async () => {
+    for (const language of ["en", "de"]) {
+      await i18n.changeLanguage(language);
+      const business = i18n.t("updates:edition.adds.business");
+      const serviceProvider = i18n.t("updates:edition.adds.serviceProvider");
+      expect(business, language).not.toMatch(/team|Mitglied|administrator/i);
+      // Limiting members to chosen tenants is the Service Provider part
+      // (ee/web license/edition.ts: providerTeam.tenantScope -> service_provider).
+      expect(serviceProvider, language).toMatch(/chosen tenants|ausgewählte Mandanten/);
+    }
+    await i18n.changeLanguage("en");
+  });
+
   it("switches through the updater: lead time, signature check, then the request", async () => {
     const { mock, requests } = routedFetch({
       "POST /updates/edition/switch": () =>
@@ -169,10 +182,55 @@ describe("the Edition section", () => {
     expect(buttonByText(document.body, "Remove key")).not.toBeNull();
   });
 
-  it("changes nothing for a provider team role below owner", () => {
+  it("changes nothing for a provider team role below owner, and says why", () => {
     show(updatesFixture({ edition: COMMUNITY }), false);
     expect(buttonByText(document.body, "Switch to the full build")?.disabled).toBe(true);
     expect(document.body.querySelector("textarea")?.disabled).toBe(true);
+    const note = slot("access-note");
+    expect(note?.dataset.reason).toBe("role");
+    expect(text(note as HTMLElement)).toContain("Owner");
+  });
+
+  it("names the public demo as the reason in the demo, and shows no note to an owner", async () => {
+    show(updatesFixture({ edition: COMMUNITY, demo: true }));
+    expect(slot("access-note")?.dataset.reason).toBe("demo");
+    await mounted?.unmount();
+    mounted = null;
+    show(updatesFixture({ edition: COMMUNITY }));
+    expect(slot("access-note")).toBeNull();
+  });
+
+  it("removes a stored key only after a confirmation, and confirms it", async () => {
+    const { mock, requests } = routedFetch({
+      "DELETE /updates/edition/license-key": () => json(updatesFixture({ edition: COMMUNITY })),
+    });
+    vi.stubGlobal("fetch", mock);
+    show(updatesFixture({ edition: { ...COMMUNITY, pendingLicenseKey: true } }));
+    await click(buttonByText(document.body, "Remove key"));
+    expect(requests).toEqual([]);
+    expect(text()).toContain("Remove the stored key?");
+    const dialog = document.body.querySelector('[role="alertdialog"]') as HTMLElement;
+    await click(buttonByText(dialog, "Remove key"));
+    await flush();
+    expect(requests).toEqual([
+      { method: "DELETE", path: "/updates/edition/license-key", body: undefined },
+    ]);
+    expect(document.body.querySelector('[role="alertdialog"]')).toBeNull();
+  });
+
+  it("keeps the confirmation open with the cause when removing the key fails", async () => {
+    const { mock } = routedFetch({
+      "DELETE /updates/edition/license-key": () => json({ status: 500, title: "boom" }, 500),
+    });
+    vi.stubGlobal("fetch", mock);
+    show(updatesFixture({ edition: { ...COMMUNITY, pendingLicenseKey: true } }));
+    await click(buttonByText(document.body, "Remove key"));
+    const dialog = document.body.querySelector('[role="alertdialog"]') as HTMLElement;
+    await click(buttonByText(dialog, "Remove key"));
+    await flush();
+    const open = document.body.querySelector('[role="alertdialog"]') as HTMLElement | null;
+    expect(open).not.toBeNull();
+    expect(open?.querySelector('[role="alert"]')).not.toBeNull();
   });
 
   it("tells a page that is older than the server's build to reload", () => {

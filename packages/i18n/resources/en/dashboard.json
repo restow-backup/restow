@@ -41,18 +41,18 @@
     },
     "items": {
       "storage": {
-        "label": "Repository healthy",
-        "hint": "Backups need a repository that answers.",
+        "label": "Storage location healthy",
+        "hint": "Backups need a storage location that answers.",
         "action": "Open storage"
       },
       "source": {
         "label": "Source connected",
-        "hint": "Connect Microsoft 365 or an IMAP server.",
+        "hint": "Connect Microsoft 365 or an IMAP server, or install the agent on a machine.",
         "action": "Connect a source"
       },
       "objects": {
         "label": "Objects protected",
-        "hint": "Choose the mailboxes, OneDrives and IMAP accounts to protect.",
+        "hint": "Choose the mailboxes, OneDrives and IMAP accounts to protect; a machine with the agent counts by itself.",
         "action": "Protect objects"
       },
       "schedules": {
@@ -77,8 +77,8 @@
       }
     },
     "reasons": {
-      "target_error": "The last probe of the repository failed.",
-      "target_unverified": "The repository has not been tested yet.",
+      "target_error": "The last probe of the storage location failed.",
+      "target_unverified": "The storage location has not been tested yet.",
       "default_untested": "The server's default storage is used; it has not been tested or written to yet.",
       "default_misconfigured": "The server's default storage is not configured correctly.",
       "source_error": "A source reports an error.",
@@ -87,7 +87,7 @@
       "not_green": "Restore checks ran, but none rated green yet.",
       "not_tested": "The mail transport has not been tested yet.",
       "test_failed": "The last test mail could not be sent.",
-      "mail_skipped": "You skipped the mail step of the setup, so nothing is mailed. Set it up under Installation, Notification mail whenever you want it.",
+      "mail_skipped": "You skipped the mail step of the setup, so nothing is mailed. Set it up under Installation › Server & operation › Notification mail whenever you want it.",
       "mail_marked": "Marked as not needed."
     }
   },

@@ -1,7 +1,8 @@
 {
   "nav": {
     "tenants": "Manage tenants",
-    "members": "Members"
+    "members": "Members",
+    "lockedCommunity": "Several tenants come with Service Provider"
   },
   "list": {
     "title": "Tenants",
@@ -31,7 +32,8 @@
     "usageUnavailable": "Mailbox usage is currently unavailable.",
     "tenantsLabel": "Tenants",
     "tenants": "{count, plural, one {# tenant} other {# tenants}}",
-    "single": "This installation manages one tenant."
+    "single": "This installation manages one tenant.",
+    "singleCommunity": "The Community edition manages one organisation. Several tenants come with the full build and a Service Provider key."
   },
   "mailboxes": {
     "count": "{count, number}",
@@ -78,7 +80,8 @@
     "backToList": "All tenants",
     "invite": "Invite",
     "inviteFirst": "Invite the first person",
-    "copyLink": "Copy link"
+    "copyLink": "Copy link",
+    "createRoleRequired": "Owners and administrators with every tenant may create tenants."
   },
   "create": {
     "title": "New tenant",
@@ -387,7 +390,7 @@
         "recipientPlaceholder": "e.g. name@example.com",
         "send": "Send test mail",
         "success": "Test mail sent to {recipient} via {transport, select, graph {Microsoft Graph} other {SMTP}}.",
-        "notConfigured": "No mail transport is configured for this installation yet. Set one up under Installation → Notification mail, then try again.",
+        "notConfigured": "No mail transport is configured for this installation yet. Set one up under Installation › Server & operation › Notification mail, then try again.",
         "openMailSettings": "Open the mail settings",
         "testFailure": {
           "timeout": "The mail server did not answer in time.",

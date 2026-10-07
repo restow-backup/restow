@@ -846,6 +846,60 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
           .values({ tenantId, kind: "mail", name: "Scheduled", schedule });
         expect(await schedulesStep(tenantId)).toEqual(["done", null]);
       });
+
+      it("lets a tenant that protects only machines finish the source, object, backup and check steps", async () => {
+        const tenantId = await tenantWithoutSchedules();
+        const steps = async () => {
+          const setup = ok((await dashboard(tenantId, "tenant_admin")).body.widgets.setup);
+          return Object.fromEntries(setup.items.map((item) => [item.id, item.state]));
+        };
+        expect(await steps()).toMatchObject({
+          source: "open",
+          objects: "open",
+          firstBackup: "open",
+          firstVerification: "open",
+        });
+        const schedule = { kind: "daily", timeOfDay: "22:00", timeZone: "UTC" } as const;
+        await owner
+          .insert(backupJobs)
+          .values({ tenantId, kind: "endpoint", name: "Servers", schedule });
+        const [machine] = await owner
+          .insert(endpoints)
+          .values({
+            tenantId,
+            hostname: "srv-only",
+            os: "linux",
+            arch: "amd64",
+            profile: "server",
+            secretHash: randomUUID().replace(/-/g, ""),
+            config: {
+              profile: "server",
+              schedule,
+              paths: ["/etc"],
+              excludes: [],
+              hooks: {},
+              bandwidthKbps: null,
+              onlyOnAcPower: false,
+              useVss: false,
+            },
+            lastSuccessAt: new Date(),
+          })
+          .returning();
+        await owner.insert(endpointReports).values({
+          tenantId,
+          endpointId: (machine as { id: string }).id,
+          kind: "restore_test",
+          origin: "agent",
+          readiness: "green",
+        });
+        expect(await steps()).toMatchObject({
+          source: "done",
+          objects: "done",
+          schedules: "done",
+          firstBackup: "done",
+          firstVerification: "done",
+        });
+      });
     });
 
     describe("the default storage of a tenant without a target of its own", () => {

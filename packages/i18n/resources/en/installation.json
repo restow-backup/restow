@@ -1,5 +1,5 @@
 {
-  "nav": "Settings",
+  "nav": "Server & operation",
   "title": "Installation",
   "forbidden": "The installation settings are for provider administrators. They apply to the whole server: {scope, select, organisation {your organisation} other {all tenants}}.",
   "scoped": "Your role in the provider team covers selected tenants only. The installation settings concern all tenants at once, so they are not available to you.",
@@ -90,7 +90,7 @@
     },
     "test": {
       "title": "Test",
-      "description": "Writes, reads, lists and deletes a small object on the default and checks whether it can lock objects. The result is recorded in the audit log.",
+      "description": "Writes, reads, lists and deletes a small object on the default and checks whether it can lock objects. The test is logged.",
       "action": "Test default storage",
       "again": "Test again",
       "never": "Not tested yet.",
@@ -342,5 +342,8 @@
       "label": "Mounted network shares",
       "use": "Use {path}"
     }
-  }
+  },
+  "editionLink": "See editions",
+  "editionBadge": "Community",
+  "editionBadgeTitle": "Edition: Community. Opens Installation › Edition."
 }

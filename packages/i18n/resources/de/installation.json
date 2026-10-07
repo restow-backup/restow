@@ -1,5 +1,5 @@
 {
-  "nav": "Einstellungen",
+  "nav": "Server & Betrieb",
   "title": "Installation",
   "forbidden": "Die Installations-Einstellungen sind für Provider-Administratoren. Sie gelten für den ganzen Server: {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
   "scoped": "Ihre Rolle im Provider-Team gilt nur für ausgewählte Mandanten. Die Installations-Einstellungen betreffen alle Mandanten zugleich und stehen Ihnen deshalb nicht zur Verfügung.",
@@ -90,7 +90,7 @@
     },
     "test": {
       "title": "Test",
-      "description": "Schreibt, liest, listet und löscht ein kleines Objekt im Standard und prüft, ob er Objekte sperren kann. Das Ergebnis steht im Audit-Log.",
+      "description": "Schreibt, liest, listet und löscht ein kleines Objekt im Standard und prüft, ob er Objekte sperren kann. Der Test wird protokolliert.",
       "action": "Speicher-Standard testen",
       "again": "Erneut testen",
       "never": "Noch nicht getestet.",
@@ -342,5 +342,8 @@
       "label": "Eingebundene Netzlaufwerke",
       "use": "{path} verwenden"
     }
-  }
+  },
+  "editionLink": "Edition ansehen",
+  "editionBadge": "Community",
+  "editionBadgeTitle": "Edition: Community. Öffnet Installation › Edition."
 }

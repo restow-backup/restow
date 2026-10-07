@@ -22,6 +22,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { BrandName, RestowMark } from "@/components/wordmark";
+import { CommunityEditionBadge } from "@/features/installation/edition-link";
 import { StartEntry } from "@/features/start";
 import { ExtensionSlot } from "@/lib/extensions";
 import { type NavBadge, groupNavItems, navGroupLabelKey } from "@/lib/navigation";
@@ -227,7 +228,11 @@ export function AppSidebar() {
         <SidebarSeparator className="mx-0 group-data-[collapsible=icon]:sr-only" />
         <div className="flex flex-col gap-2 px-2 pb-1 text-xs text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <ExtensionSlot name="shell.sidebarFooter" props={{}} />
+            <ExtensionSlot
+              name="shell.sidebarFooter"
+              props={{}}
+              fallback={<CommunityEditionBadge />}
+            />
             <VersionLabel version={version} />
           </div>
           <UpdateNotice version={version} />

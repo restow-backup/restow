@@ -2,6 +2,8 @@ import { createRoute } from "@tanstack/react-router";
 import { Building2 } from "lucide-react";
 import { createElement } from "react";
 
+import { EDITION_SECTION_ID } from "@/features/installation/edition-link";
+import { installationSectionPath } from "@/features/installation/paths";
 import type { NavItem } from "@/lib/navigation";
 import { appLayoutRoute } from "@/routes/tree";
 
@@ -52,5 +54,14 @@ export const navItems: NavItem[] = [
     group: "tenants",
     // After the tenant settings entry.
     order: 50,
+    // The Community build manages one tenant: the entry shows locked and
+    // leads to Installation › Edition, which says what the full build adds.
+    // The full build replaces this lock with its own (`WebExtension.navLocks`,
+    // to the license section).
+    lock: {
+      isLocked: (context) => !(context.features ?? []).includes("tenants.additional"),
+      to: installationSectionPath(EDITION_SECTION_ID),
+      hintKey: "tenants:nav.lockedCommunity",
+    },
   },
 ];

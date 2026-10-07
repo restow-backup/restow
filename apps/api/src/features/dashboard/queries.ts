@@ -8,7 +8,9 @@ import {
   type Database,
   auditLog,
   backupJobs,
+  endpointReports,
   endpointRuns,
+  endpoints,
   jobProgress,
   jobs,
   legalHolds,
@@ -72,6 +74,60 @@ const jobFinishedAt = sql`coalesce(${jobs.completedAt}, ${jobs.updatedAt})`;
 
 const countWhere = (condition: SQL) =>
   sql<number>`count(*) filter (where ${condition})`.mapWith(Number);
+
+const NO_MACHINES: SetupFacts["machines"] = {
+  active: 0,
+  backedUp: 0,
+  enabledJobs: 0,
+  checks: 0,
+  greenChecks: 0,
+};
+
+/** The tenant's machines for the setup checklist (setup.ts `SetupFacts.machines`). */
+async function machineSetupFacts(
+  tx: Transaction,
+  tenantId: string,
+): Promise<SetupFacts["machines"]> {
+  try {
+    return await tx.transaction(async (savepoint) => {
+      const [machineRow] = await savepoint
+        .select({
+          active: count(),
+          backedUp: countWhere(sql`${endpoints.lastSuccessAt} is not null`),
+        })
+        .from(endpoints)
+        .where(and(eq(endpoints.tenantId, tenantId), eq(endpoints.status, "active")));
+      const [jobRow] = await savepoint
+        .select({ n: count() })
+        .from(backupJobs)
+        .where(
+          and(
+            eq(backupJobs.tenantId, tenantId),
+            eq(backupJobs.kind, "endpoint"),
+            eq(backupJobs.enabled, true),
+          ),
+        );
+      const [checkRow] = await savepoint
+        .select({
+          reports: count(),
+          green: countWhere(sql`${endpointReports.readiness} = 'green'`),
+        })
+        .from(endpointReports)
+        .where(
+          and(eq(endpointReports.tenantId, tenantId), eq(endpointReports.kind, "restore_test")),
+        );
+      return {
+        active: machineRow?.active ?? 0,
+        backedUp: machineRow?.backedUp ?? 0,
+        enabledJobs: jobRow?.n ?? 0,
+        checks: checkRow?.reports ?? 0,
+        greenChecks: checkRow?.green ?? 0,
+      };
+    });
+  } catch {
+    return NO_MACHINES;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Tenant facts (setup checklist, retention, protected kinds, storage health)
@@ -284,6 +340,13 @@ export async function loadTenantFacts(
       .from(verifyReports)
       .where(eq(verifyReports.tenantId, tenantId));
 
+    // Machines with the agent count for the checklist as much as mailboxes do: a
+    // tenant that backs up only servers and clients must be able to finish it.
+    // Read in a savepoint: should the endpoint tables fail, the checklist goes on
+    // without the machines instead of failing with them (the endpoints widget
+    // reports that failure on its own).
+    const machines = await machineSetupFacts(tx, tenantId);
+
     const policyRows = await tx
       .select({
         name: retentionPolicies.name,
@@ -328,6 +391,7 @@ export async function loadTenantFacts(
         enabledBackupSchedules: (scheduleRow?.n ?? 0) + (jobRow?.n ?? 0),
         completedSnapshots: snapshotRow?.backups ?? 0,
         verification: { reports: reportRow?.reports ?? 0, green: reportRow?.green ?? 0 },
+        machines,
       },
       retention: {
         rows: policyRows,

@@ -165,7 +165,9 @@
       "provisioned": "Account provisioned",
       "password_link_issued": "Set-password link issued",
       "password_set": "Password set",
-      "access_recovered": "Administrator access recovered on the server's command line"
+      "access_recovered": "Administrator access recovered on the server's command line",
+      "password_reset": "Password set again with the link from the mail",
+      "password_changed": "Own password changed"
     },
     "api": {
       "archive": {

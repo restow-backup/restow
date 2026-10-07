@@ -390,7 +390,8 @@ describe("Not needed on the notification mail", () => {
     await mountStart({ fetch: mock, session: session({ providerRole: "administrator" }) });
     await openPopover();
     expect(notNeeded()?.disabled).toBe(true);
-    expect(notNeeded()?.getAttribute("title")).toContain("Owner role");
+    expect(notNeeded()?.getAttribute("aria-description")).toContain("Owner role");
+    expect(notNeeded()?.closest('[data-slot="disabled-reason"]')).not.toBeNull();
     act(() => root?.unmount());
     host?.remove();
 
@@ -398,7 +399,7 @@ describe("Not needed on the notification mail", () => {
     await mountStart({ fetch: demo.mock, demo: true });
     await openPopover();
     expect(notNeeded()?.disabled).toBe(true);
-    expect(notNeeded()?.getAttribute("title")).toBe("Closed in the public demo.");
+    expect(notNeeded()?.getAttribute("aria-description")).toBe("Closed in the public demo.");
   });
 
   it("is not offered on any other step", async () => {

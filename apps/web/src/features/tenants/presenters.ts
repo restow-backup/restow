@@ -418,3 +418,16 @@ export function invitationFailure(error: AuthFailure): InvitationFailure {
       return error.status === 400 ? "invalid" : "failed";
   }
 }
+
+/**
+ * Why "Create tenant" is grey although the installation would take another
+ * tenant: the provider role (an administrator with every tenant is needed).
+ * Null when it is open, or when the edition is the reason (the installation
+ * panel explains that one).
+ */
+export function createBlockedReasonKey(input: {
+  creationAllowed: boolean;
+  canCreate: boolean;
+}): "actions.createRoleRequired" | null {
+  return input.creationAllowed && !input.canCreate ? "actions.createRoleRequired" : null;
+}

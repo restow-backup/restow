@@ -11,6 +11,8 @@ export const HOME_PATH = "/" as const;
 export const AUTHENTICATOR_SETUP_PATH = "/authenticator-setup" as const;
 /** The signed-in person's own sign-in security (passkeys, authenticator app, sessions). */
 export const ACCOUNT_PATH = "/account" as const;
+/** Choosing a new password with the link from a reset mail (public, no session). */
+export const RESET_PASSWORD_PATH = "/reset-password" as const;
 
 export type EntryRedirect = typeof SETUP_PATH | typeof HOME_PATH;
 
@@ -52,8 +54,21 @@ export function safeRedirectTarget(candidate: string | null | undefined): string
     return null;
   }
   const path = normalize(candidate.split("?")[0] ?? "/");
-  if (path === LOGIN_PATH || path === SETUP_PATH || path === AUTHENTICATOR_SETUP_PATH) {
+  if (
+    path === LOGIN_PATH ||
+    path === SETUP_PATH ||
+    path === AUTHENTICATOR_SETUP_PATH ||
+    path === RESET_PASSWORD_PATH
+  ) {
     return null;
   }
   return candidate;
+}
+
+/**
+ * Where `/login` sends someone who is signed in already: the page the link
+ * asked for (`?redirect=`, a deep link from a mail), else the home page.
+ */
+export function signedInLoginTarget(redirect: string | null | undefined): string {
+  return safeRedirectTarget(redirect) ?? HOME_PATH;
 }

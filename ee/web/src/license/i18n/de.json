@@ -65,7 +65,7 @@
   },
   "remove": {
     "title": "Lizenzschlüssel entfernen?",
-    "description": "Ohne Schlüssel läuft diese Installation als {edition, select, community {Community} business {Business} other {Service Provider}}. Der Vorgang wird im Audit-Log festgehalten.",
+    "description": "Ohne Schlüssel läuft diese Installation als {edition, select, community {Community} business {Business} other {Service Provider}}. Das Entfernen wird protokolliert.",
     "confirm": "Entfernen"
   },
   "toasts": {

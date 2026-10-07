@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { useConfirmIdentity } from "@/components/confirm-identity-dialog";
 import { ErrorState } from "@/components/error-state";
-import { ConfirmDialog, RelativeTime, usePageWidth } from "@/components/kit";
+import { ConfirmDialog, DisabledReason, RelativeTime, usePageWidth } from "@/components/kit";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -57,7 +57,10 @@ export function TeamPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title={t("title")} description={t("subtitle")}>
+      <PageHeader
+        title={t("title")}
+        description={scope.tenantScope ? t("subtitle") : t("subtitleOneScope")}
+      >
         {scope.canManage ? (
           <Button onClick={openInvite}>
             <Plus aria-hidden="true" />
@@ -69,8 +72,10 @@ export function TeamPage() {
       {!scope.canView ? (
         <Alert variant="warning">
           <ShieldAlert />
-          <AlertTitle>{t("title")}</AlertTitle>
-          <AlertDescription>{t("ownersOnly")}</AlertDescription>
+          <AlertTitle>{t("forbidden.title")}</AlertTitle>
+          <AlertDescription data-slot="team-forbidden">
+            {scope.isProviderAdmin ? t("forbidden.scoped") : t("forbidden.notProvider")}
+          </AlertDescription>
         </Alert>
       ) : team.isPending ? (
         <Card>
@@ -97,6 +102,9 @@ export function TeamPage() {
               <TeamTable
                 members={team.data.items}
                 canManage={scope.canManage}
+                showTenants={
+                  scope.tenantScope || team.data.items.some((member) => !member.allTenants)
+                }
                 onEdit={(member) => {
                   setEditing(member);
                   setDialogOpen(true);
@@ -117,10 +125,17 @@ export function TeamPage() {
 function TeamTable({
   members,
   canManage,
+  showTenants,
   onEdit,
 }: {
   members: TeamMember[];
   canManage: boolean;
+  /**
+   * The tenants column: only where members can be limited to chosen tenants
+   * (or one still is). Elsewhere every member has every tenant, and a column
+   * saying so on every row only puzzles an installation with one organisation.
+   */
+  showTenants: boolean;
   onEdit: (member: TeamMember) => void;
 }) {
   const { t } = useTranslation("team");
@@ -132,7 +147,7 @@ function TeamTable({
         <TableRow>
           <TableHead pin={PIN_FIRST}>{t("columns.member")}</TableHead>
           <TableHead>{t("columns.role")}</TableHead>
-          <TableHead>{t("columns.tenants")}</TableHead>
+          {showTenants ? <TableHead>{t("columns.tenants")}</TableHead> : null}
           <TableHead>{t("columns.status")}</TableHead>
           {canManage ? (
             <TableHead className="text-right">
@@ -153,20 +168,30 @@ function TeamTable({
                 {member.email} · <RelativeTime value={member.addedAt} />
               </div>
             </TableCell>
-            <TableCell>
-              <span title={t(`roles.${member.role}.description`)}>
-                {t(`roles.${member.role}.label`)}
-              </span>
+            <TableCell className="max-w-64">
+              <div className="font-medium">{t(`roles.${member.role}.label`)}</div>
+              <div className="text-xs text-muted-foreground" data-slot="role-description">
+                {t(`roles.${member.role}.description`)}
+              </div>
             </TableCell>
-            <TableCell className="text-sm">
-              {member.allTenants ? (
-                t("scope.all")
-              ) : (
-                <span title={member.tenantIds.map(tenantName).join(", ")}>
-                  {t("scope.count", { count: member.tenantIds.length })}
-                </span>
-              )}
-            </TableCell>
+            {showTenants ? (
+              <TableCell className="text-sm">
+                {member.allTenants ? (
+                  t("scope.all")
+                ) : (
+                  <details data-slot="member-tenants">
+                    <summary className="cursor-pointer">
+                      {t("scope.count", { count: member.tenantIds.length })}
+                    </summary>
+                    <ul className="mt-1 space-y-0.5 text-xs text-muted-foreground">
+                      {member.tenantIds.map((id) => (
+                        <li key={id}>{tenantName(id)}</li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </TableCell>
+            ) : null}
             <TableCell>
               <Badge variant={STATUS_VARIANT[member.status]}>{t(`status.${member.status}`)}</Badge>
             </TableCell>
@@ -263,24 +288,35 @@ function MemberActions({
           {t("actions.resetAccess")}
         </Button>
       ) : null}
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => onEdit(member)}
-        aria-label={t("actions.editLabel", { name: label })}
-      >
-        <Pencil aria-hidden="true" />
-        {t("actions.edit")}
-      </Button>
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => setConfirmOpen(true)}
-        aria-label={t("actions.removeLabel", { name: label })}
-      >
-        <Trash2 aria-hidden="true" />
-        {t("actions.remove")}
-      </Button>
+      {/*
+        Your own row: no role change and no removal (both would take your own
+        rights away mid-session); another owner does that. The reason sits on
+        the disabled buttons.
+      */}
+      <DisabledReason reason={member.isYou ? t("actions.selfReason") : null} side="left">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onEdit(member)}
+          disabled={member.isYou}
+          aria-label={t("actions.editLabel", { name: label })}
+        >
+          <Pencil aria-hidden="true" />
+          {t("actions.edit")}
+        </Button>
+      </DisabledReason>
+      <DisabledReason reason={member.isYou ? t("actions.selfReason") : null} side="left">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setConfirmOpen(true)}
+          disabled={member.isYou}
+          aria-label={t("actions.removeLabel", { name: label })}
+        >
+          <Trash2 aria-hidden="true" />
+          {t("actions.remove")}
+        </Button>
+      </DisabledReason>
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}

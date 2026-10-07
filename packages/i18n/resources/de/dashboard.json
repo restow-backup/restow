@@ -41,18 +41,18 @@
     },
     "items": {
       "storage": {
-        "label": "Repository funktioniert",
-        "hint": "Sicherungen brauchen ein Repository, das antwortet.",
+        "label": "Speicherort funktioniert",
+        "hint": "Sicherungen brauchen einen Speicherort, der antwortet.",
         "action": "Speicher öffnen"
       },
       "source": {
         "label": "Quelle verbunden",
-        "hint": "Verbinden Sie Microsoft 365 oder einen IMAP-Server.",
+        "hint": "Verbinden Sie Microsoft 365 oder einen IMAP-Server, oder installieren Sie den Agenten auf einem Rechner.",
         "action": "Quelle verbinden"
       },
       "objects": {
         "label": "Objekte geschützt",
-        "hint": "Wählen Sie die Postfächer, OneDrives und IMAP-Konten, die geschützt werden.",
+        "hint": "Wählen Sie die Postfächer, OneDrives und IMAP-Konten, die geschützt werden; ein Rechner mit dem Agenten zählt von selbst.",
         "action": "Objekte schützen"
       },
       "schedules": {
@@ -71,14 +71,14 @@
         "action": "Jetzt prüfen"
       },
       "notificationMail": {
-        "label": "Benachrichtigungsmail getestet",
+        "label": "Benachrichtigungs-Mail getestet",
         "hint": "Fehler und Warnungen werden per Mail verschickt.",
         "action": "Einstellungen öffnen"
       }
     },
     "reasons": {
-      "target_error": "Die letzte Prüfung des Repositorys ist fehlgeschlagen.",
-      "target_unverified": "Das Repository wurde noch nicht getestet.",
+      "target_error": "Die letzte Prüfung des Speicherorts ist fehlgeschlagen.",
+      "target_unverified": "Der Speicherort wurde noch nicht getestet.",
       "default_untested": "Es wird der Standardspeicher des Servers verwendet; er wurde noch nicht getestet oder beschrieben.",
       "default_misconfigured": "Der Standardspeicher des Servers ist nicht richtig eingerichtet.",
       "source_error": "Eine Quelle meldet einen Fehler.",
@@ -87,7 +87,7 @@
       "not_green": "Wiederherstellungsprüfungen liefen, aber noch keine war grün.",
       "not_tested": "Der Mailversand wurde noch nicht getestet.",
       "test_failed": "Die letzte Testmail konnte nicht versendet werden.",
-      "mail_skipped": "Sie haben den Mail-Schritt der Einrichtung übersprungen, deshalb wird nichts gemailt. Unter Installation, Benachrichtigungsmail lässt sich das jederzeit nachholen.",
+      "mail_skipped": "Sie haben den Mail-Schritt der Einrichtung übersprungen, deshalb wird nichts gemailt. Unter Installation › Server & Betrieb › Benachrichtigungs-Mail lässt sich das jederzeit nachholen.",
       "mail_marked": "Als nicht nötig markiert."
     }
   },

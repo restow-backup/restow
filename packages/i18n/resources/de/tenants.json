@@ -1,7 +1,8 @@
 {
   "nav": {
     "tenants": "Mandanten verwalten",
-    "members": "Mitglieder"
+    "members": "Mitglieder",
+    "lockedCommunity": "Mehrere Mandanten gibt es mit Service Provider"
   },
   "list": {
     "title": "Mandanten",
@@ -31,7 +32,8 @@
     "usageUnavailable": "Die Postfachnutzung ist derzeit nicht verfügbar.",
     "tenantsLabel": "Mandanten",
     "tenants": "{count, plural, one {# Mandant} other {# Mandanten}}",
-    "single": "Diese Installation verwaltet einen Mandanten."
+    "single": "Diese Installation verwaltet einen Mandanten.",
+    "singleCommunity": "Die Community-Edition verwaltet eine Organisation. Mehrere Mandanten gibt es mit dem vollen Build und einem Schlüssel für Service Provider."
   },
   "mailboxes": {
     "count": "{count, number}",
@@ -78,7 +80,8 @@
     "backToList": "Alle Mandanten",
     "invite": "Einladen",
     "inviteFirst": "Erste Person einladen",
-    "copyLink": "Link kopieren"
+    "copyLink": "Link kopieren",
+    "createRoleRequired": "Mandanten anlegen dürfen Inhaber und Administratoren mit Zugriff auf alle Mandanten."
   },
   "create": {
     "title": "Neuer Mandant",
@@ -387,7 +390,7 @@
         "recipientPlaceholder": "z. B. name@beispiel.de",
         "send": "Testmail senden",
         "success": "Testmail an {recipient} über {transport, select, graph {Microsoft Graph} other {SMTP}} gesendet.",
-        "notConfigured": "Für diese Installation ist noch kein Mailversand eingerichtet. Richten Sie ihn unter Installation → Benachrichtigungs-Mail ein und versuchen Sie es dann erneut.",
+        "notConfigured": "Für diese Installation ist noch kein Mailversand eingerichtet. Richten Sie ihn unter Installation › Server & Betrieb › Benachrichtigungs-Mail ein und versuchen Sie es dann erneut.",
         "openMailSettings": "Mail-Einstellungen öffnen",
         "testFailure": {
           "timeout": "Der Mailserver hat nicht rechtzeitig geantwortet.",

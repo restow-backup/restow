@@ -297,3 +297,114 @@ export function detectDevice(userAgent: string): string | null {
   if (agent.includes("linux")) return "Linux";
   return null;
 }
+
+// --- Removing a passkey ------------------------------------------------------------------
+
+/**
+ * What removing one passkey leaves the account with, which the question
+ * before removing says:
+ *   - `others`: further passkeys keep working;
+ *   - `authenticator`: password plus the authenticator app;
+ *   - `noAuthenticator`: a password, but the authenticator app must be set up
+ *     right after the next password sign-in;
+ *   - `sso`: the Microsoft sign-in, where the installation offers it;
+ *   - `blocked`: nothing; removing it would lock the account out, so it is
+ *     not offered.
+ */
+export type PasskeyRemoval = "others" | "authenticator" | "noAuthenticator" | "sso" | "blocked";
+
+export function passkeyRemoval(input: {
+  passkeyCount: number;
+  hasPassword: boolean;
+  hasAuthenticator: boolean;
+  microsoftSignIn: boolean;
+}): PasskeyRemoval {
+  if (input.passkeyCount > 1) {
+    return "others";
+  }
+  if (input.hasPassword) {
+    return input.hasAuthenticator ? "authenticator" : "noAuthenticator";
+  }
+  return input.microsoftSignIn ? "sso" : "blocked";
+}
+
+// --- Sessions and the own password ------------------------------------------------------------
+
+/** One signed-in browser or device of the account, as better-auth lists it. */
+export interface SessionRow {
+  id: string;
+  token: string;
+  /** The device from the user agent ("Windows"), or null when unknown. */
+  device: string | null;
+  /** The browser from the user agent ("Firefox"), or null when unknown. */
+  browser: string | null;
+  ipAddress: string | null;
+  createdAt: string | null;
+  /** Last time the session was refreshed: roughly the last activity. */
+  updatedAt: string | null;
+  current: boolean;
+}
+
+/** A recognizable browser name from a user agent; null when unknown. */
+export function detectBrowser(userAgent: string): string | null {
+  const agent = userAgent.toLowerCase();
+  if (agent.includes("edg/")) return "Edge";
+  if (agent.includes("opr/") || agent.includes("opera")) return "Opera";
+  if (agent.includes("firefox/")) return "Firefox";
+  if (agent.includes("chrome/") || agent.includes("crios/")) return "Chrome";
+  if (agent.includes("safari/")) return "Safari";
+  return null;
+}
+
+function isoOrNull(value: unknown): string | null {
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+  return typeof value === "string" && value !== "" ? value : null;
+}
+
+/**
+ * The account's sessions for the list on the account page: the current one
+ * first, then by last activity. Rows without an id or token are dropped.
+ */
+export function toSessionRows(raw: readonly unknown[], currentToken: string | null): SessionRow[] {
+  const rows: SessionRow[] = [];
+  for (const item of raw) {
+    if (typeof item !== "object" || item === null) {
+      continue;
+    }
+    const entry = item as Record<string, unknown>;
+    if (typeof entry.id !== "string" || typeof entry.token !== "string") {
+      continue;
+    }
+    const agent = typeof entry.userAgent === "string" ? entry.userAgent : "";
+    rows.push({
+      id: entry.id,
+      token: entry.token,
+      device: agent ? detectDevice(agent) : null,
+      browser: agent ? detectBrowser(agent) : null,
+      ipAddress:
+        typeof entry.ipAddress === "string" && entry.ipAddress !== "" ? entry.ipAddress : null,
+      createdAt: isoOrNull(entry.createdAt),
+      updatedAt: isoOrNull(entry.updatedAt),
+      current: currentToken !== null && entry.token === currentToken,
+    });
+  }
+  const activity = (row: SessionRow) => Date.parse(row.updatedAt ?? row.createdAt ?? "") || 0;
+  return rows.sort((a, b) => Number(b.current) - Number(a.current) || activity(b) - activity(a));
+}
+
+/** Explain a failed change of the own password (`settings:security.password.errors.*`). */
+export function changePasswordErrorKey(error: AuthClientError): string {
+  const code = error.code ?? "";
+  if (code === "INVALID_PASSWORD") {
+    return "settings:security.password.errors.current";
+  }
+  if (code === "PASSWORD_TOO_SHORT" || code === "PASSWORD_TOO_LONG") {
+    return "settings:security.password.errors.policy";
+  }
+  if (error.status === 429) {
+    return "settings:security.password.errors.tooMany";
+  }
+  return authStatusKey(error);
+}

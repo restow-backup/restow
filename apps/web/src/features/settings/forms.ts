@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import type { MailTransport, OperatingMode, SmtpSecurity } from "@/lib/api";
 import { validationKey } from "@/lib/form";
+import { PASSWORD_MIN_LENGTH } from "@/lib/password";
 import type {
   CredentialKind,
   GraphMailApp,
@@ -32,6 +33,7 @@ const FEATURE_REASONS: ReadonlySet<string> = new Set([
   "tenantGuid",
   "serviceAccountKey",
   "host",
+  "samePassword",
 ]);
 
 /**
@@ -663,6 +665,33 @@ export interface PasswordConfirmValues {
 export const passwordConfirmSchema = z.object({
   password: z.string().min(1, "required"),
 });
+
+export interface ChangePasswordValues {
+  current: string;
+  password: string;
+  confirm: string;
+  revokeOtherSessions: boolean;
+}
+
+/**
+ * The own password: the current one, a new one of at least
+ * {@link PASSWORD_MIN_LENGTH} characters that differs from it, typed twice.
+ */
+export const changePasswordSchema = z
+  .object({
+    current: z.string().min(1, "required"),
+    password: z.string().min(PASSWORD_MIN_LENGTH, "minLength"),
+    confirm: z.string(),
+    revokeOtherSessions: z.boolean(),
+  })
+  .superRefine((values, ctx) => {
+    if (values.password !== values.confirm) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["confirm"], message: "passwordMismatch" });
+    }
+    if (values.password !== "" && values.password === values.current) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["password"], message: "samePassword" });
+    }
+  });
 
 export interface TotpCodeValues {
   code: string;

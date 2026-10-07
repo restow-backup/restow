@@ -19,25 +19,40 @@ export function ReviewStep({ values, language }: ReviewStepProps) {
       : `${t("mail.transport.graph")} · ${values.mail.graph.sender}`;
 
   return (
-    <dl className="divide-y divide-border text-sm">
-      <ReviewRow label={t("review.language")} value={t("language.card.title", { lng: language })} />
-      <ReviewRow
-        label={t("review.mode")}
-        value={values.operatingMode === "local" ? t("mode.local") : t("mode.public")}
-      />
-      {values.operatingMode === "public" ? (
-        <ReviewRow label={t("review.publicUrl")} value={values.publicUrl} mono />
-      ) : null}
-      <ReviewRow label={t("review.organisation")} value={values.organisationName} />
-      <ReviewRow label={t("review.admin")} value={`${values.admin.name} · ${values.admin.email}`} />
-      <ReviewRow label={t("review.mail")} value={mailSummary} />
-      {values.mail.skipped ? null : (
+    <div className="space-y-3">
+      <dl className="divide-y divide-border text-sm">
         <ReviewRow
-          label={t("review.sendTest")}
-          value={values.sendTest ? t("review.yes") : t("review.no")}
+          label={t("review.language")}
+          value={t("language.card.title", { lng: language })}
         />
-      )}
-    </dl>
+        <ReviewRow
+          label={t("review.mode")}
+          value={values.operatingMode === "local" ? t("mode.local") : t("mode.public")}
+        />
+        {values.operatingMode === "public" ? (
+          <ReviewRow label={t("review.publicUrl")} value={values.publicUrl} mono />
+        ) : null}
+        <ReviewRow label={t("review.organisation")} value={values.organisationName} />
+        <ReviewRow
+          label={t("review.admin")}
+          value={`${values.admin.name} · ${values.admin.email}`}
+        />
+        <ReviewRow label={t("review.mail")} value={mailSummary} />
+        {values.mail.skipped ? null : (
+          <ReviewRow
+            label={t("review.sendTest")}
+            value={values.sendTest ? t("review.yes") : t("review.no")}
+          />
+        )}
+      </dl>
+      {/* What follows the wizard, so the mandatory authenticator app does not come as a surprise. */}
+      <p
+        className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground"
+        data-slot="review-next"
+      >
+        {t("review.next")}
+      </p>
+    </div>
   );
 }
 

@@ -29,6 +29,7 @@ import {
 import { authClient } from "@/lib/auth-client";
 import { HOME_PATH, LOGIN_PATH } from "@/lib/entry";
 import { zodResolver } from "@/lib/form";
+import { holdPasswordForEnrolment } from "@/lib/password-handoff";
 import { PasskeyReadiness } from "@/routes/setup/passkey-readiness";
 import {
   SETUP_LANGUAGES,
@@ -41,7 +42,7 @@ import {
   defaultSetupValues,
   setupFormSchema,
 } from "@/routes/setup/schema";
-import { Stepper } from "@/routes/setup/stepper";
+import { Stepper, shownSteps } from "@/routes/setup/stepper";
 import { AdminStep } from "@/routes/setup/steps/admin-step";
 import { DisclaimerStep, type DisclaimerStepError } from "@/routes/setup/steps/disclaimer-step";
 import { LanguageStep } from "@/routes/setup/steps/language-step";
@@ -133,6 +134,12 @@ export function SetupPage() {
     return Math.min(Math.max(index, 0), totalSteps - 1);
   };
   const next = () => setStepIndex((index) => stepFrom(index, 1));
+  // Only the steps that apply are shown and counted ("Step 2 of 5", not "3 of 7").
+  const steps = shownSteps(stepApplies, stepIndex);
+  const stepPosition = Math.max(
+    0,
+    steps.findIndex((step) => step.index === stepIndex),
+  );
 
   const leaveConfigured = async () => {
     toast.info(t("result.alreadyConfigured"));
@@ -188,6 +195,9 @@ export function SetupPage() {
         await navigate({ to: LOGIN_PATH, replace: true });
         return;
       }
+      // Next comes the mandatory authenticator app; it starts with the password
+      // just chosen instead of asking for it again (lib/password-handoff.ts).
+      holdPasswordForEnrolment(submission.firstAdmin.password);
       toast.success(t("result.success"));
       await navigate({ to: HOME_PATH, replace: true });
     },
@@ -313,10 +323,14 @@ export function SetupPage() {
 
         <div className="flex items-center justify-between gap-4">
           <div className="flex-1">
-            <Stepper activeIndex={stepIndex} onSelect={(index) => !busy && setStepIndex(index)} />
+            <Stepper
+              activeIndex={stepIndex}
+              steps={steps}
+              onSelect={(index) => !busy && setStepIndex(index)}
+            />
           </div>
           <span className="shrink-0 text-xs text-muted-foreground">
-            {t("stepIndicator", { current: stepIndex + 1, total: totalSteps })}
+            {t("stepIndicator", { current: stepPosition + 1, total: steps.length })}
           </span>
         </div>
 

@@ -67,7 +67,7 @@
     "items": {
       "jobs": "Jobs",
       "tenantSettings": "Mandanten-Einstellungen",
-      "organisationSettings": "Einstellungen",
+      "organisationSettings": "Ihre Organisation",
       "resources": "Kapazitätsplanung"
     },
     "breadcrumb": "Navigationspfad",

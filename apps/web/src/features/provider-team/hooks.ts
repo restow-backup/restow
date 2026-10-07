@@ -43,9 +43,19 @@ export function useTenantChoices() {
   return useQuery({ queryKey: queryKeys.tenants, queryFn: fetchTenants, enabled: canManage });
 }
 
+/**
+ * After a change to the team: the list, and the own profile (`me`), which
+ * carries the own provider role and tenant scope the pages decide on. Without
+ * it a change that touched the own membership would leave buttons the API
+ * then refuses until the next reload.
+ */
 function useInvalidateTeam() {
   const queryClient = useQueryClient();
-  return () => queryClient.invalidateQueries({ queryKey: teamKeys.list });
+  return () =>
+    Promise.all([
+      queryClient.invalidateQueries({ queryKey: teamKeys.list }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.me }),
+    ]);
 }
 
 export function useInviteMember() {

@@ -12,6 +12,7 @@ import { AuthenticatorSetup } from "@/features/settings/components/authenticator
 import { errorMessageKey, queryKeys } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 import { HOME_PATH, LOGIN_PATH, safeRedirectTarget } from "@/lib/entry";
+import { clearPasswordHandoff } from "@/lib/password-handoff";
 import { useSession } from "@/lib/session";
 
 /**
@@ -40,6 +41,7 @@ export function AuthenticatorSetupPage() {
 
   const leave = async () => {
     setSigningOut(true);
+    clearPasswordHandoff();
     try {
       await signOut();
       await navigate({ to: LOGIN_PATH, replace: true });

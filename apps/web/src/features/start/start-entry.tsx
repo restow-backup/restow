@@ -3,7 +3,7 @@ import { Check, EyeOff, Minus, Rocket, TriangleAlert } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { StatusBadge } from "@/components/kit";
+import { DisabledReason, StatusBadge } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Progress } from "@/components/ui/progress";
@@ -332,17 +332,20 @@ function NotNeededButton({
     onError: (error) => toast.error(t(`common:${errorMessageKey(error)}`)),
   });
   const reason = block === null ? undefined : t(`start.notNeeded.${block}`);
+  // A disabled button never shows its title: the reason sits on a focusable wrapper.
   return (
-    <Button
-      type="button"
-      size="xs"
-      variant="ghost"
-      loading={change.isPending}
-      disabled={block !== null}
-      title={reason}
-      onClick={() => change.mutate()}
-    >
-      {t(offer === "mark" ? "start.notNeeded.mark" : "start.notNeeded.undo")}
-    </Button>
+    <DisabledReason reason={reason}>
+      <Button
+        type="button"
+        size="xs"
+        variant="ghost"
+        loading={change.isPending}
+        disabled={block !== null}
+        aria-description={reason}
+        onClick={() => change.mutate()}
+      >
+        {t(offer === "mark" ? "start.notNeeded.mark" : "start.notNeeded.undo")}
+      </Button>
+    </DisabledReason>
   );
 }

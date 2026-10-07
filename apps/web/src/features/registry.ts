@@ -135,9 +135,12 @@ function placed(item: NavItem): NavItem {
   return placement ? { ...item, ...placement } : item;
 }
 
-/** A core entry an extension locks (`WebExtension.navLocks`) gets that lock. */
+/**
+ * A core entry an extension locks (`WebExtension.navLocks`) gets that lock,
+ * in place of the core's own (the Community build's lock on "Manage tenants").
+ */
 function locked(item: NavItem, locks: Readonly<Record<string, NavItem["lock"]>>): NavItem {
-  const lock = item.lock ?? locks[item.id];
+  const lock = locks[item.id] ?? item.lock;
   return lock ? { ...item, lock } : item;
 }
 

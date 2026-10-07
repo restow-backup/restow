@@ -644,8 +644,8 @@
     "description": "Diese Installation läuft mit dem Community-Build: dem Apache-2.0-Kern ohne die Module Business und Service Provider.",
     "adds": {
       "title": "Was der volle Build ergänzt",
-      "business": "Business: das Provider-Team (mehrere Administratoren mit Rollen), die GoBD-Schicht des Archivs (Journal-Empfang, erzwungene Aufbewahrung, Legal Hold), geplante Zusammenfassungsberichte und die Ansicht des Audit-Logs.",
-      "serviceProvider": "Service Provider: mehrere Mandanten, Teammitglieder mit Zugriff auf ausgewählte Mandanten, die mandantenübergreifende API und das Provider-Dashboard.",
+      "business": "Business: die GoBD-Schicht des Archivs (Journal-Empfang, erzwungene Aufbewahrung, Legal Hold), geplante Zusammenfassungsberichte und die Ansicht des Audit-Logs.",
+      "serviceProvider": "Service Provider: mehrere Mandanten, Mitglieder mit Zugriff nur auf ausgewählte Mandanten, die mandantenübergreifende API und das Provider-Dashboard.",
       "license": "Der volle Build läuft als Community, bis ein Lizenzschlüssel installiert ist; der Wechsel allein ändert also sonst nichts. Beide Builds nutzen dieselbe Datenbank."
     },
     "switched": "Der Server läuft bereits mit dem vollen Build. Laden Sie diese Seite neu, um den Bereich Lizenz zu sehen.",
@@ -679,7 +679,13 @@
       "remove": "Schlüssel entfernen",
       "saved": "Der Schlüssel ist hinterlegt. Er wird nach dem Wechsel geprüft und angewendet.",
       "storedTitle": "Ein Schlüssel ist hinterlegt",
-      "stored": "Hinterlegt; er wird nach dem Wechsel auf den vollen Build geprüft und angewendet. Bis dahin schaltet er nichts frei."
+      "stored": "Hinterlegt; er wird nach dem Wechsel auf den vollen Build geprüft und angewendet. Bis dahin schaltet er nichts frei.",
+      "removeDialog": {
+        "title": "Hinterlegten Schlüssel entfernen?",
+        "description": "Der Schlüssel wird gelöscht. Nach dem Wechsel auf den vollen Build läuft die Installation dann als Community, bis Sie wieder einen Schlüssel hinterlegen.",
+        "confirm": "Schlüssel entfernen"
+      },
+      "removed": "Der hinterlegte Schlüssel ist entfernt."
     }
   }
 }

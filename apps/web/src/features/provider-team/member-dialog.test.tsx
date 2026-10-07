@@ -54,12 +54,19 @@ const TENANTS = [
 let root: Root | null = null;
 let host: HTMLElement | null = null;
 
-async function render(node: ReactNode, publicUrl: string | null = null): Promise<void> {
+async function render(
+  node: ReactNode,
+  publicUrl: string | null = null,
+  notificationMail = false,
+): Promise<void> {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
   });
   client.setQueryData(queryKeys.tenants, TENANTS);
-  client.setQueryData(setupStateQueryOptions.queryKey, { publicUrl } as unknown as SetupState);
+  client.setQueryData(setupStateQueryOptions.queryKey, {
+    publicUrl,
+    notificationMail,
+  } as unknown as SetupState);
   host = document.createElement("div");
   document.body.appendChild(host);
   root = createRoot(host);
@@ -112,10 +119,30 @@ describe("MemberDialog, the tenant scope", () => {
     features = [];
     await render(<MemberDialog member={null} open onOpenChange={() => undefined} />);
     expect(selectedOption()?.disabled).toBe(true);
-    // No extension registered here: the core's own neutral note.
+    // No extension registered here: the Community build's own note, with the way to Edition.
     expect(document.body.textContent).toContain(
-      "Every member has every tenant in this installation.",
+      "In the Community edition every member has every tenant.",
     );
+    expect(document.body.querySelector('[data-slot="edition-link"]')?.getAttribute("href")).toBe(
+      "/installation/edition",
+    );
+  });
+
+  it("says that nothing is mailed when the installation sends no mail", async () => {
+    features = [];
+    await render(<MemberDialog member={null} open onOpenChange={() => undefined} />);
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Create invitation (link to hand over)");
+    expect(text).toContain("This installation sends no mail");
+    expect(text).not.toContain("Send invitation");
+  });
+
+  it("sends the invitation where notification mail is set up", async () => {
+    features = [];
+    await render(<MemberDialog member={null} open onOpenChange={() => undefined} />, null, true);
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("Send invitation");
+    expect(text).not.toContain("link to hand over");
   });
 
   it("keeps a limit from before as it is, without letting it be changed", async () => {

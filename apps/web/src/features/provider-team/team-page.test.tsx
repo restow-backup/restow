@@ -144,9 +144,58 @@ describe("TeamPage", () => {
     expect(html).not.toContain("Reset the access of Rita Reader");
   });
 
-  it("shows a member limited to some tenants a notice instead of the team", () => {
+  it("tells a member limited to some tenants why the team is not shown", () => {
     const html = render({ providerRole: "technician", providerAllTenants: false });
     expect(html).not.toContain("Tom Tech");
-    expect(html).toContain("Only owners can change the members.");
+    expect(html).not.toContain("Only owners can change the members.");
+    expect(html).toContain("Your role covers chosen tenants only");
+  });
+
+  it("tells someone who is no provider admin (a direct link) where their users are", () => {
+    const html = render({ isProviderAdmin: false, providerRole: null });
+    expect(html).not.toContain("Tom Tech");
+    expect(html).toContain("Only owners and administrators of the installation see its members");
+  });
+
+  it("keeps role change and removal off your own row, with the reason", () => {
+    const html = render({ providerRole: "owner", providerAllTenants: true });
+    const own = /<tr[^>]*>(?:(?!<\/tr>)[\s\S])*Ada Owner[\s\S]*?<\/tr>/.exec(html)?.[0] ?? "";
+    expect(own).toContain('data-slot="disabled-reason"');
+    expect(own).toMatch(
+      /aria-label="Remove Ada Owner from the members"[^>]*disabled=""|disabled=""[^>]*aria-label="Remove Ada Owner from the members"/,
+    );
+    const other = /<tr[^>]*>(?:(?!<\/tr>)[\s\S])*Rita Reader[\s\S]*?<\/tr>/.exec(html)?.[0] ?? "";
+    expect(other).not.toContain('data-slot="disabled-reason"');
+  });
+
+  it("writes the role description out instead of hiding it in a title", () => {
+    const html = render({ providerRole: "owner", providerAllTenants: true });
+    expect(html).toContain("Sees status and reports. No content, no changes.");
+    expect(html).not.toContain("audit log");
+  });
+
+  it("lists the chosen tenants of a member in an expandable list", () => {
+    const html = render({ providerRole: "owner", providerAllTenants: true });
+    expect(html).toContain('data-slot="member-tenants"');
+    expect(html).toContain("Contoso");
+    expect(html).toContain("Fabrikam");
+  });
+
+  it("leaves the tenants column out where every member has every tenant anyway", () => {
+    const original = members[1] as TeamMember;
+    members[1] = { ...original, allTenants: true, tenantIds: [] };
+    try {
+      const html = render({ providerRole: "owner", providerAllTenants: true });
+      expect(html).not.toContain(">Tenants<");
+      expect(html).toContain("Who administers this installation, and with which role.");
+      const scoped = render({
+        providerRole: "owner",
+        providerAllTenants: true,
+        features: ["providerTeam.tenantScope"],
+      });
+      expect(scoped).toContain(">Tenants<");
+    } finally {
+      members[1] = original;
+    }
   });
 });

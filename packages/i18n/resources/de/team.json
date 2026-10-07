@@ -16,11 +16,11 @@
   "roles": {
     "owner": {
       "label": "Inhaber",
-      "description": "Alles, einschließlich Team, Lizenz und Installationseinstellungen."
+      "description": "Alles, einschließlich Mitglieder, Lizenz und Installationseinstellungen."
     },
     "administrator": {
       "label": "Administrator",
-      "description": "Richtet Mandanten, Speicher, Zeitpläne, Quellen und Integrationen ein und betreibt sie. Nicht Team, Lizenz oder Installationseinstellungen."
+      "description": "Richtet Mandanten, Speicher, Zeitpläne, Quellen und Integrationen ein und betreibt sie. Nicht Mitglieder, Lizenz oder Installationseinstellungen."
     },
     "technician": {
       "label": "Techniker",
@@ -28,7 +28,7 @@
     },
     "read_only": {
       "label": "Nur lesen",
-      "description": "Sieht Status, Berichte und Audit-Log. Keine Inhalte, keine Änderungen."
+      "description": "Sieht Status und Berichte. Keine Inhalte, keine Änderungen."
     }
   },
   "scope": {
@@ -39,7 +39,7 @@
     "ownerHint": "Inhaber haben immer alle Mandanten.",
     "pick": "Mandanten",
     "noTenants": "Es gibt noch keine Mandanten.",
-    "locked": "In dieser Installation haben alle Mitglieder alle Mandanten.",
+    "locked": "In der Community-Edition haben alle Mitglieder alle Mandanten. Mitglieder auf ausgewählte Mandanten beschränken gibt es mit Service Provider.",
     "kept": "Dieses Mitglied bleibt auf die bisher gewählten Mandanten beschränkt. Sie können ihm alle Mandanten geben; die Auswahl der Mandanten lässt sich hier nicht ändern."
   },
   "status": {
@@ -66,7 +66,9 @@
     "editDescription": "Gilt für {name} ab der nächsten Anfrage.",
     "submitInvite": "Einladung senden",
     "submitSave": "Speichern",
-    "cancel": "Abbrechen"
+    "cancel": "Abbrechen",
+    "inviteDescriptionNoMail": "Diese Installation sendet keine E-Mails: Sie erhalten einen Link, den Sie der Person selbst weitergeben. Damit wählt sie ein Passwort und richtet danach eine Authenticator-App ein.",
+    "submitInviteNoMail": "Einladung erstellen (Link zum Weitergeben)"
   },
   "link": {
     "title": "Einladung bereit",
@@ -82,7 +84,8 @@
     "reissue": "Neuer Einladungslink",
     "reissueLabel": "Neuen Einladungslink für {name} erstellen",
     "resetAccess": "Zugang zurücksetzen",
-    "resetAccessLabel": "Zugang von {name} zurücksetzen"
+    "resetAccessLabel": "Zugang von {name} zurücksetzen",
+    "selfReason": "Ihre eigene Rolle ändert und Ihre Mitgliedschaft beendet ein anderer Inhaber. So nehmen Sie sich nicht versehentlich selbst die Rechte."
   },
   "remove": {
     "title": "{name} aus den Mitgliedern entfernen?",
@@ -107,5 +110,11 @@
     "noTenants": "Wählen Sie mindestens einen Mandanten, oder geben Sie dem Mitglied alle Mandanten.",
     "resetSelf": "Ihren eigenen Zugang können Sie hier nicht zurücksetzen. Das kann ein anderer Inhaber oder die Kommandozeile (restow admin recover).",
     "notActive": "Dieses Mitglied hat sich noch nicht angemeldet. Erstellen Sie stattdessen einen neuen Einladungslink."
+  },
+  "subtitleOneScope": "Wer diese Installation verwaltet, und mit welcher Rolle.",
+  "forbidden": {
+    "title": "Mitglieder nicht verfügbar",
+    "scoped": "Ihre Rolle gilt nur für ausgewählte Mandanten. Die Mitglieder verwalten die ganze Installation und sind deshalb nur für Mitglieder mit Zugriff auf alle Mandanten sichtbar.",
+    "notProvider": "Die Mitglieder dieser Installation sehen nur Inhaber und Administratoren der Installation. Die Benutzer Ihres Mandanten finden Sie in den Einstellungen Ihres Mandanten."
   }
 }

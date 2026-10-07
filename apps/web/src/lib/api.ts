@@ -274,6 +274,17 @@ export interface SetupState {
   /** Sign-in with Microsoft (Entra SSO) is offered: SSO app configured, public mode. */
   microsoftSignIn: boolean;
   /**
+   * Notification mail can go out: saved in the web interface or set in the
+   * server's environment (`mailTransport` names only a saved one). Absent on
+   * older servers.
+   */
+  notificationMail?: boolean;
+  /**
+   * The login page offers "Forgot your password?" by mail: set up, mail, a
+   * public URL, not the demo. Absent on older servers.
+   */
+  passwordReset?: boolean;
+  /**
    * Public demo mode (RESTOW_DEMO). `email`/`password` are intentionally
    * public: the login page prefills them for a one-click demo sign-in.
    */
@@ -614,4 +625,11 @@ export async function fetchStatus(): Promise<StatusSummary> {
 export async function fetchRecentJobs(limit = 8): Promise<JobSummary[]> {
   const params = new URLSearchParams({ limit: String(limit) });
   return unwrapList<JobSummary>(await apiFetch<unknown>(`/jobs?${params.toString()}`));
+}
+
+/** Whether notification mail can go out, also on a server that does not report it yet. */
+export function notificationMailConfigured(
+  state: Pick<SetupState, "notificationMail" | "mailTransport"> | null | undefined,
+): boolean {
+  return state?.notificationMail ?? Boolean(state?.mailTransport);
 }

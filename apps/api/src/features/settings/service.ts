@@ -583,3 +583,19 @@ export function environmentMailConfigured(base: Config): boolean {
   }
   return Boolean(base.smtp.host?.trim() && base.smtp.from?.trim());
 }
+
+/**
+ * Whether notification mail can go out at all: a transport saved in the web
+ * interface, or one from the environment ({@link createInstallationNotifier}
+ * falls back to it). What the web shows as "mail configured" (invitations,
+ * the reset by mail on the login page).
+ */
+export function notificationMailConfigured(
+  row: Pick<Settings, "mailTransport" | "mailConfig"> | null | undefined,
+  base: Config = config,
+): boolean {
+  return (
+    readStoredMailConfig(row?.mailTransport ?? null, row?.mailConfig) !== null ||
+    environmentMailConfigured(base)
+  );
+}

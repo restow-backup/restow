@@ -67,7 +67,7 @@
     "items": {
       "jobs": "Jobs",
       "tenantSettings": "Tenant settings",
-      "organisationSettings": "Settings",
+      "organisationSettings": "Your organisation",
       "resources": "Capacity planning"
     },
     "breadcrumb": "Breadcrumb",

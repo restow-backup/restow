@@ -1,5 +1,5 @@
 {
-  "title": "{scope, select, organisation {Einstellungen} other {Mandanten-Einstellungen}}",
+  "title": "{scope, select, organisation {Ihre Organisation} other {Mandanten-Einstellungen}}",
   "sections": {
     "label": "{scope, select, organisation {Bereiche Ihrer Organisation} other {Bereiche dieses Mandanten}}",
     "select": "Bereich",
@@ -13,7 +13,7 @@
     "archive": "Archiv",
     "notifications": "Benachrichtigungen",
     "integrations": "Integrationen",
-    "members": "Mitglieder",
+    "members": "Benutzer",
     "masterData": "Stammdaten"
   },
   "descriptions": {
@@ -89,7 +89,7 @@
     "figures": {
       "objects": "Geschützte Objekte",
       "objectsLink": "Schutz öffnen",
-      "machines": "Maschinen",
+      "machines": "Rechner",
       "machinesLink": "Agenten öffnen",
       "machinesSplit": "{servers, plural, one {# Server} other {# Server}} · {clients, plural, one {# Client} other {# Clients}}",
       "readiness": "Wiederherstellbarkeit",
@@ -148,8 +148,8 @@
   },
   "agents": {
     "enrol": {
-      "title": "Maschine hinzufügen",
-      "description": "Jede Maschine bekommt einen einmaligen Installationsbefehl, der 24 Stunden gilt. Die Maschinen selbst mit Status und Wiederherstellbarkeit stehen unter Server & Endpunkte, Inventar.",
+      "title": "Rechner hinzufügen",
+      "description": "Jeder Rechner bekommt einen einmaligen Installationsbefehl, der 24 Stunden gilt. Die Rechner selbst mit Status und Wiederherstellbarkeit stehen unter Server & Endpunkte, Inventar.",
       "server": "Neuer Server",
       "client": "Neuer Client",
       "inventory": "Inventar öffnen"

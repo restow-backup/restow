@@ -94,7 +94,7 @@
   },
   "mode": {
     "title": "How do you run {appName}?",
-    "description": "You can change the mode later in the settings.",
+    "description": "You can change the mode later under Installation › Server & operation › Server.",
     "local": "Local mode",
     "localDescription": "Reachable via IP address or localhost, without a public domain. Sign-in with the emergency password.",
     "public": "Public mode",
@@ -159,7 +159,7 @@
     "description": "Used for reports, alerts and invitations. The journal intake for the archive is separate from this.",
     "skip": {
       "action": "Skip for now",
-      "explanation": "Mail is optional. Without it {appName} sends no alert or report e-mails, and invitations and set-password links are not sent by mail: you copy the link and pass it on yourself. You can set it up later under Installation → Notification mail.",
+      "explanation": "Mail is optional. Without it {appName} sends no alert or report e-mails, and invitations and set-password links are not sent by mail: you copy the link and pass it on yourself. You can set it up later under Installation › Server & operation › Notification mail.",
       "skipped": "You skipped this step. Fill in the form and choose Next to set up mail now."
     },
     "transport": {
@@ -195,7 +195,7 @@
       "label": "Send a test message to the admin account",
       "hint": "Shows right away whether the transport works. A failure does not block the setup."
     },
-    "laterTransports": "Microsoft 365 with an own app registration and Google Workspace are set up after the setup under Installation → Notification mail. A guide walks you through the steps there, and you send a test message before saving."
+    "laterTransports": "Microsoft 365 with an own app registration and Google Workspace are set up after the setup under Installation › Server & operation › Notification mail. A guide walks you through the steps there, and you send a test message before saving."
   },
   "review": {
     "title": "Review",
@@ -212,12 +212,13 @@
     "no": "No",
     "finish": "Finish setup",
     "submitting": "Saving setup …",
-    "signingIn": "Signing in …"
+    "signingIn": "Signing in …",
+    "next": "Next: once finished you are signed in and set up the authenticator app. Have your phone ready; you do not need to type the password again for it."
   },
   "result": {
     "success": "Setup complete. Welcome to {appName}.",
     "testSendOk": "The test message was sent.",
-    "testSendFailed": "The test message could not be sent. {reason} Check the transport under Installation → Notification mail and send a test message again there.",
+    "testSendFailed": "The test message could not be sent. {reason} Check the transport under Installation › Server & operation › Notification mail and send a test message again there.",
     "signInFailed": "The setup is saved, but the automatic sign-in did not work. Please sign in manually.",
     "alreadyConfigured": "This installation is already set up.",
     "failed": "The setup could not be saved.",

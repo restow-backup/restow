@@ -16,7 +16,10 @@
     "passkeyRemoved": "Passkey removed.",
     "authenticatorEnabled": "Authenticator app set up.",
     "backupCodesRenewed": "New recovery codes created. The previous ones no longer work.",
-    "sessionsRevoked": "All other sessions were signed out."
+    "sessionsRevoked": "All other sessions were signed out.",
+    "passwordChanged": "Password changed.",
+    "passwordChangedOthersSignedOut": "Password changed. All other sessions were signed out.",
+    "sessionRevoked": "Session signed out."
   },
   "general": {
     "mode": {
@@ -138,7 +141,7 @@
       "hint": "Sends through Microsoft Graph as an application with the application permission Mail.Send. No outgoing SMTP is needed.",
       "appMissing": {
         "title": "App registration not set up",
-        "description": "No backup app registration for Microsoft 365 is set up. Choose an own app registration for notifications, or set the app up under Installation → Microsoft multi-tenant app and grant it Mail.Send."
+        "description": "No backup app registration for Microsoft 365 is set up. Choose an own app registration for notifications, or set the app up under Installation › Server & operation › Microsoft multi-tenant app and grant it Mail.Send."
       },
       "sender": "Sender mailbox",
       "senderPlaceholder": "notifications@contoso.com",
@@ -152,7 +155,7 @@
         "ownHint": "A single-tenant app with Mail.Send only, which can be restricted to the sender mailbox.",
         "backup": "Use the backup app registration",
         "backupHint": "The backup app then also needs Mail.Send, and that permission applies to every mailbox of its tenant.",
-        "backupUnavailable": "No backup app registration is set up (Installation → Microsoft multi-tenant app)."
+        "backupUnavailable": "No backup app registration is set up (Installation › Server & operation › Microsoft multi-tenant app)."
       },
       "senderHint": "A mailbox in Exchange Online, for example a shared mailbox. Messages do not appear in its Sent Items.",
       "directoryId": "Directory (tenant) ID",
@@ -191,7 +194,7 @@
         "smtp_auth_failed": "The SMTP server refused the sign-in. Check username and password.",
         "smtp_connection_failed": "The SMTP server cannot be reached. Check host, port and firewall.",
         "smtp_tls_failed": "The encrypted connection failed. Check the connection security, the port and the server certificate.",
-        "graph_app_missing": "No backup app registration is set up (Installation → Microsoft multi-tenant app).",
+        "graph_app_missing": "No backup app registration is set up (Installation › Server & operation › Microsoft multi-tenant app).",
         "graph_credential_missing": "No secret is stored for the own app registration. Enter it again.",
         "graph_tenant_missing": "No Entra tenant is set for the sender mailbox.",
         "graph_tenant_not_found": "Microsoft does not know this tenant. Check the directory ID.",
@@ -392,7 +395,7 @@
         "accountTypesValue": "Accounts in any organizational directory (Any Microsoft Entra ID tenant - Multitenant)",
         "redirect": "Redirect URI: select the platform Web and enter exactly this value:",
         "redirectLabel": "Redirect URI (admin consent)",
-        "redirectMissing": "No public URL is set yet. Set it under Installation → Server; the redirect URI is derived from it.",
+        "redirectMissing": "No public URL is set yet. Set it under Installation › Server & operation › Server; the redirect URI is derived from it.",
         "register": "Select Register. The overview page then shows the two values you enter in step 4:",
         "openAdminCenter": "Open the Microsoft Entra admin center"
       },
@@ -563,7 +566,7 @@
       "description": "Sign in without a password using Touch ID, Windows Hello, your phone or a security key. Passkeys are bound to {domain}.",
       "descriptionNoDomain": "Sign in without a password using Touch ID, Windows Hello, your phone or a security key.",
       "add": "Add passkey",
-      "openGeneral": "Open operating mode",
+      "openGeneral": "Open the server settings",
       "unsupported": "This browser cannot create passkeys. Use a current browser to add one.",
       "empty": "You have no passkey yet. Until you add one, you sign in with the emergency password and an authenticator code.",
       "emptyNoAuthenticator": "You have no passkey and no authenticator app yet. Add a passkey here or set up the authenticator app below.",
@@ -590,9 +593,11 @@
       },
       "removeDialog": {
         "title": "Remove passkey?",
-        "description": "“{name}” can no longer be used to sign in. Without a passkey you sign in with the emergency password and an authenticator code.",
+        "description": "“{name}” can no longer be used to sign in. You then sign in with your password and a code from your authenticator app.",
         "descriptionSso": "“{name}” can no longer be used to sign in. Without a passkey you sign in with your Microsoft account.",
-        "confirm": "Remove passkey"
+        "confirm": "Remove passkey",
+        "descriptionOthers": "“{name}” can no longer be used to sign in. Your other passkeys keep working.",
+        "descriptionNoAuthenticator": "“{name}” can no longer be used to sign in. You then sign in with your password and have to set up an authenticator app right away. Best set it up now, below, before removing the passkey."
       },
       "errors": {
         "cancelled": "The passkey dialog was cancelled or timed out. Nothing was changed.",
@@ -601,7 +606,8 @@
         "userVerification": "The authenticator cannot verify you with a PIN or biometrics, which {appName} requires.",
         "verificationFailed": "The server could not verify the new passkey. Please try again.",
         "generic": "The passkey action failed. Please try again."
-      }
+      },
+      "removeBlocked": "This passkey is your only way to sign in. Add another passkey first; otherwise only an owner can reset your access."
     },
     "authenticator": {
       "title": "Authenticator app",
@@ -638,7 +644,9 @@
         "code": "Code from the app",
         "codePlaceholder": "123456",
         "codeHint": "If the code is refused, check that your phone sets its time automatically.",
-        "confirm": "Verify and turn on"
+        "confirm": "Verify and turn on",
+        "starting": "Starting the setup …",
+        "passwordLeadAgain": "Please confirm your password once more so the setup can start."
       },
       "codes": {
         "enabled": "The authenticator app is set up. From now on {appName} asks for a code after your password.",
@@ -673,10 +681,41 @@
     },
     "sessions": {
       "title": "Sessions",
-      "description": "Sign out every other browser and device where your account is signed in. This browser stays signed in.",
+      "description": "The browsers and devices where your account is signed in. Sign out single ones, or all except this one.",
       "revoke": "Sign out other sessions",
       "confirmTitle": "Sign out all other sessions?",
-      "confirmDescription": "Every other browser and device signed in with your account is signed out immediately."
+      "confirmDescription": "Every other browser and device signed in with your account is signed out immediately.",
+      "loadError": "The sessions could not be loaded",
+      "current": "This browser",
+      "lastActive": "Last active",
+      "signedIn": "signed in",
+      "ip": "IP {ip}",
+      "browserOn": "{browser} on {device}",
+      "unknownDevice": "Unknown device",
+      "revokeOne": "Sign out",
+      "revokeOneLabel": "Sign out the session {device}",
+      "revokeOneTitle": "Sign out this session?",
+      "revokeOneDescription": "{device} is signed out immediately. Whoever wants to continue there has to sign in again."
+    },
+    "password": {
+      "title": "Password",
+      "description": "Your password only works together with a code from your authenticator app. Change it if you suspect someone knows it.",
+      "change": "Change password",
+      "dialog": {
+        "title": "Change password",
+        "description": "Enter your current password and the new one twice. The authenticator app stays set up."
+      },
+      "current": "Current password",
+      "new": "New password",
+      "confirm": "Repeat the new password",
+      "revokeOthers": "Sign out all other sessions",
+      "revokeOthersHint": "Recommended if someone might know your previous password. This browser stays signed in.",
+      "submit": "Change password",
+      "errors": {
+        "current": "The current password is wrong.",
+        "policy": "The new password needs at least {min} characters.",
+        "tooMany": "Too many attempts. Please wait a minute."
+      }
     }
   },
   "validation": {
@@ -687,7 +726,8 @@
     "tenantId": "Enter a tenant ID or a verified domain such as contoso.onmicrosoft.com.",
     "host": "Enter a host name or an IP address.",
     "tenantGuid": "Enter the directory ID (GUID) from the app registration overview.",
-    "serviceAccountKey": "This is not a service account key. Paste the complete content of the JSON key file."
+    "serviceAccountKey": "This is not a service account key. Paste the complete content of the JSON key file.",
+    "samePassword": "The new password must differ from the current one."
   },
   "errors": {
     "setupIncomplete": "The setup is not complete yet. Finish the setup wizard first.",

@@ -120,7 +120,7 @@ describe("opening a tenant's page", () => {
       ["Overview", "/tenants/mueller/overview"],
       ["Connections", "/tenants/mueller/connections"],
       ["Agents", "/tenants/mueller/agents"],
-      ["Members", "/tenants/mueller/members"],
+      ["Users", "/tenants/mueller/members"],
       ["Audit log", "/installation/license?requires=business"],
       ["Master data", "/tenants/mueller/master-data"],
     ]);
@@ -275,7 +275,7 @@ describe("the select of the sections on a phone", () => {
       "Overview",
       "Connections",
       "Agents",
-      "Members",
+      "Users",
       "Audit log",
       "Master data",
     ]);

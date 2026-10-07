@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { scopeKindOf } from "@/components/layout/breadcrumb-trail";
 import { navItems as dashboardNavItems } from "@/features/dashboard";
 import { featureNavItems } from "@/features/registry";
+import { navItems as tenantNavItems } from "@/features/tenants";
 import { i18n } from "@/i18n";
 import {
   NAV_GROUPS,
@@ -331,7 +332,7 @@ describe("the menu per edition", () => {
     // Jobs in both sections; settings (installation, and the tenant's or the organisation's).
     expect(shared).toEqual([
       ["mail-jobs", "endpoint-jobs"],
-      ["tenant-settings", "organisation-settings", "settings"],
+      ["tenant-settings", "organisation-settings"],
     ]);
   });
 
@@ -369,8 +370,8 @@ describe("the menu per edition", () => {
       "Restore-Explorer",
       "Mandanten verwalten",
       "Mandanten-Einstellungen",
-      "Einstellungen",
-      "Einstellungen",
+      "Ihre Organisation",
+      "Server & Betrieb",
       "Mitglieder",
       "Repositories",
       "Lizenz",
@@ -404,13 +405,40 @@ describe("the menu per edition", () => {
       "Alerts",
       "Manage tenants",
       "Tenant settings",
-      "Settings",
+      "Your organisation",
       "Members",
       "Repositories",
       "License",
       "Capacity planning",
       "Statistics of all tenants",
     ]);
+  });
+
+  it("locks Manage tenants on the Community build itself, leading to Installation › Edition", () => {
+    const lock = tenantNavItems.find((item) => item.id === "tenants")?.lock;
+    expect(lock?.to).toBe("/installation/edition");
+    expect(lock?.isLocked({ features: [], extensions: null })).toBe(true);
+    // While the profile loads it reports locked, so nothing appears that might then vanish.
+    expect(lock?.isLocked({ features: null, extensions: null })).toBe(true);
+    expect(lock?.isLocked({ features: ["tenants.additional"], extensions: null })).toBe(false);
+    expect(i18n.t(lock?.hintKey ?? "")).toContain("Service Provider");
+  });
+
+  it("lets the full build's lock replace the core's: it leads to the license instead", () => {
+    // The registry here carries the full build (features/ee.ts).
+    const placed = featureNavItems.find((item) => item.id === "tenants");
+    expect(placed?.lock?.to).toBe("/installation/license");
+  });
+
+  it("never gives two settings pages or two member lists the same name", async () => {
+    for (const language of ["de", "en"]) {
+      await i18n.changeLanguage(language);
+      const settingsPages = [i18n.t("nav.items.organisationSettings"), i18n.t("installation:nav")];
+      expect(new Set(settingsPages).size, language).toBe(2);
+      // The members of the installation and the users of a tenant.
+      expect(i18n.t("team:nav"), language).not.toBe(i18n.t("tenantpage:sections.members"));
+    }
+    await i18n.changeLanguage("en");
   });
 
   it("names the tenants section Organisation where the installation has one organisation", () => {

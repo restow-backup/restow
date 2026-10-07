@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { CheckCircle2, Lock } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
@@ -19,7 +20,8 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast } from "@/components/ui/sonner";
 import { ConnectedSetPasswordLinkField } from "@/features/accounts/components/set-password-link-field";
-import type { ProviderRole } from "@/lib/api";
+import { EditionLink } from "@/features/installation/edition-link";
+import { type ProviderRole, notificationMailConfigured, setupStateQueryOptions } from "@/lib/api";
 import { ExtensionSlot } from "@/lib/extensions";
 import { PROVIDER_ROLES } from "@/lib/provider-role";
 
@@ -103,6 +105,8 @@ function MemberForm({
   const [submitted, setSubmitted] = React.useState(false);
   const [submitError, setSubmitError] = React.useState<unknown>(null);
   const pending = invite.isPending || update.isPending;
+  // Without notification mail nothing is sent: the owner hands the link over.
+  const mailConfigured = notificationMailConfigured(useQuery(setupStateQueryOptions).data);
 
   const emailError = !member && submitted && !EMAIL_PATTERN.test(email.trim());
   const nameError = !member && submitted && name.trim().length === 0;
@@ -150,7 +154,9 @@ function MemberForm({
         <DialogDescription>
           {member
             ? t("dialog.editDescription", { name: member.name || member.email })
-            : t("dialog.inviteDescription")}
+            : mailConfigured
+              ? t("dialog.inviteDescription")
+              : t("dialog.inviteDescriptionNoMail")}
         </DialogDescription>
       </DialogHeader>
 
@@ -267,7 +273,12 @@ function MemberForm({
                 <ExtensionSlot
                   name="team.tenantScopeLocked"
                   props={{}}
-                  fallback={<p className="text-sm text-muted-foreground">{t("scope.locked")}</p>}
+                  fallback={
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <p className="text-sm text-muted-foreground">{t("scope.locked")}</p>
+                      <EditionLink />
+                    </div>
+                  }
                 />
               ) : null}
               {scopeChoice === "kept" ? (
@@ -315,7 +326,11 @@ function MemberForm({
           {t("dialog.cancel")}
         </Button>
         <Button type="submit" form="provider-team-member" disabled={pending}>
-          {member ? t("dialog.submitSave") : t("dialog.submitInvite")}
+          {member
+            ? t("dialog.submitSave")
+            : mailConfigured
+              ? t("dialog.submitInvite")
+              : t("dialog.submitInviteNoMail")}
         </Button>
       </DialogFooter>
     </>

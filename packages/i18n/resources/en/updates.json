@@ -644,8 +644,8 @@
     "description": "This installation runs the Community build: the Apache-2.0 core, without the Business and Service Provider modules.",
     "adds": {
       "title": "What the full build adds",
-      "business": "Business: the provider team (several administrators with roles), the archive's GoBD layer (journal receiver, enforced retention, legal hold), scheduled summary reports and the audit log viewer.",
-      "serviceProvider": "Service Provider: multiple tenants, team members limited to chosen tenants, the cross-tenant API and the provider dashboard.",
+      "business": "Business: the archive's GoBD layer (journal receiver, enforced retention, legal hold), scheduled summary reports and the audit log viewer.",
+      "serviceProvider": "Service Provider: multiple tenants, members limited to chosen tenants, the cross-tenant API and the provider dashboard.",
       "license": "The full build runs as Community until a license key is installed, so switching changes nothing else by itself. Both builds use the same database."
     },
     "switched": "The server already runs the full build. Reload this page to see the License section.",
@@ -679,7 +679,13 @@
       "remove": "Remove key",
       "saved": "The key is stored. It is checked and applied after the switch.",
       "storedTitle": "A key is stored",
-      "stored": "Stored; it is checked and applied after switching to the full build. Until then it unlocks nothing."
+      "stored": "Stored; it is checked and applied after switching to the full build. Until then it unlocks nothing.",
+      "removeDialog": {
+        "title": "Remove the stored key?",
+        "description": "The key is deleted. After the switch to the full build the installation then runs as Community until you store a key again.",
+        "confirm": "Remove key"
+      },
+      "removed": "The stored key is removed."
     }
   }
 }

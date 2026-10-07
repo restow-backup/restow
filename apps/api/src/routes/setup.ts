@@ -6,6 +6,7 @@ import { config, missingRequiredConfig } from "../config.js";
 import { db, providerDb } from "../db.js";
 import { signInProvider } from "../extensions.js";
 import { type MailTestResult, runMailTest } from "../features/settings/mail.js";
+import { notificationMailConfigured } from "../features/settings/service.js";
 import { resolveEntraApp } from "../features/sources/entra.js";
 import { ensureOwnOrganisation } from "../features/tenants/internal.js";
 import { AUDIT_ACTIONS, audit } from "../lib/audit.js";
@@ -20,6 +21,7 @@ import {
 } from "../lib/disclaimer.js";
 import { claimFirstAdmin } from "../lib/first-admin.js";
 import { requestLanguage } from "../lib/language.js";
+import { effectivePublicUrl, passwordResetAvailable } from "../lib/password-reset.js";
 import { clientIp, observedOrigin } from "../lib/request.js";
 import { upsertProviderSecret } from "../lib/secrets.js";
 import {
@@ -132,6 +134,16 @@ interface SetupStateResponse {
   setupToken: { required: boolean; source: SetupTokenSource | null };
   /** Sign-in with Microsoft (Entra SSO) is offered on the login page. */
   microsoftSignIn: boolean;
+  /**
+   * Notification mail can go out: a transport saved in the web interface or
+   * one from the environment (`mailTransport` names only a saved one).
+   */
+  notificationMail: boolean;
+  /**
+   * The login page offers "Forgot your password?" by mail
+   * (lib/password-reset.ts): set up, mail, a public URL, not the demo.
+   */
+  passwordReset: boolean;
   /**
    * Public demo mode (RESTOW_DEMO). `email`/`password` are the demo account's
    * credentials, intentionally public: the login page prefills them and adds
@@ -434,6 +446,7 @@ setup.get("/state", async (c) => {
   );
   const configured = isConfigured(row);
   const tokenRequired = !configured && !config.demo.enabled;
+  const notificationMail = notificationMailConfigured(row ?? null);
   const body: SetupStateResponse = {
     configured,
     productName: config.productName,
@@ -454,6 +467,13 @@ setup.get("/state", async (c) => {
         operatingMode: row?.operatingMode ?? null,
         publicUrl: row?.publicUrl ?? null,
       })) ?? false,
+    notificationMail,
+    passwordReset: passwordResetAvailable({
+      configured,
+      demo: config.demo.enabled,
+      mailConfigured: notificationMail,
+      publicUrl: effectivePublicUrl(row?.publicUrl),
+    }),
     // The credentials are public only while demo mode is actually on
     // (security review finding 5): a leftover RESTOW_DEMO_EMAIL/PASSWORD in
     // a real installation's environment must never be echoed to a visitor.
