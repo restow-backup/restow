@@ -82,8 +82,9 @@ Known Issues.
 - **Alerts and reports:** rules that send an e-mail, a bell entry or a signed
   webhook when a backup fails or a restore check does not pass, and (Business)
   a daily, weekly or monthly summary report, with a delivery log. The Overview,
-  with its tabs Status and Statistics (CSV and PDF), shows the state at a
-  glance.
+  with its tabs Status and Statistics (CSV and PDF, always the active tenant),
+  shows the state at a glance; the statistics of all tenants have a page of their
+  own under Installation (Service Provider).
 - **Audit log:** reads and restores of user data and administrative changes are
   recorded in a hash-chained, tamper-evident log in every edition and sealed
   daily. The viewer, with filter and chain verification, is a Business feature.

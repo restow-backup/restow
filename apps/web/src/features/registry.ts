@@ -86,9 +86,10 @@ interface Placement {
  *   (Organisation)       "Settings" instead of "Tenant settings" and no
  *                        "Tenants" wording where the installation has one
  *                        organisation (lib/navigation.ts `navGroupLabelKey`)
- *   Installation         Settings (the installation page and its sections), Members
- *                        (the provider team, id `team`), Audit log, License,
- *                        Resources (soon)
+ *   Installation         Statistics of all tenants (Service Provider, provider admins
+ *                        with every tenant), Settings (the installation page and its
+ *                        sections), Members (the provider team, id `team`), Audit log,
+ *                        License, Resources (soon)
  *
  * "Jobs" are the job definitions (features/backup-jobs): the two entries share
  * the address `/jobs` and differ by `?type=mail|endpoint`. Their runs are History.
@@ -118,6 +119,7 @@ const NAV_PLACEMENT: Readonly<Record<string, Placement>> = {
   "tenant-settings": { group: "tenants", order: 10 },
   "organisation-settings": { group: "tenants", order: 10 },
   tenants: { group: "tenants", order: 50 },
+  "stats-all-tenants": { group: "installation", order: 5 },
   settings: { group: "installation", order: 10 },
   team: { group: "installation", order: 20 },
   audit: { group: "installation", order: 30 },

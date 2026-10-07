@@ -1,8 +1,14 @@
 /**
- * URL state of the statistics page: the period (a preset or a custom range of
- * calendar days) and, for provider admins, the scope. Keeping both in the URL
- * makes every view linkable and lets it survive a reload. Unknown or invalid
- * values are dropped, never sent to the API.
+ * URL state of the statistics pages: the period (a preset or a custom range of
+ * calendar days). Keeping it in the URL makes every view linkable and lets it
+ * survive a reload. Unknown or invalid values are dropped, never sent to the API.
+ *
+ * The scope is not URL state: it is the page. Overview › Statistics always
+ * shows the active tenant; the statistics of all tenants have a page of their
+ * own ({@link ALL_TENANTS_STATS_PATH}). Before 0.3.0 the scope was a parameter
+ * of the Overview tab (`scope=provider`), which kept showing every tenant
+ * after a switch into one tenant; such links lead to the page of all tenants
+ * ({@link legacyProviderScope}).
  *
  * A period is a range of calendar days, both ends included, as the API
  * takes it (`from=2026-09-01&to=2026-09-30`). The days are the ones the
@@ -17,6 +23,13 @@
 export const STATS_PATH = "/";
 export const STATS_VIEW = "statistics";
 
+/**
+ * The statistics of all tenants (provider admins whose team role covers every
+ * tenant, where the installation enables `stats.allTenants`), linked from the
+ * Installation section of the menu.
+ */
+export const ALL_TENANTS_STATS_PATH = "/statistics/all";
+
 export const PERIOD_PRESETS = ["7d", "30d", "90d", "12m"] as const;
 export type PeriodPreset = (typeof PERIOD_PRESETS)[number];
 export type PeriodChoice = PeriodPreset | "custom";
@@ -27,7 +40,10 @@ export const DEFAULT_PRESET: PeriodPreset = "30d";
 export const GRANULARITIES = ["day", "week", "month"] as const;
 export type Granularity = (typeof GRANULARITIES)[number];
 
-/** Tenant: the active tenant. Provider: every tenant (gated feature `stats.allTenants`). */
+/**
+ * Tenant: the active tenant (Overview › Statistics). Provider: every tenant
+ * (the page {@link ALL_TENANTS_STATS_PATH}, gated feature `stats.allTenants`).
+ */
 export type StatsScope = "tenant" | "provider";
 
 export interface StatsSearch {
@@ -37,8 +53,6 @@ export interface StatsSearch {
   from?: string;
   /** Last calendar day, inclusive; custom periods only. */
   to?: string;
-  /** Only `provider` is written; the tenant scope is the default. */
-  scope?: "provider";
 }
 
 /** Each preset's bucket size: about 7 to 31 points per chart. */
@@ -123,10 +137,16 @@ export function parseStatsSearch(raw: Record<string, unknown>): StatsSearch {
   } else if (period && period !== DEFAULT_PRESET) {
     search.period = period;
   }
-  if (raw.scope === "provider") {
-    search.scope = "provider";
-  }
   return search;
+}
+
+/**
+ * Whether a search asks for the statistics of all tenants the old way
+ * (`scope=provider` on Overview › Statistics or on `/stats`): such a link
+ * leads to {@link ALL_TENANTS_STATS_PATH} with its period.
+ */
+export function legacyProviderScope(raw: Readonly<Record<string, unknown>>): boolean {
+  return raw.scope === "provider";
 }
 
 /** Apply a change; `undefined` removes a key. Presets drop the custom days. */
@@ -139,19 +159,14 @@ export function nextStatsSearch(current: StatsSearch, change: Partial<StatsSearc
   return parseStatsSearch(merged);
 }
 
-/** The search for a preset (keeps the scope). */
+/** The search for a preset. */
 export function withPreset(current: StatsSearch, preset: PeriodPreset): StatsSearch {
   return nextStatsSearch(current, { period: preset });
 }
 
-/** The search for a custom range of local days (keeps the scope). */
+/** The search for a custom range of local days. */
 export function withCustomRange(current: StatsSearch, first: Date, last: Date): StatsSearch {
   return nextStatsSearch(current, { period: "custom", from: toDay(first), to: toDay(last) });
-}
-
-/** The search for a scope; the tenant scope is the default and not written. */
-export function withScope(current: StatsSearch, scope: StatsScope): StatsSearch {
-  return nextStatsSearch(current, { scope: scope === "provider" ? "provider" : undefined });
 }
 
 /** The longest period the API answers for (two years, a leap day included). */
@@ -230,9 +245,4 @@ export function previousPeriodDays(period: ResolvedPeriod): { firstDay: string; 
   const lastDay = toDay(dayStart(period.firstDay, -1));
   const firstDay = toDay(dayStart(period.firstDay, -period.days));
   return { firstDay, lastDay };
-}
-
-/** The scope the page shows: the provider scope only where it is allowed. */
-export function effectiveScope(search: StatsSearch, providerAllowed: boolean): StatsScope {
-  return providerAllowed && search.scope === "provider" ? "provider" : "tenant";
 }

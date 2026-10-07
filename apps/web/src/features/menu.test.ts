@@ -94,8 +94,35 @@ describe("the menu per edition", () => {
       mail: MAIL,
       endpoints: ENDPOINTS,
       tenants: ["tenant-settings", "tenants"],
-      installation: ["settings", "team", "audit", "license", "resources (soon 0.5.0)"],
+      // The statistics of all tenants open the pinned Installation section (0.3.0).
+      installation: [
+        "stats-all-tenants",
+        "settings",
+        "team",
+        "audit",
+        "license",
+        "resources (soon 0.5.0)",
+      ],
     });
+  });
+
+  it("offers the statistics of all tenants only where they exist and the viewer sees every tenant", () => {
+    const has = (role: string, ctx: NavLockContext) =>
+      Object.values(menu(role, ctx)).flat().includes("stats-all-tenants");
+    expect(has("provider_admin", SERVICE_PROVIDER)).toBe(true);
+    expect(has("provider_admin", { ...SERVICE_PROVIDER, providerAllTenants: true })).toBe(true);
+    // A member of the provider team limited to some tenants: the API refuses them the totals.
+    expect(has("provider_admin", { ...SERVICE_PROVIDER, providerAllTenants: false })).toBe(false);
+    // Community and Business have one organisation: its statistics are Overview › Statistics.
+    expect(has("provider_admin", COMMUNITY)).toBe(false);
+    expect(has("provider_admin", BUSINESS)).toBe(false);
+    // While the profile loads nothing appears that might vanish.
+    expect(has("provider_admin", { features: null, extensions: null })).toBe(false);
+    for (const role of ["tenant_admin", "tenant_user"]) {
+      expect(has(role, SERVICE_PROVIDER), role).toBe(false);
+    }
+    const entry = items.find((item) => item.id === "stats-all-tenants");
+    expect(entry).toMatchObject({ path: "/statistics/all", group: "installation" });
   });
 
   it("tenant admin in a Service Provider installation: the settings of their tenant, nothing else of the tenant level", () => {
@@ -148,7 +175,7 @@ describe("the menu per edition", () => {
         organisationMode: false,
       });
     };
-    for (const id of ["settings", "team", "audit", "license", "resources"]) {
+    for (const id of ["stats-all-tenants", "settings", "team", "audit", "license", "resources"]) {
       expect(level(id), id).toBe("installation");
     }
     expect(level("tenant-settings")).toBe("tenant");
@@ -315,6 +342,7 @@ describe("the menu per edition", () => {
         "storage:nav",
         "license:nav",
         "nav.items.resources",
+        "stats:navAllTenants",
       ].map((key) => i18n.t(key)),
     ).toEqual([
       "Verlauf",
@@ -329,6 +357,7 @@ describe("the menu per edition", () => {
       "Repositories",
       "Lizenz",
       "Kapazitätsplanung",
+      "Statistik aller Mandanten",
     ]);
     await i18n.changeLanguage("en");
     expect(groups.map((id) => i18n.t(`nav.groups.${id}`))).toEqual([
@@ -350,6 +379,7 @@ describe("the menu per edition", () => {
         "storage:nav",
         "license:nav",
         "nav.items.resources",
+        "stats:navAllTenants",
       ].map((key) => i18n.t(key)),
     ).toEqual([
       "History",
@@ -361,6 +391,7 @@ describe("the menu per edition", () => {
       "Repositories",
       "License",
       "Capacity planning",
+      "Statistics of all tenants",
     ]);
   });
 

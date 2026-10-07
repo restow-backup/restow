@@ -10,6 +10,7 @@ import {
   requireProviderAdmin,
   requireTenant,
 } from "../../middleware/session.js";
+import { ProblemError } from "../../problem.js";
 import { PDF_CONTENT_TYPE } from "../../reports/render.js";
 import { parseOrProblem } from "../../schemas.js";
 import { contentDisposition } from "../restore/headers.js";
@@ -28,9 +29,14 @@ import {
  * a PDF report.
  *
  * `?scope=tenant` (the default) covers the tenant named by X-Restow-Tenant
- * and needs the tenant_admin role (provider admins may enter any tenant);
- * `?scope=provider` adds up every tenant and needs a provider admin while
- * `stats.allTenants` is on (lib/features.ts). The scope decides which
+ * and nothing else, and needs the tenant_admin role (provider admins may enter
+ * any tenant their team role covers); `?scope=provider` adds up every tenant
+ * and needs a provider admin whose team role covers every tenant, while
+ * `stats.allTenants` is on (lib/features.ts). A member of the provider team
+ * limited to some tenants is refused the provider scope (like the provider view
+ * of the dashboard): the totals and the tenant rows would name the others. The
+ * web shows the provider scope on its own page (Installation, "Statistics of all
+ * tenants"), Overview › Statistics always the active tenant. The scope decides which
  * of the shared session middlewares authenticates the request, so both paths
  * get the same session, role and cross-site checks as every other route.
  *
@@ -48,6 +54,12 @@ export const requireStatsScope: MiddlewareHandler<StatsEnv> = async (c, next) =>
     // The shared middlewares are typed for their own context; they only set
     // the session variables this context declares as well.
     await requireProviderAdmin(c as unknown as Context<SessionEnv>, async () => {
+      if (c.get("providerAccess")?.allTenants === false) {
+        throw new ProblemError(403, "Every tenant required", {
+          detail:
+            "The statistics of all tenants cover every tenant; your role in the provider team is limited to some.",
+        });
+      }
       await requireFeature(providerDb, "stats.allTenants");
       c.set("statsScope", { kind: "provider" });
       await next();

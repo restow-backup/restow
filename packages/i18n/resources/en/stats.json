@@ -1,8 +1,10 @@
 {
   "nav": "Statistics",
+  "navAllTenants": "Statistics of all tenants",
   "title": "Statistics",
+  "titleAllTenants": "Statistics of all tenants",
   "description": {
-    "tenant": "Backups, restores, storage and recoverability of {tenant} over time.",
+    "tenant": "{tenant} only: backups, restores, storage and recoverability over time.",
     "provider": "Backups, restores, storage and recoverability across all tenants.",
     "loading": "Backups, restores, storage and recoverability over time."
   },
@@ -31,11 +33,6 @@
       "month": "per month"
     }
   },
-  "scope": {
-    "label": "Scope",
-    "tenant": "Tenant",
-    "provider": "All tenants"
-  },
   "actions": {
     "refresh": "Refresh figures",
     "exportPdf": "Export PDF",
@@ -52,7 +49,15 @@
   "noTenant": {
     "title": "No tenant selected",
     "description": "Select a tenant in the top bar to see its statistics.",
-    "providerAction": "Show all tenants"
+    "providerAction": "Open the statistics of all tenants"
+  },
+  "allTenants": {
+    "open": "Compare all tenants",
+    "unavailable": {
+      "title": "The statistics of all tenants are not available here",
+      "description": "They add up every tenant of the installation and are open to members of the provider team whose role covers every tenant, on installations that manage tenants.",
+      "tenantAction": "Open the statistics in Overview"
+    }
   },
   "notAdmin": {
     "title": "Statistics are for administrators",

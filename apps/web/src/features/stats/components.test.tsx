@@ -10,7 +10,6 @@ import { StatsExportsProvider } from "./components/chart-parts.js";
 import { KpiGrid } from "./components/kpi-grid.js";
 import { BackupsChart, ReadinessChart, RestoresChart } from "./components/outcome-charts.js";
 import { PeriodSelector } from "./components/period-selector.js";
-import { ScopeToggle } from "./components/scope-toggle.js";
 import { TableCard } from "./components/table-card.js";
 import { VolumeChart } from "./components/volume-charts.js";
 import "./i18n.js";
@@ -272,7 +271,7 @@ describe("TableCard", () => {
   });
 });
 
-describe("period and scope controls", () => {
+describe("period controls", () => {
   const now = new Date(2026, 8, 23, 12);
 
   it("marks the active preset", () => {
@@ -298,11 +297,5 @@ describe("period and scope controls", () => {
     );
     expect(html).toContain("Custom period: Sep 1 – 15, 2026");
     expect(html).not.toContain('aria-checked="true"');
-  });
-
-  it("offers tenant and provider scope", () => {
-    const html = render(<ScopeToggle scope="provider" onChange={() => {}} />);
-    expect(html).toContain('aria-label="Scope"');
-    expect(html).toMatch(/aria-checked="true"[^>]*>.*All tenants/);
   });
 });

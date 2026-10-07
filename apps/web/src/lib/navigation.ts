@@ -46,6 +46,12 @@ export const ALL_TENANTS_NAV_ID = "tenants";
 export interface NavLockContext {
   features: readonly GatedFeature[] | null;
   extensions: Readonly<Record<string, unknown>> | null;
+  /**
+   * Whether a provider admin's team role covers every tenant (false for a
+   * member limited to some); absent where it does not apply or is unknown.
+   * Entries that look across every tenant hide while it is false.
+   */
+  providerAllTenants?: boolean;
 }
 
 /**

@@ -28,6 +28,8 @@ import {
   organization,
   packs,
   protectedObjects,
+  providerMemberTenants,
+  providerMembers,
   providers,
   restoreJobs,
   snapshots,
@@ -156,6 +158,11 @@ async function seed(db: Database): Promise<Fixture> {
   await person("operator", "admin");
   await person("contoso-admin", null, { org: contoso.organizationId as string, role: "admin" });
   await person("contoso-user", null, { org: contoso.organizationId as string, role: "member" });
+  // A member of the provider team limited to Contoso.
+  await person("scoped-operator", "admin");
+  const scopedId = (sessions.get("scoped-operator") as { user: { id: string } }).user.id;
+  await db.insert(providerMembers).values({ userId: scopedId, role: "owner", allTenants: false });
+  await db.insert(providerMemberTenants).values({ userId: scopedId, tenantId: contoso.id });
 
   // --- Contoso -------------------------------------------------------------
   const tenantId = contoso.id;
@@ -424,13 +431,34 @@ async function seed(db: Database): Promise<Fixture> {
       .returning(),
   ).id;
   const fabrikamImap = await object(fabrikam.id, fabrikamSource, "imap", "Fabrikam Info", at(8, 1));
-  await snapshot(fabrikam.id, fabrikamImap, 1, 700, at(9, 3));
+  const fabrikamSnapshot = await snapshot(fabrikam.id, fabrikamImap, 1, 700, at(9, 3));
   await pack(fabrikam.id, 350, at(9, 3));
-  await job(fabrikam.id, {
+  const fabrikamRun = await job(fabrikam.id, {
     queue: "backup",
     status: "completed",
     protectedObjectId: fabrikamImap,
     ...run(at(9, 3, 4), 90),
+  });
+  // One failed item and one restore of its own, so a leak in either direction shows.
+  await db.insert(itemFailures).values({
+    tenantId: fabrikam.id,
+    jobId: fabrikamRun,
+    protectedObjectId: fabrikamImap,
+    itemRef: "fabrikam-item",
+    reason: "Fabrikam quota exceeded",
+    createdAt: at(9, 3, 5),
+  });
+  const fabrikamRestore = await job(fabrikam.id, {
+    queue: "restore",
+    status: "completed",
+    protectedObjectId: fabrikamImap,
+    ...run(at(9, 4, 9), 40),
+  });
+  await db.insert(restoreJobs).values({
+    tenantId: fabrikam.id,
+    jobId: fabrikamRestore,
+    snapshotId: fabrikamSnapshot,
+    targetType: "original",
   });
 
   // --- Northwind: the verification rules and the protection statuses --------
@@ -888,7 +916,7 @@ describe.skipIf(!testDatabaseAdminUrl)("statistics against Postgres", () => {
           logicalBytes: 700,
           physicalBytes: 350,
           readiness: "red",
-          failures: 0,
+          failures: 1,
         },
         {
           id: f.northwind,
@@ -1111,5 +1139,148 @@ describe.skipIf(!testDatabaseAdminUrl)("statistics against Postgres", () => {
         allTenants = false;
       }
     }, 30_000);
+  });
+
+  describe("tenants apart", () => {
+    /** Ids and names that belong to tenants other than Fabrikam. */
+    const othersOf = (fixture: Fixture) => [
+      fixture.contoso,
+      fixture.northwind,
+      fixture.adatum,
+      fixture.anna,
+      fixture.bob,
+      fixture.info,
+      ...Object.values(fixture.northwindObjects),
+      "Contoso",
+      "Northwind",
+      "Leaving",
+      "Graph 404",
+      "disk full",
+      "calc",
+    ];
+
+    it("keeps every dataset of the tenant scope to that tenant", async () => {
+      const { stats, tenants: covered } = await service.loadStats(
+        deps(),
+        tenantScope(f.fabrikam, "Fabrikam"),
+        PERIOD,
+      );
+      expect(covered.map((tenant) => tenant.id)).toEqual([f.fabrikam]);
+      expect(stats.scope).toBe("tenant");
+      expect(stats.kpis).toMatchObject({
+        backupSuccessRate: { value: 1, previous: null },
+        protectedObjects: { value: 1, previous: 1 },
+        logicalBytes: { value: 700, previous: 0 },
+        physicalBytes: { value: 350, previous: 0 },
+        restores: { value: 1, previous: 0 },
+        failedItems: { value: 1, previous: 0 },
+      });
+      const sum = (rows: unknown, key: string) =>
+        (rows as Record<string, number>[]).reduce((total, row) => total + (row[key] ?? 0), 0);
+      expect(sum(stats.series.backups, "succeeded")).toBe(1);
+      expect(sum(stats.series.backups, "failed")).toBe(0);
+      expect(sum(stats.series.restores, "completed")).toBe(1);
+      expect(sum(stats.series.volume, "logicalBytes")).toBe(700);
+      expect(sum(stats.series.volume, "physicalBytes")).toBe(350);
+      const storage = stats.series.storage as { bytes: number }[];
+      expect(storage.at(-1)?.bytes).toBe(350);
+      const readiness = stats.series.readiness as unknown as {
+        green: number;
+        yellow: number;
+        red: number;
+        unverified: number;
+      }[];
+      expect(readiness.length).toBeGreaterThan(0);
+      for (const point of readiness) {
+        expect(point.green + point.yellow + point.red + point.unverified).toBeLessThanOrEqual(1);
+      }
+      expect(stats.series.jobDurations).toHaveLength(2);
+      expect(stats.series.jobDurations).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ kind: "backup", count: 1 }),
+          expect.objectContaining({ kind: "restore", count: 1 }),
+        ]),
+      );
+      expect(stats.tables.failuresByCause).toEqual([
+        expect.objectContaining({ cause: "Fabrikam quota exceeded", count: 1 }),
+      ]);
+      expect(stats.tables.largestObjects).toEqual([
+        expect.objectContaining({ id: f.fabrikamImap, name: "Fabrikam Info" }),
+      ]);
+      expect(stats.tables.tenants).toBeUndefined();
+      const text = JSON.stringify(stats);
+      for (const foreign of othersOf(f)) {
+        expect(text).not.toContain(foreign);
+      }
+    });
+
+    it("keeps the other tenants' failures and restores out of a tenant's figures", async () => {
+      const { stats } = await service.loadStats(deps(), tenantScope(f.contoso, "Contoso"), PERIOD);
+      const text = JSON.stringify(stats);
+      for (const foreign of [f.fabrikam, f.fabrikamImap, "Fabrikam", "Northwind", "Leaving"]) {
+        expect(text).not.toContain(foreign);
+      }
+      expect(stats.kpis.restores).toEqual({ value: 2, previous: 1 });
+      expect(stats.kpis.failedItems).toEqual({ value: 3, previous: 1 });
+    });
+
+    it("answers a provider admin in a tenant with that tenant alone, whatever the feature says", async () => {
+      for (const enabled of [false, true]) {
+        allTenants = enabled;
+        try {
+          for (const path of [query(), query({ scope: "tenant" })]) {
+            const response = await request(path, "operator", f.fabrikam);
+            expect(response.status).toBe(200);
+            const body = (await response.json()) as StatsDto;
+            expect(body.scope).toBe("tenant");
+            expect(body.tables.tenants).toBeUndefined();
+            expect(body.kpis.protectedObjects).toEqual({ value: 1, previous: 1 });
+            const text = JSON.stringify(body);
+            for (const foreign of othersOf(f)) {
+              expect(text).not.toContain(foreign);
+            }
+          }
+          const csv = await request(
+            `/export.csv${query({ dataset: "largestObjects" })}`,
+            "operator",
+            f.fabrikam,
+          );
+          expect(csv.status).toBe(200);
+          const rows = (await csv.text()).trim().split("\r\n");
+          expect(rows).toHaveLength(2);
+          expect(rows[1]).toContain("Fabrikam Info");
+        } finally {
+          allTenants = false;
+        }
+      }
+    });
+
+    it("never lets a tenant admin read another tenant", async () => {
+      const response = await request(query(), "contoso-admin", f.fabrikam);
+      expect(response.status).toBe(404);
+    });
+
+    it("refuses the provider scope to a provider admin limited to some tenants", async () => {
+      allTenants = true;
+      try {
+        for (const path of [
+          query({ scope: "provider" }),
+          `/export.csv${query({ scope: "provider", dataset: "tenants" })}`,
+          `/report.pdf${query({ scope: "provider" })}`,
+        ]) {
+          const response = await request(path, "scoped-operator", f.contoso);
+          expect(response.status).toBe(403);
+          expect(await response.json()).toMatchObject({ title: "Every tenant required" });
+        }
+        // Their own tenant they see, as its figures alone; the others not at all.
+        const own = await request(query(), "scoped-operator", f.contoso);
+        expect(own.status).toBe(200);
+        expect(((await own.json()) as StatsDto).scope).toBe("tenant");
+        const other = await request(query(), "scoped-operator", f.fabrikam);
+        expect(other.status).toBe(404);
+      } finally {
+        allTenants = false;
+      }
+    });
   });
 });

@@ -784,7 +784,10 @@ API (`apps/api/src/extensions.ts`, `ApiExtension`):
   (`apps/api/src/lib/features.ts`, `GATED_FEATURES`): `tenants.additional` (ein weiterer
   Mandant, wenn schon einer existiert), `apiKeys.provider` (Provider-Keys und die
   mandantenübergreifenden Operationen der Integrations-API), `stats.allTenants`
-  (Statistik über alle Mandanten), `dashboard.allTenants` (Provider-Ansicht des Dashboards),
+  (Statistik über alle Mandanten: `GET /api/v1/stats?scope=provider` für Provider-Admins,
+  deren Rolle im Provider-Team alle Mandanten umfasst, sonst 403 "Every tenant required"; im
+  Web die eigene Seite `/statistics/all` im Abschnitt Installation, während Übersicht ›
+  Statistik immer nur den aktiven Mandanten zeigt), `dashboard.allTenants` (Provider-Ansicht des Dashboards),
   `reports.timed` (zeitgesteuerte Berichte), `providerTeam.tenantScope` (Mitglieder des
   Provider-Teams auf ausgewählte Mandanten beschränken; ohne sie hat jedes Mitglied alle
   Mandanten, eine schon gespeicherte Beschränkung bleibt bestehen und wirkt weiter). Ohne
