@@ -18,12 +18,32 @@ import {
   overrideGroupsSet,
   overridesDraftOf,
   overridesOfDraft,
+  retentionReduction,
   scheduleKeyOf,
   scopeChanged,
   settingsDraftOf,
   settingsOfDraft,
   updateInputOf,
 } from "./form.js";
+
+describe("a stricter machine retention", () => {
+  const before = { keepDaily: 30, keepWeekly: 12, keepMonthly: 12 };
+  it("says how many restore points of each kind fewer each machine keeps", () => {
+    const draft = { ...settingsDraftOf({}, before), retentionOwn: true, keepDaily: "7" };
+    expect(retentionReduction(before, draft)).toEqual({
+      keepDaily: 23,
+      keepWeekly: 0,
+      keepMonthly: 0,
+    });
+  });
+
+  it("is nothing when no value goes down or each machine keeps its own", () => {
+    const longer = { ...settingsDraftOf({}, before), retentionOwn: true, keepDaily: "60" };
+    expect(retentionReduction(before, longer)).toBeNull();
+    const own = { ...settingsDraftOf({}, before), retentionOwn: false, keepDaily: "1" };
+    expect(retentionReduction(before, own)).toBeNull();
+  });
+});
 
 describe("schedules", () => {
   it("turns the cadence of the form into a mail schedule: an interval or a cron expression", () => {

@@ -1,3 +1,4 @@
+import type { JobState } from "@/features/backup-jobs/api";
 import type { Failure } from "@/features/failures/api";
 import type { JobPhase, JobThrottle } from "@/features/jobs/api";
 import { apiFetch } from "@/lib/api";
@@ -194,7 +195,7 @@ export interface BackupJobLive {
   id: string;
   kind: "mail" | "endpoint";
   enabled: boolean;
-  state: "paused" | "failing" | "running" | "queued" | "attention" | "empty" | "ok";
+  state: JobState;
   scope: { count: number; byKind: Record<string, number>; overrides: number };
   lastRun: {
     at: string | null;

@@ -23,6 +23,7 @@ import {
 } from "@/features/backup-jobs/components/access-note";
 import { useAddJobMembers, useBackupJobs } from "@/features/backup-jobs/hooks";
 import { linkProps, newJobTo } from "@/features/backup-jobs/paths";
+import { describeJobSchedule } from "@/features/backup-jobs/presenters";
 import { type MemberConflict, conflictsOf, jobErrorKey } from "@/features/backup-jobs/problems";
 import { cn } from "@/lib/utils";
 
@@ -37,6 +38,11 @@ export interface AddToJobDialogProps {
   onOpenChange: (open: boolean) => void;
   /** The machines to add (one from a row, or every machine without backup from the banner). */
   endpoints: readonly JobCandidate[];
+  /**
+   * `mail`: the same dialog for protected objects (the directory's "Add to job"), with its texts
+   * from the directory and only the mail jobs that name their objects.
+   */
+  kind?: "endpoint" | "mail";
 }
 
 /**
@@ -46,11 +52,26 @@ export interface AddToJobDialogProps {
  * administrator put into a job meanwhile is moved only after "Move here", as in the job's own
  * "Add" sheet.
  */
-export function AddToJobDialog({ open, onOpenChange, endpoints }: AddToJobDialogProps) {
-  const { t } = useTranslation("endpoints");
+export function AddToJobDialog({
+  open,
+  onOpenChange,
+  endpoints,
+  kind = "endpoint",
+}: AddToJobDialogProps) {
+  const { t } = useTranslation(kind === "mail" ? "directory" : "endpoints");
+  const { t: tJobs, i18n } = useTranslation("backupjobs");
+  const { t: tSchedules } = useTranslation("schedules");
+  const scheduleCtx = {
+    t: tJobs,
+    tSchedules,
+    language: i18n.resolvedLanguage ?? i18n.language,
+  };
   const access = useJobsAccess();
-  const jobs = useBackupJobs("endpoint");
-  const items = jobs.data?.items ?? [];
+  const jobs = useBackupJobs(kind);
+  // A mail job over "all objects" takes whatever no other job has: nothing is added to it.
+  const items = (jobs.data?.items ?? []).filter(
+    (job) => kind === "endpoint" || job.scopeMode === "selected",
+  );
   const [jobId, setJobId] = React.useState<string>("");
   const [conflicts, setConflicts] = React.useState<MemberConflict[] | null>(null);
   const [error, setError] = React.useState<unknown>(null);
@@ -131,7 +152,7 @@ export function AddToJobDialog({ open, onOpenChange, endpoints }: AddToJobDialog
               <Link
                 {...linkProps(
                   newJobTo(
-                    "endpoint",
+                    kind,
                     endpoints.map((endpoint) => endpoint.id),
                   ),
                 )}
@@ -171,7 +192,18 @@ export function AddToJobDialog({ open, onOpenChange, endpoints }: AddToJobDialog
                         <span className="block truncate text-sm font-medium">{job.name}</span>
                         <span className="block text-xs text-muted-foreground">
                           {t("addToJob.machines", { count: job.scope.count })}
+                          {" · "}
+                          {describeJobSchedule(job.schedule, scheduleCtx)}
                         </span>
+                        {job.settings.paths && job.settings.paths.length > 0 ? (
+                          <span
+                            className="block truncate text-xs text-muted-foreground"
+                            title={job.settings.paths.join(", ")}
+                            data-slot="add-to-job-folders"
+                          >
+                            {t("addToJob.folders", { path: job.settings.paths.join(", ") })}
+                          </span>
+                        ) : null}
                       </span>
                     </Label>
                   );

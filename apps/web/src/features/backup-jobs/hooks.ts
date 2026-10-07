@@ -135,11 +135,11 @@ export function useJobRuns(jobId: string, limit: number, enabled = true) {
 }
 
 /** The recommended values of a new job of this kind, and the choices of the editor. */
-export function useJobDefaults(kind: JobKind, enabled = true) {
+export function useJobDefaults(kind: JobKind, enabled = true, endpointIds: readonly string[] = []) {
   const scope = useJobsScope();
   return useQuery({
-    queryKey: backupJobKeys.defaults(scope.tenantId, kind),
-    queryFn: () => fetchJobDefaults(kind),
+    queryKey: backupJobKeys.defaults(scope.tenantId, kind, endpointIds),
+    queryFn: () => fetchJobDefaults(kind, endpointIds),
     enabled: scope.enabled && enabled,
     retry: false,
     staleTime: 60_000,

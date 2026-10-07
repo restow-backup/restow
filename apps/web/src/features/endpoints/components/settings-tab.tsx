@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { useConfirmIdentity } from "@/components/confirm-identity-dialog";
 import { Field, messageId } from "@/components/forms/field";
+import { ConfirmDialog } from "@/components/kit/confirm-dialog";
 import { ReadOnlyGroup } from "@/components/kit/read-only-group";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -30,7 +31,7 @@ import { browserTimeZone } from "@/features/schedules/presenters";
 import { isRecentSignInRequired } from "@/lib/recent-sign-in";
 import { cn } from "@/lib/utils";
 
-import { type EndpointDetail, LIMITS, type ScheduleKind } from "../api.js";
+import { type EndpointDetail, LIMITS, type Retention, type ScheduleKind } from "../api.js";
 import { useEndpointFormat, useUpdateEndpoint } from "../hooks.js";
 import { endpointErrorKey, endpointName, isWithoutBackup } from "../presenters.js";
 import {
@@ -43,6 +44,7 @@ import {
   checkDraft,
   draftFromDetail,
   hasProblems,
+  stricterRetention,
 } from "../settings-form.js";
 import { AssignmentField } from "./assign-dialog.js";
 import { DangerZone } from "./danger-zone.js";
@@ -459,6 +461,10 @@ export function SettingsTab({ detail }: { detail: EndpointDetail }) {
   const identity = useConfirmIdentity();
   const problemText = useProblemText();
   const [attempted, setAttempted] = React.useState(false);
+  const [stricter, setStricter] = React.useState<{
+    less: Retention;
+    patch: NonNullable<ReturnType<typeof buildPatch>>;
+  } | null>(null);
   const revoked = detail.status === "revoked";
   const disabled = revoked || update.isPending;
   const profile = detail.profile;
@@ -500,6 +506,12 @@ export function SettingsTab({ detail }: { detail: EndpointDetail }) {
   const save = () => {
     setAttempted(true);
     if (!patch || hasProblems(problems)) {
+      return;
+    }
+    // A stricter retention removes restore points for good: say how many, ask first.
+    const less = stricterRetention(detail.settings.retention, patch.settings?.retention);
+    if (less) {
+      setStricter({ less, patch });
       return;
     }
     submit(patch);
@@ -915,6 +927,36 @@ export function SettingsTab({ detail }: { detail: EndpointDetail }) {
             <DangerZone detail={detail} />
           </Anchored>
         </div>
+        <ConfirmDialog
+          open={stricter !== null}
+          onOpenChange={(next) => {
+            if (!next) setStricter(null);
+          }}
+          title={t("settings.retention.stricter.title")}
+          description={
+            <>
+              <p>{t("settings.retention.stricter.description")}</p>
+              <ul className="list-disc pl-5" data-slot="stricter-list">
+                {(["keepDaily", "keepWeekly", "keepMonthly"] as const)
+                  .filter((field) => (stricter?.less[field] ?? 0) > 0)
+                  .map((field) => (
+                    <li key={field}>
+                      {t(`settings.retention.stricter.${field}`, {
+                        count: stricter?.less[field] ?? 0,
+                      })}
+                    </li>
+                  ))}
+              </ul>
+            </>
+          }
+          confirmLabel={t("settings.retention.stricter.confirm")}
+          destructive
+          onConfirm={() => {
+            const pending = stricter;
+            setStricter(null);
+            if (pending) submit(pending.patch);
+          }}
+        />
         {identity.dialog}
       </div>
     </div>

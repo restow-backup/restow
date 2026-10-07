@@ -35,7 +35,7 @@
   "activity": {
     "backup": "Sicherung läuft",
     "restore": "Wiederherstellung läuft",
-    "verify_sample": "Wiederherstellungstest läuft",
+    "verify_sample": "Restore-Prüfung läuft",
     "busy": "Arbeitet"
   },
   "readiness": {
@@ -47,12 +47,15 @@
       "no_backup": "Noch keine Sicherung"
     },
     "overdue": "Überfällig",
-    "overdueHint": "Die neueste Sicherung wurde seit über einer Woche nicht durch einen Wiederherstellungstest geprüft."
+    "overdueHint": "Die neueste Sicherung wurde seit über einer Woche nicht durch eine Restore-Prüfung geprüft.",
+    "frozen": "Geprüft {time}; es kommen keine neuen Sicherungen hinzu",
+    "frozenUndated": "Alter Sicherungsstand; es kommen keine neuen Sicherungen hinzu",
+    "frozenHint": "Der Rechner ist in keinem Backup-Job. Die Bewertung gilt für einen älteren Sicherungsstand, den nichts mehr erneuert."
   },
   "runKind": {
     "backup": "Sicherung",
     "restore": "Wiederherstellung auf den Rechner",
-    "verify_sample": "Wiederherstellungstest auf dem Rechner"
+    "verify_sample": "Restore-Prüfung auf dem Rechner"
   },
   "runStatus": {
     "running": "Läuft",
@@ -82,9 +85,9 @@
       "message": "Der letzte Sicherungslauf ist fehlgeschlagen und hat nichts Neues gesichert. Öffnen Sie den Lauf unter Läufe, um Protokoll und Fehler zu lesen."
     },
     "restore_test_failed": {
-      "label": "Wiederherstellungstest fehlgeschlagen",
-      "hint": "Dateien der neuesten Sicherung kamen im Wiederherstellungstest nicht unversehrt zurück.",
-      "message": "Ein Wiederherstellungstest der neuesten Sicherung ist fehlgeschlagen: Stichproben-Dateien ließen sich nicht zurücklesen oder stimmten nicht überein. Bis ein Test besteht, gilt diese Sicherung als nicht wiederherstellbar. Die Abweichungen stehen unter Berichte."
+      "label": "Restore-Prüfung fehlgeschlagen",
+      "hint": "Dateien der neuesten Sicherung kamen in der Restore-Prüfung nicht unversehrt zurück.",
+      "message": "Eine Restore-Prüfung der neuesten Sicherung ist fehlgeschlagen: Stichproben-Dateien ließen sich nicht zurücklesen oder stimmten nicht überein. Bis eine Restore-Prüfung besteht, gilt diese Sicherung als nicht wiederherstellbar. Die Abweichungen stehen unter Berichte."
     },
     "repository_damaged": {
       "label": "Repository beschädigt",
@@ -137,7 +140,9 @@
       "noRestorePoint": "Für diesen Rechner gibt es noch keine Sicherung, aus der Sie wiederherstellen könnten.",
       "revoked": "Der Rechner ist gesperrt.",
       "newJobFromSelection": "{count, plural, one {Neuer Job mit # Rechner} other {Neuer Job mit # Rechnern}}",
-      "addSelectionToJob": "{count, plural, one {# Rechner zu einem Job hinzufügen…} other {# Rechner zu einem Job hinzufügen…}}"
+      "addSelectionToJob": "{count, plural, one {# Rechner zu einem Job hinzufügen…} other {# Rechner zu einem Job hinzufügen…}}",
+      "backupSelection": "{count, plural, one {# Rechner jetzt sichern} other {# Rechner jetzt sichern}}",
+      "backupSelectionNoJob": "Keiner der ausgewählten Rechner ist in einem Backup-Job."
     },
     "jobFilter": {
       "without": "Ohne Backup",
@@ -157,11 +162,11 @@
       },
       "servers": {
         "title": "Noch keine Server",
-        "description": "Fügen Sie einen Linux-Server hinzu: {appName} erzeugt einen einmaligen Befehl, der den Backup-Agent installiert und den Server verbindet. Danach wird er täglich gesichert."
+        "description": "Fügen Sie einen Linux- oder macOS-Server hinzu: {appName} erzeugt einen einmaligen Befehl, der den Backup-Agenten installiert und den Server verbindet. Gesichert wird er, sobald Sie ihn einem Backup-Job hinzufügen."
       },
       "clients": {
         "title": "Noch keine Clients",
-        "description": "Fügen Sie einen Laptop oder Desktop hinzu: {appName} erzeugt einen einmaligen Befehl, der den Backup-Agent installiert. Der Client wird gesichert, sobald er online ist."
+        "description": "Fügen Sie einen Laptop oder Desktop hinzu: {appName} erzeugt einen einmaligen Befehl, der den Backup-Agenten installiert. Gesichert wird der Client, sobald Sie ihn einem Backup-Job hinzufügen."
       }
     }
   },
@@ -188,7 +193,8 @@
     "submit": "Hinzufügen",
     "move": "Hierher verschieben",
     "added": "{count, plural, one {{name} ist jetzt im Job {job}} other {# Rechner sind jetzt im Job {job}}}",
-    "addedNote": "Der Zeitplan des Jobs gilt ab dem nächsten Kontakt des Rechners."
+    "addedNote": "Der Zeitplan des Jobs gilt ab dem nächsten Kontakt des Rechners.",
+    "folders": "Ordner: {path}"
   },
   "assign": {
     "action": "Zuordnen…",
@@ -300,6 +306,11 @@
         "description": "Die Adresse {url} im Befehl stammt aus diesem Browser, weil keine öffentliche URL konfiguriert ist. Der Rechner muss genau diese Adresse erreichen können.",
         "link": "Öffentliche URL in den Einstellungen setzen",
         "elsewhere": "Die öffentliche Adresse legt der Betreiber dieser Installation fest."
+      },
+      "storage": {
+        "title": "Der Speicherort ist gestört",
+        "description": "Sie können den Rechner anmelden, aber seine Sicherungen lassen sich nicht schreiben, bis der Fehler des Speicherorts behoben ist.",
+        "link": "Speicherorte öffnen"
       }
     },
     "status": {
@@ -376,7 +387,7 @@
     "revokedBanner": "Dieser Rechner ist gesperrt. Er nimmt keine neuen Sicherungen oder Aufgaben an, und seine Einstellungen lassen sich nicht ändern. Vorhandene Sicherungen bleiben wiederherstellbar: Sie können sie durchsuchen und Dateien als ZIP herunterladen.",
     "tabs": {
       "overview": "Übersicht",
-      "snapshots": "Snapshots",
+      "snapshots": "Sicherungsstände",
       "settings": "Einstellungen"
     }
   },
@@ -390,13 +401,14 @@
       "needsJob": "Fügen Sie den Rechner zuerst einem Backup-Job hinzu."
     },
     "test": {
-      "label": "Wiederherstellungstest starten",
-      "queued": "Wiederherstellungstest eingeplant",
+      "label": "Restore-Prüfung starten",
+      "queued": "Restore-Prüfung eingeplant",
       "queuedNote": "{appName} liest Stichproben-Dateien der neuesten Sicherung zurück und vergleicht ihre Prüfsummen. Das Ergebnis erscheint unter Berichte.",
-      "already": "Für diesen Rechner ist bereits ein Wiederherstellungstest eingeplant oder aktiv.",
-      "failed": "Der Wiederherstellungstest konnte nicht gestartet werden",
-      "needsBackup": "Ein Wiederherstellungstest braucht zuerst eine erfolgreiche Sicherung."
-    }
+      "already": "Für diesen Rechner wartet bereits eine Restore-Prüfung oder sie läuft gerade.",
+      "failed": "Die Restore-Prüfung konnte nicht gestartet werden",
+      "needsBackup": "Eine Restore-Prüfung braucht zuerst eine erfolgreiche Sicherung."
+    },
+    "revoked": "Der Rechner ist gesperrt."
   },
   "facts": {
     "title": "Dieser Rechner",
@@ -438,7 +450,7 @@
     "notMeasured": "Noch nicht gemessen; erscheint mit der ersten Sicherung",
     "lastRetention": "Letzter Aufbewahrungslauf",
     "lastCheck": "Letzte Repository-Prüfung",
-    "lastRestoreTest": "Letzter Wiederherstellungstest",
+    "lastRestoreTest": "Letzte Restore-Prüfung",
     "retention": "Aufbewahrt werden {daily} tägliche, {weekly} wöchentliche und {monthly} monatliche Snapshots. Ältere entfernt nur der Server; der Agent kann Sicherungen hinzufügen, aber nie löschen.",
     "ofBudget": "{used} von {budget} ({percent} %)",
     "budget": "Speicherbudget",
@@ -459,7 +471,7 @@
     "kind": {
       "backup_now": "Jetzt sichern",
       "restore": "Wiederherstellung",
-      "verify_sample": "Wiederherstellungstest",
+      "verify_sample": "Restore-Prüfung",
       "update_config": "Neue Einstellungen anwenden",
       "uninstall": "Agent deinstallieren"
     },
@@ -481,7 +493,7 @@
   },
   "runs": {
     "title": "Läufe",
-    "description": "Was der Agent auf diesem Rechner getan hat: Sicherungen, Wiederherstellungen und Wiederherstellungstests, neueste zuerst. Ein Lauf zeigt sein Protokoll und die Dateien, die er nicht lesen konnte.",
+    "description": "Was der Agent auf diesem Rechner getan hat: Sicherungen, Wiederherstellungen und Restore-Prüfungen, neueste zuerst. Ein Lauf zeigt sein Protokoll und die Dateien, die er nicht lesen konnte.",
     "empty": "Noch kein Lauf gemeldet. Der erste erscheint, sobald der Rechner eine Sicherung gestartet hat.",
     "unknown": "Unbekannt",
     "columns": {
@@ -538,16 +550,16 @@
       "empty": "Der Agent hat für diesen Lauf kein Protokoll gesendet."
     },
     "interruptedNote": "Der Agent wurde während dieses Laufs neu gestartet und nimmt die Arbeit von selbst wieder auf. Das ist kein Fehler; Sie müssen nichts tun.",
-    "incompleteNote": "Dieser Wiederherstellungstest konnte nicht abgeschlossen werden und sagt daher nichts über die Sicherung aus: Nichts wurde bewertet, kein Alarm ging hinaus, und der letzte Wiederherstellungstest bleibt, wie er war. Der Rechner bekommt den Test nach einer Wartezeit erneut, solange diese Sicherung seine neueste ist; sonst bringt die nächste Sicherung einen neuen Test.",
-    "incompleteNoteFinal": "Dieser Wiederherstellungstest konnte nicht abgeschlossen werden und sagt daher nichts über die Sicherung aus: Nichts wurde bewertet, und kein Alarm ging hinaus. Der Rechner ist gesperrt und bekommt keine weiteren Tests.",
+    "incompleteNote": "Diese Restore-Prüfung konnte nicht abgeschlossen werden und sagt daher nichts über die Sicherung aus: Nichts wurde bewertet, kein Alarm ging hinaus, und die letzte Restore-Prüfung bleibt, wie sie war. Der Rechner bekommt die Prüfung nach einer Wartezeit erneut, solange diese Sicherung seine neueste ist; sonst bringt die nächste Sicherung eine neue Prüfung.",
+    "incompleteNoteFinal": "Diese Restore-Prüfung konnte nicht abgeschlossen werden und sagt daher nichts über die Sicherung aus: Nichts wurde bewertet, und kein Alarm ging hinaus. Der Rechner ist gesperrt und bekommt keine weiteren Restore-Prüfungen.",
     "errorCount": "{count, plural, one {# Fehler} other {# Fehler}}"
   },
   "reports": {
     "title": "Berichte",
-    "description": "Was {appName} über das Repository herausgefunden hat: Wiederherstellungstests, Repository-Prüfungen und Aufbewahrungsläufe.",
-    "empty": "Noch kein Bericht. Wiederherstellungstests, Repository-Prüfungen und Aufbewahrungsläufe erscheinen hier.",
+    "description": "Was {appName} über das Repository herausgefunden hat: Restore-Prüfungen, Repository-Prüfungen und Aufbewahrungsläufe.",
+    "empty": "Noch kein Bericht. Restore-Prüfungen, Repository-Prüfungen und Aufbewahrungsläufe erscheinen hier.",
     "kind": {
-      "restore_test": "Wiederherstellungstest",
+      "restore_test": "Restore-Prüfung",
       "repository_check": "Repository-Prüfung",
       "retention": "Aufbewahrungslauf"
     },
@@ -582,7 +594,7 @@
     }
   },
   "snapshots": {
-    "title": "Wiederherstellungspunkte",
+    "title": "Sicherungsstände",
     "description": "{count, plural, one {# Snapshot im Repository. Wählen Sie einen, um seine Dateien zu durchsuchen.} other {# Snapshots im Repository. Wählen Sie einen, um seine Dateien zu durchsuchen.}}",
     "files": "{count, plural, one {# Datei} other {# Dateien}}",
     "errorTitle": "Die Snapshots konnten nicht gelesen werden",
@@ -605,7 +617,7 @@
     "root": "Snapshot-Wurzel",
     "pick": {
       "title": "Snapshot wählen",
-      "description": "Wählen Sie links einen Wiederherstellungspunkt, um seine Ordner und Dateien zu durchsuchen."
+      "description": "Wählen Sie links einen Sicherungsstand, um seine Ordner und Dateien zu durchsuchen."
     },
     "columns": {
       "name": "Name",
@@ -788,12 +800,20 @@
     },
     "retention": {
       "title": "Aufbewahrung",
-      "description": "Wie viele Snapshots aufbewahrt werden.",
-      "keepDaily": "Tägliche Snapshots",
-      "keepWeekly": "Wöchentliche Snapshots",
-      "keepMonthly": "Monatliche Snapshots",
+      "description": "Wie viele Sicherungsstände aufbewahrt werden.",
+      "keepDaily": "Tägliche Sicherungsstände",
+      "keepWeekly": "Wöchentliche Sicherungsstände",
+      "keepMonthly": "Monatliche Sicherungsstände",
       "default": "Standard: {count}",
-      "note": "Der Server wendet diese Regeln an und entfernt ältere Snapshots; der Agent kann Sicherungen nur hinzufügen, nie löschen. Ein niedrigerer Wert entfernt ältere Snapshots beim nächsten Aufbewahrungslauf endgültig."
+      "note": "Der Server wendet diese Regeln an und entfernt ältere Snapshots; der Agent kann Sicherungen nur hinzufügen, nie löschen. Ein niedrigerer Wert entfernt ältere Snapshots beim nächsten Aufbewahrungslauf endgültig.",
+      "stricter": {
+        "title": "Aufbewahrung verkürzen?",
+        "description": "Der nächste Aufbewahrungslauf entfernt ältere Sicherungsstände dieses Rechners endgültig, bis zu:",
+        "keepDaily": "{count, plural, one {# täglichen Sicherungsstand} other {# tägliche Sicherungsstände}}",
+        "keepWeekly": "{count, plural, one {# wöchentlichen Sicherungsstand} other {# wöchentliche Sicherungsstände}}",
+        "keepMonthly": "{count, plural, one {# monatlichen Sicherungsstand} other {# monatliche Sicherungsstände}}",
+        "confirm": "Verkürzen und speichern"
+      }
     },
     "alerts": {
       "title": "Alarme",
@@ -938,9 +958,9 @@
     "open": "Öffnen",
     "openFor": "{name} öffnen",
     "result": {
-      "green": "Der Restore-Test der neuesten Sicherung hat jede geprüfte Datei bestätigt.",
-      "yellow": "Der Restore-Test wurde bestanden, aber die neueste Sicherung ist unvollständig: einige Dateien ließen sich nicht lesen.",
-      "red": "Der Restore-Test der neuesten Sicherung ist fehlgeschlagen, oder eine Repository-Prüfung hat Schäden gefunden.",
+      "green": "Die Restore-Prüfung der neuesten Sicherung hat jede geprüfte Datei bestätigt.",
+      "yellow": "Die Restore-Prüfung wurde bestanden, aber die neueste Sicherung ist unvollständig: einige Dateien ließen sich nicht lesen.",
+      "red": "Die Restore-Prüfung der neuesten Sicherung ist fehlgeschlagen, oder eine Repository-Prüfung hat Schäden gefunden.",
       "unverified": "Eine Sicherung ist vorhanden, wurde aber nie geprüft.",
       "noBackup": "Nichts zu prüfen, bis die erste Sicherung abgeschlossen ist.",
       "noBackupOverdue": "Keine Sicherung innerhalb von 24 Stunden nach Beginn des Schutzes."

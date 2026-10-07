@@ -373,6 +373,27 @@ function hooksOf(draft: SettingsDraft): { pre?: string; post?: string } {
   return { ...(pre ? { pre } : {}), ...(post ? { post } : {}) };
 }
 
+/**
+ * How much stricter a machine retention gets: per kind, how many restore points fewer each
+ * machine keeps (the most the next retention run removes because of the change). Null when no
+ * value goes down, or the draft leaves each machine its own retention.
+ */
+export function retentionReduction(
+  before: JobRetention,
+  draft: SettingsDraft,
+): JobRetention | null {
+  if (!draft.retentionOwn) {
+    return null;
+  }
+  const after = retentionOf(draft);
+  const less = {
+    keepDaily: Math.max(0, before.keepDaily - after.keepDaily),
+    keepWeekly: Math.max(0, before.keepWeekly - after.keepWeekly),
+    keepMonthly: Math.max(0, before.keepMonthly - after.keepMonthly),
+  };
+  return less.keepDaily + less.keepWeekly + less.keepMonthly > 0 ? less : null;
+}
+
 function retentionOf(draft: SettingsDraft): JobRetention {
   return {
     keepDaily: wholeNumber(draft.keepDaily) ?? 0,

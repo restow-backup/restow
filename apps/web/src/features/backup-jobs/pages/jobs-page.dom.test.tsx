@@ -245,6 +245,28 @@ describe("the list of mail jobs", () => {
     const dialog = document.querySelector('[role="alertdialog"]');
     expect(dialog?.textContent).toContain("Delete OneDrive, nightly?");
     expect(dialog?.textContent).toContain("6 OneDrives will no longer be backed up on a schedule");
+    // What becomes of the restore points that exist: they stay.
+    expect(dialog?.textContent).toContain("Existing restore points are not deleted");
+  });
+
+  it("names objects in paused or manual jobs apart from those in no job, with a way to them", async () => {
+    opened = await openJobs(
+      "/jobs?type=mail",
+      mailRoutes({
+        routes: {
+          "GET /backup-jobs": () =>
+            json(list([ALL], { mail: 2, endpoint: 0 }, { mail: 4, endpoint: 0 })),
+        },
+      }),
+    );
+    await flush(5);
+    expect(slot("uncovered-notice")?.textContent).toContain("2 protected objects are in no job");
+    const unscheduled = slot("unscheduled-notice");
+    expect(unscheduled?.textContent).toContain("4 protected objects are in paused jobs");
+    expect(unscheduled?.querySelector("a")?.getAttribute("href")).toContain("job=unscheduled");
+    expect(slot("uncovered-notice")?.querySelector("a")?.getAttribute("href")).toContain(
+      "job=none",
+    );
   });
 
   it("warns about what no job covers and opens the editor with nothing preselected", async () => {

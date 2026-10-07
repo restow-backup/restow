@@ -145,7 +145,8 @@
     "orphaned": "No longer in the source directory",
     "source_pending": "Source not connected yet",
     "source_disabled": "Source disabled",
-    "already_queued": "Already queued"
+    "waiting": "Waiting to start",
+    "running": "Running now"
   },
   "jobs": {
     "title": "History",

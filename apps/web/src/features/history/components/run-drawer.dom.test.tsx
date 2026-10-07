@@ -202,14 +202,15 @@ describe("the run drawer opened by an address", () => {
     expect(labels).toContain("Cancel run");
     expect(labels).toContain("Edit job");
     expect(labels).toContain("Open in History");
-    expect(labels).not.toContain("Run now");
+    expect(labels.some((label) => label?.endsWith("now"))).toBe(false);
     await opened?.mounted.unmount();
     opened = null;
     await open(RUN_IDS.mailDone);
     const after = [...(dialog()?.querySelectorAll("button, a") ?? [])].map((node) =>
       node.textContent?.trim(),
     );
-    expect(after).toContain("Run now");
+    // A run of one object in a job backs up that object again, not the whole job.
+    expect(after.some((label) => /^Back up .+ now$/.test(label ?? ""))).toBe(true);
     expect(after).not.toContain("Cancel run");
     // The restore check that passed is green, and the only green in the drawer.
     expect(dialog()?.querySelector('[data-check="passed"]')).not.toBeNull();

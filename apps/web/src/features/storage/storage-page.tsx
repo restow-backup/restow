@@ -1,17 +1,9 @@
-import {
-  Building,
-  ChevronDown,
-  Cloud,
-  CopyPlus,
-  HardDrive,
-  Plus,
-  RefreshCw,
-  ShieldAlert,
-} from "lucide-react";
+import { Building, ChevronDown, Cloud, CopyPlus, HardDrive, Plus, ShieldAlert } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/error-state";
+import { RefreshButton } from "@/components/kit";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -69,16 +61,11 @@ export function StoragePage() {
     >
       {tenantId && canManage ? (
         <>
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => void query.refetch()}
-            disabled={query.isFetching}
-            aria-label={tc("actions.refresh")}
-            title={tc("actions.refresh")}
-          >
-            <RefreshCw className={query.isFetching ? "animate-spin" : undefined} />
-          </Button>
+          <RefreshButton
+            label={tc("actions.refresh")}
+            fetching={query.isFetching}
+            onRefresh={() => void query.refetch()}
+          />
           <AddTargetMenu
             canManageLocal={query.data?.canManageLocal ?? false}
             onSelect={(storageKind) => setDialog({ kind: "create", storageKind })}

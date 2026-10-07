@@ -160,6 +160,10 @@ describe("state, runs and the next run", () => {
     expect(stateView("running")).toMatchObject({ tone: "info", live: true });
     expect(stateView("ok")).toMatchObject({ tone: "neutral", key: "ok" });
     expect(stateView("queued")).toMatchObject({ tone: "muted", key: "queued", live: false });
+    // A job that backs up nothing on its own never reads as the neutral "Active".
+    expect(stateView("manual")).toMatchObject({ tone: "warning", key: "manual" });
+    expect(stateView("overdue")).toMatchObject({ tone: "warning", key: "overdue" });
+    expect(stateView("storage_error")).toMatchObject({ tone: "destructive", key: "storage_error" });
     expect(stateView("failing").tone).toBe("destructive");
     expect(stateView("attention").tone).toBe("warning");
     expect(stateView("paused").tone).toBe("muted");
@@ -219,7 +223,14 @@ describe("state, runs and the next run", () => {
       nextRunAt: "2026-10-03T00:00:00Z",
       scope: { count: 5, byKind: {}, overrides: 0 },
     };
-    expect(nextRunView(base)).toEqual({ kind: "at", at: "2026-10-03T00:00:00Z" });
+    const now = Date.parse("2026-10-02T12:00:00Z");
+    expect(nextRunView(base, now)).toEqual({ kind: "at", at: "2026-10-03T00:00:00Z" });
+    // Long past: overdue, not a plain "3 days ago"; a little late is not.
+    expect(nextRunView({ ...base, nextRunAt: "2026-09-29T00:00:00Z" }, now)).toEqual({
+      kind: "overdue",
+      at: "2026-09-29T00:00:00Z",
+    });
+    expect(nextRunView({ ...base, nextRunAt: "2026-10-02T11:30:00Z" }, now).kind).toBe("at");
     expect(nextRunView({ ...base, enabled: false })).toEqual({ kind: "paused" });
     expect(nextRunView({ ...base, nextRunAt: null, schedule: null })).toEqual({ kind: "manual" });
     expect(
@@ -262,24 +273,17 @@ describe("state, runs and the next run", () => {
 
   it("words the toast of a run request: waiting is not nothing started", () => {
     const skipped = (reason: SkipReason) => ({ targetId: "m1", name: "m1", reason });
-    expect(runOutcomeView("endpoint", { queued: 1, skipped: [skipped("already_queued")] })).toBe(
-      "queued",
-    );
-    expect(runOutcomeView("endpoint", { queued: 0, skipped: [skipped("already_queued")] })).toBe(
-      "waiting",
-    );
+    expect(runOutcomeView({ queued: 1, skipped: [skipped("already_queued")] })).toBe("queued");
+    expect(runOutcomeView({ queued: 0, skipped: [skipped("already_queued")] })).toBe("waiting");
     expect(
-      runOutcomeView("endpoint", {
+      runOutcomeView({
         queued: 0,
         skipped: [skipped("already_queued"), skipped("revoked")],
       }),
     ).toBe("nothing");
-    expect(runOutcomeView("endpoint", { queued: 0, skipped: [skipped("revoked")] })).toBe(
-      "nothing",
-    );
-    expect(runOutcomeView("mail", { queued: 0, skipped: [skipped("already_queued")] })).toBe(
-      "nothing",
-    );
+    expect(runOutcomeView({ queued: 0, skipped: [skipped("revoked")] })).toBe("nothing");
+    expect(runOutcomeView({ queued: 0, skipped: [skipped("already_queued")] })).toBe("waiting");
+    expect(runOutcomeView({ queued: 0, skipped: [skipped("excluded")] })).toBe("nothing");
   });
 
   it("names the tone of a member's last backup only when it needs a word", () => {

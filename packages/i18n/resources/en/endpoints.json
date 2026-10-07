@@ -47,7 +47,10 @@
       "no_backup": "No backup yet"
     },
     "overdue": "Overdue",
-    "overdueHint": "The newest backup has not been checked by a restore test for more than a week."
+    "overdueHint": "The newest backup has not been checked by a restore test for more than a week.",
+    "frozen": "Checked {time}; no new backups are added",
+    "frozenUndated": "Old restore point; no new backups are added",
+    "frozenHint": "The machine is in no backup job. The rating is for an older restore point that nothing renews."
   },
   "runKind": {
     "backup": "Backup",
@@ -137,7 +140,9 @@
       "noRestorePoint": "The machine has no backup to restore from yet.",
       "revoked": "The machine is revoked.",
       "newJobFromSelection": "{count, plural, one {New job with # machine} other {New job with # machines}}",
-      "addSelectionToJob": "{count, plural, one {Add # machine to a job…} other {Add # machines to a job…}}"
+      "addSelectionToJob": "{count, plural, one {Add # machine to a job…} other {Add # machines to a job…}}",
+      "backupSelection": "{count, plural, one {Back up # machine now} other {Back up # machines now}}",
+      "backupSelectionNoJob": "None of the chosen machines is in a backup job."
     },
     "jobFilter": {
       "without": "Without backup",
@@ -157,11 +162,11 @@
       },
       "servers": {
         "title": "No servers yet",
-        "description": "Add a Linux server: {appName} creates a one-time command that installs the backup agent and connects the server. It is then backed up every day."
+        "description": "Add a Linux or macOS server: {appName} creates a one-time command that installs the backup agent and connects the server. It is backed up once you add it to a backup job."
       },
       "clients": {
         "title": "No clients yet",
-        "description": "Add a laptop or desktop: {appName} creates a one-time command that installs the backup agent. The client is backed up whenever it is online."
+        "description": "Add a laptop or desktop: {appName} creates a one-time command that installs the backup agent. The client is backed up once you add it to a backup job."
       }
     }
   },
@@ -188,7 +193,8 @@
     "submit": "Add",
     "move": "Move here",
     "added": "{count, plural, one {{name} is now in the job {job}} other {# machines are now in the job {job}}}",
-    "addedNote": "The job's schedule applies from the machine's next contact."
+    "addedNote": "The job's schedule applies from the machine's next contact.",
+    "folders": "Folders: {path}"
   },
   "assign": {
     "action": "Assign to…",
@@ -300,6 +306,11 @@
         "description": "The address {url} in the command was taken from this browser, because no public URL is configured. The machine must be able to reach exactly this address.",
         "link": "Set the public URL in the settings",
         "elsewhere": "Whoever runs this installation sets the public address."
+      },
+      "storage": {
+        "title": "The storage location is failing",
+        "description": "You can enroll the machine, but its backups cannot be written until the storage location's fault is fixed.",
+        "link": "Open storage locations"
       }
     },
     "status": {
@@ -390,13 +401,14 @@
       "needsJob": "Add the machine to a backup job first."
     },
     "test": {
-      "label": "Run restore test",
-      "queued": "Restore test queued",
+      "label": "Start restore check",
+      "queued": "Restore check scheduled",
       "queuedNote": "{appName} reads sample files of the newest backup back and compares their checksums. The result appears under Reports.",
-      "already": "A restore test is already queued or running for this machine.",
-      "failed": "The restore test could not be started",
-      "needsBackup": "A restore test needs a successful backup first."
-    }
+      "already": "A restore check for this machine is already waiting or running.",
+      "failed": "The restore check could not be started",
+      "needsBackup": "A restore check needs a successful backup first."
+    },
+    "revoked": "The machine is revoked."
   },
   "facts": {
     "title": "This machine",
@@ -793,7 +805,15 @@
       "keepWeekly": "Weekly snapshots",
       "keepMonthly": "Monthly snapshots",
       "default": "Default: {count}",
-      "note": "The server applies these rules and removes older snapshots; the agent can only add backups, never delete them. Lowering a number permanently removes older snapshots at the next retention run."
+      "note": "The server applies these rules and removes older snapshots; the agent can only add backups, never delete them. Lowering a number permanently removes older snapshots at the next retention run.",
+      "stricter": {
+        "title": "Shorten the retention?",
+        "description": "The next retention run removes older restore points of this machine for good, up to:",
+        "keepDaily": "{count, plural, one {# daily restore point} other {# daily restore points}}",
+        "keepWeekly": "{count, plural, one {# weekly restore point} other {# weekly restore points}}",
+        "keepMonthly": "{count, plural, one {# monthly restore point} other {# monthly restore points}}",
+        "confirm": "Shorten and save"
+      }
     },
     "alerts": {
       "title": "Alerts",

@@ -29,7 +29,9 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { useJobDefaults } from "@/features/backup-jobs/hooks";
 import { linkProps, newJobTo } from "@/features/backup-jobs/paths";
+import { activeTenantPageTo } from "@/lib/tenant-paths";
 import { cn } from "@/lib/utils";
 
 import {
@@ -192,6 +194,7 @@ function ChooseStep(props: EnrollViewProps) {
       <p className="text-sm text-muted-foreground" data-slot="enroll-job-note">
         {t("enroll.jobNote")}
       </p>
+      <EnrollStorageWarning />
 
       {props.error ? (
         <Alert variant="destructive">
@@ -580,5 +583,32 @@ export function EnrollDialog({
         setLabel("");
       }}
     />
+  );
+}
+
+/**
+ * A machine can be enrolled while the storage location fails its check, but nothing it backs up
+ * can be written there: say so before the command is made, with the way to the storage page.
+ */
+function EnrollStorageWarning() {
+  const { t } = useTranslation("endpoints");
+  const defaults = useJobDefaults("endpoint", useCanManageJobs());
+  if (defaults.data?.repository.status !== "error") {
+    return null;
+  }
+  return (
+    <Alert variant="warning" data-warning="storage_error">
+      <TriangleAlert />
+      <AlertTitle>{t("enroll.warnings.storage.title")}</AlertTitle>
+      <AlertDescription>
+        <p>{t("enroll.warnings.storage.description")}</p>
+        <Link
+          to={activeTenantPageTo("storage")}
+          className="font-medium underline underline-offset-4"
+        >
+          {t("enroll.warnings.storage.link")}
+        </Link>
+      </AlertDescription>
+    </Alert>
   );
 }

@@ -156,7 +156,25 @@ export const runBackupJobSchema = z.object({
 export type RunBackupJobInput = z.infer<typeof runBackupJobSchema>;
 
 export const listBackupJobsQuerySchema = z.object({ kind: jobKindSchema.optional() });
-export const defaultsQuerySchema = z.object({ kind: jobKindSchema });
+export const defaultsQuerySchema = z.object({
+  kind: jobKindSchema,
+  /**
+   * Machine jobs: the machines a new job starts with, comma-separated. The folders and the
+   * schedule then follow their operating systems and profiles (a Mac client is not a Linux server).
+   */
+  endpointIds: z
+    .string()
+    .optional()
+    .transform((value) =>
+      value
+        ? value
+            .split(",")
+            .map((part) => part.trim())
+            .filter(Boolean)
+        : [],
+    )
+    .pipe(z.array(uuid).max(500)),
+});
 export const candidatesQuerySchema = z.object({
   kind: jobKindSchema,
   q: z.string().trim().max(200).optional(),

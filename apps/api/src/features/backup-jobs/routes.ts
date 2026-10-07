@@ -109,8 +109,8 @@ export function buildBackupJobsRoutes(deps: BackupJobsRoutesDeps): Hono<TenantEn
 
   // Static paths before `/:id`, so they are never read as a job id.
   routes.get("/defaults", admin, async (c) => {
-    const { kind } = parseOrProblem(defaultsQuerySchema, c.req.query());
-    return c.json(await getDefaults(deps.db, c.get("tenantId"), kind));
+    const { kind, endpointIds } = parseOrProblem(defaultsQuerySchema, c.req.query());
+    return c.json(await getDefaults(deps.db, c.get("tenantId"), kind, { endpointIds }));
   });
 
   routes.get("/candidates", admin, async (c) => {

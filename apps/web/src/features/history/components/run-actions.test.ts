@@ -1,15 +1,24 @@
 import { describe, expect, it } from "vitest";
 
+import { ApiError } from "@/lib/api";
 import { agentRun, finished, run } from "../fixtures";
-import { retryable, runNowOf } from "./run-actions";
+
+import { isNoJobProblem, retryable, runNowOf } from "./run-actions";
 
 describe("what Run now does", () => {
-  it("runs the job a run belongs to", () => {
-    expect(runNowOf(run())).toEqual({
+  it("backs up the run's own object again through its job, not the whole job", () => {
+    const mail = run();
+    expect(runNowOf(mail)).toEqual({
       kind: "job",
-      job: { id: run().job?.id, name: "Mail backup" },
+      job: { id: mail.job?.id, name: "Mail backup" },
+      target: { id: mail.subject?.id, name: mail.subject?.name },
     });
-    expect(runNowOf(agentRun())?.kind).toBe("job");
+    const machine = agentRun();
+    expect(runNowOf(machine)).toMatchObject({ kind: "job", target: { id: machine.subject?.id } });
+  });
+
+  it("runs the whole job only for a run without a subject", () => {
+    expect(runNowOf(run({ subject: null }))).toMatchObject({ kind: "job", target: null });
   });
 
   it("backs up the object of a backup that belongs to no job", () => {
@@ -36,5 +45,18 @@ describe("what can be retried", () => {
     expect(retryable(run())).toBe(false);
     // An agent decides when it runs again.
     expect(retryable(agentRun({ state: "failed" }))).toBe(false);
+  });
+});
+
+describe("a machine backup refused for want of a job", () => {
+  it("is recognised by its problem type", () => {
+    const noJob = new ApiError(
+      409,
+      { type: "urn:restow:problem:endpoint-no-job", title: "No job", status: 409 },
+      "Conflict",
+    );
+    expect(isNoJobProblem(noJob)).toBe(true);
+    expect(isNoJobProblem(new ApiError(409, null, "Conflict"))).toBe(false);
+    expect(isNoJobProblem(new Error("x"))).toBe(false);
   });
 });

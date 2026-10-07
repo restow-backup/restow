@@ -7,8 +7,8 @@
     "failed": "Fehlgeschlagen"
   },
   "snapshot": {
-    "title": "Snapshots",
-    "empty": "Noch keine Snapshots vorhanden.",
+    "title": "Sicherungsstände",
+    "empty": "Noch keine Sicherungsstände vorhanden.",
     "created": "Erstellt am {date, date, medium}"
   },
   "health": {
@@ -31,7 +31,7 @@
     "storage_migration": "Speichermigration"
   },
   "jobStatus": {
-    "queued": "Wartend",
+    "queued": "Wartet",
     "active": "Läuft",
     "completed": "Abgeschlossen",
     "completedWithFailures": "{count, plural, one {Abgeschlossen, # Element fehlgeschlagen} other {Abgeschlossen, # Elemente fehlgeschlagen}}",
@@ -116,16 +116,16 @@
     "backupNowFullHint": "Liest alles erneut. Die Deduplizierung hält den Speicherbedarf gering, der Lauf dauert aber länger.",
     "backupAll": "Alle sichern",
     "backupAllTitle": "Alle geschützten Objekte sichern?",
-    "backupAllDescription": "Für jedes geschützte Objekt dieses Mandanten wird ein Backup-Job eingereiht. Objekte, die bereits eingereiht sind oder deren Quelle nicht verbunden ist, werden übersprungen.",
+    "backupAllDescription": "Für jedes geschützte Objekt dieses Mandanten wird eine Sicherung eingereiht. Objekte, die bereits eingereiht sind oder deren Quelle nicht verbunden ist, werden übersprungen.",
     "backupAllConfirm": "Backups einreihen",
-    "cancel": "Job abbrechen",
-    "cancelTitle": "Diesen Job abbrechen?",
-    "cancelDescription": "Ein laufender Job hält am nächsten Sicherungspunkt an. Bereits gespeicherte Elemente bleiben im Speicher; der Snapshot dieses Laufs wird nicht abgeschlossen.",
-    "cancelConfirm": "Job abbrechen",
+    "cancel": "Lauf abbrechen",
+    "cancelTitle": "Diesen Lauf abbrechen?",
+    "cancelDescription": "Der Lauf hält am nächsten Sicherungspunkt an. Bereits gespeicherte Elemente bleiben im Speicher; der Snapshot dieses Laufs wird nicht abgeschlossen.",
+    "cancelConfirm": "Lauf abbrechen",
     "keepRunning": "Weiterlaufen lassen",
     "retry": "Erneut ausführen",
-    "openJob": "Job öffnen",
-    "history": "Snapshot-Verlauf",
+    "openJob": "Lauf öffnen",
+    "history": "Verlauf der Sicherungsstände",
     "backToJobs": "Zum Verlauf",
     "loadMore": "Weitere laden",
     "clearFilters": "Filter zurücksetzen"
@@ -136,7 +136,7 @@
     "skipped": "{count, plural, one {# Objekt übersprungen} other {# Objekte übersprungen}}: bereits eingereiht oder nicht bereit.",
     "nothingQueued": "Es wurde kein Backup eingereiht. Alle Objekte sind bereits eingereiht oder nicht bereit.",
     "cancelled": "Der Job wird abgebrochen.",
-    "retried": "Der Job wurde erneut eingereiht.",
+    "retried": "Der Lauf wurde erneut eingereiht.",
     "alreadyQueued": "Ein Backup dieses Objekts ist bereits eingereiht oder läuft.",
     "failed": "Die Aktion konnte nicht ausgeführt werden."
   },
@@ -145,7 +145,8 @@
     "orphaned": "Nicht mehr im Quellverzeichnis",
     "source_pending": "Quelle noch nicht verbunden",
     "source_disabled": "Quelle deaktiviert",
-    "already_queued": "Bereits eingereiht"
+    "waiting": "Wartet auf den Start",
+    "running": "Läuft gerade"
   },
   "jobs": {
     "title": "Verlauf",
@@ -186,7 +187,7 @@
     "phase": "Aktueller Schritt: {phase}",
     "since": "seit {time}",
     "error": "Warum der Lauf fehlgeschlagen ist",
-    "cancelledInfo": "Der Job wurde abgebrochen. Vor dem Abbruch gespeicherte Elemente bleiben im Speicher; das nächste Backup setzt beim letzten abgeschlossenen Snapshot an.",
+    "cancelledInfo": "Der Lauf wurde abgebrochen. Vor dem Abbruch gespeicherte Elemente bleiben im Speicher; das nächste Backup setzt beim letzten abgeschlossenen Snapshot an.",
     "result": "Ergebnis",
     "resultSnapshot": "Snapshot {sequence}",
     "resultItems": "{total} Elemente im Snapshot, {written} neu oder geändert",
@@ -219,8 +220,8 @@
     "columns": {
       "object": "Objekt",
       "source": "Quelle",
-      "lastBackup": "Letztes erfolgreiches Backup",
-      "lastJob": "Letzter Job",
+      "lastBackup": "Letzte erfolgreiche Sicherung",
+      "lastJob": "Letzter Lauf",
       "readiness": "Wiederherstellbarkeit",
       "actions": "Aktionen"
     },
@@ -237,7 +238,7 @@
     "checked": "geprüft {time}"
   },
   "snapshots": {
-    "title": "Snapshot-Verlauf",
+    "title": "Verlauf der Sicherungsstände",
     "description": "Gesicherte Zeitpunkte von {name}. Nur abgeschlossene Snapshots lassen sich wiederherstellen.",
     "includePruned": "Abgelaufene Snapshots anzeigen",
     "empty": "Noch keine Snapshots. Das erste Backup legt einen an.",
@@ -258,7 +259,7 @@
     "stateHint": {
       "running": "Das Backup schreibt diesen Snapshot noch.",
       "completed": "Festgeschrieben und wiederherstellbar.",
-      "incomplete": "Der Job endete, bevor der Snapshot festgeschrieben war. Er kann nicht wiederhergestellt werden.",
+      "incomplete": "Der Lauf endete, bevor der Snapshot festgeschrieben war. Er kann nicht wiederhergestellt werden.",
       "pruned": "Durch die Aufbewahrungsrichtlinie entfernt."
     },
     "loadError": "Der Snapshot-Verlauf konnte nicht geladen werden."

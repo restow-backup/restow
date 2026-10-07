@@ -50,14 +50,14 @@
   "list": {
     "empty": {
       "title": "No sources yet",
-      "description": "Connect a Microsoft 365 tenant or add an IMAP mailbox to start protecting data. Nothing is backed up until a source is connected and verified.",
+      "description": "Connect a Microsoft 365 tenant or add an IMAP mailbox to start protecting data. Backups run once a source is connected and verified and a backup job covers its objects.",
       "m365": {
         "title": "No Microsoft 365 connection yet",
-        "description": "Connect a Microsoft 365 directory to protect its mailboxes and OneDrives. Nothing is backed up until the connection is verified."
+        "description": "Connect a Microsoft 365 directory to protect its mailboxes and OneDrives. Backups run once the connection is verified and a backup job covers the objects."
       },
       "imap": {
         "title": "No IMAP mailbox yet",
-        "description": "Add an IMAP mailbox, for example a Gmail account, to protect it. Nothing is backed up until the connection is tested."
+        "description": "Add an IMAP mailbox, for example a Gmail account, to protect it. Backups run once the connection is tested and a backup job covers the mailbox."
       }
     },
     "lastSync": "Last sync {when}",
@@ -485,5 +485,10 @@
       "body": "This consent link is no longer valid. Nothing was changed. Please ask the {appName} administrator for a new link."
     },
     "close": "You can close this window now."
+  },
+  "jobsNotice": {
+    "text": "{count, plural, one {# protected object is not backed up on a schedule: it is in no backup job, or in one that is paused or runs by hand only.} other {# protected objects are not backed up on a schedule: they are in no backup job, or in one that is paused or runs by hand only.}}",
+    "show": "Show objects",
+    "jobs": "Open backup jobs"
   }
 }

@@ -149,6 +149,12 @@ export function stateView(state: JobState): StateView {
       return { tone: "warning", key: state, live: false };
     case "empty":
       return { tone: "muted", key: state, live: false };
+    // Each of these looks active but backs up nothing on its own: never the neutral "Active".
+    case "storage_error":
+      return { tone: "destructive", key: state, live: false };
+    case "overdue":
+    case "manual":
+      return { tone: "warning", key: state, live: false };
     default:
       return { tone: "neutral", key: "ok", live: false };
   }
@@ -222,18 +228,32 @@ export function lastRunView(job: Pick<BackupJob, "lastRun">): LastRunView {
 
 export type NextRunView =
   | { kind: "at"; at: string }
+  | { kind: "overdue"; at: string }
   | { kind: "paused" }
   | { kind: "manual" }
   | { kind: "onConnect" }
   | { kind: "empty" }
   | { kind: "unknown" };
 
-/** When a job runs next, or why it does not say. */
+/** A planned run this far in the past did not happen (the API's `OVERDUE_GRACE_MS`). */
+export const OVERDUE_GRACE_MS = 60 * 60_000;
+
+/**
+ * When a job runs next, or why it does not say. A planned run long past is "overdue", not a
+ * plain relative time: nothing ran when it should have.
+ */
 export function nextRunView(
   job: Pick<BackupJob, "enabled" | "schedule" | "nextRunAt" | "scope">,
+  now: number = Date.now(),
 ): NextRunView {
   if (!job.enabled) return { kind: "paused" };
-  if (job.nextRunAt) return { kind: "at", at: job.nextRunAt };
+  if (job.nextRunAt) {
+    const at = Date.parse(job.nextRunAt);
+    if (job.schedule?.kind !== "on_connect" && now - at > OVERDUE_GRACE_MS) {
+      return { kind: "overdue", at: job.nextRunAt };
+    }
+    return { kind: "at", at: job.nextRunAt };
+  }
   if (job.schedule === null) return { kind: "manual" };
   if (job.scope.count === 0) return { kind: "empty" };
   if (job.schedule.kind === "on_connect") return { kind: "onConnect" };
@@ -317,20 +337,19 @@ export function pendingBackupView(
 }
 
 /**
- * What the toast of "Run now" says. A machine backup is only requested: it starts at the machine's
- * next check-in, so a request that was already waiting is "waiting", not "nothing started".
+ * What the toast of "Run now" says. When every backup asked for already waits (a machine's request
+ * until its next check-in, a mail backup in the queue or running), that is "waiting", not
+ * "nothing started".
  */
 export type RunOutcomeView = "queued" | "waiting" | "nothing";
 
 export function runOutcomeView(
-  kind: BackupJob["kind"],
   result: Pick<RunBackupJobResult, "queued" | "skipped">,
 ): RunOutcomeView {
   if (result.queued > 0) {
     return "queued";
   }
   if (
-    kind === "endpoint" &&
     result.skipped.length > 0 &&
     result.skipped.every((entry) => entry.reason === "already_queued")
   ) {

@@ -67,6 +67,13 @@ export function objectStatusView(object: ProtectedObject): {
   if (object.status === "active" && hasCredentialProblem(object)) {
     return { variant: "warning", suffix: "needs_credential" };
   }
+  // In scope is not protected: only a job that runs on a schedule backs it up.
+  if (object.status === "active" && object.coverage === "none") {
+    return { variant: "warning", suffix: "no_job" };
+  }
+  if (object.status === "active" && object.coverage === "unscheduled") {
+    return { variant: "warning", suffix: "unscheduled" };
+  }
   return { variant: STATUS_VARIANT[object.status], suffix: object.status };
 }
 

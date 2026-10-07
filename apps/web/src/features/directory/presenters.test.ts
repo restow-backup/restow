@@ -184,6 +184,27 @@ describe("hasCredentialProblem", () => {
   });
 });
 
+describe("objectStatusView and the backup jobs", () => {
+  it("does not call an object protected that no running job backs up", () => {
+    expect(objectStatusView(object({ coverage: "none" }))).toEqual({
+      variant: "warning",
+      suffix: "no_job",
+    });
+    expect(objectStatusView(object({ coverage: "unscheduled" }))).toEqual({
+      variant: "warning",
+      suffix: "unscheduled",
+    });
+    expect(objectStatusView(object({ coverage: "scheduled" }))).toEqual({
+      variant: "outline",
+      suffix: "active",
+    });
+    // An excluded object stays excluded, whatever the jobs say.
+    expect(objectStatusView(object({ status: "excluded", coverage: null })).suffix).toBe(
+      "excluded",
+    );
+  });
+});
+
 describe("objectStatusView", () => {
   it("shows the stored status, except not-selected instead of excluded", () => {
     // Protected is a state, not a proof: the neutral outline, never green.

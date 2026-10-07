@@ -23,6 +23,7 @@ import type { Database } from "@restow/db";
 import { type SQL, and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
+import { coverageOf, mailCoverageOf, runsOnSchedule } from "./coverage.js";
 import type {
   BackupJobDto,
   BackupJobListDto,
@@ -37,7 +38,7 @@ import type {
   JobRunDto,
   JobScopeDto,
 } from "./dto.js";
-import { earliestOf, iso, jobStateOf, latestOf, nextCheckInOf } from "./dto.js";
+import { earliestOf, isOverdue, iso, jobStateOf, latestOf, nextCheckInOf } from "./dto.js";
 import {
   type EndpointFact,
   type MailFact,
@@ -196,6 +197,7 @@ function mailJobDto(
   repository: BackupJobDto["repository"],
   policies: readonly SnapshotPolicyInfo[],
   reveal: boolean,
+  now: Date,
 ): BackupJobDto {
   const coveredIds = facts.covered.get(job.id) ?? [];
   const own = facts.members.filter((member) => member.jobId === job.id);
@@ -234,6 +236,8 @@ function mailJobDto(
   const scope: JobScopeDto = { count: coveredIds.length, byKind, overrides };
   const lastRun = outcomeCounts(runs);
   const restoreCheck = restoreCheckOf(states);
+  const nextRunAt = job.enabled && coveredIds.length > 0 ? earliestOf(times.filter(Boolean)) : null;
+  const ownSchedules = coveredIds.some((id) => ownByObject.get(id)?.overrides.schedule);
   return {
     id: job.id,
     kind: job.kind,
@@ -252,7 +256,7 @@ function mailJobDto(
     },
     scope,
     lastRun,
-    nextRunAt: job.enabled && coveredIds.length > 0 ? iso(earliestOf(times.filter(Boolean))) : null,
+    nextRunAt: iso(nextRunAt),
     restoreCheck,
     state: jobStateOf({
       enabled: job.enabled,
@@ -262,6 +266,15 @@ function mailJobDto(
       queued: lastRun.queued,
       partial: lastRun.partial,
       restore: restoreCheck,
+      manual: job.schedule === null && !ownSchedules,
+      overdue: isOverdue({
+        schedule: job.schedule,
+        nextRunAt,
+        lastAt: lastRun.at,
+        createdAt: job.createdAt,
+        now,
+      }),
+      storageError: repository.status === "error",
     }),
     settings: visibleSettings(job.settings ?? {}, reveal),
     createdAt: job.createdAt.toISOString(),
@@ -279,6 +292,7 @@ function endpointJobDto(
   facts: TenantFacts,
   repository: BackupJobDto["repository"],
   reveal: boolean,
+  now: Date,
 ): BackupJobDto {
   const own = facts.members.filter((member) => member.jobId === job.id && member.endpointId);
   const live = own.filter(
@@ -311,6 +325,8 @@ function endpointJobDto(
   const scope: JobScopeDto = { count: live.length, byKind, overrides };
   const lastRun = outcomeCounts(runs);
   const restoreCheck = restoreCheckOf(states);
+  const nextRunAt = earliestOf(next);
+  const ownSchedules = live.some((member) => member.overrides.schedule);
   return {
     id: job.id,
     kind: job.kind,
@@ -325,7 +341,7 @@ function endpointJobDto(
     retention: { policyId: null, policyName: null, keep: job.settings?.retention ?? null },
     scope,
     lastRun,
-    nextRunAt: iso(earliestOf(next)),
+    nextRunAt: iso(nextRunAt),
     restoreCheck,
     state: jobStateOf({
       enabled: job.enabled,
@@ -335,6 +351,15 @@ function endpointJobDto(
       queued: lastRun.queued,
       partial: lastRun.partial,
       restore: restoreCheck,
+      manual: job.schedule === null && !ownSchedules,
+      overdue: isOverdue({
+        schedule: job.schedule,
+        nextRunAt,
+        lastAt: lastRun.at,
+        createdAt: job.createdAt,
+        now,
+      }),
+      storageError: repository.status === "error",
     }),
     settings: visibleSettings(job.settings ?? {}, reveal),
     createdAt: job.createdAt.toISOString(),
@@ -361,8 +386,8 @@ async function buildDtos(
     const repository = await loadRepositoryOf(tx, tenantId, job, primary);
     items.push(
       job.kind === "mail"
-        ? mailJobDto(job, facts, repository, policies, options.revealHooks)
-        : endpointJobDto(job, facts, repository, options.revealHooks),
+        ? mailJobDto(job, facts, repository, policies, options.revealHooks, now)
+        : endpointJobDto(job, facts, repository, options.revealHooks, now),
     );
   }
   return { items, facts };
@@ -383,23 +408,37 @@ export async function listBackupJobs(
       .orderBy(asc(backupJobs.kind), asc(backupJobs.name));
     const selected = query.kind ? all.filter((job) => job.kind === query.kind) : all;
     const { items, facts } = await buildDtos(tx, tenantId, all, selected, options, now);
-    const coveredMail = new Set([...facts.covered.values()].flat());
     // Without a mail job nothing was loaded for the scope rule; every eligible object is then uncovered.
     const objects = facts.objects.length > 0 ? facts.objects : await loadObjectInfos(tx, tenantId);
-    const inJob = new Set(
-      facts.members.flatMap((member) => (member.endpointId ? [member.endpointId] : [])),
+    const links = mailCoverageOf(all, facts.members, objects);
+    const mail = { none: 0, unscheduled: 0 };
+    for (const object of objects) {
+      const coverage = coverageOf(object, links);
+      if (coverage === "none") mail.none++;
+      else if (coverage === "unscheduled") mail.unscheduled++;
+    }
+    const jobsById = new Map(all.map((job) => [job.id, job]));
+    const machineMember = new Map(
+      facts.members.flatMap((member) =>
+        member.endpointId ? [[member.endpointId, member] as const] : [],
+      ),
     );
     const active = await tx
       .select({ id: endpoints.id })
       .from(endpoints)
       .where(and(eq(endpoints.tenantId, tenantId), eq(endpoints.status, "active")));
-    const uncoveredMachines = active.filter((row) => !inJob.has(row.id)).length;
+    let uncoveredMachines = 0;
+    let unscheduledMachines = 0;
+    for (const row of active) {
+      const member = machineMember.get(row.id);
+      const job = member ? jobsById.get(member.jobId) : undefined;
+      if (!member || !job) uncoveredMachines++;
+      else if (!runsOnSchedule(job, member)) unscheduledMachines++;
+    }
     return {
       items,
-      uncovered: {
-        mail: objects.filter((object) => object.eligible && !coveredMail.has(object.id)).length,
-        endpoint: uncoveredMachines,
-      },
+      uncovered: { mail: mail.none, endpoint: uncoveredMachines },
+      unscheduled: { mail: mail.unscheduled, endpoint: unscheduledMachines },
     };
   });
 }
@@ -756,10 +795,56 @@ export async function listCandidates(
   });
 }
 
+const MACHINE_OS = ["linux", "darwin", "windows"] as const;
+type MachineOs = (typeof MACHINE_OS)[number];
+
+/**
+ * What a new machine job starts with for the chosen machines. Each operating system and profile
+ * has its own folders (a Mac keeps its data under /Users, not /etc); a mixed choice gets the union,
+ * in order, and says it is mixed. Only clients: back up when they connect, not at 22:00 when a
+ * laptop is usually off. Without machines: a Linux server, as before.
+ */
+export function machineJobDefaults(
+  machines: readonly { os: string; profile: "server" | "client" }[],
+  timeZone: string,
+): {
+  schedule: JobDefaultsDto["schedule"];
+  paths: string[];
+  excludes: string[];
+  basis: JobDefaultsDto["basis"];
+} {
+  const known = machines.filter(
+    (machine): machine is { os: MachineOs; profile: "server" | "client" } =>
+      (MACHINE_OS as readonly string[]).includes(machine.os),
+  );
+  const pairs = known.length > 0 ? known : [{ os: "linux" as const, profile: "server" as const }];
+  const paths: string[] = [];
+  const excludes: string[] = [];
+  const seen = new Set<string>();
+  for (const pair of pairs) {
+    const key = `${pair.os}:${pair.profile}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const config = defaultEndpointConfig(pair.os, pair.profile, { timeZone });
+    for (const path of config.paths) if (!paths.includes(path)) paths.push(path);
+    for (const pattern of config.excludes) if (!excludes.includes(pattern)) excludes.push(pattern);
+  }
+  const os = [...new Set(known.map((machine) => machine.os))];
+  const profiles = [...new Set(known.map((machine) => machine.profile))];
+  const onlyClients = profiles.length === 1 && profiles[0] === "client";
+  return {
+    schedule: defaultSchedule(onlyClients ? "client" : "server", timeZone),
+    paths,
+    excludes,
+    basis: known.length > 0 ? { os, profiles, mixed: os.length > 1 || profiles.length > 1 } : null,
+  };
+}
+
 export async function getDefaults(
   db: Database,
   tenantId: string,
   kind: JobKindName,
+  options: { endpointIds?: readonly string[] } = {},
 ): Promise<JobDefaultsDto> {
   return withTenantTx(db, tenantId, async (tx) => {
     const [tenant] = await tx
@@ -783,23 +868,37 @@ export async function getDefaults(
         schedule: mailSchedule(backup),
         verifySchedule: mailSchedule(verify),
         settings: {},
+        basis: null,
         repository: repositoryDto(primary),
         retentionPolicies: policies.map((policy) => ({ ...policy })),
         endpointRetention: { ...DEFAULT_ENDPOINT_RETENTION },
       };
     }
-    const config = defaultEndpointConfig("linux", "server", { timeZone });
+    const machines =
+      options.endpointIds && options.endpointIds.length > 0
+        ? await tx
+            .select({ os: endpoints.os, profile: endpoints.profile })
+            .from(endpoints)
+            .where(
+              and(
+                eq(endpoints.tenantId, tenantId),
+                inArray(endpoints.id, [...options.endpointIds]),
+              ),
+            )
+        : [];
+    const machine = machineJobDefaults(machines, timeZone);
     return {
       kind,
       timeZone,
-      schedule: defaultSchedule("server", timeZone),
+      schedule: machine.schedule,
       verifySchedule: null,
       settings: {
-        paths: config.paths,
-        excludes: config.excludes,
+        paths: machine.paths,
+        excludes: machine.excludes,
         hooks: {},
         bandwidthKbps: null,
       },
+      basis: machine.basis,
       repository: repositoryDto(primary),
       retentionPolicies: [],
       endpointRetention: { ...DEFAULT_ENDPOINT_RETENTION },

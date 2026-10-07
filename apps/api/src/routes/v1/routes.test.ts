@@ -358,6 +358,8 @@ describe("POST /users/:id/protection", () => {
           legalHold: false,
           latestBackupJob: null,
           readiness: null,
+          job: null,
+          coverage: null,
           warning: null,
           credential: null,
           createdAt: NOW.toISOString(),

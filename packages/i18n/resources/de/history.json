@@ -40,7 +40,7 @@
     "after_backup": "Nach einer Sicherung"
   },
   "state": {
-    "queued": "Wartend",
+    "queued": "Wartet",
     "running": "Läuft",
     "succeeded": "Abgeschlossen",
     "restored": "Wiederhergestellt",
@@ -247,10 +247,24 @@
     "openMachine": "Rechner öffnen",
     "runNow": "Jetzt ausführen",
     "retry": "Wiederholen",
-    "retried": "Erneut eingereiht als {id}.",
+    "retried": "Erneut eingereiht",
     "queued": "Die Sicherung wurde eingereiht.",
     "nothingQueued": "Nichts eingereiht: Eine Sicherung dieses Objekts wartet schon oder kann nicht laufen.",
-    "failed": "Das hat nicht geklappt"
+    "failed": "Das hat nicht geklappt",
+    "runNowFor": "{name} jetzt sichern",
+    "runJobNow": "Job jetzt ausführen",
+    "runJobTitle": "{name} jetzt ausführen?",
+    "runJobBody": "Der ganze Job läuft jetzt, mit allen Objekten bzw. Rechnern darin, nicht nur dieser Lauf.",
+    "runJobConfirm": "Ganzen Job ausführen",
+    "openRun": "Lauf öffnen",
+    "machineQueued": "Sicherung angefordert",
+    "machineQueuedNote": "Der Rechner startet sie bei seinem nächsten Kontakt, meist innerhalb weniger Minuten.",
+    "alreadyWaiting": "Für diesen Rechner wartet bereits eine Sicherung.",
+    "noJob": {
+      "title": "Dieser Rechner ist in keinem Backup-Job",
+      "description": "Gesichert werden nur Rechner in einem Backup-Job. Fügen Sie ihn auf der Seite des Rechners einem Job hinzu.",
+      "open": "Rechner öffnen"
+    }
   },
   "detail": {
     "back": "Zurück zum Verlauf",

@@ -187,6 +187,10 @@ export function defaults(
   };
 }
 
-export function list(items: BackupJob[], uncovered = { mail: 0, endpoint: 0 }): BackupJobList {
-  return { items, uncovered };
+export function list(
+  items: BackupJob[],
+  uncovered = { mail: 0, endpoint: 0 },
+  unscheduled = { mail: 0, endpoint: 0 },
+): BackupJobList {
+  return { items, uncovered, unscheduled };
 }

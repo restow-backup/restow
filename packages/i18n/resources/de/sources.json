@@ -28,9 +28,9 @@
     "addM365": "Microsoft-365-Tenant",
     "addImap": "IMAP-Postfach",
     "addImport": "Mail-Dateien importieren",
-    "createLink": "Consent-Link erzeugen",
+    "createLink": "Link zur Administratorzustimmung erzeugen",
     "connectOwnTenant": "Eigenen Tenant direkt verbinden",
-    "reconnect": "Neuen Consent-Link erzeugen",
+    "reconnect": "Neuen Link zur Administratorzustimmung erzeugen",
     "verify": "Berechtigungen prüfen",
     "verifyAgain": "Erneut prüfen",
     "test": "Verbindung testen",
@@ -50,20 +50,20 @@
   "list": {
     "empty": {
       "title": "Noch keine Quellen",
-      "description": "Verbinden Sie einen Microsoft-365-Tenant oder fügen Sie ein IMAP-Postfach hinzu. Gesichert wird nichts, bevor eine Quelle verbunden und geprüft ist.",
+      "description": "Verbinden Sie einen Microsoft-365-Tenant oder fügen Sie ein IMAP-Postfach hinzu, um Daten zu schützen. Gesichert wird, sobald eine Quelle verbunden und geprüft ist und ein Backup-Job ihre Objekte umfasst.",
       "m365": {
         "title": "Noch keine Microsoft-365-Verbindung",
-        "description": "Verbinden Sie ein Microsoft-365-Verzeichnis, um seine Postfächer und OneDrives zu schützen. Gesichert wird nichts, bevor die Verbindung geprüft ist."
+        "description": "Verbinden Sie ein Microsoft-365-Verzeichnis, um seine Postfächer und OneDrives zu schützen. Gesichert wird, sobald die Verbindung geprüft ist und ein Backup-Job die Objekte umfasst."
       },
       "imap": {
         "title": "Noch kein IMAP-Postfach",
-        "description": "Fügen Sie ein IMAP-Postfach hinzu, zum Beispiel ein Gmail-Konto, um es zu schützen. Gesichert wird nichts, bevor die Verbindung getestet ist."
+        "description": "Fügen Sie ein IMAP-Postfach hinzu, zum Beispiel ein Gmail-Konto, um es zu schützen. Gesichert wird, sobald die Verbindung getestet ist und ein Backup-Job das Postfach umfasst."
       }
     },
     "lastSync": "Letzter Abgleich {when}",
     "neverSynced": "Noch kein Abgleich",
     "neverSyncedHint": "{appName} liest die Nutzer, Postfächer und OneDrives dieses Mandanten aus Entra ID, sobald die Berechtigungen geprüft sind, und danach nach dem Zeitplan für den Verzeichnisabgleich.",
-    "consentPending": "Wartet auf Admin-Consent",
+    "consentPending": "Wartet auf die Administratorzustimmung (Admin-Consent)",
     "consentDeniedShort": "Consent nicht erteilt",
     "permissionsOk": "Alle Berechtigungen erteilt",
     "permissionsIncomplete": "{count, plural, one {# Berechtigung fehlt} other {# Berechtigungen fehlen}}",
@@ -96,7 +96,7 @@
     "nameTaken": "In diesem Mandanten gibt es bereits eine Quelle mit diesem Namen.",
     "passwordRequired": "Geben Sie das Passwort erneut ein: Das gespeicherte wird nur für den Server und Benutzernamen verwendet, für die es gespeichert wurde.",
     "entraNotConfigured": "Die Entra-Backup-App dieser Installation ist nicht konfiguriert.",
-    "consentRequired": "Erteilen Sie zuerst den Admin-Consent; erst dann lassen sich die Berechtigungen prüfen.",
+    "consentRequired": "Erteilen Sie zuerst die Administratorzustimmung (Admin-Consent); erst dann lassen sich die Berechtigungen prüfen.",
     "sourceIncomplete": "Die gespeicherte Verbindung ist unvollständig. Bearbeiten Sie die Quelle und geben Sie das Passwort erneut ein.",
     "perMailboxNoSourceTest": "Diese Quelle hat kein eigenes Passwort; jedes Postfach meldet sich mit seinem eigenen an. Testen Sie stattdessen jedes einzeln aus der Kontenliste.",
     "imapHostNotAllowed": "Dieser IMAP-Server liegt in einem Loopback-, privaten oder Link-Local-Netz. Nur ein Provider-Admin kann eine Quelle mit einem internen Server verbinden; Link-Local-Adressen werden nie verwendet.",
@@ -442,7 +442,7 @@
     "blocked": {
       "title": "Diese Quelle enthält noch Daten",
       "description": "Beim Löschen ginge der Index ihrer Daten verloren, deshalb behält {appName} sie. Pausieren Sie die Quelle stattdessen: Es laufen keine neuen Sicherungen, alles bleibt wiederherstellbar, und die Aufbewahrungsregeln bestimmen, wann Daten ablaufen.",
-      "snapshots": "{count, plural, one {# Snapshot} other {# Snapshots}}",
+      "snapshots": "{count, plural, one {# Sicherungsstand} other {# Sicherungsstände}}",
       "archiveItems": "{count, plural, one {# archivierte Nachricht} other {# archivierte Nachrichten}}",
       "legalHolds": "{count, plural, one {# Legal Hold} other {# Legal Holds}}"
     },
@@ -485,5 +485,10 @@
       "body": "Dieser Consent-Link ist nicht mehr gültig. Es wurde nichts geändert. Bitte fordern Sie beim Administrator von {appName} einen neuen Link an."
     },
     "close": "Sie können dieses Fenster jetzt schließen."
+  },
+  "jobsNotice": {
+    "text": "{count, plural, one {# geschütztes Objekt wird nicht nach Zeitplan gesichert: Es ist in keinem Backup-Job oder in einem, der pausiert ist oder nur von Hand läuft.} other {# geschützte Objekte werden nicht nach Zeitplan gesichert: Sie sind in keinem Backup-Job oder in einem, der pausiert ist oder nur von Hand läuft.}}",
+    "show": "Objekte anzeigen",
+    "jobs": "Backup-Jobs öffnen"
   }
 }

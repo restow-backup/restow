@@ -38,6 +38,7 @@ import { audit } from "../../lib/audit.js";
 import { deleteSecret, readSecret, replaceSecret, storeSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
+import { type ObjectCoverage, coverageOf, loadMailCoverage } from "../backup-jobs/coverage.js";
 import { type FailureDto, causeToRecord, failureDto } from "../failures/dto.js";
 import { causeOfImapProbe } from "../failures/probe.js";
 import type { JobThrottleDto } from "../jobs/dto.js";
@@ -198,6 +199,14 @@ export interface ProtectedObjectDto {
     failure: FailureDto | null;
   } | null;
   readiness: { rating: RecoveryReadiness; checkedAt: string } | null;
+  /** The backup job that covers it; null when none does. */
+  job: { id: string; name: string; scheduled: boolean } | null;
+  /**
+   * Whether it is backed up on a schedule: `scheduled` (in a job that runs), `unscheduled` (in a
+   * job that is paused or runs by hand only), `none` (in no job); null when it may not be backed
+   * up at all (excluded, orphaned, or its source does not work).
+   */
+  coverage: ObjectCoverage | null;
   /**
    * The newest finished backup went through but left items behind (features/warnings): `open`
    * counts as a warning, `acknowledged` was looked at and accepted for these causes. Null when
@@ -686,8 +695,27 @@ function sharedOrBlockedSql(): SQL {
   ), false)`;
 }
 
-function objectFilters(tenantId: string, query: ObjectsFilter): SQL {
+/**
+ * The ids of the objects that match a job filter, or undefined without one. The scope rule of
+ * the jobs ("all" covers what no other job has) is applied in code, so the filter becomes an id list.
+ */
+async function jobFilterIds(
+  tx: Transaction,
+  tenantId: string,
+  job: ObjectsFilter["job"],
+): Promise<string[] | undefined> {
+  if (!job) {
+    return undefined;
+  }
+  const { objects, links } = await loadMailCoverage(tx, tenantId);
+  return objects.filter((object) => coverageOf(object, links) === job).map((object) => object.id);
+}
+
+function objectFilters(tenantId: string, query: ObjectsFilter, jobIds?: readonly string[]): SQL {
   const conditions: SQL[] = [eq(protectedObjects.tenantId, tenantId)];
+  if (jobIds) {
+    conditions.push(jobIds.length > 0 ? inArray(protectedObjects.id, [...jobIds]) : sql`false`);
+  }
   if (query.kind) {
     conditions.push(eq(protectedObjects.kind, query.kind));
   }
@@ -871,6 +899,9 @@ async function toObjectDtos(
     tenantId,
     rows.map((row) => row.object.id),
   );
+  const coverage =
+    rows.length > 0 ? await loadMailCoverage(tx, tenantId) : { objects: [], links: new Map() };
+  const eligible = new Map(coverage.objects.map((object) => [object.id, object]));
   const warnings = await loadMailWarnings(tx, tenantId, { ids: rows.map((row) => row.object.id) });
   // One parse of each source's config per page, not per row.
   const configs = new Map<
@@ -937,6 +968,11 @@ async function toObjectDtos(
       readiness: fact.readiness
         ? { rating: fact.readiness.rating, checkedAt: fact.readiness.checkedAt.toISOString() }
         : null,
+      job: coverage.links.get(row.object.id) ?? null,
+      coverage: coverageOf(
+        eligible.get(row.object.id) ?? { id: row.object.id, eligible: false },
+        coverage.links,
+      ),
       warning: objectWarningDto(warnings.get(row.object.id)),
       credential:
         row.object.kind === "imap"
@@ -982,7 +1018,7 @@ export async function listObjects(
   query: ObjectsQuery,
 ): Promise<ObjectsPage> {
   return withTenantTx(db, tenantId, async (tx) => {
-    const where = objectFilters(tenantId, query);
+    const where = objectFilters(tenantId, query, await jobFilterIds(tx, tenantId, query.job));
     const [total] = await tx
       .select({ n: count() })
       .from(protectedObjects)
@@ -1155,7 +1191,8 @@ async function resolveBulkObjectIds(
   if (input.objectIds) {
     return [...new Set(input.objectIds)];
   }
-  const where = objectFilters(tenantId, { ...(input.filter ?? {}), sourceId });
+  const filter = { ...(input.filter ?? {}), sourceId };
+  const where = objectFilters(tenantId, filter, await jobFilterIds(tx, tenantId, filter.job));
   const [total] = await tx
     .select({ n: count() })
     .from(protectedObjects)

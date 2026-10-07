@@ -34,6 +34,10 @@ vi.mock("@/features/backup-jobs/components/access-note", () => ({
 
 // So may the assignment; "Back up now" needs no query client to be rendered.
 vi.mock("@/features/tenant-page/access", () => ({ useTenantWriteBlock: () => null }));
+// "Back up now" for a selection runs through the jobs' actions: no session or query client here.
+vi.mock("@/features/backup-jobs/components/job-actions", () => ({
+  useJobActions: () => ({ runNow: () => {}, running: false }),
+}));
 vi.mock("../hooks.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../hooks.js")>()),
   useBackupNow: () => ({ request: () => {}, pending: false }),

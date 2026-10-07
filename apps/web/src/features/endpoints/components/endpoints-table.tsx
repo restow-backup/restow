@@ -24,6 +24,7 @@ import {
   rowActionsColumn,
 } from "@/components/kit";
 import { useJobsAccess } from "@/features/backup-jobs/components/access-note";
+import { useJobActions } from "@/features/backup-jobs/components/job-actions";
 import { newJobTo } from "@/features/backup-jobs/paths";
 import { cn } from "@/lib/utils";
 
@@ -34,6 +35,7 @@ import {
   assigneeFilterOptions,
   assigneeFilterValue,
   assigneeName,
+  backupGroupsOf,
   endpointHostLine,
   endpointName,
   isWithoutBackup,
@@ -181,6 +183,9 @@ export function EndpointsTable({
   const assignAccess = useAssignAccess();
   const backup = useBackupNow();
   const requestBackup = backup.request;
+  const jobActions = useJobActions();
+  const runJobNow = jobActions.runNow;
+  const runningJobs = jobActions.running;
 
   const columns = React.useMemo<ColumnDef<EndpointSummary>[]>(() => {
     const list: ColumnDef<EndpointSummary>[] = [
@@ -285,7 +290,10 @@ export function EndpointsTable({
           READINESS_RANK[a.original.readiness.state] - READINESS_RANK[b.original.readiness.state],
         cell: ({ row }) => (
           <Dimmed revoked={row.original.status === "revoked"}>
-            <ReadinessBadge readiness={row.original.readiness} />
+            <ReadinessBadge
+              readiness={row.original.readiness}
+              withoutBackup={isWithoutBackup(row.original)}
+            />
           </Dimmed>
         ),
       },
@@ -485,7 +493,26 @@ export function EndpointsTable({
         selectionActions: canManageJobs
           ? (selected): RowAction[] => {
               const active = selected.filter((endpoint) => endpoint.status === "active");
+              // Only a machine in a job can be backed up (release 0.2.1); one request per job.
+              const inJob = active.filter((endpoint) => endpoint.job);
               return [
+                {
+                  id: "backupSelection",
+                  label: t("list.rowActions.backupSelection", { count: inJob.length }),
+                  icon: Play,
+                  disabled: jobsAccess.closed || inJob.length === 0 || runningJobs,
+                  reason:
+                    jobsClosed ??
+                    (inJob.length === 0 ? t("list.rowActions.backupSelectionNoJob") : undefined),
+                  onSelect: () => {
+                    for (const group of backupGroupsOf(inJob)) {
+                      runJobNow(
+                        { id: group.job.id, kind: "endpoint", name: group.job.name },
+                        group.ids,
+                      );
+                    }
+                  },
+                },
                 {
                   id: "newJobFromSelection",
                   label: t("list.rowActions.newJobFromSelection", { count: active.length }),
@@ -520,6 +547,8 @@ export function EndpointsTable({
     assignAccess.closed,
     assignAccess.reason,
     requestBackup,
+    runJobNow,
+    runningJobs,
   ]);
 
   const present = new Set((items ?? []).map((endpoint) => endpoint.readiness.state));

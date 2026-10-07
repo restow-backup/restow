@@ -46,7 +46,7 @@ function sourcePath(sourceId: string, suffix: string): string {
 /** Query string of the filter fields shared by the objects list and a bulk "select all matching". */
 export function objectsFilterParams(filter: ObjectsFilter): URLSearchParams {
   const params = new URLSearchParams();
-  for (const key of ["search", "kind", "status", "sourceId"] as const) {
+  for (const key of ["search", "kind", "status", "sourceId", "job"] as const) {
     const value = filter[key]?.trim();
     if (value) {
       params.set(key, value);

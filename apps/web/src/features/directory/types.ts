@@ -17,6 +17,11 @@ export type ObjectStatus = "active" | "excluded" | "orphaned";
  */
 export type ObjectStatusFilter = ObjectStatus | "not_selected";
 export type ObjectOrigin = "directory_sync" | "manual";
+/**
+ * How an object stands towards the backup jobs: in a job that runs on a schedule, in one that is
+ * paused or runs by hand only, or in none.
+ */
+export type ObjectCoverage = "scheduled" | "unscheduled" | "none";
 export type ProtectionOverride = "include" | "exclude";
 export type ProtectionAction = ProtectionOverride | "reset";
 export type RecoveryReadiness = "green" | "yellow" | "red";
@@ -142,6 +147,10 @@ export interface ProtectedObject {
     failure: Failure | null;
   } | null;
   readiness: { rating: RecoveryReadiness; checkedAt: string } | null;
+  /** The backup job that covers it; null when none does (or an older server). */
+  job?: { id: string; name: string; scheduled: boolean } | null;
+  /** Null when it may not be backed up at all (excluded, orphaned, source not working). */
+  coverage?: ObjectCoverage | null;
   /**
    * The newest finished backup went through but left items behind (apps/api features/warnings):
    * `open` is a warning, `acknowledged` was looked at and accepted for its causes. Null (or absent,
@@ -201,6 +210,7 @@ export interface ObjectsQuery {
   kind?: ObjectKind;
   status?: ObjectStatusFilter;
   sourceId?: string;
+  job?: ObjectCoverage;
   sharedOrBlocked?: boolean;
   page: number;
   pageSize: number;
@@ -214,6 +224,7 @@ export interface ObjectsFilter {
   kind?: ObjectKind;
   status?: ObjectStatusFilter;
   sourceId?: string;
+  job?: ObjectCoverage;
   sharedOrBlocked?: boolean;
 }
 

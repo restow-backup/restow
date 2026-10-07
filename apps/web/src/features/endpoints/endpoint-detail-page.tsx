@@ -11,7 +11,7 @@ import {
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { ErrorState, PageHeader, RefreshButton } from "@/components/kit";
+import { DisabledReason, ErrorState, PageHeader, RefreshButton } from "@/components/kit";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -88,27 +88,33 @@ function ActionButtons({ detail }: { detail: EndpointDetail }) {
 
   return (
     <>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={runTest}
-        loading={test.isPending}
-        disabled={revoked || noBackup}
-        title={noBackup && !revoked ? t("actions.test.needsBackup") : undefined}
+      <DisabledReason
+        reason={revoked ? t("actions.revoked") : noBackup ? t("actions.test.needsBackup") : null}
       >
-        {test.isPending ? null : <ShieldCheck aria-hidden="true" />}
-        {t("actions.test.label")}
-      </Button>
-      <Button
-        size="sm"
-        onClick={runBackup}
-        loading={backup.isPending}
-        disabled={revoked || noJob}
-        title={noJob ? t("actions.backup.needsJob") : undefined}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={runTest}
+          loading={test.isPending}
+          disabled={revoked || noBackup}
+        >
+          {test.isPending ? null : <ShieldCheck aria-hidden="true" />}
+          {t("actions.test.label")}
+        </Button>
+      </DisabledReason>
+      <DisabledReason
+        reason={revoked ? t("actions.revoked") : noJob ? t("actions.backup.needsJob") : null}
       >
-        {backup.isPending ? null : <Play aria-hidden="true" />}
-        {t("actions.backup.label")}
-      </Button>
+        <Button
+          size="sm"
+          onClick={runBackup}
+          loading={backup.isPending}
+          disabled={revoked || noJob}
+        >
+          {backup.isPending ? null : <Play aria-hidden="true" />}
+          {t("actions.backup.label")}
+        </Button>
+      </DisabledReason>
     </>
   );
 }
@@ -192,7 +198,9 @@ export function EndpointDetailPage({
         <ProfileBadge profile={detail.profile} />
         <ConnectionBadge endpoint={detail} />
         <ActivityBadge endpoint={detail} />
-        {detail.status === "active" ? <ReadinessBadge readiness={detail.readiness} /> : null}
+        {detail.status === "active" ? (
+          <ReadinessBadge readiness={detail.readiness} withoutBackup={isWithoutBackup(detail)} />
+        ) : null}
         {detail.status === "active" && detail.attention.length > 0 ? (
           <AttentionBadges attention={detail.attention} max={2} />
         ) : null}

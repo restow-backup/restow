@@ -13,7 +13,7 @@
   },
   "kinds": {
     "backup": "Sicherung",
-    "verify": "Verifizierung",
+    "verify": "Restore-Prüfung",
     "scrub": "Integritätsprüfung",
     "directory": "Verzeichnis-Sync",
     "retention": "Aufbewahrung",
@@ -21,7 +21,7 @@
   },
   "kindHints": {
     "backup": "Sichert alle aktiven geschützten Objekte oder nur das gewählte.",
-    "verify": "Stellt eine Stichprobe der letzten Sicherung wieder her und belegt so, dass sie wiederherstellbar ist. Solange ein Verifizierungs-Zeitplan eingeschaltet ist, wird zusätzlich jede neue Sicherung verifiziert.",
+    "verify": "Stellt eine Stichprobe der letzten Sicherung wieder her und belegt so, dass sie wiederherstellbar ist. Solange ein Zeitplan für Restore-Prüfungen eingeschaltet ist, wird zusätzlich jede neue Sicherung verifiziert.",
     "scrub": "Prüft die gespeicherten Packs auf Schäden und repariert sie aus Kopien. Monatliche oder seltenere Läufe prüfen alles, häufigere eine Stichprobe.",
     "directory": "Liest Benutzer, Postfächer und OneDrives aus Microsoft Entra ID, damit neue Personen gemäß den Regeln geschützt werden.",
     "retention": "Wendet die Aufbewahrungsrichtlinien an. Solange keine Richtlinie existiert, bleibt alles erhalten."
@@ -56,16 +56,16 @@
     "cadence": "Rhythmus",
     "nextRun": "Nächster Lauf",
     "lastRun": "Letzter Lauf",
-    "lastJob": "Letzter Job",
+    "lastJob": "Letzter Lauf",
     "enabled": "Ein",
     "paused": "Ausgeschaltet",
     "noJob": "Noch kein Lauf",
-    "openJob": "Letzten Job öffnen ({status})",
+    "openJob": "Letzten Lauf öffnen ({status})",
     "toggle": "{kind} automatisch ausführen",
     "legacy": "Läuft neben den Jobs"
   },
   "jobStatus": {
-    "queued": "Wartend",
+    "queued": "Wartet",
     "active": "Läuft",
     "completed": "Abgeschlossen",
     "failed": "Fehlgeschlagen",
@@ -184,7 +184,7 @@
         "description": "Solange er ausgeschaltet ist, werden die abgedeckten Objekte nur gesichert, wenn jemand eine Sicherung von Hand startet."
       },
       "verify": {
-        "title": "Verifizierung ausschalten?",
+        "title": "Restore-Prüfung ausschalten?",
         "description": "Solange sie ausgeschaltet ist, werden neue Sicherungen nicht probeweise wiederhergestellt, und die Wiederherstellbarkeit ist nicht mehr belegt."
       },
       "confirm": "Ausschalten"

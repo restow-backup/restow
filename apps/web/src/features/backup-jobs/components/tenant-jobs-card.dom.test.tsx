@@ -99,7 +99,7 @@ describe("Jobs & schedules", () => {
     expect(mail?.textContent).toContain("Mail & SaaS");
     expect(mail?.textContent).toContain("214 mailboxes, 6 OneDrives");
     const machines = rows.find((row) => row.textContent?.includes("Linux servers, daily"));
-    expect(machines?.textContent).toContain("Servers & endpoints");
+    expect(machines?.textContent).toContain("Servers and clients");
     expect(machines?.textContent).toContain("3 servers");
     expect(card.querySelector('td[data-pinned="left"]')).not.toBeNull();
     // The schedules that are left follow below, under their own heading.

@@ -1,9 +1,12 @@
-import { useRouterState, useSearch } from "@tanstack/react-router";
+import { Link, useRouterState, useSearch } from "@tanstack/react-router";
 import {
   CalendarClock,
+  CalendarX,
   CircleDashed,
   CircleX,
   Clock,
+  DatabaseZap,
+  Hand,
   Info,
   LoaderCircle,
   type LucideIcon,
@@ -20,6 +23,7 @@ import { RelativeTime, StatusBadge } from "@/components/kit";
 import { Countdown } from "@/features/history/components/countdown";
 import { OpenRunLink, RunProgressCell } from "@/features/history/components/run-cells";
 import { useRunningRunsOf } from "@/features/history/live/provider";
+import { activeTenantPageTo } from "@/lib/tenant-paths";
 import { cn } from "@/lib/utils";
 
 import type { BackupJob, JobRestoreCheck, JobState } from "../api.js";
@@ -28,6 +32,7 @@ import {
   describeScope,
   lastRunView,
   nextRunView,
+  repositoryLabel,
   restoreCheckView,
   scheduleUsesZone,
   scopeNote,
@@ -42,6 +47,9 @@ const STATE_ICON: Readonly<Record<JobState, LucideIcon>> = {
   queued: Clock,
   attention: TriangleAlert,
   empty: CircleDashed,
+  storage_error: DatabaseZap,
+  overdue: CalendarX,
+  manual: Hand,
   ok: Info,
 };
 
@@ -223,5 +231,49 @@ export function NextRunCell({ job }: { job: BackupJob }) {
     // Within the hour it counts down, once a second, on the browser's own clock.
     return <Countdown at={view.at} />;
   }
+  if (view.kind === "overdue") {
+    return (
+      <StatusBadge
+        tone="warning"
+        icon={CalendarX}
+        className="whitespace-nowrap"
+        data-next="overdue"
+      >
+        {t("nextRun.overdue")} <RelativeTime value={view.at} focusable={false} />
+      </StatusBadge>
+    );
+  }
   return <span className="text-muted-foreground">{t(`nextRun.${view.kind}`)}</span>;
+}
+
+/**
+ * Where the job writes, with a warning when that repository fails its check: the backups of the
+ * job cannot be stored there. The link leads to the storage page.
+ */
+export function RepositoryCell({ job }: { job: Pick<BackupJob, "repository"> }) {
+  const { t } = useTranslation("backupjobs");
+  const label = repositoryLabel(job.repository, t);
+  if (job.repository.status !== "error") {
+    return (
+      <span className="block truncate" title={label}>
+        {label}
+      </span>
+    );
+  }
+  return (
+    <span className="flex min-w-0 flex-col items-start gap-1">
+      <span className="block max-w-full truncate" title={label}>
+        {label}
+      </span>
+      <Link
+        to={activeTenantPageTo("storage")}
+        className="rounded-sm outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        data-slot="repository-error"
+      >
+        <StatusBadge tone="destructive" icon={DatabaseZap} className="whitespace-nowrap">
+          {t("repository.error")}
+        </StatusBadge>
+      </Link>
+    </span>
+  );
 }
