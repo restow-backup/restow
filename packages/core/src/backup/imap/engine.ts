@@ -41,7 +41,7 @@ import type {
   Logger,
   ProtectedObjectRef,
 } from "../../engine/types.js";
-import { classifyFailure } from "../../failures/classify.js";
+import { buildCause, classifyFailure } from "../../failures/classify.js";
 import type { FailureCause } from "../../failures/types.js";
 import type { ManifestObject, SnapshotManifest } from "../../manifest.js";
 import { CredentialSource, SessionPool } from "./connections.js";
@@ -769,7 +769,16 @@ class BackupRun {
         await this.downloadSingly(worker, folder, status, components, remaining, metas);
       }
       for (const uid of remaining) {
-        this.itemFailed(components, uid, "message not returned by the server");
+        this.itemFailed(
+          components,
+          uid,
+          "message not returned by the server",
+          buildCause(
+            "imap.message_missing",
+            {},
+            { message: "message not returned by the server", path: folder.path },
+          ),
+        );
       }
     }
   }

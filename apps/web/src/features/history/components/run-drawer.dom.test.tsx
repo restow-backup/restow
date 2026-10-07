@@ -327,3 +327,32 @@ describe("the wave", () => {
     expect(page.where().search.run).toBe("66666666-6666-4666-8666-666666666666");
   });
 });
+
+describe("a run that left items behind", () => {
+  it("names the failed items with their cause and leads to the page that explains them all", async () => {
+    await open(RUN_IDS.mailDone, {
+      [`GET /history/${RUN_IDS.mailDone}`]: () =>
+        json(
+          detail(finished("partial"), {
+            errors: [
+              {
+                path: "mail/Inbox/Quarterly report.0123456789abcdef.eml",
+                message: "Graph 413 ErrorMessageSizeExceeded: too large",
+                code: "graph.item_too_large",
+                cause: "graph.item_too_large",
+              },
+            ],
+            errorCount: 7,
+          }),
+        ),
+    });
+    const items = section("failed-items");
+    expect(items).not.toBeNull();
+    expect(items?.textContent).toContain("Items not backed up");
+    expect(items?.textContent).toContain("Quarterly report");
+    expect(items?.textContent).toContain("ErrorMessageSizeExceeded");
+    expect(items?.querySelector('[data-cause="graph.item_too_large"]')).not.toBeNull();
+    expect(items?.textContent).toContain("and 6 more items");
+    expect(items?.querySelector("a")?.getAttribute("href")).toContain(RUN_IDS.mailDone);
+  });
+});

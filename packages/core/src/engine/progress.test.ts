@@ -84,6 +84,20 @@ describe("ProgressTracker", () => {
     expect(sink.failures).toHaveLength(3);
   });
 
+  it("carries the item's own date with a failure, normalised, and drops one it cannot read", async () => {
+    const sink = new MemoryProgressSink();
+    const tracker = new ProgressTracker({ sink, flushEveryItems: 10, flushIntervalMs: 60_000 });
+    tracker.fail("mail/Inbox/a.eml", "413", undefined, { itemDate: "2026-09-01T10:00:00+02:00" });
+    tracker.fail("mail/Inbox/b.eml", "413", undefined, { itemDate: "not a date" });
+    tracker.fail("mail/Inbox/c.eml", "413");
+    await tracker.flush();
+    expect(sink.failures).toEqual([
+      { itemRef: "mail/Inbox/a.eml", reason: "413", itemDate: "2026-09-01T08:00:00.000Z" },
+      { itemRef: "mail/Inbox/b.eml", reason: "413" },
+      { itemRef: "mail/Inbox/c.eml", reason: "413" },
+    ]);
+  });
+
   it("never overlaps flushes and keeps failures when the sink rejects", async () => {
     let inFlight = 0;
     let maxInFlight = 0;

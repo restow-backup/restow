@@ -62,7 +62,12 @@
     "openJob": "Lauf öffnen",
     "snapshots": "{count, plural, one {# Snapshot} other {# Snapshots}}",
     "now": "Jetzt sichern",
-    "perObject": "Je Objekt sichern"
+    "perObject": "Je Objekt sichern",
+    "warning": "Mit Warnungen",
+    "warningHint": "Die letzte Sicherung ({when}) ist durchgelaufen, aber {count, plural, one {# Element wurde} other {# Elemente wurden}} nicht gesichert.",
+    "acknowledged": "Warnung bestätigt",
+    "acknowledgedHint": "{count, plural, one {# Element} other {# Elemente}} der letzten Sicherung ({when}) wurden nicht gesichert. Die Ursachen sind bestätigt.",
+    "reasons": "Gründe ansehen"
   },
   "credential": {
     "status": {

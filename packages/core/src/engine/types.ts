@@ -91,6 +91,17 @@ export interface ItemFailureRecord {
    * have text; the reason always stays.
    */
   readonly cause?: FailureCause;
+  /**
+   * When the item itself is dated (a message's received time), ISO 8601. Lets the operator find
+   * the item at the source; absent where the engine does not know it.
+   */
+  readonly itemDate?: string;
+}
+
+/** What else an engine knows about an item that failed. */
+export interface ItemFailureDetails {
+  /** The item's own date (a message's received time), ISO 8601. */
+  readonly itemDate?: string | null;
 }
 
 /**
@@ -116,7 +127,7 @@ export interface ProgressReporter {
    * Record an item that failed, with a human-readable reason (no secrets) and,
    * where the engine has the error at hand, its classified cause.
    */
-  fail(itemRef: string, reason: string, cause?: FailureCause): void;
+  fail(itemRef: string, reason: string, cause?: FailureCause, details?: ItemFailureDetails): void;
   /** Name the current phase, e.g. "enumerate", "download", "manifest". */
   phase(name: string): void;
   /** Current counters. */

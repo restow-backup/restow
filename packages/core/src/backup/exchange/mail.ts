@@ -877,7 +877,7 @@ async function processEntry(
       throw error;
     }
     // The previous version (if any) stays in the snapshot: the last good copy.
-    run.fail(itemRef, error);
+    run.fail(itemRef, error, entry.receivedDateTime);
     return "failed";
   }
 }

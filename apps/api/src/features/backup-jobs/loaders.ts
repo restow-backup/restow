@@ -16,6 +16,7 @@ import { and, asc, desc, eq, inArray } from "drizzle-orm";
 import type { Transaction } from "../../lib/tenant-context.js";
 import { loadEndpointReadiness } from "../endpoints/readiness.js";
 import { loadObjectVerifications } from "../verify/verification-state.js";
+import { loadMachineWarnings } from "../warnings/state.js";
 import type { JobRestoreCheckDto, MemberRestoreState, RepositoryDto } from "./dto.js";
 import { iso } from "./dto.js";
 
@@ -176,6 +177,11 @@ export interface EndpointFact {
   /** A backup requested by hand that the machine has not started yet (an open `backup_now` task). */
   pendingBackup: { status: "pending" | "delivered"; requestedAt: Date } | null;
   restore: { state: MemberRestoreState; checkedAt: Date | null };
+  /**
+   * The newest backup left files behind and an administrator acknowledged that warning
+   * (features/warnings): the job does not ask for attention for it.
+   */
+  warningAcknowledged: boolean;
 }
 
 export async function loadEndpointFacts(
@@ -227,6 +233,7 @@ export async function loadEndpointFacts(
     )
     .orderBy(endpointTasks.endpointId, asc(endpointTasks.createdAt));
   const readiness = await loadEndpointReadiness(tx, tenantId, ids, now);
+  const warnings = await loadMachineWarnings(tx, tenantId, { ids });
   const runBy = new Map(runs.map((run) => [run.endpointId, run]));
   const taskBy = new Map(tasks.map((task) => [task.endpointId, task]));
   for (const row of rows) {
@@ -247,6 +254,7 @@ export async function loadEndpointFacts(
           ? { status: task.status, requestedAt: task.createdAt }
           : null,
       restore: { state: rated?.state ?? "no_backup", checkedAt: rated?.checkedAt ?? null },
+      warningAcknowledged: warnings.get(row.id)?.evaluation.state === "acknowledged",
     });
   }
   return result;

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   type BackupJobPayload,
   type FirstBackupCandidate,
+  UNKNOWN_WARNING_CAUSE,
   type VerifyJobPayload,
   selectFirstBackupTargets,
 } from "@restow/core";
@@ -40,6 +41,7 @@ import {
   loadObjectVerifications,
   loadSnapshotVerifications,
 } from "../verify/verification-state.js";
+import { summaryCounts } from "../warnings/state.js";
 import {
   type Actor,
   type BackupSkipDto,
@@ -236,6 +238,18 @@ async function loadItemCauses(
     list.push({ code: row.code, count: row.count });
     result.set(row.jobId, list);
   }
+  // A run keeps only its first item rows; its summary counts every failed item per cause.
+  for (const row of rows) {
+    const counts = Object.entries(summaryCounts(row.job.itemFailureSummary)).filter(
+      ([code]) => code !== UNKNOWN_WARNING_CAUSE,
+    );
+    if (ids.includes(row.job.id) && counts.length > 0) {
+      result.set(
+        row.job.id,
+        counts.map(([code, value]) => ({ code, count: value })),
+      );
+    }
+  }
   for (const [jobId, list] of result) {
     list.sort((a, b) => b.count - a.count || (a.code < b.code ? -1 : 1));
     result.set(jobId, list.slice(0, MAX_ITEM_CAUSES_IN_LIST));
@@ -309,6 +323,7 @@ async function loadFailureGroups(
   tx: Transaction,
   tenantId: string,
   jobId: string,
+  summary: Record<string, number> = {},
 ): Promise<FailureGroupDto[]> {
   const code = sql<string>`${itemFailures.failure}->>'code'`;
   const where = and(
@@ -340,10 +355,13 @@ async function loadFailureGroups(
     )
     .orderBy(code, desc(itemFailures.createdAt));
   const byCode = new Map(examples.map((row) => [row.code, row.failure]));
-  return counts.flatMap((row) => {
-    const failure = failureDto(byCode.get(row.code));
-    return failure ? [{ failure, count: row.count }] : [];
-  });
+  return counts
+    .flatMap((row) => {
+      const failure = failureDto(byCode.get(row.code));
+      // The summary counts the items beyond the rows a run keeps (apps/worker progress.ts).
+      return failure ? [{ failure, count: Math.max(row.count, summary[row.code] ?? 0) }] : [];
+    })
+    .sort((a, b) => b.count - a.count || a.failure.code.localeCompare(b.failure.code));
 }
 
 export async function getJob(db: Database, tenantId: string, id: string): Promise<JobDetailDto> {
@@ -373,8 +391,16 @@ export async function getJob(db: Database, tenantId: string, id: string): Promis
       ...dto,
       docsUrl: config.docsTroubleshootingUrl,
       failures: failures.map(toFailureDto),
-      failureCount: failureCount?.value ?? failures.length,
-      failureGroups: await loadFailureGroups(tx, tenantId, id),
+      failureCount: Math.max(
+        failureCount?.value ?? failures.length,
+        view.job.itemFailureSummary?.total ?? 0,
+      ),
+      failureGroups: await loadFailureGroups(
+        tx,
+        tenantId,
+        id,
+        summaryCounts(view.job.itemFailureSummary),
+      ),
       snapshot: snapshot ? toSnapshotDto(snapshot, dto.status) : null,
       result: backupResultOf(dto.queue, view.job.payload ?? null),
     };

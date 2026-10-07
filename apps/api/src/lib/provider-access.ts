@@ -293,6 +293,13 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "DELETE /api/v1/directory/objects/:id": configure(),
   "POST /api/v1/directory/users/:userId/protection": configure(),
 
+  // --- Warnings (backups that left items behind) and their acknowledgements -------
+  // Acknowledging is triage of the daily work, like starting a backup: a technician's.
+  "GET /api/v1/warnings": view(),
+  "GET /api/v1/warnings/:kind/:id": view(),
+  "POST /api/v1/warnings/acknowledge": operate(),
+  "DELETE /api/v1/warnings/:kind/:id/acknowledgement": operate(),
+
   // --- Jobs, schedules, verification --------------------------------------------
   "GET /api/v1/jobs": view(),
   "GET /api/v1/jobs/events": view(),

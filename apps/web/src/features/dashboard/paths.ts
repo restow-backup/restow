@@ -28,6 +28,7 @@ export const PATHS = {
     return activeTenantPagePath("protection", "backup");
   },
   jobs: "/history",
+  warnings: "/warnings",
   verify: "/verify",
   notificationMailSettings: "/installation/mail",
   tenants: "/tenants",

@@ -196,6 +196,11 @@
       "title": "Ablauf",
       "empty": "Noch nichts anzuzeigen.",
       "agent": "Agent-Protokoll"
+    },
+    "items": {
+      "title": "Nicht gesicherte Elemente",
+      "more": "{count, plural, one {und # weiteres Element} other {und # weitere Elemente}}",
+      "open": "Alle Elemente, Ursachen und was zu tun ist"
     }
   },
   "events": {

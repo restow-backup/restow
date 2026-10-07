@@ -123,6 +123,7 @@ DECLARE
     'pve_runs',
     'pve_run_blocks',
     'pve_snapshots',
+    'warning_acknowledgements',
     -- Read and written only by the installation role (packages/db roles.ts);
     -- the policy is a second line should the tenant role ever be granted it.
     'provider_member_tenants'

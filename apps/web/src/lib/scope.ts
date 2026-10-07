@@ -26,8 +26,8 @@ export const TENANT_ONLY_NAV_IDS: readonly string[] = [
   ...TENANT_SETTINGS_NAV_IDS,
 ];
 
-/** Pages without a menu entry of their own that still belong to one tenant (a readiness report). */
-const TENANT_ONLY_PATH_PREFIXES: readonly string[] = ["/verify/reports"];
+/** Pages without a menu entry of their own that still belong to one tenant (a readiness report, the warnings). */
+const TENANT_ONLY_PATH_PREFIXES: readonly string[] = ["/verify/reports", "/warnings"];
 
 /** Whether the menu entry is one that needs a tenant. */
 export function isTenantOnlyNavItem(id: string): boolean {

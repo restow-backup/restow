@@ -156,7 +156,10 @@ export interface RunSummary {
 export interface RunError {
   path: string | null;
   message: string;
+  /** Mail: the classified cause; machines: the agent's own error code. */
   code: string | null;
+  /** The classified cause for both (absent from an older server). */
+  cause?: string | null;
 }
 
 export interface RunDetail extends Run {

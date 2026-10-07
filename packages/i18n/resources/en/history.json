@@ -196,6 +196,11 @@
       "title": "Timeline",
       "empty": "Nothing to show yet.",
       "agent": "Agent log"
+    },
+    "items": {
+      "title": "Items not backed up",
+      "more": "{count, plural, one {and # more item} other {and # more items}}",
+      "open": "All items, causes and what to do"
     }
   },
   "events": {

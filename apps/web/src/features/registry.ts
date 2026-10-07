@@ -24,6 +24,7 @@ import * as storage from "@/features/storage";
 import * as tenantPage from "@/features/tenant-page";
 import * as tenants from "@/features/tenants";
 import * as verify from "@/features/verify";
+import * as warnings from "@/features/warnings";
 import { extensionNavItems, extensionNavLocks, extensionRoutes } from "@/lib/extensions";
 import type { NavGroupId, NavItem } from "@/lib/navigation";
 
@@ -44,6 +45,7 @@ import "./ee";
 const features = [
   backupJobs,
   history,
+  warnings,
   verify,
   reports,
   stats,

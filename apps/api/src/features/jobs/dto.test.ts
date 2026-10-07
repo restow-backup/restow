@@ -40,6 +40,7 @@ function jobRow(overrides: Partial<Job> = {}): Job {
     pgBossJobId: "boss-1",
     errorMessage: null,
     failure: null,
+    itemFailureSummary: null,
     startedAt: AT,
     completedAt: null,
     createdAt: AT,

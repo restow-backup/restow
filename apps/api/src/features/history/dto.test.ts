@@ -49,6 +49,7 @@ function jobRow(overrides: Partial<Job> = {}): Job {
     pgBossJobId: "boss-1",
     errorMessage: null,
     failure: null,
+    itemFailureSummary: null,
     startedAt: AT,
     completedAt: null,
     createdAt: new Date(AT.getTime() - 5000),

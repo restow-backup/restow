@@ -52,6 +52,13 @@ import {
 } from "../sources/imap.js";
 import type { ImapAuthMode } from "../sources/schemas.js";
 import { loadObjectVerifications } from "../verify/verification-state.js";
+import {
+  type WarningAcknowledgementDto,
+  type WarningCauseCountDto,
+  acknowledgementDto,
+  causeCountsDto,
+} from "../warnings/dto.js";
+import { type WarningFact, loadMailWarnings } from "../warnings/state.js";
 import { type EnqueueOutcome, enqueueDirectorySync, findPendingSync } from "./enqueue.js";
 import {
   containsPattern,
@@ -192,6 +199,12 @@ export interface ProtectedObjectDto {
   } | null;
   readiness: { rating: RecoveryReadiness; checkedAt: string } | null;
   /**
+   * The newest finished backup went through but left items behind (features/warnings): `open`
+   * counts as a warning, `acknowledged` was looked at and accepted for these causes. Null when
+   * the newest backup is complete, failed outright (see `latestBackupJob`) or missing.
+   */
+  warning: ObjectWarningDto | null;
+  /**
    * The IMAP account's own sealed password (`imapAuthMode: "per_mailbox"`) or a
    * master-user login test (docs/IMAP.md): whether one is set, and the result
    * of the last "test login". Null for every non-IMAP object.
@@ -215,6 +228,18 @@ export interface ProtectedObjectDto {
   } | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ObjectWarningDto {
+  state: "open" | "acknowledged";
+  /** The run that left the items behind (History opens it). */
+  runId: string;
+  failedItems: number;
+  /** Failed items per cause, most frequent first. */
+  causes: WarningCauseCountDto[];
+  /** Causes no acknowledgement covers. */
+  newCauses: string[];
+  acknowledgement: WarningAcknowledgementDto | null;
 }
 
 export interface ObjectsPage {
@@ -846,6 +871,7 @@ async function toObjectDtos(
     tenantId,
     rows.map((row) => row.object.id),
   );
+  const warnings = await loadMailWarnings(tx, tenantId, { ids: rows.map((row) => row.object.id) });
   // One parse of each source's config per page, not per row.
   const configs = new Map<
     string,
@@ -911,6 +937,7 @@ async function toObjectDtos(
       readiness: fact.readiness
         ? { rating: fact.readiness.rating, checkedAt: fact.readiness.checkedAt.toISOString() }
         : null,
+      warning: objectWarningDto(warnings.get(row.object.id)),
       credential:
         row.object.kind === "imap"
           ? {
@@ -927,6 +954,25 @@ async function toObjectDtos(
       updatedAt: row.object.updatedAt.toISOString(),
     };
   });
+}
+
+/** The warning of an object as its row carries it; null without one. */
+function objectWarningDto(fact: WarningFact | undefined): ObjectWarningDto | null {
+  if (!fact?.latest) {
+    return null;
+  }
+  const state = fact.evaluation.state;
+  if (state !== "open" && state !== "acknowledged") {
+    return null;
+  }
+  return {
+    state,
+    runId: fact.latest.runId,
+    failedItems: fact.latest.failedItems,
+    causes: causeCountsDto(fact.causeCounts),
+    newCauses: [...fact.evaluation.newCauses],
+    acknowledgement: acknowledgementDto(fact.ack, fact.evaluation.ackSuperseded),
+  };
 }
 
 /** Filtered, searched, paged protected objects with their backup facts. */

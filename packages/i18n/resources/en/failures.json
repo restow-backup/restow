@@ -128,6 +128,10 @@
       "request_rejected": {
         "title": "Microsoft rejected the request",
         "why": "Microsoft answered{has_httpStatus, select, yes { with HTTP {httpStatus}} other {}}{has_graphCode, select, yes { ({graphCode})} other {}}, and {appName} has no more specific explanation for it. The technical details contain the exact answer."
+      },
+      "item_incomplete": {
+        "title": "Microsoft reported the item incompletely",
+        "why": "Microsoft reported this item without a name or without its folder. Without them {appName} cannot place it. This usually happens while the item is being moved, renamed or uploaded; the next run tries again."
       }
     },
     "imap": {
@@ -166,6 +170,10 @@
       "connection_lost": {
         "title": "The connection to the IMAP server was lost",
         "why": "The server closed the connection during the run or stopped answering. {appName} reconnects and continues where it stopped. Mail servers do this under load or when a connection limit is reached."
+      },
+      "message_missing": {
+        "title": "The IMAP server did not deliver a message",
+        "why": "The server listed the message in the folder but did not return it when it was fetched. Usually it was deleted or moved in the meantime, or the server cut the fetch short because of a limit. The next run tries again."
       }
     },
     "network": {

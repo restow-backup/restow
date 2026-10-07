@@ -78,6 +78,8 @@ import { mountPath as usageMountPath } from "./features/usage/meta.js";
 import { usageRoutes } from "./features/usage/routes.js";
 import { mountPath as verifyMountPath } from "./features/verify/meta.js";
 import { verifyRoutes } from "./features/verify/routes.js";
+import { mountPath as warningsMountPath } from "./features/warnings/meta.js";
+import { warningsRoutes } from "./features/warnings/routes.js";
 import { mountPath as webhooksMountPath } from "./features/webhooks/meta.js";
 import { webhooksRoutes } from "./features/webhooks/routes.js";
 import { deniedAudit } from "./lib/denied-audit.js";
@@ -210,6 +212,7 @@ export function buildApp() {
   app.route(`${API_V1}/runs`, jobsRoutes);
   app.route(`${API_V1}${backupJobsMountPath}`, backupJobsRoutes);
   app.route(`${API_V1}${historyMountPath}`, historyRoutes);
+  app.route(`${API_V1}${warningsMountPath}`, warningsRoutes);
   app.route(`${API_V1}${liveMountPath}`, liveRoutes);
   app.route(`${API_V1}${snapshotsMountPath}`, snapshotsRoutes);
   app.route(`${API_V1}${restoreMountPath}`, restoreRoutes);

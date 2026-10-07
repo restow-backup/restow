@@ -2,6 +2,7 @@ import { type Database, jobProgress, jobs, protectedObjects, snapshots } from "@
 import { and, count, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
 import { readinessOverview } from "../../features/verify/service.js";
+import { loadMailWarnings, warningCounts } from "../../features/warnings/state.js";
 import { notImported } from "../../lib/imported-objects.js";
 import { withTenantTx } from "../../lib/tenant-context.js";
 import { type IntegrationApi, READ_ERRORS, type V1Deps } from "./api.js";
@@ -51,7 +52,13 @@ export const objectCountsSchema = component(
       .number()
       .int()
       .describe(
-        "Protected objects whose latest finished backup run completed but could not back up some items. The job's item failures name them and the reason.",
+        "Protected objects whose latest finished backup run completed but could not back up some items, and whose warning nobody acknowledged for these causes. The job's item failures name them and the reason.",
+      ),
+    acknowledgedWarnings: z
+      .number()
+      .int()
+      .describe(
+        "Protected objects whose latest run left items behind for causes an administrator acknowledged. They do not count in `withItemFailures` until a new cause appears or a backup fails outright.",
       ),
     runningBackups: z.number().int().describe("Backup jobs queued or running."),
   }),
@@ -114,13 +121,12 @@ export function lastSuccessOf(
   return { mail: of("mailbox"), onedrive: of("onedrive"), imap: of("imap"), archive };
 }
 
-/** Job states that end a run; queued, running and cancelled runs say nothing about the outcome. */
-const FINISHED_BACKUP_STATES = ["completed", "failed"] as const;
-
 /**
  * How the latest finished backup run of each object ended: failed outright, or
  * completed while leaving items behind (`failedItems` from the job's progress).
  * A completed run with failed items is not a success and is counted as such.
+ * The summary reads the same rule through features/warnings (state.ts), which
+ * also sets acknowledged warnings apart; this is its plain form.
  */
 export function backupOutcomes(rows: readonly { status: string; failedItems: number | null }[]): {
   failed: number;
@@ -170,23 +176,9 @@ export async function loadTenantSummary(
         ),
       )
       .groupBy(protectedObjects.kind);
-    const latestFinished = await tx
-      .selectDistinctOn([jobs.protectedObjectId], {
-        status: jobs.status,
-        failedItems: jobProgress.failed,
-      })
-      .from(jobs)
-      .innerJoin(protectedObjects, eq(protectedObjects.id, jobs.protectedObjectId))
-      .leftJoin(jobProgress, eq(jobProgress.jobId, jobs.id))
-      .where(
-        and(
-          eq(jobs.tenantId, tenantId),
-          eq(jobs.queue, "backup"),
-          inArray(jobs.status, [...FINISHED_BACKUP_STATES]),
-          eq(protectedObjects.status, "active"),
-        ),
-      )
-      .orderBy(jobs.protectedObjectId, desc(jobs.createdAt), desc(jobs.id));
+    // How the newest finished backup of each active object ended, with acknowledged warnings
+    // apart (features/warnings): an acknowledged warning no longer counts as items left behind.
+    const warnings = warningCounts((await loadMailWarnings(tx, tenantId)).values());
     const [running] = await tx
       .select({ n: count() })
       .from(jobs)
@@ -200,7 +192,11 @@ export async function loadTenantSummary(
     return {
       byStatus,
       lastByKind,
-      outcomes: backupOutcomes(latestFinished),
+      outcomes: {
+        failed: warnings.failed,
+        withItemFailures: warnings.open,
+        acknowledged: warnings.acknowledged,
+      },
       running: running?.n ?? 0,
       storage: await loadStorageTotals(tx, tenantId),
       archiveCapture: await lastArchiveCapture(tx, tenantId),
@@ -214,6 +210,7 @@ export async function loadTenantSummary(
       ...countByStatus(facts.byStatus),
       failed: facts.outcomes.failed,
       withItemFailures: facts.outcomes.withItemFailures,
+      acknowledgedWarnings: facts.outcomes.acknowledged,
       runningBackups: facts.running,
     },
     storage: facts.storage,

@@ -17,6 +17,7 @@ import {
   RotateCcw,
   Search,
   ShieldOff,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import * as React from "react";
@@ -50,6 +51,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { type JobsAccess, useJobsAccess } from "@/features/backup-jobs/components/access-note";
 import { linkProps, newJobTo } from "@/features/backup-jobs/paths";
 import { explorerAt } from "@/features/restore/navigation";
+import { WarningSheet } from "@/features/warnings";
 import { errorMessageKey } from "@/lib/api";
 import { formatDateTime, formatInteger, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -757,11 +759,53 @@ function BackupCell({ object, language }: { object: ProtectedObject; language: s
           <div className="text-xs text-muted-foreground">
             {t("backup.snapshots", { count: object.snapshotCount })}
           </div>
+          {object.warning ? <BackupWarning object={object} language={language} /> : null}
         </div>
       );
     default:
       return <span className="text-muted-foreground">{t("backup.never")}</span>;
   }
+}
+
+/**
+ * The newest backup left items behind: a warning badge (or the quieter acknowledged one) and the
+ * way to the reasons, so the badge is never a dead end (features/warnings).
+ */
+function BackupWarning({ object, language }: { object: ProtectedObject; language: string }) {
+  const { t } = useTranslation("directory");
+  const [open, setOpen] = React.useState(false);
+  const warning = object.warning;
+  if (!warning) {
+    return null;
+  }
+  const acknowledged = warning.state === "acknowledged";
+  const when = formatRelative(object.lastBackupAt, language) ?? "";
+  return (
+    <div className="space-y-0.5 pt-0.5" data-warning={warning.state}>
+      <HintBadge
+        variant={acknowledged ? "muted" : "warning"}
+        label={t(acknowledged ? "backup.acknowledged" : "backup.warning")}
+        icon={acknowledged ? undefined : TriangleAlert}
+      >
+        {t(acknowledged ? "backup.acknowledgedHint" : "backup.warningHint", {
+          count: warning.failedItems,
+          when,
+        })}
+      </HintBadge>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="block text-xs font-medium underline-offset-4 hover:underline"
+      >
+        {t("backup.reasons")}
+      </button>
+      <WarningSheet
+        target={open ? { kind: "object", id: object.id } : null}
+        name={objectTitle(object)}
+        onOpenChange={setOpen}
+      />
+    </div>
+  );
 }
 
 function CredentialCell({ object, language }: { object: ProtectedObject; language: string }) {

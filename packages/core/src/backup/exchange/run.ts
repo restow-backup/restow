@@ -559,12 +559,12 @@ export class BackupRun {
   }
 
   /** Record an item failure (never fatal for the run). */
-  fail(itemRef: string, error: unknown): void {
+  fail(itemRef: string, error: unknown, itemDate?: string | null): void {
     const reason = describeError(error);
     const cause = classifyFailure(error);
     this.counters.failed++;
     this.failures.push({ itemRef, reason, cause });
-    this.reporter.fail(itemRef, reason, cause);
+    this.reporter.fail(itemRef, reason, cause, { itemDate });
     this.noteItem(0);
     this.logger.warn("item failed", { itemRef: redactItemRef(itemRef), reason });
   }

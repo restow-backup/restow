@@ -157,7 +157,9 @@
       "title": "Noch nichts geschützt",
       "description": "Postfächer, OneDrives und IMAP-Konten erscheinen hier, sobald sie geschützt sind.",
       "action": "Objekte schützen"
-    }
+    },
+    "acknowledged": "{count, plural, one {# Warnung bestätigt} other {# Warnungen bestätigt}}",
+    "warningsLink": "Warnungen ansehen"
   },
   "storage": {
     "title": "Gespeichert",

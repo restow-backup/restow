@@ -157,7 +157,9 @@
       "title": "Nothing protected yet",
       "description": "Mailboxes, OneDrives and IMAP accounts appear here once they are protected.",
       "action": "Protect objects"
-    }
+    },
+    "acknowledged": "{count, plural, one {# warning acknowledged} other {# warnings acknowledged}}",
+    "warningsLink": "See the warnings"
   },
   "storage": {
     "title": "Stored",

@@ -62,7 +62,12 @@
     "openJob": "Open run",
     "snapshots": "{count, plural, one {# snapshot} other {# snapshots}}",
     "now": "Back up now",
-    "perObject": "Back up per object"
+    "perObject": "Back up per object",
+    "warning": "With warnings",
+    "warningHint": "The last backup ({when}) went through, but {count, plural, one {# item was} other {# items were}} not backed up.",
+    "acknowledged": "Warning acknowledged",
+    "acknowledgedHint": "{count, plural, one {# item} other {# items}} of the last backup ({when}) were not backed up. The causes are acknowledged.",
+    "reasons": "See the reasons"
   },
   "credential": {
     "status": {

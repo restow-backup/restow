@@ -33,7 +33,10 @@ export interface ProtectedObjectsWidget {
   excluded: number;
   orphaned: number;
   failed: number;
+  /** Objects whose newest backup left items behind, without an acknowledgement that covers it. */
   withItemFailures: number;
+  /** Objects whose warning an administrator acknowledged (absent from an older server). */
+  acknowledgedWarnings?: number;
   runningBackups: number;
 }
 

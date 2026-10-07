@@ -36,6 +36,7 @@ import tenantsDe from "../resources/de/tenants.json" with { type: "json" };
 import uiDe from "../resources/de/ui.json" with { type: "json" };
 import updatesDe from "../resources/de/updates.json" with { type: "json" };
 import verifyDe from "../resources/de/verify.json" with { type: "json" };
+import warningsDe from "../resources/de/warnings.json" with { type: "json" };
 
 import accountsEn from "../resources/en/accounts.json" with { type: "json" };
 import archiveEn from "../resources/en/archive.json" with { type: "json" };
@@ -70,6 +71,7 @@ import tenantsEn from "../resources/en/tenants.json" with { type: "json" };
 import uiEn from "../resources/en/ui.json" with { type: "json" };
 import updatesEn from "../resources/en/updates.json" with { type: "json" };
 import verifyEn from "../resources/en/verify.json" with { type: "json" };
+import warningsEn from "../resources/en/warnings.json" with { type: "json" };
 
 /**
  * Translation namespaces. Each maps to one JSON file per language under
@@ -96,6 +98,7 @@ export const namespaces = [
   "backup",
   "backupjobs",
   "history",
+  "warnings",
   "failures",
   "schedules",
   "restore",
@@ -151,6 +154,7 @@ export const resources = {
     backup: backupDe,
     backupjobs: backupjobsDe,
     history: historyDe,
+    warnings: warningsDe,
     failures: failuresDe,
     schedules: schedulesDe,
     restore: restoreDe,
@@ -186,6 +190,7 @@ export const resources = {
     backup: backupEn,
     backupjobs: backupjobsEn,
     history: historyEn,
+    warnings: warningsEn,
     failures: failuresEn,
     schedules: schedulesEn,
     restore: restoreEn,

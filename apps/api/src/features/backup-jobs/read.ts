@@ -294,7 +294,11 @@ function endpointJobDto(
     byKind[fact.profile] = (byKind[fact.profile] ?? 0) + 1;
     states.push(fact.restore);
     runs.push({
-      status: fact.latest?.status ?? null,
+      // An acknowledged warning (features/warnings) no longer asks for attention.
+      status:
+        fact.latest?.status === "partial" && fact.warningAcknowledged
+          ? "succeeded"
+          : (fact.latest?.status ?? null),
       finishedAt: fact.latest?.finishedAt ?? null,
       runId: fact.latest?.id ?? null,
       // An agent run that is over is the newest finished one; one still running has no end yet.

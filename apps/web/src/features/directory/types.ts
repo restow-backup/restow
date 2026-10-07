@@ -143,6 +143,12 @@ export interface ProtectedObject {
   } | null;
   readiness: { rating: RecoveryReadiness; checkedAt: string } | null;
   /**
+   * The newest finished backup went through but left items behind (apps/api features/warnings):
+   * `open` is a warning, `acknowledged` was looked at and accepted for its causes. Null (or absent,
+   * from an older server) when the newest backup is complete, failed outright or missing.
+   */
+  warning?: ObjectWarning | null;
+  /**
    * The account's own login (per_mailbox or master-user test); null for
    * non-IMAP objects. `authMode` is the parent source's mode: only
    * `per_mailbox` mailboxes ever have their own password, so `hasPassword`
@@ -162,6 +168,23 @@ export interface ProtectedObject {
   } | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ObjectWarning {
+  state: "open" | "acknowledged";
+  /** The run that left the items behind. */
+  runId: string;
+  failedItems: number;
+  causes: { code: string; count: number }[];
+  newCauses: string[];
+  acknowledgement: {
+    acknowledgedAt: string;
+    acknowledgedBy: string;
+    note: string | null;
+    causes: string[];
+    runId: string | null;
+    superseded: boolean;
+  } | null;
 }
 
 export interface ObjectsPage {

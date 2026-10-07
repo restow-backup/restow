@@ -211,7 +211,10 @@ export interface RunSummaryDto {
 export interface RunErrorDto {
   path: string | null;
   message: string;
+  /** Mail: the classified cause; machines: the agent's own error code. */
   code: string | null;
+  /** The classified cause (packages/core/src/failures) for both: what the UI explains. */
+  cause: string | null;
 }
 
 export interface RunDetailDto extends RunDto {

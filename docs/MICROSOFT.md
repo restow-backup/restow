@@ -155,6 +155,68 @@ Schutzumfang" anzeigen, nicht als Fehler).
 - Graph-Aufrufe für Mail/OneDrive sind kostenlos. Teams-Export ist metered.
 - Azure-App-Registrierung ist kostenlos; für Metered APIs braucht die App ein Azure-Abo.
 
+## Warnungen: Läufe mit nicht gesicherten Elementen
+
+Ein Lauf, der durchläuft, aber einzelne Elemente nicht sichern kann (zu große oder bei Microsoft
+beschädigte Nachrichten, Throttling am Element, unvollständig gemeldete OneDrive-Dateien, eine
+Nachricht, die der IMAP-Server nicht ausliefert, gesperrte Dateien auf einem Rechner), endet
+`completed` mit Fehlschlägen (`partial` in History). Das ist eine **Warnung**: Das Objekt ist
+gesichert, nur nicht vollständig. Ein Lauf, der ganz fehlschlägt, ist keine Warnung, sondern ein
+Fehler (es gibt keinen neuen Sicherungsstand).
+
+**Was gespeichert wird.** Jedes Element, das ein Lauf nicht verarbeiten kann, landet mit Pfad
+(Ordner, Betreff bzw. Dateiname und Kurz-ID), Rohmeldung (HTTP-Status, Graph-Code, Text; nie
+Inhalte oder Tokens), eingeordneter Ursache (`item_failures.failure`, Katalog in
+`packages/core/src/failures`), Zahl der Läufe in Folge und, wo bekannt, dem Datum des Elements
+(`item_failures.item_date`, Empfangszeit einer Nachricht) in `item_failures`. Je Lauf werden die
+ersten 200 Elemente als Zeilen behalten (`MAX_ITEM_FAILURE_ROWS` in `apps/worker/src/progress.ts`);
+alle Fehlschläge zählt `jobs.item_failure_summary` je Ursache, damit die Erklärung auch bei
+Tausenden gedrosselter Elemente stimmt, ohne die Tabelle zu fluten (Migration
+`0029_warning_acknowledgements`). Neue Ursachen dafür: `graph.item_incomplete` (OneDrive meldet ein
+Element ohne Namen oder Ordner) und `imap.message_missing` (der Server liefert eine aufgeführte
+Nachricht nicht aus); vorher landeten beide als „Ursache nicht erkannt".
+
+**Wo man es sieht.** Bis 0.3.0 zeigten der Start (Kachel „mit fehlgeschlagenen Elementen") und
+History (`partial`) eine Warnung, aber der Link führte zu den geschützten Objekten, wo das Postfach
+als normal gesichert erschien, und die Lauf-Schublade zeigte für einen `partial`-Lauf keine Ursache
+(nur die Seite des Laufs hatte die Elemente). Jetzt:
+
+- Geschützte Objekte: Spalte „Letzte Sicherung" mit „Mit Warnungen" bzw. „Warnung bestätigt" und
+  „Gründe ansehen".
+- Seite `/warnings` (vom Start verlinkt): alle offenen und bestätigten Warnungen von Postfächern,
+  OneDrives, IMAP-Konten und Rechnern; je Objekt ein Bereich mit den letzten Läufen, den
+  Ursachen (was passiert ist, warum, was zu tun ist, technische Details mit Graph-Code und
+  Rohmeldung) und den Elementen mit Ordner, Betreff, ID und Datum.
+- Lauf-Schublade in History: die ersten nicht gesicherten Elemente mit Ursache und dem Weg zur
+  Seite des Laufs.
+
+**Bestätigen.** Wer sich eine Warnung angesehen hat und sie hinnimmt (die beschädigte Nachricht
+bleibt beschädigt), bestätigt sie, einzeln oder für mehrere, mit optionaler Notiz
+(`warning_acknowledgements`, eine Zeile je Objekt oder Rechner; `POST /api/v1/warnings/acknowledge`,
+zurücknehmen mit `DELETE /api/v1/warnings/:kind/:id/acknowledgement`). Die Bestätigung gilt für die
+**Ursachen** des Laufs, den man angesehen hat. Solange der neueste Lauf nur diese Ursachen hat und
+seit der Bestätigung kein Lauf ganz fehlgeschlagen ist, zählt die Warnung nicht mehr: nicht in
+`objects.withItemFailures` von `GET /api/v1/status` (und damit nicht auf dem Start, im
+Provider-Dashboard und im RMM; neu ist `objects.acknowledgedWarnings`), nicht in der Spalte der
+geschützten Objekte und nicht im Zustand „Aufmerksamkeit" eines Jobs mit Rechnern. Eine neue
+Ursache oder ein ganz fehlgeschlagener Lauf dazwischen öffnet die Warnung wieder; die alte
+Bestätigung bleibt als „gilt nicht mehr" sichtbar und kann erneuert werden. Bestätigen und
+Zurücknehmen stehen im Audit-Log (`warning.acknowledged`, `warning.acknowledgement_revoked`, mit
+Ursachen, Lauf, Zahl der Elemente und Notiz). Erlaubt für Administratoren des Mandanten und
+Provider-Mitglieder ab Techniker; lesen dürfen alle Provider-Rollen.
+
+**Entscheidungen.**
+
+- Ein ganz fehlgeschlagener Lauf lässt sich nicht bestätigen und wird von keiner Bestätigung
+  verdeckt: Er bleibt rot, bis wieder eine Sicherung gelingt. Eine Warnung sagt „unvollständig",
+  ein Fehler „kein neuer Sicherungsstand"; das Zweite darf nie dauerhaft still werden.
+- Die Bestätigung ändert keine Geschichte: Berichte und Statistik zählen fehlgeschlagene Elemente
+  eines Zeitraums weiter (sie sind passiert), der Backup-Verlauf auf dem Start ebenso. Sie ändert
+  auch keine Wiederherstellbarkeit: Ein Rechner, dessen neuester Sicherungsstand Dateien
+  auslässt, bleibt in der Restore-Prüfung gelb.
+- Alarme: Für Läufe mit Warnungen gibt es kein Ereignis (nur `job.failed` für Fehler); die
+  Bestätigung unterdrückt daher keinen Alarm, und ein Fehler alarmiert wie bisher.
+
 ## Dinge, die immer wieder schiefgehen
 
 - Consent gegeben, aber `Mail.Read` statt `Mail.ReadWrite`: Backup läuft, Restore

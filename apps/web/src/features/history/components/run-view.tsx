@@ -1,10 +1,12 @@
+import { Link } from "@tanstack/react-router";
 import { Check, ChevronRight } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FailureExplanation } from "@/features/failures";
+import { FailureExplanation, useCauseTitle } from "@/features/failures";
+import { jobDetailTo } from "@/features/jobs/paths";
 import { phaseLabel } from "@/features/jobs/presenters";
 import { formatBytes, formatInteger } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -41,6 +43,11 @@ export interface RunViewProps {
   onRetry: () => void;
   /** Switch to another run of the wave (the objects are buttons). */
   onOpenRun?: (runId: string) => void;
+  /**
+   * The page of the run lists the failed items in full below the view (mail runs); the drawer
+   * shows the first ones here, with the way to that page.
+   */
+  itemsOnPage?: boolean;
   className?: string;
 }
 
@@ -51,6 +58,7 @@ export function RunView({
   error,
   onRetry,
   onOpenRun,
+  itemsOnPage = false,
   className,
 }: RunViewProps) {
   const { t } = useTranslation("history");
@@ -60,6 +68,7 @@ export function RunView({
   return (
     <div className={cn("space-y-5", className)} data-slot="run-view" data-state={run.state}>
       <FailureSection run={run} detail={detail} />
+      {itemsOnPage ? null : <FailedItemsSection run={run} detail={detail} />}
       <ProgressSection run={run} detail={detail} />
       <StatsSection run={run} detail={detail} now={now} />
       <ChartsSection run={run} loading={loading && !run.samples} detail={detail} />
@@ -103,6 +112,64 @@ function FailureSection({ run, detail }: { run: Run; detail: RunDetail | undefin
       className="[&_*]:break-words"
       aria-label={title(run)}
     />
+  );
+}
+
+// --- What was left behind -----------------------------------------------------------------------
+
+/** Items shown in the drawer; the page of the run lists them all. */
+const DRAWER_ITEMS = 5;
+
+/**
+ * A run that went through but left items behind (`partial`) has no failure of its own: without
+ * this section the drawer would show a warning badge and nothing to explain it. It lists the first
+ * failed items with their cause and raw message, and leads to the page of the run, which groups
+ * them by cause with what to do.
+ */
+function FailedItemsSection({ run, detail }: { run: Run; detail: RunDetail | undefined }) {
+  const { t } = useTranslation("history");
+  const causeTitle = useCauseTitle();
+  const errors = detail?.errors ?? [];
+  if (run.state === "running" || run.state === "queued" || errors.length === 0) {
+    return null;
+  }
+  const shown = errors.slice(0, DRAWER_ITEMS);
+  const more = Math.max(detail?.errorCount ?? errors.length, errors.length) - shown.length;
+  return (
+    <section
+      aria-label={t("view.items.title")}
+      className="space-y-2 rounded-[10px] border border-warning/40 bg-warning/5 p-3"
+      data-section="failed-items"
+    >
+      <h3 className="text-[12.5px] font-semibold">{t("view.items.title")}</h3>
+      <ul className="space-y-1.5 text-[12.5px]">
+        {shown.map((error, index) => (
+          <li
+            key={`${index}-${error.path ?? ""}`}
+            className="min-w-0"
+            data-cause={error.cause ?? undefined}
+          >
+            {error.path ? (
+              <p className="truncate font-mono text-[11.5px]" title={error.path}>
+                {error.path}
+              </p>
+            ) : null}
+            <p className="break-words">{causeTitle(error.cause ?? "unknown")}</p>
+            <p className="break-words text-xs text-muted-foreground">{error.message}</p>
+          </li>
+        ))}
+      </ul>
+      {more > 0 ? (
+        <p className="text-xs text-muted-foreground">{t("view.items.more", { count: more })}</p>
+      ) : null}
+      <Link
+        to={jobDetailTo(run.id)}
+        className="inline-flex items-center gap-1 text-xs font-medium underline-offset-4 hover:underline"
+      >
+        {t("view.items.open")}
+        <ChevronRight aria-hidden="true" className="size-3" />
+      </Link>
+    </section>
   );
 }
 

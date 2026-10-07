@@ -4,6 +4,13 @@
  * process, with the attempt count carried over from earlier runs so the third
  * consecutive failure can raise an alert, docs/ARCHITECTURE.md).
  *
+ * A run that fails thousands of items (a mailbox Microsoft throttles for an
+ * hour, a share full of locked files) must not write thousands of rows: the
+ * first {@link MAX_ITEM_FAILURE_ROWS} of a run are kept with their reason, cause
+ * and item date, and every failure is counted per cause in
+ * `jobs.item_failure_summary`, so the explanation stays exact while the table
+ * stays bounded (docs/MICROSOFT.md, "Warnings and failed items").
+ *
  * The batching lives in @restow/core's ProgressTracker; this sink is what it
  * publishes to. Each publish is one tenant-pinned transaction. It also doubles
  * as the cancellation probe: if the API flipped the job to `cancelled` while it
@@ -15,9 +22,11 @@ import {
   type ProgressSink,
   ProgressTracker,
   type ProgressUpdate,
+  UNKNOWN_WARNING_CAUSE,
 } from "@restow/core";
 import {
   type Database,
+  type ItemFailureSummaryJson,
   itemFailures,
   jobProgress,
   jobs,
@@ -35,6 +44,61 @@ export type TenantTx = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 /** After this many consecutive runs an item's failure is escalated. */
 export const REPEATED_FAILURE_THRESHOLD = 3;
+
+/** The failed items of one run kept as rows; the rest are counted in `jobs.item_failure_summary`. */
+export const MAX_ITEM_FAILURE_ROWS = 200;
+
+/** The longest cause code counted in a summary; anything longer is a malformed record. */
+const MAX_CAUSE_KEY = 80;
+/** The most distinct causes a summary keeps; the rest are counted under "unknown". */
+const MAX_SUMMARY_CAUSES = 50;
+
+/** A summary read back from the jobs row, defensively. */
+export function parseItemFailureSummary(value: unknown): ItemFailureSummaryJson {
+  const empty: ItemFailureSummaryJson = { total: 0, stored: 0, byCause: {} };
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return empty;
+  }
+  const raw = value as Record<string, unknown>;
+  const count = (entry: unknown) =>
+    typeof entry === "number" && Number.isFinite(entry) && entry > 0 ? Math.floor(entry) : 0;
+  const byCause: Record<string, number> = {};
+  if (raw.byCause && typeof raw.byCause === "object" && !Array.isArray(raw.byCause)) {
+    for (const [code, entry] of Object.entries(raw.byCause as Record<string, unknown>)) {
+      if (code.length > 0 && code.length <= MAX_CAUSE_KEY && count(entry) > 0) {
+        byCause[code] = count(entry);
+      }
+    }
+  }
+  return { total: count(raw.total), stored: count(raw.stored), byCause };
+}
+
+/**
+ * Add a batch of failures to a run's summary: every failure is counted under its cause, and
+ * `stored` grows by the rows actually written.
+ */
+export function addToSummary(
+  summary: ItemFailureSummaryJson,
+  failures: readonly Pick<ItemFailureRecord, "cause">[],
+  stored: number,
+): ItemFailureSummaryJson {
+  const byCause = { ...summary.byCause };
+  for (const failure of failures) {
+    let code = failure.cause?.code ?? UNKNOWN_WARNING_CAUSE;
+    if (code.length > MAX_CAUSE_KEY) {
+      code = UNKNOWN_WARNING_CAUSE;
+    }
+    if (!(code in byCause) && Object.keys(byCause).length >= MAX_SUMMARY_CAUSES) {
+      code = UNKNOWN_WARNING_CAUSE;
+    }
+    byCause[code] = (byCause[code] ?? 0) + 1;
+  }
+  return {
+    total: summary.total + failures.length,
+    stored: summary.stored + stored,
+    byCause,
+  };
+}
 
 export interface PgProgressSinkOptions {
   readonly run: TenantTxRunner;
@@ -162,13 +226,35 @@ export class PgProgressSink implements ProgressSink {
     phase: string | null,
   ): Promise<void> {
     const { tenantId, jobId, protectedObjectId, logger } = this.options;
+    // The summary lives on the jobs row, so a retried attempt continues the count of the run.
+    const [job] = await tx
+      .select({ summary: jobs.itemFailureSummary })
+      .from(jobs)
+      .where(and(eq(jobs.tenantId, tenantId), eq(jobs.id, jobId)))
+      .limit(1);
+    const summary = parseItemFailureSummary(job?.summary ?? null);
+    const room = Math.max(0, MAX_ITEM_FAILURE_ROWS - summary.stored);
+    const kept = failures.slice(0, room);
+    await tx
+      .update(jobs)
+      .set({ itemFailureSummary: addToSummary(summary, failures, kept.length) })
+      .where(and(eq(jobs.tenantId, tenantId), eq(jobs.id, jobId)));
+    if (kept.length < failures.length && summary.stored + kept.length === MAX_ITEM_FAILURE_ROWS) {
+      logger.info("item failures beyond the kept rows are only counted", {
+        event: "item.failure.capped",
+        kept: MAX_ITEM_FAILURE_ROWS,
+      });
+    }
+    if (kept.length === 0) {
+      return;
+    }
     const previous = await previousAttempts(
       tx,
       tenantId,
       protectedObjectId,
-      failures.map((f) => f.itemRef),
+      kept.map((f) => f.itemRef),
     );
-    const rows = failures.map((failure) => {
+    const rows = kept.map((failure) => {
       const attempts = (previous.get(failure.itemRef) ?? 0) + 1;
       // Every engine's item failures pass through here on their way to the UI;
       // a reason built from a failed query keeps its words, not the query.
@@ -189,6 +275,7 @@ export class PgProgressSink implements ProgressSink {
         reason: reason.slice(0, 2000),
         // The classified cause, when the engine had the error at hand; the reason stays either way.
         failure: failure.cause ? itemFailureRecord(failure.cause, now, phase) : null,
+        itemDate: failure.itemDate ? new Date(failure.itemDate) : null,
         attempts,
         lastAttemptAt: now,
       };

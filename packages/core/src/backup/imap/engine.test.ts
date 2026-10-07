@@ -427,7 +427,12 @@ describe("ImapBackupEngine", () => {
     const result = await engine().run(ctx, protectedObject, {});
     expect(result.objectsWritten).toBe(5);
     expect(result.failures).toEqual([
-      { itemRef: "mail/INBOX/5.eml", reason: "message not returned by the server" },
+      {
+        itemRef: "mail/INBOX/5.eml",
+        reason: "message not returned by the server",
+        // Classified, so the operator reads why instead of "cause not identified".
+        cause: expect.objectContaining({ code: "imap.message_missing", transient: true }),
+      },
     ]);
     expect(server.stats.connects).toBe(2);
 

@@ -14,7 +14,7 @@ import type { DriveItemVersion } from "@microsoft/microsoft-graph-types";
 import { JobAbortedError, type WrittenObject } from "../../engine/chunkstore.js";
 import type { SnapshotWriter } from "../../engine/snapshot.js";
 import type { BackupResult, ItemFailureRecord, JobContext, Logger } from "../../engine/types.js";
-import { classifyFailure } from "../../failures/classify.js";
+import { FailureError, classifyFailure } from "../../failures/classify.js";
 import type { GraphClient } from "../../graph/client.js";
 import type { DeltaMode } from "../../graph/delta.js";
 import { GraphError, isNotFound } from "../../graph/errors.js";
@@ -563,7 +563,11 @@ export class DriveBackupRun {
   private async place(item: DriveDeltaItem): Promise<PlacedItem | null> {
     const name = item.name ?? "";
     if (name.length === 0) {
-      this.recordFailure(item.id, item.id, new Error("Graph returned the item without a name"));
+      this.recordFailure(
+        item.id,
+        item.id,
+        incompleteItem("Graph returned the item without a name"),
+      );
       return null;
     }
     const parentId = item.parentReference?.id ?? null;
@@ -590,7 +594,7 @@ export class DriveBackupRun {
     };
     const freshPath = graphPathOf(located);
     if (freshPath === undefined) {
-      this.recordFailure(item.id, name, new Error("Graph did not report the item's folder"));
+      this.recordFailure(item.id, name, incompleteItem("Graph did not report the item's folder"));
       return null;
     }
     return {
@@ -867,4 +871,9 @@ export class DriveBackupRun {
       throw new JobAbortedError();
     }
   }
+}
+
+/** Graph listed an item without what is needed to place it (its name or its folder). */
+function incompleteItem(message: string): FailureError {
+  return new FailureError(message, { code: "graph.item_incomplete", technical: { message } });
 }

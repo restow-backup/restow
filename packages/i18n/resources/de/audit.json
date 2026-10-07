@@ -157,7 +157,8 @@
     "endpoint": "Server und Clients",
     "backup_job": "Jobs (Definitionen)",
     "mount": "Netzlaufwerke",
-    "pve": "Proxmox VE"
+    "pve": "Proxmox VE",
+    "warning": "Warnungen"
   },
   "events": {
     "account": {
@@ -537,6 +538,10 @@
         "committed": "Sicherungsstand des Gasts gespeichert",
         "pruned": "Sicherungsstand des Gasts entfernt (Aufbewahrung)"
       }
+    },
+    "warning": {
+      "acknowledged": "Warnung bestätigt",
+      "acknowledgement_revoked": "Bestätigung einer Warnung zurückgenommen"
     }
   },
   "targetTypes": {

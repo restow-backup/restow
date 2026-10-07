@@ -128,6 +128,10 @@
       "request_rejected": {
         "title": "Microsoft hat die Anfrage abgelehnt",
         "why": "Microsoft hat{has_httpStatus, select, yes { mit HTTP {httpStatus}} other {}}{has_graphCode, select, yes { ({graphCode})} other {}} geantwortet, und {appName} hat dafür keine genauere Erklärung. Die technischen Details enthalten die genaue Antwort."
+      },
+      "item_incomplete": {
+        "title": "Microsoft hat das Element unvollständig gemeldet",
+        "why": "Microsoft hat dieses Element ohne Namen oder ohne seinen Ordner gemeldet. Ohne diese Angaben kann {appName} es nicht einordnen. Das passiert meist, wenn das Element gerade verschoben, umbenannt oder hochgeladen wird; der nächste Lauf versucht es erneut."
       }
     },
     "imap": {
@@ -166,6 +170,10 @@
       "connection_lost": {
         "title": "Die Verbindung zum IMAP-Server wurde unterbrochen",
         "why": "Der Server hat die Verbindung während des Laufs geschlossen oder nicht mehr geantwortet. {appName} verbindet sich neu und macht dort weiter, wo es aufgehört hat. Mailserver tun das unter Last oder wenn ein Verbindungslimit erreicht ist."
+      },
+      "message_missing": {
+        "title": "Der IMAP-Server hat eine Nachricht nicht ausgeliefert",
+        "why": "Der Server hat die Nachricht im Ordner aufgeführt, sie beim Abruf aber nicht zurückgegeben. Meist wurde sie zwischenzeitlich gelöscht oder verschoben, oder der Server hat den Abruf wegen einer Grenze abgebrochen. Der nächste Lauf versucht es erneut."
       }
     },
     "network": {

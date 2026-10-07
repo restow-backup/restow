@@ -74,6 +74,11 @@ export function ProtectedObjectsWidget({
                   {t("protectedObjects.withItemFailures", { count: data.withItemFailures })}
                 </StatusBadge>
               ) : null}
+              {(data.acknowledgedWarnings ?? 0) > 0 ? (
+                <StatusBadge tone="muted">
+                  {t("protectedObjects.acknowledged", { count: data.acknowledgedWarnings ?? 0 })}
+                </StatusBadge>
+              ) : null}
               {data.runningBackups > 0 ? (
                 <StatusBadge tone="info" live>
                   {t("protectedObjects.running", { count: data.runningBackups })}
@@ -83,9 +88,22 @@ export function ProtectedObjectsWidget({
           }
           link={
             canAdminister ? (
-              <LinkButton to={to(PATHS.protectedObjects)} variant="link" size="xs" className="px-0">
-                {t("protectedObjects.link")}
-              </LinkButton>
+              <span className="flex flex-wrap gap-x-3">
+                {/* A warning badge always leads to its reasons (features/warnings). */}
+                {data.withItemFailures > 0 || (data.acknowledgedWarnings ?? 0) > 0 ? (
+                  <LinkButton to={to(PATHS.warnings)} variant="link" size="xs" className="px-0">
+                    {t("protectedObjects.warningsLink")}
+                  </LinkButton>
+                ) : null}
+                <LinkButton
+                  to={to(PATHS.protectedObjects)}
+                  variant="link"
+                  size="xs"
+                  className="px-0"
+                >
+                  {t("protectedObjects.link")}
+                </LinkButton>
+              </span>
             ) : undefined
           }
         />

@@ -157,7 +157,8 @@
     "endpoint": "Servers and clients",
     "backup_job": "Backup jobs",
     "mount": "Network shares",
-    "pve": "Proxmox VE"
+    "pve": "Proxmox VE",
+    "warning": "Warnings"
   },
   "events": {
     "account": {
@@ -537,6 +538,10 @@
         "committed": "Restore point of the guest stored",
         "pruned": "Restore point of the guest removed (retention)"
       }
+    },
+    "warning": {
+      "acknowledged": "Warning acknowledged",
+      "acknowledgement_revoked": "Warning acknowledgement revoked"
     }
   },
   "targetTypes": {

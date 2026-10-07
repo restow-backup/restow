@@ -1,0 +1,124 @@
+{
+  "nav": "Warnings",
+  "title": "Warnings",
+  "description": "Backups that went through but could not back up some items: which ones, why and what to do. Acknowledged warnings no longer count until a new problem appears.",
+  "tabs": {
+    "open": "Open",
+    "acknowledged": "Acknowledged"
+  },
+  "failedHint": "{count, plural, one {# protected object or machine has} other {# protected objects or machines have}} a failed last backup. Failed backups cannot be acknowledged; they stay red until a backup succeeds again.",
+  "openHistory": "Open History",
+  "truncated": "Showing the first {count} warnings.",
+  "loadError": "The warnings could not be loaded.",
+  "empty": {
+    "open": {
+      "title": "No open warnings",
+      "description": "The last backups of all protected objects and machines are complete, or their warnings are acknowledged."
+    },
+    "acknowledged": {
+      "title": "No acknowledged warnings",
+      "description": "Acknowledged warnings appear here, with the person, the time and the note."
+    }
+  },
+  "columns": {
+    "select": "Select",
+    "selectAll": "Select all",
+    "object": "Object",
+    "lastRun": "Last run",
+    "causes": "Causes",
+    "acknowledgement": "Acknowledgement",
+    "actions": "Actions"
+  },
+  "kind": {
+    "mailbox": "Mailbox",
+    "onedrive": "OneDrive",
+    "imap": "IMAP account",
+    "server": "Server",
+    "client": "Client"
+  },
+  "state": {
+    "open": "Warning",
+    "acknowledged": "Warning acknowledged",
+    "failed": "Failed",
+    "none": "No warning"
+  },
+  "outcome": {
+    "succeeded": "Complete",
+    "partial": "With warnings",
+    "failed": "Failed",
+    "running": "Running",
+    "queued": "Waiting",
+    "cancelled": "Cancelled"
+  },
+  "failedItems": "{count, plural, one {# item not backed up} other {# items not backed up}}",
+  "newCauses": "New cause: {causes}",
+  "ackBy": "Acknowledged by {who}, {when}",
+  "superseded": "The acknowledgement of {when} no longer applies, because a new problem appeared since.",
+  "actions": {
+    "details": "See the reasons",
+    "acknowledge": "Acknowledge warning",
+    "acknowledgeAgain": "Acknowledge again",
+    "acknowledgeSelected": "{count, plural, one {Acknowledge # warning} other {Acknowledge # warnings}}",
+    "revoke": "Revoke acknowledgement",
+    "openRun": "Open run"
+  },
+  "reasons": {
+    "notAllowed": "Your role does not allow acknowledging warnings.",
+    "failed": "A failed backup cannot be acknowledged. It stays red until a backup succeeds again.",
+    "noWarning": "The last backup is complete. There is nothing to acknowledge.",
+    "nothingSelected": "Select objects with an open warning first.",
+    "pending": "The acknowledgement is being saved."
+  },
+  "dialog": {
+    "title": "{count, plural, one {Acknowledge warning} other {Acknowledge # warnings}}",
+    "description": "Acknowledged warnings no longer count in the overview, the status and the protected objects. If a new cause appears or a backup fails, the warning shows again. Failed backups cannot be acknowledged.",
+    "note": "Note (optional)",
+    "notePlaceholder": "For example: the message is damaged at Microsoft, clarified with the person.",
+    "noteHelp": "The note is visible to all administrators and is kept in the audit log.",
+    "confirm": "Acknowledge",
+    "cancel": "Cancel"
+  },
+  "revokeDialog": {
+    "title": "Revoke the acknowledgement?",
+    "description": "The warning of {name} then counts again in the overview and the status.",
+    "confirm": "Revoke"
+  },
+  "toast": {
+    "acknowledged": "{count, plural, one {Warning acknowledged} other {# warnings acknowledged}}",
+    "skipped": "{count, plural, one {# object was skipped because it no longer has an open warning.} other {# objects were skipped because they no longer have an open warning.}}",
+    "revoked": "Acknowledgement revoked",
+    "failed": "That did not work. Please try again."
+  },
+  "explain": {
+    "open": "The last backup of {when} went through, but {count, plural, one {# item} other {# items}} could not be backed up. Everything else is backed up; {appName} tries the affected items again in the next run.",
+    "acknowledged": "The last backup of {when} did not back up {count, plural, one {# item} other {# items}}. The causes are acknowledged, so the warning does not count.",
+    "failed": "The last backup failed. There is no new restore point. The reason is shown with the run below.",
+    "none": "The last backup is complete."
+  },
+  "detail": {
+    "title": "Backup history and warnings",
+    "loadError": "The details could not be loaded.",
+    "runs": "Last runs",
+    "noRuns": "There is no run for this object yet.",
+    "byCause": "Causes and what to do",
+    "items": "Items not backed up",
+    "itemsCapped": "Showing the first {shown} of {total} items. The causes above count all of them.",
+    "noItems": "No individual items are stored for this run.",
+    "acknowledgement": "Acknowledgement",
+    "note": "Note",
+    "covers": "Covers: {causes}",
+    "columns": {
+      "item": "Item",
+      "folder": "Folder",
+      "date": "Date",
+      "cause": "Cause",
+      "message": "Message"
+    },
+    "itemId": "ID {id}",
+    "attempts": "{count, plural, one {for the first time} other {in # runs in a row}}",
+    "rawMessage": "Message as recorded",
+    "noFolder": "Top level",
+    "receivedAt": "Received {when}",
+    "failedAt": "Failed {when}"
+  }
+}

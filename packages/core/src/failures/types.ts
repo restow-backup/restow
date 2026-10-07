@@ -43,6 +43,7 @@ export const FAILURE_CODES = [
   "graph.item_not_found",
   "graph.item_too_large",
   "graph.item_unreadable",
+  "graph.item_incomplete",
   "graph.delta_expired",
   "graph.quota_exceeded",
   "graph.request_rejected",
@@ -56,6 +57,7 @@ export const FAILURE_CODES = [
   "imap.command_failed",
   "imap.mailbox_full",
   "imap.connection_lost",
+  "imap.message_missing",
   // Network (any remote host: Microsoft, an IMAP server, ...)
   "network.dns",
   "network.unreachable",

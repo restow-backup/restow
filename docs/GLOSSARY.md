@@ -19,6 +19,8 @@ literally (use `{appName}`).
 | Readiness: last restore check failed or no usable backup | not restorable | Nicht wiederherstellbar | Nicht bereit |
 | Getting data back | restore | Wiederherstellung (verb: wiederherstellen) | Restore (alone), Rücksicherung |
 | Mailbox, OneDrive, IMAP account or machine that a job covers | protected object | geschütztes Objekt | Element, Quelle (for the object) |
+| A run that went through but could not back up some items | warning (with warnings) | Warnung (mit Warnungen) | Teilfehler, teilweise erfolgreich |
+| Accepting a warning after looking at its causes, so it no longer counts | acknowledge (acknowledgement) | bestätigen (Bestätigung) | quittieren, ignorieren, ausblenden |
 | Where backups are stored | storage location | Speicherort | Repository (in the UI), Ziel (alone) |
 | A customer organisation in the installation | tenant | Mandant | Kunde, Tenant, Organisation (for a tenant) |
 | A person who administers the installation | member (owner, admin, …) | Mitglied (Inhaber, Administrator, …) | Owner, Teammitglied |

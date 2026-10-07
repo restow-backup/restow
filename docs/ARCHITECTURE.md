@@ -212,7 +212,10 @@ diese Schlüssel zuerst und öffnet damit das Manifest.
 - Wiederaufnahme: Job speichert Cursor (Ordner, Delta-Token, letzte Item-ID); Neustart
   setzt fort, nichts wird doppelt geladen.
 - Fehlgeschlagene Elemente bleiben als `item_failures` sichtbar mit Grund und werden
-  beim nächsten Lauf erneut versucht; nach 3 Läufen Alarm.
+  beim nächsten Lauf erneut versucht; nach 3 Läufen in Folge schreibt der Worker eine Warnung ins
+  Log (`item.failure.repeated`). Je Lauf bleiben die ersten 200 als Zeilen, alle zählt
+  `jobs.item_failure_summary` je Ursache. Ein Lauf mit solchen Elementen ist eine Warnung, die
+  sich bestätigen lässt (`warning_acknowledgements`, docs/MICROSOFT.md, „Warnungen").
 - Fehlerursachen: Jeder gespeicherte Fehler wird im Kern (`packages/core/src/failures`)
   in eine stabile Ursache eingeordnet (`FailureCause`: Code wie `graph.consent_missing`,
   `graph.permission_missing`, `graph.throttled`, `imap.auth_failed`, `storage.full`,
