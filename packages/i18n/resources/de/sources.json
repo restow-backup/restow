@@ -360,9 +360,23 @@
     "ownApp": {
       "description": "Die Quelle nutzt eine App, die im Microsoft-365-Tenant selbst angelegt wurde. Die Zugangsdaten werden verschlüsselt gespeichert und nie wieder angezeigt.",
       "steps": {
-        "one": "Im Entra-Portal des Tenants unter App-Registrierungen eine App anlegen (nur dieses Verzeichnis).",
-        "two": "Unter API-Berechtigungen die Anwendungsberechtigungen von Microsoft Graph hinzufügen und Admin-Consent erteilen (Mail.Read, User.Read.All, Group.Read.All, Files.Read.All und was Ihre Sicherung braucht).",
-        "three": "Ein Client-Secret oder Zertifikat anlegen und hier mit Tenant-ID und Anwendungs-ID eintragen."
+        "one": "Im Microsoft Entra Admin Center des Kunden-Tenants unter Identität › Anwendungen › App-Registrierungen › „Neue Registrierung“ eine App anlegen. Unterstützte Kontotypen: „Nur Konten in diesem Organisationsverzeichnis“.",
+        "two": "Unter API-Berechtigungen › „Berechtigung hinzufügen“ › Microsoft Graph › Anwendungsberechtigungen alle Berechtigungen aus der Liste unten hinzufügen. Danach „Administratorzustimmung für … erteilen“ wählen.",
+        "three": "Unter Zertifikate & Geheimnisse ein neues Clientgeheimnis anlegen und den Wert sofort kopieren; Entra zeigt ihn nur einmal. Notieren Sie das Ablaufdatum und tragen Sie vorher hier ein neues ein.",
+        "four": "Auf der Übersicht der App die Verzeichnis-ID (Mandant) und die Anwendungs-ID (Client) kopieren und unten eintragen."
+      },
+      "noRedirect": "Eine Umleitungs-URI (Callback-URL) ist nicht nötig; lassen Sie das Feld leer. {appName} meldet sich als App ohne Benutzer an, es gibt keinen Consent-Link und keinen Rückweg.",
+      "permissionsTitle": "Benötigte Anwendungsberechtigungen (Microsoft Graph)",
+      "permissionsReadWrite": "Wählen Sie die ReadWrite-Varianten. Mit Mail.Read oder Files.Read.All läuft die Sicherung, aber jede Wiederherstellung scheitert.",
+      "copyPermissions": "Liste kopieren",
+      "copyPermission": "{permission} kopieren",
+      "permissionsCopied": "Berechtigungen kopiert.",
+      "hints": {
+        "consent_missing": "Microsoft hat für diese App kein Token ausgestellt. Prüfen Sie, ob die Anwendungs-ID stimmt und unter API-Berechtigungen die Administratorzustimmung erteilt ist. Nach der Zustimmung dauert es mitunter einige Minuten.",
+        "invalid_credentials": "Das Clientgeheimnis oder Zertifikat passt nicht zur App. Tragen Sie den Wert des Geheimnisses ein, nicht die Geheimnis-ID.",
+        "credentials_expired": "Das Clientgeheimnis oder Zertifikat ist abgelaufen. Legen Sie in Entra ein neues an und tragen Sie es hier ein.",
+        "tenant_unknown": "Entra kennt diese Verzeichnis-ID nicht. Kopieren Sie sie von der Übersicht der App.",
+        "unknown": "Entra hat die Anmeldung abgelehnt. Die Meldung von Microsoft steht darunter."
       },
       "tenantId": "Verzeichnis-ID (Tenant)",
       "tenantIdHint": "GUID des Microsoft-365-Tenants.",

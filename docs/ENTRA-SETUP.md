@@ -215,10 +215,18 @@ Statt des Consent-Links kann eine Quelle über eine **Graph-App des Kunden** ang
 Kunden-Tenant selbst angelegt wurde. Dann braucht der Tenant weder die gemeinsame Restow-App noch einen
 Consent-Link; die Zugangsdaten gehören dem Kunden.
 
-1. Im Entra-Portal des Kunden-Tenants unter *App-Registrierungen* eine App anlegen (nur dieses Verzeichnis).
-2. Unter *API-Berechtigungen* dieselben Anwendungsberechtigungen von Microsoft Graph hinzufügen wie in Teil 2
-   und Admin-Consent im Portal erteilen.
-3. Ein Client-Secret oder Zertifikat anlegen.
+1. Im Entra Admin Center des Kunden-Tenants unter *Identität → Anwendungen → App-Registrierungen →
+   Neue Registrierung* eine App anlegen, Kontotyp „Nur Konten in diesem Organisationsverzeichnis“.
+   **Keine Umleitungs-URI (Callback-URL) eintragen**: Restow meldet sich als App ohne Benutzer an
+   (Client Credentials), es gibt keinen Rückweg.
+2. Unter *API-Berechtigungen → Berechtigung hinzufügen → Microsoft Graph → Anwendungsberechtigungen*
+   dieselben Berechtigungen wie in Teil 2 hinzufügen, also die ReadWrite-Varianten (`Mail.ReadWrite`,
+   `Calendars.ReadWrite`, `Contacts.ReadWrite`, `Files.ReadWrite.All`) plus `MailboxSettings.Read`,
+   `User.Read.All`, `Group.Read.All`, `Directory.Read.All`, `Organization.Read.All` und optional
+   `Mail.Send`. Danach *Administratorzustimmung für … erteilen*. Die Oberfläche zeigt dieselbe Liste
+   zum Kopieren.
+3. Unter *Zertifikate & Geheimnisse* ein Clientgeheimnis (den **Wert**, nicht die Geheimnis-ID) oder ein
+   Zertifikat anlegen. Das Ablaufdatum notieren und rechtzeitig ein neues eintragen.
 4. In Restow in der **Organisation**, zu der der Kunde gehört: Verbindungen → Quelle → *Eigene Graph-App*.
    Tenant-ID, Anwendungs-ID und das Secret (oder eine PEM-Datei mit privatem Schlüssel und Zertifikat)
    eintragen.

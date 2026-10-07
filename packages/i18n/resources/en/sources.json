@@ -360,9 +360,23 @@
     "ownApp": {
       "description": "The source uses an app that was created in the Microsoft 365 tenant itself. The credentials are stored encrypted and never shown again.",
       "steps": {
-        "one": "In the tenant's Entra portal, create an app under App registrations (this directory only).",
-        "two": "Under API permissions, add the Microsoft Graph application permissions and grant admin consent (Mail.Read, User.Read.All, Group.Read.All, Files.Read.All and what your backup needs).",
-        "three": "Create a client secret or certificate and enter it here with the tenant ID and application ID."
+        "one": "In the customer tenant's Microsoft Entra admin center, go to Identity › Applications › App registrations › “New registration” and create an app. Supported account types: “Accounts in this organizational directory only”.",
+        "two": "Under API permissions › “Add a permission” › Microsoft Graph › Application permissions, add every permission in the list below. Then choose “Grant admin consent for …”.",
+        "three": "Under Certificates & secrets, create a new client secret and copy its value right away; Entra shows it only once. Note the expiry date and enter a new one here before then.",
+        "four": "On the app's overview, copy the Directory (tenant) ID and the Application (client) ID and enter them below."
+      },
+      "noRedirect": "No redirect URI (callback URL) is needed; leave the field empty. {appName} signs in as the app without a user, so there is no consent link and no way back.",
+      "permissionsTitle": "Application permissions needed (Microsoft Graph)",
+      "permissionsReadWrite": "Pick the ReadWrite variants. With Mail.Read or Files.Read.All backups run, but every restore fails.",
+      "copyPermissions": "Copy list",
+      "copyPermission": "Copy {permission}",
+      "permissionsCopied": "Permissions copied.",
+      "hints": {
+        "consent_missing": "Microsoft issued no token for this app. Check that the application ID is right and that admin consent is granted under API permissions. After consent it can take a few minutes.",
+        "invalid_credentials": "The client secret or certificate does not match the app. Enter the secret's value, not the secret ID.",
+        "credentials_expired": "The client secret or certificate has expired. Create a new one in Entra and enter it here.",
+        "tenant_unknown": "Entra does not know this directory ID. Copy it from the app's overview.",
+        "unknown": "Entra refused the sign-in. Microsoft's message is shown below."
       },
       "tenantId": "Directory (tenant) ID",
       "tenantIdHint": "GUID of the Microsoft 365 tenant.",
