@@ -400,6 +400,8 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/archive/report": view(),
   "GET /api/v1/archive/search": operate(),
   "GET /api/v1/archive/items/:id": operate(),
+  "GET /api/v1/archive/items/:id/preview": operate(),
+  "GET /api/v1/archive/items/:id/download": operate(),
   "GET /api/v1/retention/policies": view(),
   "POST /api/v1/retention/policies": configure(),
   "POST /api/v1/retention/policies/preview": configure(),
