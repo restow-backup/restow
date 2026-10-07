@@ -23,7 +23,9 @@ An installation made with the install script (`install.sh`, README.md) lives in
 `/opt/restow` unless you chose another `--dir`; run the commands below there. The
 script itself never updates: run again, it only checks the images named in `.env`
 and makes sure the stack runs. It sets `RESTOW_PROJECT_DIR`; with `--with-updater`
-it also starts the updater, which needs nothing else in `.env`.
+it also starts the updater, which needs nothing else in `.env`, and with
+`--with-mounter` the opt-in mounter for NFS network shares (docs/MOUNTS.md), which
+the updater then keeps on the installed release.
 
 ## Before every update
 
@@ -328,6 +330,19 @@ run, the updater moves itself to the same release:
    directory: a process cannot recreate its own container from inside.
 4. The new updater reports in with the new version, and the tab shows it.
 
+**The mounter follows.** When the installation runs the opt-in mounter for NFS
+network shares (docs/MOUNTS.md: a `mounter` container exists or
+`RESTOW_MOUNTER_IMAGE` is set), the updater moves it to the same verified
+image, before step 3: it waits while the mounter changes a share (up to ten
+minutes), checks that the Compose file takes the mounter's image from
+`RESTOW_MOUNTER_IMAGE`, writes the image there by digest and has a helper
+container run `docker compose --profile mounts up -d --no-deps mounter`. Every
+rule below applies to it as well: no `source` mode, no switched-off signature
+check, nothing with `RESTOW_UPDATER_SELF_UPDATE=false`. A mounter that did not
+follow is shown in the tab with the reason and the commands that finish it; it
+fails neither the update nor the updater's own move
+([docs/MOUNTS.md, "Updates"](MOUNTS.md#updates)).
+
 It never moves itself after an update built from source (nothing is signed
 there), when the signature check is switched off
 (`RESTOW_UPDATER_VERIFY_SIGNATURES=false`) or when you switch it off with
@@ -611,6 +626,7 @@ updater only (`ROLE=updater`):
 | `RESTOW_UPDATER_COSIGN_IMAGE`            | `ghcr.io/sigstore/cosign/cosign:v3.1.3@sha256:9e5c2f2e…` | The cosign image that verifies signatures; must carry a digest. |
 | `RESTOW_UPDATER_VERIFY_SIGNATURES`       | `true`                           | `false` skips the signature check (test installations, unsigned mirrors); digests stay required. Set it in a Compose override only. It also stops the updater from updating itself. |
 | `RESTOW_UPDATER_SELF_UPDATE`             | `true`                           | `false`: the updater does not move itself to a release it installed ([The updater updates itself](#the-updater-updates-itself)). Passed from `.env`. |
+| `RESTOW_UPDATER_MOUNTER_URL`             | `http://mounter:8091`            | Where the updater asks the opt-in mounter whether it is changing a share before it recreates it ([docs/MOUNTS.md](MOUNTS.md#updates)). |
 | `RESTOW_UPDATER_SOURCE_HOSTS`            | (empty: `source` mode off)       | Repositories (`host/owner/repo`) or hosts `source` mode may build from, comma-separated. Passed from `.env`. |
 
 The Compose file itself reads `RESTOW_UPDATER_IMAGE` from `.env` for the updater
