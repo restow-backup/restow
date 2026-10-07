@@ -17,6 +17,7 @@ const BROWSER_GUARDED: Readonly<Record<string, string>> = {
   "POST /api/v1/setup/token": "/api/v1/setup/token",
   "POST /api/v1/accounts/set-password": "/api/v1/accounts/set-password",
   "POST /agent/v1/enroll": "/agent/v1/enroll",
+  "POST /agent/pve/v1/enroll": "/agent/pve/v1/enroll",
 };
 
 /** Protected some other way, which a page on another site cannot meet either. */
@@ -26,6 +27,17 @@ const OTHERWISE_PROTECTED: Readonly<Record<string, string>> = {
   "POST /agent/v1/runs": "HTTP Basic with the agent's secret",
   "POST /agent/v1/runs/:runId/progress": "HTTP Basic with the agent's secret",
   "POST /agent/v1/runs/:runId/finish": "HTTP Basic with the agent's secret",
+  "POST /agent/pve/v1/heartbeat": "HTTP Basic with the PVE node's secret",
+  "POST /agent/pve/v1/inventory": "HTTP Basic with the PVE node's secret",
+  "POST /agent/pve/v1/runs": "HTTP Basic with the PVE node's secret",
+  "PUT /agent/pve/v1/runs/:runId/blocks": "HTTP Basic with the PVE node's secret",
+  "POST /agent/pve/v1/runs/:runId/commit": "HTTP Basic with the PVE node's secret",
+  "POST /agent/pve/v1/runs/:runId/finish": "HTTP Basic with the PVE node's secret",
+  "POST /agent/pve/v1/runs/:runId/incremental": "HTTP Basic with the PVE node's secret",
+  "POST /agent/pve/v1/runs/:runId/log": "HTTP Basic with the PVE node's secret",
+  "POST /agent/pve/v1/runs/:runId/restic": "HTTP Basic with the PVE node's secret",
+  "POST /agent/pve/v1/snapshots/:snapshotId/restic": "HTTP Basic with the PVE node's secret",
+  "POST /agent/pve/v1/tasks/:taskId/result": "HTTP Basic with the PVE node's secret",
 };
 
 const SAFE = /^(GET|HEAD|OPTIONS) /;
