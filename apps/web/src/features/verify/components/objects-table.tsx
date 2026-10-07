@@ -264,7 +264,7 @@ export function ObjectsTable({
           <CardDescription>{t("table.description")}</CardDescription>
         </div>
       </CardHeader>
-      <div className="px-6">
+      <div className="px-6 pb-4">
         <StateChips counts={counts} total={rows.length} value={state} onChange={onStateChange} />
       </div>
       <CardContent className="p-0">

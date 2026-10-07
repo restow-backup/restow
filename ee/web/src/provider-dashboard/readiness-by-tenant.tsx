@@ -198,14 +198,14 @@ export function ReadinessByTenant({
   const { kpis, tenants } = view.data;
   const rows = tenantsInState(tenants, state);
   return (
-    <div data-widget="verify-by-tenant" data-state="ready" className="space-y-4">
+    <div data-widget="verify-by-tenant" data-state="ready" className="flex min-w-0 flex-col gap-4">
       <StateChips
         counts={countsOfSummary(kpis.readiness)}
         total={kpis.readiness.total}
         value={state}
         onChange={onStateChange}
       />
-      <Card className="gap-0 overflow-hidden py-0">
+      <Card className="min-w-0 gap-0 overflow-hidden py-0">
         <DataTable
           id="verify.byTenant"
           label={t("byTenant.title")}
