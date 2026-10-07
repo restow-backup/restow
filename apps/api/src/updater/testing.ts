@@ -6,6 +6,7 @@ import { UpdateEngine } from "./engine.js";
 import { EnvFile, assignedKey, assignedValue, parseEnvLines } from "./env-file.js";
 import { type ImageVariant, defaultImageRepositories } from "./image-variant.js";
 import { memoryLogger } from "./logger.js";
+import type { MounterStatus } from "./mounter-status.js";
 import {
   type ApiClient,
   type ApiReadinessResult,
@@ -159,6 +160,13 @@ export class FakeDockerOps implements DockerOps {
    * (`${RESTOW_UPDATER_IMAGE:-${RESTOW_IMAGE}}`), or no such service.
    */
   updaterImage: "pinned" | "follows" | "fallback" | "none" = "pinned";
+  /**
+   * The `mounter` service's image: `fallback` as the compose files of this release
+   * (`${RESTOW_MOUNTER_IMAGE:-${RESTOW_IMAGE}}`), a fixed reference, or no such service.
+   */
+  mounterImage: "pinned" | "fallback" | "none" = "fallback";
+  /** The project has a `mounter` container (the mounts profile was started). */
+  mounterContainer = false;
   /** Errors to raise, per operation name, per call number (0-based). */
   private readonly failures = new Map<string, ((call: number) => Failure)[]>();
   private readonly counters = new Map<string, number>();
@@ -307,6 +315,24 @@ export class FakeDockerOps implements DockerOps {
     return this.updaterImage === "follows"
       ? await this.imageFor("api", env)
       : "ghcr.io/restow-backup/restow:0.1.0";
+  }
+
+  async configMounterImage(env: Readonly<Record<string, string>>): Promise<string | null> {
+    this.hit("configMounterImage", JSON.stringify(env));
+    if (this.mounterImage === "none") {
+      return null;
+    }
+    if (this.mounterImage === "fallback") {
+      return (
+        (await this.envValue("RESTOW_MOUNTER_IMAGE", env)) ?? (await this.imageFor("api", env))
+      );
+    }
+    return "ghcr.io/restow-backup/restow:0.1.0";
+  }
+
+  async mounterContainerExists(): Promise<boolean> {
+    this.hit("mounterContainerExists");
+    return this.mounterContainer;
   }
 
   async apiRunningVersion(): Promise<string | null> {
@@ -576,6 +602,18 @@ export class FakeLauncher implements SelfRecreateLauncher {
   }
 }
 
+/** The mounter's `busy` answers, scripted: one per call, the last one repeats. */
+export class FakeMounterStatus implements MounterStatus {
+  calls = 0;
+  constructor(private readonly answers: (boolean | null)[] = [false]) {}
+
+  async busy(): Promise<boolean | null> {
+    const answer = this.answers[Math.min(this.calls, this.answers.length - 1)] ?? null;
+    this.calls += 1;
+    return answer;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Harness
 // ---------------------------------------------------------------------------
@@ -639,6 +677,13 @@ export interface HarnessOptions {
     /** The updater's own version (default 0.1.0, the installed release). */
     updaterVersion?: string | null;
     launcher?: SelfRecreateLauncher | null;
+    /** Move the mounter along (self-update.ts, followMounter). */
+    mounter?: {
+      launcher?: SelfRecreateLauncher | null;
+      status?: MounterStatus;
+      idleWaitMs?: number;
+      pollMs?: number;
+    };
   };
   /** Reuse the directories of another harness (restart). */
   reuse?: { dir: string; clock: FakeClock; ops: FakeDockerOps };
@@ -694,6 +739,24 @@ export async function createHarness(options: HarnessOptions = {}): Promise<Harne
         envFile,
         ops,
         launcher: options.selfUpdate.launcher === undefined ? null : options.selfUpdate.launcher,
+        ...(options.selfUpdate.mounter
+          ? {
+              mounter: {
+                ops,
+                launcher:
+                  options.selfUpdate.mounter.launcher === undefined
+                    ? null
+                    : options.selfUpdate.mounter.launcher,
+                status: options.selfUpdate.mounter.status ?? new FakeMounterStatus(),
+                ...(options.selfUpdate.mounter.idleWaitMs !== undefined
+                  ? { idleWaitMs: options.selfUpdate.mounter.idleWaitMs }
+                  : {}),
+                ...(options.selfUpdate.mounter.pollMs !== undefined
+                  ? { pollMs: options.selfUpdate.mounter.pollMs }
+                  : {}),
+              },
+            }
+          : {}),
         store,
         clock,
         logger,

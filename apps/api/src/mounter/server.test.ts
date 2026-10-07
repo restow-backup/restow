@@ -9,6 +9,7 @@ const SECRET = "a".repeat(64);
 const ACTOR = { userId: "u1", label: "owner@example.com", ip: null };
 
 const engine = {
+  isBusy: false,
   mounts: vi.fn(),
   current: vi.fn(),
   history: vi.fn(),
@@ -67,8 +68,17 @@ beforeEach(() => {
 const SHARE = { protocol: "nfs", name: "nas", server: "10.0.0.5", export: "/srv" };
 
 describe("mounter server", () => {
-  it("answers the health check without a secret", async () => {
-    expect((await call("GET", "/healthz", undefined, null)).status).toBe(200);
+  it("answers the health check without a secret, with whether an operation runs", async () => {
+    engine.isBusy = false;
+    const idle = await call("GET", "/healthz", undefined, null);
+    expect(idle.status).toBe(200);
+    expect(idle.body).toEqual({ status: "ok", busy: false });
+    engine.isBusy = true;
+    expect((await call("GET", "/healthz", undefined, null)).body).toEqual({
+      status: "ok",
+      busy: true,
+    });
+    engine.isBusy = false;
   });
 
   it("refuses /v1 without the shared secret", async () => {

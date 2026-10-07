@@ -18,7 +18,8 @@ import {
 /**
  * The mounter's HTTP API (JSON, internal Docker network only):
  *
- *   GET    /healthz            liveness, no authentication (container healthcheck)
+ *   GET    /healthz            liveness, no authentication (container healthcheck):
+ *                              { status: "ok", busy } (busy: an operation runs)
  *   GET    /v1/state           shares, the current operation, history, capabilities
  *                              (`?refresh=1` recomputes the capabilities)
  *   POST   /v1/mounts          add a share: { mount, requestedBy } -> 202 and the state
@@ -119,7 +120,9 @@ export function buildMounterServer(deps: MounterServerDeps): Hono {
     throw error;
   };
 
-  app.get("/healthz", (c) => c.json({ status: "ok" }));
+  // `busy` lets the updater wait before it recreates the mounter after an update
+  // (updater/mounter-status.ts); it holds no secret, so it needs none.
+  app.get("/healthz", (c) => c.json({ status: "ok", busy: deps.engine.isBusy }));
 
   app.use("/v1/*", async (c, next) => {
     if (!isAuthorized(c.req.header("authorization"), deps.secret)) {

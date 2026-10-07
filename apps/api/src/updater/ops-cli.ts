@@ -37,7 +37,11 @@ export const SERVICES = {
   caddy: "caddy",
   postgres: "postgres",
   updater: "updater",
+  mounter: "mounter",
 } as const;
+
+/** The compose profile of the opt-in mounter (docs/MOUNTS.md). */
+export const MOUNTS_PROFILE = "mounts";
 
 const IMAGE_REFERENCE = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,299}$/;
 const LOCAL_TAG = /^[a-z0-9][a-z0-9._/-]{0,100}:[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/;
@@ -149,6 +153,22 @@ export class CliDockerOps implements DockerOps {
 
   async configUpdaterImage(env: Readonly<Record<string, string>>): Promise<string | null> {
     return (await this.config(env, [SERVICES.updater]))(SERVICES.updater);
+  }
+
+  async configMounterImage(env: Readonly<Record<string, string>>): Promise<string | null> {
+    return (await this.config(env, [MOUNTS_PROFILE]))(SERVICES.mounter);
+  }
+
+  async mounterContainerExists(): Promise<boolean> {
+    try {
+      const result = await this.compose(
+        ["--profile", MOUNTS_PROFILE, "ps", "-a", "-q", SERVICES.mounter],
+        { timeoutMs: TIMEOUTS.quick },
+      );
+      return result.exitCode === 0 && /^[0-9a-f]{12,64}$/m.test(result.stdout);
+    } catch {
+      return false;
+    }
   }
 
   async configImages(env: Readonly<Record<string, string>>): Promise<ConfiguredImages> {
