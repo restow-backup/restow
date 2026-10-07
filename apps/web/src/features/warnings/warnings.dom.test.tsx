@@ -323,7 +323,7 @@ describe("the list of warnings", () => {
         }),
       },
     ],
-    counts: { open: 2, acknowledged: 0, failed: 1 },
+    counts: { open: 2, acknowledged: 0, failed: 1, failedGuests: 2 },
     truncated: false,
   };
 
@@ -337,6 +337,10 @@ describe("the list of warnings", () => {
     expect(document.querySelector('[data-slot="failed-hint"]')?.textContent).toContain(
       "cannot be acknowledged",
     );
+    // So is a failed backup of a VM or container, with the way to its page.
+    const guests = document.querySelector('[data-slot="failed-guests-hint"]');
+    expect(guests?.textContent).toContain("2 VMs or containers in a backup job have");
+    expect(guests?.querySelector("a")?.getAttribute("href")).toBe("/virtualization");
     const bulk = button("Acknowledge 0 warnings");
     expect(bulk?.disabled).toBe(true);
 

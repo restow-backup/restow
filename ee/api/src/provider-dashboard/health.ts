@@ -6,6 +6,7 @@ import type {
   TenantKind,
   TenantStatus,
 } from "../../../../apps/api/src/features/dashboard/dto.js";
+import type { GuestCountsDto } from "../../../../apps/api/src/features/pve/protection.js";
 import type { EndpointCountsDto } from "../../../../apps/api/src/routes/v1/endpoints.js";
 import type { TenantSummaryDto } from "../../../../apps/api/src/routes/v1/status.js";
 
@@ -42,6 +43,11 @@ export interface TenantHealthFacts {
   machines?: Pick<
     EndpointCountsDto,
     "total" | "withoutJob" | "failedLastBackup" | "lastSuccessAt"
+  > | null;
+  /** The tenant's VMs and containers of Proxmox VE (GET /status `guests`); absent, it has none. */
+  guests?: Pick<
+    GuestCountsDto,
+    "protected" | "withoutJob" | "failedLastBackup" | "lastSuccessAt"
   > | null;
   /** After how many hours without a successful backup the tenant reads as stale (by its schedules). */
   staleAfterHours?: number;
@@ -96,12 +102,16 @@ export function tenantRow(
       machines: null,
       machinesWithoutJob: null,
       machinesFailed: null,
+      guests: null,
+      guestsWithoutJob: null,
+      guestsFailed: null,
       physicalBytes: null,
       storageError: null,
     };
   }
   const { summary } = facts;
   const machines = facts.machines ?? null;
+  const guests = facts.guests ?? null;
   return {
     ...base,
     loaded: true,
@@ -119,11 +129,15 @@ export function tenantRow(
       summary.lastSuccess.onedrive,
       summary.lastSuccess.imap,
       machines?.lastSuccessAt ?? null,
+      guests?.lastSuccessAt ?? null,
     ]),
     staleAfterHours: facts.staleAfterHours ?? STALE_BACKUP_HOURS,
     machines: machines ? machines.total - machines.withoutJob : 0,
     machinesWithoutJob: machines?.withoutJob ?? 0,
     machinesFailed: machines?.failedLastBackup ?? 0,
+    guests: guests?.protected ?? 0,
+    guestsWithoutJob: guests?.withoutJob ?? 0,
+    guestsFailed: guests?.failedLastBackup ?? 0,
     physicalBytes: summary.storage.physicalBytes,
     storageError: facts.storageError,
   };
@@ -161,6 +175,9 @@ export function alertsFor(row: ProviderTenantRowDto, now: Date): ProviderAlertDt
   if (row.machinesFailed > 0) {
     alerts.push(alert("machine_backup_failed", "destructive", row.machinesFailed));
   }
+  if (row.guestsFailed > 0) {
+    alerts.push(alert("guest_backup_failed", "destructive", row.guestsFailed));
+  }
   if (row.mailboxCap !== null && row.mailboxes > row.mailboxCap) {
     alerts.push(alert("over_cap", "warning", row.mailboxes - row.mailboxCap));
   }
@@ -173,11 +190,14 @@ export function alertsFor(row: ProviderTenantRowDto, now: Date): ProviderAlertDt
   if (row.machinesWithoutJob > 0) {
     alerts.push(alert("machines_without_job", "warning", row.machinesWithoutJob));
   }
+  if (row.guestsWithoutJob > 0) {
+    alerts.push(alert("guests_without_job", "warning", row.guestsWithoutJob));
+  }
   if (row.needsAttention > 0) {
     // Proven restorable with gaps, or a rating that is overdue: not "secured and checked".
     alerts.push(alert("needs_attention", "warning", row.needsAttention));
   }
-  const protects = row.protectedObjects + row.machines > 0;
+  const protects = row.protectedObjects + row.machines + row.guests > 0;
   if (
     protects &&
     row.lastBackupAt !== null &&
@@ -188,6 +208,7 @@ export function alertsFor(row: ProviderTenantRowDto, now: Date): ProviderAlertDt
   if (
     !protects &&
     row.machinesWithoutJob === 0 &&
+    row.guestsWithoutJob === 0 &&
     row.status === "active" &&
     row.kind !== "internal"
   ) {

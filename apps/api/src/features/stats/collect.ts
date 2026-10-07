@@ -23,6 +23,7 @@ import type {
   StoredLevels,
   TenantFacts,
 } from "./facts.js";
+import { collectGuestFacts } from "./guest-facts.js";
 import type { ResolvedPeriod } from "./period.js";
 
 /**
@@ -445,6 +446,8 @@ export async function collectTenantFacts(
     // storage, volume, deduplication, restore and largest-object figures above
     // leave them out (endpoint-facts.ts).
     endpoints: await collectEndpointFacts(tx, tenantId, period),
+    // So do the VMs and containers of Proxmox VE (guest-facts.ts).
+    guests: await collectGuestFacts(tx, tenantId, period),
     largestSnapshots: largest.map((row) => ({
       objectId: String(row.object_id),
       bytes: toNumber(row.bytes),

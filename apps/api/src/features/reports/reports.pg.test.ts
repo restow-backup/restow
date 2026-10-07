@@ -193,6 +193,57 @@ describe.skipIf(!testDatabaseAdminUrl)("alerts and reports against Postgres", ()
     expect(await noChannel.json()).toMatchObject({ field: "channels" });
   });
 
+  it("keeps a rule's own deadline for missing backups, only with backup.overdue and in range", async () => {
+    const overdue = { ...ALERT, name: "Overdue", events: ["backup.overdue"] };
+    const created = await call("POST", "/reports/rules", {
+      body: { ...overdue, overdueAfterHours: 24 },
+    });
+    expect(created.status, await created.clone().text()).toBe(201);
+    const rule = (await created.json()) as ReportRuleDto;
+    expect(rule).toMatchObject({ events: ["backup.overdue"], overdueAfterHours: 24 });
+    // Without its own deadline a rule follows the schedules.
+    expect((await createAlert()).overdueAfterHours).toBeNull();
+
+    // Out of range (a day to 30 days): refused by the schema, nothing stored.
+    for (const hours of [23, 721, 36.5]) {
+      const refused = await call("POST", "/reports/rules", {
+        body: { ...overdue, overdueAfterHours: hours },
+      });
+      expect(refused.status, String(hours)).toBe(422);
+    }
+    // Without the event it belongs to.
+    const noEvent = await call("POST", "/reports/rules", {
+      body: { ...ALERT, overdueAfterHours: 48 },
+    });
+    expect(noEvent.status).toBe(422);
+    expect(await noEvent.json()).toMatchObject({
+      field: "overdueAfterHours",
+      code: "overdue_event_required",
+    });
+    const paused = await call("PATCH", `/reports/rules/${rule.id}`, {
+      body: { enabled: false, events: ["backup.failed"], overdueAfterHours: 72 },
+    });
+    expect(paused.status).toBe(422);
+
+    // Changed, then dropped together with the event.
+    const changed = await call("PATCH", `/reports/rules/${rule.id}`, {
+      body: { overdueAfterHours: 720 },
+    });
+    expect(((await changed.json()) as ReportRuleDto).overdueAfterHours).toBe(720);
+    const dropped = await call("PATCH", `/reports/rules/${rule.id}`, {
+      body: { events: ["backup.failed"] },
+    });
+    expect(dropped.status).toBe(200);
+    expect(((await dropped.json()) as ReportRuleDto).overdueAfterHours).toBeNull();
+    const [stored] = await owner.select().from(reportRules).where(eq(reportRules.id, rule.id));
+    expect(stored?.overdueAfterHours).toBeNull();
+
+    // The database refuses a deadline out of range on its own.
+    await expect(
+      owner.update(reportRules).set({ overdueAfterHours: 10 }).where(eq(reportRules.id, rule.id)),
+    ).rejects.toThrow();
+  });
+
   it("refuses time-triggered reports while no extension enables them", async () => {
     const response = await call("POST", "/reports/rules", {
       body: {

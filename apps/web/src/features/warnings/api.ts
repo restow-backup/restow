@@ -52,7 +52,8 @@ export interface WarningSummary {
 
 export interface WarningList {
   items: WarningSummary[];
-  counts: { open: number; acknowledged: number; failed: number };
+  /** `failedGuests`: VMs and containers whose newest backup failed (absent from an older server). */
+  counts: { open: number; acknowledged: number; failed: number; failedGuests?: number };
   truncated: boolean;
 }
 

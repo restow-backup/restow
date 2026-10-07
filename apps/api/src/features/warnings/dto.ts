@@ -58,7 +58,12 @@ export interface WarningSummaryDto {
 
 export interface WarningListDto {
   items: WarningSummaryDto[];
-  counts: { open: number; acknowledged: number; failed: number };
+  /**
+   * `failed`: protected objects and machines whose newest backup failed outright;
+   * `failedGuests`: VMs and containers of Proxmox VE in a backup job whose newest backup failed
+   * (their runs are on the guest's page, not in History).
+   */
+  counts: { open: number; acknowledged: number; failed: number; failedGuests: number };
   /** More warnings than the list carries. */
   truncated: boolean;
 }

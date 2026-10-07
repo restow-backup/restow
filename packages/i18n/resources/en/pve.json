@@ -151,5 +151,20 @@
     "submit": "Restore",
     "queued": "The restore was handed to the node.",
     "privileged": "Proxmox VE cannot restore privileged containers from a backup interface."
+  },
+  "readiness": {
+    "overdue": "Overdue",
+    "notChecked": "Not checked",
+    "noBackupYet": "No restore point yet",
+    "open": "Open",
+    "openFor": "Open {name}",
+    "noJob": "In no backup job",
+    "result": {
+      "green": "The restore check of the newest restore point confirmed every block it read.",
+      "red": "The restore check of the newest restore point failed: blocks did not match or could not be read.",
+      "unverified": "A restore point exists but has not been checked yet.",
+      "noBackup": "Nothing to check until the first backup has finished.",
+      "noBackupOverdue": "No backup within 24 hours after the guest was put into a backup job."
+    }
   }
 }

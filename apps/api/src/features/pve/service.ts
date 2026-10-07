@@ -1,4 +1,10 @@
-import { enrollmentTokenExpiry, generateEnrollmentToken, pveNextRunAt } from "@restow/core";
+import {
+  enrollmentTokenExpiry,
+  generateEnrollmentToken,
+  pveGuestBackable,
+  pveJobOfGuest,
+  pveNextRunAt,
+} from "@restow/core";
 import {
   type Database,
   type PveGuest,
@@ -79,7 +85,9 @@ function guestDto(
   if (g.template && g.kind === "vm") {
     attention.push("template_unsupported");
   }
-  if (!g.jobId && !g.template) {
+  // Not backed up: in no enabled job, the job for all guests included (the overviews' rule,
+  // pveJobOfGuest in @restow/core).
+  if (pveGuestBackable(g) && !pveJobOfGuest(g, [...jobs.values()])) {
     attention.push("no_job");
   }
   if (lastRun?.status === "failed") {

@@ -1,6 +1,7 @@
 import { type Database, jobProgress, jobs, protectedObjects, snapshots } from "@restow/db";
 import { and, count, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import { loadGuestCounts } from "../../features/pve/protection.js";
 import { readinessOverview } from "../../features/verify/service.js";
 import { loadMailWarnings, warningCounts } from "../../features/warnings/state.js";
 import { notImported } from "../../lib/imported-objects.js";
@@ -84,6 +85,27 @@ export const tenantSummarySchema = component(
 );
 export type TenantSummaryDto = z.infer<typeof tenantSummarySchema>;
 
+export const guestCountsSchema = component(
+  "GuestCounts",
+  z.object({
+    total: z
+      .number()
+      .int()
+      .describe("VMs and containers Proxmox VE can back up (present, no VM template)."),
+    protected: z.number().int().describe("Guests in an enabled backup job."),
+    withoutJob: z
+      .number()
+      .int()
+      .describe("Guests in no enabled backup job: nothing backs them up."),
+    failedLastBackup: z
+      .number()
+      .int()
+      .describe("Protected guests whose newest finished backup run failed."),
+    lastSuccessAt: timestampSchema.nullable().describe("Newest successful guest backup."),
+    restorePoints: z.number().int().describe("Restore points kept for the tenant's guests."),
+  }),
+);
+
 export const statusSchema = component(
   "Status",
   tenantSummarySchema.extend({
@@ -97,6 +119,9 @@ export const statusSchema = component(
     version: versionInfoSchema,
     endpoints: endpointCountsSchema.describe(
       "Servers and clients backed up by the agent (docs/AGENT.md); they also count in `readiness` and `recoveryReadiness`.",
+    ),
+    guests: guestCountsSchema.describe(
+      "VMs and containers of Proxmox VE (docs/PVE.md); the ones in a backup job also count in `readiness` and `recoveryReadiness`.",
     ),
   }),
 );
@@ -250,6 +275,7 @@ export function registerStatusRoutes(api: IntegrationApi, deps: V1Deps): void {
         ...summary,
         version: deps.version.current(),
         endpoints: await loadEndpointCounts(db, tenant.id, now),
+        guests: (await loadGuestCounts(db, tenant.id, now)).counts,
       };
     },
   );

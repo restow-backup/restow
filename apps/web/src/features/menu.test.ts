@@ -58,7 +58,8 @@ function menu(role: string | null, ctx: NavLockContext): Record<string, string[]
   );
 }
 
-const DAILY = ["dashboard", "history", "verify", "alerts"];
+// Warnings sit next to History (0.3.0), for those who may read them.
+const DAILY = ["dashboard", "history", "warnings", "verify", "alerts"];
 // The archive is part of Mail & SaaS (maintainer decision 2026-10-02): no section of its own.
 const MAIL = ["mail-jobs", "restore", "archive", "exports"];
 const ENDPOINTS = ["endpoint-jobs", "inventory", "virtualization", "file-restore"];
@@ -134,6 +135,23 @@ describe("the menu per edition", () => {
       endpoints: ENDPOINTS,
       tenants: ["tenant-settings"],
     });
+  });
+
+  it("offers the warnings next to History to those who may read them, with the open ones counted", () => {
+    const entry = items.find((item) => item.id === "warnings");
+    expect(entry).toMatchObject({
+      path: "/warnings",
+      group: "daily",
+      labelKey: "warnings:nav",
+      roles: ["provider_admin", "tenant_admin"],
+    });
+    expect(typeof entry?.useBadge).toBe("function");
+    for (const ctx of [COMMUNITY, BUSINESS, SERVICE_PROVIDER]) {
+      expect(menu("tenant_admin", ctx).daily).toEqual(DAILY);
+      expect(menu("provider_admin", ctx).daily).toEqual(DAILY);
+      // An end user reads no warnings (the API refuses them).
+      expect(menu("tenant_user", ctx).daily).not.toContain("warnings");
+    }
   });
 
   it("tenant admin in Community and Business: the organisation's settings", () => {

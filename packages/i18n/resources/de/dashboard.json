@@ -123,7 +123,7 @@
     "running": "{count, plural, one {# Prüfung läuft} other {# Prüfungen laufen}}",
     "empty": {
       "title": "Noch nichts zu bewerten",
-      "description": "Die Wiederherstellbarkeit erscheint, sobald Objekte oder Rechner geschützt und gesichert sind.",
+      "description": "Die Wiederherstellbarkeit erscheint, sobald Objekte, Rechner, VMs oder Container geschützt und gesichert sind.",
       "action": "Objekte schützen"
     },
     "legend": "Objekte nach Wiederherstellungszustand",
@@ -133,6 +133,11 @@
       "title": "{count, plural, one {# Rechner in keinem Backup-Job} other {# Rechner in keinem Backup-Job}}",
       "description": "Diese Rechner werden nicht mehr gesichert. Ihre bisherigen Sicherungsstände bleiben bewertet, neue entstehen erst, wenn Sie den Rechner einem Backup-Job zuordnen.",
       "action": "Rechner öffnen"
+    },
+    "guestsWithoutJob": {
+      "title": "{count, plural, one {# Gast in keinem Backup-Job} other {# Gäste in keinem Backup-Job}}",
+      "description": "Diese VMs und Container werden nicht mehr gesichert. Ihre bisherigen Sicherungsstände bleiben bewertet, neue entstehen erst, wenn Sie den Gast einem Backup-Job zuordnen.",
+      "action": "VMs & Container öffnen"
     }
   },
   "lastBackup": {
@@ -144,11 +149,12 @@
       "onedrive": "OneDrive",
       "imap": "IMAP-Postfächer",
       "archive": "Archiv",
-      "machines": "Server und Clients"
+      "machines": "Server und Clients",
+      "guests": "VMs und Container"
     },
     "empty": {
       "title": "Noch keine Sicherungen",
-      "description": "Noch ist nichts geschützt, weder Postfächer, OneDrives und IMAP-Konten noch Rechner.",
+      "description": "Noch ist nichts geschützt, weder Postfächer, OneDrives und IMAP-Konten noch Rechner, VMs oder Container.",
       "action": "Quelle verbinden"
     },
     "staleDays": "{count, plural, one {Älter als # Tag} other {Älter als # Tage}}",
@@ -163,14 +169,16 @@
     "link": "Geschützte Objekte öffnen",
     "empty": {
       "title": "Noch nichts geschützt",
-      "description": "Postfächer, OneDrives, IMAP-Konten und Rechner erscheinen hier, sobald sie geschützt sind.",
+      "description": "Postfächer, OneDrives, IMAP-Konten, Rechner, VMs und Container erscheinen hier, sobald sie geschützt sind.",
       "action": "Objekte schützen"
     },
     "acknowledged": "{count, plural, one {# Warnung bestätigt} other {# Warnungen bestätigt}}",
     "warningsLink": "Warnungen ansehen",
     "withMachines": "{count, plural, one {davon # Rechner} other {davon # Rechner}}",
+    "withGuests": "{count, plural, one {davon # VM oder Container} other {davon # VMs und Container}}",
     "noBackup": "{count, plural, one {# ohne Sicherung} other {# ohne Sicherung}}",
-    "withoutJob": "{count, plural, one {# Rechner in keinem Backup-Job} other {# Rechner in keinem Backup-Job}}"
+    "withoutJob": "{count, plural, one {# Rechner in keinem Backup-Job} other {# Rechner in keinem Backup-Job}}",
+    "guestsWithoutJob": "{count, plural, one {# Gast in keinem Backup-Job} other {# Gäste in keinem Backup-Job}}"
   },
   "storage": {
     "title": "Gespeichert",
@@ -415,12 +423,14 @@
         "stale_backup": "Länger als {count} Stunden keine erfolgreiche Sicherung (doppelter längster Abstand der Zeitpläne). Letzte:",
         "machine_backup_failed": "{count, plural, one {Bei # Rechner ist die letzte Sicherung fehlgeschlagen.} other {Bei # Rechnern ist die letzte Sicherung fehlgeschlagen.}}",
         "machines_without_job": "{count, plural, one {# Rechner ist in keinem Backup-Job und wird nicht gesichert.} other {# Rechner sind in keinem Backup-Job und werden nicht gesichert.}}",
+        "guest_backup_failed": "{count, plural, one {Bei # Gast (VM oder Container) ist die letzte Sicherung fehlgeschlagen.} other {Bei # Gästen (VMs oder Container) ist die letzte Sicherung fehlgeschlagen.}}",
+        "guests_without_job": "{count, plural, one {# Gast (VM oder Container) ist in keinem Backup-Job und wird nicht gesichert.} other {# Gäste (VMs oder Container) sind in keinem Backup-Job und werden nicht gesichert.}}",
         "needs_attention": "{count, plural, one {# Objekt braucht Aufmerksamkeit (Lücken oder überfällige Restore-Prüfung).} other {# Objekte brauchen Aufmerksamkeit (Lücken oder überfällige Restore-Prüfung).}}",
         "nothing_protected": "Der Mandant schützt noch nichts."
       },
       "empty": {
         "title": "Keine Hinweise",
-        "description": "Jeder Mandant schützt Objekte oder Rechner, alles ist gesichert und nachweislich wiederherstellbar, und keiner liegt über seiner vereinbarten Obergrenze."
+        "description": "Jeder Mandant schützt Objekte, Rechner oder Gäste, alles ist gesichert und nachweislich wiederherstellbar, und keiner liegt über seiner vereinbarten Obergrenze."
       }
     },
     "readiness": {

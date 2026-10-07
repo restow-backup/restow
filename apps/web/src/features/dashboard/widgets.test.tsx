@@ -545,6 +545,86 @@ describe("machines on the status tab", () => {
   });
 });
 
+describe("VMs and containers on the status tab", () => {
+  it("lists them as a type of their own, judged by the PVE jobs' schedules", () => {
+    const html = render(
+      <LastBackupWidget
+        view={ready({
+          lastSuccess: { mail: null, onedrive: null, imap: null, archive: null },
+          protectedKinds: { mailbox: 0, onedrive: 0, imap: 0 },
+          machines: { protected: 0, withoutJob: 0, lastSuccessAt: null },
+          guests: {
+            protected: 2,
+            withoutJob: 0,
+            lastSuccessAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+          },
+          staleAfterHours: { mail: 48, machines: 48, guests: 48 },
+        })}
+        {...state}
+        canAdminister
+      />,
+    );
+    expectTranslated(html);
+    expect(html).not.toContain('data-state="empty"');
+    expect(html).toContain('data-type="guests"');
+    expect(html).toContain("VMs and containers");
+    expect(html).not.toContain('data-type="machines"');
+    expect(html).toContain("Older than 2 days");
+  });
+
+  it("is not 'nothing protected' while only guests exist, and counts their failures and missing jobs", () => {
+    const html = render(
+      <ProtectedObjectsWidget
+        view={ready({
+          ...data.protectedObjects,
+          active: 0,
+          failed: 0,
+          withItemFailures: 0,
+          machines: { protected: 0, withoutJob: 0, failedLastBackup: 0 },
+          guests: { protected: 3, withoutJob: 2, failedLastBackup: 1, restorePoints: 12 },
+          noBackup: 0,
+        })}
+        {...state}
+        canAdminister
+      />,
+    );
+    expectTranslated(html);
+    expect(html).not.toContain('data-state="empty"');
+    expect(html).toContain("including 3 VMs and containers");
+    expect(html).toContain("1 failed");
+    expect(html).toContain("2 guests in no backup job");
+    expect(html).not.toContain("No failures in the latest runs");
+    // Guests found by the inventory but in no job: still not "nothing protected yet".
+    const unjobbed = render(
+      <ProtectedObjectsWidget
+        view={ready({
+          ...data.protectedObjects,
+          active: 0,
+          machines: { protected: 0, withoutJob: 0, failedLastBackup: 0 },
+          guests: { protected: 0, withoutJob: 1, failedLastBackup: 0, restorePoints: 0 },
+        })}
+        {...state}
+        canAdminister
+      />,
+    );
+    expect(unjobbed).not.toContain('data-state="empty"');
+  });
+
+  it("flags guests that left every backup job on the readiness card", () => {
+    const html = render(
+      <ReadinessWidget
+        view={ready({ ...data.readiness, guestsWithoutJob: 1, overall: "yellow" as const })}
+        {...state}
+        canAdminister
+      />,
+    );
+    expectTranslated(html);
+    expect(html).toContain('data-flag="guests-without-job"');
+    expect(html).toContain("1 guest in no backup job");
+    expect(html).toContain('href="/virtualization"');
+  });
+});
+
 describe("key figures", () => {
   it("shows protected objects with failures apart from runs that left items", () => {
     const html = render(

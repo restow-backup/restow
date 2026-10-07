@@ -1,5 +1,6 @@
 {
   "nav": "Warnungen",
+  "navBadge": "{count, plural, one {# offene Warnung} other {# offene Warnungen}}",
   "title": "Warnungen",
   "description": "Sicherungen, die durchgelaufen sind, aber einzelne Elemente nicht sichern konnten: welche, warum und was zu tun ist. Bestätigte Warnungen zählen nicht mehr, bis ein neues Problem auftritt.",
   "tabs": {
@@ -8,6 +9,8 @@
   },
   "failedHint": "{count, plural, one {# geschütztes Objekt oder Rechner hat} other {# geschützte Objekte oder Rechner haben}} eine fehlgeschlagene letzte Sicherung. Fehlgeschlagene Sicherungen lassen sich nicht bestätigen; sie bleiben rot, bis wieder eine Sicherung gelingt.",
   "openHistory": "Verlauf öffnen",
+  "failedGuestsHint": "{count, plural, one {# VM oder Container in einem Backup-Job hat} other {# VMs oder Container in einem Backup-Job haben}} eine fehlgeschlagene letzte Sicherung. Fehlgeschlagene Sicherungen lassen sich nicht bestätigen; sie bleiben rot, bis wieder eine Sicherung gelingt.",
+  "openGuests": "VMs & Container öffnen",
   "truncated": "Es werden die ersten {count} Warnungen gezeigt.",
   "loadError": "Die Warnungen konnten nicht geladen werden.",
   "empty": {

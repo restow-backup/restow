@@ -94,6 +94,14 @@ export const REPORT_PERIOD_DAYS = [1, 7, 30, 90] as const;
 export const MAX_REPORT_RECIPIENTS = 20;
 export const MAX_REPORT_THROTTLE_MINUTES = 7 * 24 * 60;
 
+/**
+ * The deadline an event rule may set for `backup.overdue` ("no successful backup for X
+ * hours"), from a day to 30 days. It replaces the bound the jobs' schedules give, for that
+ * rule's alerts only (the database checks the same range, report_rules_overdue_after_ck).
+ */
+export const MIN_OVERDUE_DEADLINE_HOURS = 24;
+export const MAX_OVERDUE_DEADLINE_HOURS = 30 * 24;
+
 /** Job queues whose failure raises an event, and the event it raises. */
 export const FAILED_JOB_EVENTS: Readonly<Record<string, ReportEvent>> = {
   backup: "backup.failed",

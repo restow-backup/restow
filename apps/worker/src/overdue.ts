@@ -6,21 +6,42 @@
  *
  * The bound follows the tenant's jobs (`staleBackupHours` in @restow/core: twice the longest
  * planned gap of the most relaxed enabled job of the kind, two days without any schedule), for
- * mailboxes, OneDrives and IMAP accounts by the mail jobs and for servers and clients by the
- * endpoint jobs. An object counts from its newest committed backup, or from when its protection
- * started if it never had one.
+ * mailboxes, OneDrives and IMAP accounts by the mail jobs, for servers and clients by the
+ * endpoint jobs, and for VMs and containers of Proxmox VE by the PVE jobs
+ * (`pveStaleBackupHours`). An object counts from its newest committed backup, or from when its
+ * protection started if it never had one. A guest counts while it is in an enabled PVE job, or
+ * once it had a successful backup (it left its job: nothing backs it up any more); a guest the
+ * inventory found that nobody ever put into a job is not overdue.
  *
  * Each object is announced once per stretch: an alert is not raised again for an object that
  * was already announced after its newest successful backup. A new backup ends the stretch.
+ *
+ * A rule may set its own deadline (`overdueAfterHours` of the rule, 24 to 720 hours): it then
+ * gets its alerts when nothing was backed up successfully for that long, whatever the schedules
+ * say, once per stretch and rule, and never with the alert raised at the schedules' bound
+ * (reporting.ts leaves it out there). The bell keeps following the schedules.
+ *
  * Runs with the endpoint monitor, every five minutes, across all active tenants.
  */
-import { staleBackupHours } from "@restow/core";
+import {
+  overdueDeadlineOf,
+  pveGuestBackable,
+  pveJobOfGuest,
+  pveStaleBackupHours,
+  rulesForEvent,
+  staleBackupHours,
+  subjectKeyOf,
+} from "@restow/core";
 import {
   type NewNotification,
   backupJobs,
   endpoints,
   notifications,
   protectedObjects,
+  pveGuests,
+  pveJobs,
+  pveSnapshots,
+  reportRules,
   snapshots,
   sources,
   tenants,
@@ -28,14 +49,14 @@ import {
 import { and, eq, isNotNull, sql } from "drizzle-orm";
 import type { EndpointJobDeps } from "./endpoints/common.js";
 import { withTenantTx } from "./handlers/framework.js";
-import { raiseEvents } from "./reporting.js";
+import { lastAlertAt, queueRuleDeliveries, raiseEvents } from "./reporting.js";
 
 const HOUR_MS = 60 * 60 * 1000;
 /** At most this many alerts per tenant and pass: an outage of the monitor must not flood. */
 const MAX_ALERTS_PER_TENANT = 100;
 
 export interface OverdueCandidate {
-  kind: "object" | "endpoint";
+  kind: "object" | "endpoint" | "guest";
   id: string;
   name: string;
   /** The newest successful backup, or when protection started without one. */
@@ -44,16 +65,40 @@ export interface OverdueCandidate {
   backedUp: boolean;
 }
 
+/** After how many hours without a successful backup each kind is overdue, by the schedules. */
+export interface OverdueBounds {
+  mail: number;
+  machines: number;
+  /** VMs and containers of Proxmox VE; absent, the machines' bound applies. */
+  guests?: number;
+}
+
+/** The bound of a candidate's kind. */
+export function boundOf(candidate: Pick<OverdueCandidate, "kind">, bounds: OverdueBounds): number {
+  switch (candidate.kind) {
+    case "endpoint":
+      return bounds.machines;
+    case "guest":
+      return bounds.guests ?? bounds.machines;
+    default:
+      return bounds.mail;
+  }
+}
+
+/** Whether a candidate has had no successful backup for longer than `hours`. */
+export function pastDeadline(candidate: OverdueCandidate, hours: number, now: Date): boolean {
+  return now.getTime() - candidate.since.getTime() > hours * HOUR_MS;
+}
+
 /** The candidates past their bound, minus those already announced since their last backup. */
 export function overdueOf(
   candidates: readonly OverdueCandidate[],
-  bounds: { mail: number; machines: number },
+  bounds: OverdueBounds,
   announced: ReadonlyMap<string, Date>,
   now: Date,
 ): OverdueCandidate[] {
   return candidates.filter((candidate) => {
-    const hours = candidate.kind === "endpoint" ? bounds.machines : bounds.mail;
-    if (now.getTime() - candidate.since.getTime() <= hours * HOUR_MS) {
+    if (!pastDeadline(candidate, boundOf(candidate, bounds), now)) {
       return false;
     }
     const last = announced.get(subjectOf(candidate));
@@ -65,12 +110,27 @@ function subjectOf(candidate: Pick<OverdueCandidate, "kind" | "id">): string {
   return `${candidate.kind}:${candidate.id}`;
 }
 
+function subjectDetails(candidate: OverdueCandidate): Record<string, string> {
+  switch (candidate.kind) {
+    case "endpoint":
+      return { endpointId: candidate.id };
+    case "guest":
+      return { pveGuestId: candidate.id };
+    default:
+      return { protectedObjectId: candidate.id };
+  }
+}
+
+/**
+ * The alert of an overdue candidate. `hours` is the bound it was judged by: its kind's bound
+ * from the schedules, or the deadline of the rule it is for.
+ */
 export function overdueNotification(
   tenantId: string,
   candidate: OverdueCandidate,
-  bounds: { mail: number; machines: number },
+  bounds: OverdueBounds,
+  hours: number = boundOf(candidate, bounds),
 ): NewNotification {
-  const hours = candidate.kind === "endpoint" ? bounds.machines : bounds.mail;
   const days = Math.max(1, Math.round(hours / 24));
   return {
     tenantId,
@@ -80,9 +140,7 @@ export function overdueNotification(
       ? `No successful backup of ${candidate.name} for more than ${days} days.`
       : `${candidate.name} has never been backed up successfully in ${days} days of protection.`,
     details: {
-      ...(candidate.kind === "endpoint"
-        ? { endpointId: candidate.id }
-        : { protectedObjectId: candidate.id }),
+      ...subjectDetails(candidate),
       objectName: candidate.name,
       lastSuccessAt: candidate.backedUp ? candidate.since.toISOString() : null,
       boundHours: hours,
@@ -91,10 +149,30 @@ export function overdueNotification(
   };
 }
 
+/**
+ * Whether a rule with its own deadline alerts about a candidate now: past the rule's deadline,
+ * and the rule did not alert about it since its newest successful backup (once per stretch).
+ */
+export function dueForRule(
+  candidate: OverdueCandidate,
+  deadlineHours: number,
+  lastAlert: Date | null,
+  now: Date,
+): boolean {
+  if (!pastDeadline(candidate, deadlineHours, now)) {
+    return false;
+  }
+  return lastAlert === null || lastAlert.getTime() < candidate.since.getTime();
+}
+
+const toDate = (value: string | Date | null): Date | null =>
+  value === null ? null : value instanceof Date ? value : new Date(value);
+
 async function tenantCandidates(
   deps: EndpointJobDeps,
   tenantId: string,
-): Promise<{ candidates: OverdueCandidate[]; schedules: { kind: string; schedule: unknown }[] }> {
+  now: Date,
+): Promise<{ candidates: OverdueCandidate[]; bounds: OverdueBounds }> {
   const db = deps.providerDb;
   const schedules = await db
     .select({ kind: backupJobs.kind, schedule: backupJobs.schedule })
@@ -114,8 +192,10 @@ async function tenantCandidates(
         sql<Date>`coalesce(${protectedObjects.activeSince}, ${protectedObjects.createdAt})`.mapWith(
           (value: string | Date) => new Date(value),
         ),
-      last: sql<Date | null>`(select max(${snapshots.completedAt}) from ${snapshots} where ${snapshots.protectedObjectId} = ${protectedObjects.id} and ${snapshots.manifestPath} is not null)`.mapWith(
-        (value: string | Date | null) => (value === null ? null : new Date(value)),
+      // Qualified by hand: in a subquery drizzle writes bare column names, and a bare "id" would
+      // be the snapshot's own.
+      last: sql<Date | null>`(select max(s.completed_at) from ${snapshots} as s where s.protected_object_id = "protected_objects"."id" and s.manifest_path is not null)`.mapWith(
+        toDate,
       ),
     })
     .from(protectedObjects)
@@ -137,8 +217,77 @@ async function tenantCandidates(
     })
     .from(endpoints)
     .where(and(eq(endpoints.tenantId, tenantId), eq(endpoints.status, "active")));
+
+  // VMs and containers of Proxmox VE, by the same rule as every overview (@restow/core pve).
+  const pveJobRows = await db
+    .select({
+      id: pveJobs.id,
+      enabled: pveJobs.enabled,
+      scopeAll: pveJobs.scopeAll,
+      schedule: pveJobs.schedule,
+      createdAt: pveJobs.createdAt,
+    })
+    .from(pveJobs)
+    .where(eq(pveJobs.tenantId, tenantId));
+  const guests = await db
+    .select({
+      id: pveGuests.id,
+      vmid: pveGuests.vmid,
+      kind: pveGuests.kind,
+      name: pveGuests.name,
+      template: pveGuests.template,
+      present: pveGuests.present,
+      jobId: pveGuests.jobId,
+      createdAt: pveGuests.createdAt,
+      lastSuccessAt: pveGuests.lastSuccessAt,
+      newest:
+        sql<Date | null>`(select max(s.backup_at) from ${pveSnapshots} as s where s.guest_id = "pve_guests"."id" and s.status = 'active')`.mapWith(
+          toDate,
+        ),
+    })
+    .from(pveGuests)
+    .where(eq(pveGuests.tenantId, tenantId));
+  const guestCandidates: OverdueCandidate[] = [];
+  for (const guest of guests) {
+    if (!pveGuestBackable(guest)) {
+      continue;
+    }
+    const job = pveJobOfGuest(guest, pveJobRows);
+    const last =
+      guest.lastSuccessAt && guest.newest
+        ? guest.lastSuccessAt > guest.newest
+          ? guest.lastSuccessAt
+          : guest.newest
+        : (guest.lastSuccessAt ?? guest.newest);
+    if (!job && !last) {
+      // Found by the inventory, never put into a job: not meant to be backed up.
+      continue;
+    }
+    const protectedSince = job && job.createdAt > guest.createdAt ? job.createdAt : guest.createdAt;
+    guestCandidates.push({
+      kind: "guest",
+      id: guest.id,
+      name: guest.name?.trim() || `${guest.kind === "vm" ? "VM" : "CT"} ${guest.vmid}`,
+      since: last ?? protectedSince,
+      backedUp: last !== null,
+    });
+  }
+
   return {
-    schedules,
+    bounds: {
+      mail: staleBackupHours(
+        schedules.filter((row) => row.kind === "mail").map((row) => row.schedule),
+        now,
+      ),
+      machines: staleBackupHours(
+        schedules.filter((row) => row.kind === "endpoint").map((row) => row.schedule),
+        now,
+      ),
+      guests: pveStaleBackupHours(
+        pveJobRows.filter((job) => job.enabled).map((job) => job.schedule),
+        now,
+      ),
+    },
     candidates: [
       ...objects.map((object) => ({
         kind: "object" as const,
@@ -154,6 +303,7 @@ async function tenantCandidates(
         since: machine.lastSuccessAt ?? machine.createdAt,
         backedUp: machine.lastSuccessAt !== null,
       })),
+      ...guestCandidates,
     ],
   };
 }
@@ -173,9 +323,11 @@ async function announcedSubjects(
     const key =
       typeof details.endpointId === "string"
         ? `endpoint:${details.endpointId}`
-        : typeof details.protectedObjectId === "string"
-          ? `object:${details.protectedObjectId}`
-          : null;
+        : typeof details.pveGuestId === "string"
+          ? `guest:${details.pveGuestId}`
+          : typeof details.protectedObjectId === "string"
+            ? `object:${details.protectedObjectId}`
+            : null;
     if (key && (!announced.get(key) || (announced.get(key) as Date) < row.createdAt)) {
       announced.set(key, row.createdAt);
     }
@@ -191,35 +343,78 @@ export async function alertOverdueBackups(deps: EndpointJobDeps, now: Date): Pro
     .where(eq(tenants.status, "active"));
   let alerts = 0;
   for (const tenant of active) {
-    const { candidates, schedules } = await tenantCandidates(deps, tenant.id);
+    const { candidates, bounds } = await tenantCandidates(deps, tenant.id, now);
     if (candidates.length === 0) {
       continue;
     }
-    const bounds = {
-      mail: staleBackupHours(
-        schedules.filter((row) => row.kind === "mail").map((row) => row.schedule as never),
-        now,
-      ),
-      machines: staleBackupHours(
-        schedules.filter((row) => row.kind === "endpoint").map((row) => row.schedule as never),
-        now,
-      ),
-    };
     const due = overdueOf(candidates, bounds, await announcedSubjects(deps, tenant.id), now).slice(
       0,
       MAX_ALERTS_PER_TENANT,
     );
-    if (due.length === 0) {
-      continue;
+    if (due.length > 0) {
+      await withTenantTx(deps.db, tenant.id, (tx) =>
+        raiseEvents(
+          tx,
+          due.map((candidate) => overdueNotification(tenant.id, candidate, bounds)),
+          now,
+        ),
+      );
+      alerts += due.length;
     }
-    await withTenantTx(deps.db, tenant.id, (tx) =>
-      raiseEvents(
-        tx,
-        due.map((candidate) => overdueNotification(tenant.id, candidate, bounds)),
-        now,
-      ),
-    );
-    alerts += due.length;
+    alerts += await alertByRuleDeadlines(deps, tenant.id, candidates, bounds, now);
   }
   return alerts;
+}
+
+/**
+ * The rules of the tenant with their own `backup.overdue` deadline: each alerts about every
+ * candidate past its deadline once per stretch, by its own channels. Returns how many alerts
+ * (one per rule and candidate) were queued.
+ */
+async function alertByRuleDeadlines(
+  deps: EndpointJobDeps,
+  tenantId: string,
+  candidates: readonly OverdueCandidate[],
+  bounds: OverdueBounds,
+  now: Date,
+): Promise<number> {
+  return withTenantTx(deps.db, tenantId, async (tx) => {
+    const rules = rulesForEvent(
+      await tx
+        .select()
+        .from(reportRules)
+        .where(
+          and(
+            eq(reportRules.tenantId, tenantId),
+            eq(reportRules.enabled, true),
+            eq(reportRules.trigger, "event"),
+          ),
+        ),
+      "backup.overdue",
+    );
+    let alerted = 0;
+    for (const rule of rules) {
+      const deadline = overdueDeadlineOf(rule);
+      if (deadline === null) {
+        continue;
+      }
+      const raised: NewNotification[] = [];
+      for (const candidate of candidates) {
+        if (raised.length >= MAX_ALERTS_PER_TENANT || !pastDeadline(candidate, deadline, now)) {
+          continue;
+        }
+        const notification = overdueNotification(tenantId, candidate, bounds, deadline);
+        const subjectKey = subjectKeyOf("backup.overdue", notification.details ?? {});
+        if (
+          dueForRule(candidate, deadline, await lastAlertAt(tx, tenantId, rule.id, subjectKey), now)
+        ) {
+          raised.push(notification);
+        }
+      }
+      if (raised.length > 0 && (await queueRuleDeliveries(tx, tenantId, rule, raised, now)) > 0) {
+        alerted += raised.length;
+      }
+    }
+    return alerted;
+  });
 }

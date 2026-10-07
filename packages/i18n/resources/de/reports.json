@@ -310,6 +310,14 @@
       "240": "Höchstens alle 4 Stunden",
       "1440": "Höchstens einmal am Tag"
     },
+    "overdueDeadline": "Frist für fehlende Sicherungen",
+    "overdueDeadlineHint": "Wann dieser Alarm „Sicherung überfällig“ sendet. Ohne eigene Frist gilt der doppelte längste Abstand der Zeitpläne der Backup-Jobs.",
+    "overdueModes": {
+      "schedules": "Nach den Zeitplänen der Backup-Jobs",
+      "custom": "Eigene Frist"
+    },
+    "overdueHours": "Ohne erfolgreiche Sicherung seit (Stunden)",
+    "overdueHoursHint": "Zwischen {min} und {max} Stunden. Gilt nur für diesen Alarm; die Glocke folgt weiter den Zeitplänen.",
     "frequency": "Häufigkeit",
     "frequencies": {
       "daily": "Täglich",
@@ -350,7 +358,8 @@
       "time": "Geben Sie eine Uhrzeit als HH:MM ein.",
       "cron": "Ein Cron-Ausdruck hat fünf Felder.",
       "recipients": "Eine der Adressen ist keine gültige E-Mail-Adresse.",
-      "timezone": "Diese Zeitzone ist unbekannt. Wählen Sie eine aus der Liste, z. B. Europe/Berlin."
+      "timezone": "Diese Zeitzone ist unbekannt. Wählen Sie eine aus der Liste, z. B. Europe/Berlin.",
+      "overdueHours": "Geben Sie eine ganze Zahl von Stunden zwischen 24 und 720 ein."
     },
     "recipientsManaged": "Das sind die Empfänger, die diese Kategorie unter Empfänger gewählt haben. Ändern Sie sie dort."
   },
@@ -397,7 +406,7 @@
   "eventHints": {
     "backup": {
       "failed": "Ein Sicherungslauf eines Postfachs, OneDrives, IMAP-Kontos, Servers oder Clients wurde nicht abgeschlossen.",
-      "overdue": "Ein Postfach, OneDrive, IMAP-Konto, Server oder Client hatte länger keine erfolgreiche Sicherung, als seine Backup-Jobs vorsehen (doppelter längster Abstand der Zeitpläne, ohne Zeitplan zwei Tage). Einmal je Objekt, bis wieder eine Sicherung gelingt."
+      "overdue": "Ein Postfach, OneDrive, IMAP-Konto, Rechner oder Gast (VM oder Container) hatte länger keine erfolgreiche Sicherung, als seine Backup-Jobs vorsehen (doppelter längster Abstand der Zeitpläne, ohne Zeitplan zwei Tage), oder länger als die eigene Frist der Regel. Einmal je Objekt, bis wieder eine Sicherung gelingt."
     },
     "restore": {
       "failed": "Eine Wiederherstellung oder ein Download, auch eines Servers oder Clients, konnte nicht abgeschlossen werden.",
@@ -570,7 +579,8 @@
       "cron_never_matches": "Der Cron-Ausdruck trifft nie zu.",
       "cron_too_frequent": "Der Cron-Ausdruck würde öfter als alle 15 Minuten senden.",
       "timezone_unknown": "Die Zeitzone ist unbekannt. Wählen Sie eine aus der Liste, z. B. Europe/Berlin.",
-      "unknown": "Eine Angabe ist ungültig. Prüfen Sie die Felder und versuchen Sie es erneut."
+      "unknown": "Eine Angabe ist ungültig. Prüfen Sie die Felder und versuchen Sie es erneut.",
+      "overdue_event_required": "Eine eigene Frist für fehlende Sicherungen braucht das Ereignis „Sicherung überfällig“."
     }
   },
   "defaultRules": {

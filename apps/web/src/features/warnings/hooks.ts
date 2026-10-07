@@ -1,4 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslation } from "react-i18next";
+
+import type { NavBadge } from "@/lib/navigation";
 
 import { useSession } from "@/lib/session";
 
@@ -29,6 +32,17 @@ export function useWarnings(state: "open" | "acknowledged") {
     queryFn: () => fetchWarnings(state),
     enabled,
   });
+}
+
+/**
+ * The menu entry's count: the open warnings of the active tenant, from the same cached query the
+ * page reads (nothing under "All tenants", where no tenant is active).
+ */
+export function useOpenWarningsBadge(): NavBadge | null {
+  const { t } = useTranslation("warnings");
+  const { data } = useWarnings("open");
+  const open = data?.counts.open ?? 0;
+  return open > 0 ? { count: open, label: t("navBadge", { count: open }) } : null;
 }
 
 export function useWarning(ref: WarningRef | null) {

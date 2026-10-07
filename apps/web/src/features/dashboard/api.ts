@@ -27,8 +27,13 @@ export interface LastBackupWidget {
   protectedKinds: Record<ObjectKind, number>;
   /** Servers and clients: how many a backup job protects, how many are in none, their newest good backup. */
   machines: { protected: number; withoutJob: number; lastSuccessAt: string | null };
+  /**
+   * VMs and containers of Proxmox VE: in an enabled job, in none, their newest good backup
+   * (absent from an older server).
+   */
+  guests?: { protected: number; withoutJob: number; lastSuccessAt: string | null };
   /** Hours without a successful backup after which a type reads as overdue (from its jobs' schedules). */
-  staleAfterHours: { mail: number; machines: number };
+  staleAfterHours: { mail: number; machines: number; guests?: number };
 }
 
 export interface ProtectedObjectsWidget {
@@ -44,7 +49,17 @@ export interface ProtectedObjectsWidget {
   runningBackups: number;
   /** Servers and clients: in a backup job (protected), in none, and with a failed newest backup. */
   machines: { protected: number; withoutJob: number; failedLastBackup: number };
-  /** Protected objects and machines without any backup yet. */
+  /**
+   * VMs and containers of Proxmox VE: in an enabled job, in none, with a failed newest backup,
+   * and their restore points (absent from an older server).
+   */
+  guests?: {
+    protected: number;
+    withoutJob: number;
+    failedLastBackup: number;
+    restorePoints: number;
+  };
+  /** Protected objects, machines and guests without any backup yet. */
   noBackup: number;
 }
 
@@ -59,6 +74,8 @@ export interface ReadinessWidget {
   overdue: number;
   /** Machines in no backup job; any of them keeps `overall` from green. */
   withoutJob: number;
+  /** VMs and containers in no backup job that keep a restore point (absent from an older server). */
+  guestsWithoutJob?: number;
   running: number;
   lastCheckedAt: string | null;
 }
@@ -270,6 +287,10 @@ export interface LoadedTenantRow extends ProviderTenantRowBase {
   machines: number;
   machinesWithoutJob: number;
   machinesFailed: number;
+  /** VMs and containers in an enabled job, in none, and with a failed newest backup (absent from an older server). */
+  guests?: number;
+  guestsWithoutJob?: number;
+  guestsFailed?: number;
   physicalBytes: number;
   storageError: boolean;
 }
@@ -291,6 +312,9 @@ export interface UnavailableTenantRow extends ProviderTenantRowBase {
   machines: null;
   machinesWithoutJob: null;
   machinesFailed: null;
+  guests?: null;
+  guestsWithoutJob?: null;
+  guestsFailed?: null;
   physicalBytes: null;
   storageError: null;
 }
@@ -308,6 +332,8 @@ export type ProviderAlertKind =
   | "stale_backup"
   | "machine_backup_failed"
   | "machines_without_job"
+  | "guest_backup_failed"
+  | "guests_without_job"
   | "needs_attention"
   | "nothing_protected";
 

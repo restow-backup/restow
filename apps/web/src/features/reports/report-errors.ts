@@ -18,6 +18,7 @@ export const RULE_PROBLEM_CODES = [
   "cron_never_matches",
   "cron_too_frequent",
   "timezone_unknown",
+  "overdue_event_required",
 ] as const;
 export type RuleProblemCode = (typeof RULE_PROBLEM_CODES)[number];
 

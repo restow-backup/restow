@@ -1,5 +1,6 @@
 {
   "nav": "Warnings",
+  "navBadge": "{count, plural, one {# open warning} other {# open warnings}}",
   "title": "Warnings",
   "description": "Backups that went through but could not back up some items: which ones, why and what to do. Acknowledged warnings no longer count until a new problem appears.",
   "tabs": {
@@ -8,6 +9,8 @@
   },
   "failedHint": "{count, plural, one {# protected object or machine has} other {# protected objects or machines have}} a failed last backup. Failed backups cannot be acknowledged; they stay red until a backup succeeds again.",
   "openHistory": "Open History",
+  "failedGuestsHint": "{count, plural, one {# VM or container in a backup job has} other {# VMs or containers in a backup job have}} a failed last backup. Failed backups cannot be acknowledged; they stay red until a backup succeeds again.",
+  "openGuests": "Open VMs & containers",
   "truncated": "Showing the first {count} warnings.",
   "loadError": "The warnings could not be loaded.",
   "empty": {

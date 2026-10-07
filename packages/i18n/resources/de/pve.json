@@ -151,5 +151,20 @@
     "submit": "Wiederherstellen",
     "queued": "Die Wiederherstellung wurde an den Knoten übergeben.",
     "privileged": "Privilegierte Container kann Proxmox VE aus einer Backup-Schnittstelle nicht wiederherstellen."
+  },
+  "readiness": {
+    "overdue": "Überfällig",
+    "notChecked": "Nicht geprüft",
+    "noBackupYet": "Noch kein Sicherungsstand",
+    "open": "Öffnen",
+    "openFor": "{name} öffnen",
+    "noJob": "In keinem Backup-Job",
+    "result": {
+      "green": "Die Restore-Prüfung des neuesten Sicherungsstands hat jeden geprüften Block bestätigt.",
+      "red": "Die Restore-Prüfung des neuesten Sicherungsstands ist fehlgeschlagen: Blöcke stimmten nicht überein oder ließen sich nicht lesen.",
+      "unverified": "Ein Sicherungsstand ist vorhanden, wurde aber noch nicht geprüft.",
+      "noBackup": "Nichts zu prüfen, bis die erste Sicherung abgeschlossen ist.",
+      "noBackupOverdue": "Keine Sicherung innerhalb von 24 Stunden, nachdem der Gast in einen Backup-Job kam."
+    }
   }
 }

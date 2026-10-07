@@ -1,6 +1,8 @@
 import {
+  MAX_OVERDUE_DEADLINE_HOURS,
   MAX_REPORT_RECIPIENTS,
   MAX_REPORT_THROTTLE_MINUTES,
+  MIN_OVERDUE_DEADLINE_HOURS,
   REPORT_EVENTS,
   REPORT_PERIOD_DAYS,
   REPORT_SECTIONS,
@@ -25,6 +27,7 @@ export type ReportRuleField =
   | "emailRecipients"
   | "webhookId"
   | "trigger"
+  | "overdueAfterHours"
   | "intervalMinutes"
   | "cron"
   | "timezone";
@@ -43,6 +46,17 @@ export function reportRuleProblem(
 }
 
 const email = z.string().trim().toLowerCase().email().max(254);
+
+/**
+ * The rule's own "no successful backup for X hours" deadline for `backup.overdue`, from a day
+ * to 30 days; null follows the jobs' schedules.
+ */
+const overdueAfterHours = z
+  .number()
+  .int()
+  .min(MIN_OVERDUE_DEADLINE_HOURS)
+  .max(MAX_OVERDUE_DEADLINE_HOURS)
+  .nullable();
 
 /** A list without repeats, in first-seen order (addresses are lower-cased first). */
 const unique = <T>(values: T[]): T[] => [...new Set(values)];
@@ -82,6 +96,7 @@ const ruleFields = {
   inApp: z.boolean().default(false),
   webhookId: z.string().uuid().nullable().default(null),
   language: z.enum(["de", "en"]).nullable().default(null),
+  overdueAfterHours: overdueAfterHours.optional(),
 };
 
 export const createReportRuleSchema = z.object({
@@ -118,6 +133,7 @@ export const updateReportRuleSchema = z
     inApp: z.boolean(),
     webhookId: z.string().uuid().nullable(),
     language: z.enum(["de", "en"]).nullable(),
+    overdueAfterHours,
   })
   .partial()
   .strict();

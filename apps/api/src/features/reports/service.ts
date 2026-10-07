@@ -88,6 +88,12 @@ export interface ReportRuleDto {
   inApp: boolean;
   webhookId: string | null;
   language: "de" | "en" | null;
+  /**
+   * The rule's own deadline for `backup.overdue` in hours: its alerts come when nothing was
+   * backed up successfully for this long, instead of by the jobs' schedules. Null: by the
+   * schedules (and always for a rule that does not list `backup.overdue`).
+   */
+  overdueAfterHours: number | null;
   /** A schedule rule the installation cannot send right now (`reports.timed` is off). */
   locked: boolean;
   /** When the rule last sent something, and whether the newest delivery failed. */
@@ -125,6 +131,8 @@ export interface ReportDeliveryDto {
 export interface DeliverySubjectDto {
   objectId: string | null;
   endpointId: string | null;
+  /** A VM or container of Proxmox VE. */
+  guestId: string | null;
   jobId: string | null;
 }
 
@@ -162,6 +170,7 @@ export function toRuleDto(
     inApp: row.inApp,
     webhookId: row.webhookId,
     language: row.language,
+    overdueAfterHours: row.overdueAfterHours,
     locked: row.trigger === "schedule" && !scheduledAvailable,
     lastDelivery: last ? { at: last.at.toISOString(), status: last.status } : null,
     createdAt: row.createdAt.toISOString(),
@@ -229,6 +238,7 @@ export function toDeliveryDto(
     subject: {
       objectId: stringOr(details.protectedObjectId),
       endpointId: stringOr(details.endpointId),
+      guestId: stringOr(details.pveGuestId),
       jobId: stringOr(details.jobId),
     },
     webhook:
@@ -290,6 +300,7 @@ function ruleDefinition(row: ReportRule): Record<string, unknown> {
     recipients: row.emailRecipients.length,
     inApp: row.inApp,
     webhookId: row.webhookId,
+    overdueAfterHours: row.overdueAfterHours,
   };
 }
 
@@ -323,7 +334,25 @@ type RuleShape = Pick<
   | "emailRecipients"
   | "inApp"
   | "webhookId"
->;
+> &
+  Partial<Pick<ReportRule, "overdueAfterHours">>;
+
+/** A deadline for missing backups belongs to an event rule that lists `backup.overdue`. */
+export function assertOverdueDeadline(
+  rule: Pick<RuleShape, "trigger" | "events" | "overdueAfterHours">,
+): void {
+  if (
+    rule.overdueAfterHours !== undefined &&
+    rule.overdueAfterHours !== null &&
+    (rule.trigger !== "event" || !rule.events.includes("backup.overdue"))
+  ) {
+    throw reportRuleProblem(
+      "overdueAfterHours",
+      "overdue_event_required",
+      "A deadline for missing backups needs the event backup.overdue.",
+    );
+  }
+}
 
 /** Everything a rule needs to be able to fire; throws the first problem as a 422. */
 export function assertRuleShape(rule: RuleShape, now: Date): void {
@@ -342,6 +371,7 @@ export function assertRuleShape(rule: RuleShape, now: Date): void {
       throw reportRuleProblem(issue.field, issue.code, issue.message);
     }
   }
+  assertOverdueDeadline(rule);
   const kind = rule.trigger === "event" ? "event" : "summary";
   if (plannedDeliveries(rule, kind).length === 0) {
     throw reportRuleProblem(
@@ -461,6 +491,7 @@ export async function createRule(
     emailRecipients: input.emailRecipients,
     inApp: input.trigger === "schedule" ? input.inApp : false,
     webhookId: input.webhookId,
+    overdueAfterHours: input.overdueAfterHours ?? null,
   };
   assertInstallationEventsAllowed(shape.events, actor);
   assertRuleShape(shape, now);
@@ -552,10 +583,20 @@ export async function updateRule(
     } else {
       after.events = [];
     }
+    if (
+      patch.overdueAfterHours === undefined &&
+      (after.trigger !== "event" || !after.events.includes("backup.overdue"))
+    ) {
+      // The deadline belongs to backup.overdue: dropping the event drops it as well.
+      after.overdueAfterHours = null;
+    }
     if (patch.intervalMinutes !== undefined && patch.intervalMinutes !== null) after.cron = null;
     if (patch.cron !== undefined && patch.cron !== null) after.intervalMinutes = null;
     if (after.enabled) {
       assertRuleShape(after, now);
+    } else {
+      // A paused rule need not be able to fire, but a deadline without its event is refused.
+      assertOverdueDeadline(after);
     }
     await assertWebhook(tx, tenantId, after.webhookId);
     const cadenceChanged =
@@ -579,6 +620,7 @@ export async function updateRule(
         inApp: after.inApp,
         webhookId: after.webhookId,
         language: after.language,
+        overdueAfterHours: after.overdueAfterHours,
         nextRunAt: cadenceChanged && after.enabled ? firstRun(after, now) : before.nextRunAt,
         updatedAt: now,
       })

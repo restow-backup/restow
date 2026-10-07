@@ -127,6 +127,9 @@ describe("tenant matrix rows", () => {
       machines: null,
       machinesWithoutJob: null,
       machinesFailed: null,
+      guests: null,
+      guestsWithoutJob: null,
+      guestsFailed: null,
       physicalBytes: null,
       storageError: null,
     });
@@ -155,6 +158,50 @@ describe("tenant matrix rows", () => {
       lastBackupAt: "2026-09-23T11:00:00.000Z",
       staleAfterHours: 336,
     });
+  });
+});
+
+describe("VMs and containers of Proxmox VE in the matrix", () => {
+  it("counts the guests: in a job, in none, failed, and their newest backup", () => {
+    const result = tenantRow(
+      tenant("Contoso"),
+      {
+        summary: summary(),
+        ...HEALTHY,
+        guests: {
+          protected: 4,
+          withoutJob: 2,
+          failedLastBackup: 1,
+          lastSuccessAt: "2026-09-23T11:30:00.000Z",
+        },
+      },
+      { mailboxes: 3, cap: null },
+    );
+    expect(result).toMatchObject({
+      guests: 4,
+      guestsWithoutJob: 2,
+      guestsFailed: 1,
+      lastBackupAt: "2026-09-23T11:30:00.000Z",
+    });
+    expect(
+      alertsFor(result, NOW).map((alert) => [alert.kind, alert.severity, alert.count]),
+    ).toEqual([
+      ["guest_backup_failed", "destructive", 1],
+      ["guests_without_job", "warning", 2],
+    ]);
+  });
+
+  it("does not call a tenant that only backs up guests one that protects nothing", () => {
+    const onlyGuests = row("Lab", { protectedObjects: 0, machines: 0, guests: 1 });
+    expect(alertsFor(onlyGuests, NOW)).toEqual([]);
+    // Guests the inventory found but no job backs up: said as such, not "nothing protected".
+    const unprotected = row("Lab", {
+      protectedObjects: 0,
+      machines: 0,
+      guests: 0,
+      guestsWithoutJob: 3,
+    });
+    expect(alertsFor(unprotected, NOW).map((alert) => alert.kind)).toEqual(["guests_without_job"]);
   });
 });
 

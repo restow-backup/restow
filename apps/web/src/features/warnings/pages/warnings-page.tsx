@@ -25,6 +25,7 @@ import {
 } from "@/components/ui/table";
 import { useCauseTitle } from "@/features/failures";
 import { HISTORY_PATH } from "@/features/jobs/paths";
+import { PVE_PATH } from "@/features/pve/paths";
 import { formatDateTime, formatInteger, formatRelative } from "@/lib/format";
 
 import "../i18n";
@@ -109,6 +110,20 @@ export function WarningsPage({ state }: { state: "open" | "acknowledged" }) {
               className="text-sm font-medium underline underline-offset-4"
             >
               {t("openHistory")}
+            </Link>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {query.data && (query.data.counts.failedGuests ?? 0) > 0 ? (
+        <Alert variant="destructive" data-slot="failed-guests-hint">
+          <TriangleAlert />
+          <AlertDescription>
+            <p>{t("failedGuestsHint", { count: query.data.counts.failedGuests ?? 0 })}</p>
+            <Link
+              to={PVE_PATH as never}
+              className="text-sm font-medium underline underline-offset-4"
+            >
+              {t("openGuests")}
             </Link>
           </AlertDescription>
         </Alert>

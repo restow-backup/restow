@@ -407,7 +407,16 @@ Regeln je Mandant in `report_rules`, zwei Auslöser:
   `verify.yellow`, `verify.recovered`, `scrub.corrupt`, `scrub.repaired`, dazu für Server und
   Clients `endpoint.stale`, `endpoint.suspicious_snapshot`, `endpoint.storage_quota` und
   `endpoint.repository_locked` (docs/AGENT.md, "Alarme"). Drosselung je
-  Regel und Gegenstand (Objekt, sonst Auftragstyp) über `throttle_minutes`.
+  Regel und Gegenstand (Objekt, Rechner, Gast, sonst Auftragstyp) über `throttle_minutes`.
+  `backup.overdue` (`apps/worker/src/overdue.ts`, mit dem Endpoint-Monitor alle fünf Minuten):
+  keine erfolgreiche Sicherung eines Postfachs, OneDrives, IMAP-Kontos, Rechners oder Gasts
+  (VM oder Container von Proxmox VE) länger als die Zeitpläne seiner aktivierten Backup-Jobs
+  vorsehen (doppelter längster Abstand, ohne Zeitplan zwei Tage), einmal je Gegenstand und
+  Strecke. Eine Ereignisregel mit `backup.overdue` kann eine eigene Frist setzen
+  (`report_rules.overdue_after_hours`, 24 bis 720 Stunden, Migration
+  `0031_report_rule_overdue_deadline`): Diese Regel bekommt ihre Alarme dann nach ihrer Frist,
+  einmal je Gegenstand und Strecke, und nicht mehr mit dem Alarm an der Grenze der Zeitpläne;
+  die Glocke folgt weiter den Zeitplänen.
 - **Zeitpunkt** (nur solange eine Erweiterung `reports.timed` freischaltet; in der
   Vollversion Business, Capability `reports.scheduled`): Kadenz wie bei Zeitplänen
   (Intervall oder Cron in einer Zeitzone). Der Scheduler legt fällige Berichte als

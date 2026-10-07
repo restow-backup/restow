@@ -20,6 +20,8 @@ export interface RuleForDelivery {
   readonly inApp: boolean;
   readonly webhookId: string | null;
   readonly language: "de" | "en" | null;
+  /** The rule's own `backup.overdue` deadline in hours; null or absent follows the schedules. */
+  readonly overdueAfterHours?: number | null;
 }
 
 /** One planned outbox row: a channel and, for e-mail, the recipient. */
@@ -27,6 +29,21 @@ export interface PlannedDelivery {
   readonly channel: ReportChannelName;
   /** The address for e-mail, the webhook id for a webhook, null for the bell. */
   readonly recipient: string | null;
+}
+
+/**
+ * The rule's own "no successful backup for X hours" deadline: set only on an event rule that
+ * listens for `backup.overdue`; null when the rule follows the bound of the jobs' schedules.
+ * Such a rule gets its `backup.overdue` alerts from the overdue pass by its own deadline, never
+ * with the alert raised at the schedules' bound (apps/worker overdue.ts).
+ */
+export function overdueDeadlineOf(
+  rule: Pick<RuleForDelivery, "trigger" | "events" | "overdueAfterHours">,
+): number | null {
+  if (rule.trigger !== "event" || !rule.events.includes("backup.overdue")) {
+    return null;
+  }
+  return typeof rule.overdueAfterHours === "number" ? rule.overdueAfterHours : null;
 }
 
 /** The enabled event rules that listen for `event`. */
@@ -93,6 +110,11 @@ export function subjectKeyOf(event: ReportEvent, details: Record<string, unknown
   // An update alert is about one version: a new version is a new subject.
   if (event === "update.available" && typeof details.version === "string") {
     return `update:${details.version}`;
+  }
+  // An alert about a VM or container of Proxmox VE is about that guest.
+  const guest = details.pveGuestId;
+  if (typeof guest === "string" && guest.length > 0) {
+    return `guest:${guest}`;
   }
   // An alert about an endpoint (server or client) is about that machine.
   const endpoint = details.endpointId;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { type OverdueCandidate, overdueNotification, overdueOf } from "./overdue.js";
+import { type OverdueCandidate, dueForRule, overdueNotification, overdueOf } from "./overdue.js";
 
 const NOW = new Date("2026-10-07T12:00:00.000Z");
 const hoursAgo = (hours: number) => new Date(NOW.getTime() - hours * 3_600_000);
@@ -53,5 +53,41 @@ describe("backup.overdue", () => {
     expect(overdueNotification("t", mailbox("never", 50, false), bounds).message).toMatch(
       /never been backed up/,
     );
+  });
+});
+
+describe("backup.overdue for VMs and containers, and by a rule's own deadline", () => {
+  const guest = (id: string, hours: number): OverdueCandidate => ({
+    kind: "guest",
+    id,
+    name: `VM ${id}`,
+    since: hoursAgo(hours),
+    backedUp: true,
+  });
+
+  it("judges a guest by the PVE jobs' bound and names it as a guest", () => {
+    const guestBounds = { ...bounds, guests: 144 };
+    expect(
+      overdueOf([guest("101", 100), guest("102", 150)], guestBounds, new Map(), NOW).map(
+        (candidate) => candidate.id,
+      ),
+    ).toEqual(["102"]);
+    expect(overdueNotification("t", guest("102", 150), guestBounds)).toMatchObject({
+      details: { pveGuestId: "102", objectName: "VM 102", boundHours: 144, days: 6 },
+    });
+    // A rule's own deadline replaces the bound in what it is told.
+    expect(overdueNotification("t", guest("102", 150), guestBounds, 24)).toMatchObject({
+      details: { boundHours: 24, days: 1 },
+    });
+  });
+
+  it("alerts a rule once per stretch, after its own deadline", () => {
+    const late = guest("101", 30);
+    expect(dueForRule(late, 24, null, NOW)).toBe(true);
+    expect(dueForRule(late, 48, null, NOW)).toBe(false);
+    // Already told after the newest backup: the same stretch.
+    expect(dueForRule(late, 24, hoursAgo(1), NOW)).toBe(false);
+    // Told before the newest backup: a new stretch.
+    expect(dueForRule(late, 24, hoursAgo(40), NOW)).toBe(true);
   });
 });

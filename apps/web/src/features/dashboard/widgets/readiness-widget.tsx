@@ -6,6 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import { inventoryTo } from "@/features/endpoints/paths";
+import { pveTo } from "@/features/pve/paths";
 import { verifyLink } from "@/features/verify/search";
 import type { ReadinessWidget as ReadinessData } from "../api.js";
 import { LinkButton } from "../components/link-button.js";
@@ -95,6 +96,22 @@ function ReadinessBody({ data, canAdminister }: { data: ReadinessData; canAdmini
             {canAdminister ? (
               <LinkButton to={inventoryTo()} size="xs" className="mt-1">
                 {t("readiness.withoutJob.action")}
+              </LinkButton>
+            ) : null}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {(data.guestsWithoutJob ?? 0) > 0 ? (
+        <Alert variant="warning" data-flag="guests-without-job">
+          <TriangleAlert />
+          <AlertTitle>
+            {t("readiness.guestsWithoutJob.title", { count: data.guestsWithoutJob ?? 0 })}
+          </AlertTitle>
+          <AlertDescription className="gap-2">
+            <p>{t("readiness.guestsWithoutJob.description")}</p>
+            {canAdminister ? (
+              <LinkButton {...pveTo()} size="xs" className="mt-1">
+                {t("readiness.guestsWithoutJob.action")}
               </LinkButton>
             ) : null}
           </AlertDescription>

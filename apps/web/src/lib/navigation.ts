@@ -127,6 +127,18 @@ export interface NavItem {
    * nobody mistakes it for something that already works.
    */
   stage?: "alpha";
+  /**
+   * A count next to the label (open warnings, say): a hook the sidebar calls while the entry
+   * is shown, null for no badge. It must be cheap and answer from a cached query; `label` is
+   * what assistive technology reads ("3 open warnings").
+   */
+  useBadge?: () => NavBadge | null;
+}
+
+/** A count next to a menu entry. */
+export interface NavBadge {
+  count: number;
+  label: string;
 }
 
 /** A nav item as shown, with whether its lock holds it closed. */

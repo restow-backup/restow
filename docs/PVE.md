@@ -130,6 +130,29 @@ unique per installation).
   the map (containers: `restic check` of 5 %). A job can also restore one guest
   a month into `restow-restore`, check it and delete it again.
 
+## In the overviews
+
+Guests count everywhere the mailboxes and the machines do, by one rule
+(`apps/api/src/features/pve/protection.ts`, `packages/core/src/pve/protection.ts`):
+
+- **Protected** only while present on its node, no VM template, and in an
+  enabled PVE job (its own, or the job for all guests while it has none). A
+  guest in no enabled job is counted as "in no backup job"; one that left its
+  job keeps the rating of its restore points, and keeps the tenant from green.
+- **Readiness** is the restore check of the newest restore point: green when
+  the sample read back matched, red when it did not, unverified until a check
+  ran, no backup without a restore point.
+- **Failed**: the newest finished backup run of a protected guest failed.
+- **Overdue** (`backup.overdue`, the last-backup card, the provider view): no
+  successful backup for longer than the enabled PVE jobs' schedules allow.
+
+So the Status tab, Recovery readiness (a row per guest), GET /status
+(`guests`), the provider view (`guests`, `guestsWithoutJob`, `guestsFailed`,
+alerts `guest_backup_failed` and `guests_without_job`), the warnings page (failed
+guest backups apart, with a link to the guests) and the statistics (readiness
+series and backup outcomes) all agree. "Nothing protected" is said only when a
+tenant has no object, no machine and no guest.
+
 ## Restore
 
 From the guest's page: **Restore as a new guest**, with the target storage,

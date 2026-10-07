@@ -17,6 +17,7 @@ export const TENANT_ONLY_NAV_IDS: readonly string[] = [
   "mail-jobs",
   "endpoint-jobs",
   "history",
+  "warnings",
   "restore",
   "archive",
   "exports",
@@ -25,7 +26,7 @@ export const TENANT_ONLY_NAV_IDS: readonly string[] = [
   ...TENANT_SETTINGS_NAV_IDS,
 ];
 
-/** Pages without a menu entry of their own that still belong to one tenant (a readiness report, the warnings). */
+/** Pages below an entry of their own, or without one, that still belong to one tenant (a readiness report, the warnings). */
 const TENANT_ONLY_PATH_PREFIXES: readonly string[] = ["/verify/reports", "/warnings"];
 
 /** Whether the menu entry is one that needs a tenant. */

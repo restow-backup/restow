@@ -21,6 +21,12 @@ describe("where a notification leads", () => {
     ).toEqual({ to: "/inventory/ep-1", tenantId });
     expect(
       notificationTarget(
+        { event: "backup.overdue", tenantId, details: { pveGuestId: "g-1", days: 2 } },
+        admin,
+      ),
+    ).toEqual({ to: "/virtualization/g-1", tenantId });
+    expect(
+      notificationTarget(
         { event: "verify.red", tenantId, details: { protectedObjectId: "o", reportId: "r-1" } },
         admin,
       ),

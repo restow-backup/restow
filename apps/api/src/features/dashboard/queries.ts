@@ -14,6 +14,7 @@ import {
   legalHolds,
   packs,
   protectedObjects,
+  pveRuns,
   retentionPolicies,
   schedules,
   settings,
@@ -490,7 +491,10 @@ export async function loadTenantCap(tx: Transaction, tenantId: string): Promise<
 }
 
 export interface TenantHealthExtras {
-  /** Jobs of any kind, and backups and restores of servers and clients, that failed in the last 24 hours. */
+  /**
+   * Jobs of any kind, backups and restores of servers and clients, and backups and restores of
+   * VMs and containers of Proxmox VE, that failed in the last 24 hours.
+   */
   failures24h: number;
   /** The same for the 24 hours before, so the provider view can show the trend. */
   failuresPrevious24h: number;
@@ -537,14 +541,31 @@ export async function loadTenantHealthExtras(
     const machineLast = machineFailures.filter(
       (run) => run.finishedAt && run.finishedAt.toISOString() >= since,
     ).length;
+    // Backups and restores of VMs and containers count the same way.
+    const finishedAt = sql`coalesce(${pveRuns.finishedAt}, ${pveRuns.startedAt})`;
+    const [guestRuns] = await tx
+      .select({
+        last: countWhere(sql`${finishedAt} >= ${since}`),
+        previous: countWhere(sql`${finishedAt} < ${since}`),
+      })
+      .from(pveRuns)
+      .where(
+        and(
+          eq(pveRuns.tenantId, tenantId),
+          inArray(pveRuns.kind, ["backup", "restore"]),
+          eq(pveRuns.status, "failed"),
+          sql`${finishedAt} >= ${previousSince}`,
+        ),
+      );
     const [target] = await tx
       .select({ status: storageTargets.status })
       .from(storageTargets)
       .where(and(eq(storageTargets.tenantId, tenantId), eq(storageTargets.role, "primary")))
       .limit(1);
     return {
-      failures24h: (failed?.last ?? 0) + machineLast,
-      failuresPrevious24h: (failed?.previous ?? 0) + machineFailures.length - machineLast,
+      failures24h: (failed?.last ?? 0) + machineLast + (guestRuns?.last ?? 0),
+      failuresPrevious24h:
+        (failed?.previous ?? 0) + machineFailures.length - machineLast + (guestRuns?.previous ?? 0),
       storageError: target?.status === "error",
     };
   });

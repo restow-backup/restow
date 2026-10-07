@@ -295,7 +295,7 @@ describe.skipIf(!testDatabaseAdminUrl)("warnings against Postgres", () => {
 
   it("lists open warnings of mailboxes and machines and counts the failed backups apart", async () => {
     const list = await json<WarningListDto>(await call("/warnings"));
-    expect(list.counts).toEqual({ open: 3, acknowledged: 0, failed: 1 });
+    expect(list.counts).toEqual({ open: 3, acknowledged: 0, failed: 1, failedGuests: 0 });
     expect(list.items.map((item) => item.target.name).sort()).toEqual([
       "Fileserver",
       "anna",
@@ -359,7 +359,7 @@ describe.skipIf(!testDatabaseAdminUrl)("warnings against Postgres", () => {
     });
 
     const list = await json<WarningListDto>(await call("/warnings?state=open"));
-    expect(list.counts).toEqual({ open: 1, acknowledged: 2, failed: 1 });
+    expect(list.counts).toEqual({ open: 1, acknowledged: 2, failed: 1, failedGuests: 0 });
     expect(list.items.map((item) => item.target.name)).toEqual(["dora"]);
 
     const summary = await loadTenantSummary(appDb, contoso, NOW);

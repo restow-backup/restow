@@ -370,6 +370,7 @@ export function buildChatMessage(
       const ruleName = str(rule.name);
       const jobId = str(details.jobId);
       const endpointId = str(details.endpointId);
+      const guestId = str(details.pveGuestId);
       const reportEvent = str(data.event) ?? "";
       return {
         ...base,
@@ -384,7 +385,9 @@ export function buildChatMessage(
             ? `/history/${seg(jobId)}`
             : endpointId
               ? `/inventory/${seg(endpointId)}`
-              : "/alerts",
+              : guestId
+                ? `/virtualization/${seg(guestId)}`
+                : "/alerts",
         ),
       };
     }

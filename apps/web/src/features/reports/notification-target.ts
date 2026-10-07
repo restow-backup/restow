@@ -1,5 +1,6 @@
 import { endpointDetailTo } from "@/features/endpoints/paths";
 import { installationSectionPath } from "@/features/installation/paths";
+import { guestTo } from "@/features/pve/paths";
 import { verifyReportTo } from "@/features/verify/paths";
 import { tenantPagePath } from "@/lib/tenant-paths";
 
@@ -46,6 +47,11 @@ export function notificationTarget(
   const endpointId = text(details.endpointId);
   if (endpointId) {
     return at(String(endpointDetailTo(endpointId)));
+  }
+  // A VM or container of Proxmox VE: its page has the restore points and the runs.
+  const guestId = text(details.pveGuestId);
+  if (guestId) {
+    return at(String(guestTo(guestId).to));
   }
   if (item.event.startsWith("verify.")) {
     const reportId = text(details.reportId);

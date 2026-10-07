@@ -20,6 +20,7 @@ describe("the pages that only exist per tenant", () => {
       "mail-jobs",
       "endpoint-jobs",
       "history",
+      "warnings",
       "restore",
       "archive",
       "exports",

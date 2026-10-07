@@ -25,6 +25,7 @@ import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { causeToFailureDto, failureDto } from "../failures/dto.js";
 import { stateOfJob } from "../history/dto.js";
+import { loadGuestProtection } from "../pve/protection.js";
 import {
   type AcknowledgeResultDto,
   type FailedItemDto,
@@ -165,7 +166,13 @@ export async function listWarnings(
   return withTenantTx(db, tenantId, async (tx) => {
     const mail = await loadMailWarnings(tx, tenantId);
     const machines = await loadMachineWarnings(tx, tenantId);
-    const counts = { open: 0, acknowledged: 0, failed: 0 };
+    // VMs and containers of Proxmox VE: a backup of a guest either succeeds or fails (it never
+    // leaves items behind), so a guest only ever counts as failed, never as a warning.
+    const guests = await loadGuestProtection(tx, tenantId, new Date());
+    const failedGuests = guests.guests.filter(
+      (guest) => guest.inJob && guest.lastRun?.status === "failed",
+    ).length;
+    const counts = { open: 0, acknowledged: 0, failed: 0, failedGuests };
     const wanted: WarningFact[] = [];
     for (const fact of [...mail.values(), ...machines.values()]) {
       const state = fact.evaluation.state;

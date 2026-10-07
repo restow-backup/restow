@@ -57,6 +57,11 @@ export interface ReportRule {
   inApp: boolean;
   webhookId: string | null;
   language: "de" | "en" | null;
+  /**
+   * The rule's own deadline for `backup.overdue` in hours (24 to 720); null follows the jobs'
+   * schedules (absent from an older server).
+   */
+  overdueAfterHours?: number | null;
   locked: boolean;
   lastDelivery: { at: string; status: DeliveryStatus } | null;
   createdAt: string;
@@ -78,6 +83,8 @@ export interface ReportRuleInput {
   inApp: boolean;
   webhookId: string | null;
   language: "de" | "en" | null;
+  /** The rule's own deadline for `backup.overdue` in hours; null follows the schedules. */
+  overdueAfterHours?: number | null;
 }
 
 export type ReportRulePatch = Partial<Omit<ReportRuleInput, "trigger">>;
@@ -97,7 +104,13 @@ export interface ReportDelivery {
   sentAt: string | null;
   target: string | null;
   /** What the alert is about, for links: the protected object, the machine, the run. */
-  subject?: { objectId: string | null; endpointId: string | null; jobId: string | null };
+  subject?: {
+    objectId: string | null;
+    endpointId: string | null;
+    /** A VM or container of Proxmox VE (absent from an older server). */
+    guestId?: string | null;
+    jobId: string | null;
+  };
   /** A webhook alert: the webhook and the delivery it was handed to (its outcome is `status`). */
   webhook?: { id: string; deliveryId: string | null } | null;
   /** In the view across tenants: whose alert it is. */

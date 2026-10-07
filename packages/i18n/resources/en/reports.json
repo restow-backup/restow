@@ -310,6 +310,14 @@
       "240": "At most every 4 hours",
       "1440": "At most once a day"
     },
+    "overdueDeadline": "Deadline for missing backups",
+    "overdueDeadlineHint": "When this alert sends “Backup overdue”. Without a deadline of its own, twice the longest planned gap of the backup jobs' schedules applies.",
+    "overdueModes": {
+      "schedules": "By the backup jobs' schedules",
+      "custom": "Own deadline"
+    },
+    "overdueHours": "Without a successful backup for (hours)",
+    "overdueHoursHint": "Between {min} and {max} hours. It applies to this alert only; the bell keeps following the schedules.",
     "frequency": "Frequency",
     "frequencies": {
       "daily": "Daily",
@@ -350,7 +358,8 @@
       "time": "Enter a time as HH:MM.",
       "cron": "A cron expression has five fields.",
       "recipients": "One of the addresses is not a valid e-mail address.",
-      "timezone": "This time zone is unknown. Choose one from the list, e.g. Europe/Berlin."
+      "timezone": "This time zone is unknown. Choose one from the list, e.g. Europe/Berlin.",
+      "overdueHours": "Enter a whole number of hours between 24 and 720."
     },
     "recipientsManaged": "These are the recipients who chose this category under Recipients. Change them there."
   },
@@ -397,7 +406,7 @@
   "eventHints": {
     "backup": {
       "failed": "A backup run of a mailbox, OneDrive, IMAP account, server or client did not finish.",
-      "overdue": "A mailbox, OneDrive, IMAP account, server or client had no successful backup for longer than its backup jobs plan (twice the longest gap of the schedules, two days without one). Once per object, until a backup succeeds again."
+      "overdue": "A mailbox, OneDrive, IMAP account, machine or guest (VM or container) had no successful backup for longer than its backup jobs plan (twice the longest gap of the schedules, two days without one), or for longer than the rule's own deadline. Once per object, until a backup succeeds again."
     },
     "restore": {
       "failed": "A restore or a download, of a server or client too, could not be finished.",
@@ -570,7 +579,8 @@
       "cron_never_matches": "The cron expression never matches.",
       "cron_too_frequent": "The cron expression would send more often than every 15 minutes.",
       "timezone_unknown": "The time zone is unknown. Choose one from the list, e.g. Europe/Berlin.",
-      "unknown": "A value is not valid. Check the fields and try again."
+      "unknown": "A value is not valid. Check the fields and try again.",
+      "overdue_event_required": "A deadline for missing backups needs the event “Backup overdue”."
     }
   },
   "defaultRules": {

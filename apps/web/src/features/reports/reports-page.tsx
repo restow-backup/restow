@@ -58,6 +58,7 @@ import {
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { endpointDetailTo } from "@/features/endpoints/paths";
 import { webhookDetailTo } from "@/features/integrations/paths";
+import { guestTo } from "@/features/pve/paths";
 import { downloadFile } from "@/features/stats/download";
 import { errorMessageKey } from "@/lib/api";
 import { ExtensionSlot } from "@/lib/extensions";
@@ -558,6 +559,7 @@ function subjectPath(row: ReportDelivery): string | null {
   const subject = row.subject;
   if (!subject) return null;
   if (subject.endpointId) return String(endpointDetailTo(subject.endpointId));
+  if (subject.guestId) return String(guestTo(subject.guestId).to);
   if (subject.jobId) return `/history/${encodeURIComponent(subject.jobId)}`;
   return null;
 }

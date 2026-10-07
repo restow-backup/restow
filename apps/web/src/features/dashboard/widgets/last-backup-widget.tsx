@@ -1,6 +1,7 @@
 import {
   Archive,
   Cloud,
+  Container,
   DatabaseBackup,
   type LucideIcon,
   Mail,
@@ -18,13 +19,14 @@ import { WidgetCard, type WidgetStateProps } from "../components/widget-frame.js
 import { PATHS, to } from "../paths.js";
 import { isStale, staleBound } from "../presenters.js";
 
-type BackupType = "mail" | "onedrive" | "imap" | "machines" | "archive";
+type BackupType = "mail" | "onedrive" | "imap" | "machines" | "guests" | "archive";
 
 const TYPE_ICON: Readonly<Record<BackupType, LucideIcon>> = {
   mail: Mail,
   onedrive: Cloud,
   imap: MailOpen,
   machines: Server,
+  guests: Container,
   archive: Archive,
 };
 
@@ -68,6 +70,13 @@ export function backupTypeRows(data: LastBackupData): TypeRow[] {
       at: data.machines.lastSuccessAt,
       protectedCount: data.machines.protected + data.machines.withoutJob,
       staleAfterHours: data.staleAfterHours.machines,
+    },
+    // VMs and containers of Proxmox VE; a guest in no job still shows the row, like a machine.
+    {
+      type: "guests",
+      at: data.guests?.lastSuccessAt ?? null,
+      protectedCount: (data.guests?.protected ?? 0) + (data.guests?.withoutJob ?? 0),
+      staleAfterHours: data.staleAfterHours.guests ?? data.staleAfterHours.machines,
     },
   ];
   const used = rows.filter((row) => (row.protectedCount ?? 0) > 0 || row.at !== null);

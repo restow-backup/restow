@@ -8,6 +8,10 @@
  * the rule alerted about the same subject within its throttle window. The
  * API's dispatcher renders and sends them; nothing here talks to a mail
  * server, so a slow SMTP server never holds up a job.
+ *
+ * A rule with its own deadline for `backup.overdue` (`overdueAfterHours`) is left out when that
+ * event is raised at the schedules' bound: the overdue pass queues its alerts by its own deadline
+ * (overdue.ts, `queueRuleDeliveries`).
  */
 import {
   FAILED_JOB_EVENTS,
@@ -15,6 +19,7 @@ import {
   guidanceFor,
   isAlertThrottled,
   isReportEvent,
+  overdueDeadlineOf,
   plannedDeliveries,
   rulesForEvent,
   subjectKeyOf,
@@ -23,6 +28,7 @@ import {
   type Job,
   type NewNotification,
   type NewReportDelivery,
+  type ReportRule,
   notifications,
   protectedObjects,
   reportDeliveries,
@@ -69,54 +75,109 @@ export async function raiseEvents(
     const rows: NewReportDelivery[] = [];
     for (const notification of events) {
       const event = notification.event as ReportEvent;
-      const details = notification.details ?? {};
-      const subjectKey = subjectKeyOf(event, details);
       for (const rule of rulesForEvent(rules, event)) {
-        const [last] = await tx
-          .select({ at: max(reportDeliveries.createdAt) })
-          .from(reportDeliveries)
-          .where(
-            and(
-              eq(reportDeliveries.tenantId, tenantId),
-              eq(reportDeliveries.ruleId, rule.id),
-              eq(reportDeliveries.subjectKey, subjectKey),
-              eq(reportDeliveries.kind, "event"),
-            ),
-          );
-        if (isAlertThrottled(last?.at ?? null, now, rule.throttleMinutes)) {
+        if (event === "backup.overdue" && overdueDeadlineOf(rule) !== null) {
+          // This rule decides by its own deadline (overdue.ts).
           continue;
         }
-        const payload = {
-          event,
-          level: notification.level ?? "info",
-          message: notification.message,
-          details,
-          occurredAt: now.toISOString(),
-        };
-        for (const planned of plannedDeliveries(rule, "event")) {
-          rows.push({
-            tenantId,
-            ruleId: rule.id,
-            ruleName: rule.name,
-            kind: "event",
-            event,
-            subjectKey,
-            payload,
-            channel: planned.channel,
-            recipient: planned.recipient,
-            language: rule.language,
-            status: "pending",
-            nextAttemptAt: now,
-            createdAt: now,
-            updatedAt: now,
-          });
-        }
+        rows.push(...(await ruleDeliveries(tx, tenantId, rule, notification, now)));
       }
     }
     if (rows.length > 0) {
       await tx.insert(reportDeliveries).values(rows);
     }
   }
+}
+
+/** When the rule last alerted about the subject; null when it never did. */
+export async function lastAlertAt(
+  tx: TenantTx,
+  tenantId: string,
+  ruleId: string,
+  subjectKey: string,
+): Promise<Date | null> {
+  const [last] = await tx
+    .select({ at: max(reportDeliveries.createdAt) })
+    .from(reportDeliveries)
+    .where(
+      and(
+        eq(reportDeliveries.tenantId, tenantId),
+        eq(reportDeliveries.ruleId, ruleId),
+        eq(reportDeliveries.subjectKey, subjectKey),
+        eq(reportDeliveries.kind, "event"),
+      ),
+    );
+  return last?.at ?? null;
+}
+
+/**
+ * The outbox rows one event gives one rule: one per channel and recipient, none while the rule
+ * alerted about the same subject within its throttle window.
+ */
+async function ruleDeliveries(
+  tx: TenantTx,
+  tenantId: string,
+  rule: ReportRule,
+  notification: NewNotification,
+  now: Date,
+): Promise<NewReportDelivery[]> {
+  const event = notification.event as ReportEvent;
+  const details = notification.details ?? {};
+  const subjectKey = subjectKeyOf(event, details);
+  if (
+    isAlertThrottled(
+      await lastAlertAt(tx, tenantId, rule.id, subjectKey),
+      now,
+      rule.throttleMinutes,
+    )
+  ) {
+    return [];
+  }
+  const payload = {
+    event,
+    level: notification.level ?? "info",
+    message: notification.message,
+    details,
+    occurredAt: now.toISOString(),
+  };
+  return plannedDeliveries(rule, "event").map((planned) => ({
+    tenantId,
+    ruleId: rule.id,
+    ruleName: rule.name,
+    kind: "event" as const,
+    event,
+    subjectKey,
+    payload,
+    channel: planned.channel,
+    recipient: planned.recipient,
+    language: rule.language,
+    status: "pending" as const,
+    nextAttemptAt: now,
+    createdAt: now,
+    updatedAt: now,
+  }));
+}
+
+/**
+ * Queue one rule's deliveries of events the bell already knows about, or never will: the
+ * overdue pass uses it for the rules with their own `backup.overdue` deadline. Returns how many
+ * rows were queued.
+ */
+export async function queueRuleDeliveries(
+  tx: TenantTx,
+  tenantId: string,
+  rule: ReportRule,
+  raised: readonly NewNotification[],
+  now: Date,
+): Promise<number> {
+  const rows: NewReportDelivery[] = [];
+  for (const notification of raised) {
+    rows.push(...(await ruleDeliveries(tx, tenantId, rule, notification, now)));
+  }
+  if (rows.length > 0) {
+    await tx.insert(reportDeliveries).values(rows);
+  }
+  return rows.length;
 }
 
 /** The cause of a failed job as an alert carries it: code, facts and the ids of the steps to take. */

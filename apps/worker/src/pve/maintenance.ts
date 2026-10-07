@@ -27,6 +27,7 @@ import {
   loadManifest,
   mapChunkIds,
   pveDisksOf,
+  pveGuestBackable,
   pveNextRunAt,
   resticBinary,
   resticCacheBase,
@@ -111,11 +112,9 @@ export function coveredBy(
   job: Pick<PveJob, "id" | "scopeAll">,
   guests: readonly PveGuest[],
 ): PveGuest[] {
+  // The same rule as every overview (pveJobOfGuest in @restow/core), for one job.
   return guests.filter(
-    (g) =>
-      g.present &&
-      !(g.kind === "vm" && g.template) &&
-      (g.jobId === job.id || (job.scopeAll && g.jobId === null)),
+    (g) => pveGuestBackable(g) && (g.jobId === job.id || (job.scopeAll && g.jobId === null)),
   );
 }
 

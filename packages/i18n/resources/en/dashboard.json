@@ -123,7 +123,7 @@
     "running": "{count, plural, one {# check running} other {# checks running}}",
     "empty": {
       "title": "Nothing to rate yet",
-      "description": "Recovery readiness appears once objects or machines are protected and backed up.",
+      "description": "Recovery readiness appears once objects, machines, VMs or containers are protected and backed up.",
       "action": "Protect objects"
     },
     "legend": "Objects by recovery state",
@@ -133,6 +133,11 @@
       "title": "{count, plural, one {# machine in no backup job} other {# machines in no backup job}}",
       "description": "These machines are no longer backed up. Their existing restore points keep their rating; new ones are only made once you add the machine to a backup job.",
       "action": "Open machines"
+    },
+    "guestsWithoutJob": {
+      "title": "{count, plural, one {# guest in no backup job} other {# guests in no backup job}}",
+      "description": "These VMs and containers are no longer backed up. Their existing restore points keep their rating; new ones are only made once you add the guest to a backup job.",
+      "action": "Open VMs & containers"
     }
   },
   "lastBackup": {
@@ -144,11 +149,12 @@
       "onedrive": "OneDrive",
       "imap": "IMAP mailboxes",
       "archive": "Archive",
-      "machines": "Servers and clients"
+      "machines": "Servers and clients",
+      "guests": "VMs and containers"
     },
     "empty": {
       "title": "No backups yet",
-      "description": "Nothing is protected yet, neither mailboxes, OneDrives and IMAP accounts nor machines.",
+      "description": "Nothing is protected yet, neither mailboxes, OneDrives and IMAP accounts nor machines, VMs or containers.",
       "action": "Connect a source"
     },
     "staleDays": "{count, plural, one {Older than # day} other {Older than # days}}",
@@ -163,14 +169,16 @@
     "link": "Open protected objects",
     "empty": {
       "title": "Nothing protected yet",
-      "description": "Mailboxes, OneDrives, IMAP accounts and machines appear here once they are protected.",
+      "description": "Mailboxes, OneDrives, IMAP accounts, machines, VMs and containers appear here once they are protected.",
       "action": "Protect objects"
     },
     "acknowledged": "{count, plural, one {# warning acknowledged} other {# warnings acknowledged}}",
     "warningsLink": "See the warnings",
     "withMachines": "{count, plural, one {including # machine} other {including # machines}}",
+    "withGuests": "{count, plural, one {including # VM or container} other {including # VMs and containers}}",
     "noBackup": "{count, plural, one {# without a backup} other {# without a backup}}",
-    "withoutJob": "{count, plural, one {# machine in no backup job} other {# machines in no backup job}}"
+    "withoutJob": "{count, plural, one {# machine in no backup job} other {# machines in no backup job}}",
+    "guestsWithoutJob": "{count, plural, one {# guest in no backup job} other {# guests in no backup job}}"
   },
   "storage": {
     "title": "Stored",
@@ -415,12 +423,14 @@
         "stale_backup": "No successful backup for more than {count} hours (twice the longest gap of the schedules). Last:",
         "machine_backup_failed": "{count, plural, one {The last backup of # machine failed.} other {The last backup of # machines failed.}}",
         "machines_without_job": "{count, plural, one {# machine is in no backup job and is not backed up.} other {# machines are in no backup job and are not backed up.}}",
+        "guest_backup_failed": "{count, plural, one {The last backup of # guest (VM or container) failed.} other {The last backup of # guests (VMs or containers) failed.}}",
+        "guests_without_job": "{count, plural, one {# guest (VM or container) is in no backup job and is not backed up.} other {# guests (VMs or containers) are in no backup job and are not backed up.}}",
         "needs_attention": "{count, plural, one {# object needs attention (gaps or an overdue restore check).} other {# objects need attention (gaps or an overdue restore check).}}",
         "nothing_protected": "The tenant protects nothing yet."
       },
       "empty": {
         "title": "No alerts",
-        "description": "Every tenant protects objects or machines, everything is backed up and proven restorable, and none is over its agreed cap."
+        "description": "Every tenant protects objects, machines or guests, everything is backed up and proven restorable, and none is over its agreed cap."
       }
     },
     "readiness": {

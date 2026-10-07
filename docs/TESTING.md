@@ -73,6 +73,10 @@ Postgres-Service bereit und setzt die Variable.
   `handlers/verify-origin.pg.test.ts` und `handlers/retention.pg.test.ts` (Aufbewahrung je Job)
 - apps/worker: `handlers/mail-files.pg.test.ts` (Import, Archivaufnahme mit Hash-Kette, Export
   versiegelt, Bereinigung, Ziel-Postfach für den Restore eines importierten Postfachs)
+- Proxmox VE in den Übersichten: apps/api `features/pve/protection.pg.test.ts` (Status,
+  Wiederherstellbarkeit, GET /status, Fehlschläge der Provider-Ansicht, Warnungen, Statistik,
+  Mandantentrennung mit RLS), apps/worker `overdue.pg.test.ts` (`backup.overdue` für Gäste und mit
+  der eigenen Frist einer Regel), apps/api `features/reports/reports.pg.test.ts` (Frist der Regel)
 - apps/api: `features/imports/imports.pg.test.ts`, `features/exports/exports.pg.test.ts`,
   `features/restore/imported.pg.test.ts`, `features/archive/sent-at.pg.test.ts`
 - packages/db: `imports.pg.test.ts` (RLS, Segment-Eindeutigkeit, Kaskaden der Import-Tabellen),

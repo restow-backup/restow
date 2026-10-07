@@ -14,17 +14,41 @@ import { TileWidget, type WidgetStateProps } from "../components/widget-frame.js
 import { PATHS, to } from "../paths.js";
 import { dedupSaving } from "../presenters.js";
 
+/** The VMs and containers of the tile; zeros from a server that does not count them yet. */
+export function guestsOf(data: ObjectsData): NonNullable<ObjectsData["guests"]> {
+  return data.guests ?? { protected: 0, withoutJob: 0, failedLastBackup: 0, restorePoints: 0 };
+}
+
 /**
  * "No errors in the latest runs" only when there were runs to judge: nothing failed, nothing left
- * items behind, everything protected has a backup and no machine is left without a job.
+ * items behind, everything protected has a backup and no machine or guest is left without a job.
  */
 export function protectedHealthy(data: ObjectsData): boolean {
+  const guests = guestsOf(data);
   return (
     data.failed === 0 &&
     data.withItemFailures === 0 &&
     data.machines.failedLastBackup === 0 &&
     data.machines.withoutJob === 0 &&
+    guests.failedLastBackup === 0 &&
+    guests.withoutJob === 0 &&
     data.noBackup === 0
+  );
+}
+
+/**
+ * Whether the tenant has nothing to show: no protected object, and no machine and no guest,
+ * in a job or not. Only then does the tile say "nothing protected yet".
+ */
+export function nothingProtected(data: ObjectsData): boolean {
+  const guests = guestsOf(data);
+  return (
+    data.active +
+      data.machines.protected +
+      data.machines.withoutJob +
+      guests.protected +
+      guests.withoutJob ===
+    0
   );
 }
 
@@ -56,7 +80,7 @@ export function ProtectedObjectsWidget({
       label={t("protectedObjects.title")}
       icon={ShieldCheck}
       empty={(data) =>
-        data.active + data.machines.protected + data.machines.withoutJob === 0
+        nothingProtected(data)
           ? {
               icon: ShieldCheck,
               title: t("protectedObjects.empty.title"),
@@ -70,77 +94,92 @@ export function ProtectedObjectsWidget({
           : null
       }
     >
-      {(data) => (
-        <KpiTile
-          label={t("protectedObjects.title")}
-          icon={ShieldCheck}
-          value={formatInteger(data.active + data.machines.protected, language)}
-          hint={
-            <span className="flex flex-wrap gap-1.5">
-              {data.machines.protected > 0 ? (
-                <span className="w-full text-xs text-muted-foreground" data-line="machines">
-                  {t("protectedObjects.withMachines", { count: data.machines.protected })}
-                </span>
-              ) : null}
-              {protectedHealthy(data) ? (
-                <StatusBadge tone="neutral">{t("protectedObjects.healthy")}</StatusBadge>
-              ) : null}
-              {data.failed + data.machines.failedLastBackup > 0 ? (
-                <StatusBadge tone="destructive">
-                  {t("protectedObjects.failed", {
-                    count: data.failed + data.machines.failedLastBackup,
-                  })}
-                </StatusBadge>
-              ) : null}
-              {data.noBackup > 0 ? (
-                <StatusBadge tone="warning">
-                  {t("protectedObjects.noBackup", { count: data.noBackup })}
-                </StatusBadge>
-              ) : null}
-              {data.machines.withoutJob > 0 ? (
-                <StatusBadge tone="warning">
-                  {t("protectedObjects.withoutJob", { count: data.machines.withoutJob })}
-                </StatusBadge>
-              ) : null}
-              {data.withItemFailures > 0 ? (
-                <StatusBadge tone="warning">
-                  {t("protectedObjects.withItemFailures", { count: data.withItemFailures })}
-                </StatusBadge>
-              ) : null}
-              {(data.acknowledgedWarnings ?? 0) > 0 ? (
-                <StatusBadge tone="muted">
-                  {t("protectedObjects.acknowledged", { count: data.acknowledgedWarnings ?? 0 })}
-                </StatusBadge>
-              ) : null}
-              {data.runningBackups > 0 ? (
-                <StatusBadge tone="info" live>
-                  {t("protectedObjects.running", { count: data.runningBackups })}
-                </StatusBadge>
-              ) : null}
-            </span>
-          }
-          link={
-            canAdminister ? (
-              <span className="flex flex-wrap gap-x-3">
-                {/* A warning badge always leads to its reasons (features/warnings). */}
-                {data.withItemFailures > 0 || (data.acknowledgedWarnings ?? 0) > 0 ? (
-                  <LinkButton to={to(PATHS.warnings)} variant="link" size="xs" className="px-0">
-                    {t("protectedObjects.warningsLink")}
-                  </LinkButton>
+      {(data) => {
+        const guests = guestsOf(data);
+        const failed = data.failed + data.machines.failedLastBackup + guests.failedLastBackup;
+        return (
+          <KpiTile
+            label={t("protectedObjects.title")}
+            icon={ShieldCheck}
+            value={formatInteger(
+              data.active + data.machines.protected + guests.protected,
+              language,
+            )}
+            hint={
+              <span className="flex flex-wrap gap-1.5">
+                {data.machines.protected > 0 ? (
+                  <span className="w-full text-xs text-muted-foreground" data-line="machines">
+                    {t("protectedObjects.withMachines", { count: data.machines.protected })}
+                  </span>
                 ) : null}
-                <LinkButton
-                  to={to(PATHS.protectedObjects)}
-                  variant="link"
-                  size="xs"
-                  className="px-0"
-                >
-                  {t("protectedObjects.link")}
-                </LinkButton>
+                {guests.protected > 0 ? (
+                  <span className="w-full text-xs text-muted-foreground" data-line="guests">
+                    {t("protectedObjects.withGuests", { count: guests.protected })}
+                  </span>
+                ) : null}
+                {protectedHealthy(data) ? (
+                  <StatusBadge tone="neutral">{t("protectedObjects.healthy")}</StatusBadge>
+                ) : null}
+                {failed > 0 ? (
+                  <StatusBadge tone="destructive">
+                    {t("protectedObjects.failed", { count: failed })}
+                  </StatusBadge>
+                ) : null}
+                {data.noBackup > 0 ? (
+                  <StatusBadge tone="warning">
+                    {t("protectedObjects.noBackup", { count: data.noBackup })}
+                  </StatusBadge>
+                ) : null}
+                {data.machines.withoutJob > 0 ? (
+                  <StatusBadge tone="warning">
+                    {t("protectedObjects.withoutJob", { count: data.machines.withoutJob })}
+                  </StatusBadge>
+                ) : null}
+                {guests.withoutJob > 0 ? (
+                  <StatusBadge tone="warning">
+                    {t("protectedObjects.guestsWithoutJob", { count: guests.withoutJob })}
+                  </StatusBadge>
+                ) : null}
+                {data.withItemFailures > 0 ? (
+                  <StatusBadge tone="warning">
+                    {t("protectedObjects.withItemFailures", { count: data.withItemFailures })}
+                  </StatusBadge>
+                ) : null}
+                {(data.acknowledgedWarnings ?? 0) > 0 ? (
+                  <StatusBadge tone="muted">
+                    {t("protectedObjects.acknowledged", { count: data.acknowledgedWarnings ?? 0 })}
+                  </StatusBadge>
+                ) : null}
+                {data.runningBackups > 0 ? (
+                  <StatusBadge tone="info" live>
+                    {t("protectedObjects.running", { count: data.runningBackups })}
+                  </StatusBadge>
+                ) : null}
               </span>
-            ) : undefined
-          }
-        />
-      )}
+            }
+            link={
+              canAdminister ? (
+                <span className="flex flex-wrap gap-x-3">
+                  {/* A warning badge always leads to its reasons (features/warnings). */}
+                  {data.withItemFailures > 0 || (data.acknowledgedWarnings ?? 0) > 0 ? (
+                    <LinkButton to={to(PATHS.warnings)} variant="link" size="xs" className="px-0">
+                      {t("protectedObjects.warningsLink")}
+                    </LinkButton>
+                  ) : null}
+                  <LinkButton
+                    to={to(PATHS.protectedObjects)}
+                    variant="link"
+                    size="xs"
+                    className="px-0"
+                  >
+                    {t("protectedObjects.link")}
+                  </LinkButton>
+                </span>
+              ) : undefined
+            }
+          />
+        );
+      }}
     </TileWidget>
   );
 }

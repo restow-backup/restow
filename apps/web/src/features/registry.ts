@@ -81,7 +81,7 @@ interface Placement {
  * Features bring their own defaults; this table settles the whole menu in one
  * place so orders from different features never collide:
  *
- *   Daily                Overview, History, Recovery readiness, Alerts
+ *   Daily                Overview, History, Warnings, Recovery readiness, Alerts
  *   Mail & SaaS          Jobs, Restore explorer, Archive, Exports
  *   Servers & endpoints  Jobs, Inventory, File restore
  *   Tenants              Tenant settings, All tenants (tenant management);
@@ -108,6 +108,7 @@ interface Placement {
 const NAV_PLACEMENT: Readonly<Record<string, Placement>> = {
   dashboard: { group: "daily", order: 0 },
   history: { group: "daily", order: 10 },
+  warnings: { group: "daily", order: 15 },
   verify: { group: "daily", order: 20 },
   alerts: { group: "daily", order: 30 },
   "mail-jobs": { group: "mail", order: 10 },

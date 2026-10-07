@@ -1,0 +1,2 @@
+ALTER TABLE "report_rules" ADD COLUMN "overdue_after_hours" integer;--> statement-breakpoint
+ALTER TABLE "report_rules" ADD CONSTRAINT "report_rules_overdue_after_ck" CHECK ("report_rules"."overdue_after_hours" IS NULL OR "report_rules"."overdue_after_hours" BETWEEN 24 AND 720);
