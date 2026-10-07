@@ -78,13 +78,19 @@ type SetupStep =
   | { step: "codes"; enrollment: AuthenticatorEnrollment; key: TotpSetupKey };
 
 interface AuthenticatorSetupProps {
-  /** `replace` removes the current authenticator first (moving to a new phone). */
+  /**
+   * `replace` moves to a new phone: the current authenticator keeps working
+   * until the new one's first code is confirmed.
+   */
   mode: "enroll" | "replace";
   /** The authenticator is on and the recovery codes were acknowledged. */
   onComplete: () => void;
   /** Leave before the first step is done; omitted where enrolment is mandatory. */
   onCancel?: () => void;
-  /** Called once the authenticator is switched on (before the recovery codes). */
+  /**
+   * Called once the authenticator is switched on, when the recovery codes
+   * appear: a dialog around this must not close until they are acknowledged.
+   */
   onEnabled?: () => void;
 }
 
@@ -109,6 +115,7 @@ export function AuthenticatorSetup({
   if (state.step === "scan") {
     return (
       <ScanStep
+        replace={mode === "replace"}
         enrollment={state.enrollment}
         setupKey={state.key}
         onConfirmed={() => {
@@ -265,10 +272,12 @@ export function PasswordConfirmForm({
 // --- Step 2: scan and confirm -----------------------------------------------------
 
 function ScanStep({
+  replace,
   enrollment,
   setupKey,
   onConfirmed,
 }: {
+  replace: boolean;
   enrollment: AuthenticatorEnrollment;
   setupKey: TotpSetupKey;
   onConfirmed: () => void;
@@ -286,7 +295,7 @@ function ScanStep({
 
   const onSubmit = form.handleSubmit(async ({ code }) => {
     try {
-      await confirm.mutateAsync(code);
+      await confirm.mutateAsync({ code, replace });
       toast.success(t("toasts.authenticatorEnabled"));
       onConfirmed();
     } catch {

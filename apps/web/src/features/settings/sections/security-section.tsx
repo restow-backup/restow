@@ -436,6 +436,13 @@ function AuthenticatorCard() {
   const session = authClient.useSession();
   const enabled = session.data?.user.twoFactorEnabled === true;
   const [dialog, setDialog] = React.useState<AuthenticatorDialog>(null);
+  // While the one-time recovery codes are on screen the dialog stays open.
+  const [codesShown, setCodesShown] = React.useState(false);
+  const close = () => {
+    setCodesShown(false);
+    setDialog(null);
+  };
+  const requestClose = useGuardedClose(codesShown, close);
 
   return (
     <Card>
@@ -486,9 +493,9 @@ function AuthenticatorCard() {
 
       <Dialog
         open={dialog === "enroll" || dialog === "replace"}
-        onOpenChange={(open) => !open && setDialog(null)}
+        onOpenChange={(open) => !open && requestClose()}
       >
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className="sm:max-w-xl" showCloseButton={!codesShown}>
           <DialogHeader>
             <DialogTitle>
               {dialog === "replace"
@@ -501,8 +508,9 @@ function AuthenticatorCard() {
             <AuthenticatorSetup
               key={dialog}
               mode={dialog}
-              onCancel={() => setDialog(null)}
-              onComplete={() => setDialog(null)}
+              onCancel={close}
+              onEnabled={() => setCodesShown(true)}
+              onComplete={close}
             />
           ) : null}
         </DialogContent>
@@ -513,11 +521,33 @@ function AuthenticatorCard() {
   );
 }
 
+/**
+ * Closing (X, Escape, a click beside the dialog) while one-time recovery
+ * codes are shown would lose them: it is refused with a hint instead, and
+ * only "Done" after the acknowledgement closes.
+ */
+function useGuardedClose(locked: boolean, close: () => void): () => void {
+  const { t } = useTranslation("settings");
+  return () => {
+    if (locked) {
+      toast.warning(t("security.authenticator.codes.closeBlocked"));
+      return;
+    }
+    close();
+  };
+}
+
 function RegenerateCodesDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTranslation("settings");
+  const [codesShown, setCodesShown] = React.useState(false);
+  const close = () => {
+    setCodesShown(false);
+    onClose();
+  };
+  const requestClose = useGuardedClose(codesShown, close);
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+    <Dialog open={open} onOpenChange={(next) => !next && requestClose()}>
+      <DialogContent className="sm:max-w-lg" showCloseButton={!codesShown}>
         <DialogHeader>
           <DialogTitle>{t("security.authenticator.regenerate.title")}</DialogTitle>
           <DialogDescription>
@@ -525,13 +555,13 @@ function RegenerateCodesDialog({ open, onClose }: { open: boolean; onClose: () =
           </DialogDescription>
         </DialogHeader>
         {/* Mounted only while open: the codes are shown once and then forgotten. */}
-        {open ? <RegenerateCodes onClose={onClose} /> : null}
+        {open ? <RegenerateCodes onClose={close} onCodes={() => setCodesShown(true)} /> : null}
       </DialogContent>
     </Dialog>
   );
 }
 
-function RegenerateCodes({ onClose }: { onClose: () => void }) {
+function RegenerateCodes({ onClose, onCodes }: { onClose: () => void; onCodes: () => void }) {
   const { t } = useTranslation("settings");
   const { t: tc } = useTranslation();
   const { user } = useSession();
@@ -560,6 +590,7 @@ function RegenerateCodes({ onClose }: { onClose: () => void }) {
       onSubmit={async (password) => {
         try {
           setCodes(await regenerate.mutateAsync(password));
+          onCodes();
           toast.success(t("toasts.backupCodesRenewed"));
         } catch {
           // Shown from regenerate.error.

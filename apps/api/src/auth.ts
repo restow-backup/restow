@@ -12,6 +12,7 @@ import { audit } from "./lib/audit.js";
 import { sessionAssurancePlugin } from "./lib/auth-hooks.js";
 import { authLogger, writeAuthLog } from "./lib/auth-logger.js";
 import { AUTH_RATE_LIMIT, guardAuthSurface, invitationAnswer } from "./lib/auth-surface.js";
+import { authenticatorReplacePlugin } from "./lib/authenticator-replace.js";
 import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "./lib/password-policy.js";
 import { clientIpOf, trustedProxies } from "./lib/request.js";
 import { totpIssuer } from "./lib/sign-in-options.js";
@@ -214,6 +215,8 @@ const betterAuthInstance = betterAuth({
     // The issuer names this installation in the authenticator app, so an
     // operator with several Restow installations can tell their codes apart.
     twoFactor({ issuer: totpIssuer(config.publicUrl) }),
+    // A new phone gets its key before the old one stops working (lib/authenticator-replace.ts).
+    authenticatorReplacePlugin({ issuer: totpIssuer(config.publicUrl) }),
     // Enforces the TOTP duty on the server: records how each session was
     // established, confines a password-only session to TOTP enrolment and keeps
     // the last provider admin (lib/auth-hooks.ts, lib/session-assurance.ts).

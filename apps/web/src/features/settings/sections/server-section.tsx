@@ -17,17 +17,19 @@ import { zodResolver } from "@/lib/form";
 import { formatDateTime } from "@/lib/format";
 import { isLocalhostOrigin, previewPasskeyReady } from "@/lib/passkey-ready";
 import type { InstallationSettings, SettingsPatch } from "../api";
-import { ConfirmDialog } from "../components/confirm-dialog";
 import { FormFooter } from "../components/form-footer";
 import { ModeOption } from "../components/mode-option";
+import { PasskeyLossDialog } from "../components/passkey-loss-dialog";
 import { ReadinessCard, ReadinessSummary } from "../components/readiness";
 import {
   type GeneralFormValues,
+  type PasskeyLoss,
   fieldMessageKey,
   generalFormFromSettings,
   generalFormSchema,
-  leavesPublicMode,
+  passkeyLoss,
   problemFieldIssues,
+  publicUrlOrigin,
   toGeneralPatch,
 } from "../forms";
 import { useUpdateSettings } from "../hooks";
@@ -60,7 +62,11 @@ function OperatingModeCard({ settings }: { settings: InstallationSettings }) {
   const { t: tc } = useTranslation();
   const update = useUpdateSettings();
   const [submitError, setSubmitError] = React.useState<unknown>(null);
-  const [pendingLocal, setPendingLocal] = React.useState<SettingsPatch | null>(null);
+  const [pendingChange, setPendingChange] = React.useState<{
+    patch: SettingsPatch;
+    loss: PasskeyLoss;
+    toHost: string | null;
+  } | null>(null);
 
   const stored = generalFormFromSettings(settings);
   const form = useForm<GeneralFormValues>({
@@ -122,7 +128,7 @@ function OperatingModeCard({ settings }: { settings: InstallationSettings }) {
         setSubmitError(error);
       }
     } finally {
-      setPendingLocal(null);
+      setPendingChange(null);
     }
   };
 
@@ -132,8 +138,11 @@ function OperatingModeCard({ settings }: { settings: InstallationSettings }) {
       discard();
       return;
     }
-    if (leavesPublicMode(values, settings)) {
-      setPendingLocal(patch);
+    // Passkeys stop working: ask first, with the accounts that would lose their way in.
+    const loss = passkeyLoss(values, settings);
+    if (loss) {
+      const origin = publicUrlOrigin(values.publicUrl);
+      setPendingChange({ patch, loss, toHost: origin ? new URL(origin).hostname : null });
       return;
     }
     await save(patch);
@@ -220,18 +229,24 @@ function OperatingModeCard({ settings }: { settings: InstallationSettings }) {
         onDiscard={discard}
       />
 
-      <ConfirmDialog
-        open={pendingLocal !== null}
-        onOpenChange={(open) => !open && setPendingLocal(null)}
-        title={t("general.localConfirm.title")}
-        description={t("general.localConfirm.description")}
-        confirmLabel={t("general.localConfirm.confirm")}
-        destructive
+      <PasskeyLossDialog
+        loss={pendingChange?.loss ?? null}
+        fromHost={hostOf(settings.publicUrl)}
+        toHost={pendingChange?.toHost ?? null}
         pending={update.isPending}
-        onConfirm={() => pendingLocal && void save(pendingLocal)}
+        onCancel={() => setPendingChange(null)}
+        onConfirm={() => pendingChange && void save(pendingChange.patch)}
       />
     </Card>
   );
+}
+
+function hostOf(url: string | null): string | null {
+  try {
+    return url ? new URL(url).hostname : null;
+  } catch {
+    return null;
+  }
 }
 
 function ServerFactsCard({ settings }: { settings: InstallationSettings }) {

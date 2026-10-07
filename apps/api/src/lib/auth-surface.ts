@@ -67,6 +67,8 @@ export const AUTH_RATE_LIMIT = {
     "/sign-in/social": { window: 60, max: 30 },
     // TOTP and backup codes.
     "/two-factor/*": { window: 60, max: 5 },
+    // Confirming a new authenticator app (lib/authenticator-replace.ts) checks a code too.
+    "/two-factor/replace/*": { window: 60, max: 5 },
   },
 } satisfies RateLimitOptions;
 

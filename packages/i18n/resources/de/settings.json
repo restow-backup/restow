@@ -36,10 +36,22 @@
       "title": "Der Server läuft noch mit einer anderen Adresse",
       "description": "RESTOW_PUBLIC_URL ist auf {url} gesetzt. Anmeldung und Passkeys folgen diesem Wert, bis Sie ihn in der .env-Datei ändern und {appName} neu starten."
     },
-    "localConfirm": {
-      "title": "In den lokalen Modus wechseln?",
-      "description": "Ohne öffentliche URL funktionieren Passkeys nicht mehr. Admins melden sich dann nur noch mit dem Notfall-Passwort und einem Authenticator-Code an.",
-      "confirm": "In den lokalen Modus wechseln"
+    "passkeyLoss": {
+      "titleLocal": "In den lokalen Modus wechseln?",
+      "titleHost": "Öffentliche URL auf eine andere Domain ändern?",
+      "descriptionLocal": "Im lokalen Modus wird die Anmeldung mit Passkey nicht angeboten. Konten mit Passwort und Authenticator-App melden sich dann damit an.",
+      "descriptionHost": "Ein Passkey gilt nur für die Domain, unter der er eingerichtet wurde ({from}). Unter {to} funktioniert keiner der bisherigen Passkeys, jede Person richtet dort neue ein. Bis dahin melden sich Konten mit Passwort und Authenticator-App damit an.",
+      "checking": "Betroffene Konten werden ermittelt …",
+      "loadError": "Die betroffenen Konten konnten nicht ermittelt werden. Prüfen Sie vor dem Fortfahren, dass jedes Konto mit Passkey auch ein Passwort mit Authenticator-App hat.",
+      "none": "Kein Konto hat einen Passkey. Niemand verliert den Zugang.",
+      "allCovered": "{count, plural, one {Ein Konto hat einen Passkey. Es hat auch Passwort und Authenticator-App und kann sich weiter anmelden.} other {# Konten haben einen Passkey. Alle haben auch Passwort und Authenticator-App und können sich weiter anmelden.}}",
+      "lockedOut": "{locked, plural, one {Ein Konto von {count} mit Passkey hat} other {# von {count} Konten mit Passkey haben}} kein Passwort mit Authenticator-App. Diese Konten können sich danach nicht mehr anmelden, bis ihr Zugang zurückgesetzt wird.",
+      "selfLocked": "Ihr eigenes Konto gehört dazu, weil es keine Authenticator-App hat. Richten Sie zuerst eine Authenticator-App ein, sonst sperren Sie sich aus.",
+      "selfNoPassword": "Ihr eigenes Konto gehört dazu, weil es kein Passwort hat. Lassen Sie zuerst von einem anderen Inhaber Ihren Zugang zurücksetzen und richten Sie Passwort und Authenticator-App ein.",
+      "setUpAuthenticator": "Authenticator-App einrichten",
+      "blocked": "Sie würden sich selbst aussperren. Richten Sie zuerst eine Authenticator-App für Ihr Konto ein.",
+      "confirmLocal": "In den lokalen Modus wechseln",
+      "confirmHost": "URL ändern"
     }
   },
   "readiness": {
@@ -443,7 +455,7 @@
         "replaceTitle": "Authenticator auf neues Smartphone umziehen",
         "description": "Jede App für zeitbasierte Codes (TOTP) funktioniert.",
         "passwordLead": "Bestätigen Sie mit Ihrem Passwort. {appName} erstellt dann den Schlüssel für Ihre Authenticator-App.",
-        "replaceWarning": "Ihr bisheriger Authenticator funktioniert nicht mehr, sobald Sie fortfahren. Halten Sie das neue Smartphone bereit und schließen Sie die Einrichtung sofort ab.",
+        "replaceWarning": "Ihr bisheriger Authenticator funktioniert weiter, bis Sie den ersten Code des neuen Smartphones bestätigt haben. Danach gelten nur noch das neue Smartphone und die neuen Wiederherstellungscodes.",
         "password": "Passwort",
         "continue": "Weiter",
         "steps": {
@@ -477,7 +489,8 @@
         "fileTitle": "Wiederherstellungscodes für {appName}",
         "fileNote": "Jeder Code funktioniert einmal. Bewahren Sie diese Datei sicher und offline auf.",
         "acknowledge": "Ich habe die Wiederherstellungscodes sicher aufbewahrt.",
-        "done": "Fertig"
+        "done": "Fertig",
+        "closeBlocked": "Bestätigen Sie zuerst, dass Sie die Wiederherstellungscodes gesichert haben. Sie werden nur dieses eine Mal angezeigt."
       },
       "regenerate": {
         "title": "Neue Wiederherstellungscodes",

@@ -20,6 +20,7 @@ import {
   testMicrosoftApp,
 } from "./microsoft-app/service.js";
 import { browserOrigin } from "./origin.js";
+import { getPasskeyImpact } from "./passkey-impact.js";
 import {
   mailNotNeededSchema,
   mailTestSchema,
@@ -48,6 +49,9 @@ import {
  *   PUT    /mail/not-needed       mark the notification mail as not needed for the Start
  *                                  checklist, or take the mark back ({ notNeeded: boolean })
  *   GET    /passkey-ready         re-check the passkey gate plus a server-side HTTPS probe
+ *   GET    /passkey-impact        how many accounts (and whether the requester's own) could no
+ *                                  longer sign in once passkeys stop working: asked before
+ *                                  leaving public mode or moving the public URL to another host
  *   POST   /disclaimer            accept the current operator responsibility notice (provider
  *                                  owner or administrator; for an installation set up before the notice existed, or
  *                                  when its text changed: lib/disclaimer.ts)
@@ -114,6 +118,10 @@ settingsRoutes.put("/mail/not-needed", async (c) => {
 
 settingsRoutes.get("/passkey-ready", async (c) => {
   return c.json(await checkPasskeyReadiness(providerDb, requestContext(c)));
+});
+
+settingsRoutes.get("/passkey-impact", async (c) => {
+  return c.json(await getPasskeyImpact(providerDb, c.get("user").id));
 });
 
 settingsRoutes.post("/disclaimer", async (c) => {

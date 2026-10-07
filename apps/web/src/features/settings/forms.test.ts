@@ -11,6 +11,7 @@ import {
   mailFormFromSettings,
   mailFormSchema,
   mayKeepStoredPassword,
+  passkeyLoss,
   passwordConfirmSchema,
   portForSecurity,
   problemFieldIssues,
@@ -119,6 +120,30 @@ describe("general form", () => {
         { ...settings, operatingMode: "local" },
       ),
     ).toBe(false);
+  });
+
+  it("knows when passkeys would stop working", () => {
+    expect(passkeyLoss({ operatingMode: "local", publicUrl: "" }, settings)).toBe("leave_public");
+    expect(
+      passkeyLoss({ operatingMode: "public", publicUrl: "https://backup.example.com" }, settings),
+    ).toBe("host_change");
+    // Same host, other port or path: the passkeys stay valid.
+    expect(
+      passkeyLoss(
+        { operatingMode: "public", publicUrl: "https://restow.example.com:8443" },
+        settings,
+      ),
+    ).toBeNull();
+    expect(
+      passkeyLoss({ operatingMode: "public", publicUrl: "https://restow.example.com" }, settings),
+    ).toBeNull();
+    // From local mode no passkey works yet, so nothing is lost.
+    expect(
+      passkeyLoss(
+        { operatingMode: "public", publicUrl: "https://backup.example.com" },
+        { ...settings, operatingMode: "local" },
+      ),
+    ).toBeNull();
   });
 });
 

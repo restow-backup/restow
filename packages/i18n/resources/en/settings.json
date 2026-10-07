@@ -36,10 +36,22 @@
       "title": "The server still runs with a different address",
       "description": "RESTOW_PUBLIC_URL is set to {url}. Sign-in and passkeys follow that value until you change it in the .env file and restart {appName}."
     },
-    "localConfirm": {
-      "title": "Switch to local mode?",
-      "description": "Without a public URL, passkeys stop working. Admins then sign in with the emergency password and an authenticator code only.",
-      "confirm": "Switch to local mode"
+    "passkeyLoss": {
+      "titleLocal": "Switch to local mode?",
+      "titleHost": "Move the public URL to another domain?",
+      "descriptionLocal": "Local mode does not offer passkey sign-in. Accounts with a password and an authenticator app sign in with those.",
+      "descriptionHost": "A passkey only works for the domain it was set up on ({from}). None of the existing passkeys works on {to}; everyone sets up new ones there. Until then, accounts with a password and an authenticator app sign in with those.",
+      "checking": "Finding the affected accounts …",
+      "loadError": "The affected accounts could not be determined. Before you continue, make sure every account with a passkey also has a password with an authenticator app.",
+      "none": "No account has a passkey. Nobody loses access.",
+      "allCovered": "{count, plural, one {One account has a passkey. It also has a password and an authenticator app and can still sign in.} other {# accounts have a passkey. All of them also have a password and an authenticator app and can still sign in.}}",
+      "lockedOut": "{locked, plural, one {One of the {count} accounts with a passkey has} other {# of the {count} accounts with a passkey have}} no password with an authenticator app. These accounts cannot sign in afterwards until their access is reset.",
+      "selfLocked": "Your own account is one of them because it has no authenticator app. Set up an authenticator app first, or you lock yourself out.",
+      "selfNoPassword": "Your own account is one of them because it has no password. Have another owner reset your access first, then set up a password and an authenticator app.",
+      "setUpAuthenticator": "Set up authenticator app",
+      "blocked": "You would lock yourself out. Set up an authenticator app for your account first.",
+      "confirmLocal": "Switch to local mode",
+      "confirmHost": "Change URL"
     }
   },
   "readiness": {
@@ -443,7 +455,7 @@
         "replaceTitle": "Move the authenticator to a new phone",
         "description": "Any app for time-based codes (TOTP) works.",
         "passwordLead": "Confirm with your password. {appName} then creates the key for your authenticator app.",
-        "replaceWarning": "Your current authenticator stops working as soon as you continue. Keep the new phone at hand and finish the setup right away.",
+        "replaceWarning": "Your current authenticator keeps working until you confirm the first code from the new phone. After that, only the new phone and the new recovery codes work.",
         "password": "Password",
         "continue": "Continue",
         "steps": {
@@ -477,7 +489,8 @@
         "fileTitle": "{appName} recovery codes",
         "fileNote": "Each code works once. Keep this file somewhere safe and offline.",
         "acknowledge": "I have stored the recovery codes somewhere safe.",
-        "done": "Done"
+        "done": "Done",
+        "closeBlocked": "Confirm first that you have stored the recovery codes. They are shown only this once."
       },
       "regenerate": {
         "title": "New recovery codes",

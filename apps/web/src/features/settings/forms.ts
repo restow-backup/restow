@@ -150,6 +150,30 @@ export function leavesPublicMode(
   return settings.operatingMode === "public" && values.operatingMode === "local";
 }
 
+/**
+ * Why a change would make the registered passkeys stop working, or null:
+ * leaving public mode hides the passkey sign-in, and a public URL on another
+ * host name is another WebAuthn relying party, for which no passkey exists.
+ * A new port or scheme on the same host keeps the passkeys.
+ */
+export type PasskeyLoss = "leave_public" | "host_change";
+
+export function passkeyLoss(
+  values: GeneralFormValues,
+  settings: Pick<InstallationSettings, "operatingMode" | "publicUrl">,
+): PasskeyLoss | null {
+  if (leavesPublicMode(values, settings)) {
+    return "leave_public";
+  }
+  if (settings.operatingMode !== "public" || values.operatingMode !== "public") {
+    return null;
+  }
+  const before = settings.publicUrl ? parseUrl(settings.publicUrl)?.hostname : undefined;
+  const origin = publicUrlOrigin(values.publicUrl);
+  const after = origin ? parseUrl(origin)?.hostname : undefined;
+  return before && after && before !== after ? "host_change" : null;
+}
+
 // --- Mail ---------------------------------------------------------------------------------
 
 export const SMTP_SECURITY: readonly SmtpSecurity[] = ["starttls", "tls", "none"];

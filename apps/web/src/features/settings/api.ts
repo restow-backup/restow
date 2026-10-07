@@ -150,3 +150,19 @@ export function deleteMailConfiguration(): Promise<InstallationSettings> {
 export function fetchPasskeyReadiness(): Promise<PasskeyReadinessCheck> {
   return apiFetch<PasskeyReadinessCheck>("/settings/passkey-ready", { tenantId: null });
 }
+
+/** Who could no longer sign in once passkeys stop working (apps/api settings/passkey-impact.ts). */
+export interface PasskeyImpact {
+  accountsWithPasskeys: number;
+  accountsLockedOut: number;
+  self: {
+    hasPasskey: boolean;
+    hasPassword: boolean;
+    hasAuthenticator: boolean;
+    lockedOut: boolean;
+  };
+}
+
+export function fetchPasskeyImpact(): Promise<PasskeyImpact> {
+  return apiFetch<PasskeyImpact>("/settings/passkey-impact", { tenantId: null });
+}
