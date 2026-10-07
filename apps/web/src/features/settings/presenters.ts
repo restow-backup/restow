@@ -1,6 +1,10 @@
 import { DEFAULT_SOURCE_URL } from "@/features/updates/presenters";
 import { ApiError, errorMessageKey } from "@/lib/api";
-import type { MailTestFailureReason, ReachabilityStatus } from "./api";
+import {
+  MAIL_TEST_FAILURE_REASONS,
+  type MailTestFailureReason,
+  type ReachabilityStatus,
+} from "./api";
 
 /**
  * Pure mapping from API and browser outcomes to what the settings pieces show
@@ -88,8 +92,10 @@ export function probeTone(status: ReachabilityStatus): StatusTone {
 
 // --- Mail test --------------------------------------------------------------------------------
 
-export function mailTestFailureKey(reason: MailTestFailureReason): string {
-  return `mail.test.reasons.${reason}`;
+export function mailTestFailureKey(reason: MailTestFailureReason | string): string {
+  // A reason from a newer server than this UI knows reads as the generic one.
+  const known = (MAIL_TEST_FAILURE_REASONS as readonly string[]).includes(reason);
+  return `mail.test.reasons.${known ? reason : "transport_error"}`;
 }
 
 /** "1.2 s" / "1,2 s" in the UI language. */

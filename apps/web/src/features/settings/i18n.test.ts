@@ -3,7 +3,11 @@ import commonEn from "@restow/i18n/resources/en/common.json" with { type: "json"
 import settingsEn from "@restow/i18n/resources/en/settings.json" with { type: "json" };
 import { describe, expect, it } from "vitest";
 
-import type { MailTestFailureReason, ReachabilityStatus } from "./api";
+import {
+  MAIL_TEST_FAILURE_REASONS,
+  type MailTestFailureReason,
+  type ReachabilityStatus,
+} from "./api";
 import type {
   AppTestFailureReason,
   MicrosoftAppSource,
@@ -193,12 +197,7 @@ describe("settings translations", () => {
       "certificate_invalid",
       "unexpected_response",
     ];
-    const failureReasons: MailTestFailureReason[] = [
-      "timeout",
-      "graph_app_missing",
-      "graph_tenant_missing",
-      "transport_error",
-    ];
+    const failureReasons: readonly MailTestFailureReason[] = MAIL_TEST_FAILURE_REASONS;
     const expected = [
       ...probeStatuses.flatMap((status) => [
         `readiness.probe.badge.${status}`,
@@ -209,6 +208,10 @@ describe("settings translations", () => {
         (reason) => `readiness.reasons.${reason}`,
       ),
       ...["starttls", "tls", "none"].map((option) => `mail.smtp.securityOptions.${option}`),
+      ...["secret", "certificate"].map((kind) => `mail.graph.credentialKinds.${kind}`),
+      ...["clientSecret", "certificate"].flatMap((prefix) =>
+        ["Hint", "Keep", "Again"].map((suffix) => `mail.graph.${prefix}${suffix}`),
+      ),
       ...microsoftAppKeys(),
     ];
     for (const key of expected) {

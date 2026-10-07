@@ -135,7 +135,10 @@ describe("updateSettingsSchema", () => {
       updateSettingsSchema.parse({
         mail: { transport: "graph", graph: { sender: "restow@contoso.com", tenantId: "" } },
       }).mail,
-    ).toEqual({ transport: "graph", graph: { sender: "restow@contoso.com", tenantId: null } });
+    ).toEqual({
+      transport: "graph",
+      graph: { sender: "restow@contoso.com", tenantId: null, app: "backup" },
+    });
     const result = updateSettingsSchema.safeParse({
       mail: { transport: "graph", graph: { sender: "restow@contoso.com", tenantId: "contoso" } },
     });

@@ -159,7 +159,16 @@ describe("mail form", () => {
         password: "",
         from: "restow@example.com",
       },
-      graph: { sender: "", tenantId: "" },
+      graph: {
+        app: "own",
+        sender: "",
+        tenantId: "",
+        clientId: "",
+        credentialKind: "secret",
+        clientSecret: "",
+        certificatePem: "",
+      },
+      google: { sender: "", serviceAccountKey: "" },
     });
     expect(mailFormFromSettings({ transport: null }).transport).toBe("smtp");
   });
@@ -207,9 +216,15 @@ describe("mail form", () => {
 
   it("validates only the selected transport", () => {
     const graphOnly: MailFormValues = {
+      ...smtpValues(),
       transport: "graph",
       smtp: { host: "", port: "", security: "starttls", username: "", password: "", from: "" },
-      graph: { sender: "restow@contoso.com", tenantId: "contoso.onmicrosoft.com" },
+      graph: {
+        ...smtpValues().graph,
+        app: "backup",
+        sender: "restow@contoso.com",
+        tenantId: "contoso.onmicrosoft.com",
+      },
     };
     expect(mailFormSchema(context).safeParse(graphOnly).success).toBe(true);
   });
@@ -218,7 +233,7 @@ describe("mail form", () => {
     const values: MailFormValues = {
       ...smtpValues(),
       transport: "graph",
-      graph: { sender: "restow@contoso.com", tenantId: "" },
+      graph: { ...smtpValues().graph, app: "backup", sender: "restow@contoso.com", tenantId: "" },
     };
     expect(messages(mailFormSchema(context).safeParse(values))).toEqual([
       ["graph.tenantId", "required"],
@@ -230,7 +245,10 @@ describe("mail form", () => {
     expect(mailFormSchema(withDefault).safeParse(values).success).toBe(true);
     expect(
       messages(
-        mailFormSchema(context).safeParse({ ...values, graph: { sender: "x", tenantId: "nope" } }),
+        mailFormSchema(context).safeParse({
+          ...values,
+          graph: { ...values.graph, sender: "x", tenantId: "nope" },
+        }),
       ),
     ).toEqual([
       ["graph.sender", "email"],
@@ -256,9 +274,17 @@ describe("mail form", () => {
       toMailInput({
         ...smtpValues(),
         transport: "graph",
-        graph: { sender: " restow@contoso.com ", tenantId: " " },
+        graph: {
+          ...smtpValues().graph,
+          app: "backup",
+          sender: " restow@contoso.com ",
+          tenantId: " ",
+        },
       }),
-    ).toEqual({ transport: "graph", graph: { sender: "restow@contoso.com", tenantId: null } });
+    ).toEqual({
+      transport: "graph",
+      graph: { sender: "restow@contoso.com", tenantId: null, app: "backup" },
+    });
   });
 
   it("follows the conventional port unless a custom one was typed", () => {

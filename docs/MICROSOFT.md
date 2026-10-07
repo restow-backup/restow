@@ -27,9 +27,10 @@ je Kunden-Tenant. Application Permissions (keine delegierten) für Backup:
 - Sites.ReadWrite.All (erst mit SharePoint)
 - User.Read.All, Group.Read.All, Directory.Read.All (Verzeichnis-Sync, Schutzregeln)
 - Organization.Read.All (Tenant-Name, Lizenzen)
-- Mail.Send (optional, nur wenn Benachrichtigungen über Graph statt SMTP verschickt
-  werden; sendet als konfiguriertes Absenderpostfach über `/users/{id}/sendMail`, per
-  Application Access Policy auf dieses Postfach beschränkbar)
+- Mail.Send (optional, nur wenn Benachrichtigungen über diese App statt über eine eigene
+  App-Registrierung für Benachrichtigungen oder SMTP verschickt werden; sendet als
+  konfiguriertes Absenderpostfach über `/users/{id}/sendMail`, siehe
+  „Benachrichtigungs-Mail" unten)
 
 Endnutzer-SSO (Self-Service-Restore) läuft getrennt als delegierter OIDC-Login
 (openid, profile, email) über better-auth; der Nutzer sieht nur, was sein `oid`
@@ -216,6 +217,150 @@ Provider-Mitglieder ab Techniker; lesen dürfen alle Provider-Rollen.
   auslässt, bleibt in der Restore-Prüfung gelb.
 - Alarme: Für Läufe mit Warnungen gibt es kein Ereignis (nur `job.failed` für Fehler); die
   Bestätigung unterdrückt daher keinen Alarm, und ein Fehler alarmiert wie bisher.
+
+## Benachrichtigungs-Mail (Microsoft 365 und Google Workspace)
+
+Die installationsweite Benachrichtigungs-Mail (Berichte, Warnungen, Einladungen;
+Installation → Benachrichtigungs-Mail, Code in `apps/api/src/notify*.ts`) kennt drei
+Transporte: SMTP, Microsoft 365 (Graph `sendMail` als Anwendung) und Google Workspace
+(Gmail-API als Dienstkonto mit domainweiter Delegierung). Alle Zugangsdaten liegen
+versiegelt im Secret-Store der Installation (`smtp_password`, `mail_graph_app`,
+`mail_google_key`), werden nie zurückgegeben und nur ersetzt; ein Wechsel des Transports
+löscht, was der neue nicht braucht. „Mail-Konfiguration entfernen" vernichtet alle drei.
+Vor dem Speichern lässt sich mit den ungespeicherten Werten testen; jeder Fehlschlag kommt
+als Grund-Code (`MAIL_FAILURE_REASONS` in `notify-core.ts`) zurück, den die Oberfläche in der
+Sprache des Betreibers erklärt. Die technische Antwort steht nur darunter als Detail.
+
+### Microsoft 365: eigene App-Registrierung (empfohlen)
+
+Eine eigene Single-Tenant-App nur für Benachrichtigungen, getrennt von der Multi-Tenant-App
+der Sicherung. Die App der Sicherung bleibt als Auswahl („App-Registrierung der Sicherung
+verwenden"), wenn sie eingerichtet ist; sie braucht dann zusätzlich Mail.Send für alle
+Postfächer ihres Tenants.
+
+1. Microsoft Entra Admin Center → Identität → Anwendungen → App-Registrierungen → Neue
+   Registrierung. Unterstützte Kontotypen: „Nur Konten in diesem Organisationsverzeichnis".
+   Keine Umleitungs-URI (Client Credentials brauchen keine).
+2. API-Berechtigungen → Berechtigung hinzufügen → Microsoft Graph →
+   Anwendungsberechtigungen → nur `Mail.Send`, dann „Administratorzustimmung erteilen".
+   Keine delegierten Berechtigungen.
+3. Zertifikate & Geheimnisse → Neuer geheimer Clientschlüssel: die Spalte **Wert** kopieren
+   (nicht die Geheime ID; die Oberfläche lehnt eine GUID im Schlüsselfeld als `secretIsId`
+   ab). Höchstens 24 Monate gültig, Ablaufdatum notieren. Alternativ ein Zertifikat
+   hochladen und in Restow privaten Schlüssel plus Zertifikat (PEM) einfügen.
+4. In Restow: Verzeichnis-ID (GUID), Anwendungs-ID, Schlüssel oder Zertifikat und das
+   Absenderpostfach eintragen, Testnachricht senden, speichern. Ein gespeicherter Schlüssel
+   wird nur für denselben Tenant, dieselbe Anwendungs-ID und dieselbe Art von Zugangsdaten
+   weiterverwendet.
+
+**Auf das Absenderpostfach beschränken (dringend empfohlen).** `Mail.Send` als
+Anwendungsberechtigung erlaubt sonst das Senden als jedes Postfach des Tenants. Empfohlen ist
+RBAC für Anwendungen in Exchange Online (die Oberfläche setzt Anwendungs-ID und Absender in
+die Befehle ein und bietet sie zum Kopieren an):
+
+```powershell
+Connect-ExchangeOnline
+New-ServicePrincipal -AppId '<Anwendungs-ID>' -ObjectId '<Objekt-ID der Unternehmensanwendung>' -DisplayName 'Notification mail sender'
+New-ManagementScope -Name 'Notification mail sender' -RecipientRestrictionFilter "PrimarySmtpAddress -eq 'alerts@contoso.com'"
+New-ManagementRoleAssignment -App '<Anwendungs-ID>' -Role 'Application Mail.Send' -CustomResourceScope 'Notification mail sender'
+Test-ServicePrincipalAuthorization -Identity '<Anwendungs-ID>' -Resource 'alerts@contoso.com'
+```
+
+Danach die in Entra erteilte `Mail.Send`-Zustimmung wieder entfernen: Berechtigungen aus
+Entra gelten zusätzlich zur Rollenzuweisung und würden die Beschränkung aufheben. Die
+ältere Alternative ist eine Application Access Policy auf eine E-Mail-aktivierte
+Sicherheitsgruppe, die nur das Absenderpostfach enthält (die Entra-Berechtigung bleibt):
+
+```powershell
+New-ApplicationAccessPolicy -AppId '<Anwendungs-ID>' -PolicyScopeGroupId '<Gruppe>' -AccessRight RestrictAccess -Description 'Notification mail sender'
+Test-ApplicationAccessPolicy -Identity 'alerts@contoso.com' -AppId '<Anwendungs-ID>'
+```
+
+Beides kann bis zu einer Stunde dauern, bis es wirkt.
+
+Fehlerbilder und ihre Gründe (`notify-graph.ts`):
+
+| Antwort | Grund-Code | Bedeutung |
+| --- | --- | --- |
+| AADSTS7000215 | `graph_secret_invalid` | Falscher Schlüssel, meist die Geheime ID statt des Werts |
+| AADSTS7000222 | `graph_secret_expired` | Schlüssel abgelaufen |
+| AADSTS700027/700024 | `graph_certificate_invalid` | Zertifikat nicht (dieses) in der App hinterlegt |
+| AADSTS700016/7000112 | `graph_app_not_found` | Anwendungs-ID nicht im Tenant oder App deaktiviert |
+| AADSTS90002/900023 | `graph_tenant_not_found` | Verzeichnis-ID falsch |
+| Graph 403 | `graph_send_denied` | Mail.Send oder Admin-Consent fehlt, oder RBAC/Access Policy schließt den Absender aus |
+| Graph 404, `ErrorInvalidUser`, `MailboxNotEnabledForRESTAPI` | `graph_sender_not_found` | Absender existiert nicht oder hat kein Exchange-Online-Postfach |
+
+### Google Workspace: Dienstkonto mit domainweiter Delegierung
+
+Restow signiert das JWT des Dienstkontos selbst (RS256, `node:crypto`, RFC 7523) und holt
+bei `https://oauth2.googleapis.com/token` ein Token nur für den Bereich
+`https://www.googleapis.com/auth/gmail.send` im Namen des Absenders; die Nachricht baut
+nodemailers MIME-Composer, sie geht base64url-kodiert an `users.messages.send` der
+Gmail-API. Keine Google-Bibliothek, kein SMTP-Ausgang. Token-Endpunkt und API-Host sind fest;
+der `token_uri` einer hochgeladenen Schlüsseldatei wird ignoriert.
+
+1. Google Cloud Console: Projekt wählen oder anlegen, APIs & Dienste → Bibliothek →
+   Gmail API → Aktivieren.
+2. IAM & Verwaltung → Dienstkonten → Dienstkonto erstellen (keine Projektrollen nötig) →
+   Schlüssel → Schlüssel hinzufügen → Neuen Schlüssel erstellen → JSON. Blockiert die
+   Organisationsrichtlinie `iam.disableServiceAccountKeyCreation` das, braucht das Projekt
+   eine Ausnahme. Die Datei nach dem Einfügen löschen: sie ist ein Zugang zu jedem Postfach,
+   für das die Delegierung gilt.
+3. Google Admin-Konsole (Super Admin): Sicherheit → Zugriffs- und Datenverwaltung →
+   API-Steuerung → Domainweite Delegierung verwalten → Neu hinzufügen. Client-ID = das Feld
+   `client_id` der JSON-Datei (die Oberfläche zeigt es zum Kopieren, sobald der Schlüssel
+   eingefügt oder gespeichert ist), OAuth-Bereich nur
+   `https://www.googleapis.com/auth/gmail.send`. Wirkt nach Minuten, selten bis zu 24 Stunden.
+4. In Restow: Absenderpostfach (ein Benutzer der Domain mit Gmail, keine Gruppe und kein
+   Alias) und den Schlüssel eintragen, testen, speichern. Ohne neuen Schlüssel bleibt der
+   gespeicherte, solange der Transport Google bleibt.
+
+Fehlerbilder (`notify-google.ts`): `unauthorized_client` → `google_delegation_missing`
+(Delegierung fehlt oder ohne `gmail.send`), `invalid_grant` „Invalid email or User ID" →
+`google_sender_not_found`, `invalid_grant` „Invalid JWT Signature" / `invalid_client` →
+`google_key_invalid` (Schlüssel oder Dienstkonto gelöscht/deaktiviert), Gmail-API 403 mit
+`SERVICE_DISABLED`/`accessNotConfigured` → `google_api_disabled`, sonstige 403 →
+`google_send_denied`.
+
+### Warum kein OAuth mit Benutzeranmeldung (delegiert)
+
+Ein delegierter Login (Authorization Code mit Refresh-Token eines Postfach-Benutzers) wurde
+bewertet und bewusst nicht gebaut. App-only ist der empfohlene Weg:
+
+- Der Refresh-Token hängt an einer Person: Passwortwechsel, MFA- oder
+  Conditional-Access-Änderungen, Kontosperre oder Austritt widerrufen ihn, und die
+  Benachrichtigungen fallen still aus, genau wenn niemand hinsieht.
+- Er braucht eine Umleitungs-URI unter der öffentlichen URL. Installationen im lokalen
+  Betriebsmodus (ohne öffentliche URL) könnten ihn nicht nutzen.
+- Google: `gmail.send` ist ein sensibler Bereich. Eine nicht verifizierte externe App im
+  Status „Testing" bekommt Refresh-Tokens, die nach 7 Tagen ablaufen; die Verifizierung
+  müsste jeder Betreiber selbst durchlaufen. Workspace-intern ginge es, aber nur mit einer
+  eigenen OAuth-App je Installation.
+- Microsoft: delegiertes `Mail.Send` plus `offline_access` braucht ebenfalls eine eigene
+  App-Registrierung; gewonnen wäre gegenüber app-only nur, dass die App ohne
+  Exchange-Beschränkung nur als dieser eine Benutzer senden kann. Dasselbe erreicht die
+  RBAC-Beschränkung oben, ohne Personenbindung.
+- Rotation, Widerruf und das Erkennen eines toten Tokens wären zusätzlicher Zustand, den
+  Restow pflegen und anzeigen müsste.
+
+Wer keine App-Registrierung oder kein Dienstkonto anlegen darf, nutzt SMTP (bei Microsoft
+365 etwa einen SMTP-Relay-Connector, bei Google den SMTP-Relay-Dienst von Workspace).
+
+### Konfiguration über die Umgebung
+
+Neue Umgebungsvariablen gibt es dafür nicht: Schlüssel, Zertifikate und Dienstkonto-Schlüssel
+gehören versiegelt in den Secret-Store, nicht in eine `.env`. Wie bisher liefert
+`GRAPH_MAIL_TENANT_ID` den Tenant, wenn Microsoft 365 über die App der Sicherung sendet und
+keiner eingetragen ist. Die Einstellungen der Oberfläche gelten vor der Umgebung.
+
+### Einrichtungs-Assistent
+
+Der Assistent bietet SMTP immer und Microsoft 365 über die App der Sicherung nur, wenn diese
+schon nutzbar ist (`GET /setup/state` → `mailOptions.graphBackupApp`). Eigene
+App-Registrierung und Google Workspace richtet der Betreiber nach der Einrichtung unter
+Installation → Benachrichtigungs-Mail ein, wo Anleitung und Testversand vor dem Speichern
+liegen. Die Testnachricht am Ende des Assistenten liefert `testSend.reason`; der Assistent
+zeigt den übersetzten Grund, nie die rohe Serverantwort.
 
 ## Dinge, die immer wieder schiefgehen
 

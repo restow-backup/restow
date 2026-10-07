@@ -1,16 +1,20 @@
 import type { AppCredentials } from "@restow/core";
 import type { SupportedLanguage } from "@restow/i18n";
 import type { Config } from "../../config.js";
-import { type Notifier, createNotifier } from "../../notify.js";
-import type { StoredMailConfig, StoredSmtpConfig } from "./logic.js";
+import type { MailFailureReason } from "../../notify-core.js";
+import type { GoogleServiceAccountKey } from "../../notify-google.js";
+import { type Notifier, type TransportSpec, notifierForTransport } from "../../notify.js";
+import type { StoredSmtpConfig } from "./logic.js";
+import type { GraphMailAppOption } from "./schemas.js";
 
 /**
  * Notification mail transport as configured in the settings: turn the stored
- * (or drafted) configuration into a notifier and run a test send with an
- * honest, bounded result. The transports themselves live in notify.ts.
+ * (or drafted) configuration with its opened credentials into a notifier and
+ * run a test send with an honest, bounded result. The transports themselves
+ * live in notify.ts, notify-graph.ts and notify-google.ts.
  */
 
-/** A transport with everything needed to send, including the resolved password. */
+/** A transport with everything needed to send, including the opened credentials. */
 export type ResolvedMailTransport =
   | {
       transport: "smtp";
@@ -22,61 +26,57 @@ export type ResolvedMailTransport =
       /** Plaintext, held in memory for this send only. */
       password: string | null;
     }
-  | { transport: "graph"; sender: string; tenantId: string | null };
-
-export function resolveMail(
-  mail: StoredMailConfig,
-  password: string | null,
-): ResolvedMailTransport {
-  if (mail.transport === "smtp") {
-    return {
-      transport: "smtp",
-      host: mail.host,
-      port: mail.port,
-      security: mail.security,
-      from: mail.from,
-      username: mail.username ?? null,
-      password: mail.username ? password : null,
+  | {
+      transport: "graph";
+      sender: string;
+      tenantId: string | null;
+      /** Which app registration sends: the backup app or the notification mail's own. */
+      app: GraphMailAppOption;
+      /** The app's credentials (opened); null when none is usable. */
+      credentials: AppCredentials | null;
+    }
+  | {
+      transport: "google";
+      sender: string;
+      /** The service account key (opened); null when none is stored. */
+      key: GoogleServiceAccountKey | null;
     };
-  }
-  return { transport: "graph", sender: mail.sender, tenantId: mail.tenantId ?? null };
-}
 
-/** A notifier configuration derived from the settings instead of the environment. */
-export function notifierConfig(base: Config, mail: ResolvedMailTransport): Config {
-  if (mail.transport === "smtp") {
-    return {
-      ...base,
-      mailTransport: "smtp",
-      smtp: {
-        host: mail.host,
-        port: mail.port,
-        secure: mail.security === "implicit",
-        security: mail.security,
-        username: mail.username ?? undefined,
-        password: mail.password ?? undefined,
-        from: mail.from,
-      },
-    };
+/** The notifier input for a resolved transport (GRAPH_MAIL_TENANT_ID fills a missing tenant). */
+export function transportSpec(base: Config, mail: ResolvedMailTransport): TransportSpec {
+  switch (mail.transport) {
+    case "smtp":
+      return {
+        transport: "smtp",
+        smtp: {
+          host: mail.host,
+          port: mail.port,
+          secure: mail.security === "implicit",
+          security: mail.security,
+          username: mail.username ?? undefined,
+          password: mail.username ? (mail.password ?? undefined) : undefined,
+          from: mail.from,
+        },
+      };
+    case "graph":
+      return {
+        transport: "graph",
+        sender: mail.sender,
+        tenantId:
+          mail.tenantId ?? (mail.app === "backup" ? (base.graphMailTenantId ?? null) : null),
+        app: mail.credentials,
+      };
+    case "google":
+      return { transport: "google", sender: mail.sender, key: mail.key };
   }
-  return {
-    ...base,
-    mailTransport: "graph",
-    graphMailSender: mail.sender,
-    graphMailTenantId: mail.tenantId ?? base.graphMailTenantId,
-  };
 }
 
 /** Why a test send failed; the UI explains each reason in the operator's language. */
-export type MailTestFailureReason =
-  | "timeout"
-  | "graph_app_missing"
-  | "graph_tenant_missing"
-  | "transport_error";
+export type MailTestFailureReason = MailFailureReason;
 
 export interface MailTestResult {
   ok: boolean;
-  transport: "smtp" | "graph";
+  transport: ResolvedMailTransport["transport"];
   recipient: string;
   durationMs: number;
   /** Null on success. `detail` is the transport's own (technical) message, if any. */
@@ -101,15 +101,21 @@ async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | type
   }
 }
 
-/** Remove the credential from a transport message (defence in depth) and bound its length. */
+/** Remove the credentials from a transport message (defence in depth) and bound its length. */
 export function sanitizeDetail(
   message: string | null | undefined,
-  secret: string | null,
+  secrets: string | null | readonly (string | null | undefined)[],
 ): string | null {
   if (!message) {
     return null;
   }
-  const redacted = secret ? message.split(secret).join("[redacted]") : message;
+  const list = (Array.isArray(secrets) ? secrets : [secrets]).filter(
+    (secret): secret is string => typeof secret === "string" && secret.length >= 4,
+  );
+  let redacted = message;
+  for (const secret of list) {
+    redacted = redacted.split(secret).join("[redacted]");
+  }
   const trimmed = redacted.trim();
   if (trimmed.length === 0) {
     return null;
@@ -117,29 +123,42 @@ export function sanitizeDetail(
   return trimmed.length > MAX_DETAIL_LENGTH ? `${trimmed.slice(0, MAX_DETAIL_LENGTH)}…` : trimmed;
 }
 
-/** Graph sendMail needs the app registration and a concrete tenant (client credentials). */
-function graphPreflight(
-  mail: ResolvedMailTransport,
-  base: Config,
-  graphApp: AppCredentials | null,
-): MailTestFailureReason | null {
-  if (mail.transport !== "graph") {
-    return null;
+/** The secret values a detail message must never repeat. */
+function secretsOf(mail: ResolvedMailTransport): string[] {
+  switch (mail.transport) {
+    case "smtp":
+      return mail.password ? [mail.password] : [];
+    case "graph": {
+      const credential = mail.credentials?.credential;
+      if (!credential) {
+        return [];
+      }
+      return credential.type === "secret" ? [credential.clientSecret] : [credential.privateKeyPem];
+    }
+    case "google":
+      return mail.key ? [mail.key.privateKeyPem] : [];
   }
-  if (!graphApp) {
-    return "graph_app_missing";
+}
+
+/** What is missing before anything is sent: no request to Microsoft or Google without it. */
+function preflight(mail: ResolvedMailTransport, base: Config): MailTestFailureReason | null {
+  if (mail.transport === "graph") {
+    if (!mail.credentials) {
+      return mail.app === "own" ? "graph_credential_missing" : "graph_app_missing";
+    }
+    if (!mail.tenantId && (mail.app === "own" || !base.graphMailTenantId)) {
+      return "graph_tenant_missing";
+    }
   }
-  if (!mail.tenantId && !base.graphMailTenantId) {
-    return "graph_tenant_missing";
+  if (mail.transport === "google" && !mail.key) {
+    return "google_key_missing";
   }
   return null;
 }
 
 export interface MailTestDependencies {
   base: Config;
-  /** The backup app registration Graph sendMail authenticates as; null when none is usable. */
-  graphApp: AppCredentials | null;
-  notifierFor?: (config: Config, graphApp: AppCredentials | null) => Notifier;
+  notifierFor?: (spec: TransportSpec) => Notifier;
   timeoutMs?: number;
   clock?: () => number;
 }
@@ -156,8 +175,7 @@ export async function runMailTest(
 ): Promise<MailTestResult> {
   const clock = deps.clock ?? Date.now;
   const started = clock();
-  const secret = mail.transport === "smtp" ? mail.password : null;
-  const graphApp = mail.transport === "graph" ? deps.graphApp : null;
+  const secrets = secretsOf(mail);
   const finish = (failure: MailTestResult["failure"]): MailTestResult => ({
     ok: failure === null,
     transport: mail.transport,
@@ -166,16 +184,16 @@ export async function runMailTest(
     failure,
   });
 
-  const preflight = graphPreflight(mail, deps.base, graphApp);
-  if (preflight) {
-    return finish({ reason: preflight, detail: null });
+  const missing = preflight(mail, deps.base);
+  if (missing) {
+    return finish({ reason: missing, detail: null });
   }
 
   try {
-    const notifier = (deps.notifierFor ?? createNotifier)(
-      notifierConfig(deps.base, mail),
-      graphApp,
-    );
+    const spec = transportSpec(deps.base, mail);
+    const notifier = deps.notifierFor
+      ? deps.notifierFor(spec)
+      : notifierForTransport(spec, { demo: deps.base.demo.enabled });
     const outcome = await withTimeout(
       notifier.sendTest(recipient, language),
       deps.timeoutMs ?? MAIL_TEST_TIMEOUT_MS,
@@ -185,9 +203,12 @@ export async function runMailTest(
     }
     return outcome.ok
       ? finish(null)
-      : finish({ reason: "transport_error", detail: sanitizeDetail(outcome.error, secret) });
+      : finish({
+          reason: outcome.reason ?? "transport_error",
+          detail: sanitizeDetail(outcome.error, secrets),
+        });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    return finish({ reason: "transport_error", detail: sanitizeDetail(message, secret) });
+    return finish({ reason: "transport_error", detail: sanitizeDetail(message, secrets) });
   }
 }

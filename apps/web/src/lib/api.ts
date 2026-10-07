@@ -192,7 +192,7 @@ export async function apiFetch<T>(path: string, init: ApiRequestInit = {}): Prom
 // --- Contract types -----------------------------------------------------------
 
 export type OperatingMode = "local" | "public";
-export type MailTransport = "smtp" | "graph";
+export type MailTransport = "smtp" | "graph" | "google";
 export type SmtpSecurity = "starttls" | "tls" | "none";
 export type Role = "provider_admin" | "tenant_admin" | "tenant_user";
 export type TenantRole = Exclude<Role, "provider_admin">;
@@ -248,6 +248,13 @@ export interface SetupState {
   publicUrl: string | null;
   passkeyReady: PasskeyReady;
   mailTransport: MailTransport | null;
+  /**
+   * Which transports the wizard can offer: Microsoft 365 through the backup
+   * app registration only when that app is usable already. Absent on older
+   * servers. The own app registrations (Microsoft 365, Google Workspace) are
+   * set up after the setup, under Installation › Notification mail.
+   */
+  mailOptions?: { graphBackupApp: boolean };
   /**
    * The operator responsibility notice: the version of its current text and
    * whether that version is accepted (always true in demo mode). Before the
@@ -318,7 +325,11 @@ export interface SetupResult {
    * all the same and the dashboard offers to create it. Absent on older servers.
    */
   ownOrganisation?: { created: boolean };
-  testSend: { attempted: boolean; ok: boolean; error?: string };
+  /**
+   * `reason` explains a failed test message (the same codes as the settings
+   * test, `settings:mail.test.reasons`); `error` is the technical detail.
+   */
+  testSend: { attempted: boolean; ok: boolean; reason?: string; error?: string };
 }
 
 export interface SessionUser {

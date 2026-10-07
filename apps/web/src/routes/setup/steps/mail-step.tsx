@@ -1,8 +1,10 @@
+import { Info } from "lucide-react";
 import { Controller, type UseFormReturn, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 
 import { Field, messageId } from "@/components/forms/field";
 import { PasswordInput } from "@/components/forms/password-input";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,17 +15,23 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { MailTransport, SmtpSecurity } from "@/lib/api";
+import type { SmtpSecurity } from "@/lib/api";
 import { validationKey } from "@/lib/form";
 import { DEFAULT_SMTP_PORT, type SetupFormValues } from "@/routes/setup/schema";
 
 interface MailStepProps {
   form: UseFormReturn<SetupFormValues>;
+  /**
+   * Microsoft 365 through the backup app registration can be offered: the app
+   * is usable already (server environment). Without it the wizard offers SMTP
+   * only; the own app registrations come after the setup, with their guide.
+   */
+  graphAvailable: boolean;
 }
 
 const SECURITY_OPTIONS: readonly SmtpSecurity[] = ["starttls", "tls", "none"];
 
-export function MailStep({ form }: MailStepProps) {
+export function MailStep({ form, graphAvailable }: MailStepProps) {
   const { t } = useTranslation("setup");
   const { t: tc } = useTranslation();
 
@@ -43,33 +51,40 @@ export function MailStep({ form }: MailStepProps) {
         {skipped ? <p className="font-medium text-foreground">{t("mail.skip.skipped")}</p> : null}
       </div>
 
-      <div className="space-y-1.5">
-        <Label htmlFor="mail-transport">{t("mail.transport.label")}</Label>
-        <Controller
-          control={form.control}
-          name="mail.transport"
-          render={({ field }) => (
-            <Select
-              value={field.value}
-              onValueChange={(value) => field.onChange(value as MailTransport)}
-            >
-              <SelectTrigger
-                id="mail-transport"
-                className="w-full"
-                aria-label={t("mail.transport.label")}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="smtp">{t("mail.transport.smtp")}</SelectItem>
-                <SelectItem value="graph">{t("mail.transport.graph")}</SelectItem>
-              </SelectContent>
-            </Select>
-          )}
-        />
-      </div>
+      <Alert variant="info">
+        <Info />
+        <AlertDescription>{t("mail.laterTransports")}</AlertDescription>
+      </Alert>
 
-      {transport === "smtp" ? (
+      {graphAvailable ? (
+        <div className="space-y-1.5">
+          <Label htmlFor="mail-transport">{t("mail.transport.label")}</Label>
+          <Controller
+            control={form.control}
+            name="mail.transport"
+            render={({ field }) => (
+              <Select
+                value={field.value}
+                onValueChange={(value) => field.onChange(value as "smtp" | "graph")}
+              >
+                <SelectTrigger
+                  id="mail-transport"
+                  className="w-full"
+                  aria-label={t("mail.transport.label")}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="smtp">{t("mail.transport.smtp")}</SelectItem>
+                  <SelectItem value="graph">{t("mail.transport.graph")}</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+          />
+        </div>
+      ) : null}
+
+      {transport === "smtp" || !graphAvailable ? (
         <div className="grid gap-4 sm:grid-cols-2">
           <Field id="smtp-host" label={t("mail.smtp.host")} error={message(errors?.smtp?.host)}>
             <Input

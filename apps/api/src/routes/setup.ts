@@ -2,9 +2,10 @@ import { type MailConfig, type NewSettings, type Settings, providers, settings }
 import { eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { auth } from "../auth.js";
-import { type Config, config, missingRequiredConfig } from "../config.js";
+import { config, missingRequiredConfig } from "../config.js";
 import { db, providerDb } from "../db.js";
 import { signInProvider } from "../extensions.js";
+import { type MailTestResult, runMailTest } from "../features/settings/mail.js";
 import { resolveEntraApp } from "../features/sources/entra.js";
 import { ensureOwnOrganisation } from "../features/tenants/internal.js";
 import { AUDIT_ACTIONS, audit } from "../lib/audit.js";
@@ -33,7 +34,7 @@ import {
 import type { DbExecutor } from "../lib/tenant-context.js";
 import { DEMO_READ_ONLY_PROBLEM } from "../middleware/demo-guard.js";
 import { requireSameOrigin } from "../middleware/session.js";
-import { createNotifier } from "../notify.js";
+import type { MailFailureReason } from "../notify-core.js";
 import { type PasskeyReadyResult, computePasskeyReady } from "../passkeyReady.js";
 import { ProblemError } from "../problem.js";
 import {
@@ -107,7 +108,16 @@ interface SetupStateResponse {
   operatingMode: "local" | "public" | null;
   publicUrl: string | null;
   passkeyReady: PasskeyReadyResult;
-  mailTransport: "smtp" | "graph" | null;
+  mailTransport: "smtp" | "graph" | "google" | null;
+  /**
+   * Which mail transports the wizard can offer right now. Microsoft 365 through
+   * the backup app registration only works when that app is already usable
+   * (from the environment); the own app registrations for Microsoft 365 and
+   * Google Workspace are set up after the setup, under Installation ›
+   * Notification mail, where the guide and the test send live. Always false
+   * once configured.
+   */
+  mailOptions: { graphBackupApp: boolean };
   /**
    * The operator responsibility notice: the current version and whether it is
    * accepted. The wizard starts with it; a configured installation that has
@@ -144,7 +154,17 @@ interface SetupResultResponse {
    * the dashboard offers to create it (or to mark an existing tenant as it).
    */
   ownOrganisation: { created: boolean };
-  testSend: { attempted: boolean; ok: boolean; error?: string };
+  /**
+   * The test message after the setup. `reason` is a code the wizard explains
+   * in the operator's language (notify-core.ts); `error` is the transport's
+   * technical message, kept for API clients and never shown as is.
+   */
+  testSend: {
+    attempted: boolean;
+    ok: boolean;
+    reason?: MailFailureReason;
+    error?: string;
+  };
 }
 
 async function loadSettings(): Promise<Settings | null> {
@@ -256,38 +276,47 @@ function toMailConfig(mail: MailSetup): MailConfig {
       username: mail.smtp.username,
     };
   }
-  return { transport: "graph", sender: mail.graph.sender };
+  return {
+    transport: "graph",
+    sender: mail.graph.sender,
+    ...(mail.graph.tenantId ? { tenantId: mail.graph.tenantId } : {}),
+  };
 }
 
-/** A notifier configured from the submitted wizard values, not the environment. */
-async function notifierFromSetup(mail: MailSetup) {
-  const derived: Config =
+/** The backup app registration, when it is usable (the wizard's Graph transport sends as it). */
+async function backupAppCredentials() {
+  const resolution = await resolveEntraApp();
+  return resolution.status === "ready" ? resolution.app.credentials : null;
+}
+
+/**
+ * The test message through the submitted wizard values: bounded, mapped onto
+ * a reason the wizard translates, credentials never echoed (settings/mail.ts).
+ */
+async function sendSetupTest(
+  mail: MailSetup,
+  recipient: string,
+  language: SetupRequest["language"] & string,
+): Promise<MailTestResult> {
+  const resolved =
     mail.transport === "smtp"
       ? {
-          ...config,
-          mailTransport: "smtp",
-          smtp: {
-            host: mail.smtp.host,
-            port: mail.smtp.port,
-            secure: toStoredSmtpSecurity(mail.smtp.security) === "implicit",
-            security: toStoredSmtpSecurity(mail.smtp.security),
-            username: mail.smtp.username,
-            password: mail.smtp.password,
-            from: mail.smtp.from,
-          },
+          transport: "smtp" as const,
+          host: mail.smtp.host,
+          port: mail.smtp.port,
+          security: toStoredSmtpSecurity(mail.smtp.security),
+          from: mail.smtp.from,
+          username: mail.smtp.username ?? null,
+          password: mail.smtp.password ?? null,
         }
       : {
-          ...config,
-          mailTransport: "graph",
-          graphMailSender: mail.graph.sender,
-          graphMailTenantId: mail.graph.tenantId ?? config.graphMailTenantId,
+          transport: "graph" as const,
+          sender: mail.graph.sender,
+          tenantId: mail.graph.tenantId ?? null,
+          app: "backup" as const,
+          credentials: await backupAppCredentials(),
         };
-  // Graph sendMail authenticates as the backup app registration.
-  const resolution = mail.transport === "graph" ? await resolveEntraApp() : null;
-  return createNotifier(
-    derived,
-    resolution?.status === "ready" ? resolution.app.credentials : null,
-  );
+  return runMailTest(resolved, recipient, language, { base: config });
 }
 
 /** The single operator row; created on first setup, name updated on re-runs. */
@@ -412,6 +441,10 @@ setup.get("/state", async (c) => {
     publicUrl: row?.publicUrl ?? null,
     passkeyReady,
     mailTransport: row?.mailTransport ?? null,
+    mailOptions: {
+      graphBackupApp:
+        !configured && !config.demo.enabled && (await backupAppCredentials()) !== null,
+    },
     disclaimer: setupDisclaimerState(row, configured),
     setupToken: tokenRequired
       ? { required: true, source: currentSetupToken(config.setupToken)?.source ?? null }
@@ -594,11 +627,19 @@ setup.post("/", async (c) => {
 
   // The schema refuses a test message without a transport; the check keeps the types honest.
   if (input.sendTest && input.mail) {
-    const sent = await (await notifierFromSetup(input.mail)).sendTest(
+    const sent = await sendSetupTest(
+      input.mail,
       input.firstAdmin.email,
       input.language ?? requestLanguage(c),
     );
-    result.testSend = { attempted: true, ok: sent.ok, error: sent.error };
+    result.testSend = sent.ok
+      ? { attempted: true, ok: true }
+      : {
+          attempted: true,
+          ok: false,
+          reason: sent.failure?.reason ?? "transport_error",
+          error: sent.failure?.detail ?? undefined,
+        };
   }
 
   return c.json(result, 201);

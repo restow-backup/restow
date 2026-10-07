@@ -103,15 +103,16 @@
     "remove": {
       "title": "Mail-Konfiguration entfernen",
       "action": "Mail-Konfiguration entfernen",
-      "description": "Löscht den Benachrichtigungs-Transport und vernichtet das gespeicherte SMTP-Passwort. {appName} verschickt keine Berichte, Warnungen oder Einladungen mehr, bis ein neuer Transport eingerichtet ist.",
+      "description": "Löscht den Benachrichtigungs-Transport und vernichtet die gespeicherten Zugangsdaten (SMTP-Passwort, Schlüssel der App-Registrierung oder des Dienstkontos). {appName} verschickt keine Berichte, Warnungen oder Einladungen mehr, bis ein neuer Transport eingerichtet ist.",
       "confirmTitle": "Mail-Konfiguration entfernen?",
-      "confirmDescription": "Benachrichtigungen stoppen sofort. Das gespeicherte SMTP-Passwort wird gelöscht und lässt sich nicht wiederherstellen.",
+      "confirmDescription": "Benachrichtigungen stoppen sofort. Die gespeicherten Zugangsdaten werden gelöscht und lassen sich nicht wiederherstellen.",
       "confirm": "Entfernen"
     },
     "transport": {
       "label": "Transport",
       "smtp": "SMTP-Server",
-      "graph": "Microsoft Graph (Mail.Send)"
+      "graph": "Microsoft 365 (Graph-API)",
+      "google": "Google Workspace (Gmail-API)"
     },
     "smtp": {
       "host": "SMTP-Server",
@@ -134,18 +135,46 @@
       "fromPlaceholder": "restow@example.com"
     },
     "graph": {
-      "hint": "Versendet über die App-Registrierung von {appName} per Microsoft Graph. Benötigt die Anwendungsberechtigung Mail.Send mit Admin-Consent; eine Application Access Policy kann sie auf das Absenderpostfach beschränken.",
+      "hint": "Versendet über Microsoft Graph als Anwendung mit der Anwendungsberechtigung Mail.Send. Ein SMTP-Ausgang ist nicht nötig.",
       "appMissing": {
         "title": "App-Registrierung nicht eingerichtet",
-        "description": "Es ist keine Microsoft-365-App-Registrierung eingerichtet. Graph versendet als diese App; richten Sie sie unter Installation → Microsoft-Multi-Tenant-App ein und erteilen Sie ihr Mail.Send."
+        "description": "Es ist keine Microsoft-365-App-Registrierung der Sicherung eingerichtet. Wählen Sie eine eigene App-Registrierung für Benachrichtigungen oder richten Sie die App unter Installation → Microsoft-Multi-Tenant-App ein und erteilen Sie ihr Mail.Send."
       },
-      "passwordRemoved": "Beim Speichern mit Microsoft Graph wird das gespeicherte SMTP-Passwort gelöscht.",
       "sender": "Absenderpostfach",
-      "senderPlaceholder": "restow@contoso.com",
+      "senderPlaceholder": "benachrichtigungen@contoso.com",
       "tenantId": "Entra-Tenant",
       "tenantIdPlaceholder": "contoso.onmicrosoft.com",
       "tenantIdHint": "Tenant-ID oder eine verifizierte Domain des Tenants, zu dem das Absenderpostfach gehört.",
-      "tenantIdDefault": "Leer lassen, um {tenant} aus der Serverkonfiguration zu verwenden."
+      "tenantIdDefault": "Leer lassen, um {tenant} aus der Serverkonfiguration zu verwenden.",
+      "app": {
+        "label": "App-Registrierung",
+        "own": "Eigene App-Registrierung für Benachrichtigungen (empfohlen)",
+        "ownHint": "Eine Single-Tenant-App nur mit Mail.Send, die sich auf das Absenderpostfach beschränken lässt.",
+        "backup": "App-Registrierung der Sicherung verwenden",
+        "backupHint": "Die App der Sicherung braucht dafür zusätzlich Mail.Send, und diese Berechtigung gilt dann für alle Postfächer ihres Tenants.",
+        "backupUnavailable": "Es ist keine App-Registrierung der Sicherung eingerichtet (Installation → Microsoft-Multi-Tenant-App)."
+      },
+      "senderHint": "Ein Postfach in Exchange Online, zum Beispiel ein freigegebenes Postfach. Die Nachrichten erscheinen nicht in dessen Gesendeten Elementen.",
+      "directoryId": "Verzeichnis-ID (Mandant)",
+      "directoryIdHint": "Aus der Übersicht der App-Registrierung.",
+      "clientId": "Anwendungs-ID (Client)",
+      "clientIdHint": "Aus der Übersicht der App-Registrierung.",
+      "guidPlaceholder": "00000000-0000-0000-0000-000000000000",
+      "credentialKind": "Zugangsdaten",
+      "credentialKinds": {
+        "secret": "Geheimer Clientschlüssel",
+        "certificate": "Zertifikat"
+      },
+      "clientSecret": "Geheimer Clientschlüssel (Wert)",
+      "clientSecretHint": "Die Spalte Wert, nicht die Geheime ID. Wird verschlüsselt gespeichert und nie wieder angezeigt.",
+      "clientSecretKeep": "Ein geheimer Clientschlüssel ist gespeichert. Leer lassen, um ihn zu behalten, oder den neuen Wert eintragen, um ihn zu ersetzen.",
+      "clientSecretAgain": "Tenant, Anwendungs-ID oder Art der Zugangsdaten geändert. Tragen Sie den Schlüssel dafür ein.",
+      "certificatePem": "Privater Schlüssel und Zertifikat (PEM)",
+      "certificateHint": "Ein unverschlüsselter RSA-Schlüssel und das passende Zertifikat, hintereinander. In Entra laden Sie nur das Zertifikat hoch. Wird verschlüsselt gespeichert und nie wieder angezeigt.",
+      "certificateKeep": "Ein Zertifikat ist gespeichert. Leer lassen, um es zu behalten, oder ein neues einfügen, um es zu ersetzen.",
+      "certificateAgain": "Tenant, Anwendungs-ID oder Art der Zugangsdaten geändert. Fügen Sie das Zertifikat dafür ein.",
+      "uploadPem": "PEM-Datei laden",
+      "uploadFailed": "Die Datei konnte nicht gelesen werden."
     },
     "test": {
       "title": "Testnachricht",
@@ -158,9 +187,144 @@
       "detail": "Antwort des Mailsystems",
       "reasons": {
         "timeout": "Keine Antwort innerhalb von 20 Sekunden. Prüfen Sie Host, Port und Firewall.",
-        "graph_app_missing": "Es ist keine Microsoft-365-App-Registrierung eingerichtet (Installation → Microsoft-Multi-Tenant-App).",
+        "transport_error": "Das Mailsystem hat die Verbindung oder die Nachricht abgelehnt.",
+        "smtp_auth_failed": "Der SMTP-Server hat die Anmeldung abgelehnt. Prüfen Sie Benutzername und Passwort.",
+        "smtp_connection_failed": "Der SMTP-Server ist nicht erreichbar. Prüfen Sie Host, Port und Firewall.",
+        "smtp_tls_failed": "Die verschlüsselte Verbindung kam nicht zustande. Prüfen Sie die Verbindungssicherheit, den Port und das Zertifikat des Servers.",
+        "graph_app_missing": "Es ist keine App-Registrierung der Sicherung eingerichtet (Installation → Microsoft-Multi-Tenant-App).",
+        "graph_credential_missing": "Für die eigene App-Registrierung ist kein Schlüssel gespeichert. Tragen Sie ihn erneut ein.",
         "graph_tenant_missing": "Für das Absenderpostfach ist kein Entra-Tenant gesetzt.",
-        "transport_error": "Das Mailsystem hat die Verbindung oder die Nachricht abgelehnt."
+        "graph_tenant_not_found": "Microsoft kennt diesen Tenant nicht. Prüfen Sie die Verzeichnis-ID.",
+        "graph_app_not_found": "Die Anwendungs-ID gibt es in diesem Tenant nicht, oder die App ist deaktiviert. Prüfen Sie Anwendungs-ID und Verzeichnis-ID.",
+        "graph_secret_invalid": "Microsoft hat den geheimen Clientschlüssel abgelehnt. Häufigste Ursache: die Geheime ID statt der Spalte Wert eingetragen.",
+        "graph_secret_expired": "Der geheime Clientschlüssel ist abgelaufen. Legen Sie in Entra einen neuen an und tragen Sie ihn hier ein.",
+        "graph_certificate_invalid": "Microsoft hat das Zertifikat abgelehnt. Prüfen Sie, ob genau dieses Zertifikat in der App-Registrierung hochgeladen ist.",
+        "graph_token_failed": "Microsoft hat keine Anmeldung für die App ausgestellt. Die technische Antwort unten nennt den Grund.",
+        "graph_send_denied": "Der App fehlt die Anwendungsberechtigung Mail.Send mit Administratorzustimmung, oder eine Beschränkung in Exchange Online schließt das Absenderpostfach aus.",
+        "graph_sender_not_found": "Das Absenderpostfach gibt es in diesem Tenant nicht, oder es hat kein Postfach in Exchange Online.",
+        "google_key_missing": "Es ist kein Schlüssel des Dienstkontos gespeichert. Fügen Sie ihn erneut ein.",
+        "google_key_invalid": "Google hat den Schlüssel abgelehnt. Das Dienstkonto oder der Schlüssel wurde gelöscht oder deaktiviert.",
+        "google_delegation_missing": "Die domainweite Delegierung fehlt oder enthält den Bereich gmail.send nicht. Prüfen Sie in der Admin-Konsole Client-ID und Bereich; neue Einträge können einige Minuten brauchen.",
+        "google_sender_not_found": "Das Absenderpostfach gibt es in Ihrer Workspace-Domain nicht, oder Gmail ist für diesen Benutzer nicht aktiviert.",
+        "google_api_disabled": "Die Gmail-API ist im Projekt des Dienstkontos nicht aktiviert.",
+        "google_send_denied": "Google hat das Senden als dieses Postfach verweigert.",
+        "google_token_failed": "Google hat keine Anmeldung für das Dienstkonto ausgestellt. Die technische Antwort unten nennt den Grund."
+      }
+    },
+    "switchRemovesCredential": "Beim Speichern werden die gespeicherten Zugangsdaten des bisherigen Transports gelöscht.",
+    "google": {
+      "hint": "Versendet über die Gmail-API als Dienstkonto mit domainweiter Delegierung im Namen des Absenderpostfachs. Ein SMTP-Ausgang ist nicht nötig.",
+      "sender": "Absenderpostfach",
+      "senderPlaceholder": "benachrichtigungen@example.com",
+      "senderHint": "Ein Benutzer Ihrer Workspace-Domain mit Gmail, keine Gruppe und kein Alias.",
+      "key": "Schlüssel des Dienstkontos (JSON)",
+      "keyHint": "Der Inhalt der JSON-Schlüsseldatei. Wird verschlüsselt gespeichert und nie wieder angezeigt.",
+      "keyKeep": "Ein Schlüssel für {account} ist gespeichert. Leer lassen, um ihn zu behalten, oder einen neuen einfügen, um ihn zu ersetzen.",
+      "keyRecognized": "Erkannt: Dienstkonto {account}",
+      "uploadKey": "JSON-Datei laden",
+      "uploadFailed": "Die Datei konnte nicht gelesen werden."
+    },
+    "guide": {
+      "show": "Anleitung anzeigen",
+      "hide": "Anleitung ausblenden",
+      "copy": "{label} kopieren",
+      "copyCommands": "Befehle kopieren",
+      "graph": {
+        "title": "Anleitung: eigene App-Registrierung in Microsoft Entra",
+        "description": "Einmalig im Microsoft Entra Admin Center, mit der Rolle Anwendungsadministrator oder höher, danach in der Exchange Online PowerShell.",
+        "openAdminCenter": "Microsoft Entra Admin Center öffnen",
+        "register": {
+          "title": "App registrieren",
+          "path": "Öffnen Sie:",
+          "pathItems": {
+            "identity": "Identität",
+            "applications": "Anwendungen",
+            "appRegistrations": "App-Registrierungen",
+            "newRegistration": "Neue Registrierung"
+          },
+          "name": "Name: zum Beispiel „{appName} Benachrichtigungen“.",
+          "accountTypes": "Unterstützte Kontotypen:",
+          "accountTypesValue": "Nur Konten in diesem Organisationsverzeichnis",
+          "redirect": "Umleitungs-URI: leer lassen. Für das Senden als Anwendung wird keine gebraucht.",
+          "values": "Nach Registrieren zeigt die Übersicht die beiden Werte für die Felder unten:"
+        },
+        "permission": {
+          "title": "Berechtigung Mail.Send erteilen",
+          "path": "Unter API-Berechtigungen → Berechtigung hinzufügen → Microsoft Graph → Anwendungsberechtigungen nur diese eine Berechtigung hinzufügen:",
+          "noOther": "Keine weiteren Berechtigungen, auch nicht User.Read, und keine delegierten Berechtigungen.",
+          "consent": "Danach auf der Seite API-Berechtigungen diese Schaltfläche wählen:",
+          "consentLabel": "Administratorzustimmung für <Ihre Organisation> erteilen"
+        },
+        "credential": {
+          "title": "Geheimen Clientschlüssel anlegen",
+          "create": "Unter Zertifikate & Geheimnisse → Geheime Clientschlüssel → Neuer geheimer Clientschlüssel.",
+          "value": "Sofort die Spalte Wert kopieren, nicht die Geheime ID. Entra zeigt den Wert nur direkt nach dem Anlegen.",
+          "expiry": "Notieren Sie das Ablaufdatum (höchstens 24 Monate). Läuft der Schlüssel ab, schlägt jede Benachrichtigung fehl; tragen Sie rechtzeitig einen neuen hier ein.",
+          "certificate": "Alternativ ein Zertifikat unter Zertifikate & Geheimnisse → Zertifikate hochladen und unten privaten Schlüssel und Zertifikat einfügen."
+        },
+        "restrict": {
+          "title": "Auf das Absenderpostfach beschränken (dringend empfohlen)",
+          "description": "Mail.Send als Anwendungsberechtigung erlaubt ohne Beschränkung das Senden als jedes Postfach des Tenants. Beschränken Sie die App in Exchange Online auf das Absenderpostfach.",
+          "rbacTitle": "Empfohlen: RBAC für Anwendungen",
+          "rbacIntro": "Die Objekt-ID finden Sie unter Unternehmensanwendungen bei dieser App. Es ist die Objekt-ID der Unternehmensanwendung, nicht die der App-Registrierung.",
+          "rbacConsent": "Entfernen Sie danach die Mail.Send-Berechtigung aus Schritt 2 in Entra wieder (Administratorzustimmung widerrufen). Berechtigungen aus Entra gelten zusätzlich zur Rollenzuweisung und würden die Beschränkung aufheben.",
+          "policyTitle": "Alternative: Application Access Policy",
+          "policyIntro": "Braucht eine E-Mail-aktivierte Sicherheitsgruppe, die nur das Absenderpostfach enthält. Die Berechtigung aus Schritt 2 bleibt bestehen. Microsoft ersetzt dieses Verfahren schrittweise durch RBAC für Anwendungen.",
+          "delay": "Änderungen können bis zu einer Stunde dauern, bis sie wirken. Der letzte Befehl prüft die Beschränkung.",
+          "placeholders": {
+            "clientId": "<Anwendungs-ID>",
+            "objectId": "<Objekt-ID der Unternehmensanwendung>",
+            "sender": "<Absenderpostfach>",
+            "group": "<Gruppe mit dem Absenderpostfach>"
+          }
+        },
+        "enter": {
+          "title": "Werte eintragen und testen",
+          "description": "Tragen Sie Verzeichnis-ID, Anwendungs-ID, den Schlüsselwert und das Absenderpostfach oben ein und senden Sie eine Testnachricht, bevor Sie speichern."
+        }
+      },
+      "google": {
+        "title": "Anleitung: Dienstkonto in Google Workspace",
+        "description": "In der Google Cloud Console (ein Projekt Ihrer Organisation) und in der Google Admin-Konsole, mit der Rolle Super Admin.",
+        "openCloudConsole": "Google Cloud Console öffnen",
+        "openAdminConsole": "Google Admin-Konsole öffnen",
+        "api": {
+          "title": "Gmail-API aktivieren",
+          "path": "Wählen Sie ein Projekt oder legen Sie eines an, dann:",
+          "pathItems": {
+            "apis": "APIs & Dienste",
+            "library": "Bibliothek",
+            "gmail": "Gmail API",
+            "enable": "Aktivieren"
+          }
+        },
+        "account": {
+          "title": "Dienstkonto und Schlüssel anlegen",
+          "create": "Unter IAM & Verwaltung → Dienstkonten → Dienstkonto erstellen. Rollen im Projekt braucht es keine.",
+          "key": "Beim Dienstkonto unter Schlüssel → Schlüssel hinzufügen → Neuen Schlüssel erstellen → JSON. Die Datei laden Sie unten.",
+          "policy": "Verhindert die Organisationsrichtlinie iam.disableServiceAccountKeyCreation das Anlegen, muss ein Organisationsadministrator für dieses Projekt eine Ausnahme setzen.",
+          "keep": "Die Schlüsseldatei ist ein Zugang zu jedem Postfach, für das die Delegierung gilt. Löschen Sie sie nach dem Einfügen von Ihrem Rechner."
+        },
+        "delegation": {
+          "title": "Domainweite Delegierung erteilen",
+          "path": "In der Admin-Konsole:",
+          "pathItems": {
+            "security": "Sicherheit",
+            "access": "Zugriffs- und Datenverwaltung",
+            "apiControls": "API-Steuerung",
+            "delegation": "Domainweite Delegierung verwalten",
+            "add": "Neu hinzufügen"
+          },
+          "clientId": "Client-ID",
+          "clientIdMissing": "Die Client-ID erscheint hier, sobald Sie den Schlüssel unten eingefügt haben (Feld client_id der JSON-Datei).",
+          "scope": "OAuth-Bereich",
+          "onlyScope": "Nur diesen einen Bereich eintragen. Mehr braucht {appName} nicht.",
+          "delay": "Es kann einige Minuten, selten bis zu 24 Stunden dauern, bis die Delegierung wirkt."
+        },
+        "enter": {
+          "title": "Schlüssel und Absender eintragen und testen",
+          "description": "Fügen Sie den Schlüssel ein, tragen Sie das Absenderpostfach ein und senden Sie eine Testnachricht, bevor Sie speichern."
+        }
       }
     }
   },
@@ -521,7 +685,9 @@
     "passwordRequired": "Geben Sie das Passwort für diesen Server und Benutzernamen ein.",
     "usernameRequired": "Ein Passwort braucht einen Benutzernamen.",
     "tenantId": "Geben Sie eine Tenant-ID oder eine verifizierte Domain wie contoso.onmicrosoft.com ein.",
-    "host": "Geben Sie einen Hostnamen oder eine IP-Adresse ein."
+    "host": "Geben Sie einen Hostnamen oder eine IP-Adresse ein.",
+    "tenantGuid": "Tragen Sie die Verzeichnis-ID (GUID) aus der Übersicht der App-Registrierung ein.",
+    "serviceAccountKey": "Das ist kein Schlüssel eines Dienstkontos. Fügen Sie den vollständigen Inhalt der JSON-Schlüsseldatei ein."
   },
   "errors": {
     "setupIncomplete": "Die Einrichtung ist noch nicht abgeschlossen. Schließen Sie zuerst den Einrichtungsassistenten ab.",

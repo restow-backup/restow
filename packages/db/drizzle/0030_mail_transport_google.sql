@@ -1,0 +1,1 @@
+ALTER TYPE "public"."mail_transport" ADD VALUE 'google';

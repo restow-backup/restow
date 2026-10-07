@@ -165,7 +165,7 @@
     "transport": {
       "label": "Transport",
       "smtp": "SMTP server",
-      "graph": "Microsoft Graph (Mail.Send)"
+      "graph": "Microsoft 365 through the backup app registration"
     },
     "smtp": {
       "host": "SMTP server",
@@ -189,12 +189,13 @@
       "senderPlaceholder": "restow@example.com",
       "tenantId": "Entra tenant ID (optional)",
       "tenantIdPlaceholder": "00000000-0000-0000-0000-000000000000",
-      "hint": "Uses the Microsoft app registration as an application. Requires the Mail.Send application permission with admin consent; see https://docs.restowbackup.com/administrators/setup-wizard/."
+      "hint": "Sends as the backup app registration through Microsoft Graph. It also needs the application permission Mail.Send with admin consent for that."
     },
     "sendTest": {
       "label": "Send a test message to the admin account",
       "hint": "Shows right away whether the transport works. A failure does not block the setup."
-    }
+    },
+    "laterTransports": "Microsoft 365 with an own app registration and Google Workspace are set up after the setup under Installation → Notification mail. A guide walks you through the steps there, and you send a test message before saving."
   },
   "review": {
     "title": "Review",
@@ -216,7 +217,7 @@
   "result": {
     "success": "Setup complete. Welcome to {appName}.",
     "testSendOk": "The test message was sent.",
-    "testSendFailed": "The test message could not be sent: {error}",
+    "testSendFailed": "The test message could not be sent. {reason} Check the transport under Installation → Notification mail and send a test message again there.",
     "signInFailed": "The setup is saved, but the automatic sign-in did not work. Please sign in manually.",
     "alreadyConfigured": "This installation is already set up.",
     "failed": "The setup could not be saved.",

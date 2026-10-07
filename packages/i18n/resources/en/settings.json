@@ -103,15 +103,16 @@
     "remove": {
       "title": "Remove mail configuration",
       "action": "Remove mail configuration",
-      "description": "Deletes the notification transport and destroys the stored SMTP password. {appName} sends no reports, alerts or invitations until a new transport is set up.",
+      "description": "Deletes the notification transport and destroys the stored credentials (SMTP password, key of the app registration or the service account). {appName} sends no reports, alerts or invitations until a new transport is set up.",
       "confirmTitle": "Remove the mail configuration?",
-      "confirmDescription": "Notifications stop right away. The stored SMTP password is deleted and cannot be recovered.",
+      "confirmDescription": "Notifications stop immediately. The stored credentials are deleted and cannot be recovered.",
       "confirm": "Remove"
     },
     "transport": {
       "label": "Transport",
       "smtp": "SMTP server",
-      "graph": "Microsoft Graph (Mail.Send)"
+      "graph": "Microsoft 365 (Graph API)",
+      "google": "Google Workspace (Gmail API)"
     },
     "smtp": {
       "host": "SMTP server",
@@ -134,18 +135,46 @@
       "fromPlaceholder": "restow@example.com"
     },
     "graph": {
-      "hint": "Sends as the {appName} app registration through Microsoft Graph. Requires the Mail.Send application permission with admin consent; an application access policy can restrict it to the sender mailbox.",
+      "hint": "Sends through Microsoft Graph as an application with the application permission Mail.Send. No outgoing SMTP is needed.",
       "appMissing": {
-        "title": "App registration not configured",
-        "description": "No Microsoft 365 app registration is set up. Graph sends as that app; set it up under Installation → Microsoft multi-tenant app, and grant it Mail.Send."
+        "title": "App registration not set up",
+        "description": "No backup app registration for Microsoft 365 is set up. Choose an own app registration for notifications, or set the app up under Installation → Microsoft multi-tenant app and grant it Mail.Send."
       },
-      "passwordRemoved": "Saving with Microsoft Graph deletes the stored SMTP password.",
       "sender": "Sender mailbox",
-      "senderPlaceholder": "restow@contoso.com",
+      "senderPlaceholder": "notifications@contoso.com",
       "tenantId": "Entra tenant",
       "tenantIdPlaceholder": "contoso.onmicrosoft.com",
       "tenantIdHint": "Tenant ID or a verified domain of the tenant the sender mailbox belongs to.",
-      "tenantIdDefault": "Leave empty to use {tenant} from the server configuration."
+      "tenantIdDefault": "Leave empty to use {tenant} from the server configuration.",
+      "app": {
+        "label": "App registration",
+        "own": "Own app registration for notifications (recommended)",
+        "ownHint": "A single-tenant app with Mail.Send only, which can be restricted to the sender mailbox.",
+        "backup": "Use the backup app registration",
+        "backupHint": "The backup app then also needs Mail.Send, and that permission applies to every mailbox of its tenant.",
+        "backupUnavailable": "No backup app registration is set up (Installation → Microsoft multi-tenant app)."
+      },
+      "senderHint": "A mailbox in Exchange Online, for example a shared mailbox. Messages do not appear in its Sent Items.",
+      "directoryId": "Directory (tenant) ID",
+      "directoryIdHint": "From the app registration overview.",
+      "clientId": "Application (client) ID",
+      "clientIdHint": "From the app registration overview.",
+      "guidPlaceholder": "00000000-0000-0000-0000-000000000000",
+      "credentialKind": "Credential",
+      "credentialKinds": {
+        "secret": "Client secret",
+        "certificate": "Certificate"
+      },
+      "clientSecret": "Client secret (value)",
+      "clientSecretHint": "The Value column, not the Secret ID. Stored encrypted and never shown again.",
+      "clientSecretKeep": "A client secret is stored. Leave empty to keep it, or enter the new value to replace it.",
+      "clientSecretAgain": "Tenant, application ID or credential type changed. Enter the secret for it.",
+      "certificatePem": "Private key and certificate (PEM)",
+      "certificateHint": "An unencrypted RSA key and the matching certificate, one after the other. Upload only the certificate in Entra. Stored encrypted and never shown again.",
+      "certificateKeep": "A certificate is stored. Leave empty to keep it, or paste a new one to replace it.",
+      "certificateAgain": "Tenant, application ID or credential type changed. Paste the certificate for it.",
+      "uploadPem": "Load PEM file",
+      "uploadFailed": "The file could not be read."
     },
     "test": {
       "title": "Test message",
@@ -158,9 +187,144 @@
       "detail": "Response of the mail system",
       "reasons": {
         "timeout": "No answer within 20 seconds. Check host, port and firewall.",
-        "graph_app_missing": "No Microsoft 365 app registration is set up (Installation → Microsoft multi-tenant app).",
+        "transport_error": "The mail system refused the connection or the message.",
+        "smtp_auth_failed": "The SMTP server refused the sign-in. Check username and password.",
+        "smtp_connection_failed": "The SMTP server cannot be reached. Check host, port and firewall.",
+        "smtp_tls_failed": "The encrypted connection failed. Check the connection security, the port and the server certificate.",
+        "graph_app_missing": "No backup app registration is set up (Installation → Microsoft multi-tenant app).",
+        "graph_credential_missing": "No secret is stored for the own app registration. Enter it again.",
         "graph_tenant_missing": "No Entra tenant is set for the sender mailbox.",
-        "transport_error": "The mail system refused the connection or the message."
+        "graph_tenant_not_found": "Microsoft does not know this tenant. Check the directory ID.",
+        "graph_app_not_found": "This application ID does not exist in the tenant, or the app is disabled. Check the application ID and directory ID.",
+        "graph_secret_invalid": "Microsoft rejected the client secret. Most common cause: the Secret ID was entered instead of the Value column.",
+        "graph_secret_expired": "The client secret has expired. Create a new one in Entra and enter it here.",
+        "graph_certificate_invalid": "Microsoft rejected the certificate. Check that exactly this certificate is uploaded in the app registration.",
+        "graph_token_failed": "Microsoft did not issue a sign-in for the app. The technical response below names the reason.",
+        "graph_send_denied": "The app lacks the application permission Mail.Send with admin consent, or a restriction in Exchange Online excludes the sender mailbox.",
+        "graph_sender_not_found": "The sender mailbox does not exist in this tenant, or it has no mailbox in Exchange Online.",
+        "google_key_missing": "No service account key is stored. Paste it again.",
+        "google_key_invalid": "Google rejected the key. The service account or the key was deleted or disabled.",
+        "google_delegation_missing": "The domain-wide delegation is missing or does not include the gmail.send scope. Check client ID and scope in the Admin console; new entries can take a few minutes.",
+        "google_sender_not_found": "The sender mailbox does not exist in your Workspace domain, or Gmail is not enabled for this user.",
+        "google_api_disabled": "The Gmail API is not enabled in the service account project.",
+        "google_send_denied": "Google refused to send as this mailbox.",
+        "google_token_failed": "Google did not issue a sign-in for the service account. The technical response below names the reason."
+      }
+    },
+    "switchRemovesCredential": "Saving deletes the stored credentials of the previous transport.",
+    "google": {
+      "hint": "Sends through the Gmail API as a service account with domain-wide delegation, on behalf of the sender mailbox. No outgoing SMTP is needed.",
+      "sender": "Sender mailbox",
+      "senderPlaceholder": "notifications@example.com",
+      "senderHint": "A user of your Workspace domain with Gmail, not a group and not an alias.",
+      "key": "Service account key (JSON)",
+      "keyHint": "The content of the JSON key file. Stored encrypted and never shown again.",
+      "keyKeep": "A key for {account} is stored. Leave empty to keep it, or paste a new one to replace it.",
+      "keyRecognized": "Recognized: service account {account}",
+      "uploadKey": "Load JSON file",
+      "uploadFailed": "The file could not be read."
+    },
+    "guide": {
+      "show": "Show guide",
+      "hide": "Hide guide",
+      "copy": "Copy {label}",
+      "copyCommands": "Copy commands",
+      "graph": {
+        "title": "Guide: own app registration in Microsoft Entra",
+        "description": "Once, in the Microsoft Entra admin center with the Application Administrator role or higher, then in Exchange Online PowerShell.",
+        "openAdminCenter": "Open the Microsoft Entra admin center",
+        "register": {
+          "title": "Register the app",
+          "path": "Open:",
+          "pathItems": {
+            "identity": "Identity",
+            "applications": "Applications",
+            "appRegistrations": "App registrations",
+            "newRegistration": "New registration"
+          },
+          "name": "Name: for example “{appName} notifications”.",
+          "accountTypes": "Supported account types:",
+          "accountTypesValue": "Accounts in this organizational directory only",
+          "redirect": "Redirect URI: leave empty. Sending as an application needs none.",
+          "values": "After Register, the overview shows the two values for the fields above:"
+        },
+        "permission": {
+          "title": "Grant Mail.Send",
+          "path": "Under API permissions → Add a permission → Microsoft Graph → Application permissions, add only this one permission:",
+          "noOther": "No other permissions, not even User.Read, and no delegated permissions.",
+          "consent": "Then choose this button on the API permissions page:",
+          "consentLabel": "Grant admin consent for <your organization>"
+        },
+        "credential": {
+          "title": "Create a client secret",
+          "create": "Under Certificates & secrets → Client secrets → New client secret.",
+          "value": "Copy the Value column right away, not the Secret ID. Entra shows the value only right after it is created.",
+          "expiry": "Note the expiry date (24 months at most). Once the secret expires every notification fails; enter a new one here in time.",
+          "certificate": "Alternatively, upload a certificate under Certificates & secrets → Certificates and paste the private key and certificate below."
+        },
+        "restrict": {
+          "title": "Restrict to the sender mailbox (strongly recommended)",
+          "description": "Mail.Send as an application permission allows sending as any mailbox of the tenant unless it is restricted. Restrict the app to the sender mailbox in Exchange Online.",
+          "rbacTitle": "Recommended: RBAC for Applications",
+          "rbacIntro": "Find the object ID under Enterprise applications for this app. It is the object ID of the enterprise application, not of the app registration.",
+          "rbacConsent": "Afterwards, remove the Mail.Send permission from step 2 in Entra again (revoke admin consent). Permissions from Entra apply in addition to the role assignment and would lift the restriction.",
+          "policyTitle": "Alternative: Application Access Policy",
+          "policyIntro": "Needs a mail-enabled security group that contains only the sender mailbox. The permission from step 2 stays. Microsoft is replacing this method with RBAC for Applications.",
+          "delay": "Changes can take up to an hour to apply. The last command checks the restriction.",
+          "placeholders": {
+            "clientId": "<application ID>",
+            "objectId": "<object ID of the enterprise application>",
+            "sender": "<sender mailbox>",
+            "group": "<group with the sender mailbox>"
+          }
+        },
+        "enter": {
+          "title": "Enter the values and test",
+          "description": "Enter the directory ID, application ID, secret value and sender mailbox above and send a test message before saving."
+        }
+      },
+      "google": {
+        "title": "Guide: service account in Google Workspace",
+        "description": "In the Google Cloud console (a project of your organization) and in the Google Admin console, with the Super Admin role.",
+        "openCloudConsole": "Open the Google Cloud console",
+        "openAdminConsole": "Open the Google Admin console",
+        "api": {
+          "title": "Enable the Gmail API",
+          "path": "Choose or create a project, then:",
+          "pathItems": {
+            "apis": "APIs & Services",
+            "library": "Library",
+            "gmail": "Gmail API",
+            "enable": "Enable"
+          }
+        },
+        "account": {
+          "title": "Create a service account and key",
+          "create": "Under IAM & Admin → Service accounts → Create service account. It needs no roles in the project.",
+          "key": "On the service account, under Keys → Add key → Create new key → JSON. Load the file below.",
+          "policy": "If the organization policy iam.disableServiceAccountKeyCreation prevents this, an organization administrator has to set an exception for this project.",
+          "keep": "The key file grants access to every mailbox the delegation covers. Delete it from your computer once it is pasted."
+        },
+        "delegation": {
+          "title": "Grant domain-wide delegation",
+          "path": "In the Admin console:",
+          "pathItems": {
+            "security": "Security",
+            "access": "Access and data control",
+            "apiControls": "API controls",
+            "delegation": "Manage Domain Wide Delegation",
+            "add": "Add new"
+          },
+          "clientId": "Client ID",
+          "clientIdMissing": "The client ID appears here once you have pasted the key below (field client_id of the JSON file).",
+          "scope": "OAuth scope",
+          "onlyScope": "Enter only this one scope. {appName} needs nothing more.",
+          "delay": "It can take a few minutes, rarely up to 24 hours, until the delegation applies."
+        },
+        "enter": {
+          "title": "Enter key and sender and test",
+          "description": "Paste the key, enter the sender mailbox and send a test message before saving."
+        }
       }
     }
   },
@@ -521,7 +685,9 @@
     "passwordRequired": "Enter the password for this server and username.",
     "usernameRequired": "A password needs a username.",
     "tenantId": "Enter a tenant ID or a verified domain such as contoso.onmicrosoft.com.",
-    "host": "Enter a host name or an IP address."
+    "host": "Enter a host name or an IP address.",
+    "tenantGuid": "Enter the directory ID (GUID) from the app registration overview.",
+    "serviceAccountKey": "This is not a service account key. Paste the complete content of the JSON key file."
   },
   "errors": {
     "setupIncomplete": "The setup is not complete yet. Finish the setup wizard first.",

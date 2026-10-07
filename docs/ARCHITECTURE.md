@@ -538,13 +538,20 @@ alle Schritte erledigt oder nicht nötig, verschwindet „Start" aus dem Menü.
   zu verschleiern.
 - Erster Admin: Provider-Admin wird im Wizard angelegt (Passkey, sonst Notfall-Passwort
   plus TOTP).
-- Mail-Dienst für Benachrichtigungen: ein Transport-Interface mit zwei Implementierungen,
-  im Wizard per Dropdown wählbar und mit Testversand:
+- Mail-Dienst für Benachrichtigungen: ein Transport-Interface mit drei Implementierungen,
+  unter Installation → Benachrichtigungs-Mail wählbar, mit Anleitung und Testversand vor dem
+  Speichern; jeder Fehlschlag kommt als Grund-Code zurück, den die Oberfläche übersetzt:
   - `smtp`: Host, Port, STARTTLS/implizit, Benutzer/Passwort (verschlüsselt in DB, KEK),
     Absenderadresse (nodemailer).
-  - `graph`: Microsoft Graph `sendMail` als App (Client Credentials), Absenderpostfach im
-    Tenant, braucht die Anwendungsberechtigung `Mail.Send` (nur wenn gewählt, siehe
-    docs/MICROSOFT.md). Kein eigener SMTP-Ausgang nötig.
+  - `graph`: Microsoft 365, Graph `sendMail` als App (Client Credentials), Absenderpostfach im
+    Tenant, Anwendungsberechtigung `Mail.Send`. Entweder eine eigene Single-Tenant-App für
+    Benachrichtigungen (Schlüssel oder Zertifikat versiegelt als `mail_graph_app`, auf das
+    Absenderpostfach beschränkbar) oder die App der Sicherung. Kein SMTP-Ausgang nötig.
+  - `google`: Google Workspace, Gmail-API als Dienstkonto mit domainweiter Delegierung nur
+    für `gmail.send` (Schlüssel versiegelt als `mail_google_key`).
+  Der Wizard bietet SMTP und, nur wenn sie schon nutzbar ist, die App der Sicherung; die
+  übrigen richtet der Betreiber danach ein. Delegiertes OAuth mit Benutzeranmeldung ist
+  bewusst nicht gebaut (docs/MICROSOFT.md, „Benachrichtigungs-Mail").
 - Der SMTP-Journal-Empfänger (Archiv) ist davon getrennt: er empfängt nur, versendet nie
   (docs/IMAP.md).
 

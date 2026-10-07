@@ -2,11 +2,14 @@ import { configureProductName, supportedLanguages } from "@restow/i18n";
 import { describe, expect, it } from "vitest";
 import type { Config, SmtpConfig } from "./config.js";
 import {
+  GoogleNotifier,
   GraphNotifier,
   NoopNotifier,
   SMTP_TIMEOUTS,
   SmtpNotifier,
   createNotifier,
+  notifierForTransport,
+  smtpFailureReason,
   smtpTransportOptions,
   testNotification,
 } from "./notify.js";
@@ -181,5 +184,47 @@ describe("NoopNotifier", () => {
       notifier.send({ to: "someone@example.org", subject: "s", text: "t" }),
     ).resolves.toEqual({ ok: true });
     await expect(notifier.sendTest("someone@example.org", "en")).resolves.toEqual({ ok: true });
+  });
+});
+
+describe("smtpFailureReason", () => {
+  const withCode = (code: string, message: string) => Object.assign(new Error(message), { code });
+
+  it("tells a rejected login, a TLS problem and an unreachable server apart", () => {
+    expect(smtpFailureReason(withCode("EAUTH", "Invalid login: 535 5.7.8"))).toBe(
+      "smtp_auth_failed",
+    );
+    expect(smtpFailureReason(withCode("ESOCKET", "self-signed certificate in chain"))).toBe(
+      "smtp_tls_failed",
+    );
+    expect(smtpFailureReason(withCode("ETLS", "Error initiating TLS"))).toBe("smtp_tls_failed");
+    expect(smtpFailureReason(withCode("ESOCKET", "connect ECONNREFUSED 10.0.0.1:587"))).toBe(
+      "smtp_connection_failed",
+    );
+    expect(smtpFailureReason(withCode("ETIMEDOUT", "Connection timeout"))).toBe(
+      "smtp_connection_failed",
+    );
+    expect(smtpFailureReason(withCode("EENVELOPE", "No recipients defined"))).toBe(
+      "transport_error",
+    );
+    expect(smtpFailureReason("odd")).toBe("transport_error");
+  });
+});
+
+describe("notifierForTransport", () => {
+  const google = { transport: "google" as const, sender: "a@example.com", key: null };
+  const graph = { transport: "graph" as const, sender: "a@contoso.com", tenantId: null, app: null };
+  const smtp = { transport: "smtp" as const, smtp: base };
+
+  it("builds the transport's notifier", () => {
+    expect(notifierForTransport(google, { demo: false })).toBeInstanceOf(GoogleNotifier);
+    expect(notifierForTransport(graph, { demo: false })).toBeInstanceOf(GraphNotifier);
+    expect(notifierForTransport(smtp, { demo: false })).toBeInstanceOf(SmtpNotifier);
+  });
+
+  it("sends nothing in demo mode, whatever the transport", () => {
+    for (const spec of [google, graph, smtp]) {
+      expect(notifierForTransport(spec, { demo: true })).toBeInstanceOf(NoopNotifier);
+    }
   });
 });

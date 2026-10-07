@@ -90,7 +90,10 @@ describe("toStoredMail", () => {
 
   it("keeps the Graph tenant only when one is given", () => {
     expect(
-      toStoredMail({ transport: "graph", graph: { sender: "a@b.co", tenantId: null } }),
+      toStoredMail({
+        transport: "graph",
+        graph: { sender: "a@b.co", tenantId: null, app: "backup" },
+      }),
     ).toEqual({ transport: "graph", sender: "a@b.co" });
   });
 });
@@ -146,7 +149,7 @@ describe("planSettingsUpdate", () => {
     const plan = planSettingsUpdate(smtpCurrent, { operatingMode: "local" }, env);
     expect(plan.operatingMode).toBe("local");
     expect(plan.publicUrl).toBeNull();
-    expect(plan.secret).toEqual({ action: "keep" });
+    expect(plan.secrets.smtpPassword).toEqual({ action: "keep" });
     expect(plan.changes).toEqual(["operatingMode", "publicUrl"]);
   });
 
@@ -177,7 +180,7 @@ describe("planSettingsUpdate", () => {
     };
     const plan = planSettingsUpdate(smtpCurrent, patch, env);
     expect(plan.changes).toEqual([]);
-    expect(plan.secret).toEqual({ action: "keep" });
+    expect(plan.secrets.smtpPassword).toEqual({ action: "keep" });
   });
 
   it("names changed SMTP fields and a new password without its value", () => {
@@ -187,7 +190,7 @@ describe("planSettingsUpdate", () => {
       env,
     );
     expect(plan.changes).toEqual(["mail.port", "mail.password"]);
-    expect(plan.secret).toEqual({ action: "set", plaintext: "rotated" });
+    expect(plan.secrets.smtpPassword).toEqual({ action: "set", plaintext: "rotated" });
     expect(JSON.stringify(plan.changes)).not.toContain("rotated");
   });
 
@@ -197,7 +200,7 @@ describe("planSettingsUpdate", () => {
       { mail: { transport: "smtp", smtp: { ...smtpDraft, username: null } } },
       env,
     );
-    expect(plan.secret).toEqual({ action: "delete" });
+    expect(plan.secrets.smtpPassword).toEqual({ action: "delete" });
     expect(plan.changes).toEqual(["mail.username", "mail.password"]);
   });
 
@@ -207,7 +210,11 @@ describe("planSettingsUpdate", () => {
       {
         mail: {
           transport: "graph",
-          graph: { sender: "restow@contoso.com", tenantId: "contoso.onmicrosoft.com" },
+          graph: {
+            sender: "restow@contoso.com",
+            tenantId: "contoso.onmicrosoft.com",
+            app: "backup",
+          },
         },
       },
       env,
@@ -217,13 +224,16 @@ describe("planSettingsUpdate", () => {
       sender: "restow@contoso.com",
       tenantId: "contoso.onmicrosoft.com",
     });
-    expect(plan.secret).toEqual({ action: "delete" });
+    expect(plan.secrets.smtpPassword).toEqual({ action: "delete" });
     expect(plan.changes).toEqual(["mail.transport", "mail.password"]);
   });
 
   it("requires a Graph tenant unless the environment provides one", () => {
     const patch: UpdateSettingsInput = {
-      mail: { transport: "graph", graph: { sender: "restow@contoso.com", tenantId: null } },
+      mail: {
+        transport: "graph",
+        graph: { sender: "restow@contoso.com", tenantId: null, app: "backup" },
+      },
     };
     expect(issuesOf(() => planSettingsUpdate(smtpCurrent, patch, env))).toEqual([
       { path: ["mail", "graph", "tenantId"], message: "required" },

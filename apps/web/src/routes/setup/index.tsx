@@ -10,6 +10,8 @@ import { AuthLayout } from "@/components/layout/auth-layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/components/ui/sonner";
+import { SETTINGS_NAMESPACE } from "@/features/settings/i18n";
+import { mailTestFailureKey } from "@/features/settings/presenters";
 import { activeLanguage, i18n as appI18n, chooseLanguage, setupLanguageSuggestion } from "@/i18n";
 import {
   ApiError,
@@ -165,7 +167,14 @@ export function SetupPage() {
         if (result.testSend.ok) {
           toast.success(t("result.testSendOk"));
         } else {
-          toast.warning(t("result.testSendFailed", { error: result.testSend.error ?? "" }));
+          // The reason in the operator's language, never the transport's raw (English) answer.
+          toast.warning(
+            t("result.testSendFailed", {
+              reason: t(mailTestFailureKey(result.testSend.reason ?? "transport_error"), {
+                ns: SETTINGS_NAMESPACE,
+              }),
+            }),
+          );
         }
       }
 
@@ -359,7 +368,12 @@ export function SetupPage() {
               ) : null}
               {currentKey === "mode" ? <ModeStep form={form} /> : null}
               {currentKey === "admin" ? <AdminStep form={form} /> : null}
-              {currentKey === "mail" ? <MailStep form={form} /> : null}
+              {currentKey === "mail" ? (
+                <MailStep
+                  form={form}
+                  graphAvailable={setupState?.mailOptions?.graphBackupApp === true}
+                />
+              ) : null}
               {currentKey === "review" ? (
                 <>
                   <ReviewStep values={form.getValues()} language={language} />

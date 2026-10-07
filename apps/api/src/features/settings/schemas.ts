@@ -135,6 +135,45 @@ export const smtpInputSchema = z
   .strict();
 export type SmtpInput = z.infer<typeof smtpInputSchema>;
 
+/** Where Graph sendMail gets its app registration from. */
+export const GRAPH_MAIL_APPS = ["backup", "own"] as const;
+export type GraphMailAppOption = (typeof GRAPH_MAIL_APPS)[number];
+
+/** Write-only secret text: empty means "keep the stored one". */
+function optionalSecret(max: number, reason: string) {
+  return z
+    .string()
+    .max(max, reason)
+    .optional()
+    .transform((value) => (value && value.trim().length > 0 ? value : undefined));
+}
+
+/**
+ * The notification mail's own app registration (Microsoft 365). The client
+ * secret or certificate is write-only: omit it to keep the stored one, which
+ * is only reused for the same tenant, client id and credential kind.
+ */
+export const graphOwnAppInputSchema = z
+  .object({
+    clientId: z.string().trim().regex(TENANT_GUID, "guid"),
+    credentialKind: z.enum(["secret", "certificate"]),
+    clientSecret: optionalSecret(1024, "clientSecret"),
+    /** One PEM with the private key and the certificate. */
+    certificatePem: optionalSecret(32_768, "certificate"),
+  })
+  .strict()
+  .superRefine((input, ctx) => {
+    // The classic mix-up: the portal's "Secret ID" (a GUID) instead of its "Value".
+    if (
+      input.credentialKind === "secret" &&
+      input.clientSecret !== undefined &&
+      TENANT_GUID.test(input.clientSecret.trim())
+    ) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["clientSecret"], message: "secretIsId" });
+    }
+  });
+export type GraphOwnAppInput = z.infer<typeof graphOwnAppInputSchema>;
+
 export const graphInputSchema = z
   .object({
     sender: z.string().trim().email("email").max(320, "email"),
@@ -146,14 +185,46 @@ export const graphInputSchema = z
       .nullish()
       .transform(emptyToNull)
       .refine((value) => value === null || isValidTenantId(value), "tenantId"),
+    /** `backup` (the default, as before) or the notification mail's own app. */
+    app: z.enum(GRAPH_MAIL_APPS).default("backup"),
+    ownApp: graphOwnAppInputSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.app !== "own") {
+      return;
+    }
+    if (!value.ownApp) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["ownApp"], message: "required" });
+    }
+    // The own app's token endpoint is addressed by the directory (tenant) ID
+    // the app's overview page shows; no environment default applies.
+    if (value.tenantId === null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["tenantId"], message: "required" });
+    } else if (!TENANT_GUID.test(value.tenantId)) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["tenantId"], message: "tenantGuid" });
+    }
+  });
 export type GraphInput = z.infer<typeof graphInputSchema>;
 
-/** The complete desired mail transport (only the SMTP password may be omitted). */
+/**
+ * Google Workspace: a service account with domain-wide delegation sends as
+ * `sender`. The key (the JSON file Google hands out) is write-only: omit it
+ * to keep the stored one.
+ */
+export const googleInputSchema = z
+  .object({
+    sender: z.string().trim().email("email").max(320, "email"),
+    serviceAccountKey: optionalSecret(16_384, "serviceAccountKey"),
+  })
+  .strict();
+export type GoogleInput = z.infer<typeof googleInputSchema>;
+
+/** The complete desired mail transport (only the stored secrets may be omitted). */
 export const mailInputSchema = z.discriminatedUnion("transport", [
   z.object({ transport: z.literal("smtp"), smtp: smtpInputSchema }).strict(),
   z.object({ transport: z.literal("graph"), graph: graphInputSchema }).strict(),
+  z.object({ transport: z.literal("google"), google: googleInputSchema }).strict(),
 ]);
 export type MailInput = z.infer<typeof mailInputSchema>;
 
