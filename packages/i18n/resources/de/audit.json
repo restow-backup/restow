@@ -211,7 +211,9 @@
       "searched": "Archiv durchsucht",
       "item": {
         "read": "Archivelement gelesen",
-        "deleted": "Archivelement durch Aufbewahrungslauf gelöscht"
+        "deleted": "Archivelement durch Aufbewahrungslauf gelöscht",
+        "previewed": "Archivierte Nachricht angezeigt",
+        "downloaded": "Archivierte Nachricht heruntergeladen"
       },
       "legal_hold": {
         "created": "Legal Hold angelegt",
@@ -220,6 +222,9 @@
       "journal": {
         "address_created": "Journal-Adresse ausgestellt",
         "address_rotated": "Journal-Adresse erneuert"
+      },
+      "chain": {
+        "verified": "Archiv geprüft"
       }
     },
     "backup": {

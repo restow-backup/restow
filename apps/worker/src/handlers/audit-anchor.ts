@@ -27,6 +27,7 @@ import {
 } from "@restow/db";
 import { type SQL, and, asc, count, desc, eq, gte, isNull, lt, sql } from "drizzle-orm";
 import type PgBoss from "pg-boss";
+import { writeArchiveAnchors } from "./archive-anchor.js";
 
 /** pg-boss queue of the anchor run. */
 export const AUDIT_ANCHOR_QUEUE = "audit-anchor";
@@ -228,11 +229,33 @@ export async function writeAuditAnchors(deps: AuditAnchorDeps): Promise<AuditAnc
   return summary;
 }
 
+/**
+ * The nightly anchor run: the audit chains, then the archive chains
+ * (./archive-anchor.ts). Both are tried even when the first fails; the run
+ * then fails with the first error, and the retry seals what is still missing.
+ */
+export async function writeAnchors(deps: AuditAnchorDeps): Promise<void> {
+  let failure: unknown = null;
+  try {
+    await writeAuditAnchors(deps);
+  } catch (error) {
+    failure = error;
+  }
+  try {
+    await writeArchiveAnchors(deps);
+  } catch (error) {
+    failure ??= error;
+  }
+  if (failure !== null) {
+    throw failure;
+  }
+}
+
 /** The anchor run as the worker's housekeeping handler. */
 export const auditAnchorHandler = {
   queue: AUDIT_ANCHOR_QUEUE,
   cron: AUDIT_ANCHOR_CRON,
-  run: writeAuditAnchors,
+  run: writeAnchors,
 } as const;
 
 /**

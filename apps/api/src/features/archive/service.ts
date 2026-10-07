@@ -15,7 +15,18 @@ import { type SQL, and, desc, eq, gte, lte, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
+import {
+  PreviewBusyError,
+  PreviewUnreadableError,
+  previewInWorker,
+} from "../snapshots/preview-isolated.js";
+import {
+  type MailPreviewDto,
+  PREVIEW_SIZE_CAP_BYTES,
+  type PreviewHeaders,
+} from "../snapshots/preview.js";
 import { PgArchiveCatalog } from "./catalog.js";
+import { ArchiveContentError, emlFileName, readArchiveItemBytes } from "./content.js";
 import type { ArchiveSearchQuery } from "./schemas.js";
 
 export interface ArchiveActor {
@@ -216,29 +227,152 @@ export async function getArchiveItem(
   });
 }
 
-export interface ChainVerificationDto {
-  ok: boolean;
-  checked: number;
-  brokenAt: { index: number; expectedChainHash: string; actualChainHash: string } | null;
+/** The `archive_items` fields the reading pane and the download need. */
+async function loadContentRow(tx: DbExecutor, tenantId: string, itemId: string) {
+  const [row] = await tx
+    .select({
+      id: archiveItems.id,
+      itemHash: archiveItems.itemHash,
+      sizeBytes: archiveItems.sizeBytes,
+      chunks: archiveItems.chunks,
+      receivedAt: archiveItems.receivedAt,
+      sentAt: archiveItems.sentAt,
+      subject: archiveItems.subject,
+      messageId: archiveItems.messageId,
+      envelope: archiveItems.envelope,
+    })
+    .from(archiveItems)
+    .where(and(eq(archiveItems.tenantId, tenantId), eq(archiveItems.id, itemId)))
+    .limit(1);
+  if (!row) {
+    throw new ProblemError(404, "Archive item not found");
+  }
+  return row;
 }
 
-/** Verify a tenant's archive hash chain end to end (@restow/core archive/chain.ts); reports the first break, if any. */
-export async function verifyArchiveChain(
+type ContentRow = Awaited<ReturnType<typeof loadContentRow>>;
+
+/** Headers from the catalog row alone, for a message that is not opened. */
+function headersOfRow(row: ContentRow): PreviewHeaders {
+  return {
+    subject: row.subject,
+    from: row.envelope?.from ?? null,
+    to: row.envelope?.to ?? [],
+    cc: row.envelope?.cc ?? [],
+    date: (row.sentAt ?? row.receivedAt).toISOString(),
+    messageId: row.messageId,
+  };
+}
+
+function archiveContentProblem(error: unknown): ProblemError {
+  const problem = error instanceof ArchiveContentError ? error.problem : "unreadable";
+  return new ProblemError(problem === "not_recorded" ? 404 : 502, "Archived content not readable", {
+    type: "urn:restow:problem:archive-content-unavailable",
+    detail:
+      problem === "mismatch"
+        ? "The stored message does not match the SHA-256 recorded when it was archived."
+        : problem === "not_recorded"
+          ? "This item was archived before its content reference was recorded; it can only be exported."
+          : "The message could not be read from the storage location.",
+    extensions: { problem },
+  });
+}
+
+/**
+ * The reading pane of one archived message: a sanitised view parsed in an
+ * isolated process (snapshots/preview-isolated.ts), from the original bytes
+ * verified against their recorded SHA-256. Audited as a read of archived content.
+ */
+export async function previewArchiveItem(
   db: DbExecutor,
   tenantId: string,
-): Promise<ChainVerificationDto> {
+  itemId: string,
+  actor: ArchiveActor,
+): Promise<MailPreviewDto> {
   return withTenantTx(db, tenantId, async (tx) => {
-    const rows = await tx
-      .select({
-        itemHash: archiveItems.itemHash,
-        receivedAt: archiveItems.receivedAt,
-        chainHash: archiveItems.chainHash,
-      })
-      .from(archiveItems)
-      .where(eq(archiveItems.tenantId, tenantId))
-      .orderBy(archiveItems.createdAt);
-    const result = archive.verifyChain(rows);
-    return { ok: result.ok, checked: rows.length, brokenAt: result.brokenAt };
+    const row = await loadContentRow(tx, tenantId, itemId);
+    let preview: MailPreviewDto;
+    if ((row.sizeBytes ?? 0) > PREVIEW_SIZE_CAP_BYTES) {
+      preview = {
+        previewable: false,
+        reason: "too-large",
+        headers: headersOfRow(row),
+        attachments: [],
+      };
+    } else {
+      let bytes: Buffer;
+      try {
+        bytes = await readArchiveItemBytes(tx, tenantId, row);
+      } catch (error) {
+        throw archiveContentProblem(error);
+      }
+      try {
+        preview = await previewInWorker(bytes);
+      } catch (error) {
+        if (error instanceof PreviewUnreadableError) {
+          preview = {
+            previewable: false,
+            reason: "unreadable",
+            headers: headersOfRow(row),
+            attachments: [],
+          };
+        } else if (error instanceof PreviewBusyError) {
+          throw new ProblemError(503, "Preview busy", {
+            type: "urn:restow:problem:preview-busy",
+            detail:
+              "Many messages are being prepared for display at the moment. Try again in a few seconds.",
+            extensions: { retryable: true },
+          });
+        } else {
+          throw error;
+        }
+      }
+    }
+    await audit(tx, {
+      tenantId,
+      actor: actor.label,
+      actorUserId: actor.userId,
+      action: "archive.item.previewed",
+      target: itemId,
+      targetType: "archive_item",
+      ip: actor.ip,
+      details: { previewable: preview.previewable },
+    });
+    return preview;
+  });
+}
+
+export interface ArchiveDownloadDto {
+  fileName: string;
+  content: Buffer;
+}
+
+/** The original message as archived, byte for byte (verified), for a `.eml` download. Audited. */
+export async function downloadArchiveItem(
+  db: DbExecutor,
+  tenantId: string,
+  itemId: string,
+  actor: ArchiveActor,
+): Promise<ArchiveDownloadDto> {
+  return withTenantTx(db, tenantId, async (tx) => {
+    const row = await loadContentRow(tx, tenantId, itemId);
+    let content: Buffer;
+    try {
+      content = await readArchiveItemBytes(tx, tenantId, row);
+    } catch (error) {
+      throw archiveContentProblem(error);
+    }
+    await audit(tx, {
+      tenantId,
+      actor: actor.label,
+      actorUserId: actor.userId,
+      action: "archive.item.downloaded",
+      target: itemId,
+      targetType: "archive_item",
+      ip: actor.ip,
+      details: { bytes: content.length },
+    });
+    return { fileName: emlFileName(row.subject, itemId), content };
   });
 }
 

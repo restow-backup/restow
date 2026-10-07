@@ -95,6 +95,18 @@ class ReadOnlyChunkIndex implements ChunkIndex {
   }
 }
 
+/**
+ * A read-only chunk reader over the tenant's storage (keyring, targets and
+ * chunk index), for reads of stored content that need more than one object:
+ * the mail preview reads one message, the archive's content check several.
+ * Sequential for the same reason as {@link readManifestObjectBytes}.
+ */
+export async function openContentReader(db: DbExecutor, tenantId: string): Promise<ChunkReader> {
+  const keys = await loadTenantKeyring(db, tenantId);
+  const storage = await resolveTenantStorage(db, tenantId);
+  return new ChunkReader({ storage, keys, index: new ReadOnlyChunkIndex(db, tenantId) });
+}
+
 /** The `manifest_objects` fields a chunk read needs. */
 export interface ReadableManifestEntry {
   readonly path: string;
@@ -164,9 +176,7 @@ export async function readManifestObjectBytes(
   // auto-generated name on the one connection, corrupting whichever
   // statement rolls back; a connection runs one query at a time (see
   // verify/verification-state.ts).
-  const keys = await loadTenantKeyring(db, tenantId);
-  const storage = await resolveTenantStorage(db, tenantId);
-  const reader = new ChunkReader({ storage, keys, index: new ReadOnlyChunkIndex(db, tenantId) });
+  const reader = await openContentReader(db, tenantId);
   try {
     return await reader.readObjectToBuffer(toManifestObject(entry));
   } catch (error) {

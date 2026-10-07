@@ -276,12 +276,17 @@ Die Zuordnung steht in `archive_item_mailboxes` (nur hinzufügen, nie ändern, w
   löschen, sobald keine Referenz mehr besteht. Hardware-WORM schützt den Inhalt einer Mail damit
   in 0.1.0 nicht, und Sicherungsdaten (Backups) tragen gar keine Object-Lock-Retention.
 - Hash-Kette: `archive_items.chain_hash = SHA-256(prev_chain_hash || item_hash ||
-  received_at)`; die Kettenprüfung berechnet sie neu und meldet den ersten Bruch.
-  Zielbild, nicht in 0.1.0: ein täglicher Anker in `archive_anchor` (Datum, letzter
-  Kettenwert, Anzahl), dessen Werte zusätzlich per E-Mail an den Betreiber und optional an
-  einen externen Zeitstempeldienst (RFC 3161, z. B. freetsa.org) gehen. Die Tabelle ist
-  angelegt, es schreibt sie aber noch kein Prozess. (Das Audit-Log hat tägliche Anker,
-  `audit_anchor`, siehe ARCHITECTURE.md.)
+  received_at)`. Nach Ende eines UTC-Tages schreibt der nächtliche Ankerlauf des Workers
+  (`apps/worker/src/handlers/archive-anchor.ts`, zusammen mit den Audit-Ankern) je Mandant
+  einen Anker in `archive_anchor`: Datum, Kettenwert des letzten Eintrags des Tages und die
+  Länge der Kette bis dahin; jeder Anker steht zusätzlich im Worker-Log. Die Archivprüfung
+  (`apps/api/src/features/archive/verify.ts`) prüft drei Dinge und nennt jedes im Ergebnis:
+  die Verkettung aller Einträge (erster Bruch mit Position ab 1 und Element), den Abgleich
+  mit jedem Anker (erkennt am Ende abgeschnittene Einträge bis zum neuesten Anker; Einträge
+  danach sind noch nicht versiegelt) und eine Stichprobe von Nachrichten, die aus dem
+  Speicher gelesen und mit Größe und SHA-256 der Erfassung verglichen werden. Jede Prüfung
+  steht im Audit-Log (`archive.chain.verified`). Nicht umgesetzt: Versand der Anker per
+  E-Mail und externe Zeitstempel (RFC 3161).
 - Dedupe: Gleiche Inhalte liegen im Chunk-Store einmal je Mandant. Zielbild, nicht in 0.1.0:
   gleiche Mail an mehrere Postfächer = ein Original mit mehreren Zuordnungen
   (Envelope-Empfänger bleiben je Zuordnung erhalten).
@@ -362,13 +367,16 @@ steht, ist nicht umgesetzt.
   versiegelter Datensatz mit der Hash-Kette. Unveränderbarkeit auf lokalem Speicher und NFS
   nur auf Anwendungsebene. Auf S3 mit Object Lock trägt in 0.1.0 nur der Datensatz eine
   Retention, nicht die Packs mit dem Nachrichteninhalt; Sicherungsdaten tragen keine.
-  Tägliche Archiv-Anker (`archive_anchor`) und externe Zeitstempel gibt es nicht.
+  Tägliche Archiv-Anker (`archive_anchor`) schreibt der Worker; externe Zeitstempel gibt es nicht.
 - **Suche.** Volltext (Postgres `simple`, kein Stemming) über Betreff, extrahierten Text
   (lange Bodies können gekürzt sein) und Umschlag, nicht über Anhänge. Nur Administratoren des
   Mandanten; kein Selbstbedienungszugriff für Endnutzer. Jede Suche und jedes gelesene Element
   steht im Audit-Log (`apps/api/src/features/archive/`).
-- **Kettenprüfung** als API-Endpunkt und Schaltfläche auf der Archiv-Seite
-  (`apps/web/src/features/archive/`).
+- **Archivprüfung** (Verkettung, tägliche Anker, Inhaltsstichprobe) als API-Endpunkt und
+  Schaltfläche auf der Archiv-Seite (`apps/web/src/features/archive/`), synchron in einer
+  Anfrage; ein Hintergrundlauf mit Fortschritt ist nicht umgesetzt.
+- **Lesen und Herunterladen** einer archivierten Nachricht (Leseansicht, `.eml`), beides im
+  Audit-Log.
 - **Retention.** Fest 8 Jahre bis zum Jahresende des Eingangsjahres; keine API und keine
   Oberfläche setzen eine andere Richtlinie. Der tägliche Löschlauf (Business und Service
   Provider, `ee/worker/src/archive-retention/`, im bestehenden `retention`-Job) löscht nur

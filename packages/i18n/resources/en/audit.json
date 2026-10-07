@@ -211,7 +211,9 @@
       "searched": "Archive searched",
       "item": {
         "read": "Archive item read",
-        "deleted": "Archive item deleted by retention"
+        "deleted": "Archive item deleted by retention",
+        "previewed": "Archived message viewed",
+        "downloaded": "Archived message downloaded"
       },
       "legal_hold": {
         "created": "Legal hold placed",
@@ -220,6 +222,9 @@
       "journal": {
         "address_created": "Journal address issued",
         "address_rotated": "Journal address rotated"
+      },
+      "chain": {
+        "verified": "Archive checked"
       }
     },
     "backup": {
