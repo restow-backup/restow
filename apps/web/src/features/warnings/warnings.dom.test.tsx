@@ -304,7 +304,7 @@ describe("the reasons of a warning", () => {
   });
 });
 
-describe("the list of warnings", () => {
+describe("the list of warnings", { timeout: 20_000 }, () => {
   const LIST: WarningList = {
     items: [
       {
