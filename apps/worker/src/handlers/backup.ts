@@ -243,8 +243,13 @@ export class PhaseRecorder implements ProgressReporter {
     this.inner.total(count);
   }
 
-  advance(done?: number, bytes?: number): void {
-    this.inner.advance(done, bytes);
+  advance(done?: number, bytes?: number, processed?: number): void {
+    this.inner.advance(done, bytes, processed);
+  }
+
+  /** Packs written to the repository (the run's "transferred" bytes). */
+  transfer(bytes: number): void {
+    this.inner.transfer?.(bytes);
   }
 
   fail(itemRef: string, reason: string, cause?: FailureCause): void {

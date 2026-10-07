@@ -196,7 +196,7 @@ function Row({
   return (
     <>
       <dt className="text-muted-foreground">{label}</dt>
-      <dd className="m-0 text-right font-mono tabular-nums" data-term={term}>
+      <dd className="m-0 min-w-0 text-right font-mono tabular-nums break-words" data-term={term}>
         {children}
       </dd>
     </>
@@ -235,12 +235,12 @@ function StatsSection({
   return (
     <section
       aria-label={t("view.stats.label")}
-      className="grid grid-cols-1 rounded-[10px] border border-border sm:grid-cols-3 sm:divide-x"
+      className="grid grid-cols-1 rounded-[10px] border border-border sm:grid-cols-[repeat(3,minmax(0,1fr))] sm:divide-x"
       data-section="stats"
     >
-      <div className="p-3">
+      <div className="min-w-0 p-3">
         <h3 className="mb-2 text-[12.5px] font-semibold">{t("view.stats.summary")}</h3>
-        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-[12.5px]">
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[12.5px]">
           <Row label={t("view.stats.duration")} term="duration">
             {seconds === null ? "–" : formatClock(seconds)}
           </Row>
@@ -266,9 +266,9 @@ function StatsSection({
           )}
         </dl>
       </div>
-      <div className="border-t p-3 sm:border-t-0">
+      <div className="min-w-0 border-t p-3 sm:border-t-0">
         <h3 className="mb-2 text-[12.5px] font-semibold">{t("view.stats.data")}</h3>
-        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-[12.5px]">
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[12.5px]">
           <Row label={t("view.stats.processed")} term="processed">
             {formatBytes(processed, language)}
             {running && progress?.percent != null ? ` (${progress.percent} %)` : ""}
@@ -284,9 +284,9 @@ function StatsSection({
           </Row>
         </dl>
       </div>
-      <div className="border-t p-3 sm:border-t-0">
+      <div className="min-w-0 border-t p-3 sm:border-t-0">
         <h3 className="mb-2 text-[12.5px] font-semibold">{t("view.stats.result")}</h3>
-        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-[12.5px]">
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1.5 text-[12.5px]">
           <Row
             label={t(run.kind === "backup" ? "view.stats.backedUp" : "view.stats.items")}
             term="backed-up"
@@ -301,7 +301,10 @@ function StatsSection({
                 ) : detail.restoreCheck.state === "none" ? (
                   "–"
                 ) : (
-                  <RestoreCheckChip check={detail.restoreCheck} className="font-sans" />
+                  <RestoreCheckChip
+                    check={detail.restoreCheck}
+                    className="font-sans whitespace-normal"
+                  />
                 )
               ) : (
                 "–"
