@@ -104,11 +104,11 @@
     },
     "status_read": {
       "label": "Status",
-      "description": "Summary, storage, latest verify report."
+      "description": "Summary, storage, latest restore check report."
     },
     "jobs_read": {
-      "label": "Jobs",
-      "description": "Jobs with progress, failures and duration."
+      "label": "Runs",
+      "description": "Runs with progress, failures and duration."
     },
     "items_read": {
       "label": "Protected objects",
@@ -127,8 +127,8 @@
       "description": "Start backups and restores."
     },
     "verify_write": {
-      "label": "Test restores",
-      "description": "Start verify runs (sampled test restores)."
+      "label": "Restore checks",
+      "description": "Start restore checks (sampled test restores)."
     },
     "users_write": {
       "label": "Protection",
@@ -155,16 +155,16 @@
   },
   "events": {
     "job_failed": {
-      "label": "Job failed",
-      "description": "A backup, restore, verify or archive job failed for good, after its retries."
+      "label": "Run failed",
+      "description": "A backup, restore, restore check or archive run failed for good, after its retries."
     },
     "job_completed": {
-      "label": "Job completed",
-      "description": "A job finished successfully."
+      "label": "Run completed",
+      "description": "A run finished successfully."
     },
     "verify_completed": {
-      "label": "Verify completed",
-      "description": "A test restore finished, with its recovery readiness."
+      "label": "Restore check completed",
+      "description": "A restore check finished, with its readiness."
     },
     "webhook_test": {
       "label": "Test event",
@@ -189,7 +189,7 @@
     "create": "Add webhook",
     "empty": {
       "title": "No webhooks yet",
-      "description": "Add a webhook to have {appName} notify your RMM, PSA or ticket system about failed jobs and other events."
+      "description": "Add a webhook to have {appName} notify your RMM, PSA or ticket system about failed runs and other events."
     },
     "columns": {
       "webhook": "Webhook",
@@ -316,7 +316,7 @@
     "filter": {
       "label": "Status",
       "all": "All",
-      "pending": "Queued",
+      "pending": "Waiting",
       "delivered": "Delivered",
       "failed": "Failed"
     },
@@ -328,7 +328,7 @@
       "result": "Result"
     },
     "status": {
-      "pending": "Queued",
+      "pending": "Waiting",
       "delivered": "Delivered",
       "failed": "Failed"
     },

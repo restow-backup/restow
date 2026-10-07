@@ -6,7 +6,7 @@
   },
   "list": {
     "title": "Mandanten",
-    "subtitle": "Die Kunden, die diese Installation schützt: Postfächer, letzte Sicherung und nachgewiesene Wiederherstellbarkeit je Mandant.",
+    "subtitle": "Die Mandanten, die diese Installation schützt: Postfächer, letzte Sicherung und nachgewiesene Wiederherstellbarkeit je Mandant.",
     "searchLabel": "Mandanten durchsuchen",
     "searchPlaceholder": "Nach Name oder Kurzname suchen",
     "count": "{count, plural, one {# Mandant} other {# Mandanten}}",
@@ -23,7 +23,7 @@
     },
     "empty": {
       "title": "Noch keine Mandanten",
-      "description": "Ein Mandant ist ein Kunde. Seine Quellen, Sicherungen, sein Archiv, seine Schlüssel und Nutzer bleiben streng von allen anderen Mandanten getrennt. Legen Sie den ersten Mandanten an, um Postfächer zu schützen."
+      "description": "Ein Mandant steht für eine Organisation, die Sie betreuen. Seine Quellen, Sicherungen, sein Archiv, seine Schlüssel und Benutzer bleiben streng von allen anderen Mandanten getrennt. Legen Sie den ersten Mandanten an, um Postfächer zu schützen."
     }
   },
   "overview": {
@@ -46,8 +46,8 @@
   },
   "readiness": {
     "green": "Bereit",
-    "yellow": "Eingeschränkt",
-    "red": "Nicht bereit",
+    "yellow": "Achtung",
+    "red": "Nicht wiederherstellbar",
     "none": "Nichts geschützt",
     "loading": "Wiederherstellbarkeit wird geprüft …",
     "unavailable": "Nicht verfügbar",
@@ -85,7 +85,7 @@
   },
   "create": {
     "title": "Neuer Mandant",
-    "description": "Ein Mandant ist ein Kunde. Er erhält einen eigenen Schlüssel, und seine Daten bleiben von allen anderen Mandanten getrennt.",
+    "description": "Ein Mandant steht für eine Organisation, die Sie betreuen. Er erhält einen eigenen Schlüssel, und seine Daten bleiben von allen anderen Mandanten getrennt.",
     "name": "Name",
     "namePlaceholder": "z. B. Beispiel GmbH",
     "slug": "Kurzname",
@@ -99,17 +99,17 @@
     "name": "Name",
     "cap": "Postfach-Obergrenze",
     "capPlaceholder": "Keine Obergrenze",
-    "capHint": "Optional. Die mit diesem Kunden vereinbarte Zahl an Postfächern, nur zur Orientierung. Bei Überschreitung wird nichts blockiert; das Provider-Dashboard weist nur darauf hin.",
+    "capHint": "Optional. Die mit diesem Mandanten vereinbarte Zahl an Postfächern, nur zur Orientierung. Bei Überschreitung wird nichts blockiert; das Provider-Dashboard weist nur darauf hin.",
     "submit": "Änderungen speichern"
   },
   "suspend": {
     "title": "{name} sperren?",
-    "description": "Aufträge dieses Mandanten laufen nicht mehr, und seine Nutzer können sich nicht mehr anmelden. Gespeicherte Sicherungen bleiben erhalten, Provider-Admins behalten den Zugriff. Sie können den Mandanten jederzeit wieder entsperren.",
+    "description": "Läufe dieses Mandanten finden nicht mehr statt, und seine Benutzer können sich nicht mehr anmelden. Gespeicherte Sicherungen bleiben erhalten, Provider-Admins behalten den Zugriff. Sie können den Mandanten jederzeit wieder entsperren.",
     "confirm": "Mandant sperren"
   },
   "resume": {
     "title": "{name} entsperren?",
-    "description": "Aufträge laufen wieder nach Zeitplan, und die Nutzer des Mandanten können sich anmelden.",
+    "description": "Backup-Jobs laufen wieder nach Zeitplan, und die Benutzer des Mandanten können sich anmelden.",
     "confirm": "Mandant entsperren"
   },
   "delete": {
@@ -117,7 +117,7 @@
     "description": "Das Löschen eines Mandanten lässt sich nicht rückgängig machen.",
     "points": {
       "access": "Jede Anmeldung an diesem Mandanten endet sofort: Alle Mitgliedschaften und offenen Einladungen werden entfernt.",
-      "data": "Die gespeicherten Daten des Mandanten entfernt anschließend ein eigener, protokollierter Löschauftrag.",
+      "data": "Die gespeicherten Daten des Mandanten entfernt anschließend ein eigener, protokollierter Löschlauf.",
       "audit": "Das Audit-Log behält jeden Eintrag zu diesem Mandanten."
     },
     "confirmLabel": "Geben Sie {slug} zur Bestätigung ein",
@@ -132,11 +132,11 @@
     },
     "suspended": {
       "title": "Dieser Mandant ist gesperrt",
-      "description": "Aufträge laufen nicht, und seine Nutzer können sich nicht anmelden. Gespeicherte Sicherungen bleiben erhalten."
+      "description": "Es finden keine Läufe statt, und seine Benutzer können sich nicht anmelden. Gespeicherte Sicherungen bleiben erhalten."
     },
     "deleting": {
       "title": "Dieser Mandant wird gelöscht",
-      "description": "Anmeldungen sind beendet, und der Löschauftrag entfernt seine Daten. Weitere Änderungen sind nicht möglich."
+      "description": "Anmeldungen sind beendet, und der Löschlauf entfernt seine Daten. Weitere Änderungen sind nicht möglich."
     },
     "overview": {
       "readiness": "Wiederherstellbarkeit",
@@ -165,7 +165,7 @@
     "removeOf": "{name} entfernen",
     "empty": {
       "title": "Noch hat niemand Zugriff",
-      "description": "Laden Sie zuerst den Administrator des Kunden ein. Er verwaltet dann Quellen, Schutz und Wiederherstellungen und lädt seine Kollegen selbst ein."
+      "description": "Laden Sie zuerst den Administrator des Mandanten ein. Er verwaltet dann Quellen, Schutz und Wiederherstellungen und lädt die weiteren Benutzer des Mandanten selbst ein."
     },
     "columns": {
       "person": "Person",
@@ -306,7 +306,7 @@
   },
   "wizard": {
     "title": "Neuer Mandant",
-    "description": "Neuen Kunden Schritt für Schritt anlegen: Organisation, Ansprechpartner, Benachrichtigungsempfänger und einzuladende Administratoren.",
+    "description": "Neuen Mandanten Schritt für Schritt anlegen: Organisation, Ansprechpartner, Benachrichtigungsempfänger und einzuladende Administratoren.",
     "steps": {
       "organisation": "Organisation",
       "contacts": "Ansprechpartner",
@@ -328,7 +328,7 @@
     },
     "organisation": {
       "title": "Organisation",
-      "description": "Name, Adresse und Spracheinstellung des neuen Kunden.",
+      "description": "Name, Adresse und Spracheinstellung des neuen Mandanten.",
       "name": "Name",
       "namePlaceholder": "z. B. Beispiel GmbH",
       "slug": "Kurzname",
@@ -336,7 +336,7 @@
       "slugHint": "Kurzname für Exporte und Integrationen: Kleinbuchstaben, Ziffern und Bindestriche. Kann später nicht mehr geändert werden.",
       "customerNumber": "Kundennummer",
       "customerNumberPlaceholder": "z. B. K-1001",
-      "customerNumberHint": "Ihre eigene interne Nummer für diesen Kunden. Optional, muss aber installationsweit eindeutig sein.",
+      "customerNumberHint": "Ihre eigene interne Nummer für diesen Mandanten. Optional, muss aber installationsweit eindeutig sein.",
       "vatId": "USt-IdNr.",
       "vatIdPlaceholder": "z. B. DE123456789",
       "address": "Adresse",
@@ -354,7 +354,7 @@
     },
     "contacts": {
       "title": "Ansprechpartner",
-      "description": "Wen man bei diesem Kunden erreicht. Genau einer ist der primäre Ansprechpartner.",
+      "description": "Wen man bei diesem Mandanten erreicht. Genau eine Person ist der primäre Ansprechpartner.",
       "name": "Name",
       "namePlaceholder": "Vollständiger Name",
       "role": "Funktion",
@@ -369,9 +369,9 @@
     "notifications": {
       "title": "Benachrichtigungsempfänger",
       "description": "Wer betriebliche E-Mails erhält, und worüber.",
-      "deliveryNotice": "Jede gewählte Kategorie wird von einer Regel des Mandanten getragen (fehlgeschlagene Aufträge und gefährdete Wiederherstellbarkeit als Alarm, der Wochenbericht montags um 07:00, sofern Berichte auf dieser Installation verfügbar sind). Die hier genannten Personen sind die Empfänger dieser Regeln.",
+      "deliveryNotice": "Jede gewählte Kategorie wird von einer Regel des Mandanten getragen (fehlgeschlagene Läufe und gefährdete Wiederherstellbarkeit als Alarm, der Wochenbericht montags um 07:00, sofern Berichte auf dieser Installation verfügbar sind). Die hier genannten Personen sind die Empfänger dieser Regeln.",
       "categories": {
-        "jobFailures": "Fehlgeschlagene Jobs",
+        "jobFailures": "Fehlgeschlagene Läufe",
         "weeklyReport": "Wochenbericht",
         "readinessRed": "Wiederherstellbarkeit wird rot",
         "licenseUpdates": "Lizenz- und Update-Hinweise"
@@ -412,7 +412,7 @@
     },
     "source": {
       "title": "Erste Quelle",
-      "description": "Verbinden Sie das Microsoft-365-Konto oder ein IMAP-Postfach des Kunden, sobald der Mandant angelegt ist.",
+      "description": "Verbinden Sie das Microsoft-365-Konto oder ein IMAP-Postfach des Mandanten, sobald der Mandant angelegt ist.",
       "notice": "Sobald der Mandant angelegt ist, führt Sie der nächste Schritt direkt zu seiner Quellen-Seite, um eine zu verbinden."
     },
     "review": {
@@ -444,16 +444,16 @@
     }
   },
   "customerPanel": {
-    "title": "Kundendaten",
+    "title": "Stammdaten",
     "description": "Interne Kundennummer, Adresse und Spracheinstellung.",
-    "edit": "Kundendaten bearbeiten",
+    "edit": "Stammdaten bearbeiten",
     "customerNumber": "Kundennummer",
     "vatId": "USt-IdNr.",
     "address": "Adresse",
     "language": "Sprache",
     "timeZone": "Zeitzone",
     "noneSet": "Nicht gesetzt",
-    "saved": "Kundendaten gespeichert.",
+    "saved": "Stammdaten gespeichert.",
     "contactsTitle": "Ansprechpartner",
     "contactsDescription": "Wen man erreicht.",
     "editContacts": "Ansprechpartner bearbeiten",
@@ -474,9 +474,9 @@
         "readOnly": "Ihre eigene Organisation ist noch nicht eingerichtet. Das kann nur ein Administrator des Provider-Teams mit Zugriff auf alle Mandanten. Bitten Sie einen von ihnen darum."
       },
       "addCustomer": {
-        "title": "Ersten Kunden anlegen",
-        "description": "Ihre eigene Organisation ist eingerichtet. Jeder Kunde bekommt einen eigenen Mandanten mit eigenen Quellen, eigenem Speicher und eigenen Personen.",
-        "action": "Kunden anlegen"
+        "title": "Ersten Mandanten anlegen",
+        "description": "Ihre eigene Organisation ist eingerichtet. Jede Organisation, die Sie betreuen, bekommt einen eigenen Mandanten mit eigenen Quellen, eigenem Speicher und eigenen Personen.",
+        "action": "Mandanten anlegen"
       }
     },
     "actions": {
@@ -493,7 +493,7 @@
     "mark": {
       "title": "Eigene Organisation auswählen",
       "description": "Wählen Sie die, die Ihnen gehört. Sie steht ab jetzt ganz oben und lässt sich nicht löschen, solange sie Ihre eigene Organisation ist. Sonst ändert sich nichts an ihr.",
-      "choose": "Organisationen",
+      "choose": "Mandanten",
       "submit": "Als meine Organisation verwenden"
     },
     "toasts": {

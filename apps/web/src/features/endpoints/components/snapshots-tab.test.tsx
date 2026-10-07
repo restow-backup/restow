@@ -232,7 +232,7 @@ describe("SnapshotsTab", () => {
       ),
     );
     await open();
-    expect(page.text()).toContain("The repository is busy");
+    expect(page.text()).toContain("The backup data is busy");
     expect(page.text()).toContain("busy with a backup or maintenance");
     expect(page.maybeByText("button", "Retry")).not.toBeNull();
   });
@@ -339,7 +339,7 @@ describe("SnapshotsTab", () => {
     );
     await open();
     await pickNewest();
-    expect(page.text()).toContain("The repository is busy");
+    expect(page.text()).toContain("The backup data is busy");
     expect(page.text()).toContain("Try again in a moment");
   });
 

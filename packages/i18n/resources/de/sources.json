@@ -121,7 +121,7 @@
     "namePlaceholderImap": "z. B. Postfach Alice",
     "m365": {
       "title": "Microsoft-365-Tenant hinzufügen",
-      "description": "Legt die Quelle an. Im nächsten Schritt erteilt ein Global Admin des Kunden den Admin-Consent; erst dann kann gesichert werden.",
+      "description": "Legt die Quelle an. Im nächsten Schritt erteilt ein Global Admin des Mandanten den Admin-Consent; erst dann kann gesichert werden.",
       "editTitle": "Microsoft-365-Quelle bearbeiten",
       "editDescription": "Name und Ziel-Tenant des Consent-Links.",
       "tenantHint": "Tenant-ID oder Domain (optional)",
@@ -199,11 +199,11 @@
   "m365": {
     "connection": {
       "title": "Microsoft-365-Verbindung",
-      "description": "Admin-Consent des Kunden-Tenants für die App von {appName}."
+      "description": "Admin-Consent des Microsoft-365-Tenants des Mandanten für die App von {appName}."
     },
     "connect": {
       "title": "Microsoft 365 verbinden",
-      "description": "Ein Global Admin des Kunden öffnet den Consent-Link, meldet sich in seinem Tenant an und erteilt die Anwendungsberechtigungen für die ganze Organisation. Danach bittet Microsoft ihn um eine weitere Anmeldung, mit der {appName} Organisation und Admin-Rolle bestätigt, bevor irgendetwas verbunden wird. {appName} prüft danach jede Berechtigung.",
+      "description": "Ein Global Admin des Mandanten öffnet den Consent-Link, meldet sich in seinem Microsoft-365-Tenant an und erteilt die Anwendungsberechtigungen für die ganze Organisation. Danach bittet Microsoft ihn um eine weitere Anmeldung, mit der {appName} Organisation und Admin-Rolle bestätigt, bevor irgendetwas verbunden wird. {appName} prüft danach jede Berechtigung.",
       "ownTenant": {
         "hint": "Die App liegt in Ihrem eigenen Tenant. Hier ist kein Consent-Link nötig: {appName} verbindet ihn direkt, sofern die App dort bereits die Berechtigungen hat."
       },
@@ -215,7 +215,7 @@
       },
       "steps": {
         "one": "Consent-Link erzeugen (eine Stunde gültig).",
-        "two": "Selbst öffnen oder an den Global Admin des Kunden schicken.",
+        "two": "Selbst öffnen oder an den Global Admin des Mandanten schicken.",
         "three": "Nach Consent und bestätigender Anmeldung aktualisiert sich diese Seite und zeigt die Berechtigungs-Checkliste."
       },
       "waiting": "Warte auf Consent … diese Seite aktualisiert sich automatisch.",
@@ -238,7 +238,7 @@
         "label": "Wie soll Microsoft 365 verbunden werden?",
         "consent": "Consent-Einladung",
         "own_app": "Eigene Graph-App",
-        "consentHint": "Ein Admin des Kunden erteilt der gemeinsamen {appName}-App per Link die Berechtigungen.",
+        "consentHint": "Ein Admin des Mandanten erteilt der gemeinsamen {appName}-App per Link die Berechtigungen.",
         "own_appHint": "Sie legen im Tenant selbst eine App an und tragen deren Zugangsdaten hier ein. Kein Consent-Link, keine gemeinsame App."
       }
     },
@@ -287,7 +287,7 @@
     },
     "permissions": {
       "title": "Anwendungsberechtigungen",
-      "description": "Was der Kunden-Tenant der Backup-App erteilt hat, verglichen mit dem, was {appName} braucht.",
+      "description": "Was der Microsoft-365-Tenant des Mandanten der Backup-App erteilt hat, verglichen mit dem, was {appName} braucht.",
       "notChecked": "Noch nicht geprüft. Prüfen Sie die Berechtigungen, sobald der Admin-Consent erteilt ist.",
       "awaitingConsent": "Verfügbar, sobald der Admin-Consent erteilt ist.",
       "checkedAt": "Geprüft {when}",
@@ -306,7 +306,7 @@
       "readOnlyDetail": "Statt {expected} wurde {granted} erteilt.",
       "pitfall": {
         "title": "Nur lesend statt lesend und schreibend",
-        "description": "Der klassische Fehler: Mit {granted} läuft das Backup, aber jeder Restore scheitert mit 403. Erteilen Sie {expected} in der App-Registrierung und wiederholen Sie den Consent."
+        "description": "Der klassische Fehler: Mit {granted} läuft das Backup, aber jede Wiederherstellung scheitert mit 403. Erteilen Sie {expected} in der App-Registrierung und wiederholen Sie den Consent."
       },
       "unexpected": "Zusätzlich erteilt, von {appName} nicht genutzt: {list}",
       "complete": "Alle Pflichtberechtigungen sind erteilt.",
@@ -334,7 +334,7 @@
         "consent_missing": "Der Tenant hat der Backup-App nicht zugestimmt (oder einer anderen App-ID). Direkt nach einem Consent braucht Microsoft mitunter einige Minuten; prüfen Sie in Kürze erneut, sonst wiederholen Sie den Admin-Consent.",
         "invalid_credentials": "Client-Secret oder Zertifikat passen nicht zur App-Registrierung. Prüfen Sie sie unter Installation → Microsoft-Multi-Tenant-App (oder ENTRA_CLIENT_SECRET / ENTRA_CLIENT_CERT_PATH in der Server-Umgebung).",
         "credentials_expired": "Client-Secret oder Zertifikat sind abgelaufen. Legen Sie in Entra neue an und tragen Sie sie unter Installation → Microsoft-Multi-Tenant-App ein (oder tauschen Sie sie in der Server-Umgebung).",
-        "tenant_unknown": "Entra kennt diese Tenant-ID nicht. Der Consent-Rückweg hat sie gemeldet; wenden Sie sich an den Kunden-Admin.",
+        "tenant_unknown": "Entra kennt diese Tenant-ID nicht. Der Consent-Rückweg hat sie gemeldet; wenden Sie sich an den Administrator des Mandanten.",
         "unknown": "Entra hat die Anmeldung abgelehnt. Der Fehlercode unten hilft eventuell weiter."
       },
       "code": "Fehlercode: {code}"
@@ -360,7 +360,7 @@
     "ownApp": {
       "description": "Die Quelle nutzt eine App, die im Microsoft-365-Tenant selbst angelegt wurde. Die Zugangsdaten werden verschlüsselt gespeichert und nie wieder angezeigt.",
       "steps": {
-        "one": "Im Microsoft Entra Admin Center des Kunden-Tenants unter Identität › Anwendungen › App-Registrierungen › „Neue Registrierung“ eine App anlegen. Unterstützte Kontotypen: „Nur Konten in diesem Organisationsverzeichnis“.",
+        "one": "Im Microsoft Entra Admin Center des Microsoft-365-Tenants des Mandanten unter Identität › Anwendungen › App-Registrierungen › „Neue Registrierung“ eine App anlegen. Unterstützte Kontotypen: „Nur Konten in diesem Organisationsverzeichnis“.",
         "two": "Unter API-Berechtigungen › „Berechtigung hinzufügen“ › Microsoft Graph › Anwendungsberechtigungen alle Berechtigungen aus der Liste unten hinzufügen. Danach „Administratorzustimmung für … erteilen“ wählen.",
         "three": "Unter Zertifikate & Geheimnisse ein neues Clientgeheimnis anlegen und den Wert sofort kopieren; Entra zeigt ihn nur einmal. Notieren Sie das Ablaufdatum und tragen Sie vorher hier ein neues ein.",
         "four": "Auf der Übersicht der App die Verzeichnis-ID (Mandant) und die Anwendungs-ID (Client) kopieren und unten eintragen."

@@ -481,7 +481,7 @@ plain TypeScript, tested with vitest like the rest of the repository:
 
 ## Simulated machines
 
-Servers & endpoints › Inventory (filters All, Servers and Clients) shows two
+Servers & clients › Inventory (filters All, Servers and Clients) shows two
 machines, simulated, with real backups:
 
 | Machine | Tenant | System | Folders in the backup |

@@ -228,7 +228,7 @@ describe("status displays", () => {
     expect(failed).toContain("Unavailable");
     expect(failed).toContain("The readiness of this tenant could not be read.");
     expect(render(<HealthSummary state={{ status: "success", data: health }} />)).toContain(
-      "Not ready",
+      "Not restorable",
     );
     expect(
       render(

@@ -153,7 +153,7 @@ describe.skipIf(!testDatabaseAdminUrl)(
         rules.map((rule) => [rule.recipientCategory, rule.name, [...rule.emailRecipients].sort()]),
       ).toEqual(
         expect.arrayContaining([
-          ["jobFailures", "Fehlgeschlagene Aufträge", ["anna@contoso.test", "ben@contoso.test"]],
+          ["jobFailures", "Fehlgeschlagene Läufe", ["anna@contoso.test", "ben@contoso.test"]],
           ["readinessRed", "Wiederherstellbarkeit gefährdet", ["anna@contoso.test"]],
         ]),
       );

@@ -21,7 +21,7 @@
     "allArchive": "Alle Suchergebnisse"
   },
   "status": {
-    "queued": "Wartend",
+    "queued": "Wartet",
     "active": "Läuft",
     "completed": "Abgeschlossen",
     "completedWithIssues": "Mit Problemen abgeschlossen",
@@ -214,7 +214,7 @@
       "archive": "Archiv-Export"
     },
     "reason": {
-      "impersonationTitle": "Export im Auftrag der Besitzerin oder des Besitzers",
+      "impersonationTitle": "Export im Auftrag der Person, der die Daten gehören",
       "impersonation": "Diese Daten gehören {owner}. Der Export wird als Admin-Export in deren Auftrag protokolliert.",
       "label": "Begründung",
       "placeholder": "Ticketnummer oder warum dieser Export nötig ist",
@@ -237,7 +237,7 @@
       "notMail": "Es können nur E-Mails exportiert werden. OneDrive-Dateien gehören nicht zu einem Export.",
       "selectionUnknown": "Einige ausgewählte Einträge gibt es an diesem Sicherungsstand nicht mehr. Laden Sie den Ordner neu und wählen Sie erneut aus.",
       "quotaExceeded": "Die fertigen Exporte dieser Organisation belegen den gesamten Platz, den Exporte nutzen dürfen. Ältere Exporte werden beim Ablauf automatisch gelöscht. Fordern Sie diesen Export danach erneut an oder exportieren Sie weniger Post auf einmal.",
-      "queueUnavailable": "Die Job-Warteschlange ist nicht erreichbar. Stellen Sie sicher, dass der Worker von {appName} läuft, und versuchen Sie es erneut.",
+      "queueUnavailable": "Die Warteschlange ist nicht erreichbar. Stellen Sie sicher, dass der Worker von {appName} läuft, und versuchen Sie es erneut.",
       "snapshotGone": "Dieser Sicherungsstand ist nicht mehr verfügbar. Wählen Sie einen anderen.",
       "archiveGone": "Einige der ausgewählten Archiv-E-Mails sind nicht mehr verfügbar. Suchen Sie erneut und wählen Sie erneut aus."
     }

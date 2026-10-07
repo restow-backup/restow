@@ -137,7 +137,7 @@ describe("RestoreJobsPage", () => {
 
   it("names how many restores are shown and loads older ones", async () => {
     await mount();
-    expect(text()).toContain("The newest 100 requests are shown.");
+    expect(text()).toContain("The newest 100 runs are shown.");
     const more = [...container.querySelectorAll("button")].find((b) =>
       b.textContent?.includes("Show older"),
     );
@@ -147,7 +147,7 @@ describe("RestoreJobsPage", () => {
     });
     await settle();
     expect(apiFetch.mock.calls.some(([path]) => String(path).includes("offset=100"))).toBe(true);
-    expect(text()).toContain("The newest 103 requests are shown.");
+    expect(text()).toContain("The newest 103 runs are shown.");
     expect(
       [...container.querySelectorAll("button")].some((b) => b.textContent?.includes("Show older")),
     ).toBe(false);

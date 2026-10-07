@@ -66,8 +66,8 @@
         "action": "Sicherung starten"
       },
       "firstVerification": {
-        "label": "Erste Wiederherstellungsprüfung grün",
-        "hint": "Eine Sicherung zählt erst, wenn eine Wiederherstellungsprüfung sie bestätigt hat.",
+        "label": "Erste Restore-Prüfung grün",
+        "hint": "Eine Sicherung zählt erst, wenn eine Restore-Prüfung sie bestätigt hat.",
         "action": "Jetzt prüfen"
       },
       "notificationMail": {
@@ -84,7 +84,7 @@
       "source_error": "Eine Quelle meldet einen Fehler.",
       "consent_pending": "Eine Quelle wartet auf die Zustimmung des Administrators.",
       "no_backup_schedule": "Kein Sicherungszeitplan ist aktiv.",
-      "not_green": "Wiederherstellungsprüfungen liefen, aber noch keine war grün.",
+      "not_green": "Restore-Prüfungen liefen, aber noch keine war grün.",
       "not_tested": "Der Mailversand wurde noch nicht getestet.",
       "test_failed": "Die letzte Testmail konnte nicht versendet werden.",
       "mail_skipped": "Sie haben den Mail-Schritt der Einrichtung übersprungen, deshalb wird nichts gemailt. Unter Installation › Server & Betrieb › Benachrichtigungs-Mail lässt sich das jederzeit nachholen.",
@@ -99,7 +99,7 @@
     "overall": {
       "green": "Bereit",
       "yellow": "Braucht Aufmerksamkeit",
-      "red": "Nicht bereit",
+      "red": "Nicht wiederherstellbar",
       "none": "Nichts zu bewerten"
     },
     "segments": {
@@ -187,7 +187,7 @@
     "link": "Speicher öffnen",
     "target": {
       "unverified": "Speicher noch nicht getestet",
-      "error": "Repository fehlerhaft",
+      "error": "Speicherort fehlerhaft",
       "misconfigured": "Standardspeicher falsch eingerichtet"
     },
     "empty": {
@@ -247,19 +247,19 @@
     }
   },
   "verificationHistory": {
-    "title": "Wiederherstellungsprüfungen",
-    "description": "Wiederherstellungsprüfungen pro Tag und ihre Bewertung in den letzten {days} Tagen.",
-    "summary": "{checks} Wiederherstellungsprüfungen in den letzten {days} Tagen.",
+    "title": "Restore-Prüfungen",
+    "description": "Restore-Prüfungen pro Tag und ihre Bewertung in den letzten {days} Tagen.",
+    "summary": "{checks} Restore-Prüfungen in den letzten {days} Tagen.",
     "lastCheck": "Letzte Prüfung",
-    "never": "Es lief noch keine Wiederherstellungsprüfung.",
+    "never": "Es lief noch keine Restore-Prüfung.",
     "series": {
       "green": "Bereit",
       "yellow": "Braucht Aufmerksamkeit",
       "red": "Nicht wiederherstellbar"
     },
     "empty": {
-      "title": "Noch keine Wiederherstellungsprüfungen",
-      "description": "Eine Wiederherstellungsprüfung liest Sicherungen zurück und belegt, dass sie wiederherstellbar sind.",
+      "title": "Noch keine Restore-Prüfungen",
+      "description": "Eine Restore-Prüfung liest Sicherungen zurück und belegt, dass sie wiederherstellbar sind.",
       "action": "Jetzt prüfen"
     }
   },
@@ -320,7 +320,7 @@
     "queue": {
       "backup": "Sicherung",
       "restore": "Wiederherstellung",
-      "verify": "Wiederherstellungsprüfung",
+      "verify": "Restore-Prüfung",
       "archive": "Archiv",
       "directory": "Verzeichnisabgleich",
       "retention": "Aufbewahrung",
@@ -333,7 +333,7 @@
       "imap": "IMAP-Konto"
     },
     "status": {
-      "queued": "Wartend",
+      "queued": "Wartet",
       "active": "Läuft",
       "throttled": "Wartet auf Microsoft",
       "completed": "Abgeschlossen",
@@ -360,10 +360,10 @@
     "kpis": {
       "tenants": "Mandanten",
       "tenantsHint": "Ohne die eigene Organisation. {count, plural, =0 {Keiner gesperrt} one {# gesperrt} other {# gesperrt}}.",
-      "notReady": "Nicht bereite Mandanten",
-      "notReadyHint": "Von {count, plural, one {# Kunde} other {# Kunden}}. Etwas ist nicht wiederherstellbar oder noch nicht bestätigt.",
-      "unverified": "Ungeprüfte Sicherungen",
-      "unverifiedHint": "Neueste Sicherungen, die noch keine Wiederherstellungsprüfung zurückgelesen hat.",
+      "notReady": "Mandanten mit Handlungsbedarf",
+      "notReadyHint": "Von {count, plural, one {# Mandant} other {# Mandanten}}. Etwas ist nicht wiederherstellbar oder noch nicht nachgewiesen.",
+      "unverified": "Nicht nachgewiesene Sicherungen",
+      "unverifiedHint": "Neueste Sicherungen, die noch keine Restore-Prüfung zurückgelesen hat.",
       "failures": "Fehlgeschlagene Läufe (24 h)",
       "failuresHint": "Läufe jeder Art, auch von Server und Clients, die in den letzten 24 Stunden fehlgeschlagen sind.",
       "failuresPeriod": "ggü. den 24 Stunden davor",
@@ -383,7 +383,7 @@
       "columns": {
         "tenant": "Mandant",
         "readiness": "Wiederherstellbarkeit",
-        "unverified": "Ungeprüft",
+        "unverified": "Nicht nachgewiesen",
         "failures": "Fehlgeschlagen (24 h)",
         "lastBackup": "Letzte Sicherung",
         "mailboxes": "Postfächer",
@@ -414,7 +414,7 @@
       },
       "kinds": {
         "unavailable": "Die Zahlen des Mandanten konnten nicht gelesen werden.",
-        "storage_error": "Das Repository besteht seine Prüfung nicht.",
+        "storage_error": "Der Speicherort besteht seine Prüfung nicht.",
         "not_restorable": "{count, plural, one {# Objekt ist nicht wiederherstellbar.} other {# Objekte sind nicht wiederherstellbar.}}",
         "failed_jobs": "{count, plural, one {# Lauf ist in den letzten 24 Stunden fehlgeschlagen.} other {# Läufe sind in den letzten 24 Stunden fehlgeschlagen.}}",
         "over_cap": "{count, plural, one {# Postfach über der für diesen Mandanten vereinbarten Obergrenze.} other {# Postfächer über der für diesen Mandanten vereinbarten Obergrenze.}}",

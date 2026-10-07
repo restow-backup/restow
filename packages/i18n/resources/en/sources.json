@@ -121,7 +121,7 @@
     "namePlaceholderImap": "e.g. Mailbox Alice",
     "m365": {
       "title": "Add Microsoft 365 tenant",
-      "description": "Creates the source. In the next step a Global Admin of the customer grants admin consent; only then can anything be backed up.",
+      "description": "Creates the source. In the next step a Global Admin of the tenant grants admin consent; only then can anything be backed up.",
       "editTitle": "Edit Microsoft 365 source",
       "editDescription": "Name and target tenant of the consent link.",
       "tenantHint": "Tenant ID or domain (optional)",
@@ -199,11 +199,11 @@
   "m365": {
     "connection": {
       "title": "Microsoft 365 connection",
-      "description": "Admin consent of the customer tenant for the {appName} app."
+      "description": "Admin consent of the tenant's Microsoft 365 organisation for the {appName} app."
     },
     "connect": {
       "title": "Connect Microsoft 365",
-      "description": "A Global Admin of the customer opens the consent link, signs in to their tenant and grants the application permissions for the whole organisation. Microsoft then asks them to sign in once more, so {appName} can confirm the organisation and the admin role before it connects anything. {appName} then verifies every permission.",
+      "description": "A Global Admin of the tenant opens the consent link, signs in to their Microsoft 365 tenant and grants the application permissions for the whole organisation. Microsoft then asks them to sign in once more, so {appName} can confirm the organisation and the admin role before it connects anything. {appName} then verifies every permission.",
       "ownTenant": {
         "hint": "The app lives in your own tenant. No consent link is needed here: {appName} connects it directly, provided the app already has its permissions there."
       },
@@ -215,7 +215,7 @@
       },
       "steps": {
         "one": "Create the consent link (valid for one hour).",
-        "two": "Open it yourself or send it to the customer's Global Admin.",
+        "two": "Open it yourself or send it to the tenant's Global Admin.",
         "three": "After the consent and the confirming sign-in, this page updates and shows the permission checklist."
       },
       "waiting": "Waiting for consent … this page refreshes automatically.",
@@ -238,7 +238,7 @@
         "label": "How should Microsoft 365 be connected?",
         "consent": "Consent invitation",
         "own_app": "Own Graph app",
-        "consentHint": "An admin of the customer grants the shared {appName} app its permissions through a link.",
+        "consentHint": "An admin of the tenant grants the shared {appName} app its permissions through a link.",
         "own_appHint": "You create an app in the tenant yourself and enter its credentials here. No consent link, no shared app."
       }
     },
@@ -287,7 +287,7 @@
     },
     "permissions": {
       "title": "Application permissions",
-      "description": "What the customer tenant granted the backup app, compared with what {appName} needs.",
+      "description": "What the tenant's Microsoft 365 organisation granted the backup app, compared with what {appName} needs.",
       "notChecked": "Not checked yet. Verify the permissions once the admin consent is granted.",
       "awaitingConsent": "Available once the admin consent is granted.",
       "checkedAt": "Checked {when}",
@@ -334,7 +334,7 @@
         "consent_missing": "The tenant has not consented to the backup app (or consented to a different app ID). Right after a consent Microsoft may need a few minutes; verify again shortly, otherwise run the admin consent again.",
         "invalid_credentials": "The client secret or certificate does not match the app registration. Check it under Installation → Microsoft multi-tenant app (or ENTRA_CLIENT_SECRET / ENTRA_CLIENT_CERT_PATH in the server environment).",
         "credentials_expired": "The client secret or certificate has expired. Create a new one in Entra and enter it under Installation → Microsoft multi-tenant app (or rotate it in the server environment).",
-        "tenant_unknown": "Entra does not know this tenant ID. The consent callback recorded it; contact the customer admin.",
+        "tenant_unknown": "Entra does not know this tenant ID. The consent callback recorded it; contact the tenant's administrator.",
         "unknown": "Entra rejected the sign-in. The error code below may help."
       },
       "code": "Error code: {code}"
@@ -360,7 +360,7 @@
     "ownApp": {
       "description": "The source uses an app that was created in the Microsoft 365 tenant itself. The credentials are stored encrypted and never shown again.",
       "steps": {
-        "one": "In the customer tenant's Microsoft Entra admin center, go to Identity › Applications › App registrations › “New registration” and create an app. Supported account types: “Accounts in this organizational directory only”.",
+        "one": "In the Microsoft Entra admin center of the tenant's Microsoft 365 organisation, go to Identity › Applications › App registrations › “New registration” and create an app. Supported account types: “Accounts in this organizational directory only”.",
         "two": "Under API permissions › “Add a permission” › Microsoft Graph › Application permissions, add every permission in the list below. Then choose “Grant admin consent for …”.",
         "three": "Under Certificates & secrets, create a new client secret and copy its value right away; Entra shows it only once. Note the expiry date and enter a new one here before then.",
         "four": "On the app's overview, copy the Directory (tenant) ID and the Application (client) ID and enter them below."

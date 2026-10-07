@@ -192,7 +192,7 @@ describe("ExportPage", () => {
       detail({ status: "queued", fileName: null, report: null, available: false, expiresAt: null }),
     );
     await mount();
-    expect(text()).toContain("Queued");
+    expect(text()).toContain("Waiting");
     expect(text()).toContain("Waiting for a free worker");
   });
 
@@ -339,7 +339,7 @@ describe("ExportPage", () => {
     );
     await mount();
     expect(text()).toContain("The export failed");
-    expect(text()).toContain("The storage target is full");
+    expect(text()).toContain("The storage location is full");
     // The raw engine message is not the explanation: it sits in the collapsed technical details.
     const details = container.querySelector("details");
     expect(details?.hasAttribute("open")).toBe(false);

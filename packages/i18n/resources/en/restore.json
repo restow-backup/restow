@@ -257,7 +257,7 @@
     "started": {
       "restore": "Restore started",
       "download": "Download is being prepared",
-      "description": "Follow the progress on the restore job page."
+      "description": "Follow the progress on the restore run page."
     },
     "errors": {
       "title": "The restore could not be started",
@@ -267,7 +267,7 @@
       "targetUnknown": "This account is not known in this tenant. IMAP restores can only go into accounts of this tenant.",
       "selectionUnknown": "Some selected entries no longer exist at this restore point. Reload the folder and select again.",
       "originalGone": "The original account no longer exists. Restore into another account or download the data.",
-      "queueUnavailable": "The job queue is not available. Make sure the {appName} worker is running, then try again.",
+      "queueUnavailable": "The queue is not available. Make sure the {appName} worker is running, then try again.",
       "snapshotGone": "This restore point is no longer available. Choose another one."
     }
   },
@@ -275,7 +275,7 @@
     "title": "Recent restores",
     "subtitle": "Restores and downloads of mailboxes, OneDrive and IMAP accounts, with progress and the result of each item. Restores onto machines are under File restore and in the machine's runs.",
     "machineRestores": "Restores onto machines",
-    "shown": "{count, plural, one {The newest request is shown.} other {The newest # requests are shown.}}",
+    "shown": "{count, plural, one {The newest run is shown.} other {The newest # runs are shown.}}",
     "showOlder": "Show older",
     "newRestore": "New restore",
     "empty": "No restores yet",
@@ -296,7 +296,7 @@
       "actions": "Actions"
     },
     "status": {
-      "queued": "Queued",
+      "queued": "Waiting",
       "active": "Running",
       "completed": "Completed",
       "completedWithIssues": "Completed with issues",
@@ -333,13 +333,13 @@
     }
   },
   "job": {
-    "title": "Restore job",
+    "title": "Restore run",
     "subtitle": "Progress, outcome and every item of this restore.",
     "back": "Recent restores",
-    "loadError": "The restore job could not be loaded.",
+    "loadError": "The restore run could not be loaded.",
     "progress": {
       "title": "Progress",
-      "queued": "Queued. Restores run before verifications and backups.",
+      "queued": "Waiting. Restores run before restore checks and backups.",
       "running": "The restore is running.",
       "waiting": "Waiting for a free worker.",
       "counting": "Determining what to restore …",

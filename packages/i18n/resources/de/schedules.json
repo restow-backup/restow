@@ -21,7 +21,7 @@
   },
   "kindHints": {
     "backup": "Sichert alle aktiven geschützten Objekte oder nur das gewählte.",
-    "verify": "Stellt eine Stichprobe der letzten Sicherung wieder her und belegt so, dass sie wiederherstellbar ist. Solange ein Zeitplan für Restore-Prüfungen eingeschaltet ist, wird zusätzlich jede neue Sicherung verifiziert.",
+    "verify": "Stellt eine Stichprobe der letzten Sicherung wieder her und belegt so, dass sie wiederherstellbar ist. Solange ein Zeitplan für Restore-Prüfungen eingeschaltet ist, wird zusätzlich jede neue Sicherung geprüft.",
     "scrub": "Prüft die gespeicherten Packs auf Schäden und repariert sie aus Kopien. Monatliche oder seltenere Läufe prüfen alles, häufigere eine Stichprobe.",
     "directory": "Liest Benutzer, Postfächer und OneDrives aus Microsoft Entra ID, damit neue Personen gemäß den Regeln geschützt werden.",
     "retention": "Wendet die Aufbewahrungsrichtlinien an. Solange keine Richtlinie existiert, bleibt alles erhalten."
@@ -80,7 +80,7 @@
   },
   "empty": {
     "title": "Noch keine Wartungszeitpläne",
-    "description": "Nichts hält das Repository von selbst gesund: Integritätsprüfungen, Verzeichnis-Sync und Aufbewahrung laufen nur, wenn jemand sie startet."
+    "description": "Nichts hält den Speicherort von selbst gesund: Integritätsprüfungen, Verzeichnis-Sync und Aufbewahrung laufen nur, wenn jemand sie startet."
   },
   "notices": {
     "readOnly": "Sie sehen die Zeitpläne dieses Mandanten. Ändern können sie nur Mandanten-Administratoren.",

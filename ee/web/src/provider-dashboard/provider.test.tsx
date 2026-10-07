@@ -164,7 +164,7 @@ describe("provider view", () => {
       <ProviderView view={widgetView({ state: "ok", data: VIEW }, false)} {...handlers} />,
     );
     expect(html).toContain('data-state="ready"');
-    expect(html).toContain("Tenants not ready");
+    expect(html).toContain("Tenants needing action");
     expect(html).toContain("1 suspended");
     expect(html).toContain("Protected mailboxes");
     expect(html).not.toContain("Unlimited");

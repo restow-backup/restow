@@ -333,7 +333,7 @@
   },
   "microsoftApp": {
     "title": "Microsoft 365 app registration",
-    "description": "The multi-tenant backup app in your own Microsoft Entra directory. Customers grant it admin consent; {appName} then backs up and restores their mailboxes and OneDrives with it.",
+    "description": "The multi-tenant backup app in your own Microsoft Entra directory. Tenants grant it admin consent; {appName} then backs up and restores their mailboxes and OneDrives with it.",
     "loadError": "The app registration could not be loaded.",
     "status": {
       "title": "Status",
@@ -382,7 +382,7 @@
       "step": "Step {number}",
       "register": {
         "title": "Register the app",
-        "description": "Once, in your own Microsoft Entra directory. The same app serves every customer.",
+        "description": "Once, in your own Microsoft Entra directory. The same app serves every tenant.",
         "path": "In the Microsoft Entra admin center, open:",
         "pathItems": {
           "identity": "Identity",
@@ -390,7 +390,7 @@
           "appRegistrations": "App registrations",
           "newRegistration": "New registration"
         },
-        "name": "Name: for example {appName}. Customers see it when they grant consent.",
+        "name": "Name: for example {appName}. The tenants' administrators see it when they grant consent.",
         "accountTypes": "Supported account types:",
         "accountTypesValue": "Accounts in any organizational directory (Any Microsoft Entra ID tenant - Multitenant)",
         "redirect": "Redirect URI: select the platform Web and enter exactly this value:",
@@ -414,11 +414,11 @@
         },
         "required": "Required",
         "optional": "Optional",
-        "delegated": "Then add openid and profile under Delegated permissions. They grant no data access; they only let a customer's admin confirm who they are after the consent.",
+        "delegated": "Then add openid and profile under Delegated permissions. They grant no data access; they only let a tenant's admin confirm who they are after the consent.",
         "copyList": "Copy list",
         "consent": "Finally select this button on the API permissions page:",
         "consentLabel": "Grant admin consent for <your organization>",
-        "consentHint": "This consents in your own directory. Customers consent through the link {appName} creates for each Microsoft 365 source.",
+        "consentHint": "This consents in your own directory. Tenants consent through the link {appName} creates for each Microsoft 365 source.",
         "pitfallTitle": "Mail.ReadWrite, not Mail.Read",
         "pitfall": "The most common mistake: with Mail.Read the backup runs, but every restore fails with 403. The same applies to Calendars.ReadWrite and Contacts.ReadWrite.",
         "sites": "Sites.ReadWrite.All is deliberately not requested: SharePoint is not part of this version, and it would widen the consent needlessly.",

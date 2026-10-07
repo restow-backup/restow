@@ -188,7 +188,7 @@ describe("a finished import with a report", () => {
     const view = await open();
     const notes = view.container.querySelector('[data-testid="report-notes"]')?.textContent ?? "";
     expect(notes).toContain("The list of items is capped");
-    expect(notes).toContain("rebuilt from the records of the job");
+    expect(notes).toContain("rebuilt from the records of the run");
     expect(notes).not.toContain("item_list_truncated");
     expect(notes).not.toContain("report_recovered");
     view.unmount();
@@ -214,7 +214,7 @@ describe("a finished import with a report", () => {
       (row) => row.includes("mail/Inbox.mbox") && row.includes("aaaaaaaaaaaa"),
     );
     expect(inbox).toBeDefined();
-    expect(inbox).toContain("Partly imported");
+    expect(inbox).toContain("Imported with warnings");
     expect(inbox).toContain("MBOX");
     const zip = rows.find((row) => row.includes("export.zip") && row.includes("bbbbbbbbbbbb"));
     expect(zip).toContain("Imported");

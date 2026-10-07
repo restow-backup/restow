@@ -99,14 +99,14 @@
     "overall": {
       "green": "Ready",
       "yellow": "Needs attention",
-      "red": "Not ready",
+      "red": "Not restorable",
       "none": "Nothing to rate"
     },
     "segments": {
       "green": "Ready",
       "yellow": "Needs attention",
-      "red": "Cannot be restored",
-      "unverified": "Not verified yet",
+      "red": "Not restorable",
+      "unverified": "Unverified",
       "noBackup": "No backup yet"
     },
     "unverified": {
@@ -187,7 +187,7 @@
     "link": "Open storage",
     "target": {
       "unverified": "Storage not tested yet",
-      "error": "Repository failing",
+      "error": "Storage location failing",
       "misconfigured": "Default storage misconfigured"
     },
     "empty": {
@@ -333,7 +333,7 @@
       "imap": "IMAP account"
     },
     "status": {
-      "queued": "Queued",
+      "queued": "Waiting",
       "active": "Running",
       "throttled": "Waiting for Microsoft",
       "completed": "Completed",
@@ -360,8 +360,8 @@
     "kpis": {
       "tenants": "Tenants",
       "tenantsHint": "Your own organisation is not counted. {count, plural, =0 {None suspended} one {# suspended} other {# suspended}}.",
-      "notReady": "Tenants not ready",
-      "notReadyHint": "Of {count, plural, one {# customer} other {# customers}}. Something cannot be restored or is not proven yet.",
+      "notReady": "Tenants needing action",
+      "notReadyHint": "Of {count, plural, one {# tenant} other {# tenants}}. Something cannot be restored or is not proven yet.",
       "unverified": "Unverified backups",
       "unverifiedHint": "Newest backups not yet read back by a restore check.",
       "failures": "Failed runs (24 h)",
@@ -414,7 +414,7 @@
       },
       "kinds": {
         "unavailable": "The tenant's figures could not be read.",
-        "storage_error": "The repository fails its probe.",
+        "storage_error": "The storage location fails its probe.",
         "not_restorable": "{count, plural, one {# object cannot be restored.} other {# objects cannot be restored.}}",
         "failed_jobs": "{count, plural, one {# run failed in the last 24 hours.} other {# runs failed in the last 24 hours.}}",
         "over_cap": "{count, plural, one {# mailbox above the cap agreed for this tenant.} other {# mailboxes above the cap agreed for this tenant.}}",

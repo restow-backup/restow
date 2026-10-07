@@ -149,7 +149,7 @@ describe("EndpointsTable", () => {
         endpoint({ latestRun: run({ status: "failed" }), attention: ["last_backup_failed"] }),
       ]),
     ).toContain("Failed");
-    expect(table([endpoint({ latestRun: run({ status: "partial" }) })])).toContain("Partial");
+    expect(table([endpoint({ latestRun: run({ status: "partial" }) })])).toContain("With warnings");
   });
 
   it("shows a run that was only interrupted as such, not as a failure", () => {
@@ -196,7 +196,7 @@ describe("EndpointsTable", () => {
       }),
     ]);
     expect(html).toContain("No backup yet");
-    expect(html).toContain("Not verified");
+    expect(html).toContain("Unverified");
   });
 
   it("hints when the restore test is overdue", () => {

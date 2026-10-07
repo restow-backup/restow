@@ -63,20 +63,20 @@
       },
       "readiness": {
         "title": "Wiederherstellbarkeit",
-        "description": "Geschützte Objekte nach der Wiederherstellungsprüfung ihrer jeweils neuesten Sicherung am Ende jedes Intervalls. Eine Sicherung, die neuer ist als die letzte Prüfung oder nie geprüft wurde, gilt als nicht nachgewiesen."
+        "description": "Geschützte Objekte nach der Restore-Prüfung ihrer jeweils neuesten Sicherung am Ende jedes Intervalls. Eine Sicherung, die neuer ist als die letzte Prüfung oder nie geprüft wurde, gilt als nicht nachgewiesen."
       },
       "throttling": {
         "title": "Drosselung durch Microsoft 365",
-        "description": "Zeit, die Microsoft Graph abgeschlossene Aufträge warten ließ, bevor weitere Anfragen angenommen wurden."
+        "description": "Zeit, die Microsoft Graph abgeschlossene Läufe warten ließ, bevor weitere Anfragen angenommen wurden."
       },
       "jobDurations": {
-        "title": "Laufzeiten der Aufträge",
-        "description": "Median und 95. Perzentil der Laufzeit aller Aufträge, die im Zeitraum abgeschlossen wurden.",
-        "empty": "In diesem Zeitraum wurde kein Auftrag abgeschlossen."
+        "title": "Laufzeiten der Läufe",
+        "description": "Median und 95. Perzentil der Laufzeit aller Läufe, die im Zeitraum abgeschlossen wurden.",
+        "empty": "In diesem Zeitraum wurde kein Lauf abgeschlossen."
       },
       "failuresByCause": {
         "title": "Fehlgeschlagene Elemente nach Ursache",
-        "description": "Elemente, die ein Auftrag nicht verarbeiten konnte, gruppiert nach Ursache. Sie werden beim nächsten Lauf erneut versucht.",
+        "description": "Elemente, die ein Lauf nicht verarbeiten konnte, gruppiert nach Ursache. Sie werden beim nächsten Lauf erneut versucht.",
         "empty": "In diesem Zeitraum ist kein Element fehlgeschlagen."
       },
       "largestObjects": {
@@ -104,7 +104,7 @@
       "unverified": "Nicht nachgewiesen"
     },
     "column": {
-      "kind": "Auftrag",
+      "kind": "Lauf",
       "count": "Läufe",
       "p50": "Median",
       "p95": "95. Perzentil",
@@ -126,7 +126,7 @@
     "jobKind": {
       "backup": "Sicherung",
       "restore": "Wiederherstellung",
-      "verify": "Wiederherstellungsprüfung",
+      "verify": "Restore-Prüfung",
       "directory": "Verzeichnis-Sync",
       "archive": "Archiv",
       "retention": "Aufbewahrung",
@@ -142,7 +142,7 @@
       "green": "Bereit",
       "yellow": "Achtung",
       "red": "Nicht wiederherstellbar",
-      "unverified": "Nicht geprüft",
+      "unverified": "Nicht nachgewiesen",
       "no_backup": "Noch keine Sicherung"
     },
     "readiness": {
@@ -156,9 +156,9 @@
       "successRate": "Erfolgsquote: erfolgreiche Läufe geteilt durch erfolgreiche und fehlgeschlagene Läufe, die im Zeitraum abgeschlossen wurden. Abgebrochene Läufe wurden bewusst gestoppt und zählen nicht mit.",
       "volume": "Geschützte Daten sind die jeweils neueste Sicherung jedes geschützten Objekts. Gespeicherte Bytes sind die verschlüsselten, deduplizierten Pack-Dateien; von der Speicherbereinigung entfernte Packs erscheinen auch in früheren Intervallen nicht mehr.",
       "dedup": "Deduplizierungsfaktor: alle aufbewahrten Sicherungen zusammengezählt, geteilt durch die gespeicherten Bytes.",
-      "readiness": "Nachweislich wiederherstellbar: Objekte, deren neueste Sicherung eine Wiederherstellungsprüfung genau dieser Sicherung mit „Bereit“ oder „Achtung“ bewertet hat. Eine nach der letzten Prüfung erstellte Sicherung bleibt unbewiesen, bis sie selbst geprüft wurde; nie geprüfte oder nie gesicherte Objekte gelten als nicht nachgewiesen, und ein Schaden, den die Speicherprüfung nach einer Prüfung findet, gilt als nicht wiederherstellbar.",
+      "readiness": "Nachweislich wiederherstellbar: Objekte, deren neueste Sicherung eine Restore-Prüfung genau dieser Sicherung mit „Bereit“ oder „Achtung“ bewertet hat. Eine nach der letzten Prüfung erstellte Sicherung bleibt unbewiesen, bis sie selbst geprüft wurde; nie geprüfte oder nie gesicherte Objekte gelten als nicht nachgewiesen, und ein Schaden, den die Speicherprüfung nach einer Prüfung findet, gilt als nicht wiederherstellbar.",
       "status": "Ausgeschlossene Objekte sind nicht geschützt, aus ihrer Quelle entfernte Objekte zählen, solange sie noch eine Sicherung haben. Gespeichert ist nur der aktuelle Schutzstatus eines Objekts; ein heute ausgeschlossenes Objekt fehlt deshalb auch in früheren Intervallen.",
-      "throttling": "Drosselungswartezeiten hat Microsoft Graph abgeschlossenen Aufträgen auferlegt; {appName} wartet so lange, wie Microsoft verlangt, statt früher erneut anzufragen."
+      "throttling": "Drosselungswartezeiten hat Microsoft Graph abgeschlossenen Läufen auferlegt; {appName} wartet so lange, wie Microsoft verlangt, statt früher erneut anzufragen."
     }
   },
   "nav": "Alarme",
@@ -245,7 +245,7 @@
       "webhook": "Webhook"
     },
     "status": {
-      "pending": "In Warteschlange",
+      "pending": "Wartet",
       "sent": "Gesendet",
       "failed": "Fehlgeschlagen",
       "skipped": "Übersprungen",
@@ -364,7 +364,7 @@
     "recipientsManaged": "Das sind die Empfänger, die diese Kategorie unter Empfänger gewählt haben. Ändern Sie sie dort."
   },
   "eventGroups": {
-    "jobs": "Aufträge",
+    "jobs": "Läufe",
     "recoverability": "Wiederherstellbarkeit",
     "storage": "Speicher",
     "system": "Installation"
@@ -397,7 +397,7 @@
       "stale": "Server oder Client meldet sich nicht",
       "suspicious_snapshot": "Verdächtiger Snapshot eines Servers oder Clients",
       "storage_quota": "Speicherbudget von Servern und Clients",
-      "repository_locked": "Repository eines Servers oder Clients bleibt gesperrt"
+      "repository_locked": "Sicherungsdaten eines Servers oder Clients bleiben gesperrt"
     },
     "update": {
       "available": "Update verfügbar"
@@ -430,8 +430,8 @@
     "endpoint": {
       "stale": "Ein Server hat sich länger als zwei Stunden nicht gemeldet, oder ein Client hat seit mehreren Tagen keine gute Sicherung.",
       "suspicious_snapshot": "Ein Snapshot ist aufgetaucht, den kein Sicherungslauf gemeldet hat, oder einer, der in der Zukunft datiert ist. Die Aufbewahrung behält ihn; der Rechner könnte kompromittiert sein.",
-      "storage_quota": "Das Repository eines Rechners oder alle eines Mandanten zusammen haben 90 Prozent des Speicherbudgets erreicht, oder Sicherungen wurden abgelehnt, weil es ausgeschöpft ist.",
-      "repository_locked": "Aufbewahrung und Prüfungen fanden das Repository eines Rechners länger als zwölf Stunden gesperrt vor."
+      "storage_quota": "Die Sicherungsdaten eines Rechners oder alle eines Mandanten zusammen haben 90 Prozent des Speicherbudgets erreicht, oder Sicherungen wurden abgelehnt, weil es ausgeschöpft ist.",
+      "repository_locked": "Aufbewahrung und Prüfungen fanden die Sicherungsdaten eines Rechners länger als zwölf Stunden gesperrt vor."
     },
     "update": {
       "available": "Eine neuere Version der Software ist verfügbar. Wird einmal je Version für die gesamte Installation ausgelöst und kann daher nur von Provider-Administratoren gewählt werden."
@@ -538,7 +538,7 @@
       "stale": "Meldet sich nicht: {object}",
       "suspicious_snapshot": "Verdächtiger Snapshot: {object}",
       "storage_quota": "Speicherbudget: {object}",
-      "repository_locked": "Repository gesperrt: {object}"
+      "repository_locked": "Sicherungsdaten gesperrt: {object}"
     },
     "report": {
       "ready": "Bericht gesendet: {rule}"
@@ -584,7 +584,7 @@
     }
   },
   "defaultRules": {
-    "jobFailures": "Fehlgeschlagene Aufträge",
+    "jobFailures": "Fehlgeschlagene Läufe",
     "readinessRed": "Wiederherstellbarkeit gefährdet",
     "weeklyReport": "Wochenbericht"
   },

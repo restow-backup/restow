@@ -21,7 +21,7 @@
     "connections": "Where the data comes from: Microsoft 365, IMAP mailboxes and mail file imports.",
     "protection": "Which mailboxes, OneDrives and IMAP accounts are protected, and by which rules.",
     "jobs": "What runs on its own: backups, restore checks and maintenance.",
-    "retention": "How long the restore points of the backups are kept.",
+    "retention": "How long the restore points are kept.",
     "storage": "Where the backup data is stored, and how much of it there is.",
     "agents": "Install the backup agent on servers and clients, and decide how it updates.",
     "archive": "How long archived mail is kept, and the holds that stop its deletion.",
@@ -120,7 +120,7 @@
     },
     "suspended": {
       "title": "This tenant is suspended",
-      "description": "Its jobs and its sign-ins are paused. Only the provider can open its pages until it is resumed."
+      "description": "Its runs and its sign-ins are paused. Only the provider can open its pages until it is resumed."
     },
     "deleting": {
       "title": "This tenant is being deleted",
@@ -128,12 +128,12 @@
     },
     "suspend": {
       "title": "Suspend {name}?",
-      "description": "Backups and the other jobs of the tenant stop, and its members can no longer sign in. Nothing is deleted. You can resume the tenant at any time.",
+      "description": "Backups and the other runs of the tenant stop, and its users can no longer sign in. Nothing is deleted. You can resume the tenant at any time.",
       "confirm": "Suspend tenant"
     },
     "resume": {
       "title": "Resume {name}?",
-      "description": "Jobs run again and the members can sign in again.",
+      "description": "Backup jobs run again and the tenant users can sign in again.",
       "confirm": "Resume tenant"
     },
     "toasts": {
@@ -149,7 +149,7 @@
   "agents": {
     "enrol": {
       "title": "Add a machine",
-      "description": "Each machine gets a one-time install command that is valid for 24 hours. The machines themselves, with their status and readiness, are under Servers & endpoints, Inventory.",
+      "description": "Each machine gets a one-time install command that is valid for 24 hours. The machines themselves, with their status and readiness, are under Servers & clients, Inventory.",
       "server": "New server",
       "client": "New client",
       "inventory": "Open the inventory"

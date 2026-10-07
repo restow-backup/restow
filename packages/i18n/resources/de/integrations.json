@@ -104,11 +104,11 @@
     },
     "status_read": {
       "label": "Status",
-      "description": "Zusammenfassung, Speicher, letzter Verify-Bericht."
+      "description": "Zusammenfassung, Speicher, letzter Bericht der Restore-Prüfung."
     },
     "jobs_read": {
-      "label": "Jobs",
-      "description": "Jobs mit Fortschritt, Fehlern und Dauer."
+      "label": "Läufe",
+      "description": "Läufe mit Fortschritt, Fehlern und Dauer."
     },
     "items_read": {
       "label": "Geschützte Objekte",
@@ -127,8 +127,8 @@
       "description": "Sicherungen und Wiederherstellungen starten."
     },
     "verify_write": {
-      "label": "Test-Wiederherstellungen",
-      "description": "Verify-Läufe (stichprobenartige Test-Wiederherstellungen) starten."
+      "label": "Restore-Prüfungen",
+      "description": "Restore-Prüfungen (stichprobenartige Test-Wiederherstellungen) starten."
     },
     "users_write": {
       "label": "Schutz",
@@ -155,16 +155,16 @@
   },
   "events": {
     "job_failed": {
-      "label": "Job fehlgeschlagen",
-      "description": "Ein Sicherungs-, Wiederherstellungs-, Verify- oder Archiv-Job ist nach allen Wiederholungen endgültig fehlgeschlagen."
+      "label": "Lauf fehlgeschlagen",
+      "description": "Ein Sicherungs-, Wiederherstellungs-, Prüf- oder Archivlauf ist nach allen Wiederholungen endgültig fehlgeschlagen."
     },
     "job_completed": {
-      "label": "Job abgeschlossen",
-      "description": "Ein Job wurde erfolgreich beendet."
+      "label": "Lauf abgeschlossen",
+      "description": "Ein Lauf wurde erfolgreich beendet."
     },
     "verify_completed": {
-      "label": "Verify abgeschlossen",
-      "description": "Eine Test-Wiederherstellung ist beendet, mit ihrer Wiederherstellbarkeit."
+      "label": "Restore-Prüfung abgeschlossen",
+      "description": "Eine Restore-Prüfung ist beendet, mit ihrer Wiederherstellbarkeit."
     },
     "webhook_test": {
       "label": "Testereignis",
@@ -189,7 +189,7 @@
     "create": "Webhook hinzufügen",
     "empty": {
       "title": "Noch keine Webhooks",
-      "description": "Fügen Sie einen Webhook hinzu, damit {appName} Ihr RMM-, PSA- oder Ticketsystem über fehlgeschlagene Jobs und andere Ereignisse informiert."
+      "description": "Fügen Sie einen Webhook hinzu, damit {appName} Ihr RMM-, PSA- oder Ticketsystem über fehlgeschlagene Läufe und andere Ereignisse informiert."
     },
     "columns": {
       "webhook": "Webhook",
@@ -316,7 +316,7 @@
     "filter": {
       "label": "Status",
       "all": "Alle",
-      "pending": "Wartend",
+      "pending": "Wartet",
       "delivered": "Zugestellt",
       "failed": "Fehlgeschlagen"
     },
@@ -328,7 +328,7 @@
       "result": "Ergebnis"
     },
     "status": {
-      "pending": "Wartend",
+      "pending": "Wartet",
       "delivered": "Zugestellt",
       "failed": "Fehlgeschlagen"
     },

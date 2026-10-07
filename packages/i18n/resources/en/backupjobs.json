@@ -44,7 +44,7 @@
   "list": {
     "title": "Jobs",
     "description": {
-      "mail": "What is backed up, when and into which repository, for many mailboxes, OneDrives and IMAP accounts at once. The runs are in History.",
+      "mail": "What is backed up, when and to which storage location, for many mailboxes, OneDrives and IMAP accounts at once. The runs are in History.",
       "endpoint": "Which folders of which servers and clients are backed up, when and with what left out. One job covers many machines, and single machines can do things differently. The runs are in History."
     },
     "table": {
@@ -58,7 +58,7 @@
       "name": "Job",
       "scope": "Scope",
       "schedule": "Schedule",
-      "repository": "Repository",
+      "repository": "Storage location",
       "lastRun": "Last run",
       "nextRun": "Next run",
       "restoreCheck": "Restore check"
@@ -101,7 +101,7 @@
     "running": "{count, plural, one {Running now} other {# running}}",
     "queued": "{count} waiting",
     "failed": "{count} failed",
-    "partial": "{count} partial"
+    "partial": "{count} with warnings"
   },
   "nextRun": {
     "paused": "Paused",
@@ -186,10 +186,10 @@
     "overridesBadge": "{count} overrides",
     "outcome": {
       "succeeded": "Succeeded",
-      "partial": "Partial",
+      "partial": "With warnings",
       "failed": "Failed",
       "running": "Running",
-      "queued": "Queued"
+      "queued": "Waiting"
     },
     "queued": {
       "waiting": "Waits for the machine (next check-in in about {count} min)",
@@ -322,7 +322,7 @@
     "restoreCheckSchedule": "Restore check",
     "lastRun": "Last run",
     "nextRun": "Next run",
-    "repository": "Repository",
+    "repository": "Storage location",
     "retention": "Retention",
     "restoreChecks": "Restore checks",
     "restoreChecksNone": "Nothing in this job to check yet.",
@@ -338,7 +338,7 @@
     "intro": "Everything this job says. Changing it opens the editor.",
     "general": "General",
     "schedule": "Schedule",
-    "repositoryAndRetention": "Repository and retention",
+    "repositoryAndRetention": "Storage location and retention",
     "folders": "Folders",
     "exclusions": "Exclusions",
     "bandwidth": "Bandwidth",
@@ -351,7 +351,7 @@
       "updated": "Changed",
       "schedule": "Schedule",
       "restoreCheck": "Restore check",
-      "repository": "Repository",
+      "repository": "Storage location",
       "retention": "Retention",
       "fileTypes": "File types left out",
       "ownPatterns": "Own patterns",
@@ -584,10 +584,10 @@
       "description": "Commands the agents run around each backup, for example to dump a database so that its files are consistent."
     },
     "repository": {
-      "title": "Repository",
+      "title": "Storage location",
       "description": "Where the encrypted backups are written.",
-      "primary": "(primary repository)",
-      "sentence": "Every job writes to the primary repository of the tenant; a job cannot choose another one.",
+      "primary": "(primary storage location)",
+      "sentence": "Every backup job writes to the primary storage location of the tenant; a backup job cannot choose another one.",
       "errorTitle": "The storage location is failing",
       "errorBody": "The last check of the storage location failed. This job's backups cannot be written there until the fault is fixed.",
       "errorLink": "Open storage locations"
@@ -727,12 +727,12 @@
     "keep": "Daily {keepDaily}, weekly {keepWeekly}, monthly {keepMonthly}"
   },
   "repository": {
-    "installationDefault": "Default repository of the installation",
+    "installationDefault": "Default storage location of the installation",
     "error": "Storage location failing"
   },
   "tenant": {
     "title": "Backup jobs",
-    "description": "What is backed up on a schedule for this tenant. The maintenance schedules below keep the repository healthy.",
+    "description": "What is backed up on a schedule for this tenant. The maintenance schedules below keep the storage location healthy.",
     "new": {
       "mail": "Mail & SaaS job",
       "endpoint": "Server or client job"

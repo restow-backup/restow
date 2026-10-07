@@ -49,7 +49,7 @@
     "groups": {
       "daily": "Daily",
       "mail": "Mail & SaaS",
-      "endpoints": "Servers & endpoints",
+      "endpoints": "Servers & clients",
       "tenants": "Tenants",
       "organisation": "Organisation",
       "installation": "Installation",
@@ -116,7 +116,7 @@
     "notice": {
       "suspended": {
         "title": "{name} is suspended",
-        "provider": "Jobs and sign-ins of this tenant are paused until you reactivate it on its tenant page.",
+        "provider": "Runs and sign-ins of this tenant are paused until you reactivate it on its tenant page.",
         "member": "Its pages cannot load until your service provider reactivates the tenant."
       },
       "deleting": {
@@ -161,7 +161,7 @@
     "unauthorized": "Your session has expired. Please sign in again.",
     "forbidden": "You do not have permission for this action.",
     "featureUnavailable": "This function is not available on this installation.",
-    "demoReadOnly": "This is a public demo: browsing, backups, verification and restoring a snapshot as a download all work; changing sources, settings, users or credentials, or restoring back into the mailbox, does not.",
+    "demoReadOnly": "This is a public demo: browsing, backups, restore checks and restoring a restore point as a download all work; changing sources, settings, users or credentials, or restoring back into the mailbox, does not.",
     "notFound": "The requested resource was not found.",
     "conflict": "The action conflicts with the current state.",
     "validation": "The input is incomplete or invalid.",
@@ -230,7 +230,7 @@
   },
   "soon": {
     "resources": {
-      "description": "Shows utilisation and growth per tenant and per repository, with a plain forecast such as “full in about N days”."
+      "description": "Shows utilisation and growth per tenant and per storage location, with a plain forecast such as “full in about N days”."
     }
   },
   "chooseTenant": {

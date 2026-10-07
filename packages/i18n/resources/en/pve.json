@@ -4,7 +4,7 @@
   },
   "page": {
     "title": "VMs & containers",
-    "subtitle": "Virtual machines and containers of Proxmox VE 8.4 or newer, backed up through the official backup interface of Proxmox VE. Only changed data leaves the host.",
+    "subtitle": "VMs and containers of Proxmox VE 8.4 or newer, backed up through the official backup interface of Proxmox VE. Only changed data leaves the node.",
     "limits": "Not possible in this release: backing up VM templates, live restore, restoring privileged containers, restoring single files from VMs.",
     "loadError": "The data could not be loaded."
   },
@@ -154,7 +154,7 @@
   },
   "readiness": {
     "overdue": "Overdue",
-    "notChecked": "Not checked",
+    "notChecked": "Unverified",
     "noBackupYet": "No restore point yet",
     "open": "Open",
     "openFor": "Open {name}",

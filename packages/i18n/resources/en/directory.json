@@ -46,14 +46,14 @@
     "hint": "Sign-in is disabled for this account: a shared or resource mailbox, or a blocked user. Microsoft Graph does not tell them apart."
   },
   "readiness": {
-    "green": "Restore verified",
-    "yellow": "Restore degraded",
-    "red": "Restore failed",
-    "unverified": "Not verified",
+    "green": "Ready",
+    "yellow": "Attention",
+    "red": "Not restorable",
+    "unverified": "Unverified",
     "none": "No backup",
     "needs_credential": "Needs attention",
     "checked": "Checked {when}",
-    "unverifiedHint": "Backups exist, but no test restore has confirmed them yet. An unverified backup does not count as protected.",
+    "unverifiedHint": "Backups exist, but no restore check has confirmed them yet. An unverified backup does not count as protected.",
     "noneHint": "There is nothing to verify until the first backup completed.",
     "needsCredentialHint": "This account has no password of its own set and working right now, so it is not currently protected, whatever an earlier restore point once proved."
   },

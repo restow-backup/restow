@@ -158,7 +158,7 @@ describe("Mounts", () => {
     vi.stubGlobal("fetch", routes({ "GET /mounts": () => json(failed) }).mock);
     await open();
     const operation = slot("mounts-operation");
-    expect(text(operation)).toContain("Adding the share nas2");
+    expect(text(operation)).toContain("Adding the network share nas2");
     expect(text(operation)).toContain("Failed, nothing was changed");
     expect(text(slot("mounts-failure"))).toContain("not writable");
     expect(text(slot("mounts-failure"))).toContain("Permission denied");
@@ -168,20 +168,20 @@ describe("Mounts", () => {
     const { mock, requests } = routes({ "POST /mounts": () => json(view(), 202) });
     vi.stubGlobal("fetch", mock);
     await open();
-    await click(buttonByText(document.body, "Add share"));
+    await click(buttonByText(document.body, "Add network share"));
     await flush(4);
     const dialog = slot("mounts-add-dialog");
     expect(dialog).not.toBeNull();
     await type(document.body.querySelector("#mount-name"), "backup");
     await type(document.body.querySelector("#mount-server"), "nas,nolock");
     await type(document.body.querySelector("#mount-export"), "/volume1/backup");
-    await click(buttonByText(dialog as HTMLElement, "Add share"));
+    await click(buttonByText(dialog as HTMLElement, "Add network share"));
     await flush(4);
     expect(text(dialog)).toContain("without commas, spaces or");
     expect(requests.filter((request) => request.method === "POST")).toEqual([]);
 
     await type(document.body.querySelector("#mount-server"), "nas.example.lan");
-    await click(buttonByText(dialog as HTMLElement, "Add share"));
+    await click(buttonByText(dialog as HTMLElement, "Add network share"));
     await flush(8);
     expect(requests.filter((request) => request.method === "POST")).toEqual([
       {
@@ -218,7 +218,7 @@ describe("Mounts", () => {
     await open();
     await click(buttonByText(document.body, "Remove"));
     await flush(4);
-    await click(buttonByText(document.body, "Remove share"));
+    await click(buttonByText(document.body, "Remove network share"));
     await flush(8);
     expect(text(slot("mounts-users"))).toContain("Contoso: NAS");
     expect(text(slot("mounts-users"))).toContain("/mnt/restow/nas/contoso");
@@ -228,7 +228,7 @@ describe("Mounts", () => {
     vi.stubGlobal("fetch", routes().mock);
     await open({ session: providerSession("administrator") });
     expect(text(slot("access-note"))).toContain("needs the Owner role");
-    expect(buttonByText(document.body, "Add share")?.disabled).toBe(true);
+    expect(buttonByText(document.body, "Add network share")?.disabled).toBe(true);
     expect(buttonByText(document.body, "Remove")?.disabled).toBe(true);
   });
 });

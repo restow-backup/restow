@@ -276,7 +276,7 @@ describe("ObjectsTable", () => {
 
     const unverified = table(items, null, [], "unverified");
     expect(count(unverified, "<tr")).toBe(0);
-    expect(unverified).toContain("No object in this state: Not verified.");
+    expect(unverified).toContain("No object in this state: Unverified.");
 
     const all = table(items);
     expect(all).toMatch(/aria-pressed="true"[^>]*data-state="all"/);

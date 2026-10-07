@@ -71,7 +71,7 @@ describe("DisableScheduleDialog", () => {
         onConfirm={noop}
       />,
     );
-    expect(verifyHtml).toContain("Switch off verification?");
+    expect(verifyHtml).toContain("Switch off the restore check?");
     expect(verifyHtml).toContain("recovery readiness is no longer proven");
   });
 });

@@ -150,7 +150,7 @@ describe("buildChatMessage", () => {
     expect(msg.text).toBeNull();
   });
 
-  it("reports a completed job as success and an unknown queue as a job", () => {
+  it("reports a completed run as success and an unknown queue as a run", () => {
     const msg = buildChatMessage(
       "job.completed",
       envelope("job.completed", {
@@ -159,7 +159,7 @@ describe("buildChatMessage", () => {
       { ...EN, objectName: null },
     );
     expect(msg.severity).toBe("success");
-    expect(msg.title).toBe("Job completed: Contoso");
+    expect(msg.title).toBe("Run completed: Contoso");
   });
 
   it("colours a restore check by its rating and links its report", () => {

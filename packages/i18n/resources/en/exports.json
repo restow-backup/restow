@@ -21,7 +21,7 @@
     "allArchive": "All search results"
   },
   "status": {
-    "queued": "Queued",
+    "queued": "Waiting",
     "active": "Running",
     "completed": "Completed",
     "completedWithIssues": "Completed with issues",
@@ -237,7 +237,7 @@
       "notMail": "Only mail can be exported. OneDrive files are not part of an export.",
       "selectionUnknown": "Some selected entries no longer exist at this restore point. Reload the folder and select again.",
       "quotaExceeded": "The finished exports of this organization use all the space that exports may take. Older exports are deleted automatically when they expire. Request this export again after that, or export less mail at once.",
-      "queueUnavailable": "The job queue is not available. Make sure the {appName} worker is running, then try again.",
+      "queueUnavailable": "The queue is not available. Make sure the {appName} worker is running, then try again.",
       "snapshotGone": "This restore point is no longer available. Choose another one.",
       "archiveGone": "Some of the selected archive mails are no longer available. Search again and select again."
     }

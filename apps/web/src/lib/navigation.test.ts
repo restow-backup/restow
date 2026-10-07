@@ -79,7 +79,7 @@ describe("inferNavGroup", () => {
 });
 
 describe("the sections", () => {
-  it("run Daily, Mail & SaaS, Servers & endpoints, Tenants, Installation, then the rest", () => {
+  it("run Daily, Mail & SaaS, Servers & clients, Tenants, Installation, then the rest", () => {
     expect([...NAV_GROUPS]).toEqual([
       "daily",
       "mail",

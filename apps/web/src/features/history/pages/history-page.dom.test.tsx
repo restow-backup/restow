@@ -135,7 +135,7 @@ describe("History", () => {
     await flush(6);
     expect(rows()).toHaveLength(1);
     expect(rows()[0]?.textContent).toContain("Attempt 3 of 6");
-    expect(rows()[0]?.textContent).toContain("Queued");
+    expect(rows()[0]?.textContent).toContain("Waiting");
   });
 
   it("asks the server for the tab and the job named in the address, and offers each tab as a link", async () => {

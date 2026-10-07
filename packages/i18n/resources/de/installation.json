@@ -22,8 +22,8 @@
     "mail": "Der Transport für Berichte, Warnungen und Einladungen. Gilt für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
     "microsoftApp": "Die App-Registrierung, über die diese Installation Microsoft 365 erreicht.",
     "journal": "Der SMTP-Empfänger für Exchange-Journalberichte. Ein Empfänger bedient {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
-    "defaultStorage": "Wo Daten liegen für {scope, select, organisation {Ihre Organisation} other {jeden Mandanten ohne eigenes Speicherziel}}.",
-    "mounts": "Netzwerkfreigaben (NFS) als Backup-Speicher.",
+    "defaultStorage": "Wo Daten liegen für {scope, select, organisation {Ihre Organisation} other {jeden Mandanten ohne eigenen Speicherort}}.",
+    "mounts": "Netzlaufwerke (NFS) als Backup-Speicher.",
     "providerApi": "Schlüssel für RMM- und PSA-Werkzeuge, die über alle Mandanten hinweg arbeiten.",
     "updates": "Welche Version läuft, welche Releases es gibt und wie Sie aktualisieren.",
     "edition": "Welcher Build läuft und der Wechsel auf den vollen Build.",
@@ -65,7 +65,7 @@
     "loadError": "Der Speicher-Standard konnte nicht gelesen werden.",
     "card": {
       "title": "Speicher-Standard",
-      "description": "Wo Daten liegen, wenn {scope, select, organisation {Ihre Organisation kein eigenes Speicherziel hat} other {ein Mandant kein eigenes Speicherziel hat}}. Er wird unten festgelegt oder kommt, ohne gespeicherte Einstellung, aus der Server-Umgebung."
+      "description": "Wo Daten liegen, wenn {scope, select, organisation {Ihre Organisation keinen eigenen Speicherort hat} other {ein Mandant keinen eigenen Speicherort hat}}. Er wird unten festgelegt oder kommt, ohne gespeicherte Einstellung, aus der Server-Umgebung."
     },
     "kind": {
       "local": "Verzeichnis auf dem Server",
@@ -77,10 +77,10 @@
     "noCopy": "Keine Kopie eingerichtet",
     "usage": {
       "label": "Genutzt von",
-      "none": "Keinem Mandanten. Jeder Mandant hat ein eigenes Speicherziel.",
+      "none": "Keinem Mandanten. Jeder Mandant hat einen eigenen Speicherort.",
       "some": "{using} von {total} Mandanten",
-      "organisationYes": "Ihrer Organisation. Sie hat kein eigenes Speicherziel.",
-      "organisationNo": "Niemandem. Ihre Organisation hat ein eigenes Speicherziel."
+      "organisationYes": "Ihrer Organisation. Sie hat keinen eigenen Speicherort.",
+      "organisationNo": "Niemandem. Ihre Organisation hat einen eigenen Speicherort."
     },
     "misconfigured": {
       "title": "Die Speichereinstellungen sind ungültig",
@@ -115,9 +115,9 @@
     },
     "configure": {
       "title": "Speicher-Standard ändern",
-      "description": "Ein Verzeichnis auf dem Server oder S3-kompatibler Objektspeicher, mit denselben Einstellungen wie ein Speicherziel. Vor dem Speichern wird dort ein kleines Testobjekt geschrieben, gelesen, gelistet und gelöscht; ein Ort, der den Test nicht besteht, wird nicht gespeichert. Zugangsschlüssel werden verschlüsselt gespeichert und nie wieder angezeigt.",
+      "description": "Ein Verzeichnis auf dem Server oder S3-kompatibler Objektspeicher, mit denselben Einstellungen wie ein Speicherort. Vor dem Speichern wird dort ein kleines Testobjekt geschrieben, gelesen, gelistet und gelöscht; ein Ort, der den Test nicht besteht, wird nicht gespeichert. Zugangsschlüssel werden verschlüsselt gespeichert und nie wieder angezeigt.",
       "testHint": {
-        "local": "Das Verzeichnis muss auf dem Server bereits existieren und beschreibbar sein, zum Beispiel ein eingebundenes Volume oder eine Freigabe.",
+        "local": "Das Verzeichnis muss auf dem Server bereits existieren und beschreibbar sein, zum Beispiel ein eingebundenes Volume oder ein Netzlaufwerk.",
         "s3": "Lassen Sie beide Schlüsselfelder leer, um das gespeicherte Schlüsselpaar zu behalten. Es wird nur für den Endpunkt verwendet, für den es gespeichert wurde."
       },
       "save": "Testen und speichern",
@@ -130,12 +130,12 @@
     },
     "blockers": {
       "title": "{scope, select, organisation {Ihre Organisation hat Backups im aktuellen Standard} other {Mandanten haben Backups im aktuellen Standard}}",
-      "description": "Würde der Standard auf einen anderen Ort zeigen, blieben diese Backups zurück. Deshalb sind nur Änderungen möglich, die den Ort beibehalten: Schlüsselpaar, Region oder Adressierung. Geben Sie zuerst {scope, select, organisation {Ihrer Organisation} other {jedem aufgeführten Mandanten}} unter Speicher ein eigenes Speicherziel: Ersetzen Sie das primäre Repository und verschieben Sie die vorhandenen Backups, oder fügen Sie eine Kopie hinzu und machen Sie sie zum primären Repository, sobald sie vollständig ist.",
+      "description": "Würde der Standard auf einen anderen Ort zeigen, blieben diese Backups zurück. Deshalb sind nur Änderungen möglich, die den Ort beibehalten: Schlüsselpaar, Region oder Adressierung. Geben Sie zuerst {scope, select, organisation {Ihrer Organisation} other {jedem aufgeführten Mandanten}} unter Speicherorte einen eigenen Speicherort: Ersetzen Sie den primären Speicherort und verschieben Sie die vorhandenen Backups, oder fügen Sie eine Kopie hinzu und machen Sie sie zum primären Speicherort, sobald sie vollständig ist.",
       "reasons": {
         "data": "hat hier Backups",
         "previous": "ältere Backups liegen nach einem Wechsel noch hier",
         "migration": "wird gerade von hier verschoben",
-        "active_job": "ein Backup oder ein anderer Speicherjob ist eingeplant oder läuft"
+        "active_job": "eine Sicherung oder ein anderer Speicherlauf wartet oder läuft"
       }
     }
   },
@@ -177,7 +177,7 @@
   },
   "mounts": {
     "loadError": "Die Netzlaufwerke konnten nicht geladen werden.",
-    "intro": "Netzwerkfreigaben (NFS), die {appName} als Backup-Speicher nutzt. Jede Freigabe erscheint in API und Worker unter {path}; ein Speicherziel der Art \"Verzeichnis\" zeigt dann dorthin.",
+    "intro": "Netzlaufwerke (NFS), die {appName} als Backup-Speicher nutzt. Jedes Netzlaufwerk erscheint in API und Worker unter {path}; ein Speicherort der Art \"Verzeichnis\" zeigt dann dorthin.",
     "unavailable": {
       "title": "Der Mounter läuft nicht",
       "description": "Netzlaufwerke fügt der Mounter hinzu, ein optionaler Container neben {appName}. Er ist standardmäßig aus. Um ihn zu nutzen, führen Sie diesen Befehl einmal in dem Verzeichnis aus, das docker-compose.yml enthält:",
@@ -192,10 +192,10 @@
       "demo": "In der Demo können keine Netzlaufwerke hinzugefügt werden."
     },
     "list": {
-      "title": "Freigaben",
-      "description": "Freigaben, die in API und Worker eingebunden sind.",
-      "empty": "Noch keine Freigaben.",
-      "add": "Freigabe hinzufügen",
+      "title": "Netzlaufwerke",
+      "description": "Netzlaufwerke, die in API und Worker eingebunden sind.",
+      "empty": "Noch keine Netzlaufwerke.",
+      "add": "Netzlaufwerk hinzufügen",
       "server": "Server",
       "export": "Export",
       "version": "NFS-Version",
@@ -204,20 +204,20 @@
       "test": "Testen",
       "remove": "Entfernen",
       "copyPath": "Pfad kopieren",
-      "storageHint": "Um Backups auf einer Freigabe abzulegen, legen Sie ein Speicherziel der Art \"Verzeichnis\" mit dem Pfad der Freigabe oder einem Ordner darunter an."
+      "storageHint": "Um Backups auf einem Netzlaufwerk abzulegen, legen Sie einen Speicherort der Art \"Verzeichnis\" mit dem Pfad des Netzlaufwerks oder einem Ordner darunter an."
     },
     "blockers": {
-      "title": "Freigaben können gerade nicht geändert werden",
+      "title": "Netzlaufwerke können gerade nicht geändert werden",
       "docker_unreachable": "Der Mounter erreicht Docker nicht.",
       "docker_cli_missing": "Der Mounter bereitet seine Docker-Werkzeuge noch vor. Versuchen Sie es in einer Minute erneut.",
       "compose_missing": "Der Mounter findet im Projektverzeichnis keine Compose-Datei.",
-      "compose_file_variable": "In .env ist COMPOSE_FILE gesetzt. Docker Compose würde dann die Override-Datei, in die die Freigaben geschrieben werden, nicht lesen.",
+      "compose_file_variable": "In .env ist COMPOSE_FILE gesetzt. Docker Compose würde dann die Override-Datei, in die die Netzlaufwerke geschrieben werden, nicht lesen.",
       "override_invalid": "Die Compose-Override-Datei kann nicht gelesen werden. Korrigieren Sie sie zuerst von Hand."
     },
     "operation": {
       "title": {
-        "add": "Freigabe {name} wird hinzugefügt",
-        "remove": "Freigabe {name} wird entfernt"
+        "add": "Netzlaufwerk {name} wird hinzugefügt",
+        "remove": "Netzlaufwerk {name} wird entfernt"
       },
       "status": {
         "running": "Läuft",
@@ -235,7 +235,7 @@
     },
     "steps": {
       "validate": "Einstellungen prüfen",
-      "probe": "Freigabe testen",
+      "probe": "Netzlaufwerk testen",
       "write": "Konfiguration schreiben",
       "apply": "API und Worker neu starten",
       "health": "Warten, bis sie bereit sind",
@@ -251,10 +251,10 @@
     "failures": {
       "validate": {
         "invalid": "Die Einstellungen sind ungültig.",
-        "exists": "Eine Freigabe mit diesem Namen gibt es bereits.",
-        "not_found": "Eine Freigabe mit diesem Namen gibt es nicht.",
+        "exists": "Ein Netzlaufwerk mit diesem Namen gibt es bereits.",
+        "not_found": "Ein Netzlaufwerk mit diesem Namen gibt es nicht.",
         "conflict": "Die Compose-Override-Datei bindet unter diesem Pfad bereits etwas ein.",
-        "limit": "Die Höchstzahl an Freigaben ist erreicht."
+        "limit": "Die Höchstzahl an Netzlaufwerken ist erreicht."
       },
       "prepare": {
         "compose_missing": "Im Projektverzeichnis wurde keine Compose-Datei gefunden.",
@@ -262,10 +262,10 @@
         "docker_unreachable": "Docker ist nicht erreichbar."
       },
       "probe": {
-        "mount_failed": "Die Freigabe konnte nicht eingebunden werden. Prüfen Sie Serveradresse, Exportpfad, NFS-Version und ob der Server den Pfad für diesen Host freigibt.",
-        "not_writable": "Die Freigabe wurde eingebunden, ist aber nicht beschreibbar. Prüfen Sie die Berechtigungen auf dem Server (Root Squash bildet root auf einen Benutzer ohne Rechte ab).",
+        "mount_failed": "Das Netzlaufwerk konnte nicht eingebunden werden. Prüfen Sie Serveradresse, Exportpfad, NFS-Version und ob der Server den Pfad für diesen Host freigibt.",
+        "not_writable": "Das Netzlaufwerk wurde eingebunden, ist aber nicht beschreibbar. Prüfen Sie die Berechtigungen auf dem Server (Root Squash bildet root auf einen Benutzer ohne Rechte ab).",
         "timeout": "Der Server hat nicht rechtzeitig geantwortet.",
-        "failed": "Der Test der Freigabe ist fehlgeschlagen."
+        "failed": "Der Test des Netzlaufwerks ist fehlgeschlagen."
       },
       "write": {
         "invalid_override": "Die Compose-Override-Datei kann nicht geändert werden.",
@@ -273,7 +273,7 @@
         "config_invalid": "Docker Compose hat die neue Konfiguration nicht angenommen."
       },
       "apply": {
-        "failed": "API und Worker konnten mit der Freigabe nicht neu gestartet werden."
+        "failed": "API und Worker konnten mit dem Netzlaufwerk nicht neu gestartet werden."
       },
       "health": {
         "timeout": "API oder Worker wurden nicht rechtzeitig bereit.",
@@ -282,10 +282,10 @@
       "interrupted": "Der Mounter wurde beendet, während die Änderung lief."
     },
     "dialog": {
-      "title": "NFS-Freigabe hinzufügen",
-      "description": "Die Freigabe wird zuerst getestet. Beim Hinzufügen starten API und Worker neu, das dauert einen Moment.",
+      "title": "NFS-Netzlaufwerk hinzufügen",
+      "description": "Das Netzlaufwerk wird zuerst getestet. Beim Hinzufügen starten API und Worker neu, das dauert einen Moment.",
       "name": "Name",
-      "nameHint": "1 bis 32 Zeichen: Kleinbuchstaben, Ziffern und Bindestriche. Die Freigabe erscheint unter {path}.",
+      "nameHint": "1 bis 32 Zeichen: Kleinbuchstaben, Ziffern und Bindestriche. Das Netzlaufwerk erscheint unter {path}.",
       "server": "Server",
       "serverHint": "Hostname, IPv4- oder IPv6-Adresse des NFS-Servers.",
       "serverPlaceholder": "nas.example.lan",
@@ -294,10 +294,10 @@
       "exportPlaceholder": "/volume1/backup",
       "version": "NFS-Version",
       "readOnly": "Schreibgeschützt",
-      "readOnlyHint": "Die Freigabe schreibgeschützt einbinden. Backups können dann nicht darauf geschrieben werden.",
+      "readOnlyHint": "Das Netzlaufwerk schreibgeschützt einbinden. Backups können dann nicht darauf geschrieben werden.",
       "test": "Verbindung testen",
       "testing": "Wird getestet ...",
-      "add": "Freigabe hinzufügen",
+      "add": "Netzlaufwerk hinzufügen",
       "invalid": {
         "name": "Verwenden Sie 1 bis 32 Zeichen: a-z, 0-9 und Bindestriche, nicht am Anfang oder Ende.",
         "server": "Geben Sie einen Hostnamen oder eine IP-Adresse ein, ohne Kommas, Leerzeichen oder \"=\".",
@@ -305,34 +305,34 @@
       }
     },
     "test": {
-      "ok": "Die Freigabe ist erreichbar und beschreibbar.",
-      "okReadOnly": "Die Freigabe ist erreichbar und lesbar.",
+      "ok": "Das Netzlaufwerk ist erreichbar und beschreibbar.",
+      "okReadOnly": "Das Netzlaufwerk ist erreichbar und lesbar.",
       "failed": "Der Test ist fehlgeschlagen.",
       "detail": "Details: {detail}"
     },
     "remove": {
-      "title": "Freigabe {name} entfernen?",
-      "description": "Die Freigabe wird aus API und Worker ausgehängt, die dafür neu starten. Die Daten auf dem Server bleiben unberührt.",
-      "confirm": "Freigabe entfernen",
-      "inUse": "Die Freigabe wird noch von diesen Speicherorten genutzt:",
+      "title": "Netzlaufwerk {name} entfernen?",
+      "description": "Das Netzlaufwerk wird aus API und Worker ausgehängt, die dafür neu starten. Die Daten auf dem Server bleiben unberührt.",
+      "confirm": "Netzlaufwerk entfernen",
+      "inUse": "Das Netzlaufwerk wird noch von diesen Speicherorten genutzt:",
       "installationDefault": "der Standardspeicher der Installation"
     },
     "toast": {
-      "adding": "Die Freigabe wird hinzugefügt.",
-      "removing": "Die Freigabe wird entfernt."
+      "adding": "Das Netzlaufwerk wird hinzugefügt.",
+      "removing": "Das Netzlaufwerk wird entfernt."
     },
     "errors": {
       "unavailable": "Der Mounter läuft nicht.",
-      "jobsRunning": "Es laufen Backups oder Wiederherstellungen. Eine Änderung an den Freigaben startet API und Worker neu; versuchen Sie es erneut, wenn sie abgeschlossen sind.",
-      "inUse": "Die Freigabe wird noch von einem Speicherort genutzt.",
+      "jobsRunning": "Es laufen Backups oder Wiederherstellungen. Eine Änderung an den Netzlaufwerken startet API und Worker neu; versuchen Sie es erneut, wenn sie abgeschlossen sind.",
+      "inUse": "Das Netzlaufwerk wird noch von einem Speicherort genutzt.",
       "demo": "In der Demo können Netzlaufwerke nicht geändert werden.",
       "rejected": {
-        "busy": "Eine andere Änderung an den Freigaben läuft gerade.",
-        "blocked": "Der Mounter kann Freigaben gerade nicht ändern.",
-        "exists": "Eine Freigabe mit diesem Namen gibt es bereits.",
-        "not_found": "Eine Freigabe mit diesem Namen gibt es nicht.",
+        "busy": "Eine andere Änderung an den Netzlaufwerken läuft gerade.",
+        "blocked": "Der Mounter kann Netzlaufwerke gerade nicht ändern.",
+        "exists": "Ein Netzlaufwerk mit diesem Namen gibt es bereits.",
+        "not_found": "Ein Netzlaufwerk mit diesem Namen gibt es nicht.",
         "conflict": "Die Compose-Override-Datei bindet unter diesem Pfad bereits etwas ein.",
-        "limit": "Die Höchstzahl an Freigaben ist erreicht.",
+        "limit": "Die Höchstzahl an Netzlaufwerken ist erreicht.",
         "invalid_request": "Der Mounter hat die Einstellungen nicht angenommen.",
         "generic": "Der Mounter hat die Änderung abgelehnt."
       },

@@ -46,14 +46,14 @@
     "hint": "Für dieses Konto ist die Anmeldung deaktiviert: ein geteiltes Postfach, ein Ressourcenpostfach oder ein gesperrter Nutzer. Microsoft Graph unterscheidet diese Fälle nicht."
   },
   "readiness": {
-    "green": "Restore bestätigt",
-    "yellow": "Restore eingeschränkt",
-    "red": "Restore fehlgeschlagen",
-    "unverified": "Nicht geprüft",
+    "green": "Bereit",
+    "yellow": "Achtung",
+    "red": "Nicht wiederherstellbar",
+    "unverified": "Nicht nachgewiesen",
     "none": "Keine Sicherung",
     "needs_credential": "Braucht Aufmerksamkeit",
     "checked": "Geprüft {when}",
-    "unverifiedHint": "Es gibt Sicherungen, aber noch keine Testwiederherstellung hat sie bestätigt. Eine ungeprüfte Sicherung gilt nicht als Schutz.",
+    "unverifiedHint": "Es gibt Sicherungen, aber noch keine Restore-Prüfung hat sie bestätigt. Eine nicht nachgewiesene Sicherung gilt nicht als Schutz.",
     "noneHint": "Geprüft werden kann erst, wenn die erste Sicherung abgeschlossen ist.",
     "needsCredentialHint": "Für dieses Konto ist gerade kein eigenes, funktionierendes Passwort gesetzt: Es ist derzeit nicht geschützt, unabhängig davon, was ein früherer Sicherungsstand einmal bestätigt hat."
   },

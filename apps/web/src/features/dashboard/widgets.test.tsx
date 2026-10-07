@@ -275,7 +275,7 @@ describe("recovery readiness", () => {
     expect(html).toContain("2 backups not verified yet");
     expect(html).toContain('data-segment="unverified"');
     expect(html).toContain("1 object without a backup");
-    expect(html).toContain("Not ready");
+    expect(html).toContain("Not restorable");
     // The alert's button leads to the unverified objects.
     expect(html).toContain('href="/verify?state=unverified"');
     const flag = html.slice(
@@ -352,9 +352,9 @@ describe("servers and clients", () => {
 
   it("colours the machines by the rules of the readiness card", () => {
     const html = render(<EndpointsWidget view={ready(data.endpoints)} {...state} />);
-    // Anything not proven restorable is "Not ready", in the destructive tone, as for the objects.
-    expect(html).toContain("Not ready");
-    expect(html).toMatch(/data-tone="destructive"[^>]*><svg[\s\S]*?<\/svg>Not ready/);
+    // Anything not proven restorable is "Not restorable", in the destructive tone, as for the objects.
+    expect(html).toContain("Not restorable");
+    expect(html).toMatch(/data-tone="destructive"[^>]*><svg[\s\S]*?<\/svg>Not restorable/);
     expect(html).toMatch(/data-segment="red"/);
     expect(html).toMatch(/data-segment="noBackup"/);
     expect(html).toMatch(/data-segment="unverified"/);
@@ -419,7 +419,7 @@ describe("servers and clients", () => {
       expect(html).toContain("3 Rechner nicht nachweislich wiederherstellbar");
       expect(html).toContain("1 Rechner: letzte Sicherung fehlgeschlagen");
       expect(html).toContain("3 Rechner brauchen Aufmerksamkeit");
-      expect(html).toContain("Nicht bereit");
+      expect(html).toContain("Nicht wiederherstellbar");
       expect(html).toContain("Letzte Sicherung");
     } finally {
       await i18n.changeLanguage("en");
@@ -667,7 +667,7 @@ describe("key figures", () => {
     const html = render(<StorageWidget view={ready(data.storage)} {...state} canAdminister />);
     expectTranslated(html);
     expect(html).toContain("75% saved by deduplication");
-    expect(html).toContain("Repository failing");
+    expect(html).toContain("Storage location failing");
     expectLoading(render(<StorageWidget view={loading} {...state} canAdminister />));
     expectFailed(render(<StorageWidget view={failed} {...state} canAdminister />));
     const empty = render(

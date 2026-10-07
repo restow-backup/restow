@@ -342,7 +342,7 @@ describe("the menu per edition", () => {
     expect(groups.map((id) => i18n.t(`nav.groups.${id}`))).toEqual([
       "Täglich",
       "Mail & SaaS",
-      "Server & Endpunkte",
+      "Server & Clients",
       "Mandanten",
       "Installation",
     ]);
@@ -373,7 +373,7 @@ describe("the menu per edition", () => {
       "Ihre Organisation",
       "Server & Betrieb",
       "Mitglieder",
-      "Repositories",
+      "Speicherorte",
       "Lizenz",
       "Kapazitätsplanung",
       "Statistik aller Mandanten",
@@ -382,7 +382,7 @@ describe("the menu per edition", () => {
     expect(groups.map((id) => i18n.t(`nav.groups.${id}`))).toEqual([
       "Daily",
       "Mail & SaaS",
-      "Servers & endpoints",
+      "Servers & clients",
       "Tenants",
       "Installation",
     ]);
@@ -407,7 +407,7 @@ describe("the menu per edition", () => {
       "Tenant settings",
       "Your organisation",
       "Members",
-      "Repositories",
+      "Storage locations",
       "License",
       "Capacity planning",
       "Statistics of all tenants",

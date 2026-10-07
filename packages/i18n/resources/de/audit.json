@@ -148,7 +148,7 @@
     "stats": "Statistik",
     "storage": "Speicher",
     "tenant": "Mandanten",
-    "verify": "Prüfung",
+    "verify": "Restore-Prüfungen",
     "webhook": "Webhooks",
     "provider_team": "Provider-Team",
     "access": "Zugriff",
@@ -177,12 +177,12 @@
       },
       "job": {
         "events": {
-          "opened": "Fortschrittsstream eines Jobs über die API geöffnet"
+          "opened": "Fortschrittsstream eines Laufs über die API geöffnet"
         },
-        "read": "Job über die API gelesen"
+        "read": "Lauf über die API gelesen"
       },
       "jobs": {
-        "read": "Jobs über die API gelesen"
+        "read": "Läufe über die API gelesen"
       },
       "objects": {
         "read": "Geschützte Objekte über die API gelesen"
@@ -202,7 +202,7 @@
         "read": "Prüfbericht über die API gelesen"
       },
       "endpoints": {
-        "read": "Endpunkte über die API gelesen"
+        "read": "Rechner über die API gelesen"
       }
     },
     "api_key": {
@@ -268,8 +268,8 @@
       }
     },
     "job": {
-      "cancelled": "Job abgebrochen",
-      "retried": "Job erneut gestartet"
+      "cancelled": "Lauf abgebrochen",
+      "retried": "Lauf erneut gestartet"
     },
     "license": {
       "installed": "Lizenz installiert",
@@ -377,19 +377,19 @@
         "cancelled": "Speichermigration abgebrochen"
       },
       "target": {
-        "created": "Repository hinzugefügt",
-        "deleted": "Repository entfernt",
-        "probed": "Repository abgefragt",
-        "promoted": "Repository zum primären gemacht",
-        "tested": "Repository getestet",
-        "updated": "Repository geändert"
+        "created": "Speicherort hinzugefügt",
+        "deleted": "Speicherort entfernt",
+        "probed": "Speicherort abgefragt",
+        "promoted": "Speicherort zum primären gemacht",
+        "tested": "Speicherort getestet",
+        "updated": "Speicherort geändert"
       }
     },
     "tenant": {
       "created": "Mandant angelegt",
       "deleted": "Mandant gelöscht",
       "customer": {
-        "updated": "Kundendaten des Mandanten geändert"
+        "updated": "Stammdaten des Mandanten geändert"
       },
       "contacts": {
         "updated": "Ansprechpartner des Mandanten geändert"
@@ -419,7 +419,7 @@
       "report": {
         "viewed": "Prüfbericht angesehen"
       },
-      "requested": "Prüfung gestartet"
+      "requested": "Restore-Prüfung gestartet"
     },
     "webhook": {
       "created": "Webhook angelegt",
@@ -434,11 +434,11 @@
       "updated": "Webhook geändert"
     },
     "provider_team": {
-      "member_invited": "Teammitglied eingeladen",
-      "member_updated": "Rolle eines Teammitglieds geändert",
-      "member_removed": "Teammitglied entfernt",
+      "member_invited": "Mitglied eingeladen",
+      "member_updated": "Rolle eines Mitglieds geändert",
+      "member_removed": "Mitglied entfernt",
       "link_reissued": "Team-Einladungslink neu erstellt",
-      "access_reset": "Zugang eines Teammitglieds zurückgesetzt"
+      "access_reset": "Zugang eines Mitglieds zurückgesetzt"
     },
     "access": {
       "denied": "Aktion verweigert"
@@ -485,7 +485,7 @@
         "finished": "Wiederherstellung auf dem Rechner beendet"
       },
       "restore_test": {
-        "requested": "Restore-Test angefordert"
+        "requested": "Restore-Prüfung angefordert"
       },
       "uninstall": {
         "requested": "Deinstallation des Agenten angefordert"
@@ -506,14 +506,14 @@
       }
     },
     "backup_job": {
-      "created": "Job angelegt",
-      "updated": "Job geändert",
-      "deleted": "Job gelöscht",
+      "created": "Backup-Job angelegt",
+      "updated": "Backup-Job geändert",
+      "deleted": "Backup-Job gelöscht",
       "scope": {
-        "changed": "Umfang eines Jobs geändert"
+        "changed": "Umfang eines Backup-Jobs geändert"
       },
-      "run_requested": "Ausführung eines Jobs angefordert",
-      "migrated": "Zeitpläne und Rechner-Konfigurationen in Jobs überführt"
+      "run_requested": "Lauf eines Backup-Jobs angefordert",
+      "migrated": "Zeitpläne und Rechner-Konfigurationen in Backup-Jobs überführt"
     },
     "mount": {
       "add_requested": "Netzlaufwerk hinzugefügt",
@@ -564,7 +564,7 @@
     "import_upload": "Import-Upload",
     "installation": "Installation",
     "invitation": "Einladung",
-    "job": "Job",
+    "job": "Lauf",
     "legal_hold": "Legal Hold",
     "mail_import": "Import",
     "mailbox": "Postfach",
@@ -580,7 +580,7 @@
     "source": "Quelle",
     "stats": "Statistik",
     "storage_location": "Speicherort",
-    "storage_target": "Repository",
+    "storage_target": "Speicherort",
     "tenant": "Mandant",
     "user": "Benutzer",
     "verify_report": "Prüfbericht",
@@ -590,7 +590,7 @@
     "update": "Update",
     "endpoint": "Server oder Client",
     "endpoint_enrollment_token": "Enrollment-Token",
-    "backup_job": "Job (Definition)",
+    "backup_job": "Backup-Job",
     "mount": "Netzlaufwerk",
     "pve_node": "Knoten (Proxmox VE)",
     "pve_guest": "Gast (VM oder Container)",

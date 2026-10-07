@@ -42,7 +42,7 @@ tar xzf restow-pve-0.3.0-dev-linux-amd64.tar.gz
 
 ## 2. Create the enrollment token
 
-In Restow: **Servers & endpoints > VMs & containers > Connect Proxmox VE >
+In Restow: **Servers & clients > VMs & containers > Connect Proxmox VE >
 Create enrollment token**. Put the token into a file on the node:
 
 ```sh

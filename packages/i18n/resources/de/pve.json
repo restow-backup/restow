@@ -4,7 +4,7 @@
   },
   "page": {
     "title": "VMs & Container",
-    "subtitle": "Virtuelle Maschinen und Container aus Proxmox VE 8.4 oder neuer, gesichert über die offizielle Backup-Schnittstelle von Proxmox VE. Nur geänderte Daten verlassen den Host.",
+    "subtitle": "VMs und Container aus Proxmox VE 8.4 oder neuer, gesichert über die offizielle Backup-Schnittstelle von Proxmox VE. Nur geänderte Daten verlassen den Knoten.",
     "limits": "In dieser Version nicht möglich: VM-Vorlagen sichern, Live-Wiederherstellung, privilegierte Container wiederherstellen, einzelne Dateien aus VMs wiederherstellen.",
     "loadError": "Die Daten konnten nicht geladen werden."
   },
@@ -154,7 +154,7 @@
   },
   "readiness": {
     "overdue": "Überfällig",
-    "notChecked": "Nicht geprüft",
+    "notChecked": "Nicht nachgewiesen",
     "noBackupYet": "Noch kein Sicherungsstand",
     "open": "Öffnen",
     "openFor": "{name} öffnen",

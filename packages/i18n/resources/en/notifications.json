@@ -21,8 +21,8 @@
       "export": "Export",
       "endpoint_backup": "Machine backup",
       "endpoint_restore": "Machine restore",
-      "endpoint_verify_sample": "Machine restore test",
-      "other": "Job"
+      "endpoint_verify_sample": "Machine restore check",
+      "other": "Run"
     },
     "verify": {
       "green": "Restore check passed: {target}",

@@ -67,16 +67,16 @@
       },
       "throttling": {
         "title": "Microsoft 365 throttling",
-        "description": "Time Microsoft Graph made finished jobs wait before it accepted more requests."
+        "description": "Time Microsoft Graph made finished runs wait before it accepted more requests."
       },
       "jobDurations": {
-        "title": "Job durations",
-        "description": "Median and 95th percentile run time of the jobs that completed in the period.",
-        "empty": "No job completed in this period."
+        "title": "Run durations",
+        "description": "Median and 95th percentile run time of the runs that completed in the period.",
+        "empty": "No run completed in this period."
       },
       "failuresByCause": {
         "title": "Failed items by cause",
-        "description": "Items a job could not process, grouped by cause. They are retried on the next run.",
+        "description": "Items a run could not process, grouped by cause. They are retried on the next run.",
         "empty": "No item failed in this period."
       },
       "largestObjects": {
@@ -104,7 +104,7 @@
       "unverified": "Not proven"
     },
     "column": {
-      "kind": "Job",
+      "kind": "Run",
       "count": "Runs",
       "p50": "Median",
       "p95": "95th percentile",
@@ -142,7 +142,7 @@
       "green": "Ready",
       "yellow": "Attention",
       "red": "Not restorable",
-      "unverified": "Not verified",
+      "unverified": "Unverified",
       "no_backup": "No backup yet"
     },
     "readiness": {
@@ -158,7 +158,7 @@
       "dedup": "Deduplication ratio: all retained backups added up, divided by the bytes stored.",
       "readiness": "Proven restorable: objects whose newest backup was rated “Ready” or “Attention” by a restore check of that very backup. A backup taken after the last check stays unproven until it is checked itself; objects never checked or never backed up are not proven, and damage the storage check finds after a check counts as not restorable.",
       "status": "Excluded objects are not protected and objects removed from their source count while they still have a backup. Only an object's current status is stored, so an object excluded today is left out of earlier intervals too.",
-      "throttling": "Throttling waits are what Microsoft Graph imposed on finished jobs; {appName} waits as long as Microsoft asks instead of retrying sooner."
+      "throttling": "Throttling waits are what Microsoft Graph imposed on finished runs; {appName} waits as long as Microsoft asks instead of retrying sooner."
     }
   },
   "nav": "Alerts",
@@ -245,7 +245,7 @@
       "webhook": "Webhook"
     },
     "status": {
-      "pending": "Queued",
+      "pending": "Waiting",
       "sent": "Sent",
       "failed": "Failed",
       "skipped": "Skipped",
@@ -364,7 +364,7 @@
     "recipientsManaged": "These are the recipients who chose this category under Recipients. Change them there."
   },
   "eventGroups": {
-    "jobs": "Jobs",
+    "jobs": "Runs",
     "recoverability": "Recoverability",
     "storage": "Storage",
     "system": "Installation"
@@ -397,7 +397,7 @@
       "stale": "Server or client not reporting",
       "suspicious_snapshot": "Suspicious snapshot of a server or client",
       "storage_quota": "Storage budget of servers and clients",
-      "repository_locked": "Repository of a server or client stays locked"
+      "repository_locked": "Backup data of a server or client stays locked"
     },
     "update": {
       "available": "Update available"
@@ -430,8 +430,8 @@
     "endpoint": {
       "stale": "A server has not reported for more than two hours, or a client has had no good backup for several days.",
       "suspicious_snapshot": "A snapshot appeared that no backup run reported, or one dated in the future. Retention keeps it; the machine may be compromised.",
-      "storage_quota": "The repository of a machine, or all of a tenant's together, reached 90 percent of the storage budget, or backups were refused because it is used up.",
-      "repository_locked": "Retention and checks of a machine's repository kept finding it locked for more than twelve hours."
+      "storage_quota": "The backup data of a machine, or all of a tenant's together, reached 90 percent of the storage budget, or backups were refused because it is used up.",
+      "repository_locked": "Retention and checks kept finding a machine's backup data locked for more than twelve hours."
     },
     "update": {
       "available": "A newer version of the software is available. Raised once per version for the whole installation, so only provider administrators can choose it."
@@ -538,7 +538,7 @@
       "stale": "Not reporting: {object}",
       "suspicious_snapshot": "Suspicious snapshot: {object}",
       "storage_quota": "Storage budget: {object}",
-      "repository_locked": "Repository locked: {object}"
+      "repository_locked": "Backup data locked: {object}"
     },
     "report": {
       "ready": "Report sent: {rule}"
@@ -584,7 +584,7 @@
     }
   },
   "defaultRules": {
-    "jobFailures": "Failed jobs",
+    "jobFailures": "Failed runs",
     "readinessRed": "Recoverability at risk",
     "weeklyReport": "Weekly report"
   },

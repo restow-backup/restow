@@ -13,8 +13,8 @@
   },
   "health": {
     "title": "Zustand",
-    "verified": "Restore verifiziert",
-    "unverified": "Restore noch nicht verifiziert",
+    "verified": "Restore-Prüfung bestanden",
+    "unverified": "Nicht nachgewiesen",
     "lastRun": "Letzter Lauf {timestamp, time, short}"
   },
   "nav": {
@@ -97,9 +97,9 @@
   },
   "throttle": {
     "title": "Microsoft 365 drosselt Anfragen",
-    "waiting": "Microsoft hat {appName} um eine Pause gebeten (HTTP {status}). Der Job läuft in {remaining} automatisch weiter.",
+    "waiting": "Microsoft hat {appName} um eine Pause gebeten (HTTP {status}). Der Lauf geht in {remaining} automatisch weiter.",
     "waitingShort": "Von Microsoft pausiert, weiter in {remaining}",
-    "resumed": "Microsoft hat die Anfragen in diesem Lauf gedrosselt. Der Job läuft normal weiter.",
+    "resumed": "Microsoft hat die Anfragen in diesem Lauf gedrosselt. Der Lauf geht normal weiter.",
     "summary": "{count, plural, one {# Pause} other {# Pausen}} durch Microsoft, insgesamt {duration}",
     "explanation": "Microsoft 365 begrenzt, wie viele Anfragen eine Anwendung senden darf. Warten ist die richtige Reaktion; es geht nichts verloren und kein Element wird übersprungen."
   },
@@ -135,7 +135,7 @@
     "queuedMany": "{count, plural, one {# Backup eingereiht} other {# Backups eingereiht}}.",
     "skipped": "{count, plural, one {# Objekt übersprungen} other {# Objekte übersprungen}}: bereits eingereiht oder nicht bereit.",
     "nothingQueued": "Es wurde kein Backup eingereiht. Alle Objekte sind bereits eingereiht oder nicht bereit.",
-    "cancelled": "Der Job wird abgebrochen.",
+    "cancelled": "Der Lauf wird abgebrochen.",
     "retried": "Der Lauf wurde erneut eingereiht.",
     "alreadyQueued": "Ein Backup dieses Objekts ist bereits eingereiht oder läuft.",
     "failed": "Die Aktion konnte nicht ausgeführt werden."
@@ -158,7 +158,7 @@
     "allQueues": "Alle Arten",
     "allStatuses": "Alle Status",
     "columns": {
-      "job": "Job",
+      "job": "Lauf",
       "object": "Objekt",
       "status": "Status",
       "progress": "Fortschritt",
@@ -201,7 +201,7 @@
   "failures": {
     "title": "Elemente, die nicht verarbeitet werden konnten",
     "description": "Fehlgeschlagene Elemente werden im nächsten Lauf erneut versucht. Nach drei Fehlläufen in Folge wird ein Alarm ausgelöst.",
-    "empty": "In diesem Job ist kein Element fehlgeschlagen.",
+    "empty": "In diesem Lauf ist kein Element fehlgeschlagen.",
     "item": "Element",
     "reason": "Grund",
     "attempts": "Läufe",
@@ -231,10 +231,10 @@
     "loadError": "Die geschützten Objekte konnten nicht geladen werden."
   },
   "readiness": {
-    "green": "Restore verifiziert",
-    "yellow": "Restore teilweise verifiziert",
+    "green": "Bereit",
+    "yellow": "Achtung",
     "red": "Restore-Prüfung fehlgeschlagen",
-    "none": "Noch nicht verifiziert",
+    "none": "Nicht nachgewiesen",
     "checked": "geprüft {time}"
   },
   "snapshots": {
@@ -248,7 +248,7 @@
       "completed": "Abgeschlossen",
       "items": "Elemente",
       "size": "Größe",
-      "job": "Job"
+      "job": "Lauf"
     },
     "state": {
       "running": "Läuft",

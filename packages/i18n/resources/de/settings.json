@@ -333,7 +333,7 @@
   },
   "microsoftApp": {
     "title": "Microsoft-365-App-Registrierung",
-    "description": "Die mandantenübergreifende Backup-App in Ihrem eigenen Microsoft-Entra-Verzeichnis. Kunden erteilen ihr den Admin-Consent; damit sichert und restauriert {appName} deren Postfächer und OneDrives.",
+    "description": "Die mandantenübergreifende Backup-App in Ihrem eigenen Microsoft-Entra-Verzeichnis. Die Mandanten erteilen ihr den Admin-Consent; damit sichert {appName} deren Postfächer und OneDrives und stellt sie wieder her.",
     "loadError": "Die App-Registrierung konnte nicht geladen werden.",
     "status": {
       "title": "Status",
@@ -382,7 +382,7 @@
       "step": "Schritt {number}",
       "register": {
         "title": "App registrieren",
-        "description": "Einmalig, in Ihrem eigenen Microsoft-Entra-Verzeichnis. Dieselbe App dient allen Kunden.",
+        "description": "Einmalig, in Ihrem eigenen Microsoft-Entra-Verzeichnis. Dieselbe App dient allen Mandanten.",
         "path": "Öffnen Sie im Microsoft Entra Admin Center:",
         "pathItems": {
           "identity": "Identität",
@@ -390,7 +390,7 @@
           "appRegistrations": "App-Registrierungen",
           "newRegistration": "Neue Registrierung"
         },
-        "name": "Name: zum Beispiel {appName}. Kunden sehen ihn, wenn sie zustimmen.",
+        "name": "Name: zum Beispiel {appName}. Die Administratoren der Mandanten sehen ihn, wenn sie zustimmen.",
         "accountTypes": "Unterstützte Kontotypen:",
         "accountTypesValue": "Konten in einem beliebigen Organisationsverzeichnis (beliebiges Microsoft Entra ID-Verzeichnis - mandantenübergreifend)",
         "redirect": "Umleitungs-URI: Plattform Web wählen und genau diesen Wert eintragen:",
@@ -414,13 +414,13 @@
         },
         "required": "Pflicht",
         "optional": "Optional",
-        "delegated": "Anschließend unter Delegierte Berechtigungen openid und profile hinzufügen. Sie geben keinen Datenzugriff; sie erlauben nur, dass sich der Admin eines Kunden nach dem Consent bestätigend anmeldet.",
+        "delegated": "Anschließend unter Delegierte Berechtigungen openid und profile hinzufügen. Sie geben keinen Datenzugriff; sie erlauben nur, dass sich der Admin eines Mandanten nach dem Consent bestätigend anmeldet.",
         "copyList": "Liste kopieren",
         "consent": "Zum Schluss auf der Seite API-Berechtigungen diese Schaltfläche wählen:",
         "consentLabel": "Administratorzustimmung für <Ihre Organisation> erteilen",
-        "consentHint": "Das stimmt im eigenen Verzeichnis zu. Kunden stimmen über den Link zu, den {appName} je Microsoft-365-Quelle erzeugt.",
+        "consentHint": "Das stimmt im eigenen Verzeichnis zu. Die Mandanten stimmen über den Link zu, den {appName} je Microsoft-365-Quelle erzeugt.",
         "pitfallTitle": "Mail.ReadWrite, nicht Mail.Read",
-        "pitfall": "Der häufigste Fehler: Mit Mail.Read läuft das Backup, aber jeder Restore scheitert mit 403. Dasselbe gilt für Calendars.ReadWrite und Contacts.ReadWrite.",
+        "pitfall": "Der häufigste Fehler: Mit Mail.Read läuft das Backup, aber jede Wiederherstellung scheitert mit 403. Dasselbe gilt für Calendars.ReadWrite und Contacts.ReadWrite.",
         "sites": "Sites.ReadWrite.All wird bewusst nicht angefragt: SharePoint ist nicht Teil dieser Version, und es würde den Consent unnötig ausweiten.",
         "mailSend": "Mail.Send nur, wenn Benachrichtigungen über Microsoft Graph statt SMTP versendet werden."
       },

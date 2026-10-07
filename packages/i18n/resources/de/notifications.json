@@ -21,8 +21,8 @@
       "export": "Export",
       "endpoint_backup": "Sicherung eines Rechners",
       "endpoint_restore": "Wiederherstellung auf einem Rechner",
-      "endpoint_verify_sample": "Restore-Test eines Rechners",
-      "other": "Auftrag"
+      "endpoint_verify_sample": "Restore-Prüfung eines Rechners",
+      "other": "Lauf"
     },
     "verify": {
       "green": "Restore-Prüfung bestanden: {target}",

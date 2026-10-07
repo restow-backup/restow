@@ -44,7 +44,7 @@
   "list": {
     "title": "Jobs",
     "description": {
-      "mail": "Was wann in welches Repository gesichert wird, für viele Postfächer, OneDrives und IMAP-Konten auf einmal. Die Läufe stehen im Verlauf.",
+      "mail": "Was wann an welchen Speicherort gesichert wird, für viele Postfächer, OneDrives und IMAP-Konten auf einmal. Die Läufe stehen im Verlauf.",
       "endpoint": "Welche Ordner welcher Server und Clients wann gesichert werden und was dabei ausgelassen wird. Ein Job gilt für viele Rechner, einzelne Rechner können abweichen. Die Läufe stehen im Verlauf."
     },
     "table": {
@@ -58,7 +58,7 @@
       "name": "Job",
       "scope": "Umfang",
       "schedule": "Zeitplan",
-      "repository": "Repository",
+      "repository": "Speicherort",
       "lastRun": "Letzter Lauf",
       "nextRun": "Nächster Lauf",
       "restoreCheck": "Restore-Prüfung"
@@ -101,7 +101,7 @@
     "running": "{count, plural, one {Läuft gerade} other {# laufen}}",
     "queued": "{count} wartet",
     "failed": "{count} fehlgeschlagen",
-    "partial": "{count} teilweise"
+    "partial": "{count} mit Warnungen"
   },
   "nextRun": {
     "paused": "Pausiert",
@@ -186,7 +186,7 @@
     "overridesBadge": "{count} Abweichungen",
     "outcome": {
       "succeeded": "Erfolgreich",
-      "partial": "Teilweise",
+      "partial": "Mit Warnungen",
       "failed": "Fehlgeschlagen",
       "running": "Läuft",
       "queued": "Wartet"
@@ -322,7 +322,7 @@
     "restoreCheckSchedule": "Restore-Prüfung",
     "lastRun": "Letzter Lauf",
     "nextRun": "Nächster Lauf",
-    "repository": "Repository",
+    "repository": "Speicherort",
     "retention": "Aufbewahrung",
     "restoreChecks": "Restore-Prüfungen",
     "restoreChecksNone": "In diesem Job gibt es noch nichts zu prüfen.",
@@ -338,7 +338,7 @@
     "intro": "Alles, was dieser Job festlegt. Zum Ändern öffnet sich der Editor.",
     "general": "Allgemein",
     "schedule": "Zeitplan",
-    "repositoryAndRetention": "Repository und Aufbewahrung",
+    "repositoryAndRetention": "Speicherort und Aufbewahrung",
     "folders": "Ordner",
     "exclusions": "Ausschlüsse",
     "bandwidth": "Bandbreite",
@@ -351,7 +351,7 @@
       "updated": "Geändert",
       "schedule": "Zeitplan",
       "restoreCheck": "Restore-Prüfung",
-      "repository": "Repository",
+      "repository": "Speicherort",
       "retention": "Aufbewahrung",
       "fileTypes": "Ausgelassene Dateitypen",
       "ownPatterns": "Eigene Muster",
@@ -584,10 +584,10 @@
       "description": "Befehle, die die Agents um jede Sicherung herum ausführen, zum Beispiel um eine Datenbank zu sichern, damit ihre Dateien konsistent sind."
     },
     "repository": {
-      "title": "Repository",
+      "title": "Speicherort",
       "description": "Wohin die verschlüsselten Sicherungen geschrieben werden.",
-      "primary": "(primäres Repository)",
-      "sentence": "Jeder Job schreibt in das primäre Repository des Mandanten; ein Job kann kein anderes wählen.",
+      "primary": "(primärer Speicherort)",
+      "sentence": "Jeder Backup-Job schreibt an den primären Speicherort des Mandanten; ein Backup-Job kann keinen anderen wählen.",
       "errorTitle": "Der Speicherort ist gestört",
       "errorBody": "Die letzte Prüfung des Speicherorts ist fehlgeschlagen. Sicherungen dieses Jobs können dort nicht geschrieben werden, bis der Fehler behoben ist.",
       "errorLink": "Speicherorte öffnen"
@@ -727,12 +727,12 @@
     "keep": "Täglich {keepDaily}, wöchentlich {keepWeekly}, monatlich {keepMonthly}"
   },
   "repository": {
-    "installationDefault": "Standard-Repository der Installation",
+    "installationDefault": "Standard-Speicherort der Installation",
     "error": "Speicherort gestört"
   },
   "tenant": {
     "title": "Backup-Jobs",
-    "description": "Was für diesen Mandanten nach Zeitplan gesichert wird. Die Wartungszeitpläne darunter halten das Repository gesund.",
+    "description": "Was für diesen Mandanten nach Zeitplan gesichert wird. Die Wartungszeitpläne darunter halten den Speicherort gesund.",
     "new": {
       "mail": "Mail-&-SaaS-Job",
       "endpoint": "Job für Server oder Clients"

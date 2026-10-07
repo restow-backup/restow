@@ -148,7 +148,7 @@
     "stats": "Statistics",
     "storage": "Storage",
     "tenant": "Tenants",
-    "verify": "Verification",
+    "verify": "Restore checks",
     "webhook": "Webhooks",
     "provider_team": "Provider team",
     "access": "Access",
@@ -177,12 +177,12 @@
       },
       "job": {
         "events": {
-          "opened": "Job progress stream opened via API"
+          "opened": "Run progress stream opened via API"
         },
-        "read": "Job read via API"
+        "read": "Run read via API"
       },
       "jobs": {
-        "read": "Jobs read via API"
+        "read": "Runs read via API"
       },
       "objects": {
         "read": "Protected objects read via API"
@@ -199,10 +199,10 @@
         "read": "Users read via API"
       },
       "verify": {
-        "read": "Verification report read via API"
+        "read": "Restore check report read via API"
       },
       "endpoints": {
-        "read": "Endpoints read through the API"
+        "read": "Machines read through the API"
       }
     },
     "api_key": {
@@ -268,8 +268,8 @@
       }
     },
     "job": {
-      "cancelled": "Job cancelled",
-      "retried": "Job retried"
+      "cancelled": "Run cancelled",
+      "retried": "Run retried"
     },
     "license": {
       "installed": "License installed",
@@ -377,19 +377,19 @@
         "cancelled": "Storage migration cancelled"
       },
       "target": {
-        "created": "Repository added",
-        "deleted": "Repository removed",
-        "probed": "Repository probed",
-        "promoted": "Repository made primary",
-        "tested": "Repository tested",
-        "updated": "Repository changed"
+        "created": "Storage location added",
+        "deleted": "Storage location removed",
+        "probed": "Storage location probed",
+        "promoted": "Storage location made primary",
+        "tested": "Storage location tested",
+        "updated": "Storage location changed"
       }
     },
     "tenant": {
       "created": "Tenant created",
       "deleted": "Tenant deleted",
       "customer": {
-        "updated": "Tenant customer data changed"
+        "updated": "Tenant master data changed"
       },
       "contacts": {
         "updated": "Tenant contacts changed"
@@ -417,9 +417,9 @@
     },
     "verify": {
       "report": {
-        "viewed": "Verification report viewed"
+        "viewed": "Restore check report viewed"
       },
-      "requested": "Verification started"
+      "requested": "Restore check started"
     },
     "webhook": {
       "created": "Webhook created",
@@ -434,11 +434,11 @@
       "updated": "Webhook changed"
     },
     "provider_team": {
-      "member_invited": "Team member invited",
-      "member_updated": "Team member's role changed",
-      "member_removed": "Team member removed",
+      "member_invited": "Member invited",
+      "member_updated": "Member's role changed",
+      "member_removed": "Member removed",
       "link_reissued": "Team invitation link reissued",
-      "access_reset": "Team member's access reset"
+      "access_reset": "Member's access reset"
     },
     "access": {
       "denied": "Action refused"
@@ -485,7 +485,7 @@
         "finished": "Restore on the machine finished"
       },
       "restore_test": {
-        "requested": "Restore test requested"
+        "requested": "Restore check requested"
       },
       "uninstall": {
         "requested": "Agent uninstall requested"
@@ -564,7 +564,7 @@
     "import_upload": "Import upload",
     "installation": "Installation",
     "invitation": "Invitation",
-    "job": "Job",
+    "job": "Run",
     "legal_hold": "Legal hold",
     "mail_import": "Import",
     "mailbox": "Mailbox",
@@ -580,10 +580,10 @@
     "source": "Source",
     "stats": "Statistics",
     "storage_location": "Storage location",
-    "storage_target": "Repository",
+    "storage_target": "Storage location",
     "tenant": "Tenant",
     "user": "User",
-    "verify_report": "Verification report",
+    "verify_report": "Restore check report",
     "webhook": "Webhook",
     "route": "Route",
     "report_rule": "Report rule",

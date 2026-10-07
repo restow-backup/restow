@@ -171,9 +171,9 @@ describe("what the prompt says", () => {
   it("asks a service provider with an own organisation and no customer to add the first one", async () => {
     await mount({ kind: "addCustomer" });
 
-    expect(document.body.textContent).toContain("Add your first customer");
+    expect(document.body.textContent).toContain("Add your first tenant");
     const link = document.body.querySelector("a");
-    expect(link?.textContent).toContain("Add a customer");
+    expect(link?.textContent).toContain("Add a tenant");
     expect(link?.getAttribute("href")).toBe("/tenants");
     // The tenants page opens its wizard for this link.
     expect(JSON.parse(link?.getAttribute("data-search") ?? "null")).toEqual({ new: "1" });

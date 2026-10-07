@@ -499,7 +499,7 @@ alle Schritte erledigt oder nicht nötig, verschwindet „Start" aus dem Menü.
   Passkeys entfernen, alle Sessions beenden, Audit `account.access_recovered` (Akteur
   `system`, `via: command_line`) in der Installationskette. Danach Anmeldung mit dem neuen
   Passwort und Pflicht zur TOTP-Einrichtung wie nach dem Setup.
-  Jedes andere Mitglied setzt ein Owner im Browser zurück (Installation › Mitglieder,
+  Jedes andere Mitglied setzt ein Inhaber im Browser zurück (Installation › Mitglieder,
   „Zugang zurücksetzen“, `POST /api/v1/provider-team/:userId/reset-access`, mit kürzlicher
   Anmeldung): in einer Transaktion Passwort (Credential-Konto), Passkeys, TOTP und alle
   Sessions entfernen und einen neuen Set-Password-Link ausstellen (ohne Mail-Dienst zum

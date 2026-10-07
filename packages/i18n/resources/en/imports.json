@@ -70,7 +70,7 @@
     "descriptionFolder": "Select the files and folders of the import folder. A selected folder brings everything inside it.",
     "status": {
       "imported": "Imported",
-      "partial": "Partly imported",
+      "partial": "Imported with warnings",
       "failed": "Failed",
       "refused": "Not imported"
     },
@@ -352,7 +352,7 @@
     "msg_reconstructed": "Some messages come from MSG files and were rebuilt as EML from the stored properties. Their content and attachments are kept, but they are not the original transport format byte for byte.",
     "metadata_unavailable": "Some messages are stored byte for byte, but their subject, sender and text could not be read in a reasonable time or with the memory the import allows, so they appear without those details and the archive search does not find their text. The messages themselves are complete.",
     "item_list_truncated": "The list of items is capped, so more items exist than are shown.",
-    "report_recovered": "This report was rebuilt from the records of the job after the import was interrupted, for example by a restart. Some details, such as the list of failed or skipped items, may be missing.",
+    "report_recovered": "This report was rebuilt from the records of the run after the import was interrupted, for example by a restart. Some details, such as the list of failed or skipped items, may be missing.",
     "other": "The import reported a note this version of {appName} does not know (code: {code})."
   },
   "archive": {

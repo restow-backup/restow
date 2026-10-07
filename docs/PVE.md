@@ -71,7 +71,7 @@ nowhere. Its tests: `prove integrations/pve/plugin/t/`.
 
 ## Onboarding
 
-In Restow: **Servers & endpoints > VMs & containers > Connect Proxmox VE**. It
+In Restow: **Servers & clients > VMs & containers > Connect Proxmox VE**. It
 creates a one-time enrollment token (24 hours) and shows:
 
 1. **Once per cluster**, as root on any node: the user `restow@pve`, the roles

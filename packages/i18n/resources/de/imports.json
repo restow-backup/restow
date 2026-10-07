@@ -70,7 +70,7 @@
     "descriptionFolder": "Wählen Sie die Dateien und Ordner des Import-Ordners aus. Ein ausgewählter Ordner bringt alles mit, was darin liegt.",
     "status": {
       "imported": "Importiert",
-      "partial": "Teilweise importiert",
+      "partial": "Mit Warnungen importiert",
       "failed": "Fehlgeschlagen",
       "refused": "Nicht importiert"
     },
@@ -324,7 +324,7 @@
       "nothingStored": "Es wurde nichts gespeichert, weil sich keine der Dateien lesen ließ. Die Liste unten nennt die Gründe."
     },
     "request": {
-      "title": "Auftrag",
+      "title": "Anfrage",
       "mailbox": "Postfach",
       "files": "Dateien",
       "filesValue": "{count, plural, one {# Datei} other {# Dateien}}",
@@ -352,7 +352,7 @@
     "msg_reconstructed": "Einige Nachrichten stammen aus MSG-Dateien und wurden aus den gespeicherten Eigenschaften als EML neu aufgebaut. Inhalt und Anhänge bleiben erhalten, es ist aber nicht Byte für Byte das ursprüngliche Transportformat.",
     "metadata_unavailable": "Einige Nachrichten sind Byte für Byte gespeichert, aber ihr Betreff, Absender und Text konnten nicht in angemessener Zeit oder mit dem Speicher gelesen werden, den der Import zulässt. Sie erscheinen deshalb ohne diese Angaben, und die Archivsuche findet ihren Text nicht. Die Nachrichten selbst sind vollständig.",
     "item_list_truncated": "Die Liste der Elemente ist begrenzt, es gibt also mehr Elemente als angezeigt werden.",
-    "report_recovered": "Dieser Bericht wurde aus den Aufzeichnungen des Auftrags neu aufgebaut, nachdem der Import unterbrochen wurde, zum Beispiel durch einen Neustart. Einzelne Angaben, etwa die Liste der fehlgeschlagenen oder übersprungenen Elemente, können fehlen.",
+    "report_recovered": "Dieser Bericht wurde aus den Aufzeichnungen des Laufs neu aufgebaut, nachdem der Import unterbrochen wurde, zum Beispiel durch einen Neustart. Einzelne Angaben, etwa die Liste der fehlgeschlagenen oder übersprungenen Elemente, können fehlen.",
     "other": "Der Import hat einen Hinweis gemeldet, den diese Version von {appName} nicht kennt (Code: {code})."
   },
   "archive": {

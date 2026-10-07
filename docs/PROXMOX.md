@@ -652,7 +652,7 @@ tenant, with a guest-to-tenant mapping by PVE pool. The helper then holds one se
 
 ### 2.9 UI touch points
 
-- **Server & Endpunkte, Inventar:** new filters "VMs" and "Container". A row per guest with kind
+- **Server & Clients, Inventar:** new filters "VMs" and "Container". A row per guest with kind
   `vm`/`ct`, cluster, current node, status, OS (guest agent `get-osinfo` if available, later), disks and
   size, last backup, bitmap state ("incremental" / "full read: VM was restarted"), and the job. Clusters
   and nodes show as a group header or filter, with per-node helper health (version, last heartbeat,

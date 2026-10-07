@@ -91,7 +91,7 @@
       "hint": "Elemente, die ein Lauf nicht verarbeiten konnte"
     },
     "verifiedShare": {
-      "label": "Per Restore-Prüfung verifiziert",
+      "label": "Per Restore-Prüfung nachgewiesen",
       "hint": "Anteil der geschützten Objekte mit bestandener Restore-Prüfung"
     },
     "protectedObjects": {
@@ -187,19 +187,19 @@
       "summary": "Der Speicher wuchs in diesem Zeitraum von {first} auf {last}."
     },
     "jobDurations": {
-      "title": "Laufzeiten der Jobs",
-      "description": "Typische (p50) und langsame (p95) Laufzeit je Jobart in diesem Zeitraum.",
+      "title": "Laufzeiten",
+      "description": "Typische (p50) und langsame (p95) Laufzeit je Art des Laufs in diesem Zeitraum.",
       "series": {
         "p50": "Median (p50)",
         "p95": "95. Perzentil (p95)"
       },
       "empty": {
-        "title": "Keine abgeschlossenen Jobs",
-        "description": "In diesem Zeitraum wurde kein Job abgeschlossen."
+        "title": "Keine abgeschlossenen Läufe",
+        "description": "In diesem Zeitraum wurde kein Lauf abgeschlossen."
       },
       "tooltipLabel": "{kind} · {runs}",
       "runs": "{count, plural, one {# Lauf} other {# Läufe}}",
-      "summary": "Die langsamste Jobart war {kind}: typisch {p50}, langsame Läufe {p95}."
+      "summary": "Die langsamste Art war {kind}: typisch {p50}, langsame Läufe {p95}."
     },
     "throttling": {
       "title": "Wartezeiten durch Drosselung",
@@ -287,7 +287,7 @@
     "green": "Bereit",
     "yellow": "Achtung",
     "red": "Nicht wiederherstellbar",
-    "unverified": "Nicht geprüft",
+    "unverified": "Nicht nachgewiesen",
     "unknown": "Unbekannt"
   },
   "jobKinds": {
@@ -315,7 +315,7 @@
     "green": "Bereit",
     "yellow": "Achtung",
     "red": "Nicht wiederherstellbar",
-    "unverified": "Nicht geprüft",
+    "unverified": "Nicht nachgewiesen",
     "none": "Unbekannt",
     "no_backup": "Noch keine Sicherung"
   }

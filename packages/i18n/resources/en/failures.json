@@ -26,7 +26,7 @@
     "source": "The connection to {name} is broken (recorded {when}).",
     "sync": "The last directory sync of {name} failed {when}.",
     "credential": "The login test for {name} failed {when}.",
-    "verify": "The recovery check of {object} found a problem ({when}).",
+    "verify": "The restore check of {object} found a problem ({when}).",
     "step": "It stopped during the step: {step}.",
     "items": "{count, plural, one {# item was affected.} other {# items were affected.}}",
     "itemGroup": "{count, plural, one {# item} other {# items}}",
@@ -83,7 +83,7 @@
       },
       "access_denied": {
         "title": "Microsoft denied access to this mailbox or drive",
-        "why": "Microsoft answered \"access denied\". There are two usual reasons: {has_permission, select, yes {the {appName} app lacks the permission {permission}} other {the {appName} app lacks a permission this call needs}}, or an Exchange Application Access Policy in the customer organisation excludes this mailbox from the app. {appName} cannot tell the two apart from Microsoft's answer."
+        "why": "Microsoft answered \"access denied\". There are two usual reasons: {has_permission, select, yes {the {appName} app lacks the permission {permission}} other {the {appName} app lacks a permission this call needs}}, or an Exchange Application Access Policy in the tenant's Microsoft 365 organisation excludes this mailbox from the app. {appName} cannot tell the two apart from Microsoft's answer."
       },
       "mailbox_not_licensed": {
         "title": "This user has no usable Exchange Online mailbox",
@@ -204,8 +204,8 @@
         "why": "The operating system denied access{has_path, select, yes { to {path}} other {}}. The folder is read-only or belongs to a user the {appName} worker does not run as."
       },
       "full": {
-        "title": "The storage target is full",
-        "why": "There is no space left on the storage target, or its quota is used up. {appName} cannot write new backup data until space is available."
+        "title": "The storage location is full",
+        "why": "There is no space left in the storage location, or its quota is used up. {appName} cannot write new backup data until space is available."
       },
       "access_denied": {
         "title": "The storage service denied access",
@@ -213,22 +213,22 @@
       },
       "credentials_invalid": {
         "title": "The storage service does not accept the credentials",
-        "why": "The access key or the secret of the storage target is wrong, expired or was revoked."
+        "why": "The access key or the secret of the storage location is wrong, expired or was revoked."
       },
       "bucket_missing": {
         "title": "The bucket does not exist",
-        "why": "The storage service reports that the bucket configured for this target does not exist, or the account cannot see it."
+        "why": "The storage service reports that the bucket configured for this storage location does not exist, or the account cannot see it."
       },
       "wrong_region": {
         "title": "The bucket is at a different endpoint or region",
-        "why": "The storage service redirected the request or rejected the signature for this region. The endpoint URL or the region of the target does not match where the bucket lives."
+        "why": "The storage service redirected the request or rejected the signature for this region. The endpoint URL or the region of the storage location does not match where the bucket lives."
       },
       "unreachable": {
-        "title": "The storage target cannot be reached",
+        "title": "The storage location cannot be reached",
         "why": "The connection to the storage endpoint{has_host, select, yes { {host}} other {}} failed. Firewalls, DNS problems or an outage at the storage provider cause this."
       },
       "timeout": {
-        "title": "The storage target did not answer in time",
+        "title": "The storage location did not answer in time",
         "why": "The storage endpoint did not respond within the time limit. The network may be slow or the service overloaded."
       },
       "tls": {
@@ -241,10 +241,10 @@
       },
       "integrity": {
         "title": "Data on the storage does not match what {appName} wrote",
-        "why": "{reason, select, source_missing {An object that the index knows is missing on the primary target.} source_corrupt {An object on the primary target has a different size or checksum than recorded.} verify_failed {A copy target returned different bytes than were written.} other {A read-back of stored data did not match.}} {appName} did not spread the damage to other targets."
+        "why": "{reason, select, source_missing {An object that the index knows is missing in the primary storage location.} source_corrupt {An object in the primary storage location has a different size or checksum than recorded.} verify_failed {A copy storage location returned different bytes than were written.} other {A read-back of stored data did not match.}} {appName} did not spread the damage to other storage locations."
       },
       "error": {
-        "title": "The storage target returned an unexpected error",
+        "title": "The storage location returned an unexpected error",
         "why": "Writing or reading backup data failed and {appName} could not tell exactly why. The technical details contain the answer of the storage."
       }
     },
@@ -265,7 +265,7 @@
       },
       "chunk_missing": {
         "title": "Parts of the backup are missing",
-        "why": "{has_count, select, yes {{count, plural, one {# checked item refers} other {# checked items refer}}} other {Checked items refer}} to backup data that is no longer there: the storage index does not list it, or no storage target has the data file that holds it any more. These items cannot be restored completely."
+        "why": "{has_count, select, yes {{count, plural, one {# checked item refers} other {# checked items refer}}} other {Checked items refer}} to backup data that is no longer there: the storage index does not list it, or no storage location has the data file that holds it any more. These items cannot be restored completely."
       },
       "pack_unreadable": {
         "title": "Backup data in the storage is damaged",
@@ -297,7 +297,7 @@
       },
       "nothing_to_verify": {
         "title": "The backup contains nothing that could be verified",
-        "why": "The latest backup holds no items that a recovery check can read back, so the rating rests on nothing yet."
+        "why": "The latest backup holds no items that a restore check can read back, so the rating rests on nothing yet."
       },
       "restore_test_unconfirmed": {
         "title": "The target did not confirm the test restore",
@@ -315,7 +315,7 @@
       },
       "source_disabled": {
         "title": "The source is switched off",
-        "why": "An administrator paused this source, so no job runs for it."
+        "why": "An administrator paused this source, so nothing runs for it."
       },
       "object_excluded": {
         "title": "This object is excluded from protection",
@@ -327,11 +327,11 @@
       },
       "app_not_configured": {
         "title": "The Microsoft 365 app of this installation is not configured",
-        "why": "The app registration {appName} needs to talk to Microsoft 365 is incomplete or missing (client ID, credentials). No Microsoft 365 job can run until it is set up."
+        "why": "The app registration {appName} needs to talk to Microsoft 365 is incomplete or missing (client ID, credentials). No Microsoft 365 run can start until it is set up."
       },
       "invalid": {
-        "title": "A setting prevents this job from running",
-        "why": "The job was rejected before it started because a setting is missing or inconsistent. The technical details name it."
+        "title": "A setting prevents this run from starting",
+        "why": "The run was rejected before it started because a setting is missing or inconsistent. The technical details name it."
       }
     },
     "database": {
@@ -358,8 +358,8 @@
     },
     "job": {
       "interrupted": {
-        "title": "The job was interrupted",
-        "why": "{reason, select, shutdown {The worker was stopped or restarted while the job was running.} expired {The job reached the time limit of a single run.} other {The job was interrupted before it finished.}} {appName} continues from the last checkpoint, nothing that was already saved is lost."
+        "title": "The run was interrupted",
+        "why": "{reason, select, shutdown {The worker was stopped or restarted while the run was in progress.} expired {The run reached its time limit.} other {The run was interrupted before it finished.}} {appName} continues from the last checkpoint, nothing that was already saved is lost."
       }
     },
     "unknown": {
@@ -416,16 +416,16 @@
         "why": "{has_exitCode, select, yes {restic ended with exit code {exitCode}.} other {restic ended with an error.}} The technical details show what it reported."
       },
       "repository_locked": {
-        "title": "The repository is busy",
-        "why": "Another backup or a maintenance run (pruning, a check) holds the repository lock. The agent waits and tries again, so this usually resolves itself."
+        "title": "The backup data is busy",
+        "why": "Another backup or a maintenance run (pruning, a check) holds the lock on the backup data. The agent waits and tries again, so this usually resolves itself."
       },
       "repository_missing": {
-        "title": "The repository was not found",
-        "why": "The backup program could not find this machine's repository in the storage target. Files in the storage may have been moved or deleted outside of the backup software, or the storage target was changed."
+        "title": "The backup data was not found",
+        "why": "The backup program could not find this machine's backup data in the storage location. Files in the storage may have been moved or deleted outside of the backup software, or the storage location was changed."
       },
       "repository_password": {
         "title": "The repository password is rejected",
-        "why": "The password stored on the server does not open the repository. This should never happen. Do not change files in the storage and quote the technical details in a support case."
+        "why": "The password stored on the server does not open the backup data. This should never happen. Do not change files in the storage and quote the technical details in a support case."
       },
       "repository_refused": {
         "title": "The server refused the request",
@@ -452,13 +452,13 @@
         "why": "{has_ageDays, select, yes {The last good backup is {ageDays, plural, one {# day} other {# days}} old.} other {The last good backup is too old.}} The machine may have been off or offline, or its backups keep failing."
       },
       "repository_damaged": {
-        "title": "The repository is damaged",
-        "why": "The repository check found damaged or missing data among this machine's backups. Backups made from now on are not affected, but older data may not be restorable. The technical details show what the check reported."
+        "title": "The backup data is damaged",
+        "why": "The integrity check found damaged or missing data among this machine's backups. Backups made from now on are not affected, but older data may not be restorable. The technical details show what the check reported."
       }
     }
   },
   "steps": {
-    "regrant_consent": "Create a new consent link for this source and let a Global Administrator of the customer organisation grant admin consent again.",
+    "regrant_consent": "Create a new consent link for this source and let a Global Administrator of the tenant's Microsoft 365 organisation grant admin consent again.",
     "verify_permissions": "Run \"Verify permissions\" on the source to see which permissions the organisation has granted.",
     "grant_permission": "{has_permission, select, yes {Add the application permission {permission} to the {appName} app registration in Entra ID} other {Add the missing application permissions to the {appName} app registration in Entra ID}}, then grant admin consent again for this source.",
     "check_app_credentials": "Check the client secret or certificate of the {appName} app under Installation > Microsoft multi-tenant app. If it expired or was replaced in Entra ID, save the new one there.",
@@ -492,12 +492,12 @@
     "enable_source": "Switch the source on again in its settings.",
     "reconnect_source": "Finish connecting the source: for Microsoft 365 grant admin consent, for IMAP test the connection.",
     "check_storage_path": "Check that the folder exists, is mounted into the container and that the {appName} worker may write to it.",
-    "free_storage_space": "Free up space in the repository, or add another repository under Repositories.",
-    "check_storage_credentials": "Check the access key and the secret of the storage target.",
+    "free_storage_space": "Free up space in the storage location, or add another storage location under Storage locations.",
+    "check_storage_credentials": "Check the access key and the secret of the storage location.",
     "check_storage_permissions": "Check that the credentials may read, write, list and delete in the bucket.",
     "check_bucket": "Check the name of the bucket.",
-    "check_storage_endpoint": "Check the endpoint URL and the region of the storage target.",
-    "check_storage_health": "Run a connection test on the storage target and, if data is damaged, a storage integrity check.",
+    "check_storage_endpoint": "Check the endpoint URL and the region of the storage location.",
+    "check_storage_health": "Run a connection test on the storage location and, if data is damaged, a storage check.",
     "check_master_key": "Make sure RESTOW_MASTER_KEY is set for the API and the worker and has exactly the value that encrypted the tenant keys. Never change it without wrapping the keys again.",
     "restore_key_backup": "Restore the master key from your key backup.",
     "run_backup_again": "Run a new backup. If the problem returns, run a health check.",
@@ -506,9 +506,9 @@
     "check_test_target": "Check the test restore target of the source and that the {appName} app may write there.",
     "wait_for_exports_to_expire": "Finished exports are deleted automatically after their download time. Wait for that, then request the export again.",
     "export_less_mail": "Export a smaller selection, for example one folder or one period, or split the export into several parts.",
-    "raise_export_limit": "If the storage target has room, an administrator of the installation can raise the limit with the setting EXPORT_MAX_TENANT_BYTES.",
+    "raise_export_limit": "If the storage location has room, an administrator of the installation can raise the limit with the setting EXPORT_MAX_TENANT_BYTES.",
     "check_database": "Check that Postgres is running and reachable, has free disk space and has connections left.",
-    "worker_resources": "If jobs are interrupted often, check memory and restarts of the worker container.",
+    "worker_resources": "If runs are interrupted often, check memory and restarts of the worker container.",
     "read_technical_details": "The technical details below show the exact answer.",
     "check_endpoint_paths": "Check that the folders in the machine's settings exist on the machine, or change the folders.",
     "check_endpoint_hooks": "Run the before and after commands from the settings by hand on the machine as administrator and fix what fails.",
@@ -523,7 +523,7 @@
     "source": "Open the source",
     "sources": "Open Sources",
     "directory": "Open Protected objects",
-    "storage": "Open Repositories",
+    "storage": "Open Storage locations",
     "verify": "Open Recovery readiness",
     "jobs": "Open Backup"
   }
