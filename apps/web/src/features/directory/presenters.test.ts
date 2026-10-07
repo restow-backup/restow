@@ -463,12 +463,14 @@ describe("availableActions", () => {
       exclude: true,
       reset: false,
       remove: false,
+      removeBlocked: false,
     });
     expect(availableActions(object({ override: "exclude", status: "excluded" }))).toEqual({
       include: true,
       exclude: false,
       reset: true,
       remove: false,
+      removeBlocked: false,
     });
   });
 
@@ -478,6 +480,7 @@ describe("availableActions", () => {
       exclude: false,
       reset: true,
       remove: false,
+      removeBlocked: false,
     });
   });
 
@@ -488,8 +491,10 @@ describe("availableActions", () => {
       exclude: true,
       reset: false,
       remove: true,
+      removeBlocked: false,
     });
     expect(availableActions({ ...imap, snapshotCount: 1 }).remove).toBe(false);
+    expect(availableActions({ ...imap, snapshotCount: 1 }).removeBlocked).toBe(true);
     expect(availableActions({ ...imap, status: "excluded" }).include).toBe(true);
   });
 });

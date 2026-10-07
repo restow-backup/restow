@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { FileUp, TriangleAlert } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
@@ -15,6 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/sonner";
 import {
@@ -25,11 +27,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { sourceDetailTo } from "@/features/sources/paths";
 import { errorMessageKey } from "@/lib/api";
 
 import { useImportAccounts } from "./hooks";
 import { Textarea } from "./textarea";
-import type { AccountIssue, CsvImportOutcome, DirectorySource } from "./types";
+import type { AccountIssue, CsvImportOutcome, DirectorySource, ImapAuthMode } from "./types";
 
 /** Largest file the dialog reads; the API accepts 2 MB of CSV text. */
 const MAX_FILE_BYTES = 2_000_000;
@@ -37,56 +40,6 @@ const MAX_FILE_BYTES = 2_000_000;
 /** Quote a CSV field only when it needs it (RFC 4180: a comma, semicolon, tab, quote or newline). */
 function csvField(value: string): string {
   return /[,;\t"\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
-}
-
-/**
- * Header labels the CSV import recognises (mirrors `HEADER_ALIASES` in
- * packages/core/src/directory/csv.ts, kept small and in sync here rather
- * than importing across the package boundary for one check).
- */
-const HEADER_LABELS = new Set([
-  "login",
-  "username",
-  "user",
-  "account",
-  "email",
-  "e-mail",
-  "mail",
-  "address",
-  "name",
-  "displayname",
-  "display name",
-  "password",
-  "pass",
-  "pwd",
-]);
-
-/**
- * Whether the box holds exactly one account entered positionally: a single
- * line with at most the three no-header columns `login[, name[, email]]`
- * (docs/IMAP.md, `accounts.format`). Only then does the standalone password
- * field below it (per_mailbox sources only) apply; more than three columns,
- * or a cell that names a recognised header, means several accounts or an
- * already-CSV-shaped paste, which keep using the header row's own
- * `password` column instead.
- */
-export function isSingleLoginEntry(text: string): boolean {
-  const lines = text
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter((line) => line.length > 0);
-  if (lines.length !== 1) {
-    return false;
-  }
-  const line = lines[0] as string;
-  const delimiter = ([",", ";", "\t"] as const).reduce((best, candidate) =>
-    line.split(candidate).length > line.split(best).length ? candidate : best,
-  );
-  const fields = line.split(delimiter).map((field) => field.trim());
-  if (fields.length > 3) {
-    return false;
-  }
-  return !fields.some((field) => HEADER_LABELS.has(field.toLowerCase()));
 }
 
 interface AccountsDialogProps {
@@ -123,31 +76,25 @@ function AccountsForm({ source, onDone }: { source: DirectorySource; onDone: () 
   const importAccounts = useImportAccounts();
   const fileInput = React.useRef<HTMLInputElement>(null);
   const [text, setText] = React.useState("");
-  const [singlePassword, setSinglePassword] = React.useState("");
   const [fileName, setFileName] = React.useState<string | null>(null);
-  const [preview, setPreview] = React.useState<{
-    text: string;
-    password: string;
-    outcome: CsvImportOutcome;
-  } | null>(null);
+  const [preview, setPreview] = React.useState<{ text: string; outcome: CsvImportOutcome } | null>(
+    null,
+  );
+  const [passwords, setPasswords] = React.useState<Record<string, string>>({});
+  const [usernames, setUsernames] = React.useState<Record<string, string>>({});
+  const [added, setAdded] = React.useState<CsvImportOutcome | null>(null);
 
-  // Only a per_mailbox source has a password of its own to set here at all
-  // (docs/IMAP.md); the standalone field only makes sense while the box
-  // holds exactly one bare login, otherwise a CSV header's own `password`
-  // column is how several accounts each get their own.
-  const offerSinglePassword = source.imapAuthMode === "per_mailbox" && isSingleLoginEntry(text);
-  // What actually gets sent: the box as typed, or, with a single login and a
-  // password entered for it, that login and password as a one-row CSV.
-  const payload =
-    offerSinglePassword && singlePassword.length > 0
-      ? `login,password\n${csvField(text.trim())},${csvField(singlePassword)}`
-      : text;
+  const mode: ImapAuthMode = source.imapAuthMode ?? "shared";
+  const perMailbox = mode === "per_mailbox";
 
-  const current =
-    preview !== null && preview.text === text && preview.password === singlePassword
-      ? preview.outcome
-      : null;
+  const current = preview !== null && preview.text === text ? preview.outcome : null;
   const addable = current ? current.created + current.existing : 0;
+  // Per-row fields are offered for new accounts only, and only while the
+  // pasted list carries no password column of its own: the rebuilt list below
+  // could not repeat those passwords (the check never returns them).
+  const rowFields =
+    perMailbox && current !== null && !current.accounts.some((account) => account.hasPassword);
+  const payload = rowFields && current ? buildRowCsv(current, passwords, usernames) : text;
 
   const run = async (dryRun: boolean) => {
     try {
@@ -157,11 +104,15 @@ function AccountsForm({ source, onDone }: { source: DirectorySource; onDone: () 
         dryRun,
       });
       if (dryRun) {
-        setPreview({ text, password: singlePassword, outcome });
+        setPreview({ text, outcome });
         return;
       }
       toast.success(t("accounts.done", { created: outcome.created }));
-      onDone();
+      if (perMailbox) {
+        setAdded(outcome);
+      } else {
+        onDone();
+      }
     } catch (error) {
       toast.error(t("accounts.failed"), { description: tc(errorMessageKey(error)) });
     }
@@ -184,9 +135,14 @@ function AccountsForm({ source, onDone }: { source: DirectorySource; onDone: () 
     }
   };
 
+  if (added) {
+    return <AddedResult outcome={added} onDone={onDone} />;
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto">
+        <ModeNotice source={source} mode={mode} onNavigate={onDone} />
         <div className="space-y-1.5">
           <div className="flex items-center justify-between gap-2">
             <Label htmlFor="accounts-text">{t("accounts.text")}</Label>
@@ -218,29 +174,22 @@ function AccountsForm({ source, onDone }: { source: DirectorySource; onDone: () 
           <p id={messageId("accounts-text")} className="text-xs text-muted-foreground">
             {fileName ? `${t("accounts.fileLoaded", { name: fileName })} ` : null}
             {t("accounts.format")}{" "}
-            {source.imapAuthMode === "per_mailbox"
+            {perMailbox
               ? t("accounts.passwordColumnHint")
               : t("accounts.passwordColumnIgnoredHint")}
           </p>
         </div>
 
-        {offerSinglePassword ? (
-          <div className="space-y-1.5">
-            <Label htmlFor="accounts-single-password">{t("accounts.singlePassword.label")}</Label>
-            <PasswordInput
-              id="accounts-single-password"
-              autoComplete="new-password"
-              value={singlePassword}
-              onChange={(event) => setSinglePassword(event.target.value)}
-              aria-describedby={messageId("accounts-single-password")}
-            />
-            <p id={messageId("accounts-single-password")} className="text-xs text-muted-foreground">
-              {t("accounts.singlePassword.hint")}
-            </p>
-          </div>
+        {current ? (
+          <PreviewResult
+            outcome={current}
+            rowFields={rowFields}
+            passwords={passwords}
+            usernames={usernames}
+            onPassword={(login, value) => setPasswords((prev) => ({ ...prev, [login]: value }))}
+            onUsername={(login, value) => setUsernames((prev) => ({ ...prev, [login]: value }))}
+          />
         ) : null}
-
-        {current ? <PreviewResult outcome={current} /> : null}
         {!current && text.trim().length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("accounts.empty")}</p>
         ) : null}
@@ -268,7 +217,107 @@ function AccountsForm({ source, onDone }: { source: DirectorySource; onDone: () 
   );
 }
 
-function PreviewResult({ outcome }: { outcome: CsvImportOutcome }) {
+/**
+ * The accounts of a checked list as a CSV with a password column, so the
+ * import creates each mailbox and seals its password in one call. A username
+ * typed for a row replaces the login the list gave (the address stays).
+ */
+function buildRowCsv(
+  outcome: CsvImportOutcome,
+  passwords: Record<string, string>,
+  usernames: Record<string, string>,
+): string {
+  const lines = outcome.accounts.map((account) => {
+    const username = usernames[account.login]?.trim() ?? "";
+    const login = username.length > 0 ? username : account.login;
+    return [login, account.displayName ?? "", account.email, passwords[account.login] ?? ""]
+      .map(csvField)
+      .join(",");
+  });
+  return ["login,name,email,password", ...lines].join("\n");
+}
+
+/** Which login mode applies to this source, in one sentence, and where to change it. */
+function ModeNotice({
+  source,
+  mode,
+  onNavigate,
+}: {
+  source: DirectorySource;
+  mode: ImapAuthMode;
+  onNavigate: () => void;
+}) {
+  const { t } = useTranslation("directory");
+  return (
+    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm">
+      <p data-testid="accounts-mode">{t(`accounts.mode.${mode}`)}</p>
+      <Link
+        to={sourceDetailTo(source.id)}
+        onClick={onNavigate}
+        className="font-medium underline-offset-4 hover:underline"
+      >
+        {t("accounts.changeMode")}
+      </Link>
+    </div>
+  );
+}
+
+/** Per-row outcome of an add with passwords: created or listed already, password sealed or missing. */
+function AddedResult({ outcome, onDone }: { outcome: CsvImportOutcome; onDone: () => void }) {
+  const { t } = useTranslation("directory");
+  const { t: tc } = useTranslation();
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
+        <p className="text-sm" aria-live="polite">
+          {t("accounts.done", { created: outcome.created })}
+        </p>
+        <ul
+          className="divide-y divide-border rounded-md border border-border"
+          data-testid="accounts-results"
+        >
+          {outcome.accounts.map((account) => (
+            <li key={account.login} className="flex items-center justify-between gap-2 px-3 py-2">
+              <span className="font-mono text-xs">{account.login}</span>
+              <span className="flex gap-1.5">
+                <Badge variant={account.state === "new" ? "info" : "muted"}>
+                  {t(`accounts.state.${account.state}`)}
+                </Badge>
+                <Badge variant={account.hasPassword ? "outline" : "warning"}>
+                  {account.hasPassword
+                    ? t("accounts.results.passwordSet")
+                    : t("accounts.results.passwordMissing")}
+                </Badge>
+              </span>
+            </li>
+          ))}
+        </ul>
+        {outcome.accounts.some((account) => !account.hasPassword) ? (
+          <p className="text-xs text-muted-foreground">{t("accounts.results.missingHint")}</p>
+        ) : null}
+      </div>
+      <DialogFooter>
+        <Button onClick={onDone}>{tc("actions.close")}</Button>
+      </DialogFooter>
+    </div>
+  );
+}
+
+function PreviewResult({
+  outcome,
+  rowFields,
+  passwords,
+  usernames,
+  onPassword,
+  onUsername,
+}: {
+  outcome: CsvImportOutcome;
+  rowFields: boolean;
+  passwords: Record<string, string>;
+  usernames: Record<string, string>;
+  onPassword: (login: string, value: string) => void;
+  onUsername: (login: string, value: string) => void;
+}) {
   const { t } = useTranslation("directory");
   return (
     <div className="space-y-3">
@@ -320,6 +369,44 @@ function PreviewResult({ outcome }: { outcome: CsvImportOutcome }) {
               </TableBody>
             </Table>
           </div>
+          {rowFields ? (
+            <div className="space-y-2" data-testid="accounts-row-fields">
+              <p className="text-xs text-muted-foreground">{t("accounts.rowFields.hint")}</p>
+              {outcome.accounts
+                .filter((account) => account.state === "new")
+                .map((account) => (
+                  <div
+                    key={account.login}
+                    className="grid gap-2 rounded-md border border-border p-2 sm:grid-cols-[1fr_1fr_1fr] sm:items-end"
+                  >
+                    <span className="font-mono text-xs sm:pb-2">{account.login}</span>
+                    <div className="space-y-1">
+                      <Label htmlFor={`accounts-username-${account.login}`}>
+                        {t("accounts.rowFields.username")}
+                      </Label>
+                      <Input
+                        id={`accounts-username-${account.login}`}
+                        autoComplete="off"
+                        placeholder={account.login}
+                        value={usernames[account.login] ?? ""}
+                        onChange={(event) => onUsername(account.login, event.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor={`accounts-password-${account.login}`}>
+                        {t("accounts.rowFields.password")}
+                      </Label>
+                      <PasswordInput
+                        id={`accounts-password-${account.login}`}
+                        autoComplete="new-password"
+                        value={passwords[account.login] ?? ""}
+                        onChange={(event) => onPassword(account.login, event.target.value)}
+                      />
+                    </div>
+                  </div>
+                ))}
+            </div>
+          ) : null}
         </>
       )}
       {outcome.issues.length > 0 ? <IssueList issues={outcome.issues} /> : null}

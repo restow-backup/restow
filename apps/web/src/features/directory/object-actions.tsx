@@ -44,6 +44,7 @@ import {
   canSetCredential,
   canTestCredentialLogin,
   credentialProbeFailureKey,
+  isAccountHasBackupsError,
   objectErrorKey,
   objectTitle,
   syncResultKey,
@@ -139,6 +140,53 @@ export function SetCredentialDialog({
 }
 
 /**
+ * Shown instead of the delete confirmation when a mailbox cannot be deleted
+ * (it has backups, or a legal hold): says why, that Restow never deletes
+ * backups on the side, and offers excluding it from protection.
+ */
+export function RemoveBlockedDialog({
+  open,
+  onOpenChange,
+  reason,
+  canExclude,
+  pending = false,
+  onExclude,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  reason: "backups" | "hold";
+  canExclude: boolean;
+  pending?: boolean;
+  onExclude: () => void;
+}) {
+  const { t } = useTranslation("directory");
+  const { t: tc } = useTranslation();
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{t("actions.blocked.title")}</DialogTitle>
+          <DialogDescription>{t(`actions.blocked.${reason}`)}</DialogDescription>
+        </DialogHeader>
+        <p className="text-sm text-muted-foreground">
+          {canExclude ? t("actions.blocked.retention") : t("actions.blocked.alreadyExcluded")}
+        </p>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={pending}>
+            {tc("actions.close")}
+          </Button>
+          {canExclude ? (
+            <Button onClick={onExclude} loading={pending}>
+              {t("actions.blocked.exclude")}
+            </Button>
+          ) : null}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/**
  * Per-object decisions: always include, exclude (confirmed, because backups
  * stop), return to the rules, and remove an IMAP account that has no backups.
  */
@@ -148,7 +196,9 @@ export function ObjectActions({ object }: { object: ProtectedObject }) {
   const setProtection = useSetProtection();
   const removeAccount = useDeleteAccount();
   const testCredential = useTestObjectCredential();
-  const [confirm, setConfirm] = React.useState<"exclude" | "remove" | null>(null);
+  const [confirm, setConfirm] = React.useState<"exclude" | "remove" | "blocked" | null>(null);
+  // Why a delete is refused: backups (known from the list) or a legal hold (only the API knows).
+  const [blockedReason, setBlockedReason] = React.useState<"backups" | "hold">("backups");
   const [credentialDialogOpen, setCredentialDialogOpen] = React.useState(false);
 
   const actions = availableActions(object);
@@ -197,11 +247,29 @@ export function ObjectActions({ object }: { object: ProtectedObject }) {
       toast.success(t("actions.done.remove", { name }));
       setConfirm(null);
     } catch (error) {
+      if (isAccountHasBackupsError(error)) {
+        // Backups appeared since the list was read, or a legal hold is set.
+        setBlockedReason(object.snapshotCount > 0 ? "backups" : "hold");
+        setConfirm("blocked");
+        return;
+      }
       failed(error);
     }
   };
 
-  if (!actions.include && !actions.exclude && !actions.reset && !actions.remove && !isImap) {
+  const openBlocked = () => {
+    setBlockedReason("backups");
+    setConfirm("blocked");
+  };
+
+  if (
+    !actions.include &&
+    !actions.exclude &&
+    !actions.reset &&
+    !actions.remove &&
+    !actions.removeBlocked &&
+    !isImap
+  ) {
     return null;
   }
 
@@ -249,6 +317,15 @@ export function ObjectActions({ object }: { object: ProtectedObject }) {
               ) : null}
             </>
           ) : null}
+          {actions.removeBlocked ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem variant="destructive" onSelect={openBlocked}>
+                <Trash2 />
+                {t("actions.remove")}
+              </DropdownMenuItem>
+            </>
+          ) : null}
           {actions.remove ? (
             <>
               <DropdownMenuSeparator />
@@ -279,6 +356,14 @@ export function ObjectActions({ object }: { object: ProtectedObject }) {
         destructive
         pending={removeAccount.isPending}
         onConfirm={() => void remove()}
+      />
+      <RemoveBlockedDialog
+        open={confirm === "blocked"}
+        onOpenChange={(open) => setConfirm(open ? "blocked" : null)}
+        reason={blockedReason}
+        canExclude={actions.exclude}
+        pending={setProtection.isPending}
+        onExclude={() => void apply("exclude")}
       />
       {isImap ? (
         <SetCredentialDialog

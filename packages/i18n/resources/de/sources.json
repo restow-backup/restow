@@ -159,8 +159,15 @@
           "per_mailbox": "Jedes Postfach behält sein eigenes Passwort, gesetzt im Reiter Verzeichnis. Geeignet für Hoster, bei denen jedes Postfach ein eigenes Passwort hat und es keinen Master-Account gibt, etwa Hetzner, IONOS oder all-inkl.",
           "master_user": "Ein Master-Account meldet sich an und übernimmt jedes Postfach. Geeignet, wenn der Anbieter einen Dovecot-Master-User oder SASL-AUTHZID-Impersonation unterstützt."
         },
-        "perMailboxPasswordHint": "Wird im Reiter Verzeichnis gesetzt, ein Passwort je Postfach.",
-        "perMailboxTestHint": "Die Anmeldung jedes Postfachs wird einzeln im Reiter Verzeichnis getestet, nicht hier.",
+        "perMailboxPasswordHint": "Diese Quelle hat kein eigenes Passwort. Jedes Postfach wird im Reiter Verzeichnis mit seinem eigenen Passwort angelegt, hier ist nichts einzugeben.",
+        "perMailboxPasswordHintNew": "Diese Quelle hat kein eigenes Passwort. Speichern Sie sie zuerst; danach legen Sie jedes Postfach mit seinem eigenen Passwort im Reiter Verzeichnis an.",
+        "perMailboxManage": "Postfächer und Passwörter verwalten",
+        "perMailboxTestHint": "Die Anmeldung jedes Postfachs wird einzeln unter „Postfächer und Passwörter verwalten“ im Reiter Verzeichnis getestet, nicht hier.",
+        "microsoftWarning": {
+          "title": "Passwort-Anmeldung funktioniert bei Microsoft nicht",
+          "description": "Microsoft erlaubt für Outlook.com und Microsoft 365 keine Passwort-Anmeldung über IMAP mehr und verlangt OAuth2. OAuth2 für IMAP wird noch nicht unterstützt, deshalb wird diese Verbindung sehr wahrscheinlich abgelehnt. Nutzen Sie stattdessen die Microsoft-365-Verbindung.",
+          "link": "Microsoft-365-Verbindungen öffnen"
+        },
         "masterUserTestHint": "Die Master-Anmeldung lässt sich nur gegen ein echtes Postfach testen, deshalb testet {appName} sie nach dem Speichern. Die Anmeldung eines einzelnen Postfachs wird im Reiter Verzeichnis getestet.",
         "masterUsername": "Anmeldung des Master-Accounts",
         "masterUsernameHint": "Das Konto, das sich anmeldet und jedes Postfach übernimmt.",

@@ -8,7 +8,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { i18n } from "@/i18n";
 
 import "./i18n";
-import { SetCredentialDialog } from "./object-actions";
+import { ObjectActions, SetCredentialDialog } from "./object-actions";
 import type { ProtectedObject } from "./types";
 
 /**
@@ -36,9 +36,16 @@ vi.mock("radix-ui", async (importOriginal) => {
 });
 
 const setObjectCredential = vi.fn();
+const deleteAccount = vi.fn();
+const setProtection = vi.fn();
 vi.mock("./api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./api")>();
-  return { ...actual, setObjectCredential: (...args: unknown[]) => setObjectCredential(...args) };
+  return {
+    ...actual,
+    setObjectCredential: (...args: unknown[]) => setObjectCredential(...args),
+    deleteAccount: (...args: unknown[]) => deleteAccount(...args),
+    setProtection: (...args: unknown[]) => setProtection(...args),
+  };
 });
 
 // See tenant-wizard.test.tsx: React only flushes effects synchronously inside
@@ -223,5 +230,100 @@ describe("SetCredentialDialog", () => {
     const reopened = document.body.querySelector<HTMLInputElement>("#credential-password");
     expect(reopened?.value).toBe("");
     expect(document.body.textContent).not.toContain(GENERIC_ERROR);
+  });
+});
+
+describe("ObjectActions: removing a mailbox", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  function mount(object: ProtectedObject) {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <I18nextProvider i18n={i18n}>
+            <ObjectActions object={object} />
+          </I18nextProvider>
+        </QueryClientProvider>,
+      );
+    });
+  }
+
+  async function openMenuAndChooseRemove() {
+    const trigger = document.body.querySelector("button[aria-haspopup='menu']") as HTMLElement;
+    await act(async () => {
+      trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+      trigger.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+      trigger.click();
+      await flush();
+    });
+    const item = [...document.body.querySelectorAll("[role='menuitem']")].find(
+      (el) => el.textContent?.trim() === "Remove account",
+    );
+    expect(item).toBeDefined();
+    await click(item as Element);
+  }
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    deleteAccount.mockReset();
+    setProtection.mockReset();
+  });
+
+  it("explains that a mailbox with backups cannot be deleted and offers excluding it", async () => {
+    setProtection.mockResolvedValue({ sync: null });
+    mount({ ...imapObject, snapshotCount: 3 });
+    await openMenuAndChooseRemove();
+    expect(document.body.textContent).toContain(
+      "This mailbox has backups, so it cannot be deleted; Restow never deletes backups on the side.",
+    );
+    expect(document.body.textContent).toContain("restore points stay restorable");
+    expect(deleteAccount).not.toHaveBeenCalled();
+    const exclude = [...document.body.querySelectorAll("button")].find(
+      (b) => b.textContent?.trim() === "Exclude from protection",
+    );
+    expect(exclude).toBeDefined();
+    await click(exclude as Element);
+    expect(setProtection).toHaveBeenCalledWith("o-imap-1", "exclude");
+  });
+
+  it("explains the legal-hold case when the API refuses a mailbox without listed backups", async () => {
+    const { ApiError } = await import("@/lib/api");
+    deleteAccount.mockRejectedValue(
+      new ApiError(
+        409,
+        {
+          type: "urn:restow:problem:account-has-backups",
+          title: "Account has backups",
+          status: 409,
+        },
+        "conflict",
+      ),
+    );
+    mount(imapObject);
+    await openMenuAndChooseRemove();
+    const confirm = [...document.body.querySelectorAll("button")].find(
+      (b) => b.textContent?.trim() === "Remove",
+    );
+    await click(confirm as Element);
+    expect(document.body.textContent).toContain("legal hold");
+    expect(document.body.textContent).toContain("Exclude from protection");
+  });
+
+  it("keeps the normal confirm-and-delete for a mailbox without backups", async () => {
+    deleteAccount.mockResolvedValue(undefined);
+    mount(imapObject);
+    await openMenuAndChooseRemove();
+    expect(document.body.textContent).toContain("It has no backups");
+    expect(document.body.textContent).not.toContain("cannot be deleted");
+    const confirm = [...document.body.querySelectorAll("button")].find(
+      (b) => b.textContent?.trim() === "Remove",
+    );
+    await click(confirm as Element);
+    expect(deleteAccount).toHaveBeenCalledWith("o-imap-1");
   });
 });

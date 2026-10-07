@@ -31,3 +31,14 @@ export function sourcesListSearch(kind?: SourceKind): { tab?: string } {
 export function sourceDetailTo(sourceId: string): LinkProps["to"] {
   return activeTenantPageTo("connections", "sources", sourceId);
 }
+
+/**
+ * The Directory (Protection section, tab "Sources and rules"), where the
+ * accounts of an IMAP source are listed and each gets its own password.
+ */
+export function directorySourcesTo(): LinkProps["to"] {
+  return activeTenantPageTo("protection");
+}
+
+/** The search that opens the "Sources and rules" tab of the Directory. */
+export const DIRECTORY_SOURCES_SEARCH = { tab: "sources" } as const;

@@ -159,8 +159,15 @@
           "per_mailbox": "Every mailbox keeps its own password, set from the Directory tab. Use this with hosters that give each mailbox its own password and have no master account, such as Hetzner, IONOS or all-inkl.",
           "master_user": "One master account logs in and impersonates every mailbox. Use this when your provider supports a Dovecot-style master user or SASL authzid impersonation."
         },
-        "perMailboxPasswordHint": "Set from the Directory tab, one password per mailbox.",
-        "perMailboxTestHint": "Each mailbox's login is tested individually from the Directory tab, not here.",
+        "perMailboxPasswordHint": "This source has no password of its own. Every mailbox is added with its own password on the Directory tab, so there is nothing to enter here.",
+        "perMailboxPasswordHintNew": "This source has no password of its own. Save it first; then add each mailbox with its own password on the Directory tab.",
+        "perMailboxManage": "Manage mailboxes and passwords",
+        "perMailboxTestHint": "Each mailbox's login is tested individually under \"Manage mailboxes and passwords\" on the Directory tab, not here.",
+        "microsoftWarning": {
+          "title": "Password sign-in does not work with Microsoft",
+          "description": "Microsoft no longer allows password sign-in over IMAP for Outlook.com and Microsoft 365 and requires OAuth2. OAuth2 for IMAP is not supported yet, so this connection will most likely be refused. Use the Microsoft 365 connection instead.",
+          "link": "Open Microsoft 365 connections"
+        },
         "masterUserTestHint": "The master login can only be tested against a real mailbox, so {appName} tests it once you save. Test an individual mailbox's login from the Directory tab.",
         "masterUsername": "Master account login",
         "masterUsernameHint": "The account that logs in and impersonates every mailbox.",

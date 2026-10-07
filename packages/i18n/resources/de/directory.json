@@ -163,6 +163,14 @@
       "title": "{name} entfernen?",
       "description": "Das Konto verschwindet aus der Liste. Es hat keine Sicherungen, daher wird sonst nichts entfernt.",
       "confirm": "Entfernen"
+    },
+    "blocked": {
+      "title": "Dieses Postfach kann nicht gelöscht werden",
+      "backups": "Dieses Postfach hat Sicherungen und kann deshalb nicht gelöscht werden; {appName} löscht Sicherungen nie nebenbei.",
+      "hold": "Dieses Postfach hat Sicherungen oder einen Legal Hold und kann deshalb nicht gelöscht werden; {appName} löscht Sicherungen und per Legal Hold gesperrte Daten nie nebenbei.",
+      "retention": "Schließen Sie es stattdessen vom Schutz aus: Es laufen keine neuen Sicherungen, vorhandene Wiederherstellungspunkte bleiben wiederherstellbar und laufen gemäß Aufbewahrung ab.",
+      "alreadyExcluded": "Es ist bereits vom Schutz ausgeschlossen. Vorhandene Wiederherstellungspunkte bleiben wiederherstellbar und laufen gemäß Aufbewahrung ab.",
+      "exclude": "Vom Schutz ausschließen"
     }
   },
   "bulk": {
@@ -335,10 +343,6 @@
     "fileLoaded": "{name} geladen",
     "fileError": "Die Datei konnte nicht gelesen werden.",
     "check": "Liste prüfen",
-    "singlePassword": {
-      "label": "Passwort",
-      "hint": "Wird nur genutzt, weil diese Quelle ein Passwort je Postfach hat. Mehrere Konten auf einmal hinzufügen braucht weiterhin die eigene Passwort-Spalte der CSV-Kopfzeile."
-    },
     "add": "{count, plural, one {# Konto hinzufügen} other {# Konten hinzufügen}}",
     "summary": "{created, plural, =0 {Keine neuen Konten} one {# neues Konto} other {# neue Konten}}, {existing, plural, =0 {keines bereits vorhanden} one {# bereits vorhanden} other {# bereits vorhanden}}",
     "done": "{created, plural, =0 {Keine neuen Konten hinzugefügt} one {# Konto hinzugefügt} other {# Konten hinzugefügt}}.",
@@ -364,6 +368,22 @@
       "duplicate_login": "doppelter Login {value}",
       "invalid_email": "ungültige Adresse {value}"
     },
-    "failed": "Die Konten konnten nicht hinzugefügt werden."
+    "failed": "Die Konten konnten nicht hinzugefügt werden.",
+    "mode": {
+      "shared": "Diese Quelle nutzt ein gemeinsames Login für alle Postfächer; hier ist kein Passwort nötig.",
+      "per_mailbox": "Diese Quelle nutzt ein Passwort je Postfach; legen Sie das Passwort jedes Postfachs unten fest.",
+      "master_user": "Diese Quelle nutzt ein Master-Konto, das sich an allen Postfächern anmeldet; hier ist kein Passwort nötig."
+    },
+    "changeMode": "Modus ändern",
+    "rowFields": {
+      "hint": "Optional: Geben Sie jedem neuen Postfach gleich sein Passwort. Ein Benutzername ist nur nötig, wenn er von der Adresse abweicht.",
+      "username": "Benutzername (optional)",
+      "password": "Passwort"
+    },
+    "results": {
+      "passwordSet": "Passwort gesetzt",
+      "passwordMissing": "Kein Passwort",
+      "missingHint": "Postfächer ohne Passwort können noch nicht gesichert werden. Setzen Sie es im Aktionsmenü des Postfachs."
+    }
   }
 }

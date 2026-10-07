@@ -1,12 +1,12 @@
-import { useNavigate } from "@tanstack/react-router";
-import { PlugZap, TriangleAlert } from "lucide-react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { PlugZap, TriangleAlert, Users } from "lucide-react";
 import * as React from "react";
 import { Controller, useForm, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 
 import { Field, messageId } from "@/components/forms/field";
 import { PasswordInput } from "@/components/forms/password-input";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -37,13 +37,19 @@ import {
   fieldMessageKey,
   imapFormFromStored,
   imapFormSchema,
+  isMicrosoftImapHost,
   needsPasswordAgain,
   portForSecurity,
   toCreateImapInput,
   toImapTestInput,
   toUpdateImapInput,
 } from "../forms";
-import { sourceDetailTo } from "../paths";
+import {
+  DIRECTORY_SOURCES_SEARCH,
+  directorySourcesTo,
+  sourceDetailTo,
+  sourcesListTo,
+} from "../paths";
 import { problemField, sourceErrorKey } from "../presenters";
 import type { ImapSecurity, SourceDto } from "../types";
 import { useCreateSource, useInlineImapTest, useTestSource, useUpdateSource } from "../use-sources";
@@ -314,8 +320,22 @@ function ImapSourceForm({ source, onDone }: { source?: SourceDto; onDone: () => 
             <div className="space-y-1.5">
               <Label>{t("form.imap.password")}</Label>
               <p className="text-sm text-muted-foreground">
-                {t("form.imap.authMode.perMailboxPasswordHint")}
+                {stored
+                  ? t("form.imap.authMode.perMailboxPasswordHint")
+                  : t("form.imap.authMode.perMailboxPasswordHintNew")}
               </p>
+              {stored ? (
+                <Button variant="outline" size="sm" asChild>
+                  <Link
+                    to={directorySourcesTo()}
+                    search={DIRECTORY_SOURCES_SEARCH as never}
+                    onClick={onDone}
+                  >
+                    <Users />
+                    {t("form.imap.authMode.perMailboxManage")}
+                  </Link>
+                </Button>
+              ) : null}
             </div>
           ) : (
             <Field
@@ -396,6 +416,20 @@ function ImapSourceForm({ source, onDone }: { source?: SourceDto; onDone: () => 
               </Field>
             ) : null}
           </div>
+        ) : null}
+
+        {isMicrosoftImapHost(values.host ?? "") ? (
+          // Every login mode here is password based; saving stays possible.
+          <Alert variant="warning" data-testid="imap-microsoft-warning">
+            <TriangleAlert />
+            <AlertTitle>{t("form.imap.authMode.microsoftWarning.title")}</AlertTitle>
+            <AlertDescription>
+              <p>{t("form.imap.authMode.microsoftWarning.description")}</p>
+              <Link to={sourcesListTo()} onClick={onDone} className="font-medium underline">
+                {t("form.imap.authMode.microsoftWarning.link")}
+              </Link>
+            </AlertDescription>
+          </Alert>
         ) : null}
 
         {values.imapAuthMode === "per_mailbox" ? (

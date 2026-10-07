@@ -163,6 +163,14 @@
       "title": "Remove {name}?",
       "description": "The account leaves the list. It has no backups, so nothing else is removed.",
       "confirm": "Remove"
+    },
+    "blocked": {
+      "title": "This mailbox cannot be deleted",
+      "backups": "This mailbox has backups, so it cannot be deleted; {appName} never deletes backups on the side.",
+      "hold": "This mailbox has backups or a legal hold, so it cannot be deleted; {appName} never deletes backups or held data on the side.",
+      "retention": "Exclude it from protection instead: no new backups run, existing restore points stay restorable and expire according to your retention settings.",
+      "alreadyExcluded": "It is already excluded from protection. Existing restore points stay restorable and expire according to your retention settings.",
+      "exclude": "Exclude from protection"
     }
   },
   "bulk": {
@@ -335,10 +343,6 @@
     "fileLoaded": "{name} loaded",
     "fileError": "The file could not be read.",
     "check": "Check list",
-    "singlePassword": {
-      "label": "Password",
-      "hint": "Only used because this source has one password per mailbox; adding several accounts at once still needs the CSV header's own password column."
-    },
     "add": "{count, plural, one {Add # account} other {Add # accounts}}",
     "summary": "{created, plural, =0 {No new accounts} one {# new account} other {# new accounts}}, {existing, plural, =0 {none listed already} one {# listed already} other {# listed already}}",
     "done": "{created, plural, =0 {No new accounts added} one {# account added} other {# accounts added}}.",
@@ -364,6 +368,22 @@
       "duplicate_login": "duplicate login {value}",
       "invalid_email": "invalid address {value}"
     },
-    "failed": "The accounts could not be added."
+    "failed": "The accounts could not be added.",
+    "mode": {
+      "shared": "This source uses one shared login for every mailbox; no password is needed here.",
+      "per_mailbox": "This source uses one password per mailbox; set each mailbox's password below.",
+      "master_user": "This source uses a master account that logs in to every mailbox; no password is needed here."
+    },
+    "changeMode": "Change mode",
+    "rowFields": {
+      "hint": "Optional: give each new mailbox its password now. A username is only needed when it differs from the address.",
+      "username": "Username (optional)",
+      "password": "Password"
+    },
+    "results": {
+      "passwordSet": "Password set",
+      "passwordMissing": "No password",
+      "missingHint": "Mailboxes without a password cannot be backed up yet. Set it from the mailbox's action menu."
+    }
   }
 }

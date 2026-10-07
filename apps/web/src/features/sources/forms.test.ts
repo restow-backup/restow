@@ -7,6 +7,7 @@ import {
   fieldMessageKey,
   imapFormFromStored,
   imapFormSchema,
+  isMicrosoftImapHost,
   isValidHost,
   isValidPort,
   isValidTenantHint,
@@ -347,5 +348,29 @@ describe("fieldMessageKey", () => {
       "common:validation.required",
     );
     expect(fieldMessageKey(undefined)).toBeUndefined();
+  });
+});
+
+describe("isMicrosoftImapHost", () => {
+  it("matches the Microsoft IMAP hosts regardless of case and whitespace", () => {
+    for (const host of [
+      "outlook.office365.com",
+      "OUTLOOK.OFFICE.COM",
+      " imap-mail.outlook.com ",
+      "outlook.office365.com.",
+    ]) {
+      expect(isMicrosoftImapHost(host)).toBe(true);
+    }
+  });
+
+  it("does not match other hosts", () => {
+    for (const host of [
+      "",
+      "imap.example.com",
+      "outlook.office365.com.evil.example",
+      "office365.com",
+    ]) {
+      expect(isMicrosoftImapHost(host)).toBe(false);
+    }
   });
 });

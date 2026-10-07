@@ -398,3 +398,18 @@ export function toUpdateM365Input(
   }
   return patch;
 }
+
+const MICROSOFT_IMAP_HOSTS: ReadonlySet<string> = new Set([
+  "outlook.office365.com",
+  "outlook.office.com",
+  "imap-mail.outlook.com",
+]);
+
+/**
+ * Whether `host` is one of Microsoft's IMAP endpoints for Outlook.com and
+ * Microsoft 365, which refuse password sign-in (OAuth2 only). Case and
+ * surrounding whitespace do not matter.
+ */
+export function isMicrosoftImapHost(host: string): boolean {
+  return MICROSOFT_IMAP_HOSTS.has(host.trim().toLowerCase().replace(/\.$/, ""));
+}

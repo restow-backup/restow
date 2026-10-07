@@ -219,6 +219,8 @@ export function availableActions(object: ProtectedObject): {
   exclude: boolean;
   reset: boolean;
   remove: boolean;
+  /** A manual account whose backups forbid deleting it: the explanation replaces the confirmation. */
+  removeBlocked: boolean;
 } {
   const live = object.status !== "orphaned";
   const m365 = object.sourceKind === "m365";
@@ -227,6 +229,7 @@ export function availableActions(object: ProtectedObject): {
     exclude: live && (m365 ? object.override !== "exclude" : object.status !== "excluded"),
     reset: m365 && object.override !== null,
     remove: object.origin === "manual" && object.snapshotCount === 0,
+    removeBlocked: object.origin === "manual" && object.snapshotCount > 0,
   };
 }
 
@@ -366,6 +369,13 @@ const PROBLEM_KEYS: Record<string, string> = {
   "urn:restow:problem:imap-credential-not-configured":
     "directory:errors.imapCredentialNotConfigured",
 };
+
+/** Whether the API refused a delete because backups or a legal hold exist (account-has-backups). */
+export function isAccountHasBackupsError(error: unknown): boolean {
+  return (
+    error instanceof ApiError && error.problem?.type === "urn:restow:problem:account-has-backups"
+  );
+}
 
 /** The fully qualified i18n key for a failed call: feature problems first, else the common mapping. */
 export function objectErrorKey(error: unknown): string {
