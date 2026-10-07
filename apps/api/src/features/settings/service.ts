@@ -2,7 +2,7 @@ import { type AppCredentials, parseSourceAppSecret } from "@restow/core";
 import { type Settings, settings } from "@restow/db";
 import type { SupportedLanguage } from "@restow/i18n";
 import { eq } from "drizzle-orm";
-import { config } from "../../config.js";
+import { type Config, config } from "../../config.js";
 import { audit } from "../../lib/audit.js";
 import { DISCLAIMER_VERSION } from "../../lib/disclaimer.js";
 import {
@@ -14,7 +14,7 @@ import {
 } from "../../lib/secrets.js";
 import type { DbExecutor } from "../../lib/tenant-context.js";
 import { parseServiceAccountKey } from "../../notify-google.js";
-import { type Notifier, notifierForTransport } from "../../notify.js";
+import { type Notifier, createNotifier, notifierForTransport } from "../../notify.js";
 import { type PasskeyReadyResult, computePasskeyReady } from "../../passkeyReady.js";
 import { ProblemError } from "../../problem.js";
 import { toStoredSmtpSecurity } from "../../schemas.js";
@@ -561,8 +561,25 @@ export async function createInstallationNotifier(db: DbExecutor): Promise<Notifi
     row?.mailConfig,
   );
   if (!mail) {
-    return null;
+    // Nothing saved in Settings: fall back to MAIL_TRANSPORT / SMTP_* / GRAPH_MAIL_*
+    // from the environment (docs: .env.example), which were otherwise never read.
+    if (!environmentMailConfigured(config)) {
+      return null;
+    }
+    return createNotifier(config, config.mailTransport === "graph" ? await graphMailApp() : null);
   }
   const resolved = await resolveStored(db, mail, await findMailSecrets(db));
   return notifierForTransport(transportSpec(config, resolved), { demo: config.demo.enabled });
+}
+
+/**
+ * Whether the environment alone configures a notification transport: SMTP
+ * needs a host and a sender address, Graph a sender mailbox. MAIL_TRANSPORT
+ * defaults to SMTP.
+ */
+export function environmentMailConfigured(base: Config): boolean {
+  if (base.mailTransport === "graph") {
+    return Boolean(base.graphMailSender?.trim());
+  }
+  return Boolean(base.smtp.host?.trim() && base.smtp.from?.trim());
 }
