@@ -283,6 +283,7 @@ describe("the source form", () => {
         provider: "forgejo",
         repository: "o/r",
         isDefault: false,
+        isAlpha: false,
       },
     });
     expect(defaultSourceUrl(custom)).toBe(DEFAULT_SOURCE_URL);

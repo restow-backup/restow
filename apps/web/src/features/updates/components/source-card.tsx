@@ -22,6 +22,7 @@ import { Switch } from "@/components/ui/switch";
 import { isRecentSignInRequired } from "@/lib/recent-sign-in";
 
 import {
+  ALPHA_SOURCE_URL,
   MAX_SOURCE_URL_LENGTH,
   MAX_TOKEN_LENGTH,
   UPDATE_CHANNELS,
@@ -200,6 +201,35 @@ export function SourceCard({ view, canChange }: { view: UpdatesView; canChange: 
                 ) : null}
               </div>
             </Field>
+
+            {!locked ? (
+              <div className="flex flex-wrap items-center gap-2" data-slot="alpha-source">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={disabled || form.sourceUrl === ALPHA_SOURCE_URL}
+                  onClick={() => {
+                    update({ sourceUrl: ALPHA_SOURCE_URL, channel: "beta" });
+                    setUrlTouched(false);
+                  }}
+                >
+                  {t("source.alpha.use")}
+                </Button>
+                <span className="text-xs text-muted-foreground">{t("source.alpha.hint")}</span>
+              </div>
+            ) : null}
+
+            {form.sourceUrl === ALPHA_SOURCE_URL || view.source.isAlpha ? (
+              <Alert variant="warning" data-slot="alpha-warning">
+                <TriangleAlert />
+                <AlertTitle>{t("source.alpha.warningTitle")}</AlertTitle>
+                <AlertDescription className="space-y-1">
+                  <p>{t("source.alpha.warningBody")}</p>
+                  <p>{t("source.alpha.setup")}</p>
+                </AlertDescription>
+              </Alert>
+            ) : null}
 
             <div
               className="flex flex-col gap-2 rounded-lg border border-border p-3 text-sm sm:flex-row sm:items-start sm:gap-3"

@@ -153,11 +153,18 @@ export interface SourceView {
   /** `owner/repo` when the source is a repository. */
   repository: string | null;
   isDefault: boolean;
+  /** The project's alpha repository: unsigned test builds, installed as images like releases. */
+  isAlpha: boolean;
 }
 
 export type UpdaterAvailability = "unavailable" | "ready" | "blocked" | "busy" | "demo";
 
 export interface UpdaterView {
+  /**
+   * Whether the updater verifies the release signature of what it installs; false when the
+   * operator switched that off (the tab warns); null when no updater answers.
+   */
+  signatureChecks: boolean | null;
   /**
    * unavailable  no updater answers (not started: show the manual steps)
    * ready        an update can be announced

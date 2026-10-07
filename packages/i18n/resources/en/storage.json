@@ -239,6 +239,13 @@
         "garage": "Garage",
         "other": "Other S3-compatible service"
       },
+      "hetznerLocation": "Location",
+      "hetznerLocationCustom": "Custom endpoint",
+      "hetznerLocations": {
+        "fsn1": "Falkenstein (fsn1)",
+        "nbg1": "Nuremberg (nbg1)",
+        "hel1": "Helsinki (hel1)"
+      },
       "presetHint": "Fills in endpoint, region and addressing. Adjust them to where your bucket is.",
       "bucket": "Bucket",
       "bucketPlaceholder": "restow-backup",

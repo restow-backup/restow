@@ -3754,7 +3754,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2009-2011, Mozilla Foundation and contributors`
 - License text: [text 44](#text-44)
 
-### source-map-js 1.2.1
+### source-map-js 1.2.2
 
 - License: BSD-3-Clause
 - Copyright: `Copyright (c) 2009-2011, Mozilla Foundation and contributors`
@@ -3908,7 +3908,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2024 Madeline Gurriarán`
 - License text: [text 1](#text-1)
 
-### tinypool 1.1.1
+### tinypool 2.2.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2020 James M Snell and the Piscina contributors`

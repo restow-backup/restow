@@ -9,8 +9,8 @@ Every release comes in two builds. Pick one and use both of its images:
 
 | Build | `RESTOW_IMAGE` | `RESTOW_WEB_IMAGE` | Contains |
 | --- | --- | --- | --- |
-| full | `ghcr.io/restow-backup/restow:0.2.1` | `ghcr.io/restow-backup/restow-web:0.2.1` | the Apache-2.0 core plus the Business and Service Provider modules (Restow Enterprise License), which stay locked until a license key is installed |
-| Community | `ghcr.io/restow-backup/restow-community:0.2.1` | `ghcr.io/restow-backup/restow-web-community:0.2.1` | the Apache-2.0 core only: every backup source and every restore, for one tenant |
+| full | `ghcr.io/restow-backup/restow:0.2.2` | `ghcr.io/restow-backup/restow-web:0.2.2` | the Apache-2.0 core plus the Business and Service Provider modules (Restow Enterprise License), which stay locked until a license key is installed |
+| Community | `ghcr.io/restow-backup/restow-community:0.2.2` | `ghcr.io/restow-backup/restow-web-community:0.2.2` | the Apache-2.0 core only: every backup source and every restore, for one tenant |
 
 Take the full build if you may want the Business or Service Provider features later: a
 license key unlocks them without changing images. Take the Community build if you want the
@@ -84,7 +84,7 @@ Every image of a release is signed with cosign (keyless, GitHub OIDC). For the C
 build, verify `restow-community` and `restow-web-community` the same way:
 
 ```sh
-cosign verify ghcr.io/restow-backup/restow:0.2.1 \
+cosign verify ghcr.io/restow-backup/restow:0.2.2 \
   --certificate-identity-regexp '^https://github.com/restow-backup/restow/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```

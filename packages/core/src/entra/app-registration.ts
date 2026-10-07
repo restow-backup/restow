@@ -246,7 +246,7 @@ function resolved(
   };
 }
 
-function certificateCredentials(
+export function certificateCredentials(
   clientId: string,
   pem: string,
   authorityHost: string | undefined,

@@ -8,12 +8,15 @@ import {
   consentLinkSchema,
   createSourceSchema,
   imapTestSchema,
+  ownAppSchema,
   sourceIdParamSchema,
   updateSourceSchema,
 } from "./schemas.js";
 import {
   type Actor,
   type ConsentResult,
+  connectOwnApp,
+  connectOwnTenant,
   createConsentLink,
   createSource,
   deleteSource,
@@ -46,6 +49,8 @@ import {
  *   PATCH  /:id                   update (name, pause/resume, tenant hint, IMAP connection, password)
  *   DELETE /:id                   delete (and its secret); refused while it holds data
  *   POST   /:id/consent-link      signed admin-consent link
+ *   PUT    /:id/own-app           connect through the customer's own Graph app (sealed credential)
+ *   POST   /:id/connect-own-tenant connect the app's own tenant without consent (provider admin)
  *   POST   /:id/verify            verify permissions + test call (m365)
  *   POST   /:id/test              probe the stored connection and record it (imap)
  */
@@ -231,6 +236,17 @@ sourcesRoutes.post("/:id/consent-link", tenantAdmin, async (c) => {
     observedOrigin: observedOrigin(c),
   });
   return c.json(link, 201);
+});
+
+sourcesRoutes.put("/:id/own-app", tenantAdmin, async (c) => {
+  const body = await parseJsonBody(c.req, ownAppSchema);
+  return c.json(
+    await connectOwnApp(db, providerDb, c.get("tenantId"), sourceId(c), actorOf(c), body),
+  );
+});
+
+sourcesRoutes.post("/:id/connect-own-tenant", tenantAdmin, async (c) => {
+  return c.json(await connectOwnTenant(db, providerDb, c.get("tenantId"), sourceId(c), actorOf(c)));
 });
 
 sourcesRoutes.post("/:id/verify", tenantAdmin, async (c) => {

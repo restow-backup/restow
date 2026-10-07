@@ -174,7 +174,6 @@
     }
   },
   "rowActions": {
-    "restorePoints": "Open restore points",
     "explorer": "Restore in the explorer",
     "newJob": "New job with this object",
     "newJobFromSelection": "{count, plural, one {New job with # object} other {New job with # objects}}",

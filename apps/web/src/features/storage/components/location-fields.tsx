@@ -17,12 +17,16 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { MountPathHints } from "@/features/installation/sections/mount-paths";
 import {
+  HETZNER_LOCATIONS,
+  type HetznerLocation,
   PRESET_DEFAULTS,
   type S3Preset,
   S3_PRESETS,
   type StoredLocation,
   type TargetFormValues,
   fieldMessageKey,
+  hetznerEndpoint,
+  hetznerLocationForEndpoint,
   needsCredentialsAgain,
 } from "../forms";
 import type { EditableKind } from "../types";
@@ -62,6 +66,13 @@ export function LocationFields({
     form.setValue("endpoint", defaults.endpoint, { shouldValidate: form.formState.isSubmitted });
     form.setValue("region", defaults.region);
     form.setValue("forcePathStyle", defaults.forcePathStyle);
+  };
+
+  const selectHetznerLocation = (location: HetznerLocation) => {
+    form.setValue("endpoint", hetznerEndpoint(location), {
+      shouldValidate: form.formState.isSubmitted,
+    });
+    form.setValue("region", location);
   };
 
   return kind === "local" ? (
@@ -117,6 +128,27 @@ export function LocationFields({
           {t("form.s3.presetHint")}
         </p>
       </div>
+
+      {values.preset === "hetzner" ? (
+        <div className="space-y-1.5">
+          <Label htmlFor="target-hetzner-location">{t("form.s3.hetznerLocation")}</Label>
+          <Select
+            value={hetznerLocationForEndpoint(values.endpoint ?? "") ?? ""}
+            onValueChange={(value) => selectHetznerLocation(value as HetznerLocation)}
+          >
+            <SelectTrigger id="target-hetzner-location" className="w-full">
+              <SelectValue placeholder={t("form.s3.hetznerLocationCustom")} />
+            </SelectTrigger>
+            <SelectContent>
+              {HETZNER_LOCATIONS.map((location) => (
+                <SelectItem key={location} value={location}>
+                  {t(`form.s3.hetznerLocations.${location}`)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field id="target-bucket" label={t("form.s3.bucket")} error={message("bucket")}>

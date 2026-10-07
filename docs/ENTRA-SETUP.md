@@ -209,6 +209,25 @@ Mail-fähige Sicherheitsgruppe. Restow muss das aushalten: Ein `403` für ein
 ausgeschlossenes Postfach ist **kein Fehler**, sondern „nicht im Schutzumfang" und wird
 so angezeigt (`docs/MICROSOFT.md`).
 
+### Alternative: eine eigene App pro Quelle
+
+Statt des Consent-Links kann eine Quelle über eine **Graph-App des Kunden** angebunden werden, die im
+Kunden-Tenant selbst angelegt wurde. Dann braucht der Tenant weder die gemeinsame Restow-App noch einen
+Consent-Link; die Zugangsdaten gehören dem Kunden.
+
+1. Im Entra-Portal des Kunden-Tenants unter *App-Registrierungen* eine App anlegen (nur dieses Verzeichnis).
+2. Unter *API-Berechtigungen* dieselben Anwendungsberechtigungen von Microsoft Graph hinzufügen wie in Teil 2
+   und Admin-Consent im Portal erteilen.
+3. Ein Client-Secret oder Zertifikat anlegen.
+4. In Restow in der **Organisation**, zu der der Kunde gehört: Verbindungen → Quelle → *Eigene Graph-App*.
+   Tenant-ID, Anwendungs-ID und das Secret (oder eine PEM-Datei mit privatem Schlüssel und Zertifikat)
+   eintragen.
+
+Restow fordert mit diesen Zugangsdaten ein Token für genau diesen Tenant an; ohne gültiges Token wird nichts
+gebunden. Die Zugangsdaten liegen verschlüsselt im Geheimnisspeicher der Organisation und werden nie wieder
+angezeigt; zum Rotieren trägt man neue ein. Der Tenant gehört danach der Organisation, in der die Quelle
+liegt, und kann in keiner anderen verbunden werden. Eine Quelle mit eigener App hat keinen Consent-Link.
+
 ## Teil 5 — SSO-App für den Endnutzer-Login
 
 > **Stand 0.1.0:** Die Anmeldung mit Microsoft ist noch nicht nutzbar. Die Anmeldeseite

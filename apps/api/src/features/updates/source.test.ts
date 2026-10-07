@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { sourceAllowedBy } from "./service.js";
 import {
   DEFAULT_SOURCE_URL,
   defaultSource,
@@ -134,5 +135,33 @@ describe("RESTOW_UPDATE_CHECK_URL", () => {
     const source = parseEnvironmentSource("https://example.com/releases.json");
     expect(source).toMatchObject({ provider: "feed", repository: null, isDefault: false });
     expect(source?.archiveUrl("v1.0.0")).toBeNull();
+  });
+});
+
+describe("the alpha repository", () => {
+  it("is recognised, is not the default and is installed as images", () => {
+    const parsed = parseRepositoryUrl("https://github.com/restow-backup/restow-alpha");
+    expect(parsed.ok && parsed.source).toMatchObject({
+      repository: "restow-backup/restow-alpha",
+      isDefault: false,
+      isAlpha: true,
+    });
+    expect(isDefaultSourceUrl("https://github.com/restow-backup/restow-alpha")).toBe(false);
+    expect(
+      parseRepositoryUrl("https://github.com/restow-backup/restow").ok &&
+        (
+          parseRepositoryUrl("https://github.com/restow-backup/restow") as {
+            source: { isAlpha: boolean };
+          }
+        ).source.isAlpha,
+    ).toBe(false);
+  });
+
+  it("needs no source allowlist: it installs images", () => {
+    const parsed = parseRepositoryUrl("https://github.com/restow-backup/restow-alpha");
+    if (!parsed.ok) {
+      throw new Error("fixture");
+    }
+    expect(sourceAllowedBy(null, parsed.source)).toBe(true);
   });
 });

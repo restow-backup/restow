@@ -174,7 +174,6 @@
     }
   },
   "rowActions": {
-    "restorePoints": "Wiederherstellungspunkte öffnen",
     "explorer": "Im Explorer wiederherstellen",
     "newJob": "Neuer Job mit diesem Objekt",
     "newJobFromSelection": "{count, plural, one {Neuer Job mit # Objekt} other {Neuer Job mit # Objekten}}",

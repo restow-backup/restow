@@ -1,6 +1,6 @@
 {
   "name": "restow",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "private": true,
   "type": "module",
   "license": "Apache-2.0",
@@ -28,5 +28,11 @@
     "@types/node": "^22.10.5",
     "typescript": "^5.7.3",
     "vitest": "^3.2.7"
+  },
+  "pnpm": {
+    "overrides": {
+      "tinypool": "^2.1.2",
+      "source-map-js": "^1.2.2"
+    }
   }
 }

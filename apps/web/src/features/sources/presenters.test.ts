@@ -55,6 +55,8 @@ function m365(
     createdAt: "2026-09-22T09:00:00.000Z",
     updatedAt: "2026-09-22T09:00:00.000Z",
     m365: {
+      connectionMode: "consent",
+      ownApp: null,
       entraTenantId: null,
       entraTenantHint: null,
       consentGrantedAt: null,

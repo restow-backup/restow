@@ -5,6 +5,8 @@ import {
   emptyTargetForm,
   fieldMessageKey,
   formFieldOf,
+  hetznerEndpoint,
+  hetznerLocationForEndpoint,
   needsCredentialsAgain,
   presetForEndpoint,
   targetFormFromDto,
@@ -236,5 +238,14 @@ describe("messages", () => {
     expect(formFieldOf("basePath")).toBe("basePath");
     expect(formFieldOf("credentials")).toBe("accessKeyId");
     expect(formFieldOf("kind")).toBeNull();
+  });
+});
+
+describe("Hetzner locations", () => {
+  it("maps endpoints and locations both ways", () => {
+    expect(hetznerEndpoint("nbg1")).toBe("https://nbg1.your-objectstorage.com");
+    expect(hetznerLocationForEndpoint("https://hel1.your-objectstorage.com")).toBe("hel1");
+    expect(hetznerLocationForEndpoint("https://s3.example.com")).toBeNull();
+    expect(hetznerLocationForEndpoint("")).toBeNull();
   });
 });

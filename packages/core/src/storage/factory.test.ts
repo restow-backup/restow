@@ -215,6 +215,19 @@ describe("S3 credentials secret", () => {
 });
 
 describe("s3ClientConfig", () => {
+  it("addresses a bucket with dots in its name by path", () => {
+    const location = {
+      kind: "s3",
+      bucket: "backup.example",
+      prefix: null,
+      endpoint: "https://fsn1.your-objectstorage.com",
+      region: "fsn1",
+      forcePathStyle: false,
+    } as const;
+    expect(s3ClientConfig(location, undefined).forcePathStyle).toBe(true);
+    expect(s3ClientConfig({ ...location, bucket: "backup" }, undefined).forcePathStyle).toBe(false);
+  });
+
   const location = {
     kind: "s3" as const,
     bucket: "acme",
@@ -634,6 +647,36 @@ describe("detectS3ObjectLock", () => {
       checkedAt: AT.toISOString(),
     });
     expect(client.commands[0]).toBeInstanceOf(GetObjectLockConfigurationCommand);
+  });
+
+  it("reads a flag in another case and a configuration that only carries its rule", async () => {
+    const lower = await detectS3ObjectLock(
+      sender(async () => ({ ObjectLockConfiguration: { ObjectLockEnabled: "enabled" } })),
+      "archive",
+      AT,
+    );
+    expect(lower.status).toBe("enabled");
+    const ruleOnly = await detectS3ObjectLock(
+      sender(async () => ({
+        ObjectLockConfiguration: { Rule: { DefaultRetention: { Mode: "GOVERNANCE", Days: 30 } } },
+      })),
+      "archive",
+      AT,
+    );
+    expect(ruleOnly).toMatchObject({
+      status: "enabled",
+      mode: "GOVERNANCE",
+      defaultRetentionDays: 30,
+    });
+    expect(
+      (
+        await detectS3ObjectLock(
+          sender(async () => ({})),
+          "archive",
+          AT,
+        )
+      ).status,
+    ).toBe("disabled");
   });
 
   it("reports enabled without a default rule", async () => {

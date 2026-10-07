@@ -48,6 +48,7 @@ const missingApp: EntraAppStatus = {
   credential: null,
   redirectUri: "https://restow.example.com/api/v1/sources/m365/consent/callback",
   reasons: ["no_client_id", "no_credential"],
+  homeTenantId: null,
 };
 
 beforeAll(async () => {

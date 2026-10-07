@@ -188,4 +188,16 @@ export const consentLinkSchema = z
   .strict()
   .optional();
 
+/** A customer's own Graph app for one Microsoft 365 source (credential kind decides what is needed). */
+export const ownAppSchema = z
+  .object({
+    tenantId: z.string().trim().min(1).max(64),
+    clientId: z.string().trim().min(1).max(64),
+    credentialKind: z.enum(["secret", "certificate"]),
+    clientSecret: z.string().max(512).nullable().optional(),
+    certificatePem: z.string().max(32_768).nullable().optional(),
+    authorityHost: z.string().trim().max(200).nullable().optional(),
+  })
+  .strict();
+
 export const sourceIdParamSchema = z.object({ id: z.string().uuid() });

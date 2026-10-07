@@ -438,6 +438,7 @@ describe("the source form", () => {
         provider: "forgejo",
         repository: "team/restow",
         isDefault: false,
+        isAlpha: false,
       },
       mode: "source",
     });
@@ -460,6 +461,33 @@ describe("the source form", () => {
     await flush(5);
     expect(requests.find((request) => request.method === "PATCH")?.body).toEqual({
       sourceUrl: null,
+    });
+  });
+
+  it("offers the alpha channel with a warning, and warns when the updater skips signatures", async () => {
+    const base = updatesFixture();
+    const view = updatesFixture({
+      updater: { ...base.updater, signatureChecks: false },
+    });
+    const { mock, requests } = routedFetch({
+      "GET /updates": () => json(view),
+      "PATCH /updates/settings": () => json(updatesFixture()),
+    });
+    vi.stubGlobal("fetch", mock);
+    mounted = mount(<UpdatesSection />);
+    await flush(5);
+
+    expect(text(slot("signatures-off") as HTMLElement)).toContain("does not verify signatures");
+    expect(slot("alpha-warning")).toBeNull();
+
+    await click(buttonByText(document.body, "Use the alpha channel"));
+    const warning = slot("alpha-warning") as HTMLElement;
+    expect(text(warning)).toContain("unsigned test builds");
+    await click(buttonByText(document.body, "Save"));
+    await flush(5);
+    expect(requests.find((request) => request.method === "PATCH")?.body).toEqual({
+      sourceUrl: "https://github.com/restow-backup/restow-alpha",
+      channel: "beta",
     });
   });
 
@@ -509,6 +537,7 @@ describe("the source form", () => {
         provider: "feed",
         repository: null,
         isDefault: false,
+        isAlpha: false,
       },
     });
     const { mock, requests } = routedFetch({
@@ -652,6 +681,7 @@ describe("the updater", () => {
           applicationImage: null,
           version: null,
           runner: null,
+          signatureChecks: null,
           dumps: [],
           checkedAt: null,
         },
@@ -706,6 +736,7 @@ describe("the updater", () => {
           applicationImage: null,
           version: null,
           runner: null,
+          signatureChecks: null,
           dumps: [],
           checkedAt: null,
         },
@@ -728,6 +759,7 @@ describe("the updater", () => {
           applicationImage: null,
           version: "0.0.9",
           runner: "cli",
+          signatureChecks: true,
           dumps: [],
           checkedAt: null,
         },
@@ -832,6 +864,7 @@ describe("the updater", () => {
           applicationImage: null,
           version: "0.1.0",
           runner: "cli",
+          signatureChecks: true,
           dumps: [],
           checkedAt: iso(-10),
         },
@@ -1033,6 +1066,7 @@ describe("installing an update", () => {
         provider: "forgejo",
         repository: "Acme/restow",
         isDefault: false,
+        isAlpha: false,
       },
     });
     const root = show(view);

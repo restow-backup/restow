@@ -222,6 +222,12 @@ RUN install -d -o 1000 -g 1000 /var/demo/agents
 # Everything of the application image except the /prod tree, its labels and the
 # build's ENV, which the two final stages below add.
 FROM base AS runtime-base
+# Security updates of the Debian base: the node image is rebuilt only now and then, and the
+# release smoke (Trivy) refuses an image with a critical vulnerability that already has a fix
+# (0.2.2: perl-base). Upgrading here keeps the runtime images patched at the time of the build.
+RUN apt-get update \
+    && apt-get upgrade -y --no-install-recommends \
+    && rm -rf /var/lib/apt/lists/*
 ENV NODE_ENV=production \
     ROLE=api
 WORKDIR /prod

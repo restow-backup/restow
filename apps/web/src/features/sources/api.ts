@@ -5,6 +5,7 @@ import type {
   EntraAppStatus,
   ImapProbeResult,
   ImapTestInput,
+  OwnAppInput,
   SourceDto,
   TestResultDto,
   UpdateSourceInput,
@@ -66,6 +67,19 @@ export function createConsentLink(
     method: "POST",
     body: tenant === undefined ? {} : { tenant },
   });
+}
+
+/** Connect through a Graph app of the customer's own (the credential is sealed on the server). */
+export function connectOwnApp(sourceId: string, input: OwnAppInput): Promise<VerifyResultDto> {
+  return apiFetch<VerifyResultDto>(sourcePath(sourceId, "own-app"), {
+    method: "PUT",
+    body: input,
+  });
+}
+
+/** Connect the tenant the backup app lives in, without an admin-consent round trip. */
+export function connectOwnTenant(sourceId: string): Promise<VerifyResultDto> {
+  return apiFetch<VerifyResultDto>(sourcePath(sourceId, "connect-own-tenant"), { method: "POST" });
 }
 
 export function verifySource(sourceId: string): Promise<VerifyResultDto> {

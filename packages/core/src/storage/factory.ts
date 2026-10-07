@@ -506,7 +506,9 @@ export function s3ClientConfig(
 ): S3ClientConfig {
   return {
     region: location.region,
-    forcePathStyle: location.forcePathStyle,
+    // A dotted bucket name cannot be addressed as a host name below the provider's wildcard
+    // certificate (`my.bucket.fsn1.your-objectstorage.com`), so it always goes by path.
+    forcePathStyle: location.forcePathStyle || location.bucket.includes("."),
     ...(location.endpoint ? { endpoint: location.endpoint } : {}),
     ...(credentials ? { credentials } : {}),
     ...(purpose === "probe" ? { maxAttempts: 1 } : {}),
@@ -1289,7 +1291,11 @@ export async function detectS3ObjectLock(
   try {
     const output = await client.send(new GetObjectLockConfigurationCommand({ Bucket: bucket }));
     const config = output.ObjectLockConfiguration;
-    if (config?.ObjectLockEnabled !== "Enabled") {
+    // Some S3-compatible services (Ceph based ones such as Hetzner) answer in another case or
+    // leave the flag out and only send the default rule: either way the bucket was created
+    // with Object Lock, since the configuration cannot exist otherwise.
+    const flag = typeof config?.ObjectLockEnabled === "string" ? config.ObjectLockEnabled : "";
+    if (!config || (flag.toLowerCase() !== "enabled" && !config.Rule?.DefaultRetention)) {
       return capability("disabled", at);
     }
     const retention = config.Rule?.DefaultRetention;
