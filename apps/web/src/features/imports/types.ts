@@ -1,3 +1,5 @@
+import type { Failure } from "@/features/failures";
+
 /**
  * Contract types of `/api/v1/imports` (apps/api/src/features/imports) and of
  * the import report (packages/core/src/mailfiles/types.ts). Kept in sync by
@@ -238,6 +240,8 @@ export interface ImportDetail extends ImportSummary {
   files: ImportSourceFile[];
   startedAt: string | null;
   errorMessage: string | null;
+  /** The classified cause of a failure, translated by FailureExplanation; null without one (older rows). */
+  failure?: Failure | null;
   actor: { userId: string | null; name: string | null; email: string | null };
   progress: ImportProgress | null;
   phase: string | null;

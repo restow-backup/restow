@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
 
 import {
@@ -9,9 +9,10 @@ import {
   exportKeys,
   fetchExport,
   fetchExportFormats,
-  fetchExports,
+  fetchExportList,
 } from "@/features/exports/api";
 import { isLive } from "@/features/exports/lib/exports";
+import { fetchPages } from "@/lib/paged-list";
 import { useSession } from "@/lib/session";
 
 /**
@@ -50,14 +51,33 @@ export function useCreateExport() {
   });
 }
 
-export function useExports() {
+/** Exports per page of the list (the API's maximum). */
+export const EXPORTS_PAGE = 50;
+
+/** The newest `pages` pages of exports, whether older ones exist, and the download period. */
+export function useExports(pages = 1) {
   const { tenantId, enabled } = useTenantScope();
   return useQuery({
-    queryKey: exportKeys.list(tenantId),
-    queryFn: fetchExports,
+    queryKey: [...exportKeys.list(tenantId), pages],
+    queryFn: async () => {
+      let ttlHours: number | null = null;
+      const list = await fetchPages(
+        async (offset) => {
+          const page = await fetchExportList(offset);
+          ttlHours ??= page.ttlHours;
+          return page.items;
+        },
+        EXPORTS_PAGE,
+        pages,
+      );
+      return { ...list, ttlHours };
+    },
     enabled,
+    placeholderData: keepPreviousData,
     refetchInterval: (query) =>
-      query.state.data?.some((item: MailExport) => isLive(item)) ? LIVE_POLL_MS : IDLE_POLL_MS,
+      query.state.data?.items.some((item: MailExport) => isLive(item))
+        ? LIVE_POLL_MS
+        : IDLE_POLL_MS,
   });
 }
 

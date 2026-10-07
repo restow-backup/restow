@@ -116,13 +116,15 @@
     "folders": "Ordner",
     "mailData": "Maildaten",
     "failedMessages": "Nicht exportiert",
-    "noReport": "Der Export wurde ohne Bericht beendet. Die Datei ist vollständig, die Zahlen wurden aber nicht erfasst.",
+    "noReport": "Für diesen Export liegt kein Bericht vor. Wie viele E-Mails die Datei enthält, ist daher nicht bekannt.",
     "checksum": "SHA-256-Prüfsumme der Datei",
     "copyChecksum": "Prüfsumme kopieren",
     "checksumHint": "Vergleichen Sie sie mit der Prüfsumme der heruntergeladenen Datei, um zu belegen, dass sich nichts verändert hat.",
     "expired": {
       "title": "Der Download-Link ist abgelaufen",
-      "description": "Die Datei wurde mit dem Ablauf des Links ({date}) vom Server gelöscht. Starten Sie den Export erneut, um eine neue Datei zu erhalten."
+      "description": "Die Datei wurde mit dem Ablauf des Links ({date}) vom Server gelöscht. Fordern Sie den Export erneut an, um eine neue Datei zu erhalten.",
+      "againExplorer": "Im Explorer erneut anfordern",
+      "againArchive": "Im Archiv erneut anfordern"
     }
   },
   "skipped": {
@@ -149,12 +151,16 @@
   },
   "list": {
     "title": "Exporte",
-    "subtitle": "Alle Exporte, die Sie gestartet haben, mit Live-Fortschritt. Fertige Dateien können 24 Stunden lang heruntergeladen werden.",
+    "subtitle": "Alle Exporte, die Sie gestartet haben, mit Live-Fortschritt. Fertige Dateien können eine begrenzte Zeit heruntergeladen werden.",
+    "subtitleHours": "Alle Exporte, die Sie gestartet haben, mit Live-Fortschritt. Fertige Dateien können {count, plural, one {# Stunde} other {# Stunden}} lang heruntergeladen werden.",
     "empty": "Noch keine Exporte",
     "emptyDescription": "Exportieren Sie E-Mails als EML- oder MBOX-Dateien aus dem Restore-Explorer oder dem Archiv. Ihre Exporte erscheinen hier.",
+    "emptyDescriptionUser": "Exportieren Sie E-Mails als EML- oder MBOX-Dateien aus dem Restore-Explorer. Ihre Exporte erscheinen hier.",
     "fromBackups": "Aus Sicherungen exportieren",
     "fromArchive": "Aus dem Archiv exportieren",
     "loadError": "Die Exporte konnten nicht geladen werden.",
+    "shown": "{count, plural, one {Der neueste Export wird angezeigt.} other {Die neuesten # Exporte werden angezeigt.}}",
+    "showOlder": "Ältere anzeigen",
     "expired": "Abgelaufen",
     "columns": {
       "created": "Angefordert",

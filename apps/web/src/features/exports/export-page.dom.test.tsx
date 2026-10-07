@@ -222,7 +222,7 @@ describe("ExportPage", () => {
     fetchExport.mockResolvedValue(detail({ available: false, expiresAt: at(-HOUR) }));
     await mount();
     expect(text()).toContain("The download link has expired");
-    expect(text()).toContain("Start the export again to get a new file.");
+    expect(text()).toContain("Request the export again to get a new file.");
     expect(downloadLink()).toBeUndefined();
     expect(downloadButton()?.disabled).toBe(true);
     expect(text()).not.toContain("The download link expires in");
@@ -310,6 +310,48 @@ describe("ExportPage", () => {
     expect(text()).toContain("The storage target is not reachable");
     expect(downloadLink()).toBeUndefined();
     expect(downloadButton()).toBeUndefined();
+  });
+
+  it("explains a classified failure in the reader's language, the engine's text only as a detail", async () => {
+    fetchExport.mockResolvedValue(
+      detail({
+        status: "failed",
+        fileName: null,
+        sha256: null,
+        available: false,
+        expiresAt: null,
+        report: null,
+        errorMessage: "Error: ENOSPC: no space left on device, write",
+        failure: {
+          code: "storage.full",
+          category: "storage",
+          transient: false,
+          retryable: true,
+          params: {},
+          technical: {},
+          occurredAt: at(-HOUR),
+          step: null,
+          retry: null,
+          steps: [],
+          docsUrl: "https://example.test/docs",
+        },
+      }),
+    );
+    await mount();
+    expect(text()).toContain("The export failed");
+    expect(text()).toContain("The storage target is full");
+    // The raw engine message is not the explanation: it sits in the collapsed technical details.
+    const details = container.querySelector("details");
+    expect(details?.hasAttribute("open")).toBe(false);
+    expect(details?.textContent).toContain("ENOSPC");
+  });
+
+  it("leads back to where an expired export can be requested again", async () => {
+    fetchExport.mockResolvedValue(detail({ available: false, expiresAt: at(-HOUR) }));
+    await mount();
+    const again = container.querySelector<HTMLAnchorElement>("[data-slot=export-again]");
+    expect(again?.textContent).toContain("Request again in the explorer");
+    expect(again?.getAttribute("href")).toContain("/restore");
   });
 
   it("shows a cancelled export without a file", async () => {

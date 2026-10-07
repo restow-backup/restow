@@ -110,5 +110,10 @@ export const importIdParamSchema = z.object({ id: z.string().uuid() });
 
 export const listImportsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(50),
+  /** Rows to skip, newest first: the next page of older imports. */
+  offset: z.coerce.number().int().min(0).max(100_000).default(0),
 });
-export type ListImportsQuery = z.infer<typeof listImportsQuerySchema>;
+/** The parsed query; `offset` may be left out by direct callers (the first page). */
+export type ListImportsQuery = Omit<z.infer<typeof listImportsQuerySchema>, "offset"> & {
+  offset?: number;
+};

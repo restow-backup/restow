@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { ArchiveRetention } from "@/features/archive/api";
 import { Fact, Facts } from "@/features/restore/components/facts";
 import { formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -175,6 +176,27 @@ interface TargetStepProps {
   onArchive: (archive: boolean) => void;
   /** The person tried to continue: show what is missing. */
   showErrors: boolean;
+  /** The archive's retention in this tenant, to name the period archived mail cannot be deleted in. */
+  archiveRetention?: ArchiveRetention | null;
+}
+
+/** The retention line under the archive option, or null while the retention is unknown. */
+export function archiveRetentionMessage(
+  retention: ArchiveRetention | null | undefined,
+): { key: string; values?: { count: number } } | null {
+  if (!retention) {
+    return null;
+  }
+  if (retention.years === null) {
+    return { key: "target.archive.retention.unlimited" };
+  }
+  return {
+    key:
+      retention.mode === "end_of_year"
+        ? "target.archive.retention.endOfYear"
+        : "target.archive.retention.years",
+    values: { count: retention.years },
+  };
 }
 
 export function TargetStep({
@@ -186,8 +208,10 @@ export function TargetStep({
   onObject,
   onArchive,
   showErrors,
+  archiveRetention = null,
 }: TargetStepProps) {
   const { t } = useTranslation("imports");
+  const retentionLine = archiveRetentionMessage(archiveRetention);
   const nameProblem = validateName(state.name);
   const noMailboxes = !mailboxesLoading && (mailboxes?.length ?? 0) === 0;
 
@@ -321,6 +345,15 @@ export function TargetStep({
           </span>
         </Label>
       </div>
+      {state.archive ? (
+        <Alert variant="warning" data-slot="archive-irreversible">
+          <CircleAlert />
+          <AlertDescription>
+            <p>{t("target.archive.irreversible")}</p>
+            {retentionLine ? <p>{t(retentionLine.key, retentionLine.values)}</p> : null}
+          </AlertDescription>
+        </Alert>
+      ) : null}
     </div>
   );
 }
@@ -386,7 +419,7 @@ export function ReviewStep({
             : t("review.target.existing", { name: targetName ?? "" })}
         </Fact>
         <Fact label={t("review.facts.archive")}>
-          {state.archive ? t("review.archive.yes") : t("review.archive.no")}
+          {state.archive ? t("review.archive.willBe") : t("review.archive.willNotBe")}
         </Fact>
       </Facts>
 

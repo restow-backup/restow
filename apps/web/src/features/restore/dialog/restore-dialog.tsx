@@ -48,6 +48,7 @@ import {
   hasErrors,
   initialFormState,
   modeApplies,
+  originalTargetDescriptionKey,
   restoreErrorOf,
   restoreModesFor,
   restoreStamp,
@@ -137,6 +138,9 @@ function RestoreForm({
     initialFormState(context, request.onlyTarget ?? request.target),
   );
   const [errors, setErrors] = React.useState<RestoreFormErrors>({});
+  // One stamp per opening: the folder name the dialog shows is the one the restore uses.
+  const [openedAt] = React.useState(() => new Date());
+  const restoreFolderName = t("dialog.restoreFolderName", { stamp: restoreStamp(openedAt) });
   const [failure, setFailure] = React.useState<RestoreErrorDisplay | null>(null);
   const accountRef = React.useRef<HTMLInputElement>(null);
   const reasonRef = React.useRef<HTMLTextAreaElement>(null);
@@ -178,7 +182,7 @@ function RestoreForm({
       scope,
       state,
       context,
-      restoreFolderName: t("dialog.restoreFolderName", { stamp: restoreStamp(now) }),
+      restoreFolderName,
       now,
     });
     create.mutate(body, {
@@ -213,7 +217,10 @@ function RestoreForm({
     {
       value: "original",
       label: t("dialog.target.original"),
-      description: t("dialog.target.originalDescription", { object: label }),
+      description: t(originalTargetDescriptionKey(object.kind, state.mode), {
+        object: label,
+        folder: restoreFolderName,
+      }),
       icon: ArchiveRestore,
       disabled: !targetAvailable("original", context),
       disabledHint: demoMode
@@ -251,9 +258,7 @@ function RestoreForm({
       description:
         object.kind === "onedrive"
           ? t("dialog.mode.renameDescriptionFiles")
-          : t("dialog.mode.renameDescriptionMail", {
-              folder: t("dialog.restoreFolderName", { stamp: restoreStamp(new Date()) }),
-            }),
+          : t("dialog.mode.renameDescriptionMail", { folder: restoreFolderName }),
       icon: Copy,
     },
     {

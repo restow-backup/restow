@@ -11,7 +11,7 @@ import type { ArchiveActor } from "../../../../apps/api/src/features/archive/ser
 import { audit } from "../../../../apps/api/src/lib/audit.js";
 import { type DbExecutor, withTenantTx } from "../../../../apps/api/src/lib/tenant-context.js";
 import { ProblemError } from "../../../../apps/api/src/problem.js";
-import type { CreateLegalHoldInput } from "./schemas.js";
+import type { CreateLegalHoldInput, ReleaseLegalHoldInput } from "./schemas.js";
 
 export interface LegalHoldDto {
   id: string;
@@ -84,15 +84,33 @@ export async function releaseLegalHold(
   tenantId: string,
   holdId: string,
   actor: ArchiveActor,
+  input: ReleaseLegalHoldInput = {},
 ): Promise<LegalHoldDto> {
   return withTenantTx(db, tenantId, async (tx) => {
     const [row] = await tx
       .update(legalHolds)
       .set({ active: false, releasedAt: new Date() })
-      .where(and(eq(legalHolds.id, holdId), eq(legalHolds.tenantId, tenantId)))
+      .where(
+        and(
+          eq(legalHolds.id, holdId),
+          eq(legalHolds.tenantId, tenantId),
+          eq(legalHolds.active, true),
+        ),
+      )
       .returning();
     if (!row) {
-      throw new ProblemError(404, "Legal hold not found");
+      const [existing] = await tx
+        .select({ id: legalHolds.id })
+        .from(legalHolds)
+        .where(and(eq(legalHolds.id, holdId), eq(legalHolds.tenantId, tenantId)))
+        .limit(1);
+      // Released before (another tab, another person): the first release and its reason stand.
+      throw existing
+        ? new ProblemError(409, "Legal hold already released", {
+            type: "urn:restow:problem:legal-hold-released",
+            detail: "This legal hold was already released.",
+          })
+        : new ProblemError(404, "Legal hold not found");
     }
     await audit(tx, {
       tenantId,
@@ -102,7 +120,7 @@ export async function releaseLegalHold(
       target: row.id,
       targetType: "legal_hold",
       ip: actor.ip,
-      details: null,
+      details: { reason: input.reason ?? null, heldSince: row.createdAt.toISOString() },
     });
     return toHoldDto(row);
   });

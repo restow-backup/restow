@@ -1,3 +1,4 @@
+import type { Failure } from "@/features/failures";
 import type { SelectionEntry } from "@/features/restore/api";
 import { apiFetch } from "@/lib/api";
 
@@ -86,6 +87,8 @@ export interface ExportFailure {
 export interface MailExportDetail extends MailExport {
   reason: string | null;
   errorMessage: string | null;
+  /** The classified cause of a failure, translated by FailureExplanation; null without one (older rows). */
+  failure?: Failure | null;
   report: ExportReport | null;
   failures: ExportFailure[];
 }
@@ -150,8 +153,16 @@ export function createExport(request: CreateExportRequest): Promise<ExportCreate
 }
 
 export async function fetchExports(): Promise<MailExport[]> {
-  const body = await apiFetch<{ items: MailExport[] }>("/exports");
-  return body.items;
+  return (await fetchExportList()).items;
+}
+
+/** One page of the viewer's exports, newest first, with how long a finished file stays downloadable. */
+export async function fetchExportList(
+  offset = 0,
+): Promise<{ items: MailExport[]; ttlHours: number | null }> {
+  const query = offset > 0 ? `?offset=${offset}` : "";
+  const body = await apiFetch<{ items: MailExport[]; ttlHours?: number }>(`/exports${query}`);
+  return { items: body.items, ttlHours: typeof body.ttlHours === "number" ? body.ttlHours : null };
 }
 
 export function fetchExport(exportId: string): Promise<MailExportDetail> {

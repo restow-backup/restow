@@ -19,6 +19,19 @@ import { JournalSection } from "./journal-section";
  * ee/web extension is registered (slot `archive.sections`).
  */
 
+vi.mock("@tanstack/react-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-router")>();
+  return {
+    ...actual,
+    // The archive page links to the tenant settings; no <RouterProvider> here.
+    Link: ({ to, children, ...props }: { to: string; children?: React.ReactNode }) => (
+      <a href={String(to)} {...props}>
+        {children}
+      </a>
+    ),
+  };
+});
+
 vi.mock("@/lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api")>()),
   apiFetch: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 }),

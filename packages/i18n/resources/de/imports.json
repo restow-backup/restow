@@ -228,7 +228,13 @@
     },
     "archive": {
       "title": "Zusätzlich ins Archiv übernehmen (Aufbewahrung und Suche gelten)",
-      "description": "Jede importierte Nachricht wird zusätzlich ins Archiv geschrieben und als aus einer Datei importiert gekennzeichnet. Aufbewahrungsregeln, Legal Holds und die Volltextsuche gelten dann wie für jede archivierte Mail. Lassen Sie das aus, wenn die Mails nur wiederherstellbar sein müssen."
+      "description": "Jede importierte Nachricht wird zusätzlich ins Archiv geschrieben und als aus einer Datei importiert gekennzeichnet. Die Aufbewahrung und die Volltextsuche des Archivs gelten dann wie für jede archivierte Mail. Lassen Sie das aus, wenn die Mails nur wiederherstellbar sein müssen.",
+      "irreversible": "Das lässt sich nicht rückgängig machen: Ins Archiv übernommene Nachrichten lassen sich bis zum Ende ihrer Aufbewahrungsfrist nicht löschen, auch nicht durch Abbrechen des Imports.",
+      "retention": {
+        "years": "Aufbewahrungsfrist in diesem Mandanten: {count, plural, one {# Jahr} other {# Jahre}} ab der Übernahme.",
+        "endOfYear": "Aufbewahrungsfrist in diesem Mandanten: {count, plural, one {# Jahr} other {# Jahre}}, gezählt ab dem Ende des Jahres der Übernahme.",
+        "unlimited": "Aufbewahrungsfrist in diesem Mandanten: ohne Ende."
+      }
     }
   },
   "review": {
@@ -251,7 +257,9 @@
     },
     "archive": {
       "yes": "Zusätzlich ins Archiv übernommen",
-      "no": "Nicht ins Archiv übernommen"
+      "no": "Nicht ins Archiv übernommen",
+      "willBe": "Wird zusätzlich ins Archiv übernommen (nicht rückgängig zu machen)",
+      "willNotBe": "Wird nicht ins Archiv übernommen"
     },
     "uploading": "{count, plural, one {# Datei wird} other {# Dateien werden}} noch hochgeladen. Sie können den Import starten, sobald alle Uploads abgeschlossen sind.",
     "note": "Nachrichten, die schon im Postfach sind, werden als Duplikate übersprungen. Kalendereinträge und Kontakte werden nicht importiert. Dateien, die sich nicht lesen lassen, stehen im Bericht; alles andere wird importiert."
@@ -309,6 +317,7 @@
       "failedUnknown": "Es wurden keine weiteren Einzelheiten gemeldet.",
       "cancelled": "Der Import wurde abgebrochen",
       "cancelledDescription": "Er wurde vor dem Ende gestoppt. Dafür hochgeladene Dateien wurden vom Server entfernt, frühere Importe in das Postfach sind nicht betroffen.",
+      "cancelledArchiveNote": "Nachrichten, die vor dem Abbruch ins Archiv übernommen wurden, bleiben dort bis zum Ende ihrer Aufbewahrungsfrist.",
       "completedSnapshot": "Die Nachrichten liegen in einem neuen Sicherungsstand des Postfachs.",
       "completedNoSnapshot": "Es wurde nichts Neues gespeichert, zum Beispiel weil jede Nachricht schon im Postfach war.",
       "allAlreadyImported": "{count, plural, one {Die einzige Nachricht in den Dateien war bereits importiert. Es wurde nichts Neues gespeichert.} other {Alle # Nachrichten in den Dateien waren bereits importiert. Es wurde nichts Neues gespeichert.}}",
@@ -396,6 +405,7 @@
     "action": "Import abbrechen",
     "title": "Diesen Import abbrechen?",
     "description": "Der Import stoppt, sobald der Worker die nächste Prüfung erreicht. Dafür hochgeladene Dateien werden vom Server entfernt, frühere Importe in das Postfach sind nicht betroffen.",
+    "archiveNote": "Nachrichten, die bereits ins Archiv übernommen wurden, bleiben dort bis zum Ende ihrer Aufbewahrungsfrist.",
     "keep": "Weiterlaufen lassen",
     "confirm": "Import abbrechen",
     "done": "Der Import wurde abgebrochen.",
@@ -406,6 +416,8 @@
     "subtitle": "Jeder Import von Mail-Dateien in diesen Mandanten, neueste zuerst.",
     "new": "Mail-Dateien importieren",
     "loadError": "Die Importe konnten nicht geladen werden",
+    "shown": "{count, plural, one {Der neueste Import wird angezeigt.} other {Die neuesten # Importe werden angezeigt.}}",
+    "showOlder": "Ältere anzeigen",
     "empty": {
       "title": "Noch keine Importe",
       "description": "Importieren Sie EML-, MSG-, MBOX- oder ZIP-Dateien, damit alte Mails in {appName} durchsuchbar und wiederherstellbar bleiben."
@@ -435,5 +447,11 @@
     "uploadNotReady": "Einer der Uploads ist noch nicht vollständig. Warten Sie, bis jeder Upload bereit ist.",
     "alreadyQueued": "Für dieses Postfach wartet bereits ein Import. Er startet, sobald der laufende beendet ist.",
     "folderDisabled": "Der Import-Ordner des Servers ist nicht verfügbar."
+  },
+  "leave": {
+    "title": "Dateien werden noch hochgeladen. Seite verlassen?",
+    "description": "Wenn Sie die Seite verlassen, wird der Upload angehalten. Bereits hochgeladene Teile bleiben auf dem Server: Fügen Sie später dieselbe Datei erneut hinzu, um den Upload fortzusetzen.",
+    "stay": "Auf dieser Seite bleiben",
+    "confirm": "Seite verlassen"
   }
 }

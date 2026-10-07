@@ -175,7 +175,11 @@ export async function searchArchive(
       details: {
         q: query.q ?? null,
         mailbox: query.mailbox ?? null,
+        from: query.from ?? null,
+        dateFrom: query.dateFrom ? query.dateFrom.toISOString() : null,
+        dateTo: query.dateTo ? query.dateTo.toISOString() : null,
         hasAttachment: query.hasAttachment ?? null,
+        offset: query.offset,
         results: rows.length,
         total: count,
       },

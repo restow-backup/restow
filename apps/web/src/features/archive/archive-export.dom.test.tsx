@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type * as React from "react";
 import { act } from "react";
 import { type Root, createRoot } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
@@ -19,7 +20,16 @@ import { ArchivePage } from "./archive-page.js";
 const navigate = vi.fn();
 vi.mock("@tanstack/react-router", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-router")>();
-  return { ...actual, useNavigate: () => navigate };
+  return {
+    ...actual,
+    useNavigate: () => navigate,
+    // Links render as plain anchors: these tests render without a <RouterProvider>.
+    Link: ({ to, children, ...props }: { to: string; children?: React.ReactNode }) => (
+      <a href={String(to)} {...props}>
+        {children}
+      </a>
+    ),
+  };
 });
 vi.mock("@/lib/session", () => ({
   useSession: () => ({
@@ -187,7 +197,7 @@ describe("ArchivePage export", () => {
 
     await act(async () => {
       container
-        .querySelector("form")
+        .querySelector("[role=dialog] form")
         ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
       await flush();
     });
@@ -227,7 +237,7 @@ describe("ArchivePage export", () => {
 
     await act(async () => {
       container
-        .querySelector("form")
+        .querySelector("[role=dialog] form")
         ?.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
       await flush();
     });

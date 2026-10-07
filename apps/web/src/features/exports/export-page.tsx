@@ -7,6 +7,7 @@ import {
   FileArchive,
   Hourglass,
   Info,
+  RotateCcw,
   ShieldCheck,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -19,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ARCHIVE_PATH } from "@/features/archive/paths";
 import type { MailExportDetail } from "@/features/exports/api";
 import {
   CancelExportButton,
@@ -38,11 +40,14 @@ import {
 import { EXPORT_PATHS, exportsTo } from "@/features/exports/navigation";
 import { useExportText } from "@/features/exports/use-export-text";
 import { useClock, useExport } from "@/features/exports/use-exports-data";
+import { FailureExplanation } from "@/features/failures";
 import { Fact, Facts } from "@/features/restore/components/facts";
 import { ProgressBar } from "@/features/restore/components/progress-bar";
 import { ObjectIcon } from "@/features/restore/explorer/entry-icon";
 import { etaMinutes, progressRatio } from "@/features/restore/lib/jobs";
+import { explorerAt, restoreTo } from "@/features/restore/navigation";
 import { formatBytes, formatDateTime, formatInteger } from "@/lib/format";
+import { cn } from "@/lib/utils";
 
 /**
  * One export from request to file: live progress while it runs, then the
@@ -217,11 +222,25 @@ function ResultCard({ detail, now }: { detail: MailExportDetail; now: number }) 
       </CardHeader>
       <CardContent className="space-y-4">
         {detail.status === "failed" ? (
-          <Alert variant="destructive">
-            <AlertTriangle />
-            <AlertTitle>{t("result.failed")}</AlertTitle>
-            <AlertDescription>{detail.errorMessage ?? t("result.failedUnknown")}</AlertDescription>
-          </Alert>
+          detail.failure || detail.errorMessage ? (
+            <div className="space-y-2">
+              <p className="font-medium text-destructive">{t("result.failed")}</p>
+              {/* The cause in the reader's language; the engine's own text sits under "Technical details". */}
+              <FailureExplanation
+                failure={detail.failure ?? null}
+                message={detail.errorMessage}
+                subject={{ kind: "none" }}
+                hideWhat
+                at={detail.completedAt}
+              />
+            </div>
+          ) : (
+            <Alert variant="destructive">
+              <AlertTriangle />
+              <AlertTitle>{t("result.failed")}</AlertTitle>
+              <AlertDescription>{t("result.failedUnknown")}</AlertDescription>
+            </Alert>
+          )
         ) : null}
         {detail.status === "cancelled" ? (
           <Alert variant="info">
@@ -306,9 +325,12 @@ function FileBlock({ detail, now }: { detail: MailExportDetail; now: number }) {
           <Clock />
           <AlertTitle>{t("result.expired.title")}</AlertTitle>
           <AlertDescription>
-            {t("result.expired.description", {
-              date: formatDateTime(detail.expiresAt, language) ?? "",
-            })}
+            <p>
+              {t("result.expired.description", {
+                date: formatDateTime(detail.expiresAt, language) ?? "",
+              })}
+            </p>
+            <ExportAgainLink detail={detail} />
           </AlertDescription>
         </Alert>
       ) : message ? (
@@ -418,5 +440,37 @@ function RequestCard({ detail }: { detail: MailExportDetail }) {
         </Facts>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Where an expired export can be requested again: the explorer at the same
+ * account and restore point, or the archive. Null when the source is gone.
+ */
+function ExportAgainLink({ detail }: { detail: MailExportDetail }) {
+  const { t } = useTranslation("exports");
+  const className = cn(buttonVariants({ variant: "outline", size: "sm" }), "mt-2");
+  if (detail.origin === "archive") {
+    return (
+      <Link to={restoreTo(ARCHIVE_PATH)} className={className} data-slot="export-again">
+        <RotateCcw />
+        {t("result.expired.againArchive")}
+      </Link>
+    );
+  }
+  if (!detail.object || !detail.snapshotId) {
+    return null;
+  }
+  const target = explorerAt(detail.object.id, detail.snapshotId);
+  return (
+    <Link
+      to={target.to}
+      search={target.search as never}
+      className={className}
+      data-slot="export-again"
+    >
+      <RotateCcw />
+      {t("result.expired.againExplorer")}
+    </Link>
   );
 }

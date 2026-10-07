@@ -51,6 +51,8 @@
       "none": "Noch kein geschütztes Konto",
       "noneDescription": "Schützen Sie zunächst ein Postfach, OneDrive oder IMAP-Konto. Es erscheint hier, sobald es geschützt ist, auch vor der ersten abgeschlossenen Sicherung.",
       "noneAction": "Geschützte Objekte öffnen",
+      "noneSelf": "Für Sie liegt noch keine Sicherung vor",
+      "noneSelfDescription": "Ihr Postfach, Ihr OneDrive oder Ihr IMAP-Konto wird noch nicht gesichert. Wenden Sie sich an die Administration Ihres Unternehmens, damit es geschützt wird.",
       "kinds": {
         "mailbox": "Postfach",
         "onedrive": "OneDrive",
@@ -65,7 +67,10 @@
       "current": "Aktuell",
       "none": "Noch kein Sicherungsstand",
       "noneDescription": "Für dieses Postfach oder Laufwerk gibt es noch keinen Sicherungsstand.",
-      "loadError": "Die Sicherungsstände dieses Postfachs oder Laufwerks konnten nicht geladen werden."
+      "noneSelfDescription": "Für dieses Konto gibt es noch keinen Sicherungsstand. Sobald die erste Sicherung abgeschlossen ist, können Sie hier wiederherstellen. Bleibt die Liste leer, wenden Sie sich an Ihre Administration.",
+      "loadError": "Die Sicherungsstände dieses Postfachs oder Laufwerks konnten nicht geladen werden.",
+      "truncated": "Nur die neuesten {count}",
+      "truncatedHint": "Es werden die neuesten {count} Sicherungsstände dieses Kontos angezeigt. Ältere gibt es noch, sie lassen sich hier aber nicht auswählen."
     },
     "tree": {
       "label": "Ordner",
@@ -215,6 +220,7 @@
       "label": "Wiederherstellen nach",
       "original": "Ursprünglicher Ort",
       "originalDescription": "Zurück nach {object}, dorthin, woher die Elemente stammen.",
+      "originalDescriptionFolder": "In das Konto {object}, dort in den neuen Ordner „{folder}“ (siehe unten: Beide behalten).",
       "originalGone": "Das ursprüngliche Konto existiert in der Quelle nicht mehr.",
       "demoDownloadOnly": "In dieser Demo ist nur die Wiederherstellung als Download möglich.",
       "other": "Anderes Konto",
@@ -267,7 +273,10 @@
   },
   "jobs": {
     "title": "Letzte Wiederherstellungen",
-    "subtitle": "Alle Wiederherstellungen und Downloads, mit Fortschritt und dem Ergebnis jedes Elements.",
+    "subtitle": "Wiederherstellungen und Downloads von Postfächern, OneDrive und IMAP-Konten, mit Fortschritt und dem Ergebnis jedes Elements. Wiederherstellungen auf Rechner stehen unter Datei-Restore und in den Läufen des Rechners.",
+    "machineRestores": "Wiederherstellungen auf Rechner",
+    "shown": "{count, plural, one {Der neueste Auftrag wird angezeigt.} other {Die neuesten # Aufträge werden angezeigt.}}",
+    "showOlder": "Ältere anzeigen",
     "newRestore": "Neue Wiederherstellung",
     "empty": "Noch keine Wiederherstellungen",
     "emptyDescription": "Wiederherstellungen und Downloads, die Sie im Explorer starten, erscheinen hier mit ihrem Fortschritt.",
@@ -275,7 +284,7 @@
     "progressLabel": "Fortschritt der Wiederherstellung",
     "progress": "{done} von {total}",
     "outcome": "{restored} wiederhergestellt · {skipped} übersprungen · {failed} fehlgeschlagen",
-    "snapshot": "Sicherung #{sequence} vom {date}",
+    "snapshot": "Sicherungsstand #{sequence} vom {date}",
     "adminRestore": "Admin-Wiederherstellung",
     "actorUnknown": "Unbekannter Benutzer",
     "objectGone": "Entferntes Postfach oder Laufwerk",
@@ -316,6 +325,7 @@
       "action": "Abbrechen",
       "title": "Diese Wiederherstellung abbrechen?",
       "description": "Die Wiederherstellung stoppt beim nächsten Element. Bereits Wiederhergestelltes bleibt erhalten.",
+      "descriptionDownload": "Die Wiederherstellung stoppt beim nächsten Element. Es wird keine Datei erstellt: Ein ZIP entsteht nur, wenn die Wiederherstellung vollständig durchläuft.",
       "keep": "Weiterlaufen lassen",
       "confirm": "Wiederherstellung abbrechen",
       "done": "Die Wiederherstellung wurde abgebrochen.",
@@ -350,15 +360,17 @@
       "failedUnknown": "Es wurde kein Grund gemeldet.",
       "cancelled": "Die Wiederherstellung wurde abgebrochen",
       "cancelledDescription": "Alles, was vor dem Abbruch wiederhergestellt wurde, bleibt erhalten.",
+      "cancelledDescriptionDownload": "Es wurde keine Datei erstellt: Ein ZIP entsteht nur, wenn die Wiederherstellung vollständig durchläuft. Fordern Sie den Download erneut an.",
       "noResult": "Die Wiederherstellung wurde ohne Ergebnismeldung beendet.",
       "downloadExpired": "Der Download ist abgelaufen",
-      "downloadExpiredDescription": "Der Link war bis {date} gültig. Starten Sie den Download im Explorer erneut, um einen neuen zu erhalten."
+      "downloadExpiredDescription": "Der Link war bis {date} gültig. Fordern Sie den Download erneut an, um einen neuen zu erhalten.",
+      "requestAgain": "Im Explorer erneut anfordern"
     },
     "request": {
       "title": "Anforderung",
       "object": "Postfach oder Laufwerk",
-      "snapshot": "Zeitpunkt",
-      "snapshotPruned": "Die Sicherung wurde inzwischen durch die Aufbewahrungsregel entfernt.",
+      "snapshot": "Sicherungsstand",
+      "snapshotPruned": "Der Sicherungsstand wurde inzwischen durch die Aufbewahrungsregel entfernt.",
       "selection": "Auswahl",
       "target": "Ziel",
       "mode": "Wenn ein Element existiert",

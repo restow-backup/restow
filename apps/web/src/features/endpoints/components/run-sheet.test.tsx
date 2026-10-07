@@ -98,8 +98,30 @@ describe("RunDetailView", () => {
     expect(html).toContain("A file could not be read");
     expect(html).toContain("restic ended with exit code 3");
     expect(html).toContain("Error code weird_code");
-    expect(html).toContain("Message from the agent: exit status 1");
+    // The agent's own (English) text is a collapsed detail under the translated meaning.
+    expect(html).toMatch(
+      /<details[^>]*><summary[^>]*>Technical message from the agent<\/summary><p[^>]*>exit status 1<\/p><\/details>/,
+    );
     expect(html).toContain("something odd");
+  });
+
+  it("words a restore whose target folder could not be used and a restic error", () => {
+    const html = render_(
+      run({
+        status: "failed",
+        errors: [
+          {
+            message: "the folder /srv does not exist; restore into an existing folder",
+            code: "target_unusable",
+          },
+          { message: "Fatal: unable to open repository", code: "restic_error" },
+        ],
+      }),
+    );
+    expect(html).toContain("The target folder could not be used");
+    expect(html).toContain("restic stopped with an error");
+    expect(html).not.toContain("Error code target_unusable");
+    expect(html).not.toContain("Error code restic_error");
   });
 
   it("does not show a run that was only interrupted as a failure", () => {

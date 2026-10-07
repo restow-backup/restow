@@ -3,7 +3,8 @@
   "title": "Archive",
   "page": {
     "title": "Archive",
-    "description": "Search the tenant's archived mail, verify the hash chain and manage legal holds."
+    "description": "Search and read the tenant's archived mail and verify the hash chain. Retention and legal holds are set in the tenant's archive settings.",
+    "settingsLink": "Manage retention and legal holds"
   },
   "noTenant": "Select a tenant to search its archive.",
   "forbidden": "Archive search requires the tenant administrator role.",
@@ -22,7 +23,18 @@
     "empty": "No archived mail matches this search.",
     "emptyTenant": "Nothing has been archived for this tenant yet.",
     "mailbox": "Mailbox",
-    "allMailboxes": "All mailboxes"
+    "allMailboxes": "All mailboxes",
+    "from": "Sender",
+    "fromPlaceholder": "Sender contains",
+    "submit": "Search",
+    "reset": "Reset filters",
+    "invertedRange": "The end date is before the start date, so nothing can match.",
+    "range": "{first}–{last} of {total}",
+    "previous": "Previous page",
+    "next": "Next page",
+    "pagination": "Pages of results",
+    "loadError": "The archive search failed",
+    "loadErrorDescription": "The result is unknown. It does not mean that nothing is archived."
   },
   "table": {
     "subject": "Subject",
@@ -41,7 +53,15 @@
     }
   },
   "detail": {
-    "title": "Item",
+    "title": "Message",
+    "empty": "Select a message in the list to read it.",
+    "loadError": "The details of this message could not be loaded",
+    "metadata": "Archive details",
+    "content": "Content",
+    "previewError": "The content could not be read",
+    "attachmentsNote": "Attachments are included in the .eml file.",
+    "download": "Download .eml",
+    "downloadHint": "The original message as archived, with all attachments. It is compared with its checksum before the download, and the download is recorded in the audit log.",
     "messageId": "Message ID",
     "itemHash": "Item hash (SHA-256)",
     "chainHash": "Chain hash",
@@ -50,6 +70,7 @@
     "unlimited": "Unlimited",
     "flags": "Flags",
     "noFlags": "None",
+    "flagUnknown": "Flag {code}",
     "sourceJournal": "Exchange Online journal",
     "sourceGraphSync": "Graph sync",
     "sourceImapSync": "IMAP sync",
@@ -57,26 +78,72 @@
   },
   "chain": {
     "title": "Hash chain",
-    "description": "Recomputes every entry's chain hash from its predecessor and reports the first break, if any.",
-    "ok": "Chain intact: {count} items verified.",
-    "broken": "Chain broken at position {index}.",
-    "empty": "Nothing to verify yet: the archive is empty."
+    "description": "Checks that the archive's entries are chained without a gap, compares the chain with the daily anchors sealed every night and, on request, reads a sample of the messages back from storage.",
+    "verifyWithContent": "Verify chain and a sample of the content",
+    "contentHint": "The sample reads up to {count} randomly chosen messages from storage and compares each with its size and SHA-256 at capture.",
+    "passed": "Check passed",
+    "failed": "Check not passed",
+    "checkedAt": "Checked on {date}",
+    "loadError": "The check could not be run",
+    "empty": "Nothing to verify yet: the archive is empty.",
+    "links": {
+      "ok": "Links: {count, plural, one {# entry} other {all # entries}} chained without a gap. This checked the checksums stored in the database.",
+      "broken": "Chain broken at entry {position} of {total}: “{subject}”, received on {date}."
+    },
+    "noSubject": "no subject",
+    "openItem": "Open message",
+    "contentFailure": "“{subject}”, received on {date}: {problem}",
+    "anchors": {
+      "none": "Daily anchors: none sealed yet. Until the first anchor is sealed overnight, entries removed from the end of the chain cannot be detected.",
+      "ok": "Daily anchors: {checked, plural, one {# anchor} other {# anchors}} compared, the newest from {date}.",
+      "unsealed": "{count, plural, one {# entry is} other {# entries are}} newer than the last anchor and not covered by it yet.",
+      "missing": "Daily anchor of {date}: the chain is shorter than sealed then ({entries} entries). Entries are missing.",
+      "mismatch": "Daily anchor of {date}: the chain differs at entry {entries} from the state sealed then."
+    },
+    "content": {
+      "skipped": "Content: not read. The check above covers only the checksums in the database. Whether the messages in storage are unchanged is what the sample shows.",
+      "ok": "Content: {count, plural, one {# message} other {# messages}} read from storage, each matches its checksum.",
+      "failed": "Content: {failed} of {total} messages read do not match their checksum or could not be read.",
+      "notRecorded": "{count, plural, one {# message of the sample was archived before its storage location was recorded and could not be compared.} other {# messages of the sample were archived before their storage location was recorded and could not be compared.}}",
+      "none": "Content: no message of the sample could be compared."
+    },
+    "problem": {
+      "mismatch": "Content differs from its checksum",
+      "unreadable": "Not readable from storage",
+      "not_recorded": "Storage location not recorded"
+    }
   },
   "legalHold": {
     "title": "Legal holds",
-    "description": "A hold blocks deletion unconditionally, however far past its retention date an item is.",
+    "description": "While a legal hold is active, {appName} deletes none of the messages it covers, even when their retention has already ended. How well the storage itself protects against changes is shown in the archive under Protection of the archive storage.",
     "reason": "Reason",
     "reasonPlaceholder": "Why this hold is required",
     "mailboxAll": "Whole tenant",
+    "scope": "Applies to",
+    "mailboxRemoved": "A mailbox that is no longer protected",
+    "status": "Status",
     "active": "Active",
     "released": "Released",
     "createdAt": "Placed",
     "releasedAt": "Released",
-    "empty": "No legal holds for this tenant."
+    "empty": "No legal holds for this tenant.",
+    "loadError": "The legal holds could not be loaded",
+    "createDone": "Legal hold placed",
+    "createFailed": "The legal hold could not be placed",
+    "releaseDone": "Legal hold released",
+    "releaseDialog": {
+      "title": "Release legal hold?",
+      "description": "After the release, the deletion run can remove messages whose retention has ended and that no other legal hold covers. This cannot be undone.",
+      "hold": "Legal hold: “{reason}”, placed on {date}",
+      "reasonLabel": "Reason for the release",
+      "reasonPlaceholder": "For example: proceedings closed",
+      "reasonHint": "The reason is recorded in the audit log.",
+      "confirm": "Release"
+    }
   },
   "journal": {
     "title": "Exchange journaling",
-    "description": "Exchange Online sends a copy of every message to this address before users see it. The archive keeps each copy unchanged.",
+    "description": "Exchange Online sends a copy of every message to this address before users see it. The archive keeps each copy until its retention ends, and the hash chain makes later changes detectable.",
     "status": {
       "receiving": "Receiving",
       "stale": "No report for more than 24 hours",
@@ -186,5 +253,29 @@
     "original-message-unparseable": "Original message could not be parsed",
     "recipient-classification-degraded": "To/Cc/Bcc could not be determined for every recipient",
     "recipients-truncated": "More than 100,000 recipients; only the first 100,000 are listed (the archived report keeps all of them)"
+  },
+  "protection": {
+    "title": "Protection of the archive storage",
+    "storageLink": "Open storage location",
+    "filesystem": {
+      "title": "Protected by {appName} only",
+      "description": "The archive is on a filesystem (local storage or NFS). {appName} neither changes nor deletes archived mail before its retention ends, and the hash chain makes changes detectable. Anyone with access to the server or the storage can still change or delete the files."
+    },
+    "s3_locked": {
+      "title": "Object Lock on, with a limitation",
+      "description": "The bucket enforces Object Lock. In this version {appName} locks the archive item records with it, but not yet the packs that hold the message content. The content is, as on a filesystem, protected by {appName} and the hash chain only."
+    },
+    "s3_unlocked": {
+      "title": "No Object Lock",
+      "description": "The bucket does not enforce Object Lock. Archived mail is protected by {appName} and the hash chain only: anyone with write access to the bucket can change or delete objects."
+    },
+    "s3_unknown": {
+      "title": "Object Lock not checked",
+      "description": "Whether the bucket enforces Object Lock is not known. Test the storage location. Until then, archived mail is protected by {appName} and the hash chain only."
+    },
+    "unknown": {
+      "title": "Protection unknown",
+      "description": "The archive's storage location could not be determined."
+    }
   }
 }

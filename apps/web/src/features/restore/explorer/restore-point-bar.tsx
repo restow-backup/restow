@@ -1,7 +1,7 @@
 import { Layers } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
-import type { ListedSnapshot } from "@/features/restore/api";
+import { type ListedSnapshot, RESTORE_POINT_LIMIT } from "@/features/restore/api";
 import { RestorePointList } from "@/features/restore/explorer/restore-point-list";
 import { cn } from "@/lib/utils";
 
@@ -63,6 +63,16 @@ export function RestorePointBar({
           onChange={onChange}
         />
       )}
+      {!unavailable && (restorePoints?.length ?? 0) >= RESTORE_POINT_LIMIT ? (
+        // Older restore points exist beyond what was loaded: say so instead of hiding them.
+        <p
+          className="mt-1.5 shrink-0 text-xs text-muted-foreground"
+          title={t("explorer.restorePoint.truncatedHint", { count: RESTORE_POINT_LIMIT })}
+          data-slot="restore-points-truncated"
+        >
+          {t("explorer.restorePoint.truncated", { count: RESTORE_POINT_LIMIT })}
+        </p>
+      ) : null}
     </section>
   );
 }

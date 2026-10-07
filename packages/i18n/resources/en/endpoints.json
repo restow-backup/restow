@@ -595,28 +595,28 @@
   },
   "snapshots": {
     "title": "Restore points",
-    "description": "{count, plural, one {# snapshot in the repository. Pick one to browse its files.} other {# snapshots in the repository. Pick one to browse its files.}}",
+    "description": "{count, plural, one {# restore point. Pick it to browse its files.} other {# restore points. Pick one to browse its files.}}",
     "files": "{count, plural, one {# file} other {# files}}",
-    "errorTitle": "The snapshots could not be read",
+    "errorTitle": "The restore points could not be read",
     "busyTitle": "The repository is busy",
     "empty": {
-      "title": "No snapshot yet",
-      "description": "A snapshot is created by every successful backup. Once the machine has finished its first backup, its restore points appear here."
+      "title": "No restore point yet",
+      "description": "Every successful backup creates a restore point. Once the machine has finished its first backup, its restore points appear here."
     },
     "flags": {
       "unrecorded": "Not reported by any backup",
       "future_time": "Dated in the future",
-      "hint": "Retention keeps this snapshot. Check the machine: it may be compromised."
+      "hint": "Retention keeps this restore point. Check the machine: it may be compromised."
     },
     "timelineLabel": "Restore points of {name}"
   },
   "browser": {
-    "title": "Files in snapshot {id}",
+    "title": "Files in restore point {id}",
     "auditNote": "Browsing and downloading are recorded in the audit log.",
     "pathBar": "Folder path",
-    "root": "Snapshot root",
+    "root": "Top level",
     "pick": {
-      "title": "Pick a snapshot",
+      "title": "Pick a restore point",
       "description": "Choose a restore point on the left to browse its folders and files."
     },
     "columns": {
@@ -660,16 +660,18 @@
   "restore": {
     "title": "Restore to the machine",
     "description": "The selected files and folders are restored on {name} by its agent.",
-    "selection": "{count, plural, one {# item} other {# items}} from snapshot {id} of {time}",
+    "selection": "{count, plural, one {# item} other {# items}} from restore point {id} of {time}",
     "moreItems": "{count, plural, one {and # more} other {and # more}}",
     "target": {
       "label": "Target folder (optional)",
       "placeholder": "/srv/restore",
-      "hint": "An absolute path on the machine. Without one, the agent creates a new folder named Restow-Restore followed by the date and time, inside the first folder that is backed up.",
+      "hint": "An absolute path on the machine (Linux or macOS), for example /srv/restore-2026. The folder must not exist yet or must be empty, and the folder above it must exist; otherwise the run stops without writing anything. Without one, the agent creates a new folder named Restow-Restore followed by the date and time, inside the first folder that is backed up.",
       "errors": {
-        "notAbsolute": "Enter an absolute path, starting with a slash.",
+        "notAbsolute": "Enter an absolute path starting with /, for example /srv/restore-2026. Windows paths are not supported.",
         "controlCharacters": "The path contains control characters.",
-        "tooLong": "The path is too long."
+        "tooLong": "The path is too long.",
+        "root": "The root folder / cannot be the target. Enter a folder below it.",
+        "notPlain": "Enter the path without “.”, “..”, double or trailing slashes."
       }
     },
     "neverOverwrites": "A restore never overwrites existing files. Everything is written into a new folder, so files that are on the machine now stay untouched.",
@@ -974,14 +976,17 @@
     "hooks_not_allowed": "The command before or after the backup was not run: the machine does not allow hooks from {appName}",
     "timeout": "The run took too long and was stopped",
     "target_not_empty": "The target folder was not empty, so nothing was restored and nothing was overwritten",
+    "target_unusable": "The target folder could not be used, for example because the folder above it is missing or permissions are lacking. Nothing was restored.",
     "invalid_task": "The machine could not carry out the request",
     "hash_mismatch": "A file differs from the checksum recorded at backup time",
-    "missing": "A file was not found in the snapshot",
+    "missing": "A file was not found in the restore point",
     "not_regular": "The entry is not a regular file, so it could not be compared",
     "read_error": "A file could not be read",
     "restic_exit": "restic ended with exit code {code}",
+    "restic_error": "restic stopped with an error",
+    "truncated": "Further errors are not listed here",
     "unknown": "Error code {code}",
-    "detail": "Message from the agent",
+    "detail": "Technical message from the agent",
     "agent_stopped": "The agent stopped reporting while the run was in progress"
   },
   "agentUpdates": {

@@ -18,19 +18,27 @@ import { toast } from "@/components/ui/sonner";
 
 import { type EndpointDetail, type EndpointSnapshot, LIMITS } from "../api.js";
 import { useCreateTask, useEndpointFormat } from "../hooks.js";
-import {
-  endpointErrorKey,
-  endpointName,
-  hasControlCharacters,
-  isAbsolutePath,
-} from "../presenters.js";
+import { endpointErrorKey, endpointName, hasControlCharacters } from "../presenters.js";
 
 /** How many of the chosen paths the dialog lists before it says how many more there are. */
 const PATHS_SHOWN = 5;
 
-export type TargetProblem = "notAbsolute" | "controlCharacters" | "tooLong" | null;
+export type TargetProblem =
+  | "notAbsolute"
+  | "root"
+  | "notPlain"
+  | "controlCharacters"
+  | "tooLong"
+  | null;
 
-/** Checks the optional target folder; an empty one is fine (the agent picks a new folder). */
+/**
+ * Checks the optional target folder by the rules the API and the agent apply
+ * (apps/api/src/features/endpoints/schemas.ts `restoreTargetSchema`): an
+ * absolute Linux or macOS path below `/`, in plain form. A Windows path is
+ * refused here already rather than by the server. An empty one is fine (the
+ * agent picks a new folder). Whether the folder is new or empty and its
+ * parent exists only the machine can tell; the hint says so.
+ */
 export function checkTargetDir(value: string): TargetProblem {
   const target = value.trim();
   if (target === "") {
@@ -42,7 +50,19 @@ export function checkTargetDir(value: string): TargetProblem {
   if (target.length > LIMITS.pathLength) {
     return "tooLong";
   }
-  return isAbsolutePath(target) ? null : "notAbsolute";
+  if (!target.startsWith("/")) {
+    return "notAbsolute";
+  }
+  if (target === "/") {
+    return "root";
+  }
+  const plain =
+    !target.endsWith("/") &&
+    target
+      .slice(1)
+      .split("/")
+      .every((segment) => segment !== "" && segment !== "." && segment !== "..");
+  return plain ? null : "notPlain";
 }
 
 export interface RestoreDialogProps {

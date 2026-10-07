@@ -1,3 +1,4 @@
+import type { EntryPreview } from "@/features/restore/api";
 import { apiFetch } from "@/lib/api";
 
 /**
@@ -77,14 +78,79 @@ export function fetchArchiveItem(id: string): Promise<ArchiveItem> {
   return apiFetch<ArchiveItem>(`/archive/items/${encodeURIComponent(id)}`);
 }
 
-export interface ChainVerification {
-  ok: boolean;
-  checked: number;
-  brokenAt: { index: number; expectedChainHash: string; actualChainHash: string } | null;
+/** One entry of the chain, as a person finds it again: 1-based position, subject and date. */
+export interface ChainEntryRef {
+  /** 0-based index (kept for API clients of the first version). */
+  index: number;
+  /** 1-based position in the chain. */
+  position: number;
+  itemId: string;
+  subject: string | null;
+  receivedAt: string;
 }
 
-export function verifyArchiveChain(): Promise<ChainVerification> {
-  return apiFetch<ChainVerification>("/archive/chain/verify");
+export interface ChainBreak extends ChainEntryRef {
+  expectedChainHash: string;
+  actualChainHash: string;
+}
+
+/** Why a stored message could not be compared: not recorded, different bytes, or not readable. */
+export type ArchiveContentProblem = "not_recorded" | "mismatch" | "unreadable";
+
+/**
+ * The archive check (GET /archive/chain/verify, apps/api/src/features/archive/verify.ts):
+ * links, daily anchors and an optional content sample, each with what it covered.
+ */
+export interface ChainVerification {
+  ok: boolean;
+  checkedAt: string;
+  /** Entries whose links were recomputed: the whole chain. */
+  checked: number;
+  brokenAt: ChainBreak | null;
+  anchors: {
+    checked: number;
+    latestDate: string | null;
+    /** Entries after the newest anchor, not covered by the anchor check yet. */
+    unsealed: number;
+    failed: { date: string; count: number; reason: "missing" | "mismatch" } | null;
+  };
+  content: {
+    requested: number;
+    checked: number;
+    notRecorded: number;
+    failures: {
+      itemId: string;
+      subject: string | null;
+      receivedAt: string;
+      problem: ArchiveContentProblem;
+    }[];
+  };
+}
+
+/** How many messages the content sample reads back at most (MAX_CONTENT_SAMPLE in the API). */
+export const CONTENT_SAMPLE = 100;
+
+export function verifyArchiveChain(contentSample = 0): Promise<ChainVerification> {
+  const query = contentSample > 0 ? `?contentSample=${contentSample}` : "";
+  return apiFetch<ChainVerification>(`/archive/chain/verify${query}`);
+}
+
+/** The reading pane of an archived message: the same sanitised view as the restore explorer's. */
+export function fetchArchivePreview(id: string): Promise<EntryPreview> {
+  return apiFetch<EntryPreview>(`/archive/items/${encodeURIComponent(id)}/preview`);
+}
+
+const rawBaseUrl = import.meta.env.VITE_API_URL as string | undefined;
+const API_BASE_URL = (rawBaseUrl ?? "/api/v1").replace(/\/+$/, "");
+
+/**
+ * The original message as `.eml`, verified against its recorded SHA-256 and
+ * audited. A plain browser navigation cannot carry the tenant header, so the
+ * tenant travels as a query parameter (as with the export and restore downloads).
+ */
+export function archiveItemDownloadUrl(id: string, tenantId: string | null): string {
+  const query = tenantId ? `?tenant=${encodeURIComponent(tenantId)}` : "";
+  return `${API_BASE_URL}/archive/items/${encodeURIComponent(id)}/download${query}`;
 }
 
 /** The retention that applies to the tenant's archive (GET /archive/retention). */
@@ -107,6 +173,8 @@ export const archiveKeys = {
     ["tenant", tenantId, "archive", "search", params] as const,
   item: (tenantId: string | null, id: string) =>
     ["tenant", tenantId, "archive", "item", id] as const,
+  preview: (tenantId: string | null, id: string) =>
+    ["tenant", tenantId, "archive", "item", id, "preview"] as const,
   chain: (tenantId: string | null) => ["tenant", tenantId, "archive", "chain"] as const,
   retention: (tenantId: string | null) => ["tenant", tenantId, "archive", "retention"] as const,
 };

@@ -3,7 +3,8 @@
   "title": "Archiv",
   "page": {
     "title": "Archiv",
-    "description": "Durchsuchen Sie das archivierte Postfach des Mandanten, prüfen Sie die Hash-Kette und verwalten Sie Legal Holds."
+    "description": "Durchsuchen und lesen Sie die archivierten Nachrichten des Mandanten und prüfen Sie die Hash-Kette. Aufbewahrung und Legal Holds stellen Sie in den Archiv-Einstellungen des Mandanten ein.",
+    "settingsLink": "Aufbewahrung und Legal Holds verwalten"
   },
   "noTenant": "Wählen Sie einen Mandanten, um dessen Archiv zu durchsuchen.",
   "forbidden": "Die Archivsuche erfordert die Rolle Mandanten-Administrator.",
@@ -22,7 +23,18 @@
     "empty": "Keine archivierten Mails entsprechen dieser Suche.",
     "emptyTenant": "Für diesen Mandanten wurde noch nichts archiviert.",
     "mailbox": "Postfach",
-    "allMailboxes": "Alle Postfächer"
+    "allMailboxes": "Alle Postfächer",
+    "from": "Absender",
+    "fromPlaceholder": "Absender enthält",
+    "submit": "Suchen",
+    "reset": "Filter zurücksetzen",
+    "invertedRange": "Das Bis-Datum liegt vor dem Von-Datum, daher kann nichts gefunden werden.",
+    "range": "{first}–{last} von {total}",
+    "previous": "Vorherige Seite",
+    "next": "Nächste Seite",
+    "pagination": "Seiten der Ergebnisse",
+    "loadError": "Die Archivsuche ist fehlgeschlagen",
+    "loadErrorDescription": "Das Ergebnis ist unbekannt. Es bedeutet nicht, dass nichts archiviert ist."
   },
   "table": {
     "subject": "Betreff",
@@ -41,7 +53,15 @@
     }
   },
   "detail": {
-    "title": "Element",
+    "title": "Nachricht",
+    "empty": "Wählen Sie eine Nachricht aus der Liste, um sie zu lesen.",
+    "loadError": "Die Angaben zu dieser Nachricht konnten nicht geladen werden",
+    "metadata": "Archivangaben",
+    "content": "Inhalt",
+    "previewError": "Der Inhalt konnte nicht gelesen werden",
+    "attachmentsNote": "Anhänge sind in der .eml-Datei enthalten.",
+    "download": ".eml herunterladen",
+    "downloadHint": "Die Originalnachricht, wie sie archiviert wurde, mit allen Anhängen. Sie wird vor dem Herunterladen mit ihrer Prüfsumme verglichen, und der Abruf steht im Audit-Log.",
     "messageId": "Message-ID",
     "itemHash": "Element-Hash (SHA-256)",
     "chainHash": "Ketten-Hash",
@@ -50,6 +70,7 @@
     "unlimited": "Unbegrenzt",
     "flags": "Kennzeichen",
     "noFlags": "Keine",
+    "flagUnknown": "Kennzeichen {code}",
     "sourceJournal": "Exchange-Online-Journal",
     "sourceGraphSync": "Graph-Sync",
     "sourceImapSync": "IMAP-Sync",
@@ -57,26 +78,72 @@
   },
   "chain": {
     "title": "Hash-Kette",
-    "description": "Berechnet den Ketten-Hash jedes Eintrags aus seinem Vorgänger neu und meldet den ersten Bruch, falls vorhanden.",
-    "ok": "Kette intakt: {count} Elemente geprüft.",
-    "broken": "Kette an Position {index} unterbrochen.",
-    "empty": "Noch nichts zu prüfen: Das Archiv ist leer."
+    "description": "Prüft, ob die Einträge des Archivs lückenlos verkettet sind, gleicht die Kette mit den nächtlich versiegelten Tagesankern ab und liest auf Wunsch eine Stichprobe der Nachrichten aus dem Speicher zurück.",
+    "verifyWithContent": "Kette und Stichprobe der Inhalte prüfen",
+    "contentHint": "Die Stichprobe liest bis zu {count} zufällig gewählte Nachrichten aus dem Speicher und vergleicht sie mit Größe und SHA-256 bei der Erfassung.",
+    "passed": "Prüfung bestanden",
+    "failed": "Prüfung nicht bestanden",
+    "checkedAt": "Geprüft am {date}",
+    "loadError": "Die Prüfung konnte nicht ausgeführt werden",
+    "empty": "Noch nichts zu prüfen: Das Archiv ist leer.",
+    "links": {
+      "ok": "Verkettung: {count, plural, one {# Eintrag} other {alle # Einträge}} lückenlos verkettet. Geprüft wurden die in der Datenbank gespeicherten Prüfsummen.",
+      "broken": "Verkettung unterbrochen bei Eintrag {position} von {total}: „{subject}“, empfangen am {date}."
+    },
+    "noSubject": "ohne Betreff",
+    "openItem": "Nachricht öffnen",
+    "contentFailure": "„{subject}“, empfangen am {date}: {problem}",
+    "anchors": {
+      "none": "Tagesanker: Noch keiner versiegelt. Bis der erste Anker in der Nacht entsteht, lässt sich nicht erkennen, ob am Ende der Kette Einträge entfernt wurden.",
+      "ok": "Tagesanker: {checked, plural, one {# Anker} other {# Anker}} abgeglichen, der neueste vom {date}.",
+      "unsealed": "{count, plural, one {# Eintrag ist} other {# Einträge sind}} neuer als der letzte Anker und dadurch noch nicht abgesichert.",
+      "missing": "Tagesanker vom {date}: Die Kette ist kürzer als damals versiegelt ({entries} Einträge). Einträge fehlen.",
+      "mismatch": "Tagesanker vom {date}: Die Kette weicht bei Eintrag {entries} vom damals versiegelten Stand ab."
+    },
+    "content": {
+      "skipped": "Inhalte: nicht gelesen. Die Prüfung oben betrifft nur die Prüfsummen in der Datenbank. Ob die Nachrichten im Speicher unverändert sind, zeigt die Stichprobe.",
+      "ok": "Inhalte: {count, plural, one {# Nachricht} other {# Nachrichten}} aus dem Speicher gelesen, jede stimmt mit ihrer Prüfsumme überein.",
+      "failed": "Inhalte: {failed} von {total} gelesenen Nachrichten stimmen nicht mit ihrer Prüfsumme überein oder ließen sich nicht lesen.",
+      "notRecorded": "{count, plural, one {# Nachricht der Stichprobe wurde archiviert, bevor ihr Speicherort festgehalten wurde, und ließ} other {# Nachrichten der Stichprobe wurden archiviert, bevor ihr Speicherort festgehalten wurde, und ließen}} sich so nicht vergleichen.",
+      "none": "Inhalte: Keine Nachricht der Stichprobe ließ sich vergleichen."
+    },
+    "problem": {
+      "mismatch": "Inhalt weicht von der Prüfsumme ab",
+      "unreadable": "Nicht aus dem Speicher lesbar",
+      "not_recorded": "Speicherort nicht erfasst"
+    }
   },
   "legalHold": {
     "title": "Legal Holds",
-    "description": "Ein Legal Hold blockiert die Löschung uneingeschränkt, unabhängig davon, wie weit die Aufbewahrungsfrist eines Elements bereits überschritten ist.",
+    "description": "Solange ein Legal Hold aktiv ist, löscht {appName} keine der Nachrichten, die er erfasst, auch wenn ihre Aufbewahrungsfrist bereits abgelaufen ist. Wie gut der Speicher selbst vor Änderungen schützt, zeigt das Archiv unter Schutz des Archivspeichers.",
     "reason": "Grund",
     "reasonPlaceholder": "Warum dieser Legal Hold erforderlich ist",
     "mailboxAll": "Gesamter Mandant",
+    "scope": "Gilt für",
+    "mailboxRemoved": "Ein Postfach, das nicht mehr geschützt ist",
+    "status": "Status",
     "active": "Aktiv",
     "released": "Freigegeben",
     "createdAt": "Angelegt",
     "releasedAt": "Freigegeben",
-    "empty": "Keine Legal Holds für diesen Mandanten."
+    "empty": "Keine Legal Holds für diesen Mandanten.",
+    "loadError": "Die Legal Holds konnten nicht geladen werden",
+    "createDone": "Legal Hold angelegt",
+    "createFailed": "Der Legal Hold konnte nicht angelegt werden",
+    "releaseDone": "Legal Hold freigegeben",
+    "releaseDialog": {
+      "title": "Legal Hold freigeben?",
+      "description": "Nach der Freigabe kann der Löschlauf Nachrichten entfernen, deren Aufbewahrungsfrist abgelaufen ist und die kein anderer Legal Hold erfasst. Das lässt sich nicht rückgängig machen.",
+      "hold": "Legal Hold: „{reason}“, angelegt am {date}",
+      "reasonLabel": "Grund der Freigabe",
+      "reasonPlaceholder": "Zum Beispiel: Verfahren abgeschlossen",
+      "reasonHint": "Der Grund steht im Audit-Log.",
+      "confirm": "Freigeben"
+    }
   },
   "journal": {
     "title": "Exchange-Journaling",
-    "description": "Exchange Online schickt eine Kopie jeder Nachricht an diese Adresse, bevor Nutzer sie sehen. Das Archiv bewahrt jede Kopie unverändert auf.",
+    "description": "Exchange Online schickt eine Kopie jeder Nachricht an diese Adresse, bevor Nutzer sie sehen. Das Archiv bewahrt jede Kopie bis zum Ende ihrer Aufbewahrungsfrist auf, und die Hash-Kette macht nachträgliche Änderungen erkennbar.",
     "status": {
       "receiving": "Empfang läuft",
       "stale": "Seit mehr als 24 Stunden kein Report",
@@ -186,5 +253,29 @@
     "original-message-unparseable": "Originalnachricht konnte nicht gelesen werden",
     "recipient-classification-degraded": "An/Cc/Bcc konnte nicht für jeden Empfänger bestimmt werden",
     "recipients-truncated": "Mehr als 100.000 Empfänger; nur die ersten 100.000 sind aufgeführt (der archivierte Report enthält alle)"
+  },
+  "protection": {
+    "title": "Schutz des Archivspeichers",
+    "storageLink": "Speicherort öffnen",
+    "filesystem": {
+      "title": "Nur durch {appName} geschützt",
+      "description": "Das Archiv liegt auf einem Dateisystem (lokaler Speicher oder NFS). {appName} ändert und löscht archivierte Nachrichten nicht vor dem Ende ihrer Aufbewahrungsfrist, und die Hash-Kette macht Änderungen erkennbar. Wer Zugriff auf den Server oder den Speicher hat, kann die Dateien trotzdem ändern oder löschen."
+    },
+    "s3_locked": {
+      "title": "Object Lock aktiv, mit Einschränkung",
+      "description": "Der Bucket erzwingt Object Lock. In dieser Version sperrt {appName} damit die Datensätze der Archiv-Elemente, aber noch nicht die Packs mit den Nachrichteninhalten. Die Inhalte sind wie auf einem Dateisystem nur durch {appName} und die Hash-Kette geschützt."
+    },
+    "s3_unlocked": {
+      "title": "Kein Object Lock",
+      "description": "Der Bucket erzwingt kein Object Lock. Archivierte Nachrichten sind nur durch {appName} und die Hash-Kette geschützt: Wer Schreibrechte auf den Bucket hat, kann Objekte ändern oder löschen."
+    },
+    "s3_unknown": {
+      "title": "Object Lock nicht geprüft",
+      "description": "Ob der Bucket Object Lock erzwingt, ist nicht bekannt. Testen Sie den Speicherort. Bis dahin gilt: Archivierte Nachrichten sind nur durch {appName} und die Hash-Kette geschützt."
+    },
+    "unknown": {
+      "title": "Schutz unbekannt",
+      "description": "Der Speicherort des Archivs konnte nicht ermittelt werden."
+    }
   }
 }

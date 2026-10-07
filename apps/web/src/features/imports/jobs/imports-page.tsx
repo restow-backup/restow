@@ -1,9 +1,11 @@
 import { Link } from "@tanstack/react-router";
 import { ChevronRight, FileInput, RefreshCw } from "lucide-react";
+import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/kit";
+import { OlderEntries } from "@/components/kit/older-entries";
 import { PageHeader } from "@/components/page-header";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -30,7 +32,8 @@ import { useImportList } from "../use-imports";
 export function ImportsPage() {
   const { t } = useTranslation("imports");
   const { t: tCommon } = useTranslation();
-  const { query, tenantId, canManage } = useImportList();
+  const [pages, setPages] = React.useState(1);
+  const { query, tenantId, canManage } = useImportList(pages);
 
   const start = (
     <Link to={importWizardTo()} className={buttonVariants({ size: "sm" })}>
@@ -62,7 +65,7 @@ export function ImportsPage() {
         retrying={query.isFetching}
       />
     );
-  } else if (query.data.length === 0) {
+  } else if (query.data.items.length === 0) {
     body = (
       <EmptyState
         icon={FileInput}
@@ -73,8 +76,15 @@ export function ImportsPage() {
     );
   } else {
     body = (
-      <Card className="py-0">
-        <ImportsTable imports={query.data} />
+      <Card className="gap-0 py-0">
+        <ImportsTable imports={query.data.items} />
+        <OlderEntries
+          shownLabel={t("list.shown", { count: query.data.items.length })}
+          moreLabel={t("list.showOlder")}
+          hasMore={query.data.hasMore}
+          loading={query.isFetching && query.isPlaceholderData}
+          onMore={() => setPages((current) => current + 1)}
+        />
       </Card>
     );
   }

@@ -9,12 +9,14 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useArchiveRetention } from "@/features/archive/hooks";
 import { sourcesListTo } from "@/features/sources/paths";
 import { CircleX } from "lucide-react";
 import { ImportsForbidden, NoTenantSelected } from "../components/access-states";
 import { IMPORTS_TAB_SEARCH, importDetailTo, importsListTo } from "../paths";
 import { importErrorKey } from "../presenters";
 import type { ImportConfig } from "../types";
+import { UploadLeaveGuard } from "../upload/upload-leave-guard";
 import { useUploadManager } from "../upload/use-upload-manager";
 import {
   useCreateImport,
@@ -122,6 +124,7 @@ function Wizard({ config, tenantId }: { config: ImportConfig; tenantId: string }
   const discard = useDiscardUpload();
   const mailboxes = useImportedMailboxes(state.step === "target" || state.step === "review");
   const create = useCreateImport();
+  const archiveRetention = useArchiveRetention();
 
   const context: WizardContext = React.useMemo(
     () => ({
@@ -170,6 +173,7 @@ function Wizard({ config, tenantId }: { config: ImportConfig; tenantId: string }
 
   return (
     <div className="space-y-5">
+      <UploadLeaveGuard busy={manager.progress.busy} />
       <Stepper
         current={state.step}
         canOpen={(step) => canOpen(state, step, context)}
@@ -232,6 +236,7 @@ function Wizard({ config, tenantId }: { config: ImportConfig; tenantId: string }
               onName={(name) => dispatch({ type: "setName", name })}
               onObject={(objectId) => dispatch({ type: "setObjectId", objectId })}
               onArchive={(archive) => dispatch({ type: "setArchive", archive })}
+              archiveRetention={archiveRetention.data ?? null}
             />
           ) : null}
 

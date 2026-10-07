@@ -5,9 +5,9 @@ import type { SessionRouteContribution } from "../../../../apps/api/src/extensio
 import type { ArchiveActor } from "../../../../apps/api/src/features/archive/service.js";
 import { clientIp } from "../../../../apps/api/src/lib/request.js";
 import { type TenantEnv, requireTenant } from "../../../../apps/api/src/middleware/session.js";
-import { parseJsonBody, parseOrProblem } from "../../../../apps/api/src/schemas.js";
+import { parseJsonBody, parseOrProblem, readJsonBody } from "../../../../apps/api/src/schemas.js";
 import { capabilityGuard } from "../license/gate.js";
-import { createLegalHoldSchema, legalHoldParamSchema } from "./schemas.js";
+import { createLegalHoldSchema, legalHoldParamSchema, releaseLegalHoldSchema } from "./schemas.js";
 import { createLegalHold, listLegalHolds, releaseLegalHold } from "./service.js";
 
 /**
@@ -16,7 +16,7 @@ import { createLegalHold, listLegalHolds, releaseLegalHold } from "./service.js"
  *
  *   GET    /       list the tenant's holds
  *   POST   /       place a hold
- *   DELETE /:id    release a hold
+ *   DELETE /:id    release a hold (optional body `{ reason }`, audited)
  *
  * Tenant administrators only. Mounted behind the `archive.legalHold`
  * capability (apps/api/src/app.ts): without it every path here answers 404.
@@ -46,7 +46,10 @@ export function buildLegalHoldRoutes(deps: LegalHoldRoutesDeps): Hono<TenantEnv>
 
   routes.delete("/:id", deps.requireAdmin, async (c) => {
     const { id } = parseOrProblem(legalHoldParamSchema, c.req.param());
-    return c.json(await releaseLegalHold(deps.db, c.get("tenantId"), id, actorOf(c)));
+    // No body (API clients of the first version) is a release without a stated reason.
+    const body = (await readJsonBody(c.req)) ?? {};
+    const input = parseOrProblem(releaseLegalHoldSchema, body);
+    return c.json(await releaseLegalHold(deps.db, c.get("tenantId"), id, actorOf(c), input));
   });
 
   return routes;

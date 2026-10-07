@@ -40,6 +40,35 @@ describe("RestorePointBar", () => {
     expect(html).not.toContain("No restore point yet");
   });
 
+  it("says when only the newest restore points are loaded", () => {
+    const many = Array.from({ length: 500 }, (_, index) => ({
+      ...points[0],
+      id: `p${index}`,
+      sequence: 500 - index,
+    })) as ListedSnapshot[];
+    const html = render(
+      <RestorePointBar
+        restorePoints={many}
+        loading={false}
+        failed={false}
+        value="p0"
+        onChange={() => {}}
+      />,
+    );
+    expect(html).toContain("Newest 500 only");
+    expect(
+      render(
+        <RestorePointBar
+          restorePoints={points}
+          loading={false}
+          failed={false}
+          value="p1"
+          onChange={() => {}}
+        />,
+      ),
+    ).not.toContain("Newest 500 only");
+  });
+
   it("says in words that the account has no restore point yet", () => {
     const html = render(
       <RestorePointBar

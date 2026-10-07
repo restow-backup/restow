@@ -6,10 +6,12 @@ import {
   FileDown,
   RefreshCw,
 } from "lucide-react";
+import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/error-state";
 import { EmptyState } from "@/components/kit";
+import { OlderEntries } from "@/components/kit/older-entries";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -58,7 +60,8 @@ export function ExportsPage() {
   const { t: tCommon } = useTranslation();
   const { isProviderAdmin, activeTenant } = useSession();
   const canExportArchive = isProviderAdmin || activeTenant?.role === "tenant_admin";
-  const exports = useExports();
+  const [pages, setPages] = React.useState(1);
+  const exports = useExports(pages);
 
   const sources = (
     <>
@@ -80,7 +83,14 @@ export function ExportsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title={t("list.title")} description={t("list.subtitle")}>
+      <PageHeader
+        title={t("list.title")}
+        description={
+          exports.data?.ttlHours
+            ? t("list.subtitleHours", { count: exports.data.ttlHours })
+            : t("list.subtitle")
+        }
+      >
         <Button
           variant="outline"
           size="sm"
@@ -106,16 +116,24 @@ export function ExportsPage() {
           onRetry={() => void exports.refetch()}
           retrying={exports.isFetching}
         />
-      ) : exports.data.length === 0 ? (
+      ) : exports.data.items.length === 0 ? (
         <EmptyState
           icon={FileDown}
           title={t("list.empty")}
-          description={t("list.emptyDescription")}
+          // The archive is for administrators only: do not point anyone else there.
+          description={t(canExportArchive ? "list.emptyDescription" : "list.emptyDescriptionUser")}
           actions={sources}
         />
       ) : (
-        <Card className="py-0">
-          <ExportsTable items={exports.data} />
+        <Card className="gap-0 py-0">
+          <ExportsTable items={exports.data.items} />
+          <OlderEntries
+            shownLabel={t("list.shown", { count: exports.data.items.length })}
+            moreLabel={t("list.showOlder")}
+            hasMore={exports.data.hasMore}
+            loading={exports.isFetching && exports.isPlaceholderData}
+            onMore={() => setPages((current) => current + 1)}
+          />
         </Card>
       )}
     </div>

@@ -1,6 +1,7 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { sourceKeys } from "@/features/sources/api";
+import { fetchPages } from "@/lib/paged-list";
 import { useSession } from "@/lib/session";
 import {
   cancelImport,
@@ -49,14 +50,19 @@ export function useImportConfig() {
   return { ...scope, query };
 }
 
-export function useImportList() {
+/** Imports per page of the list (the API's maximum). */
+export const IMPORTS_PAGE = 50;
+
+/** The newest `pages` pages of imports, and whether older ones exist. */
+export function useImportList(pages = 1) {
   const scope = useImportScope();
   const query = useQuery({
-    queryKey: importKeys.list(scope.tenantId),
-    queryFn: fetchImports,
+    queryKey: [...importKeys.list(scope.tenantId), pages],
+    queryFn: () => fetchPages((offset) => fetchImports(offset), IMPORTS_PAGE, pages),
     enabled: scope.enabled,
+    placeholderData: keepPreviousData,
     refetchInterval: (current) =>
-      current.state.data?.some((entry) => isLive(entry)) ? LIVE_POLL_MS : IDLE_POLL_MS,
+      current.state.data?.items.some((entry) => isLive(entry)) ? LIVE_POLL_MS : IDLE_POLL_MS,
   });
   return { ...scope, query };
 }

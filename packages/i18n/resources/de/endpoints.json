@@ -595,28 +595,28 @@
   },
   "snapshots": {
     "title": "Sicherungsstände",
-    "description": "{count, plural, one {# Snapshot im Repository. Wählen Sie einen, um seine Dateien zu durchsuchen.} other {# Snapshots im Repository. Wählen Sie einen, um seine Dateien zu durchsuchen.}}",
+    "description": "{count, plural, one {# Sicherungsstand. Wählen Sie ihn, um seine Dateien zu durchsuchen.} other {# Sicherungsstände. Wählen Sie einen, um seine Dateien zu durchsuchen.}}",
     "files": "{count, plural, one {# Datei} other {# Dateien}}",
-    "errorTitle": "Die Snapshots konnten nicht gelesen werden",
+    "errorTitle": "Die Sicherungsstände konnten nicht gelesen werden",
     "busyTitle": "Das Repository ist beschäftigt",
     "empty": {
-      "title": "Noch kein Snapshot",
-      "description": "Jede erfolgreiche Sicherung erzeugt einen Snapshot. Sobald der Rechner seine erste Sicherung abgeschlossen hat, erscheinen hier seine Wiederherstellungspunkte."
+      "title": "Noch kein Sicherungsstand",
+      "description": "Jede erfolgreiche Sicherung erzeugt einen Sicherungsstand. Sobald der Rechner seine erste Sicherung abgeschlossen hat, erscheinen hier seine Sicherungsstände."
     },
     "flags": {
       "unrecorded": "Von keiner Sicherung gemeldet",
       "future_time": "In der Zukunft datiert",
-      "hint": "Die Aufbewahrung behält diesen Snapshot. Prüfen Sie den Rechner: Er könnte kompromittiert sein."
+      "hint": "Die Aufbewahrung behält diesen Sicherungsstand. Prüfen Sie den Rechner: Er könnte kompromittiert sein."
     },
     "timelineLabel": "Sicherungsstände von {name}"
   },
   "browser": {
-    "title": "Dateien in Snapshot {id}",
+    "title": "Dateien im Sicherungsstand {id}",
     "auditNote": "Durchsuchen und Herunterladen werden im Audit-Log protokolliert.",
     "pathBar": "Ordnerpfad",
-    "root": "Snapshot-Wurzel",
+    "root": "Oberste Ebene",
     "pick": {
-      "title": "Snapshot wählen",
+      "title": "Sicherungsstand wählen",
       "description": "Wählen Sie links einen Sicherungsstand, um seine Ordner und Dateien zu durchsuchen."
     },
     "columns": {
@@ -660,16 +660,18 @@
   "restore": {
     "title": "Auf den Rechner wiederherstellen",
     "description": "Der Agent von {name} stellt die ausgewählten Dateien und Ordner wieder her.",
-    "selection": "{count, plural, one {# Element} other {# Elemente}} aus Snapshot {id} vom {time}",
+    "selection": "{count, plural, one {# Element} other {# Elemente}} aus dem Sicherungsstand {id} vom {time}",
     "moreItems": "{count, plural, one {und # weiteres} other {und # weitere}}",
     "target": {
       "label": "Zielordner (optional)",
       "placeholder": "/srv/restore",
-      "hint": "Ein absoluter Pfad auf dem Rechner. Ohne Angabe legt der Agent einen neuen Ordner namens Restow-Restore mit Datum und Uhrzeit im ersten gesicherten Ordner an.",
+      "hint": "Ein absoluter Pfad auf dem Rechner (Linux oder macOS), zum Beispiel /srv/restore-2026. Der Ordner darf noch nicht existieren oder muss leer sein, und der Ordner darüber muss vorhanden sein; sonst bricht der Lauf ab, ohne etwas zu schreiben. Ohne Angabe legt der Agent einen neuen Ordner namens Restow-Restore mit Datum und Uhrzeit im ersten gesicherten Ordner an.",
       "errors": {
-        "notAbsolute": "Geben Sie einen absoluten Pfad an, der mit einem Schrägstrich beginnt.",
+        "notAbsolute": "Geben Sie einen absoluten Pfad an, der mit / beginnt, zum Beispiel /srv/restore-2026. Windows-Pfade werden nicht unterstützt.",
         "controlCharacters": "Der Pfad enthält Steuerzeichen.",
-        "tooLong": "Der Pfad ist zu lang."
+        "tooLong": "Der Pfad ist zu lang.",
+        "root": "Das Wurzelverzeichnis / ist als Ziel nicht erlaubt. Geben Sie einen Ordner darunter an.",
+        "notPlain": "Geben Sie den Pfad ohne „.“, „..“, doppelte oder abschließende Schrägstriche an."
       }
     },
     "neverOverwrites": "Eine Wiederherstellung überschreibt nie vorhandene Dateien. Alles wird in einen neuen Ordner geschrieben, die Dateien, die jetzt auf dem Rechner liegen, bleiben unberührt.",
@@ -974,14 +976,17 @@
     "hooks_not_allowed": "Der Befehl vor oder nach der Sicherung wurde nicht ausgeführt: Der Rechner lässt Hooks aus {appName} nicht zu",
     "timeout": "Der Lauf hat zu lange gedauert und wurde abgebrochen",
     "target_not_empty": "Der Zielordner war nicht leer, daher wurde nichts wiederhergestellt und nichts überschrieben",
+    "target_unusable": "Der Zielordner ließ sich nicht verwenden, zum Beispiel weil der Ordner darüber fehlt oder die Rechte nicht reichen. Es wurde nichts wiederhergestellt.",
     "invalid_task": "Der Rechner konnte die Anfrage nicht ausführen",
     "hash_mismatch": "Eine Datei weicht von der beim Backup festgehaltenen Prüfsumme ab",
-    "missing": "Eine Datei wurde im Snapshot nicht gefunden",
+    "missing": "Eine Datei wurde im Sicherungsstand nicht gefunden",
     "not_regular": "Der Eintrag ist keine reguläre Datei und ließ sich daher nicht vergleichen",
     "read_error": "Eine Datei ließ sich nicht lesen",
     "restic_exit": "restic wurde mit Exit-Code {code} beendet",
+    "restic_error": "restic ist mit einem Fehler abgebrochen",
+    "truncated": "Weitere Fehler sind hier nicht aufgeführt",
     "unknown": "Fehlercode {code}",
-    "detail": "Meldung des Agents",
+    "detail": "Technische Meldung des Agents",
     "agent_stopped": "Der Agent hat sich während des Laufs nicht mehr gemeldet"
   },
   "agentUpdates": {

@@ -1,9 +1,7 @@
-import { Link } from "@tanstack/react-router";
 import {
   ArchiveRestore,
   ArrowUp,
   ChevronDown,
-  DatabaseBackup,
   Download,
   FileSearch,
   FolderX,
@@ -16,7 +14,7 @@ import { type LayoutStorage, useDefaultLayout } from "react-resizable-panels";
 
 import { EmptyState, ErrorState, usePageWidth } from "@/components/kit";
 import { PageHeader } from "@/components/page-header";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -29,7 +27,6 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { directoryTo } from "@/features/directory/search";
 import { ExportDialog, type ExportDialogRequest } from "@/features/exports/export-dialog";
 import { ExportMenuItems } from "@/features/exports/export-menu-items";
 import type {
@@ -43,6 +40,11 @@ import { RestoreDialog, type RestoreDialogRequest } from "@/features/restore/dia
 import { AccountList } from "@/features/restore/explorer/account-list";
 import { Breadcrumbs } from "@/features/restore/explorer/breadcrumbs";
 import { type DetailsActions, DetailsPanel } from "@/features/restore/explorer/details-panel";
+import {
+  NoAccountsState,
+  NoRestorePointState,
+  useCanProtect,
+} from "@/features/restore/explorer/empty-states";
 import { objectLabel } from "@/features/restore/explorer/entry-icon";
 import { FolderTree } from "@/features/restore/explorer/folder-tree";
 import { ItemList } from "@/features/restore/explorer/item-list";
@@ -129,6 +131,7 @@ export function ExplorerPage() {
   // include=all: every account of the tenant, even one still without a
   // restore point, so the account list can say so instead of hiding it.
   const objects = useSnapshotObjects(true);
+  const canProtect = useCanProtect();
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -145,16 +148,7 @@ export function ExplorerPage() {
           retrying={objects.isFetching}
         />
       ) : objects.data.length === 0 ? (
-        <EmptyState
-          icon={DatabaseBackup}
-          title={t("explorer.object.none")}
-          description={t("explorer.object.noneDescription")}
-          actions={
-            <Link to={directoryTo()} className={buttonVariants({ variant: "outline", size: "sm" })}>
-              {t("explorer.object.noneAction")}
-            </Link>
-          }
-        />
+        <NoAccountsState canProtect={canProtect} />
       ) : (
         <ExplorerShell objects={objects.data} />
       )}
@@ -185,6 +179,7 @@ function ExplorerSkeleton() {
 function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
   const { t } = useTranslation("restore");
   const { user } = useSession();
+  const canProtect = useCanProtect();
   const wide = useMediaQuery("(min-width: 1024px)");
   const [search, setSearch] = useExplorerSearch();
 
@@ -439,22 +434,7 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
           </div>
         ) : restorePoints.data && restorePoints.data.length === 0 ? (
           <div className="p-4">
-            <EmptyState
-              icon={DatabaseBackup}
-              title={t("explorer.restorePoint.none")}
-              description={t("explorer.restorePoint.noneDescription")}
-              actions={
-                // This account has never been backed up: the useful next
-                // step is to protect it, not to look at past restore jobs
-                // (there is nothing here to restore from yet).
-                <Link
-                  to={directoryTo()}
-                  className={buttonVariants({ variant: "outline", size: "sm" })}
-                >
-                  {t("explorer.object.noneAction")}
-                </Link>
-              }
-            />
+            <NoRestorePointState canProtect={canProtect} />
           </div>
         ) : !object || !restorePoint ? (
           <div className="space-y-2 p-4">

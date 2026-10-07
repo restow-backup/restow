@@ -10,6 +10,7 @@ import {
   hasErrors,
   initialFormState,
   modeApplies,
+  originalTargetDescriptionKey,
   restoreErrorOf,
   restoreModesFor,
   restoreStamp,
@@ -18,6 +19,27 @@ import {
   validateRestoreForm,
 } from "./request";
 import { EMPTY_SELECTION, selectionOf } from "./selection";
+
+describe("originalTargetDescriptionKey", () => {
+  it("says that mail kept side by side goes into a new folder, not where it came from", () => {
+    expect(originalTargetDescriptionKey("mailbox", "rename")).toBe(
+      "dialog.target.originalDescriptionFolder",
+    );
+    expect(originalTargetDescriptionKey("imap", "rename")).toBe(
+      "dialog.target.originalDescriptionFolder",
+    );
+  });
+
+  it("keeps the plain promise where items really go back where they came from", () => {
+    expect(originalTargetDescriptionKey("mailbox", "skip")).toBe(
+      "dialog.target.originalDescription",
+    );
+    // OneDrive renames a file next to the existing one instead of using a new folder.
+    expect(originalTargetDescriptionKey("onedrive", "rename")).toBe(
+      "dialog.target.originalDescription",
+    );
+  });
+});
 
 const admin: RestoreFormContext = {
   canRestoreElsewhere: true,

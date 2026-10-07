@@ -145,9 +145,14 @@ export const restoreIdParamSchema = z.object({ id: z.string().uuid() });
 
 export const listRestoresQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(50),
+  /** Rows to skip, newest first: the next page of older restores. */
+  offset: z.coerce.number().int().min(0).max(100_000).default(0),
   objectId: z.string().uuid().optional(),
 });
-export type ListRestoresQuery = z.infer<typeof listRestoresQuerySchema>;
+/** The parsed query; `offset` may be left out by direct callers (the first page). */
+export type ListRestoresQuery = Omit<z.infer<typeof listRestoresQuerySchema>, "offset"> & {
+  offset?: number;
+};
 
 export const restoreTargetsQuerySchema = z.object({
   objectId: z.string().uuid(),

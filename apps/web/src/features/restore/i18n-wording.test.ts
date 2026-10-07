@@ -51,8 +51,9 @@ describe("explorer wording: 'restore point' replaces 'snapshot'", () => {
     expect(restoreDe.versions.sequence).toContain("Sicherungsstand");
   });
 
-  it("keeps the jobs pages' own 'backup' wording untouched", () => {
-    expect(restoreEn.jobs.snapshot).toContain("Backup");
-    expect(restoreDe.jobs.snapshot).toContain("Sicherung #");
+  it("names the restore point a restore came from the same way on the jobs pages", () => {
+    expect(restoreEn.jobs.snapshot).toContain("Restore point #");
+    expect(restoreDe.jobs.snapshot).toContain("Sicherungsstand #");
+    expect(restoreDe.job.request.snapshot).toBe("Sicherungsstand");
   });
 });

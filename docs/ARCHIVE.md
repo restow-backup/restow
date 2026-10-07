@@ -314,6 +314,9 @@ sind Edition Business und Service Provider.
   die Archivobjekte, die diesem Postfach gehören: aus dem Datei-Import mit "gleichzeitig
   archivieren" und, ab 0.3.0, die Journal-Reports, die ihm zugeordnet sind (Abschnitt "Zuordnung
   zu Postfächern"). Reports ohne Zuordnung schützt nur ein mandantenweiter Hold.
+  Die Freigabe nimmt einen Grund an (`DELETE /archive/legal-holds/:id` mit `{ "reason": … }`),
+  den die Oberfläche verlangt und das Audit-Log (`archive.legal_hold.released`) festhält; ein
+  bereits freigegebener Hold wird nicht ein zweites Mal freigegeben (409).
 - Löschlauf: täglich (Aufgabe `retention`, empfohlener Zeitplan 04:30), löscht nur abgelaufene
   Objekte ohne Hold und schreibt jede Löschung ins Audit-Log. Zielbild, nicht in 0.1.0: ein
   Löschprotokoll (Anzahl, Zeitraum, Hashes der gelöschten Objekte) als eigener Eintrag der Kette.

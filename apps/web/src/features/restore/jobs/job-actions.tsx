@@ -1,4 +1,5 @@
-import { Ban, Download } from "lucide-react";
+import { Link } from "@tanstack/react-router";
+import { Ban, Download, RotateCcw } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -12,8 +13,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { toast } from "@/components/ui/sonner";
-import { type RestoreJob, restoreDownloadUrl } from "@/features/restore/api";
+import { type RestoreJob, type RestoreJobDetail, restoreDownloadUrl } from "@/features/restore/api";
 import { isCancellable } from "@/features/restore/lib/jobs";
+import { explorerAt } from "@/features/restore/navigation";
 import { useActiveTenantId, useCancelRestore } from "@/features/restore/use-restore-data";
 import { errorMessageKey } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
@@ -51,16 +53,21 @@ export function DownloadArchiveLink({
   );
 }
 
-/** Cancels a queued or running restore after a confirmation; what is restored stays. */
+/**
+ * Cancels a queued or running restore after a confirmation. What a restore
+ * into an account already wrote stays; a download leaves no file.
+ */
 export function CancelRestoreButton({
   job,
   size = "sm",
 }: {
-  job: Pick<RestoreJob, "id" | "status">;
+  job: Pick<RestoreJob, "id" | "status"> & { target?: Pick<RestoreJob["target"], "type"> };
   size?: ButtonProps["size"];
 }) {
   const { t } = useTranslation("restore");
   const { t: tAny } = useTranslation();
+  // A download builds its ZIP only at the end: cancelling it leaves nothing to download.
+  const download = job.target?.type === "download";
   const [open, setOpen] = React.useState(false);
   const cancel = useCancelRestore();
 
@@ -96,7 +103,9 @@ export function CancelRestoreButton({
         <DialogContent onClick={(event) => event.stopPropagation()}>
           <DialogHeader>
             <DialogTitle>{t("jobs.cancel.title")}</DialogTitle>
-            <DialogDescription>{t("jobs.cancel.description")}</DialogDescription>
+            <DialogDescription>
+              {t(download ? "jobs.cancel.descriptionDownload" : "jobs.cancel.description")}
+            </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setOpen(false)} disabled={cancel.isPending}>
@@ -109,5 +118,33 @@ export function CancelRestoreButton({
         </DialogContent>
       </Dialog>
     </>
+  );
+}
+
+/**
+ * Back to the explorer at the same account and restore point, to request a
+ * download again (after it expired or was cancelled). Null when the account
+ * or the restore point is gone.
+ */
+export function RequestAgainLink({
+  job,
+}: {
+  job: Pick<RestoreJobDetail, "object" | "snapshotId" | "snapshotSequence">;
+}) {
+  const { t } = useTranslation("restore");
+  if (!job.object || !job.snapshotId || job.snapshotSequence === null) {
+    return null;
+  }
+  const target = explorerAt(job.object.id, job.snapshotId);
+  return (
+    <Link
+      to={target.to}
+      search={target.search as never}
+      className={buttonVariants({ variant: "outline", size: "sm" })}
+      data-slot="request-again"
+    >
+      <RotateCcw />
+      {t("job.outcome.requestAgain")}
+    </Link>
   );
 }

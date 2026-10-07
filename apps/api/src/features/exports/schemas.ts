@@ -93,8 +93,13 @@ export const exportIdParamSchema = z.object({ id: z.string().uuid() });
 
 export const listExportsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(50).default(50),
+  /** Rows to skip, newest first: the next page of older exports. */
+  offset: z.coerce.number().int().min(0).max(100_000).default(0),
 });
-export type ListExportsQuery = z.infer<typeof listExportsQuerySchema>;
+/** The parsed query; `offset` may be left out by direct callers (the first page). */
+export type ListExportsQuery = Omit<z.infer<typeof listExportsQuerySchema>, "offset"> & {
+  offset?: number;
+};
 
 /**
  * The filter as it is stored in `mail_exports.selection`: only the fields that

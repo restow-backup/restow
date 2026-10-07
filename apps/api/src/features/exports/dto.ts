@@ -7,6 +7,7 @@ import type {
   MailExport,
   ProtectedObject,
 } from "@restow/db";
+import type { FailureDto } from "../failures/dto.js";
 import { runtimePhaseOf } from "../jobs/dto.js";
 import { parseStoredSelection } from "../restore/selection.js";
 
@@ -82,6 +83,8 @@ export interface ExportFailureDto {
 export interface ExportDetailDto extends ExportDto {
   reason: string | null;
   errorMessage: string | null;
+  /** The classified cause of a failed export (features/failures), for a translated explanation; null without one. */
+  failure: FailureDto | null;
   report: ExportReportDto | null;
   failures: ExportFailureDto[];
 }

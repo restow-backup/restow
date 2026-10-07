@@ -99,7 +99,7 @@ describe("RestorePointList", () => {
     // One accessible name, built from the sr-only text: sequence and date,
     // the verification in words and its hint, then "Current".
     expect(middle).toMatch(
-      /<span class="sr-only">Restore point #2 from [^<]+\. Verified\. [^<]*\. Current<\/span>/,
+      /<span class="sr-only">Restore point #2 from [^<]+\. Sample passed\. [^<]*\. Current<\/span>/,
     );
     expect(middle).not.toMatch(/<button[^>]*aria-label=/);
   });
@@ -110,7 +110,7 @@ describe("RestorePointList", () => {
     // Absolute date and time in a <time>, prominent; the relative time next to it.
     expect(selected).toContain('<time dateTime="2026-09-20T10:05:00.000Z"');
     expect(selected).toMatch(/\bago\b/);
-    expect(selected).toContain("Verified");
+    expect(selected).toContain("Sample passed");
     // The others only carry a short label.
     const other = buttonsOf(html)[0] as string;
     expect(other).not.toContain("<time");
@@ -118,9 +118,9 @@ describe("RestorePointList", () => {
 
   it("shows the verification state of every restore point, in words and by marker shape", () => {
     const html = renderList("p2");
-    expect(html).toContain("Verified with warnings");
-    expect(html).toContain("Verified");
-    expect(html).toContain("Not verified yet");
+    expect(html).toContain("Sample passed with warnings");
+    expect(html).toContain("Sample passed");
+    expect(html).toContain("Not checked yet");
     // Each state has its own marker: colour is never the only signal.
     for (const state of ["green", "yellow", "unverified"]) {
       expect(html).toContain(`data-verification="${state}"`);

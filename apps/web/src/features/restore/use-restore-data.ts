@@ -27,6 +27,7 @@ import {
   searchSnapshot,
 } from "@/features/restore/api";
 import { isLive } from "@/features/restore/lib/jobs";
+import { fetchPages } from "@/lib/paged-list";
 import { useSession } from "@/lib/session";
 
 /**
@@ -160,14 +161,20 @@ export function useCreateRestore() {
 export const LIVE_POLL_MS = 3_000;
 export const IDLE_POLL_MS = 30_000;
 
-export function useRestoreJobs() {
+/** Restores per page of the "Recent restores" list. */
+export const RESTORE_JOBS_PAGE = 100;
+
+/** The newest `pages` pages of restores, and whether older ones exist. */
+export function useRestoreJobs(pages = 1) {
   const { tenantId, enabled } = useTenantScope();
   return useQuery({
-    queryKey: restoreKeys.jobs(tenantId),
-    queryFn: () => fetchRestoreJobs(100),
+    queryKey: [...restoreKeys.jobs(tenantId), pages],
+    queryFn: () =>
+      fetchPages((offset) => fetchRestoreJobs(RESTORE_JOBS_PAGE, offset), RESTORE_JOBS_PAGE, pages),
     enabled,
+    placeholderData: keepPreviousData,
     refetchInterval: (query) =>
-      query.state.data?.some((job: RestoreJob) => isLive(job)) ? LIVE_POLL_MS : IDLE_POLL_MS,
+      query.state.data?.items.some((job: RestoreJob) => isLive(job)) ? LIVE_POLL_MS : IDLE_POLL_MS,
   });
 }
 

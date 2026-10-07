@@ -1,3 +1,4 @@
+import type { Failure } from "@/features/failures";
 import type { JobThrottle } from "@/features/jobs/api";
 import type { ObjectState, SnapshotVerification } from "@/features/verify/api";
 import { apiFetch } from "@/lib/api";
@@ -298,6 +299,8 @@ export interface RestoreJob {
   startedAt: string | null;
   completedAt: string | null;
   errorMessage: string | null;
+  /** The classified cause of a failure, translated by FailureExplanation; null without one (older rows). */
+  failure?: Failure | null;
   progress: RestoreProgress | null;
   /** The current (or last) wait Microsoft Graph imposed; only while the restore runs. */
   throttle: JobThrottle | null;
@@ -414,9 +417,12 @@ export async function fetchSnapshotObjects(includeAll = false): Promise<Snapshot
   return body.items;
 }
 
+/** How many restore points of one account the explorer loads (newest first). */
+export const RESTORE_POINT_LIMIT = 500;
+
 export async function fetchSnapshots(objectId: string): Promise<ListedSnapshot[]> {
   const body = await apiFetch<{ items: ListedSnapshot[] }>(
-    `/snapshots${queryString({ objectId, limit: 500 })}`,
+    `/snapshots${queryString({ objectId, limit: RESTORE_POINT_LIMIT })}`,
   );
   return body.items;
 }
@@ -493,8 +499,11 @@ export async function fetchRestoreTargets(objectId: string): Promise<RestoreTarg
   return body.items;
 }
 
-export async function fetchRestoreJobs(limit = 100): Promise<RestoreJob[]> {
-  const body = await apiFetch<{ items: RestoreJob[] }>(`/restore${queryString({ limit })}`);
+/** One page of the viewer's restores, newest first. */
+export async function fetchRestoreJobs(limit = 100, offset = 0): Promise<RestoreJob[]> {
+  const body = await apiFetch<{ items: RestoreJob[] }>(
+    `/restore${queryString({ limit, offset: offset > 0 ? offset : undefined })}`,
+  );
   return body.items;
 }
 

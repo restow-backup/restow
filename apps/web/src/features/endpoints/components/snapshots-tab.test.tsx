@@ -195,7 +195,7 @@ describe("SnapshotsTab", () => {
       document.querySelectorAll('[data-slot="snapshot-list"] [data-slot="timeline-day"]'),
     ).toHaveLength(2);
     expect(page.text()).toContain("Jump to date");
-    expect(page.text()).toContain("Pick a snapshot");
+    expect(page.text()).toContain("Pick a restore point");
     // Browsing is audited, so nothing is read before the admin picks a snapshot.
     expect(fetchBrowse).not.toHaveBeenCalled();
   });
@@ -216,7 +216,7 @@ describe("SnapshotsTab", () => {
   it("says when there is no snapshot yet", async () => {
     fetchSnapshots.mockResolvedValue([]);
     await open();
-    expect(page.text()).toContain("No snapshot yet");
+    expect(page.text()).toContain("No restore point yet");
   });
 
   it("says when the repository is busy and offers to try again", async () => {
@@ -353,7 +353,7 @@ describe("SnapshotsTab", () => {
     const bar = document.querySelector('nav[aria-label="Folder path"]');
     expect(bar?.textContent).toContain("data");
     expect(bar?.textContent).toContain("docs");
-    await page.click(page.byText("nav[aria-label='Folder path'] button", "Snapshot root"));
+    await page.click(page.byText("nav[aria-label='Folder path'] button", "Top level"));
     await page.settle();
     // The root was read before and a snapshot never changes, so it is not read (and audited) again.
     expect(page.text()).toContain("notes.txt");

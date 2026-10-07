@@ -43,7 +43,7 @@
   },
   "overall": {
     "green": {
-      "title": "Every backup is restorable",
+      "title": "The latest restore point of every object passed its restore check",
       "description": "{total, plural, one {The protected object} other {All # protected objects}} passed the latest restore check."
     },
     "yellow": {
@@ -108,15 +108,15 @@
     "emptyState": "No object in this state: {state}."
   },
   "snapshot": {
-    "column": "Verification",
+    "column": "Restore check",
     "state": {
-      "green": "Verified",
-      "yellow": "Verified with warnings",
+      "green": "Sample passed",
+      "yellow": "Sample passed with warnings",
       "red": "Check failed",
-      "unverified": "Not verified yet"
+      "unverified": "Not checked yet"
     },
     "hint": {
-      "checked": "Restore check of this backup: {date}",
+      "checked": "Restore check of this restore point on {date}: a sample of its items was read back and compared with their checksums.",
       "unverified": "No restore check has read this backup back yet, so it is not proven restorable."
     }
   },

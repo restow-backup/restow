@@ -116,13 +116,15 @@
     "folders": "Folders",
     "mailData": "Mail data",
     "failedMessages": "Not exported",
-    "noReport": "The export finished without a report. The file is complete, but the numbers were not recorded.",
+    "noReport": "There is no report for this export, so how many emails the file holds is not known.",
     "checksum": "SHA-256 checksum of the file",
     "copyChecksum": "Copy checksum",
     "checksumHint": "Compare it with the checksum of the downloaded file to prove that nothing changed.",
     "expired": {
       "title": "The download link has expired",
-      "description": "The file was deleted from the server when the link expired ({date}). Start the export again to get a new file."
+      "description": "The file was deleted from the server when the link expired ({date}). Request the export again to get a new file.",
+      "againExplorer": "Request again in the explorer",
+      "againArchive": "Request again in the archive"
     }
   },
   "skipped": {
@@ -149,12 +151,16 @@
   },
   "list": {
     "title": "Exports",
-    "subtitle": "Every export you started, with live progress. Finished files can be downloaded for 24 hours.",
+    "subtitle": "Every export you started, with live progress. Finished files can be downloaded for a limited time.",
+    "subtitleHours": "Every export you started, with live progress. Finished files can be downloaded for {count, plural, one {# hour} other {# hours}}.",
     "empty": "No exports yet",
     "emptyDescription": "Export mail as EML or MBOX files from the restore explorer or the archive. Your exports appear here.",
+    "emptyDescriptionUser": "Export mail as EML or MBOX files from the restore explorer. Your exports appear here.",
     "fromBackups": "Export from backups",
     "fromArchive": "Export from the archive",
     "loadError": "The exports could not be loaded.",
+    "shown": "{count, plural, one {The newest export is shown.} other {The newest # exports are shown.}}",
+    "showOlder": "Show older",
     "expired": "Expired",
     "columns": {
       "created": "Requested",

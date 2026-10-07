@@ -1270,8 +1270,9 @@ export async function listImports(
   return withTenantTx(db, tenantId, async (tx) => {
     const rows = await importQuery(tx)
       .where(eq(mailImports.tenantId, tenantId))
-      .orderBy(desc(mailImports.createdAt))
-      .limit(query.limit);
+      .orderBy(desc(mailImports.createdAt), desc(mailImports.id))
+      .limit(query.limit)
+      .offset(query.offset ?? 0);
     return rows.map(toSummaryDto);
   });
 }

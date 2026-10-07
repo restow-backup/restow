@@ -1,8 +1,10 @@
 import { Link } from "@tanstack/react-router";
-import { ArchiveRestore, ChevronRight, RefreshCw } from "lucide-react";
+import { ArchiveRestore, ChevronRight, RefreshCw, Server } from "lucide-react";
+import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/error-state";
+import { OlderEntries } from "@/components/kit/older-entries";
 import { PageHeader } from "@/components/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -17,6 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { FILE_RESTORE_PATH } from "@/features/endpoints/paths";
 import { ThrottleWaitLine } from "@/features/jobs/components/job-progress";
 import { useNow } from "@/features/jobs/use-jobs";
 import type { RestoreJob } from "@/features/restore/api";
@@ -39,12 +42,20 @@ import { formatDateTime, formatInteger, formatRelative } from "@/lib/format";
 export function RestoreJobsPage() {
   const { t } = useTranslation("restore");
   const { t: tCommon } = useTranslation();
-  const jobs = useRestoreJobs();
+  const [pages, setPages] = React.useState(1);
+  const jobs = useRestoreJobs(pages);
 
   return (
     <div className="space-y-6">
       <RestoreTabs current="recent" />
       <PageHeader title={t("jobs.title")} description={t("jobs.subtitle")} icon={ArchiveRestore}>
+        <Link
+          to={FILE_RESTORE_PATH as never}
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+        >
+          <Server />
+          {t("jobs.machineRestores")}
+        </Link>
         <Button
           variant="outline"
           size="sm"
@@ -74,7 +85,7 @@ export function RestoreJobsPage() {
           onRetry={() => void jobs.refetch()}
           retrying={jobs.isFetching}
         />
-      ) : jobs.data.length === 0 ? (
+      ) : jobs.data.items.length === 0 ? (
         <EmptyState
           icon={ArchiveRestore}
           title={t("jobs.empty")}
@@ -86,8 +97,15 @@ export function RestoreJobsPage() {
           </Link>
         </EmptyState>
       ) : (
-        <Card className="py-0">
-          <JobsTable jobs={jobs.data} />
+        <Card className="gap-0 py-0">
+          <JobsTable jobs={jobs.data.items} />
+          <OlderEntries
+            shownLabel={t("jobs.shown", { count: jobs.data.items.length })}
+            moreLabel={t("jobs.showOlder")}
+            hasMore={jobs.data.hasMore}
+            loading={jobs.isFetching && jobs.isPlaceholderData}
+            onMore={() => setPages((current) => current + 1)}
+          />
         </Card>
       )}
     </div>

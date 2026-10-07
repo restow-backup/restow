@@ -43,7 +43,7 @@
   },
   "overall": {
     "green": {
-      "title": "Jede Sicherung ist wiederherstellbar",
+      "title": "Der letzte Sicherungsstand jedes Objekts hat die Restore-Prüfung bestanden",
       "description": "{total, plural, one {Das geschützte Objekt hat} other {Alle # geschützten Objekte haben}} die letzte Restore-Prüfung bestanden."
     },
     "yellow": {
@@ -108,15 +108,15 @@
     "emptyState": "Kein Objekt in diesem Zustand: {state}."
   },
   "snapshot": {
-    "column": "Verifizierung",
+    "column": "Restore-Prüfung",
     "state": {
-      "green": "Verifiziert",
-      "yellow": "Verifiziert mit Warnungen",
+      "green": "Stichprobe bestanden",
+      "yellow": "Stichprobe mit Warnungen",
       "red": "Prüfung fehlgeschlagen",
-      "unverified": "Noch nicht verifiziert"
+      "unverified": "Noch nicht geprüft"
     },
     "hint": {
-      "checked": "Restore-Prüfung dieser Sicherung: {date}",
+      "checked": "Restore-Prüfung dieses Sicherungsstands am {date}: Eine Stichprobe seiner Elemente wurde zurückgelesen und mit den Prüfsummen verglichen.",
       "unverified": "Noch keine Restore-Prüfung hat diese Sicherung zurückgelesen, sie ist also nicht als wiederherstellbar nachgewiesen."
     }
   },

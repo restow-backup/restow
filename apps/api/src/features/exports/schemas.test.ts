@@ -163,4 +163,10 @@ describe("path and query schemas", () => {
     expect(listExportsQuerySchema.safeParse({ limit: "51" }).success).toBe(false);
     expect(listExportsQuerySchema.safeParse({ limit: "0" }).success).toBe(false);
   });
+
+  it("pages with an offset that starts at the newest export", () => {
+    expect(listExportsQuerySchema.parse({}).offset).toBe(0);
+    expect(listExportsQuerySchema.parse({ offset: "50" }).offset).toBe(50);
+    expect(listExportsQuerySchema.safeParse({ offset: "-1" }).success).toBe(false);
+  });
 });

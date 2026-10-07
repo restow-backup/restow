@@ -194,6 +194,26 @@ describe.skipIf(!testDatabaseAdminUrl)("archive against Postgres", () => {
     expect(auditRows.some((row) => row.action === "archive.searched")).toBe(true);
   });
 
+  it("audits every filter of a search, including sender, dates and the page", async () => {
+    const res = await app.request(
+      "/archive/search?from=cfo&dateFrom=2020-01-01T00:00:00.000Z&dateTo=2030-01-01T00:00:00.000Z&offset=0&limit=10",
+      { headers: { "x-restow-tenant": contoso } },
+    );
+    expect(res.status).toBe(200);
+    const auditRows = await owner.select().from(auditLog).where(eq(auditLog.tenantId, contoso));
+    const filtered = auditRows.find(
+      (row) =>
+        row.action === "archive.searched" &&
+        (row.details as Record<string, unknown> | null)?.from === "cfo",
+    );
+    expect(filtered?.details).toMatchObject({
+      from: "cfo",
+      dateFrom: "2020-01-01T00:00:00.000Z",
+      dateTo: "2030-01-01T00:00:00.000Z",
+      offset: 0,
+    });
+  });
+
   it("finds a journal report under every mailbox it was assigned to", async () => {
     const [source] = await owner
       .insert(sourcesTable)

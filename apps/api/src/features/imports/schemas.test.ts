@@ -155,4 +155,10 @@ describe("listImportsQuerySchema", () => {
     expect(listImportsQuerySchema.safeParse({ limit: "51" }).success).toBe(false);
     expect(listImportsQuerySchema.parse({ limit: "10" }).limit).toBe(10);
   });
+
+  it("pages with an offset that starts at the newest import", () => {
+    expect(listImportsQuerySchema.parse({}).offset).toBe(0);
+    expect(listImportsQuerySchema.parse({ offset: "50" }).offset).toBe(50);
+    expect(listImportsQuerySchema.safeParse({ offset: "-1" }).success).toBe(false);
+  });
 });

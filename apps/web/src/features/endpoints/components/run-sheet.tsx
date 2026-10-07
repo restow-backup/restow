@@ -265,9 +265,18 @@ export function RunDetailView({
                     {error.path ? (
                       <p className="font-mono text-xs break-all">{error.path}</p>
                     ) : null}
-                    {error.message ? (
-                      <p className="text-xs break-words text-muted-foreground">
-                        {view.headline ? `${t("runErrors.detail")}: ` : ""}
+                    {error.message && view.headline ? (
+                      // The meaning is above in the reader's language; the agent's own (English) text is a detail.
+                      <details className="text-xs text-muted-foreground">
+                        <summary className="cursor-pointer select-none">
+                          {t("runErrors.detail")}
+                        </summary>
+                        <p className="mt-1 break-words" lang="en">
+                          {error.message}
+                        </p>
+                      </details>
+                    ) : error.message ? (
+                      <p className="text-xs break-words text-muted-foreground" lang="en">
                         {error.message}
                       </p>
                     ) : null}

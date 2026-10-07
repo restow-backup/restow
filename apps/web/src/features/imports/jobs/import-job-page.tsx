@@ -1,3 +1,4 @@
+import { FailureExplanation } from "@/features/failures";
 import { Link } from "@tanstack/react-router";
 import { AlertTriangle, ArrowLeft, Ban, Hourglass } from "lucide-react";
 import * as React from "react";
@@ -229,19 +230,34 @@ function OutcomeCard({ detail }: { detail: ImportDetail }) {
       </CardHeader>
       <CardContent className="space-y-3">
         {detail.status === "failed" ? (
-          <Alert variant="destructive">
-            <AlertTriangle />
-            <AlertTitle>{t("job.outcome.failed")}</AlertTitle>
-            <AlertDescription className="break-words">
-              {detail.errorMessage ?? t("job.outcome.failedUnknown")}
-            </AlertDescription>
-          </Alert>
+          detail.failure || detail.errorMessage ? (
+            <div className="space-y-2">
+              <p className="font-medium text-destructive">{t("job.outcome.failed")}</p>
+              {/* The cause in the reader's language; the engine's own text sits under "Technical details". */}
+              <FailureExplanation
+                failure={detail.failure ?? null}
+                message={detail.errorMessage}
+                subject={{ kind: "none" }}
+                hideWhat
+                at={detail.completedAt}
+              />
+            </div>
+          ) : (
+            <Alert variant="destructive">
+              <AlertTriangle />
+              <AlertTitle>{t("job.outcome.failed")}</AlertTitle>
+              <AlertDescription>{t("job.outcome.failedUnknown")}</AlertDescription>
+            </Alert>
+          )
         ) : null}
         {detail.status === "cancelled" ? (
           <Alert variant="info">
             <Ban />
             <AlertTitle>{t("job.outcome.cancelled")}</AlertTitle>
-            <AlertDescription>{t("job.outcome.cancelledDescription")}</AlertDescription>
+            <AlertDescription>
+              <p>{t("job.outcome.cancelledDescription")}</p>
+              {detail.archive ? <p>{t("job.outcome.cancelledArchiveNote")}</p> : null}
+            </AlertDescription>
           </Alert>
         ) : null}
         {detail.status === "completed" ? (

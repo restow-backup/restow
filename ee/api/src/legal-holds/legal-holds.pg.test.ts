@@ -140,4 +140,47 @@ describe.skipIf(!testDatabaseAdminUrl)("legal holds against Postgres", () => {
     expect(auditRows.some((r) => r.action === "archive.legal_hold.created")).toBe(true);
     expect(auditRows.some((r) => r.action === "archive.legal_hold.released")).toBe(true);
   });
+
+  it("records the reason of a release and refuses to release a hold twice", async () => {
+    const createRes = await app.request("/archive/legal-holds", {
+      method: "POST",
+      headers: { "x-restow-tenant": contoso, "content-type": "application/json" },
+      body: JSON.stringify({ reason: "Tax audit 2026" }),
+    });
+    const created = (await createRes.json()) as { id: string; createdAt: string };
+
+    const empty = await app.request(`/archive/legal-holds/${created.id}`, {
+      method: "DELETE",
+      headers: { "x-restow-tenant": contoso, "content-type": "application/json" },
+      body: JSON.stringify({ reason: "   " }),
+    });
+    expect(empty.status).toBe(422);
+
+    const releaseRes = await app.request(`/archive/legal-holds/${created.id}`, {
+      method: "DELETE",
+      headers: { "x-restow-tenant": contoso, "content-type": "application/json" },
+      body: JSON.stringify({ reason: "Audit closed by the tax office" }),
+    });
+    expect(releaseRes.status).toBe(200);
+    const released = (await releaseRes.json()) as { active: boolean; releasedAt: string | null };
+    expect(released.active).toBe(false);
+    expect(released.releasedAt).not.toBeNull();
+
+    const again = await app.request(`/archive/legal-holds/${created.id}`, {
+      method: "DELETE",
+      headers: { "x-restow-tenant": contoso, "content-type": "application/json" },
+      body: JSON.stringify({ reason: "Second click" }),
+    });
+    expect(again.status).toBe(409);
+
+    const auditRows = await owner.select().from(auditLog).where(eq(auditLog.tenantId, contoso));
+    const releases = auditRows.filter(
+      (r) => r.action === "archive.legal_hold.released" && r.target === created.id,
+    );
+    expect(releases).toHaveLength(1);
+    expect(releases[0]?.details).toMatchObject({
+      reason: "Audit closed by the tax office",
+      heldSince: created.createdAt,
+    });
+  });
 });
