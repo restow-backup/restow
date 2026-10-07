@@ -218,6 +218,30 @@ describe("command lines", () => {
     expect(await ops.configUpdaterImage({})).toBeNull();
   });
 
+  it("reads the mounter service's image with the mounts profile active", async () => {
+    runner.answer(() => ({
+      stdout: JSON.stringify({ services: { mounter: { image: "ghcr.io/x/restow:0.1.0" } } }),
+    }));
+    expect(await ops.configMounterImage({ RESTOW_MOUNTER_IMAGE: "probe/app:1" })).toBe(
+      "ghcr.io/x/restow:0.1.0",
+    );
+    expect(runner.argvs).toEqual([
+      ["docker", "compose", "-p", "restow", "--profile", "mounts", "config", "--format", "json"],
+    ]);
+    expect(runner.specs[0]?.env).toEqual({ RESTOW_MOUNTER_IMAGE: "probe/app:1" });
+  });
+
+  it("finds a mounter container of the project, running or not", async () => {
+    expect(await ops.mounterContainerExists()).toBe(false);
+    expect(runner.argvs).toEqual([
+      ["docker", "compose", "-p", "restow", "--profile", "mounts", "ps", "-a", "-q", "mounter"],
+    ]);
+    runner.answer(() => ({ stdout: `${"b".repeat(64)}\n` }));
+    expect(await ops.mounterContainerExists()).toBe(true);
+    runner.answer(() => ({ exitCode: 1, stdout: `${"b".repeat(64)}\n` }));
+    expect(await ops.mounterContainerExists()).toBe(false);
+  });
+
   it("passes -f only for an explicitly named compose file", async () => {
     runner.answer(() => ({ stdout: "{}" }));
     await make("compose.prod.yml").configImages({});

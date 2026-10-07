@@ -349,6 +349,19 @@
         "not_replaced": "The updater container was not replaced."
       }
     },
+    "mounterUpdate": {
+      "pending": "The updater is recreating the mounter with the image of version {running}, whose release signature it just verified.",
+      "failed": "The update to {running} succeeded, but the mounter could not be moved along and still runs its previous image. {reason} The network shares keep working. To finish it, run on the server, in the folder that holds docker-compose.yml:",
+      "skipped": "The update to {running} succeeded, but the mounter still runs its previous image. {reason} The network shares keep working. Once it is idle, run on the server, in the folder that holds docker-compose.yml:",
+      "reasons": {
+        "busy": "It was adding or removing a network share the whole time the updater waited.",
+        "compose_unsupported": "The docker-compose.yml does not take the mounter's image from RESTOW_MOUNTER_IMAGE. Use the docker-compose.yml of this release.",
+        "env_write_failed": "The .env file could not be written.",
+        "launch_failed": "The helper container that recreates the mounter could not be started.",
+        "helper_failed": "Recreating the mounter failed. The .env file already names the verified image.",
+        "interrupted": "The updater stopped while it recreated the mounter. The .env file already names the verified image."
+      }
+    },
     "signaturesOff": {
       "title": "The updater does not verify signatures",
       "body": "Signature verification is switched off (RESTOW_UPDATER_VERIFY_SIGNATURES=false). What is installed is whatever lies under the published digest in the configured repository. For test installations only: switch it back on for production."

@@ -50,8 +50,10 @@ export const UPDATER_IMAGE_KEY = "RESTOW_UPDATER_IMAGE";
 
 /**
  * The mounter's own image (apps/api/src/mounter, docs/MOUNTS.md). Like the updater's,
- * written only by {@link EnvFile.pinImage}, only pinned by digest, and only while empty:
- * the mounter holds the Docker socket as well.
+ * written only by {@link EnvFile.pinImage} and only pinned by digest: by the mounter on
+ * its first start while the line is empty, and by the updater when it moves the mounter
+ * along to a release image whose signature it verified (self-update.ts). The mounter
+ * holds the Docker socket as well.
  */
 export const MOUNTER_IMAGE_KEY = "RESTOW_MOUNTER_IMAGE";
 

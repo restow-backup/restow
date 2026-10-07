@@ -23,8 +23,41 @@ import type { SelfRecreateHandle, SelfRecreateLauncher } from "./self-update.js"
 
 export const SELF_RECREATE_LABEL = "com.restow.updater.self-update";
 
+/**
+ * The same helper recreates the mounter when it follows the updater to a verified
+ * release image (self-update.ts): `--profile mounts up -d ... mounter`, under a label of
+ * its own. The updater waits for that helper and removes it itself.
+ */
+export const MOUNTER_RECREATE_LABEL = "com.restow.updater.mounter-update";
+
+/** Which service a helper recreates. */
+export interface RecreateTarget {
+  service: "updater" | "mounter";
+  profile: "updater" | "mounts";
+  label: string;
+  namePrefix: string;
+}
+
+export const UPDATER_RECREATE_TARGET: RecreateTarget = {
+  service: "updater",
+  profile: "updater",
+  label: SELF_RECREATE_LABEL,
+  namePrefix: "restow-updater-selfupdate",
+};
+
+export const MOUNTER_RECREATE_TARGET: RecreateTarget = {
+  service: "mounter",
+  profile: "mounts",
+  label: MOUNTER_RECREATE_LABEL,
+  namePrefix: "restow-updater-mounterupdate",
+};
+
 /** The command the helper runs. Every value is checked by the caller (config.ts, main.ts). */
-export function selfRecreateCommand(projectName: string, composeFile: string | null): string[] {
+export function selfRecreateCommand(
+  projectName: string,
+  composeFile: string | null,
+  target: RecreateTarget = UPDATER_RECREATE_TARGET,
+): string[] {
   return [
     "docker",
     "compose",
@@ -32,14 +65,14 @@ export function selfRecreateCommand(projectName: string, composeFile: string | n
     projectName,
     ...(composeFile ? ["-f", composeFile] : []),
     "--profile",
-    "updater",
+    target.profile,
     "up",
     "-d",
     "--no-deps",
     "--no-build",
     "--pull",
     "missing",
-    "updater",
+    target.service,
   ];
 }
 
@@ -54,10 +87,16 @@ export interface EngineSelfRecreateOptions {
   dockerSocket: string;
   projectName: string;
   composeFile: string | null;
+  /** The service the helper recreates (default: the updater itself). */
+  target?: RecreateTarget;
 }
 
 export class EngineSelfRecreateLauncher implements SelfRecreateLauncher {
   constructor(private readonly options: EngineSelfRecreateOptions) {}
+
+  private get target(): RecreateTarget {
+    return this.options.target ?? UPDATER_RECREATE_TARGET;
+  }
 
   /** The container the helper is created as (exported for tests). */
   body(): CreateContainerBody {
@@ -65,10 +104,10 @@ export class EngineSelfRecreateLauncher implements SelfRecreateLauncher {
     return {
       Image: cliImage,
       Entrypoint: [],
-      Cmd: selfRecreateCommand(projectName, composeFile),
+      Cmd: selfRecreateCommand(projectName, composeFile, this.target),
       WorkingDir: hostProjectDir,
       Env: ["HOME=/tmp", "NO_COLOR=1", "COMPOSE_ANSI=never", "COMPOSE_PROGRESS=plain"],
-      Labels: { [SELF_RECREATE_LABEL]: "1" },
+      Labels: { [this.target.label]: "1" },
       NetworkDisabled: true,
       HostConfig: {
         Binds: [`${dockerSocket}:/var/run/docker.sock`, `${hostProjectDir}:${hostProjectDir}`],
@@ -87,7 +126,7 @@ export class EngineSelfRecreateLauncher implements SelfRecreateLauncher {
     }
     const id = await engine.createContainer(
       this.body(),
-      `restow-updater-selfupdate-${randomBytes(6).toString("hex")}`,
+      `${this.target.namePrefix}-${randomBytes(6).toString("hex")}`,
     );
     try {
       await engine.startContainer(id);
@@ -140,7 +179,7 @@ export class EngineSelfRecreateLauncher implements SelfRecreateLauncher {
     const { engine, logger } = this.options;
     let removed = 0;
     try {
-      for (const id of await engine.listContainersByLabel(`${SELF_RECREATE_LABEL}=1`)) {
+      for (const id of await engine.listContainersByLabel(`${this.target.label}=1`)) {
         const info = await engine.inspectContainer(id);
         if (info && info.State?.Running !== true) {
           await engine.removeContainer(id);

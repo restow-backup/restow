@@ -219,6 +219,8 @@ services:
   # writes RESTOW_MOUNTER_IMAGE into .env, pinned by digest to the image it runs (a local
   # build has no digest and is not pinned). It reaches nobody but the api over the internal
   # network (no published port) and holds none of the application's credentials (no env_file).
+  # The opt-in updater moves RESTOW_MOUNTER_IMAGE to the verified image of every signed update
+  # it installs and recreates the mounter (docs/MOUNTS.md, "Updates").
   mounter:
     profiles: ["mounts"]
     image: ${RESTOW_MOUNTER_IMAGE:-${RESTOW_IMAGE:?set RESTOW_IMAGE in .env}}

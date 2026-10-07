@@ -291,6 +291,8 @@ sudo bash install.sh --non-interactive --domain backup.example.com --edition com
 `--edition full|community` (default full), `--version`, `--dir` (default
 `/opt/restow`), `--yes` or `--non-interactive`, `--with-updater` (the opt-in
 updater stays off unless you ask for it, see [docs/UPDATING.md](docs/UPDATING.md)),
+`--with-mounter` (from 0.3.0: the opt-in mounter for NFS network shares, off
+unless you ask for it, see [docs/MOUNTS.md](docs/MOUNTS.md)),
 `--local` (an evaluation without a public domain: the edge serves
 `https://localhost` or an internal name such as `restow.internal` over HTTPS
 with a certificate from Caddy's own authority, browsers warn about it and

@@ -310,6 +310,28 @@ export interface SelfUpdateRecord {
   startedAt: string;
   finishedAt: string | null;
   detail: string;
+  /** The mounter's move to the same image; null (or absent) when the installation runs no mounter. */
+  mounter?: MounterUpdateRecord | null;
+}
+
+export const MOUNTER_UPDATE_REASONS = [
+  "busy",
+  "compose_unsupported",
+  "env_write_failed",
+  "launch_failed",
+  "helper_failed",
+  "interrupted",
+] as const;
+export type MounterUpdateReason = (typeof MOUNTER_UPDATE_REASONS)[number];
+
+/** The mounter following the updater (updater protocol, `mounterUpdateRecordSchema`). */
+export interface MounterUpdateRecord {
+  status: "pending" | "succeeded" | "failed" | "skipped";
+  reason: MounterUpdateReason | null;
+  /** What was written to RESTOW_MOUNTER_IMAGE; null when nothing was written. */
+  image: string | null;
+  finishedAt: string | null;
+  detail: string;
 }
 
 export interface SelfUpdateView {

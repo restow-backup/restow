@@ -838,6 +838,45 @@ describe("the updater", () => {
     expect(text(warning)).not.toContain("RESTOW_UPDATER_IMAGE=ghcr.io");
   });
 
+  it("shows a mounter that did not follow the update, with the commands that finish it", () => {
+    const verified = `ghcr.io/restow-backup/restow:0.1.0@sha256:${"a".repeat(64)}`;
+    const root = show(
+      updatesFixture({
+        updater: {
+          ...updatesFixture().updater,
+          selfUpdate: {
+            enabled: true,
+            verifiesSignatures: true,
+            last: {
+              status: "succeeded",
+              reason: null,
+              fromVersion: "0.0.9",
+              targetVersion: "0.1.0",
+              image: verified,
+              startedAt: "2026-10-03T10:00:00.000Z",
+              finishedAt: "2026-10-03T10:00:05.000Z",
+              detail: "",
+              mounter: {
+                status: "skipped",
+                reason: "busy",
+                image: null,
+                finishedAt: "2026-10-03T10:00:04.000Z",
+                detail: "",
+              },
+            },
+          },
+        },
+      }),
+    );
+    // The updater itself moved: no note about it, only about the mounter.
+    expect(slot("updater-outdated", root)).toBeNull();
+    const note = slot("mounter-update", root) as HTMLElement;
+    expect(note.dataset.kind).toBe("skipped");
+    expect(text(note)).toContain("adding or removing a network share");
+    expect(text(note)).toContain(`RESTOW_MOUNTER_IMAGE=${verified}`);
+    expect(text(note)).toContain("docker compose --profile mounts up -d --no-deps mounter");
+  });
+
   it("asks to move an updater that cannot update itself once, with the .env line", () => {
     const root = show(
       updatesFixture({

@@ -9,13 +9,14 @@ import { EngineClient } from "./engine-api.js";
 import { UpdateEngine } from "./engine.js";
 import { EnvFile, postgresSettings } from "./env-file.js";
 import { consoleLogger } from "./logger.js";
+import { HttpMounterStatus } from "./mounter-status.js";
 import { CliDockerOps } from "./ops-cli.js";
 import { type CommandRunner, type SelfContainer, systemClock } from "./ops.js";
 import { Preflight } from "./preflight.js";
 import { Redactor } from "./redact.js";
 import { HelperRunner } from "./runner-helper.js";
 import { LocalRunner } from "./runner-local.js";
-import { EngineSelfRecreateLauncher } from "./self-recreate.js";
+import { EngineSelfRecreateLauncher, MOUNTER_RECREATE_TARGET } from "./self-recreate.js";
 import { type OwnImage, SelfUpdater, pinOwnImage } from "./self-update.js";
 import { buildServer } from "./server.js";
 import { formatAllowEntry } from "./source-policy.js";
@@ -172,6 +173,19 @@ async function main(): Promise<void> {
     composeFile: config.composeFile,
   });
   await launcher.removeFinished();
+  // The mounter follows the updater to a verified release image (docs/MOUNTS.md).
+  const mounterLauncher = new EngineSelfRecreateLauncher({
+    engine: engineClient,
+    redactor,
+    logger,
+    cliImage: config.cliImage,
+    hostProjectDir: hostDir,
+    dockerSocket: config.dockerSocket,
+    projectName,
+    composeFile: config.composeFile,
+    target: MOUNTER_RECREATE_TARGET,
+  });
+  await mounterLauncher.removeFinished();
   const selfUpdater = new SelfUpdater({
     enabled: config.selfUpdate,
     verifySignatures: config.verifySignatures,
@@ -184,6 +198,11 @@ async function main(): Promise<void> {
     clock: systemClock,
     logger,
     redactor,
+    mounter: {
+      ops,
+      launcher: mounterLauncher,
+      status: new HttpMounterStatus({ url: config.mounterUrl }),
+    },
   });
   await selfUpdater.reconcile();
 

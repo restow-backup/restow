@@ -314,6 +314,25 @@ describe("EnvFile", () => {
     });
   });
 
+  it("moves a pinned mounter line to a newer image in place, keeping everything else", async () => {
+    const old = `ghcr.io/restow-backup/restow:0.3.0@sha256:${"f".repeat(64)}`;
+    const next = `ghcr.io/restow-backup/restow:0.3.1@sha256:${"e".repeat(64)}`;
+    await fs.writeFile(
+      target,
+      `# mine\nRESTOW_IMAGE=a:1\nexport RESTOW_MOUNTER_IMAGE=${old}\nOTHER=x\n`,
+    );
+    const before = await file.pinImage("RESTOW_MOUNTER_IMAGE", next);
+    expect(await fs.readFile(target, "utf8")).toBe(
+      `# mine\nRESTOW_IMAGE=a:1\nexport RESTOW_MOUNTER_IMAGE=${next}\nOTHER=x\n`,
+    );
+    expect(before).toMatchObject({ present: true });
+    // A tag is never written, not even over a pinned line.
+    await expect(
+      file.pinImage("RESTOW_MOUNTER_IMAGE", "ghcr.io/restow-backup/restow:0.3.2"),
+    ).rejects.toMatchObject({ reason: "invalid_value" });
+    expect(await fs.readFile(target, "utf8")).toContain(next);
+  });
+
   it("appends the image lines an update writes when .env has none", async () => {
     await fs.writeFile(target, "POSTGRES_PASSWORD=pw\n");
     const captured = await file.capture(KEYS);

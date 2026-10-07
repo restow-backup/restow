@@ -364,6 +364,47 @@ export const SELF_UPDATE_REASONS = [
 ] as const;
 export type SelfUpdateReason = (typeof SELF_UPDATE_REASONS)[number];
 
+/**
+ * The mounter follows the updater (self-update.ts, docs/MOUNTS.md "Updates"). When the
+ * updater moves itself to a verified release image and the installation uses the mounter
+ * (a `mounter` container exists or RESTOW_MOUNTER_IMAGE is set), RESTOW_MOUNTER_IMAGE is
+ * pinned to that same verified image and a helper container recreates the mounter.
+ *
+ *   pending    RESTOW_MOUNTER_IMAGE was written and the helper runs
+ *   succeeded  `docker compose up` of the mounter finished
+ *   failed     it did not happen (`reason`); the application update stays successful
+ *   skipped    not attempted (`busy`: the mounter kept an operation running)
+ */
+export const MOUNTER_UPDATE_STATUSES = ["pending", "succeeded", "failed", "skipped"] as const;
+export type MounterUpdateStatus = (typeof MOUNTER_UPDATE_STATUSES)[number];
+
+export const MOUNTER_UPDATE_REASONS = [
+  /** The mounter was adding or removing a share the whole time the updater waited. */
+  "busy",
+  /** The compose file does not take the mounter's image from RESTOW_MOUNTER_IMAGE. */
+  "compose_unsupported",
+  /** RESTOW_MOUNTER_IMAGE could not be written to `.env`. */
+  "env_write_failed",
+  /** The helper container that recreates the mounter could not be started. */
+  "launch_failed",
+  /** `docker compose up` of the mounter failed or did not finish in time. */
+  "helper_failed",
+  /** The updater stopped while it recreated the mounter. */
+  "interrupted",
+] as const;
+export type MounterUpdateReason = (typeof MOUNTER_UPDATE_REASONS)[number];
+
+export const mounterUpdateRecordSchema = z.object({
+  status: z.enum(MOUNTER_UPDATE_STATUSES),
+  reason: z.enum(MOUNTER_UPDATE_REASONS).nullable().default(null),
+  /** The image written to RESTOW_MOUNTER_IMAGE; null when nothing was written. */
+  image: z.string().nullable().default(null),
+  finishedAt: iso.nullable().default(null),
+  /** Redacted, single-line detail of a failure. */
+  detail: z.string().max(1000).default(""),
+});
+export type MounterUpdateRecord = z.infer<typeof mounterUpdateRecordSchema>;
+
 export const selfUpdateRecordSchema = z.object({
   status: z.enum(SELF_UPDATE_STATUSES),
   reason: z.enum(SELF_UPDATE_REASONS).nullable().default(null),
@@ -376,6 +417,8 @@ export const selfUpdateRecordSchema = z.object({
   finishedAt: iso.nullable().default(null),
   /** Redacted, single-line detail of a failure. */
   detail: z.string().max(1000).default(""),
+  /** The mounter's move to the same image (null: the installation runs no mounter). */
+  mounter: mounterUpdateRecordSchema.nullable().default(null),
 });
 export type SelfUpdateRecord = z.infer<typeof selfUpdateRecordSchema>;
 

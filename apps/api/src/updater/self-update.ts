@@ -1,7 +1,10 @@
-import { type EnvFile, UPDATER_IMAGE_KEY, envValueOf } from "./env-file.js";
+import { type EnvFile, MOUNTER_IMAGE_KEY, UPDATER_IMAGE_KEY, envValueOf } from "./env-file.js";
 import type { Logger } from "./logger.js";
+import type { MounterStatus } from "./mounter-status.js";
 import type { Clock, DockerOps } from "./ops.js";
 import type {
+  MounterUpdateReason,
+  MounterUpdateStatus,
   Run,
   SelfUpdateReason,
   SelfUpdateRecord,
@@ -36,6 +39,17 @@ import type { StatusStore } from "./store.js";
  *
  * A self-update that fails never turns the application update into a failure: the
  * record says why, and the Updates tab shows the command that finishes it by hand.
+ *
+ * The mounter (apps/api/src/mounter, docs/MOUNTS.md) holds the Docker socket as well and
+ * runs the same application image, pinned in RESTOW_MOUNTER_IMAGE. It follows the
+ * updater under exactly the same rules ({@link mounterUpdateDecision}): only when the
+ * updater's own decision is "update", only to that verified image by digest, and only
+ * when the installation uses the mounter (a `mounter` container exists or the line is
+ * set). Before the updater recreates itself, it pins RESTOW_MOUNTER_IMAGE and a helper
+ * container runs `docker compose --profile mounts up -d --no-deps mounter`. It waits
+ * while the mounter adds or removes a share (mounter-status.ts) and gives up after
+ * {@link MOUNTER_IDLE_WAIT_MS}. The result is part of the self-update record; a failure
+ * there fails neither the application update nor the updater's own move.
  */
 
 /** How long the old updater waits for the helper before it records a failure. */
@@ -116,6 +130,50 @@ export function selfUpdateDecision(input: SelfUpdateDecisionInput): SelfUpdateDe
   return { action: "update", image };
 }
 
+/** How long the updater waits for a running mounter operation before it leaves the mounter as it is. */
+export const MOUNTER_IDLE_WAIT_MS = 10 * 60_000;
+/** How often it asks the mounter whether it is still busy. */
+export const MOUNTER_POLL_MS = 10_000;
+
+export type MounterUpdateDecision = { action: "none" } | { action: "update"; image: string };
+
+export interface MounterUpdateDecisionInput {
+  /** The updater's own decision for this run ({@link selfUpdateDecision}). */
+  selfUpdate: SelfUpdateDecision;
+  /** RESTOW_MOUNTER_IMAGE in `.env` (null or empty: not set). */
+  mounterImage: string | null;
+  /** The compose project has a `mounter` container. */
+  mounterContainer: boolean;
+}
+
+/**
+ * Whether, and to what, the mounter moves after a run: to the very image the updater
+ * moves to, and only when the installation uses the mounter. Everything that keeps the
+ * updater where it is (source mode, signatures off or not verified, self-update
+ * switched off) keeps the mounter there too.
+ */
+export function mounterUpdateDecision(input: MounterUpdateDecisionInput): MounterUpdateDecision {
+  if (input.selfUpdate.action !== "update") {
+    return { action: "none" };
+  }
+  const image = input.selfUpdate.image;
+  if (!DIGEST_PINNED_IMAGE.test(image)) {
+    return { action: "none" };
+  }
+  const inUse = (input.mounterImage ?? "") !== "" || input.mounterContainer;
+  return inUse ? { action: "update", image } : { action: "none" };
+}
+
+/** What the self-updater needs to move the mounter along (null/absent: it never does). */
+export interface MounterFollowDeps {
+  ops: Pick<DockerOps, "configMounterImage" | "mounterContainerExists">;
+  /** The helper that runs `docker compose --profile mounts up -d mounter`; null: none. */
+  launcher: SelfRecreateLauncher | null;
+  status: MounterStatus;
+  idleWaitMs?: number;
+  pollMs?: number;
+}
+
 export interface SelfUpdaterDeps {
   enabled: boolean;
   verifySignatures: boolean;
@@ -131,6 +189,8 @@ export interface SelfUpdaterDeps {
   redactor: Redactor;
   helperTimeoutMs?: number;
   replaceGraceMs?: number;
+  /** Move the mounter along with the updater (absent: never). */
+  mounter?: MounterFollowDeps;
 }
 
 export class SelfUpdater {
@@ -161,6 +221,13 @@ export class SelfUpdater {
     const last = store.state.selfUpdate;
     if (!last || last.status !== "pending") {
       return;
+    }
+    if (last.mounter?.status === "pending") {
+      // The previous process stopped while its helper recreated the mounter.
+      last.mounter.status = "failed";
+      last.mounter.reason = "interrupted";
+      last.mounter.finishedAt = clock.now().toISOString();
+      last.mounter.detail = "The updater stopped while it recreated the mounter.";
     }
     if (updaterVersion !== null && sameVersion(updaterVersion, last.targetVersion)) {
       last.status = "succeeded";
@@ -222,6 +289,12 @@ export class SelfUpdater {
 
     const image = decision.image;
     await this.record("pending", run.targetVersion, image, null, "");
+
+    // The mounter first: once the helper below recreates the updater, this process is gone.
+    await this.followMounter(decision);
+    if (this.stopped) {
+      return;
+    }
 
     // The compose file must take the updater's image from RESTOW_UPDATER_IMAGE; checked
     // with the value set for this one command, before anything is written.
@@ -288,6 +361,166 @@ export class SelfUpdater {
     );
   }
 
+  /**
+   * Move the mounter to the image the updater moves to (see {@link mounterUpdateDecision}).
+   * Never throws; the outcome lands in `selfUpdate.mounter`.
+   */
+  private async followMounter(decision: SelfUpdateDecision): Promise<void> {
+    const { deps } = this;
+    const mounter = deps.mounter;
+    if (!mounter) {
+      return;
+    }
+    try {
+      let current: string | null = null;
+      try {
+        current = envValueOf(await deps.envFile.read(), MOUNTER_IMAGE_KEY);
+      } catch {
+        current = null;
+      }
+      const container = await mounter.ops.mounterContainerExists().catch(() => false);
+      const next = mounterUpdateDecision({
+        selfUpdate: decision,
+        mounterImage: current,
+        mounterContainer: container,
+      });
+      if (next.action === "none") {
+        return;
+      }
+      await this.moveMounter(mounter, next.image);
+    } catch (error) {
+      deps.logger.error(
+        `The mounter could not be moved along: ${deps.redactor.oneLine((error as Error).message, 300)}`,
+      );
+    }
+  }
+
+  private async moveMounter(mounter: MounterFollowDeps, image: string): Promise<void> {
+    const { deps } = this;
+    await this.recordMounter("pending", null, null, "");
+
+    // An operation of the mounter (adding or removing a share) must not be cut off.
+    const idleWaitMs = mounter.idleWaitMs ?? MOUNTER_IDLE_WAIT_MS;
+    const pollMs = mounter.pollMs ?? MOUNTER_POLL_MS;
+    const deadline = deps.clock.now().getTime() + idleWaitMs;
+    for (;;) {
+      const busy = await mounter.status.busy();
+      if (this.stopped) {
+        return;
+      }
+      if (busy !== true) {
+        if (busy === null) {
+          deps.logger.info("The mounter's status could not be read; recreating it anyway.");
+        }
+        break;
+      }
+      if (deps.clock.now().getTime() >= deadline) {
+        await this.recordMounter(
+          "skipped",
+          "busy",
+          null,
+          `The mounter was still changing a share after ${Math.round(idleWaitMs / 60_000)} minutes.`,
+        );
+        return;
+      }
+      await deps.clock.sleep(pollMs);
+    }
+
+    let resolved: string | null;
+    try {
+      resolved = await mounter.ops.configMounterImage({ [MOUNTER_IMAGE_KEY]: image });
+    } catch (error) {
+      await this.recordMounter("failed", "compose_unsupported", null, this.detail(error));
+      return;
+    }
+    if (resolved !== image) {
+      await this.recordMounter(
+        "failed",
+        "compose_unsupported",
+        null,
+        `The mounter service of the compose file resolves to ${resolved ?? "no image"}, not to ${MOUNTER_IMAGE_KEY}. Use the docker-compose.yml of this release.`,
+      );
+      return;
+    }
+
+    try {
+      await deps.envFile.pinImage(MOUNTER_IMAGE_KEY, image);
+    } catch (error) {
+      await this.recordMounter("failed", "env_write_failed", null, this.detail(error));
+      return;
+    }
+    await this.recordMounter("pending", null, image, "");
+    deps.logger.info(
+      `${MOUNTER_IMAGE_KEY} is now ${image} (signature of the release workflow verified); recreating the mounter.`,
+    );
+
+    if (!mounter.launcher) {
+      await this.recordMounter(
+        "failed",
+        "launch_failed",
+        image,
+        "No Docker Engine API to start the helper container with.",
+      );
+      return;
+    }
+    let handle: SelfRecreateHandle;
+    try {
+      handle = await mounter.launcher.launch();
+    } catch (error) {
+      await this.recordMounter("failed", "launch_failed", image, this.detail(error));
+      return;
+    }
+    const result = await handle.wait(deps.helperTimeoutMs ?? SELF_UPDATE_HELPER_TIMEOUT_MS);
+    if (this.stopped) {
+      return;
+    }
+    if (result.exitCode === null) {
+      await this.recordMounter(
+        "failed",
+        "helper_failed",
+        image,
+        `The helper did not finish in time. ${result.output}`,
+      );
+      return;
+    }
+    if (result.exitCode !== 0) {
+      await this.recordMounter(
+        "failed",
+        "helper_failed",
+        image,
+        `docker compose up exited with ${result.exitCode}. ${result.output}`,
+      );
+      return;
+    }
+    await this.recordMounter("succeeded", null, image, "");
+    deps.logger.info(`The mounter was recreated with ${image}.`);
+  }
+
+  private async recordMounter(
+    status: MounterUpdateStatus,
+    reason: MounterUpdateReason | null,
+    image: string | null,
+    detail: string,
+  ): Promise<void> {
+    const last = this.deps.store.state.selfUpdate;
+    if (!last || this.stopped) {
+      return;
+    }
+    last.mounter = {
+      status,
+      reason,
+      image,
+      finishedAt: status === "pending" ? null : this.deps.clock.now().toISOString(),
+      detail: this.deps.redactor.oneLine(detail, 1000),
+    };
+    if (status === "failed" || status === "skipped") {
+      this.deps.logger.warn(
+        `The mounter stays on its image (${reason ?? status}): ${last.mounter.detail} Recreate it by hand (docs/MOUNTS.md).`,
+      );
+    }
+    await this.deps.store.save();
+  }
+
   private async record(
     status: SelfUpdateStatus,
     targetVersion: string,
@@ -305,6 +538,7 @@ export class SelfUpdater {
       startedAt: now,
       finishedAt: status === "pending" ? null : now,
       detail,
+      mounter: null,
     };
     this.deps.store.state.selfUpdate = record;
     await this.deps.store.save();

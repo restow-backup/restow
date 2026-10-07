@@ -644,7 +644,12 @@ den Docker-Socket. Der Socket ist root auf dem Host; deshalb gilt:
   Signaturprüfung, abschaltbar mit `RESTOW_UPDATER_SELF_UPDATE=false`. Ein Fehlschlag macht das
   App-Update nicht rückgängig; der Reiter zeigt den Befehl zum Nachholen. Über das Image des
   Containers mit dem Socket entscheidet damit die Signatur des Release-Workflows, nicht mehr
-  ein Mensch.
+  ein Mensch. Der Mounter folgt unter genau denselben Regeln (`mounterUpdateDecision`): Ist er
+  in Gebrauch (Container vorhanden oder `RESTOW_MOUNTER_IMAGE` gesetzt), setzt der Updater vor
+  dem eigenen Wechsel `RESTOW_MOUNTER_IMAGE` auf dasselbe geprüfte Image und lässt einen
+  Hilfscontainer `docker compose --profile mounts up -d --no-deps mounter` ausführen. Solange
+  der Mounter eine Freigabe ändert (`busy` in seinem `/healthz`), wartet er bis zu zehn
+  Minuten; das Ergebnis steht in `selfUpdate.mounter`, ein Fehlschlag lässt das App-Update nie scheitern.
 - Docker-Befehle: Der Updater führt `docker` und `docker compose` aus. Das Image enthält
   kein Docker-CLI; der Updater startet dafür kurzlebige Hilfscontainer aus `docker:27-cli`,
   per Digest gepinnt, über den Socket (oder nutzt ein vorhandenes `docker`-Binary). Das Projektverzeichnis ist unter

@@ -71,17 +71,20 @@ that holds `docker-compose.yml`:
 docker compose --profile mounts up -d mounter
 ```
 
+A new installation can start it right away: `install.sh --with-mounter` (from 0.3.0)
+starts the `mounts` profile together with the stack.
+
 No line in `.env` is needed. It does not need the opt-in updater, and the updater does
-not need it.
+not need it; with the updater running, the mounter follows every signed update by
+itself (see "Updates" below).
 
 - **Image.** There is no separate image: the mounter is the application image started
   with `ROLE=mounter`. While `RESTOW_MOUNTER_IMAGE` in `.env` is empty, the service
   starts the image in `RESTOW_IMAGE`; on that first start the mounter writes
   `RESTOW_MOUNTER_IMAGE` into `.env`, pinned by digest to the image it runs, so that a
   later rewrite of `RESTOW_IMAGE` (an update) does not change the image that holds the
-  Docker socket. A locally built image has no registry digest and is not pinned. To
-  move the mounter to the image of a newer version, empty the line (or set it) and run
-  the command above again.
+  Docker socket. A locally built image has no registry digest and is not pinned. Only
+  the updater moves that line on (below); nothing else rewrites it.
 - **Network.** It listens on port 8091 on the compose network only (no published
   port). The api finds it at `http://mounter:8091` (`RESTOW_MOUNTER_URL`).
 - **Authentication.** On its first start the mounter writes a random secret into the
@@ -102,6 +105,55 @@ not set `COMPOSE_FILE`. The section says so when that is not the case.
 To switch it off again: `docker compose --profile mounts stop mounter`. The shares
 stay mounted (they are in the override file); remove them in the web interface first
 if you want them gone.
+
+## Updates
+
+**With the opt-in updater** (docs/UPDATING.md) the mounter is updated automatically,
+under exactly the rules that move the updater itself ("The updater updates itself"):
+
+1. After an update in `image` mode succeeded and the release's application image
+   passed the signature check of the release workflow, the updater decides to move
+   itself to that image, by digest. Only then does the mounter follow, to the very
+   same image: never by a tag, never after a `source` mode update, never with
+   `RESTOW_UPDATER_VERIFY_SIGNATURES=false`, and never with
+   `RESTOW_UPDATER_SELF_UPDATE=false`.
+2. It does so only when the installation uses the mounter: a `mounter` container
+   exists in the project (running or stopped) or `RESTOW_MOUNTER_IMAGE` is set.
+3. While the mounter adds or removes a share, the updater waits (it reads `busy` from
+   the mounter's `GET /healthz`) for up to ten minutes, then leaves the mounter as it
+   is. A mounter it cannot reach (or one older than this check) is recreated anyway.
+4. The updater checks that the compose file takes the mounter's image from
+   `RESTOW_MOUNTER_IMAGE`, writes the verified image there, and a short-lived helper
+   container (the Docker CLI image pinned by digest, no network) runs
+   `docker compose --profile mounts up -d --no-deps --no-build --pull missing mounter`.
+   This happens before the updater recreates itself.
+
+Recreating the mounter never touches the shares: they live in the override file and
+in the volumes of the api and the worker, which keep running. Should the mounter be
+stopped in the middle of a change anyway, it closes that change as "Failed, please
+check the server" (needs attention, code `interrupted`) on its next start, see
+"Troubleshooting".
+
+The result is shown in Installation > Updates. A mounter that did not follow never
+turns the update into a failure: the tab names the reason and the commands that finish
+it by hand, in the directory that holds `docker-compose.yml`:
+
+```sh
+# only when the tab lists it (nothing was written yet): the verified image, by digest
+RESTOW_MOUNTER_IMAGE=ghcr.io/restow-backup/restow:<version>@sha256:<digest>   # in .env
+docker compose --profile mounts up -d --no-deps mounter
+```
+
+**Without the updater** (or when it does not move itself) the mounter stays on its
+image. After an update, move it by hand: empty `RESTOW_MOUNTER_IMAGE` in `.env` (it
+then starts the image in `RESTOW_IMAGE` and pins that again on its first start) or set
+it to the new release's image, and recreate it:
+
+```sh
+docker compose --profile mounts up -d --no-deps mounter
+```
+
+Wait until no change of a share is running (Installation > Mounts) before you do.
 
 ## Security
 

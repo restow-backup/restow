@@ -349,6 +349,19 @@
         "not_replaced": "Der Updater-Container wurde nicht ersetzt."
       }
     },
+    "mounterUpdate": {
+      "pending": "Der Updater erstellt den Mounter gerade mit dem Image von Version {running} neu, dessen Release-Signatur er eben geprüft hat.",
+      "failed": "Das Update auf {running} ist gelungen, aber der Mounter konnte nicht nachgezogen werden und läuft noch mit seinem bisherigen Image. {reason} Die Netzlaufwerke bleiben nutzbar. Um ihn nachzuziehen, führen Sie auf dem Server im Ordner mit der docker-compose.yml aus:",
+      "skipped": "Das Update auf {running} ist gelungen, aber der Mounter läuft noch mit seinem bisherigen Image. {reason} Die Netzlaufwerke bleiben nutzbar. Sobald er nichts mehr ändert, führen Sie auf dem Server im Ordner mit der docker-compose.yml aus:",
+      "reasons": {
+        "busy": "Er hat ein Netzlaufwerk hinzugefügt oder entfernt, solange der Updater gewartet hat.",
+        "compose_unsupported": "Die docker-compose.yml bezieht das Image des Mounters nicht aus RESTOW_MOUNTER_IMAGE. Verwenden Sie die docker-compose.yml dieses Releases.",
+        "env_write_failed": "Die .env-Datei ließ sich nicht schreiben.",
+        "launch_failed": "Der Hilfscontainer, der den Mounter neu erstellt, ließ sich nicht starten.",
+        "helper_failed": "Das Neuerstellen des Mounters ist fehlgeschlagen. Die .env-Datei nennt das geprüfte Image bereits.",
+        "interrupted": "Der Updater wurde beendet, während er den Mounter neu erstellt hat. Die .env-Datei nennt das geprüfte Image bereits."
+      }
+    },
     "signaturesOff": {
       "title": "Der Updater prüft keine Signaturen",
       "body": "Die Signaturprüfung ist abgeschaltet (RESTOW_UPDATER_VERIFY_SIGNATURES=false). Installiert wird, was unter dem veröffentlichten Digest im konfigurierten Repository liegt. Nur für Testinstallationen: auf einer Produktivinstallation wieder einschalten."

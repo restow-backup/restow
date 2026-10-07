@@ -6,6 +6,8 @@ import { Redactor } from "./redact.js";
 import { HELPER_LABEL } from "./runner-helper.js";
 import {
   EngineSelfRecreateLauncher,
+  MOUNTER_RECREATE_LABEL,
+  MOUNTER_RECREATE_TARGET,
   SELF_RECREATE_LABEL,
   selfRecreateCommand,
 } from "./self-recreate.js";
@@ -112,6 +114,44 @@ describe("EngineSelfRecreateLauncher", () => {
     api.running.set("busy0000000000000", true);
     expect(await launcher().removeFinished()).toBe(1);
     expect(api.removed).toEqual(["done0000000000000"]);
+  });
+
+  it("recreates the mounter with the mounts profile under a label of its own", async () => {
+    const mounter = new EngineSelfRecreateLauncher({
+      engine: new EngineClient({ socketPath: api.socketPath, redactor, requestTimeoutMs: 2000 }),
+      redactor,
+      logger: memoryLogger(redactor),
+      cliImage: "docker:27-cli",
+      hostProjectDir: "/opt/restow",
+      dockerSocket: "/var/run/docker.sock",
+      projectName: "restow",
+      composeFile: null,
+      target: MOUNTER_RECREATE_TARGET,
+    });
+    const handle = await mounter.launch();
+    const body = [...api.created.values()][0] as Record<string, unknown>;
+    expect(body).toMatchObject({
+      Cmd: [
+        "docker",
+        "compose",
+        "-p",
+        "restow",
+        "--profile",
+        "mounts",
+        "up",
+        "-d",
+        "--no-deps",
+        "--no-build",
+        "--pull",
+        "missing",
+        "mounter",
+      ],
+      Labels: { [MOUNTER_RECREATE_LABEL]: "1" },
+      NetworkDisabled: true,
+    });
+    expect(body.Labels).not.toHaveProperty(SELF_RECREATE_LABEL);
+    expect(await handle.wait(5000)).toEqual({ exitCode: 0, output: "" });
+    expect(api.removed).toHaveLength(1);
   });
 });
 

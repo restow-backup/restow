@@ -180,6 +180,13 @@ export interface DockerOps {
    * `env` set in the process environment; null when the project defines no such service.
    */
   configUpdaterImage(env: Readonly<Record<string, string>>): Promise<string | null>;
+  /**
+   * The image Compose resolves for the `mounter` service (profile `mounts`), with `env`
+   * set in the process environment; null when the project defines no such service.
+   */
+  configMounterImage(env: Readonly<Record<string, string>>): Promise<string | null>;
+  /** The project has a `mounter` container, running or not. false when that cannot be read. */
+  mounterContainerExists(): Promise<boolean>;
   /** The version the api container was built with (its RESTOW_VERSION variable); null when unknown. */
   apiRunningVersion(): Promise<string | null>;
 
