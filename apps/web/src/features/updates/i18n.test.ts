@@ -11,6 +11,7 @@ import {
   CHECK_ERROR_CODES,
   FAILURE_CODES,
   LEAD_TIME_PRESETS,
+  MOUNTER_UPDATE_REASONS,
   RUN_OUTCOMES,
   SELF_UPDATE_REASONS,
   STEP_STATUSES,
@@ -236,6 +237,8 @@ describe("updates translations", () => {
         (kind) => `updater.selfUpdate.${kind}`,
       ),
       ...SELF_UPDATE_REASONS.map((reason) => `updater.selfUpdate.reasons.${reason}`),
+      ...(["pending", "failed", "skipped"] as const).map((kind) => `updater.mounterUpdate.${kind}`),
+      ...MOUNTER_UPDATE_REASONS.map((reason) => `updater.mounterUpdate.reasons.${reason}`),
       "updater.enable.image",
       "updater.enable.imageGeneric",
       ...(["copy", "stop", "restore", "images", "start"] as const).map(
