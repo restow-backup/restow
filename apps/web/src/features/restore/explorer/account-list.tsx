@@ -22,6 +22,7 @@ import type { ObjectKind, SnapshotObject } from "@/features/restore/api";
 import { ObjectIcon, objectLabel } from "@/features/restore/explorer/entry-icon";
 import {
   type AccountTypeFilter,
+  accountAddress,
   accountKeywords,
   matchesAccountType,
   sortAccounts,
@@ -161,6 +162,7 @@ function AccountItem({
 }) {
   const { t } = useTranslation("restore");
   const label = objectLabel(object);
+  const address = accountAddress(object);
 
   return (
     <CommandItem
@@ -179,6 +181,10 @@ function AccountItem({
               · {t("explorer.object.own")}
             </span>
           ) : null}
+        </p>
+        <p className="truncate text-xs text-muted-foreground" data-slot="account-address">
+          {t(`explorer.object.kinds.${object.kind}`)}
+          {address ? ` · ${address}` : ""}
         </p>
         <AccountStatus object={object} />
       </div>

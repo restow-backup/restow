@@ -28,3 +28,19 @@ export function sortAccounts(objects: readonly SnapshotObject[]): SnapshotObject
 export function accountKeywords(object: SnapshotObject): string[] {
   return [object.externalId, object.kind, ...(object.ownerEmail ? [object.ownerEmail] : [])];
 }
+
+/**
+ * The address shown under an account's name: the owner's primary address (a
+ * mailbox and the OneDrive of the same person show the same one), the login
+ * address of an IMAP account, or null. Never the opaque Entra id of a mailbox
+ * or drive, and nothing when it would only repeat the name.
+ */
+export function accountAddress(
+  object: Pick<SnapshotObject, "kind" | "displayName" | "externalId" | "ownerEmail">,
+): string | null {
+  const address = object.ownerEmail?.trim() || (object.kind === "imap" ? object.externalId : null);
+  if (!address) {
+    return null;
+  }
+  return address.toLowerCase() === objectLabel(object).toLowerCase() ? null : address;
+}

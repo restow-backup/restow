@@ -72,6 +72,14 @@ describe("AccountList", () => {
     expect(html).not.toContain(ORPHAN_ID);
   });
 
+  it("names the kind and the primary address under each name", () => {
+    const html = render(<AccountList objects={objects} value={null} onChange={() => {}} />);
+    expect(html).toContain("Mailbox · anna@example.com");
+    expect(html).toContain("OneDrive · bob@example.com");
+    // The IMAP account's name already is its address: the kind alone.
+    expect(html).toMatch(/data-slot="account-address">IMAP account</);
+  });
+
   it("marks the viewer's own account and badges protection status", () => {
     const html = render(<AccountList objects={objects} value={OWN_ID} onChange={() => {}} />);
     expect(html).toContain("Yours");
