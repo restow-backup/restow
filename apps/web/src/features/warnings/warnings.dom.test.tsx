@@ -177,6 +177,17 @@ async function mount(node: React.ReactNode, seed?: (client: QueryClient) => void
 }
 
 const text = () => document.body.textContent ?? "";
+
+/** The table renders a tick after the page under load; wait for a text instead of reading once. */
+async function waitForText(expected: string, timeoutMs = 5000) {
+  const deadline = Date.now() + timeoutMs;
+  while (!text().includes(expected) && Date.now() < deadline) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+  }
+  expect(text()).toContain(expected);
+}
 const button = (label: string) =>
   [...document.querySelectorAll<HTMLButtonElement>("button")].find((candidate) =>
     candidate.textContent?.includes(label),
@@ -320,7 +331,7 @@ describe("the list of warnings", () => {
     await mount(<WarningsPage state="open" />, (client) =>
       client.setQueryData(warningKeys.list("t-1", "open"), LIST),
     );
-    expect(text()).toContain("Anna");
+    await waitForText("Anna");
     expect(text()).toContain("Fileserver");
     // A failed backup is pointed out, not offered for acknowledging.
     expect(document.querySelector('[data-slot="failed-hint"]')?.textContent).toContain(
@@ -380,7 +391,7 @@ describe("the list of warnings", () => {
     await mount(<WarningsPage state="acknowledged" />, (client) =>
       client.setQueryData(warningKeys.list("t-1", "acknowledged"), acknowledged),
     );
-    expect(text()).toContain("admin@contoso.example");
+    await waitForText("admin@contoso.example");
     expect(text()).toContain("Too large, accepted.");
     expect(document.querySelector('tbody [role="checkbox"]')).toBeNull();
   });
