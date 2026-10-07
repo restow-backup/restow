@@ -2,13 +2,15 @@
 
 One word per thing, in the web interface, mails, PDFs, webhooks and docs.
 Every user-facing string follows this list; a new term is added here first.
+Where a second term is listed as "also", both are fine: familiar technical words
+like snapshot stay where administrators expect them.
 German addresses the reader formally ("Sie") and never names the product
 literally (use `{appName}`).
 
 | Thing | English | Deutsch | Not |
 | --- | --- | --- | --- |
 | A computer with the agent | machine (server, client) | Rechner (Server, Client) | Maschine, Endpoint, Gerät |
-| One stored state of a backup that can be restored | restore point | Sicherungsstand | Snapshot, Wiederherstellungspunkt, Sicherung #, Version |
+| One stored state of a backup that can be restored | restore point (also: snapshot, version) | Sicherungsstand (auch: Snapshot, Version) | Wiederherstellungspunkt, Sicherung # |
 | The configuration that says what is backed up and when | backup job | Backup-Job | Auftrag, Sicherungsjob |
 | One execution of a backup job, restore, export, import or check | run | Lauf | Job (for a run), Auftrag |
 | Waiting in the queue, not started yet | waiting | Wartet | Eingereiht, Wartend, Queued (as a state label) |
