@@ -183,6 +183,7 @@ if [ -n "${ORACLE:-}" ]; then
     log "ORACLE=1 needs the VM stopped; skipping the bit-for-bit comparison"
   fi
 fi
+# shellcheck disable=SC2046 # the exit code and the log path, split on purpose
 set -- $(vzdump_restow "$VM_ID")
 if [ "$1" = 0 ]; then ok "VM backup 1"; else bad "VM backup 1 (exit $1)"; fi
 grep -qi "bitmap mode new\|bitmap mode none" "$2" && ok "first backup read the whole disk"
@@ -193,6 +194,7 @@ section "2b. VM $VM_ID: write in the guest, second backup (incremental expected 
 if qm status "$VM_ID" | grep -q running && qm guest cmd "$VM_ID" ping >/dev/null 2>&1; then
   run qm guest exec "$VM_ID" -- sh -c "dd if=/dev/urandom of=/var/tmp/restow-test.bin bs=1M count=16 && sync"
 fi
+# shellcheck disable=SC2046 # the exit code and the log path, split on purpose
 set -- $(vzdump_restow "$VM_ID")
 if [ "$1" = 0 ]; then ok "VM backup 2"; else bad "VM backup 2 (exit $1)"; fi
 if grep -qi "bitmap mode reuse" "$2"; then
@@ -208,6 +210,7 @@ run pvesm list "$STORAGE_ID" --vmid "$VM_ID"
 
 # ---- 3. CT ------------------------------------------------------------------------
 section "3. Container $CT_ID: backup (restic over the directory mechanism)"
+# shellcheck disable=SC2046 # the exit code and the log path, split on purpose
 set -- $(vzdump_restow "$CT_ID")
 if [ "$1" = 0 ]; then ok "CT backup"; else bad "CT backup (exit $1)"; fi
 CT_VOL=$(latest_volid "$CT_ID")
