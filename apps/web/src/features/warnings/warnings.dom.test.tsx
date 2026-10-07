@@ -160,7 +160,10 @@ afterEach(() => {
 });
 
 async function mount(node: React.ReactNode, seed?: (client: QueryClient) => void) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  // Seeded data stays fresh: a refetch would hit the 404 fallback and race the assertions.
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, staleTime: Number.POSITIVE_INFINITY } },
+  });
   seed?.(client);
   host = document.createElement("div");
   document.body.appendChild(host);
