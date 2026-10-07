@@ -435,7 +435,7 @@ uninstall() {
     rm -f "$ROOT/etc/systemd/system/restow-pve.service" "$PLUGIN_FILE" "$PROVIDER_FILE"
     rm -rf "$PREFIX" "$ROOT/etc/restow-pve" "$ROOT/var/lib/restow-pve"
   fi
-  [ -z "$SKIP_SERVICE" ] && systemctl daemon-reload 2>/dev/null || true
+  if [ -z "$SKIP_SERVICE" ]; then systemctl daemon-reload 2>/dev/null || true; fi
   [ -z "$SKIP_SERVICE" ] && restart_pve_daemons
   say "Removed restow-pve and the storage plugin. Backups stay in Restow."
   say "Remove the storage when no node uses it any more: pvesm remove <storage id>"
@@ -513,7 +513,9 @@ main() {
     [ -n "$SETUP_PVE_USER" ] && [ -z "$ROOT" ] && setup_pve_user
     ask "PVE API token id (e.g. restow@pve!restow): " PVE_TOKEN_ID
     ask "PVE API token secret (input is hidden): " PVE_TOKEN_SECRET hidden
-    [ -n "$PVE_TOKEN_ID" ] && [ -n "$PVE_TOKEN_SECRET" ] || die "the PVE API token is needed (RESTOW_PVE_TOKEN_ID and RESTOW_PVE_TOKEN_SECRET_FILE, or --setup-pve-user)"
+    if [ -z "$PVE_TOKEN_ID" ] || [ -z "$PVE_TOKEN_SECRET" ]; then
+      die "the PVE API token is needed (RESTOW_PVE_TOKEN_ID and RESTOW_PVE_TOKEN_SECRET_FILE, or --setup-pve-user)"
+    fi
     if [ -z "$FLEECING" ] && [ -z "$ROOT" ]; then
       suggestions=$(thin_storages | tr '\n' ' ')
       say "Thin storages on this node for fleecing images: ${suggestions:-none found}"
