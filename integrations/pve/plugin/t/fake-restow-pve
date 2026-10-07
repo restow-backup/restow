@@ -1,0 +1,45 @@
+#!/usr/bin/perl
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# Stand-in for `restow-pve provider <verb>` in the shim's tests: records each
+# call (verb and request) in $FAKE_RESTOW_LOG, writes a log line to stderr and
+# answers with a canned result.
+use strict;
+use warnings;
+use JSON::PP;
+
+my ($cmd, $verb) = @ARGV;
+die "usage: fake-restow-pve provider <verb>\n" if ($cmd // '') ne 'provider';
+my $input = do { local $/; <STDIN> };
+my $req = JSON::PP->new->decode($input || '{}');
+
+open(my $log, '>>', $ENV{FAKE_RESTOW_LOG}) or die "log: $!\n";
+print {$log} JSON::PP->new->canonical->encode({ verb => $verb, request => $req }), "\n";
+close($log);
+
+print STDERR "info: $verb called\n";
+print STDERR "warn: a warning";    # no newline: the shim must still relay it
+
+my %results = (
+    'backup-init' => { archiveName => "vm/" . ($req->{vmid} // 0) . "/2026-10-03T22:00:00Z" },
+    'backup-get-mechanism' => { mechanism => (($req->{vmtype} // '') eq 'lxc' ? 'directory' : 'nbd') },
+    'backup-vm-query-incremental' => { devices => { map { $_ => 'use' } keys %{ $req->{volumes} // {} } } },
+    'backup-cleanup' => { stats => { archiveSize => 1234 } },
+    'restore-get-mechanism' => { mechanism => 'qemu-img', vmtype => 'qemu' },
+    'archive-get-guest-config' => { config => "scsi0: x\n" },
+    'archive-get-firewall-config' => { config => undef },
+    'restore-vm-init' => { devices => { 'drive-scsi0' => { size => 4194304 } } },
+    'restore-vm-volume-init' => { qemuImgPath => 'nbd+unix:///drive-scsi0?socket=/run/x.sock' },
+    'restore-container-init' => { archiveDirectory => '/var/tmp/restow-pve/ct' },
+    'storage-status' => { total => 100, avail => 60, used => 40, active => JSON::PP::true },
+    'list-volumes' => { volumes => [
+        { volname => 'backup/vm/101/2026-10-03T22:00:00Z', vmid => 101, ctime => 1, size => 5, subtype => 'qemu', format => 'restow-vm' },
+    ] },
+);
+
+if ($verb eq 'fail') {
+    print JSON::PP->new->encode({ ok => JSON::PP::false, error => 'it failed on purpose' });
+    exit 1;
+}
+print JSON::PP->new->encode({ ok => JSON::PP::true, result => ($results{$verb} // {}) });
+exit 0;

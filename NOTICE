@@ -21,3 +21,16 @@ bare-path 3.1.2 (https://github.com/holepunchto/bare-path)
     WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
     See the License for the specific language governing permissions and
     limitations under the License.
+
+Separate work: the storage plugin shim for Proxmox VE
+
+The Perl modules in integrations/pve/plugin (installed on Proxmox VE nodes as
+PVE/Storage/Custom/RestowPlugin.pm and PVE/BackupProvider/Plugin/Restow.pm)
+are a separate work licensed under the GNU Affero General Public License,
+version 3 or (at your option) any later version; the full text is in
+integrations/pve/plugin/LICENSE and ships with them. They derive from Perl
+classes of Proxmox VE (pve-storage), which are licensed AGPL-3.0-or-later, and
+only pass the calls of Proxmox VE to the separate program restow-pve
+(Apache-2.0) over a documented command line and JSON protocol
+(docs/PVE-PROTOCOL.md). Proxmox is a trademark of Proxmox Server Solutions
+GmbH; Restow is not affiliated with or endorsed by it.

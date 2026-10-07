@@ -156,7 +156,8 @@
     "update": "Updates",
     "endpoint": "Servers and clients",
     "backup_job": "Backup jobs",
-    "mount": "Network shares"
+    "mount": "Network shares",
+    "pve": "Proxmox VE"
   },
   "events": {
     "account": {
@@ -510,6 +511,32 @@
       "add_requested": "Network share added",
       "remove_requested": "Network share removed",
       "tested": "Network share tested"
+    },
+    "pve": {
+      "token": {
+        "created": "Enrollment token for Proxmox VE created"
+      },
+      "node": {
+        "enrolled": "Node enrolled",
+        "revoked": "Node revoked",
+        "denied": "Forbidden access of a node refused"
+      },
+      "backup": {
+        "requested": "Guest backup requested"
+      },
+      "restore": {
+        "requested": "Restore as a new guest requested"
+      },
+      "verify": {
+        "requested": "Restore check of the restore point requested"
+      },
+      "job": {
+        "changed": "Backup job for VMs and containers changed"
+      },
+      "snapshot": {
+        "committed": "Restore point of the guest stored",
+        "pruned": "Restore point of the guest removed (retention)"
+      }
     }
   },
   "targetTypes": {
@@ -549,7 +576,12 @@
     "endpoint": "Server or client",
     "endpoint_enrollment_token": "Enrollment token",
     "backup_job": "Backup job",
-    "mount": "Network share"
+    "mount": "Network share",
+    "pve_node": "Node (Proxmox VE)",
+    "pve_guest": "Guest (VM or container)",
+    "pve_snapshot": "Restore point (VM or container)",
+    "pve_job": "Backup job (VMs and containers)",
+    "pve_enrollment_token": "Enrollment token (Proxmox VE)"
   },
   "sectionDescription": "The log of this {scope, select, organisation {organisation} other {tenant}}: who did what, when, with the hash chain that proves it was not changed."
 }

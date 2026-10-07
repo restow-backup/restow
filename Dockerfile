@@ -132,6 +132,9 @@ ARG RESTOW_REVISION=
 ARG RESTOW_CREATED=
 WORKDIR /src
 COPY agent*/ /src/agent/
+# The storage plugin shim for Proxmox VE (a separate work, AGPL-3.0-or-later):
+# build.sh ships it next to restow-pve in the linux-amd64 release (docs/PVE.md).
+COPY integrations/pve/plugin/ /src/integrations/pve/plugin/
 RUN --mount=type=cache,id=go-mod,target=/go/pkg/mod \
     --mount=type=cache,id=go-build,target=/root/.cache/go-build \
     set -eu; \
@@ -145,6 +148,7 @@ RUN --mount=type=cache,id=go-mod,target=/go/pkg/mod \
       ssh-keygen -Y verify -f /tmp/allowed_signers -I restow-agent-release -n restow-agent-release -s SHA256SUMS.sig < SHA256SUMS; \
       sha256sum -c SHA256SUMS; \
       chmod 0755 ./*/restow-agent ./*/restic; \
+      if [ -f ./linux-amd64/restow-pve ]; then chmod 0755 ./linux-amd64/restow-pve; fi; \
       cp -R . /out/; \
       cp /src/agent/install/*.sh /src/agent/release-signing.pub /install/; \
     elif [ -f /src/agent/build.sh ]; then \
@@ -184,6 +188,9 @@ RUN set -eu; \
       target="$(basename "$dir")"; \
       mkdir -p "${root}/${version}/${target}"; \
       cp "$dir"restow-agent "$dir"restic "$dir"THIRD_PARTY_NOTICES.txt "$dir"SHA256SUMS "${root}/${version}/${target}/"; \
+      for extra in restow-pve RestowPlugin.pm RestowProvider.pm RestowPlugin.LICENSE.txt; do \
+        if [ -f "$dir$extra" ]; then cp "$dir$extra" "${root}/${version}/${target}/"; fi; \
+      done; \
     done; \
     for file in SHA256SUMS SHA256SUMS.sig VERSION RESTIC_VERSION; do \
       [ ! -f "/agent/${file}" ] || cp "/agent/${file}" "${root}/${version}/${file}"; \

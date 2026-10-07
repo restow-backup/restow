@@ -10,6 +10,7 @@ import * as mailImports from "@/features/imports";
 import * as installation from "@/features/installation";
 import * as integrations from "@/features/integrations";
 import * as providerTeam from "@/features/provider-team";
+import * as pve from "@/features/pve";
 import * as redirects from "@/features/redirects";
 import * as reports from "@/features/reports";
 import * as restore from "@/features/restore";
@@ -51,6 +52,7 @@ const features = [
   archive,
   mailExports,
   endpoints,
+  pve,
   tenants,
   tenantPage,
   directory,
@@ -111,6 +113,7 @@ const NAV_PLACEMENT: Readonly<Record<string, Placement>> = {
   exports: { group: "mail", order: 40 },
   "endpoint-jobs": { group: "endpoints", order: 10 },
   inventory: { group: "endpoints", order: 20 },
+  virtualization: { group: "endpoints", order: 25 },
   "file-restore": { group: "endpoints", order: 30 },
   "tenant-settings": { group: "tenants", order: 10 },
   "organisation-settings": { group: "tenants", order: 10 },

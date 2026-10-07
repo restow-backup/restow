@@ -60,6 +60,9 @@ export * from "./verify/index.js";
 // Endpoint backup: the agent contract, the restic REST endpoint, restic on the server
 export * from "./endpoints/index.js";
 
+// Proxmox VE guests: block maps of VM disks, restore point manifests (docs/PROXMOX.md)
+export * from "./pve/index.js";
+
 // Failure explanations: classified causes, redaction, what to do
 export * from "./failures/index.js";
 

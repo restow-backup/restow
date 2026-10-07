@@ -156,7 +156,8 @@
     "update": "Updates",
     "endpoint": "Server und Clients",
     "backup_job": "Jobs (Definitionen)",
-    "mount": "Netzlaufwerke"
+    "mount": "Netzlaufwerke",
+    "pve": "Proxmox VE"
   },
   "events": {
     "account": {
@@ -510,6 +511,32 @@
       "add_requested": "Netzlaufwerk hinzugefügt",
       "remove_requested": "Netzlaufwerk entfernt",
       "tested": "Netzlaufwerk getestet"
+    },
+    "pve": {
+      "token": {
+        "created": "Enrollment-Token für Proxmox VE erstellt"
+      },
+      "node": {
+        "enrolled": "Knoten eingerichtet",
+        "revoked": "Knoten widerrufen",
+        "denied": "Unzulässiger Zugriff eines Knotens abgewiesen"
+      },
+      "backup": {
+        "requested": "Sicherung des Gasts angefordert"
+      },
+      "restore": {
+        "requested": "Wiederherstellung als neuer Gast angefordert"
+      },
+      "verify": {
+        "requested": "Restore-Prüfung des Sicherungsstands angefordert"
+      },
+      "job": {
+        "changed": "Backup-Job für VMs und Container geändert"
+      },
+      "snapshot": {
+        "committed": "Sicherungsstand des Gasts gespeichert",
+        "pruned": "Sicherungsstand des Gasts entfernt (Aufbewahrung)"
+      }
     }
   },
   "targetTypes": {
@@ -549,7 +576,12 @@
     "endpoint": "Server oder Client",
     "endpoint_enrollment_token": "Enrollment-Token",
     "backup_job": "Job (Definition)",
-    "mount": "Netzlaufwerk"
+    "mount": "Netzlaufwerk",
+    "pve_node": "Knoten (Proxmox VE)",
+    "pve_guest": "Gast (VM oder Container)",
+    "pve_snapshot": "Sicherungsstand (VM oder Container)",
+    "pve_job": "Backup-Job (VMs und Container)",
+    "pve_enrollment_token": "Enrollment-Token (Proxmox VE)"
   },
   "sectionDescription": "{scope, select, organisation {Das Protokoll dieser Organisation} other {Das Protokoll dieses Mandanten}}: wer wann was getan hat, mit der Hash-Kette, die beweist, dass nichts verändert wurde."
 }

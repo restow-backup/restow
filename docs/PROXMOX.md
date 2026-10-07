@@ -1,6 +1,6 @@
 # Proxmox VE backup for Restow: research and design proposal
 
-Status: proposal for 0.3.0, written 2026-10-03. Nothing here is implemented, and no code was changed.
+Status: design for 0.3.0, written 2026-10-03. Phase 1 (section 3) is implemented; what exists and how to run it is in [PVE.md](PVE.md), the helper protocol in [PVE-PROTOCOL.md](PVE-PROTOCOL.md) and the test on a real node in [PVE-HOST-TEST.md](PVE-HOST-TEST.md). Deviations from this design: PVE jobs live in their own table (`pve_jobs`) instead of `backup_jobs.kind = pve`; the worker plans them instead of the scheduler; container repositories lie under `pve-guests/<guest id>/` instead of `endpoints/`; GC counts one reference per distinct chunk and restore point (the delta scheme of 2.4 remains a follow-up, R7).
 Audience: Restow maintainers. Scope: Proxmox VE (PVE) VMs and LXC containers, per the website roadmap:
 
 > "Virtual machines and LXC containers from Proxmox VE 8.4 or newer, through Proxmox's official backup

@@ -15,7 +15,7 @@
     "test": "pnpm build:libs && pnpm -r --workspace-concurrency=2 test",
     "test:ci": "pnpm build:libs && pnpm -r --workspace-concurrency=2 test -- --reporter=default --reporter=json --outputFile=test-results/vitest.json",
     "test:pg-guard": "node scripts/ci/assert-pg-suites.mjs",
-    "lint": "biome check . && node scripts/ci/check-ee-boundary.mjs && node scripts/ci/check-legacy-name.mjs && node scripts/ci/check-package-files.mjs",
+    "lint": "biome check . && node scripts/ci/check-ee-boundary.mjs && node scripts/ci/check-legacy-name.mjs && node scripts/ci/check-package-files.mjs && node scripts/ci/check-separate-works.mjs",
     "format": "biome format --write .",
     "dev:web": "pnpm --filter @restow/web dev",
     "dev:api": "pnpm --filter @restow/api dev",

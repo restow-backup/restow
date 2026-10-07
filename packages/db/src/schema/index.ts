@@ -46,4 +46,5 @@ export * from "./imports.js";
 export * from "./endpoints.js";
 export * from "./backup-jobs.js";
 export * from "./run-samples.js";
+export * from "./pve.js";
 export * from "./system.js";

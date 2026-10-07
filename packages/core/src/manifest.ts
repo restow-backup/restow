@@ -59,7 +59,7 @@ const LINE_FEED = 0x0a;
 
 /** Where a snapshot's data came from. */
 export interface ManifestSource {
-  readonly type: "m365" | "imap" | "infrastructure";
+  readonly type: "m365" | "imap" | "infrastructure" | "pve";
   /** Stable id of the protected object (mailbox, drive, IMAP account, host path). */
   readonly id: string;
   /** What the protected object is (mailbox, onedrive, imap), when known. */

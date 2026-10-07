@@ -20,6 +20,7 @@ import importsDe from "../resources/de/imports.json" with { type: "json" };
 import installationDe from "../resources/de/installation.json" with { type: "json" };
 import integrationsDe from "../resources/de/integrations.json" with { type: "json" };
 import notificationsDe from "../resources/de/notifications.json" with { type: "json" };
+import pveDe from "../resources/de/pve.json" with { type: "json" };
 import reportsDe from "../resources/de/reports.json" with { type: "json" };
 import restoreDe from "../resources/de/restore.json" with { type: "json" };
 import retentionDe from "../resources/de/retention.json" with { type: "json" };
@@ -53,6 +54,7 @@ import importsEn from "../resources/en/imports.json" with { type: "json" };
 import installationEn from "../resources/en/installation.json" with { type: "json" };
 import integrationsEn from "../resources/en/integrations.json" with { type: "json" };
 import notificationsEn from "../resources/en/notifications.json" with { type: "json" };
+import pveEn from "../resources/en/pve.json" with { type: "json" };
 import reportsEn from "../resources/en/reports.json" with { type: "json" };
 import restoreEn from "../resources/en/restore.json" with { type: "json" };
 import retentionEn from "../resources/en/retention.json" with { type: "json" };
@@ -100,6 +102,7 @@ export const namespaces = [
   "verify",
   "retention",
   "endpoints",
+  "pve",
   "imports",
   "exports",
   "storage",
@@ -154,6 +157,7 @@ export const resources = {
     verify: verifyDe,
     retention: retentionDe,
     endpoints: endpointsDe,
+    pve: pveDe,
     imports: importsDe,
     exports: exportsDe,
     storage: storageDe,
@@ -188,6 +192,7 @@ export const resources = {
     verify: verifyEn,
     retention: retentionEn,
     endpoints: endpointsEn,
+    pve: pveEn,
     imports: importsEn,
     exports: exportsEn,
     storage: storageEn,

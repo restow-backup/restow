@@ -443,6 +443,15 @@ jobs:
         # fails as soon as agent/ depends on a module other than its own.
         run: node scripts/ci/check-go-deps.mjs
 
+      - name: Separate works stay separate (PVE plugin shim, AGPL-3.0-or-later)
+        # scripts/ci/check-separate-works.mjs: integrations/pve/plugin carries its
+        # license and SPDX headers, holds no core code, is referenced only where
+        # license-policy.json allows and copied nowhere. Then the shim's own tests
+        # (perl -c against stub base classes, a mock vzdump driving the provider).
+        run: |
+          node scripts/ci/check-separate-works.mjs
+          prove integrations/pve/plugin/t/
+
       - name: Third-party notices are up to date
         # THIRD_PARTY_NOTICES.md carries name, version, license, copyright lines and the
         # license texts of every shipped dependency, read from the installed packages and,

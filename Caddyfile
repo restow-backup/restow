@@ -292,6 +292,13 @@
 		request_body @agent_api {
 			max_size 16MiB
 		}
+		# restow-pve (Proxmox VE): frames of up to 16 VM disk blocks of 4 MiB; the
+		# api checks the exact limit of every route. /agent/pve/restic/* streams
+		# like /agent/restic/*.
+		@pve_api path /agent/pve/v1/*
+		request_body @pve_api {
+			max_size 80MiB
+		}
 		reverse_proxy api:3000
 	}
 	handle /install/* {

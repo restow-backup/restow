@@ -114,6 +114,15 @@ DECLARE
     'backup_jobs',
     'backup_job_members',
     'run_samples',
+    'pve_enrollment_tokens',
+    'pve_clusters',
+    'pve_nodes',
+    'pve_jobs',
+    'pve_guests',
+    'pve_tasks',
+    'pve_runs',
+    'pve_run_blocks',
+    'pve_snapshots',
     -- Read and written only by the installation role (packages/db roles.ts);
     -- the policy is a second line should the tenant role ever be granted it.
     'provider_member_tenants'

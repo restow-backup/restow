@@ -61,7 +61,7 @@ function menu(role: string | null, ctx: NavLockContext): Record<string, string[]
 const DAILY = ["dashboard", "history", "verify", "alerts"];
 // The archive is part of Mail & SaaS (maintainer decision 2026-10-02): no section of its own.
 const MAIL = ["mail-jobs", "restore", "archive", "exports"];
-const ENDPOINTS = ["endpoint-jobs", "inventory", "file-restore"];
+const ENDPOINTS = ["endpoint-jobs", "inventory", "virtualization", "file-restore"];
 
 describe("the menu per edition", () => {
   it("Community, provider admin: the one organisation's settings, the members, the licensed entries greyed out", () => {

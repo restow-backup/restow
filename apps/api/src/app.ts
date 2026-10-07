@@ -40,6 +40,14 @@ import { mountsRoutes } from "./features/mounts/routes.js";
 import { mountPath as providerTeamMountPath } from "./features/provider-team/meta.js";
 import { providerTeamRoutes } from "./features/provider-team/routes.js";
 import {
+  PVE_NODE_API_PATH,
+  PVE_RESTIC_PATH,
+  mountPath as pveMountPath,
+} from "./features/pve/meta.js";
+import { pveNodeRoutes } from "./features/pve/node-routes.js";
+import { pveResticRoutes } from "./features/pve/restic-route.js";
+import { pveInstallScript, pveRoutes } from "./features/pve/routes.js";
+import {
   NOTIFICATIONS_MOUNT_PATH,
   REPORTS_MOUNT_PATH,
   notificationsRoutes,
@@ -177,6 +185,11 @@ export function buildApp() {
   // and the install scripts are public by design.
   app.route(AGENT_API_PATH, agentRoutes);
   app.route(RESTIC_PATH, resticRoutes);
+  // Proxmox VE (docs/PVE.md): restow-pve's API, the restic endpoint of container
+  // repositories (per-run credentials) and the node installer.
+  app.route(PVE_NODE_API_PATH, pveNodeRoutes);
+  app.route(PVE_RESTIC_PATH, pveResticRoutes);
+  app.get(`${INSTALL_PATH}/pve.sh`, pveInstallScript);
   app.route(INSTALL_PATH, installRoutes);
 
   // Web UI (session) routes, in navigation order.
@@ -214,6 +227,7 @@ export function buildApp() {
   app.route(`${API_V1}${updatesMountPath}`, updatesRoutes);
   app.route(`${API_V1}${maintenanceMountPath}`, maintenanceRoutes);
   app.route(`${API_V1}${mountsMountPath}`, mountsRoutes);
+  app.route(`${API_V1}${pveMountPath}`, pveRoutes);
 
   // Extension route groups, each behind the guard its extension supplies.
   for (const contribution of sessionRouteContributions()) {

@@ -37,6 +37,8 @@ export const DISTRIBUTION_TARGETS = SUPPORTED_ENDPOINT_OS.flatMap((os) => [
 export const INSTALL_SCRIPTS = {
   "linux.sh": "linux.sh",
   "macos.sh": "macos.sh",
+  // The node installer for Proxmox VE (restow-pve, features/pve).
+  "pve.sh": "pve.sh",
 } as const;
 export type InstallScriptName = keyof typeof INSTALL_SCRIPTS;
 

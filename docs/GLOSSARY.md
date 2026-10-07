@@ -25,6 +25,8 @@ literally (use `{appName}`).
 | A person of a tenant | tenant user | Benutzer des Mandanten | Kunde |
 | The long-term, tamper-evident mail store | archive | Archiv | Journal |
 | A network share mounted by the mounter | network share | Netzlaufwerk | Mount, Freigabe (in the UI) |
+| A VM or container of Proxmox VE | guest (VM, container) | Gast (VM, Container) | Instanz, Maschine, CT |
+| A Proxmox VE server with the node helper | node | Knoten | Host, Hypervisor (for a node) |
 
 Times are relative where they describe the past ("vor 3 Stunden") and
 absolute with the time zone where they plan the future ("morgen, 22:00").

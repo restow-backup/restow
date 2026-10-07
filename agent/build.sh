@@ -9,6 +9,14 @@
 #                                    notices of restic and the Go modules in it,
 #                                    from THIRD_PARTY_NOTICES.txt in this folder;
 #                                    the installers put it next to the binaries)
+#   dist/linux-amd64/restow-pve, RestowPlugin.pm, RestowProvider.pm,
+#   dist/linux-amd64/RestowPlugin.LICENSE.txt
+#                                    (the node helper for Proxmox VE and the
+#                                     storage plugin shim, a separate work under
+#                                     AGPL-3.0-or-later from
+#                                     ../integrations/pve/plugin; only when that
+#                                     folder exists or RESTOW_PVE_PLUGIN_DIR
+#                                     names one, see docs/PVE.md)
 #   dist/<os>-<arch>/SHA256SUMS      (the files of one target)
 #   dist/SHA256SUMS                  (all files, paths relative to dist/; the
 #                                     release signature covers this file)
@@ -32,6 +40,11 @@ VERSION="${RESTOW_VERSION:-0.0.0-dev}"
 OUT="$AGENT_DIR/dist"
 TARGETS="linux-amd64 linux-arm64 darwin-amd64 darwin-arm64"
 WITH_RESTIC="${RESTOW_BUILD_WITH_RESTIC:-1}"
+# The PVE storage plugin shim; restow-pve is built only together with it.
+PVE_PLUGIN_DIR="${RESTOW_PVE_PLUGIN_DIR:-}"
+if [ -z "$PVE_PLUGIN_DIR" ] && [ -f "$AGENT_DIR/../integrations/pve/plugin/RestowPlugin.pm" ]; then
+  PVE_PLUGIN_DIR=$(cd "$AGENT_DIR/../integrations/pve/plugin" && pwd)
+fi
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -72,7 +85,12 @@ if ! command -v go >/dev/null 2>&1; then
     *) die "without a local Go toolchain --out must be inside $AGENT_DIR" ;;
   esac
   rel="${OUT#"$AGENT_DIR"/}"
-  exec docker run --rm \
+  pve_mount=""
+  if [ -n "$PVE_PLUGIN_DIR" ]; then
+    pve_mount="-v $PVE_PLUGIN_DIR:/pve-plugin:ro -e RESTOW_PVE_PLUGIN_DIR=/pve-plugin"
+  fi
+  # shellcheck disable=SC2086
+  exec docker run --rm $pve_mount \
     -v "$AGENT_DIR":/src -w /src \
     -v restow-agent-gomod:/go/pkg/mod -v restow-agent-gocache:/root/.cache/go-build \
     -e RESTOW_COMMIT="${RESTOW_COMMIT:-$(git -C "$AGENT_DIR" rev-parse --short HEAD 2>/dev/null || echo unknown)}" \
@@ -121,12 +139,23 @@ for target in $TARGETS; do
   fi
   cp "$AGENT_DIR/$NOTICES" "$dir/$NOTICES"
   chmod 0644 "$dir/$NOTICES"
+  if [ "$target" = linux-amd64 ] && [ -n "$PVE_PLUGIN_DIR" ]; then
+    CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -buildvcs=false \
+      -ldflags "$LDFLAGS" -o "$dir/restow-pve" ./cmd/restow-pve
+    for pm in RestowPlugin.pm RestowProvider.pm; do
+      [ -f "$PVE_PLUGIN_DIR/$pm" ] || die "$PVE_PLUGIN_DIR/$pm is missing"
+      cp "$PVE_PLUGIN_DIR/$pm" "$dir/$pm"
+      chmod 0644 "$dir/$pm"
+    done
+    cp "$PVE_PLUGIN_DIR/LICENSE" "$dir/RestowPlugin.LICENSE.txt"
+    chmod 0644 "$dir/RestowPlugin.LICENSE.txt"
+  fi
   (
     cd "$dir"
     # restic is absent with --no-restic. Do not write this as `[ -f ... ] && ...`:
     # under set -e a false test would end the loop with status 1 and kill the
     # script without a message.
-    for f in restow-agent restic "$NOTICES"; do
+    for f in restow-agent restic "$NOTICES" restow-pve RestowPlugin.pm RestowProvider.pm RestowPlugin.LICENSE.txt; do
       if [ -f "$f" ]; then
         sum=$(sha256_file "$f")
         [ -n "$sum" ] || die "cannot compute the SHA-256 of $dir/$f"
