@@ -130,6 +130,26 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   "GET /install/macos.sh",
   "GET /install/agent/:version/:file",
   "GET /install/agent/:version/:target/:file",
+  // Proxmox VE (docs/PVE.md): the node helper authenticates with its own secret,
+  // the node installer is a public download.
+  "POST /agent/pve/v1/enroll",
+  "POST /agent/pve/v1/heartbeat",
+  "POST /agent/pve/v1/inventory",
+  "GET /agent/pve/v1/listing",
+  "GET /agent/pve/v1/restore-points",
+  "GET /agent/pve/v1/update",
+  "POST /agent/pve/v1/runs",
+  "PUT /agent/pve/v1/runs/:runId/blocks",
+  "POST /agent/pve/v1/runs/:runId/commit",
+  "POST /agent/pve/v1/runs/:runId/finish",
+  "POST /agent/pve/v1/runs/:runId/incremental",
+  "POST /agent/pve/v1/runs/:runId/log",
+  "POST /agent/pve/v1/runs/:runId/restic",
+  "GET /agent/pve/v1/snapshots/:snapshotId/disks/:device/blocks",
+  "GET /agent/pve/v1/snapshots/:snapshotId/disks/:device/hashes",
+  "POST /agent/pve/v1/snapshots/:snapshotId/restic",
+  "POST /agent/pve/v1/tasks/:taskId/result",
+  "GET /install/pve.sh",
 ]);
 
 /**
@@ -398,6 +418,18 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // needs a technician; a read-only member sees that backups happened, not their content.
   // The detail answers every member, but the hook texts only to who may change
   // the configuration (features/endpoints/routes.ts: a hook may hold credentials).
+  // --- Proxmox VE ------------------------------------------------------------------
+  "GET /api/v1/pve": view(),
+  "GET /api/v1/pve/guests/:id": view(),
+  "POST /api/v1/pve/tokens": configure(),
+  "POST /api/v1/pve/nodes/:id/revoke": configure(),
+  "POST /api/v1/pve/jobs": configure(),
+  "PATCH /api/v1/pve/jobs/:id": configure(),
+  "DELETE /api/v1/pve/jobs/:id": configure(),
+  "PUT /api/v1/pve/guests/:id/job": configure(),
+  "POST /api/v1/pve/guests/:id/backup": operate(),
+  "POST /api/v1/pve/snapshots/:id/verify": operate(),
+  "POST /api/v1/pve/snapshots/:id/restore": operate(),
   "GET /api/v1/endpoints": view(),
   // The tenant's setting for automatic agent updates, and lifting a machine's own pause.
   "GET /api/v1/endpoints/agent-updates": view(),
