@@ -83,6 +83,8 @@ TOKEN_WAIT_SECONDS=60
 # The first release whose edge can serve an encrypted hop to a reverse proxy in front of it
 # (RESTOW_EDGE_TLS=internal, the Caddyfile of that release).
 PROXY_TLS_MIN_VERSION="0.2.0"
+# The first release with the opt-in mounter (compose profile "mounts", docs/MOUNTS.md).
+MOUNTER_MIN_VERSION="0.3.0"
 DOCS_URL="https://docs.restowbackup.com"
 PROXY_DOCS_URL="https://docs.restowbackup.com/administrators/get-started/#behind-a-reverse-proxy"
 # Caddy's local root certificate inside the edge container (the caddy-data volume).
@@ -122,6 +124,7 @@ OPT_DRY_RUN=0
 OPT_SKIP_SIGNATURES=0
 OPT_LOCAL=0
 OPT_UPDATER=0
+OPT_MOUNTER=0
 OPT_BEHIND_PROXY=0
 # The addresses of the reverse proxy, normalized (/32 or /128 added), separated by spaces.
 OPT_PROXY_IPS=""
@@ -202,6 +205,12 @@ Options:
   --no-updater             leave the opt-in updater off (the default)
   --with-updater           also start the opt-in updater (compose profile "updater"). It
                            mounts the Docker socket: read docs/UPDATING.md first.
+  --no-mounter             leave the opt-in mounter off (the default)
+  --with-mounter           also start the opt-in mounter (compose profile "mounts"), which
+                           adds NFS network shares as storage from the web interface. It
+                           mounts the Docker socket: read docs/MOUNTS.md first. With the
+                           updater on, it follows every signed update by itself. Needs
+                           release ${MOUNTER_MIN_VERSION} or newer.
   --local                  evaluation only: no public domain, no Let's Encrypt. The edge
                            serves https://localhost (or the internal name given with
                            --domain: *.internal, *.home.arpa, *.localhost) over HTTPS
@@ -978,6 +987,14 @@ parse_args() {
         ;;
       --with-updater)
         OPT_UPDATER=1
+        shift
+        ;;
+      --no-mounter)
+        OPT_MOUNTER=0
+        shift
+        ;;
+      --with-mounter)
+        OPT_MOUNTER=1
         shift
         ;;
       --local)
@@ -1978,6 +1995,8 @@ write_env() {
   # RESTOW_UPDATER_IMAGE stays empty, also with --with-updater: the updater is the application
   # image, and on its first start it pins the image it runs into .env by digest (stronger than
   # the tag this script knows), then moves itself after every update from a signed release.
+  # RESTOW_MOUNTER_IMAGE stays empty with --with-mounter for the same reason; the updater
+  # moves the mounter along with it.
   ENV_TMP="$OPT_DIR/.env.install.$$"
   # shellcheck disable=SC2086 # $keys is a list of key names
   if ! (
@@ -2150,9 +2169,9 @@ compose() {
   docker compose -f "$OPT_DIR/docker-compose.yml" "$@"
 }
 
-# start_stack <with updater 0|1> <pull postgres 0|1>
+# start_stack <with updater 0|1> <pull postgres 0|1> [with mounter 0|1]
 start_stack() {
-  local updater=$1 pull_postgres=$2
+  local updater=$1 pull_postgres=$2 mounter=${3:-0}
   step "Starting the stack"
   # --quiet: the full output would print the secrets of .env.
   run compose config --quiet ||
@@ -2162,11 +2181,15 @@ start_stack() {
   if [ "$pull_postgres" = 1 ]; then
     run compose pull postgres || die "$EXIT_DOWNLOAD" "could not pull the PostgreSQL image"
   fi
+  # The opt-in services start with their compose profiles: "updater" and "mounts".
+  set --
   if [ "$updater" = 1 ]; then
-    run compose --profile updater up -d || die "$EXIT_START" "docker compose up failed (cd $OPT_DIR && docker compose ps)"
-  else
-    run compose up -d || die "$EXIT_START" "docker compose up failed (cd $OPT_DIR && docker compose ps)"
+    set -- "$@" --profile updater
   fi
+  if [ "$mounter" = 1 ]; then
+    set -- "$@" --profile mounts
+  fi
+  run compose "$@" up -d || die "$EXIT_START" "docker compose up failed (cd $OPT_DIR && docker compose ps)"
 }
 
 wait_healthy() {
@@ -2412,6 +2435,15 @@ print_next_steps() {
     say "      cd $OPT_DIR && docker compose --profile updater up -d   (no .env change needed; it"
     say "      runs the application image and mounts the Docker socket: read docs/UPDATING.md)."
   fi
+  if [ "$OPT_MOUNTER" = 1 ]; then
+    say "      The opt-in mounter runs: add NFS network shares under Installation > Mounts."
+    if [ "$OPT_UPDATER" = 1 ]; then
+      say "      It moves to the verified image of each signed update the updater installs."
+    else
+      say "      Without the updater it stays on its image; after an update, empty"
+      say "      RESTOW_MOUNTER_IMAGE in .env and run: cd $OPT_DIR && docker compose --profile mounts up -d mounter"
+    fi
+  fi
   say "  10. Back up $OPT_DIR/.env with the master key's offline copy, and the VM itself."
   say "  Documentation: $DOCS_URL"
 }
@@ -2579,6 +2611,26 @@ ask_proxy_ips() {
 proxy_version_problem() {
   if [ "${OPT_PROXY_HOP:-https}" != http ] && ! version_ge "$1" "$PROXY_TLS_MIN_VERSION"; then
     echo "--behind-proxy needs release $PROXY_TLS_MIN_VERSION or newer: the edge of $1 cannot serve an encrypted hop to a reverse proxy. Install $PROXY_TLS_MIN_VERSION or newer (--version), or use --proxy-hop http (the hop is then not encrypted; see --help)."
+  fi
+}
+
+# mounter_version_problem <version>: says why this release cannot start the mounter, if so.
+mounter_version_problem() {
+  if [ "$OPT_MOUNTER" = 1 ] && ! version_ge "$1" "$MOUNTER_MIN_VERSION"; then
+    echo "--with-mounter needs release $MOUNTER_MIN_VERSION or newer: $1 has no mounter. Install $MOUNTER_MIN_VERSION or newer (--version), or leave --with-mounter out."
+  fi
+}
+
+# require_mounter_release: --with-mounter on a release without the mounter stops before any
+# check. An installation that exists is only checked and started (like --with-updater).
+require_mounter_release() {
+  local problem
+  if [ "$OPT_MOUNTER" != 1 ] || [ -f "$OPT_DIR/.env" ]; then
+    return 0
+  fi
+  problem=$(mounter_version_problem "${OPT_VERSION:-$DEFAULT_VERSION}")
+  if [ -n "$problem" ]; then
+    die "$EXIT_USAGE" "$problem"
   fi
 }
 
@@ -2764,7 +2816,7 @@ collect_proxy_configuration() {
 }
 
 show_plan() {
-  local docker_action updater signatures address
+  local docker_action updater mounter signatures address
   case $DOCKER_STATE in
     missing) docker_action="install Docker Engine and the Compose plugin (Docker's apt repository)" ;;
     *) docker_action="use the installed Docker" ;;
@@ -2776,6 +2828,15 @@ show_plan() {
     updater="on: the application image in the updater role, pinned by digest on its first start (mounts the Docker socket; docs/UPDATING.md)"
   else
     updater="off (opt-in later, docs/UPDATING.md)"
+  fi
+  if [ "$OPT_MOUNTER" = 1 ]; then
+    if [ "$OPT_UPDATER" = 1 ]; then
+      mounter="on: the application image in the mounter role, moved along with every signed update (mounts the Docker socket; docs/MOUNTS.md)"
+    else
+      mounter="on: the application image in the mounter role, pinned by digest on its first start (mounts the Docker socket; docs/MOUNTS.md)"
+    fi
+  else
+    mounter="off (opt-in later, docs/MOUNTS.md)"
   fi
   if [ "$OPT_SKIP_SIGNATURES" = 1 ]; then
     signatures="NOT checked (--skip-signature-check)"
@@ -2806,6 +2867,7 @@ show_plan() {
   say "    Docker       $docker_action"
   say "    Signatures   $signatures"
   say "    Updater      $updater"
+  say "    Mounter      $mounter"
   if [ "$WARNINGS" -gt 0 ]; then
     say "    Warnings     $WARNINGS (see above)"
   fi
@@ -2846,7 +2908,7 @@ install_fresh() {
   write_env
   show_master_key
   pull_images
-  start_stack "$OPT_UPDATER" 1
+  start_stack "$OPT_UPDATER" 1 "$OPT_MOUNTER"
   wait_healthy
   check_edge "$DOMAIN"
   if [ "$MODE" = proxy ] && [ "$PROXY_HOP" = https ]; then
@@ -2967,6 +3029,7 @@ main() {
   init_log "$@"
   setup_interaction
   require_proxy_options
+  require_mounter_release
   banner
   # A first run on a terminal explains itself before it asks anything; an installation that
   # exists already is only checked and started, so it needs no introduction.

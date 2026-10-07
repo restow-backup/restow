@@ -98,6 +98,19 @@ assert_not_contains "deprecated" "$( (parse_args --local) 2>&1)" "--local prints
 assert_eq "help" "$(parsed --help | cut -d '|' -f 10)" "--help"
 assert_eq "upgrade" "$(parsed --upgrade | cut -d '|' -f 10)" "--upgrade"
 assert_eq "0" "$(parsed --with-updater --no-updater | cut -d '|' -f 9)" "--no-updater wins when last"
+parsed_mounter() {
+  (
+    set -Eeuo pipefail
+    parse_args "$@"
+    printf '%s|%s' "$OPT_MOUNTER" "$OPT_UPDATER"
+  ) 2>/dev/null
+}
+assert_eq "0|0" "$(parsed_mounter)" "the mounter is off by default"
+assert_eq "1|0" "$(parsed_mounter --with-mounter)" "--with-mounter, without the updater"
+assert_eq "1|1" "$(parsed_mounter --with-updater --with-mounter)" "--with-mounter next to --with-updater"
+assert_eq "0|0" "$(parsed_mounter --with-mounter --no-mounter)" "--no-mounter wins when last"
+assert_contains "--with-mounter" "$(usage)" "--help names --with-mounter"
+assert_contains "docs/MOUNTS.md" "$(usage)" "--help points to docs/MOUNTS.md"
 assert_status 2 "--uninstall is refused" parse_args --uninstall
 assert_status 2 "unknown option" parse_args --frobnicate
 assert_status 2 "--domain without value" parse_args --domain
@@ -855,7 +868,26 @@ assert_contains "--skip-signature-check: the cosign signatures" "$DRY_OUT" "loud
 assert_contains "NOT check the signature" "$DRY_OUT" "signatures skipped"
 assert_not_contains "docker pull $COSIGN_IMAGE" "$DRY_OUT" "no cosign without signature checks"
 assert_contains "would run: docker compose --profile updater up -d" "$DRY_OUT" "updater started on request"
+assert_not_contains "--profile mounts" "$DRY_OUT" "no mounter unless asked for"
+assert_contains "Mounter      off" "$DRY_OUT" "the plan says the mounter stays off"
 no_mutation "Community dry run"
+
+dry_main "$OS_DEBIAN13" "$MEM_8G" --non-interactive --dir "$dir3" --domain backup.example.com --version 0.3.0 --with-mounter
+assert_eq 0 "$DRY_STATUS" "dry run with the mounter exits 0"
+assert_contains "would run: docker compose --profile mounts up -d" "$DRY_OUT" "mounter started on request"
+assert_contains "Mounter      on: the application image in the mounter role, pinned by digest" "$DRY_OUT" "the plan names the mounter"
+no_mutation "dry run with the mounter"
+
+dry_main "$OS_DEBIAN13" "$MEM_8G" --non-interactive --dir "$dir3" --domain backup.example.com --version 0.3.0 --with-updater --with-mounter
+assert_eq 0 "$DRY_STATUS" "dry run with the updater and the mounter exits 0"
+assert_contains "would run: docker compose --profile updater --profile mounts up -d" "$DRY_OUT" "both profiles in one start"
+assert_contains "moved along with every signed update" "$DRY_OUT" "the plan says the updater moves the mounter"
+no_mutation "dry run with the updater and the mounter"
+
+dry_main "$OS_DEBIAN13" "$MEM_8G" --non-interactive --dir "$dir3" --domain backup.example.com --version 0.2.2 --with-mounter
+assert_eq 2 "$DRY_STATUS" "--with-mounter on a release without the mounter: refused"
+assert_contains "--with-mounter needs release $MOUNTER_MIN_VERSION or newer" "$DRY_OUT" "the old release is said to be the problem"
+assert_not_contains "would run: docker compose" "$DRY_OUT" "refused before anything starts"
 
 STUB_DOCKER_MISSING=1 dry_main "$OS_DEBIAN12" "$MEM_8G" --yes --domain backup.example.com --dir "$dir3"
 assert_eq 0 "$DRY_STATUS" "dry run without Docker exits 0"
@@ -1068,6 +1100,10 @@ assert_contains "use a domain name" "$(domain_problem 10.0.0.1 0 1)" "an IP behi
 assert_status 0 "0.2.0 can serve the encrypted hop" version_ge 0.2.0 "$PROXY_TLS_MIN_VERSION"
 assert_status 1 "0.1.0 cannot serve the encrypted hop" version_ge 0.1.0 "$PROXY_TLS_MIN_VERSION"
 assert_status 0 "a pre-release of 0.2.0 can" version_ge 0.2.0-rc.1 "$PROXY_TLS_MIN_VERSION"
+assert_eq "" "$(OPT_MOUNTER=1 mounter_version_problem 0.3.0)" "0.3.0 has the mounter"
+assert_eq "" "$(OPT_MOUNTER=1 mounter_version_problem 0.3.0-rc.1)" "a pre-release of 0.3.0 has it"
+assert_eq "" "$(OPT_MOUNTER=0 mounter_version_problem 0.2.2)" "no mounter asked for: any release"
+assert_contains "--with-mounter needs release $MOUNTER_MIN_VERSION or newer" "$(OPT_MOUNTER=1 mounter_version_problem 0.2.2)" "0.2.2 has no mounter"
 
 # ---- Behind a reverse proxy: .env ----------------------------------------------------------
 
