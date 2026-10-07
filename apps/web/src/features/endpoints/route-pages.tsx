@@ -1,6 +1,7 @@
-import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
+import { Navigate, useNavigate, useParams, useSearch } from "@tanstack/react-router";
 
 import { RequireRole } from "@/components/require-role";
+import { explorerAt } from "@/features/restore/navigation";
 
 import { EndpointDetailPage } from "./endpoint-detail-page.js";
 import { EndpointsPage } from "./endpoints-page.js";
@@ -67,13 +68,20 @@ export function EndpointDetailRoute() {
   );
 }
 
-/** File restore: the machine comes from `?machine=`, a mailbox from `?mailbox=`. */
+/**
+ * File restore: the machine comes from `?machine=`. A mailbox link of an earlier
+ * version (`?mailbox=`) opens the restore explorer at that mailbox instead.
+ */
 export function FileRestoreRoute() {
   const raw = useSearch({ strict: false }) as Record<string, unknown>;
   const { machine, mailbox } = parseFileRestoreSearch(raw);
+  if (!machine && mailbox) {
+    const explorer = explorerAt(mailbox);
+    return <Navigate to={explorer.to} search={explorer.search as never} replace />;
+  }
   return (
     <RequireRole roles={ENDPOINT_ROLES}>
-      <FileRestorePage machineId={machine ?? null} mailboxId={mailbox ?? null} />
+      <FileRestorePage machineId={machine ?? null} />
     </RequireRole>
   );
 }

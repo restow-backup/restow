@@ -86,9 +86,9 @@ export function parseDetailSearch(search: Record<string, unknown>): { tab?: Endp
 }
 
 /**
- * Search of the file restore page: the chosen machine (`?machine=`) or the
- * chosen mailbox (`?mailbox=`, a protected mail object of the restore
- * explorer). Only one is chosen at a time; given both, the machine wins.
+ * Search of the file restore page: the chosen machine (`?machine=`). The page
+ * lists machines only; `?mailbox=` is what earlier versions linked a mailbox
+ * with, and the route sends such a link on to the restore explorer.
  */
 export interface FileRestoreSearch {
   machine?: string;
@@ -121,9 +121,4 @@ export interface FileRestoreTarget {
  */
 export function fileRestoreTo(machineId: string): FileRestoreTarget {
   return { to: FILE_RESTORE_PATH as LinkProps["to"], search: { machine: machineId } };
-}
-
-/** File restore with this mailbox chosen: its restore points on the same timeline. */
-export function fileRestoreMailboxTo(mailboxId: string): FileRestoreTarget {
-  return { to: FILE_RESTORE_PATH as LinkProps["to"], search: { mailbox: mailboxId } };
 }

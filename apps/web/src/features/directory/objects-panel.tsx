@@ -49,7 +49,6 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { type JobsAccess, useJobsAccess } from "@/features/backup-jobs/components/access-note";
 import { linkProps, newJobTo } from "@/features/backup-jobs/paths";
-import { fileRestoreMailboxTo } from "@/features/endpoints/paths";
 import { explorerAt } from "@/features/restore/navigation";
 import { errorMessageKey } from "@/lib/api";
 import { formatDateTime, formatInteger, formatRelative } from "@/lib/format";
@@ -588,16 +587,6 @@ function objectLinkActions(
   const nothing = object.snapshotCount === 0;
   const reason = nothing ? t("rowActions.noBackup") : undefined;
   const actions: RowAction[] = [];
-  if (object.kind === "mailbox" || object.kind === "imap") {
-    actions.push({
-      id: "restorePoints",
-      label: t("rowActions.restorePoints"),
-      icon: History,
-      disabled: nothing,
-      reason,
-      link: fileRestoreMailboxTo(object.id),
-    });
-  }
   actions.push(
     {
       id: "explorer",

@@ -168,13 +168,14 @@ const PAGE: ObjectsPage = {
 };
 
 describe("the context menu of an object", () => {
-  it("leads to the restore points and the explorer, starts a job and decides protection", async () => {
+  it("leads to the explorer, starts a job and decides protection", async () => {
     await mount(PAGE);
     expect(
       row("Alice Example").querySelector('[aria-label="Actions for Alice Example"]'),
     ).not.toBeNull();
     await rightClick(row("Alice Example").querySelectorAll("td")[2] as HTMLElement);
-    expect(entry("restorePoints")?.getAttribute("href")).toBe("/file-restore?mailbox=o-1");
+    // Mailboxes are restored in the explorer only, never on the machines' file restore page.
+    expect(entry("restorePoints")).toBeNull();
     expect(entry("explorer")?.getAttribute("href")).toBe("/restore?object=o-1");
     expect(entry("newJob")?.getAttribute("href")).toBe("/jobs?type=mail&new=1&select=o-1");
     expect(entry("exclude")).not.toBeNull();
@@ -183,8 +184,6 @@ describe("the context menu of an object", () => {
   it("closes the restore entries of an object without a backup, and says why", async () => {
     await mount(PAGE);
     await rightClick(row("Bob OneDrive").querySelectorAll("td")[2] as HTMLElement);
-    // A OneDrive has no restore points on the file restore page.
-    expect(entry("restorePoints")).toBeNull();
     const explorer = entry("explorer");
     expect(explorer?.hasAttribute("data-disabled")).toBe(true);
     expect(explorer?.textContent).toContain("There is no backup of this object yet.");
