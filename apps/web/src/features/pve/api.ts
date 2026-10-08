@@ -136,23 +136,23 @@ export const pveKeys = {
   guest: (tenantId: string | null, id: string) => ["pve", tenantId, "guest", id] as const,
 };
 
-export const fetchOverview = () => apiFetch<PveOverview>("/api/v1/pve");
+export const fetchOverview = () => apiFetch<PveOverview>("/pve");
 export const fetchGuest = (id: string) =>
-  apiFetch<PveGuestDetail>(`/api/v1/pve/guests/${encodeURIComponent(id)}`);
+  apiFetch<PveGuestDetail>(`/pve/guests/${encodeURIComponent(id)}`);
 export const createToken = () =>
-  apiFetch<CreatedPveToken>("/api/v1/pve/tokens", { method: "POST", body: {} });
+  apiFetch<CreatedPveToken>("/pve/tokens", { method: "POST", body: {} });
 export const revokeNode = (id: string) =>
-  apiFetch<void>(`/api/v1/pve/nodes/${encodeURIComponent(id)}/revoke`, {
+  apiFetch<void>(`/pve/nodes/${encodeURIComponent(id)}/revoke`, {
     method: "POST",
     body: {},
   });
 export const backupNow = (id: string, verifyRead = false) =>
-  apiFetch<{ taskId: string }>(`/api/v1/pve/guests/${encodeURIComponent(id)}/backup`, {
+  apiFetch<{ taskId: string }>(`/pve/guests/${encodeURIComponent(id)}/backup`, {
     method: "POST",
     body: { verifyRead },
   });
 export const assignJob = (guestId: string, jobId: string | null) =>
-  apiFetch<void>(`/api/v1/pve/guests/${encodeURIComponent(guestId)}/job`, {
+  apiFetch<void>(`/pve/guests/${encodeURIComponent(guestId)}/job`, {
     method: "PUT",
     body: { jobId },
   });
@@ -160,21 +160,21 @@ export const restoreSnapshot = (
   id: string,
   input: { targetStorage: string; targetNode?: string; targetVmid?: number; start: boolean },
 ) =>
-  apiFetch<{ taskId: string }>(`/api/v1/pve/snapshots/${encodeURIComponent(id)}/restore`, {
+  apiFetch<{ taskId: string }>(`/pve/snapshots/${encodeURIComponent(id)}/restore`, {
     method: "POST",
     body: input,
   });
 export const verifySnapshot = (id: string) =>
-  apiFetch<void>(`/api/v1/pve/snapshots/${encodeURIComponent(id)}/verify`, {
+  apiFetch<void>(`/pve/snapshots/${encodeURIComponent(id)}/verify`, {
     method: "POST",
     body: {},
   });
 export const saveJob = (id: string | null, input: JobInput) =>
   id
-    ? apiFetch<PveJob>(`/api/v1/pve/jobs/${encodeURIComponent(id)}`, {
+    ? apiFetch<PveJob>(`/pve/jobs/${encodeURIComponent(id)}`, {
         method: "PATCH",
         body: input,
       })
-    : apiFetch<PveJob>("/api/v1/pve/jobs", { method: "POST", body: input });
+    : apiFetch<PveJob>("/pve/jobs", { method: "POST", body: input });
 export const deleteJob = (id: string) =>
-  apiFetch<void>(`/api/v1/pve/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
+  apiFetch<void>(`/pve/jobs/${encodeURIComponent(id)}`, { method: "DELETE" });
