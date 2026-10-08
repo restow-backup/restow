@@ -8,18 +8,20 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
-## [0.3.0] - 2026-10-08
+## [0.3.1] - 2026-10-08
 
 Beta release. Run it alongside your existing backups, not as your only one, until
 you have verified restores against your own data.
 
 ### Summary
 
-Restow 0.3.0 backs up Proxmox VE virtual machines and containers (preview), mounts
+Restow 0.3.1 backs up Proxmox VE virtual machines and containers (preview), mounts
 NFS shares from the web interface, lets Community run several administrators, and
 sends notifications to Discord, Slack and Teams and through Microsoft 365 or Google
 Workspace. The overview, the backup jobs and the archive now say plainly what is and
 is not protected. Six database migrations run on update; read the Upgrade Notes.
+0.3.0 was tagged but never published: its release smoke checks found the first two
+fixes below, so this is the first release of the 0.3 line.
 
 ### Breaking Changes
 
@@ -111,6 +113,13 @@ is not protected. Six database migrations run on update; read the Upgrade Notes.
 
 ### Fixed
 
+- After a few minutes of clicking, or with several administrators behind one address,
+  the web interface showed "Restow could not be loaded": reading one's own session was
+  rate-limited like a sign-in, and the counter only reset after 10 seconds without any
+  page load. Reading the session is no longer limited; sign-in, second factor and
+  password limits stay.
+- Every Proxmox VE page asked the api under a doubled path (`/api/v1/api/v1/pve`)
+  and got 404.
 - `MAIL_TRANSPORT`, `SMTP_*` and `GRAPH_MAIL_*` from the environment were read but
   never used for sending; they apply again when nothing is saved in the web interface.
 - The own-app guide named read-only permissions (Mail.Read, Files.Read.All), with which
