@@ -40,6 +40,11 @@ export interface UpdaterConfig {
   /** Where the api answers inside the compose network (no trailing slash). */
   apiUrl: string;
   /**
+   * Where the opt-in mounter answers (RESTOW_UPDATER_MOUNTER_URL, default
+   * http://mounter:8091): asked whether it is busy before it is recreated after an update.
+   */
+  mounterUrl: string;
+  /**
    * The build this image belongs to (RESTOW_IMAGE_VARIANT, baked into the image):
    * the default repositories and the targets `source` mode builds follow it, so a
    * Community installation stays on the Community images.
@@ -132,7 +137,7 @@ function integer(
 }
 
 /** A plain absolute path (no ':' or ',', which would break a bind specification); null when it is not one. */
-function plainAbsolutePath(raw: string): string | null {
+export function plainAbsolutePath(raw: string): string | null {
   if (!path.posix.isAbsolute(raw) || /[\0\n\r:,]/.test(raw) || raw.split("/").includes("..")) {
     return null;
   }
@@ -166,6 +171,27 @@ function repository(env: Env, name: string, fallback: string, problems: string[]
   return value;
 }
 
+/** An http(s) URL of another service of the project, without credentials, query or trailing slash. */
+function serviceUrl(env: Env, name: string, fallback: string, problems: string[]): string {
+  const raw = text(env, name) ?? fallback;
+  try {
+    const parsed = new URL(raw);
+    if (
+      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+      parsed.username ||
+      parsed.password ||
+      parsed.search ||
+      parsed.hash
+    ) {
+      throw new Error("unsupported");
+    }
+    return `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}`;
+  } catch {
+    problems.push(`${name} must be an http(s) URL without credentials or query`);
+    return raw;
+  }
+}
+
 export function loadConfig(env: Env): UpdaterConfig {
   const problems: string[] = [];
 
@@ -190,23 +216,8 @@ export function loadConfig(env: Env): UpdaterConfig {
     problems.push("RESTOW_UPDATER_COMPOSE_FILE must be a file name inside the project directory");
   }
 
-  const apiUrlRaw = text(env, "RESTOW_UPDATER_API_URL") ?? "http://api:3000";
-  let apiUrl = apiUrlRaw;
-  try {
-    const parsed = new URL(apiUrlRaw);
-    if (
-      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
-      parsed.username ||
-      parsed.password ||
-      parsed.search ||
-      parsed.hash
-    ) {
-      throw new Error("unsupported");
-    }
-    apiUrl = `${parsed.origin}${parsed.pathname.replace(/\/+$/, "")}`;
-  } catch {
-    problems.push("RESTOW_UPDATER_API_URL must be an http(s) URL without credentials or query");
-  }
+  const apiUrl = serviceUrl(env, "RESTOW_UPDATER_API_URL", "http://api:3000", problems);
+  const mounterUrl = serviceUrl(env, "RESTOW_UPDATER_MOUNTER_URL", "http://mounter:8091", problems);
 
   const parsedVariant = parseImageVariant(text(env, IMAGE_VARIANT_VARIABLE));
   if (parsedVariant === null) {
@@ -280,6 +291,7 @@ export function loadConfig(env: Env): UpdaterConfig {
     projectName,
     composeFile,
     apiUrl,
+    mounterUrl,
     imageVariant,
     imageRepository,
     webImageRepository,
@@ -334,6 +346,7 @@ export interface SelfMounts {
 export function resolveProjectLocation(
   configured: string | null,
   self: SelfMounts | null,
+  variable = "RESTOW_UPDATER_PROJECT_DIR",
 ): ProjectLocation | { problem: string } {
   if (configured !== null) {
     return { hostDir: configured, localDir: configured };
@@ -343,7 +356,7 @@ export function resolveProjectLocation(
   );
   if (!mount) {
     return {
-      problem: `RESTOW_UPDATER_PROJECT_DIR is not set and no project directory is mounted at ${PROJECT_MOUNT}. Use the docker-compose.yml of this release, or set RESTOW_PROJECT_DIR in .env to the absolute path of the directory that holds docker-compose.yml.`,
+      problem: `${variable} is not set and no project directory is mounted at ${PROJECT_MOUNT}. Use the docker-compose.yml of this release, or set RESTOW_PROJECT_DIR in .env to the absolute path of the directory that holds docker-compose.yml.`,
     };
   }
   const hostDir = plainAbsolutePath(mount.Source);

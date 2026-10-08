@@ -212,7 +212,10 @@ diese Schlüssel zuerst und öffnet damit das Manifest.
 - Wiederaufnahme: Job speichert Cursor (Ordner, Delta-Token, letzte Item-ID); Neustart
   setzt fort, nichts wird doppelt geladen.
 - Fehlgeschlagene Elemente bleiben als `item_failures` sichtbar mit Grund und werden
-  beim nächsten Lauf erneut versucht; nach 3 Läufen Alarm.
+  beim nächsten Lauf erneut versucht; nach 3 Läufen in Folge schreibt der Worker eine Warnung ins
+  Log (`item.failure.repeated`). Je Lauf bleiben die ersten 200 als Zeilen, alle zählt
+  `jobs.item_failure_summary` je Ursache. Ein Lauf mit solchen Elementen ist eine Warnung, die
+  sich bestätigen lässt (`warning_acknowledgements`, docs/MICROSOFT.md, „Warnungen").
 - Fehlerursachen: Jeder gespeicherte Fehler wird im Kern (`packages/core/src/failures`)
   in eine stabile Ursache eingeordnet (`FailureCause`: Code wie `graph.consent_missing`,
   `graph.permission_missing`, `graph.throttled`, `imap.auth_failed`, `storage.full`,
@@ -366,6 +369,31 @@ Die Job-Definitionen (`/api/v1/backup-jobs`) sind Session-API und nicht Teil der
 Webhooks je Mandant (Ereignis,
 HMAC-Signatur). Jeder lesende Zugriff auf Nutzer-/Backupdaten ist auditiert.
 
+Jeder Webhook hat ein Format (`webhooks.format`, Migration 0026, seit 0.3.0; Vertrag 1.3.0,
+additiv). `restow` (Standard, alle bestehenden Webhooks) ist der signierte JSON-Umschlag mit
+`X-Restow-Signature`, `X-Restow-Event`, `X-Restow-Delivery` und `X-Restow-Attempt`. `discord`,
+`slack` und `teams` sind Chatnachrichten in der Form, die die eingehenden Webhooks dieser Dienste
+annehmen: Discord `content` plus ein Embed (Titel, Beschreibung, Farbe nach Schwere, Felder,
+Zeitstempel, `allowed_mentions` leer), Slack `text` als Rückfall plus Blöcke (Header, Section,
+Context), Teams eine Adaptive Card in `{"type":"message","attachments":[...]}` (Workflows /
+Power Automate, "Post to a channel when a webhook request is received"; die alten
+Office-365-Connectors `*.webhook.office.com` nehmen dieselbe Form an). Die Weboberfläche wählt das
+Format beim Eingeben der URL (`discord.com`/`discordapp.com` mit `/api/webhooks/`,
+`hooks.slack.com`, `*.webhook.office.com`, `*.logic.azure.com`, `*.powerautomate.com`,
+`*.powerplatform.com`); es lässt sich von Hand ändern. Chatformate werden ohne Signatur und ohne
+die `X-Restow-*`-Header gesendet, die Oberfläche zeigt für sie kein Secret (gespeichert wird
+trotzdem eines, damit ein Wechsel zu `restow` sofort signiert; die Oberfläche erneuert es dann und
+zeigt es einmal). Der Worker rendert die Nachricht erst beim Zustellen aus dem gespeicherten
+Umschlag (`apps/worker/src/handlers/webhook-formats.ts`), in der Sprache des Mandanten (sonst der
+Installation) mit denselben Texten wie die Alarm-Mails (Ursache, Schritte), mit Link auf die
+öffentliche URL aus den Einstellungen (sonst `RESTOW_PUBLIC_URL`) und gekürzt auf die Grenzen des
+Dienstes (Discord: Inhalt 2000, Titel 256, Beschreibung 4096, Feldwert 1024, Embed gesamt 6000;
+Slack: Header 150, Section 3000; Teams: Text 4000). Das Zustellprotokoll zeigt weiter den
+Umschlag. Antwortet ein Chatdienst mit 400, 401, 403, 404, 410, 413 oder 422, endet die
+Zustellung sofort (URL oder Nachricht falsch, ein gelöschter Discord-Webhook antwortet 404);
+429 und 5xx werden wiederholt, frühestens nach `Retry-After`. Für `restow` beendet weiter nur 410
+die Zustellung sofort.
+
 ## Berichte und Benachrichtigungen
 
 Regeln je Mandant in `report_rules`, zwei Auslöser:
@@ -379,7 +407,16 @@ Regeln je Mandant in `report_rules`, zwei Auslöser:
   `verify.yellow`, `verify.recovered`, `scrub.corrupt`, `scrub.repaired`, dazu für Server und
   Clients `endpoint.stale`, `endpoint.suspicious_snapshot`, `endpoint.storage_quota` und
   `endpoint.repository_locked` (docs/AGENT.md, "Alarme"). Drosselung je
-  Regel und Gegenstand (Objekt, sonst Auftragstyp) über `throttle_minutes`.
+  Regel und Gegenstand (Objekt, Rechner, Gast, sonst Auftragstyp) über `throttle_minutes`.
+  `backup.overdue` (`apps/worker/src/overdue.ts`, mit dem Endpoint-Monitor alle fünf Minuten):
+  keine erfolgreiche Sicherung eines Postfachs, OneDrives, IMAP-Kontos, Rechners oder Gasts
+  (VM oder Container von Proxmox VE) länger als die Zeitpläne seiner aktivierten Backup-Jobs
+  vorsehen (doppelter längster Abstand, ohne Zeitplan zwei Tage), einmal je Gegenstand und
+  Strecke. Eine Ereignisregel mit `backup.overdue` kann eine eigene Frist setzen
+  (`report_rules.overdue_after_hours`, 24 bis 720 Stunden, Migration
+  `0031_report_rule_overdue_deadline`): Diese Regel bekommt ihre Alarme dann nach ihrer Frist,
+  einmal je Gegenstand und Strecke, und nicht mehr mit dem Alarm an der Grenze der Zeitpläne;
+  die Glocke folgt weiter den Zeitplänen.
 - **Zeitpunkt** (nur solange eine Erweiterung `reports.timed` freischaltet; in der
   Vollversion Business, Capability `reports.scheduled`): Kadenz wie bei Zeitplänen
   (Intervall oder Cron in einer Zeitzone). Der Scheduler legt fällige Berichte als
@@ -462,6 +499,26 @@ alle Schritte erledigt oder nicht nötig, verschwindet „Start" aus dem Menü.
   Passkeys entfernen, alle Sessions beenden, Audit `account.access_recovered` (Akteur
   `system`, `via: command_line`) in der Installationskette. Danach Anmeldung mit dem neuen
   Passwort und Pflicht zur TOTP-Einrichtung wie nach dem Setup.
+  Jedes andere Mitglied setzt ein Inhaber im Browser zurück (Installation › Mitglieder,
+  „Zugang zurücksetzen“, `POST /api/v1/provider-team/:userId/reset-access`, mit kürzlicher
+  Anmeldung): in einer Transaktion Passwort (Credential-Konto), Passkeys, TOTP und alle
+  Sessions entfernen und einen neuen Set-Password-Link ausstellen (ohne Mail-Dienst zum
+  Kopieren angezeigt, mit dem Benutzernamen), Audit `provider_team.access_reset`. Nicht für
+  den eigenen Zugang und nie für den letzten Owner.
+- Eigenes Passwort (`apps/api/src/lib/password-reset.ts`): Unter Konto › Anmeldesicherheit
+  ändert jede Person mit Passwort es selbst (better-auth `/change-password`, aktuelles
+  Passwort nötig, wahlweise alle anderen Sitzungen beenden; Audit
+  `account.password_changed`), sieht ihre Sitzungen und meldet einzelne ab.
+  „Passwort vergessen?“ auf der Anmeldeseite: nur mit Benachrichtigungs-Mail und öffentlicher
+  URL, nicht in der Demo (`passwordReset` in `GET /api/v1/setup/state`). Die Mail ersetzt
+  nur das Passwort, nie den zweiten Faktor: Einen Link (30 Minuten, auf
+  `<öffentliche URL>/reset-password`) bekommt nur ein Konto mit Passwort und
+  Authenticator-App, höchstens eine Mail je Konto in 5 Minuten, Anfragen je IP begrenzt
+  (`/request-password-reset` 5 in 15 Minuten). Die Antwort ist für bekannte und unbekannte
+  Adressen gleich, die Mail geht im Hintergrund raus. Das neue Passwort beendet alle
+  Sitzungen (Audit `account.password_reset`); die Authenticator-App bleibt. Wer auch sie
+  verloren hat, wird von einem Owner zurückgesetzt oder nutzt `restow admin recover`; die
+  Anmeldeseite nennt beide Wege.
 
 - Betreiberhinweis (erster Schritt): Vor allem anderen muss der Betreiber den Hinweis zur
   eigenen Verantwortung annehmen (Restow ist Backup- und Archivwerkzeug; Hardware, Speicher,
@@ -504,13 +561,20 @@ alle Schritte erledigt oder nicht nötig, verschwindet „Start" aus dem Menü.
   zu verschleiern.
 - Erster Admin: Provider-Admin wird im Wizard angelegt (Passkey, sonst Notfall-Passwort
   plus TOTP).
-- Mail-Dienst für Benachrichtigungen: ein Transport-Interface mit zwei Implementierungen,
-  im Wizard per Dropdown wählbar und mit Testversand:
+- Mail-Dienst für Benachrichtigungen: ein Transport-Interface mit drei Implementierungen,
+  unter Installation → Benachrichtigungs-Mail wählbar, mit Anleitung und Testversand vor dem
+  Speichern; jeder Fehlschlag kommt als Grund-Code zurück, den die Oberfläche übersetzt:
   - `smtp`: Host, Port, STARTTLS/implizit, Benutzer/Passwort (verschlüsselt in DB, KEK),
     Absenderadresse (nodemailer).
-  - `graph`: Microsoft Graph `sendMail` als App (Client Credentials), Absenderpostfach im
-    Tenant, braucht die Anwendungsberechtigung `Mail.Send` (nur wenn gewählt, siehe
-    docs/MICROSOFT.md). Kein eigener SMTP-Ausgang nötig.
+  - `graph`: Microsoft 365, Graph `sendMail` als App (Client Credentials), Absenderpostfach im
+    Tenant, Anwendungsberechtigung `Mail.Send`. Entweder eine eigene Single-Tenant-App für
+    Benachrichtigungen (Schlüssel oder Zertifikat versiegelt als `mail_graph_app`, auf das
+    Absenderpostfach beschränkbar) oder die App der Sicherung. Kein SMTP-Ausgang nötig.
+  - `google`: Google Workspace, Gmail-API als Dienstkonto mit domainweiter Delegierung nur
+    für `gmail.send` (Schlüssel versiegelt als `mail_google_key`).
+  Der Wizard bietet SMTP und, nur wenn sie schon nutzbar ist, die App der Sicherung; die
+  übrigen richtet der Betreiber danach ein. Delegiertes OAuth mit Benutzeranmeldung ist
+  bewusst nicht gebaut (docs/MICROSOFT.md, „Benachrichtigungs-Mail").
 - Der SMTP-Journal-Empfänger (Archiv) ist davon getrennt: er empfängt nur, versendet nie
   (docs/IMAP.md).
 
@@ -613,7 +677,12 @@ den Docker-Socket. Der Socket ist root auf dem Host; deshalb gilt:
   Signaturprüfung, abschaltbar mit `RESTOW_UPDATER_SELF_UPDATE=false`. Ein Fehlschlag macht das
   App-Update nicht rückgängig; der Reiter zeigt den Befehl zum Nachholen. Über das Image des
   Containers mit dem Socket entscheidet damit die Signatur des Release-Workflows, nicht mehr
-  ein Mensch.
+  ein Mensch. Der Mounter folgt unter genau denselben Regeln (`mounterUpdateDecision`): Ist er
+  in Gebrauch (Container vorhanden oder `RESTOW_MOUNTER_IMAGE` gesetzt), setzt der Updater vor
+  dem eigenen Wechsel `RESTOW_MOUNTER_IMAGE` auf dasselbe geprüfte Image und lässt einen
+  Hilfscontainer `docker compose --profile mounts up -d --no-deps mounter` ausführen. Solange
+  der Mounter eine Freigabe ändert (`busy` in seinem `/healthz`), wartet er bis zu zehn
+  Minuten; das Ergebnis steht in `selfUpdate.mounter`, ein Fehlschlag lässt das App-Update nie scheitern.
 - Docker-Befehle: Der Updater führt `docker` und `docker compose` aus. Das Image enthält
   kein Docker-CLI; der Updater startet dafür kurzlebige Hilfscontainer aus `docker:27-cli`,
   per Digest gepinnt, über den Socket (oder nutzt ein vorhandenes `docker`-Binary). Das Projektverzeichnis ist unter
@@ -697,6 +766,35 @@ Versionsinformationen. Rechte: der Reiter ist für Provider-Admins; Lesen für j
 ändert (Einstellungen, Prüfung auslösen, Wartung ankündigen, abbrechen, Ergebnis bestätigen), nur
 `owner`.
 
+## Netzlaufwerke: der Mounter (opt-in)
+
+Ein weiterer eigener Prozess im selben Image (`ROLE=mounter`, Compose-Profil `mounts`, Code in
+`apps/api/src/mounter`), unabhängig vom Updater; Betriebsdoku in `docs/MOUNTS.md`. Er bindet
+NFS-Freigaben als Docker-Volumes des `local`-Treibers in `api` und `worker` unter
+`/mnt/restow/<name>` ein, damit ein Speicherziel der Art "Verzeichnis" dorthin zeigen kann.
+
+- Quelle der Wahrheit ist die Compose-Override-Datei des Projekts: die Liste `x-restow-mounts`,
+  je Freigabe ein Volume `restow-nfs-<name>-<hash8>` (Hash über die Einstellungen, geänderte
+  Einstellungen ergeben ein neues Volume) und die `volumes:`-Einträge von `api` und `worker`.
+  Bearbeitet über die Document-API des `yaml`-Pakets, sodass Inhalte und Kommentare des
+  Betreibers erhalten bleiben (`override.ts`).
+- Ablauf einer Änderung (`engine.ts`): prüfen, Freigabe testen (temporäres Volume mit
+  `soft,timeo=50,retrans=1`, kurzlebiger Container schreibt und löscht eine Datei), Override
+  schreiben und `docker compose config -q`, `up -d --no-deps --no-build --pull never api worker`,
+  auf Gesundheit warten, nicht mehr benutzte Volumes entfernen. Jeder Fehler nach dem Schreiben
+  stellt die vorige Override-Datei wieder her (und erstellt die Dienste erneut).
+- Dieselben Grenzen wie beim Updater: Docker-Socket, daher opt-in, nur internes Netz (Port
+  8091), gemeinsames Secret im Volume `restow-mounter-shared` (in der API nur lesend), keine
+  Anwendungs-Zugangsdaten, eigenes per Digest festgehaltenes Image (`RESTOW_MOUNTER_IMAGE`).
+  Er nutzt die Bausteine des Updaters (Secret, Engine-API-Client, Runner, Redaktion, Logger),
+  ein eigener Grenztest lässt nur diese und die eigenen Dateien zu.
+- Die API (`features/mounts`) leitet weiter: Lesen für Provider-Admins mit allen Mandanten,
+  Hinzufügen, Entfernen und Testen nur `owner`, Hinzufügen und Entfernen mit frischer Anmeldung;
+  alles im Installations-Audit-Log. Sie lehnt Änderungen ab, solange Jobs oder Endpoint-Läufe
+  laufen, und das Entfernen einer Freigabe, die ein Speicherziel oder der Standardspeicher nutzt.
+- Nur NFS. Das Protokollfeld (`protocol`) lässt Platz für ein weiteres Protokoll (SMB) über
+  denselben Container.
+
 ## Erweiterungsschnittstelle und `ee/`
 
 Entscheidung vom 01.10.2026 (Plan D8): Der Kern steht unter Apache-2.0 und weiß nichts von
@@ -719,8 +817,14 @@ API (`apps/api/src/extensions.ts`, `ApiExtension`):
   (`apps/api/src/lib/features.ts`, `GATED_FEATURES`): `tenants.additional` (ein weiterer
   Mandant, wenn schon einer existiert), `apiKeys.provider` (Provider-Keys und die
   mandantenübergreifenden Operationen der Integrations-API), `stats.allTenants`
-  (Statistik über alle Mandanten), `dashboard.allTenants` (Provider-Ansicht des Dashboards),
-  `reports.timed` (zeitgesteuerte Berichte). Ohne registrierte Schranke ist jede davon aus;
+  (Statistik über alle Mandanten: `GET /api/v1/stats?scope=provider` für Provider-Admins,
+  deren Rolle im Provider-Team alle Mandanten umfasst, sonst 403 "Every tenant required"; im
+  Web die eigene Seite `/statistics/all` im Abschnitt Installation, während Übersicht ›
+  Statistik immer nur den aktiven Mandanten zeigt), `dashboard.allTenants` (Provider-Ansicht des Dashboards),
+  `reports.timed` (zeitgesteuerte Berichte), `providerTeam.tenantScope` (Mitglieder des
+  Provider-Teams auf ausgewählte Mandanten beschränken; ohne sie hat jedes Mitglied alle
+  Mandanten, eine schon gespeicherte Beschränkung bleibt bestehen und wirkt weiter). Ohne
+  registrierte Schranke ist jede davon aus;
   der Kern antwortet dann 403 `urn:restow:problem:feature-unavailable`. Eine Schranke kann
   ihr eigenes Problem liefern (`unavailable`): `ee/` antwortet wie bisher 403
   `urn:restow:problem:edition-required` mit `requiredEdition`, `edition`, `capability`.
@@ -739,7 +843,7 @@ Web (`apps/web/src/lib/extensions.tsx`, `WebExtension`): Seiten (`routes`), Men�
 `isLocked`, Ziel, Hinweistext), Sperren für Menüeinträge des Kerns per ID (`navLocks`) und
 Abschnitte der Installationsseite (`installationSections`, `/installation/<abschnitt>`, mit
 optionalem `lock` und `legacySettingsSection` für die alte Adresse unter `/settings`) und
-Slots (`shell.sidebarFooter`, `tenants.creationLocked`,
+Slots (`shell.sidebarFooter`, `tenants.creationLocked`, `team.tenantScopeLocked`,
 `archive.sections`, `dashboard.provider`). Die Seitenleiste zeigt einen gesperrten Eintrag
 ausgegraut mit Schloss und schickt ihn nach Installation → Lizenz (`/installation/license`,
 dorthin führt auch der Eintrag Installation › Lizenz der vollen Images); ein gesperrter

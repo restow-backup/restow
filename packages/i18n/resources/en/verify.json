@@ -7,7 +7,7 @@
     "green": "Ready",
     "yellow": "Attention",
     "red": "Not restorable",
-    "unverified": "Not verified",
+    "unverified": "Unverified",
     "no_backup": "No backup yet",
     "waitingForFirstBackup": "Waiting for first backup"
   },
@@ -34,16 +34,16 @@
     "viewReportFor": "Open the latest report for {name}",
     "scrubSample": "Check a sample",
     "scrubFull": "Check all packs",
-    "openJob": "Open job",
-    "openScrubJob": "Open storage check job",
+    "openJob": "Open run",
+    "openScrubJob": "Open storage check run",
     "back": "Back to recovery readiness",
-    "verifyNow": "Verify now",
-    "verifyNowFor": "Verify now: the latest backup of {name}",
+    "verifyNow": "Check now",
+    "verifyNowFor": "Check now: the latest backup of {name}",
     "viewPreviousReportFor": "Report of the previous backup's check for {name}"
   },
   "overall": {
     "green": {
-      "title": "Every backup is restorable",
+      "title": "The latest restore point of every object passed its restore check",
       "description": "{total, plural, one {The protected object} other {All # protected objects}} passed the latest restore check."
     },
     "yellow": {
@@ -52,7 +52,7 @@
     },
     "red": {
       "title": "Not every backup is proven restorable",
-      "description": "{count, plural, one {# object cannot be restored completely, or its latest backup is} other {# objects cannot be restored completely, or their latest backups are}} not proven restorable yet. A backup without a verified restore counts as failed."
+      "description": "{count, plural, one {# object cannot be restored completely, or its latest backup is} other {# objects cannot be restored completely, or their latest backups are}} not proven restorable yet. A backup without a passed restore check counts as failed."
     },
     "empty": {
       "title": "Nothing protected yet",
@@ -88,7 +88,7 @@
     "result": {
       "verified": "{verified} of {checked} items restored byte-exact",
       "storage": "Damaged storage found by the storage check",
-      "unverified": "A backup exists but was never verified.",
+      "unverified": "A backup exists but was never checked.",
       "noBackup": "Nothing to verify until the first backup completes.",
       "noBackupNextRun": "Nothing to verify yet; the next backup is due {time}.",
       "noBackupOverdue": "No backup within 24 hours of protection starting.",
@@ -108,15 +108,15 @@
     "emptyState": "No object in this state: {state}."
   },
   "snapshot": {
-    "column": "Verification",
+    "column": "Restore check",
     "state": {
-      "green": "Verified",
-      "yellow": "Verified with warnings",
+      "green": "Sample passed",
+      "yellow": "Sample passed with warnings",
       "red": "Check failed",
-      "unverified": "Not verified yet"
+      "unverified": "Not checked yet"
     },
     "hint": {
-      "checked": "Restore check of this backup: {date}",
+      "checked": "Restore check of this restore point on {date}: a sample of its items was read back and compared with their checksums.",
       "unverified": "No restore check has read this backup back yet, so it is not proven restorable."
     }
   },
@@ -136,7 +136,7 @@
   },
   "storage": {
     "title": "Storage integrity",
-    "description": "Every pack file is read from each storage target and checked against its recorded SHA-256: a sample every week, all packs every month. Damage is repaired from an intact copy where one exists.",
+    "description": "Every pack file is read from each storage location and checked against its recorded SHA-256: a sample every week, all packs every month. Damage is repaired from an intact copy where one exists.",
     "state": {
       "ok": "Intact",
       "repaired": "Repaired",
@@ -160,11 +160,11 @@
     "packs": "{checked} of {total} packs checked, {bytes} read",
     "never": "No storage check has run yet.",
     "corruptTitle": "{count, plural, one {# pack is damaged} other {# packs are damaged}}",
-    "corrupt": "No intact copy exists on any storage target, so the damage could not be repaired. Every object whose data sits in these packs is rated not restorable.",
+    "corrupt": "No intact copy exists in any storage location, so the damage could not be repaired. Every object whose data sits in these packs is rated not restorable.",
     "corruptHeal": "A full backup of the affected objects writes the damaged content again from the source, as far as the source still holds it. Backups no longer reuse data from these packs. Once no backup needs a damaged pack any more, the next storage check retires it.",
     "retired": "{count, plural, one {# damaged pack is} other {# damaged packs are}} no longer needed: later backups wrote their content again. {count, plural, one {It was} other {They were}} removed from the index and {count, plural, one {its file is} other {their files are}} deleted by a storage check one day later at the earliest.",
     "repairedTitle": "{count, plural, one {# pack was repaired} other {# packs were repaired}}",
-    "repaired": "A storage target held a damaged or missing copy; it was rewritten from an intact copy and read back to confirm.",
+    "repaired": "A storage location held a damaged or missing copy; it was rewritten from an intact copy and read back to confirm.",
     "target": {
       "primary": "Primary storage",
       "copy": "Copy {index}"
@@ -225,7 +225,7 @@
     },
     "snapshot": {
       "title": "Checked backup",
-      "sequence": "Backup #{sequence}",
+      "sequence": "Restore point #{sequence}",
       "completed": "Completed {when}",
       "items": "{count, plural, one {# item} other {# items}}",
       "none": "No completed backup was available.",
@@ -267,14 +267,14 @@
     },
     "damagedPacks": {
       "title": "{count, plural, one {# damaged pack in this backup} other {# damaged packs in this backup}}",
-      "description": "The latest storage check found these pack files damaged on every storage target. Items stored in them cannot be restored, even if the sample did not touch them."
+      "description": "The latest storage check found these pack files damaged in every storage location. Items stored in them cannot be restored, even if the sample did not touch them."
     },
     "manifestFailure": {
       "title": "Why the catalogue of this backup could not be read"
     },
     "testRestore": {
       "title": "Test restore",
-      "description": "The verified items were also restored into {target}.",
+      "description": "The checked items were also restored into {target}.",
       "status": {
         "confirmed": "Confirmed",
         "unconfirmed": "Not confirmed",
@@ -283,7 +283,7 @@
     },
     "scrub": {
       "title": "Storage check finding",
-      "description": "The storage check found pack files holding data of this object damaged on every storage target and could not repair them from a copy."
+      "description": "The storage check found pack files holding data of this object damaged in every storage location and could not repair them from a copy."
     },
     "unknown": {
       "title": "Details not readable",
@@ -301,9 +301,9 @@
     },
     "latestBackup": {
       "unverifiedTitle": "A newer backup is not verified yet",
-      "unverified": "Backup #{sequence} from {when} was taken after this check and has not been read back yet. This report rates only the backup it checked.",
+      "unverified": "Restore point #{sequence} from {when} was taken after this check and has not been read back yet. This report rates only the restore point it checked.",
       "ratedTitle": "A newer backup has its own rating",
-      "rated": "Backup #{sequence} from {when} was checked after this report; its own report rates it.",
+      "rated": "Restore point #{sequence} from {when} was checked after this report; its own report rates it.",
       "open": "Open its report"
     }
   },

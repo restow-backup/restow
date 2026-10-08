@@ -35,6 +35,7 @@ import {
 } from "@restow/core";
 import {
   type MailExport,
+  archiveItemOfMailbox,
   archiveItems,
   mailExports,
   protectedObjects,
@@ -132,7 +133,7 @@ function archiveConditions(tenantId: string, selection: ArchiveExportSelection):
   }
   const filter = selection.filter ?? {};
   if (filter.mailbox) {
-    conditions.push(eq(archiveItems.protectedObjectId, filter.mailbox));
+    conditions.push(archiveItemOfMailbox(filter.mailbox));
   }
   const dateOf = sql`coalesce(${archiveItems.sentAt}, ${archiveItems.receivedAt})`;
   if (filter.dateFrom) {

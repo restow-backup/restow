@@ -25,7 +25,7 @@ export function CancelImportButton({
   job,
   size = "sm",
 }: {
-  job: Pick<ImportSummary, "id" | "status">;
+  job: Pick<ImportSummary, "id" | "status"> & { archive?: boolean };
   size?: ButtonProps["size"];
 }) {
   const { t } = useTranslation("imports");
@@ -59,6 +59,9 @@ export function CancelImportButton({
           <DialogHeader>
             <DialogTitle>{t("cancel.title")}</DialogTitle>
             <DialogDescription>{t("cancel.description")}</DialogDescription>
+            {job.archive ? (
+              <p className="text-sm text-muted-foreground">{t("cancel.archiveNote")}</p>
+            ) : null}
           </DialogHeader>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setOpen(false)} disabled={cancel.isPending}>

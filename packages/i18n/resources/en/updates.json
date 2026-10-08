@@ -349,6 +349,19 @@
         "not_replaced": "The updater container was not replaced."
       }
     },
+    "mounterUpdate": {
+      "pending": "The updater is recreating the mounter with the image of version {running}, whose release signature it just verified.",
+      "failed": "The update to {running} succeeded, but the mounter could not be moved along and still runs its previous image. {reason} The network shares keep working. To finish it, run on the server, in the folder that holds docker-compose.yml:",
+      "skipped": "The update to {running} succeeded, but the mounter still runs its previous image. {reason} The network shares keep working. Once it is idle, run on the server, in the folder that holds docker-compose.yml:",
+      "reasons": {
+        "busy": "It was adding or removing a network share the whole time the updater waited.",
+        "compose_unsupported": "The docker-compose.yml does not take the mounter's image from RESTOW_MOUNTER_IMAGE. Use the docker-compose.yml of this release.",
+        "env_write_failed": "The .env file could not be written.",
+        "launch_failed": "The helper container that recreates the mounter could not be started.",
+        "helper_failed": "Recreating the mounter failed. The .env file already names the verified image.",
+        "interrupted": "The updater stopped while it recreated the mounter. The .env file already names the verified image."
+      }
+    },
     "signaturesOff": {
       "title": "The updater does not verify signatures",
       "body": "Signature verification is switched off (RESTOW_UPDATER_VERIFY_SIGNATURES=false). What is installed is whatever lies under the published digest in the configured repository. For test installations only: switch it back on for production."
@@ -631,8 +644,8 @@
     "description": "This installation runs the Community build: the Apache-2.0 core, without the Business and Service Provider modules.",
     "adds": {
       "title": "What the full build adds",
-      "business": "Business: the provider team (several administrators with roles), the archive's GoBD layer (journal receiver, enforced retention, legal hold), scheduled summary reports and the audit log viewer.",
-      "serviceProvider": "Service Provider: multiple tenants, team members limited to chosen tenants, the cross-tenant API and the provider dashboard.",
+      "business": "Business: the archive's GoBD layer (journal receiver, enforced retention, legal hold), scheduled summary reports and the audit log viewer.",
+      "serviceProvider": "Service Provider: multiple tenants, members limited to chosen tenants, the cross-tenant API and the provider dashboard.",
       "license": "The full build runs as Community until a license key is installed, so switching changes nothing else by itself. Both builds use the same database."
     },
     "switched": "The server already runs the full build. Reload this page to see the License section.",
@@ -666,7 +679,13 @@
       "remove": "Remove key",
       "saved": "The key is stored. It is checked and applied after the switch.",
       "storedTitle": "A key is stored",
-      "stored": "Stored; it is checked and applied after switching to the full build. Until then it unlocks nothing."
+      "stored": "Stored; it is checked and applied after switching to the full build. Until then it unlocks nothing.",
+      "removeDialog": {
+        "title": "Remove the stored key?",
+        "description": "The key is deleted. After the switch to the full build the installation then runs as Community until you store a key again.",
+        "confirm": "Remove key"
+      },
+      "removed": "The stored key is removed."
     }
   }
 }

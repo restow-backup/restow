@@ -1,6 +1,7 @@
 import { endpoints } from "@restow/db";
 import { and, asc, eq } from "drizzle-orm";
 import type { Transaction } from "../../lib/tenant-context.js";
+import { jobsOfEndpoints } from "../backup-jobs/membership.js";
 import { type RatedObject, isFirstBackupOverdue } from "../verify/summary.js";
 import { loadEndpointReadiness } from "./readiness.js";
 
@@ -10,7 +11,10 @@ import { loadEndpointReadiness } from "./readiness.js";
  * unverified per protected machine, and the same counting in the tenant
  * summary. An endpoint is rated by the restore test of its newest good backup
  * (`endpointReadiness` in @restow/core); a machine that never delivered a
- * backup has none, and counts as a problem once its grace period is over.
+ * backup has none, and counts as a problem once its grace period is over. A
+ * machine in no backup job is not backed up at all (release 0.2.1): it keeps the
+ * rating of its old backups but is flagged `inJob: false`, and it never lets
+ * the tenant read as fine (`withoutJob` in the summary).
  */
 
 export interface EndpointReadinessRowDto {
@@ -26,6 +30,8 @@ export interface EndpointReadinessRowDto {
   overdue: boolean;
   latestBackupAt: string | null;
   latestSnapshotId: string | null;
+  /** The machine belongs to a backup job; false: nothing backs it up. */
+  inJob: boolean;
 }
 
 export async function loadEndpointOverview(
@@ -43,6 +49,11 @@ export async function loadEndpointOverview(
     tenantId,
     list.map((endpoint) => endpoint.id),
     now,
+  );
+  const jobs = await jobsOfEndpoints(
+    tx,
+    tenantId,
+    list.map((endpoint) => endpoint.id),
   );
   const rows: EndpointReadinessRowDto[] = [];
   const rated: RatedObject[] = [];
@@ -68,8 +79,14 @@ export async function loadEndpointOverview(
       overdue,
       latestBackupAt: found.latestBackupAt?.toISOString() ?? null,
       latestSnapshotId: found.latestSnapshotId,
+      inJob: jobs.has(endpoint.id),
     });
-    rated.push({ state: found.state, overdue, checkedAt: found.checkedAt });
+    rated.push({
+      state: found.state,
+      overdue,
+      checkedAt: found.checkedAt,
+      withoutJob: !jobs.has(endpoint.id),
+    });
   }
   return { rows, rated };
 }

@@ -22,6 +22,7 @@ import {
   formatClock,
   isSourceInstallRefused,
   manualUpdateCommands,
+  mounterUpdateNote,
   selfUpdateNote,
   sourceAllowlistLine,
   switchKey,
@@ -85,6 +86,7 @@ export function UpdaterCard({
         ) : (
           <SelfUpdateNoteView view={view} />
         )}
+        <MounterUpdateNoteView view={view} />
         {state === "unavailable" ? <Unavailable view={view} /> : null}
         {state === "blocked" ? <Blocked view={view} /> : null}
         {state === "ready" ? <Ready view={view} canChange={canChange} /> : null}
@@ -151,6 +153,51 @@ function SelfUpdateNoteView({ view }: { view: UpdatesView }) {
         {note.kind === "pending" ? null : (
           <CommandList commands={commands} copyLabel={t("commands.copy")} />
         )}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+// --- The mounter, moved along with the updater ----------------------------------------------------
+
+/**
+ * The mounter follows the updater to the verified image of the release; when that did
+ * not happen, why, and the commands that finish it by hand.
+ */
+function MounterUpdateNoteView({ view }: { view: UpdatesView }) {
+  const { t } = useTranslation("updates");
+  const note = mounterUpdateNote(view);
+  if (!note) {
+    return null;
+  }
+  if (note.kind === "pending") {
+    return (
+      <Alert variant="info" data-slot="mounter-update" data-kind="pending">
+        <Loader2 className="animate-spin" />
+        <AlertDescription>
+          <p>{t("updater.mounterUpdate.pending", { running: view.running ?? "" })}</p>
+        </AlertDescription>
+      </Alert>
+    );
+  }
+  const reason = note.reason ? t(`updater.mounterUpdate.reasons.${note.reason}`) : "";
+  const failed = note.kind === "failed";
+  return (
+    <Alert
+      variant={failed ? "warning" : "info"}
+      data-slot="mounter-update"
+      data-kind={note.kind}
+      className="has-[>svg]:grid-cols-[calc(var(--spacing)*4)_minmax(0,1fr)]"
+    >
+      {failed ? <TriangleAlert /> : <Info />}
+      <AlertDescription className="min-w-0 grid-cols-[minmax(0,1fr)] justify-items-stretch">
+        <p>{t(`updater.mounterUpdate.${note.kind}`, { running: view.running ?? "", reason })}</p>
+        {failed && note.detail ? (
+          <p className="font-mono text-xs text-muted-foreground [overflow-wrap:anywhere]">
+            {note.detail}
+          </p>
+        ) : null}
+        <CommandList commands={note.commands} copyLabel={t("commands.copy")} />
       </AlertDescription>
     </Alert>
   );

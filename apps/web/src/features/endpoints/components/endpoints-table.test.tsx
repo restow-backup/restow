@@ -34,6 +34,10 @@ vi.mock("@/features/backup-jobs/components/access-note", () => ({
 
 // So may the assignment; "Back up now" needs no query client to be rendered.
 vi.mock("@/features/tenant-page/access", () => ({ useTenantWriteBlock: () => null }));
+// "Back up now" for a selection runs through the jobs' actions: no session or query client here.
+vi.mock("@/features/backup-jobs/components/job-actions", () => ({
+  useJobActions: () => ({ runNow: () => {}, running: false }),
+}));
 vi.mock("../hooks.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../hooks.js")>()),
   useBackupNow: () => ({ request: () => {}, pending: false }),
@@ -145,7 +149,7 @@ describe("EndpointsTable", () => {
         endpoint({ latestRun: run({ status: "failed" }), attention: ["last_backup_failed"] }),
       ]),
     ).toContain("Failed");
-    expect(table([endpoint({ latestRun: run({ status: "partial" }) })])).toContain("Partial");
+    expect(table([endpoint({ latestRun: run({ status: "partial" }) })])).toContain("With warnings");
   });
 
   it("shows a run that was only interrupted as such, not as a failure", () => {
@@ -192,7 +196,7 @@ describe("EndpointsTable", () => {
       }),
     ]);
     expect(html).toContain("No backup yet");
-    expect(html).toContain("Not verified");
+    expect(html).toContain("Unverified");
   });
 
   it("hints when the restore test is overdue", () => {

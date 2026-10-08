@@ -75,6 +75,17 @@ export const recoveryReadinessEnum = pgEnum("recovery_readiness", ["green", "yel
 /** `verify` = cheap sampled test restore; `health_check` = deep reconciliation + scrub. */
 export const verifyKindEnum = pgEnum("verify_kind", ["verify", "health_check"]);
 
+/**
+ * The failed items of a run, counted: `total` items failed, `stored` of them have an
+ * `item_failures` row, `byCause` counts them per cause code ("unknown" without a classified
+ * cause). Written by the worker with every batch of failures.
+ */
+export type ItemFailureSummaryJson = {
+  total: number;
+  stored: number;
+  byCause: Record<string, number>;
+};
+
 /** Resumable job cursor: folder, delta token, last item id. */
 export type JobCursor = {
   folderId?: string;
@@ -109,6 +120,10 @@ export const jobs = pgTable(
     // The classified cause behind `errorMessage` (why it failed and what to do); null for
     // rows written before failure records existed, which keep only the text.
     failure: jsonb("failure").$type<FailureRecordJson>(),
+    // How many items the run could not process, per cause, counted by the worker as they fail.
+    // `item_failures` keeps the first rows of a run only (MAX_ITEM_FAILURE_ROWS in apps/worker);
+    // this keeps the full count. Null for runs without failed items and rows from before 0.3.0.
+    itemFailureSummary: jsonb("item_failure_summary").$type<ItemFailureSummaryJson>(),
     startedAt: timestamp("started_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     ...timestamps(),
@@ -172,6 +187,8 @@ export const itemFailures = pgTable(
     reason: text("reason").notNull(),
     // The classified cause behind `reason`; null when the engine only had text.
     failure: jsonb("failure").$type<FailureRecordJson>(),
+    // The item's own date where the engine knows it (a message's received time).
+    itemDate: timestamp("item_date", { withTimezone: true }),
     attempts: integer("attempts").notNull().default(1),
     lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
     ...timestamps(),

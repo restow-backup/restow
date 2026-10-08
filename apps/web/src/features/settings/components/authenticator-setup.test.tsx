@@ -39,9 +39,11 @@ describe("AuthenticatorSetup", () => {
     expect(html).not.toContain("Cancel");
   });
 
-  it("warns before replacing the current authenticator", () => {
+  it("says the current authenticator works until the new one is confirmed", () => {
     const html = render(<AuthenticatorSetup mode="replace" onComplete={noop} onCancel={noop} />);
-    expect(html).toContain("Your current authenticator stops working");
+    expect(html).toContain(
+      "Your current authenticator keeps working until you confirm the first code",
+    );
     expect(html).toContain("Cancel");
   });
 });

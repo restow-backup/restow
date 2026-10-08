@@ -21,6 +21,19 @@ export interface SetupFacts {
   enabledBackupSchedules: number;
   completedSnapshots: number;
   verification: { reports: number; green: number };
+  /**
+   * Machines with the agent (servers, clients) of the tenant: active ones, the
+   * ones with a good backup, enabled machine backup jobs, and restore checks of
+   * machines (all, and the passed ones). A tenant that protects only machines
+   * finishes the checklist with them.
+   */
+  machines: {
+    active: number;
+    backedUp: number;
+    enabledJobs: number;
+    checks: number;
+    greenChecks: number;
+  };
   mail: { configured: boolean; lastTestOk: boolean | null; notNeeded: boolean };
 }
 
@@ -44,8 +57,9 @@ function judgeStorage(storage: StorageTargetHealth): Judgement {
   }
 }
 
-function judgeSource(sources: SetupFacts["sources"]): Judgement {
-  if (sources.active > 0) {
+function judgeSource(sources: SetupFacts["sources"], machines: number): Judgement {
+  // A machine whose agent reported in is a connected source too.
+  if (sources.active > 0 || machines > 0) {
     return done;
   }
   if (sources.error > 0) {
@@ -54,11 +68,12 @@ function judgeSource(sources: SetupFacts["sources"]): Judgement {
   return open(sources.pending > 0 ? "consent_pending" : null);
 }
 
-function judgeVerification(verification: SetupFacts["verification"]): Judgement {
-  if (verification.green > 0) {
+function judgeVerification(facts: SetupFacts): Judgement {
+  const { verification, machines } = facts;
+  if (verification.green > 0 || machines.greenChecks > 0) {
     return done;
   }
-  return verification.reports > 0 ? attention("not_green") : open();
+  return verification.reports > 0 || machines.checks > 0 ? attention("not_green") : open();
 }
 
 /**
@@ -83,11 +98,18 @@ function judgeMail(mail: SetupFacts["mail"]): Judgement {
 
 const JUDGE: Readonly<Record<SetupItemId, (facts: SetupFacts) => Judgement>> = {
   storage: (facts) => judgeStorage(facts.storage),
-  source: (facts) => judgeSource(facts.sources),
-  objects: (facts) => (facts.activeObjects > 0 ? done : open()),
-  schedules: (facts) => (facts.enabledBackupSchedules > 0 ? done : open("no_backup_schedule")),
-  firstBackup: (facts) => (facts.completedSnapshots > 0 ? done : open()),
-  firstVerification: (facts) => judgeVerification(facts.verification),
+  source: (facts) => judgeSource(facts.sources, facts.machines.active),
+  // A machine is a protected object of its own.
+  objects: (facts) => (facts.activeObjects > 0 || facts.machines.active > 0 ? done : open()),
+  // A machine backup job counts once there is a machine for it to back up.
+  schedules: (facts) =>
+    facts.enabledBackupSchedules > 0 ||
+    (facts.machines.active > 0 && facts.machines.enabledJobs > 0)
+      ? done
+      : open("no_backup_schedule"),
+  firstBackup: (facts) =>
+    facts.completedSnapshots > 0 || facts.machines.backedUp > 0 ? done : open(),
+  firstVerification: (facts) => judgeVerification(facts),
   notificationMail: (facts) => judgeMail(facts.mail),
 };
 

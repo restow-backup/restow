@@ -4,7 +4,8 @@ import { ApiError } from "@/lib/api";
  * Step-up for the few actions that decide what runs on the server or on a
  * machine, or open its backups (apps/api lib/recent-sign-in.ts): changing the
  * update source or its access token, announcing an update, setting or changing
- * an endpoint's hooks and showing its repository password. The API answers 403
+ * an endpoint's hooks, showing its repository password and resetting the access
+ * of a provider team member. The API answers 403
  * with this problem type when the session is older than a few minutes; the
  * web app then asks the person to confirm it is them
  * (components/confirm-identity-dialog.tsx) and repeats the action.

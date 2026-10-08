@@ -58,6 +58,30 @@
     "EUPL": "Copyleft. A dual-licensed package that offers a permissive alternative (for example MIT OR EUPL-1.1+) is accepted under that alternative."
   },
   "overrides": {},
+  "separateWorks": {
+    "$comment": "Folders of this repository that are separate works under their own license, not part of the Apache-2.0 core (scripts/ci/check-separate-works.mjs). Each carries its full license text and SPDX headers, holds no Restow core code, is referenced only from the files listed under 'allowedReferences' and is copied nowhere else. Nothing here allows that license for dependencies of the core or of ee/.",
+    "integrations/pve/plugin": {
+      "license": "AGPL-3.0-or-later",
+      "reason": "The storage plugin shim for Proxmox VE (maintainer decision 2026-10-03, docs/PROXMOX.md 2.2): Perl modules that PVE loads into its own daemons and that derive from PVE::Storage::Plugin and PVE::BackupProvider::Plugin::Base, which are AGPL-3+. The shim only receives PVE's calls and runs the separate program restow-pve (Apache-2.0, agent/cmd/restow-pve) with JSON on stdin and stdout (docs/PVE-PROTOCOL.md); it contains no Restow logic. It ships as source, with its LICENSE, next to restow-pve in the linux-amd64 agent release.",
+      "allowedReferences": [
+        ".github/workflows/ci.yml",
+        "Dockerfile",
+        "NOTICE",
+        "THIRD_PARTY_NOTICES.md",
+        "agent/build.sh",
+        "docs/PROXMOX.md",
+        "docs/PVE.md",
+        "docs/PVE-PROTOCOL.md",
+        "docs/PVE-HOST-TEST.md",
+        "integrations/pve/README.md",
+        "integrations/pve/build-node-tarball.sh",
+        "integrations/pve/install-node.sh",
+        "scripts/ci/check-separate-works.mjs",
+        "scripts/ci/check-separate-works.test.mjs",
+        "scripts/ci/license-policy.json"
+      ]
+    }
+  },
   "redistributedBinaries": {
     "$comment": "Programs Restow ships unmodified as separate binaries, in the images and to every endpoint, with the Go modules compiled into them. 'modules' is the vendored list (scripts/restic-licenses.mjs, checked against the pinned binaries in CI). A module passes with a license of 'allowed' whose copyleft is 'none', or when it is named under 'exceptions' with exactly the license it has. An exception covers that module inside that binary only.",
     "restic": {

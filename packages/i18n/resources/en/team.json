@@ -1,10 +1,10 @@
 {
-  "nav": "Team",
-  "title": "Provider team",
+  "nav": "Members",
+  "title": "Members",
   "subtitle": "Who administers this installation, with which role and in which tenants.",
   "invite": "Invite member",
-  "loadError": "The team could not be loaded.",
-  "ownersOnly": "Only owners can change the team.",
+  "loadError": "The members could not be loaded.",
+  "ownersOnly": "Only owners can change the members.",
   "you": "You",
   "columns": {
     "member": "Member",
@@ -16,11 +16,11 @@
   "roles": {
     "owner": {
       "label": "Owner",
-      "description": "Everything, including the team, the license and the installation settings."
+      "description": "Everything, including members, license and installation settings."
     },
     "administrator": {
       "label": "Administrator",
-      "description": "Sets up and runs tenants, storage, schedules, sources and integrations. Not the team, the license or the installation settings."
+      "description": "Sets up and runs tenants, storage, schedules, sources and integrations. Not members, license or installation settings."
     },
     "technician": {
       "label": "Technician",
@@ -28,7 +28,7 @@
     },
     "read_only": {
       "label": "Read only",
-      "description": "Sees status, reports and the audit log. No content, no changes."
+      "description": "Sees status and reports. No content, no changes."
     }
   },
   "scope": {
@@ -38,7 +38,9 @@
     "allHint": "Includes tenants created later.",
     "ownerHint": "Owners always have every tenant.",
     "pick": "Tenants",
-    "noTenants": "There are no tenants yet."
+    "noTenants": "There are no tenants yet.",
+    "locked": "In the Community edition every member has every tenant. Limiting members to chosen tenants comes with Service Provider.",
+    "kept": "This member stays limited to the tenants chosen before. You can give them every tenant; the choice of tenants cannot be changed here."
   },
   "status": {
     "active": "Active",
@@ -58,42 +60,61 @@
     }
   },
   "dialog": {
-    "inviteTitle": "Invite to the provider team",
+    "inviteTitle": "Invite a member",
     "inviteDescription": "The person receives a link to choose a password, then sets up an authenticator app.",
     "editTitle": "Change role and tenants",
     "editDescription": "Applies to {name} with the next request.",
     "submitInvite": "Send invitation",
     "submitSave": "Save",
-    "cancel": "Cancel"
+    "cancel": "Cancel",
+    "inviteDescriptionNoMail": "This installation sends no mail: you get a link to hand to the person yourself. With it they choose a password and then set up an authenticator app.",
+    "submitInviteNoMail": "Create invitation (link to hand over)"
   },
   "link": {
     "title": "Invitation ready",
-    "sent": "The invitation went to {email} by email. The link works once, for 72 hours.",
-    "copy": "No email could be sent. Hand this link to {email} yourself; it works once, for 72 hours.",
+    "resetTitle": "Access reset",
+    "description": "{email} opens this link once, chooses a password and then sets up an authenticator app.",
     "done": "Done"
   },
   "actions": {
     "edit": "Change role",
     "editLabel": "Change role and tenants of {name}",
     "remove": "Remove",
-    "removeLabel": "Remove {name} from the team",
+    "removeLabel": "Remove {name} from the members",
     "reissue": "New invitation link",
-    "reissueLabel": "Create a new invitation link for {name}"
+    "reissueLabel": "Create a new invitation link for {name}",
+    "resetAccess": "Reset access",
+    "resetAccessLabel": "Reset the access of {name}",
+    "selfReason": "Another owner changes your own role or ends your membership, so you never take your own rights away by mistake."
   },
   "remove": {
-    "title": "Remove {name} from the team?",
+    "title": "Remove {name} from the members?",
     "description": "Their sessions end at once and their open invitation stops working. An account that belongs to no tenant is deleted.",
     "confirm": "Remove"
+  },
+  "resetAccess": {
+    "title": "Reset the access of {name}?",
+    "description": "Their password, passkeys and authenticator app are removed and every session ends at once. They get a new link to choose a password and set up an authenticator app again; give them the link and the username yourself if no email can be sent.",
+    "confirm": "Reset access"
   },
   "toasts": {
     "invited": "Invitation created",
     "updated": "Changes saved",
     "removed": "Member removed",
-    "reissued": "New invitation link created"
+    "reissued": "New invitation link created",
+    "accessReset": "Access reset"
   },
   "errors": {
-    "lastOwner": "The team always keeps at least one owner. Make someone else an owner first.",
+    "lastOwner": "There is always at least one owner. Make someone else an owner first.",
     "accountExists": "An account with this address already exists. Invite the person with a different address.",
-    "noTenants": "Choose at least one tenant, or give the member every tenant."
+    "noTenants": "Choose at least one tenant, or give the member every tenant.",
+    "resetSelf": "You cannot reset your own access here. Another owner can, or the command line (restow admin recover).",
+    "notActive": "This member has not signed in yet. Create a new invitation link instead."
+  },
+  "subtitleOneScope": "Who administers this installation, and with which role.",
+  "forbidden": {
+    "title": "Members not available",
+    "scoped": "Your role covers chosen tenants only. The members administer the whole installation, so only members with every tenant can see them.",
+    "notProvider": "Only owners and administrators of the installation see its members. The users of your tenant are in your tenant's settings."
   }
 }

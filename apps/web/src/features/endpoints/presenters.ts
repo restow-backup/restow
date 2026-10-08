@@ -203,6 +203,23 @@ export function withoutBackup<T extends Pick<EndpointSummary, "status" | "job">>
   return (items ?? []).filter(isWithoutBackup);
 }
 
+/**
+ * "Back up now" for chosen machines: one request per backup job, with the machines of that job.
+ * A machine in no job cannot be backed up and is left out.
+ */
+export function backupGroupsOf(
+  items: readonly Pick<EndpointSummary, "id" | "job">[],
+): { job: { id: string; name: string }; ids: string[] }[] {
+  const groups = new Map<string, { job: { id: string; name: string }; ids: string[] }>();
+  for (const item of items) {
+    if (!item.job) continue;
+    const group = groups.get(item.job.id) ?? { job: item.job, ids: [] };
+    group.ids.push(item.id);
+    groups.set(item.job.id, group);
+  }
+  return [...groups.values()];
+}
+
 export function attentionTone(attention: Attention): StatusTone {
   return ATTENTION_TONE[attention];
 }
@@ -390,6 +407,9 @@ const RUN_ERROR_CODES = [
   "hooks_not_allowed",
   "timeout",
   "target_not_empty",
+  "target_unusable",
+  "restic_error",
+  "truncated",
   "invalid_task",
   "hash_mismatch",
   "missing",

@@ -22,6 +22,7 @@ import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { isTenantAdmin } from "../../middleware/rbac.js";
 import { ProblemError } from "../../problem.js";
 import { archiveSearchConditions } from "../archive/service.js";
+import { failureDto } from "../failures/dto.js";
 import { sendJob } from "../jobs/queue.js";
 import type { SelectionEntry } from "../restore/schemas.js";
 import { type ResolvedSelection, requestedKeys, resolveSelection } from "../restore/selection.js";
@@ -511,8 +512,9 @@ export async function listExports(
     const visible = visibleExportsCondition(viewer);
     const rows = await exportQuery(tx)
       .where(and(eq(mailExports.tenantId, tenantId), ...(visible ? [visible] : [])))
-      .orderBy(desc(mailExports.createdAt))
-      .limit(query.limit);
+      .orderBy(desc(mailExports.createdAt), desc(mailExports.id))
+      .limit(query.limit)
+      .offset(query.offset ?? 0);
     const at = (options.now ?? (() => new Date()))();
     return rows.map((row) => toExportDto(row, at, config.exports.ttlHours));
   });
@@ -544,6 +546,7 @@ export async function getExport(
       ...toExportDto(row, at, config.exports.ttlHours),
       reason: row.export.reason,
       errorMessage: row.job?.errorMessage ?? null,
+      failure: failureDto(row.job?.failure ?? null),
       report: reportFromJson(row.export.report),
       failures,
     };

@@ -4,6 +4,7 @@ import type { InstallationSettings } from "./api";
 import {
   type MailFormContext,
   type MailFormValues,
+  changePasswordSchema,
   fieldMessageKey,
   generalFormSchema,
   leavesPublicMode,
@@ -11,6 +12,7 @@ import {
   mailFormFromSettings,
   mailFormSchema,
   mayKeepStoredPassword,
+  passkeyLoss,
   passwordConfirmSchema,
   portForSecurity,
   problemFieldIssues,
@@ -120,6 +122,30 @@ describe("general form", () => {
       ),
     ).toBe(false);
   });
+
+  it("knows when passkeys would stop working", () => {
+    expect(passkeyLoss({ operatingMode: "local", publicUrl: "" }, settings)).toBe("leave_public");
+    expect(
+      passkeyLoss({ operatingMode: "public", publicUrl: "https://backup.example.com" }, settings),
+    ).toBe("host_change");
+    // Same host, other port or path: the passkeys stay valid.
+    expect(
+      passkeyLoss(
+        { operatingMode: "public", publicUrl: "https://restow.example.com:8443" },
+        settings,
+      ),
+    ).toBeNull();
+    expect(
+      passkeyLoss({ operatingMode: "public", publicUrl: "https://restow.example.com" }, settings),
+    ).toBeNull();
+    // From local mode no passkey works yet, so nothing is lost.
+    expect(
+      passkeyLoss(
+        { operatingMode: "public", publicUrl: "https://backup.example.com" },
+        { ...settings, operatingMode: "local" },
+      ),
+    ).toBeNull();
+  });
 });
 
 describe("mail form", () => {
@@ -134,7 +160,16 @@ describe("mail form", () => {
         password: "",
         from: "restow@example.com",
       },
-      graph: { sender: "", tenantId: "" },
+      graph: {
+        app: "own",
+        sender: "",
+        tenantId: "",
+        clientId: "",
+        credentialKind: "secret",
+        clientSecret: "",
+        certificatePem: "",
+      },
+      google: { sender: "", serviceAccountKey: "" },
     });
     expect(mailFormFromSettings({ transport: null }).transport).toBe("smtp");
   });
@@ -182,9 +217,15 @@ describe("mail form", () => {
 
   it("validates only the selected transport", () => {
     const graphOnly: MailFormValues = {
+      ...smtpValues(),
       transport: "graph",
       smtp: { host: "", port: "", security: "starttls", username: "", password: "", from: "" },
-      graph: { sender: "restow@contoso.com", tenantId: "contoso.onmicrosoft.com" },
+      graph: {
+        ...smtpValues().graph,
+        app: "backup",
+        sender: "restow@contoso.com",
+        tenantId: "contoso.onmicrosoft.com",
+      },
     };
     expect(mailFormSchema(context).safeParse(graphOnly).success).toBe(true);
   });
@@ -193,7 +234,7 @@ describe("mail form", () => {
     const values: MailFormValues = {
       ...smtpValues(),
       transport: "graph",
-      graph: { sender: "restow@contoso.com", tenantId: "" },
+      graph: { ...smtpValues().graph, app: "backup", sender: "restow@contoso.com", tenantId: "" },
     };
     expect(messages(mailFormSchema(context).safeParse(values))).toEqual([
       ["graph.tenantId", "required"],
@@ -205,7 +246,10 @@ describe("mail form", () => {
     expect(mailFormSchema(withDefault).safeParse(values).success).toBe(true);
     expect(
       messages(
-        mailFormSchema(context).safeParse({ ...values, graph: { sender: "x", tenantId: "nope" } }),
+        mailFormSchema(context).safeParse({
+          ...values,
+          graph: { ...values.graph, sender: "x", tenantId: "nope" },
+        }),
       ),
     ).toEqual([
       ["graph.sender", "email"],
@@ -231,9 +275,17 @@ describe("mail form", () => {
       toMailInput({
         ...smtpValues(),
         transport: "graph",
-        graph: { sender: " restow@contoso.com ", tenantId: " " },
+        graph: {
+          ...smtpValues().graph,
+          app: "backup",
+          sender: " restow@contoso.com ",
+          tenantId: " ",
+        },
       }),
-    ).toEqual({ transport: "graph", graph: { sender: "restow@contoso.com", tenantId: null } });
+    ).toEqual({
+      transport: "graph",
+      graph: { sender: "restow@contoso.com", tenantId: null, app: "backup" },
+    });
   });
 
   it("follows the conventional port unless a custom one was typed", () => {
@@ -300,5 +352,36 @@ describe("authenticator forms", () => {
   it("requires the password before any change to the second factor", () => {
     expect(passwordConfirmSchema.safeParse({ password: "" }).success).toBe(false);
     expect(passwordConfirmSchema.safeParse({ password: "correct horse" }).success).toBe(true);
+  });
+});
+
+describe("changePasswordSchema", () => {
+  const valid = {
+    current: "the-current-one",
+    password: "a-brand-new-password",
+    confirm: "a-brand-new-password",
+    revokeOtherSessions: true,
+  };
+  const reasons = (values: typeof valid) => {
+    const result = changePasswordSchema.safeParse(values);
+    return result.success ? [] : result.error.issues.map((issue) => issue.message);
+  };
+
+  it("takes the current password and a new one typed twice", () => {
+    expect(reasons(valid)).toEqual([]);
+  });
+
+  it("refuses a short, a mistyped or an unchanged new password, and a missing current one", () => {
+    expect(reasons({ ...valid, password: "short", confirm: "short" })).toContain("minLength");
+    expect(reasons({ ...valid, confirm: "something-else-1" })).toContain("passwordMismatch");
+    expect(
+      reasons({
+        ...valid,
+        password: valid.current.padEnd(14, "x"),
+        current: valid.current.padEnd(14, "x"),
+        confirm: valid.current.padEnd(14, "x"),
+      }),
+    ).toContain("samePassword");
+    expect(reasons({ ...valid, current: "" })).toContain("required");
   });
 });

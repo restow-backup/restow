@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { I18nextProvider } from "react-i18next";
 import { beforeAll, describe, expect, it, vi } from "vitest";
@@ -13,6 +14,19 @@ import { ArchivePage } from "./archive-page.js";
  * forbidden for a non-admin, and the normal search view), rendered to
  * static markup — the same pattern as features/directory's panel tests.
  */
+
+vi.mock("@tanstack/react-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-router")>();
+  return {
+    ...actual,
+    // Links render as plain anchors: these tests render without a <RouterProvider>.
+    Link: ({ to, children, ...props }: { to: string; children?: React.ReactNode }) => (
+      <a href={String(to)} {...props}>
+        {children}
+      </a>
+    ),
+  };
+});
 
 vi.mock("@/lib/api", () => ({
   apiFetch: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 }),

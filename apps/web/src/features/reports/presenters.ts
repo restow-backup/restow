@@ -36,11 +36,44 @@ export interface RuleFormState {
   inApp: boolean;
   webhookId: string | null;
   language: "de" | "en" | null;
+  /** `backup.overdue` by the rule's own deadline instead of the jobs' schedules. */
+  overdueCustom: boolean;
+  /** That deadline in hours, as typed. */
+  overdueHours: string;
 }
 
 export type RuleFormErrors = Partial<
-  Record<"name" | "events" | "sections" | "channels" | "time" | "cron" | "recipients", string>
+  Record<
+    | "name"
+    | "events"
+    | "sections"
+    | "channels"
+    | "time"
+    | "cron"
+    | "timezone"
+    | "recipients"
+    | "overdueHours",
+    string
+  >
 >;
+
+/** The deadline a rule may set for `backup.overdue`: a day to 30 days (as the server checks). */
+export const OVERDUE_DEADLINE_HOURS = { min: 24, max: 720, initial: 72 } as const;
+
+/** The deadline typed into the form, or null when it is no whole number of hours in range. */
+export function parseOverdueHours(text: string): number | null {
+  const trimmed = text.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const hours = Number(trimmed);
+  return hours >= OVERDUE_DEADLINE_HOURS.min && hours <= OVERDUE_DEADLINE_HOURS.max ? hours : null;
+}
+
+/** Whether the form sets its own deadline for `backup.overdue` (the event chosen, the option on). */
+export function usesOverdueDeadline(
+  form: Pick<RuleFormState, "trigger" | "events" | "overdueCustom">,
+) {
+  return form.trigger === "event" && form.overdueCustom && form.events.includes("backup.overdue");
+}
 
 export const THROTTLE_OPTIONS = [0, 15, 60, 240, 1440] as const;
 
@@ -50,6 +83,7 @@ export const EVENT_GROUPS: Record<
 > = {
   jobs: [
     "backup.failed",
+    "backup.overdue",
     "restore.failed",
     "restore.completed",
     "archive.failed",
@@ -103,6 +137,8 @@ export function emptyRuleForm(trigger: ReportTrigger, timezone = browserTimeZone
     inApp: trigger === "schedule",
     webhookId: null,
     language: null,
+    overdueCustom: false,
+    overdueHours: String(OVERDUE_DEADLINE_HOURS.initial),
   };
 }
 
@@ -168,6 +204,8 @@ export function ruleToForm(rule: ReportRule): RuleFormState {
     inApp: rule.inApp,
     webhookId: rule.webhookId,
     language: rule.language,
+    overdueCustom: typeof rule.overdueAfterHours === "number",
+    overdueHours: String(rule.overdueAfterHours ?? OVERDUE_DEADLINE_HOURS.initial),
   };
 }
 
@@ -187,6 +225,29 @@ export function parseRecipients(text: string): { valid: string[]; invalid: strin
   return { valid, invalid };
 }
 
+/** The IANA zones this browser knows, for the time zone suggestions (empty where it cannot say). */
+export function knownTimeZones(): string[] {
+  try {
+    const zones = (Intl as { supportedValuesOf?: (key: string) => string[] }).supportedValuesOf?.(
+      "timeZone",
+    );
+    return zones ? [...zones, ...(zones.includes("UTC") ? [] : ["UTC"])] : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Whether `zone` is a time zone this browser can use (the server checks it the same way). */
+export function isKnownTimeZone(zone: string): boolean {
+  if (zone.trim().length === 0) return false;
+  try {
+    new Intl.DateTimeFormat("en", { timeZone: zone.trim() });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** Problems of the form as translation keys (namespace `reports`); empty when it can be saved. */
 export function validateRuleForm(form: RuleFormState): RuleFormErrors {
   const errors: RuleFormErrors = {};
@@ -194,6 +255,9 @@ export function validateRuleForm(form: RuleFormState): RuleFormErrors {
   const recipients = parseRecipients(form.recipientsText);
   if (recipients.invalid.length > 0) errors.recipients = "editor.errors.recipients";
   if (form.trigger === "event" && form.events.length === 0) errors.events = "editor.errors.events";
+  if (usesOverdueDeadline(form) && parseOverdueHours(form.overdueHours) === null) {
+    errors.overdueHours = "editor.errors.overdueHours";
+  }
   if (form.trigger === "schedule") {
     if (form.sections.length === 0) errors.sections = "editor.errors.sections";
     if (form.frequency === "custom") {
@@ -201,6 +265,8 @@ export function validateRuleForm(form: RuleFormState): RuleFormErrors {
     } else if (!TIME.test(form.time)) {
       errors.time = "editor.errors.time";
     }
+    // Said here, in the reader's language, instead of after saving by the server.
+    if (!isKnownTimeZone(form.timezone)) errors.timezone = "editor.errors.timezone";
   }
   const hasChannel =
     recipients.valid.length > 0 ||
@@ -233,6 +299,7 @@ export function formToInput(form: RuleFormState): ReportRuleInput {
     inApp: schedule ? form.inApp : false,
     webhookId: form.webhookId,
     language: form.language,
+    overdueAfterHours: usesOverdueDeadline(form) ? parseOverdueHours(form.overdueHours) : null,
   };
 }
 

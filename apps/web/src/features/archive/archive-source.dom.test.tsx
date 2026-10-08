@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type * as React from "react";
 import { act } from "react";
 import { type Root, createRoot } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
@@ -20,7 +21,16 @@ import { ArchivePage } from "./archive-page.js";
 
 vi.mock("@tanstack/react-router", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-router")>();
-  return { ...actual, useNavigate: () => vi.fn() };
+  return {
+    ...actual,
+    useNavigate: () => vi.fn(),
+    // Links render as plain anchors: these tests render without a <RouterProvider>.
+    Link: ({ to, children, ...props }: { to: string; children?: React.ReactNode }) => (
+      <a href={String(to)} {...props}>
+        {children}
+      </a>
+    ),
+  };
 });
 vi.mock("@/lib/session", () => ({
   useSession: () => ({
@@ -135,6 +145,14 @@ describe("ArchivePage capture source", () => {
     apiFetch.mockImplementation((path: string) => {
       if (path.startsWith("/archive/search")) {
         return Promise.resolve({ items, total: items.length, limit: 50, offset: 0 });
+      }
+      if (path.endsWith("/preview")) {
+        return Promise.resolve({
+          previewable: false,
+          reason: "too-large",
+          headers: { subject: "Mail", from: null, to: [], cc: [], date: null, messageId: null },
+          attachments: [],
+        });
       }
       const match = /^\/archive\/items\/item-(.+)$/.exec(path);
       if (match) {

@@ -180,9 +180,31 @@ describe("saving a new mail job", () => {
       scope: { mode: "selected", members: [{ id: "o1" }, { id: "o2" }] },
     });
     expect(body).not.toHaveProperty("moveMembers");
+    expect(body).not.toHaveProperty("archive");
     // The editor closes and the address drops the editor.
     expect(slot("job-editor")).toBeNull();
     expect(opened?.where().search).toEqual({ type: "mail" });
+  });
+
+  it("archives the mailboxes on request, warns without Object Lock and says that capture needs Business", async () => {
+    let body: unknown = null;
+    await open("/jobs?type=mail&new=1", {
+      ...MAIL_ROUTES,
+      "POST /backup-jobs": (request) => {
+        body = request.body;
+        return json(mailJob({ id: "new", name: "Archived" }), 201);
+      },
+    });
+    expect(slot("archive-object-lock")).toBeNull();
+    await typeInto(field("Name"), "Archived");
+    await click(field("Archive this job's mailboxes"));
+    // The fixture's repository is an S3 bucket without Object Lock.
+    expect(slot("archive-object-lock")?.textContent).toContain("no Object Lock");
+    // No extension in this build: the core's own note.
+    expect(slot("archive-edition")?.textContent).toContain("Business edition");
+    await click(buttonByText(editor(), "Create job"));
+    await flush(5);
+    expect(body).toMatchObject({ kind: "mail", name: "Archived", archive: true });
   });
 
   it("covers everything by default when no other job does, and offers that choice only then", async () => {
@@ -348,7 +370,7 @@ describe("taking objects from another job", () => {
 describe("a machine job", () => {
   it("shows folders, exclusions, bandwidth and retention, with the commands behind Advanced", async () => {
     await open("/jobs?type=endpoint&new=1", ENDPOINT_ROUTES);
-    for (const title of ["Folders", "Exclusions", "Bandwidth", "Retention", "Repository"]) {
+    for (const title of ["Folders", "Exclusions", "Bandwidth", "Retention", "Storage location"]) {
       expect(
         [...editor().querySelectorAll("h3")].some((heading) => heading.textContent === title),
         title,
@@ -373,7 +395,7 @@ describe("a machine job", () => {
     // The size limit says which agent it needs, and no longer that it has no effect yet.
     expect(textOf(editor())).toContain("Needs agent version 0.2.0 or later on the machine");
     expect(textOf(editor())).not.toContain("An agent without support for this limit");
-    expect(textOf(editor())).toContain("Every job writes to the primary repository");
+    expect(textOf(editor())).toContain("Every backup job writes to the primary storage location");
   });
 
   it("switches exclusion chips on and off, and each chip says it is pressed", async () => {

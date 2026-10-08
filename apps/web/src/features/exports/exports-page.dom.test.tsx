@@ -50,7 +50,10 @@ vi.mock("radix-ui", async (importOriginal) => {
 const fetchExports = vi.fn();
 vi.mock("./api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./api")>();
-  return { ...actual, fetchExports: () => fetchExports() };
+  return {
+    ...actual,
+    fetchExportList: async () => ({ items: await fetchExports(), ttlHours: 6 }),
+  };
 });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -223,6 +226,15 @@ describe("ExportsPage", () => {
     await mount();
     expect(text()).toContain("Export from backups");
     expect(text()).not.toContain("Export from the archive");
+    // Nor does the empty state point there.
+    expect(text()).not.toContain("or the archive");
+  });
+
+  it("names the download period the server is set to, not a fixed 24 hours", async () => {
+    fetchExports.mockResolvedValue([]);
+    await mount();
+    expect(text()).toContain("Finished files can be downloaded for 6 hours.");
+    expect(text()).not.toContain("24 hours");
   });
 
   it("explains when the list cannot be loaded", async () => {

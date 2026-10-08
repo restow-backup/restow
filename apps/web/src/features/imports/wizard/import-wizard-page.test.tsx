@@ -18,6 +18,8 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
   return {
     ...actual,
     useNavigate: () => navigate,
+    // No router in these tests: the leave guard has its own test (upload-leave-guard.dom.test.tsx).
+    useBlocker: () => ({ status: "idle" }),
     Link: ({
       children,
       className,
@@ -83,6 +85,8 @@ function stubApi(setup: Setup = {}) {
       }
       if (path === "/imports/config") return jsonResponse(setup.config ?? config);
       if (path === "/imports/folder") return jsonResponse(folderListing);
+      if (path === "/archive/retention")
+        return jsonResponse({ mode: "from_capture", years: 8, source: "default" });
       if (path === "/snapshots/objects")
         return jsonResponse({ items: setup.importedObjects ?? [] });
       if (path === "/imports" && method === "GET") return jsonResponse({ items: [] });
@@ -206,12 +210,20 @@ describe("folder import from start to POST", () => {
       "  Old mail  ",
     );
     await click(view.container.querySelector("#target-archive") as Element);
+    // Ingesting into the archive cannot be undone; the retention says for how long.
+    expect(text(view.container)).toContain("This cannot be undone");
+    await until(() =>
+      expect(text(view.container)).toContain("Retention in this tenant: 8 years from ingestion."),
+    );
     await next(view);
 
     expect(text(view.container)).toContain("Review and start");
     expect(text(view.container)).toContain("New imported mailbox: Old mail");
     expect(text(view.container)).toContain("Server import folder");
-    expect(text(view.container)).toContain("Also ingested into the archive");
+    // Not started yet: the review speaks of what will happen.
+    expect(text(view.container)).toContain(
+      "Will also be ingested into the archive (cannot be undone)",
+    );
     expect(text(view.container)).toContain("old-mail.mbox");
 
     await click(button(view.container, "Start import"));

@@ -12,11 +12,13 @@ import {
   FolderSearch,
   History,
   Inbox,
+  ListChecks,
   ListPlus,
   Mail,
   RotateCcw,
   Search,
   ShieldOff,
+  TriangleAlert,
   X,
 } from "lucide-react";
 import * as React from "react";
@@ -48,8 +50,10 @@ import {
 } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { type JobsAccess, useJobsAccess } from "@/features/backup-jobs/components/access-note";
-import { linkProps, newJobTo } from "@/features/backup-jobs/paths";
+import { jobDefinitionTo, linkProps, newJobTo } from "@/features/backup-jobs/paths";
+import { AddToJobDialog } from "@/features/endpoints/components/add-to-job-dialog";
 import { explorerAt } from "@/features/restore/navigation";
+import { WarningSheet } from "@/features/warnings";
 import { errorMessageKey } from "@/lib/api";
 import { formatDateTime, formatInteger, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -142,6 +146,7 @@ export function ObjectsPanel({
   const activeSource = sources.find((source) => source.id === activeSourceId);
   const [selection, setSelection] = React.useState<BulkSelectionState>(EMPTY_SELECTION);
   const jobs = useJobsAccess();
+  const [adding, setAdding] = React.useState<{ id: string; name: string }[] | null>(null);
   const queryKey = JSON.stringify(query);
   const lastQueryKey = React.useRef(queryKey);
   if (lastQueryKey.current !== queryKey) {
@@ -187,127 +192,141 @@ export function ObjectsPanel({
   }, [objects.data, total, query.page, pages, onSearchChange]);
 
   return (
-    <div className="space-y-4">
-      {protectedTotal.total > 0 ? (
-        <p className="text-sm text-muted-foreground">
-          {t("objects.protectedCount", {
-            active: protectedTotal.active,
-            total: protectedTotal.total,
-          })}
-        </p>
-      ) : null}
-
-      <ObjectFilters search={search} onSearchChange={onSearchChange} sources={sources} />
-
-      {activeSourceId !== undefined ? (
-        <BulkActionBar
-          jobs={jobs}
-          sourceId={activeSourceId}
-          sourceKind={activeSource?.kind}
-          selection={selection}
-          onSelectionChange={setSelection}
-          pageIds={pageIds}
-          total={total}
-          filter={query}
+    <AddToJobContext.Provider value={setAdding}>
+      {/* Mounted once asked for: the dialog loads the jobs only then. */}
+      {adding ? (
+        <AddToJobDialog
+          open
+          kind="mail"
+          onOpenChange={(open) => {
+            if (!open) setAdding(null);
+          }}
+          endpoints={adding}
         />
       ) : null}
+      <div className="space-y-4">
+        {protectedTotal.total > 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {t("objects.protectedCount", {
+              active: protectedTotal.active,
+              total: protectedTotal.total,
+            })}
+          </p>
+        ) : null}
 
-      {objects.isError && !objects.data ? (
-        <ErrorState
-          title={t("objects.error")}
-          error={objects.error}
-          onRetry={() => void objects.refetch()}
-          retrying={objects.isFetching}
-        />
-      ) : (
-        <div className="rounded-lg border border-border">
-          <Table
-            aria-busy={objects.isFetching || undefined}
-            className="min-w-[56rem]"
-            scrollLabel={t("title")}
-          >
-            <TableHeader>
-              {table.getHeaderGroups().map((group) => (
-                <TableRow key={group.id} className="hover:bg-transparent">
-                  {group.headers.map((header) => {
-                    const id = header.column.id as ObjectSort;
-                    const label = flexRender(header.column.columnDef.header, header.getContext());
-                    return (
-                      <TableHead
-                        key={header.id}
-                        pin={columnPin(header.column.id)}
-                        className={columnClass(header.column.id)}
-                      >
-                        {SORTABLE.has(id) ? (
-                          <SortButton
-                            column={id}
-                            label={t(`objects.columns.${id}`)}
-                            query={query}
-                            onSearchChange={onSearchChange}
-                          >
-                            {label}
-                          </SortButton>
-                        ) : (
-                          label
-                        )}
-                      </TableHead>
-                    );
-                  })}
-                </TableRow>
-              ))}
-            </TableHeader>
-            <TableBody>
-              {objects.isPending ? (
-                <LoadingRows columnIds={columns.map((column) => column.id ?? "")} />
-              ) : table.getRowModel().rows.length === 0 ? (
-                <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={columns.length} className="py-12">
-                    <EmptyObjects
-                      filtered={filtered}
-                      hasSources={sources.length > 0}
-                      onReset={() =>
-                        onSearchChange({
-                          q: undefined,
-                          kind: undefined,
-                          status: undefined,
-                          source: undefined,
-                          shared: undefined,
-                        })
-                      }
-                      onShowSources={onShowSources}
-                    />
-                  </TableCell>
-                </TableRow>
-              ) : (
-                table.getRowModel().rows.map((row) => (
-                  <ObjectRow key={row.id} object={row.original} selection={selection} jobs={jobs}>
-                    {row.getVisibleCells().map((cell) => (
-                      <TableCell
-                        key={cell.id}
-                        pin={columnPin(cell.column.id)}
-                        className={columnClass(cell.column.id)}
-                      >
-                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                      </TableCell>
-                    ))}
-                  </ObjectRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+        <ObjectFilters search={search} onSearchChange={onSearchChange} sources={sources} />
 
-      {total > 0 ? (
-        <Pagination
-          page={query.page}
-          pages={pages}
-          pageSize={query.pageSize}
-          total={total}
-          onSearchChange={onSearchChange}
-        />
-      ) : null}
-    </div>
+        {activeSourceId !== undefined ? (
+          <BulkActionBar
+            jobs={jobs}
+            sourceId={activeSourceId}
+            sourceKind={activeSource?.kind}
+            selection={selection}
+            onSelectionChange={setSelection}
+            pageIds={pageIds}
+            total={total}
+            filter={query}
+          />
+        ) : null}
+
+        {objects.isError && !objects.data ? (
+          <ErrorState
+            title={t("objects.error")}
+            error={objects.error}
+            onRetry={() => void objects.refetch()}
+            retrying={objects.isFetching}
+          />
+        ) : (
+          <div className="rounded-lg border border-border">
+            <Table
+              aria-busy={objects.isFetching || undefined}
+              className="min-w-[56rem]"
+              scrollLabel={t("title")}
+            >
+              <TableHeader>
+                {table.getHeaderGroups().map((group) => (
+                  <TableRow key={group.id} className="hover:bg-transparent">
+                    {group.headers.map((header) => {
+                      const id = header.column.id as ObjectSort;
+                      const label = flexRender(header.column.columnDef.header, header.getContext());
+                      return (
+                        <TableHead
+                          key={header.id}
+                          pin={columnPin(header.column.id)}
+                          className={columnClass(header.column.id)}
+                        >
+                          {SORTABLE.has(id) ? (
+                            <SortButton
+                              column={id}
+                              label={t(`objects.columns.${id}`)}
+                              query={query}
+                              onSearchChange={onSearchChange}
+                            >
+                              {label}
+                            </SortButton>
+                          ) : (
+                            label
+                          )}
+                        </TableHead>
+                      );
+                    })}
+                  </TableRow>
+                ))}
+              </TableHeader>
+              <TableBody>
+                {objects.isPending ? (
+                  <LoadingRows columnIds={columns.map((column) => column.id ?? "")} />
+                ) : table.getRowModel().rows.length === 0 ? (
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell colSpan={columns.length} className="py-12">
+                      <EmptyObjects
+                        filtered={filtered}
+                        hasSources={sources.length > 0}
+                        onReset={() =>
+                          onSearchChange({
+                            q: undefined,
+                            kind: undefined,
+                            status: undefined,
+                            job: undefined,
+                            source: undefined,
+                            shared: undefined,
+                          })
+                        }
+                        onShowSources={onShowSources}
+                      />
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  table.getRowModel().rows.map((row) => (
+                    <ObjectRow key={row.id} object={row.original} selection={selection} jobs={jobs}>
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell
+                          key={cell.id}
+                          pin={columnPin(cell.column.id)}
+                          className={columnClass(cell.column.id)}
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
+                    </ObjectRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        {total > 0 ? (
+          <Pagination
+            page={query.page}
+            pages={pages}
+            pageSize={query.pageSize}
+            total={total}
+            onSearchChange={onSearchChange}
+          />
+        ) : null}
+      </div>
+    </AddToJobContext.Provider>
   );
 }
 
@@ -340,6 +359,7 @@ function BulkActionBar({
 }) {
   const { t } = useTranslation("directory");
   const bulk = useBulkSetProtection();
+  const addToJob = React.useContext(AddToJobContext);
   const canReset = sourceKind === "m365";
 
   if (selectionIsEmpty(selection)) {
@@ -389,6 +409,17 @@ function BulkActionBar({
               <ListPlus aria-hidden="true" />
               {t("rowActions.newJobFromSelection", { count: selection.ids.size })}
             </Link>
+          </Button>
+        ) : null}
+        {selection.mode === "ids" && !jobs.closed && addToJob ? (
+          <Button
+            variant="outline"
+            size="sm"
+            data-action="addSelectionToJob"
+            onClick={() => addToJob([...selection.ids].map((id) => ({ id, name: "" })))}
+          >
+            <ListChecks aria-hidden="true" />
+            {t("rowActions.addSelectionToJob", { count: selection.ids.size })}
           </Button>
         ) : null}
         <ConfirmDialog
@@ -453,6 +484,8 @@ function columnClass(columnId: string): string | undefined {
     case "lastBackup":
     case "readiness":
       return "hidden lg:table-cell";
+    case "job":
+      return "hidden xl:table-cell";
     case "actions":
       return "w-12 text-right";
     default:
@@ -544,6 +577,11 @@ function objectColumns(
       },
     },
     {
+      id: "job",
+      header: t("objects.columns.job"),
+      cell: ({ row }) => <JobCell object={row.original} />,
+    },
+    {
       id: "lastBackup",
       header: t("objects.columns.lastBackup"),
       cell: ({ row }) => <BackupCell object={row.original} language={language} />,
@@ -565,6 +603,35 @@ function objectColumns(
     },
   ];
 }
+
+/** The backup job that covers the object, as a link; a note when it does not run on a schedule. */
+function JobCell({ object }: { object: ProtectedObject }) {
+  const { t } = useTranslation("directory");
+  if (!object.job) {
+    return object.coverage === "none" ? (
+      <span className="text-muted-foreground">{t("job.none")}</span>
+    ) : null;
+  }
+  return (
+    <div className="min-w-0">
+      <Link
+        {...linkProps(jobDefinitionTo(object.job.id, "mail"))}
+        className="block truncate rounded-sm font-medium outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
+        title={object.job.name}
+      >
+        {object.job.name}
+      </Link>
+      {object.job.scheduled ? null : (
+        <span className="block text-xs text-muted-foreground">{t("job.paused")}</span>
+      )}
+    </div>
+  );
+}
+
+/** Opens "Add to job" for some objects; null where jobs cannot be managed. */
+const AddToJobContext = React.createContext<
+  ((objects: { id: string; name: string }[]) => void) | null
+>(null);
 
 /** The actions of the row being rendered, for its "…" menu (see `ObjectRow`). */
 const RowActionsContext = React.createContext<{ actions: RowAction[]; name: string } | null>(null);
@@ -605,6 +672,14 @@ function objectLinkActions(
       link: newJobTo("mail", [object.id]),
     },
   );
+  if (object.job) {
+    actions.push({
+      id: "openJob",
+      label: t("rowActions.openJob"),
+      icon: ListChecks,
+      link: jobDefinitionTo(object.job.id, "mail"),
+    });
+  }
   return actions;
 }
 
@@ -626,14 +701,27 @@ function ObjectRow({
 }) {
   const { t } = useTranslation("directory");
   const own = useObjectActions(object);
-  const actions = [...objectLinkActions(object, t, jobs), ...own.actions];
+  const addToJob = React.useContext(AddToJobContext);
   const name = objectTitle(object);
+  const actions = [...objectLinkActions(object, t, jobs), ...own.actions];
+  // An object in scope can join an existing job, not only a new one.
+  if (addToJob && object.status === "active") {
+    actions.splice(2, 0, {
+      id: "addToJob",
+      label: t("rowActions.addToJob"),
+      icon: ListChecks,
+      disabled: jobs.closed,
+      reason: jobs.reason,
+      onSelect: () => addToJob([{ id: object.id, name }]),
+    });
+  }
   const selected = objectIsSelected(selection, object.id);
   const several = selected && selection.mode === "ids" && selection.ids.size > 1;
   const contextActions = (): RowAction[] => {
     if (!several) {
       return actions;
     }
+    const chosen = [...selection.ids].map((id) => ({ id, name: "" }));
     return [
       {
         id: "newJobFromSelection",
@@ -643,6 +731,18 @@ function ObjectRow({
         reason: jobs.reason,
         link: newJobTo("mail", [...selection.ids]),
       },
+      ...(addToJob
+        ? [
+            {
+              id: "addSelectionToJob",
+              label: t("rowActions.addSelectionToJob", { count: selection.ids.size }),
+              icon: ListChecks,
+              disabled: jobs.closed,
+              reason: jobs.reason,
+              onSelect: () => addToJob(chosen),
+            },
+          ]
+        : []),
     ];
   };
   const value = { actions, name };
@@ -757,11 +857,53 @@ function BackupCell({ object, language }: { object: ProtectedObject; language: s
           <div className="text-xs text-muted-foreground">
             {t("backup.snapshots", { count: object.snapshotCount })}
           </div>
+          {object.warning ? <BackupWarning object={object} language={language} /> : null}
         </div>
       );
     default:
       return <span className="text-muted-foreground">{t("backup.never")}</span>;
   }
+}
+
+/**
+ * The newest backup left items behind: a warning badge (or the quieter acknowledged one) and the
+ * way to the reasons, so the badge is never a dead end (features/warnings).
+ */
+function BackupWarning({ object, language }: { object: ProtectedObject; language: string }) {
+  const { t } = useTranslation("directory");
+  const [open, setOpen] = React.useState(false);
+  const warning = object.warning;
+  if (!warning) {
+    return null;
+  }
+  const acknowledged = warning.state === "acknowledged";
+  const when = formatRelative(object.lastBackupAt, language) ?? "";
+  return (
+    <div className="space-y-0.5 pt-0.5" data-warning={warning.state}>
+      <HintBadge
+        variant={acknowledged ? "muted" : "warning"}
+        label={t(acknowledged ? "backup.acknowledged" : "backup.warning")}
+        icon={acknowledged ? undefined : TriangleAlert}
+      >
+        {t(acknowledged ? "backup.acknowledgedHint" : "backup.warningHint", {
+          count: warning.failedItems,
+          when,
+        })}
+      </HintBadge>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="block text-xs font-medium underline-offset-4 hover:underline"
+      >
+        {t("backup.reasons")}
+      </button>
+      <WarningSheet
+        target={open ? { kind: "object", id: object.id } : null}
+        name={objectTitle(object)}
+        onOpenChange={setOpen}
+      />
+    </div>
+  );
 }
 
 function CredentialCell({ object, language }: { object: ProtectedObject; language: string }) {
@@ -947,6 +1089,22 @@ function ObjectFilters({
           </SelectContent>
         </Select>
         <Select
+          value={search.job ?? ALL}
+          onValueChange={(value) =>
+            onSearchChange({ job: value === ALL ? undefined : (value as DirectorySearch["job"]) })
+          }
+        >
+          <SelectTrigger className="w-full sm:w-56" aria-label={t("objects.filters.job")}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>{t("objects.filters.allJobs")}</SelectItem>
+            <SelectItem value="scheduled">{t("objects.filters.jobScheduled")}</SelectItem>
+            <SelectItem value="unscheduled">{t("objects.filters.jobUnscheduled")}</SelectItem>
+            <SelectItem value="none">{t("objects.filters.jobNone")}</SelectItem>
+          </SelectContent>
+        </Select>
+        <Select
           value={search.shared === undefined ? ALL : String(search.shared)}
           onValueChange={(value) =>
             onSearchChange({ shared: value === ALL ? undefined : value === "true" })
@@ -994,6 +1152,7 @@ function ObjectFilters({
                 q: undefined,
                 kind: undefined,
                 status: undefined,
+                job: undefined,
                 source: undefined,
                 shared: undefined,
               })

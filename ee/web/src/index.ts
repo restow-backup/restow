@@ -3,6 +3,7 @@ import type { WebExtension } from "@/lib/extensions";
 import { ArchiveSections, ArchiveSettingsSections } from "./archive-sections";
 import { auditNavItems, auditRoutes, auditTenantSections } from "./audit-log";
 import { journalInstallationSections } from "./journal";
+import { JobArchiveSetup } from "./journal/job-archive-setup";
 import {
   licenseInstallationSections,
   licenseNavItems,
@@ -12,7 +13,6 @@ import {
 import { providerApiInstallationSections } from "./provider-api";
 import { ProviderView } from "./provider-dashboard/provider-view";
 import { ReadinessByTenant } from "./provider-dashboard/readiness-by-tenant";
-import { teamNavItems, teamRoute } from "./provider-team";
 
 /**
  * Entry of the Business and Service Provider web modules (ee/README.md),
@@ -22,8 +22,8 @@ import { teamNavItems, teamRoute } from "./provider-team";
  */
 export const eeWebExtension: WebExtension = {
   name: "ee",
-  routes: [...auditRoutes, teamRoute],
-  navItems: [...auditNavItems, ...licenseNavItems, ...teamNavItems],
+  routes: auditRoutes,
+  navItems: [...auditNavItems, ...licenseNavItems],
   navLocks: licenseNavLocks,
   tenantSections: auditTenantSections,
   installationSections: [
@@ -34,6 +34,7 @@ export const eeWebExtension: WebExtension = {
   slots: {
     "archive.sections": ArchiveSections,
     "tenant.archiveSettings": ArchiveSettingsSections,
+    "jobs.archiveSetup": JobArchiveSetup,
     "dashboard.provider": ProviderView,
     "verify.byTenant": ReadinessByTenant,
     ...licenseSlots,

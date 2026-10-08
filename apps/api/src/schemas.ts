@@ -11,7 +11,7 @@ import { ProblemError } from "./problem.js";
  */
 
 export const operatingModeSchema = z.enum(["local", "public"]);
-export const mailTransportSchema = z.enum(["smtp", "graph"]);
+export const mailTransportSchema = z.enum(["smtp", "graph", "google"]);
 
 // --- Setup wizard -----------------------------------------------------------
 

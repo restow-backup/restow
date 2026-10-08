@@ -309,6 +309,7 @@ export class PgDirectoryRepository implements DirectoryRepository {
           email: user.email,
           upn: user.upn,
           displayName: user.displayName,
+          mailAddresses: [...(user.mailAddresses ?? [])],
         })
         .onConflictDoUpdate({
           target: [users.tenantId, users.email],
@@ -316,6 +317,7 @@ export class PgDirectoryRepository implements DirectoryRepository {
             entraObjectId: user.entraObjectId,
             upn: user.upn,
             displayName: user.displayName,
+            ...mailAddressesOf(user),
             updatedAt: sql`now()`,
           },
         })
@@ -342,7 +344,12 @@ export class PgDirectoryRepository implements DirectoryRepository {
       await tx.transaction(async (savepoint) => {
         await savepoint
           .update(users)
-          .set({ email: user.email, upn: user.upn, displayName: user.displayName })
+          .set({
+            email: user.email,
+            upn: user.upn,
+            displayName: user.displayName,
+            ...mailAddressesOf(user),
+          })
           .where(eq(users.id, id));
       });
     } catch (error) {
@@ -354,7 +361,7 @@ export class PgDirectoryRepository implements DirectoryRepository {
       });
       await tx
         .update(users)
-        .set({ upn: user.upn, displayName: user.displayName })
+        .set({ upn: user.upn, displayName: user.displayName, ...mailAddressesOf(user) })
         .where(eq(users.id, id));
     }
   }
@@ -883,3 +890,13 @@ export const directoryHandler: JobHandler<"directory"> = {
       fullSyncIntervalMs,
     }),
 };
+
+/**
+ * The mailbox addresses to store for a user: only when the entry carried them
+ * (an incremental entry without `proxyAddresses` keeps what an earlier run stored).
+ */
+function mailAddressesOf(user: { readonly mailAddresses: readonly string[] | null }): {
+  mailAddresses?: string[];
+} {
+  return user.mailAddresses === null ? {} : { mailAddresses: [...user.mailAddresses] };
+}

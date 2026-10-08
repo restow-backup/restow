@@ -19,6 +19,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FailureExplanation } from "@/features/failures";
 import { ThrottleNotice } from "@/features/jobs/components/job-progress";
 import { isWaitingForThrottle } from "@/features/jobs/presenters";
 import { useJobFormat } from "@/features/jobs/use-format";
@@ -28,7 +29,11 @@ import { Fact, Facts } from "@/features/restore/components/facts";
 import { JobStatusBadge } from "@/features/restore/components/job-status-badge";
 import { ProgressBar } from "@/features/restore/components/progress-bar";
 import { EntryIcon, ObjectIcon } from "@/features/restore/explorer/entry-icon";
-import { CancelRestoreButton, DownloadArchiveLink } from "@/features/restore/jobs/job-actions";
+import {
+  CancelRestoreButton,
+  DownloadArchiveLink,
+  RequestAgainLink,
+} from "@/features/restore/jobs/job-actions";
 import { useJobText } from "@/features/restore/jobs/use-job-text";
 import { displayName } from "@/features/restore/lib/entries";
 import {
@@ -212,19 +217,42 @@ function OutcomeCard({ job }: { job: RestoreJobDetail }) {
       </CardHeader>
       <CardContent className="space-y-4">
         {job.status === "failed" ? (
-          <Alert variant="destructive">
-            <AlertTriangle />
-            <AlertTitle>{t("job.outcome.failed")}</AlertTitle>
-            <AlertDescription>
-              {job.errorMessage ?? t("job.outcome.failedUnknown")}
-            </AlertDescription>
-          </Alert>
+          job.failure || job.errorMessage ? (
+            <div className="space-y-2">
+              <p className="font-medium text-destructive">{t("job.outcome.failed")}</p>
+              {/* The cause in the reader's language; the engine's own text sits under "Technical details". */}
+              <FailureExplanation
+                failure={job.failure ?? null}
+                message={job.errorMessage}
+                subject={{ kind: "none" }}
+                hideWhat
+                at={job.completedAt}
+              />
+            </div>
+          ) : (
+            <Alert variant="destructive">
+              <AlertTriangle />
+              <AlertTitle>{t("job.outcome.failed")}</AlertTitle>
+              <AlertDescription>{t("job.outcome.failedUnknown")}</AlertDescription>
+            </Alert>
+          )
         ) : null}
         {job.status === "cancelled" ? (
           <Alert variant="info">
             <Ban />
             <AlertTitle>{t("job.outcome.cancelled")}</AlertTitle>
-            <AlertDescription>{t("job.outcome.cancelledDescription")}</AlertDescription>
+            <AlertDescription>
+              {job.target.type === "download" ? (
+                <>
+                  <p>{t("job.outcome.cancelledDescriptionDownload")}</p>
+                  <div className="mt-2">
+                    <RequestAgainLink job={job} />
+                  </div>
+                </>
+              ) : (
+                t("job.outcome.cancelledDescription")
+              )}
+            </AlertDescription>
           </Alert>
         ) : null}
 
@@ -276,9 +304,14 @@ function OutcomeCard({ job }: { job: RestoreJobDetail }) {
               <Clock />
               <AlertTitle>{t("job.outcome.downloadExpired")}</AlertTitle>
               <AlertDescription>
-                {t("job.outcome.downloadExpiredDescription", {
-                  date: formatDateTime(job.download.expiresAt, language) ?? "",
-                })}
+                <p>
+                  {t("job.outcome.downloadExpiredDescription", {
+                    date: formatDateTime(job.download.expiresAt, language) ?? "",
+                  })}
+                </p>
+                <div className="mt-2">
+                  <RequestAgainLink job={job} />
+                </div>
               </AlertDescription>
             </Alert>
           )

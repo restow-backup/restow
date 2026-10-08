@@ -325,3 +325,54 @@ describe("the provider scope with endpoints", () => {
     ]);
   });
 });
+
+describe("aggregateTenant with VMs and containers of Proxmox VE", () => {
+  const vm = { id: "vm-101", createdAt: at("2026-09-01"), inJob: true };
+  const fresh = { id: "ct-200", createdAt: at("2026-09-01"), inJob: true };
+  const left = { id: "vm-300", createdAt: at("2026-09-01"), inJob: false };
+  const ignored = { id: "vm-400", createdAt: at("2026-09-01"), inJob: false };
+
+  it("rates guests by the restore check of their newest restore point and counts their runs", () => {
+    const aggregate = aggregateTenant(
+      facts({
+        guests: {
+          list: [vm, fresh, left, ignored],
+          restorePoints: [
+            // Checked green on 09-21 at 18:00, before the end of the period.
+            {
+              guestId: "vm-101",
+              sequence: 1,
+              backupAt: at("2026-09-20"),
+              prunedAt: null,
+              check: { at: at("2026-09-21", 18), readiness: "green" },
+            },
+            // Left every job, but its restore point failed its check.
+            {
+              guestId: "vm-300",
+              sequence: 1,
+              backupAt: at("2026-09-10"),
+              prunedAt: null,
+              check: { at: at("2026-09-11"), readiness: "red" },
+            },
+          ],
+          backupRuns: [
+            { day: "2026-09-21", status: "succeeded", count: 2 },
+            { day: "2026-09-22", status: "failed", count: 1 },
+            { day: "2026-09-19", status: "succeeded", count: 1 },
+          ],
+        },
+      }),
+      period,
+      "tenant",
+    );
+    // vm-101 green, ct-200 without a backup (unverified), vm-300 red; vm-400 never in a job.
+    expect(aggregate.readinessEnd).toEqual({ green: 1, yellow: 0, red: 1, unverified: 1 });
+    expect(aggregate.levels.end.protectedObjects).toBe(3);
+    expect(aggregate.overallEnd).toBe("red");
+    expect(aggregate.available.objects).toBe(true);
+    expect(aggregate.backupTotals.current).toEqual({ succeeded: 2, failed: 1, cancelled: 0 });
+    expect(aggregate.backupTotals.previous).toEqual({ succeeded: 1, failed: 0, cancelled: 0 });
+    // At the start of the period vm-101's restore point was not checked yet.
+    expect(aggregate.readinessStart).toEqual({ green: 0, yellow: 0, red: 1, unverified: 2 });
+  });
+});

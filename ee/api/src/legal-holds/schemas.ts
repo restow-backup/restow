@@ -11,3 +11,12 @@ export const createLegalHoldSchema = z
 export type CreateLegalHoldInput = z.infer<typeof createLegalHoldSchema>;
 
 export const legalHoldParamSchema = z.object({ id: z.string().uuid() });
+
+/**
+ * DELETE /archive/legal-holds/:id body: why the hold is released. Optional for
+ * API clients of the first version (no body); the web interface always asks.
+ */
+export const releaseLegalHoldSchema = z
+  .object({ reason: z.string().trim().min(1).max(2000).optional() })
+  .strict();
+export type ReleaseLegalHoldInput = z.infer<typeof releaseLegalHoldSchema>;

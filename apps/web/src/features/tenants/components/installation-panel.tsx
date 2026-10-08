@@ -2,9 +2,10 @@ import { Building2, Info, Mail } from "lucide-react";
 import type * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { Alert, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { EditionLink } from "@/features/installation/edition-link";
 import { ExtensionSlot } from "@/lib/extensions";
 
 import { installationUsage } from "../presenters";
@@ -54,9 +55,13 @@ export function InstallationPanel({ tenantCount, creationAllowed, usage }: Insta
           name="tenants.creationLocked"
           props={{}}
           fallback={
-            <Alert variant="info">
+            <Alert variant="info" data-slot="tenants-single">
               <Info />
               <AlertTitle>{t("overview.single")}</AlertTitle>
+              <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <span>{t("overview.singleCommunity")}</span>
+                <EditionLink />
+              </AlertDescription>
             </Alert>
           }
         />

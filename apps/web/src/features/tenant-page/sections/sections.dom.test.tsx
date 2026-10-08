@@ -112,7 +112,7 @@ describe("Archive", () => {
 });
 
 describe("Storage", () => {
-  it("has one heading called Repositories, not one for the page and a second for the list", async () => {
+  it("has one heading called Storage locations, not one for the page and a second for the list", async () => {
     // Nothing answers: the page is in its loading state, which already has both headings and the list.
     vi.stubGlobal("fetch", () => new Promise(() => undefined));
     mounted = await openSection(StorageSection, "/tenants/mueller/storage", {
@@ -120,12 +120,12 @@ describe("Storage", () => {
     });
     await flush(3);
     const headings = [...document.querySelectorAll("h1, h2, h3")].filter(
-      (heading) => heading.textContent?.trim() === "Repositories",
+      (heading) => heading.textContent?.trim() === "Storage locations",
     );
     expect(headings).toHaveLength(1);
     // The list is still a region of that name, with what it holds explained.
     const list = slot("storage-targets");
-    expect(list?.getAttribute("aria-label")).toBe("Repositories");
+    expect(list?.getAttribute("aria-label")).toBe("Storage locations");
     expect(list?.textContent).toContain("The primary receives every backup first");
   });
 });

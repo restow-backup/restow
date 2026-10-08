@@ -17,18 +17,12 @@ export const eeProviderRouteRules: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/license": own(),
   "DELETE /api/v1/license": own(),
 
-  // The provider team.
-  "GET /api/v1/provider-team": view(scope.provider),
-  "POST /api/v1/provider-team": own(),
-  "PATCH /api/v1/provider-team/:userId": own(),
-  "DELETE /api/v1/provider-team/:userId": own(),
-  "POST /api/v1/provider-team/:userId/reissue": own(),
-
   // The audit log viewer.
   "GET /api/v1/audit": view(),
   "GET /api/v1/audit/:id": view(),
   "GET /api/v1/audit/actions": view(),
   "GET /api/v1/audit/verify": view(),
+  "GET /api/v1/audit/export": view(),
 
   // Legal holds.
   "GET /api/v1/archive/legal-holds": view(),

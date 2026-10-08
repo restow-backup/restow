@@ -353,6 +353,7 @@ describe.skipIf(!testDatabaseAdminUrl)(
         live?: Record<string, number>;
         progress?: { total: number; done: number; failed: number; bytes: number };
         errorMessage?: string;
+        failure?: Record<string, unknown>;
         report?: Record<string, unknown>;
       },
     ): Promise<void> {
@@ -371,6 +372,7 @@ describe.skipIf(!testDatabaseAdminUrl)(
           payload,
           startedAt: new Date(),
           errorMessage: patch.errorMessage ?? null,
+          failure: (patch.failure ?? null) as never,
           completedAt: patch.status === "active" ? null : new Date(),
         })
         .where(eq(jobs.id, created.jobId));
@@ -1900,6 +1902,16 @@ describe.skipIf(!testDatabaseAdminUrl)(
         await simulateWorker(failed.created, {
           status: "failed",
           errorMessage: "Nothing readable in the selected files",
+          failure: {
+            v: 1,
+            code: "storage.full",
+            transient: false,
+            params: {},
+            technical: {},
+            occurredAt: "2026-10-07T10:00:00.000Z",
+            step: "import",
+            retry: null,
+          },
           report: {
             ...report,
             snapshotId: null,
@@ -1916,6 +1928,10 @@ describe.skipIf(!testDatabaseAdminUrl)(
           failed: 1,
         });
         expect(failedDetail.report?.snapshotId).toBeNull();
+        // The classified cause travels with the detail, for a translated explanation.
+        expect(
+          (failedDetail as unknown as { failure: { code: string } | null }).failure,
+        ).toMatchObject({ code: "storage.full", step: "import" });
       });
 
       it("lists the newest imports first and at most 50", async () => {
@@ -1928,6 +1944,12 @@ describe.skipIf(!testDatabaseAdminUrl)(
           (await json<{ items: Summary[] }>(await call("GET", "?limit=2"))).items,
         ).toHaveLength(2);
         expect((await call("GET", "?limit=51")).status).toBe(422);
+        const firstTwo = (await json<{ items: Summary[] }>(await call("GET", "?limit=2"))).items;
+        const nextTwo = (await json<{ items: Summary[] }>(await call("GET", "?limit=2&offset=2")))
+          .items;
+        expect([...firstTwo, ...nextTwo].map((item) => item.id)).toEqual(
+          listed.items.slice(0, 4).map((item) => item.id),
+        );
         expect((await call("GET", "/not-a-uuid")).status).toBe(422);
         expect((await call("GET", `/${randomUUID()}`)).status).toBe(404);
       });

@@ -22,14 +22,35 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { BrandName, RestowMark } from "@/components/wordmark";
+import { CommunityEditionBadge } from "@/features/installation/edition-link";
 import { StartEntry } from "@/features/start";
 import { ExtensionSlot } from "@/lib/extensions";
-import { groupNavItems, navGroupLabelKey } from "@/lib/navigation";
+import { type NavBadge, groupNavItems, navGroupLabelKey } from "@/lib/navigation";
 import { isTenantOnlyNavItem } from "@/lib/scope";
 import { type RunningVersion, canAccess, sessionScope, useSession } from "@/lib/session";
 import { useNavItems } from "@/lib/use-nav-items";
 
 const EXACT_MATCH = { exact: true, includeSearch: true } as const;
+
+/** The count an entry shows next to its label (`NavItem.useBadge`); nothing while it has none. */
+function EntryBadge({ useBadge }: { useBadge: () => NavBadge | null }) {
+  const badge = useBadge();
+  if (!badge || badge.count <= 0) {
+    return null;
+  }
+  return (
+    <>
+      <span
+        aria-hidden="true"
+        data-slot="nav-badge"
+        className="ml-auto rounded-md bg-sidebar-accent px-1.5 text-[0.6875rem] leading-5 font-medium tabular-nums text-sidebar-accent-foreground group-data-[collapsible=icon]:hidden"
+      >
+        {badge.count > 99 ? "99+" : badge.count}
+      </span>
+      <span className="sr-only">{`, ${badge.label}`}</span>
+    </>
+  );
+}
 
 /**
  * The application sidebar on the shadcn Sidebar: the product mark, the tenant
@@ -153,6 +174,7 @@ export function AppSidebar() {
                     {item.soon ? (
                       <SoonBadge className="ml-auto group-data-[collapsible=icon]:hidden" />
                     ) : null}
+                    {item.useBadge && !dimmed ? <EntryBadge useBadge={item.useBadge} /> : null}
                     {stage ? (
                       <span className="ml-auto rounded border border-sidebar-border px-1 text-[0.625rem] leading-4 font-medium text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden">
                         {stage}
@@ -206,7 +228,11 @@ export function AppSidebar() {
         <SidebarSeparator className="mx-0 group-data-[collapsible=icon]:sr-only" />
         <div className="flex flex-col gap-2 px-2 pb-1 text-xs text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <ExtensionSlot name="shell.sidebarFooter" props={{}} />
+            <ExtensionSlot
+              name="shell.sidebarFooter"
+              props={{}}
+              fallback={<CommunityEditionBadge />}
+            />
             <VersionLabel version={version} />
           </div>
           <UpdateNotice version={version} />

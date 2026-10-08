@@ -370,7 +370,9 @@ describe("application shell", () => {
     );
     // The sidebar footer shows the running version, and no edition of its own.
     expect(html).toContain("Version 0.301.0");
-    expect(html).not.toMatch(/Community|Business|Service Provider/);
+    // The core build names itself (F-5): Community, linked to Installation › Edition.
+    expect(html).toContain('data-slot="community-edition-badge"');
+    expect(html).not.toMatch(/Business|Service Provider/);
   });
 
   it("links the menu entry from a detail page", async () => {
@@ -394,12 +396,12 @@ describe("application shell", () => {
     const crumbs = page.match(/<nav aria-label="Breadcrumb".*?<\/nav>/s)?.[0] ?? "";
     // The pill is the organisation's section menu, so no second "Organisation" crumb.
     expect(crumbs).toMatch(
-      /data-slot="breadcrumb-group"[^>]*aria-label="Organisation: Contoso, show entries".*href="\/tenants\/contoso"[^>]*>Settings<\/a>/s,
+      /data-slot="breadcrumb-group"[^>]*aria-label="Organisation: Contoso, show entries".*href="\/tenants\/contoso"[^>]*>Your organisation<\/a>/s,
     );
     expect(crumbs.match(/>Organisation</g)).toBeNull();
     // The sidebar highlights the entry: Settings of the one organisation, opening its overview.
     const sidebarEntry = page.match(
-      /<a[^>]*data-sidebar="menu-button"[^>]*>(?:(?!<\/a>).)*Settings<\/span><\/a>/s,
+      /<a[^>]*data-sidebar="menu-button"[^>]*>(?:(?!<\/a>).)*Your organisation<\/span><\/a>/s,
     )?.[0];
     expect(sidebarEntry).toContain('aria-current="page"');
     expect(sidebarEntry).toContain('href="/tenants/contoso/overview"');
@@ -407,11 +409,11 @@ describe("application shell", () => {
     // A page below a section keeps the entry highlighted.
     const detail = await renderShell("/tenants/contoso/connections/sources/src-1");
     expect(detail).toMatch(
-      /<nav aria-label="Breadcrumb".*href="\/tenants\/contoso"[^>]*>Settings<\/a>/s,
+      /<nav aria-label="Breadcrumb".*href="\/tenants\/contoso"[^>]*>Your organisation<\/a>/s,
     );
     expect(
       detail.match(
-        /<a[^>]*data-sidebar="menu-button"[^>]*>(?:(?!<\/a>).)*Settings<\/span><\/a>/s,
+        /<a[^>]*data-sidebar="menu-button"[^>]*>(?:(?!<\/a>).)*Your organisation<\/span><\/a>/s,
       )?.[0],
     ).toContain('aria-current="page"');
   });
@@ -713,7 +715,7 @@ describe("application shell", () => {
       );
       expect(installation).toContain('data-scope="installation"');
       expect(installation.match(/>Installation</g)).toHaveLength(1);
-      expect(installation).toMatch(/aria-current="page"[^>]*>Settings</);
+      expect(installation).toMatch(/aria-current="page"[^>]*>Server &amp; operation</);
       // The list of all tenants works on all of them; its menu entry is "Manage tenants" so that
       // the name "All tenants" is the scope's alone.
       const all = crumbs(await renderShell("/tenants", "contoso", setupState, provider(numbered)));

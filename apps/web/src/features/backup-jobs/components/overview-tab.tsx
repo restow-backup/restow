@@ -9,13 +9,18 @@ import type { BackupJob } from "../api.js";
 import {
   describeJobSchedule,
   describeScope,
-  repositoryLabel,
   restoreCheckView,
   retentionLabel,
   scheduleUsesZone,
   scopeNote,
 } from "../presenters.js";
-import { JobStateBadge, LastRunCell, NextRunCell, RestoreCheckBadge } from "./job-cells.js";
+import {
+  JobStateBadge,
+  LastRunCell,
+  NextRunCell,
+  RepositoryCell,
+  RestoreCheckBadge,
+} from "./job-cells.js";
 
 /**
  * The key facts of a job: what it covers, when it runs, where it writes, what
@@ -72,7 +77,9 @@ export function OverviewTab({
             <Fact label={t("overview.nextRun")}>
               <NextRunCell job={job} />
             </Fact>
-            <Fact label={t("overview.repository")}>{repositoryLabel(job.repository, t)}</Fact>
+            <Fact label={t("overview.repository")}>
+              <RepositoryCell job={job} />
+            </Fact>
             <Fact label={t("overview.retention")}>{retentionLabel(job, t)}</Fact>
           </Facts>
         </CardContent>

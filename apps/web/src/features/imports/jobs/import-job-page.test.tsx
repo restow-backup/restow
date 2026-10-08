@@ -188,7 +188,7 @@ describe("a finished import with a report", () => {
     const view = await open();
     const notes = view.container.querySelector('[data-testid="report-notes"]')?.textContent ?? "";
     expect(notes).toContain("The list of items is capped");
-    expect(notes).toContain("rebuilt from the records of the job");
+    expect(notes).toContain("rebuilt from the records of the run");
     expect(notes).not.toContain("item_list_truncated");
     expect(notes).not.toContain("report_recovered");
     view.unmount();
@@ -214,7 +214,7 @@ describe("a finished import with a report", () => {
       (row) => row.includes("mail/Inbox.mbox") && row.includes("aaaaaaaaaaaa"),
     );
     expect(inbox).toBeDefined();
-    expect(inbox).toContain("Partly imported");
+    expect(inbox).toContain("Imported with warnings");
     expect(inbox).toContain("MBOX");
     const zip = rows.find((row) => row.includes("export.zip") && row.includes("bbbbbbbbbbbb"));
     expect(zip).toContain("Imported");
@@ -465,6 +465,29 @@ describe("a failed or cancelled import", () => {
     const view = await open();
     expect(text(view.container)).toContain("The import was cancelled");
     expect(text(view.container)).toContain("earlier imports into the mailbox are not affected");
+    // Nothing was going to the archive: no word about it.
+    expect(text(view.container)).not.toContain("stay there until their retention ends");
+    view.unmount();
+  });
+
+  it("says that messages already in the archive stay there after a cancellation", async () => {
+    current = detail({ status: "cancelled", archive: true, report: null, completedAt: null });
+    stubApi();
+    const view = await open();
+    expect(text(view.container)).toContain(
+      "Messages ingested into the archive before the cancellation stay there until their retention ends.",
+    );
+    view.unmount();
+  });
+
+  it("warns before cancelling that archived messages stay in the archive", async () => {
+    current = detail({ status: "active", archive: true, report: null, completedAt: null });
+    stubApi();
+    const view = await open();
+    await click(button(view.container, "Cancel import"));
+    expect(document.body.textContent).toContain(
+      "Messages already ingested into the archive stay there until their retention ends.",
+    );
     view.unmount();
   });
 
@@ -514,6 +537,30 @@ describe("the imports list", () => {
     const link = view.container.querySelector('a[href="/imports/b"]');
     expect(link).not.toBeNull();
     expect(text(view.container)).toContain("Import mail files");
+    view.unmount();
+  });
+
+  it("says how many imports are shown and loads older ones on request", async () => {
+    stubApi({
+      list: Array.from({ length: 50 }, (_, index) =>
+        summary({ id: `i${index}`, name: `Import ${index}`, status: "completed" }),
+      ),
+    });
+    const view = mount(<ImportsPage />);
+    await until(() => expect(text(view.container)).toContain("The newest 50 imports are shown."));
+    const requests = () =>
+      (vi.mocked(fetch).mock.calls as [RequestInfo | URL][]).map(([input]) => String(input));
+    expect(requests().some((url) => url.includes("offset=50"))).toBe(false);
+    await click(button(view.container, "Show older"));
+    await until(() => expect(requests().some((url) => url.includes("offset=50"))).toBe(true));
+    view.unmount();
+  });
+
+  it("offers no older imports when the first page is not full", async () => {
+    stubApi({ list: [summary({ id: "a", name: "Only one", status: "completed" })] });
+    const view = mount(<ImportsPage />);
+    await until(() => expect(text(view.container)).toContain("The newest import is shown."));
+    expect(() => button(view.container, "Show older")).toThrow();
     view.unmount();
   });
 

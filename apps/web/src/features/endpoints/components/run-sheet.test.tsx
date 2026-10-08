@@ -53,7 +53,7 @@ describe("RunDetailView", () => {
     expect(html).toContain("01234567");
     expect(html).toContain("Files processed");
     expect(html).toContain("986");
-    expect(html).toContain("Data added to the repository");
+    expect(html).toContain("Data added to storage");
     expect(html).toContain("The run reported no errors.");
     expect(html).toContain("snapshot 0123 saved");
     expect(html).toContain("font-mono");
@@ -72,7 +72,7 @@ describe("RunDetailView", () => {
         ],
       }),
     );
-    expect(html).toContain("Partial");
+    expect(html).toContain("With warnings");
     expect(html).toContain("some files could not be read");
     expect(html).toContain("missing from this snapshot");
     expect(html).toContain("2 errors");
@@ -98,8 +98,30 @@ describe("RunDetailView", () => {
     expect(html).toContain("A file could not be read");
     expect(html).toContain("restic ended with exit code 3");
     expect(html).toContain("Error code weird_code");
-    expect(html).toContain("Message from the agent: exit status 1");
+    // The agent's own (English) text is a collapsed detail under the translated meaning.
+    expect(html).toMatch(
+      /<details[^>]*><summary[^>]*>Technical message from the agent<\/summary><p[^>]*>exit status 1<\/p><\/details>/,
+    );
     expect(html).toContain("something odd");
+  });
+
+  it("words a restore whose target folder could not be used and a restic error", () => {
+    const html = render_(
+      run({
+        status: "failed",
+        errors: [
+          {
+            message: "the folder /srv does not exist; restore into an existing folder",
+            code: "target_unusable",
+          },
+          { message: "Fatal: unable to open repository", code: "restic_error" },
+        ],
+      }),
+    );
+    expect(html).toContain("The target folder could not be used");
+    expect(html).toContain("restic stopped with an error");
+    expect(html).not.toContain("Error code target_unusable");
+    expect(html).not.toContain("Error code restic_error");
   });
 
   it("does not show a run that was only interrupted as a failure", () => {
@@ -192,7 +214,7 @@ describe("RunDetailView", () => {
       const html = render(<RunDetailView run={incomplete()} willRetry={false} />);
       expect(html).toContain("Not completed");
       expect(html).not.toContain("will be retried");
-      expect(html).toContain("gets no more tests");
+      expect(html).toContain("gets no more restore checks");
     });
 
     it("keeps red for a test that proved the backup broken and green for one that passed", () => {
@@ -289,7 +311,7 @@ describe("RunDetailView", () => {
     await i18n.changeLanguage("de");
     try {
       const html = render_(run({ status: "partial", errors: [{ message: "x" }] }));
-      expect(html).toContain("Teilweise");
+      expect(html).toContain("Mit Warnungen");
       expect(html).toContain("Ende des Protokolls");
     } finally {
       await i18n.changeLanguage("en");

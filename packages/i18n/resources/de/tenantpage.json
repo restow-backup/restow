@@ -1,5 +1,5 @@
 {
-  "title": "{scope, select, organisation {Einstellungen} other {Mandanten-Einstellungen}}",
+  "title": "{scope, select, organisation {Ihre Organisation} other {Mandanten-Einstellungen}}",
   "sections": {
     "label": "{scope, select, organisation {Bereiche Ihrer Organisation} other {Bereiche dieses Mandanten}}",
     "select": "Bereich",
@@ -13,7 +13,7 @@
     "archive": "Archiv",
     "notifications": "Benachrichtigungen",
     "integrations": "Integrationen",
-    "members": "Mitglieder",
+    "members": "Benutzer",
     "masterData": "Stammdaten"
   },
   "descriptions": {
@@ -21,7 +21,7 @@
     "connections": "Woher die Daten kommen: Microsoft 365, IMAP-Postfächer und Mail-Dateiimporte.",
     "protection": "Welche Postfächer, OneDrives und IMAP-Konten geschützt sind und nach welchen Regeln.",
     "jobs": "Was von selbst läuft: Sicherungen, Restore-Prüfungen und Wartung.",
-    "retention": "Wie lange die Wiederherstellungspunkte der Sicherungen aufbewahrt werden.",
+    "retention": "Wie lange die Sicherungsstände aufbewahrt werden.",
     "storage": "Wo die Sicherungsdaten liegen und wie viel es ist.",
     "agents": "Den Backup-Agent auf Servern und Clients installieren und festlegen, wie er sich aktualisiert.",
     "archive": "Wie lange archivierte Mails aufbewahrt werden und welche Sperren ihre Löschung verhindern.",
@@ -37,7 +37,8 @@
   "locked": {
     "title": "{section} ist nicht freigeschaltet",
     "description": "Der Bereich bleibt in der Liste, damit Sie sehen, dass es ihn gibt. Die Lizenzseite zeigt, was ihn freischaltet, und nimmt den Schlüssel entgegen.",
-    "action": "Lizenzseite öffnen"
+    "action": "Lizenzseite öffnen",
+    "descriptionTenant": "Der Bereich bleibt in der Liste, damit Sie sehen, dass es ihn gibt. Freischalten kann ihn die Administration der Installation (Ihr Provider) mit einem Lizenzschlüssel."
   },
   "states": {
     "notYours": {
@@ -88,7 +89,7 @@
     "figures": {
       "objects": "Geschützte Objekte",
       "objectsLink": "Schutz öffnen",
-      "machines": "Maschinen",
+      "machines": "Rechner",
       "machinesLink": "Agenten öffnen",
       "machinesSplit": "{servers, plural, one {# Server} other {# Server}} · {clients, plural, one {# Client} other {# Clients}}",
       "readiness": "Wiederherstellbarkeit",
@@ -119,7 +120,7 @@
     },
     "suspended": {
       "title": "Dieser Mandant ist gesperrt",
-      "description": "Seine Jobs und Anmeldungen ruhen. Bis zur Entsperrung kann nur der Provider seine Seiten öffnen."
+      "description": "Seine Läufe und Anmeldungen ruhen. Bis zur Entsperrung kann nur der Provider seine Seiten öffnen."
     },
     "deleting": {
       "title": "Dieser Mandant wird gelöscht",
@@ -127,12 +128,12 @@
     },
     "suspend": {
       "title": "{name} sperren?",
-      "description": "Sicherungen und die übrigen Jobs des Mandanten stoppen, und seine Mitglieder können sich nicht mehr anmelden. Nichts wird gelöscht. Sie können den Mandanten jederzeit entsperren.",
+      "description": "Sicherungen und die übrigen Läufe des Mandanten stoppen, und seine Benutzer können sich nicht mehr anmelden. Nichts wird gelöscht. Sie können den Mandanten jederzeit entsperren.",
       "confirm": "Mandant sperren"
     },
     "resume": {
       "title": "{name} entsperren?",
-      "description": "Die Jobs laufen wieder, und die Mitglieder können sich wieder anmelden.",
+      "description": "Die Backup-Jobs laufen wieder, und die Benutzer des Mandanten können sich wieder anmelden.",
       "confirm": "Mandant entsperren"
     },
     "toasts": {
@@ -147,8 +148,8 @@
   },
   "agents": {
     "enrol": {
-      "title": "Maschine hinzufügen",
-      "description": "Jede Maschine bekommt einen einmaligen Installationsbefehl, der 24 Stunden gilt. Die Maschinen selbst mit Status und Wiederherstellbarkeit stehen unter Server & Endpunkte, Inventar.",
+      "title": "Rechner hinzufügen",
+      "description": "Jeder Rechner bekommt einen einmaligen Installationsbefehl, der 24 Stunden gilt. Die Rechner selbst mit Status und Wiederherstellbarkeit stehen unter Server & Clients, Inventar.",
       "server": "Neuer Server",
       "client": "Neuer Client",
       "inventory": "Inventar öffnen"

@@ -18,13 +18,18 @@ import { type EndpointFormat, useEndpoint, useEndpointFormat, useEndpoints } fro
 import { type FileRestoreTarget, endpointDetailTo, fileRestoreTo, inventoryTo } from "./paths.js";
 import { endpointHostLine, endpointName } from "./presenters.js";
 
+/** The machine list (a quarter, at least 13rem) beside the restore points and files. */
+export const FILE_RESTORE_GRID = "xl:grid-cols-[minmax(13rem,1fr)_minmax(0,3fr)]";
+
 /**
  * File restore of servers and clients: choose a machine, then one of its
  * restore points; the file browser and restore dialog of its own page (tab
  * Snapshots) sit next to the timeline. Machines only: mailboxes, OneDrives
  * and IMAP accounts are restored in the restore explorer (Mail & SaaS).
  * Side by side from the extra-large breakpoint on: the searchable list (a
- * quarter), then the restore points and what is in the chosen one. The choice
+ * quarter), the restore points (a quarter) and the files of the chosen one
+ * (half the width, SNAPSHOTS_GRID); below that the list stays short above
+ * them. The choice
  * stays in the URL (`?machine=`); with a single machine it is chosen right away.
  */
 export function FileRestorePage({ machineId }: { machineId: string | null }) {
@@ -90,7 +95,7 @@ export function FileRestorePage({ machineId }: { machineId: string | null }) {
   return (
     <div className="space-y-6">
       {header}
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,3fr)]">
+      <div className={`grid items-start gap-4 ${FILE_RESTORE_GRID}`}>
         <MachinePicker
           machines={list}
           machinesPending={machines.isPending}
@@ -170,7 +175,7 @@ function MachinePicker({
           />
         </div>
       </CardHeader>
-      <CardContent className="max-h-96 overflow-y-auto p-0 xl:max-h-[40rem]">
+      <CardContent className="max-h-64 overflow-y-auto p-0 xl:max-h-[40rem]">
         {nothing ? (
           <p className="px-4 py-6 text-sm text-muted-foreground">{t("fileRestore.noMatch")}</p>
         ) : (

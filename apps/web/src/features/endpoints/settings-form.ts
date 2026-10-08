@@ -351,6 +351,25 @@ function sameList(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((value, index) => value === b[index]);
 }
 
+/**
+ * How many restore points fewer of each kind a retention keeps than before: the most the next
+ * retention run removes because of the change. Null when nothing goes down.
+ */
+export function stricterRetention(
+  before: Retention,
+  after: Retention | undefined,
+): Retention | null {
+  if (!after) {
+    return null;
+  }
+  const less = {
+    keepDaily: Math.max(0, before.keepDaily - after.keepDaily),
+    keepWeekly: Math.max(0, before.keepWeekly - after.keepWeekly),
+    keepMonthly: Math.max(0, before.keepMonthly - after.keepMonthly),
+  };
+  return less.keepDaily + less.keepWeekly + less.keepMonthly > 0 ? less : null;
+}
+
 function retentionOf(draft: SettingsDraft): Retention {
   return {
     keepDaily: wholeNumber(draft.keepDaily) ?? 0,

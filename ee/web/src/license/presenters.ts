@@ -45,14 +45,25 @@ export function installReadiness(state: LicenseState): InstallReadiness {
   return state.installationId === null ? "not_configured" : "ready";
 }
 
-/** The license terms a key is issued under, in the language of the interface. */
-const LICENSE_TERMS_URLS = {
-  de: "https://restowbackup.com/de/lizenzbedingungen/",
-  en: "https://restowbackup.com/en/license-terms/",
-} as const;
+/**
+ * The vendor's website: where the editions are compared and a key is requested. The one place
+ * its address is written; the links below are built from it.
+ */
+export const VENDOR_WEBSITE_URL = "https://restowbackup.com";
 
+const isGerman = (language: string | undefined) =>
+  language?.toLowerCase().startsWith("de") ?? false;
+
+/** The license terms a key is issued under, in the language of the interface. */
 export function licenseTermsUrl(language: string | undefined): string {
-  return language?.toLowerCase().startsWith("de") ? LICENSE_TERMS_URLS.de : LICENSE_TERMS_URLS.en;
+  return isGerman(language)
+    ? `${VENDOR_WEBSITE_URL}/de/lizenzbedingungen/`
+    : `${VENDOR_WEBSITE_URL}/en/license-terms/`;
+}
+
+/** Where the editions are compared and a key is requested, in the language of the interface. */
+export function licenseRequestUrl(language: string | undefined): string {
+  return `${VENDOR_WEBSITE_URL}/${isGerman(language) ? "de" : "en"}/`;
 }
 
 const REJECTION_REASONS: readonly LicenseRejectionReason[] = [

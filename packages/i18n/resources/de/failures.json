@@ -26,7 +26,7 @@
     "source": "Die Verbindung zu {name} ist gestört (erfasst {when}).",
     "sync": "Der letzte Verzeichnisabgleich von {name} ist {when} fehlgeschlagen.",
     "credential": "Der Anmeldetest für {name} ist {when} fehlgeschlagen.",
-    "verify": "Die Wiederherstellungsprüfung von {object} hat ein Problem gefunden ({when}).",
+    "verify": "Die Restore-Prüfung von {object} hat ein Problem gefunden ({when}).",
     "step": "Sie ist im Schritt abgebrochen: {step}.",
     "items": "{count, plural, one {# Element war betroffen.} other {# Elemente waren betroffen.}}",
     "itemGroup": "{count, plural, one {# Element} other {# Elemente}}",
@@ -83,7 +83,7 @@
       },
       "access_denied": {
         "title": "Microsoft hat den Zugriff auf dieses Postfach oder Laufwerk verweigert",
-        "why": "Microsoft hat \"Zugriff verweigert\" geantwortet. Dafür gibt es zwei übliche Gründe: {has_permission, select, yes {der App von {appName} fehlt die Berechtigung {permission}} other {der App von {appName} fehlt eine Berechtigung, die dieser Aufruf braucht}}, oder eine Exchange Application Access Policy in der Kundenorganisation schließt dieses Postfach für die App aus. {appName} kann die beiden Fälle an der Antwort von Microsoft nicht unterscheiden."
+        "why": "Microsoft hat \"Zugriff verweigert\" geantwortet. Dafür gibt es zwei übliche Gründe: {has_permission, select, yes {der App von {appName} fehlt die Berechtigung {permission}} other {der App von {appName} fehlt eine Berechtigung, die dieser Aufruf braucht}}, oder eine Exchange Application Access Policy in der Microsoft-365-Organisation des Mandanten schließt dieses Postfach für die App aus. {appName} kann die beiden Fälle an der Antwort von Microsoft nicht unterscheiden."
       },
       "mailbox_not_licensed": {
         "title": "Dieser Benutzer hat kein nutzbares Exchange-Online-Postfach",
@@ -128,6 +128,10 @@
       "request_rejected": {
         "title": "Microsoft hat die Anfrage abgelehnt",
         "why": "Microsoft hat{has_httpStatus, select, yes { mit HTTP {httpStatus}} other {}}{has_graphCode, select, yes { ({graphCode})} other {}} geantwortet, und {appName} hat dafür keine genauere Erklärung. Die technischen Details enthalten die genaue Antwort."
+      },
+      "item_incomplete": {
+        "title": "Microsoft hat das Element unvollständig gemeldet",
+        "why": "Microsoft hat dieses Element ohne Namen oder ohne seinen Ordner gemeldet. Ohne diese Angaben kann {appName} es nicht einordnen. Das passiert meist, wenn das Element gerade verschoben, umbenannt oder hochgeladen wird; der nächste Lauf versucht es erneut."
       }
     },
     "imap": {
@@ -166,6 +170,10 @@
       "connection_lost": {
         "title": "Die Verbindung zum IMAP-Server wurde unterbrochen",
         "why": "Der Server hat die Verbindung während des Laufs geschlossen oder nicht mehr geantwortet. {appName} verbindet sich neu und macht dort weiter, wo es aufgehört hat. Mailserver tun das unter Last oder wenn ein Verbindungslimit erreicht ist."
+      },
+      "message_missing": {
+        "title": "Der IMAP-Server hat eine Nachricht nicht ausgeliefert",
+        "why": "Der Server hat die Nachricht im Ordner aufgeführt, sie beim Abruf aber nicht zurückgegeben. Meist wurde sie zwischenzeitlich gelöscht oder verschoben, oder der Server hat den Abruf wegen einer Grenze abgebrochen. Der nächste Lauf versucht es erneut."
       }
     },
     "network": {
@@ -189,15 +197,15 @@
     "storage": {
       "path_missing": {
         "title": "Der Speicherordner existiert nicht",
-        "why": "{appName} findet den Ordner oder die Datei{has_path, select, yes { {path}} other {}} nicht. Übliche Ursache: Ein Datenträger oder eine Netzfreigabe ist nicht in den Container eingebunden, oder der Ordner wurde verschoben oder gelöscht."
+        "why": "{appName} findet den Ordner oder die Datei{has_path, select, yes { {path}} other {}} nicht. Übliche Ursache: Ein Datenträger oder ein Netzlaufwerk ist nicht in den Container eingebunden, oder der Ordner wurde verschoben oder gelöscht."
       },
       "not_writable": {
         "title": "{appName} darf nicht in den Speicherordner schreiben",
         "why": "Das Betriebssystem hat den Zugriff{has_path, select, yes { auf {path}} other {}} verweigert. Der Ordner ist schreibgeschützt oder gehört einem Benutzer, unter dem der Worker von {appName} nicht läuft."
       },
       "full": {
-        "title": "Das Speicherziel ist voll",
-        "why": "Auf dem Speicherziel ist kein Platz mehr frei oder sein Kontingent ist aufgebraucht. {appName} kann keine neuen Backup-Daten schreiben, bis wieder Platz da ist."
+        "title": "Der Speicherort ist voll",
+        "why": "Am Speicherort ist kein Platz mehr frei oder sein Kontingent ist aufgebraucht. {appName} kann keine neuen Backup-Daten schreiben, bis wieder Platz da ist."
       },
       "access_denied": {
         "title": "Der Speicherdienst hat den Zugriff verweigert",
@@ -205,22 +213,22 @@
       },
       "credentials_invalid": {
         "title": "Der Speicherdienst akzeptiert die Zugangsdaten nicht",
-        "why": "Der Zugriffsschlüssel oder das Geheimnis des Speicherziels ist falsch, abgelaufen oder wurde widerrufen."
+        "why": "Der Zugriffsschlüssel oder das Geheimnis des Speicherorts ist falsch, abgelaufen oder wurde widerrufen."
       },
       "bucket_missing": {
         "title": "Der Bucket existiert nicht",
-        "why": "Der Speicherdienst meldet, dass der für dieses Ziel eingestellte Bucket nicht existiert oder das Konto ihn nicht sehen kann."
+        "why": "Der Speicherdienst meldet, dass der für diesen Speicherort eingestellte Bucket nicht existiert oder das Konto ihn nicht sehen kann."
       },
       "wrong_region": {
         "title": "Der Bucket liegt an einem anderen Endpunkt oder in einer anderen Region",
-        "why": "Der Speicherdienst hat die Anfrage umgeleitet oder die Signatur für diese Region abgelehnt. Endpunkt-URL oder Region des Ziels passen nicht dazu, wo der Bucket liegt."
+        "why": "Der Speicherdienst hat die Anfrage umgeleitet oder die Signatur für diese Region abgelehnt. Endpunkt-URL oder Region des Speicherorts passen nicht dazu, wo der Bucket liegt."
       },
       "unreachable": {
-        "title": "Das Speicherziel ist nicht erreichbar",
+        "title": "Der Speicherort ist nicht erreichbar",
         "why": "Die Verbindung zum Speicher-Endpunkt{has_host, select, yes { {host}} other {}} ist fehlgeschlagen. Firewalls, DNS-Probleme oder eine Störung beim Speicheranbieter verursachen das."
       },
       "timeout": {
-        "title": "Das Speicherziel hat nicht rechtzeitig geantwortet",
+        "title": "Der Speicherort hat nicht rechtzeitig geantwortet",
         "why": "Der Speicher-Endpunkt hat innerhalb der Zeitgrenze nicht geantwortet. Das Netz ist vielleicht langsam oder der Dienst überlastet."
       },
       "tls": {
@@ -233,10 +241,10 @@
       },
       "integrity": {
         "title": "Daten im Speicher stimmen nicht mit dem überein, was {appName} geschrieben hat",
-        "why": "{reason, select, source_missing {Ein Objekt, das der Index kennt, fehlt auf dem primären Ziel.} source_corrupt {Ein Objekt auf dem primären Ziel hat eine andere Größe oder Prüfsumme als vermerkt.} verify_failed {Ein Kopieziel hat andere Bytes zurückgegeben, als geschrieben wurden.} other {Das Zurücklesen gespeicherter Daten stimmte nicht überein.}} {appName} hat den Schaden nicht auf andere Ziele übertragen."
+        "why": "{reason, select, source_missing {Ein Objekt, das der Index kennt, fehlt am primären Speicherort.} source_corrupt {Ein Objekt am primären Speicherort hat eine andere Größe oder Prüfsumme als vermerkt.} verify_failed {Ein Kopie-Speicherort hat andere Bytes zurückgegeben, als geschrieben wurden.} other {Das Zurücklesen gespeicherter Daten stimmte nicht überein.}} {appName} hat den Schaden nicht auf andere Speicherorte übertragen."
       },
       "error": {
-        "title": "Das Speicherziel hat einen unerwarteten Fehler gemeldet",
+        "title": "Der Speicherort hat einen unerwarteten Fehler gemeldet",
         "why": "Das Schreiben oder Lesen von Backup-Daten ist fehlgeschlagen, und {appName} konnte nicht genau sagen, warum. Die technischen Details enthalten die Antwort des Speichers."
       }
     },
@@ -257,7 +265,7 @@
       },
       "chunk_missing": {
         "title": "Teile des Backups fehlen",
-        "why": "{has_count, select, yes {{count, plural, one {# geprüftes Element verweist} other {# geprüfte Elemente verweisen}}} other {Geprüfte Elemente verweisen}} auf Backup-Daten, die nicht mehr da sind: Der Speicherindex führt sie nicht, oder kein Speicherziel hat die Datendatei, die sie enthält, noch. Diese Elemente lassen sich nicht vollständig wiederherstellen."
+        "why": "{has_count, select, yes {{count, plural, one {# geprüftes Element verweist} other {# geprüfte Elemente verweisen}}} other {Geprüfte Elemente verweisen}} auf Backup-Daten, die nicht mehr da sind: Der Speicherindex führt sie nicht, oder kein Speicherort hat die Datendatei, die sie enthält, noch. Diese Elemente lassen sich nicht vollständig wiederherstellen."
       },
       "pack_unreadable": {
         "title": "Backup-Daten im Speicher sind beschädigt",
@@ -289,14 +297,14 @@
       },
       "nothing_to_verify": {
         "title": "Das Backup enthält nichts, was sich prüfen ließe",
-        "why": "Das letzte Backup enthält keine Elemente, die eine Wiederherstellungsprüfung zurücklesen kann. Die Bewertung beruht daher noch auf nichts."
+        "why": "Das letzte Backup enthält keine Elemente, die eine Restore-Prüfung zurücklesen kann. Die Bewertung beruht daher noch auf nichts."
       },
       "restore_test_unconfirmed": {
         "title": "Das Ziel hat die Test-Wiederherstellung nicht bestätigt",
         "why": "{has_count, select, yes {{count, plural, one {# Stichprobenelement wurde} other {# Stichprobenelemente wurden}}} other {Stichprobenelemente wurden}} wiederhergestellt, aber das Ziel hat nicht bestätigt, dass sie unversehrt angekommen sind."
       },
       "incomplete": {
-        "title": "Die Wiederherstellungsprüfung konnte nicht abgeschlossen werden",
+        "title": "Die Restore-Prüfung konnte nicht abgeschlossen werden",
         "why": "{appName} konnte die Backup-Daten nicht zurücklesen, aus einem Grund, der nichts über das Backup selbst aussagt. Es wurde nichts bewertet, das letzte Ergebnis bleibt bestehen; die Prüfung wird automatisch wiederholt. Die technischen Details nennen, was fehlgeschlagen ist."
       }
     },
@@ -307,7 +315,7 @@
       },
       "source_disabled": {
         "title": "Die Quelle ist ausgeschaltet",
-        "why": "Ein Administrator hat diese Quelle pausiert, deshalb läuft für sie kein Job."
+        "why": "Ein Administrator hat diese Quelle pausiert, deshalb läuft für sie nichts."
       },
       "object_excluded": {
         "title": "Dieses Objekt ist vom Schutz ausgenommen",
@@ -319,11 +327,11 @@
       },
       "app_not_configured": {
         "title": "Die Microsoft-365-App dieser Installation ist nicht eingerichtet",
-        "why": "Die App-Registrierung, die {appName} für die Verbindung zu Microsoft 365 braucht, ist unvollständig oder fehlt (Client-ID, Zugangsdaten). Kein Microsoft-365-Job kann laufen, bis sie eingerichtet ist."
+        "why": "Die App-Registrierung, die {appName} für die Verbindung zu Microsoft 365 braucht, ist unvollständig oder fehlt (Client-ID, Zugangsdaten). Kein Microsoft-365-Lauf kann starten, bis sie eingerichtet ist."
       },
       "invalid": {
-        "title": "Eine Einstellung verhindert, dass der Job läuft",
-        "why": "Der Job wurde vor dem Start abgelehnt, weil eine Einstellung fehlt oder nicht stimmig ist. Die technischen Details nennen sie."
+        "title": "Eine Einstellung verhindert, dass der Lauf startet",
+        "why": "Der Lauf wurde vor dem Start abgelehnt, weil eine Einstellung fehlt oder nicht stimmig ist. Die technischen Details nennen sie."
       }
     },
     "database": {
@@ -350,8 +358,8 @@
     },
     "job": {
       "interrupted": {
-        "title": "Der Job wurde unterbrochen",
-        "why": "{reason, select, shutdown {Der Worker wurde gestoppt oder neu gestartet, während der Job lief.} expired {Der Job hat die Zeitgrenze eines einzelnen Laufs erreicht.} other {Der Job wurde unterbrochen, bevor er fertig war.}} {appName} macht vom letzten Kontrollpunkt weiter, bereits Gespeichertes geht nicht verloren."
+        "title": "Der Lauf wurde unterbrochen",
+        "why": "{reason, select, shutdown {Der Worker wurde gestoppt oder neu gestartet, während der Lauf aktiv war.} expired {Der Lauf hat seine Zeitgrenze erreicht.} other {Der Lauf wurde unterbrochen, bevor er fertig war.}} {appName} macht vom letzten Kontrollpunkt weiter, bereits Gespeichertes geht nicht verloren."
       }
     },
     "unknown": {
@@ -408,16 +416,16 @@
         "why": "{has_exitCode, select, yes {restic wurde mit dem Exit-Code {exitCode} beendet.} other {restic wurde mit einem Fehler beendet.}} Die technischen Details zeigen, was es gemeldet hat."
       },
       "repository_locked": {
-        "title": "Das Repository ist belegt",
-        "why": "Eine andere Sicherung oder ein Wartungslauf (Bereinigung, Prüfung) hält die Sperre des Repositorys. Der Agent wartet und versucht es erneut, das erledigt sich meist von selbst."
+        "title": "Die Sicherungsdaten sind belegt",
+        "why": "Eine andere Sicherung oder ein Wartungslauf (Bereinigung, Prüfung) hält die Sperre der Sicherungsdaten. Der Agent wartet und versucht es erneut, das erledigt sich meist von selbst."
       },
       "repository_missing": {
-        "title": "Das Repository wurde nicht gefunden",
-        "why": "Das Sicherungsprogramm hat das Repository dieses Rechners im Speicherziel nicht gefunden. Dateien im Speicher wurden möglicherweise außerhalb der Sicherungssoftware verschoben oder gelöscht, oder das Speicherziel wurde geändert."
+        "title": "Die Sicherungsdaten wurden nicht gefunden",
+        "why": "Das Sicherungsprogramm hat die Sicherungsdaten dieses Rechners am Speicherort nicht gefunden. Dateien im Speicher wurden möglicherweise außerhalb der Sicherungssoftware verschoben oder gelöscht, oder der Speicherort wurde geändert."
       },
       "repository_password": {
         "title": "Das Repository-Passwort wird abgelehnt",
-        "why": "Das auf dem Server gespeicherte Passwort öffnet das Repository nicht. Das sollte nie vorkommen. Ändern Sie keine Dateien im Speicher und nennen Sie die technischen Details in einer Supportanfrage."
+        "why": "Das auf dem Server gespeicherte Passwort öffnet die Sicherungsdaten nicht. Das sollte nie vorkommen. Ändern Sie keine Dateien im Speicher und nennen Sie die technischen Details in einer Supportanfrage."
       },
       "repository_refused": {
         "title": "Der Server hat die Anfrage abgelehnt",
@@ -444,13 +452,13 @@
         "why": "{has_ageDays, select, yes {Die letzte gute Sicherung ist {ageDays, plural, one {# Tag} other {# Tage}} alt.} other {Die letzte gute Sicherung ist zu alt.}} Der Rechner war vielleicht aus oder offline, oder seine Sicherungen schlagen immer wieder fehl."
       },
       "repository_damaged": {
-        "title": "Das Repository ist beschädigt",
-        "why": "Die Repository-Prüfung hat beschädigte oder fehlende Daten in den Sicherungen dieses Rechners gefunden. Neue Sicherungen sind nicht betroffen, ältere Daten lassen sich aber möglicherweise nicht wiederherstellen. Die technischen Details zeigen, was die Prüfung gemeldet hat."
+        "title": "Die Sicherungsdaten sind beschädigt",
+        "why": "Die Integritätsprüfung hat beschädigte oder fehlende Daten in den Sicherungen dieses Rechners gefunden. Neue Sicherungen sind nicht betroffen, ältere Daten lassen sich aber möglicherweise nicht wiederherstellen. Die technischen Details zeigen, was die Prüfung gemeldet hat."
       }
     }
   },
   "steps": {
-    "regrant_consent": "Erstellen Sie für diese Quelle einen neuen Zustimmungslink und lassen Sie einen Globalen Administrator der Kundenorganisation die Administratorzustimmung erneut erteilen.",
+    "regrant_consent": "Erstellen Sie für diese Quelle einen neuen Zustimmungslink und lassen Sie einen Globalen Administrator der Microsoft-365-Organisation des Mandanten die Administratorzustimmung erneut erteilen.",
     "verify_permissions": "Starten Sie \"Berechtigungen prüfen\" an der Quelle, um zu sehen, welche Berechtigungen die Organisation erteilt hat.",
     "grant_permission": "{has_permission, select, yes {Fügen Sie der App-Registrierung von {appName} in Entra ID die Anwendungsberechtigung {permission} hinzu} other {Fügen Sie der App-Registrierung von {appName} in Entra ID die fehlenden Anwendungsberechtigungen hinzu}} und erteilen Sie dann die Administratorzustimmung für diese Quelle erneut.",
     "check_app_credentials": "Prüfen Sie Clientgeheimnis oder Zertifikat der App von {appName} unter Installation > Microsoft-Multi-Tenant-App. Ist es abgelaufen oder in Entra ID ersetzt worden, speichern Sie dort das neue.",
@@ -484,12 +492,12 @@
     "enable_source": "Schalten Sie die Quelle in ihren Einstellungen wieder ein.",
     "reconnect_source": "Schließen Sie die Verbindung der Quelle ab: Bei Microsoft 365 die Administratorzustimmung erteilen, bei IMAP die Verbindung testen.",
     "check_storage_path": "Prüfen Sie, ob der Ordner existiert, in den Container eingebunden ist und der Worker von {appName} dort schreiben darf.",
-    "free_storage_space": "Schaffen Sie Platz im Repository oder fügen Sie unter Repositories ein weiteres Repository hinzu.",
-    "check_storage_credentials": "Prüfen Sie Zugriffsschlüssel und Geheimnis des Speicherziels.",
+    "free_storage_space": "Schaffen Sie Platz am Speicherort oder fügen Sie unter Speicherorte einen weiteren Speicherort hinzu.",
+    "check_storage_credentials": "Prüfen Sie Zugriffsschlüssel und Geheimnis des Speicherorts.",
     "check_storage_permissions": "Prüfen Sie, ob die Zugangsdaten im Bucket lesen, schreiben, auflisten und löschen dürfen.",
     "check_bucket": "Prüfen Sie den Namen des Buckets.",
-    "check_storage_endpoint": "Prüfen Sie Endpunkt-URL und Region des Speicherziels.",
-    "check_storage_health": "Führen Sie einen Verbindungstest am Speicherziel durch und bei beschädigten Daten eine Speicherprüfung.",
+    "check_storage_endpoint": "Prüfen Sie Endpunkt-URL und Region des Speicherorts.",
+    "check_storage_health": "Führen Sie einen Verbindungstest am Speicherort durch und bei beschädigten Daten eine Speicherprüfung.",
     "check_master_key": "Stellen Sie sicher, dass RESTOW_MASTER_KEY für API und Worker gesetzt ist und genau den Wert hat, der die Mandantenschlüssel verschlüsselt hat. Ändern Sie ihn nie, ohne die Schlüssel neu zu verpacken.",
     "restore_key_backup": "Stellen Sie den Hauptschlüssel aus Ihrer Schlüsselsicherung wieder her.",
     "run_backup_again": "Starten Sie ein neues Backup. Kehrt das Problem zurück, starten Sie eine Gesundheitsprüfung.",
@@ -498,9 +506,9 @@
     "check_test_target": "Prüfen Sie das Ziel der Test-Wiederherstellung an der Quelle und ob die App von {appName} dort schreiben darf.",
     "wait_for_exports_to_expire": "Fertige Exporte werden nach ihrer Download-Zeit automatisch gelöscht. Warten Sie darauf und fordern Sie den Export dann erneut an.",
     "export_less_mail": "Exportieren Sie eine kleinere Auswahl, zum Beispiel einen Ordner oder einen Zeitraum, oder teilen Sie den Export in mehrere Teile auf.",
-    "raise_export_limit": "Hat das Speicherziel Platz, kann ein Administrator der Installation das Limit mit der Einstellung EXPORT_MAX_TENANT_BYTES erhöhen.",
+    "raise_export_limit": "Hat der Speicherort Platz, kann ein Administrator der Installation das Limit mit der Einstellung EXPORT_MAX_TENANT_BYTES erhöhen.",
     "check_database": "Prüfen Sie, ob Postgres läuft und erreichbar ist, freien Speicherplatz und freie Verbindungen hat.",
-    "worker_resources": "Werden Jobs häufig unterbrochen, prüfen Sie Speicher und Neustarts des Worker-Containers.",
+    "worker_resources": "Werden Läufe häufig unterbrochen, prüfen Sie Speicher und Neustarts des Worker-Containers.",
     "read_technical_details": "Die technischen Details unten zeigen die genaue Antwort.",
     "check_endpoint_paths": "Prüfen Sie, ob die Ordner aus den Einstellungen des Rechners auf ihm existieren, oder ändern Sie die Ordner.",
     "check_endpoint_hooks": "Führen Sie die Befehle vor und nach der Sicherung aus den Einstellungen von Hand auf dem Rechner als Administrator aus und beheben Sie, was fehlschlägt.",
@@ -515,7 +523,7 @@
     "source": "Quelle öffnen",
     "sources": "Quellen öffnen",
     "directory": "Geschützte Objekte öffnen",
-    "storage": "Repositories öffnen",
+    "storage": "Speicherorte öffnen",
     "verify": "Wiederherstellbarkeit öffnen",
     "jobs": "Backup öffnen"
   }

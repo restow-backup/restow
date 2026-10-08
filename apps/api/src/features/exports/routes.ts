@@ -1,5 +1,6 @@
 import { Readable } from "node:stream";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
+import { config } from "../../config.js";
 import { db } from "../../db.js";
 import { clientIp } from "../../lib/request.js";
 import {
@@ -74,7 +75,11 @@ exportsRoutes.post("/", tenantUser, async (c) => {
 
 exportsRoutes.get("/", tenantUser, async (c) => {
   const query = parseOrProblem(listExportsQuerySchema, c.req.query());
-  return c.json({ items: await listExports(db, c.get("tenantId"), actorOf(c), query) });
+  return c.json({
+    items: await listExports(db, c.get("tenantId"), actorOf(c), query),
+    // How long a finished file stays downloadable (EXPORT_TTL_HOURS), for the list's subtitle.
+    ttlHours: config.exports.ttlHours,
+  });
 });
 
 exportsRoutes.get("/:id", tenantUser, async (c) => {

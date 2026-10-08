@@ -43,6 +43,8 @@ export interface ConfirmDialogProps {
   error?: React.ReactNode;
   /** When set, the confirm button enables only after the user typed this text. */
   confirmationText?: string;
+  /** Keeps the confirm button disabled, e.g. while a required field in `children` is empty. */
+  confirmDisabled?: boolean;
   /**
    * Runs the action. Returning a promise (`mutation.mutateAsync`) keeps the
    * dialog pending until it settles: it closes on success and stays open with
@@ -81,6 +83,7 @@ export function ConfirmDialog({
   pending = false,
   error,
   confirmationText,
+  confirmDisabled = false,
   onConfirm,
 }: ConfirmDialogProps) {
   const { t } = useTranslation(UI_NAMESPACE);
@@ -97,7 +100,7 @@ export function ConfirmDialog({
   const controlled = open !== undefined;
   const isOpen = open ?? internalOpen;
   const busy = pending || running;
-  const confirmed = confirmationMatches(confirmationText, typed);
+  const confirmed = confirmationMatches(confirmationText, typed) && !confirmDisabled;
 
   // Every opening starts clean: no leftover text, no stale failure. Reset
   // while rendering, so the previous opening's state never shows for a frame.

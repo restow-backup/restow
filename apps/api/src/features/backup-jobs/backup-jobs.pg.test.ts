@@ -346,6 +346,26 @@ describe.skipIf(!testDatabaseAdminUrl)("backup jobs against Postgres", () => {
     expect(list.items.map((item) => item.name)).toContain("Management");
     // The two others are in no job.
     expect(list.uncovered.mail).toBe(2);
+    expect(list.unscheduled.mail).toBe(0);
+    // The directory names the job of each object, and calls the others "in no job".
+    const { listObjects } = await import("../directory/service.js");
+    const none = await listObjects(appDb, contoso, {
+      job: "none",
+      page: 1,
+      pageSize: 50,
+      sort: "name",
+      order: "asc",
+    });
+    expect(none.total).toBe(2);
+    expect(none.items.every((item) => item.coverage === "none" && item.job === null)).toBe(true);
+    const inJob = await listObjects(appDb, contoso, {
+      job: "scheduled",
+      page: 1,
+      pageSize: 50,
+      sort: "name",
+      order: "asc",
+    });
+    expect(inJob.items.map((item) => item.job?.name)).toEqual(["Management", "Management"]);
 
     const members = await json<BackupJobMembersDto>(await call("GET", `/${job.id}/members`), 200);
     expect(members.items.map((member) => member.name)).toEqual(["anna", "ben"]);
@@ -399,6 +419,37 @@ describe.skipIf(!testDatabaseAdminUrl)("backup jobs against Postgres", () => {
     // Nothing to change: no entry.
     await json<BackupJobDto>(await call("PATCH", `/${job.id}`, { body: { enabled: true } }), 200);
     expect(await audits("backup_job.updated", job.id)).toHaveLength(3);
+  });
+
+  it("archives a mail job's mailboxes on request and audits the switch", async () => {
+    const job = await json<BackupJobDto>(
+      await call("POST", "", {
+        body: {
+          kind: "mail",
+          name: "Archived",
+          schedule: mailSchedule,
+          archive: true,
+          scope: { mode: "selected", members: [] },
+        },
+      }),
+      201,
+    );
+    expect(job.archive).toBe(true);
+    const off = await json<BackupJobDto>(
+      await call("PATCH", `/${job.id}`, { body: { archive: false } }),
+      200,
+    );
+    expect(off.archive).toBe(false);
+    const [entry] = await audits("backup_job.updated", job.id);
+    expect(entry?.details).toMatchObject({ changes: { archive: { from: true, to: false } } });
+
+    const plain = await json<BackupJobDto>(
+      await call("POST", "", {
+        body: { kind: "mail", name: "Not archived", scope: { mode: "selected", members: [] } },
+      }),
+      201,
+    );
+    expect(plain.archive).toBe(false);
   });
 
   it("keeps a job's timers when it is saved with the same schedule written in another way", async () => {
@@ -547,6 +598,8 @@ describe.skipIf(!testDatabaseAdminUrl)("backup jobs against Postgres", () => {
         ["verifySchedule"],
       ],
       [machineJob("x", [machines.web01 ?? ""], { enabled: false }), ["enabled"]],
+      // Archiving is journaling of mailboxes: a machine job has nothing to archive.
+      [machineJob("x", [machines.web01 ?? ""], { archive: true }), ["archive"]],
       [
         machineJob("x", [machines.web01 ?? ""], { scope: { mode: "all", members: [] } }),
         ["scope", "mode"],
@@ -658,6 +711,24 @@ describe.skipIf(!testDatabaseAdminUrl)("backup jobs against Postgres", () => {
     ]);
     const list = await json<BackupJobListDto>(await call("GET", "?kind=mail"), 200);
     expect(list.uncovered.mail).toBe(0);
+    // What a paused job holds is in a job, but not backed up on a schedule: the list says so,
+    // and so does the directory, object by object.
+    await json<BackupJobDto>(await call("PATCH", `/${all.id}`, { body: { enabled: false } }), 200);
+    const whilePaused = await json<BackupJobListDto>(await call("GET", "?kind=mail"), 200);
+    expect(whilePaused.unscheduled.mail).toBe(2);
+    const { listObjects } = await import("../directory/service.js");
+    const unscheduled = await listObjects(appDb, contoso, {
+      job: "unscheduled",
+      page: 1,
+      pageSize: 50,
+      sort: "name",
+      order: "asc",
+    });
+    expect(unscheduled.items.map((item) => [item.coverage, item.job?.id])).toEqual([
+      ["unscheduled", all.id],
+      ["unscheduled", all.id],
+    ]);
+    await json<BackupJobDto>(await call("PATCH", `/${all.id}`, { body: { enabled: true } }), 200);
     // Object overrides in an "all" job create the row the first time.
     const overridden = await json<BackupJobDto>(
       await call("PATCH", `/${all.id}/members/${objects.clara}`, {
@@ -1117,6 +1188,15 @@ describe.skipIf(!testDatabaseAdminUrl)("backup jobs against Postgres", () => {
     expect(endpoint.schedule).toMatchObject({ kind: "daily" });
     expect(endpoint.settings.paths?.length).toBeGreaterThan(0);
     expect(endpoint.endpointRetention).toEqual({ keepDaily: 30, keepWeekly: 12, keepMonthly: 12 });
+    expect(endpoint.basis).toBeNull();
+    // Started from chosen machines, the defaults follow their systems and profiles.
+    const chosen = await json<JobDefaultsDto>(
+      await call("GET", `/defaults?kind=endpoint&endpointIds=${machines.web01},${machines.web02}`),
+      200,
+    );
+    expect(chosen.basis).toEqual({ os: ["linux"], profiles: ["server"], mixed: false });
+    expect(chosen.settings.paths).toContain("/var/lib");
+    await problem(await call("GET", "/defaults?kind=endpoint&endpointIds=not-an-id"), 422);
 
     const candidates = await json<JobCandidatesDto>(
       await call("GET", "/candidates?kind=mail&q=AN"),

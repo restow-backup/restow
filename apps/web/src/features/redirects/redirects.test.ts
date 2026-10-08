@@ -34,16 +34,17 @@ const CASES: readonly [old: string, path: string, search: Record<string, unknown
   ["/stats", "/", { view: "statistics" }],
   ["/stats?period=90d", "/", { view: "statistics", period: "90d" }],
   [
-    "/stats?period=custom&from=2026-09-01&to=2026-09-30&scope=provider",
+    "/stats?period=custom&from=2026-09-01&to=2026-09-30",
     "/",
-    {
-      view: "statistics",
-      period: "custom",
-      from: "2026-09-01",
-      to: "2026-09-30",
-      scope: "provider",
-    },
+    { view: "statistics", period: "custom", from: "2026-09-01", to: "2026-09-30" },
   ],
+  // The totals of every tenant have their own page (0.3.0); Overview › Statistics is one tenant's.
+  [
+    "/stats?period=custom&from=2026-09-01&to=2026-09-30&scope=provider",
+    "/statistics/all",
+    { period: "custom", from: "2026-09-01", to: "2026-09-30" },
+  ],
+  ["/stats?scope=tenant&period=7d", "/", { view: "statistics", period: "7d" }],
   ["/jobs", "/history", {}],
   // The old run list's filter by queue is a tab of History now.
   ["/jobs?queue=verify", "/history", { type: "restore_check" }],
@@ -195,6 +196,7 @@ describe("legacy routes", () => {
     ...createLegacyRoutes(() => root as unknown as AnyRoute),
     ...createBackupJobRoutes(() => root as unknown as AnyRoute),
     page("/"),
+    page("/statistics/all"),
     page("/history"),
     page("/history/$jobId"),
     page("/restore"),

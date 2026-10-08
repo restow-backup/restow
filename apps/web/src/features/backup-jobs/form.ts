@@ -373,6 +373,27 @@ function hooksOf(draft: SettingsDraft): { pre?: string; post?: string } {
   return { ...(pre ? { pre } : {}), ...(post ? { post } : {}) };
 }
 
+/**
+ * How much stricter a machine retention gets: per kind, how many restore points fewer each
+ * machine keeps (the most the next retention run removes because of the change). Null when no
+ * value goes down, or the draft leaves each machine its own retention.
+ */
+export function retentionReduction(
+  before: JobRetention,
+  draft: SettingsDraft,
+): JobRetention | null {
+  if (!draft.retentionOwn) {
+    return null;
+  }
+  const after = retentionOf(draft);
+  const less = {
+    keepDaily: Math.max(0, before.keepDaily - after.keepDaily),
+    keepWeekly: Math.max(0, before.keepWeekly - after.keepWeekly),
+    keepMonthly: Math.max(0, before.keepMonthly - after.keepMonthly),
+  };
+  return less.keepDaily + less.keepWeekly + less.keepMonthly > 0 ? less : null;
+}
+
 function retentionOf(draft: SettingsDraft): JobRetention {
   return {
     keepDaily: wholeNumber(draft.keepDaily) ?? 0,
@@ -443,6 +464,8 @@ export interface JobDraft {
   name: string;
   /** Mail jobs only; a machine job cannot be paused. */
   enabled: boolean;
+  /** Mail jobs only: archive the mailboxes through journaling. */
+  archive: boolean;
   /** Mail jobs: run on a schedule; off means the job runs when someone starts it. */
   scheduleOn: boolean;
   cadence: CadenceDraft;
@@ -467,6 +490,7 @@ export function newJobDraft(kind: JobKind, defaults: JobDefaults | undefined): J
     kind,
     name: "",
     enabled: true,
+    archive: false,
     scheduleOn: true,
     cadence: cadenceDraftOfSchedule(
       kind === "mail" ? (defaults?.schedule ?? null) : null,
@@ -502,6 +526,7 @@ export function draftOfJob(
     kind: job.kind,
     name: job.name,
     enabled: job.enabled,
+    archive: job.archive,
     scheduleOn: job.kind === "mail" ? job.schedule !== null : true,
     cadence: cadenceDraftOfSchedule(job.kind === "mail" ? job.schedule : null, null, zone),
     endpointSchedule: endpointScheduleDraftOf(
@@ -610,6 +635,7 @@ export function createInputOf(
     ...(draft.kind === "mail" ? { retentionPolicyId: draft.retentionPolicyId } : {}),
     settings: draft.kind === "endpoint" ? settingsOfDraft(draft.settings) : {},
     enabled: draft.kind === "mail" ? draft.enabled : true,
+    ...(draft.kind === "mail" && draft.archive ? { archive: true } : {}),
     ...(move ? { moveMembers: true } : {}),
   };
 }
@@ -688,6 +714,9 @@ export function updateInputOf(job: BackupJob, draft: JobDraft): UpdateBackupJobI
     }
     if (draft.enabled !== job.enabled) {
       patch.enabled = draft.enabled;
+    }
+    if (draft.archive !== job.archive) {
+      patch.archive = draft.archive;
     }
   } else {
     const settings = settingsOfDraft(draft.settings);

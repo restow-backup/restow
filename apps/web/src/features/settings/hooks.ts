@@ -8,12 +8,19 @@ import {
   type MailTestRequest,
   type SettingsPatch,
   deleteMailConfiguration,
+  fetchPasskeyImpact,
   fetchPasskeyReadiness,
   fetchSettings,
   patchSettings,
   sendTestMail,
 } from "./api";
-import { type AuthClientError, type PasskeyRow, toPasskeyRows } from "./presenters";
+import {
+  type AuthClientError,
+  type PasskeyRow,
+  type SessionRow,
+  toPasskeyRows,
+  toSessionRows,
+} from "./presenters";
 
 /**
  * TanStack Query wiring for the settings page. Installation settings are not
@@ -24,7 +31,9 @@ import { type AuthClientError, type PasskeyRow, toPasskeyRows } from "./presente
 export const settingsKeys = {
   installation: ["settings", "installation"] as const,
   passkeyReadiness: ["settings", "passkey-readiness"] as const,
+  passkeyImpact: ["settings", "passkey-impact"] as const,
   passkeys: ["auth", "passkeys"] as const,
+  sessions: ["auth", "sessions"] as const,
 };
 
 export function useInstallationSettings() {
@@ -68,6 +77,17 @@ export function usePasskeyReadiness() {
     queryKey: settingsKeys.passkeyReadiness,
     queryFn: fetchPasskeyReadiness,
     staleTime: 5 * 60_000,
+    retry: false,
+  });
+}
+
+/** Asked only while the confirmation before switching passkeys off is open. */
+export function usePasskeyImpact(enabled: boolean) {
+  return useQuery({
+    queryKey: settingsKeys.passkeyImpact,
+    queryFn: fetchPasskeyImpact,
+    enabled,
+    staleTime: 0,
     retry: false,
   });
 }
@@ -125,12 +145,73 @@ export function useDeletePasskey() {
 }
 
 export function useRevokeOtherSessions() {
+  const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async () => {
       const { error } = await authClient.revokeOtherSessions();
       if (error) {
         throw new AuthRequestError(error);
       }
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: settingsKeys.sessions }),
+  });
+}
+
+/** Every signed-in browser and device of the own account (current one first). */
+export function useSessions(currentToken: string | null) {
+  return useQuery({
+    queryKey: [...settingsKeys.sessions, currentToken] as const,
+    queryFn: async (): Promise<SessionRow[]> => {
+      const { data, error } = await authClient.listSessions();
+      if (error) {
+        throw new AuthRequestError(error);
+      }
+      return toSessionRows(data ?? [], currentToken);
+    },
+    staleTime: 30_000,
+  });
+}
+
+/** Sign one other session out. */
+export function useRevokeSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (token: string) => {
+      const { error } = await authClient.revokeSession({ token });
+      if (error) {
+        throw new AuthRequestError(error);
+      }
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: settingsKeys.sessions }),
+  });
+}
+
+export interface ChangePasswordInput {
+  currentPassword: string;
+  newPassword: string;
+  revokeOtherSessions: boolean;
+}
+
+/**
+ * Change the own password (better-auth `/change-password`): the current one
+ * is checked; with `revokeOtherSessions` every other browser is signed out
+ * and this one gets a fresh session.
+ */
+export function useChangePassword() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: ChangePasswordInput) => {
+      const { error } = await authClient.changePassword(input);
+      if (error) {
+        throw new AuthRequestError(error);
+      }
+    },
+    onSuccess: async (_data, input) => {
+      if (input.revokeOtherSessions) {
+        // The session was replaced: read it (and its token) again.
+        await queryClient.invalidateQueries({ queryKey: queryKeys.authSession });
+      }
+      await queryClient.invalidateQueries({ queryKey: settingsKeys.sessions });
     },
   });
 }
@@ -160,33 +241,48 @@ async function enableAuthenticator(password: string): Promise<AuthenticatorEnrol
 }
 
 /**
- * Start the enrolment. With `replace`, the current authenticator is removed
- * first (a new phone): better-auth only issues a new key once none is active.
- * Until the new key is confirmed the account counts as not enrolled, and the
- * shell sends it back to the enrolment.
+ * A new phone (apps/api lib/authenticator-replace.ts): the server keeps the
+ * new key aside and the current authenticator keeps working until the first
+ * code of the new one is confirmed.
  */
+async function startReplacement(password: string): Promise<AuthenticatorEnrollment> {
+  const { data, error } = await authClient.$fetch<{ totpURI: string; backupCodes: string[] }>(
+    "/two-factor/replace",
+    { method: "POST", body: { password } },
+  );
+  if (error) {
+    throw new AuthRequestError(error);
+  }
+  if (!data?.totpURI || !data.backupCodes) {
+    throw new AuthRequestError({ status: 500, code: "TOTP_NOT_CONFIGURED" });
+  }
+  return { totpUri: data.totpURI, backupCodes: data.backupCodes };
+}
+
+/** Start the enrolment, or with `replace` the move to a new phone. */
 export function useStartAuthenticatorEnrollment() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ password, replace }: { password: string; replace: boolean }) => {
-      if (replace) {
-        const { error } = await authClient.twoFactor.disable({ password });
-        if (error) {
-          throw new AuthRequestError(error);
-        }
-      }
-      return enableAuthenticator(password);
-    },
+    mutationFn: ({ password, replace }: { password: string; replace: boolean }) =>
+      replace ? startReplacement(password) : enableAuthenticator(password),
     onSettled: () => queryClient.invalidateQueries({ queryKey: queryKeys.authSession }),
   });
 }
 
-/** Confirm the enrolment with the first code from the app; this switches the second factor on. */
+/**
+ * Confirm with the first code from the app: this switches the second factor
+ * on, or with `replace` swaps the old key for the new one.
+ */
 export function useConfirmAuthenticator() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (code: string) => {
-      const { error } = await authClient.twoFactor.verifyTotp({ code });
+    mutationFn: async ({ code, replace }: { code: string; replace: boolean }) => {
+      const { error } = replace
+        ? await authClient.$fetch("/two-factor/replace/confirm", {
+            method: "POST",
+            body: { code },
+          })
+        : await authClient.twoFactor.verifyTotp({ code });
       if (error) {
         throw new AuthRequestError(error);
       }

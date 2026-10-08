@@ -11,14 +11,18 @@
  * dropped after, the roles with it). Without it the suite is skipped.
  */
 import { randomBytes, randomUUID } from "node:crypto";
-import { archive } from "@restow/core";
+import { type ChunkReader, RestoreIntegrityError, archive } from "@restow/core";
 import {
   type Database,
+  archiveAnchor,
+  archiveItemMailboxes,
   archiveItems,
   auditLog,
   createDb,
+  protectedObjects,
   providers,
   retentionPolicies,
+  sources as sourcesTable,
   tenants,
 } from "@restow/db";
 import { eq } from "drizzle-orm";
@@ -63,7 +67,11 @@ describe.skipIf(!testDatabaseAdminUrl)("archive against Postgres", () => {
   let contoso: string;
   let fabrikam: string;
   let northwind: string;
+  let tailspin: string;
   const adminId = randomUUID();
+  /** Items the fake chunk reader reports as damaged, and the ones it read. */
+  const damaged = new Set<string>();
+  const readIds: string[] = [];
 
   beforeAll(async () => {
     const url = await recreateDatabase(testDatabaseAdminUrl as string, DATABASE);
@@ -84,11 +92,13 @@ describe.skipIf(!testDatabaseAdminUrl)("archive against Postgres", () => {
         { providerId: provider?.id ?? "", name: "Contoso", slug: "contoso" },
         { providerId: provider?.id ?? "", name: "Fabrikam", slug: "fabrikam" },
         { providerId: provider?.id ?? "", name: "Northwind", slug: "northwind" },
+        { providerId: provider?.id ?? "", name: "Tailspin", slug: "tailspin" },
       ])
       .returning();
     contoso = created[0]?.id ?? "";
     fabrikam = created[1]?.id ?? "";
     northwind = created[2]?.id ?? "";
+    tailspin = created[3]?.id ?? "";
 
     async function seed(
       tenantId: string,
@@ -143,7 +153,20 @@ describe.skipIf(!testDatabaseAdminUrl)("archive against Postgres", () => {
     app.onError(errorHandler);
     app.route(
       "/archive",
-      buildArchiveRoutes({ db: appDb, requireAdmin: testTenantAccess("tenant_admin", adminId) }),
+      buildArchiveRoutes({
+        db: appDb,
+        requireAdmin: testTenantAccess("tenant_admin", adminId),
+        openReader: async () =>
+          ({
+            readObjectToBuffer: async (object: { id?: string }) => {
+              readIds.push(object.id ?? "");
+              if (damaged.has(object.id ?? "")) {
+                throw new RestoreIntegrityError("content hash mismatch");
+              }
+              return Buffer.from("message");
+            },
+          }) as unknown as ChunkReader,
+      }),
     );
   }, 60_000);
 
@@ -169,6 +192,59 @@ describe.skipIf(!testDatabaseAdminUrl)("archive against Postgres", () => {
 
     const auditRows = await owner.select().from(auditLog).where(eq(auditLog.tenantId, contoso));
     expect(auditRows.some((row) => row.action === "archive.searched")).toBe(true);
+  });
+
+  it("audits every filter of a search, including sender, dates and the page", async () => {
+    const res = await app.request(
+      "/archive/search?from=cfo&dateFrom=2020-01-01T00:00:00.000Z&dateTo=2030-01-01T00:00:00.000Z&offset=0&limit=10",
+      { headers: { "x-restow-tenant": contoso } },
+    );
+    expect(res.status).toBe(200);
+    const auditRows = await owner.select().from(auditLog).where(eq(auditLog.tenantId, contoso));
+    const filtered = auditRows.find(
+      (row) =>
+        row.action === "archive.searched" &&
+        (row.details as Record<string, unknown> | null)?.from === "cfo",
+    );
+    expect(filtered?.details).toMatchObject({
+      from: "cfo",
+      dateFrom: "2020-01-01T00:00:00.000Z",
+      dateTo: "2030-01-01T00:00:00.000Z",
+      offset: 0,
+    });
+  });
+
+  it("finds a journal report under every mailbox it was assigned to", async () => {
+    const [source] = await owner
+      .insert(sourcesTable)
+      .values({ tenantId: contoso, kind: "m365", name: "Contoso M365", status: "active" })
+      .returning();
+    const [anna, bob] = await owner
+      .insert(protectedObjects)
+      .values([
+        { tenantId: contoso, sourceId: source?.id ?? "", kind: "mailbox", externalId: "oid-anna" },
+        { tenantId: contoso, sourceId: source?.id ?? "", kind: "mailbox", externalId: "oid-bob" },
+      ])
+      .returning();
+    const [lunch] = await owner
+      .select({ id: archiveItems.id })
+      .from(archiveItems)
+      .where(eq(archiveItems.messageId, "msg-c2"));
+    await owner.insert(archiveItemMailboxes).values({
+      tenantId: contoso,
+      archiveItemId: lunch?.id ?? "",
+      protectedObjectId: anna?.id ?? "",
+    });
+
+    const search = async (mailbox: string) =>
+      (await (
+        await app.request(`/archive/search?mailbox=${mailbox}`, {
+          headers: { "x-restow-tenant": contoso },
+        })
+      ).json()) as { items: { subject: string }[]; total: number };
+    const ofAnna = await search(anna?.id ?? "");
+    expect(ofAnna.items.map((item) => item.subject)).toEqual(["Lunch plans"]);
+    expect((await search(bob?.id ?? "")).total).toBe(0);
   });
 
   it("never returns another tenant's items, even with a matching query", async () => {
@@ -260,6 +336,112 @@ describe.skipIf(!testDatabaseAdminUrl)("archive against Postgres", () => {
     };
     expect(broken.ok).toBe(false);
     expect(broken.brokenAt).not.toBeNull();
+    // The third entry, counted from one, and which item it is.
+    const at = broken.brokenAt as unknown as {
+      index: number;
+      position: number;
+      itemId: string;
+    };
+    expect(at.position).toBe(3);
+    expect(at.index).toBe(2);
+    const [tampered] = await owner
+      .select({ id: archiveItems.id })
+      .from(archiveItems)
+      .where(eq(archiveItems.messageId, "msg-tampered"));
+    expect(at.itemId).toBe(tampered?.id);
+  });
+
+  it("checks the chain against the daily anchors: entries cut off the end break it", async () => {
+    let prev: string | null = null;
+    const ids: string[] = [];
+    for (const [index, day] of ["2026-03-01", "2026-03-01", "2026-03-02"].entries()) {
+      const receivedAt = new Date(`${day}T0${index}:00:00Z`);
+      const itemHash = `hash-t${index}`;
+      const chainHash = archive.computeArchiveChainHash(prev, itemHash, receivedAt);
+      const [row] = await owner
+        .insert(archiveItems)
+        .values({
+          tenantId: tailspin,
+          messageId: `msg-t${index}`,
+          itemHash,
+          prevChainHash: prev,
+          chainHash,
+          receivedAt,
+          capturedVia: "journal",
+          storagePath: `tenants/${tailspin}/archive/t${index}`,
+          subject: `Tailspin ${index}`,
+          sizeBytes: 7,
+          chunks: [`chunk-${index}`],
+          createdAt: receivedAt,
+        })
+        .returning({ id: archiveItems.id });
+      ids.push(row?.id ?? "");
+      prev = chainHash;
+    }
+    await owner.insert(archiveAnchor).values({
+      tenantId: tailspin,
+      anchorDate: "2026-03-02",
+      lastHash: prev as string,
+      count: 3,
+    });
+
+    const verify = async () => {
+      const res = await app.request("/archive/chain/verify?contentSample=10", {
+        headers: { "x-restow-tenant": tailspin },
+      });
+      expect(res.status).toBe(200);
+      return (await res.json()) as {
+        ok: boolean;
+        checked: number;
+        brokenAt: unknown;
+        anchors: { checked: number; unsealed: number; failed: { reason: string } | null };
+        content: { checked: number; failures: { itemId: string; problem: string }[] };
+      };
+    };
+
+    const intact = await verify();
+    expect(intact.ok).toBe(true);
+    expect(intact.anchors).toMatchObject({ checked: 1, unsealed: 0, failed: null });
+    expect(intact.content.checked).toBe(3);
+    expect(new Set(readIds)).toEqual(new Set(ids));
+
+    // A damaged message fails the content sample, and nothing else.
+    damaged.add(ids[1] as string);
+    const damagedResult = await verify();
+    expect(damagedResult.ok).toBe(false);
+    expect(damagedResult.brokenAt).toBeNull();
+    expect(damagedResult.content.failures).toEqual([
+      expect.objectContaining({ itemId: ids[1], problem: "mismatch" }),
+    ]);
+    damaged.clear();
+
+    // The newest entry removed: every link still verifies, the anchor does not.
+    await owner.delete(archiveItems).where(eq(archiveItems.id, ids[2] as string));
+    const truncated = await verify();
+    expect(truncated.brokenAt).toBeNull();
+    expect(truncated.checked).toBe(2);
+    expect(truncated.ok).toBe(false);
+    expect(truncated.anchors.failed).toMatchObject({ reason: "missing" });
+
+    const audits = await owner
+      .select({ action: auditLog.action, details: auditLog.details })
+      .from(auditLog)
+      .where(eq(auditLog.tenantId, tailspin));
+    expect(audits.filter((row) => row.action === "archive.chain.verified")).toHaveLength(3);
+  });
+
+  it("reads an archived message for download and tells when its content is not recorded", async () => {
+    const [row] = await owner
+      .select({ id: archiveItems.id })
+      .from(archiveItems)
+      .where(eq(archiveItems.tenantId, fabrikam));
+    // Seeded without a chunk list: there is nothing to read it by.
+    const res = await app.request(`/archive/items/${row?.id}/download`, {
+      headers: { "x-restow-tenant": fabrikam },
+    });
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as { problem?: string };
+    expect(body.problem).toBe("not_recorded");
   });
   it("tells the retention that applies: the default until the tenant has a policy of its own, never another tenant's", async () => {
     const read = async (tenantId: string) => {

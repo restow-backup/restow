@@ -24,7 +24,7 @@ describe("schedule toasts", () => {
     toastChanged(t(), "created", "backup");
     toastChanged(t(), "disabled", "verify");
     expect(toast.success).toHaveBeenNthCalledWith(1, "Backup schedule created");
-    expect(toast.success).toHaveBeenNthCalledWith(2, "Verification schedule switched off");
+    expect(toast.success).toHaveBeenNthCalledWith(2, "Restore check schedule switched off");
   });
 
   it("count the recommended schedules added, and say so when none were missing", () => {

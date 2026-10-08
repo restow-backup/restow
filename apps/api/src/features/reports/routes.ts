@@ -1,6 +1,8 @@
 import type { Database } from "@restow/db";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { db, providerDb } from "../../db.js";
+import { requireFeature } from "../../lib/features.js";
+import type { ProviderAccess } from "../../lib/provider-access.js";
 import { clientIp } from "../../lib/request.js";
 import {
   type SessionEnv,
@@ -9,9 +11,12 @@ import {
   requireTenant,
 } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { contentDisposition } from "../restore/headers.js";
 import {
   createReportRuleSchema,
+  exportDeliveriesQuerySchema,
   listDeliveriesQuerySchema,
+  listNotificationsQuerySchema,
   markNotificationsReadSchema,
   reportRuleParamSchema,
   updateReportRuleSchema,
@@ -20,12 +25,17 @@ import {
   type ReportActor,
   createRule,
   deleteRule,
+  deliveriesCsv,
   listDeliveries,
   listInstallationNotifications,
+  listNotificationHistory,
   listNotifications,
+  listProviderDeliveries,
+  listProviderNotifications,
   listRules,
   markInstallationNotificationsRead,
   markNotificationsRead,
+  markProviderNotificationsRead,
   reportCatalog,
   testRule,
   updateRule,
@@ -40,7 +50,8 @@ import {
  *   PATCH  /rules/:id        change or switch on/off
  *   DELETE /rules/:id        delete (the delivery log keeps its rows)
  *   POST   /rules/:id/test   queue a test on every channel of the rule
- *   GET    /deliveries       the delivery log, newest first
+ *   GET    /deliveries       the delivery log, newest first (`ruleId`, `status`, `before`)
+ *   GET    /deliveries/export the same as CSV
  *
  * /api/v1/notifications — the bell.
  *
@@ -65,6 +76,16 @@ export interface ReportsRoutesDeps {
   requireReader: MiddlewareHandler<TenantEnv>;
   requireAdmin: MiddlewareHandler<TenantEnv>;
   now?: () => Date;
+}
+
+/** A CSV download (no caching: it carries addresses and object names). */
+function csvResponse(c: Context, body: string, name: string): Response {
+  const day = new Date().toISOString().slice(0, 10);
+  return c.body(body, 200, {
+    "content-type": "text/csv; charset=utf-8",
+    "content-disposition": contentDisposition(`${name}-${day}.csv`),
+    "cache-control": "private, no-store",
+  });
 }
 
 function actorOf(c: Context<TenantEnv>): ReportActor {
@@ -116,6 +137,13 @@ export function buildReportsRoutes(deps: ReportsRoutesDeps): Hono<TenantEnv> {
     return c.json(await listDeliveries(deps.db, c.get("tenantId"), query));
   });
 
+  // The delivery log as CSV, with the filters of the list (proof that a customer was told).
+  routes.get("/deliveries/export", deps.requireAdmin, async (c) => {
+    const query = parseOrProblem(exportDeliveriesQuerySchema, c.req.query());
+    const items = await listDeliveries(deps.db, c.get("tenantId"), query);
+    return csvResponse(c, deliveriesCsv(items), "alert-deliveries");
+  });
+
   return routes;
 }
 
@@ -130,6 +158,12 @@ export function buildNotificationsRoutes(deps: ReportsRoutesDeps): Hono<TenantEn
   routes.get("/", deps.requireReader, async (c) =>
     c.json(await listNotifications(deps.db, c.get("tenantId"), scopeOf(c))),
   );
+
+  // Everything the bell ever showed, a page at a time (the bell lists the newest 30 only).
+  routes.get("/history", deps.requireReader, async (c) => {
+    const query = parseOrProblem(listNotificationsQuerySchema, c.req.query());
+    return c.json(await listNotificationHistory(deps.db, c.get("tenantId"), query));
+  });
 
   routes.post("/read", deps.requireReader, async (c) => {
     const input = await parseJsonBody(c.req, markNotificationsReadSchema);
@@ -148,6 +182,33 @@ export function buildNotificationsRoutes(deps: ReportsRoutesDeps): Hono<TenantEn
     routes.post("/installation/read", requireProvider, async (c) => {
       const input = await parseJsonBody(c.req, markNotificationsReadSchema);
       return c.json(await markInstallationNotificationsRead(installation, input, now()));
+    });
+
+    // "All tenants" (Service Provider, `dashboard.allTenants`): the notifications of every tenant
+    // the administrator's team role covers, each with its tenant, and their alert deliveries.
+    const covered = async (c: { get(key: "providerAccess"): ProviderAccess | null }) => {
+      await requireFeature(installation, "dashboard.allTenants");
+      const access = c.get("providerAccess");
+      return !access || access.allTenants ? null : [...access.tenantIds];
+    };
+    routes.get("/provider", requireProvider, async (c) => {
+      const query = parseOrProblem(listNotificationsQuerySchema, c.req.query());
+      return c.json(await listProviderNotifications(installation, await covered(c), query));
+    });
+    routes.post("/provider/read", requireProvider, async (c) => {
+      const input = await parseJsonBody(c.req, markNotificationsReadSchema);
+      return c.json(
+        await markProviderNotificationsRead(installation, await covered(c), input, now()),
+      );
+    });
+    routes.get("/provider/deliveries", requireProvider, async (c) => {
+      const query = parseOrProblem(listDeliveriesQuerySchema, c.req.query());
+      return c.json(await listProviderDeliveries(installation, await covered(c), query));
+    });
+    routes.get("/provider/deliveries/export", requireProvider, async (c) => {
+      const query = parseOrProblem(exportDeliveriesQuerySchema, c.req.query());
+      const items = await listProviderDeliveries(installation, await covered(c), query);
+      return csvResponse(c, deliveriesCsv(items), "alert-deliveries-all-tenants");
     });
   }
 

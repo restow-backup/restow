@@ -65,6 +65,13 @@ describe("the jobs client", () => {
     ]);
   });
 
+  it("asks for the defaults of the chosen machines, so a Mac client is not a Linux server", async () => {
+    vi.stubGlobal("fetch", answer({}));
+    await fetchJobDefaults("endpoint", ["m1", "m2"]);
+    expect(calls[0]?.url.searchParams.get("endpointIds")).toBe("m1,m2");
+    expect(calls[0]?.url.searchParams.get("kind")).toBe("endpoint");
+  });
+
   it("asks for the recommended values of a kind and searches the candidates", async () => {
     vi.stubGlobal("fetch", answer({ items: [], total: 0 }));
     await fetchJobDefaults("endpoint");

@@ -59,6 +59,17 @@ vi.mock("@/lib/api", async (importOriginal) => {
   return { ...actual, apiFetch: (...args: unknown[]) => apiFetchMock(...args) };
 });
 
+// The Community build's note links to Installation › Edition for provider admins with every tenant.
+let sessionState: Record<string, unknown> = {
+  isProviderAdmin: true,
+  providerRole: "owner",
+  providerAllTenants: true,
+};
+vi.mock("@/lib/session", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/session")>()),
+  useSession: () => sessionState,
+}));
+
 function render(node: React.ReactNode): string {
   return renderToStaticMarkup(<I18nextProvider i18n={i18n}>{node}</I18nextProvider>);
 }
@@ -138,17 +149,28 @@ describe("InstallationPanel", () => {
     expect(html).not.toMatch(/edition|Community|Business|Service Provider|licen/i);
   });
 
-  it("says neutrally that the installation manages one tenant when no further one may be created", () => {
-    const html = render(
+  it("explains on the Community build that one tenant is the edition, with the way to Edition", () => {
+    const panel = (
       <InstallationPanel
         tenantCount={1}
         creationAllowed={false}
         usage={{ status: "success", data: usage }}
-      />,
+      />
     );
+    const html = render(panel);
     expect(html).toContain("This installation manages one tenant.");
-    expect(html).not.toMatch(/edition|Community|Business|Service Provider|licen/i);
-    expect(html).not.toContain("href=");
+    expect(html).toContain("The Community edition manages one organisation.");
+    expect(html).toContain('href="/installation/edition"');
+    // Whoever may not open the installation page reads the reason, without the link.
+    const previous = sessionState;
+    sessionState = { isProviderAdmin: false, providerRole: null };
+    try {
+      const member = render(panel);
+      expect(member).toContain("The Community edition manages one organisation.");
+      expect(member).not.toContain("href=");
+    } finally {
+      sessionState = previous;
+    }
   });
 
   it("lets an extension word the refusal instead (slot tenants.creationLocked)", () => {
@@ -206,7 +228,7 @@ describe("status displays", () => {
     expect(failed).toContain("Unavailable");
     expect(failed).toContain("The readiness of this tenant could not be read.");
     expect(render(<HealthSummary state={{ status: "success", data: health }} />)).toContain(
-      "Not ready",
+      "Not restorable",
     );
     expect(
       render(

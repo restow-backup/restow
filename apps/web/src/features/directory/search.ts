@@ -2,7 +2,13 @@ import type { LinkProps } from "@tanstack/react-router";
 
 import { activeTenantPagePath, activeTenantPageTo } from "@/lib/tenant-paths";
 
-import type { ObjectKind, ObjectSort, ObjectStatusFilter, ObjectsQuery } from "./types";
+import type {
+  ObjectCoverage,
+  ObjectKind,
+  ObjectSort,
+  ObjectStatusFilter,
+  ObjectsQuery,
+} from "./types";
 
 /**
  * URL state of the protected-objects page: the tab plus the object filters,
@@ -29,6 +35,8 @@ export interface DirectorySearch {
   q?: string;
   kind?: ObjectKind;
   status?: ObjectStatusFilter;
+  /** How it stands towards the backup jobs (`none`: in no job). */
+  job?: ObjectCoverage;
   source?: string;
   /** Sign-in disabled member accounts with a mailbox (shared, resource, blocked). */
   shared?: boolean;
@@ -40,6 +48,7 @@ export interface DirectorySearch {
 
 const KINDS: readonly ObjectKind[] = ["mailbox", "onedrive", "imap"];
 const STATUSES: readonly ObjectStatusFilter[] = ["active", "excluded", "orphaned", "not_selected"];
+const COVERAGES: readonly ObjectCoverage[] = ["scheduled", "unscheduled", "none"];
 const SORTS: readonly ObjectSort[] = ["name", "kind", "status", "createdAt", "updatedAt"];
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -67,6 +76,7 @@ export function parseDirectorySearch(raw: Record<string, unknown>): DirectorySea
   }
   search.kind = oneOf(raw.kind, KINDS);
   search.status = oneOf(raw.status, STATUSES);
+  search.job = oneOf(raw.job, COVERAGES);
   if (typeof raw.source === "string" && UUID.test(raw.source)) {
     search.source = raw.source;
   }
@@ -102,6 +112,7 @@ export function toObjectsQuery(search: DirectorySearch): ObjectsQuery {
     search: search.q,
     kind: search.kind,
     status: search.status,
+    job: search.job,
     sourceId: search.source,
     sharedOrBlocked: search.shared,
     page: search.page ?? 1,
@@ -117,7 +128,7 @@ export function nextSearch(
   change: Partial<DirectorySearch>,
 ): DirectorySearch {
   const touchesFilter = (
-    ["q", "kind", "status", "source", "shared", "size", "sort", "order"] as const
+    ["q", "kind", "status", "job", "source", "shared", "size", "sort", "order"] as const
   ).some((key) => key in change);
   const merged: Record<string, unknown> = { ...current, ...change };
   if (touchesFilter && !("page" in change)) {
@@ -128,7 +139,12 @@ export function nextSearch(
 
 export function hasObjectFilters(search: DirectorySearch): boolean {
   return Boolean(
-    search.q || search.kind || search.status || search.source || search.shared !== undefined,
+    search.q ||
+      search.kind ||
+      search.status ||
+      search.job ||
+      search.source ||
+      search.shared !== undefined,
   );
 }
 

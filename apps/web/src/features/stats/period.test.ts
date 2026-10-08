@@ -7,15 +7,14 @@ import {
   type StatsSearch,
   dayStart,
   daysBetween,
-  effectiveScope,
   granularityForDays,
+  legacyProviderScope,
   nextStatsSearch,
   parseStatsSearch,
   previousPeriodDays,
   resolvePeriod,
   withCustomRange,
   withPreset,
-  withScope,
 } from "./period.js";
 
 /** 23 September 2026, 15:30 local time. */
@@ -71,10 +70,16 @@ describe("parseStatsSearch", () => {
     );
   });
 
-  it("keeps only the provider scope", () => {
-    expect(parseStatsSearch({ scope: "provider" })).toEqual({ scope: "provider" });
+  it("keeps no scope: the page is the scope", () => {
+    expect(parseStatsSearch({ scope: "provider" })).toEqual({});
+    expect(parseStatsSearch({ scope: "provider", period: "7d" })).toEqual({ period: "7d" });
     expect(parseStatsSearch({ scope: "tenant" })).toEqual({});
-    expect(parseStatsSearch({ scope: "everything" })).toEqual({});
+  });
+
+  it("recognises an old link to the totals of every tenant", () => {
+    expect(legacyProviderScope({ view: "statistics", scope: "provider" })).toBe(true);
+    expect(legacyProviderScope({ view: "statistics", scope: "tenant" })).toBe(false);
+    expect(legacyProviderScope({ view: "statistics" })).toBe(false);
   });
 });
 
@@ -83,12 +88,11 @@ describe("search changes", () => {
     period: "custom",
     from: "2026-09-01",
     to: "2026-09-15",
-    scope: "provider",
   };
 
-  it("a preset replaces the custom days and keeps the scope", () => {
-    expect(withPreset(custom, "7d")).toEqual({ period: "7d", scope: "provider" });
-    expect(withPreset(custom, "30d")).toEqual({ scope: "provider" });
+  it("a preset replaces the custom days", () => {
+    expect(withPreset(custom, "7d")).toEqual({ period: "7d" });
+    expect(withPreset(custom, "30d")).toEqual({});
   });
 
   it("a custom range writes local calendar days", () => {
@@ -99,26 +103,12 @@ describe("search changes", () => {
     });
   });
 
-  it("the tenant scope is the default and not written", () => {
-    expect(withScope(custom, "tenant")).toEqual({
-      period: "custom",
-      from: "2026-09-01",
-      to: "2026-09-15",
-    });
-    expect(withScope({ period: "12m" }, "provider")).toEqual({ period: "12m", scope: "provider" });
-  });
-
   it("ignores a stray from/to when the period is not custom", () => {
     expect(nextStatsSearch({ period: "7d" }, { from: "2026-09-01" })).toEqual({ period: "7d" });
   });
 
   it("survives a reload unchanged", () => {
-    for (const search of [
-      {},
-      { period: "7d" },
-      { period: "12m", scope: "provider" },
-      custom,
-    ] as StatsSearch[]) {
+    for (const search of [{}, { period: "7d" }, { period: "12m" }, custom] as StatsSearch[]) {
       expect(throughUrl(search)).toEqual(search);
       expect(resolvePeriod(throughUrl(search), NOW)).toEqual(resolvePeriod(search, NOW));
     }
@@ -213,12 +203,6 @@ describe("resolvePeriod", () => {
 });
 
 describe("scope and query keys", () => {
-  it("allows the provider scope only where permitted", () => {
-    expect(effectiveScope({ scope: "provider" }, true)).toBe("provider");
-    expect(effectiveScope({ scope: "provider" }, false)).toBe("tenant");
-    expect(effectiveScope({}, true)).toBe("tenant");
-  });
-
   it("gives every period and scope its own query key", () => {
     const keys = new Set<string>();
     for (const preset of PERIOD_PRESETS) {

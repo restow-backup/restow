@@ -89,6 +89,14 @@ export interface ReadingPaneViewProps {
   entryId: string;
   tenantId: string | null;
   preview: EntryPreview;
+  /**
+   * Where an attachment downloads from. Defaults to the snapshot's attachment
+   * endpoint; null lists the attachments without a download (the archive,
+   * whose attachments come with the message's own `.eml` download).
+   */
+  attachmentHref?: ((attachmentId: string) => string) | null;
+  /** A line under the attachments, e.g. where they can be had instead. */
+  attachmentsNote?: string;
 }
 
 /**
@@ -96,7 +104,14 @@ export interface ReadingPaneViewProps {
  * so it is unit-tested without a `QueryClientProvider` (this file's own
  * tests render this directly).
  */
-export function ReadingPaneView({ snapshotId, entryId, tenantId, preview }: ReadingPaneViewProps) {
+export function ReadingPaneView({
+  snapshotId,
+  entryId,
+  tenantId,
+  preview,
+  attachmentHref,
+  attachmentsNote,
+}: ReadingPaneViewProps) {
   const { t, i18n } = useTranslation("restore");
   const language = i18n.resolvedLanguage ?? i18n.language;
   const { headers, attachments, previewable } = preview;
@@ -203,11 +218,15 @@ export function ReadingPaneView({ snapshotId, entryId, tenantId, preview }: Read
             </pre>
           )}
           <AttachmentsList
-            snapshotId={snapshotId}
-            entryId={entryId}
+            hrefOf={
+              attachmentHref === undefined
+                ? (attachmentId) =>
+                    attachmentDownloadUrl(snapshotId, entryId, attachmentId, tenantId)
+                : attachmentHref
+            }
             attachments={downloadableAttachments}
-            tenantId={tenantId}
             language={language}
+            note={attachmentsNote}
           />
         </>
       )}
@@ -245,17 +264,16 @@ function UnavailableNotice({ reason }: { reason: PreviewUnavailableReason }) {
 }
 
 function AttachmentsList({
-  snapshotId,
-  entryId,
+  hrefOf,
   attachments,
-  tenantId,
   language,
+  note,
 }: {
-  snapshotId: string;
-  entryId: string;
+  /** The download address of an attachment; null when the list only names them. */
+  hrefOf: ((attachmentId: string) => string) | null;
   attachments: readonly PreviewAttachment[];
-  tenantId: string | null;
   language: string;
+  note?: string;
 }) {
   const { t } = useTranslation("restore");
   return (
@@ -277,18 +295,23 @@ function AttachmentsList({
                     size: formatBytes(attachment.size, language),
                   })}
                 </p>
-                <a
-                  href={attachmentDownloadUrl(snapshotId, entryId, attachment.id, tenantId)}
-                  className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  aria-label={t("details.reading.download", { name })}
-                >
-                  <Download className="size-4" aria-hidden="true" />
-                </a>
+                {hrefOf ? (
+                  <a
+                    href={hrefOf(attachment.id)}
+                    className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={t("details.reading.download", { name })}
+                  >
+                    <Download className="size-4" aria-hidden="true" />
+                  </a>
+                ) : null}
               </li>
             );
           })}
         </ul>
       )}
+      {note && attachments.length > 0 ? (
+        <p className="text-xs text-muted-foreground">{note}</p>
+      ) : null}
     </section>
   );
 }

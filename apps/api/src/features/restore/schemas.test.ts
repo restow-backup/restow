@@ -3,6 +3,7 @@ import { contentDisposition } from "./headers.js";
 import {
   createRestoreSchema,
   isReplaceModeAllowedFor,
+  listRestoresQuerySchema,
   normalizeStoredRestoreMode,
 } from "./schemas.js";
 
@@ -125,5 +126,16 @@ describe("contentDisposition", () => {
 
   it("never lets a quote or backslash break out of the header value", () => {
     expect(contentDisposition('a"b\\c.zip')).toContain('filename="a_b_c.zip"');
+  });
+});
+
+describe("listRestoresQuerySchema", () => {
+  it("pages with an offset that starts at the newest restore", () => {
+    expect(listRestoresQuerySchema.parse({}).offset).toBe(0);
+    expect(listRestoresQuerySchema.parse({ limit: "100", offset: "100" })).toMatchObject({
+      limit: 100,
+      offset: 100,
+    });
+    expect(listRestoresQuerySchema.safeParse({ offset: "-1" }).success).toBe(false);
   });
 });

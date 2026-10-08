@@ -15,7 +15,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { EndpointReadinessRowView } from "@/features/endpoints/components/readiness-row";
-import type { EndpointReadinessRow, ObjectReadiness, VerifyObject } from "@/features/verify/api";
+import { GuestReadinessRowView } from "@/features/pve/readiness-row";
+import type {
+  EndpointReadinessRow,
+  GuestReadinessRow,
+  ObjectReadiness,
+  VerifyObject,
+} from "@/features/verify/api";
 import { StateChips, countsOfSummary } from "@/features/verify/components/state-chips";
 import { ObjectKindIcon, StateBadge } from "@/features/verify/components/status";
 import { verifyReportTo } from "@/features/verify/paths";
@@ -229,6 +235,7 @@ export function stateCounts(rows: readonly ReadinessRow[]) {
 export function ObjectsTable({
   items,
   endpoints = [],
+  guests = [],
   format,
   startingObjectId,
   nextBackupAt,
@@ -239,6 +246,8 @@ export function ObjectsTable({
   items: readonly ObjectReadiness[];
   /** Servers and clients; they are rated like the objects and listed with them. */
   endpoints?: readonly EndpointReadinessRow[];
+  /** VMs and containers of Proxmox VE; rated and listed like the machines. */
+  guests?: readonly GuestReadinessRow[];
   format: VerifyFormat;
   startingObjectId: string | null;
   /** The tenant's next scheduled backup run, shown while an object waits for its first one. */
@@ -249,7 +258,10 @@ export function ObjectsTable({
   onStateChange: (state: ReadinessState | undefined) => void;
 }) {
   const { t } = format;
-  const rows = React.useMemo(() => readinessRows(items, endpoints), [items, endpoints]);
+  const rows = React.useMemo(
+    () => readinessRows(items, endpoints, guests),
+    [items, endpoints, guests],
+  );
   const counts = React.useMemo(() => stateCounts(rows), [rows]);
   const visible = React.useMemo(() => {
     const sorted = sortRowsByUrgency(rows);
@@ -264,7 +276,7 @@ export function ObjectsTable({
           <CardDescription>{t("table.description")}</CardDescription>
         </div>
       </CardHeader>
-      <div className="px-6">
+      <div className="px-6 pb-4">
         <StateChips counts={counts} total={rows.length} value={state} onChange={onStateChange} />
       </div>
       <CardContent className="p-0">
@@ -292,6 +304,8 @@ export function ObjectsTable({
               {visible.map((row) =>
                 row.type === "endpoint" ? (
                   <EndpointReadinessRowView key={`endpoint-${row.id}`} row={row.endpoint} />
+                ) : row.type === "guest" ? (
+                  <GuestReadinessRowView key={`guest-${row.id}`} row={row.guest} />
                 ) : (
                   <ObjectRow
                     key={`object-${row.id}`}

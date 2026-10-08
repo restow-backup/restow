@@ -17,6 +17,11 @@ export const objectStatusSchema = z.enum(["active", "excluded", "orphaned"]);
  */
 export const objectStatusFilterSchema = z.enum(["active", "excluded", "orphaned", "not_selected"]);
 export const objectSortSchema = z.enum(["name", "kind", "status", "createdAt", "updatedAt"]);
+/**
+ * How an object stands towards the backup jobs: in a job that runs on a schedule, in one that is
+ * paused or runs by hand only, or in none. Only eligible objects (active, on a working source) match.
+ */
+export const objectJobFilterSchema = z.enum(["scheduled", "unscheduled", "none"]);
 
 /** `true`/`false` as a query string, without `z.coerce.boolean()` treating "false" as truthy. */
 const booleanFlagSchema = z.enum(["true", "false"]).transform((value) => value === "true");
@@ -27,6 +32,7 @@ export const objectsQuerySchema = z.object({
   kind: objectKindSchema.optional(),
   status: objectStatusFilterSchema.optional(),
   sourceId: z.string().uuid().optional(),
+  job: objectJobFilterSchema.optional(),
   /** Sign-in disabled member accounts with a mailbox (shared, resource, blocked). */
   sharedOrBlocked: booleanFlagSchema.optional(),
   page: z.coerce.number().int().min(1).default(1),
@@ -41,6 +47,7 @@ export const objectsFilterSchema = objectsQuerySchema.pick({
   kind: true,
   status: true,
   sourceId: true,
+  job: true,
   sharedOrBlocked: true,
 });
 export type ObjectsFilter = z.infer<typeof objectsFilterSchema>;

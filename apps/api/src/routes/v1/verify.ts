@@ -92,7 +92,12 @@ export type VerifyLatestQuery = z.infer<typeof verifyLatestQuerySchema>;
 export const readinessSummarySchema = component(
   "ReadinessSummary",
   z.object({
-    total: z.number().int().describe("Objects that take part in the rating."),
+    total: z
+      .number()
+      .int()
+      .describe(
+        "Objects that take part in the rating: protected objects, servers and clients, and VMs and containers of Proxmox VE in a backup job.",
+      ),
     green: z.number().int(),
     yellow: z.number().int(),
     red: z.number().int(),
@@ -102,6 +107,18 @@ export const readinessSummarySchema = component(
       .describe("Objects whose newest backup was not verified yet, whatever older backups scored."),
     noBackup: z.number().int(),
     overdue: z.number().int(),
+    withoutJob: z
+      .number()
+      .int()
+      .describe(
+        "Servers and clients in no backup job: rated by their old backups, but nothing backs them up. Any of them makes `overall` at least yellow.",
+      ),
+    guestsWithoutJob: z
+      .number()
+      .int()
+      .describe(
+        "VMs and containers of Proxmox VE in no backup job that keep a restore point: rated by it, but nothing backs them up. Any of them makes `overall` at least yellow.",
+      ),
     overall: readinessSchema
       .nullable()
       .describe(

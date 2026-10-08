@@ -117,6 +117,20 @@ export function usesRestoreFolder(kind: ObjectKind, state: RestoreFormState): bo
   return modeApplies(state.target) && state.mode === "rename" && kind !== "onedrive";
 }
 
+/**
+ * What the "original location" card promises, for the collision mode chosen
+ * below it: in "keep both" mode mail lands in a new folder of the account,
+ * not where it came from, and the card says so (I-7).
+ */
+export function originalTargetDescriptionKey(
+  kind: ObjectKind,
+  mode: RestoreFormState["mode"],
+): "dialog.target.originalDescription" | "dialog.target.originalDescriptionFolder" {
+  return usesRestoreFolder(kind, { target: "original", accountId: "", mode, reason: "" })
+    ? "dialog.target.originalDescriptionFolder"
+    : "dialog.target.originalDescription";
+}
+
 function pad(value: number): string {
   return value.toString().padStart(2, "0");
 }

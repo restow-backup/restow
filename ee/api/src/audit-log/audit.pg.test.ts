@@ -34,6 +34,7 @@ import {
 } from "../../../../apps/api/src/lib/audit.js";
 import { ProblemError } from "../../../../apps/api/src/problem.js";
 import { utcDay } from "./chain.js";
+import { AUDIT_CSV_COLUMNS, auditCsv, collectAuditExport } from "./export.js";
 import { listAuditQuerySchema } from "./schemas.js";
 import {
   getAuditEntry,
@@ -313,6 +314,30 @@ describe.skipIf(!testDatabaseAdminUrl)("audit log against Postgres", () => {
     await expect(getAuditEntry(db, { kind: "provider" }, fabrikamEntry.id)).resolves.toMatchObject({
       id: fabrikamEntry.id,
     });
+  });
+
+  it("exports the filtered entries oldest first, with the hashes to check the chain outside", async () => {
+    const selection = { kind: "tenant", tenantId: contoso } as const;
+    const exported = await collectAuditExport(
+      db,
+      selection,
+      { action: "restore" },
+      (entry) => entry,
+    );
+    expect(exported.truncated).toBe(false);
+    expect(exported.entries.map((entry) => entry.action)).toEqual([
+      "restore.requested",
+      "restore.downloaded",
+    ]);
+    const csv = auditCsv(exported.entries);
+    const [header, first] = csv.replace(/^\uFEFF/, "").split("\r\n");
+    expect(header?.split(",")).toEqual([...AUDIT_CSV_COLUMNS]);
+    expect(first).toContain("restore.requested");
+    expect(first).toContain(exported.entries[0]?.chainHash);
+    // Every chain of a provider export, the installation chain included.
+    const all = await collectAuditExport(db, { kind: "all" }, {}, (entry) => entry);
+    expect(all.entries.some((entry) => entry.tenantId === null)).toBe(true);
+    expect(all.entries.some((entry) => entry.tenantId === fabrikam)).toBe(true);
   });
 
   it("walks runs of equal timestamps across batch boundaries in link order", async () => {

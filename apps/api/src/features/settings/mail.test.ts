@@ -2,21 +2,24 @@ import type { AppCredentials } from "@restow/core";
 import type { SupportedLanguage } from "@restow/i18n";
 import { describe, expect, it } from "vitest";
 import { type Config, loadConfig } from "../../config.js";
-import type { Notifier, NotifyResult } from "../../notify.js";
-import {
-  type ResolvedMailTransport,
-  notifierConfig,
-  resolveMail,
-  runMailTest,
-  sanitizeDetail,
-} from "./mail.js";
+import type { GoogleServiceAccountKey } from "../../notify-google.js";
+import type { Notifier, NotifyResult, TransportSpec } from "../../notify.js";
+import { type ResolvedMailTransport, runMailTest, sanitizeDetail, transportSpec } from "./mail.js";
 
 const base: Config = loadConfig({ GRAPH_MAIL_TENANT_ID: "env-tenant.onmicrosoft.com" });
 
-/** The resolved backup app registration Graph sendMail authenticates as. */
+/** The resolved app registration Graph sendMail authenticates as. */
 const graphApp: AppCredentials = {
   clientId: "fixture-client-id",
   credential: { type: "secret", clientSecret: "fixture-client-secret" },
+};
+
+const googleKey: GoogleServiceAccountKey = {
+  clientEmail: "notify@project.iam.gserviceaccount.com",
+  clientId: "112233445566778899",
+  privateKeyPem: "-----BEGIN PRIVATE KEY-----\nfixture-private-key\n-----END PRIVATE KEY-----",
+  privateKeyId: "kid",
+  projectId: "project",
 };
 
 const smtp: ResolvedMailTransport = {
@@ -33,19 +36,33 @@ const graph: ResolvedMailTransport = {
   transport: "graph",
   sender: "restow@contoso.com",
   tenantId: null,
+  app: "backup",
+  credentials: graphApp,
 };
 
-/** A notifier fixture that records its configuration and answers as told. */
+const ownGraph: ResolvedMailTransport = {
+  transport: "graph",
+  sender: "restow@contoso.com",
+  tenantId: "11111111-2222-3333-4444-555555555555",
+  app: "own",
+  credentials: graphApp,
+};
+
+const google: ResolvedMailTransport = {
+  transport: "google",
+  sender: "alerts@example.com",
+  key: googleKey,
+};
+
+/** A notifier fixture that records what it was built from and answers as told. */
 function fixtureNotifier(answer: () => Promise<NotifyResult>) {
   const seen: {
-    config: Config | null;
-    app: AppCredentials | null;
+    spec: TransportSpec | null;
     to: string | null;
     language: SupportedLanguage | null;
-  } = { config: null, app: null, to: null, language: null };
-  const notifierFor = (config: Config, app: AppCredentials | null): Notifier => {
-    seen.config = config;
-    seen.app = app;
+  } = { spec: null, to: null, language: null };
+  const notifierFor = (spec: TransportSpec): Notifier => {
+    seen.spec = spec;
     return {
       send: answer,
       sendTest: (to, language) => {
@@ -66,42 +83,43 @@ function steppingClock(step: number) {
   };
 }
 
-describe("resolveMail / notifierConfig", () => {
-  it("only authenticates when a username is configured", () => {
-    expect(
-      resolveMail(
-        {
-          transport: "smtp",
-          host: "relay.internal",
-          port: 25,
-          security: "none",
-          from: "restow@example.com",
-        },
-        "leftover",
-      ),
-    ).toMatchObject({ username: null, password: null });
+describe("transportSpec", () => {
+  it("only authenticates SMTP when a username is configured", () => {
+    const spec = transportSpec(base, { ...smtp, username: null, password: "leftover" });
+    expect(spec).toMatchObject({ smtp: { username: undefined, password: undefined } });
   });
 
-  it("maps SMTP settings onto the notifier configuration", () => {
-    const config = notifierConfig(base, smtp);
-    expect(config.mailTransport).toBe("smtp");
-    expect(config.smtp).toEqual({
-      host: "smtp.example.com",
-      port: 465,
-      secure: true,
-      security: "implicit",
-      username: "restow",
-      password: "fixture-password",
-      from: "restow@example.com",
+  it("maps SMTP settings onto the notifier", () => {
+    expect(transportSpec(base, smtp)).toEqual({
+      transport: "smtp",
+      smtp: {
+        host: "smtp.example.com",
+        port: 465,
+        secure: true,
+        security: "implicit",
+        username: "restow",
+        password: "fixture-password",
+        from: "restow@example.com",
+      },
     });
   });
 
-  it("uses the stored Graph tenant, else the environment's", () => {
-    expect(notifierConfig(base, graph).graphMailTenantId).toBe("env-tenant.onmicrosoft.com");
-    expect(
-      notifierConfig(base, { ...graph, tenantId: "contoso.onmicrosoft.com" }).graphMailTenantId,
-    ).toBe("contoso.onmicrosoft.com");
-    expect(notifierConfig(base, graph).graphMailSender).toBe("restow@contoso.com");
+  it("uses the stored Graph tenant, else the environment's for the backup app only", () => {
+    expect(transportSpec(base, graph)).toMatchObject({ tenantId: "env-tenant.onmicrosoft.com" });
+    expect(transportSpec(base, { ...graph, tenantId: "contoso.onmicrosoft.com" })).toMatchObject({
+      tenantId: "contoso.onmicrosoft.com",
+      sender: "restow@contoso.com",
+      app: graphApp,
+    });
+    expect(transportSpec(base, { ...ownGraph, tenantId: null })).toMatchObject({ tenantId: null });
+  });
+
+  it("hands the Google key to the notifier", () => {
+    expect(transportSpec(base, google)).toEqual({
+      transport: "google",
+      sender: "alerts@example.com",
+      key: googleKey,
+    });
   });
 });
 
@@ -110,7 +128,6 @@ describe("runMailTest", () => {
     const { seen, notifierFor } = fixtureNotifier(async () => ({ ok: true }));
     const result = await runMailTest(smtp, "ops@example.com", "de", {
       base,
-      graphApp,
       notifierFor,
       clock: steppingClock(40),
     });
@@ -123,30 +140,56 @@ describe("runMailTest", () => {
     });
     expect(seen.to).toBe("ops@example.com");
     expect(seen.language).toBe("de");
-    expect(seen.config?.smtp.host).toBe("smtp.example.com");
+    expect(seen.spec).toMatchObject({ smtp: { host: "smtp.example.com" } });
   });
 
-  it("passes the transport error on, with the password redacted", async () => {
+  it("passes the transport's reason on, with the password redacted", async () => {
     const { notifierFor } = fixtureNotifier(async () => ({
       ok: false,
+      reason: "smtp_auth_failed",
       error: "535 Authentication failed for fixture-password",
     }));
-    const result = await runMailTest(smtp, "ops@example.com", "de", {
-      base,
-      graphApp: null,
-      notifierFor,
-    });
+    const result = await runMailTest(smtp, "ops@example.com", "de", { base, notifierFor });
     expect(result.ok).toBe(false);
     expect(result.failure).toEqual({
-      reason: "transport_error",
+      reason: "smtp_auth_failed",
       detail: "535 Authentication failed for [redacted]",
     });
+  });
+
+  it("falls back to a transport error when the transport names no reason", async () => {
+    const { notifierFor } = fixtureNotifier(async () => ({ ok: false, error: "boom" }));
+    const result = await runMailTest(smtp, "ops@example.com", "de", { base, notifierFor });
+    expect(result.failure).toEqual({ reason: "transport_error", detail: "boom" });
+  });
+
+  it("redacts the app secret and the Google key from a detail", async () => {
+    const graphRun = fixtureNotifier(async () => ({
+      ok: false,
+      reason: "graph_token_failed",
+      error: "echo fixture-client-secret",
+    }));
+    const graphResult = await runMailTest(ownGraph, "ops@example.com", "en", {
+      base,
+      notifierFor: graphRun.notifierFor,
+    });
+    expect(graphResult.failure?.detail).toBe("echo [redacted]");
+
+    const googleRun = fixtureNotifier(async () => ({
+      ok: false,
+      reason: "google_token_failed",
+      error: `echo ${googleKey.privateKeyPem}`,
+    }));
+    const googleResult = await runMailTest(google, "ops@example.com", "en", {
+      base,
+      notifierFor: googleRun.notifierFor,
+    });
+    expect(googleResult.failure?.detail).toBe("echo [redacted]");
   });
 
   it("turns a thrown error into a transport error instead of throwing", async () => {
     const result = await runMailTest(smtp, "ops@example.com", "de", {
       base,
-      graphApp: null,
       notifierFor: () => {
         throw new Error("connect ECONNREFUSED 10.0.0.25:465");
       },
@@ -161,51 +204,73 @@ describe("runMailTest", () => {
     const { notifierFor } = fixtureNotifier(() => new Promise<NotifyResult>(() => undefined));
     const result = await runMailTest(smtp, "ops@example.com", "de", {
       base,
-      graphApp: null,
       notifierFor,
       timeoutMs: 5,
     });
     expect(result.failure).toEqual({ reason: "timeout", detail: null });
   });
 
-  it("does not attempt Graph without the app registration", async () => {
+  it("does not attempt Graph without the backup app registration", async () => {
     const { seen, notifierFor } = fixtureNotifier(async () => ({ ok: true }));
-    const result = await runMailTest(graph, "ops@example.com", "de", {
+    const result = await runMailTest({ ...graph, credentials: null }, "ops@example.com", "de", {
       base,
-      graphApp: null,
       notifierFor,
     });
     expect(result.failure).toEqual({ reason: "graph_app_missing", detail: null });
-    expect(seen.config).toBeNull();
+    expect(seen.spec).toBeNull();
+  });
+
+  it("does not attempt Graph without the own app's stored credential", async () => {
+    const { seen, notifierFor } = fixtureNotifier(async () => ({ ok: true }));
+    const result = await runMailTest({ ...ownGraph, credentials: null }, "ops@example.com", "de", {
+      base,
+      notifierFor,
+    });
+    expect(result.failure).toEqual({ reason: "graph_credential_missing", detail: null });
+    expect(seen.spec).toBeNull();
   });
 
   it("does not attempt Graph without a tenant", async () => {
     const { notifierFor } = fixtureNotifier(async () => ({ ok: true }));
     const result = await runMailTest(graph, "ops@example.com", "de", {
       base: loadConfig({}),
-      graphApp,
       notifierFor,
     });
     expect(result.failure).toEqual({ reason: "graph_tenant_missing", detail: null });
-  });
-
-  it("sends through Graph as the resolved app registration, SMTP without it", async () => {
-    const { seen, notifierFor } = fixtureNotifier(async () => ({ ok: true }));
-    const result = await runMailTest(graph, "ops@example.com", "en", {
+    // The own app never borrows GRAPH_MAIL_TENANT_ID.
+    const own = await runMailTest({ ...ownGraph, tenantId: null }, "ops@example.com", "de", {
       base,
-      graphApp,
       notifierFor,
     });
-    expect(result.ok).toBe(true);
-    expect(seen.app).toEqual(graphApp);
+    expect(own.failure).toEqual({ reason: "graph_tenant_missing", detail: null });
+  });
 
-    const smtpRun = fixtureNotifier(async () => ({ ok: true }));
-    await runMailTest(smtp, "ops@example.com", "en", {
+  it("does not attempt Google without a key", async () => {
+    const { seen, notifierFor } = fixtureNotifier(async () => ({ ok: true }));
+    const result = await runMailTest({ ...google, key: null }, "ops@example.com", "de", {
       base,
-      graphApp,
-      notifierFor: smtpRun.notifierFor,
+      notifierFor,
     });
-    expect(smtpRun.seen.app).toBeNull();
+    expect(result.failure).toEqual({ reason: "google_key_missing", detail: null });
+    expect(seen.spec).toBeNull();
+  });
+
+  it("sends through Graph as the resolved app registration", async () => {
+    const { seen, notifierFor } = fixtureNotifier(async () => ({ ok: true }));
+    const result = await runMailTest(ownGraph, "ops@example.com", "en", { base, notifierFor });
+    expect(result).toMatchObject({ ok: true, transport: "graph" });
+    expect(seen.spec).toEqual({
+      transport: "graph",
+      sender: "restow@contoso.com",
+      tenantId: "11111111-2222-3333-4444-555555555555",
+      app: graphApp,
+    });
+  });
+
+  it("sends nothing in demo mode", async () => {
+    const demo = loadConfig({ RESTOW_DEMO: "true" });
+    const result = await runMailTest(google, "ops@example.com", "en", { base: demo });
+    expect(result.ok).toBe(true);
   });
 });
 
@@ -216,5 +281,11 @@ describe("sanitizeDetail", () => {
     const long = sanitizeDetail("x".repeat(600), null) ?? "";
     expect(long.length).toBe(501);
     expect(long.endsWith("…")).toBe(true);
+  });
+
+  it("redacts every secret it is given", () => {
+    expect(sanitizeDetail("a=secret-one b=secret-two", ["secret-one", "secret-two"])).toBe(
+      "a=[redacted] b=[redacted]",
+    );
   });
 });

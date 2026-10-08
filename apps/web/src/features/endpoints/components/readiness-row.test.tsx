@@ -105,7 +105,7 @@ describe("EndpointReadinessRowView", () => {
     expect(out).toContain("Web front");
     expect(out).toContain("Server · Linux");
     expect(out).toContain("Ready");
-    expect(out).toContain("The restore test of the newest backup matched every checked file.");
+    expect(out).toContain("The restore check of the newest backup matched every checked file.");
     expect(out).toContain('href="/inventory/11111111-1111-4111-8111-111111111111"');
     expect(out).toContain('aria-label="Open Web front"');
     expect(out).toContain("<time");
@@ -123,9 +123,9 @@ describe("EndpointReadinessRowView", () => {
 
   it("shows a machine that was never checked as such", () => {
     const out = html({ state: "unverified", readiness: null, checkedAt: null });
-    expect(out).toContain("Not verified");
+    expect(out).toContain("Unverified");
     expect(out).toContain("Not checked");
-    expect(out).toContain("A backup exists but was never verified.");
+    expect(out).toContain("A backup exists but was never checked.");
   });
 
   it("rates a machine without backup as waiting or as a problem, like the other objects", () => {

@@ -130,6 +130,26 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   "GET /install/macos.sh",
   "GET /install/agent/:version/:file",
   "GET /install/agent/:version/:target/:file",
+  // Proxmox VE (docs/PVE.md): the node helper authenticates with its own secret,
+  // the node installer is a public download.
+  "POST /agent/pve/v1/enroll",
+  "POST /agent/pve/v1/heartbeat",
+  "POST /agent/pve/v1/inventory",
+  "GET /agent/pve/v1/listing",
+  "GET /agent/pve/v1/restore-points",
+  "GET /agent/pve/v1/update",
+  "POST /agent/pve/v1/runs",
+  "PUT /agent/pve/v1/runs/:runId/blocks",
+  "POST /agent/pve/v1/runs/:runId/commit",
+  "POST /agent/pve/v1/runs/:runId/finish",
+  "POST /agent/pve/v1/runs/:runId/incremental",
+  "POST /agent/pve/v1/runs/:runId/log",
+  "POST /agent/pve/v1/runs/:runId/restic",
+  "GET /agent/pve/v1/snapshots/:snapshotId/disks/:device/blocks",
+  "GET /agent/pve/v1/snapshots/:snapshotId/disks/:device/hashes",
+  "POST /agent/pve/v1/snapshots/:snapshotId/restic",
+  "POST /agent/pve/v1/tasks/:taskId/result",
+  "GET /install/pve.sh",
 ]);
 
 /**
@@ -172,10 +192,21 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/tenants/:tenantId/accounts/:userId/reissue": configure(TENANT),
   "GET /api/v1/tenant": view(),
 
+  // --- The provider team (features/provider-team) ---------------------------------
+  // Reading for every provider admin with every tenant, changing it for owners.
+  "GET /api/v1/provider-team": view(PROVIDER),
+  "POST /api/v1/provider-team": own(),
+  "PATCH /api/v1/provider-team/:userId": own(),
+  "DELETE /api/v1/provider-team/:userId": own(),
+  "POST /api/v1/provider-team/:userId/reissue": own(),
+  "POST /api/v1/provider-team/:userId/reset-access": own(),
+
   // --- Installation settings and usage ------------------------------------------
   "GET /api/v1/usage": view(PROVIDER),
   "GET /api/v1/settings": view(PROVIDER),
   "PATCH /api/v1/settings": own(),
+  // Asked by the owner before a change of mode or public URL that switches passkeys off.
+  "GET /api/v1/settings/passkey-impact": own(),
   "POST /api/v1/settings/mail/test": configure(PROVIDER),
   "DELETE /api/v1/settings/mail": own(),
   // Marking the notification mail as not needed only decides whether the Start checklist asks for
@@ -208,6 +239,16 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "DELETE /api/v1/updates/edition/license-key": own(),
   // The maintenance state is for everyone who is signed in.
   "GET /api/v1/maintenance": view(NONE),
+
+  // --- Network shares (the opt-in mounter, docs/MOUNTS.md) -----------------------
+  // Reading is for every provider admin (the storage form offers the paths of the shares);
+  // adding, removing and testing a share run containers on the host and restart the api and
+  // the worker: the owner's (adding and removing with a recent sign-in, features/mounts).
+  "GET /api/v1/mounts": view(PROVIDER),
+  "GET /api/v1/mounts/paths": view(PROVIDER),
+  "POST /api/v1/mounts": own(),
+  "DELETE /api/v1/mounts/:name": own(),
+  "POST /api/v1/mounts/test": own(),
 
   // --- API keys -----------------------------------------------------------------
   "GET /api/v1/api-keys": view(),
@@ -251,6 +292,13 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/directory/objects/:id/credential/test": operate(),
   "DELETE /api/v1/directory/objects/:id": configure(),
   "POST /api/v1/directory/users/:userId/protection": configure(),
+
+  // --- Warnings (backups that left items behind) and their acknowledgements -------
+  // Acknowledging is triage of the daily work, like starting a backup: a technician's.
+  "GET /api/v1/warnings": view(),
+  "GET /api/v1/warnings/:kind/:id": view(),
+  "POST /api/v1/warnings/acknowledge": operate(),
+  "DELETE /api/v1/warnings/:kind/:id/acknowledgement": operate(),
 
   // --- Jobs, schedules, verification --------------------------------------------
   "GET /api/v1/jobs": view(),
@@ -352,6 +400,8 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/archive/report": view(),
   "GET /api/v1/archive/search": operate(),
   "GET /api/v1/archive/items/:id": operate(),
+  "GET /api/v1/archive/items/:id/preview": operate(),
+  "GET /api/v1/archive/items/:id/download": operate(),
   "GET /api/v1/retention/policies": view(),
   "POST /api/v1/retention/policies": configure(),
   "POST /api/v1/retention/policies/preview": configure(),
@@ -379,6 +429,18 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   // needs a technician; a read-only member sees that backups happened, not their content.
   // The detail answers every member, but the hook texts only to who may change
   // the configuration (features/endpoints/routes.ts: a hook may hold credentials).
+  // --- Proxmox VE ------------------------------------------------------------------
+  "GET /api/v1/pve": view(),
+  "GET /api/v1/pve/guests/:id": view(),
+  "POST /api/v1/pve/tokens": configure(),
+  "POST /api/v1/pve/nodes/:id/revoke": configure(),
+  "POST /api/v1/pve/jobs": configure(),
+  "PATCH /api/v1/pve/jobs/:id": configure(),
+  "DELETE /api/v1/pve/jobs/:id": configure(),
+  "PUT /api/v1/pve/guests/:id/job": configure(),
+  "POST /api/v1/pve/guests/:id/backup": operate(),
+  "POST /api/v1/pve/snapshots/:id/verify": operate(),
+  "POST /api/v1/pve/snapshots/:id/restore": operate(),
   "GET /api/v1/endpoints": view(),
   // The tenant's setting for automatic agent updates, and lifting a machine's own pause.
   "GET /api/v1/endpoints/agent-updates": view(),
@@ -409,8 +471,16 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "DELETE /api/v1/reports/rules/:id": configure(),
   "POST /api/v1/reports/rules/:id/test": operate(),
   "GET /api/v1/reports/deliveries": view(),
+  "GET /api/v1/reports/deliveries/export": view(),
   "GET /api/v1/notifications": view(),
   "POST /api/v1/notifications/read": view(),
+  "GET /api/v1/notifications/history": view(),
+  // "All tenants": every tenant's notifications and alert deliveries, narrowed by the handler to
+  // the tenants the member's team role covers (and the installation's own entries).
+  "GET /api/v1/notifications/provider": view(LIST),
+  "POST /api/v1/notifications/provider/read": view(LIST),
+  "GET /api/v1/notifications/provider/deliveries": view(LIST),
+  "GET /api/v1/notifications/provider/deliveries/export": view(LIST),
   // The installation-level entries alone, for a provider admin with no tenant open. The same
   // entries already reach every provider admin through the bell of any tenant they enter.
   "GET /api/v1/notifications/installation": view(NONE),
@@ -424,6 +494,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/webhooks/:id/secret": configure(),
   "POST /api/v1/webhooks/:id/test": operate(),
   "GET /api/v1/webhooks/:id/deliveries": view(),
+  "GET /api/v1/webhooks/:id/deliveries/export": view(),
   "GET /api/v1/webhooks/:id/deliveries/:deliveryId": view(),
   "POST /api/v1/webhooks/:id/deliveries/:deliveryId/redeliver": operate(),
 

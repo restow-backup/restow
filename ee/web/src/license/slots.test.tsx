@@ -17,12 +17,14 @@ import {
   extensionInstallationSections,
   registerWebExtension,
   resetWebExtensionsForTesting,
+  slotComponent,
 } from "@/lib/extensions";
 
 import { eeWebExtension } from "../index";
 import { licenseKeys } from "./api";
 import { AboutLicense } from "./components/about-license";
 import { EditionBadge } from "./components/edition-badge";
+import { TeamScopeLocked } from "./components/team-scope-locked";
 import { TenantsCreationLocked } from "./components/tenants-creation-locked";
 import "./i18n";
 import type { LicenseState } from "./types";
@@ -193,6 +195,27 @@ describe("TenantsCreationLocked (slot tenants.creationLocked)", () => {
     expect(html).toContain('href="/installation/license?requires=service_provider"');
     expect(html).toContain("Open license settings");
     expect(html).not.toMatch(RIGHTS);
+  });
+});
+
+describe("TeamScopeLocked (slot team.tenantScopeLocked)", () => {
+  it("names Service Provider as what limits members to chosen tenants, and leads to the license section", async () => {
+    sessionState.extensions = { edition: "business" };
+    const html = await renderRouted(<TeamScopeLocked />);
+    expect(html).toContain(
+      "Limiting members to chosen tenants requires the Service Provider edition",
+    );
+    expect(html).toContain("In the Business edition every member has every tenant.");
+    expect(html).toContain('href="/installation/license?requires=service_provider"');
+    expect(html).not.toMatch(RIGHTS);
+  });
+
+  it("fills the member dialog's slot once the ee extension is registered", () => {
+    expect(render(<ExtensionSlot name="team.tenantScopeLocked" props={{}} fallback="core" />)).toBe(
+      "core",
+    );
+    registerWebExtension(eeWebExtension);
+    expect(slotComponent("team.tenantScopeLocked")).toBe(TeamScopeLocked);
   });
 });
 

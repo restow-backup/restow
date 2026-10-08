@@ -14,6 +14,7 @@ import {
 import {
   DEFAULT_SOURCE_URL,
   ENABLE_UPDATER_COMMAND,
+  RECREATE_MOUNTER_COMMAND,
   RECREATE_UPDATER_COMMAND,
   blockerKey,
   buildSettingsPatch,
@@ -31,6 +32,7 @@ import {
   leadTimeLabel,
   maintenanceMessageKey,
   manualUpdateCommands,
+  mounterUpdateNote,
   offeredLeadTimes,
   outcomeKey,
   outcomeTone,
@@ -619,6 +621,79 @@ describe("selfUpdateNote", () => {
       "RESTOW_UPDATER_IMAGE=ghcr.io/restow-backup/restow:0.1.0",
     );
     expect(updaterImageLine({ ...updatesFixture(), mode: "source" })).toBeNull();
+  });
+});
+
+describe("mounterUpdateNote", () => {
+  const verified = `ghcr.io/restow-backup/restow:0.2.0@sha256:${"a".repeat(64)}`;
+  const mounter = (over: Record<string, unknown> = {}) => ({
+    status: "failed" as const,
+    reason: "helper_failed" as const,
+    image: verified,
+    finishedAt: "2026-10-03T10:00:04.000Z",
+    detail: "exit 1",
+    ...over,
+  });
+  const at = (mounterRecord: unknown, targetVersion = "0.2.0") => ({
+    running: "0.2.0",
+    updater: {
+      ...updatesFixture().updater,
+      version: "0.2.0",
+      selfUpdate: {
+        enabled: true,
+        verifiesSignatures: true,
+        last: {
+          status: "succeeded" as const,
+          reason: null,
+          fromVersion: "0.1.0",
+          targetVersion,
+          image: verified,
+          startedAt: "2026-10-03T10:00:00.000Z",
+          finishedAt: "2026-10-03T10:00:05.000Z",
+          detail: "",
+          mounter: mounterRecord as never,
+        },
+      },
+    },
+  });
+
+  it("says nothing without a mounter, after it moved, or for another version", () => {
+    expect(mounterUpdateNote(updatesFixture())).toBeNull();
+    expect(mounterUpdateNote(at(null))).toBeNull();
+    expect(mounterUpdateNote(at(undefined))).toBeNull();
+    expect(mounterUpdateNote(at(mounter({ status: "succeeded", reason: null })))).toBeNull();
+    expect(mounterUpdateNote(at(mounter(), "0.1.5"))).toBeNull();
+  });
+
+  it("shows the move while it runs", () => {
+    expect(mounterUpdateNote(at(mounter({ status: "pending", reason: null })))).toEqual({
+      kind: "pending",
+    });
+  });
+
+  it("only recreates when the verified image was already written", () => {
+    expect(mounterUpdateNote(at(mounter()))).toEqual({
+      kind: "failed",
+      reason: "helper_failed",
+      detail: "exit 1",
+      commands: [RECREATE_MOUNTER_COMMAND],
+    });
+  });
+
+  it("offers the .env line with the verified image, by digest, when nothing was written", () => {
+    expect(
+      mounterUpdateNote(
+        at(mounter({ status: "skipped", reason: "busy", image: null, detail: "" })),
+      ),
+    ).toEqual({
+      kind: "skipped",
+      reason: "busy",
+      detail: "",
+      commands: [`RESTOW_MOUNTER_IMAGE=${verified}`, RECREATE_MOUNTER_COMMAND],
+    });
+    expect(RECREATE_MOUNTER_COMMAND).toBe(
+      "docker compose --profile mounts up -d --no-deps mounter",
+    );
   });
 });
 

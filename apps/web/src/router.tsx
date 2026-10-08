@@ -4,7 +4,14 @@ import { z } from "zod";
 import { setPasswordRoute } from "@/features/accounts";
 import * as dashboard from "@/features/dashboard";
 import { featureNavItems, featureRoutes } from "@/features/registry";
-import { AUTHENTICATOR_SETUP_PATH, HOME_PATH, LOGIN_PATH, safeRedirectTarget } from "@/lib/entry";
+import {
+  AUTHENTICATOR_SETUP_PATH,
+  HOME_PATH,
+  LOGIN_PATH,
+  RESET_PASSWORD_PATH,
+  safeRedirectTarget,
+  signedInLoginTarget,
+} from "@/lib/entry";
 import type { NavItem } from "@/lib/navigation";
 import { queryClient } from "@/lib/query";
 import { requiresAuthenticatorEnrollment } from "@/lib/second-factor";
@@ -12,6 +19,7 @@ import { sessionQueryOptions } from "@/lib/session";
 import { AuthenticatorSetupPage } from "@/routes/authenticator-setup";
 import { LoginPage } from "@/routes/login";
 import { NotFoundPage } from "@/routes/not-found";
+import { ResetPasswordPage } from "@/routes/reset-password";
 import { SetupPage } from "@/routes/setup";
 import {
   type RouterContext,
@@ -36,15 +44,20 @@ const loginSearchSchema = redirectSearchSchema.extend({
   error: z.string().optional(),
 });
 
+const resetPasswordSearchSchema = z.object({
+  /** The token from the reset mail (lib/password-reset.ts in the api). */
+  token: z.string().optional(),
+});
+
 const loginRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/login",
   validateSearch: (search: Record<string, unknown>) => loginSearchSchema.parse(search),
-  // Already signed in: there is nothing to do on the login page.
-  beforeLoad: async ({ context }) => {
+  // Already signed in: nothing to do here; go where the link wanted to go.
+  beforeLoad: async ({ context, search }) => {
     const session = await context.queryClient.ensureQueryData(sessionQueryOptions);
     if (session) {
-      throw redirect({ to: "/", replace: true });
+      throw redirect({ to: signedInLoginTarget(search.redirect) as never, replace: true });
     }
   },
   component: LoginPage,
@@ -68,6 +81,13 @@ const authenticatorSetupRoute = createRoute({
   component: AuthenticatorSetupPage,
 });
 
+const resetPasswordRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: RESET_PASSWORD_PATH,
+  validateSearch: (search: Record<string, unknown>) => resetPasswordSearchSchema.parse(search),
+  component: ResetPasswordPage,
+});
+
 const setupRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/setup",
@@ -86,6 +106,7 @@ const routeTree = rootRoute.addChildren([
   setupRoute,
   loginRoute,
   authenticatorSetupRoute,
+  resetPasswordRoute,
   setPasswordRoute,
   appLayoutRoute.addChildren([...dashboard.routes, ...featureRoutes, catchAllRoute]),
 ]);

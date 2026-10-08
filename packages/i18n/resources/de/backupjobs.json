@@ -44,7 +44,7 @@
   "list": {
     "title": "Jobs",
     "description": {
-      "mail": "Was wann in welches Repository gesichert wird, für viele Postfächer, OneDrives und IMAP-Konten auf einmal. Die Läufe stehen im Verlauf.",
+      "mail": "Was wann an welchen Speicherort gesichert wird, für viele Postfächer, OneDrives und IMAP-Konten auf einmal. Die Läufe stehen im Verlauf.",
       "endpoint": "Welche Ordner welcher Server und Clients wann gesichert werden und was dabei ausgelassen wird. Ein Job gilt für viele Rechner, einzelne Rechner können abweichen. Die Läufe stehen im Verlauf."
     },
     "table": {
@@ -58,7 +58,7 @@
       "name": "Job",
       "scope": "Umfang",
       "schedule": "Zeitplan",
-      "repository": "Repository",
+      "repository": "Speicherort",
       "lastRun": "Letzter Lauf",
       "nextRun": "Nächster Lauf",
       "restoreCheck": "Restore-Prüfung"
@@ -66,7 +66,8 @@
     "uncovered": {
       "mail": "{count, plural, one {# geschütztes Objekt ist in keinem Job und wird nicht nach Zeitplan gesichert.} other {# geschützte Objekte sind in keinem Job und werden nicht nach Zeitplan gesichert.}}",
       "endpoint": "{count, plural, one {# Rechner ist in keinem Job und wird nicht gesichert.} other {# Rechner sind in keinem Job und werden nicht gesichert.}} Ein Rechner ohne Job sichert nichts; erst ein Job legt Zeitplan und Ordner fest.",
-      "action": "Job anlegen"
+      "action": "Job anlegen",
+      "show": "Anzeigen"
     },
     "empty": {
       "title": {
@@ -77,30 +78,38 @@
         "mail": "Ohne Job wird nichts nach Zeitplan gesichert. Ein Job umfasst Postfächer, OneDrives und IMAP-Konten, läuft nach Zeitplan und prüft, ob sich die Sicherungen wiederherstellen lassen.",
         "endpoint": "Ein Job sagt den Agents, welche Ordner sie wann sichern und was sie auslassen. Ein Rechner ohne Job wird nicht gesichert."
       }
+    },
+    "unscheduled": {
+      "mail": "{count, plural, one {# geschütztes Objekt ist in einem pausierten Job oder einem Job ohne Zeitplan und wird nicht automatisch gesichert.} other {# geschützte Objekte sind in pausierten Jobs oder Jobs ohne Zeitplan und werden nicht automatisch gesichert.}}",
+      "endpoint": "{count, plural, one {# Rechner ist in einem Job ohne Zeitplan und wird nicht automatisch gesichert.} other {# Rechner sind in Jobs ohne Zeitplan und werden nicht automatisch gesichert.}}"
     }
   },
   "state": {
     "paused": "Pausiert",
     "failing": "Sicherung fehlgeschlagen",
     "running": "Läuft",
-    "queued": "Eingereiht",
+    "queued": "Wartet",
     "attention": "Braucht Aufmerksamkeit",
     "empty": "Leer",
-    "ok": "Aktiv"
+    "ok": "Aktiv",
+    "storage_error": "Speicherort gestört",
+    "overdue": "Überfällig",
+    "manual": "Nur von Hand"
   },
   "lastRun": {
     "never": "Noch keine Sicherung",
     "running": "{count, plural, one {Läuft gerade} other {# laufen}}",
-    "queued": "{count} eingereiht",
+    "queued": "{count} wartet",
     "failed": "{count} fehlgeschlagen",
-    "partial": "{count} teilweise"
+    "partial": "{count} mit Warnungen"
   },
   "nextRun": {
     "paused": "Pausiert",
     "manual": "Nur von Hand",
     "onConnect": "Bei Verbindung eines Rechners",
     "empty": "Nichts zu sichern",
-    "unknown": "Noch nicht geplant"
+    "unknown": "Noch nicht geplant",
+    "overdue": "Überfällig seit"
   },
   "restoreCheck": {
     "summary": "{passed} von {total} bestanden",
@@ -177,7 +186,7 @@
     "overridesBadge": "{count} Abweichungen",
     "outcome": {
       "succeeded": "Erfolgreich",
-      "partial": "Teilweise",
+      "partial": "Mit Warnungen",
       "failed": "Fehlgeschlagen",
       "running": "Läuft",
       "queued": "Wartet"
@@ -313,7 +322,7 @@
     "restoreCheckSchedule": "Restore-Prüfung",
     "lastRun": "Letzter Lauf",
     "nextRun": "Nächster Lauf",
-    "repository": "Repository",
+    "repository": "Speicherort",
     "retention": "Aufbewahrung",
     "restoreChecks": "Restore-Prüfungen",
     "restoreChecksNone": "In diesem Job gibt es noch nichts zu prüfen.",
@@ -329,7 +338,7 @@
     "intro": "Alles, was dieser Job festlegt. Zum Ändern öffnet sich der Editor.",
     "general": "Allgemein",
     "schedule": "Zeitplan",
-    "repositoryAndRetention": "Repository und Aufbewahrung",
+    "repositoryAndRetention": "Speicherort und Aufbewahrung",
     "folders": "Ordner",
     "exclusions": "Ausschlüsse",
     "bandwidth": "Bandbreite",
@@ -342,7 +351,7 @@
       "updated": "Geändert",
       "schedule": "Zeitplan",
       "restoreCheck": "Restore-Prüfung",
-      "repository": "Repository",
+      "repository": "Speicherort",
       "retention": "Aufbewahrung",
       "fileTypes": "Ausgelassene Dateitypen",
       "ownPatterns": "Eigene Muster",
@@ -352,7 +361,7 @@
     },
     "kinds": {
       "mail": "Mail & SaaS",
-      "endpoint": "Server & Endpunkte"
+      "endpoint": "Server und Clients"
     },
     "scopeMode": {
       "all": "Alles, was in keinem anderen Job ist",
@@ -363,7 +372,7 @@
     "unlimited": "Unbegrenzt",
     "largerValue": "{size} GB",
     "bandwidthValue": "{kbps} kbit/s",
-    "foldersNone": "Es sind keine Ordner festgelegt: Jeder Rechner behält seine eigenen Ordner.",
+    "foldersNone": "Der Job legt keine Ordner fest: Jeder Rechner sichert vorerst seine bisherigen Ordner. Wer den Job bearbeitet, legt mindestens einen Ordner fest.",
     "hooksHidden": "Gesetzt, für Ihre Rolle verborgen.",
     "restoreCheckOff": "Aus: Für diesen Job laufen keine Restore-Prüfungen.",
     "windowsNone": "Keine",
@@ -387,7 +396,7 @@
   },
   "run": {
     "skipped": {
-      "already_queued": "{count, plural, one {# war schon eingereiht.} other {# waren schon eingereiht.}}",
+      "already_queued": "{count, plural, one {# wartet bereits oder läuft gerade.} other {# warten bereits oder laufen gerade.}}",
       "excluded": "{count, plural, one {# ist von der Sicherung ausgeschlossen.} other {# sind von der Sicherung ausgeschlossen.}}",
       "orphaned": "{count, plural, one {# gibt es in der Quelle nicht mehr.} other {# gibt es in der Quelle nicht mehr.}}",
       "source_pending": "{count, plural, one {# wartet darauf, dass seine Quelle verbunden wird.} other {# warten darauf, dass ihre Quelle verbunden wird.}}",
@@ -407,11 +416,12 @@
       "endpoint": "{count, plural, one {Sicherung bei # Rechner angefordert} other {Sicherung bei # Rechnern angefordert}}"
     },
     "runQueuedNote": {
-      "endpoint": "Der Rechner startet sie bei seinem nächsten Kontakt, meist innerhalb von 5 Minuten."
+      "endpoint": "Der Rechner startet sie bei seinem nächsten Kontakt, meist innerhalb weniger Minuten."
     },
     "runWaiting": {
-      "title": "Bereits eingereiht",
-      "description": "{count, plural, one {Eine Sicherung wartet auf den Rechner und startet bei seinem nächsten Kontakt.} other {Sicherungen warten auf die Rechner und starten bei deren nächstem Kontakt.}}"
+      "title": "Wartet bereits",
+      "endpoint": "{count, plural, one {Eine Sicherung wartet auf den Rechner und startet bei seinem nächsten Kontakt.} other {Sicherungen warten auf die Rechner und starten bei deren nächstem Kontakt.}}",
+      "mail": "{count, plural, one {Die Sicherung wartet bereits auf den Start oder läuft gerade.} other {Alle # Sicherungen warten bereits auf den Start oder laufen gerade.}}"
     },
     "runNothing": "Für {name} wurde nichts gestartet",
     "failed": "Das hat nicht geklappt",
@@ -435,7 +445,12 @@
       "endpoint": "{scope} verlassen den Job und werden nicht mehr gesichert, bis ein anderer Job sie aufnimmt."
     },
     "after": "Der Job und seine Einstellungen lassen sich nicht zurückholen.",
-    "confirm": "Job löschen"
+    "confirm": "Job löschen",
+    "restorePoints": {
+      "mail": "Vorhandene Sicherungsstände werden nicht gelöscht: Sie bleiben wiederherstellbar und laufen gemäß der Aufbewahrungsrichtlinie „{policy}“ ab.",
+      "mailDefault": "Vorhandene Sicherungsstände werden nicht gelöscht: Sie bleiben wiederherstellbar und laufen gemäß der Standard-Aufbewahrung des Mandanten ab.",
+      "endpoint": "Vorhandene Sicherungsstände werden nicht gelöscht: Sie bleiben wiederherstellbar. Für ihre Aufbewahrung gilt danach wieder die Einstellung jedes Rechners, nicht mehr die des Jobs."
+    }
   },
   "picker": {
     "search": {
@@ -521,7 +536,7 @@
         "endpoint": "Wann der Agent eine Sicherung startet."
       },
       "automatic": "Nach Zeitplan ausführen",
-      "manualOnly": "Der Job läuft nur, wenn ihn jemand startet."
+      "manualOnly": "Ohne Zeitplan wird nichts automatisch gesichert: Die Objekte dieses Jobs werden nur gesichert, wenn jemand den Job startet."
     },
     "verify": {
       "title": "Restore-Prüfung",
@@ -537,9 +552,20 @@
       },
       "policy": "Aufbewahrungsrichtlinie"
     },
+    "archive": {
+      "title": "Archiv",
+      "description": "Revisionssicheres Archiv über Exchange-Journaling: Jede E-Mail wird erfasst, sobald Exchange sie zustellt, unabhängig vom Zeitplan der Sicherung.",
+      "switch": "Postfächer dieses Jobs archivieren",
+      "hint": "Das Archiv nimmt jede Journal-Mail auf und ordnet sie den Postfächern zu, die sie empfangen oder gesendet haben. Mails an Postfächer außerhalb eines Archiv-Jobs werden trotzdem archiviert, nur keinem Job zugeordnet.",
+      "noObjectLock": "Der Speicher dieses Mandanten hat kein Object Lock. Das Archiv ist dann nur auf Anwendungsebene unveränderbar: Wer Zugriff auf den Speicher oder den Server hat, kann Daten ändern oder löschen.",
+      "objectLockUnknown": "Das Archiv liegt im Standardspeicher der Installation. Ob dieser Object Lock hat, sehen Sie unter Speicher.",
+      "edition": "Die Erfassung über Exchange-Journaling gehört zur Business-Edition. Ohne sie bleibt die Einstellung gespeichert, es wird aber nichts archiviert."
+    },
     "folders": {
       "title": "Ordner",
-      "description": "Die Ordner, die jeder Rechner dieses Jobs sichert."
+      "description": "Die Ordner, die jeder Rechner dieses Jobs sichert.",
+      "basis": "Die Ordner sind die Vorgaben für {systems}.",
+      "basisMixed": "Die Auswahl mischt Systeme ({systems}): Die Ordner vereinen die Vorgaben aller. Prüfen Sie, ob jeder Ordner zu den Rechnern passt."
     },
     "exclusions": {
       "title": "Ausschlüsse",
@@ -558,10 +584,13 @@
       "description": "Befehle, die die Agents um jede Sicherung herum ausführen, zum Beispiel um eine Datenbank zu sichern, damit ihre Dateien konsistent sind."
     },
     "repository": {
-      "title": "Repository",
+      "title": "Speicherort",
       "description": "Wohin die verschlüsselten Sicherungen geschrieben werden.",
-      "primary": "(primäres Repository)",
-      "sentence": "Jeder Job schreibt in das primäre Repository des Mandanten; ein Job kann kein anderes wählen."
+      "primary": "(primärer Speicherort)",
+      "sentence": "Jeder Backup-Job schreibt an den primären Speicherort des Mandanten; ein Backup-Job kann keinen anderen wählen.",
+      "errorTitle": "Der Speicherort ist gestört",
+      "errorBody": "Die letzte Prüfung des Speicherorts ist fehlgeschlagen. Sicherungen dieses Jobs können dort nicht geschrieben werden, bis der Fehler behoben ist.",
+      "errorLink": "Speicherorte öffnen"
     },
     "fix": {
       "title": "Einige Felder müssen korrigiert werden",
@@ -581,6 +610,14 @@
       "item": "{name} ist in {job}",
       "confirm": "Hierher verschieben und speichern",
       "cancel": "Zurück"
+    },
+    "stricter": {
+      "title": "Aufbewahrung verkürzen?",
+      "description": "{count, plural, one {Der nächste Aufbewahrungslauf entfernt beim Rechner dieses Jobs ältere Sicherungsstände endgültig, bis zu:} other {Der nächste Aufbewahrungslauf entfernt bei jedem der # Rechner dieses Jobs ältere Sicherungsstände endgültig, je Rechner bis zu:}}",
+      "daily": "{count, plural, one {# täglichen Sicherungsstand} other {# tägliche Sicherungsstände}}",
+      "weekly": "{count, plural, one {# wöchentlichen Sicherungsstand} other {# wöchentliche Sicherungsstände}}",
+      "monthly": "{count, plural, one {# monatlichen Sicherungsstand} other {# monatliche Sicherungsstände}}",
+      "confirm": "Verkürzen und speichern"
     }
   },
   "folders": {
@@ -690,11 +727,12 @@
     "keep": "Täglich {keepDaily}, wöchentlich {keepWeekly}, monatlich {keepMonthly}"
   },
   "repository": {
-    "installationDefault": "Standard-Repository der Installation"
+    "installationDefault": "Standard-Speicherort der Installation",
+    "error": "Speicherort gestört"
   },
   "tenant": {
     "title": "Backup-Jobs",
-    "description": "Was für diesen Mandanten nach Zeitplan gesichert wird. Die Wartungszeitpläne darunter halten das Repository gesund.",
+    "description": "Was für diesen Mandanten nach Zeitplan gesichert wird. Die Wartungszeitpläne darunter halten den Speicherort gesund.",
     "new": {
       "mail": "Mail-&-SaaS-Job",
       "endpoint": "Job für Server oder Clients"
@@ -714,7 +752,7 @@
     },
     "kinds": {
       "mail": "Mail & SaaS",
-      "endpoint": "Server & Endpunkte"
+      "endpoint": "Server und Clients"
     }
   },
   "problems": {

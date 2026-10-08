@@ -48,6 +48,18 @@ export const UPDATER_WRITABLE_KEYS: readonly string[] = ["RESTOW_IMAGE", "RESTOW
  */
 export const UPDATER_IMAGE_KEY = "RESTOW_UPDATER_IMAGE";
 
+/**
+ * The mounter's own image (apps/api/src/mounter, docs/MOUNTS.md). Like the updater's,
+ * written only by {@link EnvFile.pinImage} and only pinned by digest: by the mounter on
+ * its first start while the line is empty, and by the updater when it moves the mounter
+ * along to a release image whose signature it verified (self-update.ts). The mounter
+ * holds the Docker socket as well.
+ */
+export const MOUNTER_IMAGE_KEY = "RESTOW_MOUNTER_IMAGE";
+
+/** The lines {@link EnvFile.pinImage} may write. */
+export const PINNABLE_IMAGE_KEYS: readonly string[] = [UPDATER_IMAGE_KEY, MOUNTER_IMAGE_KEY];
+
 /** An image reference that names its content by digest (`name[:tag]@sha256:<64 hex>`). */
 const DIGEST_PINNED = /^[a-z0-9][a-z0-9._/:-]{0,199}@sha256:[0-9a-f]{64}$/;
 
@@ -336,15 +348,26 @@ export class EnvFile {
    * Returns what the line was before, for {@link restoreUpdaterImage}.
    */
   async pinUpdaterImage(reference: string): Promise<CapturedKey> {
+    return await this.pinImage(UPDATER_IMAGE_KEY, reference);
+  }
+
+  /**
+   * Set one of {@link PINNABLE_IMAGE_KEYS} to an image pinned by digest; any other key
+   * or value is refused. Returns what the line was before.
+   */
+  async pinImage(key: string, reference: string): Promise<CapturedKey> {
+    if (!PINNABLE_IMAGE_KEYS.includes(key)) {
+      throw new EnvFileError(`${key} is not an image line that can be pinned.`, "invalid_setting");
+    }
     if (!DIGEST_PINNED.test(reference)) {
       throw new EnvFileError(
-        `${UPDATER_IMAGE_KEY} is only written with an image pinned by digest.`,
+        `${key} is only written with an image pinned by digest.`,
         "invalid_value",
       );
     }
     const text = await this.read();
-    const before = captureKeys(text, [UPDATER_IMAGE_KEY])[UPDATER_IMAGE_KEY] as CapturedKey;
-    await this.replace(setKeys(text, { [UPDATER_IMAGE_KEY]: reference }));
+    const before = captureKeys(text, [key])[key] as CapturedKey;
+    await this.replace(setKeys(text, { [key]: reference }));
     return before;
   }
 

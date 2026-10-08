@@ -1,11 +1,14 @@
+import { Link } from "@tanstack/react-router";
 import { ListChecks, ListPlus, ShieldOff } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { EmptyState, PageHeader, RefreshButton } from "@/components/kit";
+import { DisabledReason, EmptyState, PageHeader, RefreshButton } from "@/components/kit";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
+import { directoryTo } from "@/features/directory/search";
+import { inventoryTo } from "@/features/endpoints/paths";
 import { RunDrawerHost } from "@/features/history/components/run-drawer";
 import { useRunDrawer } from "@/features/history/hooks";
 
@@ -15,6 +18,14 @@ import { useJobActions } from "../components/job-actions.js";
 import { JobEditor } from "../components/job-editor.js";
 import { JobsTable } from "../components/jobs-table.js";
 import { useBackupJobs } from "../hooks.js";
+
+/**
+ * Where the objects or machines of a notice are listed: the protected objects filtered by how
+ * they stand towards the jobs, or the inventory (its "without backup" banner and filter).
+ */
+function uncoveredLink(kind: JobKind, job: "none" | "unscheduled") {
+  return kind === "mail" ? { to: directoryTo(), search: { job } as never } : { to: inventoryTo() };
+}
 
 export interface JobsPageProps {
   kind: JobKind;
@@ -53,6 +64,7 @@ export function JobsPage({
   const drawer = useRunDrawer();
   const items = query.data?.items;
   const uncovered = query.data?.uncovered[kind] ?? 0;
+  const unscheduled = query.data?.unscheduled?.[kind] ?? 0;
   const loading = query.isPending && query.fetchStatus !== "idle";
   const empty = query.data !== undefined && query.data.items.length === 0;
 
@@ -87,16 +99,35 @@ export function JobsPage({
           <ShieldOff aria-hidden="true" />
           <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <span>{t(`list.uncovered.${kind}`, { count: uncovered })}</span>
-            <Button
-              variant="outline"
-              size="sm"
-              className="shrink-0"
-              disabled={access.closed}
-              onClick={onCreate}
-              {...closedProps(access)}
-            >
-              {t("list.uncovered.action")}
-            </Button>
+            <span className="flex shrink-0 gap-2">
+              <Button variant="outline" size="sm" asChild data-action="show-uncovered">
+                <Link {...uncoveredLink(kind, "none")}>{t("list.uncovered.show")}</Link>
+              </Button>
+              <DisabledReason reason={access.closed ? access.reason : null}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={access.closed}
+                  onClick={onCreate}
+                  {...closedProps(access)}
+                >
+                  {t("list.uncovered.action")}
+                </Button>
+              </DisabledReason>
+            </span>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {unscheduled > 0 ? (
+        <Alert variant="warning" data-slot="unscheduled-notice">
+          <ShieldOff aria-hidden="true" />
+          <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span>{t(`list.unscheduled.${kind}`, { count: unscheduled })}</span>
+            {kind === "mail" ? (
+              <Button variant="outline" size="sm" className="shrink-0" asChild>
+                <Link {...uncoveredLink(kind, "unscheduled")}>{t("list.uncovered.show")}</Link>
+              </Button>
+            ) : null}
           </AlertDescription>
         </Alert>
       ) : null}
@@ -134,6 +165,7 @@ export function JobsPage({
         onOpenRun={drawer.open}
         onEdit={setEditing}
         onRun={(job) => actions.runNow(job)}
+        running={actions.running}
         onPause={actions.askPause}
         onResume={actions.resume}
         onDelete={actions.askDelete}

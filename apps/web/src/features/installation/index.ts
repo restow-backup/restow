@@ -1,5 +1,5 @@
 import { createRoute, redirect } from "@tanstack/react-router";
-import { Settings } from "lucide-react";
+import { ServerCog } from "lucide-react";
 
 import "@/features/installation/i18n";
 import "@/features/settings/i18n";
@@ -54,7 +54,8 @@ export const installationSectionRoute = createRoute({
 export const routes = [installationIndexRoute, installationSectionRoute];
 
 /**
- * "Settings" in the menu section Installation: it opens the page's first
+ * "Server & operation" in the menu section Installation (not "Settings": the
+ * organisation's own entry is the other settings page): it opens the page's first
  * section and stays highlighted on every section (except the ones that have an
  * entry of their own, such as the license an extension adds). Provider admins
  * only.
@@ -64,7 +65,8 @@ export const navItems: NavItem[] = [
     id: "settings",
     path: INSTALLATION_PATH,
     labelKey: "installation:nav",
-    icon: Settings,
+    // Not the gear of the organisation's or tenant's settings: two entries, two meanings.
+    icon: ServerCog,
     roles: [...INSTALLATION_ROLES],
     group: "installation",
     order: 10,

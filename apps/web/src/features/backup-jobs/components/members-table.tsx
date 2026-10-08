@@ -13,6 +13,7 @@ import {
   rowActionsColumn,
 } from "@/components/kit";
 import { Button } from "@/components/ui/button";
+import { directoryTo } from "@/features/directory/search";
 import { endpointDetailTo } from "@/features/endpoints/paths";
 import { StateBadge } from "@/features/verify/components/status";
 import { cn } from "@/lib/utils";
@@ -66,6 +67,24 @@ function PendingBackupNote({ pending }: { pending: NonNullable<JobMember["pendin
   );
 }
 
+type Translate = (key: string, options?: { defaultValue?: string }) => string;
+
+/** A machine's operating system in words ("macOS"); a mailbox's address as it is. */
+export function memberDetail(member: Pick<JobMember, "kind" | "detail">, t: Translate): string {
+  const machine = member.kind === "server" || member.kind === "client";
+  if (!member.detail || !machine) {
+    return member.detail ?? "";
+  }
+  return t(`endpoints:os.${member.detail}`, { defaultValue: member.detail });
+}
+
+/** Why a member is not backed up, in words ("Ausgeschlossen", "Gesperrt"), never the raw code. */
+export function memberStatusWord(member: Pick<JobMember, "kind" | "status">, t: Translate): string {
+  const machine = member.kind === "server" || member.kind === "client";
+  const key = machine ? `endpoints:status.${member.status}` : `directory:status.${member.status}`;
+  return t(key, { defaultValue: member.status });
+}
+
 /**
  * The objects or machines a job covers, with what each does now: its schedule
  * (the job's, or its own), its newest backup, its restore check and what it does
@@ -88,6 +107,7 @@ export function MembersTable({
 }: MembersTableProps) {
   const { t, i18n } = useTranslation("backupjobs");
   const { t: tSchedules } = useTranslation("schedules");
+  const { t: tc } = useTranslation(["directory", "endpoints"]);
   const language = i18n.resolvedLanguage ?? i18n.language;
 
   const columns = React.useMemo<ColumnDef<JobMember>[]>(() => {
@@ -122,21 +142,26 @@ export function MembersTable({
                     {member.name}
                   </Link>
                 ) : (
-                  <span className="block truncate font-medium" title={member.name}>
+                  <Link
+                    to={directoryTo()}
+                    search={{ q: member.detail ?? member.name } as never}
+                    className="block truncate rounded-sm font-medium outline-none hover:underline focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    title={member.name}
+                  >
                     {member.name}
-                  </span>
+                  </Link>
                 )}
                 {member.detail ? (
                   <span
                     className="block truncate text-xs text-muted-foreground"
                     title={member.detail}
                   >
-                    {member.detail}
+                    {memberDetail(member, tc)}
                   </span>
                 ) : null}
                 {!member.covered ? (
                   <span className="block text-xs text-muted-foreground">
-                    {t("scope.notCovered", { status: member.status })}
+                    {t("scope.notCovered", { status: memberStatusWord(member, tc) })}
                   </span>
                 ) : null}
               </div>
@@ -277,6 +302,7 @@ export function MembersTable({
   }, [
     t,
     tSchedules,
+    tc,
     language,
     access.closed,
     access.noteId,

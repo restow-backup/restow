@@ -25,6 +25,7 @@
  */
 
 import { providerKeysDestination } from "@/features/integrations/paths";
+import { ALL_TENANTS_STATS_PATH, STATS_VIEW, legacyProviderScope } from "@/features/stats/period";
 import { tenantPagePath } from "@/lib/tenant-paths";
 
 export type SearchParams = Readonly<Record<string, unknown>>;
@@ -47,9 +48,17 @@ function without(search: SearchParams, ...keys: string[]): Record<string, unknow
   return rest;
 }
 
-/** Statistics became the second tab of Overview; period, range and scope stay. */
+/**
+ * Statistics became the second tab of Overview, the active tenant's alone; the
+ * totals of every tenant (`scope=provider`) have their own page since 0.3.0.
+ * Period and range stay.
+ */
 export function statsTarget(search: SearchParams): RedirectTarget {
-  return { to: "/", search: { ...without(search, "view"), view: "statistics" } };
+  const rest = without(search, "view", "scope");
+  if (legacyProviderScope(search)) {
+    return { to: ALL_TENANTS_STATS_PATH, search: rest };
+  }
+  return { to: "/", search: { ...rest, view: STATS_VIEW } };
 }
 
 /** The tab of History an old run list's `queue` filter leads to (the queues of the jobs API). */

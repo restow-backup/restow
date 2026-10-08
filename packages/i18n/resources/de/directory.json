@@ -22,14 +22,18 @@
     "excluded": "Ausgeschlossen",
     "orphaned": "Verwaist",
     "not_selected": "Nicht ausgewählt",
-    "needs_credential": "Braucht Aufmerksamkeit"
+    "needs_credential": "Braucht Aufmerksamkeit",
+    "no_job": "Ohne Backup-Job",
+    "unscheduled": "Job ohne Zeitplan"
   },
   "statusHint": {
-    "active": "Im Schutzumfang: Für dieses Objekt laufen Sicherungen.",
+    "active": "Im Schutzumfang und in einem Backup-Job, der nach Zeitplan sichert.",
     "excluded": "Per Regel oder Einzelentscheidung ausgeschlossen: Es laufen keine neuen Sicherungen.",
     "orphaned": "Nicht mehr im Verzeichnis oder nicht mehr bereitgestellt. Vorhandene Sicherungen bleiben, bis die Aufbewahrung sie entfernt.",
     "not_selected": "Der Schutzumfang ist \"Nur ausgewählte Objekte\", und niemand hat dieses Objekt ausgewählt: Es laufen keine neuen Sicherungen. Vorhandene Sicherungen bleiben, bis die Aufbewahrung sie entfernt.",
-    "needs_credential": "Im Schutzumfang, aber für dieses Konto ist noch kein eigenes, funktionierendes Passwort gesetzt: Erst wenn unter Login eines gesetzt und erfolgreich getestet wurde, kann eine Sicherung laufen."
+    "needs_credential": "Im Schutzumfang, aber für dieses Konto ist noch kein eigenes, funktionierendes Passwort gesetzt: Erst wenn unter Login eines gesetzt und erfolgreich getestet wurde, kann eine Sicherung laufen.",
+    "no_job": "Kann gesichert werden, ist aber in keinem Backup-Job: Nach Zeitplan gesichert wird es erst, wenn ein Job es umfasst.",
+    "unscheduled": "In einem Backup-Job, der pausiert ist oder nur von Hand läuft: Es wird nicht automatisch gesichert."
   },
   "override": {
     "include": "Immer eingeschlossen",
@@ -42,14 +46,14 @@
     "hint": "Für dieses Konto ist die Anmeldung deaktiviert: ein geteiltes Postfach, ein Ressourcenpostfach oder ein gesperrter Nutzer. Microsoft Graph unterscheidet diese Fälle nicht."
   },
   "readiness": {
-    "green": "Restore bestätigt",
-    "yellow": "Restore eingeschränkt",
-    "red": "Restore fehlgeschlagen",
-    "unverified": "Nicht geprüft",
+    "green": "Bereit",
+    "yellow": "Achtung",
+    "red": "Nicht wiederherstellbar",
+    "unverified": "Nicht nachgewiesen",
     "none": "Keine Sicherung",
     "needs_credential": "Braucht Aufmerksamkeit",
     "checked": "Geprüft {when}",
-    "unverifiedHint": "Es gibt Sicherungen, aber noch keine Testwiederherstellung hat sie bestätigt. Eine ungeprüfte Sicherung gilt nicht als Schutz.",
+    "unverifiedHint": "Es gibt Sicherungen, aber noch keine Restore-Prüfung hat sie bestätigt. Eine nicht nachgewiesene Sicherung gilt nicht als Schutz.",
     "noneHint": "Geprüft werden kann erst, wenn die erste Sicherung abgeschlossen ist.",
     "needsCredentialHint": "Für dieses Konto ist gerade kein eigenes, funktionierendes Passwort gesetzt: Es ist derzeit nicht geschützt, unabhängig davon, was ein früherer Sicherungsstand einmal bestätigt hat."
   },
@@ -60,9 +64,14 @@
     "failedHint": "Der letzte Sicherungslauf ist {when} fehlgeschlagen. Den Grund zeigt die Ansicht des Laufs.",
     "failedWhen": "Der letzte Sicherungslauf ist {when} fehlgeschlagen.",
     "openJob": "Lauf öffnen",
-    "snapshots": "{count, plural, one {# Snapshot} other {# Snapshots}}",
+    "snapshots": "{count, plural, one {# Sicherungsstand} other {# Sicherungsstände}}",
     "now": "Jetzt sichern",
-    "perObject": "Je Objekt sichern"
+    "perObject": "Je Objekt sichern",
+    "warning": "Mit Warnungen",
+    "warningHint": "Die letzte Sicherung ({when}) ist durchgelaufen, aber {count, plural, one {# Element wurde} other {# Elemente wurden}} nicht gesichert.",
+    "acknowledged": "Warnung bestätigt",
+    "acknowledgedHint": "{count, plural, one {# Element} other {# Elemente}} der letzten Sicherung ({when}) wurden nicht gesichert. Die Ursachen sind bestätigt.",
+    "reasons": "Gründe ansehen"
   },
   "credential": {
     "status": {
@@ -118,7 +127,12 @@
       "sharedAll": "Geteilte und persönliche",
       "sharedOnly": "Nur geteilte oder gesperrte",
       "sharedExcluded": "Nicht geteilt oder gesperrt",
-      "reset": "Filter zurücksetzen"
+      "reset": "Filter zurücksetzen",
+      "job": "Backup-Job",
+      "allJobs": "Alle Objekte",
+      "jobScheduled": "In einem Job mit Zeitplan",
+      "jobUnscheduled": "In einem Job ohne Zeitplan",
+      "jobNone": "In keinem Job"
     },
     "columns": {
       "name": "Name",
@@ -127,7 +141,8 @@
       "lastBackup": "Letzte Sicherung",
       "readiness": "Wiederherstellbarkeit",
       "credential": "Anmeldung",
-      "actions": "Aktionen"
+      "actions": "Aktionen",
+      "job": "Backup-Job"
     },
     "sortBy": "Nach {column} sortieren",
     "empty": {
@@ -178,7 +193,10 @@
     "newJob": "Neuer Job mit diesem Objekt",
     "newJobFromSelection": "{count, plural, one {Neuer Job mit # Objekt} other {Neuer Job mit # Objekten}}",
     "selectionMenu": "{count, plural, one {Aktionen für # ausgewähltes Objekt} other {Aktionen für # ausgewählte Objekte}}",
-    "noBackup": "Von diesem Objekt gibt es noch keine Sicherung."
+    "noBackup": "Von diesem Objekt gibt es noch keine Sicherung.",
+    "openJob": "Backup-Job öffnen",
+    "addToJob": "Zu Job hinzufügen…",
+    "addSelectionToJob": "{count, plural, one {# Objekt zu Job hinzufügen…} other {# Objekte zu Job hinzufügen…}}"
   },
   "bulk": {
     "selected": "{count, plural, one {# ausgewählt} other {# ausgewählt}}",
@@ -389,5 +407,27 @@
       "master_user": "Diese Quelle meldet sich mit einem Master-Benutzer an jedem Postfach an: Hier sind keine Passwörter nötig.",
       "change": "Modus ändern"
     }
+  },
+  "job": {
+    "none": "Kein Job",
+    "paused": "läuft nicht nach Zeitplan"
+  },
+  "noJob": {
+    "createJob": "Job anlegen"
+  },
+  "addToJob": {
+    "title": "{count, plural, one {Objekt zu einem Job hinzufügen} other {# Objekte zu einem Job hinzufügen}}",
+    "description": "{count, plural, one {Wählen Sie den Backup-Job für {name}. Der Job legt fest, wann gesichert wird.} other {Wählen Sie den Backup-Job für die # Objekte. Der Job legt fest, wann gesichert wird.}}",
+    "label": "Backup-Job",
+    "loading": "Die Jobs werden geladen …",
+    "noJobs": "Es gibt noch keinen Mail-Job, der seine Objekte einzeln nennt. Legen Sie einen an; das Objekt ist darin schon ausgewählt.",
+    "machines": "{count, plural, one {# Objekt} other {# Objekte}}",
+    "conflict": "{count, plural, one {Das Objekt ist inzwischen im Job {job}. Ein Objekt ist immer nur in einem Job. „Hierher verschieben“ verschiebt es in den gewählten Job.} other {# Objekte sind inzwischen in anderen Jobs, zum Beispiel {job}. Ein Objekt ist immer nur in einem Job. „Hierher verschieben“ verschiebt sie in den gewählten Job.}}",
+    "cancel": "Abbrechen",
+    "submit": "Hinzufügen",
+    "move": "Hierher verschieben",
+    "added": "{count, plural, one {{name} ist jetzt im Job {job}} other {# Objekte sind jetzt im Job {job}}}",
+    "addedNote": "Ab jetzt gilt der Zeitplan des Jobs.",
+    "folders": "{path}"
   }
 }

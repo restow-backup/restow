@@ -21,6 +21,11 @@ export type SecretKind =
   | "imap_password"
   | "oauth_refresh_token"
   | "smtp_password"
+  // The notification mail's own Microsoft 365 app registration (installation level,
+  // one sealed JSON document like `m365_app`) and the Google Workspace service
+  // account key (installation level, the key file's JSON).
+  | "mail_graph_app"
+  | "mail_google_key"
   // The access token for a private update source (installation level, one row).
   | "update_source_token"
   | "s3_credentials"

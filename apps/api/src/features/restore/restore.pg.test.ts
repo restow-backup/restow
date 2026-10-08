@@ -379,6 +379,20 @@ describe.skipIf(!testDatabaseAdminUrl)("restore requests against Postgres", () =
     ).rejects.toMatchObject({ status: 404 });
   });
 
+  it("pages through older restores with an offset, without gaps or repeats", async () => {
+    const all = await service.listRestores(db, f.tenantId, f.admin, { limit: 200 });
+    expect(all.length).toBeGreaterThan(2);
+    const first = await service.listRestores(db, f.tenantId, f.admin, { limit: 2 });
+    const second = await service.listRestores(db, f.tenantId, f.admin, { limit: 2, offset: 2 });
+    expect([...first, ...second].map((restore) => restore.id)).toEqual(
+      all.slice(0, 4).map((restore) => restore.id),
+    );
+    // A restore that did not fail carries no classified cause.
+    expect(all.every((restore) => restore.failure === null || restore.status === "failed")).toBe(
+      true,
+    );
+  });
+
   it("cancels a queued restore once and audits it", async () => {
     const created = await service.createRestore(
       db,

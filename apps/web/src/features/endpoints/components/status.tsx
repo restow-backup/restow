@@ -14,6 +14,8 @@ import { useTranslation } from "react-i18next";
 
 import { HintTooltip, StatusBadge } from "@/components/kit";
 import { StateBadge } from "@/features/verify/components/status";
+import { stateBadgeView } from "@/features/verify/presenters";
+import { formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 import type {
@@ -136,12 +138,41 @@ export function ActivityBadge({
  */
 export function ReadinessBadge({
   readiness,
+  withoutBackup = false,
   className,
 }: {
   readiness: EndpointSummary["readiness"];
+  /**
+   * The machine is in no backup job: what it shows is the state of an old backup that nothing
+   * renews. Green would read as protected, so the rating turns neutral and says so.
+   */
+  withoutBackup?: boolean;
   className?: string;
 }) {
-  const { t } = useTranslation("endpoints");
+  const { t, i18n } = useTranslation("endpoints");
+  const { t: tv } = useTranslation("verify");
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  if (withoutBackup && readiness.state !== "no_backup") {
+    const view = stateBadgeView({ state: readiness.state, overdue: readiness.overdue });
+    const when = readiness.checkedAt ? formatRelative(readiness.checkedAt, language) : null;
+    return (
+      <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
+        <HintTooltip content={t("readiness.frozenHint")}>
+          <StatusBadge
+            tone="neutral"
+            tabIndex={0}
+            className="whitespace-nowrap"
+            data-slot="readiness-frozen"
+          >
+            {tv(view.key)}
+          </StatusBadge>
+        </HintTooltip>
+        <span className="text-xs text-muted-foreground">
+          {when ? t("readiness.frozen", { time: when }) : t("readiness.frozenUndated")}
+        </span>
+      </div>
+    );
+  }
   return (
     <div className={cn("flex flex-wrap items-center gap-1.5", className)}>
       <StateBadge state={readiness.state} overdue={readiness.overdue} />

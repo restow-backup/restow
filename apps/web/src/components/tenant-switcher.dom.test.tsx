@@ -70,6 +70,8 @@ const NAV: NavItem[] = [
     labelKey: "backup:nav.history",
     icon: History,
     group: "daily",
+    // A count next to the label, as the warnings entry has one.
+    useBadge: () => ({ count: 3, label: "3 open warnings" }),
   },
   {
     id: "tenant-settings",
@@ -823,5 +825,20 @@ describe("the mobile sheet", () => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
     expect(document.querySelector('[data-slot="sidebar"][data-mobile="true"]')).toBeNull();
+  });
+});
+
+describe("a count next to a menu entry", () => {
+  it("shows the entry's count and says it to assistive technology", async () => {
+    await render({ active: MUELLER, fullSidebar: true });
+    const badge = document.querySelector('[data-slot="nav-badge"]');
+    expect(badge?.textContent).toBe("3");
+    expect(badge?.getAttribute("aria-hidden")).toBe("true");
+    expect(badge?.closest("a")?.textContent).toContain(", 3 open warnings");
+  });
+
+  it("leaves it out where the entry needs a tenant and none is active", async () => {
+    await render({ active: MUELLER, canViewAllTenants: true, scope: "all", fullSidebar: true });
+    expect(document.querySelector('[data-slot="nav-badge"]')).toBeNull();
   });
 });

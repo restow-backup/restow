@@ -234,4 +234,32 @@ describe.skipIf(!testDatabaseAdminUrl)("failed jobs against Postgres", () => {
       { code: "graph.item_too_large", count: 2 },
     ]);
   });
+
+  it("counts the failed items beyond the rows a run keeps from its summary", async () => {
+    const id = await job("completed", {
+      itemFailureSummary: {
+        total: 950,
+        stored: 2,
+        byCause: { "graph.throttled": 900, "graph.item_too_large": 50 },
+      },
+    });
+    await db
+      .insert(jobProgress)
+      .values({ tenantId, jobId: id, total: 1000, done: 50, failed: 950 });
+    await failItem(id, "mail/Inbox/a.eml", record("graph.throttled"));
+    await failItem(id, "mail/Inbox/b.eml", record("graph.item_too_large"));
+
+    const dto = await getJob(db, tenantId, id);
+    expect(dto.failures).toHaveLength(2);
+    expect(dto.failureCount).toBe(950);
+    expect(dto.failureGroups.map((group) => [group.failure.code, group.count])).toEqual([
+      ["graph.throttled", 900],
+      ["graph.item_too_large", 50],
+    ]);
+    const page = await listJobs(db, tenantId, { limit: 50 } as never);
+    expect(page.items.find((item) => item.id === id)?.itemCauses).toEqual([
+      { code: "graph.throttled", count: 900 },
+      { code: "graph.item_too_large", count: 50 },
+    ]);
+  });
 });

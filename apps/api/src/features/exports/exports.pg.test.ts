@@ -1156,6 +1156,10 @@ describe.skipIf(!testDatabaseAdminUrl)("mail exports against Postgres", () => {
 
       const limited = await service.listExports(appDb, f.tenantId, f.admin, { limit: 2 });
       expect(limited).toHaveLength(2);
+      const older = await service.listExports(appDb, f.tenantId, f.admin, { limit: 2, offset: 2 });
+      expect([...limited, ...older].map((entry) => entry.id)).toEqual(
+        all.slice(0, limited.length + older.length).map((entry) => entry.id),
+      );
     });
 
     it("hides other people's exports from an end user, in the list, the detail and the download", async () => {
@@ -1201,6 +1205,7 @@ describe.skipIf(!testDatabaseAdminUrl)("mail exports against Postgres", () => {
         impersonated: false,
         reason: null,
         errorMessage: null,
+        failure: null,
         report: null,
         failures: [],
       });

@@ -17,6 +17,7 @@ import { queryKeys } from "@/lib/api";
 import { authClient, browserSupportsPasskeys, needsSecondFactor } from "@/lib/auth-client";
 import { HOME_PATH, safeRedirectTarget } from "@/lib/entry";
 import { zodResolver } from "@/lib/form";
+import { holdPasswordForEnrolment } from "@/lib/password-handoff";
 import {
   type DemoCredentials,
   MICROSOFT_PROVIDER,
@@ -26,6 +27,7 @@ import {
   microsoftErrorKey,
   signInErrorKey,
 } from "@/lib/sign-in";
+import { ForgotAccess } from "@/routes/forgot-access";
 import { setupStateQueryOptions } from "@/routes/tree";
 
 const credentialsSchema = z.object({
@@ -148,6 +150,7 @@ export function LoginPage() {
     search.error ? microsoftErrorKey(search.error) : null,
   );
   const [passkeyPending, setPasskeyPending] = React.useState(false);
+  const [forgot, setForgot] = React.useState(false);
   const [microsoftPending, setMicrosoftPending] = React.useState(false);
 
   const credentials = useForm<CredentialsValues>({
@@ -214,6 +217,11 @@ export function LoginPage() {
       setPhase("totp");
       return;
     }
+    // No authenticator app yet: the enrolment right after starts with this
+    // password instead of asking for it again (lib/password-handoff.ts).
+    if (!setupState?.demo.enabled) {
+      holdPasswordForEnrolment(values.password);
+    }
     await finishSignIn();
   });
 
@@ -264,7 +272,12 @@ export function LoginPage() {
             </Alert>
           ) : null}
 
-          {phase === "password" ? (
+          {phase === "password" && forgot ? (
+            <ForgotAccess
+              mailReset={setupState?.passwordReset === true}
+              onBack={() => setForgot(false)}
+            />
+          ) : phase === "password" ? (
             <>
               {demoCredentials ? (
                 <DemoSignIn demo={demoCredentials} busy={busy} onSignedIn={finishSignIn} />
@@ -314,9 +327,16 @@ export function LoginPage() {
                 </div>
               ) : null}
 
+              {/* With passkeys the password is the emergency path; without them it is the normal one. */}
               <div className="space-y-1">
-                <h2 className="text-sm font-medium">{t("login.emergency.title")}</h2>
-                <p className="text-xs text-muted-foreground">{t("login.emergency.description")}</p>
+                <h2 className="text-sm font-medium">
+                  {passkeyReady ? t("login.emergency.title") : t("login.password.title")}
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                  {passkeyReady
+                    ? t("login.emergency.description")
+                    : t("login.password.description")}
+                </p>
               </div>
               {passkeyReady ? null : (
                 <p className="rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
@@ -349,7 +369,11 @@ export function LoginPage() {
                   <PasswordInput
                     id="password"
                     autoComplete="current-password"
-                    placeholder={t("login.emergency.password.placeholder")}
+                    placeholder={
+                      passkeyReady
+                        ? t("login.emergency.password.placeholder")
+                        : t("login.password.placeholder")
+                    }
                     aria-invalid={credentialErrors.password !== undefined}
                     aria-describedby={messageId("password")}
                     {...credentials.register("password")}
@@ -368,6 +392,19 @@ export function LoginPage() {
                     : t("login.emergency.submit")}
                 </Button>
               </form>
+              {demoCredentials ? null : (
+                <button
+                  type="button"
+                  className="w-full text-center text-xs text-muted-foreground underline-offset-4 hover:text-foreground hover:underline disabled:pointer-events-none disabled:opacity-50"
+                  disabled={busy}
+                  onClick={() => {
+                    setErrorKey(null);
+                    setForgot(true);
+                  }}
+                >
+                  {t("login.forgot.link")}
+                </button>
+              )}
             </>
           ) : (
             <form

@@ -192,11 +192,35 @@ export interface EndpointReadinessRow {
   latestSnapshotId: string | null;
 }
 
+/**
+ * A VM or container of Proxmox VE in the readiness overview (apps/api features/pve
+ * protection.ts): rated by the restore check of its newest restore point, and counted in the
+ * summary. Listed while it is in a backup job, or out of every job with a restore point left.
+ */
+export interface GuestReadinessRow {
+  id: string;
+  vmid: number;
+  kind: "vm" | "ct";
+  name: string | null;
+  node: string | null;
+  state: ObjectState;
+  /** The rating of the newest restore point; null while it is unverified or without one. */
+  readiness: Readiness | null;
+  checkedAt: string | null;
+  overdue: boolean;
+  latestBackupAt: string | null;
+  latestSnapshotId: string | null;
+  /** In an enabled backup job; false: nothing backs it up any more. */
+  inJob: boolean;
+}
+
 export interface ReadinessOverview {
   summary: ReadinessSummary;
   objects: ObjectReadiness[];
   /** Servers and clients; absent from servers that predate endpoint backup. */
   endpoints?: EndpointReadinessRow[];
+  /** VMs and containers of Proxmox VE; absent from servers that predate them. */
+  guests?: GuestReadinessRow[];
   storage: StorageIntegrity;
   schedules: { backup: Schedule | null; verify: Schedule | null; scrub: Schedule | null };
 }

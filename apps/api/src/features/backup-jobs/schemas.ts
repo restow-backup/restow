@@ -108,6 +108,8 @@ export const createBackupJobSchema = z.object({
   retentionPolicyId: uuid.nullable().optional(),
   settings: jobSettingsSchema.default({}),
   enabled: z.boolean().default(true),
+  /** Mail jobs: the job's mailboxes are archived through journaling (#32). Machine jobs: always false. */
+  archive: z.boolean().default(false),
   /** Take objects and machines that belong to another job instead of refusing them. */
   moveMembers: z.boolean().default(false),
 });
@@ -122,6 +124,7 @@ export const updateBackupJobSchema = z
     retentionPolicyId: uuid.nullable().optional(),
     settings: jobSettingsSchema.optional(),
     enabled: z.boolean().optional(),
+    archive: z.boolean().optional(),
   })
   .refine((patch) => Object.values(patch).some((value) => value !== undefined), {
     message: "Nothing to update.",
@@ -153,7 +156,25 @@ export const runBackupJobSchema = z.object({
 export type RunBackupJobInput = z.infer<typeof runBackupJobSchema>;
 
 export const listBackupJobsQuerySchema = z.object({ kind: jobKindSchema.optional() });
-export const defaultsQuerySchema = z.object({ kind: jobKindSchema });
+export const defaultsQuerySchema = z.object({
+  kind: jobKindSchema,
+  /**
+   * Machine jobs: the machines a new job starts with, comma-separated. The folders and the
+   * schedule then follow their operating systems and profiles (a Mac client is not a Linux server).
+   */
+  endpointIds: z
+    .string()
+    .optional()
+    .transform((value) =>
+      value
+        ? value
+            .split(",")
+            .map((part) => part.trim())
+            .filter(Boolean)
+        : [],
+    )
+    .pipe(z.array(uuid).max(500)),
+});
 export const candidatesQuerySchema = z.object({
   kind: jobKindSchema,
   q: z.string().trim().max(200).optional(),

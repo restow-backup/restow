@@ -7,6 +7,7 @@ import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ThemeProvider } from "@/components/theme-provider";
+import { toast } from "@/components/ui/sonner";
 import { i18n } from "@/i18n";
 import { type SetupState, queryKeys } from "@/lib/api";
 
@@ -425,17 +426,19 @@ describe("setup wizard, setup token step", () => {
   it("skips the token in the demo, which has none, and the notice, which counts as accepted", async () => {
     await mount(demoState);
 
-    // The language is the first step everywhere; the steps that do not apply are passed over.
-    expect(container.textContent).toContain("Step 1 of 7");
+    // The language is the first step everywhere; the steps that do not apply are passed
+    // over, and neither shown nor counted: five steps, not seven, and no jump from 1 to 4.
+    expect(container.textContent).toContain("Step 1 of 5");
     expect(container.textContent).toContain("Choose your language");
+    expect(container.querySelectorAll("ol[aria-label] > li")).toHaveLength(5);
     await passLanguageStep();
 
-    expect(container.textContent).toContain("Step 4 of 7");
+    expect(container.textContent).toContain("Step 2 of 5");
     expect(container.textContent).toContain("How do you run Restow?");
 
     // Back goes the same way: past the token and the notice, to the language.
     await click(button("Back"));
-    expect(container.textContent).toContain("Step 1 of 7");
+    expect(container.textContent).toContain("Step 1 of 5");
   });
 });
 
@@ -564,7 +567,9 @@ describe("setup wizard, skipping the mail transport", () => {
     expect(container.textContent).toContain(
       "invitations and set-password links are not sent by mail",
     );
-    expect(container.textContent).toContain("Installation → Notification mail");
+    expect(container.textContent).toContain(
+      "Installation › Server & operation › Notification mail",
+    );
   });
 
   it("says the same in German, with 'Später einrichten' and the German menu path", async () => {
@@ -587,7 +592,9 @@ describe("setup wizard, skipping the mail transport", () => {
     expect(container.textContent).toContain("Schritt 6 von 7");
     expect(button("Später einrichten")).toBeTruthy();
     expect(container.textContent).toContain("Mail ist optional.");
-    expect(container.textContent).toContain("Installation → Benachrichtigungs-Mail");
+    expect(container.textContent).toContain(
+      "Installation › Server & Betrieb › Benachrichtigungs-Mail",
+    );
 
     await click(button("Später einrichten"));
     expect(container.textContent).toContain("Schritt 7 von 7");
@@ -720,6 +727,13 @@ describe("setup wizard, finishing", () => {
     expect(body.sendTest).toBe(true);
   });
 
+  it("announces in the review that the authenticator app comes next", async () => {
+    await fillUpToReview();
+    const next = container.querySelector('[data-slot="review-next"]');
+    expect(next?.textContent).toContain("set up the authenticator app");
+    expect(next?.textContent).toContain("do not need to type the password again");
+  });
+
   it("shows the organisation in the review", async () => {
     await fillUpToReview();
 
@@ -772,5 +786,69 @@ describe("setup wizard, finishing", () => {
     expect(container.textContent).toContain("The notice was updated. Reload the page");
     expect(button("Reload")).toBeTruthy();
     expect(checkbox().getAttribute("aria-checked")).toBe("false");
+  });
+});
+
+describe("setup wizard, mail transports", () => {
+  async function toMailStep(state: SetupState): Promise<void> {
+    await mount(state);
+    await passLanguageStep();
+    await passTokenStep();
+    await click(checkbox());
+    await click(button("Continue"));
+    await click(button("Next"));
+    await type("organisation-name", "Example IT Services GmbH");
+    await type("admin-name", "Operator");
+    await type("admin-email", "ops@example.com");
+    await type("admin-password", "correct-horse-battery-1");
+    await type("admin-confirm", "correct-horse-battery-1");
+    await click(button("Next"));
+    expect(container.textContent).toContain("Step 6 of 7");
+  }
+
+  it("offers SMTP only while no backup app registration exists, and says where the others are", async () => {
+    await toMailStep(freshState);
+    expect(container.querySelector("#mail-transport")).toBeNull();
+    expect(container.querySelector("#smtp-host")).not.toBeNull();
+    expect(container.textContent).toContain(
+      "Microsoft 365 with an own app registration and Google Workspace are set up after the setup under Installation › Server & operation › Notification mail",
+    );
+  });
+
+  it("offers Microsoft 365 through the backup app when the server says it is usable", async () => {
+    await toMailStep({ ...freshState, mailOptions: { graphBackupApp: true } });
+    expect(container.querySelector("#mail-transport")).not.toBeNull();
+  });
+
+  it("explains a failed test message in the operator's language, never the raw server text", async () => {
+    const warning = vi.spyOn(toast, "warning");
+    await toMailStep(freshState);
+    await type("smtp-host", "mail.example.com");
+    await type("smtp-from", "alerts@example.com");
+    await click(button("Next"));
+    fetchMock.mockResolvedValueOnce(
+      json(201, {
+        ok: true,
+        passkeyReady: freshState.passkeyReady,
+        adminCreated: true,
+        signedIn: true,
+        ownOrganisation: { created: true },
+        testSend: {
+          attempted: true,
+          ok: false,
+          reason: "smtp_auth_failed",
+          error: "Invalid login: 535 5.7.8 Authentication credentials invalid",
+        },
+      }),
+    );
+    fetchMock.mockResolvedValue(json(200, {}));
+
+    await click(button("Finish setup"));
+
+    expect(warning).toHaveBeenCalledWith(
+      expect.stringContaining("The SMTP server refused the sign-in. Check username and password."),
+    );
+    const shown = warning.mock.calls.map(([message]) => String(message)).join("\n");
+    expect(shown).not.toContain("535");
   });
 });

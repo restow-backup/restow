@@ -436,7 +436,7 @@ describe("ReviewStep", () => {
     expect(html).toContain("Alice Admin");
     expect(html).toContain("alice@contoso.example");
     expect(html).toContain("ops@contoso.example");
-    expect(html).toContain("Job failures");
+    expect(html).toContain("Failed runs");
     // No administrators entered: the empty state, not a stale count.
     expect(html).toContain("Nobody will be invited yet");
   });
@@ -783,7 +783,7 @@ describe("TenantWizard (interactive)", () => {
     await click(byText(document.body, "Next")); // Source
 
     const description =
-      "Connect the customer's Microsoft 365 tenant or an IMAP mailbox once the tenant is created.";
+      "Connect the tenant's Microsoft 365 organisation or an IMAP mailbox once the tenant is created.";
     const text = document.body.textContent ?? "";
     const occurrences = text.split(description).length - 1;
     expect(occurrences).toBe(1);

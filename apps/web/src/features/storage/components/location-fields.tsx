@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { MountPathHints } from "@/features/installation/sections/mount-paths";
 import {
   HETZNER_LOCATIONS,
   type HetznerLocation,
@@ -75,23 +76,34 @@ export function LocationFields({
   };
 
   return kind === "local" ? (
-    <Field
-      id="target-base-path"
-      label={t("form.local.basePath")}
-      error={message("basePath")}
-      hint={t("form.local.basePathHint")}
-    >
-      <Input
+    <>
+      <Field
         id="target-base-path"
-        autoComplete="off"
-        spellCheck={false}
-        className="font-mono"
-        placeholder={t("form.local.basePathPlaceholder")}
-        aria-invalid={form.formState.errors.basePath !== undefined}
-        aria-describedby={describedBy("target-base-path")}
-        {...form.register("basePath")}
+        label={t("form.local.basePath")}
+        error={message("basePath")}
+        hint={t("form.local.basePathHint")}
+      >
+        <Input
+          id="target-base-path"
+          autoComplete="off"
+          spellCheck={false}
+          className="font-mono"
+          placeholder={t("form.local.basePathPlaceholder")}
+          aria-invalid={form.formState.errors.basePath !== undefined}
+          aria-describedby={describedBy("target-base-path")}
+          {...form.register("basePath")}
+        />
+      </Field>
+      {/* Network shares the mounter added (Installation > Mounts): one click fills the path. */}
+      <MountPathHints
+        onPick={(path) =>
+          form.setValue("basePath", path, {
+            shouldDirty: true,
+            shouldValidate: form.formState.isSubmitted,
+          })
+        }
       />
-    </Field>
+    </>
   ) : (
     <>
       <div className="space-y-1.5">

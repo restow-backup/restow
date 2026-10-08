@@ -26,15 +26,35 @@ describe("reportErrorMessage", () => {
     );
   });
 
-  it("names the refused field, a missing rule, the network, or falls back", () => {
+  it("words the refused rule by its code, never with the server's English text", () => {
     expect(
       reportErrorMessage(
-        problem("urn:restow:problem:invalid-report-rule", 422, { detail: "cron" }),
+        problem("urn:restow:problem:invalid-report-rule", 422, {
+          detail: "channels: Add a recipient or a webhook.",
+          code: "channel_required",
+        }),
         t,
       ),
-    ).toBe("errors.invalid(cron)");
+    ).toBe("errors.invalid(errors.codes.channel_required)");
+    expect(
+      reportErrorMessage(
+        problem("urn:restow:problem:invalid-report-rule", 422, {
+          detail: 'timezone: "Europe/Berln" is not an IANA time zone',
+          code: "something_new",
+        }),
+        t,
+      ),
+    ).toBe("errors.invalid(errors.codes.unknown)");
+  });
+
+  it("names a missing rule, the network, the demo, a missing right, or falls back", () => {
     expect(reportErrorMessage(problem("about:blank", 404), t)).toBe("errors.notFound");
     expect(reportErrorMessage(new NetworkError(null), t)).toBe("errors.network");
-    expect(reportErrorMessage(new Error("?"), t)).toBe("errors.generic");
+    expect(reportErrorMessage(problem("urn:restow:problem:demo-read-only", 403), t)).toBe(
+      "common:errors.demoReadOnly",
+    );
+    expect(reportErrorMessage(problem("about:blank", 403), t)).toBe("common:errors.forbidden");
+    expect(reportErrorMessage(problem("about:blank", 409), t)).toBe("common:errors.conflict");
+    expect(reportErrorMessage(new Error("?"), t)).toBe("common:errors.generic");
   });
 });

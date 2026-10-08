@@ -51,6 +51,8 @@
       "none": "No protected account yet",
       "noneDescription": "Protect a mailbox, OneDrive or IMAP account first. It appears here as soon as it is protected, even before its first backup finishes.",
       "noneAction": "Go to Protected objects",
+      "noneSelf": "Nothing of yours is backed up yet",
+      "noneSelfDescription": "Your mailbox, OneDrive or IMAP account is not backed up yet. Ask your organisation's administrators to protect it.",
       "kinds": {
         "mailbox": "Mailbox",
         "onedrive": "OneDrive",
@@ -65,7 +67,10 @@
       "current": "Current",
       "none": "No restore point yet",
       "noneDescription": "This mailbox or drive has no restore point yet.",
-      "loadError": "The restore points of this mailbox or drive could not be loaded."
+      "noneSelfDescription": "This account has no restore point yet. Once its first backup has finished, you can restore from here. If the list stays empty, ask your administrators.",
+      "loadError": "The restore points of this mailbox or drive could not be loaded.",
+      "truncated": "Newest {count} only",
+      "truncatedHint": "The newest {count} restore points of this account are shown. Older ones still exist but cannot be chosen here."
     },
     "tree": {
       "label": "Folders",
@@ -215,6 +220,7 @@
       "label": "Restore to",
       "original": "Original location",
       "originalDescription": "Back into {object}, where the items came from.",
+      "originalDescriptionFolder": "Into the account {object}, there into the new folder “{folder}” (see below: Keep both).",
       "originalGone": "The original account no longer exists in the source.",
       "demoDownloadOnly": "This demo only offers restore as a download.",
       "other": "Another account",
@@ -251,7 +257,7 @@
     "started": {
       "restore": "Restore started",
       "download": "Download is being prepared",
-      "description": "Follow the progress on the restore job page."
+      "description": "Follow the progress on the restore run page."
     },
     "errors": {
       "title": "The restore could not be started",
@@ -261,13 +267,16 @@
       "targetUnknown": "This account is not known in this tenant. IMAP restores can only go into accounts of this tenant.",
       "selectionUnknown": "Some selected entries no longer exist at this restore point. Reload the folder and select again.",
       "originalGone": "The original account no longer exists. Restore into another account or download the data.",
-      "queueUnavailable": "The job queue is not available. Make sure the {appName} worker is running, then try again.",
+      "queueUnavailable": "The queue is not available. Make sure the {appName} worker is running, then try again.",
       "snapshotGone": "This restore point is no longer available. Choose another one."
     }
   },
   "jobs": {
     "title": "Recent restores",
-    "subtitle": "Every restore and download, with progress and the result of each item.",
+    "subtitle": "Restores and downloads of mailboxes, OneDrive and IMAP accounts, with progress and the result of each item. Restores onto machines are under File restore and in the machine's runs.",
+    "machineRestores": "Restores onto machines",
+    "shown": "{count, plural, one {The newest run is shown.} other {The newest # runs are shown.}}",
+    "showOlder": "Show older",
     "newRestore": "New restore",
     "empty": "No restores yet",
     "emptyDescription": "Restores and downloads you start in the explorer appear here with their progress.",
@@ -275,7 +284,7 @@
     "progressLabel": "Restore progress",
     "progress": "{done} of {total}",
     "outcome": "{restored} restored · {skipped} skipped · {failed} failed",
-    "snapshot": "Backup #{sequence} from {date}",
+    "snapshot": "Restore point #{sequence} from {date}",
     "adminRestore": "Admin restore",
     "actorUnknown": "Unknown user",
     "objectGone": "Removed mailbox or drive",
@@ -287,7 +296,7 @@
       "actions": "Actions"
     },
     "status": {
-      "queued": "Queued",
+      "queued": "Waiting",
       "active": "Running",
       "completed": "Completed",
       "completedWithIssues": "Completed with issues",
@@ -316,6 +325,7 @@
       "action": "Cancel",
       "title": "Cancel this restore?",
       "description": "The restore stops at the next item. What has already been restored stays in place.",
+      "descriptionDownload": "The restore stops at the next item. No file is created: a ZIP only exists once the restore has run to the end.",
       "keep": "Keep running",
       "confirm": "Cancel restore",
       "done": "The restore was cancelled.",
@@ -323,13 +333,13 @@
     }
   },
   "job": {
-    "title": "Restore job",
+    "title": "Restore run",
     "subtitle": "Progress, outcome and every item of this restore.",
     "back": "Recent restores",
-    "loadError": "The restore job could not be loaded.",
+    "loadError": "The restore run could not be loaded.",
     "progress": {
       "title": "Progress",
-      "queued": "Queued. Restores run before verifications and backups.",
+      "queued": "Waiting. Restores run before restore checks and backups.",
       "running": "The restore is running.",
       "waiting": "Waiting for a free worker.",
       "counting": "Determining what to restore …",
@@ -350,15 +360,17 @@
       "failedUnknown": "No reason was reported.",
       "cancelled": "The restore was cancelled",
       "cancelledDescription": "Everything restored before the cancellation stays in place.",
+      "cancelledDescriptionDownload": "No file was created: a ZIP only exists once the restore has run to the end. Request the download again.",
       "noResult": "The restore finished without reporting a result.",
       "downloadExpired": "The download has expired",
-      "downloadExpiredDescription": "The link was valid until {date}. Start the download again from the explorer to get a new one."
+      "downloadExpiredDescription": "The link was valid until {date}. Request the download again to get a new one.",
+      "requestAgain": "Request again in the explorer"
     },
     "request": {
       "title": "Request",
       "object": "Mailbox or drive",
-      "snapshot": "Point in time",
-      "snapshotPruned": "The backup has since been removed by retention.",
+      "snapshot": "Restore point",
+      "snapshotPruned": "The restore point has since been removed by retention.",
       "selection": "Selection",
       "target": "Target",
       "mode": "If an item exists",

@@ -86,6 +86,15 @@ describe("ConfirmDialog", () => {
     expect(html).toContain('autoComplete="off"');
   });
 
+  it("keeps the confirm button disabled while the caller says so (a required field is empty)", () => {
+    expect(
+      buttonTag(render(<ConfirmDialog open confirmDisabled {...base} />), "Delete target"),
+    ).toContain('disabled=""');
+    expect(
+      buttonTag(render(<ConfirmDialog open confirmDisabled={false} {...base} />), "Delete target"),
+    ).not.toContain('disabled=""');
+  });
+
   it("shows the error inside the dialog", () => {
     const html = render(
       <ConfirmDialog open {...base} error="The target is still used by 3 policies." />,

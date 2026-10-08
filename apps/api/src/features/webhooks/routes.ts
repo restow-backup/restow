@@ -2,6 +2,7 @@ import { type Context, Hono } from "hono";
 import { db } from "../../db.js";
 import { type TenantAccessEnv, requireTenantOrApiKey } from "../../middleware/apiKey.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { contentDisposition } from "../restore/headers.js";
 import {
   createWebhookSchema,
   deliveriesQuerySchema,
@@ -12,6 +13,7 @@ import {
 import {
   createWebhook,
   deleteWebhook,
+  deliveriesCsv,
   getDelivery,
   getWebhook,
   listDeliveries,
@@ -99,6 +101,20 @@ webhooksRoutes.get("/:id/deliveries", access, async (c) => {
   const { id } = parseOrProblem(webhookParamSchema, c.req.param());
   const query = parseOrProblem(deliveriesQuerySchema, c.req.query());
   return c.json(await listDeliveries(db, c.get("tenantId"), id, query));
+});
+
+// The log as CSV (proof that a receiver was told), with the list's status filter.
+webhooksRoutes.get("/:id/deliveries/export", access, async (c) => {
+  const { id } = parseOrProblem(webhookParamSchema, c.req.param());
+  const { status } = parseOrProblem(deliveriesQuerySchema, c.req.query());
+  const body = await deliveriesCsv(db, c.get("tenantId"), id, status);
+  noStore(c);
+  return c.body(body, 200, {
+    "content-type": "text/csv; charset=utf-8",
+    "content-disposition": contentDisposition(
+      `webhook-deliveries-${new Date().toISOString().slice(0, 10)}.csv`,
+    ),
+  });
 });
 
 webhooksRoutes.get("/:id/deliveries/:deliveryId", access, async (c) => {

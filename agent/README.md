@@ -242,7 +242,7 @@ new agent's `version` (only after the checks) and renames it over the current bi
 Updates are only applied while no run is active. Development builds (`0.0.0-dev`) and
 builds without a release key (a checkout whose `release-signing.pub` is only a
 placeholder, such as a fork before its own key ceremony) never update. An administrator can pause automatic agent
-updates for a whole tenant (Servers & endpoints › Inventory; `PUT /api/v1/endpoints/agent-updates`).
+updates for a whole tenant (Servers & clients › Inventory; `PUT /api/v1/endpoints/agent-updates`).
 
 **Start-up check.** The service only works from the root-owned location: before anything
 else the agent checks that its binary, restic and every folder above them belong to root

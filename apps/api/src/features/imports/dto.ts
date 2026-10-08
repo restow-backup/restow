@@ -7,6 +7,7 @@ import type {
   MailImport,
   MailImportRequestFile,
 } from "@restow/db";
+import { type FailureDto, failureDto } from "../failures/dto.js";
 import { runtimePhaseOf } from "../jobs/dto.js";
 import { tenantRelativeFolderPath } from "./logic.js";
 
@@ -239,6 +240,8 @@ export interface ImportDetailDto extends ImportSummaryDto {
   }[];
   startedAt: string | null;
   errorMessage: string | null;
+  /** The classified cause of a failed import (features/failures), for a translated explanation; null without one. */
+  failure: FailureDto | null;
   actor: ImportActorDto;
   progress: ImportProgressDto | null;
   /** starting, prepare, import, manifest or archive while the import runs; null otherwise. */
@@ -383,6 +386,7 @@ export function toDetailDto(
     })),
     startedAt: iso(row.job?.startedAt),
     errorMessage: row.job?.errorMessage ?? null,
+    failure: failureDto(row.job?.failure ?? null),
     actor: {
       userId: row.mailImport.createdBy,
       name: row.actorName,

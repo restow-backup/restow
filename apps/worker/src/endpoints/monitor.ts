@@ -56,6 +56,7 @@ import {
 import { and, eq, gt, inArray, isNotNull, isNull, lt, sql } from "drizzle-orm";
 import { withTenantTx } from "../handlers/framework.js";
 import { emitWebhookEvent } from "../handlers/webhooks.js";
+import { alertOverdueBackups } from "../overdue.js";
 import type { TenantTx } from "../progress.js";
 import { raiseEvents } from "../reporting.js";
 import type { EndpointJobDeps } from "./common.js";
@@ -75,6 +76,8 @@ export interface MonitorSummary {
   reportAlerts: number;
   staleAlerts: number;
   quotaAlerts: number;
+  /** `backup.overdue` raised for mailboxes, OneDrives, IMAP accounts, servers and clients. */
+  overdueAlerts: number;
 }
 
 export function endpointName(endpoint: Pick<Endpoint, "displayName" | "hostname">): string {
@@ -622,10 +625,12 @@ export async function endpointMonitor(deps: EndpointJobDeps): Promise<MonitorSum
     reportAlerts: 0,
     staleAlerts: 0,
     quotaAlerts: 0,
+    overdueAlerts: 0,
   };
   summary.runAlerts = await alertFailedRuns(deps, now);
   summary.reportAlerts = await alertReports(deps, now);
   summary.staleAlerts = await alertStaleEndpoints(deps, now);
   summary.quotaAlerts = await alertStorageQuota(deps, now);
+  summary.overdueAlerts = await alertOverdueBackups(deps, now);
   return summary;
 }

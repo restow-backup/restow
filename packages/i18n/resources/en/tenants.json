@@ -1,11 +1,12 @@
 {
   "nav": {
     "tenants": "Manage tenants",
-    "members": "Members"
+    "members": "Members",
+    "lockedCommunity": "Several tenants come with Service Provider"
   },
   "list": {
     "title": "Tenants",
-    "subtitle": "The customers this installation protects: mailboxes, last backup and proven recoverability per tenant.",
+    "subtitle": "The tenants this installation protects: mailboxes, last backup and proven readiness per tenant.",
     "searchLabel": "Search tenants",
     "searchPlaceholder": "Search by name or slug",
     "count": "{count, plural, one {# tenant} other {# tenants}}",
@@ -22,7 +23,7 @@
     },
     "empty": {
       "title": "No tenants yet",
-      "description": "A tenant is one customer. Its sources, backups, archive, keys and users are kept strictly apart from every other tenant. Create the first tenant to start protecting mailboxes."
+      "description": "A tenant stands for one organisation you look after. Its sources, backups, archive, keys and users are kept strictly apart from every other tenant. Create the first tenant to start protecting mailboxes."
     }
   },
   "overview": {
@@ -31,7 +32,8 @@
     "usageUnavailable": "Mailbox usage is currently unavailable.",
     "tenantsLabel": "Tenants",
     "tenants": "{count, plural, one {# tenant} other {# tenants}}",
-    "single": "This installation manages one tenant."
+    "single": "This installation manages one tenant.",
+    "singleCommunity": "The Community edition manages one organisation. Several tenants come with the full build and a Service Provider key."
   },
   "mailboxes": {
     "count": "{count, number}",
@@ -44,8 +46,8 @@
   },
   "readiness": {
     "green": "Ready",
-    "yellow": "Degraded",
-    "red": "Not ready",
+    "yellow": "Attention",
+    "red": "Not restorable",
     "none": "Nothing protected",
     "loading": "Checking recovery readiness …",
     "unavailable": "Unavailable",
@@ -78,11 +80,12 @@
     "backToList": "All tenants",
     "invite": "Invite",
     "inviteFirst": "Invite the first person",
-    "copyLink": "Copy link"
+    "copyLink": "Copy link",
+    "createRoleRequired": "Owners and administrators with every tenant may create tenants."
   },
   "create": {
     "title": "New tenant",
-    "description": "A tenant is one customer. It receives its own encryption key, and its data stays separate from every other tenant.",
+    "description": "A tenant stands for one organisation you look after. It receives its own encryption key, and its data stays separate from every other tenant.",
     "name": "Name",
     "namePlaceholder": "e.g. Example Ltd",
     "slug": "Slug",
@@ -96,17 +99,17 @@
     "name": "Name",
     "cap": "Mailbox cap",
     "capPlaceholder": "No cap",
-    "capHint": "Optional. The number of mailboxes agreed with this customer, shown for reference. Nothing is blocked when it is exceeded; the provider dashboard only points it out.",
+    "capHint": "Optional. The number of mailboxes agreed for this tenant, shown for reference. Nothing is blocked when it is exceeded; the provider dashboard only points it out.",
     "submit": "Save changes"
   },
   "suspend": {
     "title": "Suspend {name}?",
-    "description": "Jobs for this tenant stop and its users can no longer sign in. Stored backups remain intact and provider admins keep access. You can resume the tenant at any time.",
+    "description": "Runs for this tenant stop and its users can no longer sign in. Stored backups remain intact and provider admins keep access. You can resume the tenant at any time.",
     "confirm": "Suspend tenant"
   },
   "resume": {
     "title": "Resume {name}?",
-    "description": "Jobs run on schedule again and the tenant’s users can sign in.",
+    "description": "Backup jobs run on schedule again and the tenant’s users can sign in.",
     "confirm": "Resume tenant"
   },
   "delete": {
@@ -114,7 +117,7 @@
     "description": "Deleting a tenant cannot be undone.",
     "points": {
       "access": "Every sign-in to this tenant ends immediately: all memberships and open invitations are removed.",
-      "data": "The stored data of the tenant is removed afterwards by a separate, audited deletion job.",
+      "data": "The stored data of the tenant is removed afterwards by a separate, audited deletion run.",
       "audit": "The audit log keeps every entry about this tenant."
     },
     "confirmLabel": "Type {slug} to confirm",
@@ -129,11 +132,11 @@
     },
     "suspended": {
       "title": "This tenant is suspended",
-      "description": "Jobs do not run and its users cannot sign in. Stored backups remain intact."
+      "description": "No runs take place and its users cannot sign in. Stored backups remain intact."
     },
     "deleting": {
       "title": "This tenant is being deleted",
-      "description": "Sign-ins have ended and its data is being removed by the deletion job. No further changes are possible."
+      "description": "Sign-ins have ended and its data is being removed by the deletion run. No further changes are possible."
     },
     "overview": {
       "readiness": "Recovery readiness",
@@ -162,7 +165,7 @@
     "removeOf": "Remove {name}",
     "empty": {
       "title": "Nobody has access yet",
-      "description": "Invite the customer’s administrator first. They can then manage sources, protection and restores and invite their own colleagues."
+      "description": "Invite the tenant's administrator first. They can then manage sources, protection and restores and invite the other tenant users themselves."
     },
     "columns": {
       "person": "Person",
@@ -303,7 +306,7 @@
   },
   "wizard": {
     "title": "New tenant",
-    "description": "Set up a new customer step by step: organisation, contacts, notification recipients and administrators to invite.",
+    "description": "Set up a new tenant step by step: organisation, contacts, notification recipients and administrators to invite.",
     "steps": {
       "organisation": "Organisation",
       "contacts": "Contacts",
@@ -325,7 +328,7 @@
     },
     "organisation": {
       "title": "Organisation",
-      "description": "Name, address and locale of the new customer.",
+      "description": "Name, address and locale of the new tenant.",
       "name": "Name",
       "namePlaceholder": "e.g. Example Ltd",
       "slug": "Slug",
@@ -333,7 +336,7 @@
       "slugHint": "Short name for exports and integrations: lowercase letters, digits and hyphens. It cannot be changed later.",
       "customerNumber": "Customer number",
       "customerNumberPlaceholder": "e.g. K-1001",
-      "customerNumberHint": "Your own internal number for this customer. Optional, but must be unique across this installation.",
+      "customerNumberHint": "Your own internal number for this tenant. Optional, but must be unique across this installation.",
       "vatId": "VAT ID",
       "vatIdPlaceholder": "e.g. DE123456789",
       "address": "Address",
@@ -351,7 +354,7 @@
     },
     "contacts": {
       "title": "Contact persons",
-      "description": "Who to reach at this customer. Exactly one is the primary contact.",
+      "description": "Who to reach at this tenant. Exactly one is the primary contact.",
       "name": "Name",
       "namePlaceholder": "Full name",
       "role": "Role",
@@ -366,9 +369,9 @@
     "notifications": {
       "title": "Notification recipients",
       "description": "Who receives operational e-mails, and about what.",
-      "deliveryNotice": "Each category you choose is carried by a rule of the tenant (failed jobs and recoverability at risk as alerts, the weekly report on Mondays at 07:00 where reports are available on this installation). The people listed here are the recipients of those rules.",
+      "deliveryNotice": "Each category you choose is carried by a rule of the tenant (failed runs and readiness at risk as alerts, the weekly report on Mondays at 07:00 where reports are available on this installation). The people listed here are the recipients of those rules.",
       "categories": {
-        "jobFailures": "Job failures",
+        "jobFailures": "Failed runs",
         "weeklyReport": "Weekly report",
         "readinessRed": "Readiness turns red",
         "licenseUpdates": "Licence and update notices"
@@ -387,7 +390,7 @@
         "recipientPlaceholder": "e.g. name@example.com",
         "send": "Send test mail",
         "success": "Test mail sent to {recipient} via {transport, select, graph {Microsoft Graph} other {SMTP}}.",
-        "notConfigured": "No mail transport is configured for this installation yet. Set one up under Installation → Notification mail, then try again.",
+        "notConfigured": "No mail transport is configured for this installation yet. Set one up under Installation › Server & operation › Notification mail, then try again.",
         "openMailSettings": "Open the mail settings",
         "testFailure": {
           "timeout": "The mail server did not answer in time.",
@@ -409,7 +412,7 @@
     },
     "source": {
       "title": "First source",
-      "description": "Connect the customer's Microsoft 365 tenant or an IMAP mailbox once the tenant is created.",
+      "description": "Connect the tenant's Microsoft 365 organisation or an IMAP mailbox once the tenant is created.",
       "notice": "Once the tenant is created, the next screen takes you straight to its Sources page to connect one."
     },
     "review": {
@@ -441,16 +444,16 @@
     }
   },
   "customerPanel": {
-    "title": "Customer data",
+    "title": "Master data",
     "description": "Internal customer number, address and locale.",
-    "edit": "Edit customer data",
+    "edit": "Edit master data",
     "customerNumber": "Customer number",
     "vatId": "VAT ID",
     "address": "Address",
     "language": "Language",
     "timeZone": "Time zone",
     "noneSet": "Not set",
-    "saved": "Customer data saved.",
+    "saved": "Master data saved.",
     "contactsTitle": "Contacts",
     "contactsDescription": "Who to reach.",
     "editContacts": "Edit contacts",
@@ -471,9 +474,9 @@
         "readOnly": "Your own organisation is not set up yet. Only an administrator of the provider team with access to every tenant can do that. Ask one of them."
       },
       "addCustomer": {
-        "title": "Add your first customer",
-        "description": "Your own organisation is set up. Each customer gets a tenant of its own, with its own sources, storage and people.",
-        "action": "Add a customer"
+        "title": "Add your first tenant",
+        "description": "Your own organisation is set up. Each organisation you look after gets a tenant of its own, with its own sources, storage and people.",
+        "action": "Add a tenant"
       }
     },
     "actions": {
@@ -490,7 +493,7 @@
     "mark": {
       "title": "Choose your own organisation",
       "description": "Pick the one that is yours. It is listed first from now on and cannot be deleted while it is your own organisation. Nothing else about it changes.",
-      "choose": "Organisations",
+      "choose": "Tenants",
       "submit": "Use as my own organisation"
     },
     "toasts": {

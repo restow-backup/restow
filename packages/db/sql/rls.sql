@@ -88,6 +88,7 @@ DECLARE
     'audit_log',
     'audit_anchor',
     'archive_items',
+    'archive_item_mailboxes',
     'archive_anchor',
     'retention_policies',
     'legal_holds',
@@ -113,6 +114,16 @@ DECLARE
     'backup_jobs',
     'backup_job_members',
     'run_samples',
+    'pve_enrollment_tokens',
+    'pve_clusters',
+    'pve_nodes',
+    'pve_jobs',
+    'pve_guests',
+    'pve_tasks',
+    'pve_runs',
+    'pve_run_blocks',
+    'pve_snapshots',
+    'warning_acknowledgements',
     -- Read and written only by the installation role (packages/db roles.ts);
     -- the policy is a second line should the tenant role ever be granted it.
     'provider_member_tenants'
@@ -166,6 +177,18 @@ DROP TRIGGER IF EXISTS archive_items_append_only ON archive_items;
 CREATE TRIGGER archive_items_append_only
   BEFORE UPDATE ON archive_items
   FOR EACH ROW EXECUTE FUNCTION restow_forbid_mutation();
+
+-- An item's mailbox assignments are only ever added; they leave with their item or mailbox.
+-- Guarded: the migration tests apply this file to databases of older versions without the table.
+DO $$
+BEGIN
+  IF to_regclass('public.archive_item_mailboxes') IS NOT NULL THEN
+    DROP TRIGGER IF EXISTS archive_item_mailboxes_append_only ON archive_item_mailboxes;
+    CREATE TRIGGER archive_item_mailboxes_append_only
+      BEFORE UPDATE ON archive_item_mailboxes
+      FOR EACH ROW EXECUTE FUNCTION restow_forbid_mutation();
+  END IF;
+END $$;
 
 DROP TRIGGER IF EXISTS archive_anchor_append_only ON archive_anchor;
 CREATE TRIGGER archive_anchor_append_only

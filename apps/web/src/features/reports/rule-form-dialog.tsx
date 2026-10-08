@@ -32,12 +32,14 @@ import { useCreateRule, useReportsScope, useUpdateRule } from "./hooks";
 import {
   EVENT_GROUPS,
   type Frequency,
+  OVERDUE_DEADLINE_HOURS,
   type RuleFormErrors,
   type RuleFormState,
   THROTTLE_OPTIONS,
   emptyRuleForm,
   eventGroupsFor,
   formToInput,
+  knownTimeZones,
   ruleToForm,
   validateRuleForm,
 } from "./presenters";
@@ -73,6 +75,7 @@ export function RuleFormDialog({
   const webhooks = useWebhooks();
   const { isProviderAdmin } = useReportsScope();
   const pending = create.isPending || update.isPending;
+  const timeZones = React.useMemo(knownTimeZones, []);
 
   React.useEffect(() => {
     if (open) {
@@ -181,6 +184,59 @@ export function RuleFormDialog({
                 </p>
               </fieldset>
 
+              {form.events.includes("backup.overdue") ? (
+                <div className="grid gap-4 sm:grid-cols-2" data-slot="overdue-deadline">
+                  <Field
+                    id="rule-overdue-mode"
+                    label={t("editor.overdueDeadline")}
+                    hint={t("editor.overdueDeadlineHint")}
+                  >
+                    <Select
+                      value={form.overdueCustom ? "custom" : "schedules"}
+                      onValueChange={(value) => set("overdueCustom", value === "custom")}
+                    >
+                      <SelectTrigger
+                        id="rule-overdue-mode"
+                        className="w-full"
+                        aria-describedby={messageId("rule-overdue-mode")}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="schedules">
+                          {t("editor.overdueModes.schedules")}
+                        </SelectItem>
+                        <SelectItem value="custom">{t("editor.overdueModes.custom")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                  {form.overdueCustom ? (
+                    <Field
+                      id="rule-overdue-hours"
+                      label={t("editor.overdueHours")}
+                      hint={t("editor.overdueHoursHint", {
+                        min: OVERDUE_DEADLINE_HOURS.min,
+                        max: OVERDUE_DEADLINE_HOURS.max,
+                      })}
+                      error={error("overdueHours")}
+                    >
+                      <Input
+                        id="rule-overdue-hours"
+                        type="number"
+                        inputMode="numeric"
+                        min={OVERDUE_DEADLINE_HOURS.min}
+                        max={OVERDUE_DEADLINE_HOURS.max}
+                        step={1}
+                        value={form.overdueHours}
+                        aria-invalid={errors.overdueHours !== undefined}
+                        aria-describedby={messageId("rule-overdue-hours")}
+                        onChange={(e) => set("overdueHours", e.target.value)}
+                      />
+                    </Field>
+                  ) : null}
+                </div>
+              ) : null}
+
               <Field
                 id="rule-throttle"
                 label={t("editor.throttle")}
@@ -278,13 +334,24 @@ export function RuleFormDialog({
                   id="rule-timezone"
                   label={t("editor.timezone")}
                   hint={t("editor.timezoneHint")}
+                  error={error("timezone")}
                 >
+                  {/* Suggestions from the zones the browser knows; a typo is caught before saving. */}
                   <Input
                     id="rule-timezone"
                     value={form.timezone}
                     className="font-mono"
+                    list="rule-timezones"
+                    autoComplete="off"
+                    aria-invalid={errors.timezone !== undefined}
+                    aria-describedby={messageId("rule-timezone")}
                     onChange={(e) => set("timezone", e.target.value)}
                   />
+                  <datalist id="rule-timezones">
+                    {timeZones.map((zone) => (
+                      <option key={zone} value={zone} />
+                    ))}
+                  </datalist>
                 </Field>
                 <Field id="rule-period" label={t("editor.period")}>
                   <Select

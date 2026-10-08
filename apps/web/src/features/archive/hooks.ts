@@ -6,6 +6,7 @@ import {
   type ArchiveSearchParams,
   archiveKeys,
   fetchArchiveItem,
+  fetchArchivePreview,
   fetchArchiveRetention,
   searchArchive,
   verifyArchiveChain,
@@ -28,6 +29,8 @@ export function useArchiveSearch(params: ArchiveSearchParams) {
     queryFn: () => searchArchive(params),
     enabled: enabled && canManage,
     placeholderData: (previous) => previous,
+    // Every search is audited: run one when the person asks, not on every focus of the window.
+    refetchOnWindowFocus: false,
   });
 }
 
@@ -37,14 +40,29 @@ export function useArchiveItem(id: string | null) {
     queryKey: archiveKeys.item(tenantId, id ?? ""),
     queryFn: () => fetchArchiveItem(id as string),
     enabled: enabled && canManage && id !== null,
+    refetchOnWindowFocus: false,
   });
 }
 
+/** The reading pane of one archived message (an audited read, so only for the selected one). */
+export function useArchivePreview(id: string | null) {
+  const { tenantId, enabled, canManage } = useTenantScope();
+  return useQuery({
+    queryKey: archiveKeys.preview(tenantId, id ?? ""),
+    queryFn: () => fetchArchivePreview(id as string),
+    enabled: enabled && canManage && id !== null,
+    // Each read is audited: keep what was read instead of reading it again on focus.
+    staleTime: 5 * 60_000,
+    refetchOnWindowFocus: false,
+  });
+}
+
+/** The archive check; `contentSample` messages are read back from storage (0 skips that). */
 export function useVerifyChain() {
   const { tenantId } = useTenantScope();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: () => verifyArchiveChain(),
+    mutationFn: (contentSample: number) => verifyArchiveChain(contentSample),
     onSuccess: (result) => {
       queryClient.setQueryData(archiveKeys.chain(tenantId), result);
     },

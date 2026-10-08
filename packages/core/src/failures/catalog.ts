@@ -157,6 +157,12 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     retryable: false,
     steps: () => [step("open_item_at_source"), step("contact_microsoft_support")],
   },
+  "graph.item_incomplete": {
+    category: "microsoft",
+    transient: true,
+    retryable: true,
+    steps: () => [step("wait_automatic"), step("open_item_at_source")],
+  },
   "graph.delta_expired": {
     category: "microsoft",
     transient: true,
@@ -236,6 +242,12 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     steps: () => [step("free_target_space")],
   },
   "imap.connection_lost": {
+    category: "imap",
+    transient: true,
+    retryable: true,
+    steps: () => [step("wait_automatic"), step("check_server_limits")],
+  },
+  "imap.message_missing": {
     category: "imap",
     transient: true,
     retryable: true,

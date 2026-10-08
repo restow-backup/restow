@@ -35,7 +35,7 @@
   "activity": {
     "backup": "Sicherung läuft",
     "restore": "Wiederherstellung läuft",
-    "verify_sample": "Wiederherstellungstest läuft",
+    "verify_sample": "Restore-Prüfung läuft",
     "busy": "Arbeitet"
   },
   "readiness": {
@@ -43,21 +43,24 @@
       "green": "Bereit",
       "yellow": "Achtung",
       "red": "Nicht wiederherstellbar",
-      "unverified": "Nicht geprüft",
+      "unverified": "Nicht nachgewiesen",
       "no_backup": "Noch keine Sicherung"
     },
     "overdue": "Überfällig",
-    "overdueHint": "Die neueste Sicherung wurde seit über einer Woche nicht durch einen Wiederherstellungstest geprüft."
+    "overdueHint": "Die neueste Sicherung wurde seit über einer Woche nicht durch eine Restore-Prüfung geprüft.",
+    "frozen": "Geprüft {time}; es kommen keine neuen Sicherungen hinzu",
+    "frozenUndated": "Alter Sicherungsstand; es kommen keine neuen Sicherungen hinzu",
+    "frozenHint": "Der Rechner ist in keinem Backup-Job. Die Bewertung gilt für einen älteren Sicherungsstand, den nichts mehr erneuert."
   },
   "runKind": {
     "backup": "Sicherung",
     "restore": "Wiederherstellung auf den Rechner",
-    "verify_sample": "Wiederherstellungstest auf dem Rechner"
+    "verify_sample": "Restore-Prüfung auf dem Rechner"
   },
   "runStatus": {
     "running": "Läuft",
     "succeeded": "Erfolgreich",
-    "partial": "Teilweise",
+    "partial": "Mit Warnungen",
     "failed": "Fehlgeschlagen",
     "interrupted": "Unterbrochen",
     "incomplete": "Nicht abgeschlossen, wird wiederholt",
@@ -82,14 +85,14 @@
       "message": "Der letzte Sicherungslauf ist fehlgeschlagen und hat nichts Neues gesichert. Öffnen Sie den Lauf unter Läufe, um Protokoll und Fehler zu lesen."
     },
     "restore_test_failed": {
-      "label": "Wiederherstellungstest fehlgeschlagen",
-      "hint": "Dateien der neuesten Sicherung kamen im Wiederherstellungstest nicht unversehrt zurück.",
-      "message": "Ein Wiederherstellungstest der neuesten Sicherung ist fehlgeschlagen: Stichproben-Dateien ließen sich nicht zurücklesen oder stimmten nicht überein. Bis ein Test besteht, gilt diese Sicherung als nicht wiederherstellbar. Die Abweichungen stehen unter Berichte."
+      "label": "Restore-Prüfung fehlgeschlagen",
+      "hint": "Dateien der neuesten Sicherung kamen in der Restore-Prüfung nicht unversehrt zurück.",
+      "message": "Eine Restore-Prüfung der neuesten Sicherung ist fehlgeschlagen: Stichproben-Dateien ließen sich nicht zurücklesen oder stimmten nicht überein. Bis eine Restore-Prüfung besteht, gilt diese Sicherung als nicht wiederherstellbar. Die Abweichungen stehen unter Berichte."
     },
     "repository_damaged": {
-      "label": "Repository beschädigt",
-      "hint": "Eine Repository-Prüfung hat Schäden in den gespeicherten Sicherungsdaten gefunden.",
-      "message": "Eine Repository-Prüfung hat Schäden in den gespeicherten Sicherungsdaten dieses Rechners gefunden. Wiederherstellungen können fehlschlagen. Details stehen unter Berichte; prüfen Sie außerdem das Speicherziel."
+      "label": "Sicherungsdaten beschädigt",
+      "hint": "Eine Integritätsprüfung hat Schäden in den gespeicherten Sicherungsdaten gefunden.",
+      "message": "Eine Integritätsprüfung hat Schäden in den gespeicherten Sicherungsdaten dieses Rechners gefunden. Wiederherstellungen können fehlschlagen. Details stehen unter Berichte; prüfen Sie außerdem den Speicherort."
     },
     "never_seen": {
       "label": "Noch nie verbunden",
@@ -114,7 +117,7 @@
     "noBackupYet": "Noch keine Sicherung",
     "backupRunning": "Sicherung läuft",
     "backupFailed": "Fehlgeschlagen",
-    "backupPartial": "Teilweise",
+    "backupPartial": "Mit Warnungen",
     "columns": {
       "name": "Name",
       "profile": "Typ",
@@ -137,7 +140,9 @@
       "noRestorePoint": "Für diesen Rechner gibt es noch keine Sicherung, aus der Sie wiederherstellen könnten.",
       "revoked": "Der Rechner ist gesperrt.",
       "newJobFromSelection": "{count, plural, one {Neuer Job mit # Rechner} other {Neuer Job mit # Rechnern}}",
-      "addSelectionToJob": "{count, plural, one {# Rechner zu einem Job hinzufügen…} other {# Rechner zu einem Job hinzufügen…}}"
+      "addSelectionToJob": "{count, plural, one {# Rechner zu einem Job hinzufügen…} other {# Rechner zu einem Job hinzufügen…}}",
+      "backupSelection": "{count, plural, one {# Rechner jetzt sichern} other {# Rechner jetzt sichern}}",
+      "backupSelectionNoJob": "Keiner der ausgewählten Rechner ist in einem Backup-Job."
     },
     "jobFilter": {
       "without": "Ohne Backup",
@@ -157,11 +162,11 @@
       },
       "servers": {
         "title": "Noch keine Server",
-        "description": "Fügen Sie einen Linux-Server hinzu: {appName} erzeugt einen einmaligen Befehl, der den Backup-Agent installiert und den Server verbindet. Danach wird er täglich gesichert."
+        "description": "Fügen Sie einen Linux- oder macOS-Server hinzu: {appName} erzeugt einen einmaligen Befehl, der den Backup-Agenten installiert und den Server verbindet. Gesichert wird er, sobald Sie ihn einem Backup-Job hinzufügen."
       },
       "clients": {
         "title": "Noch keine Clients",
-        "description": "Fügen Sie einen Laptop oder Desktop hinzu: {appName} erzeugt einen einmaligen Befehl, der den Backup-Agent installiert. Der Client wird gesichert, sobald er online ist."
+        "description": "Fügen Sie einen Laptop oder Desktop hinzu: {appName} erzeugt einen einmaligen Befehl, der den Backup-Agenten installiert. Gesichert wird der Client, sobald Sie ihn einem Backup-Job hinzufügen."
       }
     }
   },
@@ -188,7 +193,8 @@
     "submit": "Hinzufügen",
     "move": "Hierher verschieben",
     "added": "{count, plural, one {{name} ist jetzt im Job {job}} other {# Rechner sind jetzt im Job {job}}}",
-    "addedNote": "Der Zeitplan des Jobs gilt ab dem nächsten Kontakt des Rechners."
+    "addedNote": "Der Zeitplan des Jobs gilt ab dem nächsten Kontakt des Rechners.",
+    "folders": "Ordner: {path}"
   },
   "assign": {
     "action": "Zuordnen…",
@@ -300,6 +306,11 @@
         "description": "Die Adresse {url} im Befehl stammt aus diesem Browser, weil keine öffentliche URL konfiguriert ist. Der Rechner muss genau diese Adresse erreichen können.",
         "link": "Öffentliche URL in den Einstellungen setzen",
         "elsewhere": "Die öffentliche Adresse legt der Betreiber dieser Installation fest."
+      },
+      "storage": {
+        "title": "Der Speicherort ist gestört",
+        "description": "Sie können den Rechner anmelden, aber seine Sicherungen lassen sich nicht schreiben, bis der Fehler des Speicherorts behoben ist.",
+        "link": "Speicherorte öffnen"
       }
     },
     "status": {
@@ -376,7 +387,7 @@
     "revokedBanner": "Dieser Rechner ist gesperrt. Er nimmt keine neuen Sicherungen oder Aufgaben an, und seine Einstellungen lassen sich nicht ändern. Vorhandene Sicherungen bleiben wiederherstellbar: Sie können sie durchsuchen und Dateien als ZIP herunterladen.",
     "tabs": {
       "overview": "Übersicht",
-      "snapshots": "Snapshots",
+      "snapshots": "Sicherungsstände",
       "settings": "Einstellungen"
     }
   },
@@ -390,13 +401,14 @@
       "needsJob": "Fügen Sie den Rechner zuerst einem Backup-Job hinzu."
     },
     "test": {
-      "label": "Wiederherstellungstest starten",
-      "queued": "Wiederherstellungstest eingeplant",
+      "label": "Restore-Prüfung starten",
+      "queued": "Restore-Prüfung eingeplant",
       "queuedNote": "{appName} liest Stichproben-Dateien der neuesten Sicherung zurück und vergleicht ihre Prüfsummen. Das Ergebnis erscheint unter Berichte.",
-      "already": "Für diesen Rechner ist bereits ein Wiederherstellungstest eingeplant oder aktiv.",
-      "failed": "Der Wiederherstellungstest konnte nicht gestartet werden",
-      "needsBackup": "Ein Wiederherstellungstest braucht zuerst eine erfolgreiche Sicherung."
-    }
+      "already": "Für diesen Rechner wartet bereits eine Restore-Prüfung oder sie läuft gerade.",
+      "failed": "Die Restore-Prüfung konnte nicht gestartet werden",
+      "needsBackup": "Eine Restore-Prüfung braucht zuerst eine erfolgreiche Sicherung."
+    },
+    "revoked": "Der Rechner ist gesperrt."
   },
   "facts": {
     "title": "Dieser Rechner",
@@ -430,15 +442,15 @@
     "configRevoked": "Version {version}"
   },
   "repository": {
-    "title": "Repository",
-    "description": "Das restic-Repository, das die Sicherungen dieses Rechners in Ihrem Speicherziel enthält.",
+    "title": "Sicherungsdaten",
+    "description": "Das restic-Repository, das die Sicherungen dieses Rechners an Ihrem Speicherort enthält.",
     "size": "Größe im Speicher",
     "snapshots": "Vorhandene Snapshots",
     "measured": "Gemessen",
     "notMeasured": "Noch nicht gemessen; erscheint mit der ersten Sicherung",
     "lastRetention": "Letzter Aufbewahrungslauf",
-    "lastCheck": "Letzte Repository-Prüfung",
-    "lastRestoreTest": "Letzter Wiederherstellungstest",
+    "lastCheck": "Letzte Integritätsprüfung",
+    "lastRestoreTest": "Letzte Restore-Prüfung",
     "retention": "Aufbewahrt werden {daily} tägliche, {weekly} wöchentliche und {monthly} monatliche Snapshots. Ältere entfernt nur der Server; der Agent kann Sicherungen hinzufügen, aber nie löschen.",
     "ofBudget": "{used} von {budget} ({percent} %)",
     "budget": "Speicherbudget",
@@ -449,7 +461,7 @@
     "tenantOf": "{used} von {budget}",
     "refused": "Zuletzt abgelehnter Upload",
     "quota": {
-      "near": "Das Repository belegt mehr als 90 Prozent seines Speicherbudgets. Erhöhen Sie das Budget in den Einstellungen oder bewahren Sie weniger Snapshots auf, bevor neue Sicherungen abgelehnt werden.",
+      "near": "Die Sicherungsdaten dieses Rechners belegen mehr als 90 Prozent ihres Speicherbudgets. Erhöhen Sie das Budget in den Einstellungen oder bewahren Sie weniger Sicherungsstände auf, bevor neue Sicherungen abgelehnt werden.",
       "exceeded": "Das Speicherbudget ist ausgeschöpft: Neue Sicherungen dieses Rechners werden abgelehnt, bis das Budget erhöht wird oder die Aufbewahrung Platz schafft. Wiederherstellungen funktionieren weiter."
     }
   },
@@ -459,7 +471,7 @@
     "kind": {
       "backup_now": "Jetzt sichern",
       "restore": "Wiederherstellung",
-      "verify_sample": "Wiederherstellungstest",
+      "verify_sample": "Restore-Prüfung",
       "update_config": "Neue Einstellungen anwenden",
       "uninstall": "Agent deinstallieren"
     },
@@ -481,7 +493,7 @@
   },
   "runs": {
     "title": "Läufe",
-    "description": "Was der Agent auf diesem Rechner getan hat: Sicherungen, Wiederherstellungen und Wiederherstellungstests, neueste zuerst. Ein Lauf zeigt sein Protokoll und die Dateien, die er nicht lesen konnte.",
+    "description": "Was der Agent auf diesem Rechner getan hat: Sicherungen, Wiederherstellungen und Restore-Prüfungen, neueste zuerst. Ein Lauf zeigt sein Protokoll und die Dateien, die er nicht lesen konnte.",
     "empty": "Noch kein Lauf gemeldet. Der erste erscheint, sobald der Rechner eine Sicherung gestartet hat.",
     "unknown": "Unbekannt",
     "columns": {
@@ -512,7 +524,7 @@
       "filesNew": "Neue Dateien",
       "filesChanged": "Geänderte Dateien",
       "filesUnmodified": "Unveränderte Dateien",
-      "dataAdded": "Dem Repository hinzugefügte Daten"
+      "dataAdded": "Neu gespeicherte Daten"
     },
     "progress": {
       "heading": "Fortschritt",
@@ -538,17 +550,17 @@
       "empty": "Der Agent hat für diesen Lauf kein Protokoll gesendet."
     },
     "interruptedNote": "Der Agent wurde während dieses Laufs neu gestartet und nimmt die Arbeit von selbst wieder auf. Das ist kein Fehler; Sie müssen nichts tun.",
-    "incompleteNote": "Dieser Wiederherstellungstest konnte nicht abgeschlossen werden und sagt daher nichts über die Sicherung aus: Nichts wurde bewertet, kein Alarm ging hinaus, und der letzte Wiederherstellungstest bleibt, wie er war. Der Rechner bekommt den Test nach einer Wartezeit erneut, solange diese Sicherung seine neueste ist; sonst bringt die nächste Sicherung einen neuen Test.",
-    "incompleteNoteFinal": "Dieser Wiederherstellungstest konnte nicht abgeschlossen werden und sagt daher nichts über die Sicherung aus: Nichts wurde bewertet, und kein Alarm ging hinaus. Der Rechner ist gesperrt und bekommt keine weiteren Tests.",
+    "incompleteNote": "Diese Restore-Prüfung konnte nicht abgeschlossen werden und sagt daher nichts über die Sicherung aus: Nichts wurde bewertet, kein Alarm ging hinaus, und die letzte Restore-Prüfung bleibt, wie sie war. Der Rechner bekommt die Prüfung nach einer Wartezeit erneut, solange diese Sicherung seine neueste ist; sonst bringt die nächste Sicherung eine neue Prüfung.",
+    "incompleteNoteFinal": "Diese Restore-Prüfung konnte nicht abgeschlossen werden und sagt daher nichts über die Sicherung aus: Nichts wurde bewertet, und kein Alarm ging hinaus. Der Rechner ist gesperrt und bekommt keine weiteren Restore-Prüfungen.",
     "errorCount": "{count, plural, one {# Fehler} other {# Fehler}}"
   },
   "reports": {
     "title": "Berichte",
-    "description": "Was {appName} über das Repository herausgefunden hat: Wiederherstellungstests, Repository-Prüfungen und Aufbewahrungsläufe.",
-    "empty": "Noch kein Bericht. Wiederherstellungstests, Repository-Prüfungen und Aufbewahrungsläufe erscheinen hier.",
+    "description": "Was {appName} über die Sicherungsdaten herausgefunden hat: Restore-Prüfungen, Integritätsprüfungen und Aufbewahrungsläufe.",
+    "empty": "Noch kein Bericht. Restore-Prüfungen, Integritätsprüfungen und Aufbewahrungsläufe erscheinen hier.",
     "kind": {
-      "restore_test": "Wiederherstellungstest",
-      "repository_check": "Repository-Prüfung",
+      "restore_test": "Restore-Prüfung",
+      "repository_check": "Integritätsprüfung",
       "retention": "Aufbewahrungslauf"
     },
     "origin": {
@@ -563,14 +575,14 @@
       "noResult": "Der Test wurde nicht abgeschlossen"
     },
     "check": {
-      "headline": "Repository-Prüfung",
+      "headline": "Integritätsprüfung",
       "subset": "{percent} % der gespeicherten Daten geprüft"
     },
     "retention": {
       "headline": "Aufbewahrungslauf",
       "removed": "{count, plural, one {# Snapshot entfernt} other {# Snapshots entfernt}}",
       "kept": "{kept} Snapshots behalten",
-      "size": "Größe des Repositorys danach: {size}",
+      "size": "Größe der Sicherungsdaten danach: {size}",
       "unrecorded": "{count, plural, one {# Snapshot, den keine Sicherung gemeldet hat, wurde behalten} other {# Snapshots, die keine Sicherung gemeldet hat, wurden behalten}}"
     },
     "mismatches": {
@@ -582,30 +594,30 @@
     }
   },
   "snapshots": {
-    "title": "Wiederherstellungspunkte",
-    "description": "{count, plural, one {# Snapshot im Repository. Wählen Sie einen, um seine Dateien zu durchsuchen.} other {# Snapshots im Repository. Wählen Sie einen, um seine Dateien zu durchsuchen.}}",
+    "title": "Sicherungsstände",
+    "description": "{count, plural, one {# Sicherungsstand. Wählen Sie ihn, um seine Dateien zu durchsuchen.} other {# Sicherungsstände. Wählen Sie einen, um seine Dateien zu durchsuchen.}}",
     "files": "{count, plural, one {# Datei} other {# Dateien}}",
-    "errorTitle": "Die Snapshots konnten nicht gelesen werden",
-    "busyTitle": "Das Repository ist beschäftigt",
+    "errorTitle": "Die Sicherungsstände konnten nicht gelesen werden",
+    "busyTitle": "Die Sicherungsdaten sind gerade belegt",
     "empty": {
-      "title": "Noch kein Snapshot",
-      "description": "Jede erfolgreiche Sicherung erzeugt einen Snapshot. Sobald der Rechner seine erste Sicherung abgeschlossen hat, erscheinen hier seine Wiederherstellungspunkte."
+      "title": "Noch kein Sicherungsstand",
+      "description": "Jede erfolgreiche Sicherung erzeugt einen Sicherungsstand. Sobald der Rechner seine erste Sicherung abgeschlossen hat, erscheinen hier seine Sicherungsstände."
     },
     "flags": {
       "unrecorded": "Von keiner Sicherung gemeldet",
       "future_time": "In der Zukunft datiert",
-      "hint": "Die Aufbewahrung behält diesen Snapshot. Prüfen Sie den Rechner: Er könnte kompromittiert sein."
+      "hint": "Die Aufbewahrung behält diesen Sicherungsstand. Prüfen Sie den Rechner: Er könnte kompromittiert sein."
     },
     "timelineLabel": "Sicherungsstände von {name}"
   },
   "browser": {
-    "title": "Dateien in Snapshot {id}",
+    "title": "Dateien im Sicherungsstand {id}",
     "auditNote": "Durchsuchen und Herunterladen werden im Audit-Log protokolliert.",
     "pathBar": "Ordnerpfad",
-    "root": "Snapshot-Wurzel",
+    "root": "Oberste Ebene",
     "pick": {
-      "title": "Snapshot wählen",
-      "description": "Wählen Sie links einen Wiederherstellungspunkt, um seine Ordner und Dateien zu durchsuchen."
+      "title": "Sicherungsstand wählen",
+      "description": "Wählen Sie links einen Sicherungsstand, um seine Ordner und Dateien zu durchsuchen."
     },
     "columns": {
       "name": "Name",
@@ -619,7 +631,7 @@
     "symlink": "Verknüpfung",
     "special": "Spezialdatei, nicht wiederherstellbar",
     "errorTitle": "Der Ordner konnte nicht gelesen werden",
-    "busyTitle": "Das Repository ist beschäftigt",
+    "busyTitle": "Die Sicherungsdaten sind gerade belegt",
     "revokedNote": "Dieser Rechner ist gesperrt, daher lassen sich keine Dateien auf ihm wiederherstellen. Als ZIP herunterladen ist weiterhin möglich.",
     "selection": {
       "none": "Nichts ausgewählt",
@@ -648,16 +660,18 @@
   "restore": {
     "title": "Auf den Rechner wiederherstellen",
     "description": "Der Agent von {name} stellt die ausgewählten Dateien und Ordner wieder her.",
-    "selection": "{count, plural, one {# Element} other {# Elemente}} aus Snapshot {id} vom {time}",
+    "selection": "{count, plural, one {# Element} other {# Elemente}} aus dem Sicherungsstand {id} vom {time}",
     "moreItems": "{count, plural, one {und # weiteres} other {und # weitere}}",
     "target": {
       "label": "Zielordner (optional)",
       "placeholder": "/srv/restore",
-      "hint": "Ein absoluter Pfad auf dem Rechner. Ohne Angabe legt der Agent einen neuen Ordner namens Restow-Restore mit Datum und Uhrzeit im ersten gesicherten Ordner an.",
+      "hint": "Ein absoluter Pfad auf dem Rechner (Linux oder macOS), zum Beispiel /srv/restore-2026. Der Ordner darf noch nicht existieren oder muss leer sein, und der Ordner darüber muss vorhanden sein; sonst bricht der Lauf ab, ohne etwas zu schreiben. Ohne Angabe legt der Agent einen neuen Ordner namens Restow-Restore mit Datum und Uhrzeit im ersten gesicherten Ordner an.",
       "errors": {
-        "notAbsolute": "Geben Sie einen absoluten Pfad an, der mit einem Schrägstrich beginnt.",
+        "notAbsolute": "Geben Sie einen absoluten Pfad an, der mit / beginnt, zum Beispiel /srv/restore-2026. Windows-Pfade werden nicht unterstützt.",
         "controlCharacters": "Der Pfad enthält Steuerzeichen.",
-        "tooLong": "Der Pfad ist zu lang."
+        "tooLong": "Der Pfad ist zu lang.",
+        "root": "Das Wurzelverzeichnis / ist als Ziel nicht erlaubt. Geben Sie einen Ordner darunter an.",
+        "notPlain": "Geben Sie den Pfad ohne „.“, „..“, doppelte oder abschließende Schrägstriche an."
       }
     },
     "neverOverwrites": "Eine Wiederherstellung überschreibt nie vorhandene Dateien. Alles wird in einen neuen Ordner geschrieben, die Dateien, die jetzt auf dem Rechner liegen, bleiben unberührt.",
@@ -788,12 +802,20 @@
     },
     "retention": {
       "title": "Aufbewahrung",
-      "description": "Wie viele Snapshots aufbewahrt werden.",
-      "keepDaily": "Tägliche Snapshots",
-      "keepWeekly": "Wöchentliche Snapshots",
-      "keepMonthly": "Monatliche Snapshots",
+      "description": "Wie viele Sicherungsstände aufbewahrt werden.",
+      "keepDaily": "Tägliche Sicherungsstände",
+      "keepWeekly": "Wöchentliche Sicherungsstände",
+      "keepMonthly": "Monatliche Sicherungsstände",
       "default": "Standard: {count}",
-      "note": "Der Server wendet diese Regeln an und entfernt ältere Snapshots; der Agent kann Sicherungen nur hinzufügen, nie löschen. Ein niedrigerer Wert entfernt ältere Snapshots beim nächsten Aufbewahrungslauf endgültig."
+      "note": "Der Server wendet diese Regeln an und entfernt ältere Snapshots; der Agent kann Sicherungen nur hinzufügen, nie löschen. Ein niedrigerer Wert entfernt ältere Snapshots beim nächsten Aufbewahrungslauf endgültig.",
+      "stricter": {
+        "title": "Aufbewahrung verkürzen?",
+        "description": "Der nächste Aufbewahrungslauf entfernt ältere Sicherungsstände dieses Rechners endgültig, bis zu:",
+        "keepDaily": "{count, plural, one {# täglichen Sicherungsstand} other {# tägliche Sicherungsstände}}",
+        "keepWeekly": "{count, plural, one {# wöchentlichen Sicherungsstand} other {# wöchentliche Sicherungsstände}}",
+        "keepMonthly": "{count, plural, one {# monatlichen Sicherungsstand} other {# monatliche Sicherungsstände}}",
+        "confirm": "Verkürzen und speichern"
+      }
     },
     "alerts": {
       "title": "Alarme",
@@ -845,7 +867,7 @@
     },
     "quota": {
       "title": "Speicherbudget",
-      "description": "Wie viel das Repository dieses Rechners im Speicherziel höchstens belegen darf. Uploads darüber hinaus werden abgelehnt; Wiederherstellungen funktionieren weiter.",
+      "description": "Wie viel die Sicherungsdaten dieses Rechners am Speicherort höchstens belegen dürfen. Uploads darüber hinaus werden abgelehnt; Wiederherstellungen funktionieren weiter.",
       "label": "Budget in GiB",
       "hintDefault": "Leer lassen für den Standard der Installation von {size}.",
       "hintUnlimited": "Leer lassen für unbegrenzt (die Installation legt keinen Standard fest).",
@@ -855,15 +877,15 @@
   "repositoryKey": {
     "title": "Wiederherstellung ohne {appName}",
     "description": "Die Sicherung dieses Rechners ist ein gewöhnliches restic-Repository.",
-    "body": "Mit dem Repository-Passwort und Zugriff auf das Speicherziel lässt sich die Sicherung allein mit restic wiederherstellen, auch wenn der Server von {appName} nicht mehr existiert. Der Server legt das Passwort außerdem versiegelt neben das Repository, sodass Master-Key und Speicher genügen: Der Befehl restow-restore endpoint-password stellt es wieder her. Bewahren Sie das Passwort trotzdem sicher auf, zum Beispiel in einem Passwortmanager.",
+    "body": "Mit dem Repository-Passwort und Zugriff auf den Speicherort lässt sich die Sicherung allein mit restic wiederherstellen, auch wenn der Server von {appName} nicht mehr existiert. Der Server legt das Passwort außerdem versiegelt neben das restic-Repository, sodass Master-Key und Speicher genügen: Der Befehl restow-restore endpoint-password stellt es wieder her. Bewahren Sie das Passwort trotzdem sicher auf, zum Beispiel in einem Passwortmanager.",
     "show": "Repository-Passwort anzeigen",
     "dialog": {
       "title": "Repository-Passwort",
-      "description": "Bestätigen Sie, dass Sie das Passwort des Repositorys dieses Rechners sehen möchten.",
+      "description": "Bestätigen Sie, dass Sie das Repository-Passwort dieses Rechners sehen möchten.",
       "shownDescription": "Kopieren Sie das Passwort jetzt. Es wird wieder ausgeblendet, sobald Sie dieses Fenster schließen.",
       "warningTitle": "Sorgfältig behandeln",
       "audit": "Das Anzeigen des Passworts wird im Audit-Log protokolliert.",
-      "power": "Das Passwort entschlüsselt die gesamte Sicherung dieses Rechners. Wer es besitzt und das Speicherziel lesen kann, kann jede gesicherte Datei lesen.",
+      "power": "Das Passwort entschlüsselt die gesamte Sicherung dieses Rechners. Wer es besitzt und den Speicherort lesen kann, kann jede gesicherte Datei lesen.",
       "stepUp": "Liegt Ihre Anmeldung länger als 10 Minuten zurück, bestätigen Sie zuerst, dass Sie es sind.",
       "cancel": "Abbrechen",
       "confirm": "Passwort anzeigen",
@@ -872,7 +894,7 @@
       "hideNote": "Wird nicht in diesem Browser gespeichert. Das Schließen des Fensters blendet es aus.",
       "example": "Beispielbefehl",
       "copyCommand": "Beispielbefehl kopieren",
-      "exampleNote": "Ersetzen Sie /path/to/storage durch den Ordner Ihres Speicherziels und führen Sie restic mit diesem Passwort aus. Der Befehl stellt den neuesten Snapshot nach /restore wieder her. Bei Objektspeicher verwenden Sie stattdessen die restic-Repository-Adresse Ihres Buckets.",
+      "exampleNote": "Ersetzen Sie /path/to/storage durch den Ordner Ihres Speicherorts und führen Sie restic mit diesem Passwort aus. Der Befehl stellt den neuesten Snapshot nach /restore wieder her. Bei Objektspeicher verwenden Sie stattdessen die restic-Repository-Adresse Ihres Buckets.",
       "hide": "Ausblenden und schließen"
     }
   },
@@ -910,9 +932,9 @@
   },
   "errors": {
     "resticBusy": "Der Server liest gerade andere Sicherungen. Versuchen Sie es gleich noch einmal.",
-    "repositoryLocked": "Das Repository ist mit einer Sicherung oder Wartung beschäftigt. Versuchen Sie es in Kürze noch einmal.",
-    "repositoryUnavailable": "Das Repository dieses Rechners konnte im Speicherziel nicht geöffnet werden. Prüfen Sie, ob das Speicherziel erreichbar ist.",
-    "resticFailed": "Das Lesen des Repositorys ist fehlgeschlagen. Die Einzelheiten stehen im Server-Log.",
+    "repositoryLocked": "Die Sicherungsdaten sind gerade mit einer Sicherung oder Wartung beschäftigt. Versuchen Sie es in Kürze noch einmal.",
+    "repositoryUnavailable": "Die Sicherungsdaten dieses Rechners konnten am Speicherort nicht geöffnet werden. Prüfen Sie, ob der Speicherort erreichbar ist.",
+    "resticFailed": "Das Lesen der Sicherungsdaten ist fehlgeschlagen. Die Einzelheiten stehen im Server-Log.",
     "resticUnavailable": "Das Programm restic ist auf dem Server nicht verfügbar, daher lassen sich Snapshots nicht lesen.",
     "unsupportedOs": "Dieses Betriebssystem wird noch nicht unterstützt. Diese Version sichert Linux- und macOS-Rechner.",
     "revoked": "Dieser Rechner ist gesperrt und nimmt keine Änderungen oder Aufgaben an.",
@@ -938,9 +960,9 @@
     "open": "Öffnen",
     "openFor": "{name} öffnen",
     "result": {
-      "green": "Der Restore-Test der neuesten Sicherung hat jede geprüfte Datei bestätigt.",
-      "yellow": "Der Restore-Test wurde bestanden, aber die neueste Sicherung ist unvollständig: einige Dateien ließen sich nicht lesen.",
-      "red": "Der Restore-Test der neuesten Sicherung ist fehlgeschlagen, oder eine Repository-Prüfung hat Schäden gefunden.",
+      "green": "Die Restore-Prüfung der neuesten Sicherung hat jede geprüfte Datei bestätigt.",
+      "yellow": "Die Restore-Prüfung wurde bestanden, aber die neueste Sicherung ist unvollständig: einige Dateien ließen sich nicht lesen.",
+      "red": "Die Restore-Prüfung der neuesten Sicherung ist fehlgeschlagen, oder eine Integritätsprüfung hat Schäden gefunden.",
       "unverified": "Eine Sicherung ist vorhanden, wurde aber nie geprüft.",
       "noBackup": "Nichts zu prüfen, bis die erste Sicherung abgeschlossen ist.",
       "noBackupOverdue": "Keine Sicherung innerhalb von 24 Stunden nach Beginn des Schutzes."
@@ -954,33 +976,36 @@
     "hooks_not_allowed": "Der Befehl vor oder nach der Sicherung wurde nicht ausgeführt: Der Rechner lässt Hooks aus {appName} nicht zu",
     "timeout": "Der Lauf hat zu lange gedauert und wurde abgebrochen",
     "target_not_empty": "Der Zielordner war nicht leer, daher wurde nichts wiederhergestellt und nichts überschrieben",
+    "target_unusable": "Der Zielordner ließ sich nicht verwenden, zum Beispiel weil der Ordner darüber fehlt oder die Rechte nicht reichen. Es wurde nichts wiederhergestellt.",
     "invalid_task": "Der Rechner konnte die Anfrage nicht ausführen",
     "hash_mismatch": "Eine Datei weicht von der beim Backup festgehaltenen Prüfsumme ab",
-    "missing": "Eine Datei wurde im Snapshot nicht gefunden",
+    "missing": "Eine Datei wurde im Sicherungsstand nicht gefunden",
     "not_regular": "Der Eintrag ist keine reguläre Datei und ließ sich daher nicht vergleichen",
     "read_error": "Eine Datei ließ sich nicht lesen",
     "restic_exit": "restic wurde mit Exit-Code {code} beendet",
+    "restic_error": "restic ist mit einem Fehler abgebrochen",
+    "truncated": "Weitere Fehler sind hier nicht aufgeführt",
     "unknown": "Fehlercode {code}",
-    "detail": "Meldung des Agents",
+    "detail": "Technische Meldung des Agents",
     "agent_stopped": "Der Agent hat sich während des Laufs nicht mehr gemeldet"
   },
   "agentUpdates": {
     "title": "Automatische Agent-Updates",
-    "description": "Agents aktualisieren sich selbst auf die neueste Version, die diese Installation mitbringt, und nur auf Releases, die der Maintainer signiert hat. Pausieren Sie das, um jede Maschine auf ihrer Version zu halten, zum Beispiel um ein Update zuerst zu testen. Es ist eine Einstellung für alle Maschinen, auch für später hinzugefügte.",
+    "description": "Agents aktualisieren sich selbst auf die neueste Version, die diese Installation mitbringt, und nur auf Releases, die der Maintainer signiert hat. Pausieren Sie das, um jeden Rechner auf seiner Version zu halten, zum Beispiel um ein Update zuerst zu testen. Es ist eine Einstellung für alle Rechner, auch für später hinzugefügte.",
     "label": "Agenten automatisch aktualisieren",
     "on": "Ein: Die Rechner installieren neue signierte Agent-Releases selbst.",
-    "paused": "Für jede Maschine pausiert, auch für später hinzugefügte.",
+    "paused": "Für jeden Rechner pausiert, auch für später hinzugefügte.",
     "toast": {
       "on": "Automatische Agent-Updates sind eingeschaltet",
       "paused": "Automatische Agent-Updates sind pausiert",
-      "machineResumed": "Die Maschine folgt wieder der Einstellung",
-      "allResumed": "Alle Maschinen folgen wieder der Einstellung"
+      "machineResumed": "Der Rechner folgt wieder der Einstellung",
+      "allResumed": "Alle Rechner folgen wieder der Einstellung"
     },
     "loadError": "Die Einstellung für Agent-Updates konnte nicht geladen werden.",
     "overrides": {
-      "title": "{count, plural, one {# Maschine ist einzeln pausiert} other {# Maschinen sind einzeln pausiert}}",
-      "description": "Diese Maschinen behalten ihre Version, was die Einstellung oben auch sagt. Sie wurden pausiert, bevor die Pause eine Einstellung für alle Maschinen wurde. Setzen Sie sie fort, damit sie der Einstellung folgen.",
-      "resume": "Diese Maschine fortsetzen",
+      "title": "{count, plural, one {# Rechner ist einzeln pausiert} other {# Rechner sind einzeln pausiert}}",
+      "description": "Diese Rechner behalten ihre Version, was die Einstellung oben auch sagt. Sie wurden pausiert, bevor die Pause eine Einstellung für alle Rechner wurde. Setzen Sie sie fort, damit sie der Einstellung folgen.",
+      "resume": "Diesen Rechner fortsetzen",
       "resumeAll": "Alle fortsetzen"
     }
   },
@@ -1018,6 +1043,6 @@
   "proxmox": {
     "label": "Proxmox verbinden",
     "title": "Proxmox VE",
-    "description": "Proxmox VE ab 8.4 anbinden und virtuelle Maschinen sowie LXC-Container über die offizielle Backup-Schnittstelle von Proxmox sichern: Nur geänderte Blöcke verlassen den Host, direkt in Ihre {appName}-Repositories. Kommt nach 0.2.0."
+    "description": "Proxmox VE ab 8.4 anbinden und VMs sowie LXC-Container über die offizielle Backup-Schnittstelle von Proxmox sichern: Nur geänderte Blöcke verlassen den Knoten, direkt an Ihre Speicherorte. Kommt nach 0.2.0."
   }
 }

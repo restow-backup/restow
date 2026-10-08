@@ -231,6 +231,29 @@ Vorschau und Journal zusammen.
   Umschlag (darüber `recipients-truncated`; der archivierte Report enthält alle). Ein ehrlicher
   Report bis zur Größengrenze bleibt so weit unter dem Speicher seines Prozesses.
 
+### Zuordnung zu Postfächern und Archiv je Job (ab 0.3.0)
+
+Ein Journal-Report nennt Empfänger und Absender, kein Postfach. Der Empfänger ordnet jeden
+archivierten Report in derselben Transaktion allen geschützten Postfächern des Mandanten zu,
+deren Adresse der Umschlag nennt: als Empfänger, als Absender (gesendete Mail), als Postfach, für
+das ein Stellvertreter gesendet hat, oder als Postfach, das weitergeleitet hat. Verglichen wird
+klein geschrieben mit primärer Adresse, UPN und allen SMTP-Aliasen aus `proxyAddresses`, die die
+Verzeichnissynchronisierung speichert (`users.mail_addresses`); ein IMAP-Konto über seinen Login.
+Die Zuordnung steht in `archive_item_mailboxes` (nur hinzufügen, nie ändern, wie
+`archive_items`).
+
+- Ein Report, der kein Postfach des Mandanten nennt, wird trotzdem archiviert und gehört dann nur
+  dem Mandanten. Nichts wird verworfen.
+- Im Editor eines Mail-Jobs schaltet "Postfächer dieses Jobs archivieren" das Archiv für den Job
+  ein. Die Erfassung hängt nicht daran: Exchange journalisiert nach seiner Journalregel, Restow
+  archiviert jeden Report. Der Schalter sagt, welche Postfächer im Archiv erwartet werden, und
+  zeigt Journal-Adresse und Empfangsstatus (Business). Ein Maschinen-Job kann nicht archivieren.
+- Object Lock ist keine Voraussetzung. Ohne Object Lock zeigt der Editor den Hinweis, dass das
+  Archiv dann nur auf Anwendungsebene unveränderbar ist (Abschnitt "Speicherung").
+- Suche, Export und Legal Hold je Postfach berücksichtigen zugeordnete Journal-Reports.
+- Reports, die vor 0.3.0 eingegangen sind, haben keine Zuordnung; sie gehören weiter nur dem
+  Mandanten.
+
 ### Grenzen
 
 - Journaling erfasst ab der Aktivierung. Was vorher im Postfach lag, erfasst das Archiv in
@@ -253,18 +276,23 @@ Vorschau und Journal zusammen.
   löschen, sobald keine Referenz mehr besteht. Hardware-WORM schützt den Inhalt einer Mail damit
   in 0.1.0 nicht, und Sicherungsdaten (Backups) tragen gar keine Object-Lock-Retention.
 - Hash-Kette: `archive_items.chain_hash = SHA-256(prev_chain_hash || item_hash ||
-  received_at)`; die Kettenprüfung berechnet sie neu und meldet den ersten Bruch.
-  Zielbild, nicht in 0.1.0: ein täglicher Anker in `archive_anchor` (Datum, letzter
-  Kettenwert, Anzahl), dessen Werte zusätzlich per E-Mail an den Betreiber und optional an
-  einen externen Zeitstempeldienst (RFC 3161, z. B. freetsa.org) gehen. Die Tabelle ist
-  angelegt, es schreibt sie aber noch kein Prozess. (Das Audit-Log hat tägliche Anker,
-  `audit_anchor`, siehe ARCHITECTURE.md.)
+  received_at)`. Nach Ende eines UTC-Tages schreibt der nächtliche Ankerlauf des Workers
+  (`apps/worker/src/handlers/archive-anchor.ts`, zusammen mit den Audit-Ankern) je Mandant
+  einen Anker in `archive_anchor`: Datum, Kettenwert des letzten Eintrags des Tages und die
+  Länge der Kette bis dahin; jeder Anker steht zusätzlich im Worker-Log. Die Archivprüfung
+  (`apps/api/src/features/archive/verify.ts`) prüft drei Dinge und nennt jedes im Ergebnis:
+  die Verkettung aller Einträge (erster Bruch mit Position ab 1 und Element), den Abgleich
+  mit jedem Anker (erkennt am Ende abgeschnittene Einträge bis zum neuesten Anker; Einträge
+  danach sind noch nicht versiegelt) und eine Stichprobe von Nachrichten, die aus dem
+  Speicher gelesen und mit Größe und SHA-256 der Erfassung verglichen werden. Jede Prüfung
+  steht im Audit-Log (`archive.chain.verified`). Nicht umgesetzt: Versand der Anker per
+  E-Mail und externe Zeitstempel (RFC 3161).
 - Dedupe: Gleiche Inhalte liegen im Chunk-Store einmal je Mandant. Zielbild, nicht in 0.1.0:
   gleiche Mail an mehrere Postfächer = ein Original mit mehreren Zuordnungen
   (Envelope-Empfänger bleiben je Zuordnung erhalten).
 - Ohne Object Lock (lokaler Speicher, NFS, S3 ohne Lock): Restow erzwingt Unveränderbarkeit
   nur auf Anwendungsebene (kein Lösch-/Änderungspfad im Code, Kettenprüfung); wer Zugriff auf
-  die Dateien oder den Server hat, kann sie ändern oder löschen. Die Seite Repositories zeigt solche
+  die Dateien oder den Server hat, kann sie ändern oder löschen. Die Seite Speicherorte zeigt solche
   Ziele als "Kein Hardware-WORM" bzw. "Object Lock nicht aktiviert".
 - Das Feld `object_lock` eines Archivobjekts und der Zähler `objectLocked` in Archivstatus und
   Nachweisbericht bedeuten in 0.1.0 nur "hat ein Fristende", nicht "liegt unter Object Lock".
@@ -283,9 +311,12 @@ sind Edition Business und Service Provider.
   Jahresende", wie AO § 147 Abs. 4 rechnet).
 - Legal Hold mit Grund, Anleger, Datum; blockiert Löschung, wird auditiert. In 0.1.0 gilt er
   mandantenweit oder je Postfach, nicht je Suchergebnis (Zielbild). Ein Hold je Postfach schützt
-  nur Archivobjekte, die einem Postfach zugeordnet sind (Datei-Import mit "gleichzeitig
-  archivieren"); Journal-Objekte tragen in 0.1.0 keine Postfach-Zuordnung und werden nur von
-  einem mandantenweiten Hold geschützt.
+  die Archivobjekte, die diesem Postfach gehören: aus dem Datei-Import mit "gleichzeitig
+  archivieren" und, ab 0.3.0, die Journal-Reports, die ihm zugeordnet sind (Abschnitt "Zuordnung
+  zu Postfächern"). Reports ohne Zuordnung schützt nur ein mandantenweiter Hold.
+  Die Freigabe nimmt einen Grund an (`DELETE /archive/legal-holds/:id` mit `{ "reason": … }`),
+  den die Oberfläche verlangt und das Audit-Log (`archive.legal_hold.released`) festhält; ein
+  bereits freigegebener Hold wird nicht ein zweites Mal freigegeben (409).
 - Löschlauf: täglich (Aufgabe `retention`, empfohlener Zeitplan 04:30), löscht nur abgelaufene
   Objekte ohne Hold und schreibt jede Löschung ins Audit-Log. Zielbild, nicht in 0.1.0: ein
   Löschprotokoll (Anzahl, Zeitraum, Hashes der gelöschten Objekte) als eigener Eintrag der Kette.
@@ -339,13 +370,16 @@ steht, ist nicht umgesetzt.
   versiegelter Datensatz mit der Hash-Kette. Unveränderbarkeit auf lokalem Speicher und NFS
   nur auf Anwendungsebene. Auf S3 mit Object Lock trägt in 0.1.0 nur der Datensatz eine
   Retention, nicht die Packs mit dem Nachrichteninhalt; Sicherungsdaten tragen keine.
-  Tägliche Archiv-Anker (`archive_anchor`) und externe Zeitstempel gibt es nicht.
+  Tägliche Archiv-Anker (`archive_anchor`) schreibt der Worker; externe Zeitstempel gibt es nicht.
 - **Suche.** Volltext (Postgres `simple`, kein Stemming) über Betreff, extrahierten Text
   (lange Bodies können gekürzt sein) und Umschlag, nicht über Anhänge. Nur Administratoren des
   Mandanten; kein Selbstbedienungszugriff für Endnutzer. Jede Suche und jedes gelesene Element
   steht im Audit-Log (`apps/api/src/features/archive/`).
-- **Kettenprüfung** als API-Endpunkt und Schaltfläche auf der Archiv-Seite
-  (`apps/web/src/features/archive/`).
+- **Archivprüfung** (Verkettung, tägliche Anker, Inhaltsstichprobe) als API-Endpunkt und
+  Schaltfläche auf der Archiv-Seite (`apps/web/src/features/archive/`), synchron in einer
+  Anfrage; ein Hintergrundlauf mit Fortschritt ist nicht umgesetzt.
+- **Lesen und Herunterladen** einer archivierten Nachricht (Leseansicht, `.eml`), beides im
+  Audit-Log.
 - **Retention.** Fest 8 Jahre bis zum Jahresende des Eingangsjahres; keine API und keine
   Oberfläche setzen eine andere Richtlinie. Der tägliche Löschlauf (Business und Service
   Provider, `ee/worker/src/archive-retention/`, im bestehenden `retention`-Job) löscht nur

@@ -81,6 +81,15 @@ Prozess (better-auth-Standard): ein Round-Trip weniger je Anfrage an `/api/auth/
 die Zähler gehen mit jedem Neustart verloren; Redis scheidet aus (siehe Queue).
 - generic OAuth / Microsoft-Provider für Endnutzer-SSO (Entra ID, Multi-Tenant `common`)
 - two-factor (TOTP) nur für den Notfall-Passwortweg
+
+Anmeldestärke (`apps/api/src/lib/session-assurance.ts`), so vom Maintainer bestätigt: Ein
+Passkey (mit User Verification) ersetzt TOTP; eine Passkey-Anmeldung braucht keinen zweiten
+Faktor. Die Passwort-Anmeldung verlangt immer TOTP: Eine Sitzung nur mit Passwort darf
+ausschließlich eine Authenticator-App einrichten (und sich abmelden), alles andere erst nach
+dem Code. Das gilt auch nach dem Zurücksetzen eines Zugangs (Installation › Mitglieder,
+„Zugang zurücksetzen“, oder `restow admin recover`): Passkeys und Authenticator-App sind
+dann entfernt, und die Person richtet ihren zweiten Faktor neu ein.
+
 Das Passkey-Plugin ist ein eigenes Paket, `@better-auth/passkey` (MIT). API und Web
 nutzen dieselben Pakete: die Web-App den React-Client (`better-auth/react`) mit den
 Client-Plugins (`better-auth/client/plugins`, `@better-auth/passkey/client`).

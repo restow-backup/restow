@@ -239,10 +239,10 @@ describe("tenant page translations", () => {
   it("speak of the tenant where the installation manages tenants", async () => {
     await i18n.changeLanguage("en");
     expect(i18n.t("tenantpage:title", { scope: "tenants" })).toBe("Tenant settings");
-    expect(i18n.t("tenantpage:title", { scope: "organisation" })).toBe("Settings");
+    expect(i18n.t("tenantpage:title", { scope: "organisation" })).toBe("Your organisation");
     await i18n.changeLanguage("de");
     expect(i18n.t("tenantpage:title", { scope: "tenants" })).toBe("Mandanten-Einstellungen");
-    expect(i18n.t("tenantpage:title", { scope: "organisation" })).toBe("Einstellungen");
+    expect(i18n.t("tenantpage:title", { scope: "organisation" })).toBe("Ihre Organisation");
     await i18n.changeLanguage("en");
   });
 

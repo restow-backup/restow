@@ -1,4 +1,4 @@
-import { ChevronRight, RefreshCw } from "lucide-react";
+import { ChevronRight, Download, RefreshCw } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -14,6 +14,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/sonner";
 import {
   PIN_FIRST,
   Table,
@@ -23,6 +24,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { downloadFile } from "@/features/stats/download";
+import { errorMessageKey } from "@/lib/api";
 
 import { useDeliveries } from "../hooks";
 import {
@@ -48,6 +51,28 @@ export function DeliveriesCard({ webhookId, webhookActive }: DeliveriesCardProps
   const [filter, setFilter] = React.useState<DeliveryFilter>("all");
   const [selected, setSelected] = React.useState<string | null>(null);
   const query = useDeliveries(webhookId, deliveryStatusOf(filter));
+  const [exporting, setExporting] = React.useState(false);
+
+  async function exportCsv() {
+    setExporting(true);
+    const toastId = toast.loading(t("deliveries.export.preparing"));
+    try {
+      const status = deliveryStatusOf(filter);
+      const filename = await downloadFile({
+        path: `/webhooks/${encodeURIComponent(webhookId)}/deliveries/export${status ? `?status=${status}` : ""}`,
+        accept: "text/csv",
+        fallbackName: "webhook-deliveries.csv",
+      });
+      toast.success(t("deliveries.export.done"), { id: toastId, description: filename });
+    } catch (error) {
+      toast.error(t("deliveries.export.failed"), {
+        id: toastId,
+        description: tc(errorMessageKey(error)),
+      });
+    } finally {
+      setExporting(false);
+    }
+  }
 
   return (
     <Card>
@@ -74,6 +99,15 @@ export function DeliveriesCard({ webhookId, webhookActive }: DeliveriesCardProps
               </SelectContent>
             </Select>
           </div>
+          <Button
+            variant="outline"
+            loading={exporting}
+            onClick={() => void exportCsv()}
+            data-slot="deliveries-export"
+          >
+            <Download aria-hidden="true" />
+            {t("deliveries.export.action")}
+          </Button>
           <Button
             variant="outline"
             size="icon"

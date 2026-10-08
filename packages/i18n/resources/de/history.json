@@ -40,7 +40,7 @@
     "after_backup": "Nach einer Sicherung"
   },
   "state": {
-    "queued": "Wartend",
+    "queued": "Wartet",
     "running": "Läuft",
     "succeeded": "Abgeschlossen",
     "restored": "Wiederhergestellt",
@@ -124,7 +124,7 @@
       "hint": "{unit} · an der Quelle gelesen und geprüft"
     },
     "transferred": {
-      "title": "Übertragung ins Repository",
+      "title": "Übertragung zum Speicherort",
       "hint": "{unit} · nach Deduplizierung und Kompression · Durchschnitt über {seconds} s"
     },
     "now": "jetzt",
@@ -136,7 +136,7 @@
       "recent": "der letzten 5 Minuten",
       "whole": "des gesamten Laufs",
       "processed": "Verarbeitung: jetzt {current}, Mittel {average}, Spitze {peak}.",
-      "transferred": "Übertragung ins Repository (Durchschnitt über {seconds} s): jetzt {current}, Mittel {average}, Spitze {peak}.",
+      "transferred": "Übertragung zum Speicherort (Durchschnitt über {seconds} s): jetzt {current}, Mittel {average}, Spitze {peak}.",
       "keys": "Mit den Pfeiltasten links und rechts gehen Sie durch die Messpunkte, mit Pos1 und Ende springen Sie an die Enden."
     }
   },
@@ -196,6 +196,11 @@
       "title": "Ablauf",
       "empty": "Noch nichts anzuzeigen.",
       "agent": "Agent-Protokoll"
+    },
+    "items": {
+      "title": "Nicht gesicherte Elemente",
+      "more": "{count, plural, one {und # weiteres Element} other {und # weitere Elemente}}",
+      "open": "Alle Elemente, Ursachen und was zu tun ist"
     }
   },
   "events": {
@@ -242,10 +247,24 @@
     "openMachine": "Rechner öffnen",
     "runNow": "Jetzt ausführen",
     "retry": "Wiederholen",
-    "retried": "Erneut eingereiht als {id}.",
+    "retried": "Erneut eingereiht",
     "queued": "Die Sicherung wurde eingereiht.",
     "nothingQueued": "Nichts eingereiht: Eine Sicherung dieses Objekts wartet schon oder kann nicht laufen.",
-    "failed": "Das hat nicht geklappt"
+    "failed": "Das hat nicht geklappt",
+    "runNowFor": "{name} jetzt sichern",
+    "runJobNow": "Job jetzt ausführen",
+    "runJobTitle": "{name} jetzt ausführen?",
+    "runJobBody": "Der ganze Job läuft jetzt, mit allen Objekten bzw. Rechnern darin, nicht nur dieser Lauf.",
+    "runJobConfirm": "Ganzen Job ausführen",
+    "openRun": "Lauf öffnen",
+    "machineQueued": "Sicherung angefordert",
+    "machineQueuedNote": "Der Rechner startet sie bei seinem nächsten Kontakt, meist innerhalb weniger Minuten.",
+    "alreadyWaiting": "Für diesen Rechner wartet bereits eine Sicherung.",
+    "noJob": {
+      "title": "Dieser Rechner ist in keinem Backup-Job",
+      "description": "Gesichert werden nur Rechner in einem Backup-Job. Fügen Sie ihn auf der Seite des Rechners einem Job hinzu.",
+      "open": "Rechner öffnen"
+    }
   },
   "detail": {
     "back": "Zurück zum Verlauf",

@@ -11,9 +11,11 @@ import {
   type DeliveryError,
   type DeliveryStatus,
   WEBHOOK_EVENTS,
+  WEBHOOK_FORMATS,
   WEBHOOK_TEST_EVENT,
   type Webhook,
   type WebhookEvent,
+  type WebhookFormat,
   type WebhookInput,
 } from "./types";
 
@@ -216,6 +218,61 @@ export function hasPendingDelivery(deliveries: readonly { status: DeliveryStatus
   return deliveries.some((delivery) => delivery.status === "pending");
 }
 
+/** Chat formats are sent without a signature; their webhooks need no secret in the UI. */
+export function isSignedFormat(format: WebhookFormat): boolean {
+  return format === "restow";
+}
+
+function hostIs(host: string, domain: string): boolean {
+  return host === domain || host.endsWith(`.${domain}`);
+}
+
+/**
+ * The chat service a webhook URL belongs to, or null for any other receiver:
+ *
+ * - Discord: `discord.com`, `discordapp.com` (and their ptb/canary hosts) with
+ *   a path under `/api/webhooks/`
+ * - Slack: `hooks.slack.com`
+ * - Microsoft Teams: Workflows and Power Automate (`*.logic.azure.com`,
+ *   `*.powerautomate.com`, `*.powerplatform.com`) and the retired Office 365
+ *   connectors (`*.webhook.office.com`)
+ */
+export function detectWebhookFormat(value: string): Exclude<WebhookFormat, "restow"> | null {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    return null;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    return null;
+  }
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
+  if (
+    (hostIs(host, "discord.com") || hostIs(host, "discordapp.com")) &&
+    /^\/api(?:\/v\d+)?\/webhooks\//i.test(url.pathname)
+  ) {
+    return "discord";
+  }
+  if (host === "hooks.slack.com") {
+    return "slack";
+  }
+  if (
+    hostIs(host, "webhook.office.com") ||
+    hostIs(host, "logic.azure.com") ||
+    hostIs(host, "powerautomate.com") ||
+    hostIs(host, "powerplatform.com")
+  ) {
+    return "teams";
+  }
+  return null;
+}
+
+/** The format a URL suggests: its chat service, else the signed JSON envelope. */
+export function suggestedFormat(url: string): WebhookFormat {
+  return detectWebhookFormat(url) ?? "restow";
+}
+
 export type WebhookUrlIssue = "url" | "scheme" | "credentials";
 
 /** Mirrors the API: an absolute http(s) URL without embedded credentials. */
@@ -240,6 +297,7 @@ export interface WebhookFormValues {
   url: string;
   events: WebhookEvent[];
   active: boolean;
+  format: WebhookFormat;
 }
 
 /** Validation reasons are i18n ids under `webhookForm.errors`. */
@@ -256,19 +314,22 @@ export const webhookFormSchema = z.object({
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue });
       }
     }),
-  events: z.array(z.enum(WEBHOOK_EVENTS)).min(1, "eventsRequired"),
+  // Empty is allowed: then only the alert and report rules that name the webhook send to it.
+  events: z.array(z.enum(WEBHOOK_EVENTS)),
   active: z.boolean(),
+  format: z.enum(WEBHOOK_FORMATS),
 });
 
 export function webhookFormFrom(webhook?: Webhook): WebhookFormValues {
   if (!webhook) {
-    return { name: "", url: "", events: ["job.failed"], active: true };
+    return { name: "", url: "", events: ["job.failed"], active: true, format: "restow" };
   }
   return {
     name: webhook.name ?? "",
     url: webhook.url,
     events: [...webhook.events],
     active: webhook.active,
+    format: webhook.format,
   };
 }
 
@@ -279,7 +340,25 @@ export function toWebhookInput(values: WebhookFormValues): WebhookInput {
     url: values.url.trim(),
     events: WEBHOOK_EVENTS.filter((event) => values.events.includes(event)),
     active: values.active,
+    format: values.format,
   };
+}
+
+/**
+ * Whether the format follows the URL as it is typed: always for a new
+ * webhook until the format is picked by hand, and for an existing one only
+ * while its format is the one its URL suggests (a deliberate choice stays).
+ */
+export function formatFollowsUrl(webhook?: Pick<Webhook, "url" | "format">): boolean {
+  return webhook === undefined || webhook.format === suggestedFormat(webhook.url);
+}
+
+/** A webhook switched from a chat format to the signed envelope gets a secret it can show. */
+export function needsNewSecret(
+  before: Pick<Webhook, "format"> | undefined,
+  next: WebhookFormat,
+): boolean {
+  return before !== undefined && !isSignedFormat(before.format) && isSignedFormat(next);
 }
 
 /** Only what changed, so an unchanged save sends nothing and audits nothing. */
@@ -300,6 +379,9 @@ export function webhookPatch(values: WebhookFormValues, webhook: Webhook): Parti
   }
   if (next.active !== webhook.active) {
     patch.active = next.active;
+  }
+  if (next.format !== webhook.format) {
+    patch.format = next.format;
   }
   return patch;
 }

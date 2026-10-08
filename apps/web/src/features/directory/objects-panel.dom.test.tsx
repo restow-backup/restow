@@ -167,6 +167,50 @@ const PAGE: ObjectsPage = {
   pageSize: 25,
 };
 
+describe("the backup column", () => {
+  it("shows a warning that leads to its reasons, and an acknowledged one quietly", async () => {
+    await mount({
+      ...PAGE,
+      items: [
+        object({
+          warning: {
+            state: "open",
+            runId: "r-1",
+            failedItems: 2,
+            causes: [{ code: "graph.item_too_large", count: 2 }],
+            newCauses: ["graph.item_too_large"],
+            acknowledgement: null,
+          },
+        }),
+        object({
+          id: "o-2",
+          displayName: "Bob Example",
+          warning: {
+            state: "acknowledged",
+            runId: "r-2",
+            failedItems: 1,
+            causes: [{ code: "graph.item_unreadable", count: 1 }],
+            newCauses: [],
+            acknowledgement: {
+              acknowledgedAt: "2026-09-30T03:00:00.000Z",
+              acknowledgedBy: "admin@contoso.example",
+              note: null,
+              causes: ["graph.item_unreadable"],
+              runId: "r-2",
+              superseded: false,
+            },
+          },
+        }),
+      ],
+    });
+    const open = row("Alice Example").querySelector('[data-warning="open"]');
+    expect(open?.textContent).toContain("With warnings");
+    expect(open?.querySelector("button")?.textContent).toBe("See the reasons");
+    const acknowledged = row("Bob Example").querySelector('[data-warning="acknowledged"]');
+    expect(acknowledged?.textContent).toContain("Warning acknowledged");
+  });
+});
+
 describe("the context menu of an object", () => {
   it("leads to the explorer, starts a job and decides protection", async () => {
     await mount(PAGE);

@@ -9,7 +9,7 @@
   },
   "unavailable": {
     "no_tenants": "No tenant is managed yet.",
-    "no_protected_objects": "Nothing is protected yet: no mailbox, OneDrive or IMAP account.",
+    "no_protected_objects": "Nothing is protected yet: no mailbox, OneDrive, IMAP account or machine.",
     "no_backups_yet": "No backup had completed by the end of this period.",
     "no_microsoft_365_source": "No Microsoft 365 source is connected. Throttling only applies to Microsoft Graph."
   },
@@ -67,16 +67,16 @@
       },
       "throttling": {
         "title": "Microsoft 365 throttling",
-        "description": "Time Microsoft Graph made finished jobs wait before it accepted more requests."
+        "description": "Time Microsoft Graph made finished runs wait before it accepted more requests."
       },
       "jobDurations": {
-        "title": "Job durations",
-        "description": "Median and 95th percentile run time of the jobs that completed in the period.",
-        "empty": "No job completed in this period."
+        "title": "Run durations",
+        "description": "Median and 95th percentile run time of the runs that completed in the period.",
+        "empty": "No run completed in this period."
       },
       "failuresByCause": {
         "title": "Failed items by cause",
-        "description": "Items a job could not process, grouped by cause. They are retried on the next run.",
+        "description": "Items a run could not process, grouped by cause. They are retried on the next run.",
         "empty": "No item failed in this period."
       },
       "largestObjects": {
@@ -104,7 +104,7 @@
       "unverified": "Not proven"
     },
     "column": {
-      "kind": "Job",
+      "kind": "Run",
       "count": "Runs",
       "p50": "Median",
       "p95": "95th percentile",
@@ -142,7 +142,7 @@
       "green": "Ready",
       "yellow": "Attention",
       "red": "Not restorable",
-      "unverified": "Not verified",
+      "unverified": "Unverified",
       "no_backup": "No backup yet"
     },
     "readiness": {
@@ -158,7 +158,7 @@
       "dedup": "Deduplication ratio: all retained backups added up, divided by the bytes stored.",
       "readiness": "Proven restorable: objects whose newest backup was rated “Ready” or “Attention” by a restore check of that very backup. A backup taken after the last check stays unproven until it is checked itself; objects never checked or never backed up are not proven, and damage the storage check finds after a check counts as not restorable.",
       "status": "Excluded objects are not protected and objects removed from their source count while they still have a backup. Only an object's current status is stored, so an object excluded today is left out of earlier intervals too.",
-      "throttling": "Throttling waits are what Microsoft Graph imposed on finished jobs; {appName} waits as long as Microsoft asks instead of retrying sooner."
+      "throttling": "Throttling waits are what Microsoft Graph imposed on finished runs; {appName} waits as long as Microsoft asks instead of retrying sooner."
     }
   },
   "nav": "Alerts",
@@ -169,22 +169,19 @@
     "newAlert": "New alert",
     "newReport": "New report",
     "reportLocked": "Reports not available",
-    "tabs": {
-      "rules": "Rules",
-      "deliveries": "Delivery log"
-    },
     "noTenant": {
       "title": "No tenant selected",
       "description": "Select a tenant in the top bar to see and change its alerts and reports."
     },
-    "manageRules": "Rules and recipients"
+    "manageRules": "Rules and recipients",
+    "allTenants": "Alerts and reports sent for every tenant, newest first."
   },
   "rules": {
     "loadError": "The rules could not be loaded.",
     "alerts": {
       "title": "Alerts",
       "description": "Sent when something happens: a failed backup, a restore check that did not pass, damaged storage.",
-      "empty": "No alert yet. Failed jobs and readiness changes still appear in the bell."
+      "empty": "No alert yet. Failed runs and readiness changes still appear in the bell."
     },
     "reports": {
       "title": "Reports",
@@ -225,11 +222,12 @@
       "description": "“{name}” stops sending. Its entries in the delivery log stay."
     },
     "panelTitle": "Alert and report rules",
-    "panelDescription": "An alert is sent when something happens, a report at a point in time. The recipients above feed the rules marked with them."
+    "panelDescription": "An alert is sent when something happens, a report at a point in time. The recipients above feed the rules marked with them.",
+    "noChannel": "Sends nothing: no channel"
   },
   "deliveries": {
     "title": "Delivery log",
-    "description": "Everything the rules sent or tried to send, newest first. Failed mails are retried four times over about 80 minutes.",
+    "description": "Everything the rules sent or tried to send, newest first. Failed mails are retried four times over about 80 minutes; a webhook alert shows what the receiver answered.",
     "loadError": "The delivery log could not be loaded.",
     "empty": "Nothing sent yet.",
     "summary": "Report",
@@ -238,7 +236,8 @@
       "rule": "Rule",
       "what": "About",
       "channel": "Channel",
-      "status": "Status"
+      "status": "Status",
+      "tenant": "Tenant"
     },
     "channel": {
       "email": "E-mail",
@@ -246,10 +245,11 @@
       "webhook": "Webhook"
     },
     "status": {
-      "pending": "Queued",
+      "pending": "Waiting",
       "sent": "Sent",
       "failed": "Failed",
-      "skipped": "Skipped"
+      "skipped": "Skipped",
+      "handedOver": "Handed to the webhook"
     },
     "reasons": {
       "mail_not_configured": "No mail transport is set up (Installation → Notification mail).",
@@ -257,8 +257,27 @@
       "webhook_deleted": "The webhook was deleted.",
       "webhook_inactive": "The webhook is paused.",
       "no_recipient": "No recipient.",
-      "demo_mode": "Demo: nothing leaves this server."
-    }
+      "demo_mode": "Demo: nothing leaves this server.",
+      "no_webhook": "No webhook chosen.",
+      "send_failed": "The mail server did not accept the message."
+    },
+    "descriptionAllTenants": "Everything every tenant's rules sent or tried to send, newest first.",
+    "technicalDetail": "Technical detail",
+    "filters": {
+      "status": "Status",
+      "allStatuses": "All statuses",
+      "rule": "Rule",
+      "allRules": "All rules"
+    },
+    "export": {
+      "action": "Export as CSV",
+      "preparing": "Preparing the export …",
+      "done": "Export downloaded.",
+      "failed": "The export failed."
+    },
+    "loadMore": "Load older",
+    "openRule": "Open the rule under Tenant › Notifications",
+    "openWebhook": "See the delivery at the webhook"
   },
   "editor": {
     "title": {
@@ -281,9 +300,9 @@
       "schedule": "e.g. Weekly report"
     },
     "events": "Send an alert when",
-    "eventsHint": "Each event also appears in the bell, with or without a rule.",
+    "eventsHint": "The bell reports every event, with or without a rule. A rule also sends it by e-mail or webhook.",
     "throttle": "Repeat alerts",
-    "throttleHint": "How often the same rule may alert about the same mailbox or job type.",
+    "throttleHint": "How often the same rule may alert about the same object or kind of run.",
     "throttleOptions": {
       "0": "Every time",
       "15": "At most every 15 minutes",
@@ -291,6 +310,14 @@
       "240": "At most every 4 hours",
       "1440": "At most once a day"
     },
+    "overdueDeadline": "Deadline for missing backups",
+    "overdueDeadlineHint": "When this alert sends “Backup overdue”. Without a deadline of its own, twice the longest planned gap of the backup jobs' schedules applies.",
+    "overdueModes": {
+      "schedules": "By the backup jobs' schedules",
+      "custom": "Own deadline"
+    },
+    "overdueHours": "Without a successful backup for (hours)",
+    "overdueHoursHint": "Between {min} and {max} hours. It applies to this alert only; the bell keeps following the schedules.",
     "frequency": "Frequency",
     "frequencies": {
       "daily": "Daily",
@@ -303,7 +330,7 @@
     "cron": "Cron expression",
     "cronHint": "Five fields: minute, hour, day of month, month, day of week.",
     "timezone": "Time zone",
-    "timezoneHint": "IANA name, e.g. Europe/Berlin.",
+    "timezoneHint": "IANA name, e.g. Europe/Berlin. The list suggests known time zones.",
     "period": "Covers",
     "periodDays": "{count, plural, one {the last day} other {the last # days}}",
     "sections": "Contents",
@@ -313,7 +340,7 @@
     "recipientsPlaceholder": "e.g. it@example.com",
     "inApp": "Also show in the bell",
     "inAppHint": "A bell entry when the report was sent, for everyone in this tenant.",
-    "bellAlways": "Alerts always appear in the bell as well.",
+    "bellAlways": "The bell gets every alert anyway; this rule is for e-mail and webhooks. Choose at least one of the two.",
     "webhook": "Webhook",
     "webhookHint": "Also sent as a signed webhook (report.alert or report.summary), e.g. to an RMM, Teams or a ticket system.",
     "noWebhook": "No webhook",
@@ -330,19 +357,22 @@
       "channels": "Add an e-mail address or a webhook (or the bell, for a report).",
       "time": "Enter a time as HH:MM.",
       "cron": "A cron expression has five fields.",
-      "recipients": "One of the addresses is not a valid e-mail address."
+      "recipients": "One of the addresses is not a valid e-mail address.",
+      "timezone": "This time zone is unknown. Choose one from the list, e.g. Europe/Berlin.",
+      "overdueHours": "Enter a whole number of hours between 24 and 720."
     },
     "recipientsManaged": "These are the recipients who chose this category under Recipients. Change them there."
   },
   "eventGroups": {
-    "jobs": "Jobs",
+    "jobs": "Runs",
     "recoverability": "Recoverability",
     "storage": "Storage",
     "system": "Installation"
   },
   "events": {
     "backup": {
-      "failed": "Backup failed"
+      "failed": "Backup failed",
+      "overdue": "Backup overdue"
     },
     "restore": {
       "failed": "Restore failed",
@@ -367,7 +397,7 @@
       "stale": "Server or client not reporting",
       "suspicious_snapshot": "Suspicious snapshot of a server or client",
       "storage_quota": "Storage budget of servers and clients",
-      "repository_locked": "Repository of a server or client stays locked"
+      "repository_locked": "Backup data of a server or client stays locked"
     },
     "update": {
       "available": "Update available"
@@ -375,10 +405,11 @@
   },
   "eventHints": {
     "backup": {
-      "failed": "A backup job of a mailbox, OneDrive or IMAP account did not finish."
+      "failed": "A backup run of a mailbox, OneDrive, IMAP account, server or client did not finish.",
+      "overdue": "A mailbox, OneDrive, IMAP account, machine or guest (VM or container) had no successful backup for longer than its backup jobs plan (twice the longest gap of the schedules, two days without one), or for longer than the rule's own deadline. Once per object, until a backup succeeds again."
     },
     "restore": {
-      "failed": "A restore or download could not be completed.",
+      "failed": "A restore or a download, of a server or client too, could not be finished.",
       "completed": "A restore or download is ready."
     },
     "archive": {
@@ -388,9 +419,9 @@
       "failed": "Reading users and mailboxes from Microsoft 365 failed."
     },
     "verify": {
-      "red": "A restore would not be complete: the newest backup did not pass its check.",
+      "red": "A restore would not be complete: the newest backup of a mailbox, OneDrive, IMAP account, server or client failed its restore check.",
       "yellow": "The check passed with warnings.",
-      "recovered": "A mailbox that was red or yellow is green again."
+      "recovered": "A mailbox, OneDrive, IMAP account, server or client that was red or yellow is green again."
     },
     "scrub": {
       "corrupt": "The storage check found damaged or missing pack files.",
@@ -399,8 +430,8 @@
     "endpoint": {
       "stale": "A server has not reported for more than two hours, or a client has had no good backup for several days.",
       "suspicious_snapshot": "A snapshot appeared that no backup run reported, or one dated in the future. Retention keeps it; the machine may be compromised.",
-      "storage_quota": "The repository of a machine, or all of a tenant's together, reached 90 percent of the storage budget, or backups were refused because it is used up.",
-      "repository_locked": "Retention and checks of a machine's repository kept finding it locked for more than twelve hours."
+      "storage_quota": "The backup data of a machine, or all of a tenant's together, reached 90 percent of the storage budget, or backups were refused because it is used up.",
+      "repository_locked": "Retention and checks kept finding a machine's backup data locked for more than twelve hours."
     },
     "update": {
       "available": "A newer version of the software is available. Raised once per version for the whole installation, so only provider administrators can choose it."
@@ -445,7 +476,7 @@
     "testPrefix": "Test: ",
     "alertIntro": "{event}: {target} ({tenant}).",
     "summaryIntro": "Summary for {tenant}, {from} to {to}.",
-    "footer": "You receive this message because of the rule “{rule}” in {appName}. Change or pause it under Alerts.",
+    "footer": "You receive this message because of the rule \"{rule}\" in {appName}. Change or pause it under Tenant › Notifications.",
     "version": "New version",
     "running": "Running version",
     "releaseNotes": "Release notes",
@@ -473,11 +504,15 @@
     "markAll": "Mark all read",
     "empty": "Nothing new.",
     "unread": "unread",
-    "manage": "Alerts"
+    "manage": "Alerts",
+    "showAll": "Show all",
+    "titleAllTenants": "Notifications of all tenants",
+    "installation": "Installation"
   },
   "bellEvents": {
     "backup": {
-      "failed": "Backup failed: {object}"
+      "failed": "Backup failed: {object}",
+      "overdue": "No successful backup {days, plural, one {for over # day} other {for over # days}}: {object}"
     },
     "restore": {
       "failed": "Restore failed: {object}",
@@ -503,7 +538,7 @@
       "stale": "Not reporting: {object}",
       "suspicious_snapshot": "Suspicious snapshot: {object}",
       "storage_quota": "Storage budget: {object}",
-      "repository_locked": "Repository locked: {object}"
+      "repository_locked": "Backup data locked: {object}"
     },
     "report": {
       "ready": "Report sent: {rule}"
@@ -520,18 +555,55 @@
     "deleted": "Rule deleted.",
     "paused": "Rule paused.",
     "resumed": "Rule resumed.",
-    "testQueued": "{count, plural, one {Test queued for # channel; see the delivery log.} other {Test queued for # channels; see the delivery log.}}"
+    "testQueued": "{count, plural, one {Test queued for # channel.} other {Test queued for # channels.}}",
+    "testNothing": "This rule has no channel: nothing was sent. Add an e-mail address or a webhook.",
+    "openLog": "Open the delivery log"
   },
   "errors": {
     "network": "The server cannot be reached.",
     "featureUnavailable": "Time-triggered reports are not available on this installation.",
     "invalid": "The rule cannot be saved: {detail}",
     "notFound": "The rule no longer exists.",
-    "generic": "That did not work. Please try again."
+    "codes": {
+      "events_required": "Choose at least one event.",
+      "sections_required": "Choose at least one section.",
+      "channel_required": "Add an e-mail address or a webhook (for reports also the bell).",
+      "webhook_not_found": "The chosen webhook no longer exists.",
+      "installation_event": "This event is about the installation and can only be chosen by provider administrators.",
+      "recipients_managed": "The recipients of this rule are the tenant's notification recipients; change them there.",
+      "cadence_missing": "Set how often the report is sent.",
+      "cadence_ambiguous": "Use either an interval or a cron expression, not both.",
+      "interval_not_integer": "The interval must be whole minutes.",
+      "interval_out_of_range": "The interval must be between 15 minutes and 31 days.",
+      "cron_invalid": "The cron expression is not valid. It has five fields: minute, hour, day of month, month, weekday.",
+      "cron_never_matches": "The cron expression never matches.",
+      "cron_too_frequent": "The cron expression would send more often than every 15 minutes.",
+      "timezone_unknown": "The time zone is unknown. Choose one from the list, e.g. Europe/Berlin.",
+      "unknown": "A value is not valid. Check the fields and try again.",
+      "overdue_event_required": "A deadline for missing backups needs the event “Backup overdue”."
+    }
   },
   "defaultRules": {
-    "jobFailures": "Failed jobs",
+    "jobFailures": "Failed runs",
     "readinessRed": "Recoverability at risk",
     "weeklyReport": "Weekly report"
+  },
+  "history": {
+    "title": "Notifications",
+    "description": "Everything the bell reported for {tenant}, newest first. A click opens the cause.",
+    "descriptionAllTenants": "Everything the bell reported for every tenant, newest first. A click switches into the tenant and opens the cause.",
+    "descriptionInstallation": "Notifications of the installation, newest first.",
+    "level": "Level",
+    "levels": {
+      "all": "All levels",
+      "attention": "Errors and warnings",
+      "error": "Errors",
+      "warning": "Warnings",
+      "info": "Information"
+    },
+    "unreadOnly": "Unread only",
+    "empty": "No notifications.",
+    "loadError": "The notifications could not be loaded.",
+    "loadMore": "Load older"
   }
 }

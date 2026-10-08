@@ -133,12 +133,12 @@
     "export": "Export",
     "impersonation": "Impersonation",
     "import": "Import",
-    "job": "Jobs",
+    "job": "Runs",
     "legal_hold": "Legal hold",
     "license": "License",
     "restore": "Restore",
-    "retention": "Retention",
-    "retention_policy": "Retention",
+    "retention": "Retention runs",
+    "retention_policy": "Retention policies",
     "schedule": "Schedules",
     "scrub": "Storage check",
     "settings": "Settings",
@@ -148,21 +148,26 @@
     "stats": "Statistics",
     "storage": "Storage",
     "tenant": "Tenants",
-    "verify": "Verification",
+    "verify": "Restore checks",
     "webhook": "Webhooks",
     "provider_team": "Provider team",
     "access": "Access",
     "report": "Alerts",
     "update": "Updates",
     "endpoint": "Servers and clients",
-    "backup_job": "Backup jobs"
+    "backup_job": "Backup jobs",
+    "mount": "Network shares",
+    "pve": "Proxmox VE",
+    "warning": "Warnings"
   },
   "events": {
     "account": {
       "provisioned": "Account provisioned",
       "password_link_issued": "Set-password link issued",
       "password_set": "Password set",
-      "access_recovered": "Administrator access recovered on the server's command line"
+      "access_recovered": "Administrator access recovered on the server's command line",
+      "password_reset": "Password set again with the link from the mail",
+      "password_changed": "Own password changed"
     },
     "api": {
       "archive": {
@@ -172,12 +177,12 @@
       },
       "job": {
         "events": {
-          "opened": "Job progress stream opened via API"
+          "opened": "Run progress stream opened via API"
         },
-        "read": "Job read via API"
+        "read": "Run read via API"
       },
       "jobs": {
-        "read": "Jobs read via API"
+        "read": "Runs read via API"
       },
       "objects": {
         "read": "Protected objects read via API"
@@ -194,10 +199,10 @@
         "read": "Users read via API"
       },
       "verify": {
-        "read": "Verification report read via API"
+        "read": "Restore check report read via API"
       },
       "endpoints": {
-        "read": "Endpoints read through the API"
+        "read": "Machines read through the API"
       }
     },
     "api_key": {
@@ -208,7 +213,9 @@
       "searched": "Archive searched",
       "item": {
         "read": "Archive item read",
-        "deleted": "Archive item deleted by retention"
+        "deleted": "Archive item deleted by retention",
+        "previewed": "Archived message viewed",
+        "downloaded": "Archived message downloaded"
       },
       "legal_hold": {
         "created": "Legal hold placed",
@@ -217,6 +224,9 @@
       "journal": {
         "address_created": "Journal address issued",
         "address_rotated": "Journal address rotated"
+      },
+      "chain": {
+        "verified": "Archive checked"
       }
     },
     "backup": {
@@ -258,8 +268,8 @@
       }
     },
     "job": {
-      "cancelled": "Job cancelled",
-      "retried": "Job retried"
+      "cancelled": "Run cancelled",
+      "retried": "Run retried"
     },
     "license": {
       "installed": "License installed",
@@ -367,19 +377,19 @@
         "cancelled": "Storage migration cancelled"
       },
       "target": {
-        "created": "Repository added",
-        "deleted": "Repository removed",
-        "probed": "Repository probed",
-        "promoted": "Repository made primary",
-        "tested": "Repository tested",
-        "updated": "Repository changed"
+        "created": "Storage location added",
+        "deleted": "Storage location removed",
+        "probed": "Storage location probed",
+        "promoted": "Storage location made primary",
+        "tested": "Storage location tested",
+        "updated": "Storage location changed"
       }
     },
     "tenant": {
       "created": "Tenant created",
       "deleted": "Tenant deleted",
       "customer": {
-        "updated": "Tenant customer data changed"
+        "updated": "Tenant master data changed"
       },
       "contacts": {
         "updated": "Tenant contacts changed"
@@ -407,9 +417,9 @@
     },
     "verify": {
       "report": {
-        "viewed": "Verification report viewed"
+        "viewed": "Restore check report viewed"
       },
-      "requested": "Verification started"
+      "requested": "Restore check started"
     },
     "webhook": {
       "created": "Webhook created",
@@ -424,10 +434,11 @@
       "updated": "Webhook changed"
     },
     "provider_team": {
-      "member_invited": "Team member invited",
-      "member_updated": "Team member's role changed",
-      "member_removed": "Team member removed",
-      "link_reissued": "Team invitation link reissued"
+      "member_invited": "Member invited",
+      "member_updated": "Member's role changed",
+      "member_removed": "Member removed",
+      "link_reissued": "Team invitation link reissued",
+      "access_reset": "Member's access reset"
     },
     "access": {
       "denied": "Action refused"
@@ -474,7 +485,7 @@
         "finished": "Restore on the machine finished"
       },
       "restore_test": {
-        "requested": "Restore test requested"
+        "requested": "Restore check requested"
       },
       "uninstall": {
         "requested": "Agent uninstall requested"
@@ -503,6 +514,44 @@
       },
       "run_requested": "Backup job run requested",
       "migrated": "Schedules and machine configurations turned into backup jobs"
+    },
+    "mount": {
+      "add_requested": "Network share added",
+      "remove_requested": "Network share removed",
+      "tested": "Network share tested"
+    },
+    "pve": {
+      "token": {
+        "created": "Enrollment token for Proxmox VE created"
+      },
+      "node": {
+        "enrolled": "Node enrolled",
+        "revoked": "Node revoked",
+        "denied": "Forbidden access of a node refused"
+      },
+      "backup": {
+        "requested": "Guest backup requested"
+      },
+      "restore": {
+        "requested": "Restore as a new guest requested"
+      },
+      "verify": {
+        "requested": "Restore check of the restore point requested"
+      },
+      "job": {
+        "changed": "Backup job for VMs and containers changed"
+      },
+      "snapshot": {
+        "committed": "Restore point of the guest stored",
+        "pruned": "Restore point of the guest removed (retention)"
+      }
+    },
+    "warning": {
+      "acknowledged": "Warning acknowledged",
+      "acknowledgement_revoked": "Warning acknowledgement revoked"
+    },
+    "audit": {
+      "exported": "Audit log exported"
     }
   },
   "targetTypes": {
@@ -515,7 +564,7 @@
     "import_upload": "Import upload",
     "installation": "Installation",
     "invitation": "Invitation",
-    "job": "Job",
+    "job": "Run",
     "legal_hold": "Legal hold",
     "mail_import": "Import",
     "mailbox": "Mailbox",
@@ -531,17 +580,31 @@
     "source": "Source",
     "stats": "Statistics",
     "storage_location": "Storage location",
-    "storage_target": "Repository",
+    "storage_target": "Storage location",
     "tenant": "Tenant",
     "user": "User",
-    "verify_report": "Verification report",
+    "verify_report": "Restore check report",
     "webhook": "Webhook",
     "route": "Route",
     "report_rule": "Report rule",
     "update": "Update",
     "endpoint": "Server or client",
     "endpoint_enrollment_token": "Enrollment token",
-    "backup_job": "Backup job"
+    "backup_job": "Backup job",
+    "mount": "Network share",
+    "pve_node": "Node (Proxmox VE)",
+    "pve_guest": "Guest (VM or container)",
+    "pve_snapshot": "Restore point (VM or container)",
+    "pve_job": "Backup job (VMs and containers)",
+    "pve_enrollment_token": "Enrollment token (Proxmox VE)"
   },
-  "sectionDescription": "The log of this {scope, select, organisation {organisation} other {tenant}}: who did what, when, with the hash chain that proves it was not changed."
+  "sectionDescription": "The log of this {scope, select, organisation {organisation} other {tenant}}: who did what, when, with the hash chain that proves it was not changed.",
+  "export": {
+    "action": "Export",
+    "csv": "As CSV (spreadsheet)",
+    "json": "As JSON (with hashes to check the chain)",
+    "preparing": "Preparing the export …",
+    "done": "Export downloaded. It is recorded in the audit log.",
+    "failed": "The export failed."
+  }
 }

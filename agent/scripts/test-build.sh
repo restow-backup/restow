@@ -153,6 +153,26 @@ build restic --targets "linux-arm64 darwin-arm64" || rc=$?
 expect_layout restic "linux-arm64 darwin-arm64" "restow-agent restic THIRD_PARTY_NOTICES.txt"
 ok "the default build lists restow-agent, restic and the notices for every target"
 
+# 3b. With the PVE storage plugin shim: linux-amd64 also carries restow-pve
+# and the plugin files with its license, the other targets do not.
+mkdir -p "$work/pve-plugin"
+printf 'package PVE::Storage::Custom::RestowPlugin;\n1;\n' >"$work/pve-plugin/RestowPlugin.pm"
+printf 'package PVE::Storage::Custom::RestowProvider;\n1;\n' >"$work/pve-plugin/RestowProvider.pm"
+printf 'AGPL\n' >"$work/pve-plugin/LICENSE"
+rc=0
+(RESTOW_PVE_PLUGIN_DIR="$work/pve-plugin" && export RESTOW_PVE_PLUGIN_DIR && build pve --no-restic --targets "linux-amd64 linux-arm64") || rc=$?
+[ "$rc" -eq 0 ] || {
+  cat "$work/pve.log"
+  fail "build.sh with the PVE plugin exited with status $rc"
+}
+! grep -q restow-pve "$work/pve/linux-arm64/SHA256SUMS" || fail "linux-arm64 must not list restow-pve"
+[ ! -e "$work/pve/linux-arm64/restow-pve" ] || fail "restow-pve must be built for linux-amd64 only"
+for _f in restow-pve RestowPlugin.pm RestowProvider.pm RestowPlugin.LICENSE.txt; do
+  grep -q "  $_f\$" "$work/pve/linux-amd64/SHA256SUMS" || fail "linux-amd64/SHA256SUMS does not list $_f"
+  grep -q "  linux-amd64/$_f\$" "$work/pve/SHA256SUMS" || fail "SHA256SUMS does not list linux-amd64/$_f"
+done
+ok "with the PVE plugin, linux-amd64 carries restow-pve and the plugin files"
+
 # 4. Failures are loud and exit non-zero.
 rc=0
 build badtarget --targets "plan9-amd64" || rc=$?

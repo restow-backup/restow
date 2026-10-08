@@ -60,6 +60,8 @@ export function DeleteTargetDialog({ open, onOpenChange, target }: DeleteTargetD
       }
       confirmLabel={t("delete.confirm")}
       destructive
+      // Older backups may live only here: as final as revoking a machine, so the name is typed.
+      confirmationText={target.role === "copy" ? undefined : name}
       pending={remove.isPending}
       error={remove.error ? tc(storageErrorKey(remove.error)) : undefined}
       onConfirm={confirm}

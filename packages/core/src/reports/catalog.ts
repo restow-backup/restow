@@ -9,6 +9,7 @@
 /** Events the product raises. Each one belongs to a group the rule editor shows together. */
 export const REPORT_EVENTS = [
   "backup.failed",
+  "backup.overdue",
   "restore.failed",
   "restore.completed",
   "archive.failed",
@@ -36,6 +37,9 @@ export interface ReportEventInfo {
 
 export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> = {
   "backup.failed": { group: "jobs", level: "error" },
+  // No successful backup of a mailbox, OneDrive, IMAP account, server or client for longer than
+  // its jobs' schedules allow (twice the longest planned gap; apps/worker overdue.ts).
+  "backup.overdue": { group: "jobs", level: "warning" },
   "restore.failed": { group: "jobs", level: "error" },
   "restore.completed": { group: "jobs", level: "info" },
   "archive.failed": { group: "jobs", level: "error" },
@@ -89,6 +93,14 @@ export const REPORT_PERIOD_DAYS = [1, 7, 30, 90] as const;
 /** Upper bounds that keep a rule readable and a delivery run small. */
 export const MAX_REPORT_RECIPIENTS = 20;
 export const MAX_REPORT_THROTTLE_MINUTES = 7 * 24 * 60;
+
+/**
+ * The deadline an event rule may set for `backup.overdue` ("no successful backup for X
+ * hours"), from a day to 30 days. It replaces the bound the jobs' schedules give, for that
+ * rule's alerts only (the database checks the same range, report_rules_overdue_after_ck).
+ */
+export const MIN_OVERDUE_DEADLINE_HOURS = 24;
+export const MAX_OVERDUE_DEADLINE_HOURS = 30 * 24;
 
 /** Job queues whose failure raises an event, and the event it raises. */
 export const FAILED_JOB_EVENTS: Readonly<Record<string, ReportEvent>> = {

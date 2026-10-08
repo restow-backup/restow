@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { pgEnum, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { timestamps } from "./_shared.js";
 import { tenants } from "./tenants.js";
@@ -31,6 +32,13 @@ export const users = pgTable(
     // User principal name (Entra) where available.
     upn: text("upn"),
     displayName: text("display_name"),
+    /**
+     * Every SMTP address of the user's mailbox, lowercase: the `smtp:` entries of
+     * Entra's `proxyAddresses` (primary and aliases). The journal receiver matches a
+     * report's envelope recipients against these, `email` and `upn` to assign the
+     * archived mail to mailboxes (docs/ARCHIVE.md). Empty until a directory sync saw them.
+     */
+    mailAddresses: text("mail_addresses").array().notNull().default(sql`'{}'::text[]`),
     ...timestamps(),
   },
   (t) => [

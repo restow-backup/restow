@@ -15,6 +15,7 @@ import { installationSectionTo } from "@/features/installation/paths";
 import { extensionInstallationSections } from "@/lib/extensions";
 import { cn } from "@/lib/utils";
 
+import { ApiReferenceLink } from "../components/api-reference-link";
 import { ConfirmDialog } from "../components/confirm-dialog";
 import { useApiKeys, useIntegrationsScope, useProviderKeys, useRevokeApiKey } from "../hooks";
 import { PROVIDER_API_SECTION_ID } from "../paths";
@@ -193,6 +194,7 @@ function KeysCard(props: KeysCardProps) {
         <div className="space-y-1.5">
           <CardTitle>{props.title}</CardTitle>
           <CardDescription>{props.description}</CardDescription>
+          <ApiReferenceLink />
         </div>
         <Button onClick={() => setCreating(true)} disabled={!props.canCreate} className="shrink-0">
           <Plus aria-hidden="true" />

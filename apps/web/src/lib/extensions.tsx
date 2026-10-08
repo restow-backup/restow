@@ -67,6 +67,13 @@ export interface SlotProps {
    */
   "tenant.archiveSettings": { readOnly: boolean };
   /**
+   * The archive section of a mail job's editor (features/backup-jobs, job-editor.tsx):
+   * what the Business modules show about journaling (the journal address and
+   * whether reports arrive) while the job archives. The core's fallback says
+   * that capture needs the Business edition.
+   */
+  "jobs.archiveSetup": { archive: boolean };
+  /**
    * The sidebar footer row next to the running version
    * (components/layout/app-sidebar.tsx); hidden while the sidebar is collapsed.
    */
@@ -77,6 +84,19 @@ export interface SlotProps {
    * renders its own short note as the fallback.
    */
   "tenants.creationLocked": Record<string, never>;
+  /**
+   * Replaces the member dialog's neutral note under the locked choice
+   * "Selected tenants" where the installation does not enable the gated
+   * feature `providerTeam.tenantScope` (features/provider-team/member-dialog.tsx):
+   * the core renders its own short note as the fallback.
+   */
+  "team.tenantScopeLocked": Record<string, never>;
+  /**
+   * Replaces the neutral "Reports not available" of a tenant's rules (features/reports,
+   * AlertRulesPanel) where the installation does not enable `reports.timed`: an extension says
+   * which edition has them and, to whom may open it, where the key goes.
+   */
+  "reports.scheduleLocked": Record<string, never>;
 }
 
 export type SlotName = keyof SlotProps;

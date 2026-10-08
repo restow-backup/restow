@@ -90,7 +90,7 @@ export function testReasonKey(reason: AppTestFailureReason): string {
 }
 
 /** Field reasons the API and the form share, explained under `settings:microsoftApp.validation`. */
-const FIELD_REASONS: ReadonlySet<string> = new Set([
+export const MICROSOFT_APP_FIELD_REASONS: ReadonlySet<string> = new Set([
   "guid",
   "tenantId",
   "secretIsId",
@@ -119,7 +119,7 @@ export function fieldReasonKey(reason: string | undefined): string | undefined {
   if (!reason) {
     return undefined;
   }
-  return FIELD_REASONS.has(reason)
+  return MICROSOFT_APP_FIELD_REASONS.has(reason)
     ? `settings:microsoftApp.validation.${reason}`
     : "common:validation.required";
 }

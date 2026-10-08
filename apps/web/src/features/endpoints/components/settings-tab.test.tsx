@@ -196,6 +196,15 @@ describe("SettingsTab", () => {
     await page.type(field<HTMLInputElement>("settings-stale-hours"), "6");
     await page.click(save());
     await page.settle();
+    // Keeping fewer restore points removes some for good: it asks first and says how many.
+    expect(updateEndpoint).not.toHaveBeenCalled();
+    const dialog = document.querySelector('[role="alertdialog"]');
+    expect(dialog?.textContent).toContain("16 daily restore points");
+    const confirm = [...(dialog?.querySelectorAll("button") ?? [])].find(
+      (button) => button.textContent?.trim() === "Shorten and save",
+    );
+    await page.click(confirm as HTMLButtonElement);
+    await page.settle();
     expect(updateEndpoint).toHaveBeenCalledWith(ID, {
       displayName: "Front",
       config: { bandwidthKbps: 2048, onlyOnAcPower: true },

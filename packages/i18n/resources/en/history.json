@@ -40,7 +40,7 @@
     "after_backup": "After a backup"
   },
   "state": {
-    "queued": "Queued",
+    "queued": "Waiting",
     "running": "Running",
     "succeeded": "Completed",
     "restored": "Restored",
@@ -124,7 +124,7 @@
       "hint": "{unit} · read and checked at the source"
     },
     "transferred": {
-      "title": "Transfer to the repository",
+      "title": "Transfer to the storage location",
       "hint": "{unit} · after deduplication and compression · average over {seconds} s"
     },
     "now": "now",
@@ -136,7 +136,7 @@
       "recent": "the last 5 minutes",
       "whole": "the whole run",
       "processed": "Processing: now {current}, average {average}, peak {peak}.",
-      "transferred": "Transfer to the repository (average over {seconds} s): now {current}, average {average}, peak {peak}.",
+      "transferred": "Transfer to the storage location (average over {seconds} s): now {current}, average {average}, peak {peak}.",
       "keys": "Use the left and right arrow keys to move through the measurements, Home and End to jump to the ends."
     }
   },
@@ -196,6 +196,11 @@
       "title": "Timeline",
       "empty": "Nothing to show yet.",
       "agent": "Agent log"
+    },
+    "items": {
+      "title": "Items not backed up",
+      "more": "{count, plural, one {and # more item} other {and # more items}}",
+      "open": "All items, causes and what to do"
     }
   },
   "events": {
@@ -242,10 +247,24 @@
     "openMachine": "Open machine",
     "runNow": "Run now",
     "retry": "Retry",
-    "retried": "Queued again as {id}.",
+    "retried": "Queued again",
     "queued": "The backup was queued.",
     "nothingQueued": "Nothing was queued: a backup of this object is already waiting or cannot run.",
-    "failed": "That did not work"
+    "failed": "That did not work",
+    "runNowFor": "Back up {name} now",
+    "runJobNow": "Run job now",
+    "runJobTitle": "Run {name} now?",
+    "runJobBody": "The whole job runs now, with every object or machine in it, not just this run.",
+    "runJobConfirm": "Run whole job",
+    "openRun": "Open run",
+    "machineQueued": "Backup requested",
+    "machineQueuedNote": "The machine starts it at its next check-in, usually within a few minutes.",
+    "alreadyWaiting": "A backup is already waiting for this machine.",
+    "noJob": {
+      "title": "This machine is in no backup job",
+      "description": "Only machines in a backup job are backed up. Add it to a job on the machine's page.",
+      "open": "Open machine"
+    }
   },
   "detail": {
     "back": "Back to History",

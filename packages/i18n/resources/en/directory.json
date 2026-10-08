@@ -22,14 +22,18 @@
     "excluded": "Excluded",
     "orphaned": "Orphaned",
     "not_selected": "Not selected",
-    "needs_credential": "Needs attention"
+    "needs_credential": "Needs attention",
+    "no_job": "No backup job",
+    "unscheduled": "Job without schedule"
   },
   "statusHint": {
-    "active": "In scope: backups run for this object.",
+    "active": "In scope and in a backup job that backs it up on a schedule.",
     "excluded": "Out of scope by rule or by an individual decision: no new backups run.",
     "orphaned": "No longer in the directory or no longer provisioned. Existing backups stay until retention removes them.",
     "not_selected": "The scope is \"Only selected objects\" and nobody chose this object: no new backups run. Existing backups, if any, stay until retention removes them.",
-    "needs_credential": "In scope, but this account has no password of its own set and working yet: no backup can run until one is set under Login and tested."
+    "needs_credential": "In scope, but this account has no password of its own set and working yet: no backup can run until one is set under Login and tested.",
+    "no_job": "Can be backed up, but is in no backup job: it is backed up on a schedule only once a job covers it.",
+    "unscheduled": "In a backup job that is paused or runs by hand only: it is not backed up automatically."
   },
   "override": {
     "include": "Always included",
@@ -42,14 +46,14 @@
     "hint": "Sign-in is disabled for this account: a shared or resource mailbox, or a blocked user. Microsoft Graph does not tell them apart."
   },
   "readiness": {
-    "green": "Restore verified",
-    "yellow": "Restore degraded",
-    "red": "Restore failed",
-    "unverified": "Not verified",
+    "green": "Ready",
+    "yellow": "Attention",
+    "red": "Not restorable",
+    "unverified": "Unverified",
     "none": "No backup",
     "needs_credential": "Needs attention",
     "checked": "Checked {when}",
-    "unverifiedHint": "Backups exist, but no test restore has confirmed them yet. An unverified backup does not count as protected.",
+    "unverifiedHint": "Backups exist, but no restore check has confirmed them yet. An unverified backup does not count as protected.",
     "noneHint": "There is nothing to verify until the first backup completed.",
     "needsCredentialHint": "This account has no password of its own set and working right now, so it is not currently protected, whatever an earlier restore point once proved."
   },
@@ -62,7 +66,12 @@
     "openJob": "Open run",
     "snapshots": "{count, plural, one {# snapshot} other {# snapshots}}",
     "now": "Back up now",
-    "perObject": "Back up per object"
+    "perObject": "Back up per object",
+    "warning": "With warnings",
+    "warningHint": "The last backup ({when}) went through, but {count, plural, one {# item was} other {# items were}} not backed up.",
+    "acknowledged": "Warning acknowledged",
+    "acknowledgedHint": "{count, plural, one {# item} other {# items}} of the last backup ({when}) were not backed up. The causes are acknowledged.",
+    "reasons": "See the reasons"
   },
   "credential": {
     "status": {
@@ -118,7 +127,12 @@
       "sharedAll": "Shared and personal",
       "sharedOnly": "Shared or blocked only",
       "sharedExcluded": "Not shared or blocked",
-      "reset": "Reset filters"
+      "reset": "Reset filters",
+      "job": "Backup job",
+      "allJobs": "All objects",
+      "jobScheduled": "In a job with a schedule",
+      "jobUnscheduled": "In a job without a schedule",
+      "jobNone": "In no job"
     },
     "columns": {
       "name": "Name",
@@ -127,7 +141,8 @@
       "lastBackup": "Last backup",
       "readiness": "Readiness",
       "credential": "Login",
-      "actions": "Actions"
+      "actions": "Actions",
+      "job": "Backup job"
     },
     "sortBy": "Sort by {column}",
     "empty": {
@@ -178,7 +193,10 @@
     "newJob": "New job with this object",
     "newJobFromSelection": "{count, plural, one {New job with # object} other {New job with # objects}}",
     "selectionMenu": "{count, plural, one {Actions for # selected object} other {Actions for # selected objects}}",
-    "noBackup": "There is no backup of this object yet."
+    "noBackup": "There is no backup of this object yet.",
+    "openJob": "Open backup job",
+    "addToJob": "Add to job…",
+    "addSelectionToJob": "{count, plural, one {Add # object to a job…} other {Add # objects to a job…}}"
   },
   "bulk": {
     "selected": "{count, plural, one {# selected} other {# selected}}",
@@ -389,5 +407,27 @@
       "master_user": "This source signs in to every mailbox with a master user: no passwords are needed here.",
       "change": "Change mode"
     }
+  },
+  "job": {
+    "none": "No job",
+    "paused": "does not run on a schedule"
+  },
+  "noJob": {
+    "createJob": "Create job"
+  },
+  "addToJob": {
+    "title": "{count, plural, one {Add the object to a job} other {Add # objects to a job}}",
+    "description": "{count, plural, one {Choose the backup job for {name}. The job decides when it is backed up.} other {Choose the backup job for the # objects. The job decides when they are backed up.}}",
+    "label": "Backup job",
+    "loading": "Loading the jobs …",
+    "noJobs": "There is no mail job yet that names its objects. Create one; the object is already chosen in it.",
+    "machines": "{count, plural, one {# object} other {# objects}}",
+    "conflict": "{count, plural, one {The object is in the job {job} by now. An object is in one job at a time. \"Move here\" moves it to the chosen job.} other {# objects are in other jobs by now, for example {job}. An object is in one job at a time. \"Move here\" moves them to the chosen job.}}",
+    "cancel": "Cancel",
+    "submit": "Add",
+    "move": "Move here",
+    "added": "{count, plural, one {{name} is now in the job {job}} other {# objects are now in the job {job}}}",
+    "addedNote": "The job's schedule applies from now on.",
+    "folders": "{path}"
   }
 }

@@ -2,6 +2,14 @@ import { describe, expect, it } from "vitest";
 import { SETUP_ITEM_IDS } from "./dto.js";
 import { type SetupFacts, buildSetupChecklist, canActOn } from "./setup.js";
 
+const NO_MACHINES: SetupFacts["machines"] = {
+  active: 0,
+  backedUp: 0,
+  enabledJobs: 0,
+  checks: 0,
+  greenChecks: 0,
+};
+
 const READY: SetupFacts = {
   storage: { source: "tenant", status: "ok" },
   sources: { active: 1, error: 0, pending: 0 },
@@ -9,6 +17,7 @@ const READY: SetupFacts = {
   enabledBackupSchedules: 1,
   completedSnapshots: 30,
   verification: { reports: 4, green: 3 },
+  machines: NO_MACHINES,
   mail: { configured: true, lastTestOk: true, notNeeded: false },
 };
 
@@ -19,6 +28,7 @@ const FRESH: SetupFacts = {
   enabledBackupSchedules: 0,
   completedSnapshots: 0,
   verification: { reports: 0, green: 0 },
+  machines: NO_MACHINES,
   mail: { configured: false, lastTestOk: null, notNeeded: false },
 };
 
@@ -28,6 +38,37 @@ function stateOf(facts: SetupFacts, id: string) {
 }
 
 describe("setup checklist", () => {
+  it("can be finished by a tenant that protects only machines with the agent", () => {
+    const machinesOnly: SetupFacts = {
+      ...FRESH,
+      storage: { source: "tenant", status: "ok" },
+      machines: { active: 2, backedUp: 1, enabledJobs: 1, checks: 1, greenChecks: 1 },
+    };
+    expect(buildSetupChecklist(machinesOnly, "tenant_admin")).toMatchObject({
+      complete: true,
+      done: 7,
+    });
+  });
+
+  it("does not count a machine job without a machine, and flags a failed machine check", () => {
+    const facts: SetupFacts = {
+      ...FRESH,
+      machines: { active: 0, backedUp: 0, enabledJobs: 1, checks: 0, greenChecks: 0 },
+    };
+    expect(stateOf(facts, "schedules")?.state).toBe("open");
+    expect(stateOf(facts, "source")?.state).toBe("open");
+    const failed: SetupFacts = {
+      ...FRESH,
+      machines: { active: 1, backedUp: 1, enabledJobs: 1, checks: 2, greenChecks: 0 },
+    };
+    expect(stateOf(failed, "firstVerification")).toEqual({
+      state: "attention",
+      reason: "not_green",
+    });
+    expect(stateOf(failed, "objects")?.state).toBe("done");
+    expect(stateOf(failed, "firstBackup")?.state).toBe("done");
+  });
+
   it("lists every step in order and is complete when all are done", () => {
     const checklist = buildSetupChecklist(READY, "provider_admin");
     expect(checklist.items.map((item) => item.id)).toEqual([...SETUP_ITEM_IDS]);

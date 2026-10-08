@@ -10,6 +10,7 @@ import {
   hasProblems,
   linesOf,
   scheduleOf,
+  stricterRetention,
 } from "./settings-form.js";
 
 type Base = Pick<EndpointDetail, "displayName" | "config" | "settings" | "profile">;
@@ -51,6 +52,21 @@ function client(): Base {
     },
   };
 }
+
+describe("a stricter retention of a machine", () => {
+  it("counts the restore points of each kind it keeps fewer, and nothing for a longer one", () => {
+    const before = { keepDaily: 30, keepWeekly: 12, keepMonthly: 12 };
+    expect(stricterRetention(before, { keepDaily: 30, keepWeekly: 4, keepMonthly: 6 })).toEqual({
+      keepDaily: 0,
+      keepWeekly: 8,
+      keepMonthly: 6,
+    });
+    expect(
+      stricterRetention(before, { keepDaily: 31, keepWeekly: 12, keepMonthly: 12 }),
+    ).toBeNull();
+    expect(stricterRetention(before, undefined)).toBeNull();
+  });
+});
 
 describe("the settings draft", () => {
   it("starts from what the server holds", () => {

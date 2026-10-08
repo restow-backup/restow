@@ -98,6 +98,19 @@ assert_not_contains "deprecated" "$( (parse_args --local) 2>&1)" "--local prints
 assert_eq "help" "$(parsed --help | cut -d '|' -f 10)" "--help"
 assert_eq "upgrade" "$(parsed --upgrade | cut -d '|' -f 10)" "--upgrade"
 assert_eq "0" "$(parsed --with-updater --no-updater | cut -d '|' -f 9)" "--no-updater wins when last"
+parsed_mounter() {
+  (
+    set -Eeuo pipefail
+    parse_args "$@"
+    printf '%s|%s' "$OPT_MOUNTER" "$OPT_UPDATER"
+  ) 2>/dev/null
+}
+assert_eq "0|0" "$(parsed_mounter)" "the mounter is off by default"
+assert_eq "1|0" "$(parsed_mounter --with-mounter)" "--with-mounter, without the updater"
+assert_eq "1|1" "$(parsed_mounter --with-updater --with-mounter)" "--with-mounter next to --with-updater"
+assert_eq "0|0" "$(parsed_mounter --with-mounter --no-mounter)" "--no-mounter wins when last"
+assert_contains "--with-mounter" "$(usage)" "--help names --with-mounter"
+assert_contains "docs/MOUNTS.md" "$(usage)" "--help points to docs/MOUNTS.md"
 assert_status 2 "--uninstall is refused" parse_args --uninstall
 assert_status 2 "unknown option" parse_args --frobnicate
 assert_status 2 "--domain without value" parse_args --domain
@@ -837,9 +850,9 @@ assert_contains "Debian GNU/Linux 12 (bookworm)" "$DRY_OUT" "fresh dry run: OS"
 assert_contains "virtual machine (kvm)" "$DRY_OUT" "fresh dry run: VM"
 assert_contains "backup.example.com resolves to this host" "$DRY_OUT" "fresh dry run: DNS"
 assert_contains "ports 80 and 443 are free" "$DRY_OUT" "fresh dry run: ports"
-assert_contains "ghcr.io/restow-backup/restow:0.2.2" "$DRY_OUT" "fresh dry run: full build image"
-assert_contains "would download SHA256SUMS, SHA256SUMS.sigstore.json, docker-compose.yml and env.example from https://github.com/restow-backup/restow/releases/download/v0.2.2" "$DRY_OUT" "fresh dry run: release files"
-assert_contains "signer: https://github.com/restow-backup/restow/.github/workflows/release.yml@refs/tags/v0.2.2" "$DRY_OUT" "fresh dry run: signer"
+assert_contains "ghcr.io/restow-backup/restow:0.3.0" "$DRY_OUT" "fresh dry run: full build image"
+assert_contains "would download SHA256SUMS, SHA256SUMS.sigstore.json, docker-compose.yml and env.example from https://github.com/restow-backup/restow/releases/download/v0.3.0" "$DRY_OUT" "fresh dry run: release files"
+assert_contains "signer: https://github.com/restow-backup/restow/.github/workflows/release.yml@refs/tags/v0.3.0" "$DRY_OUT" "fresh dry run: signer"
 assert_contains "would write $dir3/.env" "$DRY_OUT" "fresh dry run: .env"
 assert_contains "would run: docker pull $COSIGN_IMAGE" "$DRY_OUT" "fresh dry run: cosign"
 assert_contains "would run: docker compose up -d" "$DRY_OUT" "fresh dry run: start"
@@ -849,13 +862,32 @@ no_mutation "fresh dry run"
 
 dry_main "$OS_DEBIAN13" "$MEM_8G" --non-interactive --edition community --dir "$dir3" --domain backup.example.com --skip-signature-check --with-updater
 assert_eq 0 "$DRY_STATUS" "Community dry run exits 0"
-assert_contains "ghcr.io/restow-backup/restow-community:0.2.2" "$DRY_OUT" "Community dry run: image"
-assert_contains "ghcr.io/restow-backup/restow-web-community:0.2.2" "$DRY_OUT" "Community dry run: web image"
+assert_contains "ghcr.io/restow-backup/restow-community:0.3.0" "$DRY_OUT" "Community dry run: image"
+assert_contains "ghcr.io/restow-backup/restow-web-community:0.3.0" "$DRY_OUT" "Community dry run: web image"
 assert_contains "--skip-signature-check: the cosign signatures" "$DRY_OUT" "loud warning for --skip-signature-check"
 assert_contains "NOT check the signature" "$DRY_OUT" "signatures skipped"
 assert_not_contains "docker pull $COSIGN_IMAGE" "$DRY_OUT" "no cosign without signature checks"
 assert_contains "would run: docker compose --profile updater up -d" "$DRY_OUT" "updater started on request"
+assert_not_contains "--profile mounts" "$DRY_OUT" "no mounter unless asked for"
+assert_contains "Mounter      off" "$DRY_OUT" "the plan says the mounter stays off"
 no_mutation "Community dry run"
+
+dry_main "$OS_DEBIAN13" "$MEM_8G" --non-interactive --dir "$dir3" --domain backup.example.com --version 0.3.0 --with-mounter
+assert_eq 0 "$DRY_STATUS" "dry run with the mounter exits 0"
+assert_contains "would run: docker compose --profile mounts up -d" "$DRY_OUT" "mounter started on request"
+assert_contains "Mounter      on: the application image in the mounter role, pinned by digest" "$DRY_OUT" "the plan names the mounter"
+no_mutation "dry run with the mounter"
+
+dry_main "$OS_DEBIAN13" "$MEM_8G" --non-interactive --dir "$dir3" --domain backup.example.com --version 0.3.0 --with-updater --with-mounter
+assert_eq 0 "$DRY_STATUS" "dry run with the updater and the mounter exits 0"
+assert_contains "would run: docker compose --profile updater --profile mounts up -d" "$DRY_OUT" "both profiles in one start"
+assert_contains "moved along with every signed update" "$DRY_OUT" "the plan says the updater moves the mounter"
+no_mutation "dry run with the updater and the mounter"
+
+dry_main "$OS_DEBIAN13" "$MEM_8G" --non-interactive --dir "$dir3" --domain backup.example.com --version 0.2.2 --with-mounter
+assert_eq 2 "$DRY_STATUS" "--with-mounter on a release without the mounter: refused"
+assert_contains "--with-mounter needs release $MOUNTER_MIN_VERSION or newer" "$DRY_OUT" "the old release is said to be the problem"
+assert_not_contains "would run: docker compose" "$DRY_OUT" "refused before anything starts"
 
 STUB_DOCKER_MISSING=1 dry_main "$OS_DEBIAN12" "$MEM_8G" --yes --domain backup.example.com --dir "$dir3"
 assert_eq 0 "$DRY_STATUS" "dry run without Docker exits 0"
@@ -922,13 +954,13 @@ assert_contains "Docker Engine 20.10.24 is too old" "$DRY_OUT" "old Docker messa
 
 # The images must be pullable without a login, or the installer stops before it changes anything.
 dry_main "$OS_DEBIAN12" "$MEM_8G" --yes --domain backup.example.com --dir "$dir3"
-assert_contains "ok: ghcr.io/restow-backup/restow:0.2.2 can be pulled without a login" "$DRY_OUT" "dry run: the full images are checked"
-assert_contains "ok: ghcr.io/restow-backup/restow-web:0.2.2 can be pulled without a login" "$DRY_OUT" "dry run: the web image is checked"
+assert_contains "ok: ghcr.io/restow-backup/restow:0.3.0 can be pulled without a login" "$DRY_OUT" "dry run: the full images are checked"
+assert_contains "ok: ghcr.io/restow-backup/restow-web:0.3.0 can be pulled without a login" "$DRY_OUT" "dry run: the web image is checked"
 dry_main "$OS_DEBIAN12" "$MEM_8G" --yes --edition community --domain backup.example.com --dir "$dir3"
-assert_contains "ok: ghcr.io/restow-backup/restow-community:0.2.2 can be pulled without a login" "$DRY_OUT" "dry run: the Community images are checked"
+assert_contains "ok: ghcr.io/restow-backup/restow-community:0.3.0 can be pulled without a login" "$DRY_OUT" "dry run: the Community images are checked"
 STUB_TOKEN_CODE=401 dry_main "$OS_DEBIAN12" "$MEM_8G" --yes --edition community --domain backup.example.com --dir "$dir3"
 assert_eq 3 "$DRY_STATUS" "private images: preflight fails"
-assert_contains "error: image ghcr.io/restow-backup/restow-community:0.2.2 is not publicly available (401 unauthorized): the release images may not be published yet; nothing was changed" "$DRY_OUT" "private images: the explanation"
+assert_contains "error: image ghcr.io/restow-backup/restow-community:0.3.0 is not publicly available (401 unauthorized): the release images may not be published yet; nothing was changed" "$DRY_OUT" "private images: the explanation"
 assert_not_contains "Plan" "$DRY_OUT" "private images: stops before the plan"
 no_mutation "private images"
 STUB_MANIFEST_CODE=404 dry_main "$OS_DEBIAN12" "$MEM_8G" --yes --domain backup.example.com --dir "$dir3" --version 0.9.9
@@ -1068,6 +1100,10 @@ assert_contains "use a domain name" "$(domain_problem 10.0.0.1 0 1)" "an IP behi
 assert_status 0 "0.2.0 can serve the encrypted hop" version_ge 0.2.0 "$PROXY_TLS_MIN_VERSION"
 assert_status 1 "0.1.0 cannot serve the encrypted hop" version_ge 0.1.0 "$PROXY_TLS_MIN_VERSION"
 assert_status 0 "a pre-release of 0.2.0 can" version_ge 0.2.0-rc.1 "$PROXY_TLS_MIN_VERSION"
+assert_eq "" "$(OPT_MOUNTER=1 mounter_version_problem 0.3.0)" "0.3.0 has the mounter"
+assert_eq "" "$(OPT_MOUNTER=1 mounter_version_problem 0.3.0-rc.1)" "a pre-release of 0.3.0 has it"
+assert_eq "" "$(OPT_MOUNTER=0 mounter_version_problem 0.2.2)" "no mounter asked for: any release"
+assert_contains "--with-mounter needs release $MOUNTER_MIN_VERSION or newer" "$(OPT_MOUNTER=1 mounter_version_problem 0.2.2)" "0.2.2 has no mounter"
 
 # ---- Behind a reverse proxy: .env ----------------------------------------------------------
 

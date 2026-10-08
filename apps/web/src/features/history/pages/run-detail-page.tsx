@@ -123,6 +123,8 @@ export function RunDetailPage({ runId }: { runId: string }) {
         error={detail.error}
         onRetry={() => void detail.refetch()}
         onOpenRun={(id) => void navigate({ to: jobDetailTo(id) })}
+        // A mail run lists its failed items in full below (the cards); a machine run has only these.
+        itemsOnPage={mail}
       />
       {mail && items.data ? (
         <>

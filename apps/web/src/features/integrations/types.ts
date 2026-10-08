@@ -58,6 +58,14 @@ export const WEBHOOK_EVENTS = ["job.failed", "job.completed", "verify.completed"
 
 export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
 
+/**
+ * What a webhook's requests look like: the signed JSON envelope, or a chat
+ * message for that service's incoming webhooks (sent without a signature).
+ */
+export const WEBHOOK_FORMATS = ["restow", "discord", "slack", "teams"] as const;
+
+export type WebhookFormat = (typeof WEBHOOK_FORMATS)[number];
+
 /** Sent by "Send test event"; appears in the delivery log only. */
 export const WEBHOOK_TEST_EVENT = "webhook.test";
 
@@ -84,6 +92,8 @@ export interface Webhook {
   url: string;
   events: WebhookEvent[];
   active: boolean;
+  format: WebhookFormat;
+  /** A signing secret is stored; only the `restow` format signs with it. */
   secretConfigured: boolean;
   createdAt: string;
   updatedAt: string;
@@ -100,6 +110,7 @@ export interface WebhookInput {
   url: string;
   events: WebhookEvent[];
   active: boolean;
+  format: WebhookFormat;
 }
 
 export type DeliveryErrorCode =

@@ -6,7 +6,7 @@ import type { EndpointsWidget } from "./dto.js";
 
 /**
  * The endpoints widget of the start page: how many servers and clients are
- * under protection and which of them are not proven restorable or failed
+ * under protection (in a backup job), how many are in none, and which of them are not proven restorable or failed
  * their last backup. Everything is derived from the endpoint list the
  * Servers and Clients pages show (`listEndpoints`), so the numbers agree with
  * those pages, with the recovery-readiness page (the same rating per machine,
@@ -28,7 +28,11 @@ export function summarizeEndpoints(items: readonly EndpointSummaryDto[]): Endpoi
     noBackup: stateCount("no_backup"),
   };
   return {
-    protected: counts.total,
+    // A machine in no backup job is not backed up (release 0.2.1): it is not protected, whatever
+    // an old backup of it scores.
+    protected: counts.total - counts.withoutJob,
+    machines: counts.total,
+    withoutJob: counts.withoutJob,
     servers: counts.servers,
     clients: counts.clients,
     readiness,
@@ -36,8 +40,10 @@ export function summarizeEndpoints(items: readonly EndpointSummaryDto[]): Endpoi
     // a verified restore counts as failed (docs/TESTING.md), so neither an
     // unverified machine nor one without a backup is ever counted as fine.
     notReady: readiness.red + readiness.unverified + readiness.noBackup,
-    failedLastBackup: active.filter((item) => item.attention.includes("last_backup_failed")).length,
+    failedLastBackup: counts.failedLastBackup,
     needingAttention: counts.needingAttention,
+    otherAttention: active.filter((item) => item.attention.some((reason) => reason !== "no_job"))
+      .length,
     lastSuccessAt: counts.lastSuccessAt,
   };
 }

@@ -605,6 +605,13 @@ describe("EndpointDetailPage", () => {
     );
     const notice = document.querySelector('[data-slot="without-backup-notice"]');
     expect(notice?.textContent).toContain("This machine is not backed up");
+    // An old backup's rating is not green next to "Without backup": it turns neutral, says why.
+    if (base.readiness.state !== "no_backup") {
+      expect(document.querySelector('[data-slot="readiness-frozen"]')).not.toBeNull();
+      expect(document.querySelector('[data-slot="endpoint-badges"]')?.textContent).toContain(
+        "no new backups are added",
+      );
+    }
     expect(notice?.textContent).toContain("A newly enrolled machine backs up only once");
     // Whoever may not manage jobs is told whom to ask.
     expect(notice?.textContent).toContain("Ask an administrator");
@@ -614,7 +621,8 @@ describe("EndpointDetailPage", () => {
     ).toBeNull();
     const backup = page.byText<HTMLButtonElement>("button", "Back up now");
     expect(backup.disabled).toBe(true);
-    expect(backup.title).toBe("Add the machine to a backup job first.");
+    expect(backup.closest('[data-slot="disabled-reason"]')).not.toBeNull();
+    expect(backup.title).toBe("");
   });
 
   it("requests a backup now, and says so when one is already waiting", async () => {
@@ -644,11 +652,11 @@ describe("EndpointDetailPage", () => {
       ),
     );
     await open();
-    await page.click(page.byText("button", "Run restore test"));
+    await page.click(page.byText("button", "Start restore check"));
     await page.settle();
     expect(requestRestoreTest).toHaveBeenCalledWith(ID);
     expect(toast.error).toHaveBeenCalledWith(
-      "The restore test could not be started",
+      "The restore check could not be started",
       expect.objectContaining({
         description: expect.stringContaining("busy with a backup or maintenance"),
       }),
@@ -658,9 +666,9 @@ describe("EndpointDetailPage", () => {
   it("reports a restore test that was queued", async () => {
     requestRestoreTest.mockResolvedValue({ queued: true });
     await open();
-    await page.click(page.byText("button", "Run restore test"));
+    await page.click(page.byText("button", "Start restore check"));
     await page.settle();
-    expect(toast.success).toHaveBeenCalledWith("Restore test queued", expect.anything());
+    expect(toast.success).toHaveBeenCalledWith("Restore check scheduled", expect.anything());
   });
 
   it("cannot test a machine that has no good backup yet", async () => {
@@ -677,7 +685,10 @@ describe("EndpointDetailPage", () => {
       }),
     );
     await open();
-    expect((page.byText("button", "Run restore test") as HTMLButtonElement).disabled).toBe(true);
+    const button = page.byText("button", "Start restore check") as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    // The reason sits on a focusable wrapper: a disabled button shows no tooltip of its own.
+    expect(button.closest('[data-slot="disabled-reason"]')?.getAttribute("tabindex")).toBe("0");
   });
 
   it("shows a revoked machine as revoked: a banner, no attention, no actions", async () => {
@@ -694,7 +705,7 @@ describe("EndpointDetailPage", () => {
       "fetches the change",
     );
     expect((page.byText("button", "Back up now") as HTMLButtonElement).disabled).toBe(true);
-    expect((page.byText("button", "Run restore test") as HTMLButtonElement).disabled).toBe(true);
+    expect((page.byText("button", "Start restore check") as HTMLButtonElement).disabled).toBe(true);
     expect(document.querySelector('[data-slot="endpoint-badges"]')?.textContent).toContain(
       "Revoked",
     );

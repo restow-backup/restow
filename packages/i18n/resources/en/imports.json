@@ -70,7 +70,7 @@
     "descriptionFolder": "Select the files and folders of the import folder. A selected folder brings everything inside it.",
     "status": {
       "imported": "Imported",
-      "partial": "Partly imported",
+      "partial": "Imported with warnings",
       "failed": "Failed",
       "refused": "Not imported"
     },
@@ -228,7 +228,13 @@
     },
     "archive": {
       "title": "Also ingest into the archive (retention and search apply)",
-      "description": "Every imported message is also written to the archive, marked as imported from a file. Retention rules, legal holds and full-text search then apply to it like to any archived mail. Leave this off if the mail only needs to be restorable."
+      "description": "Every imported message is also written to the archive, marked as imported from a file. The archive's retention and full-text search then apply to it like to any archived mail. Leave this off if the mail only needs to be restorable.",
+      "irreversible": "This cannot be undone: messages ingested into the archive cannot be deleted until their retention ends, not even by cancelling the import.",
+      "retention": {
+        "years": "Retention in this tenant: {count, plural, one {# year} other {# years}} from ingestion.",
+        "endOfYear": "Retention in this tenant: {count, plural, one {# year} other {# years}}, counted from the end of the year of ingestion.",
+        "unlimited": "Retention in this tenant: without end."
+      }
     }
   },
   "review": {
@@ -251,7 +257,9 @@
     },
     "archive": {
       "yes": "Also ingested into the archive",
-      "no": "Not ingested into the archive"
+      "no": "Not ingested into the archive",
+      "willBe": "Will also be ingested into the archive (cannot be undone)",
+      "willNotBe": "Will not be ingested into the archive"
     },
     "uploading": "{count, plural, one {# file is} other {# files are}} still uploading. You can start the import when all uploads have finished.",
     "note": "Messages that are already in the mailbox are skipped as duplicates. Calendar entries and contacts are not imported. Files that cannot be read are listed in the report, and everything else is imported."
@@ -309,6 +317,7 @@
       "failedUnknown": "No further details were reported.",
       "cancelled": "The import was cancelled",
       "cancelledDescription": "It stopped before finishing. Files uploaded for it were removed from the server, and earlier imports into the mailbox are not affected.",
+      "cancelledArchiveNote": "Messages ingested into the archive before the cancellation stay there until their retention ends.",
       "completedSnapshot": "The messages are stored in a new restore point of the mailbox.",
       "completedNoSnapshot": "Nothing new was stored, for example because every message was already in the mailbox.",
       "allAlreadyImported": "{count, plural, one {The only message in the files was already imported. Nothing new was stored.} other {All # messages in the files were already imported. Nothing new was stored.}}",
@@ -343,7 +352,7 @@
     "msg_reconstructed": "Some messages come from MSG files and were rebuilt as EML from the stored properties. Their content and attachments are kept, but they are not the original transport format byte for byte.",
     "metadata_unavailable": "Some messages are stored byte for byte, but their subject, sender and text could not be read in a reasonable time or with the memory the import allows, so they appear without those details and the archive search does not find their text. The messages themselves are complete.",
     "item_list_truncated": "The list of items is capped, so more items exist than are shown.",
-    "report_recovered": "This report was rebuilt from the records of the job after the import was interrupted, for example by a restart. Some details, such as the list of failed or skipped items, may be missing.",
+    "report_recovered": "This report was rebuilt from the records of the run after the import was interrupted, for example by a restart. Some details, such as the list of failed or skipped items, may be missing.",
     "other": "The import reported a note this version of {appName} does not know (code: {code})."
   },
   "archive": {
@@ -396,6 +405,7 @@
     "action": "Cancel import",
     "title": "Cancel this import?",
     "description": "The import stops as soon as the worker reaches its next check. Files uploaded for it are removed from the server, and earlier imports into the mailbox are not affected.",
+    "archiveNote": "Messages already ingested into the archive stay there until their retention ends.",
     "keep": "Keep running",
     "confirm": "Cancel import",
     "done": "The import was cancelled.",
@@ -406,6 +416,8 @@
     "subtitle": "Every import of mail files into this tenant, newest first.",
     "new": "Import mail files",
     "loadError": "The imports could not be loaded",
+    "shown": "{count, plural, one {The newest import is shown.} other {The newest # imports are shown.}}",
+    "showOlder": "Show older",
     "empty": {
       "title": "No imports yet",
       "description": "Import EML, MSG, MBOX or ZIP files to keep old mail browsable and restorable in {appName}."
@@ -435,5 +447,11 @@
     "uploadNotReady": "One of the uploads is not complete yet. Wait until every upload is ready.",
     "alreadyQueued": "An import into this mailbox is already waiting. It starts as soon as the running one has finished.",
     "folderDisabled": "The server import folder is not available."
+  },
+  "leave": {
+    "title": "Files are still uploading. Leave this page?",
+    "description": "Leaving the page pauses the upload. The parts already uploaded stay on the server: add the same file again later to continue the upload.",
+    "stay": "Stay on this page",
+    "confirm": "Leave page"
   }
 }

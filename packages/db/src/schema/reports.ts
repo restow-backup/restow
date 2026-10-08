@@ -29,6 +29,9 @@ export const reportTriggerEnum = pgEnum("report_trigger", ["event", "schedule"])
  * (evaluated in `timezone`). Channels: `emailRecipients`, `inApp` (the bell;
  * events always reach it, so the flag matters for reports only) and an
  * existing `webhookId`. `language` null means the tenant's language.
+ * `overdueAfterHours` (event rules that list `backup.overdue` only) is the rule's own
+ * "no successful backup for X hours" deadline: it replaces the bound the jobs' schedules give
+ * for this rule's alerts (apps/worker overdue.ts); null follows the schedules.
  */
 export const reportRules = pgTable(
   "report_rules",
@@ -53,6 +56,7 @@ export const reportRules = pgTable(
     inApp: boolean("in_app").notNull().default(false),
     webhookId: uuid("webhook_id").references(() => webhooks.id, { onDelete: "set null" }),
     language: tenantLanguageEnum("language"),
+    overdueAfterHours: integer("overdue_after_hours"),
     // Set on the rule that carries one category of the tenant's notification recipients
     // (`jobFailures`, `readinessRed`, `weeklyReport`): its e-mail recipients are the recipients
     // who chose that category, kept in step whenever the recipients are saved. Null for every
@@ -77,6 +81,10 @@ export const reportRules = pgTable(
     ),
     check("report_rules_period_ck", sql`${t.periodDays} BETWEEN 1 AND 366`),
     check("report_rules_throttle_ck", sql`${t.throttleMinutes} BETWEEN 0 AND 10080`),
+    check(
+      "report_rules_overdue_after_ck",
+      sql`${t.overdueAfterHours} IS NULL OR ${t.overdueAfterHours} BETWEEN 24 AND 720`,
+    ),
   ],
 );
 

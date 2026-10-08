@@ -2,6 +2,7 @@ import type { RatedReport } from "../verify/verification-state.js";
 import type { ReasonCount } from "./causes.js";
 import type { TenantRefDto } from "./dto.js";
 import type { EndpointFacts } from "./endpoint-facts.js";
+import type { GuestFacts } from "./guest-facts.js";
 
 /**
  * What the statistics read from one tenant's tables (collect.ts), before
@@ -118,6 +119,12 @@ export interface TenantFacts {
    * the protected-objects figures and the backup outcomes, and nowhere else.
    */
   readonly endpoints: EndpointFacts;
+  /**
+   * VMs and containers of Proxmox VE (guest-facts.ts): counted like the servers and clients, in
+   * the readiness series, the protected-objects figures and the backup outcomes. Absent, the
+   * tenant has none.
+   */
+  readonly guests?: GuestFacts;
   /**
    * The largest newest backups of protected objects at the end of the
    * period, biggest first.

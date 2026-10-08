@@ -13,8 +13,8 @@
   },
   "health": {
     "title": "Health",
-    "verified": "Restore verified",
-    "unverified": "Restore not verified yet",
+    "verified": "Restore check passed",
+    "unverified": "Unverified",
     "lastRun": "Last run {timestamp, time, short}"
   },
   "nav": {
@@ -31,7 +31,7 @@
     "storage_migration": "Storage migration"
   },
   "jobStatus": {
-    "queued": "Queued",
+    "queued": "Waiting",
     "active": "Running",
     "completed": "Completed",
     "completedWithFailures": "{count, plural, one {Completed, # item failed} other {Completed, # items failed}}",
@@ -97,9 +97,9 @@
   },
   "throttle": {
     "title": "Microsoft 365 is limiting requests",
-    "waiting": "Microsoft asked {appName} to pause (HTTP {status}). The job continues automatically in {remaining}.",
+    "waiting": "Microsoft asked {appName} to pause (HTTP {status}). The run continues automatically in {remaining}.",
     "waitingShort": "Paused by Microsoft, continuing in {remaining}",
-    "resumed": "Microsoft limited requests during this run. The job continues normally.",
+    "resumed": "Microsoft limited requests during this run. The run continues normally.",
     "summary": "{count, plural, one {# pause} other {# pauses}} imposed by Microsoft, {duration} in total",
     "explanation": "Microsoft 365 limits how many requests an application may send. Waiting is the correct response; nothing is lost and no data is skipped."
   },
@@ -116,15 +116,15 @@
     "backupNowFullHint": "Reads everything again. Deduplication keeps storage use low, but it takes longer.",
     "backupAll": "Back up all",
     "backupAllTitle": "Back up every protected object?",
-    "backupAllDescription": "A backup job is queued for every protected object of this tenant. Objects that are already queued or whose source is not connected are skipped.",
+    "backupAllDescription": "A backup is queued for every protected object of this tenant. Objects that are already queued or whose source is not connected are skipped.",
     "backupAllConfirm": "Queue backups",
-    "cancel": "Cancel job",
-    "cancelTitle": "Cancel this job?",
-    "cancelDescription": "A running job stops at its next checkpoint. Items already stored stay in storage; the snapshot of this run is not completed.",
-    "cancelConfirm": "Cancel job",
+    "cancel": "Cancel run",
+    "cancelTitle": "Cancel this run?",
+    "cancelDescription": "A running run stops at its next checkpoint. Items already stored stay in storage; the restore point of this run is not completed.",
+    "cancelConfirm": "Cancel run",
     "keepRunning": "Keep running",
     "retry": "Run again",
-    "openJob": "Open job",
+    "openJob": "Open run",
     "history": "Snapshot history",
     "backToJobs": "Back to history",
     "loadMore": "Load more",
@@ -135,8 +135,8 @@
     "queuedMany": "{count, plural, one {# backup queued} other {# backups queued}}.",
     "skipped": "{count, plural, one {# object skipped} other {# objects skipped}}: already queued or not ready.",
     "nothingQueued": "No backup was queued. Every object is already queued or not ready.",
-    "cancelled": "The job is being cancelled.",
-    "retried": "The job was queued again.",
+    "cancelled": "The run is being cancelled.",
+    "retried": "The run was queued again.",
     "alreadyQueued": "A backup of this object is already queued or running.",
     "failed": "The action could not be completed."
   },
@@ -145,7 +145,8 @@
     "orphaned": "No longer in the source directory",
     "source_pending": "Source not connected yet",
     "source_disabled": "Source disabled",
-    "already_queued": "Already queued"
+    "waiting": "Waiting to start",
+    "running": "Running now"
   },
   "jobs": {
     "title": "History",
@@ -157,7 +158,7 @@
     "allQueues": "All types",
     "allStatuses": "All statuses",
     "columns": {
-      "job": "Job",
+      "job": "Run",
       "object": "Object",
       "status": "Status",
       "progress": "Progress",
@@ -186,7 +187,7 @@
     "phase": "Current step: {phase}",
     "since": "since {time}",
     "error": "Why the run failed",
-    "cancelledInfo": "The job was cancelled. Items stored before the cancellation remain in storage; the next backup continues from the last completed snapshot.",
+    "cancelledInfo": "The run was cancelled. Items stored before the cancellation remain in storage; the next backup continues from the last completed restore point.",
     "result": "Result",
     "resultSnapshot": "Snapshot {sequence}",
     "resultItems": "{total} items in the snapshot, {written} new or changed",
@@ -200,7 +201,7 @@
   "failures": {
     "title": "Items that could not be processed",
     "description": "Failed items are retried in the next run. After three consecutive failures an alert is raised.",
-    "empty": "No item failed in this job.",
+    "empty": "No item failed in this run.",
     "item": "Item",
     "reason": "Reason",
     "attempts": "Runs",
@@ -220,7 +221,7 @@
       "object": "Object",
       "source": "Source",
       "lastBackup": "Last successful backup",
-      "lastJob": "Last job",
+      "lastJob": "Last run",
       "readiness": "Recovery readiness",
       "actions": "Actions"
     },
@@ -230,10 +231,10 @@
     "loadError": "The protected objects could not be loaded."
   },
   "readiness": {
-    "green": "Restore verified",
-    "yellow": "Restore partly verified",
+    "green": "Ready",
+    "yellow": "Attention",
     "red": "Restore check failed",
-    "none": "Not verified yet",
+    "none": "Unverified",
     "checked": "checked {time}"
   },
   "snapshots": {
@@ -247,7 +248,7 @@
       "completed": "Completed",
       "items": "Items",
       "size": "Size",
-      "job": "Job"
+      "job": "Run"
     },
     "state": {
       "running": "Running",
@@ -258,7 +259,7 @@
     "stateHint": {
       "running": "The backup is still writing this snapshot.",
       "completed": "Committed and restorable.",
-      "incomplete": "The job ended before the snapshot was committed. It cannot be restored.",
+      "incomplete": "The run ended before the restore point was committed. It cannot be restored.",
       "pruned": "Removed by the retention policy."
     },
     "loadError": "The snapshot history could not be loaded."

@@ -44,7 +44,7 @@
   "list": {
     "title": "Jobs",
     "description": {
-      "mail": "What is backed up, when and into which repository, for many mailboxes, OneDrives and IMAP accounts at once. The runs are in History.",
+      "mail": "What is backed up, when and to which storage location, for many mailboxes, OneDrives and IMAP accounts at once. The runs are in History.",
       "endpoint": "Which folders of which servers and clients are backed up, when and with what left out. One job covers many machines, and single machines can do things differently. The runs are in History."
     },
     "table": {
@@ -58,7 +58,7 @@
       "name": "Job",
       "scope": "Scope",
       "schedule": "Schedule",
-      "repository": "Repository",
+      "repository": "Storage location",
       "lastRun": "Last run",
       "nextRun": "Next run",
       "restoreCheck": "Restore check"
@@ -66,7 +66,8 @@
     "uncovered": {
       "mail": "{count, plural, one {# protected object is in no job and is not backed up on a schedule.} other {# protected objects are in no job and are not backed up on a schedule.}}",
       "endpoint": "{count, plural, one {# machine is in no job and is not backed up.} other {# machines are in no job and are not backed up.}} A machine without a job backs nothing up; only a job sets its schedule and folders.",
-      "action": "Create a job"
+      "action": "Create a job",
+      "show": "Show"
     },
     "empty": {
       "title": {
@@ -77,30 +78,38 @@
         "mail": "Without a job nothing is backed up on a schedule. A job covers mailboxes, OneDrives and IMAP accounts, runs on a schedule and checks that the backups can be restored.",
         "endpoint": "A job tells the agents which folders to back up, when, and what to leave out. A machine without a job is not backed up."
       }
+    },
+    "unscheduled": {
+      "mail": "{count, plural, one {# protected object is in a paused job or a job without a schedule and is not backed up automatically.} other {# protected objects are in paused jobs or jobs without a schedule and are not backed up automatically.}}",
+      "endpoint": "{count, plural, one {# machine is in a job without a schedule and is not backed up automatically.} other {# machines are in jobs without a schedule and are not backed up automatically.}}"
     }
   },
   "state": {
     "paused": "Paused",
     "failing": "Backup failed",
     "running": "Running",
-    "queued": "Queued",
+    "queued": "Waiting",
     "attention": "Needs attention",
     "empty": "Empty",
-    "ok": "Active"
+    "ok": "Active",
+    "storage_error": "Storage location failing",
+    "overdue": "Overdue",
+    "manual": "Manual only"
   },
   "lastRun": {
     "never": "No backup yet",
     "running": "{count, plural, one {Running now} other {# running}}",
-    "queued": "{count} queued",
+    "queued": "{count} waiting",
     "failed": "{count} failed",
-    "partial": "{count} partial"
+    "partial": "{count} with warnings"
   },
   "nextRun": {
     "paused": "Paused",
     "manual": "Started by hand",
     "onConnect": "When a machine connects",
     "empty": "Nothing to back up",
-    "unknown": "Not planned yet"
+    "unknown": "Not planned yet",
+    "overdue": "Overdue since"
   },
   "restoreCheck": {
     "summary": "{passed} of {total} passed",
@@ -177,10 +186,10 @@
     "overridesBadge": "{count} overrides",
     "outcome": {
       "succeeded": "Succeeded",
-      "partial": "Partial",
+      "partial": "With warnings",
       "failed": "Failed",
       "running": "Running",
-      "queued": "Queued"
+      "queued": "Waiting"
     },
     "queued": {
       "waiting": "Waits for the machine (next check-in in about {count} min)",
@@ -313,7 +322,7 @@
     "restoreCheckSchedule": "Restore check",
     "lastRun": "Last run",
     "nextRun": "Next run",
-    "repository": "Repository",
+    "repository": "Storage location",
     "retention": "Retention",
     "restoreChecks": "Restore checks",
     "restoreChecksNone": "Nothing in this job to check yet.",
@@ -329,7 +338,7 @@
     "intro": "Everything this job says. Changing it opens the editor.",
     "general": "General",
     "schedule": "Schedule",
-    "repositoryAndRetention": "Repository and retention",
+    "repositoryAndRetention": "Storage location and retention",
     "folders": "Folders",
     "exclusions": "Exclusions",
     "bandwidth": "Bandwidth",
@@ -342,7 +351,7 @@
       "updated": "Changed",
       "schedule": "Schedule",
       "restoreCheck": "Restore check",
-      "repository": "Repository",
+      "repository": "Storage location",
       "retention": "Retention",
       "fileTypes": "File types left out",
       "ownPatterns": "Own patterns",
@@ -352,7 +361,7 @@
     },
     "kinds": {
       "mail": "Mail & SaaS",
-      "endpoint": "Servers & endpoints"
+      "endpoint": "Servers and clients"
     },
     "scopeMode": {
       "all": "Everything that is in no other job",
@@ -387,7 +396,7 @@
   },
   "run": {
     "skipped": {
-      "already_queued": "{count, plural, one {# was already queued.} other {# were already queued.}}",
+      "already_queued": "{count, plural, one {# is already waiting or running.} other {# are already waiting or running.}}",
       "excluded": "{count, plural, one {# is excluded from backups.} other {# are excluded from backups.}}",
       "orphaned": "{count, plural, one {# no longer exists in the source.} other {# no longer exist in the source.}}",
       "source_pending": "{count, plural, one {# waits for its source to be connected.} other {# wait for their source to be connected.}}",
@@ -410,8 +419,9 @@
       "endpoint": "The machine starts it at its next check-in, usually within 5 minutes."
     },
     "runWaiting": {
-      "title": "Already queued",
-      "description": "{count, plural, one {A backup is waiting for the machine and starts at its next check-in.} other {Backups are waiting for the machines and start at their next check-in.}}"
+      "title": "Already waiting",
+      "endpoint": "{count, plural, one {A backup is waiting for the machine and starts at its next check-in.} other {Backups are waiting for the machines and start at their next check-in.}}",
+      "mail": "{count, plural, one {The backup is already waiting to start or running.} other {All # backups are already waiting to start or running.}}"
     },
     "runNothing": "Nothing started for {name}",
     "failed": "That did not work",
@@ -435,7 +445,12 @@
       "endpoint": "{scope} leave the job and are no longer backed up until another job takes them."
     },
     "after": "The job and its settings cannot be brought back.",
-    "confirm": "Delete job"
+    "confirm": "Delete job",
+    "restorePoints": {
+      "mail": "Existing restore points are not deleted: they stay restorable and expire under the retention policy “{policy}”.",
+      "mailDefault": "Existing restore points are not deleted: they stay restorable and expire under the tenant's default retention.",
+      "endpoint": "Existing restore points are not deleted: they stay restorable. Their retention then follows each machine's own setting, no longer the job's."
+    }
   },
   "picker": {
     "search": {
@@ -521,7 +536,7 @@
         "endpoint": "When the agent starts a backup."
       },
       "automatic": "Run on a schedule",
-      "manualOnly": "The job runs only when someone starts it."
+      "manualOnly": "Without a schedule nothing is backed up automatically: the objects of this job are backed up only when someone starts the job."
     },
     "verify": {
       "title": "Restore check",
@@ -537,9 +552,20 @@
       },
       "policy": "Retention policy"
     },
+    "archive": {
+      "title": "Archive",
+      "description": "Tamper-evident archive through Exchange journaling: every mail is captured as soon as Exchange delivers it, independent of the backup schedule.",
+      "switch": "Archive this job's mailboxes",
+      "hint": "The archive takes in every journal report and assigns it to the mailboxes that received or sent it. Mail for mailboxes outside an archiving job is archived all the same, only not assigned to a job.",
+      "noObjectLock": "This tenant's storage has no Object Lock. The archive is then immutable at application level only: whoever can reach the storage or the server can change or delete data.",
+      "objectLockUnknown": "The archive is kept in the installation's default storage. Whether it has Object Lock is shown under Storage.",
+      "edition": "Capture through Exchange journaling is part of the Business edition. Without it the setting is kept, but nothing is archived."
+    },
     "folders": {
       "title": "Folders",
-      "description": "The folders every machine of this job backs up."
+      "description": "The folders every machine of this job backs up.",
+      "basis": "The folders are the defaults for {systems}.",
+      "basisMixed": "The choice mixes systems ({systems}): the folders combine the defaults of all of them. Check that each folder suits the machines."
     },
     "exclusions": {
       "title": "Exclusions",
@@ -558,10 +584,13 @@
       "description": "Commands the agents run around each backup, for example to dump a database so that its files are consistent."
     },
     "repository": {
-      "title": "Repository",
+      "title": "Storage location",
       "description": "Where the encrypted backups are written.",
-      "primary": "(primary repository)",
-      "sentence": "Every job writes to the primary repository of the tenant; a job cannot choose another one."
+      "primary": "(primary storage location)",
+      "sentence": "Every backup job writes to the primary storage location of the tenant; a backup job cannot choose another one.",
+      "errorTitle": "The storage location is failing",
+      "errorBody": "The last check of the storage location failed. This job's backups cannot be written there until the fault is fixed.",
+      "errorLink": "Open storage locations"
     },
     "fix": {
       "title": "Some fields need a correction",
@@ -581,6 +610,14 @@
       "item": "{name} is in {job}",
       "confirm": "Move here and save",
       "cancel": "Back"
+    },
+    "stricter": {
+      "title": "Shorten the retention?",
+      "description": "{count, plural, one {The next retention run removes older restore points of this job's machine for good, up to:} other {The next retention run removes older restore points of each of this job's # machines for good, per machine up to:}}",
+      "daily": "{count, plural, one {# daily restore point} other {# daily restore points}}",
+      "weekly": "{count, plural, one {# weekly restore point} other {# weekly restore points}}",
+      "monthly": "{count, plural, one {# monthly restore point} other {# monthly restore points}}",
+      "confirm": "Shorten and save"
     }
   },
   "folders": {
@@ -690,11 +727,12 @@
     "keep": "Daily {keepDaily}, weekly {keepWeekly}, monthly {keepMonthly}"
   },
   "repository": {
-    "installationDefault": "Default repository of the installation"
+    "installationDefault": "Default storage location of the installation",
+    "error": "Storage location failing"
   },
   "tenant": {
     "title": "Backup jobs",
-    "description": "What is backed up on a schedule for this tenant. The maintenance schedules below keep the repository healthy.",
+    "description": "What is backed up on a schedule for this tenant. The maintenance schedules below keep the storage location healthy.",
     "new": {
       "mail": "Mail & SaaS job",
       "endpoint": "Server or client job"
@@ -714,7 +752,7 @@
     },
     "kinds": {
       "mail": "Mail & SaaS",
-      "endpoint": "Servers & endpoints"
+      "endpoint": "Servers and clients"
     }
   },
   "problems": {

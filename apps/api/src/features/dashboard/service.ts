@@ -8,6 +8,7 @@ import { ProblemError } from "../../problem.js";
 import { type TenantSummaryDto, loadTenantSummary } from "../../routes/v1/status.js";
 import { listJobsQuerySchema } from "../jobs/schemas.js";
 import { listJobs } from "../jobs/service.js";
+import { type GuestProtection, loadGuestCounts } from "../pve/protection.js";
 import {
   type TenantUsageDto,
   countTenantMailboxes,
@@ -31,10 +32,12 @@ import {
   BACKUP_TREND_DAYS,
   FORECAST_DAYS,
   HISTORY_DAYS,
+  type StaleThresholds,
   type TenantFacts,
   type TenantTrends,
   loadInstallationDefaultTest,
   loadMailFacts,
+  loadStaleThresholds,
   loadTenantCap,
   loadTenantFacts,
   loadTenantTrends,
@@ -250,6 +253,8 @@ interface Sources {
   jobs: Settled<RecentJobsWidget>;
   mailboxes: Settled<MailboxUsageWidget>;
   endpoints: Settled<EndpointsWidget>;
+  stale: Settled<StaleThresholds>;
+  guests: Settled<Pick<GuestProtection, "counts" | "staleAfterHours">>;
 }
 
 function buildWidgets(
@@ -271,10 +276,28 @@ function buildWidgets(
         );
         break;
       case "lastBackup":
-        widgets.lastBackup = widget([summary, facts], () => ({
-          lastSuccess: value(summary).lastSuccess,
-          protectedKinds: value(facts).kinds,
-        }));
+        widgets.lastBackup = widget(
+          [summary, facts, sources.endpoints, sources.stale, sources.guests],
+          () => {
+            const machines = value(sources.endpoints);
+            const guests = value(sources.guests);
+            return {
+              lastSuccess: value(summary).lastSuccess,
+              protectedKinds: value(facts).kinds,
+              machines: {
+                protected: machines.protected,
+                withoutJob: machines.withoutJob,
+                lastSuccessAt: machines.lastSuccessAt,
+              },
+              guests: {
+                protected: guests.counts.protected,
+                withoutJob: guests.counts.withoutJob,
+                lastSuccessAt: guests.counts.lastSuccessAt,
+              },
+              staleAfterHours: { ...value(sources.stale), guests: guests.staleAfterHours },
+            };
+          },
+        );
         break;
       case "readiness":
         widgets.readiness = widget([summary], () => {
@@ -288,13 +311,33 @@ function buildWidgets(
             unverified: readiness.unverified,
             noBackup: readiness.noBackup,
             overdue: readiness.overdue,
+            withoutJob: readiness.withoutJob,
+            guestsWithoutJob: readiness.guestsWithoutJob,
             running: readiness.running,
             lastCheckedAt: readiness.lastCheckedAt,
           };
         });
         break;
       case "protectedObjects":
-        widgets.protectedObjects = widget([summary], () => value(summary).objects);
+        widgets.protectedObjects = widget([summary, sources.endpoints, sources.guests], () => {
+          const machines = value(sources.endpoints);
+          const guests = value(sources.guests).counts;
+          return {
+            ...value(summary).objects,
+            machines: {
+              protected: machines.protected,
+              withoutJob: machines.withoutJob,
+              failedLastBackup: machines.failedLastBackup,
+            },
+            guests: {
+              protected: guests.protected,
+              withoutJob: guests.withoutJob,
+              failedLastBackup: guests.failedLastBackup,
+              restorePoints: guests.restorePoints,
+            },
+            noBackup: value(summary).readiness.noBackup,
+          };
+        });
         break;
       case "storage":
         widgets.storage = widget([summary, facts], () => ({
@@ -399,34 +442,43 @@ export async function loadDashboard(
     needed ? settle(source, tenantId, run) : Promise.resolve(NOT_NEEDED as Settled<T>);
 
   const readUsage = usageReader(deps.providerDb);
-  const [summary, facts, mail, trends, jobs, mailboxes, endpoints] = await Promise.all([
-    load("summary", needs("lastBackup", "readiness", "protectedObjects", "storage"), () =>
-      loadTenantSummary(deps.db, tenantId, now),
-    ),
-    load("facts", needs("setup", "lastBackup", "storage", "retention"), async () => {
-      // The installation's own test of the default storage counts for every tenant on the default.
-      // It lives in the installation chain; if that cannot be read the storage reads as untested
-      // (as it did before that test existed) and every other fact still shows.
-      const installationTest = await settle("default-storage-test", tenantId, () =>
-        loadInstallationDefaultTest(deps.providerDb),
-      );
-      return loadTenantFacts(
-        deps.db,
-        tenantId,
-        deps.env,
-        installationTest.ok ? installationTest.value : null,
-        deps.defaultStorageConfigured ? await deps.defaultStorageConfigured() : undefined,
-      );
-    }),
-    load("mail", needs("setup"), () => loadMailFacts(deps.db, deps.providerDb)),
-    load("trends", needs("backupTrend", "verificationHistory", "storageGrowth"), () =>
-      loadTenantTrends(deps.db, tenantId, now),
-    ),
-    load("jobs", needs("recentJobs"), () => loadRecentJobs(deps.db, tenantId, now)),
-    load("mailboxes", needs("mailboxUsage"), () => loadMailboxUsage(deps, viewer, readUsage)),
-    // Its own source: a failing endpoint query fails this card only.
-    load("endpoints", needs("endpoints"), () => loadEndpointsWidget(deps.db, tenantId, now)),
-  ]);
+  const [summary, facts, mail, trends, jobs, mailboxes, endpoints, stale, guests] =
+    await Promise.all([
+      load("summary", needs("lastBackup", "readiness", "protectedObjects", "storage"), () =>
+        loadTenantSummary(deps.db, tenantId, now),
+      ),
+      load("facts", needs("setup", "lastBackup", "storage", "retention"), async () => {
+        // The installation's own test of the default storage counts for every tenant on the default.
+        // It lives in the installation chain; if that cannot be read the storage reads as untested
+        // (as it did before that test existed) and every other fact still shows.
+        const installationTest = await settle("default-storage-test", tenantId, () =>
+          loadInstallationDefaultTest(deps.providerDb),
+        );
+        return loadTenantFacts(
+          deps.db,
+          tenantId,
+          deps.env,
+          installationTest.ok ? installationTest.value : null,
+          deps.defaultStorageConfigured ? await deps.defaultStorageConfigured() : undefined,
+        );
+      }),
+      load("mail", needs("setup"), () => loadMailFacts(deps.db, deps.providerDb)),
+      load("trends", needs("backupTrend", "verificationHistory", "storageGrowth"), () =>
+        loadTenantTrends(deps.db, tenantId, now),
+      ),
+      load("jobs", needs("recentJobs"), () => loadRecentJobs(deps.db, tenantId, now)),
+      load("mailboxes", needs("mailboxUsage"), () => loadMailboxUsage(deps, viewer, readUsage)),
+      // Its own source: a failing endpoint query fails this card only.
+      // The last-backup card and the protected-objects tile count the machines as well.
+      load("endpoints", needs("endpoints", "lastBackup", "protectedObjects"), () =>
+        loadEndpointsWidget(deps.db, tenantId, now),
+      ),
+      load("stale", needs("lastBackup"), () => loadStaleThresholds(deps.db, tenantId, now)),
+      // VMs and containers of Proxmox VE, counted next to the machines.
+      load("guests", needs("lastBackup", "protectedObjects"), () =>
+        loadGuestCounts(deps.db, tenantId, now),
+      ),
+    ]);
 
   let provider: DashboardDto["provider"] = null;
   if (query.provider) {
@@ -448,7 +500,7 @@ export async function loadDashboard(
     tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug, status: tenant.status },
     widgets: buildWidgets(
       wanted,
-      { summary, facts, mail, trends, jobs, mailboxes, endpoints },
+      { summary, facts, mail, trends, jobs, mailboxes, endpoints, stale, guests },
       viewer,
       now,
     ),

@@ -46,6 +46,12 @@ export function TenantJobsCard() {
   const query = useBackupJobs();
   const items = query.data?.items;
   const uncovered = query.data?.uncovered ?? { mail: 0, endpoint: 0 };
+  const unscheduled = query.data?.unscheduled ?? { mail: 0, endpoint: 0 };
+  // In no job, or in a job that does not run on a schedule: neither is backed up on its own.
+  const notices = JOB_KINDS.flatMap((kind) => [
+    ...(uncovered[kind] > 0 ? [{ kind, key: "uncovered", count: uncovered[kind] }] : []),
+    ...(unscheduled[kind] > 0 ? [{ kind, key: "unscheduled", count: unscheduled[kind] }] : []),
+  ]);
   // The tenant page already says why a role that may only look sees closed controls.
   const sentence = access.block === "demo";
 
@@ -85,13 +91,13 @@ export function TenantJobsCard() {
       />
       {sentence ? <JobsAccessNote access={access} /> : null}
 
-      {JOB_KINDS.some((kind) => uncovered[kind] > 0) ? (
+      {notices.length > 0 ? (
         <Alert variant="warning" data-slot="tenant-uncovered">
           <ShieldOff aria-hidden="true" />
           <AlertDescription className="space-y-1">
-            {JOB_KINDS.filter((kind) => uncovered[kind] > 0).map((kind) => (
-              <p key={kind}>
-                {t(`list.uncovered.${kind}`, { count: uncovered[kind] })}{" "}
+            {notices.map(({ kind, key, count }) => (
+              <p key={`${kind}-${key}`}>
+                {t(`list.${key}.${kind}`, { count })}{" "}
                 <Link
                   {...linkProps(jobsListTo(kind))}
                   className="rounded-sm font-medium underline underline-offset-4 outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"

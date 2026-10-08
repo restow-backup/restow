@@ -16,7 +16,7 @@ import {
 import { formatBytes, formatInteger } from "@/lib/format";
 
 import type { LoadedTenantRow, ProviderTenantRow } from "@/features/dashboard/api";
-import { isStale, readinessRank, readinessTone } from "@/features/dashboard/presenters";
+import { isStale, readinessRank, readinessTone, staleBound } from "@/features/dashboard/presenters";
 import type { ReadinessState } from "@/features/verify/search";
 import "@/features/dashboard/i18n";
 
@@ -236,8 +236,12 @@ function useColumns({
           }
           return (
             <span className="flex items-center gap-2">
-              {isStale(tenant.lastBackupAt, Date.now()) ? (
-                <StatusBadge tone="warning">{t("lastBackup.stale")}</StatusBadge>
+              {isStale(tenant.lastBackupAt, Date.now(), tenant.staleAfterHours) ? (
+                <StatusBadge tone="warning">
+                  {staleBound(tenant.staleAfterHours).unit === "days"
+                    ? t("lastBackup.staleDays", { count: staleBound(tenant.staleAfterHours).count })
+                    : t("lastBackup.staleHours", { count: tenant.staleAfterHours })}
+                </StatusBadge>
               ) : null}
               <RelativeTime
                 value={tenant.lastBackupAt}

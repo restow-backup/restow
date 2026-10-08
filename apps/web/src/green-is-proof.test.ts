@@ -52,6 +52,10 @@ const ALLOWED: Readonly<Record<string, string>> = {
     "a restore check that passed, and a restore that completed (the data is back)",
   "./features/endpoints/presenters.ts":
     "restore and restore test runs; a green restore test report; a restore request that went through",
+  "./features/pve/guest-page.tsx":
+    "a restore point whose restore check passed; a restore or restore check of a guest that completed",
+  "./features/archive/chain-check.tsx":
+    "an archive check that passed: links, daily anchors and the content sample it read",
   // -- a restore that completed: the data is back
   "./features/restore/lib/jobs.ts": "a restore that completed",
   "./features/restore/jobs/job-page.tsx": "items that were restored",

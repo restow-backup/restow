@@ -420,6 +420,9 @@ export async function provisionRoles(
       // Archived mail is immutable; only the retention run (installation role) removes it.
       `REVOKE UPDATE, TRUNCATE ON archive_items FROM ${both}`,
       `REVOKE DELETE ON archive_items FROM ${tenant}`,
+      // An archived mail's mailbox assignments are append-only in the same way.
+      // (Guarded like the installation-only tables: an older database may not have it yet.)
+      `DO $$ BEGIN IF to_regclass('public.archive_item_mailboxes') IS NOT NULL THEN EXECUTE 'REVOKE UPDATE, TRUNCATE ON archive_item_mailboxes FROM ${both}'; EXECUTE 'REVOKE DELETE ON archive_item_mailboxes FROM ${tenant}'; END IF; END $$`,
       // Only once the tables exist (a database being upgraded may not have them yet).
       ...INSTALLATION_ONLY_TABLES.map(
         (table) =>

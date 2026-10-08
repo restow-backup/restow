@@ -846,6 +846,60 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
           .values({ tenantId, kind: "mail", name: "Scheduled", schedule });
         expect(await schedulesStep(tenantId)).toEqual(["done", null]);
       });
+
+      it("lets a tenant that protects only machines finish the source, object, backup and check steps", async () => {
+        const tenantId = await tenantWithoutSchedules();
+        const steps = async () => {
+          const setup = ok((await dashboard(tenantId, "tenant_admin")).body.widgets.setup);
+          return Object.fromEntries(setup.items.map((item) => [item.id, item.state]));
+        };
+        expect(await steps()).toMatchObject({
+          source: "open",
+          objects: "open",
+          firstBackup: "open",
+          firstVerification: "open",
+        });
+        const schedule = { kind: "daily", timeOfDay: "22:00", timeZone: "UTC" } as const;
+        await owner
+          .insert(backupJobs)
+          .values({ tenantId, kind: "endpoint", name: "Servers", schedule });
+        const [machine] = await owner
+          .insert(endpoints)
+          .values({
+            tenantId,
+            hostname: "srv-only",
+            os: "linux",
+            arch: "amd64",
+            profile: "server",
+            secretHash: randomUUID().replace(/-/g, ""),
+            config: {
+              profile: "server",
+              schedule,
+              paths: ["/etc"],
+              excludes: [],
+              hooks: {},
+              bandwidthKbps: null,
+              onlyOnAcPower: false,
+              useVss: false,
+            },
+            lastSuccessAt: new Date(),
+          })
+          .returning();
+        await owner.insert(endpointReports).values({
+          tenantId,
+          endpointId: (machine as { id: string }).id,
+          kind: "restore_test",
+          origin: "agent",
+          readiness: "green",
+        });
+        expect(await steps()).toMatchObject({
+          source: "done",
+          objects: "done",
+          schedules: "done",
+          firstBackup: "done",
+          firstVerification: "done",
+        });
+      });
     });
 
     describe("the default storage of a tenant without a target of its own", () => {
@@ -989,6 +1043,8 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
       expect(ok(body.widgets.endpoints)).toEqual({
         // The revoked server is not protected.
         protected: 6,
+        machines: 6,
+        withoutJob: 0,
         servers: 4,
         clients: 2,
         // web, roamer and quiet proven green; db failed its restore test; laptop's backup was
@@ -1000,6 +1056,7 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
         failedLastBackup: 1,
         // db (restore test failed), laptop (last backup failed), quiet (server silent for 5 hours).
         needingAttention: 3,
+        otherAttention: 3,
         // The newest good backup of a protected machine, not the revoked server's.
         lastSuccessAt: ago(2 * HOUR).toISOString(),
       });
@@ -1009,14 +1066,47 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
       const { body } = await dashboard(f.contoso, "tenant_admin");
       expect(ok(body.widgets.endpoints)).toEqual({
         protected: 0,
+        machines: 0,
+        withoutJob: 0,
         servers: 0,
         clients: 0,
         readiness: { green: 0, yellow: 0, red: 0, unverified: 0, noBackup: 0 },
         notReady: 0,
         failedLastBackup: 0,
         needingAttention: 0,
+        otherAttention: 0,
         lastSuccessAt: null,
       });
+    });
+
+    it("does not count a machine taken out of its job as protected, and never rates the tenant green for it", async () => {
+      const [member] = await owner
+        .select()
+        .from(backupJobMembers)
+        .where(
+          sql`${backupJobMembers.tenantId} = ${f.globex} AND ${backupJobMembers.endpointId} IS NOT NULL`,
+        )
+        .limit(1);
+      if (!member) throw new Error("expected a machine in a job");
+      await owner.delete(backupJobMembers).where(sql`${backupJobMembers.id} = ${member.id}`);
+      try {
+        const { body } = await dashboard(f.globex, "tenant_admin");
+        expect(ok(body.widgets.endpoints)).toMatchObject({
+          protected: 5,
+          machines: 6,
+          withoutJob: 1,
+        });
+        expect(ok(body.widgets.readiness).withoutJob).toBe(1);
+        expect(ok(body.widgets.protectedObjects).machines).toMatchObject({
+          protected: 5,
+          withoutJob: 1,
+        });
+        expect(ok(body.widgets.lastBackup).machines).toMatchObject({ protected: 5, withoutJob: 1 });
+        // The machines' daily job: twice a day without a backup is overdue.
+        expect(ok(body.widgets.lastBackup).staleAfterHours.machines).toBe(48);
+      } finally {
+        await owner.insert(backupJobMembers).values(member);
+      }
     });
 
     it("counts the same machines in the readiness widget and on the verify page", async () => {

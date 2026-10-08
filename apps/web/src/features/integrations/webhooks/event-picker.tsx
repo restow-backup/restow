@@ -9,10 +9,12 @@ interface EventPickerProps {
   value: WebhookEvent[];
   onChange: (events: WebhookEvent[]) => void;
   error?: string;
+  /** Alert and report rules that send to this webhook as well (whatever is chosen here). */
+  rules?: number;
 }
 
 /** The subscribable events, each with what it means for the receiver. */
-export function EventPicker({ value, onChange, error }: EventPickerProps) {
+export function EventPicker({ value, onChange, error, rules = 0 }: EventPickerProps) {
   const { t } = useTranslation("integrations");
   return (
     <fieldset className="space-y-3" aria-describedby="webhook-events-message">
@@ -52,6 +54,11 @@ export function EventPicker({ value, onChange, error }: EventPickerProps) {
       >
         {error ?? t("webhookForm.eventsHint")}
       </p>
+      {rules > 0 ? (
+        <p className="text-xs text-muted-foreground" data-slot="webhook-rule-count">
+          {t("webhookForm.eventsRules", { count: rules })}
+        </p>
+      ) : null}
     </fieldset>
   );
 }

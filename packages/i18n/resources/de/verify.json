@@ -2,12 +2,12 @@
   "nav": "Wiederherstellbarkeit",
   "title": "Wiederherstellbarkeit",
   "tenantScope": "Lässt sich jede Sicherung von {tenant} heute wiederherstellen?",
-  "subtitle": "Zufällig ausgewählte Mails, Dateien, Termine und Kontakte werden aus der jeweils letzten Sicherung über den Restore-Weg zurückgelesen und Byte für Byte mit ihren Prüfsummen verglichen. Nur ein nachgewiesener Restore zählt: Eine Sicherung, die noch keine Prüfung zurückgelesen hat, gilt als nicht nachgewiesen, auch wenn sie nach einer erfolgreichen Prüfung entstand.",
+  "subtitle": "Zufällig ausgewählte Mails, Dateien, Termine und Kontakte werden aus der jeweils letzten Sicherung über den Weg der Wiederherstellung zurückgelesen und Byte für Byte mit ihren Prüfsummen verglichen. Nur eine nachgewiesene Wiederherstellung zählt: Eine Sicherung, die noch keine Prüfung zurückgelesen hat, gilt als nicht nachgewiesen, auch wenn sie nach einer erfolgreichen Prüfung entstand.",
   "state": {
     "green": "Bereit",
     "yellow": "Achtung",
     "red": "Nicht wiederherstellbar",
-    "unverified": "Nicht geprüft",
+    "unverified": "Nicht nachgewiesen",
     "no_backup": "Noch keine Sicherung",
     "waitingForFirstBackup": "Wartet auf erste Sicherung"
   },
@@ -34,8 +34,8 @@
     "viewReportFor": "Letzten Bericht für {name} öffnen",
     "scrubSample": "Stichprobe prüfen",
     "scrubFull": "Alle Packs prüfen",
-    "openJob": "Job öffnen",
-    "openScrubJob": "Job der Speicherprüfung öffnen",
+    "openJob": "Lauf öffnen",
+    "openScrubJob": "Lauf der Speicherprüfung öffnen",
     "back": "Zurück zur Wiederherstellbarkeit",
     "verifyNow": "Jetzt prüfen",
     "verifyNowFor": "Jetzt prüfen: die letzte Sicherung von {name}",
@@ -43,7 +43,7 @@
   },
   "overall": {
     "green": {
-      "title": "Jede Sicherung ist wiederherstellbar",
+      "title": "Der letzte Sicherungsstand jedes Objekts hat die Restore-Prüfung bestanden",
       "description": "{total, plural, one {Das geschützte Objekt hat} other {Alle # geschützten Objekte haben}} die letzte Restore-Prüfung bestanden."
     },
     "yellow": {
@@ -52,7 +52,7 @@
     },
     "red": {
       "title": "Nicht jede Sicherung ist nachweislich wiederherstellbar",
-      "description": "{count, plural, one {# Objekt lässt sich nicht vollständig wiederherstellen, oder seine letzte Sicherung ist} other {# Objekte lassen sich nicht vollständig wiederherstellen, oder ihre letzten Sicherungen sind}} noch nicht als wiederherstellbar nachgewiesen. Eine Sicherung ohne verifizierten Restore gilt als fehlgeschlagen."
+      "description": "{count, plural, one {# Objekt lässt sich nicht vollständig wiederherstellen, oder seine letzte Sicherung ist} other {# Objekte lassen sich nicht vollständig wiederherstellen, oder ihre letzten Sicherungen sind}} noch nicht als wiederherstellbar nachgewiesen. Eine Sicherung ohne bestandene Restore-Prüfung gilt als fehlgeschlagen."
     },
     "empty": {
       "title": "Noch nichts geschützt",
@@ -108,15 +108,15 @@
     "emptyState": "Kein Objekt in diesem Zustand: {state}."
   },
   "snapshot": {
-    "column": "Verifizierung",
+    "column": "Restore-Prüfung",
     "state": {
-      "green": "Verifiziert",
-      "yellow": "Verifiziert mit Warnungen",
+      "green": "Stichprobe bestanden",
+      "yellow": "Stichprobe mit Warnungen",
       "red": "Prüfung fehlgeschlagen",
-      "unverified": "Noch nicht verifiziert"
+      "unverified": "Noch nicht geprüft"
     },
     "hint": {
-      "checked": "Restore-Prüfung dieser Sicherung: {date}",
+      "checked": "Restore-Prüfung dieses Sicherungsstands am {date}: Eine Stichprobe seiner Elemente wurde zurückgelesen und mit den Prüfsummen verglichen.",
       "unverified": "Noch keine Restore-Prüfung hat diese Sicherung zurückgelesen, sie ist also nicht als wiederherstellbar nachgewiesen."
     }
   },
@@ -136,7 +136,7 @@
   },
   "storage": {
     "title": "Speicherintegrität",
-    "description": "Jede Pack-Datei wird von jedem Speicherziel gelesen und mit ihrer erfassten SHA-256-Prüfsumme verglichen: wöchentlich eine Stichprobe, monatlich alle Packs. Schäden werden aus einer intakten Kopie repariert, sofern es eine gibt.",
+    "description": "Jede Pack-Datei wird von jedem Speicherort gelesen und mit ihrer erfassten SHA-256-Prüfsumme verglichen: wöchentlich eine Stichprobe, monatlich alle Packs. Schäden werden aus einer intakten Kopie repariert, sofern es eine gibt.",
     "state": {
       "ok": "Intakt",
       "repaired": "Repariert",
@@ -160,11 +160,11 @@
     "packs": "{checked} von {total} Packs geprüft, {bytes} gelesen",
     "never": "Es lief noch keine Speicherprüfung.",
     "corruptTitle": "{count, plural, one {# Pack ist beschädigt} other {# Packs sind beschädigt}}",
-    "corrupt": "Auf keinem Speicherziel gibt es eine intakte Kopie, daher ließ sich der Schaden nicht reparieren. Jedes Objekt, dessen Daten in diesen Packs liegen, gilt als nicht wiederherstellbar.",
+    "corrupt": "An keinem Speicherort gibt es eine intakte Kopie, daher ließ sich der Schaden nicht reparieren. Jedes Objekt, dessen Daten in diesen Packs liegen, gilt als nicht wiederherstellbar.",
     "corruptHeal": "Eine Vollsicherung der betroffenen Objekte schreibt die beschädigten Inhalte erneut aus der Quelle, soweit die Quelle sie noch enthält. Sicherungen verwenden Daten aus diesen Packs nicht mehr. Sobald keine Sicherung ein beschädigtes Pack mehr braucht, nimmt die nächste Speicherprüfung es aus dem Bestand.",
     "retired": "{count, plural, one {# beschädigtes Pack wird} other {# beschädigte Packs werden}} nicht mehr gebraucht: spätere Sicherungen haben die Inhalte neu geschrieben. {count, plural, one {Es wurde} other {Sie wurden}} aus dem Index entfernt, {count, plural, one {seine Datei wird} other {ihre Dateien werden}} frühestens einen Tag später von einer Speicherprüfung gelöscht.",
     "repairedTitle": "{count, plural, one {# Pack wurde repariert} other {# Packs wurden repariert}}",
-    "repaired": "Ein Speicherziel hatte eine beschädigte oder fehlende Kopie; sie wurde aus einer intakten Kopie neu geschrieben und zur Bestätigung zurückgelesen.",
+    "repaired": "Ein Speicherort hatte eine beschädigte oder fehlende Kopie; sie wurde aus einer intakten Kopie neu geschrieben und zur Bestätigung zurückgelesen.",
     "target": {
       "primary": "Primärspeicher",
       "copy": "Kopie {index}"
@@ -186,13 +186,13 @@
     "gc": {
       "reclaimed": "Die Bereinigung nicht mehr benötigter Daten hat {bytes} freigegeben.",
       "clean": "Die Bereinigung hat keine freizugebenden Daten gefunden.",
-      "interrupted": "Die Bereinigung pausiert für eine laufende Sicherung, Wiederherstellung oder Wiederherstellungsprüfung und wird mit der nächsten Vollprüfung fortgesetzt.",
+      "interrupted": "Die Bereinigung pausiert für eine laufende Sicherung, Wiederherstellung oder Restore-Prüfung und wird mit der nächsten Vollprüfung fortgesetzt.",
       "skipped": {
         "disabled": "Die Bereinigung ist für diese Prüfung abgeschaltet.",
         "partial_manifest_unreadable": "Die Bereinigung wurde übersprungen, weil eine unvollständige Sicherung nicht lesbar war.",
         "backup_running": "Die Bereinigung wurde verschoben, weil eine Sicherung lief.",
         "restore_running": "Die Bereinigung wurde verschoben, weil eine Wiederherstellung lief.",
-        "verify_running": "Die Bereinigung wurde verschoben, weil eine Wiederherstellungsprüfung lief.",
+        "verify_running": "Die Bereinigung wurde verschoben, weil eine Restore-Prüfung lief.",
         "other": "Die Bereinigung wurde übersprungen."
       }
     },
@@ -225,7 +225,7 @@
     },
     "snapshot": {
       "title": "Geprüfte Sicherung",
-      "sequence": "Sicherung #{sequence}",
+      "sequence": "Sicherungsstand #{sequence}",
       "completed": "Abgeschlossen am {when}",
       "items": "{count, plural, one {# Element} other {# Elemente}}",
       "none": "Es war keine abgeschlossene Sicherung vorhanden.",
@@ -239,7 +239,7 @@
     },
     "items": {
       "title": "Geprüfte Elemente",
-      "sampleDescription": "Jedes Element der Zufallsstichprobe, über den Restore-Weg zurückgelesen.",
+      "sampleDescription": "Jedes Element der Zufallsstichprobe, über den Weg der Wiederherstellung zurückgelesen.",
       "allDescription": "Elemente mit Fehlern; alle anderen Elemente der Sicherung haben bestanden.",
       "empty": "Es wurden keine Elemente geprüft.",
       "noFailures": "Kein Element ist fehlgeschlagen.",
@@ -267,7 +267,7 @@
     },
     "damagedPacks": {
       "title": "{count, plural, one {# beschädigtes Pack in dieser Sicherung} other {# beschädigte Packs in dieser Sicherung}}",
-      "description": "Die letzte Speicherprüfung hat diese Pack-Dateien auf jedem Speicherziel beschädigt vorgefunden. Darin gespeicherte Elemente lassen sich nicht wiederherstellen, auch wenn die Stichprobe sie nicht berührt hat."
+      "description": "Die letzte Speicherprüfung hat diese Pack-Dateien an jedem Speicherort beschädigt vorgefunden. Darin gespeicherte Elemente lassen sich nicht wiederherstellen, auch wenn die Stichprobe sie nicht berührt hat."
     },
     "manifestFailure": {
       "title": "Warum das Verzeichnis dieses Backups nicht gelesen werden konnte"
@@ -283,7 +283,7 @@
     },
     "scrub": {
       "title": "Befund der Speicherprüfung",
-      "description": "Die Speicherprüfung hat Pack-Dateien mit Daten dieses Objekts auf jedem Speicherziel beschädigt vorgefunden und konnte sie aus keiner Kopie reparieren."
+      "description": "Die Speicherprüfung hat Pack-Dateien mit Daten dieses Objekts an jedem Speicherort beschädigt vorgefunden und konnte sie aus keiner Kopie reparieren."
     },
     "unknown": {
       "title": "Details nicht lesbar",
@@ -301,9 +301,9 @@
     },
     "latestBackup": {
       "unverifiedTitle": "Eine neuere Sicherung ist noch nicht geprüft",
-      "unverified": "Sicherung #{sequence} vom {when} entstand nach dieser Prüfung und wurde noch nicht zurückgelesen. Dieser Bericht bewertet nur die Sicherung, die er geprüft hat.",
+      "unverified": "Sicherungsstand #{sequence} vom {when} entstand nach dieser Prüfung und wurde noch nicht zurückgelesen. Dieser Bericht bewertet nur den Sicherungsstand, den er geprüft hat.",
       "ratedTitle": "Eine neuere Sicherung hat eine eigene Bewertung",
-      "rated": "Sicherung #{sequence} vom {when} wurde nach diesem Bericht geprüft; ihr eigener Bericht bewertet sie.",
+      "rated": "Sicherungsstand #{sequence} vom {when} wurde nach diesem Bericht geprüft; sein eigener Bericht bewertet ihn.",
       "open": "Ihren Bericht öffnen"
     }
   },

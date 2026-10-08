@@ -10,7 +10,12 @@
  * after it. No timers are used, so a tracker can never keep a process alive.
  */
 import type { FailureCause } from "../failures/types.js";
-import type { ItemFailureRecord, ProgressReporter, ProgressSnapshot } from "./types.js";
+import type {
+  ItemFailureDetails,
+  ItemFailureRecord,
+  ProgressReporter,
+  ProgressSnapshot,
+} from "./types.js";
 
 export interface ProgressUpdate {
   readonly snapshot: ProgressSnapshot;
@@ -89,9 +94,15 @@ export class ProgressTracker implements ProgressReporter {
     this.markDirty(0);
   }
 
-  fail(itemRef: string, reason: string, cause?: FailureCause): void {
+  fail(itemRef: string, reason: string, cause?: FailureCause, details?: ItemFailureDetails): void {
     this.failedCount++;
-    this.pendingFailures.push(cause ? { itemRef, reason, cause } : { itemRef, reason });
+    const itemDate = validDate(details?.itemDate);
+    this.pendingFailures.push({
+      itemRef,
+      reason,
+      ...(cause ? { cause } : {}),
+      ...(itemDate ? { itemDate } : {}),
+    });
     this.markDirty(1);
   }
 
@@ -180,4 +191,13 @@ export class ProgressTracker implements ProgressReporter {
       this.options.onError?.(error);
     }
   }
+}
+
+/** An ISO time an engine passed along, normalised; undefined for anything unparseable. */
+function validDate(value: string | null | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const time = Date.parse(value);
+  return Number.isNaN(time) ? undefined : new Date(time).toISOString();
 }

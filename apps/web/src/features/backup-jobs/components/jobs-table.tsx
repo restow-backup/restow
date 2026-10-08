@@ -15,6 +15,7 @@ import {
   JobStateBadge,
   LastRunCell,
   NextRunCell,
+  RepositoryCell,
   RestoreCheckBadge,
   ScheduleCell,
   ScopeCell,
@@ -39,6 +40,8 @@ export interface JobsTableProps {
   onOpenRun?: (runId: string) => void;
   onEdit: (job: BackupJob) => void;
   onRun: (job: BackupJob) => void;
+  /** A "Run now" is on its way: the menu entry stays closed so a second click cannot repeat it. */
+  running?: boolean;
   onPause: (job: BackupJob) => void;
   onResume: (job: BackupJob) => void;
   onDelete: (job: BackupJob) => void;
@@ -75,6 +78,7 @@ export function JobsTable({
   onOpenRun,
   onEdit,
   onRun,
+  running = false,
   onPause,
   onResume,
   onDelete,
@@ -144,7 +148,7 @@ export function JobsTable({
         meta: { label: t("list.columns.repository"), className: "hidden 2xl:table-cell" },
         cell: ({ row }) => (
           <span className="text-muted-foreground">
-            {repositoryLabel(row.original.repository, t)}
+            <RepositoryCell job={row.original} />
           </span>
         ),
       },
@@ -212,7 +216,7 @@ export function JobsTable({
               id: "run",
               label: t("actions.runNow"),
               icon: DatabaseBackup,
-              disabled: closed || job.scope.count === 0,
+              disabled: closed || running || job.scope.count === 0,
               describedBy,
               onSelect: () => onRun(job),
             },
@@ -257,7 +261,7 @@ export function JobsTable({
       }) as ColumnDef<BackupJob>,
     ];
     return list;
-  }, [t, access.closed, access.noteId, onEdit, onRun, onPause, onResume, onDelete]);
+  }, [t, access.closed, access.noteId, onEdit, onRun, running, onPause, onResume, onDelete]);
 
   return (
     <DataTable

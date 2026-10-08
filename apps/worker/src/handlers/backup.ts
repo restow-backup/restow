@@ -50,6 +50,7 @@ import {
   type GraphClient,
   type ImapAccountConfig,
   ImapBackupEngine,
+  type ItemFailureDetails,
   JOB_PRIORITY,
   type Logger,
   OneDriveBackupEngine,
@@ -252,8 +253,9 @@ export class PhaseRecorder implements ProgressReporter {
     this.inner.transfer?.(bytes);
   }
 
-  fail(itemRef: string, reason: string, cause?: FailureCause): void {
-    this.inner.fail(itemRef, reason, cause);
+  fail(itemRef: string, reason: string, cause?: FailureCause, details?: ItemFailureDetails): void {
+    // The item's own date (a message's received time) travels with it to `item_failures`.
+    this.inner.fail(itemRef, reason, cause, details);
   }
 
   phase(name: string): void {

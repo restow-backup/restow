@@ -1,13 +1,22 @@
-import { StorageTargetError, installationDefaultStorage } from "@restow/core";
+import {
+  StorageTargetError,
+  installationDefaultStorage,
+  isInterruptedOnly,
+  staleBackupHours,
+} from "@restow/core";
 import {
   type Database,
   auditLog,
   backupJobs,
+  endpointReports,
+  endpointRuns,
+  endpoints,
   jobProgress,
   jobs,
   legalHolds,
   packs,
   protectedObjects,
+  pveRuns,
   retentionPolicies,
   schedules,
   settings,
@@ -65,6 +74,60 @@ const jobFinishedAt = sql`coalesce(${jobs.completedAt}, ${jobs.updatedAt})`;
 
 const countWhere = (condition: SQL) =>
   sql<number>`count(*) filter (where ${condition})`.mapWith(Number);
+
+const NO_MACHINES: SetupFacts["machines"] = {
+  active: 0,
+  backedUp: 0,
+  enabledJobs: 0,
+  checks: 0,
+  greenChecks: 0,
+};
+
+/** The tenant's machines for the setup checklist (setup.ts `SetupFacts.machines`). */
+async function machineSetupFacts(
+  tx: Transaction,
+  tenantId: string,
+): Promise<SetupFacts["machines"]> {
+  try {
+    return await tx.transaction(async (savepoint) => {
+      const [machineRow] = await savepoint
+        .select({
+          active: count(),
+          backedUp: countWhere(sql`${endpoints.lastSuccessAt} is not null`),
+        })
+        .from(endpoints)
+        .where(and(eq(endpoints.tenantId, tenantId), eq(endpoints.status, "active")));
+      const [jobRow] = await savepoint
+        .select({ n: count() })
+        .from(backupJobs)
+        .where(
+          and(
+            eq(backupJobs.tenantId, tenantId),
+            eq(backupJobs.kind, "endpoint"),
+            eq(backupJobs.enabled, true),
+          ),
+        );
+      const [checkRow] = await savepoint
+        .select({
+          reports: count(),
+          green: countWhere(sql`${endpointReports.readiness} = 'green'`),
+        })
+        .from(endpointReports)
+        .where(
+          and(eq(endpointReports.tenantId, tenantId), eq(endpointReports.kind, "restore_test")),
+        );
+      return {
+        active: machineRow?.active ?? 0,
+        backedUp: machineRow?.backedUp ?? 0,
+        enabledJobs: jobRow?.n ?? 0,
+        checks: checkRow?.reports ?? 0,
+        greenChecks: checkRow?.green ?? 0,
+      };
+    });
+  } catch {
+    return NO_MACHINES;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Tenant facts (setup checklist, retention, protected kinds, storage health)
@@ -277,6 +340,13 @@ export async function loadTenantFacts(
       .from(verifyReports)
       .where(eq(verifyReports.tenantId, tenantId));
 
+    // Machines with the agent count for the checklist as much as mailboxes do: a
+    // tenant that backs up only servers and clients must be able to finish it.
+    // Read in a savepoint: should the endpoint tables fail, the checklist goes on
+    // without the machines instead of failing with them (the endpoints widget
+    // reports that failure on its own).
+    const machines = await machineSetupFacts(tx, tenantId);
+
     const policyRows = await tx
       .select({
         name: retentionPolicies.name,
@@ -321,6 +391,7 @@ export async function loadTenantFacts(
         enabledBackupSchedules: (scheduleRow?.n ?? 0) + (jobRow?.n ?? 0),
         completedSnapshots: snapshotRow?.backups ?? 0,
         verification: { reports: reportRow?.reports ?? 0, green: reportRow?.green ?? 0 },
+        machines,
       },
       retention: {
         rows: policyRows,
@@ -484,7 +555,10 @@ export async function loadTenantCap(tx: Transaction, tenantId: string): Promise<
 }
 
 export interface TenantHealthExtras {
-  /** Jobs of any kind that ended failed in the last 24 hours. */
+  /**
+   * Jobs of any kind, backups and restores of servers and clients, and backups and restores of
+   * VMs and containers of Proxmox VE, that failed in the last 24 hours.
+   */
   failures24h: number;
   /** The same for the 24 hours before, so the provider view can show the trend. */
   failuresPrevious24h: number;
@@ -514,15 +588,91 @@ export async function loadTenantHealthExtras(
           sql`${jobFinishedAt} >= ${previousSince}`,
         ),
       );
+    // Failed backups and restores of servers and clients count like failed jobs; a run the agent
+    // only lost to a restart is resumed by it and is no failure.
+    const machineRuns = await tx
+      .select({ finishedAt: endpointRuns.finishedAt, errors: endpointRuns.errors })
+      .from(endpointRuns)
+      .where(
+        and(
+          eq(endpointRuns.tenantId, tenantId),
+          inArray(endpointRuns.kind, ["backup", "restore"]),
+          eq(endpointRuns.status, "failed"),
+          sql`${endpointRuns.finishedAt} >= ${previousSince}`,
+        ),
+      );
+    const machineFailures = machineRuns.filter((run) => !isInterruptedOnly(run.errors ?? []));
+    const machineLast = machineFailures.filter(
+      (run) => run.finishedAt && run.finishedAt.toISOString() >= since,
+    ).length;
+    // Backups and restores of VMs and containers count the same way.
+    const finishedAt = sql`coalesce(${pveRuns.finishedAt}, ${pveRuns.startedAt})`;
+    const [guestRuns] = await tx
+      .select({
+        last: countWhere(sql`${finishedAt} >= ${since}`),
+        previous: countWhere(sql`${finishedAt} < ${since}`),
+      })
+      .from(pveRuns)
+      .where(
+        and(
+          eq(pveRuns.tenantId, tenantId),
+          inArray(pveRuns.kind, ["backup", "restore"]),
+          eq(pveRuns.status, "failed"),
+          sql`${finishedAt} >= ${previousSince}`,
+        ),
+      );
     const [target] = await tx
       .select({ status: storageTargets.status })
       .from(storageTargets)
       .where(and(eq(storageTargets.tenantId, tenantId), eq(storageTargets.role, "primary")))
       .limit(1);
     return {
-      failures24h: failed?.last ?? 0,
-      failuresPrevious24h: failed?.previous ?? 0,
+      failures24h: (failed?.last ?? 0) + machineLast + (guestRuns?.last ?? 0),
+      failuresPrevious24h:
+        (failed?.previous ?? 0) + machineFailures.length - machineLast + (guestRuns?.previous ?? 0),
       storageError: target?.status === "error",
     };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// When a backup is overdue
+// ---------------------------------------------------------------------------
+
+/** After how many hours without a successful backup each kind reads as overdue (by its jobs' schedules). */
+export interface StaleThresholds {
+  /** Mailboxes, OneDrives and IMAP accounts: the enabled mail jobs. */
+  mail: number;
+  /** Servers and clients: the enabled endpoint jobs. */
+  machines: number;
+}
+
+/**
+ * The overdue bound of each kind from the schedules of the tenant's enabled jobs
+ * (`staleBackupHours`: twice the longest planned gap of the most relaxed job, two days
+ * without any schedule). A weekly job is not overdue on day three; an hourly one is after a day.
+ */
+export async function loadStaleThresholds(
+  db: Database,
+  tenantId: string,
+  now: Date,
+): Promise<StaleThresholds> {
+  return withTenantTx(db, tenantId, async (tx) => {
+    const rows = await tx
+      .select({ kind: backupJobs.kind, schedule: backupJobs.schedule })
+      .from(backupJobs)
+      .where(
+        and(
+          eq(backupJobs.tenantId, tenantId),
+          eq(backupJobs.enabled, true),
+          isNotNull(backupJobs.schedule),
+        ),
+      );
+    const of = (kind: "mail" | "endpoint") =>
+      staleBackupHours(
+        rows.filter((row) => row.kind === kind).map((row) => row.schedule),
+        now,
+      );
+    return { mail: of("mail"), machines: of("endpoint") };
   });
 }

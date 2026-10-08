@@ -124,6 +124,7 @@ describe("who opens the installation page", () => {
       "Notification mail",
       "Microsoft multi-tenant app",
       "Default storage",
+      "Network shares",
       "Updates",
       "Edition",
       "About",
@@ -343,7 +344,7 @@ describe("Default storage", () => {
     await open("/installation/default-storage", {
       session: providerSession("owner", { features: [] }),
     });
-    expect(text()).toContain("Your organisation. It has no storage target of its own.");
+    expect(text()).toContain("Your organisation. It has no storage location of its own.");
     expect(text(slot("page-header"))).not.toMatch(/tenant/i);
     expect(text(slot("installation-section"))).not.toMatch(/tenant/i);
   });

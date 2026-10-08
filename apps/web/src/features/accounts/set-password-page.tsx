@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import { CheckCircle2, KeyRound, MailQuestion, MailX, ShieldCheck } from "lucide-react";
 import * as React from "react";
@@ -20,9 +21,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { LOGIN_PATH } from "@/lib/entry";
+import { queryKeys } from "@/lib/api";
+import { authClient, needsSecondFactor } from "@/lib/auth-client";
+import { HOME_PATH, LOGIN_PATH } from "@/lib/entry";
 import { validationKey, zodResolver } from "@/lib/form";
 import { PASSWORD_MIN_LENGTH } from "@/lib/password";
+import { holdPasswordForEnrolment } from "@/lib/password-handoff";
 
 import { type SetPasswordFormValues, setPasswordFormSchema } from "./forms";
 import { useRedeemSetPasswordToken, useSetPasswordTokenStatus } from "./hooks";
@@ -86,6 +90,26 @@ function SetPasswordCard({ token }: { token: string }) {
   );
 }
 
+/**
+ * Sign in with the password just set. True when that gave a session that
+ * continues to the authenticator enrolment (the password is then held for it).
+ */
+export async function signInWithNewPassword(email: string, password: string): Promise<boolean> {
+  if (!email) {
+    return false;
+  }
+  try {
+    const result = await authClient.signIn.email({ email, password });
+    if (result.error || needsSecondFactor(result.data)) {
+      return false;
+    }
+    holdPasswordForEnrolment(password);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 interface SetPasswordFormProps {
   token: string;
   emailHint: string | null;
@@ -108,13 +132,28 @@ function SetPasswordForm({ token, emailHint, redeem, onDone }: SetPasswordFormPr
     return key ? tc(key, { min: PASSWORD_MIN_LENGTH }) : undefined;
   };
 
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const onSubmit = form.handleSubmit(async (values) => {
+    let email: string;
     try {
-      await redeem.mutateAsync({ token, password: values.password });
-      onDone();
+      email = (await redeem.mutateAsync({ token, password: values.password })).email;
     } catch {
       // Shown below via redeem.error.
+      return;
     }
+    // Sign in right away with the password just chosen, instead of asking for
+    // it on the login page and then again for the authenticator app (which
+    // starts with it, lib/password-handoff.ts). Anything unusual (an account
+    // that already has an authenticator app or a passkey, a refusal) ends on
+    // the "Password set" card with its sign-in button, as before.
+    if (await signInWithNewPassword(email, values.password)) {
+      queryClient.removeQueries({ queryKey: queryKeys.authSession });
+      queryClient.removeQueries({ queryKey: queryKeys.me });
+      await navigate({ to: HOME_PATH, replace: true });
+      return;
+    }
+    onDone();
   });
 
   return (

@@ -3,6 +3,9 @@ import { useTranslation } from "react-i18next";
 
 import { Field, messageId } from "@/components/forms/field";
 import { PasswordInput } from "@/components/forms/password-input";
+import { CopyButton } from "@/components/kit";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "@/components/ui/sonner";
@@ -10,6 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { isGuid } from "../forms";
+import { OWN_APP_PERMISSIONS, ownAppTokenHint } from "../own-app-permissions";
 import { sourceErrorKey } from "../presenters";
 import type { SourceDto } from "../types";
 import { useConnectOwnApp } from "../use-sources";
@@ -72,16 +76,56 @@ export function OwnAppForm({ source, onConnected, onCancel }: OwnAppFormProps) {
     );
   };
 
-  const detail = connect.error instanceof ApiError ? connect.error.problem?.detail : null;
+  const problem = connect.error instanceof ApiError ? connect.error.problem : null;
+  const detail = problem?.detail ?? null;
+  const tokenHint = ownAppTokenHint(problem?.hint);
+  const permissionList = OWN_APP_PERMISSIONS.map((entry) => entry.permission).join("\n");
 
   return (
     <form onSubmit={submit} className="space-y-4" noValidate>
       <p className="text-sm text-muted-foreground">{t("m365.ownApp.description")}</p>
       <ol className="list-decimal space-y-1 pl-5 text-sm">
-        {(["one", "two", "three"] as const).map((step) => (
+        {(["one", "two", "three", "four"] as const).map((step) => (
           <li key={step}>{t(`m365.ownApp.steps.${step}`)}</li>
         ))}
       </ol>
+      <Alert>
+        <AlertDescription>{t("m365.ownApp.noRedirect")}</AlertDescription>
+      </Alert>
+
+      <section aria-labelledby="own-app-permissions" className="space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <h3 id="own-app-permissions" className="text-sm font-medium">
+            {t("m365.ownApp.permissionsTitle")}
+          </h3>
+          <CopyButton
+            value={permissionList}
+            label={t("m365.ownApp.copyPermissions")}
+            onCopied={() => toast.success(t("m365.ownApp.permissionsCopied"))}
+          />
+        </div>
+        <ul className="divide-y rounded-md border text-sm">
+          {OWN_APP_PERMISSIONS.map((entry) => (
+            <li
+              key={entry.permission}
+              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-3 py-2"
+            >
+              <span className="font-mono">{entry.permission}</span>
+              <span className="flex items-center gap-2 text-muted-foreground">
+                {t(`m365.permissions.purpose.${entry.purpose}`)}
+                <Badge variant={entry.required ? "secondary" : "outline"}>
+                  {entry.required ? t("m365.permissions.required") : t("m365.permissions.optional")}
+                </Badge>
+                <CopyButton
+                  value={entry.permission}
+                  label={t("m365.ownApp.copyPermission", { permission: entry.permission })}
+                />
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className="text-xs text-muted-foreground">{t("m365.ownApp.permissionsReadWrite")}</p>
+      </section>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Field
@@ -178,6 +222,7 @@ export function OwnAppForm({ source, onConnected, onCancel }: OwnAppFormProps) {
       {connect.error ? (
         <div role="alert" className="space-y-1 text-sm text-destructive">
           <p>{tc(sourceErrorKey(connect.error))}</p>
+          {tokenHint ? <p>{t(`m365.ownApp.hints.${tokenHint}`)}</p> : null}
           {detail ? <p className="break-words font-mono text-xs">{detail}</p> : null}
         </div>
       ) : null}

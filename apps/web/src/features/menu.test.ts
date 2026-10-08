@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { scopeKindOf } from "@/components/layout/breadcrumb-trail";
 import { navItems as dashboardNavItems } from "@/features/dashboard";
 import { featureNavItems } from "@/features/registry";
+import { navItems as tenantNavItems } from "@/features/tenants";
 import { i18n } from "@/i18n";
 import {
   NAV_GROUPS,
@@ -43,6 +44,7 @@ const SERVICE_PROVIDER = context("service_provider", [
   "stats.allTenants",
   "dashboard.allTenants",
   "reports.timed",
+  "providerTeam.tenantScope",
 ]);
 
 function menu(role: string | null, ctx: NavLockContext): Record<string, string[]> {
@@ -57,13 +59,14 @@ function menu(role: string | null, ctx: NavLockContext): Record<string, string[]
   );
 }
 
-const DAILY = ["dashboard", "history", "verify", "alerts"];
+// Warnings sit next to History (0.3.0), for those who may read them.
+const DAILY = ["dashboard", "history", "warnings", "verify", "alerts"];
 // The archive is part of Mail & SaaS (maintainer decision 2026-10-02): no section of its own.
 const MAIL = ["mail-jobs", "restore", "archive", "exports"];
-const ENDPOINTS = ["endpoint-jobs", "inventory", "file-restore"];
+const ENDPOINTS = ["endpoint-jobs", "inventory", "virtualization", "file-restore"];
 
 describe("the menu per edition", () => {
-  it("Community, provider admin: the one organisation's settings, the licensed entries greyed out", () => {
+  it("Community, provider admin: the one organisation's settings, the members, the licensed entries greyed out", () => {
     expect(menu("provider_admin", COMMUNITY)).toEqual({
       daily: DAILY,
       mail: MAIL,
@@ -72,17 +75,12 @@ describe("the menu per edition", () => {
       // list of all tenants stays as a greyed-out entry. Repositories, integrations,
       // members and the rest are sections of the settings page, not entries.
       tenants: ["organisation-settings", "tenants (locked)"],
-      installation: [
-        "settings",
-        "team (locked)",
-        "audit (locked)",
-        "license",
-        "resources (soon 0.5.0)",
-      ],
+      // Members (the provider team, id `team`) is in every edition (0.3.0).
+      installation: ["settings", "team", "audit (locked)", "license", "resources (soon 0.5.0)"],
     });
   });
 
-  it("Business, provider admin: audit log and team open, all tenants still locked", () => {
+  it("Business, provider admin: audit log open, all tenants still locked", () => {
     expect(menu("provider_admin", BUSINESS)).toEqual({
       daily: DAILY,
       mail: MAIL,
@@ -98,8 +96,35 @@ describe("the menu per edition", () => {
       mail: MAIL,
       endpoints: ENDPOINTS,
       tenants: ["tenant-settings", "tenants"],
-      installation: ["settings", "team", "audit", "license", "resources (soon 0.5.0)"],
+      // The statistics of all tenants open the pinned Installation section (0.3.0).
+      installation: [
+        "stats-all-tenants",
+        "settings",
+        "team",
+        "audit",
+        "license",
+        "resources (soon 0.5.0)",
+      ],
     });
+  });
+
+  it("offers the statistics of all tenants only where they exist and the viewer sees every tenant", () => {
+    const has = (role: string, ctx: NavLockContext) =>
+      Object.values(menu(role, ctx)).flat().includes("stats-all-tenants");
+    expect(has("provider_admin", SERVICE_PROVIDER)).toBe(true);
+    expect(has("provider_admin", { ...SERVICE_PROVIDER, providerAllTenants: true })).toBe(true);
+    // A member of the provider team limited to some tenants: the API refuses them the totals.
+    expect(has("provider_admin", { ...SERVICE_PROVIDER, providerAllTenants: false })).toBe(false);
+    // Community and Business have one organisation: its statistics are Overview › Statistics.
+    expect(has("provider_admin", COMMUNITY)).toBe(false);
+    expect(has("provider_admin", BUSINESS)).toBe(false);
+    // While the profile loads nothing appears that might vanish.
+    expect(has("provider_admin", { features: null, extensions: null })).toBe(false);
+    for (const role of ["tenant_admin", "tenant_user"]) {
+      expect(has(role, SERVICE_PROVIDER), role).toBe(false);
+    }
+    const entry = items.find((item) => item.id === "stats-all-tenants");
+    expect(entry).toMatchObject({ path: "/statistics/all", group: "installation" });
   });
 
   it("tenant admin in a Service Provider installation: the settings of their tenant, nothing else of the tenant level", () => {
@@ -111,6 +136,23 @@ describe("the menu per edition", () => {
       endpoints: ENDPOINTS,
       tenants: ["tenant-settings"],
     });
+  });
+
+  it("offers the warnings next to History to those who may read them, with the open ones counted", () => {
+    const entry = items.find((item) => item.id === "warnings");
+    expect(entry).toMatchObject({
+      path: "/warnings",
+      group: "daily",
+      labelKey: "warnings:nav",
+      roles: ["provider_admin", "tenant_admin"],
+    });
+    expect(typeof entry?.useBadge).toBe("function");
+    for (const ctx of [COMMUNITY, BUSINESS, SERVICE_PROVIDER]) {
+      expect(menu("tenant_admin", ctx).daily).toEqual(DAILY);
+      expect(menu("provider_admin", ctx).daily).toEqual(DAILY);
+      // An end user reads no warnings (the API refuses them).
+      expect(menu("tenant_user", ctx).daily).not.toContain("warnings");
+    }
   });
 
   it("tenant admin in Community and Business: the organisation's settings", () => {
@@ -152,7 +194,7 @@ describe("the menu per edition", () => {
         organisationMode: false,
       });
     };
-    for (const id of ["settings", "team", "audit", "license", "resources"]) {
+    for (const id of ["stats-all-tenants", "settings", "team", "audit", "license", "resources"]) {
       expect(level(id), id).toBe("installation");
     }
     expect(level("tenant-settings")).toBe("tenant");
@@ -290,7 +332,7 @@ describe("the menu per edition", () => {
     // Jobs in both sections; settings (installation, and the tenant's or the organisation's).
     expect(shared).toEqual([
       ["mail-jobs", "endpoint-jobs"],
-      ["tenant-settings", "organisation-settings", "settings"],
+      ["tenant-settings", "organisation-settings"],
     ]);
   });
 
@@ -300,7 +342,7 @@ describe("the menu per edition", () => {
     expect(groups.map((id) => i18n.t(`nav.groups.${id}`))).toEqual([
       "Täglich",
       "Mail & SaaS",
-      "Server & Endpunkte",
+      "Server & Clients",
       "Mandanten",
       "Installation",
     ]);
@@ -315,9 +357,11 @@ describe("the menu per edition", () => {
         "nav.items.tenantSettings",
         "nav.items.organisationSettings",
         "installation:nav",
+        "team:nav",
         "storage:nav",
         "license:nav",
         "nav.items.resources",
+        "stats:navAllTenants",
       ].map((key) => i18n.t(key)),
     ).toEqual([
       "Verlauf",
@@ -326,17 +370,19 @@ describe("the menu per edition", () => {
       "Restore-Explorer",
       "Mandanten verwalten",
       "Mandanten-Einstellungen",
-      "Einstellungen",
-      "Einstellungen",
-      "Repositories",
+      "Ihre Organisation",
+      "Server & Betrieb",
+      "Mitglieder",
+      "Speicherorte",
       "Lizenz",
       "Kapazitätsplanung",
+      "Statistik aller Mandanten",
     ]);
     await i18n.changeLanguage("en");
     expect(groups.map((id) => i18n.t(`nav.groups.${id}`))).toEqual([
       "Daily",
       "Mail & SaaS",
-      "Servers & endpoints",
+      "Servers & clients",
       "Tenants",
       "Installation",
     ]);
@@ -348,20 +394,51 @@ describe("the menu per edition", () => {
         "tenants:nav.tenants",
         "nav.items.tenantSettings",
         "nav.items.organisationSettings",
+        "team:nav",
         "storage:nav",
         "license:nav",
         "nav.items.resources",
+        "stats:navAllTenants",
       ].map((key) => i18n.t(key)),
     ).toEqual([
       "History",
       "Alerts",
       "Manage tenants",
       "Tenant settings",
-      "Settings",
-      "Repositories",
+      "Your organisation",
+      "Members",
+      "Storage locations",
       "License",
       "Capacity planning",
+      "Statistics of all tenants",
     ]);
+  });
+
+  it("locks Manage tenants on the Community build itself, leading to Installation › Edition", () => {
+    const lock = tenantNavItems.find((item) => item.id === "tenants")?.lock;
+    expect(lock?.to).toBe("/installation/edition");
+    expect(lock?.isLocked({ features: [], extensions: null })).toBe(true);
+    // While the profile loads it reports locked, so nothing appears that might then vanish.
+    expect(lock?.isLocked({ features: null, extensions: null })).toBe(true);
+    expect(lock?.isLocked({ features: ["tenants.additional"], extensions: null })).toBe(false);
+    expect(i18n.t(lock?.hintKey ?? "")).toContain("Service Provider");
+  });
+
+  it("lets the full build's lock replace the core's: it leads to the license instead", () => {
+    // The registry here carries the full build (features/ee.ts).
+    const placed = featureNavItems.find((item) => item.id === "tenants");
+    expect(placed?.lock?.to).toBe("/installation/license");
+  });
+
+  it("never gives two settings pages or two member lists the same name", async () => {
+    for (const language of ["de", "en"]) {
+      await i18n.changeLanguage(language);
+      const settingsPages = [i18n.t("nav.items.organisationSettings"), i18n.t("installation:nav")];
+      expect(new Set(settingsPages).size, language).toBe(2);
+      // The members of the installation and the users of a tenant.
+      expect(i18n.t("team:nav"), language).not.toBe(i18n.t("tenantpage:sections.members"));
+    }
+    await i18n.changeLanguage("en");
   });
 
   it("names the tenants section Organisation where the installation has one organisation", () => {

@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import type { TFunction } from "i18next";
 import { ChevronRight, Info, TriangleAlert } from "lucide-react";
 import * as React from "react";
@@ -30,7 +31,9 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
 import { CadenceFields } from "@/features/schedules/components/cadence-fields";
+import { ExtensionSlot } from "@/lib/extensions";
 import { isRecentSignInRequired } from "@/lib/recent-sign-in";
+import { activeTenantPageTo } from "@/lib/tenant-paths";
 import { cn } from "@/lib/utils";
 
 import {
@@ -38,6 +41,7 @@ import {
   type JobDefaults,
   type JobKind,
   type JobMember,
+  type JobRetention,
   type JobScopeMode,
   LIMITS,
 } from "../api.js";
@@ -52,6 +56,7 @@ import {
   jobHasProblems,
   memberInputsOf,
   newJobDraft,
+  retentionReduction,
   scopeChanged,
   updateInputOf,
 } from "../form.js";
@@ -208,7 +213,12 @@ interface LoaderProps {
 /** Waits for what the form starts from (the recommended values, and the objects of the job being changed). */
 function EditorLoader(props: LoaderProps) {
   const { t } = useTranslation("backupjobs");
-  const defaults = useJobDefaults(props.kind);
+  // A new machine job started from chosen machines takes the folders and schedule of their systems.
+  const defaults = useJobDefaults(
+    props.kind,
+    true,
+    props.kind === "endpoint" && props.job === null ? props.preselect : [],
+  );
   const members = useJobMembers(props.job?.id ?? "", props.job !== null);
   const jobs = useBackupJobs(props.kind);
   // The list of jobs says whether another one already covers all objects: the form waits for it (not for its failure).
@@ -294,6 +304,7 @@ function EditorForm({
   onSaved,
 }: FormProps) {
   const { t } = useTranslation("backupjobs");
+  const { t: tEndpoints } = useTranslation("endpoints");
   const problemText = useProblemText();
   const serverText = useServerText();
   const identity = useConfirmIdentity();
@@ -318,6 +329,10 @@ function EditorForm({
   const [attempted, setAttempted] = React.useState(false);
   const [attempts, setAttempts] = React.useState(0);
   const [conflicts, setConflicts] = React.useState<MemberConflict[] | null>(null);
+  const [stricter, setStricter] = React.useState<{
+    less: JobRetention;
+    options: { moveMembers?: boolean };
+  } | null>(null);
   const [saveError, setSaveError] = React.useState<unknown>(null);
   const [saving, setSaving] = React.useState(false);
   const create = useCreateBackupJob();
@@ -352,13 +367,26 @@ function EditorForm({
   const serverMessage = serverProblem ? serverText(serverProblem) : undefined;
   const at = (field: ProblemTarget) => (target === field ? serverMessage : undefined);
 
-  const save = async (options: { moveMembers?: boolean } = {}): Promise<void> => {
+  const save = async (
+    options: { moveMembers?: boolean; stricterConfirmed?: boolean } = {},
+  ): Promise<void> => {
     setAttempted(true);
     setSaveError(null);
     const found = checkJobDraft(draft);
     if (jobHasProblems(found) || closed) {
       setAttempts((count) => count + 1);
       return;
+    }
+    // A stricter machine retention removes restore points for good: say how many, ask first.
+    if (job && kind === "endpoint" && !options.stricterConfirmed) {
+      const less = retentionReduction(
+        job.retention.keep ?? defaults.endpointRetention,
+        draft.settings,
+      );
+      if (less) {
+        setStricter({ less, options });
+        return;
+      }
     }
     setSaving(true);
     try {
@@ -609,9 +637,10 @@ function EditorForm({
                       saveProblem={cadenceProblemOf(serverProblem, "schedule")}
                     />
                   ) : (
-                    <p className="text-sm text-muted-foreground">
-                      {t("editor.schedule.manualOnly")}
-                    </p>
+                    <Alert variant="warning" data-slot="schedule-off">
+                      <TriangleAlert aria-hidden="true" />
+                      <AlertDescription>{t("editor.schedule.manualOnly")}</AlertDescription>
+                    </Alert>
                   )}
                 </EditorSection>
 
@@ -678,6 +707,57 @@ function EditorForm({
                     </Select>
                   </Field>
                 </EditorSection>
+
+                <EditorSection
+                  id={ids("archive")}
+                  title={t("editor.archive.title")}
+                  description={t("editor.archive.description")}
+                >
+                  <div className="flex items-start justify-between gap-4 rounded-md border p-3">
+                    <div className="space-y-0.5">
+                      <Label htmlFor={ids("archive-on")}>{t("editor.archive.switch")}</Label>
+                      <p
+                        id={messageId(ids("archive-on"))}
+                        className="text-xs text-muted-foreground"
+                      >
+                        {t("editor.archive.hint")}
+                      </p>
+                    </div>
+                    <Switch
+                      id={ids("archive-on")}
+                      checked={draft.archive}
+                      onCheckedChange={(checked) => edit({ archive: checked })}
+                      aria-describedby={messageId(ids("archive-on"))}
+                    />
+                  </div>
+                  {draft.archive ? (
+                    <>
+                      {defaults.repository.objectLock === false ? (
+                        <Alert variant="warning" data-slot="archive-object-lock">
+                          <TriangleAlert aria-hidden="true" />
+                          <AlertDescription>{t("editor.archive.noObjectLock")}</AlertDescription>
+                        </Alert>
+                      ) : defaults.repository.objectLock === null ? (
+                        <p
+                          className="text-xs text-muted-foreground"
+                          data-slot="archive-object-lock"
+                        >
+                          {t("editor.archive.objectLockUnknown")}
+                        </p>
+                      ) : null}
+                      <ExtensionSlot
+                        name="jobs.archiveSetup"
+                        props={{ archive: draft.archive }}
+                        fallback={
+                          <Alert data-slot="archive-edition">
+                            <Info aria-hidden="true" />
+                            <AlertDescription>{t("editor.archive.edition")}</AlertDescription>
+                          </Alert>
+                        }
+                      />
+                    </>
+                  ) : null}
+                </EditorSection>
               </>
             ) : (
               <>
@@ -708,6 +788,25 @@ function EditorForm({
                   title={t("editor.folders.title")}
                   description={t("editor.folders.description")}
                 >
+                  {job === null && defaults.basis ? (
+                    <p
+                      className="flex items-start gap-2 text-xs text-muted-foreground"
+                      data-slot="defaults-basis"
+                    >
+                      <Info aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
+                      {defaults.basis.mixed
+                        ? t("editor.folders.basisMixed", {
+                            systems: defaults.basis.os
+                              .map((os) => tEndpoints(`os.${os}`))
+                              .join(", "),
+                          })
+                        : t("editor.folders.basis", {
+                            systems: defaults.basis.os
+                              .map((os) => tEndpoints(`os.${os}`))
+                              .join(", "),
+                          })}
+                    </p>
+                  ) : null}
                   <FoldersField
                     idPrefix={ids("folders-field")}
                     paths={draft.settings.paths}
@@ -810,6 +909,21 @@ function EditorForm({
                 <Info aria-hidden="true" className="mt-0.5 size-3.5 shrink-0" />
                 {t("editor.repository.sentence")}
               </p>
+              {defaults.repository.status === "error" ? (
+                <Alert variant="destructive" data-slot="repository-error">
+                  <TriangleAlert aria-hidden="true" />
+                  <AlertTitle>{t("editor.repository.errorTitle")}</AlertTitle>
+                  <AlertDescription>
+                    <p>{t("editor.repository.errorBody")}</p>
+                    <Link
+                      to={activeTenantPageTo("storage")}
+                      className="font-medium underline underline-offset-4"
+                    >
+                      {t("editor.repository.errorLink")}
+                    </Link>
+                  </AlertDescription>
+                </Alert>
+              ) : null}
             </EditorSection>
           </fieldset>
         </div>
@@ -863,6 +977,36 @@ function EditorForm({
           })}
         </ul>
       </ConfirmDialog>
+      <ConfirmDialog
+        open={stricter !== null}
+        onOpenChange={(next) => {
+          if (!next) setStricter(null);
+        }}
+        title={t("editor.stricter.title")}
+        description={
+          <>
+            <p>{t("editor.stricter.description", { count: job?.scope.count ?? 0 })}</p>
+            <ul className="list-disc pl-5" data-slot="stricter-list">
+              {stricter && stricter.less.keepDaily > 0 ? (
+                <li>{t("editor.stricter.daily", { count: stricter.less.keepDaily })}</li>
+              ) : null}
+              {stricter && stricter.less.keepWeekly > 0 ? (
+                <li>{t("editor.stricter.weekly", { count: stricter.less.keepWeekly })}</li>
+              ) : null}
+              {stricter && stricter.less.keepMonthly > 0 ? (
+                <li>{t("editor.stricter.monthly", { count: stricter.less.keepMonthly })}</li>
+              ) : null}
+            </ul>
+          </>
+        }
+        confirmLabel={t("editor.stricter.confirm")}
+        destructive
+        onConfirm={() => {
+          const pending = stricter;
+          setStricter(null);
+          void save({ ...(pending?.options ?? {}), stricterConfirmed: true });
+        }}
+      />
       {identity.dialog}
     </>
   );

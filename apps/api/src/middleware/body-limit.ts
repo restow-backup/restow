@@ -55,6 +55,17 @@ export const BODY_LIMIT_RULES: readonly BodyLimitRule[] = [
   // The restic REST backend streams pack files to storage; @restow/core refuses
   // anything over MAX_RESTIC_BODY_BYTES (128 MiB) itself.
   { method: "*", path: /^\/agent\/restic\//, limit: null },
+  // The same for the container repositories of Proxmox VE guests.
+  { method: "*", path: /^\/agent\/pve\/restic\//, limit: null },
+  // One frame of VM disk blocks (16 x 4 MiB); the route checks MAX_FRAME_BYTES itself.
+  { method: "PUT", path: new RegExp(`^/agent/pve/v1/runs/${SEGMENT}/blocks$`), limit: null },
+  // A restore point's commit carries the guest and firewall configuration.
+  {
+    method: "POST",
+    path: new RegExp(`^/agent/pve/v1/runs/${SEGMENT}/(commit|log)$`),
+    limit: 4 * 1024 * 1024,
+  },
+  { method: "POST", path: /^\/agent\/pve\/v1\/inventory$/, limit: BULK_BODY_LIMIT },
   // One upload segment (application/octet-stream), read with a hard cap of
   // exactly the segment size, at most 32 MiB (features/imports/body.ts).
   {

@@ -3,7 +3,6 @@ import { useNavigate } from "@tanstack/react-router";
 import {
   KeyRound,
   ListRestart,
-  LogOut,
   Plus,
   ShieldAlert,
   ShieldCheck,
@@ -16,6 +15,7 @@ import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 
 import { Field, messageId } from "@/components/forms/field";
+import { DisabledReason } from "@/components/kit";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -58,10 +58,18 @@ import {
   useDeletePasskey,
   usePasskeys,
   useRegenerateBackupCodes,
-  useRevokeOtherSessions,
   useSignInMethods,
 } from "../hooks";
-import { type PasskeyRow, authStatusKey, detectDevice, passkeyErrorKey } from "../presenters";
+import {
+  type PasskeyRemoval,
+  type PasskeyRow,
+  authStatusKey,
+  detectDevice,
+  passkeyErrorKey,
+  passkeyRemoval,
+} from "../presenters";
+import { PasswordCard } from "./password-card";
+import { SessionsCard } from "./sessions-card";
 
 /**
  * The signed-in person's own sign-in security: passkeys, the authenticator
@@ -80,7 +88,10 @@ export function SecuritySection() {
       ) : methods.isError ? (
         <SignInMethodsError onRetry={() => void methods.refetch()} retrying={methods.isFetching} />
       ) : hasPassword ? (
-        <AuthenticatorCard />
+        <>
+          <PasswordCard />
+          <AuthenticatorCard />
+        </>
       ) : null}
       <SessionsCard />
     </div>
@@ -134,6 +145,12 @@ function PasskeysCard({ hasPassword }: { hasPassword: boolean }) {
   const ready = readiness?.ready ?? false;
   const supported = browserSupportsPasskeys();
   const canEnrol = ready && supported;
+  const removal = passkeyRemoval({
+    passkeyCount: passkeys.data?.length ?? 0,
+    hasPassword,
+    hasAuthenticator,
+    microsoftSignIn: setupState.data?.microsoftSignIn ?? false,
+  });
   const emptyKey = !ready
     ? "security.passkeys.emptyNotReady"
     : hasPassword
@@ -185,15 +202,16 @@ function PasskeysCard({ hasPassword }: { hasPassword: boolean }) {
           </Alert>
         ) : null}
 
-        <PasskeyList query={passkeys} onRemove={setRemoving} emptyKey={emptyKey} />
+        <PasskeyList
+          query={passkeys}
+          onRemove={setRemoving}
+          emptyKey={emptyKey}
+          removalBlocked={removal === "blocked"}
+        />
       </CardContent>
 
       <AddPasskeyDialog open={adding} onOpenChange={setAdding} />
-      <RemovePasskeyDialog
-        passkey={removing}
-        hasPassword={hasPassword}
-        onClose={() => setRemoving(null)}
-      />
+      <RemovePasskeyDialog passkey={removing} removal={removal} onClose={() => setRemoving(null)} />
     </Card>
   );
 }
@@ -202,10 +220,13 @@ function PasskeyList({
   query,
   onRemove,
   emptyKey,
+  removalBlocked,
 }: {
   query: ReturnType<typeof usePasskeys>;
   onRemove: (passkey: PasskeyRow) => void;
   emptyKey: string;
+  /** The only way to sign in: removing it would lock the account out. */
+  removalBlocked: boolean;
 }) {
   const { t, i18n } = useTranslation("settings");
   const { t: tc } = useTranslation();
@@ -268,15 +289,21 @@ function PasskeyList({
             >
               {passkey.synced ? t("security.passkeys.synced") : t("security.passkeys.deviceBound")}
             </Badge>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => onRemove(passkey)}
-              aria-label={t("security.passkeys.removeLabel", { name })}
-              title={t("security.passkeys.remove")}
+            <DisabledReason
+              reason={removalBlocked ? t("security.passkeys.removeBlocked") : null}
+              side="left"
             >
-              <Trash2 />
-            </Button>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => onRemove(passkey)}
+                disabled={removalBlocked}
+                aria-label={t("security.passkeys.removeLabel", { name })}
+                title={removalBlocked ? undefined : t("security.passkeys.remove")}
+              >
+                <Trash2 />
+              </Button>
+            </DisabledReason>
           </li>
         );
       })}
@@ -374,13 +401,21 @@ function AddPasskeyForm({ onDone }: { onDone: () => void }) {
   );
 }
 
+/** The sentence after "no sign-in with it any more", by what the account keeps. */
+const REMOVAL_DESCRIPTION: Record<Exclude<PasskeyRemoval, "blocked">, string> = {
+  others: "security.passkeys.removeDialog.descriptionOthers",
+  authenticator: "security.passkeys.removeDialog.description",
+  noAuthenticator: "security.passkeys.removeDialog.descriptionNoAuthenticator",
+  sso: "security.passkeys.removeDialog.descriptionSso",
+};
+
 function RemovePasskeyDialog({
   passkey,
-  hasPassword,
+  removal,
   onClose,
 }: {
   passkey: PasskeyRow | null;
-  hasPassword: boolean;
+  removal: PasskeyRemoval;
   onClose: () => void;
 }) {
   const { t } = useTranslation("settings");
@@ -410,9 +445,9 @@ function RemovePasskeyDialog({
       onOpenChange={(open) => !open && onClose()}
       title={t("security.passkeys.removeDialog.title")}
       description={
-        hasPassword
-          ? t("security.passkeys.removeDialog.description", { name })
-          : t("security.passkeys.removeDialog.descriptionSso", { name })
+        removal === "blocked"
+          ? t("security.passkeys.removeBlocked")
+          : t(REMOVAL_DESCRIPTION[removal], { name })
       }
       confirmLabel={t("security.passkeys.removeDialog.confirm")}
       destructive
@@ -436,6 +471,13 @@ function AuthenticatorCard() {
   const session = authClient.useSession();
   const enabled = session.data?.user.twoFactorEnabled === true;
   const [dialog, setDialog] = React.useState<AuthenticatorDialog>(null);
+  // While the one-time recovery codes are on screen the dialog stays open.
+  const [codesShown, setCodesShown] = React.useState(false);
+  const close = () => {
+    setCodesShown(false);
+    setDialog(null);
+  };
+  const requestClose = useGuardedClose(codesShown, close);
 
   return (
     <Card>
@@ -486,9 +528,9 @@ function AuthenticatorCard() {
 
       <Dialog
         open={dialog === "enroll" || dialog === "replace"}
-        onOpenChange={(open) => !open && setDialog(null)}
+        onOpenChange={(open) => !open && requestClose()}
       >
-        <DialogContent className="sm:max-w-xl">
+        <DialogContent className="sm:max-w-xl" showCloseButton={!codesShown}>
           <DialogHeader>
             <DialogTitle>
               {dialog === "replace"
@@ -501,8 +543,9 @@ function AuthenticatorCard() {
             <AuthenticatorSetup
               key={dialog}
               mode={dialog}
-              onCancel={() => setDialog(null)}
-              onComplete={() => setDialog(null)}
+              onCancel={close}
+              onEnabled={() => setCodesShown(true)}
+              onComplete={close}
             />
           ) : null}
         </DialogContent>
@@ -513,11 +556,33 @@ function AuthenticatorCard() {
   );
 }
 
+/**
+ * Closing (X, Escape, a click beside the dialog) while one-time recovery
+ * codes are shown would lose them: it is refused with a hint instead, and
+ * only "Done" after the acknowledgement closes.
+ */
+function useGuardedClose(locked: boolean, close: () => void): () => void {
+  const { t } = useTranslation("settings");
+  return () => {
+    if (locked) {
+      toast.warning(t("security.authenticator.codes.closeBlocked"));
+      return;
+    }
+    close();
+  };
+}
+
 function RegenerateCodesDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTranslation("settings");
+  const [codesShown, setCodesShown] = React.useState(false);
+  const close = () => {
+    setCodesShown(false);
+    onClose();
+  };
+  const requestClose = useGuardedClose(codesShown, close);
   return (
-    <Dialog open={open} onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="sm:max-w-lg">
+    <Dialog open={open} onOpenChange={(next) => !next && requestClose()}>
+      <DialogContent className="sm:max-w-lg" showCloseButton={!codesShown}>
         <DialogHeader>
           <DialogTitle>{t("security.authenticator.regenerate.title")}</DialogTitle>
           <DialogDescription>
@@ -525,13 +590,13 @@ function RegenerateCodesDialog({ open, onClose }: { open: boolean; onClose: () =
           </DialogDescription>
         </DialogHeader>
         {/* Mounted only while open: the codes are shown once and then forgotten. */}
-        {open ? <RegenerateCodes onClose={onClose} /> : null}
+        {open ? <RegenerateCodes onClose={close} onCodes={() => setCodesShown(true)} /> : null}
       </DialogContent>
     </Dialog>
   );
 }
 
-function RegenerateCodes({ onClose }: { onClose: () => void }) {
+function RegenerateCodes({ onClose, onCodes }: { onClose: () => void; onCodes: () => void }) {
   const { t } = useTranslation("settings");
   const { t: tc } = useTranslation();
   const { user } = useSession();
@@ -560,57 +625,12 @@ function RegenerateCodes({ onClose }: { onClose: () => void }) {
       onSubmit={async (password) => {
         try {
           setCodes(await regenerate.mutateAsync(password));
+          onCodes();
           toast.success(t("toasts.backupCodesRenewed"));
         } catch {
           // Shown from regenerate.error.
         }
       }}
     />
-  );
-}
-
-// --- Sessions -------------------------------------------------------------------------
-
-function SessionsCard() {
-  const { t } = useTranslation("settings");
-  const { t: tc } = useTranslation();
-  const revoke = useRevokeOtherSessions();
-  const [confirming, setConfirming] = React.useState(false);
-
-  const confirm = () => {
-    revoke.mutate(undefined, {
-      onSuccess: () => {
-        toast.success(t("toasts.sessionsRevoked"));
-        setConfirming(false);
-      },
-      onError: (error) => {
-        toast.error(tc(requestErrorKey(error)));
-        setConfirming(false);
-      },
-    });
-  };
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t("security.sessions.title")}</CardTitle>
-        <CardDescription>{t("security.sessions.description")}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <Button variant="outline" onClick={() => setConfirming(true)}>
-          <LogOut />
-          {t("security.sessions.revoke")}
-        </Button>
-      </CardContent>
-      <ConfirmDialog
-        open={confirming}
-        onOpenChange={setConfirming}
-        title={t("security.sessions.confirmTitle")}
-        description={t("security.sessions.confirmDescription")}
-        confirmLabel={t("security.sessions.revoke")}
-        pending={revoke.isPending}
-        onConfirm={confirm}
-      />
-    </Card>
   );
 }

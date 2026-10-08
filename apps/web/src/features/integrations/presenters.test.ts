@@ -10,16 +10,21 @@ import {
   apiKeyFormSchema,
   deliveryErrorKey,
   deliveryStatusOf,
+  detectWebhookFormat,
   displayUrl,
   eventKey,
   expiresSoon,
   expiryDays,
+  formatFollowsUrl,
   hasPendingDelivery,
   integrationErrorKey,
   isInsecureUrl,
+  isSignedFormat,
+  needsNewSecret,
   parseIntegrationsSearch,
   scopeKey,
   sortScopes,
+  suggestedFormat,
   toCreateApiKeyInput,
   toWebhookInput,
   toggleItem,
@@ -30,7 +35,7 @@ import {
   webhookPatch,
   webhookUrlIssue,
 } from "./presenters";
-import { API_SCOPES, type ApiKey, WEBHOOK_EVENTS, type Webhook } from "./types";
+import { API_SCOPES, type ApiKey, WEBHOOK_EVENTS, WEBHOOK_FORMATS, type Webhook } from "./types";
 
 function apiKey(overrides: Partial<ApiKey> = {}): ApiKey {
   return {
@@ -57,6 +62,7 @@ function webhook(overrides: Partial<Webhook> = {}): Webhook {
     url: "https://dash.example.com/hooks/restow",
     events: ["job.failed"],
     active: true,
+    format: "restow",
     secretConfigured: true,
     createdAt: "2026-09-01T08:00:00.000Z",
     updatedAt: "2026-09-01T08:00:00.000Z",
@@ -198,12 +204,19 @@ describe("webhooks", () => {
       url: "ftp://x",
       events: [],
       active: true,
+      format: "restow",
     });
     const messages = result.success ? [] : result.error.issues.map((issue) => issue.message);
-    expect(messages).toEqual(["scheme", "eventsRequired"]);
+    // No event is allowed: a webhook only rules send to.
+    expect(messages).toEqual(["scheme"]);
     expect(
-      webhookFormSchema.safeParse({ name: "", url: "", events: ["job.failed"], active: true })
-        .success,
+      webhookFormSchema.safeParse({
+        name: "",
+        url: "",
+        events: ["job.failed"],
+        active: true,
+        format: "restow",
+      }).success,
     ).toBe(false);
   });
 
@@ -215,14 +228,21 @@ describe("webhooks", () => {
       url: hook.url,
       events: ["job.completed", "job.failed"],
       active: true,
+      format: "restow",
     });
     expect(toWebhookInput({ ...values, name: "  " })).toEqual({
       name: null,
       url: hook.url,
       events: ["job.failed", "job.completed"],
       active: true,
+      format: "restow",
     });
-    expect(webhookFormFrom()).toMatchObject({ events: ["job.failed"], active: true });
+    expect(webhookFormFrom()).toMatchObject({
+      events: ["job.failed"],
+      active: true,
+      format: "restow",
+    });
+    expect(webhookFormFrom(webhook({ format: "slack" })).format).toBe("slack");
   });
 
   it("patch only what changed", () => {
@@ -235,6 +255,83 @@ describe("webhooks", () => {
       ),
     ).toEqual({ events: ["job.failed", "job.completed"], active: false });
     expect(webhookPatch({ ...webhookFormFrom(hook), name: "" }, hook)).toEqual({ name: null });
+    expect(webhookPatch({ ...webhookFormFrom(hook), format: "teams" }, hook)).toEqual({
+      format: "teams",
+    });
+  });
+
+  it("validate the format", () => {
+    const base = { name: "", url: "https://x.example", events: ["job.failed"], active: true };
+    for (const format of WEBHOOK_FORMATS) {
+      expect(webhookFormSchema.safeParse({ ...base, format }).success).toBe(true);
+    }
+    expect(webhookFormSchema.safeParse({ ...base, format: "teams2" }).success).toBe(false);
+  });
+});
+
+describe("webhook formats", () => {
+  it.each([
+    ["https://discord.com/api/webhooks/123/abcDEF", "discord"],
+    ["https://discordapp.com/api/webhooks/123/abc", "discord"],
+    ["https://ptb.discord.com/api/webhooks/123/abc", "discord"],
+    ["https://canary.discord.com/api/v10/webhooks/123/abc", "discord"],
+    ["  https://DISCORD.com/api/webhooks/123/abc  ", "discord"],
+    ["https://hooks.slack.com/services/T000/B000/XXXX", "slack"],
+    ["https://hooks.slack.com/triggers/T000/123/abc", "slack"],
+    ["https://contoso.webhook.office.com/webhookb2/abc@def/IncomingWebhook/x/y", "teams"],
+    [
+      "https://prod-12.westeurope.logic.azure.com:443/workflows/abc/triggers/manual/paths/invoke?api-version=2016-06-01&sig=x",
+      "teams",
+    ],
+    [
+      "https://default1234.56.environment.api.powerplatform.com:443/powerautomate/automations/direct/workflows/abc/triggers/manual/paths/invoke?sig=x",
+      "teams",
+    ],
+    ["https://flow.powerautomate.com/webhooks/abc", "teams"],
+  ])("recognise %s as %s", (url, format) => {
+    expect(detectWebhookFormat(url)).toBe(format);
+    expect(suggestedFormat(url)).toBe(format);
+  });
+
+  it.each([
+    "https://discord.com/channels/1/2",
+    "https://discord.com.evil.example/api/webhooks/1/2",
+    "https://evildiscord.com/api/webhooks/1/2",
+    "https://slack.com/hooks/abc",
+    "https://hooks.slack.com.evil.example/services/x",
+    "https://webhook.office.com.evil.example/x",
+    "https://notlogic.azure.com/x",
+    "https://rmm.example.com/hooks/restow",
+    "ftp://hooks.slack.com/services/x",
+    "not a url",
+    "",
+  ])("leave %s to the signed format", (url) => {
+    expect(detectWebhookFormat(url)).toBeNull();
+    expect(suggestedFormat(url)).toBe("restow");
+  });
+
+  it("sign only the restow format", () => {
+    expect(WEBHOOK_FORMATS.filter(isSignedFormat)).toEqual(["restow"]);
+  });
+
+  it("follow the URL for a new webhook and while the stored format matches the URL", () => {
+    expect(formatFollowsUrl()).toBe(true);
+    expect(formatFollowsUrl(webhook())).toBe(true);
+    expect(
+      formatFollowsUrl(webhook({ url: "https://discord.com/api/webhooks/1/x", format: "discord" })),
+    ).toBe(true);
+    // A deliberate choice that differs from the URL stays.
+    expect(
+      formatFollowsUrl(webhook({ url: "https://discord.com/api/webhooks/1/x", format: "restow" })),
+    ).toBe(false);
+    expect(formatFollowsUrl(webhook({ format: "teams" }))).toBe(false);
+  });
+
+  it("show a new secret only when a chat webhook becomes signed", () => {
+    expect(needsNewSecret(webhook({ format: "discord" }), "restow")).toBe(true);
+    expect(needsNewSecret(webhook({ format: "restow" }), "restow")).toBe(false);
+    expect(needsNewSecret(webhook({ format: "restow" }), "slack")).toBe(false);
+    expect(needsNewSecret(undefined, "restow")).toBe(false);
   });
 });
 

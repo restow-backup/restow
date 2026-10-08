@@ -57,6 +57,16 @@ export interface RatedObject {
   readonly state: ObjectState;
   readonly overdue: boolean;
   readonly checkedAt: Date | null;
+  /**
+   * A machine in no backup job: nothing backs it up any more, whatever its old backups score.
+   * It never lets the tenant read as fine (at least yellow) and is counted on its own.
+   */
+  readonly withoutJob?: boolean;
+  /**
+   * A VM or container of Proxmox VE (features/pve/protection.ts): rated like any object, but one
+   * in no backup job is counted in `guestsWithoutJob`, not with the machines.
+   */
+  readonly guest?: boolean;
 }
 
 export interface ReadinessSummaryDto {
@@ -67,6 +77,13 @@ export interface ReadinessSummaryDto {
   unverified: number;
   noBackup: number;
   overdue: number;
+  /** Machines in no backup job: they are rated by their old backups, but nothing backs them up. */
+  withoutJob: number;
+  /**
+   * VMs and containers in no backup job that keep a restore point: rated by it, but nothing backs
+   * them up any more. Like `withoutJob`, any of them keeps the tenant from green.
+   */
+  guestsWithoutJob: number;
   /** Worst state across all objects; null when the tenant protects nothing yet. */
   overall: Readiness | null;
   /** Newest rating date across all objects. */
@@ -84,7 +101,7 @@ export function overallReadiness(objects: readonly RatedObject[]): Readiness | n
   if (objects.some((object) => unproven.has(object.state))) {
     return "red";
   }
-  if (objects.some((object) => object.state === "yellow" || object.overdue)) {
+  if (objects.some((object) => object.state === "yellow" || object.overdue || object.withoutJob)) {
     return "yellow";
   }
   return "green";
@@ -105,6 +122,11 @@ export function summarize(objects: readonly RatedObject[], running: number): Rea
     unverified: countOf("unverified"),
     noBackup: countOf("no_backup"),
     overdue: objects.filter((object) => object.overdue).length,
+    withoutJob: objects.filter((object) => object.withoutJob === true && object.guest !== true)
+      .length,
+    guestsWithoutJob: objects.filter(
+      (object) => object.withoutJob === true && object.guest === true,
+    ).length,
     overall: overallReadiness(objects),
     lastCheckedAt: newest?.toISOString() ?? null,
     running,

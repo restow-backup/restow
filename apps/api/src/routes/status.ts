@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { db } from "../db.js";
+import { loadGuestCounts } from "../features/pve/protection.js";
 import { type TenantEnv, requireTenant } from "../middleware/session.js";
 import { versionSource } from "./v1.js";
 import { loadEndpointCounts } from "./v1/endpoints.js";
@@ -29,6 +30,7 @@ status.get("/", requireTenant("tenant_user"), async (c) => {
     ...summary,
     version: versionSource.current(),
     endpoints: await loadEndpointCounts(db, tenant.id, now),
+    guests: (await loadGuestCounts(db, tenant.id, now)).counts,
   };
   return c.json(body);
 });

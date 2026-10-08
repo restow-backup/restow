@@ -3,6 +3,7 @@ import type { Failure } from "@/features/failures/api";
 import type {
   EndpointReadinessRow,
   GcResult,
+  GuestReadinessRow,
   ObjectReadiness,
   ObjectState,
   Reason,
@@ -164,29 +165,52 @@ export function sortByUrgency(items: readonly ObjectReadiness[]): ObjectReadines
  */
 export type ReadinessRow =
   | { type: "object"; id: string; item: ObjectReadiness }
-  | { type: "endpoint"; id: string; endpoint: EndpointReadinessRow };
+  | { type: "endpoint"; id: string; endpoint: EndpointReadinessRow }
+  | { type: "guest"; id: string; guest: GuestReadinessRow };
 
-/** The rows of the table: the mail objects, then the machines (the order is settled by `sortRowsByUrgency`). */
+/**
+ * The rows of the table: the mail objects, the machines, then the VMs and containers of
+ * Proxmox VE (the order is settled by `sortRowsByUrgency`).
+ */
 export function readinessRows(
   objects: readonly ObjectReadiness[],
   endpoints: readonly EndpointReadinessRow[] = [],
+  guests: readonly GuestReadinessRow[] = [],
 ): ReadinessRow[] {
   return [
     ...objects.map((item): ReadinessRow => ({ type: "object", id: item.object.id, item })),
     ...endpoints.map((endpoint): ReadinessRow => ({ type: "endpoint", id: endpoint.id, endpoint })),
+    ...guests.map((guest): ReadinessRow => ({ type: "guest", id: guest.id, guest })),
   ];
 }
 
 /** The rating of a row: what the filters and the order look at, whatever the kind of object. */
 export function rowRating(row: ReadinessRow): Pick<ObjectReadiness, "state" | "overdue"> {
-  return row.type === "object" ? row.item : row.endpoint;
+  switch (row.type) {
+    case "object":
+      return row.item;
+    case "endpoint":
+      return row.endpoint;
+    case "guest":
+      return row.guest;
+  }
+}
+
+/** The name a guest goes by: its PVE name, else "VM 101" or "CT 101". */
+export function guestRowName(guest: Pick<GuestReadinessRow, "name" | "kind" | "vmid">): string {
+  return guest.name?.trim() || `${guest.kind === "vm" ? "VM" : "CT"} ${guest.vmid}`;
 }
 
 /** The name a row is ordered by. */
 export function rowName(row: ReadinessRow): string {
-  return row.type === "object"
-    ? objectName(row.item.object)
-    : row.endpoint.displayName?.trim() || row.endpoint.hostname;
+  switch (row.type) {
+    case "object":
+      return objectName(row.item.object);
+    case "endpoint":
+      return row.endpoint.displayName?.trim() || row.endpoint.hostname;
+    case "guest":
+      return guestRowName(row.guest);
+  }
 }
 
 /** Worst first across mailboxes and machines alike; overdue before current; then by name. */

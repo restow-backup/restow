@@ -122,6 +122,32 @@ describe("readinessRows", () => {
     expect(rows.map((row) => row.id)).toEqual(["Ada", "Bob", "id-web-01"]);
   });
 
+  it("lists the VMs and containers after the machines, rated and named like them", () => {
+    const guest = {
+      id: "g-1",
+      vmid: 101,
+      kind: "vm" as const,
+      name: null,
+      node: "pve1",
+      state: "red" as const,
+      readiness: "red" as const,
+      checkedAt: null,
+      overdue: false,
+      latestBackupAt: null,
+      latestSnapshotId: null,
+      inJob: true,
+    };
+    const rows = readinessRows([item("Ada", "green")], [], [guest]);
+    expect(rows.map((row) => row.type)).toEqual(["object", "guest"]);
+    const [, row] = rows as [
+      ReturnType<typeof readinessRows>[number],
+      ReturnType<typeof readinessRows>[number],
+    ];
+    expect(rowRating(row)).toMatchObject({ state: "red", overdue: false });
+    expect(rowName(row)).toBe("VM 101");
+    expect(sortRowsByUrgency(rows).map(rowName)).toEqual(["VM 101", "Ada"]);
+  });
+
   it("works for a server that sends no machines", () => {
     expect(readinessRows([item("Ada", "green")])).toHaveLength(1);
     expect(readinessRows([], undefined)).toEqual([]);

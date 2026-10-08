@@ -6,13 +6,17 @@ import {
   aboutLinks,
   authStatusKey,
   backupCodesDocument,
+  changePasswordErrorKey,
+  detectBrowser,
   detectDevice,
   formatDuration,
   parseTotpUri,
   passkeyErrorKey,
+  passkeyRemoval,
   probeTone,
   settingsErrorKey,
   toPasskeyRows,
+  toSessionRows,
   twoFactorErrorKey,
 } from "./presenters";
 
@@ -211,5 +215,76 @@ describe("twoFactorErrorKey", () => {
   it("falls back to the plain request explanations", () => {
     expect(key(401)).toBe("common:errors.unauthorized");
     expect(key(500)).toBe("common:errors.server");
+  });
+});
+
+describe("passkeyRemoval", () => {
+  const base = {
+    passkeyCount: 1,
+    hasPassword: true,
+    hasAuthenticator: true,
+    microsoftSignIn: false,
+  };
+  it("says what the account keeps after removing a passkey", () => {
+    expect(passkeyRemoval({ ...base, passkeyCount: 2 })).toBe("others");
+    expect(passkeyRemoval(base)).toBe("authenticator");
+    expect(passkeyRemoval({ ...base, hasAuthenticator: false })).toBe("noAuthenticator");
+    expect(passkeyRemoval({ ...base, hasPassword: false, microsoftSignIn: true })).toBe("sso");
+  });
+
+  it("blocks removing the only way to sign in", () => {
+    expect(passkeyRemoval({ ...base, hasPassword: false })).toBe("blocked");
+    expect(passkeyRemoval({ ...base, hasPassword: false, passkeyCount: 2 })).toBe("others");
+  });
+});
+
+describe("toSessionRows", () => {
+  it("puts the current session first, then by last activity, with device and browser", () => {
+    const rows = toSessionRows(
+      [
+        {
+          id: "a",
+          token: "t-a",
+          userAgent: "Mozilla/5.0 (Windows NT 10.0) Firefox/131.0",
+          updatedAt: "2026-10-01T00:00:00Z",
+        },
+        { id: "b", token: "t-b", userAgent: "", updatedAt: "2026-10-05T00:00:00Z", ipAddress: "" },
+        {
+          id: "c",
+          token: "t-c",
+          userAgent: "Mozilla/5.0 (iPhone) Safari/605",
+          updatedAt: new Date("2026-09-01T00:00:00Z"),
+        },
+        { token: "no-id" },
+        null,
+      ],
+      "t-c",
+    );
+    expect(rows.map((row) => row.id)).toEqual(["c", "b", "a"]);
+    expect(rows[0]).toMatchObject({ current: true, device: "iPhone", browser: "Safari" });
+    expect(rows[0]?.updatedAt).toBe("2026-09-01T00:00:00.000Z");
+    expect(rows[1]).toMatchObject({ device: null, browser: null, ipAddress: null });
+    expect(rows[2]).toMatchObject({ device: "Windows", browser: "Firefox" });
+  });
+
+  it("names the browser from the user agent", () => {
+    expect(detectBrowser("Mozilla/5.0 Chrome/129 Safari/537 Edg/129")).toBe("Edge");
+    expect(detectBrowser("Mozilla/5.0 Chrome/129 Safari/537")).toBe("Chrome");
+    expect(detectBrowser("curl/8")).toBeNull();
+  });
+});
+
+describe("changePasswordErrorKey", () => {
+  it("explains a wrong current password, the policy and the rate limit", () => {
+    expect(changePasswordErrorKey({ status: 400, code: "INVALID_PASSWORD" })).toBe(
+      "settings:security.password.errors.current",
+    );
+    expect(changePasswordErrorKey({ status: 400, code: "PASSWORD_TOO_SHORT" })).toBe(
+      "settings:security.password.errors.policy",
+    );
+    expect(changePasswordErrorKey({ status: 429 })).toBe(
+      "settings:security.password.errors.tooMany",
+    );
+    expect(changePasswordErrorKey({ status: 500 })).toBe("common:errors.server");
   });
 });

@@ -1,8 +1,8 @@
-import type { AppCredentials } from "@restow/core";
+import { type AppCredentials, parseSourceAppSecret } from "@restow/core";
 import { type Settings, settings } from "@restow/db";
 import type { SupportedLanguage } from "@restow/i18n";
 import { eq } from "drizzle-orm";
-import { config } from "../../config.js";
+import { type Config, config } from "../../config.js";
 import { audit } from "../../lib/audit.js";
 import { DISCLAIMER_VERSION } from "../../lib/disclaimer.js";
 import {
@@ -13,31 +13,35 @@ import {
   upsertProviderSecret,
 } from "../../lib/secrets.js";
 import type { DbExecutor } from "../../lib/tenant-context.js";
-import { type Notifier, createNotifier } from "../../notify.js";
+import { parseServiceAccountKey } from "../../notify-google.js";
+import { type Notifier, createNotifier, notifierForTransport } from "../../notify.js";
 import { type PasskeyReadyResult, computePasskeyReady } from "../../passkeyReady.js";
 import { ProblemError } from "../../problem.js";
+import { toStoredSmtpSecurity } from "../../schemas.js";
 import { resolveEntraApp } from "../sources/entra.js";
 import {
   type CurrentSettings,
   type EnvironmentView,
   type MailEnvironment,
+  type MailSecretActions,
   type SecretAction,
   type SettingsView,
   type StoredMailConfig,
+  decideGoogleKey,
+  decideGraphApp,
   decideSmtpPassword,
   environmentView,
+  graphAppOf,
   planSettingsUpdate,
   readStoredMailConfig,
   toSettingsView,
-  toStoredMail,
   validationProblem,
 } from "./logic.js";
 import {
   type MailTestResult,
   type ResolvedMailTransport,
-  notifierConfig,
-  resolveMail,
   runMailTest,
+  transportSpec,
 } from "./mail.js";
 import { type ReachabilityProbe, probePublicUrl } from "./reachability.js";
 import type { MailInput, MailTestInput, UpdateSettingsInput } from "./schemas.js";
@@ -45,7 +49,9 @@ import type { MailInput, MailTestInput, UpdateSettingsInput } from "./schemas.js
 /**
  * Installation settings (docs/ARCHITECTURE.md, setup and operating modes): the
  * single `settings` row the setup wizard wrote, changed later by provider
- * admins. The SMTP password lives only in the encrypted secret store. Every
+ * admins. The mail credentials (SMTP password, the own Microsoft 365 app's
+ * secret or certificate, the Google service account key) live only in the
+ * encrypted secret store and are never returned. Every
  * change and every test send is written to the audit log; secrets never are.
  */
 
@@ -56,7 +62,14 @@ export const SETTINGS_AUDIT_ACTIONS = {
   mailNotNeeded: "settings.mail.not_needed",
 } as const;
 
-const SMTP_PASSWORD_KIND = "smtp_password";
+/** The installation-level secret kinds of the mail transports. */
+const MAIL_SECRET_KINDS = {
+  smtpPassword: "smtp_password",
+  graphApp: "mail_graph_app",
+  googleKey: "mail_google_key",
+} as const satisfies Record<keyof MailSecretActions, string>;
+
+type MailSecretRefs = Record<keyof MailSecretActions, SecretRef | null>;
 
 export interface Actor {
   id: string;
@@ -115,11 +128,23 @@ async function loadRow(
   return rows[0] ?? null;
 }
 
-function findSmtpPassword(executor: DbExecutor): Promise<SecretRef | null> {
-  return findProviderSecret(executor, SMTP_PASSWORD_KIND);
+async function findMailSecrets(executor: DbExecutor): Promise<MailSecretRefs> {
+  return {
+    smtpPassword: await findProviderSecret(executor, MAIL_SECRET_KINDS.smtpPassword),
+    graphApp: await findProviderSecret(executor, MAIL_SECRET_KINDS.graphApp),
+    googleKey: await findProviderSecret(executor, MAIL_SECRET_KINDS.googleKey),
+  };
 }
 
-function currentSettings(row: Settings, smtpPasswordStored: boolean): CurrentSettings {
+function storedFlags(refs: MailSecretRefs) {
+  return {
+    smtpPasswordStored: refs.smtpPassword !== null,
+    graphAppStored: refs.graphApp !== null,
+    googleKeyStored: refs.googleKey !== null,
+  };
+}
+
+function currentSettings(row: Settings, refs: MailSecretRefs): CurrentSettings {
   if (!row.operatingMode) {
     throw setupIncomplete();
   }
@@ -127,19 +152,23 @@ function currentSettings(row: Settings, smtpPasswordStored: boolean): CurrentSet
     operatingMode: row.operatingMode,
     publicUrl: row.publicUrl,
     mail: readStoredMailConfig(row.mailTransport, row.mailConfig),
-    smtpPasswordStored,
+    ...storedFlags(refs),
   };
 }
 
-async function applySecret(
+async function applySecrets(
   tx: DbExecutor,
-  action: SecretAction,
-  existing: SecretRef | null,
+  actions: MailSecretActions,
+  existing: MailSecretRefs,
 ): Promise<void> {
-  if (action.action === "set") {
-    await upsertProviderSecret(tx, SMTP_PASSWORD_KIND, action.plaintext);
-  } else if (action.action === "delete" && existing) {
-    await deleteSecret(tx, existing);
+  for (const kind of Object.keys(MAIL_SECRET_KINDS) as (keyof MailSecretActions)[]) {
+    const action: SecretAction = actions[kind];
+    const ref = existing[kind];
+    if (action.action === "set") {
+      await upsertProviderSecret(tx, MAIL_SECRET_KINDS[kind], action.plaintext);
+    } else if (action.action === "delete" && ref) {
+      await deleteSecret(tx, ref);
+    }
   }
 }
 
@@ -147,12 +176,12 @@ async function applySecret(
 
 export async function getSettings(db: DbExecutor, context: RequestContext): Promise<SettingsView> {
   const row = await loadRow(db);
-  const secret = await findSmtpPassword(db);
+  const refs = await findMailSecrets(db);
   const state = { operatingMode: row?.operatingMode ?? null, publicUrl: row?.publicUrl ?? null };
   return toSettingsView({
     ...state,
     mail: readStoredMailConfig(row?.mailTransport ?? null, row?.mailConfig),
-    smtpPasswordStored: secret !== null,
+    ...storedFlags(refs),
     updatedAt: row?.updatedAt ?? null,
     passkeyReady: passkeyReadyFor(state, context),
     environmentPublicUrl: config.publicUrl ?? null,
@@ -182,8 +211,8 @@ export async function updateSettings(
     if (!row) {
       throw setupIncomplete();
     }
-    const secretRef = await findSmtpPassword(tx);
-    const plan = planSettingsUpdate(currentSettings(row, secretRef !== null), patch, environment);
+    const refs = await findMailSecrets(tx);
+    const plan = planSettingsUpdate(currentSettings(row, refs), patch, environment);
     if (plan.changes.length === 0) {
       return;
     }
@@ -199,7 +228,7 @@ export async function updateSettings(
         mailConfig: plan.mail,
       })
       .where(eq(settings.id, row.id));
-    await applySecret(tx, plan.secret, secretRef);
+    await applySecrets(tx, plan.secrets, refs);
 
     await audit(tx, {
       actor: actor.email,
@@ -222,36 +251,146 @@ export async function updateSettings(
 
 // --- Test send -------------------------------------------------------------------------------
 
+function storedSecretUnreadable(what: string): never {
+  // A sealed document that does not open or parse is a broken installation
+  // state, not a validation problem of the request.
+  throw new ProblemError(500, "Stored mail credential unreadable", {
+    type: "urn:restow:problem:mail-credential-unreadable",
+    detail: `The stored ${what} cannot be read. Enter it again under Installation, Notification mail.`,
+  });
+}
+
+async function openGraphApp(db: DbExecutor, ref: SecretRef | null): Promise<AppCredentials | null> {
+  const plaintext = ref ? await readSecret(db, ref) : null;
+  if (!plaintext) {
+    return null;
+  }
+  let credentials: AppCredentials | null;
+  try {
+    credentials = parseSourceAppSecret(plaintext);
+  } catch {
+    credentials = null;
+  }
+  return credentials ?? storedSecretUnreadable("app credential");
+}
+
+async function openGoogleKey(db: DbExecutor, ref: SecretRef | null) {
+  const plaintext = ref ? await readSecret(db, ref) : null;
+  if (!plaintext) {
+    return null;
+  }
+  const parsed = parseServiceAccountKey(plaintext);
+  return parsed.ok ? parsed.key : storedSecretUnreadable("service account key");
+}
+
+/** The stored transport with its credentials opened (in memory, for this send only). */
+async function resolveStored(
+  db: DbExecutor,
+  mail: StoredMailConfig,
+  refs: MailSecretRefs,
+): Promise<ResolvedMailTransport> {
+  switch (mail.transport) {
+    case "smtp":
+      return {
+        transport: "smtp",
+        host: mail.host,
+        port: mail.port,
+        security: mail.security,
+        from: mail.from,
+        username: mail.username ?? null,
+        password:
+          mail.username && refs.smtpPassword ? await readSecret(db, refs.smtpPassword) : null,
+      };
+    case "graph": {
+      const app = graphAppOf(mail);
+      return {
+        transport: "graph",
+        sender: mail.sender,
+        tenantId: mail.tenantId ?? null,
+        app,
+        credentials: app === "own" ? await openGraphApp(db, refs.graphApp) : await graphMailApp(),
+      };
+    }
+    case "google":
+      return {
+        transport: "google",
+        sender: mail.sender,
+        key: await openGoogleKey(db, refs.googleKey),
+      };
+  }
+}
+
 async function resolveForTest(
   db: DbExecutor,
   draft: MailInput | undefined,
   current: CurrentSettings,
-  secretRef: SecretRef | null,
+  refs: MailSecretRefs,
 ): Promise<ResolvedMailTransport> {
-  const storedPassword = async () => (secretRef ? readSecret(db, secretRef) : null);
-
   if (!draft) {
     if (!current.mail) {
       throw mailNotConfigured();
     }
-    const needsPassword = current.mail.transport === "smtp" && current.mail.username !== undefined;
-    return resolveMail(current.mail, needsPassword ? await storedPassword() : null);
+    return resolveStored(db, current.mail, refs);
   }
 
-  const mail = toStoredMail(draft);
   if (draft.transport === "graph") {
-    return resolveMail(mail, null);
+    const decision = decideGraphApp(draft.graph, current);
+    const graph = {
+      transport: "graph" as const,
+      sender: draft.graph.sender,
+      tenantId: draft.graph.tenantId,
+      app: draft.graph.app,
+    };
+    switch (decision.kind) {
+      case "invalid":
+        throw validationProblem([decision.issue]);
+      case "backup":
+        return { ...graph, credentials: await graphMailApp() };
+      case "stored":
+        return { ...graph, credentials: await openGraphApp(db, refs.graphApp) };
+      case "provided":
+        return { ...graph, credentials: decision.credentials };
+    }
   }
-  const decision = decideSmtpPassword(draft.smtp, current);
+
+  if (draft.transport === "google") {
+    const decision = decideGoogleKey(draft.google, current);
+    switch (decision.kind) {
+      case "invalid":
+        throw validationProblem([decision.issue]);
+      case "stored":
+        return {
+          transport: "google",
+          sender: draft.google.sender,
+          key: await openGoogleKey(db, refs.googleKey),
+        };
+      case "provided":
+        return { transport: "google", sender: draft.google.sender, key: decision.key };
+    }
+  }
+
+  const { smtp: input } = draft;
+  const smtp = {
+    transport: "smtp" as const,
+    host: input.host,
+    port: input.port,
+    security: toStoredSmtpSecurity(input.security),
+    from: input.from,
+    username: input.username,
+  };
+  const decision = decideSmtpPassword(input, current);
   switch (decision.kind) {
     case "invalid":
       throw validationProblem([decision.issue]);
     case "provided":
-      return resolveMail(mail, decision.password);
+      return { ...smtp, password: decision.password };
     case "stored":
-      return resolveMail(mail, await storedPassword());
+      return {
+        ...smtp,
+        password: refs.smtpPassword ? await readSecret(db, refs.smtpPassword) : null,
+      };
     case "none":
-      return resolveMail(mail, null);
+      return { ...smtp, password: null };
   }
 }
 
@@ -271,13 +410,12 @@ export async function sendTestMail(
   if (!row) {
     throw setupIncomplete();
   }
-  const secretRef = await findSmtpPassword(db);
-  const current = currentSettings(row, secretRef !== null);
-  const transport = await resolveForTest(db, input.mail, current, secretRef);
+  const refs = await findMailSecrets(db);
+  const current = currentSettings(row, refs);
+  const transport = await resolveForTest(db, input.mail, current, refs);
   const recipient = input.to ?? actor.email;
 
-  const graphApp = transport.transport === "graph" ? await graphMailApp() : null;
-  const result = await runMailTest(transport, recipient, language, { base: config, graphApp });
+  const result = await runMailTest(transport, recipient, language, { base: config });
 
   await audit(db, {
     actor: actor.email,
@@ -298,7 +436,7 @@ export async function sendTestMail(
 
 // --- Remove mail configuration ------------------------------------------------------------
 
-/** Danger zone: forget the transport and destroy the stored SMTP password. */
+/** Danger zone: forget the transport and destroy every stored mail credential. */
 export async function removeMailConfiguration(
   db: DbExecutor,
   actor: Actor,
@@ -309,16 +447,17 @@ export async function removeMailConfiguration(
     if (!row) {
       throw setupIncomplete();
     }
-    const secretRef = await findSmtpPassword(tx);
-    if (row.mailTransport === null && row.mailConfig === null && secretRef === null) {
+    const refs = await findMailSecrets(tx);
+    const stored = Object.values(refs).filter((ref): ref is SecretRef => ref !== null);
+    if (row.mailTransport === null && row.mailConfig === null && stored.length === 0) {
       return;
     }
     await tx
       .update(settings)
       .set({ mailTransport: null, mailConfig: null })
       .where(eq(settings.id, row.id));
-    if (secretRef) {
-      await deleteSecret(tx, secretRef);
+    for (const ref of stored) {
+      await deleteSecret(tx, ref);
     }
     await audit(tx, {
       actor: actor.email,
@@ -327,7 +466,11 @@ export async function removeMailConfiguration(
       target: row.id,
       targetType: "settings",
       ip: actor.ip,
-      details: { previousTransport: row.mailTransport, passwordDeleted: secretRef !== null },
+      details: {
+        previousTransport: row.mailTransport,
+        passwordDeleted: refs.smtpPassword !== null,
+        credentialsDeleted: stored.map((ref) => ref.kind),
+      },
     });
   });
   return getSettings(db, context);
@@ -418,10 +561,41 @@ export async function createInstallationNotifier(db: DbExecutor): Promise<Notifi
     row?.mailConfig,
   );
   if (!mail) {
-    return null;
+    // Nothing saved in Settings: fall back to MAIL_TRANSPORT / SMTP_* / GRAPH_MAIL_*
+    // from the environment (docs: .env.example), which were otherwise never read.
+    if (!environmentMailConfigured(config)) {
+      return null;
+    }
+    return createNotifier(config, config.mailTransport === "graph" ? await graphMailApp() : null);
   }
-  const secretRef = mail.transport === "smtp" && mail.username ? await findSmtpPassword(db) : null;
-  const password = secretRef ? await readSecret(db, secretRef) : null;
-  const graphApp = mail.transport === "graph" ? await graphMailApp() : null;
-  return createNotifier(notifierConfig(config, resolveMail(mail, password)), graphApp);
+  const resolved = await resolveStored(db, mail, await findMailSecrets(db));
+  return notifierForTransport(transportSpec(config, resolved), { demo: config.demo.enabled });
+}
+
+/**
+ * Whether the environment alone configures a notification transport: SMTP
+ * needs a host and a sender address, Graph a sender mailbox. MAIL_TRANSPORT
+ * defaults to SMTP.
+ */
+export function environmentMailConfigured(base: Config): boolean {
+  if (base.mailTransport === "graph") {
+    return Boolean(base.graphMailSender?.trim());
+  }
+  return Boolean(base.smtp.host?.trim() && base.smtp.from?.trim());
+}
+
+/**
+ * Whether notification mail can go out at all: a transport saved in the web
+ * interface, or one from the environment ({@link createInstallationNotifier}
+ * falls back to it). What the web shows as "mail configured" (invitations,
+ * the reset by mail on the login page).
+ */
+export function notificationMailConfigured(
+  row: Pick<Settings, "mailTransport" | "mailConfig"> | null | undefined,
+  base: Config = config,
+): boolean {
+  return (
+    readStoredMailConfig(row?.mailTransport ?? null, row?.mailConfig) !== null ||
+    environmentMailConfigured(base)
+  );
 }

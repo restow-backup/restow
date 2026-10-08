@@ -1,0 +1,127 @@
+{
+  "nav": "Warnungen",
+  "navBadge": "{count, plural, one {# offene Warnung} other {# offene Warnungen}}",
+  "title": "Warnungen",
+  "description": "Sicherungen, die durchgelaufen sind, aber einzelne Elemente nicht sichern konnten: welche, warum und was zu tun ist. Bestätigte Warnungen zählen nicht mehr, bis ein neues Problem auftritt.",
+  "tabs": {
+    "open": "Offen",
+    "acknowledged": "Bestätigt"
+  },
+  "failedHint": "{count, plural, one {# geschütztes Objekt oder Rechner hat} other {# geschützte Objekte oder Rechner haben}} eine fehlgeschlagene letzte Sicherung. Fehlgeschlagene Sicherungen lassen sich nicht bestätigen; sie bleiben rot, bis wieder eine Sicherung gelingt.",
+  "openHistory": "Verlauf öffnen",
+  "failedGuestsHint": "{count, plural, one {# VM oder Container in einem Backup-Job hat} other {# VMs oder Container in einem Backup-Job haben}} eine fehlgeschlagene letzte Sicherung. Fehlgeschlagene Sicherungen lassen sich nicht bestätigen; sie bleiben rot, bis wieder eine Sicherung gelingt.",
+  "openGuests": "VMs & Container öffnen",
+  "truncated": "Es werden die ersten {count} Warnungen gezeigt.",
+  "loadError": "Die Warnungen konnten nicht geladen werden.",
+  "empty": {
+    "open": {
+      "title": "Keine offenen Warnungen",
+      "description": "Die letzten Sicherungen aller geschützten Objekte und Rechner sind vollständig, oder ihre Warnungen sind bestätigt."
+    },
+    "acknowledged": {
+      "title": "Keine bestätigten Warnungen",
+      "description": "Bestätigte Warnungen erscheinen hier, mit Person, Zeitpunkt und Notiz."
+    }
+  },
+  "columns": {
+    "select": "Auswählen",
+    "selectAll": "Alle auswählen",
+    "object": "Objekt",
+    "lastRun": "Letzter Lauf",
+    "causes": "Ursachen",
+    "acknowledgement": "Bestätigung",
+    "actions": "Aktionen"
+  },
+  "kind": {
+    "mailbox": "Postfach",
+    "onedrive": "OneDrive",
+    "imap": "IMAP-Konto",
+    "server": "Server",
+    "client": "Client"
+  },
+  "state": {
+    "open": "Warnung",
+    "acknowledged": "Warnung bestätigt",
+    "failed": "Fehlgeschlagen",
+    "none": "Keine Warnung"
+  },
+  "outcome": {
+    "succeeded": "Vollständig",
+    "partial": "Mit Warnungen",
+    "failed": "Fehlgeschlagen",
+    "running": "Läuft",
+    "queued": "Wartet",
+    "cancelled": "Abgebrochen"
+  },
+  "failedItems": "{count, plural, one {# Element nicht gesichert} other {# Elemente nicht gesichert}}",
+  "newCauses": "Neue Ursache: {causes}",
+  "ackBy": "Bestätigt von {who}, {when}",
+  "superseded": "Die Bestätigung vom {when} gilt nicht mehr, weil seitdem ein neues Problem aufgetreten ist.",
+  "actions": {
+    "details": "Gründe ansehen",
+    "acknowledge": "Warnung bestätigen",
+    "acknowledgeAgain": "Erneut bestätigen",
+    "acknowledgeSelected": "{count, plural, one {# Warnung bestätigen} other {# Warnungen bestätigen}}",
+    "revoke": "Bestätigung zurücknehmen",
+    "openRun": "Lauf öffnen"
+  },
+  "reasons": {
+    "notAllowed": "Ihre Rolle erlaubt es nicht, Warnungen zu bestätigen.",
+    "failed": "Eine fehlgeschlagene Sicherung lässt sich nicht bestätigen. Sie bleibt rot, bis wieder eine Sicherung gelingt.",
+    "noWarning": "Die letzte Sicherung ist vollständig. Es gibt nichts zu bestätigen.",
+    "nothingSelected": "Wählen Sie zuerst Objekte mit offener Warnung aus.",
+    "pending": "Die Bestätigung wird gespeichert."
+  },
+  "dialog": {
+    "title": "{count, plural, one {Warnung bestätigen} other {# Warnungen bestätigen}}",
+    "description": "Bestätigte Warnungen zählen nicht mehr in der Übersicht, im Status und bei den geschützten Objekten. Tritt eine neue Ursache auf oder schlägt eine Sicherung fehl, erscheint die Warnung wieder. Fehlgeschlagene Sicherungen lassen sich nicht bestätigen.",
+    "note": "Notiz (optional)",
+    "notePlaceholder": "Zum Beispiel: Die Nachricht ist bei Microsoft beschädigt, mit der Person geklärt.",
+    "noteHelp": "Die Notiz ist für alle Administratoren sichtbar und steht im Audit-Log.",
+    "confirm": "Bestätigen",
+    "cancel": "Abbrechen"
+  },
+  "revokeDialog": {
+    "title": "Bestätigung zurücknehmen?",
+    "description": "Die Warnung von {name} zählt danach wieder in der Übersicht und im Status.",
+    "confirm": "Zurücknehmen"
+  },
+  "toast": {
+    "acknowledged": "{count, plural, one {Warnung bestätigt} other {# Warnungen bestätigt}}",
+    "skipped": "{count, plural, one {# Objekt wurde übersprungen, weil es keine offene Warnung mehr hat.} other {# Objekte wurden übersprungen, weil sie keine offene Warnung mehr haben.}}",
+    "revoked": "Bestätigung zurückgenommen",
+    "failed": "Das hat nicht geklappt. Versuchen Sie es erneut."
+  },
+  "explain": {
+    "open": "Die letzte Sicherung vom {when} ist durchgelaufen, aber {count, plural, one {# Element konnte} other {# Elemente konnten}} nicht gesichert werden. Alles andere ist gesichert; die betroffenen Elemente versucht {appName} beim nächsten Lauf erneut.",
+    "acknowledged": "Die letzte Sicherung vom {when} hat {count, plural, one {# Element} other {# Elemente}} nicht gesichert. Die Ursachen sind bestätigt, die Warnung zählt deshalb nicht.",
+    "failed": "Die letzte Sicherung ist fehlgeschlagen. Es gibt keinen neuen Sicherungsstand. Der Grund steht beim Lauf unten.",
+    "none": "Die letzte Sicherung ist vollständig."
+  },
+  "detail": {
+    "title": "Sicherungsverlauf und Warnungen",
+    "loadError": "Die Details konnten nicht geladen werden.",
+    "runs": "Letzte Läufe",
+    "noRuns": "Für dieses Objekt gibt es noch keinen Lauf.",
+    "byCause": "Ursachen und was zu tun ist",
+    "items": "Nicht gesicherte Elemente",
+    "itemsCapped": "Gezeigt werden die ersten {shown} von {total} Elementen. Die Ursachen oben zählen alle.",
+    "noItems": "Zu diesem Lauf sind keine einzelnen Elemente gespeichert.",
+    "acknowledgement": "Bestätigung",
+    "note": "Notiz",
+    "covers": "Gilt für: {causes}",
+    "columns": {
+      "item": "Element",
+      "folder": "Ordner",
+      "date": "Datum",
+      "cause": "Ursache",
+      "message": "Meldung"
+    },
+    "itemId": "ID {id}",
+    "attempts": "{count, plural, one {zum ersten Mal} other {in # Läufen nacheinander}}",
+    "rawMessage": "Meldung wie gespeichert",
+    "noFolder": "Oberste Ebene",
+    "receivedAt": "Empfangen {when}",
+    "failedAt": "Fehlgeschlagen {when}"
+  }
+}

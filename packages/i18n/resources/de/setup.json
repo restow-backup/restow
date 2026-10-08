@@ -48,11 +48,11 @@
       },
       "storage": {
         "title": "Hardware und Speicher",
-        "body": "Sie sind verantwortlich für die Server, Datenträger, Netzwerke und Speicherziele darunter sowie für deren Redundanz, Kapazität und Zustand. Fällt ein Speicherziel aus, läuft es voll, geht es verloren oder wird es nicht getrennt gesichert, kann {appName} das weder beheben noch die Daten zurückbringen."
+        "body": "Sie sind verantwortlich für die Server, Datenträger, Netzwerke und Speicherorte darunter sowie für deren Redundanz, Kapazität und Zustand. Fällt ein Speicherort aus, läuft es voll, geht es verloren oder wird es nicht getrennt gesichert, kann {appName} das weder beheben noch die Daten zurückbringen."
       },
       "immutability": {
         "title": "Ransomware und Löschen",
-        "body": "Daten sind nur dann unveränderbar, wenn der Speicher sie dazu macht. Ist auf dem Speicherziel kein WORM oder Object Lock eingerichtet, kann jeder, der es erreicht, auch Ransomware oder ein kompromittiertes Konto, Ihre Sicherungen und Ihr Archiv ändern oder löschen. Den Speicher gegen Ransomware und Löschen zu schützen, liegt bei Ihnen."
+        "body": "Daten sind nur dann unveränderbar, wenn der Speicher sie dazu macht. Ist auf dem Speicherort kein WORM oder Object Lock eingerichtet, kann jeder, der es erreicht, auch Ransomware oder ein kompromittiertes Konto, Ihre Sicherungen und Ihr Archiv ändern oder löschen. Den Speicher gegen Ransomware und Löschen zu schützen, liegt bei Ihnen."
       },
       "keys": {
         "title": "Verschlüsselungsschlüssel",
@@ -63,8 +63,8 @@
         "body": "Sie sind verantwortlich für die Sicherheit von Server, Netzwerk, Konten und Zugangsdaten, die {appName} und seinen Speicher erreichen: Updates, Firewall, HTTPS, starke Anmeldung und wer worauf zugreifen darf."
       },
       "restore": {
-        "title": "Restore regelmäßig testen",
-        "body": "Testen Sie Wiederherstellungen regelmäßig und prüfen Sie die Ergebnisse, zusätzlich zur Prüfung, die {appName} selbst durchführt. Eine Sicherung, die Sie nie wiederhergestellt haben, ist keine, auf die Sie sich verlassen können."
+        "title": "Wiederherstellung regelmäßig testen",
+        "body": "Testen Sie Wiederherstellungen regelmäßig und prüfen Sie die Ergebnisse, zusätzlich zur Restore-Prüfung, die {appName} selbst durchführt. Eine Sicherung, die Sie nie wiederhergestellt haben, ist keine, auf die Sie sich verlassen können."
       },
       "gobd": {
         "title": "Archiv und GoBD",
@@ -87,14 +87,14 @@
     "existing": {
       "title": "Hinweis zur Verantwortung des Betreibers",
       "description": "Diese Installation wurde eingerichtet, bevor es diesen Hinweis gab, oder der Hinweis wurde aktualisiert. Bitte lesen und akzeptieren Sie ihn, um {appName} weiter zu nutzen.",
-      "needAdministrator": "Ein Owner oder Administrator des Provider-Teams muss diesen Hinweis zuerst akzeptieren. Bitten Sie eine dieser Personen, sich anzumelden und ihn zu akzeptieren, oder melden Sie sich ab.",
+      "needAdministrator": "Ein Inhaber oder Administrator der Installation muss diesen Hinweis zuerst akzeptieren. Bitten Sie eine dieser Personen, sich anzumelden und ihn zu akzeptieren, oder melden Sie sich ab.",
       "accept": "Akzeptieren und fortfahren",
       "signOut": "Abmelden"
     }
   },
   "mode": {
     "title": "Wie betreiben Sie {appName}?",
-    "description": "Der Modus lässt sich später in den Einstellungen ändern.",
+    "description": "Der Modus lässt sich später unter Installation › Server & Betrieb › Server ändern.",
     "local": "Lokaler Modus",
     "localDescription": "Erreichbar über IP-Adresse oder localhost, ohne öffentliche Domain. Anmeldung per Notfall-Passwort.",
     "public": "Öffentlicher Modus",
@@ -159,13 +159,13 @@
     "description": "Wird für Berichte, Warnungen und Einladungen genutzt. Der Journal-Empfang für das Archiv ist davon getrennt.",
     "skip": {
       "action": "Später einrichten",
-      "explanation": "Mail ist optional. Ohne sie verschickt {appName} keine Alarm- und Bericht-Mails, und Einladungen und Passwort-Links gehen nicht per Mail raus: Sie kopieren den Link und geben ihn selbst weiter. Sie können sie später unter Installation → Benachrichtigungs-Mail einrichten.",
+      "explanation": "Mail ist optional. Ohne sie verschickt {appName} keine Alarm- und Bericht-Mails, und Einladungen und Passwort-Links gehen nicht per Mail raus: Sie kopieren den Link und geben ihn selbst weiter. Sie können sie später unter Installation › Server & Betrieb › Benachrichtigungs-Mail einrichten.",
       "skipped": "Sie haben diesen Schritt übersprungen. Füllen Sie das Formular aus und wählen Sie Weiter, um die Mail jetzt einzurichten."
     },
     "transport": {
       "label": "Transport",
       "smtp": "SMTP-Server",
-      "graph": "Microsoft Graph (Mail.Send)"
+      "graph": "Microsoft 365 über die App-Registrierung der Sicherung"
     },
     "smtp": {
       "host": "SMTP-Server",
@@ -189,12 +189,13 @@
       "senderPlaceholder": "restow@example.com",
       "tenantId": "Entra-Tenant-ID (optional)",
       "tenantIdPlaceholder": "00000000-0000-0000-0000-000000000000",
-      "hint": "Nutzt die Microsoft-App-Registrierung als Anwendung. Erfordert die Anwendungsberechtigung Mail.Send mit Admin-Consent; siehe https://docs.restowbackup.com/de/administrators/setup-wizard/."
+      "hint": "Versendet als App-Registrierung der Sicherung per Microsoft Graph. Sie braucht dafür zusätzlich die Anwendungsberechtigung Mail.Send mit Administratorzustimmung."
     },
     "sendTest": {
       "label": "Testnachricht an das Admin-Konto senden",
       "hint": "Zeigt sofort, ob der Transport funktioniert. Ein Fehlschlag blockiert die Einrichtung nicht."
-    }
+    },
+    "laterTransports": "Microsoft 365 mit eigener App-Registrierung und Google Workspace richten Sie nach der Einrichtung unter Installation › Server & Betrieb › Benachrichtigungs-Mail ein. Dort führt eine Anleitung durch die Schritte, und Sie senden vor dem Speichern eine Testnachricht."
   },
   "review": {
     "title": "Überprüfung",
@@ -211,12 +212,13 @@
     "no": "Nein",
     "finish": "Einrichtung abschließen",
     "submitting": "Einrichtung wird gespeichert …",
-    "signingIn": "Anmeldung läuft …"
+    "signingIn": "Anmeldung läuft …",
+    "next": "Als Nächstes: Nach dem Abschluss sind Sie angemeldet und richten die Authenticator-App ein. Halten Sie Ihr Smartphone bereit; das Passwort müssen Sie dafür nicht noch einmal eingeben."
   },
   "result": {
     "success": "Einrichtung abgeschlossen. Willkommen bei {appName}.",
     "testSendOk": "Die Testnachricht wurde versendet.",
-    "testSendFailed": "Die Testnachricht konnte nicht versendet werden: {error}",
+    "testSendFailed": "Die Testnachricht konnte nicht versendet werden. {reason} Prüfen Sie den Transport unter Installation › Server & Betrieb › Benachrichtigungs-Mail und senden Sie dort erneut eine Testnachricht.",
     "signInFailed": "Die Einrichtung ist gespeichert, die automatische Anmeldung hat aber nicht geklappt. Bitte melden Sie sich manuell an.",
     "alreadyConfigured": "Diese Installation ist bereits eingerichtet.",
     "failed": "Die Einrichtung konnte nicht gespeichert werden.",

@@ -30,6 +30,7 @@ import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { DEMO_READ_ONLY_PROBLEM } from "../../middleware/demo-guard.js";
 import { isTenantAdmin } from "../../middleware/rbac.js";
 import { ProblemError } from "../../problem.js";
+import { type FailureDto, failureDto } from "../failures/dto.js";
 import { type JobThrottleDto, runtimeThrottleOf } from "../jobs/dto.js";
 import { sendJob } from "../jobs/queue.js";
 import {
@@ -130,6 +131,8 @@ export interface RestoreDto {
   startedAt: string | null;
   completedAt: string | null;
   errorMessage: string | null;
+  /** The classified cause of a failed restore (features/failures), for a translated explanation; null without one. */
+  failure: FailureDto | null;
   progress: RestoreProgressDto | null;
   /** The current (or last) wait Microsoft Graph imposed; only while the restore runs. */
   throttle: JobThrottleDto | null;
@@ -676,6 +679,7 @@ function toRestoreDto(row: RestoreRow, now: Date): RestoreDto {
     startedAt: iso(row.job?.startedAt),
     completedAt: iso(completedAt),
     errorMessage: row.job?.errorMessage ?? null,
+    failure: failureDto(row.job?.failure ?? null),
     progress: row.progress
       ? {
           total: row.progress.total,
@@ -724,8 +728,9 @@ export async function listRestores(
           ...(visible ? [visible] : []),
         ),
       )
-      .orderBy(desc(restoreJobs.createdAt))
-      .limit(query.limit);
+      .orderBy(desc(restoreJobs.createdAt), desc(restoreJobs.id))
+      .limit(query.limit)
+      .offset(query.offset ?? 0);
     const at = now();
     return rows.map((row) => toRestoreDto(row, at));
   });

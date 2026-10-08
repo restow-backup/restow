@@ -12,6 +12,7 @@ import {
   INVALID_UPDATE_SOURCE_PROBLEM,
   LEAD_TIME_PRESETS,
   MAX_SOURCE_URL_LENGTH,
+  type MounterUpdateReason,
   RECENT_SIGN_IN_PROBLEM,
   type Recovery,
   type RunOutcome,
@@ -502,6 +503,56 @@ export function selfUpdateNote(
     return { kind: "skipped", reason: "signature_unverified" };
   }
   return { kind: "on" };
+}
+
+/** Recreate the mounter with the image RESTOW_MOUNTER_IMAGE names (docs/MOUNTS.md). */
+export const RECREATE_MOUNTER_COMMAND = "docker compose --profile mounts up -d --no-deps mounter";
+
+/**
+ * What the tab says about the mounter after the updater moved itself (docs/MOUNTS.md,
+ * "Updates"): it follows the updater to the same verified image. Nothing when it did, or
+ * when the installation runs no mounter.
+ */
+export type MounterUpdateNote =
+  /** The helper recreates the mounter right now. */
+  | { kind: "pending" }
+  /**
+   * It did not move (`failed`) or did not try (`skipped`, it kept changing a share). The
+   * commands finish it by hand: the `.env` line first when nothing was written yet.
+   */
+  | {
+      kind: "failed" | "skipped";
+      reason: MounterUpdateReason | null;
+      detail: string;
+      commands: string[];
+    };
+
+export function mounterUpdateNote(
+  view: Pick<UpdatesView, "running" | "updater">,
+): MounterUpdateNote | null {
+  const last = view.updater.selfUpdate?.last;
+  const mounter = last?.mounter;
+  if (!last || !mounter || last.targetVersion !== view.running) {
+    return null;
+  }
+  switch (mounter.status) {
+    case "pending":
+      return { kind: "pending" };
+    case "failed":
+    case "skipped": {
+      // The image the updater verified, by digest; never a tag.
+      const envLine =
+        mounter.image === null && last.image ? `RESTOW_MOUNTER_IMAGE=${last.image}` : null;
+      return {
+        kind: mounter.status,
+        reason: mounter.reason,
+        detail: mounter.detail,
+        commands: envLine ? [envLine, RECREATE_MOUNTER_COMMAND] : [RECREATE_MOUNTER_COMMAND],
+      };
+    }
+    default:
+      return null;
+  }
 }
 
 /** The `.env` line that moves the updater to the application image by hand (image mode only). */

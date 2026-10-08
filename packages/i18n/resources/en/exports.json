@@ -21,7 +21,7 @@
     "allArchive": "All search results"
   },
   "status": {
-    "queued": "Queued",
+    "queued": "Waiting",
     "active": "Running",
     "completed": "Completed",
     "completedWithIssues": "Completed with issues",
@@ -116,13 +116,15 @@
     "folders": "Folders",
     "mailData": "Mail data",
     "failedMessages": "Not exported",
-    "noReport": "The export finished without a report. The file is complete, but the numbers were not recorded.",
+    "noReport": "There is no report for this export, so how many emails the file holds is not known.",
     "checksum": "SHA-256 checksum of the file",
     "copyChecksum": "Copy checksum",
     "checksumHint": "Compare it with the checksum of the downloaded file to prove that nothing changed.",
     "expired": {
       "title": "The download link has expired",
-      "description": "The file was deleted from the server when the link expired ({date}). Start the export again to get a new file."
+      "description": "The file was deleted from the server when the link expired ({date}). Request the export again to get a new file.",
+      "againExplorer": "Request again in the explorer",
+      "againArchive": "Request again in the archive"
     }
   },
   "skipped": {
@@ -149,12 +151,16 @@
   },
   "list": {
     "title": "Exports",
-    "subtitle": "Every export you started, with live progress. Finished files can be downloaded for 24 hours.",
+    "subtitle": "Every export you started, with live progress. Finished files can be downloaded for a limited time.",
+    "subtitleHours": "Every export you started, with live progress. Finished files can be downloaded for {count, plural, one {# hour} other {# hours}}.",
     "empty": "No exports yet",
     "emptyDescription": "Export mail as EML or MBOX files from the restore explorer or the archive. Your exports appear here.",
+    "emptyDescriptionUser": "Export mail as EML or MBOX files from the restore explorer. Your exports appear here.",
     "fromBackups": "Export from backups",
     "fromArchive": "Export from the archive",
     "loadError": "The exports could not be loaded.",
+    "shown": "{count, plural, one {The newest export is shown.} other {The newest # exports are shown.}}",
+    "showOlder": "Show older",
     "expired": "Expired",
     "columns": {
       "created": "Requested",
@@ -231,7 +237,7 @@
       "notMail": "Only mail can be exported. OneDrive files are not part of an export.",
       "selectionUnknown": "Some selected entries no longer exist at this restore point. Reload the folder and select again.",
       "quotaExceeded": "The finished exports of this organization use all the space that exports may take. Older exports are deleted automatically when they expire. Request this export again after that, or export less mail at once.",
-      "queueUnavailable": "The job queue is not available. Make sure the {appName} worker is running, then try again.",
+      "queueUnavailable": "The queue is not available. Make sure the {appName} worker is running, then try again.",
       "snapshotGone": "This restore point is no longer available. Choose another one.",
       "archiveGone": "Some of the selected archive mails are no longer available. Search again and select again."
     }

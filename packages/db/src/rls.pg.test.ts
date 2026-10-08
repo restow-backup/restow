@@ -198,6 +198,61 @@ describe.skipIf(!adminUrl)("Row Level Security on the application role", () => {
     ).rejects.toThrow(/permission denied/);
   });
 
+  it("keeps an archived mail's mailbox assignments inside the tenant and append-only", async () => {
+    const { rows: objects } = await owner.query<{ id: string }>(
+      `INSERT INTO protected_objects (tenant_id, source_id, kind, external_id)
+         SELECT tenant_id, id, 'mailbox', 'journal-assign@contoso.example' FROM sources WHERE tenant_id = $1
+       RETURNING id`,
+      [contoso],
+    );
+    const { rows: items } = await owner.query<{ id: string }>(
+      `INSERT INTO archive_items (tenant_id, message_id, item_hash, chain_hash, received_at, captured_via, storage_path)
+         VALUES ($1, '<assign@contoso.example>', 'item', $2, now(), 'journal', 'archive/assign')
+       RETURNING id`,
+      [contoso, `chain-${randomUUID()}`],
+    );
+    const objectId = objects[0]?.id as string;
+    const itemId = items[0]?.id as string;
+
+    await inTransaction(app, contoso, (client) =>
+      client.query(
+        "INSERT INTO archive_item_mailboxes (tenant_id, archive_item_id, protected_object_id) VALUES ($1, $2, $3)",
+        [contoso, itemId, objectId],
+      ),
+    );
+    const seen = await inTransaction(app, fabrikam, (client) =>
+      client.query("SELECT id FROM archive_item_mailboxes WHERE archive_item_id = $1", [itemId]),
+    );
+    expect(seen.rowCount).toBe(0);
+    await expect(
+      inTransaction(app, contoso, (client) =>
+        client.query("DELETE FROM archive_item_mailboxes WHERE archive_item_id = $1", [itemId]),
+      ),
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      inTransaction(app, contoso, (client) =>
+        client.query(
+          "UPDATE archive_item_mailboxes SET created_at = now() WHERE archive_item_id = $1",
+          [itemId],
+        ),
+      ),
+    ).rejects.toThrow(/permission denied/);
+    await expect(
+      owner.query(
+        "UPDATE archive_item_mailboxes SET created_at = now() WHERE archive_item_id = $1",
+        [itemId],
+      ),
+    ).rejects.toThrow(/append-only/);
+
+    // The retention run removes the item; its assignments go with it.
+    await provider.query("DELETE FROM archive_items WHERE id = $1", [itemId]);
+    const left = await owner.query(
+      "SELECT id FROM archive_item_mailboxes WHERE archive_item_id = $1",
+      [itemId],
+    );
+    expect(left.rowCount).toBe(0);
+  });
+
   it("lets the installation role see every tenant", async () => {
     const { rows } = await provider.query<{ id: string }>("SELECT id FROM tenants ORDER BY slug");
     expect(rows.map((row) => row.id)).toEqual([contoso, fabrikam]);

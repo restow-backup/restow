@@ -59,9 +59,9 @@ Endpunkt (Linux/macOS)                       Restow-Instanz
   gegen einen Loopback-Listener mit Volllzugriff. Siehe "Wartungszugang".
 - **Worker-Jobs** (`apps/worker/src/endpoints/`) und **Scheduler**
   (`apps/scheduler/src/endpoints.ts`).
-- **Oberfläche** (`apps/web/src/features/endpoints`): Server & Endpunkte › Inventar (eine Liste
+- **Oberfläche** (`apps/web/src/features/endpoints`): Server & Clients › Inventar (eine Liste
   aller Rechner mit den Filtern Alle, Server, Clients), Assistent, Detailseite
-  (`/inventory/<id>`), Dateibrowser, Server & Endpunkte › Datei-Restore, Einstellungen. Anmeldung, offene Token und die Pause der
+  (`/inventory/<id>`), Dateibrowser, Server & Clients › Datei-Restore, Einstellungen. Anmeldung, offene Token und die Pause der
   Agent-Updates liegen außerdem auf der Mandantenseite (`/tenants/<id>/agents`).
 
 ## Enrollment
@@ -842,7 +842,7 @@ Ein Speicherwechsel, der Endpunkte betrifft, antwortet mit `storage-active-endpo
   brauchen und die jüngste gute Sicherung. Die Karte erscheint nur, wenn der Mandant mindestens einen
   geschützten Rechner hat. Dieselben Rechner zählen auch in den Summen des Readiness-Widgets.
 - Übersicht, Reiter Statistik: Endpunkte zählen als geschützte Objekte. Die Readiness-Reihe, die Kennzahlen
-  "verifizierter Anteil" und "geschützte Objekte" und die Mandantenzeilen des Provider-Bereichs bewerten
+  "verifizierter Anteil" und "geschützte Objekte" und die Mandantenzeilen der Statistik aller Mandanten bewerten
   jeden Endpunkt zu jedem Zeitpunkt mit `endpointReadiness` nach dem, was damals bekannt war (jüngste
   gute Sicherung, Restore-Tests genau dieses Snapshots, jüngste Repository-Prüfung). Ein Endpunkt ist von
   der Anmeldung bis zum Widerruf geschützt.

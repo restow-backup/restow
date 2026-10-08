@@ -1,7 +1,7 @@
 {
   "app": {
     "name": "{appName}",
-    "tagline": "{appName}. Backup, dessen Wiederherstellbarkeit du belegen kannst."
+    "tagline": "{appName}. Backup, dessen Wiederherstellbarkeit Sie belegen können."
   },
   "actions": {
     "save": "Speichern",
@@ -49,7 +49,7 @@
     "groups": {
       "daily": "Täglich",
       "mail": "Mail & SaaS",
-      "endpoints": "Server & Endpunkte",
+      "endpoints": "Server & Clients",
       "tenants": "Mandanten",
       "organisation": "Organisation",
       "installation": "Installation",
@@ -67,7 +67,7 @@
     "items": {
       "jobs": "Jobs",
       "tenantSettings": "Mandanten-Einstellungen",
-      "organisationSettings": "Einstellungen",
+      "organisationSettings": "Ihre Organisation",
       "resources": "Kapazitätsplanung"
     },
     "breadcrumb": "Navigationspfad",
@@ -116,7 +116,7 @@
     "notice": {
       "suspended": {
         "title": "{name} ist gesperrt",
-        "provider": "Aufträge und Anmeldungen dieses Mandanten ruhen, bis Sie ihn auf seiner Mandantenseite wieder aktivieren.",
+        "provider": "Läufe und Anmeldungen dieses Mandanten ruhen, bis Sie ihn auf seiner Mandantenseite wieder aktivieren.",
         "member": "Seine Seiten können erst wieder geladen werden, wenn Ihr Service Provider den Mandanten reaktiviert."
       },
       "deleting": {
@@ -161,7 +161,7 @@
     "unauthorized": "Ihre Sitzung ist abgelaufen. Bitte melden Sie sich erneut an.",
     "forbidden": "Sie haben keine Berechtigung für diese Aktion.",
     "featureUnavailable": "Diese Funktion ist auf dieser Installation nicht verfügbar.",
-    "demoReadOnly": "Dies ist eine öffentliche Demo: Durchsuchen, Backups, Verifizierung und die Wiederherstellung als Download funktionieren; das Ändern von Quellen, Einstellungen, Benutzern oder Zugangsdaten sowie die Wiederherstellung zurück in das Postfach nicht.",
+    "demoReadOnly": "Dies ist eine öffentliche Demo: Durchsuchen, Backups, Restore-Prüfungen und die Wiederherstellung als Download funktionieren; das Ändern von Quellen, Einstellungen, Benutzern oder Zugangsdaten sowie die Wiederherstellung zurück in das Postfach nicht.",
     "notFound": "Die angeforderte Ressource wurde nicht gefunden.",
     "conflict": "Die Aktion steht im Widerspruch zum aktuellen Zustand.",
     "validation": "Die Eingaben sind unvollständig oder ungültig.",
@@ -172,7 +172,8 @@
     "forbiddenTitle": "Kein Zugriff",
     "roleInTenant": "Ihre Rolle in {tenant}: {role}.",
     "providerRole": "Ihre Rolle im Provider-Team erlaubt das nicht.",
-    "providerScope": "Dieser Mandant gehört nicht zu Ihren Mandanten im Provider-Team."
+    "providerScope": "Dieser Mandant gehört nicht zu Ihren Mandanten im Provider-Team.",
+    "tenantNotAccessible": "Sie haben keinen Zugriff auf den Mandanten, den der Link nennt. Es wird der zuletzt gewählte Mandant angezeigt."
   },
   "notFound": {
     "title": "Seite nicht gefunden",
@@ -229,7 +230,7 @@
   },
   "soon": {
     "resources": {
-      "description": "Zeigt Auslastung und Wachstum je Mandant und je Repository, mit einer klaren Prognose wie „voll in etwa N Tagen“."
+      "description": "Zeigt Auslastung und Wachstum je Mandant und je Speicherort, mit einer klaren Prognose wie „voll in etwa N Tagen“."
     }
   },
   "chooseTenant": {

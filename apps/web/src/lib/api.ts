@@ -12,6 +12,9 @@ import { getActiveTenantId } from "@/lib/tenant";
 const rawBaseUrl = import.meta.env.VITE_API_URL as string | undefined;
 const API_BASE_URL = (rawBaseUrl ?? "/api/v1").replace(/\/+$/, "");
 
+/** The OpenAPI description of the integration API (served by the API without a session). */
+export const OPENAPI_DOCUMENT_URL = `${API_BASE_URL}/openapi.json`;
+
 /** Header carrying the tenant a request is scoped to (see the spine contract). */
 export const TENANT_HEADER = "X-Restow-Tenant";
 
@@ -192,7 +195,7 @@ export async function apiFetch<T>(path: string, init: ApiRequestInit = {}): Prom
 // --- Contract types -----------------------------------------------------------
 
 export type OperatingMode = "local" | "public";
-export type MailTransport = "smtp" | "graph";
+export type MailTransport = "smtp" | "graph" | "google";
 export type SmtpSecurity = "starttls" | "tls" | "none";
 export type Role = "provider_admin" | "tenant_admin" | "tenant_user";
 export type TenantRole = Exclude<Role, "provider_admin">;
@@ -249,6 +252,13 @@ export interface SetupState {
   passkeyReady: PasskeyReady;
   mailTransport: MailTransport | null;
   /**
+   * Which transports the wizard can offer: Microsoft 365 through the backup
+   * app registration only when that app is usable already. Absent on older
+   * servers. The own app registrations (Microsoft 365, Google Workspace) are
+   * set up after the setup, under Installation › Notification mail.
+   */
+  mailOptions?: { graphBackupApp: boolean };
+  /**
    * The operator responsibility notice: the version of its current text and
    * whether that version is accepted (always true in demo mode). Before the
    * setup it is never accepted: the wizard sends the acceptance with its setup
@@ -263,6 +273,17 @@ export interface SetupState {
   setupToken: { required: boolean; source: "log" | "environment" | null };
   /** Sign-in with Microsoft (Entra SSO) is offered: SSO app configured, public mode. */
   microsoftSignIn: boolean;
+  /**
+   * Notification mail can go out: saved in the web interface or set in the
+   * server's environment (`mailTransport` names only a saved one). Absent on
+   * older servers.
+   */
+  notificationMail?: boolean;
+  /**
+   * The login page offers "Forgot your password?" by mail: set up, mail, a
+   * public URL, not the demo. Absent on older servers.
+   */
+  passwordReset?: boolean;
   /**
    * Public demo mode (RESTOW_DEMO). `email`/`password` are intentionally
    * public: the login page prefills them for a one-click demo sign-in.
@@ -318,7 +339,11 @@ export interface SetupResult {
    * all the same and the dashboard offers to create it. Absent on older servers.
    */
   ownOrganisation?: { created: boolean };
-  testSend: { attempted: boolean; ok: boolean; error?: string };
+  /**
+   * `reason` explains a failed test message (the same codes as the settings
+   * test, `settings:mail.test.reasons`); `error` is the technical detail.
+   */
+  testSend: { attempted: boolean; ok: boolean; reason?: string; error?: string };
 }
 
 export interface SessionUser {
@@ -356,6 +381,7 @@ export type ProviderRole = "owner" | "administrator" | "technician" | "read_only
  * - `stats.allTenants`     the statistics over every tenant
  * - `dashboard.allTenants` the provider view of the dashboard
  * - `reports.timed`        time-triggered report rules
+ * - `providerTeam.tenantScope` limiting a member of the provider team to chosen tenants
  */
 export const GATED_FEATURES = [
   "tenants.additional",
@@ -363,6 +389,7 @@ export const GATED_FEATURES = [
   "stats.allTenants",
   "dashboard.allTenants",
   "reports.timed",
+  "providerTeam.tenantScope",
 ] as const;
 
 export type GatedFeature = (typeof GATED_FEATURES)[number];
@@ -598,4 +625,11 @@ export async function fetchStatus(): Promise<StatusSummary> {
 export async function fetchRecentJobs(limit = 8): Promise<JobSummary[]> {
   const params = new URLSearchParams({ limit: String(limit) });
   return unwrapList<JobSummary>(await apiFetch<unknown>(`/jobs?${params.toString()}`));
+}
+
+/** Whether notification mail can go out, also on a server that does not report it yet. */
+export function notificationMailConfigured(
+  state: Pick<SetupState, "notificationMail" | "mailTransport"> | null | undefined,
+): boolean {
+  return state?.notificationMail ?? Boolean(state?.mailTransport);
 }

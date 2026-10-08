@@ -4,6 +4,7 @@ import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/error-state";
+import { DisabledReason } from "@/components/kit";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -18,7 +19,12 @@ import { InstallationPanel } from "./components/installation-panel";
 import { TenantTable } from "./components/tenant-table";
 import { useTenantHealths, useTenantList, useUsageOverview } from "./hooks";
 import { tenantDetailTo, tenantsListTo } from "./paths";
-import { canCreateTenant, filterTenants, parseTenantsSearch } from "./presenters";
+import {
+  canCreateTenant,
+  createBlockedReasonKey,
+  filterTenants,
+  parseTenantsSearch,
+} from "./presenters";
 import type { TenantItem } from "./types";
 import { useEnterTenant } from "./use-enter-tenant";
 
@@ -61,6 +67,10 @@ export function TenantsPage() {
   // the same either way; this only keeps the buttons away.
   const canCreate = creationAllowed && providerMay(session, "administrator", { everyTenant: true });
   const canDelete = providerMay(session, "owner");
+  // Why the button is grey although the installation would take another
+  // tenant: the role (the installation panel explains the edition case).
+  const blockedKey = createBlockedReasonKey({ creationAllowed, canCreate });
+  const createBlockedReason = blockedKey ? t(blockedKey) : null;
   const refreshing = list.isFetching || usage.isFetching;
 
   // A `?new=1` link (the command palette's "New tenant" action, or any other
@@ -156,10 +166,12 @@ export function TenantsPage() {
         >
           <RefreshCw className={refreshing ? "animate-spin" : undefined} />
         </Button>
-        <Button onClick={() => setCreateOpen(true)} disabled={!canCreate || list.isPending}>
-          <Plus />
-          {t("actions.create")}
-        </Button>
+        <DisabledReason reason={createBlockedReason}>
+          <Button onClick={() => setCreateOpen(true)} disabled={!canCreate || list.isPending}>
+            <Plus />
+            {t("actions.create")}
+          </Button>
+        </DisabledReason>
       </PageHeader>
 
       {list.isSuccess ? (

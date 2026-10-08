@@ -8,6 +8,163 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [0.3.0] - 2026-10-08
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.3.0 backs up Proxmox VE virtual machines and containers (preview), mounts
+NFS shares from the web interface, lets Community run several administrators, and
+sends notifications to Discord, Slack and Teams and through Microsoft 365 or Google
+Workspace. The overview, the backup jobs and the archive now say plainly what is and
+is not protected. Six database migrations run on update; read the Upgrade Notes.
+
+### Breaking Changes
+
+- Machines that are in no backup job no longer count as protected anywhere
+  (overview, provider view, readiness, reports). Installations that relied on the
+  old count will see more yellow; add the machines to a backup job.
+- Overview › Statistics shows the active tenant only. The statistics of every tenant
+  moved to their own page (Installation section of the menu, Service Provider); old
+  links with `scope=provider` lead there.
+- A provider member limited to some tenants can no longer read the statistics totals
+  of all tenants (403).
+- Integration API contract 1.3.0 (additive): webhooks carry `format`.
+
+### Added
+
+#### Proxmox VE (preview)
+
+- Backup of VMs and containers on Proxmox VE 8.4 and newer through the Backup
+  Provider API: VM disks over NBD with dirty bitmaps, only changed 4 MiB blocks are
+  uploaded; containers through restic; restore as a new VMID into the pool
+  `restow-restore`. Servers & clients › VMs & containers. See docs/PVE.md.
+- Guests count in readiness, the Status tab, the provider view, statistics,
+  warnings and `backup.overdue`.
+- The node side is a storage plugin shim (a separate work under AGPL-3.0-or-later)
+  and the helper `restow-pve` (Apache-2.0), installed with `/install/pve.sh`.
+
+#### Storage
+
+- Network shares (NFS) from the web interface (Installation › Network shares), through
+  the opt-in mounter container (`docker compose --profile mounts up -d mounter`). The
+  mounter checks a share before it writes `docker-compose.override.yml`, restarts api
+  and worker and rolls back on failure. The updater moves it along with every signed
+  update. Installer option `--with-mounter`. See docs/MOUNTS.md.
+
+#### Administration
+
+- Several provider administrators with roles in every edition (Members); limiting a
+  member to chosen tenants stays Service Provider. Owners can reset a member's access.
+- Before a change of the public URL or the operating mode makes passkeys unusable,
+  the settings name the affected accounts and refuse a self-lockout. Moving the
+  authenticator app to a new phone keeps the old one until the new one is confirmed.
+- Your account: change your password, see and sign out your sessions. The login page
+  offers "Lost access?": a reset link by mail when notification mail is set up (the
+  second factor stays), and always the way back through an owner or
+  `restow admin recover`.
+- Notification mail through Microsoft 365 (own app with Mail.Send, or the backup app)
+  or Google Workspace (service account with gmail.send), with guides and plain error
+  messages.
+
+#### Alerts and overview
+
+- Webhook formats Discord, Slack and Microsoft Teams, chosen from the URL.
+- New event `backup.overdue` for mailboxes, OneDrives, IMAP accounts, machines and
+  Proxmox guests, aware of the job schedules; an alert rule can set its own deadline
+  (24 to 720 hours).
+- Warnings: the reasons why single items were not backed up (folder, subject, date,
+  cause, what to do), and acknowledging warnings with a note (menu entry Warnings).
+- The bell leads to the cause; a Notifications page keeps the history; under All
+  tenants the bell and the alerts cover every tenant.
+- Exports: audit log (CSV, JSON with hashes, Business), delivery logs (CSV).
+
+#### Archive
+
+- Archive per mail job, journal reports assigned to the mailboxes they name (#36).
+- The chain check verifies every link, the daily anchors (now written every night)
+  and optionally a sample of message contents. Archived messages can be read and
+  downloaded as .eml; search with paging and sender, date and mailbox filters; a
+  notice says how the storage protects archived mail.
+- Legal holds: release with a required, audited reason; holds on a single mailbox.
+
+### Changed
+
+- The directory, backup jobs and machines say which job backs up an object, and name
+  objects in paused or unscheduled jobs; job states storage error, overdue, manual.
+- History "Run now" backs up only the run's own object and words waiting and running
+  apart. New machine jobs start from the chosen machines' operating systems.
+- Deleting a job or a storage location says what becomes of the backups and asks for
+  the name; shortening the retention asks first.
+- The guide for an own Graph app lists every permission with a copy button and says
+  that no redirect URI is needed.
+- Disabled controls say why. Locked features name their edition and link only where
+  the viewer may go. German and English texts follow one glossary
+  (docs/GLOSSARY.md): Speicherort, Lauf, Restore-Prüfung, Rechner, Mandant.
+- Menu names: "Server & Clients" (was "Server & Endpunkte"), "Server & Betrieb" for
+  the installation settings, "Ihre Organisation", "Benutzer" on the tenant page.
+- Restore and export failures are explained in words, the raw text collapsed; the
+  target folder of a machine restore is checked first; file restore gives the files
+  half the width.
+
+### Fixed
+
+- `MAIL_TRANSPORT`, `SMTP_*` and `GRAPH_MAIL_*` from the environment were read but
+  never used for sending; they apply again when nothing is saved in the web interface.
+- The own-app guide named read-only permissions (Mail.Read, Files.Read.All), with which
+  every restore fails.
+- Discord answered 400 to webhooks in Restow's own format; chat services' 4xx answers
+  now end a delivery at once instead of retrying.
+- Webhook alerts were logged as sent when they were only queued.
+- "Chain intact" checked only stored hashes, so deleting the newest entries passed.
+- Overview › Statistics kept showing all tenants after switching into a tenant.
+- Moving the authenticator app to a new phone switched the old one off before the new
+  one was confirmed.
+
+### Security
+
+- A provider member limited to some tenants could read the statistics totals and the
+  tenant table of all tenants (Service Provider with tenant-limited members, up to
+  0.2.2). Fixed; nothing to do beyond updating.
+
+### Upgrade Notes
+
+New image; migrations run on start. Six migrations: `0026_webhook_format`,
+`0027_job_archive`, `0028_pve`, `0029_warning_acknowledgements`,
+`0030_mail_transport_google`, `0031_report_rule_overdue_deadline` (duration on the verification installation: to be
+filled in).
+
+- New optional environment variables: `RESTOW_MOUNTER_IMAGE` (the mounter pins it on
+  its first start; leave empty) and `RESTOW_MOUNTER_URL` (default
+  `http://mounter:8091`).
+- The setup notice changed (storage location, restore check): every installation asks
+  its provider admin once to accept it again.
+- `docker-compose.yml` gains the `mounter` service in the profile `mounts`; replace
+  your compose file with the one of this release (the updater does this for you).
+- Rollback: restore the database dump taken before the update and start the 0.2.2
+  images; migrations are not reversible.
+
+### Known Issues
+
+- Proxmox VE was tested against real qemu-nbd, qemu-img and restic, but not yet on a
+  Proxmox VE host; treat it as a preview.
+- NFS mounts, Microsoft 365 and Google notification mail and the chat webhooks were
+  tested against fakes only.
+- Archive immutability on local and NFS storage is enforced by the application only.
+
+### Verification
+
+Before the tag, on 2026-10-08: lint, typecheck and the full test suites with Postgres 16
+and restic 0.19.1 (apps/api 3214, apps/web 3721, apps/worker 434, packages/core 1976,
+ee/api 243, ee/web 176, packages/i18n 259, apps/scheduler 65, packages/db 144), the Go
+agent and `restow-pve` with `go test -race`, the agent integration tests against real
+restic and rest-server, the PVE helper end to end against qemu-nbd, qemu-img and restic,
+the Perl shim tests, the installer tests (624) and shellcheck. The release pipeline adds
+the image builds, the release smoke checks and the scans below. Not run against a real
+Proxmox VE host, NFS server, Microsoft 365 or Google Workspace tenant (see Known Issues).
+
 ## [0.2.2] - 2026-10-06
 
 Beta release. Run it alongside your existing backups, not as your only one, until

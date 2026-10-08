@@ -19,6 +19,7 @@ import { ProblemError } from "../../problem.js";
 import { type EndpointReadinessRowDto, loadEndpointOverview } from "../endpoints/overview.js";
 import { type Page, decodeCursor, encodeCursor } from "../jobs/pagination.js";
 import { sendJob } from "../jobs/queue.js";
+import { type GuestReadinessRowDto, loadGuestProtection } from "../pve/protection.js";
 import {
   type CountSummaryDto,
   type Readiness,
@@ -165,6 +166,11 @@ export interface ReadinessOverviewDto {
   objects: ObjectReadinessDto[];
   /** Servers and clients backed up by the agent (docs/AGENT.md); counted in `summary` as well. */
   endpoints: EndpointReadinessRowDto[];
+  /**
+   * VMs and containers of Proxmox VE (docs/PVE.md) in a backup job, or out of every job with a
+   * restore point left; counted in `summary` as well.
+   */
+  guests: GuestReadinessRowDto[];
   storage: StorageIntegrityDto;
   schedules: { backup: ScheduleDto | null; verify: ScheduleDto | null; scrub: ScheduleDto | null };
 }
@@ -537,6 +543,7 @@ export async function readinessOverview(
     }
 
     const endpointOverview = await loadEndpointOverview(tx, tenantId, now);
+    const guestOverview = await loadGuestProtection(tx, tenantId, now);
     const summary = summarize(
       [
         ...items.map((item, index) => ({
@@ -547,6 +554,8 @@ export async function readinessOverview(
         })),
         // Servers and clients count like any other protected object.
         ...endpointOverview.rated,
+        // So do the VMs and containers of Proxmox VE.
+        ...guestOverview.rated,
       ],
       runningByObject.size,
     );
@@ -554,6 +563,7 @@ export async function readinessOverview(
       summary,
       objects: items,
       endpoints: endpointOverview.rows,
+      guests: guestOverview.rows,
       storage,
       schedules: scheduled,
     };

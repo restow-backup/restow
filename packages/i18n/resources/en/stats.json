@@ -1,8 +1,10 @@
 {
   "nav": "Statistics",
+  "navAllTenants": "Statistics of all tenants",
   "title": "Statistics",
+  "titleAllTenants": "Statistics of all tenants",
   "description": {
-    "tenant": "Backups, restores, storage and recoverability of {tenant} over time.",
+    "tenant": "{tenant} only: backups, restores, storage and recoverability over time.",
     "provider": "Backups, restores, storage and recoverability across all tenants.",
     "loading": "Backups, restores, storage and recoverability over time."
   },
@@ -31,11 +33,6 @@
       "month": "per month"
     }
   },
-  "scope": {
-    "label": "Scope",
-    "tenant": "Tenant",
-    "provider": "All tenants"
-  },
   "actions": {
     "refresh": "Refresh figures",
     "exportPdf": "Export PDF",
@@ -52,7 +49,15 @@
   "noTenant": {
     "title": "No tenant selected",
     "description": "Select a tenant in the top bar to see its statistics.",
-    "providerAction": "Show all tenants"
+    "providerAction": "Open the statistics of all tenants"
+  },
+  "allTenants": {
+    "open": "Compare all tenants",
+    "unavailable": {
+      "title": "The statistics of all tenants are not available here",
+      "description": "They add up every tenant of the installation and are open to members of the provider team whose role covers every tenant, on installations that manage tenants.",
+      "tenantAction": "Open the statistics in Overview"
+    }
   },
   "notAdmin": {
     "title": "Statistics are for administrators",
@@ -86,7 +91,7 @@
       "hint": "Items a run could not process"
     },
     "verifiedShare": {
-      "label": "Verified by restore check",
+      "label": "Proven by restore check",
       "hint": "Share of protected objects with a passed restore check"
     },
     "protectedObjects": {
@@ -182,19 +187,19 @@
       "summary": "The store went from {first} to {last} in this period."
     },
     "jobDurations": {
-      "title": "Job durations",
-      "description": "Typical (p50) and slow (p95) run time per job type in this period.",
+      "title": "Run durations",
+      "description": "Typical (p50) and slow (p95) run time per run type in this period.",
       "series": {
         "p50": "Median (p50)",
         "p95": "95th percentile (p95)"
       },
       "empty": {
-        "title": "No finished jobs",
-        "description": "No job finished in this period."
+        "title": "No finished runs",
+        "description": "No run finished in this period."
       },
       "tooltipLabel": "{kind} · {runs}",
       "runs": "{count, plural, one {# run} other {# runs}}",
-      "summary": "The slowest job type was {kind}: typically {p50}, slow runs {p95}."
+      "summary": "The slowest run type was {kind}: typically {p50}, slow runs {p95}."
     },
     "throttling": {
       "title": "Throttling waits",
@@ -282,7 +287,7 @@
     "green": "Ready",
     "yellow": "Attention",
     "red": "Not restorable",
-    "unverified": "Not verified",
+    "unverified": "Unverified",
     "unknown": "Unknown"
   },
   "jobKinds": {
@@ -310,7 +315,7 @@
     "green": "Ready",
     "yellow": "Attention",
     "red": "Not restorable",
-    "unverified": "Not verified",
+    "unverified": "Unverified",
     "none": "Unknown",
     "no_backup": "No backup yet"
   }

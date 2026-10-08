@@ -49,12 +49,12 @@ describe("servers and endpoints section", () => {
 
   it("names the section and its entries in both languages", async () => {
     await i18n.changeLanguage("de");
-    expect(i18n.t("nav.groups.endpoints")).toBe("Server & Endpunkte");
+    expect(i18n.t("nav.groups.endpoints")).toBe("Server & Clients");
     expect(i18n.t("endpoints:nav.inventory")).toBe("Inventar");
     expect(i18n.t("endpoints:nav.fileRestore")).toBe("Datei-Restore");
     expect(i18n.t("endpoints:inventory.chips.agents")).toBe("Alle");
     await i18n.changeLanguage("en");
-    expect(i18n.t("nav.groups.endpoints")).toBe("Servers & endpoints");
+    expect(i18n.t("nav.groups.endpoints")).toBe("Servers & clients");
     expect(i18n.t("endpoints:nav.inventory")).toBe("Inventory");
     expect(i18n.t("endpoints:inventory.chips.clients")).toBe("Clients");
   });

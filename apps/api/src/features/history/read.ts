@@ -1,4 +1,4 @@
-import { mailJobObjectIds } from "@restow/core";
+import { classifyRunError, mailJobObjectIds } from "@restow/core";
 import {
   type Database,
   type EndpointReport,
@@ -790,6 +790,7 @@ async function mailDetail(
     path: failure.itemRef.slice(0, 300),
     message: failure.reason.slice(0, 500),
     code: failure.failure?.code ?? null,
+    cause: failure.failure?.code ?? null,
   }));
 
   // The wave: the runs of the same job started together.
@@ -896,7 +897,11 @@ async function mailDetail(
     objects,
     events: timeline(events),
     errors,
-    errorCount: failureCount?.value ?? errors.length,
+    // The run keeps its first item rows only; the summary counts them all.
+    errorCount: Math.max(
+      failureCount?.value ?? errors.length,
+      row.job.itemFailureSummary?.total ?? 0,
+    ),
     logTail: null,
     docsUrl: config.docsTroubleshootingUrl,
   };
@@ -1053,6 +1058,7 @@ async function endpointDetail(
       path: error.path ?? null,
       message: error.message,
       code: error.code ?? null,
+      cause: classifyRunError(error).code,
     })),
     errorCount: row.errors.length,
     logTail: row.logTail,

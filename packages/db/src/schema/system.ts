@@ -21,8 +21,12 @@ export const editionEnum = pgEnum("edition", ["community", "business", "service_
 /** Operating mode chosen in the setup wizard. */
 export const operatingModeEnum = pgEnum("operating_mode", ["local", "public"]);
 
-/** Notification mail transport. */
-export const mailTransportEnum = pgEnum("mail_transport", ["smtp", "graph"]);
+/**
+ * Notification mail transport: an SMTP server, Microsoft 365 (Graph sendMail as
+ * an app) or Google Workspace (Gmail API as a service account with domain-wide
+ * delegation).
+ */
+export const mailTransportEnum = pgEnum("mail_transport", ["smtp", "graph", "google"]);
 
 /** Release channel of the update check: `beta` also offers pre-releases. */
 export const updateChannelEnum = pgEnum("update_channel", ["stable", "beta"]);
@@ -66,6 +70,22 @@ export type MailConfig =
       sender: string;
       // Entra tenant of the sender mailbox; falls back to GRAPH_MAIL_TENANT_ID when absent.
       tenantId?: string;
+      // Which app registration sends: the operator's own one for notifications
+      // (`own`, its credential sealed as the installation secret `mail_graph_app`)
+      // or the backup app registration (`backup`, the default when absent).
+      app?: "backup" | "own";
+      // The own app's public facts (never its secret or certificate).
+      clientId?: string;
+      credentialKind?: "secret" | "certificate";
+    }
+  | {
+      transport: "google";
+      // Sender mailbox in the Workspace domain the service account impersonates.
+      sender: string;
+      // Public facts of the service account; its key is sealed as the
+      // installation secret `mail_google_key`.
+      serviceAccountEmail: string;
+      clientId: string;
     };
 
 /** One release as the update check keeps it (docs/ARCHITECTURE.md, Updates). */

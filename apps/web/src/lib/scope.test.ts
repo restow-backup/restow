@@ -15,12 +15,12 @@ describe("the pages that only exist per tenant", () => {
     }
   });
 
-  it("covers jobs, history, alerts, restore, archive, exports, the machines and the tenant's settings", () => {
+  it("covers jobs, history, restore, archive, exports, the machines and the tenant's settings", () => {
     for (const id of [
       "mail-jobs",
       "endpoint-jobs",
       "history",
-      "alerts",
+      "warnings",
       "restore",
       "archive",
       "exports",
@@ -34,7 +34,8 @@ describe("the pages that only exist per tenant", () => {
   });
 
   it("leaves the overview, recovery readiness, the list of tenants and everything under Installation open", () => {
-    for (const id of ["dashboard", "verify", "tenants"]) {
+    // Alerts look across tenants too: the deliveries of every tenant, each with its tenant.
+    for (const id of ["dashboard", "verify", "tenants", "alerts"]) {
       expect(isTenantOnlyNavItem(id), id).toBe(false);
     }
     for (const item of items.filter((candidate) => navGroupOf(candidate) === "installation")) {

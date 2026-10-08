@@ -25,11 +25,19 @@
  */
 import { createHash, randomBytes } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { mkdir, rename, rm } from "node:fs/promises";
+import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { type ManifestObject, type SnapshotManifest, sealedAad, storedId } from "@restow/core";
+import {
+  type ManifestObject,
+  PVE_OBJECT_TYPES,
+  type SnapshotManifest,
+  blockLength,
+  decodeBlockMap,
+  sealedAad,
+  storedId,
+} from "@restow/core";
 import type { Keyring } from "./keyring.js";
 import { safeJoin } from "./store.js";
 import type { ChunkStore } from "./store.js";
@@ -262,6 +270,65 @@ async function verifyObject(
   }
 }
 
+/**
+ * A VM disk of a Proxmox VE restore point (docs/PVE.md): the block map was
+ * restored as `disks/<device>.map`; this writes the disk itself next to it as
+ * a sparse raw image `disks/<device>.raw`. Every data block is reassembled
+ * from its chunks and must match the SHA-256 the map records; zero blocks are
+ * holes. Written under a temporary name and renamed only when complete.
+ */
+async function restorePveDisk(
+  object: ManifestObject,
+  store: ChunkStore,
+  keyring: Keyring,
+  outDir: string,
+): Promise<ObjectResult> {
+  const rawPath = object.path.replace(/\.map$/, ".raw");
+  const result: ObjectResult = { path: rawPath, bytes: 0, ok: true };
+  let temporary: string | null = null;
+  try {
+    const map = decodeBlockMap(await readFile(safeJoin(outDir, object.path)));
+    const destination = safeJoin(outDir, rawPath);
+    temporary = temporaryPathFor(destination);
+    const file = await open(temporary, "wx");
+    try {
+      await file.truncate(map.diskSize);
+      for (let i = 0; i < map.entries.length; i++) {
+        const entry = map.entries[i];
+        if (!entry || entry.chunks.length === 0) {
+          continue;
+        }
+        const parts: Buffer[] = [];
+        for (const id of entry.chunks) {
+          parts.push(await openChunk(store, keyring, id));
+        }
+        const data = Buffer.concat(parts);
+        if (data.length !== blockLength(map.diskSize, i)) {
+          throw new IntegrityError(
+            `block ${i}: ${data.length} bytes, expected ${blockLength(map.diskSize, i)}`,
+          );
+        }
+        if (createHash("sha256").update(data).digest("hex") !== entry.sha256) {
+          throw new IntegrityError(`block ${i} does not match the SHA-256 in the block map`);
+        }
+        await file.write(data, 0, data.length, i * 4 * 1024 * 1024);
+        result.bytes += data.length;
+      }
+    } finally {
+      await file.close();
+    }
+    await rename(temporary, destination);
+    temporary = null;
+    return result;
+  } catch (error) {
+    return failedResult({ ...object, path: rawPath }, result.bytes, error);
+  } finally {
+    if (temporary) {
+      await rm(temporary, { force: true });
+    }
+  }
+}
+
 /** Write every object in the manifest to `outDir`, preserving logical paths. */
 export async function restoreSnapshot(params: {
   manifest: SnapshotManifest;
@@ -277,6 +344,11 @@ export async function restoreSnapshot(params: {
     const result = await restoreObject(object, store, keyring, outDir);
     results.push(result);
     onObject?.(result);
+    if (object.type === PVE_OBJECT_TYPES.blockMap && result.ok) {
+      const disk = await restorePveDisk(object, store, keyring, outDir);
+      results.push(disk);
+      onObject?.(disk);
+    }
   }
 
   return summarize(manifest, results);

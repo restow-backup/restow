@@ -86,7 +86,8 @@ export function backupUnavailableKey(target: BackupTarget): string | null {
     return `blocked.${target.blocked}`;
   }
   if (target.lastJob && isLive(target.lastJob.status)) {
-    return "blocked.already_queued";
+    // Say which: a backup that waits for its start is not one that is running.
+    return target.lastJob.status === "active" ? "blocked.running" : "blocked.waiting";
   }
   return null;
 }

@@ -78,11 +78,38 @@ async function renderLogin(setupState: SetupState): Promise<string> {
 }
 
 describe("login page", () => {
-  it("shows only the emergency sign-in when demo mode is off", async () => {
+  it("shows only the password sign-in when demo mode is off", async () => {
     const html = await renderLogin(baseSetupState);
-    expect(html).toContain("Emergency sign-in");
+    expect(html).toContain("Sign in with password");
     expect(html).not.toContain("Public demo");
     expect(html).not.toContain("Sign in to the demo");
+  });
+
+  it("calls the password the normal way without passkeys, the emergency one only beside them", async () => {
+    const local = await renderLogin(baseSetupState);
+    expect(local).toContain("Sign in with password");
+    expect(local).not.toContain("Emergency sign-in");
+    expect(local).not.toContain("emergency password");
+    const withPasskeys = await renderLogin({
+      ...baseSetupState,
+      passkeyReady: {
+        ready: true,
+        reasons: [],
+        rpId: "restow.example.test",
+        origin: "https://restow.example.test",
+      },
+    });
+    expect(withPasskeys).toContain("Emergency sign-in");
+    expect(withPasskeys).not.toContain("Sign in with password");
+  });
+
+  it("offers a way back for a lost password or access, but not in the demo", async () => {
+    expect(await renderLogin(baseSetupState)).toContain("Forgot your password or lost access?");
+    const demo = await renderLogin({
+      ...baseSetupState,
+      demo: { enabled: true, email: "demo@example.org", password: "correct horse battery staple" },
+    });
+    expect(demo).not.toContain("Forgot your password or lost access?");
   });
 
   it("shows the demo panel with the prefilled credentials and a one-click sign-in", async () => {

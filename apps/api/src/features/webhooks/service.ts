@@ -10,11 +10,13 @@ import {
   type WebhookDeliveryEvent,
   type WebhookEnvelope,
   type WebhookEvent,
+  type WebhookFormat,
   buildWebhookEnvelope,
   generateWebhookSecret,
   queueWebhookDelivery,
 } from "../../lib/webhooks.js";
 import { ProblemError } from "../../problem.js";
+import { toCsv } from "../stats/csv.js";
 import { decodeDeliveryCursor, encodeDeliveryCursor } from "./cursor.js";
 import { type DeliveryErrorDto, parseDeliveryError } from "./delivery-error.js";
 import type { CreateWebhookInput, DeliveriesQuery, UpdateWebhookInput } from "./schemas.js";
@@ -69,6 +71,9 @@ export interface WebhookDto {
   url: string;
   events: WebhookEvent[];
   active: boolean;
+  /** `restow` (signed JSON) or the chat service the messages are shaped for. */
+  format: WebhookFormat;
+  /** Whether a signing secret is stored; only the `restow` format uses it. */
   secretConfigured: boolean;
   createdAt: string;
   updatedAt: string;
@@ -137,6 +142,7 @@ export function toWebhookDto(row: WebhookRow, stats: WebhookStatsDto = EMPTY_STA
     url: row.url,
     events: WEBHOOK_EVENTS.filter((event) => row.events.includes(event)),
     active: row.active,
+    format: row.format,
     secretConfigured: row.secretRef !== null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -187,6 +193,9 @@ export function describeChanges(
   }
   if (patch.active !== undefined && patch.active !== before.active) {
     changes.active = patch.active;
+  }
+  if (patch.format !== undefined && patch.format !== before.format) {
+    changes.format = patch.format;
   }
   return changes;
 }
@@ -337,6 +346,9 @@ export async function createWebhook(
         extensions: { limit: MAX_WEBHOOKS_PER_TENANT },
       });
     }
+    // Every webhook gets a secret, also one in a chat format that sends no signature: switched
+    // to `restow` later, it signs from the first delivery on (the web UI then rotates the secret
+    // to show one), and the answer keeps one shape for every format.
     const secret = generateWebhookSecret();
     const ref = await storeSecret(tx, {
       tenantId,
@@ -351,6 +363,7 @@ export async function createWebhook(
         url: input.url,
         events: input.events,
         active: input.active,
+        format: input.format,
         secretRef: ref.id,
       })
       .returning();
@@ -364,6 +377,7 @@ export async function createWebhook(
         urlOrigin: urlOrigin(row.url),
         events: input.events,
         active: row.active,
+        format: row.format,
       }),
     );
     return { ...toWebhookDto(row), secret };
@@ -390,6 +404,7 @@ export async function updateWebhook(
         ...(patch.url !== undefined ? { url: patch.url } : {}),
         ...(patch.events !== undefined ? { events: patch.events } : {}),
         ...(patch.active !== undefined ? { active: patch.active } : {}),
+        ...(patch.format !== undefined ? { format: patch.format } : {}),
       })
       .where(and(eq(webhooks.tenantId, tenantId), eq(webhooks.id, id)))
       .returning();
@@ -626,4 +641,49 @@ export async function redeliver(
 /** The subscribable events, for integrations discovering the contract. */
 export function listEvents(): { items: readonly WebhookEvent[]; test: WebhookDeliveryEvent } {
   return { items: WEBHOOK_EVENTS, test: WEBHOOK_TEST_EVENT };
+}
+
+/** More deliveries than this are not exported at once (the log keeps 30 days anyway). */
+export const MAX_DELIVERY_EXPORT = 10_000;
+
+/** A webhook's delivery log as CSV, with the list's status filter, newest first. */
+export async function deliveriesCsv(
+  db: Database,
+  tenantId: string,
+  webhookId: string,
+  status: DeliveriesQuery["status"],
+): Promise<string> {
+  const items: DeliveryDto[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await listDeliveries(db, tenantId, webhookId, { status, limit: 200, cursor });
+    items.push(...page.items);
+    cursor = page.next ?? undefined;
+  } while (cursor && items.length < MAX_DELIVERY_EXPORT);
+  return toCsv(
+    [
+      "createdAt",
+      "event",
+      "eventId",
+      "status",
+      "attempts",
+      "deliveredAt",
+      "error",
+      "httpStatus",
+      "detail",
+    ],
+    items
+      .slice(0, MAX_DELIVERY_EXPORT)
+      .map((item) => [
+        item.createdAt,
+        item.event,
+        item.eventId,
+        item.status,
+        item.attempts,
+        item.deliveredAt,
+        item.lastError?.code ?? null,
+        item.lastError?.httpStatus ?? null,
+        item.lastError?.detail ?? null,
+      ]),
+  );
 }

@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/sonner";
 import { zodResolver } from "@/lib/form";
+import { clearPasswordHandoff, peekPasswordForEnrolment } from "@/lib/password-handoff";
 import {
   type PasswordConfirmValues,
   TOTP_CODE_LENGTH,
@@ -78,13 +79,19 @@ type SetupStep =
   | { step: "codes"; enrollment: AuthenticatorEnrollment; key: TotpSetupKey };
 
 interface AuthenticatorSetupProps {
-  /** `replace` removes the current authenticator first (moving to a new phone). */
+  /**
+   * `replace` moves to a new phone: the current authenticator keeps working
+   * until the new one's first code is confirmed.
+   */
   mode: "enroll" | "replace";
   /** The authenticator is on and the recovery codes were acknowledged. */
   onComplete: () => void;
   /** Leave before the first step is done; omitted where enrolment is mandatory. */
   onCancel?: () => void;
-  /** Called once the authenticator is switched on (before the recovery codes). */
+  /**
+   * Called once the authenticator is switched on, when the recovery codes
+   * appear: a dialog around this must not close until they are acknowledged.
+   */
   onEnabled?: () => void;
 }
 
@@ -109,6 +116,7 @@ export function AuthenticatorSetup({
   if (state.step === "scan") {
     return (
       <ScanStep
+        replace={mode === "replace"}
         enrollment={state.enrollment}
         setupKey={state.key}
         onConfirmed={() => {
@@ -149,11 +157,62 @@ function PasswordStep({
   const { t: tc } = useTranslation();
   const start = useStartAuthenticatorEnrollment();
   const [invalidKey, setInvalidKey] = React.useState(false);
+  // The password typed moments ago (setup wizard, set-password page, sign-in;
+  // lib/password-handoff.ts) starts the enrolment without asking again. Only
+  // for a first enrolment; moving to a new phone always asks.
+  const [handedOver] = React.useState(() =>
+    mode === "enroll" ? peekPasswordForEnrolment() : null,
+  );
+  const [autoStarting, setAutoStarting] = React.useState(handedOver !== null);
+  const started = React.useRef(false);
+
+  const begin = React.useCallback(
+    async (password: string) => {
+      setInvalidKey(false);
+      try {
+        const enrollment = await start.mutateAsync({ password, replace: mode === "replace" });
+        const key = parseTotpUri(enrollment.totpUri);
+        if (!key) {
+          setInvalidKey(true);
+          return;
+        }
+        onStarted(enrollment, key);
+      } catch {
+        // Shown from start.error.
+      }
+    },
+    [mode, onStarted, start.mutateAsync],
+  );
+
+  React.useEffect(() => {
+    if (handedOver === null || started.current) {
+      return;
+    }
+    started.current = true;
+    clearPasswordHandoff();
+    void begin(handedOver).finally(() => setAutoStarting(false));
+  }, [begin, handedOver]);
+
+  if (autoStarting) {
+    return (
+      <p
+        className="text-sm text-muted-foreground"
+        aria-busy="true"
+        data-slot="authenticator-starting"
+      >
+        {t("security.authenticator.setup.starting")}
+      </p>
+    );
+  }
 
   return (
     <PasswordConfirmForm
       id="authenticator-password"
-      lead={t("security.authenticator.setup.passwordLead")}
+      lead={
+        handedOver !== null
+          ? t("security.authenticator.setup.passwordLeadAgain")
+          : t("security.authenticator.setup.passwordLead")
+      }
       warning={mode === "replace" ? t("security.authenticator.setup.replaceWarning") : null}
       submitLabel={t("security.authenticator.setup.continue")}
       pending={start.isPending}
@@ -165,20 +224,7 @@ function PasswordStep({
             : null
       }
       onCancel={onCancel}
-      onSubmit={async (password) => {
-        setInvalidKey(false);
-        try {
-          const enrollment = await start.mutateAsync({ password, replace: mode === "replace" });
-          const key = parseTotpUri(enrollment.totpUri);
-          if (!key) {
-            setInvalidKey(true);
-            return;
-          }
-          onStarted(enrollment, key);
-        } catch {
-          // Shown from start.error.
-        }
-      }}
+      onSubmit={begin}
     />
   );
 }
@@ -265,10 +311,12 @@ export function PasswordConfirmForm({
 // --- Step 2: scan and confirm -----------------------------------------------------
 
 function ScanStep({
+  replace,
   enrollment,
   setupKey,
   onConfirmed,
 }: {
+  replace: boolean;
   enrollment: AuthenticatorEnrollment;
   setupKey: TotpSetupKey;
   onConfirmed: () => void;
@@ -286,7 +334,7 @@ function ScanStep({
 
   const onSubmit = form.handleSubmit(async ({ code }) => {
     try {
-      await confirm.mutateAsync(code);
+      await confirm.mutateAsync({ code, replace });
       toast.success(t("toasts.authenticatorEnabled"));
       onConfirmed();
     } catch {

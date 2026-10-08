@@ -30,8 +30,12 @@ export function createLegalHold(input: CreateLegalHoldInput): Promise<LegalHold>
   return apiFetch<LegalHold>(LEGAL_HOLDS, { method: "POST", body: input });
 }
 
-export function releaseLegalHold(id: string): Promise<LegalHold> {
-  return apiFetch<LegalHold>(`${LEGAL_HOLDS}/${encodeURIComponent(id)}`, { method: "DELETE" });
+/** Release a hold; the reason is recorded in the audit log (`archive.legal_hold.released`). */
+export function releaseLegalHold(id: string, reason: string): Promise<LegalHold> {
+  return apiFetch<LegalHold>(`${LEGAL_HOLDS}/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    body: { reason },
+  });
 }
 
 export const legalHoldKeys = {

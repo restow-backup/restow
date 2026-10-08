@@ -9,6 +9,9 @@ import { useDeleteBackupJob, useRunBackupJob, useToggleBackupJob } from "../hook
 import { describeScope, runOutcomeView } from "../presenters.js";
 import { jobErrorKey } from "../problems.js";
 
+/** From this many objects or machines on, deleting a job asks for its name. */
+export const DELETE_NAME_CONFIRM_FROM = 20;
+
 /** Why a backup was not queued, as the toast says it. */
 const SKIP_REASONS: readonly SkipReason[] = [
   "already_queued",
@@ -53,7 +56,7 @@ export function useJobActions(options: { onDeleted?: (job: BackupJob) => void } 
               .filter((entry) => entry.count > 0)
               .map((entry) => t(`run.skipped.${entry.reason}`, { count: entry.count }))
               .join(" ");
-            const outcome = runOutcomeView(job.kind, result);
+            const outcome = runOutcomeView(result);
             if (outcome === "queued") {
               // A machine only gets the request: it starts at the agent's next check-in.
               const note = job.kind === "endpoint" ? t("toasts.runQueuedNote.endpoint") : "";
@@ -63,7 +66,7 @@ export function useJobActions(options: { onDeleted?: (job: BackupJob) => void } 
               );
             } else if (outcome === "waiting") {
               toast.info(t("toasts.runWaiting.title"), {
-                description: t("toasts.runWaiting.description", { count: result.skipped.length }),
+                description: t(`toasts.runWaiting.${job.kind}`, { count: result.skipped.length }),
               });
             } else {
               toast.info(t("toasts.runNothing", { name: job.name }), {
@@ -167,12 +170,21 @@ export function DeleteJobDialog({
                     scope: describeScope(job.scope, job.kind, t),
                   })}
             </p>
+            <p data-slot="delete-restore-points">
+              {job.kind === "mail"
+                ? job.retention.policyName
+                  ? t("delete.restorePoints.mail", { policy: job.retention.policyName })
+                  : t("delete.restorePoints.mailDefault")
+                : t("delete.restorePoints.endpoint")}
+            </p>
             <p>{t("delete.after")}</p>
           </>
         ) : null
       }
       confirmLabel={t("delete.confirm")}
       destructive
+      // A large job is typed by name: one click must not stop the backups of many objects.
+      confirmationText={job && job.scope.count >= DELETE_NAME_CONFIRM_FROM ? job.name : undefined}
       onConfirm={async () => {
         if (job) {
           await onConfirm(job);

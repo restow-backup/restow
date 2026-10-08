@@ -7,6 +7,7 @@ import {
   addMemberError,
   canCreateTenant,
   canEnter,
+  createBlockedReasonKey,
   createTenantError,
   deleteTenantError,
   fallbackTenant,
@@ -427,5 +428,16 @@ describe("own organisation failures", () => {
       key: "tenants:validation.slugTaken",
     });
     expect(ownOrganisationError(problem(500))).toEqual({ key: "common:errors.server" });
+  });
+});
+
+describe("createBlockedReasonKey", () => {
+  it("names the role when only the role keeps the button grey", () => {
+    expect(createBlockedReasonKey({ creationAllowed: true, canCreate: false })).toBe(
+      "actions.createRoleRequired",
+    );
+    expect(createBlockedReasonKey({ creationAllowed: true, canCreate: true })).toBeNull();
+    // The edition: the installation panel says why.
+    expect(createBlockedReasonKey({ creationAllowed: false, canCreate: false })).toBeNull();
   });
 });

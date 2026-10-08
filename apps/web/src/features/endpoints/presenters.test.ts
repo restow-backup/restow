@@ -20,6 +20,7 @@ import {
   assigneeName,
   attentionMessage,
   attentionTone,
+  backupGroupsOf,
   configPending,
   coveredByFolder,
   detailRefetchInterval,
@@ -110,6 +111,24 @@ function endpoint(over: Partial<EndpointSummary> = {}): EndpointSummary {
 function entry(name: string, type: BrowseEntry["type"], path = `/data/${name}`): BrowseEntry {
   return { name, path, type, size: type === "dir" ? null : 10, mtime: null };
 }
+
+describe("backing up chosen machines now", () => {
+  it("asks once per job for its machines and leaves out a machine in no job", () => {
+    const a = { id: "a", name: "Servers" };
+    const b = { id: "b", name: "Laptops" };
+    expect(
+      backupGroupsOf([
+        { id: "m1", job: a },
+        { id: "m2", job: b },
+        { id: "m3", job: a },
+        { id: "m4", job: null },
+      ]),
+    ).toEqual([
+      { job: a, ids: ["m1", "m3"] },
+      { job: b, ids: ["m2"] },
+    ]);
+  });
+});
 
 describe("names", () => {
   it("prefers the label an admin gave over the host name", () => {

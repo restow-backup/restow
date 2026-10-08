@@ -69,6 +69,27 @@ describe("SetPasswordLinkField", () => {
     expect(html).toContain(LINK);
   });
 
+  it("puts the username to copy next to a link that is handed over, never next to a mailed one", () => {
+    const handedOver = render(
+      <SetPasswordLinkField
+        id="test-link"
+        result={{ ...base, setPasswordToken: "raw-token", mailOutcome: "not_configured" }}
+        link={LINK}
+      />,
+    );
+    expect(handedOver).toContain('id="test-link-username"');
+    expect(handedOver).toContain('value="jane.doe@contoso.example"');
+    expect(handedOver).toContain("Copy username");
+    const mailed = render(
+      <SetPasswordLinkField
+        id="test-link"
+        result={{ ...base, setPasswordToken: null, mailOutcome: "sent" }}
+        link={LINK}
+      />,
+    );
+    expect(mailed).not.toContain("test-link-username");
+  });
+
   it("shows the copyable link when mail delivery failed", () => {
     const html = render(
       <SetPasswordLinkField

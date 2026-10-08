@@ -1,4 +1,13 @@
-import { Building2, ChartColumn, FileDown, ShieldAlert, TriangleAlert } from "lucide-react";
+import { Link, type LinkProps, useNavigate } from "@tanstack/react-router";
+import {
+  Building2,
+  ChartColumn,
+  ChartColumnStacked,
+  FileDown,
+  Network,
+  ShieldAlert,
+  TriangleAlert,
+} from "lucide-react";
 import * as React from "react";
 
 import { ErrorState, PageHeader, RefreshButton } from "@/components/kit";
@@ -20,7 +29,6 @@ import { LargestObjectsTable } from "./components/largest-objects-table.js";
 import { JobDurationsChart, ThrottlingChart } from "./components/operations-charts.js";
 import { BackupsChart, ReadinessChart, RestoresChart } from "./components/outcome-charts.js";
 import { PeriodSelector } from "./components/period-selector.js";
-import { ScopeToggle } from "./components/scope-toggle.js";
 import { StatsSection } from "./components/section.js";
 import { TenantsTable } from "./components/tenants-table.js";
 import { StorageChart, VolumeChart } from "./components/volume-charts.js";
@@ -28,6 +36,7 @@ import { csvDownload, pdfDownload } from "./exports.js";
 import {
   STATS_ROLES,
   type StatsAccess,
+  statsLocation,
   useDownloads,
   useResolvedPeriod,
   useStatsAccess,
@@ -39,7 +48,6 @@ import {
   type StatsScope,
   type StatsSearch,
   previousPeriodDays,
-  withScope,
 } from "./period.js";
 import { boundsToDays, dedupFigures } from "./presenters.js";
 import { type StatsFormat, useStatsFormat } from "./use-stats-format.js";
@@ -47,50 +55,62 @@ import { type StatsFormat, useStatsFormat } from "./use-stats-format.js";
 /**
  * Statistics: how backups, restores, storage and recoverability developed
  * over a period, compared with the period before. Every figure either shows
- * real data or says why it cannot; the period and the scope live in the URL.
+ * real data or says why it cannot; the period lives in the URL.
+ *
+ * Two pages share it, and the page is the scope: Overview › Statistics
+ * ({@link StatsPage}) always shows the active tenant and names it; the
+ * statistics of all tenants ({@link AllTenantsStatsPage}) have their own page in
+ * the Installation section of the menu, with the tenants table whose rows open a
+ * tenant's own statistics.
  */
 export function StatsPage() {
   return (
     <RequireRole roles={STATS_ROLES}>
-      <StatsContent />
+      <StatsContent scope="tenant" />
     </RequireRole>
   );
 }
 
-function StatsContent() {
-  const { search, update } = useStatsSearch();
-  const access = useStatsAccess(search);
+/**
+ * The statistics of all tenants (`/statistics/all`). Whoever may not see them
+ * (a tenant's own administrator, a provider admin limited to some tenants, an
+ * installation without the feature) learns why and finds the way to the
+ * statistics of the active tenant instead.
+ */
+export function AllTenantsStatsPage() {
+  return <StatsContent scope="provider" />;
+}
+
+function StatsContent({ scope }: { scope: StatsScope }) {
+  const { search, update } = useStatsSearch(scope);
+  const access = useStatsAccess(scope);
   const period = useResolvedPeriod(search);
   const { t } = useStatsFormat();
+  const title = scope === "provider" ? t("titleAllTenants") : t("title");
+  const icon = scope === "provider" ? ChartColumnStacked : ChartColumn;
 
   switch (access.kind) {
     case "loading":
       return (
         <div className="space-y-6">
-          <PageHeader
-            icon={ChartColumn}
-            title={t("title")}
-            description={t("description.loading")}
-          />
+          <PageHeader icon={icon} title={title} description={t("description.loading")} />
           <KpiGrid kpis={undefined} />
         </div>
       );
     case "noTenant":
       return (
         <div className="space-y-6">
-          <PageHeader icon={ChartColumn} title={t("title")} />
+          <PageHeader icon={icon} title={title} />
           <Alert variant="info">
             <Building2 />
             <AlertTitle>{t("noTenant.title")}</AlertTitle>
             <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <span>{t("noTenant.description")}</span>
               {access.providerAllowed ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => update(withScope(search, "provider"))}
-                >
-                  {t("noTenant.providerAction")}
+                <Button variant="outline" size="sm" asChild>
+                  <Link {...linkTo(statsLocation("provider", search))}>
+                    {t("noTenant.providerAction")}
+                  </Link>
                 </Button>
               ) : null}
             </AlertDescription>
@@ -100,7 +120,7 @@ function StatsContent() {
     case "notAdmin":
       return (
         <div className="space-y-6">
-          <PageHeader icon={ChartColumn} title={t("title")} />
+          <PageHeader icon={icon} title={title} />
           <Alert variant="warning">
             <ShieldAlert />
             <AlertTitle>{t("notAdmin.title")}</AlertTitle>
@@ -110,13 +130,41 @@ function StatsContent() {
           </Alert>
         </div>
       );
+    case "providerUnavailable":
+      return (
+        <div className="space-y-6" data-slot="stats-provider-unavailable">
+          <PageHeader icon={icon} title={title} />
+          <Alert variant="info">
+            <ShieldAlert />
+            <AlertTitle>{t("allTenants.unavailable.title")}</AlertTitle>
+            <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <span>{t("allTenants.unavailable.description")}</span>
+              {access.hasTenant ? (
+                <Button variant="outline" size="sm" asChild>
+                  <Link {...linkTo(statsLocation("tenant", search))}>
+                    {t("allTenants.unavailable.tenantAction")}
+                  </Link>
+                </Button>
+              ) : null}
+            </AlertDescription>
+          </Alert>
+        </div>
+      );
     default:
-      return <StatsView access={access} search={search} update={update} period={period} />;
+      return (
+        <StatsView access={access} title={title} search={search} update={update} period={period} />
+      );
   }
+}
+
+/** Props of a router Link to a {@link statsLocation}. */
+function linkTo(location: ReturnType<typeof statsLocation>) {
+  return { to: location.to as LinkProps["to"], search: location.search as never };
 }
 
 interface StatsViewProps {
   access: Extract<StatsAccess, { kind: "ready" }>;
+  title: string;
   search: StatsSearch;
   update: (next: StatsSearch) => void;
   period: ResolvedPeriod;
@@ -132,10 +180,11 @@ function comparisonLabel(
   return format.range(days.firstDay, days.lastDay);
 }
 
-function StatsView({ access, search, update, period }: StatsViewProps) {
+function StatsView({ access, title, search, update, period }: StatsViewProps) {
   const format = useStatsFormat();
   const { t, language } = format;
   const { setActiveTenant } = useSession();
+  const navigate = useNavigate();
   const { query, params } = useStatsOverview(access, period);
   const downloads = useDownloads();
   const data = query.data;
@@ -157,13 +206,15 @@ function StatsView({ access, search, update, period }: StatsViewProps) {
   const exportPdf = () =>
     void downloads.start("pdf", pdfDownload(params, period, language), t("download.pdfPreparing"));
 
-  const changeScope = (scope: StatsScope) => update(withScope(search, scope));
+  // A row of the tenants table opens that tenant's own statistics: it becomes the active
+  // tenant and Overview › Statistics shows it, for the same period.
   const openTenantStats = React.useCallback(
     (tenantId: string) => {
       setActiveTenant(tenantId);
-      update(withScope(search, "tenant"));
+      const target = statsLocation("tenant", search);
+      void navigate({ to: target.to as never, search: target.search as never });
     },
-    [setActiveTenant, update, search],
+    [setActiveTenant, navigate, search],
   );
 
   const sectionId = React.useId();
@@ -175,8 +226,8 @@ function StatsView({ access, search, update, period }: StatsViewProps) {
       <div className="space-y-6">
         <div className="space-y-4">
           <PageHeader
-            icon={ChartColumn}
-            title={t("title")}
+            icon={provider ? ChartColumnStacked : ChartColumn}
+            title={title}
             description={
               provider
                 ? t("description.provider")
@@ -198,8 +249,14 @@ function StatsView({ access, search, update, period }: StatsViewProps) {
 
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <PeriodSelector search={search} period={period} onChange={update} />
-            {access.providerAllowed ? (
-              <ScopeToggle scope={access.scope} onChange={changeScope} />
+            {!provider && access.providerAllowed ? (
+              // Overview › Statistics is the active tenant's alone; all tenants have their own page.
+              <Button variant="outline" size="sm" asChild className="self-start lg:self-auto">
+                <Link {...linkTo(statsLocation("provider", search))} data-slot="stats-all-tenants">
+                  <Network aria-hidden="true" />
+                  {t("allTenants.open")}
+                </Link>
+              </Button>
             ) : null}
           </div>
           <p className="text-sm text-muted-foreground" data-slot="stats-period">

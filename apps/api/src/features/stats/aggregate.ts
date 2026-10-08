@@ -2,6 +2,8 @@ import { type CauseCount, groupByCause } from "./causes.js";
 import type { LargestObjectDto, StatsScopeName, TenantRefDto } from "./dto.js";
 import { EndpointTimeline } from "./endpoint-timeline.js";
 import type { Levels, ReadinessRating, StoredLevels, TenantFacts } from "./facts.js";
+import { NO_GUEST_FACTS } from "./guest-facts.js";
+import { GuestTimeline } from "./guest-timeline.js";
 import { type ResolvedPeriod, bucketIndexByDay } from "./period.js";
 import {
   type ReadinessCounts,
@@ -140,6 +142,11 @@ export function aggregateTenant(
   for (const row of facts.endpoints.backupRuns) {
     addBackupRuns(row.day, row.status, row.count);
   }
+  // So do the backups of VMs and containers of Proxmox VE.
+  const guestFacts = facts.guests ?? NO_GUEST_FACTS;
+  for (const row of guestFacts.backupRuns) {
+    addBackupRuns(row.day, row.status, row.count);
+  }
 
   const restores = filled(size, emptyRestores);
   const restoreTotals = { current: emptyRestores(), previous: emptyRestores() };
@@ -196,9 +203,14 @@ export function aggregateTenant(
     facts.endpoints.backups,
     facts.endpoints.reports,
   );
-  // Protected objects and protected endpoints are rated side by side and counted as one.
+  const guestTimeline = new GuestTimeline(guestFacts.list, guestFacts.restorePoints);
+  // Protected objects, protected endpoints and protected guests are rated side by side and
+  // counted as one.
   const readinessAt = (moment: Date) =>
-    mergeReadiness(timeline.at(moment), endpointTimeline.at(moment));
+    mergeReadiness(
+      mergeReadiness(timeline.at(moment), endpointTimeline.at(moment)),
+      guestTimeline.at(moment),
+    );
   const readiness = period.buckets.map((bucket) => readinessAt(bucket.end).counts);
   const atStart = readinessAt(period.current.start);
   const atEnd = readinessAt(period.current.end);
@@ -244,7 +256,10 @@ export function aggregateTenant(
     available: {
       // Endpoints are data sources of their own: a tenant that only backs up
       // servers and clients has readiness and backup outcomes to report too.
-      objects: facts.protectedObjectCount > 0 || facts.endpoints.list.length > 0,
+      objects:
+        facts.protectedObjectCount > 0 ||
+        facts.endpoints.list.length > 0 ||
+        guestFacts.list.length > 0,
       backups: facts.hasBackups,
       microsoft365: facts.hasMicrosoft365,
     },

@@ -1,3 +1,4 @@
+import type { JobState } from "@/features/backup-jobs/api";
 import type { Failure } from "@/features/failures/api";
 import type { JobPhase, JobThrottle } from "@/features/jobs/api";
 import { apiFetch } from "@/lib/api";
@@ -156,7 +157,10 @@ export interface RunSummary {
 export interface RunError {
   path: string | null;
   message: string;
+  /** Mail: the classified cause; machines: the agent's own error code. */
   code: string | null;
+  /** The classified cause for both (absent from an older server). */
+  cause?: string | null;
 }
 
 export interface RunDetail extends Run {
@@ -191,7 +195,7 @@ export interface BackupJobLive {
   id: string;
   kind: "mail" | "endpoint";
   enabled: boolean;
-  state: "paused" | "failing" | "running" | "queued" | "attention" | "empty" | "ok";
+  state: JobState;
   scope: { count: number; byKind: Record<string, number>; overrides: number };
   lastRun: {
     at: string | null;

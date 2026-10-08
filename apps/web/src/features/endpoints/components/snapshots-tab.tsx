@@ -90,6 +90,14 @@ function SnapshotDetails({ snapshot }: { snapshot: EndpointSnapshot }) {
 const renderSnapshot = (snapshot: EndpointSnapshot) => <SnapshotDetails snapshot={snapshot} />;
 
 /**
+ * The restore points beside the files of the chosen one: a third for the
+ * timeline (at least 15rem), two thirds for the files, so paths and names
+ * keep their room. Inside the file restore page, whose machine list takes a
+ * quarter, the files get half the width (U-4).
+ */
+export const SNAPSHOTS_GRID = "lg:grid-cols-[minmax(15rem,1fr)_minmax(0,2fr)]";
+
+/**
  * The restore points of a machine and a browser for the files in one of them.
  * Ticked files and folders can be downloaded as a ZIP or restored onto the
  * machine into a new folder. Every browse and download is audited.
@@ -174,7 +182,7 @@ export function SnapshotsTab({
   }
   if (snapshots.isPending) {
     return (
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]" aria-busy="true">
+      <div className={`grid gap-4 ${SNAPSHOTS_GRID}`} aria-busy="true">
         <Skeleton className="h-64 w-full" />
         <Skeleton className="h-64 w-full" />
       </div>
@@ -191,7 +199,7 @@ export function SnapshotsTab({
   }
 
   return (
-    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,22rem)_minmax(0,1fr)]">
+    <div className={`grid items-start gap-4 ${SNAPSHOTS_GRID}`}>
       <Card className="gap-0 overflow-hidden py-0" data-slot="snapshots-card">
         <CardHeader className="border-b py-4">
           <CardTitle className="text-base">{t("snapshots.title")}</CardTitle>

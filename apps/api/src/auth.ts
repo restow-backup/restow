@@ -12,7 +12,18 @@ import { audit } from "./lib/audit.js";
 import { sessionAssurancePlugin } from "./lib/auth-hooks.js";
 import { authLogger, writeAuthLog } from "./lib/auth-logger.js";
 import { AUTH_RATE_LIMIT, guardAuthSurface, invitationAnswer } from "./lib/auth-surface.js";
+import { authenticatorReplacePlugin } from "./lib/authenticator-replace.js";
 import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "./lib/password-policy.js";
+import {
+  CHANGE_PASSWORD_PATH,
+  PASSWORD_AUDIT_ACTIONS,
+  PASSWORD_RESET_TOKEN_TTL_SECONDS,
+  auditPasswordEvent,
+  changedPasswordUser,
+  ipOfRequest,
+  languageOfRequest,
+  sendPasswordResetMail,
+} from "./lib/password-reset.js";
 import { clientIpOf, trustedProxies } from "./lib/request.js";
 import { totpIssuer } from "./lib/sign-in-options.js";
 
@@ -79,10 +90,15 @@ function relyingPartyId(publicUrl: string | undefined): string | undefined {
  * membership change made through better-auth's own endpoint, so it is written
  * to the tenant's audit log here.
  */
-const auditInvitationAnswer = createAuthMiddleware(async (ctx) => {
-  const request = ctx.request;
-  const answer = request ? invitationAnswer(ctx.path, ctx.context.returned) : null;
-  if (!request || !answer) {
+async function auditInvitationAnswer(input: {
+  path: string;
+  returned: unknown;
+  request: Request;
+  invitee: { id: string; email: string } | null | undefined;
+}): Promise<void> {
+  const { request } = input;
+  const answer = invitationAnswer(input.path, input.returned);
+  if (!answer) {
     return;
   }
   // Which tenant the organization belongs to is not known yet: the installation pool.
@@ -94,17 +110,61 @@ const auditInvitationAnswer = createAuthMiddleware(async (ctx) => {
   if (!tenant) {
     return;
   }
-  const invitee = ctx.context.session?.user;
   await audit(db, {
     tenantId: tenant.id,
-    actor: invitee?.email ?? answer.email,
-    actorUserId: invitee?.id ?? null,
+    actor: input.invitee?.email ?? answer.email,
+    actorUserId: input.invitee?.id ?? null,
     action: answer.action,
     target: answer.invitationId,
     targetType: "invitation",
     ip: clientIpOf((name) => request.headers.get(name) ?? undefined),
     details: { email: answer.email, memberRole: answer.memberRole },
   });
+}
+
+/**
+ * `hooks.after`: the signed-in person changed their own password
+ * (`/change-password`, Account › Sign-in security). Written to the audit
+ * chain of each tenant the person belongs to and, for provider members and
+ * administrators, to the installation chain (lib/password-reset.ts).
+ */
+async function auditPasswordChange(input: {
+  path: string;
+  returned: unknown;
+  request: Request;
+  body: unknown;
+}): Promise<void> {
+  if (input.path !== CHANGE_PASSWORD_PATH) {
+    return;
+  }
+  const changed = changedPasswordUser(input.returned);
+  if (!changed) {
+    return;
+  }
+  const body = input.body as { revokeOtherSessions?: unknown } | null | undefined;
+  await auditPasswordEvent(
+    providerDb,
+    PASSWORD_AUDIT_ACTIONS.changed,
+    changed,
+    ipOfRequest(input.request),
+    { otherSessionsEnded: body?.revokeOtherSessions === true },
+  );
+}
+
+/** Every `hooks.after` of the installation: only HTTP requests are audited here. */
+const afterAuthRequest = createAuthMiddleware(async (ctx) => {
+  const request = ctx.request;
+  if (!request) {
+    return;
+  }
+  const returned = ctx.context.returned;
+  await auditInvitationAnswer({
+    path: ctx.path,
+    returned,
+    request,
+    invitee: ctx.context.session?.user,
+  });
+  await auditPasswordChange({ path: ctx.path, returned, request, body: ctx.body });
 });
 
 const betterAuthInstance = betterAuth({
@@ -167,7 +227,7 @@ const betterAuthInstance = betterAuth({
   },
   hooks: {
     before: guardAuthSurface,
-    after: auditInvitationAnswer,
+    after: afterAuthRequest,
   },
   // Emergency-only local password path. The twoFactor plugin challenges an
   // account for its TOTP code once one is enrolled; enrolment is mandatory for
@@ -187,6 +247,27 @@ const betterAuthInstance = betterAuth({
     // accepts up to MAX_PASSWORD_LENGTH (setup wizard, admin recovery), so the
     // same limit is set here: a 129-256 character password keeps working.
     maxPasswordLength: MAX_PASSWORD_LENGTH,
+    // "Forgot your password?" by mail (lib/password-reset.ts): only for an
+    // account with a password and an authenticator app, so the mail never
+    // replaces the second factor. The mail goes out in the background: the
+    // answer looks and takes the same whether the address has an account.
+    resetPasswordTokenExpiresIn: PASSWORD_RESET_TOKEN_TTL_SECONDS,
+    revokeSessionsOnPasswordReset: true,
+    sendResetPassword: async ({ user: person, token }, request) => {
+      void sendPasswordResetMail(db, {
+        userId: person.id,
+        token,
+        language: languageOfRequest(request),
+      });
+    },
+    onPasswordReset: async ({ user: person }, request) => {
+      await auditPasswordEvent(
+        providerDb,
+        PASSWORD_AUDIT_ACTIONS.reset,
+        person,
+        ipOfRequest(request),
+      );
+    },
   },
   plugins: [
     passkey({
@@ -214,6 +295,8 @@ const betterAuthInstance = betterAuth({
     // The issuer names this installation in the authenticator app, so an
     // operator with several Restow installations can tell their codes apart.
     twoFactor({ issuer: totpIssuer(config.publicUrl) }),
+    // A new phone gets its key before the old one stops working (lib/authenticator-replace.ts).
+    authenticatorReplacePlugin({ issuer: totpIssuer(config.publicUrl) }),
     // Enforces the TOTP duty on the server: records how each session was
     // established, confines a password-only session to TOTP enrolment and keeps
     // the last provider admin (lib/auth-hooks.ts, lib/session-assurance.ts).

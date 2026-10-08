@@ -9,15 +9,15 @@ import { TENANT_SETTINGS_NAV_IDS } from "@/lib/tenant-nav";
  * Keyed by the id of the menu entry, which also covers the pages below an entry
  * (a restore job, a run in History).
  *
- * Not listed, because they work without a tenant: the overview and Recovery
- * readiness (they have an all-tenants view), "Manage tenants", the tenant page
+ * Not listed, because they work without a tenant: the overview, Recovery
+ * readiness and Alerts (they have an all-tenants view), "Manage tenants", the tenant page
  * (it names its tenant) and everything under Installation.
  */
 export const TENANT_ONLY_NAV_IDS: readonly string[] = [
   "mail-jobs",
   "endpoint-jobs",
   "history",
-  "alerts",
+  "warnings",
   "restore",
   "archive",
   "exports",
@@ -26,8 +26,8 @@ export const TENANT_ONLY_NAV_IDS: readonly string[] = [
   ...TENANT_SETTINGS_NAV_IDS,
 ];
 
-/** Pages without a menu entry of their own that still belong to one tenant (a readiness report). */
-const TENANT_ONLY_PATH_PREFIXES: readonly string[] = ["/verify/reports"];
+/** Pages below an entry of their own, or without one, that still belong to one tenant (a readiness report, the warnings). */
+const TENANT_ONLY_PATH_PREFIXES: readonly string[] = ["/verify/reports", "/warnings"];
 
 /** Whether the menu entry is one that needs a tenant. */
 export function isTenantOnlyNavItem(id: string): boolean {

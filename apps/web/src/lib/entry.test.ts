@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { loginRedirectFor, resolveEntryRedirect, safeRedirectTarget } from "./entry";
+import {
+  loginRedirectFor,
+  resolveEntryRedirect,
+  safeRedirectTarget,
+  signedInLoginTarget,
+} from "./entry";
 
 describe("resolveEntryRedirect", () => {
   it("sends every path to the wizard while unconfigured", () => {
@@ -57,5 +62,20 @@ describe("loginRedirectFor", () => {
   it("drops the home page and unsafe targets", () => {
     expect(loginRedirectFor("/")).toEqual({ to: "/login" });
     expect(loginRedirectFor("https://evil.example")).toEqual({ to: "/login" });
+  });
+});
+
+describe("signedInLoginTarget", () => {
+  it("sends someone already signed in to the page the link asked for", () => {
+    expect(signedInLoginTarget("/history/7?tab=log")).toBe("/history/7?tab=log");
+    expect(signedInLoginTarget("/tenants/contoso/protection")).toBe("/tenants/contoso/protection");
+  });
+
+  it("falls back to the home page for no target, foreign targets and the auth pages", () => {
+    expect(signedInLoginTarget(undefined)).toBe("/");
+    expect(signedInLoginTarget("https://evil.example")).toBe("/");
+    expect(signedInLoginTarget("//evil.example")).toBe("/");
+    expect(signedInLoginTarget("/login")).toBe("/");
+    expect(signedInLoginTarget("/reset-password?token=x")).toBe("/");
   });
 });

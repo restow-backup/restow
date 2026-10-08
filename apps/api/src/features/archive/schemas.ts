@@ -18,6 +18,7 @@ export type ArchiveSearchQuery = z.infer<typeof archiveSearchQuerySchema>;
 
 export const archiveItemParamSchema = z.object({ id: z.string().uuid() });
 
+/** GET /archive/chain/verify query: how many messages to read back from storage (0 skips it). */
 export const chainVerifyQuerySchema = z.object({
-  tenant: z.string().uuid().optional(),
+  contentSample: z.coerce.number().int().min(0).max(100).optional().default(0),
 });

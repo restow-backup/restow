@@ -9,6 +9,8 @@ import * as history from "@/features/history";
 import * as mailImports from "@/features/imports";
 import * as installation from "@/features/installation";
 import * as integrations from "@/features/integrations";
+import * as providerTeam from "@/features/provider-team";
+import * as pve from "@/features/pve";
 import * as redirects from "@/features/redirects";
 import * as reports from "@/features/reports";
 import * as restore from "@/features/restore";
@@ -22,6 +24,7 @@ import * as storage from "@/features/storage";
 import * as tenantPage from "@/features/tenant-page";
 import * as tenants from "@/features/tenants";
 import * as verify from "@/features/verify";
+import * as warnings from "@/features/warnings";
 import { extensionNavItems, extensionNavLocks, extensionRoutes } from "@/lib/extensions";
 import type { NavGroupId, NavItem } from "@/lib/navigation";
 
@@ -42,6 +45,7 @@ import "./ee";
 const features = [
   backupJobs,
   history,
+  warnings,
   verify,
   reports,
   stats,
@@ -50,6 +54,7 @@ const features = [
   archive,
   mailExports,
   endpoints,
+  pve,
   tenants,
   tenantPage,
   directory,
@@ -60,6 +65,7 @@ const features = [
   storage,
   integrations,
   installation,
+  providerTeam,
   settings,
   redirects,
 ] as const;
@@ -75,15 +81,17 @@ interface Placement {
  * Features bring their own defaults; this table settles the whole menu in one
  * place so orders from different features never collide:
  *
- *   Daily                Overview, History, Recovery readiness, Alerts
+ *   Daily                Overview, History, Warnings, Recovery readiness, Alerts
  *   Mail & SaaS          Jobs, Restore explorer, Archive, Exports
  *   Servers & endpoints  Jobs, Inventory, File restore
  *   Tenants              Tenant settings, All tenants (tenant management);
  *   (Organisation)       "Settings" instead of "Tenant settings" and no
  *                        "Tenants" wording where the installation has one
  *                        organisation (lib/navigation.ts `navGroupLabelKey`)
- *   Installation         Settings (the installation page and its sections), Team,
- *                        Audit log, License, Resources (soon)
+ *   Installation         Statistics of all tenants (Service Provider, provider admins
+ *                        with every tenant), Settings (the installation page and its
+ *                        sections), Members (the provider team, id `team`), Audit log,
+ *                        License, Resources (soon)
  *
  * "Jobs" are the job definitions (features/backup-jobs): the two entries share
  * the address `/jobs` and differ by `?type=mail|endpoint`. Their runs are History.
@@ -100,6 +108,7 @@ interface Placement {
 const NAV_PLACEMENT: Readonly<Record<string, Placement>> = {
   dashboard: { group: "daily", order: 0 },
   history: { group: "daily", order: 10 },
+  warnings: { group: "daily", order: 15 },
   verify: { group: "daily", order: 20 },
   alerts: { group: "daily", order: 30 },
   "mail-jobs": { group: "mail", order: 10 },
@@ -108,10 +117,12 @@ const NAV_PLACEMENT: Readonly<Record<string, Placement>> = {
   exports: { group: "mail", order: 40 },
   "endpoint-jobs": { group: "endpoints", order: 10 },
   inventory: { group: "endpoints", order: 20 },
+  virtualization: { group: "endpoints", order: 25 },
   "file-restore": { group: "endpoints", order: 30 },
   "tenant-settings": { group: "tenants", order: 10 },
   "organisation-settings": { group: "tenants", order: 10 },
   tenants: { group: "tenants", order: 50 },
+  "stats-all-tenants": { group: "installation", order: 5 },
   settings: { group: "installation", order: 10 },
   team: { group: "installation", order: 20 },
   audit: { group: "installation", order: 30 },
@@ -124,9 +135,12 @@ function placed(item: NavItem): NavItem {
   return placement ? { ...item, ...placement } : item;
 }
 
-/** A core entry an extension locks (`WebExtension.navLocks`) gets that lock. */
+/**
+ * A core entry an extension locks (`WebExtension.navLocks`) gets that lock,
+ * in place of the core's own (the Community build's lock on "Manage tenants").
+ */
 function locked(item: NavItem, locks: Readonly<Record<string, NavItem["lock"]>>): NavItem {
-  const lock = item.lock ?? locks[item.id];
+  const lock = locks[item.id] ?? item.lock;
   return lock ? { ...item, lock } : item;
 }
 

@@ -6,6 +6,7 @@ import {
   emptyRuleForm,
   eventGroupsFor,
   formToInput,
+  parseOverdueHours,
   parseRecipients,
   presetCron,
   presetOf,
@@ -101,6 +102,65 @@ describe("formToInput / ruleToForm", () => {
       cron: null,
       sections: [],
       inApp: false,
+    });
+  });
+});
+
+describe("a rule's own deadline for missing backups", () => {
+  const overdue = {
+    ...emptyRuleForm("event", "UTC"),
+    name: "Overdue",
+    events: ["backup.overdue" as const],
+    recipientsText: "ops@example.com",
+  };
+
+  it("follows the schedules unless the rule sets its own deadline", () => {
+    expect(formToInput(overdue).overdueAfterHours).toBeNull();
+    expect(formToInput({ ...overdue, overdueCustom: true, overdueHours: "48" })).toMatchObject({
+      overdueAfterHours: 48,
+    });
+    // Without the event the deadline belongs to, nothing is sent.
+    expect(
+      formToInput({
+        ...overdue,
+        events: ["backup.failed"],
+        overdueCustom: true,
+        overdueHours: "48",
+      }).overdueAfterHours,
+    ).toBeNull();
+  });
+
+  it("takes whole hours from a day to 30 days only", () => {
+    for (const text of ["23", "721", "36.5", "", "abc"]) {
+      expect(
+        validateRuleForm({ ...overdue, overdueCustom: true, overdueHours: text }).overdueHours,
+        text,
+      ).toBe("editor.errors.overdueHours");
+    }
+    expect(validateRuleForm({ ...overdue, overdueCustom: true, overdueHours: " 720 " })).toEqual(
+      {},
+    );
+    expect(parseOverdueHours("24")).toBe(24);
+    // Not checked while the rule follows the schedules.
+    expect(validateRuleForm({ ...overdue, overdueHours: "1" })).toEqual({});
+  });
+
+  it("reads a rule's deadline back into the form", () => {
+    const rule = {
+      ...formToInput({ ...overdue, overdueCustom: true, overdueHours: "96" }),
+      id: "r1",
+      nextRunAt: null,
+      lastRunAt: null,
+      locked: false,
+      lastDelivery: null,
+      recipientCategory: null,
+      createdAt: "",
+      updatedAt: "",
+    } as ReportRule;
+    expect(ruleToForm(rule)).toMatchObject({ overdueCustom: true, overdueHours: "96" });
+    expect(ruleToForm({ ...rule, overdueAfterHours: null })).toMatchObject({
+      overdueCustom: false,
+      overdueHours: "72",
     });
   });
 });

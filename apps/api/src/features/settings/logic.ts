@@ -1,9 +1,25 @@
+import {
+  type AppCredentials,
+  type CertificateProblem,
+  type SourceAppDocument,
+  buildSourceApp,
+  inspectCertificatePem,
+  serializeSourceAppDocument,
+} from "@restow/core";
 import type { MailConfig } from "@restow/db";
 import { z } from "zod";
+import {
+  type GoogleServiceAccountKey,
+  parseServiceAccountKey,
+  serializeServiceAccountKey,
+} from "../../notify-google.js";
 import type { PasskeyReadyResult } from "../../passkeyReady.js";
 import { ProblemError } from "../../problem.js";
 import { toStoredSmtpSecurity } from "../../schemas.js";
 import type {
+  GoogleInput,
+  GraphInput,
+  GraphMailAppOption,
   MailInput,
   OperatingModeOption,
   SmtpInput,
@@ -13,24 +29,19 @@ import type {
 
 /**
  * Installation settings rules (pure, no I/O): how a PATCH turns into the next
- * stored state, when the stored SMTP password may be reused, and what the API
- * returns. The service applies the result inside one transaction.
+ * stored state, when a stored mail credential (SMTP password, the own Microsoft
+ * 365 app's secret or certificate, the Google service account key) may be
+ * reused, and what the API returns. The service applies the result inside one
+ * transaction.
  */
 
 // --- Stored mail configuration ------------------------------------------------------
 
 export type StoredSmtpConfig = Extract<MailConfig, { transport: "smtp" }>;
-
-/**
- * The Graph transport as stored. The db `MailConfig` type has no tenant member,
- * so the tenant rides along in the same jsonb column (schema gap, noted for the
- * db owner); readers that do not know it simply ignore it.
- */
-export type StoredGraphConfig = Extract<MailConfig, { transport: "graph" }> & {
-  tenantId?: string;
-};
-
-export type StoredMailConfig = StoredSmtpConfig | StoredGraphConfig;
+export type StoredGraphConfig = Extract<MailConfig, { transport: "graph" }>;
+export type StoredGoogleConfig = Extract<MailConfig, { transport: "google" }>;
+export type StoredMailConfig = MailConfig;
+export type MailTransportOption = MailConfig["transport"];
 
 const storedMailConfigSchema = z.discriminatedUnion("transport", [
   z.object({
@@ -45,6 +56,15 @@ const storedMailConfigSchema = z.discriminatedUnion("transport", [
     transport: z.literal("graph"),
     sender: z.string().min(1),
     tenantId: z.string().min(1).optional(),
+    app: z.enum(["backup", "own"]).optional(),
+    clientId: z.string().min(1).optional(),
+    credentialKind: z.enum(["secret", "certificate"]).optional(),
+  }),
+  z.object({
+    transport: z.literal("google"),
+    sender: z.string().min(1),
+    serviceAccountEmail: z.string().min(1),
+    clientId: z.string().min(1),
   }),
 ]);
 
@@ -54,18 +74,50 @@ const storedMailConfigSchema = z.discriminatedUnion("transport", [
  * rather than trusted.
  */
 export function readStoredMailConfig(
-  transport: "smtp" | "graph" | null,
+  transport: MailTransportOption | null,
   value: unknown,
 ): StoredMailConfig | null {
   if (transport === null) {
     return null;
   }
   const parsed = storedMailConfigSchema.safeParse(value);
-  return parsed.success && parsed.data.transport === transport ? parsed.data : null;
+  if (!parsed.success || parsed.data.transport !== transport) {
+    return null;
+  }
+  const mail = parsed.data;
+  if (
+    mail.transport === "graph" &&
+    mail.app === "own" &&
+    (!mail.clientId || !mail.credentialKind || !mail.tenantId)
+  ) {
+    return null;
+  }
+  return mail;
 }
 
-/** The stored shape for a submitted transport (never carries the password). */
-export function toStoredMail(input: MailInput): StoredMailConfig {
+/** Which app registration a stored Graph transport sends as (`backup` for older rows). */
+export function graphAppOf(mail: StoredGraphConfig): GraphMailAppOption {
+  return mail.app ?? "backup";
+}
+
+/** The public facts of a service account key that the settings row keeps. */
+export interface GoogleKeyFacts {
+  serviceAccountEmail: string;
+  clientId: string;
+}
+
+export function googleKeyFacts(key: GoogleServiceAccountKey): GoogleKeyFacts {
+  return { serviceAccountEmail: key.clientEmail, clientId: key.clientId };
+}
+
+/**
+ * The stored shape for a submitted transport (never carries a secret). Google
+ * needs the facts of the key that will be used (new or kept).
+ */
+export function toStoredMail(
+  input: MailInput,
+  googleKey: GoogleKeyFacts | null = null,
+): StoredMailConfig {
   if (input.transport === "smtp") {
     const { host, port, security, from, username } = input.smtp;
     return {
@@ -77,7 +129,23 @@ export function toStoredMail(input: MailInput): StoredMailConfig {
       ...(username ? { username } : {}),
     };
   }
-  const { sender, tenantId } = input.graph;
+  if (input.transport === "google") {
+    if (!googleKey) {
+      throw new Error("toStoredMail: the Google transport needs the facts of its key");
+    }
+    return { transport: "google", sender: input.google.sender, ...googleKey };
+  }
+  const { sender, tenantId, app, ownApp } = input.graph;
+  if (app === "own" && ownApp && tenantId) {
+    return {
+      transport: "graph",
+      sender,
+      tenantId: tenantId.toLowerCase(),
+      app: "own",
+      clientId: ownApp.clientId.toLowerCase(),
+      credentialKind: ownApp.credentialKind,
+    };
+  }
   return { transport: "graph", sender, ...(tenantId ? { tenantId } : {}) };
 }
 
@@ -95,6 +163,10 @@ export interface CurrentSettings {
   mail: StoredMailConfig | null;
   /** An installation-level `smtp_password` secret exists. */
   smtpPasswordStored: boolean;
+  /** An installation-level `mail_graph_app` secret (the own app's credential) exists. */
+  graphAppStored?: boolean;
+  /** An installation-level `mail_google_key` secret (the service account key) exists. */
+  googleKeyStored?: boolean;
 }
 
 /** What the server environment contributes to the mail transport. */
@@ -102,8 +174,8 @@ export interface MailEnvironment {
   /** GRAPH_MAIL_TENANT_ID, used when the Graph transport names no tenant. */
   graphTenantIdDefault: string | null;
   /**
-   * A usable app registration exists (environment or Settings → Microsoft 365),
-   * so Graph sendMail can authenticate.
+   * A usable backup app registration exists (environment or Settings →
+   * Microsoft 365), so Graph sendMail can authenticate with it.
    */
   graphAppConfigured: boolean;
 }
@@ -179,6 +251,152 @@ export function decideSmtpPassword(
   };
 }
 
+// --- Microsoft 365: the notification mail's own app registration --------------------------
+
+/** Issue reasons for a certificate, in the vocabulary of Installation › Microsoft 365. */
+const CERTIFICATE_REASONS: Record<CertificateProblem, string> = {
+  certificate_missing: "certificateMissing",
+  private_key_missing: "privateKeyMissing",
+  private_key_encrypted: "privateKeyEncrypted",
+  certificate_invalid: "certificateInvalid",
+  private_key_invalid: "privateKeyInvalid",
+  unsupported_key_type: "unsupportedKeyType",
+  key_mismatch: "keyMismatch",
+  expired: "certificateExpired",
+  not_yet_valid: "certificateNotYetValid",
+};
+
+export type GraphAppDecision =
+  /** Graph sends as the backup app registration; no own credential is involved. */
+  | { kind: "backup" }
+  | { kind: "provided"; document: SourceAppDocument; credentials: AppCredentials }
+  | { kind: "stored" }
+  | { kind: "invalid"; issue: ValidationIssue };
+
+const OWN_APP_PATH = ["mail", "graph", "ownApp"] as const;
+
+/**
+ * The stored own-app credential is only reused for the tenant, client id and
+ * credential kind it was saved for: pointing the transport at another app must
+ * never hand the old secret to it.
+ */
+export function mayReuseStoredGraphApp(graph: GraphInput, current: CurrentSettings): boolean {
+  const stored = current.mail;
+  const own = graph.ownApp;
+  return (
+    current.graphAppStored === true &&
+    own !== undefined &&
+    graph.tenantId !== null &&
+    stored?.transport === "graph" &&
+    graphAppOf(stored) === "own" &&
+    stored.tenantId?.toLowerCase() === graph.tenantId.toLowerCase() &&
+    stored.clientId?.toLowerCase() === own.clientId.toLowerCase() &&
+    stored.credentialKind === own.credentialKind
+  );
+}
+
+/** Which own-app credential a Graph draft authenticates with, or why it cannot. */
+export function decideGraphApp(
+  graph: GraphInput,
+  current: CurrentSettings,
+  now: Date = new Date(),
+): GraphAppDecision {
+  if (graph.app !== "own") {
+    return { kind: "backup" };
+  }
+  const own = graph.ownApp;
+  if (!own || !graph.tenantId) {
+    // The request schema already refuses this; kept for a total function.
+    return { kind: "invalid", issue: { path: [...OWN_APP_PATH], message: "required" } };
+  }
+  const field = own.credentialKind === "secret" ? "clientSecret" : "certificatePem";
+  const supplied = own.credentialKind === "secret" ? own.clientSecret : own.certificatePem;
+  if (supplied === undefined) {
+    return mayReuseStoredGraphApp(graph, current)
+      ? { kind: "stored" }
+      : {
+          kind: "invalid",
+          issue: { path: [...OWN_APP_PATH, field], message: "credentialRequired" },
+        };
+  }
+
+  let certificatePem: string | undefined;
+  if (own.credentialKind === "certificate") {
+    const inspection = inspectCertificatePem(supplied, now);
+    if (!inspection.ok) {
+      return {
+        kind: "invalid",
+        issue: { path: [...OWN_APP_PATH, field], message: CERTIFICATE_REASONS[inspection.problem] },
+      };
+    }
+    // Stored as key plus certificate only; anything else pasted around them is dropped.
+    certificatePem = `${inspection.privateKeyPem.trim()}\n${inspection.certificatePem.trim()}\n`;
+  }
+  const built = buildSourceApp({
+    tenantId: graph.tenantId,
+    clientId: own.clientId,
+    credentialKind: own.credentialKind,
+    clientSecret: own.credentialKind === "secret" ? supplied : null,
+    certificatePem: certificatePem ?? null,
+  });
+  if (!built.ok) {
+    const issue: ValidationIssue =
+      built.problem === "tenant_id"
+        ? { path: ["mail", "graph", "tenantId"], message: "tenantGuid" }
+        : built.problem === "client_id"
+          ? { path: [...OWN_APP_PATH, "clientId"], message: "guid" }
+          : built.problem === "certificate"
+            ? { path: [...OWN_APP_PATH, field], message: "certificateInvalid" }
+            : { path: [...OWN_APP_PATH, field], message: "credentialRequired" };
+    return { kind: "invalid", issue };
+  }
+  return { kind: "provided", document: built.document, credentials: built.credentials };
+}
+
+/** The sealed plaintext of an own-app credential. */
+export function graphAppPlaintext(document: SourceAppDocument): string {
+  return serializeSourceAppDocument(document);
+}
+
+// --- Google Workspace: the service account key ----------------------------------------------
+
+export type GoogleKeyDecision =
+  | { kind: "provided"; key: GoogleServiceAccountKey; plaintext: string }
+  | { kind: "stored"; facts: GoogleKeyFacts }
+  | { kind: "invalid"; issue: ValidationIssue };
+
+const GOOGLE_KEY_PATH = ["mail", "google", "serviceAccountKey"] as const;
+
+/**
+ * Which service account key a Google draft sends with. Without a new key the
+ * stored one is kept while the transport stays Google (the key, not the
+ * sender, identifies the delegation).
+ */
+export function decideGoogleKey(google: GoogleInput, current: CurrentSettings): GoogleKeyDecision {
+  if (google.serviceAccountKey !== undefined) {
+    const parsed = parseServiceAccountKey(google.serviceAccountKey);
+    if (!parsed.ok) {
+      return {
+        kind: "invalid",
+        issue: { path: [...GOOGLE_KEY_PATH], message: "serviceAccountKey" },
+      };
+    }
+    return {
+      kind: "provided",
+      key: parsed.key,
+      plaintext: serializeServiceAccountKey(parsed.key),
+    };
+  }
+  const stored = current.mail;
+  if (current.googleKeyStored === true && stored?.transport === "google") {
+    return {
+      kind: "stored",
+      facts: { serviceAccountEmail: stored.serviceAccountEmail, clientId: stored.clientId },
+    };
+  }
+  return { kind: "invalid", issue: { path: [...GOOGLE_KEY_PATH], message: "required" } };
+}
+
 // --- Update plan -----------------------------------------------------------------------
 
 export type SecretAction =
@@ -186,29 +404,83 @@ export type SecretAction =
   | { action: "set"; plaintext: string }
   | { action: "delete" };
 
+/** What happens to each installation-level mail credential. */
+export interface MailSecretActions {
+  smtpPassword: SecretAction;
+  graphApp: SecretAction;
+  googleKey: SecretAction;
+}
+
+const KEEP_ALL: MailSecretActions = {
+  smtpPassword: { action: "keep" },
+  graphApp: { action: "keep" },
+  googleKey: { action: "keep" },
+};
+
 export interface SettingsUpdatePlan {
   operatingMode: OperatingModeOption;
   publicUrl: string | null;
   mail: StoredMailConfig | null;
-  /** What happens to the stored SMTP password. */
-  secret: SecretAction;
+  /** What happens to the stored mail credentials. */
+  secrets: MailSecretActions;
   /** Names of the changed settings for the audit log (never secret values). */
   changes: string[];
 }
 
-type MailPlan = { mail: StoredMailConfig; secret: SecretAction } | { issue: ValidationIssue };
+type MailPlan = { mail: StoredMailConfig; secrets: MailSecretActions } | { issue: ValidationIssue };
 
 function planMail(input: MailInput, current: CurrentSettings, env: MailEnvironment): MailPlan {
   // A credential nothing uses any more is removed, not kept around.
-  const dropPassword: SecretAction = current.smtpPasswordStored
-    ? { action: "delete" }
-    : { action: "keep" };
+  const drop = (stored: boolean | undefined): SecretAction =>
+    stored ? { action: "delete" } : { action: "keep" };
+  const unused: MailSecretActions = {
+    smtpPassword: drop(current.smtpPasswordStored),
+    graphApp: drop(current.graphAppStored),
+    googleKey: drop(current.googleKeyStored),
+  };
 
   if (input.transport === "graph") {
-    if (!input.graph.tenantId && !env.graphTenantIdDefault) {
-      return { issue: { path: ["mail", "graph", "tenantId"], message: "required" } };
+    const decision = decideGraphApp(input.graph, current);
+    switch (decision.kind) {
+      case "invalid":
+        return { issue: decision.issue };
+      case "backup":
+        if (!input.graph.tenantId && !env.graphTenantIdDefault) {
+          return { issue: { path: ["mail", "graph", "tenantId"], message: "required" } };
+        }
+        return { mail: toStoredMail(input), secrets: unused };
+      case "stored":
+        return {
+          mail: toStoredMail(input),
+          secrets: { ...unused, graphApp: { action: "keep" } },
+        };
+      case "provided":
+        return {
+          mail: toStoredMail(input),
+          secrets: {
+            ...unused,
+            graphApp: { action: "set", plaintext: graphAppPlaintext(decision.document) },
+          },
+        };
     }
-    return { mail: toStoredMail(input), secret: dropPassword };
+  }
+
+  if (input.transport === "google") {
+    const decision = decideGoogleKey(input.google, current);
+    switch (decision.kind) {
+      case "invalid":
+        return { issue: decision.issue };
+      case "stored":
+        return {
+          mail: toStoredMail(input, decision.facts),
+          secrets: { ...unused, googleKey: { action: "keep" } },
+        };
+      case "provided":
+        return {
+          mail: toStoredMail(input, googleKeyFacts(decision.key)),
+          secrets: { ...unused, googleKey: { action: "set", plaintext: decision.plaintext } },
+        };
+    }
   }
 
   const mail = toStoredMail(input);
@@ -217,11 +489,14 @@ function planMail(input: MailInput, current: CurrentSettings, env: MailEnvironme
     case "invalid":
       return { issue: decision.issue };
     case "provided":
-      return { mail, secret: { action: "set", plaintext: decision.password } };
+      return {
+        mail,
+        secrets: { ...unused, smtpPassword: { action: "set", plaintext: decision.password } },
+      };
     case "stored":
-      return { mail, secret: { action: "keep" } };
+      return { mail, secrets: { ...unused, smtpPassword: { action: "keep" } } };
     case "none":
-      return { mail, secret: dropPassword };
+      return { mail, secrets: unused };
   }
 }
 
@@ -240,10 +515,17 @@ function diffMail(before: StoredMailConfig | null, after: StoredMailConfig | nul
     .map((key) => `mail.${key}`);
 }
 
+/** Audit names of the stored credentials (never their values). */
+const SECRET_CHANGE_NAMES: Record<keyof MailSecretActions, string> = {
+  smtpPassword: "mail.password",
+  graphApp: "mail.graphAppCredential",
+  googleKey: "mail.googleKey",
+};
+
 /** The changed setting names between the current state and a plan. */
 export function diffSettings(
   current: CurrentSettings,
-  next: Pick<SettingsUpdatePlan, "operatingMode" | "publicUrl" | "mail" | "secret">,
+  next: Pick<SettingsUpdatePlan, "operatingMode" | "publicUrl" | "mail" | "secrets">,
 ): string[] {
   const changes: string[] = [];
   if (current.operatingMode !== next.operatingMode) {
@@ -253,8 +535,10 @@ export function diffSettings(
     changes.push("publicUrl");
   }
   changes.push(...diffMail(current.mail, next.mail));
-  if (next.secret.action !== "keep") {
-    changes.push("mail.password");
+  for (const kind of Object.keys(SECRET_CHANGE_NAMES) as (keyof MailSecretActions)[]) {
+    if (next.secrets[kind].action !== "keep") {
+      changes.push(SECRET_CHANGE_NAMES[kind]);
+    }
   }
   return changes;
 }
@@ -264,10 +548,13 @@ export function diffSettings(
  * reported at once as a 422 with issue paths the form can attach to fields.
  *
  *   - Public mode needs a public URL; local mode stores none (it binds no domain).
- *   - A present `mail` replaces the transport. SMTP keeps the stored password
- *     only for the same host and user; switching to Graph or dropping the
- *     username deletes it.
- *   - Graph needs a tenant, either submitted or from GRAPH_MAIL_TENANT_ID.
+ *   - A present `mail` replaces the transport. Each stored credential is kept
+ *     only for the same server and user (SMTP), the same tenant, app and
+ *     credential kind (own Microsoft 365 app) or while the transport stays
+ *     Google (service account key); a credential the new transport does not
+ *     use is deleted.
+ *   - Graph with the backup app needs a tenant, either submitted or from
+ *     GRAPH_MAIL_TENANT_ID; the own app needs its directory (tenant) ID.
  */
 export function planSettingsUpdate(
   current: CurrentSettings,
@@ -284,21 +571,21 @@ export function planSettingsUpdate(
   const publicUrl = operatingMode === "public" ? requestedUrl : null;
 
   let mail = current.mail;
-  let secret: SecretAction = { action: "keep" };
+  let secrets: MailSecretActions = KEEP_ALL;
   if (patch.mail) {
     const planned = planMail(patch.mail, current, env);
     if ("issue" in planned) {
       issues.push(planned.issue);
     } else {
       mail = planned.mail;
-      secret = planned.secret;
+      secrets = planned.secrets;
     }
   }
 
   if (issues.length > 0) {
     throw validationProblem(issues);
   }
-  const next = { operatingMode, publicUrl, mail, secret };
+  const next = { operatingMode, publicUrl, mail, secrets };
   return { ...next, changes: diffSettings(current, next) };
 }
 
@@ -318,12 +605,45 @@ export type MailSettingsView =
         passwordStored: boolean;
       };
     }
-  | { transport: "graph"; graph: { sender: string; tenantId: string | null } };
+  | {
+      transport: "graph";
+      graph: {
+        sender: string;
+        tenantId: string | null;
+        app: GraphMailAppOption;
+        /** The own app's public facts; null while Graph sends as the backup app. */
+        ownApp: {
+          clientId: string;
+          credentialKind: "secret" | "certificate";
+          /** The secret or certificate is stored (it is never returned). */
+          credentialStored: boolean;
+        } | null;
+      };
+    }
+  | {
+      transport: "google";
+      google: {
+        sender: string;
+        serviceAccountEmail: string;
+        /** The OAuth client id the Admin console's domain-wide delegation entry names. */
+        clientId: string;
+        /** The key is stored (it is never returned). */
+        keyStored: boolean;
+      };
+    };
+
+/** Which mail credentials the installation secret store holds. */
+export interface StoredSecretFlags {
+  smtpPassword: boolean;
+  graphApp?: boolean;
+  googleKey?: boolean;
+}
 
 export function toMailView(
   mail: StoredMailConfig | null,
-  smtpPasswordStored: boolean,
+  stored: StoredSecretFlags | boolean,
 ): MailSettingsView {
+  const flags: StoredSecretFlags = typeof stored === "boolean" ? { smtpPassword: stored } : stored;
   if (!mail) {
     return { transport: null };
   }
@@ -336,11 +656,38 @@ export function toMailView(
         security: toContractSecurity(mail.security),
         from: mail.from,
         username: mail.username ?? null,
-        passwordStored: smtpPasswordStored,
+        passwordStored: flags.smtpPassword,
       },
     };
   }
-  return { transport: "graph", graph: { sender: mail.sender, tenantId: mail.tenantId ?? null } };
+  if (mail.transport === "google") {
+    return {
+      transport: "google",
+      google: {
+        sender: mail.sender,
+        serviceAccountEmail: mail.serviceAccountEmail,
+        clientId: mail.clientId,
+        keyStored: flags.googleKey === true,
+      },
+    };
+  }
+  const app = graphAppOf(mail);
+  return {
+    transport: "graph",
+    graph: {
+      sender: mail.sender,
+      tenantId: mail.tenantId ?? null,
+      app,
+      ownApp:
+        app === "own" && mail.clientId && mail.credentialKind
+          ? {
+              clientId: mail.clientId,
+              credentialKind: mail.credentialKind,
+              credentialStored: flags.graphApp === true,
+            }
+          : null,
+    },
+  };
 }
 
 function originOf(value: string | null | undefined): string | null {
@@ -406,6 +753,8 @@ export interface SettingsViewInput {
   publicUrl: string | null;
   mail: StoredMailConfig | null;
   smtpPasswordStored: boolean;
+  graphAppStored?: boolean;
+  googleKeyStored?: boolean;
   updatedAt: Date | null;
   passkeyReady: PasskeyReadyResult;
   environmentPublicUrl: string | null;
@@ -423,7 +772,11 @@ export function toSettingsView(input: SettingsViewInput): SettingsView {
     publicUrl: input.publicUrl,
     passkeyReady: input.passkeyReady,
     environment: environmentView(input.environmentPublicUrl, input.publicUrl),
-    mail: toMailView(input.mail, input.smtpPasswordStored),
+    mail: toMailView(input.mail, {
+      smtpPassword: input.smtpPasswordStored,
+      graphApp: input.graphAppStored === true,
+      googleKey: input.googleKeyStored === true,
+    }),
     capabilities: {
       graphMail: {
         appConfigured: input.mailEnvironment.graphAppConfigured,

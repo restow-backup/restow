@@ -12,15 +12,29 @@ export type JobOrigin = "user" | "migration";
 
 /**
  * How a job stands, worst first:
- *   paused     switched off
- *   failing    the last backup of a member failed
- *   running    a backup is running now
- *   queued     a backup was requested and waits for the machine (it starts at the next check-in)
- *   attention  something needs a look: a partial backup, a failed restore check, or nothing backed up yet
- *   empty      no object or machine in scope
- *   ok         nothing to report (this says the backups ran, not that they are restorable)
+ *   paused         switched off
+ *   empty          no object or machine in scope
+ *   storage_error  its repository fails its check: backups cannot be written
+ *   failing        the last backup of a member failed
+ *   running        a backup is running now
+ *   queued         a backup was requested and waits for the machine (it starts at the next check-in)
+ *   overdue        it has a schedule, but its planned run is long past, or no backup finished for
+ *                  much longer than the schedule allows
+ *   manual         no schedule: nothing is backed up unless someone starts it
+ *   attention      something needs a look: a partial backup, a failed restore check, or nothing backed up yet
+ *   ok             nothing to report (this says the backups ran, not that they are restorable)
  */
-export type JobState = "paused" | "failing" | "running" | "queued" | "attention" | "empty" | "ok";
+export type JobState =
+  | "paused"
+  | "empty"
+  | "storage_error"
+  | "failing"
+  | "running"
+  | "queued"
+  | "overdue"
+  | "manual"
+  | "attention"
+  | "ok";
 
 export interface RepositoryDto {
   /** The storage target; null when the tenant has none of its own (the installation default). */
@@ -29,6 +43,12 @@ export interface RepositoryDto {
   kind: "local" | "s3" | "installation_default";
   role: "primary" | "copy" | "previous" | null;
   status: "unverified" | "ok" | "error" | null;
+  /**
+   * Whether the target's bucket enforces S3 Object Lock (WORM): what the last
+   * check of the target found. False for a local target; null for the
+   * installation default, whose bucket this view does not know.
+   */
+  objectLock: boolean | null;
 }
 
 export interface JobRetentionDto {
@@ -81,6 +101,8 @@ export interface BackupJobDto {
   kind: JobKindName;
   name: string;
   enabled: boolean;
+  /** Mail jobs: the job's mailboxes are expected in the journal archive (#32). Machine jobs: false. */
+  archive: boolean;
   origin: JobOrigin;
   scopeMode: JobScopeMode;
   /** Null: no schedule, the job runs when someone starts it. */
@@ -107,6 +129,11 @@ export interface BackupJobListDto {
    * configuration they have; the page offers to put them into one).
    */
   uncovered: { mail: number; endpoint: number };
+  /**
+   * What is in a job but still not backed up on a schedule: the job is paused or runs by hand
+   * only (and the member has no schedule of its own).
+   */
+  unscheduled: { mail: number; endpoint: number };
 }
 
 export type MemberKind = "mailbox" | "onedrive" | "imap" | "server" | "client";
@@ -183,8 +210,16 @@ export interface JobDefaultsDto {
   schedule: JobSchedule;
   /** Mail jobs: the recommended restore-check schedule; null for machine jobs. */
   verifySchedule: JobSchedule | null;
-  /** Machine jobs: the folders and exclusions a new Linux server starts with; `{}` for mail jobs. */
+  /**
+   * Machine jobs: the folders and exclusions a new job starts with, those of a Linux server unless
+   * `basis` names the machines' systems (then the union of their defaults); `{}` for mail jobs.
+   */
   settings: JobEndpointSettings;
+  /**
+   * Machine jobs started from chosen machines: their operating systems and profiles, which the
+   * folders and the schedule follow (all clients: back up on connect). Null otherwise.
+   */
+  basis: { os: string[]; profiles: ("server" | "client")[]; mixed: boolean } | null;
   /** The tenant's primary storage target: the only one jobs write to. */
   repository: RepositoryDto;
   retentionPolicies: { id: string; name: string; isDefault: boolean; cutoffDays: number | null }[];
@@ -240,6 +275,51 @@ export function memberKindOfObject(kind: "mailbox" | "onedrive" | "imap"): Membe
   return kind;
 }
 
+const MINUTE_MS = 60_000;
+const DAY_MS = 24 * 60 * MINUTE_MS;
+/** A planned run this far in the past did not happen; a little lateness is normal. */
+export const OVERDUE_GRACE_MS = 60 * MINUTE_MS;
+
+/** How often a schedule means to back up: an interval its minutes, a daily or cron schedule a day. */
+export function schedulePeriodMs(schedule: Pick<JobSchedule, "kind" | "intervalMinutes">): number {
+  if (
+    (schedule.kind === "interval" || schedule.kind === "on_connect") &&
+    schedule.intervalMinutes
+  ) {
+    return schedule.intervalMinutes * MINUTE_MS;
+  }
+  return DAY_MS;
+}
+
+/**
+ * Whether a job with a schedule is behind it: its next planned run is more than
+ * {@link OVERDUE_GRACE_MS} past (not for `on_connect`), or no backup finished (since the job exists) for more than one
+ * period plus a day's slack (a laptop that was off for an evening is not overdue yet).
+ */
+export function isOverdue(input: {
+  schedule: Pick<JobSchedule, "kind" | "intervalMinutes"> | null;
+  nextRunAt: Date | string | null;
+  lastAt: Date | string | null;
+  createdAt: Date | string;
+  now: Date;
+}): boolean {
+  if (!input.schedule) {
+    return false;
+  }
+  const now = input.now.getTime();
+  // A client that backs up when it connects has no fixed time to miss; only the age counts.
+  if (
+    input.schedule.kind !== "on_connect" &&
+    input.nextRunAt &&
+    now - new Date(input.nextRunAt).getTime() > OVERDUE_GRACE_MS
+  ) {
+    return true;
+  }
+  const since = new Date(input.lastAt ?? input.createdAt).getTime();
+  const period = schedulePeriodMs(input.schedule);
+  return now - since > period + Math.max(period, DAY_MS);
+}
+
 /** What a job's counters say about its state; see {@link JobState}. */
 export function jobStateOf(input: {
   enabled: boolean;
@@ -249,12 +329,21 @@ export function jobStateOf(input: {
   queued?: number;
   partial: number;
   restore: Pick<JobRestoreCheckDto, "failed" | "warning" | "unverified" | "noBackup">;
+  /** The job has no schedule (and no member one of its own): it runs only when started. */
+  manual?: boolean;
+  /** See {@link isOverdue}. */
+  overdue?: boolean;
+  /** The job's repository fails its check. */
+  storageError?: boolean;
 }): JobState {
   if (!input.enabled) {
     return "paused";
   }
   if (input.scopeCount === 0) {
     return "empty";
+  }
+  if (input.storageError) {
+    return "storage_error";
   }
   if (input.failed > 0) {
     return "failing";
@@ -264,6 +353,12 @@ export function jobStateOf(input: {
   }
   if ((input.queued ?? 0) > 0) {
     return "queued";
+  }
+  if (input.overdue) {
+    return "overdue";
+  }
+  if (input.manual) {
+    return "manual";
   }
   if (
     input.partial > 0 ||

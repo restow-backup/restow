@@ -32,6 +32,7 @@ import {
   type Source,
   type SourceConfig,
   type SourceStatus,
+  archiveItemMailboxes,
   archiveItems,
   legalHolds,
   protectedObjects,
@@ -39,7 +40,7 @@ import {
   snapshots,
   sources,
 } from "@restow/db";
-import { type SQL, and, asc, count, eq, inArray, ne, sql } from "drizzle-orm";
+import { type SQL, and, asc, count, eq, inArray, ne, or, sql } from "drizzle-orm";
 import { config as processConfig } from "../../config.js";
 import { audit } from "../../lib/audit.js";
 import { deleteSecret, readSecret, replaceSecret, storeSecret } from "../../lib/secrets.js";
@@ -710,10 +711,17 @@ async function retainedData(tx: DbExecutor, sourceId: string): Promise<RetainedD
     .select({ n: count() })
     .from(snapshots)
     .where(inArray(snapshots.protectedObjectId, objects));
+  // Journal reports assigned to the source's mailboxes count too (#32).
+  const assigned = tx
+    .select({ id: archiveItemMailboxes.archiveItemId })
+    .from(archiveItemMailboxes)
+    .where(inArray(archiveItemMailboxes.protectedObjectId, objects));
   const [archiveRow] = await tx
     .select({ n: count() })
     .from(archiveItems)
-    .where(inArray(archiveItems.protectedObjectId, objects));
+    .where(
+      or(inArray(archiveItems.protectedObjectId, objects), inArray(archiveItems.id, assigned)),
+    );
   const [holdRow] = await tx
     .select({ n: count() })
     .from(legalHolds)

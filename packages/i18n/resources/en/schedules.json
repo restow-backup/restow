@@ -13,7 +13,7 @@
   },
   "kinds": {
     "backup": "Backup",
-    "verify": "Verification",
+    "verify": "Restore check",
     "scrub": "Integrity check",
     "directory": "Directory sync",
     "retention": "Retention",
@@ -21,7 +21,7 @@
   },
   "kindHints": {
     "backup": "Backs up every active protected object, or only the one you choose.",
-    "verify": "Restores a sample of the latest backup to prove it can be restored. While a verification schedule is on, every new backup is verified as well.",
+    "verify": "Restores a sample of the latest backup to prove it can be restored. While a restore check schedule is on, every new backup is checked as well.",
     "scrub": "Checks the stored packs for damage and repairs them from copies. Monthly or rarer runs check everything, more frequent runs a sample.",
     "directory": "Reads users, mailboxes and OneDrives from Microsoft Entra ID, so new people are protected by the rules.",
     "retention": "Applies the retention policies. Until a policy exists, everything is kept."
@@ -56,16 +56,16 @@
     "cadence": "Cadence",
     "nextRun": "Next run",
     "lastRun": "Last run",
-    "lastJob": "Last job",
+    "lastJob": "Last run",
     "enabled": "On",
     "paused": "Switched off",
     "noJob": "No run yet",
-    "openJob": "Open the last job ({status})",
+    "openJob": "Open the last run ({status})",
     "toggle": "Run {kind} automatically",
     "legacy": "Runs next to the jobs"
   },
   "jobStatus": {
-    "queued": "Queued",
+    "queued": "Waiting",
     "active": "Running",
     "completed": "Completed",
     "failed": "Failed",
@@ -80,7 +80,7 @@
   },
   "empty": {
     "title": "No maintenance schedules yet",
-    "description": "Nothing keeps the repository healthy on its own: integrity checks, directory sync and retention run only when someone starts them."
+    "description": "Nothing keeps the storage location healthy on its own: integrity checks, directory sync and retention run only when someone starts them."
   },
   "notices": {
     "readOnly": "You can see the schedules of this tenant. Only tenant administrators can change them.",
@@ -184,7 +184,7 @@
         "description": "While it is off, the objects it covers are backed up only when someone starts a backup by hand."
       },
       "verify": {
-        "title": "Switch off verification?",
+        "title": "Switch off the restore check?",
         "description": "While it is off, new backups are not test-restored and recovery readiness is no longer proven."
       },
       "confirm": "Switch off"

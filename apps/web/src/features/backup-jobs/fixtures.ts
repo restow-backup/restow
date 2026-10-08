@@ -35,11 +35,19 @@ export function mailJob(over: Partial<BackupJob> = {}): BackupJob {
     kind: "mail",
     name: "All mailboxes, daily",
     enabled: true,
+    archive: false,
     origin: "user",
     scopeMode: "all",
     schedule: { kind: "cron", cron: "0 2 * * *", timeZone: "Europe/Berlin" },
     verifySchedule: { kind: "cron", cron: "0 4 * * 0", timeZone: "Europe/Berlin" },
-    repository: { id: "r1", name: "Primary S3", kind: "s3", role: "primary", status: "ok" },
+    repository: {
+      id: "r1",
+      name: "Primary S3",
+      kind: "s3",
+      role: "primary",
+      status: "ok",
+      objectLock: false,
+    },
     retention: { policyId: null, policyName: "Standard 30 days", keep: null },
     scope: { count: 220, byKind: { mailbox: 214, onedrive: 6 }, overrides: 2 },
     lastRun: {
@@ -66,11 +74,19 @@ export function endpointJob(over: Partial<BackupJob> = {}): BackupJob {
     kind: "endpoint",
     name: "Linux servers, daily",
     enabled: true,
+    archive: false,
     origin: "user",
     scopeMode: "selected",
     schedule: { kind: "daily", timeOfDay: "22:00", timeZone: "Europe/Berlin" },
     verifySchedule: null,
-    repository: { id: "r1", name: "Primary S3", kind: "s3", role: "primary", status: "ok" },
+    repository: {
+      id: "r1",
+      name: "Primary S3",
+      kind: "s3",
+      role: "primary",
+      status: "ok",
+      objectLock: false,
+    },
     retention: {
       policyId: null,
       policyName: null,
@@ -154,7 +170,14 @@ export function defaults(
       kind === "endpoint"
         ? { paths: ["/etc", "/home"], excludes: ["**/.cache"], bandwidthKbps: null }
         : {},
-    repository: { id: "r1", name: "Primary S3", kind: "s3", role: "primary", status: "ok" },
+    repository: {
+      id: "r1",
+      name: "Primary S3",
+      kind: "s3",
+      role: "primary",
+      status: "ok",
+      objectLock: false,
+    },
     retentionPolicies: [
       { id: "p-default", name: "Standard 30 days", isDefault: true, cutoffDays: 30 },
       { id: "p-90", name: "Ninety days", isDefault: false, cutoffDays: 90 },
@@ -164,6 +187,10 @@ export function defaults(
   };
 }
 
-export function list(items: BackupJob[], uncovered = { mail: 0, endpoint: 0 }): BackupJobList {
-  return { items, uncovered };
+export function list(
+  items: BackupJob[],
+  uncovered = { mail: 0, endpoint: 0 },
+  unscheduled = { mail: 0, endpoint: 0 },
+): BackupJobList {
+  return { items, uncovered, unscheduled };
 }

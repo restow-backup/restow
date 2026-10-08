@@ -123,9 +123,85 @@ describe("tenant matrix rows", () => {
       failures24h: null,
       failuresPrevious24h: null,
       lastBackupAt: null,
+      staleAfterHours: null,
+      machines: null,
+      machinesWithoutJob: null,
+      machinesFailed: null,
+      guests: null,
+      guestsWithoutJob: null,
+      guestsFailed: null,
       physicalBytes: null,
       storageError: null,
     });
+  });
+
+  it("counts servers and clients: their newest backup, the ones in no job and failed ones", () => {
+    const result = tenantRow(
+      tenant("Contoso"),
+      {
+        summary: summary(),
+        ...HEALTHY,
+        machines: {
+          total: 3,
+          withoutJob: 1,
+          failedLastBackup: 1,
+          lastSuccessAt: "2026-09-23T11:00:00.000Z",
+        },
+        staleAfterHours: 336,
+      },
+      { mailboxes: 3, cap: null },
+    );
+    expect(result).toMatchObject({
+      machines: 2,
+      machinesWithoutJob: 1,
+      machinesFailed: 1,
+      lastBackupAt: "2026-09-23T11:00:00.000Z",
+      staleAfterHours: 336,
+    });
+  });
+});
+
+describe("VMs and containers of Proxmox VE in the matrix", () => {
+  it("counts the guests: in a job, in none, failed, and their newest backup", () => {
+    const result = tenantRow(
+      tenant("Contoso"),
+      {
+        summary: summary(),
+        ...HEALTHY,
+        guests: {
+          protected: 4,
+          withoutJob: 2,
+          failedLastBackup: 1,
+          lastSuccessAt: "2026-09-23T11:30:00.000Z",
+        },
+      },
+      { mailboxes: 3, cap: null },
+    );
+    expect(result).toMatchObject({
+      guests: 4,
+      guestsWithoutJob: 2,
+      guestsFailed: 1,
+      lastBackupAt: "2026-09-23T11:30:00.000Z",
+    });
+    expect(
+      alertsFor(result, NOW).map((alert) => [alert.kind, alert.severity, alert.count]),
+    ).toEqual([
+      ["guest_backup_failed", "destructive", 1],
+      ["guests_without_job", "warning", 2],
+    ]);
+  });
+
+  it("does not call a tenant that only backs up guests one that protects nothing", () => {
+    const onlyGuests = row("Lab", { protectedObjects: 0, machines: 0, guests: 1 });
+    expect(alertsFor(onlyGuests, NOW)).toEqual([]);
+    // Guests the inventory found but no job backs up: said as such, not "nothing protected".
+    const unprotected = row("Lab", {
+      protectedObjects: 0,
+      machines: 0,
+      guests: 0,
+      guestsWithoutJob: 3,
+    });
+    expect(alertsFor(unprotected, NOW).map((alert) => alert.kind)).toEqual(["guests_without_job"]);
   });
 });
 
@@ -155,8 +231,38 @@ describe("provider alerts", () => {
       ["over_cap", "warning", 2],
       ["unverified", "warning", 3],
       ["no_backup", "warning", 1],
-      ["stale_backup", "warning", null],
+      ["stale_backup", "warning", STALE_BACKUP_HOURS],
     ]);
+  });
+
+  it("flags machines that failed or are in no job, and ratings that need attention", () => {
+    const kinds = alertsFor(
+      row("Contoso", { machines: 2, machinesFailed: 1, machinesWithoutJob: 2, needsAttention: 1 }),
+      NOW,
+    ).map((alert) => [alert.kind, alert.count]);
+    expect(kinds).toEqual([
+      ["machine_backup_failed", 1],
+      ["machines_without_job", 2],
+      ["needs_attention", 1],
+    ]);
+  });
+
+  it("judges a stale backup by the tenant's schedules", () => {
+    const fourDays = new Date(NOW.getTime() - 96 * 3_600_000).toISOString();
+    expect(alertsFor(row("Weekly", { lastBackupAt: fourDays, staleAfterHours: 336 }), NOW)).toEqual(
+      [],
+    );
+    expect(
+      alertsFor(row("Daily", { lastBackupAt: fourDays, staleAfterHours: 48 }), NOW).map(
+        (alert) => alert.kind,
+      ),
+    ).toEqual(["stale_backup"]);
+  });
+
+  it("never calls a customer that protects nothing secured", () => {
+    expect(
+      alertsFor(row("Empty", { protectedObjects: 0, machines: 0 }), NOW).map((alert) => alert.kind),
+    ).toEqual(["nothing_protected"]);
   });
 
   it("reports a tenant it could not read instead of skipping it", () => {

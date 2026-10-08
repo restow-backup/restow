@@ -22,6 +22,19 @@ import { LegalHoldsSection } from "./legal-holds-section";
  * `tenant.archiveSettings`).
  */
 
+vi.mock("@tanstack/react-router", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@tanstack/react-router")>();
+  return {
+    ...actual,
+    // Links render as plain anchors: this test renders without a <RouterProvider>.
+    Link: ({ to, children, ...props }: { to: string; children?: React.ReactNode }) => (
+      <a href={String(to)} {...props}>
+        {children}
+      </a>
+    ),
+  };
+});
+
 vi.mock("@/lib/api", () => ({
   apiFetch: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 }),
 }));

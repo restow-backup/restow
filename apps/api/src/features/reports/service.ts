@@ -17,16 +17,21 @@ import {
   notifications,
   reportDeliveries,
   reportRules,
+  tenants,
+  webhookDeliveries,
   webhooks,
 } from "@restow/db";
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { type SQL, and, desc, eq, inArray, isNull, lt, ne, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
 import { featureEnabled, requireFeature } from "../../lib/features.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
+import { toCsv } from "../stats/csv.js";
+import { WEBHOOK_DELIVERY_KEY } from "./dispatcher.js";
 import {
   type CreateReportRuleInput,
   type ListDeliveriesQuery,
+  type ListNotificationsQuery,
   type MarkNotificationsReadInput,
   type UpdateReportRuleInput,
   reportRuleProblem,
@@ -83,6 +88,12 @@ export interface ReportRuleDto {
   inApp: boolean;
   webhookId: string | null;
   language: "de" | "en" | null;
+  /**
+   * The rule's own deadline for `backup.overdue` in hours: its alerts come when nothing was
+   * backed up successfully for this long, instead of by the jobs' schedules. Null: by the
+   * schedules (and always for a rule that does not list `backup.overdue`).
+   */
+  overdueAfterHours: number | null;
   /** A schedule rule the installation cannot send right now (`reports.timed` is off). */
   locked: boolean;
   /** When the rule last sent something, and whether the newest delivery failed. */
@@ -106,6 +117,23 @@ export interface ReportDeliveryDto {
   sentAt: string | null;
   /** Object or queue the alert is about, when known. */
   target: string | null;
+  /** What the alert is about, for a link: the protected object, the machine, the run. */
+  subject: DeliverySubjectDto;
+  /**
+   * A webhook alert is handed to the webhook dispatcher; its own delivery decides `status`
+   * (pending while it is retried, sent once the receiver accepted it, failed when it gave up).
+   */
+  webhook: { id: string; deliveryId: string | null } | null;
+  /** Set in the view across tenants: whose alert it is. */
+  tenant?: { id: string; name: string };
+}
+
+export interface DeliverySubjectDto {
+  objectId: string | null;
+  endpointId: string | null;
+  /** A VM or container of Proxmox VE. */
+  guestId: string | null;
+  jobId: string | null;
 }
 
 export interface ReportCatalogDto {
@@ -142,6 +170,7 @@ export function toRuleDto(
     inApp: row.inApp,
     webhookId: row.webhookId,
     language: row.language,
+    overdueAfterHours: row.overdueAfterHours,
     locked: row.trigger === "schedule" && !scheduledAvailable,
     lastDelivery: last ? { at: last.at.toISOString(), status: last.status } : null,
     createdAt: row.createdAt.toISOString(),
@@ -149,7 +178,41 @@ export function toRuleDto(
   };
 }
 
-export function toDeliveryDto(row: ReportDelivery): ReportDeliveryDto {
+/** The outcome of the webhook delivery a webhook alert was handed to. */
+export interface HandedOverWebhook {
+  status: "pending" | "delivered" | "failed";
+  lastError: string | null;
+  deliveredAt: Date | null;
+  attempts: number;
+}
+
+const stringOr = (value: unknown): string | null =>
+  typeof value === "string" && value.length > 0 ? value : null;
+
+/** The id of the webhook delivery a webhook alert was handed to, if it was. */
+export function webhookDeliveryIdOf(row: Pick<ReportDelivery, "payload">): string | null {
+  return stringOr(row.payload?.[WEBHOOK_DELIVERY_KEY]);
+}
+
+/**
+ * The status the log shows. A webhook alert the dispatcher handed over is "sent" in its own
+ * row, but nothing has reached the receiver yet: the webhook delivery decides. One that is no
+ * longer there (the log keeps finished webhook deliveries for 30 days) keeps the row's status.
+ */
+export function deliveryStatusOf(
+  row: Pick<ReportDelivery, "status" | "channel">,
+  hook: HandedOverWebhook | null,
+): ReportDelivery["status"] {
+  if (row.channel !== "webhook" || row.status !== "sent" || !hook) {
+    return row.status;
+  }
+  return hook.status === "delivered" ? "sent" : hook.status;
+}
+
+export function toDeliveryDto(
+  row: ReportDelivery,
+  hook: HandedOverWebhook | null = null,
+): ReportDeliveryDto {
   const details = ((row.payload ?? {}) as { details?: Record<string, unknown> }).details ?? {};
   const target =
     typeof details.objectName === "string"
@@ -157,6 +220,7 @@ export function toDeliveryDto(row: ReportDelivery): ReportDeliveryDto {
       : typeof details.queue === "string"
         ? details.queue
         : null;
+  const status = deliveryStatusOf(row, hook);
   return {
     id: row.id,
     ruleId: row.ruleId,
@@ -165,13 +229,59 @@ export function toDeliveryDto(row: ReportDelivery): ReportDeliveryDto {
     event: row.event,
     channel: row.channel,
     recipient: row.channel === "webhook" ? null : row.recipient,
-    status: row.status,
+    status,
     attempts: row.attempts,
-    lastError: row.lastError,
+    lastError: hook && status !== row.status ? hook.lastError : row.lastError,
     createdAt: row.createdAt.toISOString(),
-    sentAt: iso(row.sentAt),
+    sentAt: hook ? iso(hook.deliveredAt) : iso(row.sentAt),
     target,
+    subject: {
+      objectId: stringOr(details.protectedObjectId),
+      endpointId: stringOr(details.endpointId),
+      guestId: stringOr(details.pveGuestId),
+      jobId: stringOr(details.jobId),
+    },
+    webhook:
+      row.channel === "webhook" && row.recipient
+        ? { id: row.recipient, deliveryId: webhookDeliveryIdOf(row) }
+        : null,
   };
+}
+
+/** The webhook deliveries webhook alerts were handed to, by id (read on the given executor). */
+async function handedOver(
+  tx: DbExecutor,
+  rows: readonly ReportDelivery[],
+): Promise<Map<string, HandedOverWebhook>> {
+  const ids = rows
+    .filter((row) => row.channel === "webhook")
+    .map(webhookDeliveryIdOf)
+    .filter((id): id is string => id !== null);
+  if (ids.length === 0) {
+    return new Map();
+  }
+  const found = await tx
+    .select({
+      id: webhookDeliveries.id,
+      status: webhookDeliveries.status,
+      lastError: webhookDeliveries.lastError,
+      deliveredAt: webhookDeliveries.deliveredAt,
+      attempts: webhookDeliveries.attempts,
+    })
+    .from(webhookDeliveries)
+    .where(inArray(webhookDeliveries.id, ids));
+  return new Map(found.map(({ id, ...hook }) => [id, hook]));
+}
+
+async function deliveryDtos(
+  tx: DbExecutor,
+  rows: readonly ReportDelivery[],
+): Promise<ReportDeliveryDto[]> {
+  const hooks = await handedOver(tx, rows);
+  return rows.map((row) => {
+    const id = webhookDeliveryIdOf(row);
+    return toDeliveryDto(row, id ? (hooks.get(id) ?? null) : null);
+  });
 }
 
 /** The rule as recorded in the audit log: what it does, not who receives it in full. */
@@ -190,6 +300,7 @@ function ruleDefinition(row: ReportRule): Record<string, unknown> {
     recipients: row.emailRecipients.length,
     inApp: row.inApp,
     webhookId: row.webhookId,
+    overdueAfterHours: row.overdueAfterHours,
   };
 }
 
@@ -223,7 +334,25 @@ type RuleShape = Pick<
   | "emailRecipients"
   | "inApp"
   | "webhookId"
->;
+> &
+  Partial<Pick<ReportRule, "overdueAfterHours">>;
+
+/** A deadline for missing backups belongs to an event rule that lists `backup.overdue`. */
+export function assertOverdueDeadline(
+  rule: Pick<RuleShape, "trigger" | "events" | "overdueAfterHours">,
+): void {
+  if (
+    rule.overdueAfterHours !== undefined &&
+    rule.overdueAfterHours !== null &&
+    (rule.trigger !== "event" || !rule.events.includes("backup.overdue"))
+  ) {
+    throw reportRuleProblem(
+      "overdueAfterHours",
+      "overdue_event_required",
+      "A deadline for missing backups needs the event backup.overdue.",
+    );
+  }
+}
 
 /** Everything a rule needs to be able to fire; throws the first problem as a 422. */
 export function assertRuleShape(rule: RuleShape, now: Date): void {
@@ -242,6 +371,7 @@ export function assertRuleShape(rule: RuleShape, now: Date): void {
       throw reportRuleProblem(issue.field, issue.code, issue.message);
     }
   }
+  assertOverdueDeadline(rule);
   const kind = rule.trigger === "event" ? "event" : "summary";
   if (plannedDeliveries(rule, kind).length === 0) {
     throw reportRuleProblem(
@@ -325,16 +455,19 @@ export async function listRules(db: Database, tenantId: string): Promise<ReportR
       .where(eq(reportRules.tenantId, tenantId))
       .orderBy(reportRules.trigger, reportRules.name);
     if (rows.length === 0) return [];
-    const last = await tx.execute<{ rule_id: string; at: Date | string; status: string }>(sql`
-      SELECT DISTINCT ON (rule_id) rule_id, created_at AS at, status
-        FROM report_deliveries
-       WHERE tenant_id = ${tenantId}::uuid AND rule_id IS NOT NULL
-       ORDER BY rule_id, created_at DESC
-    `);
+    const last = await tx
+      .selectDistinctOn([reportDeliveries.ruleId])
+      .from(reportDeliveries)
+      .where(
+        and(eq(reportDeliveries.tenantId, tenantId), sql`${reportDeliveries.ruleId} IS NOT NULL`),
+      )
+      .orderBy(reportDeliveries.ruleId, desc(reportDeliveries.createdAt));
+    // A webhook alert counts by what the receiver answered, not by being handed over.
+    const dtos = await deliveryDtos(tx, last);
     const byRule = new Map(
-      last.rows.map((row) => [
-        row.rule_id,
-        { at: new Date(row.at), status: row.status as ReportDelivery["status"] },
+      last.map((row, index) => [
+        row.ruleId,
+        { at: row.createdAt, status: dtos[index]?.status ?? row.status },
       ]),
     );
     return rows.map((row) => toRuleDto(row, scheduledAvailable, byRule.get(row.id) ?? null));
@@ -358,6 +491,7 @@ export async function createRule(
     emailRecipients: input.emailRecipients,
     inApp: input.trigger === "schedule" ? input.inApp : false,
     webhookId: input.webhookId,
+    overdueAfterHours: input.overdueAfterHours ?? null,
   };
   assertInstallationEventsAllowed(shape.events, actor);
   assertRuleShape(shape, now);
@@ -449,10 +583,20 @@ export async function updateRule(
     } else {
       after.events = [];
     }
+    if (
+      patch.overdueAfterHours === undefined &&
+      (after.trigger !== "event" || !after.events.includes("backup.overdue"))
+    ) {
+      // The deadline belongs to backup.overdue: dropping the event drops it as well.
+      after.overdueAfterHours = null;
+    }
     if (patch.intervalMinutes !== undefined && patch.intervalMinutes !== null) after.cron = null;
     if (patch.cron !== undefined && patch.cron !== null) after.intervalMinutes = null;
     if (after.enabled) {
       assertRuleShape(after, now);
+    } else {
+      // A paused rule need not be able to fire, but a deadline without its event is refused.
+      assertOverdueDeadline(after);
     }
     await assertWebhook(tx, tenantId, after.webhookId);
     const cadenceChanged =
@@ -476,6 +620,7 @@ export async function updateRule(
         inApp: after.inApp,
         webhookId: after.webhookId,
         language: after.language,
+        overdueAfterHours: after.overdueAfterHours,
         nextRunAt: cadenceChanged && after.enabled ? firstRun(after, now) : before.nextRunAt,
         updatedAt: now,
       })
@@ -579,23 +724,130 @@ export async function testRule(
   });
 }
 
+/** The filters of the delivery log as SQL; `status` is applied to the derived status afterwards. */
+function deliveryConditions(query: ListDeliveriesQuery): SQL[] {
+  const conditions: SQL[] = [];
+  if (query.ruleId) conditions.push(eq(reportDeliveries.ruleId, query.ruleId));
+  if (query.before) conditions.push(lt(reportDeliveries.createdAt, new Date(query.before)));
+  if (query.status === "skipped") conditions.push(eq(reportDeliveries.status, "skipped"));
+  else if (query.status === "pending" || query.status === "failed") {
+    // A handed-over webhook alert stored as "sent" may still be pending or have failed.
+    conditions.push(
+      sql`(${reportDeliveries.status} = ${query.status} OR (${reportDeliveries.channel} = 'webhook' AND ${reportDeliveries.status} = 'sent'))`,
+    );
+  } else if (query.status === "sent") conditions.push(eq(reportDeliveries.status, "sent"));
+  return conditions;
+}
+
+/** Rows read for one page; webhook rows whose derived status does not match are dropped after. */
+async function readDeliveries(
+  tx: DbExecutor,
+  where: SQL | undefined,
+  query: ListDeliveriesQuery,
+  withTenant = false,
+): Promise<ReportDeliveryDto[]> {
+  const rows = await tx
+    .select()
+    .from(reportDeliveries)
+    .where(where)
+    .orderBy(desc(reportDeliveries.createdAt), desc(reportDeliveries.id))
+    .limit(query.limit);
+  const dtos = (await deliveryDtos(tx, rows)).map((dto, index) =>
+    withTenant ? { ...dto, tenant: { id: rows[index]?.tenantId ?? "", name: "" } } : dto,
+  );
+  return query.status ? dtos.filter((dto) => dto.status === query.status) : dtos;
+}
+
 export async function listDeliveries(
   db: Database,
   tenantId: string,
   query: ListDeliveriesQuery,
 ): Promise<ReportDeliveryDto[]> {
-  return withTenantTx(db, tenantId, async (tx) => {
-    const conditions = [eq(reportDeliveries.tenantId, tenantId)];
-    if (query.ruleId) conditions.push(eq(reportDeliveries.ruleId, query.ruleId));
-    if (query.status) conditions.push(eq(reportDeliveries.status, query.status));
-    const rows = await tx
-      .select()
-      .from(reportDeliveries)
-      .where(and(...conditions))
-      .orderBy(desc(reportDeliveries.createdAt), desc(reportDeliveries.id))
-      .limit(query.limit);
-    return rows.map(toDeliveryDto);
+  return withTenantTx(db, tenantId, (tx) =>
+    readDeliveries(
+      tx,
+      and(eq(reportDeliveries.tenantId, tenantId), ...deliveryConditions(query)),
+      query,
+    ),
+  );
+}
+
+/**
+ * The delivery log across tenants for a provider administrator (Service Provider), each row
+ * with its tenant, on the installation pool. `tenantIds` null: every tenant; otherwise only those
+ * the administrator's team role covers.
+ */
+export async function listProviderDeliveries(
+  installation: Database,
+  tenantIds: readonly string[] | null,
+  query: ListDeliveriesQuery,
+): Promise<ReportDeliveryDto[]> {
+  if (tenantIds !== null && tenantIds.length === 0) {
+    return [];
+  }
+  const scope = tenantIds === null ? [] : [inArray(reportDeliveries.tenantId, [...tenantIds])];
+  const dtos = await readDeliveries(
+    installation,
+    and(...scope, ...deliveryConditions(query)),
+    query,
+    true,
+  );
+  return withTenantNames(installation, dtos, (dto) => dto.tenant?.id ?? "");
+}
+
+async function withTenantNames<T extends { tenant?: { id: string; name: string } }>(
+  installation: Database,
+  items: T[],
+  idOf: (item: T) => string,
+): Promise<T[]> {
+  const ids = [...new Set(items.map(idOf).filter((id) => id.length > 0))];
+  if (ids.length === 0) return items;
+  const names = await installation
+    .select({ id: tenants.id, name: tenants.name })
+    .from(tenants)
+    .where(inArray(tenants.id, ids));
+  const byId = new Map(names.map((row) => [row.id, row.name]));
+  return items.map((item) => {
+    const id = idOf(item);
+    return id ? { ...item, tenant: { id, name: byId.get(id) ?? id } } : item;
   });
+}
+
+/** Columns of the delivery log export, in order. */
+export const DELIVERY_CSV_COLUMNS = [
+  "createdAt",
+  "tenant",
+  "rule",
+  "kind",
+  "event",
+  "target",
+  "channel",
+  "recipient",
+  "status",
+  "attempts",
+  "sentAt",
+  "lastError",
+] as const;
+
+/** The delivery log as CSV (the statistics' writer: BOM, header row, CRLF), for proof that a customer was told. */
+export function deliveriesCsv(items: readonly ReportDeliveryDto[]): string {
+  return toCsv(
+    DELIVERY_CSV_COLUMNS,
+    items.map((item) => [
+      item.createdAt,
+      item.tenant?.name ?? null,
+      item.ruleName,
+      item.kind,
+      item.event,
+      item.target,
+      item.channel,
+      item.recipient,
+      item.status,
+      item.attempts,
+      item.sentAt,
+      item.lastError,
+    ]),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -605,6 +857,8 @@ export async function listDeliveries(
 export interface NotificationDto {
   id: string;
   tenantId: string | null;
+  /** Set in the lists across tenants: the tenant's name, for the entry and its links. */
+  tenant?: { id: string; name: string };
   level: "info" | "warning" | "error";
   event: string;
   message: string;
@@ -689,6 +943,114 @@ export async function markInstallationNotificationsRead(
     input.all === true
       ? isNull(notifications.tenantId)
       : and(isNull(notifications.tenantId), inArray(notifications.id, input.ids ?? []));
+  const rows = await installation
+    .update(notifications)
+    .set({ readAt: now })
+    .where(and(target, isNull(notifications.readAt)))
+    .returning({ id: notifications.id });
+  return { updated: rows.length };
+}
+
+export interface NotificationPageDto {
+  items: NotificationDto[];
+  /** Pass as `before` for the next older page; null at the end. */
+  next: string | null;
+}
+
+/** Older notifications than `before`, filtered: the notifications page behind the bell. */
+function notificationFilters(query: ListNotificationsQuery): SQL[] {
+  const filters: SQL[] = [];
+  if (query.before) filters.push(lt(notifications.createdAt, new Date(query.before)));
+  if (query.level === "attention") filters.push(ne(notifications.level, "info"));
+  else if (query.level) filters.push(eq(notifications.level, query.level));
+  if (query.unread) filters.push(isNull(notifications.readAt));
+  return filters;
+}
+
+function notificationPage(
+  rows: (typeof notifications.$inferSelect)[],
+  limit: number,
+): NotificationPageDto {
+  const page = rows.slice(0, limit);
+  const last = page.at(-1);
+  return {
+    items: page.map(toNotificationDto),
+    next: rows.length > limit && last ? last.createdAt.toISOString() : null,
+  };
+}
+
+/** The tenant's notification history, newest first, a page at a time (beyond the bell's 30). */
+export async function listNotificationHistory(
+  db: Database,
+  tenantId: string,
+  query: ListNotificationsQuery,
+): Promise<NotificationPageDto> {
+  return withTenantTx(db, tenantId, async (tx) => {
+    const rows = await tx
+      .select()
+      .from(notifications)
+      .where(and(eq(notifications.tenantId, tenantId), ...notificationFilters(query)))
+      .orderBy(desc(notifications.createdAt), desc(notifications.id))
+      .limit(query.limit + 1);
+    return notificationPage(rows, query.limit);
+  });
+}
+
+/**
+ * Every covered tenant's notifications in one list, each with its tenant, for a provider
+ * administrator under "All tenants" (the bell and the notifications page). On the installation
+ * pool; `tenantIds` null covers every tenant. Installation-level entries (no tenant) are part of it.
+ */
+export async function listProviderNotifications(
+  installation: Database,
+  tenantIds: readonly string[] | null,
+  query: ListNotificationsQuery,
+): Promise<NotificationPageDto & { unread: number; unreadAttention: number }> {
+  const scope =
+    tenantIds === null
+      ? undefined
+      : tenantIds.length === 0
+        ? isNull(notifications.tenantId)
+        : sql`(${notifications.tenantId} IS NULL OR ${inArray(notifications.tenantId, [...tenantIds])})`;
+  const rows = await installation
+    .select()
+    .from(notifications)
+    .where(and(scope, ...notificationFilters(query)))
+    .orderBy(desc(notifications.createdAt), desc(notifications.id))
+    .limit(query.limit + 1);
+  const [count] = await installation
+    .select(UNREAD_COUNTS)
+    .from(notifications)
+    .where(and(scope, isNull(notifications.readAt)));
+  const page = notificationPage(rows, query.limit);
+  const items = await withTenantNames(
+    installation,
+    page.items as (NotificationDto & { tenant?: { id: string; name: string } })[],
+    (item) => item.tenantId ?? "",
+  );
+  return {
+    items,
+    next: page.next,
+    unread: count?.unread ?? 0,
+    unreadAttention: count?.unreadAttention ?? 0,
+  };
+}
+
+/** Mark notifications of the covered tenants read across tenants (some by id, or all). */
+export async function markProviderNotificationsRead(
+  installation: Database,
+  tenantIds: readonly string[] | null,
+  input: MarkNotificationsReadInput,
+  now: Date,
+): Promise<{ updated: number }> {
+  const scope =
+    tenantIds === null
+      ? undefined
+      : tenantIds.length === 0
+        ? isNull(notifications.tenantId)
+        : sql`(${notifications.tenantId} IS NULL OR ${inArray(notifications.tenantId, [...tenantIds])})`;
+  const target =
+    input.all === true ? scope : and(scope, inArray(notifications.id, input.ids ?? []));
   const rows = await installation
     .update(notifications)
     .set({ readAt: now })

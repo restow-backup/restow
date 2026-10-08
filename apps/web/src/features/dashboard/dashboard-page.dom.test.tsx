@@ -90,6 +90,7 @@ function tenantDashboard(): Dashboard {
           total: 6,
           ...READINESS,
           overdue: 0,
+          withoutJob: 0,
           running: 0,
           lastCheckedAt: null,
         },

@@ -1,9 +1,10 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
-import { Building2, Mail, Plug, Plus, RefreshCw } from "lucide-react";
+import { Building2, Mail, Plug, Plus } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/error-state";
+import { RefreshButton } from "@/components/kit";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -11,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { NoTenantSelected, SourcesForbidden } from "./components/access-states";
 import { ConsentResultAlert } from "./components/consent-result-alert";
 import { ImapSourceDialog } from "./components/imap-source-dialog";
+import { SourcesJobsNotice } from "./components/jobs-notice";
 import { CreateM365Dialog } from "./components/m365-source-dialogs";
 import { SourceCard } from "./components/source-card";
 import { sourcesListSearch, sourcesListTo } from "./paths";
@@ -42,16 +44,11 @@ export function SourcesPage({ kind }: { kind: ListedSourceKind }) {
     >
       {tenantId && canManage ? (
         <>
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => void query.refetch()}
-            disabled={query.isFetching}
-            aria-label={tc("actions.refresh")}
-            title={tc("actions.refresh")}
-          >
-            <RefreshCw className={query.isFetching ? "animate-spin" : undefined} />
-          </Button>
+          <RefreshButton
+            label={tc("actions.refresh")}
+            fetching={query.isFetching}
+            onRefresh={() => void query.refetch()}
+          />
           <Button onClick={() => setDialog(kind)}>
             <Plus />
             {t(kind === "m365" ? "actions.addM365" : "actions.addImap")}
@@ -82,11 +79,15 @@ export function SourcesPage({ kind }: { kind: ListedSourceKind }) {
     body = <EmptySources kind={kind} onSelect={setDialog} />;
   } else {
     body = (
-      <div className="grid grid-cols-1 gap-4 *:min-w-0 lg:grid-cols-2 2xl:grid-cols-3">
-        {sources.map((source) => (
-          <SourceCard key={source.id} source={source} />
-        ))}
-      </div>
+      <>
+        {/* Connected is not backed up: the objects need a backup job that runs. */}
+        <SourcesJobsNotice />
+        <div className="grid grid-cols-1 gap-4 *:min-w-0 lg:grid-cols-2 2xl:grid-cols-3">
+          {sources.map((source) => (
+            <SourceCard key={source.id} source={source} />
+          ))}
+        </div>
+      </>
     );
   }
 

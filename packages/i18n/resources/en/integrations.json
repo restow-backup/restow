@@ -52,7 +52,9 @@
       "description": "Every integration using \"{name}\" ({prefix}…) stops working immediately. Revoking cannot be undone; the key stays listed for the audit trail.",
       "confirm": "Revoke key"
     },
-    "loadError": "The API keys could not be loaded."
+    "loadError": "The API keys could not be loaded.",
+    "reference": "API reference (OpenAPI)",
+    "opensInNewTab": "(opens in a new tab)"
   },
   "providerKeys": {
     "title": "Provider keys",
@@ -102,11 +104,11 @@
     },
     "status_read": {
       "label": "Status",
-      "description": "Summary, storage, latest verify report."
+      "description": "Summary, storage, latest restore check report."
     },
     "jobs_read": {
-      "label": "Jobs",
-      "description": "Jobs with progress, failures and duration."
+      "label": "Runs",
+      "description": "Runs with progress, failures and duration."
     },
     "items_read": {
       "label": "Protected objects",
@@ -125,8 +127,8 @@
       "description": "Start backups and restores."
     },
     "verify_write": {
-      "label": "Test restores",
-      "description": "Start verify runs (sampled test restores)."
+      "label": "Restore checks",
+      "description": "Start restore checks (sampled test restores)."
     },
     "users_write": {
       "label": "Protection",
@@ -153,16 +155,16 @@
   },
   "events": {
     "job_failed": {
-      "label": "Job failed",
-      "description": "A backup, restore, verify or archive job failed for good, after its retries."
+      "label": "Run failed",
+      "description": "A backup, restore, restore check or archive run failed for good, after its retries."
     },
     "job_completed": {
-      "label": "Job completed",
-      "description": "A job finished successfully."
+      "label": "Run completed",
+      "description": "A run finished successfully."
     },
     "verify_completed": {
-      "label": "Verify completed",
-      "description": "A test restore finished, with its recovery readiness."
+      "label": "Restore check completed",
+      "description": "A restore check finished, with its readiness."
     },
     "webhook_test": {
       "label": "Test event",
@@ -170,11 +172,11 @@
     },
     "report_alert": {
       "label": "Alert from a rule",
-      "description": "Sent by an alert rule under Alerts that names this webhook."
+      "description": "Sent by an alert rule under Tenant › Notifications that names this webhook."
     },
     "report_summary": {
       "label": "Report from a rule",
-      "description": "Sent by a report rule under Alerts that names this webhook."
+      "description": "Sent by a report rule under Tenant › Notifications that names this webhook."
     },
     "unknown": {
       "label": "Other event",
@@ -187,7 +189,7 @@
     "create": "Add webhook",
     "empty": {
       "title": "No webhooks yet",
-      "description": "Add a webhook to have {appName} notify your RMM, PSA or ticket system about failed jobs and other events."
+      "description": "Add a webhook to have {appName} notify your RMM, PSA or ticket system about failed runs and other events."
     },
     "columns": {
       "webhook": "Webhook",
@@ -221,23 +223,30 @@
     "delete": "Delete",
     "deleteConfirm": {
       "title": "Delete webhook?",
-      "description": "{appName} stops calling {url}. The delivery log and the signing secret are deleted with it.",
-      "confirm": "Delete webhook"
+      "description": "{appName} stops calling this URL. The delivery log and the signing secret are deleted with it.",
+      "confirm": "Delete webhook",
+      "rules": "{count, plural, one {This rule sends to the webhook:} other {These # rules send to the webhook:}}",
+      "rulesAlone": "{count, plural, one {One of them has no other channel and will send nothing afterwards.} other {# of them have no other channel and will send nothing afterwards.}}"
     },
     "loadError": "The webhooks could not be loaded."
   },
   "webhookForm": {
     "createTitle": "Add webhook",
     "editTitle": "Edit webhook",
-    "description": "{appName} sends a signed JSON POST to the URL for each chosen event.",
+    "description": "{appName} sends a POST to the URL for each chosen event: signed JSON, or a chat message for Discord, Slack or Microsoft Teams.",
     "name": "Name",
     "namePlaceholder": "e.g. RMM alerts",
     "nameHint": "Optional; helps to tell webhooks apart.",
     "url": "URL",
     "urlPlaceholder": "https://rmm.example.com/hooks/restow",
     "urlHint": "Local and private network addresses are refused unless the operator allows them.",
+    "format": "Format",
+    "formatHint": "What the requests look like. Chosen from the URL as you enter it; change it if the receiver expects something else.",
+    "formatDetected": "Recognised from the URL.",
+    "chatUnsigned": "Chat services cannot check a signature, so these messages are sent without one and no secret is shown. Treat the URL like a password: whoever knows it can post to the channel.",
+    "newSecret": "After saving, {appName} creates a new signing secret for this webhook and shows it once.",
     "events": "Events",
-    "eventsHint": "{appName} calls the URL for these events only.",
+    "eventsHint": "{appName} calls the URL for the chosen events. Alert and report rules that name this webhook also send report.alert and report.summary. With no event, it receives only those.",
     "active": "Active",
     "activeHint": "A paused webhook receives nothing; queued retries end.",
     "submitCreate": "Add webhook",
@@ -248,8 +257,26 @@
       "urlTooLong": "At most 2048 characters.",
       "url": "Enter a complete URL, e.g. https://rmm.example.com/hooks/restow.",
       "scheme": "Only http:// and https:// URLs can receive webhooks.",
-      "credentials": "Remove the user name and password from the URL; the signature authenticates {appName}.",
-      "eventsRequired": "Choose at least one event."
+      "credentials": "Remove the user name and password from the URL; the signature authenticates {appName}."
+    },
+    "eventsRules": "{count, plural, one {# rule under Tenant › Notifications also sends to this webhook.} other {# rules under Tenant › Notifications also send to this webhook.}}"
+  },
+  "formats": {
+    "restow": {
+      "label": "{appName} JSON (signed)",
+      "description": "The event as JSON with an HMAC signature, for RMM, PSA and ticket systems and your own receivers."
+    },
+    "discord": {
+      "label": "Discord",
+      "description": "A message with an embed for a Discord channel webhook. Sent without a signature."
+    },
+    "slack": {
+      "label": "Slack",
+      "description": "A Block Kit message for a Slack incoming webhook. Sent without a signature."
+    },
+    "teams": {
+      "label": "Microsoft Teams",
+      "description": "An Adaptive Card for a Teams workflow that posts to a channel when a webhook request is received (Workflows, Power Automate). Sent without a signature."
     }
   },
   "detail": {
@@ -259,6 +286,7 @@
       "description": "It may have been deleted, or it belongs to another tenant."
     },
     "sendTest": "Send test event",
+    "testHint": "The test arrives in the chosen format.",
     "rotateSecret": "Rotate secret",
     "rotateConfirm": {
       "title": "Rotate the signing secret?",
@@ -268,6 +296,7 @@
     "configuration": "Configuration",
     "url": "URL",
     "events": "Events",
+    "format": "Format",
     "noEvents": "No events subscribed. Edit the webhook and choose at least one, otherwise it receives nothing.",
     "status": "Status",
     "created": "Created",
@@ -275,6 +304,7 @@
     "secret": "Signing secret",
     "secretConfigured": "Stored encrypted",
     "secretMissing": "Missing: rotate the secret to create one",
+    "secretNotUsed": "Not used: chat messages are not signed",
     "pausedNotice": {
       "title": "This webhook is paused",
       "description": "It receives no events and no test events until it is activated."
@@ -286,7 +316,7 @@
     "filter": {
       "label": "Status",
       "all": "All",
-      "pending": "Queued",
+      "pending": "Waiting",
       "delivered": "Delivered",
       "failed": "Failed"
     },
@@ -298,7 +328,7 @@
       "result": "Result"
     },
     "status": {
-      "pending": "Queued",
+      "pending": "Waiting",
       "delivered": "Delivered",
       "failed": "Failed"
     },
@@ -335,6 +365,12 @@
       "webhook_disabled": "The webhook was paused before this delivery went out.",
       "internal": "{appName} could not prepare this delivery. It is retried.",
       "unknown": "The delivery failed."
+    },
+    "export": {
+      "action": "CSV",
+      "preparing": "Preparing the export …",
+      "done": "Export downloaded.",
+      "failed": "The export failed."
     }
   },
   "signature": {
@@ -344,7 +380,8 @@
     "eventHeader": "The event name, e.g. job.failed.",
     "deliveryHeader": "The delivery ID; the body's id identifies the event across retries.",
     "attemptHeader": "The attempt number, from 1.",
-    "retries": "Any answer other than 2xx counts as a failure and is retried after 1 min, 5 min, 15 min, 1 h, 3 h, 6 h and 12 h. HTTP 410 ends the delivery at once."
+    "retries": "Any answer other than 2xx counts as a failure and is retried after 1 min, 5 min, 15 min, 1 h, 3 h, 6 h and 12 h. HTTP 410 ends the delivery at once.",
+    "chat": "Webhooks in the Discord, Slack or Microsoft Teams format receive a readable chat message instead, without a signature and without these headers. An answer of 400, 401, 403, 404, 410, 413 or 422 from the chat service ends such a delivery at once; 429 and server errors are retried, after the time the service asks for."
   },
   "toasts": {
     "keyCreated": "API key created.",

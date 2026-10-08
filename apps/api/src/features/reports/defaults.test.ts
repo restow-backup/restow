@@ -22,7 +22,7 @@ describe("rulesFromRecipients", () => {
       ],
     });
     expect(rules.map((rule) => [rule.name, rule.trigger, rule.emailRecipients])).toEqual([
-      ["Fehlgeschlagene Aufträge", "event", ["it@kanzlei.test", "chef@kanzlei.test"]],
+      ["Fehlgeschlagene Läufe", "event", ["it@kanzlei.test", "chef@kanzlei.test"]],
       ["Wiederherstellbarkeit gefährdet", "event", ["it@kanzlei.test"]],
       ["Wochenbericht", "schedule", ["it@kanzlei.test"]],
     ]);

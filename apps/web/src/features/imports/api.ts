@@ -40,8 +40,10 @@ export function fetchImportConfig(): Promise<ImportConfig> {
   return apiFetch<ImportConfig>("/imports/config");
 }
 
-export async function fetchImports(): Promise<ImportSummary[]> {
-  return unwrapList<ImportSummary>(await apiFetch<unknown>("/imports"));
+/** One page of the tenant's imports, newest first (the first page without an offset). */
+export async function fetchImports(offset = 0): Promise<ImportSummary[]> {
+  const query = offset > 0 ? `?offset=${offset}` : "";
+  return unwrapList<ImportSummary>(await apiFetch<unknown>(`/imports${query}`));
 }
 
 export function fetchImport(importId: string): Promise<ImportDetail> {

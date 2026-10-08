@@ -14,6 +14,7 @@ import {
   createDb,
   providers,
   secrets,
+  settings,
   tenants,
   webhookDeliveries,
   webhooks,
@@ -24,6 +25,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { dropTestDatabase, ignoreTerminatedConnection } from "../testing/database.js";
 import {
   type AttemptPlan,
+  CHAT_PERMANENT_STATUSES,
+  type ChatContextSource,
   DEFAULT_WEBHOOK_OPTIONS,
   DeliveryFailure,
   type DeliveryStore,
@@ -35,6 +38,7 @@ import {
   WEBHOOK_MAX_ATTEMPTS,
   WebhookDispatcher,
   type WebhookHttpRequest,
+  chatDeliveryHeaders,
   checkTargetUrl,
   classifyAddress,
   createHttpTransport,
@@ -50,6 +54,7 @@ import {
   jobEventData,
   jobWebhookEvent,
   parseRetryAfter,
+  pgChatContextSource,
   planAfterAttempt,
   retryDelayMs,
   sanitizeDetail,
@@ -155,6 +160,10 @@ describe("retry schedule", () => {
     expect(parseRetryAfter("0", NOW)).toBeNull();
     expect(parseRetryAfter("Wed, 23 Sep 2026 11:00:00 GMT", NOW)).toBeNull();
     expect(parseRetryAfter("soon", NOW)).toBeNull();
+    // Chat services send fractions of a second; they round up.
+    expect(parseRetryAfter("0.35", NOW)).toBe(350);
+    expect(parseRetryAfter("1.0001", NOW)).toBe(1001);
+    expect(parseRetryAfter("1.", NOW)).toBeNull();
     expect(parseRetryAfter(null, NOW)).toBeNull();
   });
 });
@@ -221,6 +230,34 @@ describe("failures", () => {
     expect(isPermanentFailure(new DeliveryFailure("http_error", null, 404))).toBe(false);
     expect(isPermanentFailure(new DeliveryFailure("timeout"))).toBe(false);
   });
+
+  it("keep the restow format's retries for every 4xx but 410", () => {
+    for (const status of [400, 401, 403, 404, 413, 422, 429]) {
+      expect(isPermanentFailure(new DeliveryFailure("http_error", null, status), "restow")).toBe(
+        false,
+      );
+    }
+  });
+
+  it("end chat deliveries at once on answers a retry cannot change", () => {
+    for (const format of ["discord", "slack", "teams"] as const) {
+      for (const status of [400, 401, 403, 404, 410, 413, 422]) {
+        expect(isPermanentFailure(new DeliveryFailure("http_error", null, status), format)).toBe(
+          true,
+        );
+      }
+      // Rate limits, timeouts and server errors are retried.
+      for (const status of [408, 429, 500, 502, 503, 504]) {
+        expect(isPermanentFailure(new DeliveryFailure("http_error", null, status), format)).toBe(
+          false,
+        );
+      }
+      expect(isPermanentFailure(new DeliveryFailure("timeout"), format)).toBe(false);
+      expect(isPermanentFailure(new DeliveryFailure("connection_failed"), format)).toBe(false);
+      expect(isPermanentFailure(new DeliveryFailure("redirect", null, 301), format)).toBe(false);
+    }
+    expect([...CHAT_PERMANENT_STATUSES].sort()).toEqual([400, 401, 403, 404, 410, 413, 422]);
+  });
 });
 
 describe("planAfterAttempt", () => {
@@ -260,6 +297,30 @@ describe("planAfterAttempt", () => {
       random: exact,
     });
     expect(plan.nextAttemptAt).toEqual(new Date(NOW.getTime() + 30 * MINUTE));
+  });
+
+  it("gives up a chat delivery on its first 404, and retries a 429 after Retry-After", () => {
+    expect(
+      planAfterAttempt({
+        attemptsBefore: 0,
+        failure: new DeliveryFailure("http_error", "Unknown Webhook", 404),
+        now: NOW,
+        format: "discord",
+      }),
+    ).toMatchObject({
+      status: "failed",
+      attempts: 1,
+      lastError: "http_error 404: Unknown Webhook",
+    });
+    const limited = planAfterAttempt({
+      attemptsBefore: 0,
+      failure: new DeliveryFailure("http_error", null, 429, 5 * MINUTE),
+      now: NOW,
+      random: exact,
+      format: "slack",
+    });
+    expect(limited).toMatchObject({ status: "pending", attempts: 1 });
+    expect(limited.nextAttemptAt).toEqual(new Date(NOW.getTime() + 5 * MINUTE));
   });
 
   it("gives up after the last attempt and on permanent failures", () => {
@@ -585,6 +646,7 @@ class MemoryStore implements DeliveryStore {
       url: "https://hooks.example.com/restow",
       active: true,
       secretRef: "s-1",
+      format: "restow",
       status: "pending",
       nextAttemptAt: null,
       lastError: null,
@@ -634,12 +696,14 @@ function dispatcherWith(
   secrets: (tenantId: string, ref: string) => Promise<string | null> = async () => "whsec_test",
   options = {},
   disabled = false,
+  chatContext?: ChatContextSource,
 ) {
   let clock = NOW.getTime();
   const dispatcher = new WebhookDispatcher(
     {
       store,
       secrets,
+      chatContext,
       transport,
       logger: silentLogger,
       now: () => new Date(clock),
@@ -729,6 +793,120 @@ describe("WebhookDispatcher", () => {
     expect(store.rows.get(vanished.id)).toMatchObject({
       status: "failed",
       lastError: "secret_missing",
+    });
+  });
+
+  it("posts a chat message without signature headers and without needing a secret", async () => {
+    const store = new MemoryStore();
+    const row = store.add({
+      format: "discord",
+      secretRef: null,
+      url: "https://discord.com/api/webhooks/1/token",
+      payload: {
+        id: "evt-1",
+        event: "job.failed",
+        createdAt: NOW.toISOString(),
+        tenantId: TENANT,
+        data: { job: { id: "j-1", queue: "backup", errorMessage: "quota exceeded" } },
+      },
+    });
+    const sent: WebhookHttpRequest[] = [];
+    let secretAsked = false;
+    const { dispatcher } = dispatcherWith(
+      store,
+      async (request) => {
+        sent.push(request);
+        return { status: 204, body: "", retryAfter: null };
+      },
+      async () => {
+        secretAsked = true;
+        return "whsec_test";
+      },
+      {},
+      false,
+      async () => ({
+        language: "en",
+        tenantName: "Contoso",
+        publicUrl: "https://backup.example.com",
+        objectName: "anna@contoso.example",
+      }),
+    );
+    await dispatcher.runOnce();
+    expect(secretAsked).toBe(false);
+    expect(sent).toHaveLength(1);
+    const [request] = sent;
+    expect(request?.headers).toEqual(chatDeliveryHeaders());
+    expect(Object.keys(request?.headers ?? {}).some((name) => name.startsWith("X-Restow"))).toBe(
+      false,
+    );
+    const body = JSON.parse(request?.body ?? "{}");
+    expect(body.embeds[0].title).toBe("Backup failed: anna@contoso.example");
+    // The link names its tenant, so it opens that tenant in the web app.
+    expect(body.embeds[0].url).toBe(
+      "https://backup.example.com/history/j-1?forTenant=11111111-1111-4111-8111-111111111111",
+    );
+    expect(body.allowed_mentions).toEqual({ parse: [] });
+    // The log keeps the envelope; only the request body is the chat message.
+    expect(store.rows.get(row.id)).toMatchObject({ status: "delivered", payload: row.payload });
+  });
+
+  it("gives up a chat delivery the service refuses, after one attempt", async () => {
+    const store = new MemoryStore();
+    const row = store.add({ format: "slack", url: "https://hooks.slack.com/services/T/B/x" });
+    let calls = 0;
+    const { dispatcher, advance } = dispatcherWith(store, async () => {
+      calls += 1;
+      return { status: 403, body: "invalid_token", retryAfter: null };
+    });
+    await dispatcher.runOnce();
+    advance(24 * HOUR);
+    await dispatcher.runOnce();
+    expect(calls).toBe(1);
+    expect(store.rows.get(row.id)).toMatchObject({
+      status: "failed",
+      attempts: 1,
+      lastError: "http_error 403: invalid_token",
+    });
+  });
+
+  it("retries a rate-limited chat delivery after Retry-After", async () => {
+    const store = new MemoryStore();
+    const row = store.add({ format: "teams" });
+    const { dispatcher } = dispatcherWith(store, async () => ({
+      status: 429,
+      body: "",
+      retryAfter: "600",
+    }));
+    await dispatcher.runOnce();
+    expect(store.rows.get(row.id)).toMatchObject({
+      status: "pending",
+      attempts: 1,
+      nextAttemptAt: new Date(NOW.getTime() + 10 * MINUTE),
+    });
+  });
+
+  it("retries a chat delivery whose context cannot be loaded", async () => {
+    const store = new MemoryStore();
+    const row = store.add({ format: "discord" });
+    let calls = 0;
+    const { dispatcher } = dispatcherWith(
+      store,
+      async () => {
+        calls += 1;
+        return { status: 204, body: "", retryAfter: null };
+      },
+      undefined,
+      {},
+      false,
+      async () => {
+        throw new Error("database gone");
+      },
+    );
+    await dispatcher.runOnce();
+    expect(calls).toBe(0);
+    expect(store.rows.get(row.id)).toMatchObject({
+      status: "pending",
+      lastError: "internal: message context could not be loaded",
     });
   });
 
@@ -1054,6 +1232,66 @@ describe.skipIf(!adminUrl)("webhook deliveries against Postgres", () => {
     } finally {
       server.closeAllConnections();
       await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("renders a chat webhook in the tenant's language with a link to the public URL", async () => {
+    await db.delete(webhookDeliveries);
+    await db.update(tenants).set({ language: "de" }).where(eq(tenants.id, tenantId));
+    await db.insert(settings).values({ publicUrl: "https://backup.example.com" });
+    await db.update(webhooks).set({ format: "slack" }).where(eq(webhooks.id, other));
+    try {
+      const emitted = await emitWebhookEvent(db, {
+        tenantId,
+        event: "verify.completed",
+        data: { readiness: "red", objectName: "Fileserver", reportId: "rep-1", checked: 3 },
+      });
+      expect(emitted.deliveryIds).toHaveLength(1);
+      const store = new PgDeliveryStore(db);
+      const loaded = await store.load({ id: emitted.deliveryIds[0] ?? "", tenantId });
+      expect(loaded).toMatchObject({ format: "slack", secretRef: null });
+      expect(await pgChatContextSource(db, {})(loaded as LoadedDelivery)).toEqual({
+        language: "de",
+        tenantName: "Contoso",
+        publicUrl: "https://backup.example.com",
+        objectName: null,
+      });
+      const sent: WebhookHttpRequest[] = [];
+      const dispatcher = new WebhookDispatcher(
+        {
+          store,
+          secrets: async () => {
+            throw new Error("a chat webhook needs no secret");
+          },
+          chatContext: pgChatContextSource(db, {}),
+          transport: async (request) => {
+            sent.push(request);
+            return { status: 200, body: "ok", retryAfter: null };
+          },
+          logger: silentLogger,
+          now: () => new Date(),
+        },
+        DEFAULT_WEBHOOK_OPTIONS,
+      );
+      expect(await dispatcher.runOnce()).toBe(1);
+      const [request] = sent;
+      expect(request?.headers["X-Restow-Signature"]).toBeUndefined();
+      const body = JSON.parse(request?.body ?? "{}");
+      expect(body.blocks[0].text.text).toContain("Restore-Prüfung nicht bestanden: Fileserver");
+      expect(JSON.stringify(body)).toContain(
+        `<https://backup.example.com/verify/reports/rep-1?forTenant=${tenantId}|In Restow öffnen>`,
+      );
+      const [row] = await db
+        .select()
+        .from(webhookDeliveries)
+        .where(eq(webhookDeliveries.id, emitted.deliveryIds[0] ?? ""));
+      expect(row).toMatchObject({ status: "delivered", attempts: 1 });
+      // The log keeps the envelope.
+      expect(row?.payload).toMatchObject({ event: "verify.completed", tenantId });
+    } finally {
+      await db.update(webhooks).set({ format: "restow" }).where(eq(webhooks.id, other));
+      await db.delete(settings);
+      await db.update(tenants).set({ language: null }).where(eq(tenants.id, tenantId));
     }
   });
 });

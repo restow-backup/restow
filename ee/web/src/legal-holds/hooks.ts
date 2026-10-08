@@ -52,7 +52,7 @@ export function useCreateLegalHold() {
 export function useReleaseLegalHold() {
   const invalidate = useInvalidateLegalHolds();
   return useMutation({
-    mutationFn: (id: string) => releaseLegalHold(id),
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => releaseLegalHold(id, reason),
     onSettled: invalidate,
   });
 }

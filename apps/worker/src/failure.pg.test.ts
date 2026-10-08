@@ -49,7 +49,7 @@ import {
   runJob,
   tenantRunner,
 } from "./handlers/framework.js";
-import { PgProgressSink } from "./progress.js";
+import { MAX_ITEM_FAILURE_ROWS, PgProgressSink } from "./progress.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
 const TEST_DB = "restow_worker_failure_test";
@@ -579,6 +579,54 @@ describe.skipIf(!adminUrl)("failure records against Postgres", () => {
       });
       expect(byRef.get("mail/Inbox/big.eml")?.reason).toContain("413");
       expect(byRef.get("mail/Inbox/plain.eml")?.failure).toBeNull();
+    });
+
+    it("keeps the first rows of a run with the item date and counts every failure per cause", async () => {
+      const jobId = randomUUID();
+      await db
+        .insert(jobs)
+        .values({ id: jobId, tenantId, queue: "backup", protectedObjectId: objectId });
+      const sink = new PgProgressSink({
+        run: tenantRunner(db, tenantId),
+        tenantId,
+        jobId,
+        protectedObjectId: objectId,
+        logger: noopLogger,
+        now: () => NOW,
+      });
+      const tooLarge = buildCause("graph.item_too_large", { httpStatus: 413 }, { httpStatus: 413 });
+      const batch = (from: number, count: number) =>
+        Array.from({ length: count }, (_, index) => ({
+          itemRef: `mail/Inbox/item-${from + index}.eml`,
+          reason: "Graph 413: too big",
+          cause: tooLarge,
+          itemDate: "2026-09-01T08:00:00.000Z",
+        }));
+      const snapshot = {
+        total: 0,
+        done: 0,
+        failed: 0,
+        bytes: 0,
+        phase: "download",
+        etaSeconds: null,
+      };
+      await sink.publish({ snapshot, failures: batch(0, MAX_ITEM_FAILURE_ROWS - 10) });
+      await sink.publish({
+        snapshot,
+        failures: [
+          ...batch(MAX_ITEM_FAILURE_ROWS - 10, 30),
+          { itemRef: "mail/Inbox/legacy.eml", reason: "text only" },
+        ],
+      });
+
+      const rows = await db.select().from(itemFailures).where(eq(itemFailures.jobId, jobId));
+      expect(rows).toHaveLength(MAX_ITEM_FAILURE_ROWS);
+      expect(rows[0]?.itemDate?.toISOString()).toBe("2026-09-01T08:00:00.000Z");
+      expect((await jobRow(jobId))?.itemFailureSummary).toEqual({
+        total: MAX_ITEM_FAILURE_ROWS + 21,
+        stored: MAX_ITEM_FAILURE_ROWS,
+        byCause: { "graph.item_too_large": MAX_ITEM_FAILURE_ROWS + 20, unknown: 1 },
+      });
     });
   });
 });

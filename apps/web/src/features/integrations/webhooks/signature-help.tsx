@@ -36,6 +36,7 @@ export function SignatureHelp() {
           ))}
         </dl>
         <p className="text-xs text-muted-foreground">{t("signature.retries")}</p>
+        <p className="text-xs text-muted-foreground">{t("signature.chat")}</p>
       </CardContent>
     </Card>
   );

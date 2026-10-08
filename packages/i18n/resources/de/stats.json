@@ -1,8 +1,10 @@
 {
   "nav": "Statistik",
+  "navAllTenants": "Statistik aller Mandanten",
   "title": "Statistik",
+  "titleAllTenants": "Statistik aller Mandanten",
   "description": {
-    "tenant": "Sicherungen, Wiederherstellungen, Speicher und Wiederherstellbarkeit von {tenant} im Zeitverlauf.",
+    "tenant": "Nur {tenant}: Sicherungen, Wiederherstellungen, Speicher und Wiederherstellbarkeit im Zeitverlauf.",
     "provider": "Sicherungen, Wiederherstellungen, Speicher und Wiederherstellbarkeit über alle Mandanten.",
     "loading": "Sicherungen, Wiederherstellungen, Speicher und Wiederherstellbarkeit im Zeitverlauf."
   },
@@ -31,11 +33,6 @@
       "month": "pro Monat"
     }
   },
-  "scope": {
-    "label": "Umfang",
-    "tenant": "Mandant",
-    "provider": "Alle Mandanten"
-  },
   "actions": {
     "refresh": "Zahlen aktualisieren",
     "exportPdf": "PDF exportieren",
@@ -52,7 +49,15 @@
   "noTenant": {
     "title": "Kein Mandant ausgewählt",
     "description": "Wählen Sie oben einen Mandanten, um dessen Statistik zu sehen.",
-    "providerAction": "Alle Mandanten anzeigen"
+    "providerAction": "Statistik aller Mandanten öffnen"
+  },
+  "allTenants": {
+    "open": "Alle Mandanten vergleichen",
+    "unavailable": {
+      "title": "Die Statistik aller Mandanten ist hier nicht verfügbar",
+      "description": "Sie zählt alle Mandanten der Installation zusammen und steht Mitgliedern des Provider-Teams offen, deren Rolle alle Mandanten umfasst, in Installationen mit Mandantenverwaltung.",
+      "tenantAction": "Statistik in der Übersicht öffnen"
+    }
   },
   "notAdmin": {
     "title": "Die Statistik ist Administratoren vorbehalten",
@@ -86,7 +91,7 @@
       "hint": "Elemente, die ein Lauf nicht verarbeiten konnte"
     },
     "verifiedShare": {
-      "label": "Per Restore-Prüfung verifiziert",
+      "label": "Per Restore-Prüfung nachgewiesen",
       "hint": "Anteil der geschützten Objekte mit bestandener Restore-Prüfung"
     },
     "protectedObjects": {
@@ -182,19 +187,19 @@
       "summary": "Der Speicher wuchs in diesem Zeitraum von {first} auf {last}."
     },
     "jobDurations": {
-      "title": "Laufzeiten der Jobs",
-      "description": "Typische (p50) und langsame (p95) Laufzeit je Jobart in diesem Zeitraum.",
+      "title": "Laufzeiten",
+      "description": "Typische (p50) und langsame (p95) Laufzeit je Art des Laufs in diesem Zeitraum.",
       "series": {
         "p50": "Median (p50)",
         "p95": "95. Perzentil (p95)"
       },
       "empty": {
-        "title": "Keine abgeschlossenen Jobs",
-        "description": "In diesem Zeitraum wurde kein Job abgeschlossen."
+        "title": "Keine abgeschlossenen Läufe",
+        "description": "In diesem Zeitraum wurde kein Lauf abgeschlossen."
       },
       "tooltipLabel": "{kind} · {runs}",
       "runs": "{count, plural, one {# Lauf} other {# Läufe}}",
-      "summary": "Die langsamste Jobart war {kind}: typisch {p50}, langsame Läufe {p95}."
+      "summary": "Die langsamste Art war {kind}: typisch {p50}, langsame Läufe {p95}."
     },
     "throttling": {
       "title": "Wartezeiten durch Drosselung",
@@ -282,7 +287,7 @@
     "green": "Bereit",
     "yellow": "Achtung",
     "red": "Nicht wiederherstellbar",
-    "unverified": "Nicht geprüft",
+    "unverified": "Nicht nachgewiesen",
     "unknown": "Unbekannt"
   },
   "jobKinds": {
@@ -310,7 +315,7 @@
     "green": "Bereit",
     "yellow": "Achtung",
     "red": "Nicht wiederherstellbar",
-    "unverified": "Nicht geprüft",
+    "unverified": "Nicht nachgewiesen",
     "none": "Unbekannt",
     "no_backup": "Noch keine Sicherung"
   }

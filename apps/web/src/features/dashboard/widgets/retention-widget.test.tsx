@@ -17,7 +17,7 @@ import { RetentionWidget } from "./retention-widget.js";
  * honest "no policy" state with the recommended default, a built-in
  * preset's full rule sentence, a custom/legacy policy's cutoff with an
  * honest thinning note, and the guard sentence (newest restore point, and
- * its only verified one, are never removed).
+ * its only checked one, are never removed).
  */
 
 function render(node: React.ReactNode): string {
@@ -118,7 +118,7 @@ describe("retention dashboard widget", () => {
     expect(html).toContain("Policy: Standard");
     expect(html).toContain("Recommended (30 d, then daily to 90 d, then weekly to 1 y)");
     // The guard is stated, not just implied.
-    expect(html).toContain("newest restore point of an object, and its only verified one");
+    expect(html).toContain("newest restore point of an object, and its only checked one");
     // Never the misleading flat-cutoff phrasing for a tiered preset.
     expect(html).not.toContain("older than 365 days are pruned");
   });

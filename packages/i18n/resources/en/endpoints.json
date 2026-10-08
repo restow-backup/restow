@@ -35,7 +35,7 @@
   "activity": {
     "backup": "Backup running",
     "restore": "Restore running",
-    "verify_sample": "Restore test running",
+    "verify_sample": "Restore check running",
     "busy": "Working"
   },
   "readiness": {
@@ -43,21 +43,24 @@
       "green": "Ready",
       "yellow": "Attention",
       "red": "Not restorable",
-      "unverified": "Not verified",
+      "unverified": "Unverified",
       "no_backup": "No backup yet"
     },
     "overdue": "Overdue",
-    "overdueHint": "The newest backup has not been checked by a restore test for more than a week."
+    "overdueHint": "The newest backup has not been checked by a restore check for more than a week.",
+    "frozen": "Checked {time}; no new backups are added",
+    "frozenUndated": "Old restore point; no new backups are added",
+    "frozenHint": "The machine is in no backup job. The rating is for an older restore point that nothing renews."
   },
   "runKind": {
     "backup": "Backup",
     "restore": "Restore to the machine",
-    "verify_sample": "Restore test on the machine"
+    "verify_sample": "Restore check on the machine"
   },
   "runStatus": {
     "running": "Running",
     "succeeded": "Succeeded",
-    "partial": "Partial",
+    "partial": "With warnings",
     "failed": "Failed",
     "interrupted": "Interrupted",
     "incomplete": "Not completed, will be retried",
@@ -82,14 +85,14 @@
       "message": "The most recent backup run failed and saved nothing new. Open the run under Runs to read its log and errors."
     },
     "restore_test_failed": {
-      "label": "Restore test failed",
-      "hint": "Files of the newest backup did not come back intact in a restore test.",
-      "message": "A restore test of the newest backup failed: sampled files could not be read back or did not match. Until a test passes, this backup counts as not restorable. See Reports for the differences."
+      "label": "Restore check failed",
+      "hint": "Files of the newest backup did not come back intact in a restore check.",
+      "message": "A restore check of the newest backup failed: sampled files could not be read back or did not match. Until a restore check passes, this backup counts as not restorable. See Reports for the differences."
     },
     "repository_damaged": {
-      "label": "Repository damaged",
-      "hint": "A repository check found damage in the stored backup data.",
-      "message": "A repository check found damage in the stored backup data of this machine. Restores may fail. See Reports for details, and check the storage target."
+      "label": "Backup data damaged",
+      "hint": "An integrity check found damage in the stored backup data.",
+      "message": "An integrity check found damage in the stored backup data of this machine. Restores may fail. See Reports for details, and check the storage location."
     },
     "never_seen": {
       "label": "Never connected",
@@ -114,7 +117,7 @@
     "noBackupYet": "No backup yet",
     "backupRunning": "Backup running",
     "backupFailed": "Failed",
-    "backupPartial": "Partial",
+    "backupPartial": "With warnings",
     "columns": {
       "name": "Name",
       "profile": "Type",
@@ -137,7 +140,9 @@
       "noRestorePoint": "The machine has no backup to restore from yet.",
       "revoked": "The machine is revoked.",
       "newJobFromSelection": "{count, plural, one {New job with # machine} other {New job with # machines}}",
-      "addSelectionToJob": "{count, plural, one {Add # machine to a job…} other {Add # machines to a job…}}"
+      "addSelectionToJob": "{count, plural, one {Add # machine to a job…} other {Add # machines to a job…}}",
+      "backupSelection": "{count, plural, one {Back up # machine now} other {Back up # machines now}}",
+      "backupSelectionNoJob": "None of the chosen machines is in a backup job."
     },
     "jobFilter": {
       "without": "Without backup",
@@ -157,11 +162,11 @@
       },
       "servers": {
         "title": "No servers yet",
-        "description": "Add a Linux server: {appName} creates a one-time command that installs the backup agent and connects the server. It is then backed up every day."
+        "description": "Add a Linux or macOS server: {appName} creates a one-time command that installs the backup agent and connects the server. It is backed up once you add it to a backup job."
       },
       "clients": {
         "title": "No clients yet",
-        "description": "Add a laptop or desktop: {appName} creates a one-time command that installs the backup agent. The client is backed up whenever it is online."
+        "description": "Add a laptop or desktop: {appName} creates a one-time command that installs the backup agent. The client is backed up once you add it to a backup job."
       }
     }
   },
@@ -188,7 +193,8 @@
     "submit": "Add",
     "move": "Move here",
     "added": "{count, plural, one {{name} is now in the job {job}} other {# machines are now in the job {job}}}",
-    "addedNote": "The job's schedule applies from the machine's next contact."
+    "addedNote": "The job's schedule applies from the machine's next contact.",
+    "folders": "Folders: {path}"
   },
   "assign": {
     "action": "Assign to…",
@@ -300,6 +306,11 @@
         "description": "The address {url} in the command was taken from this browser, because no public URL is configured. The machine must be able to reach exactly this address.",
         "link": "Set the public URL in the settings",
         "elsewhere": "Whoever runs this installation sets the public address."
+      },
+      "storage": {
+        "title": "The storage location is failing",
+        "description": "You can enroll the machine, but its backups cannot be written until the storage location's fault is fixed.",
+        "link": "Open storage locations"
       }
     },
     "status": {
@@ -390,13 +401,14 @@
       "needsJob": "Add the machine to a backup job first."
     },
     "test": {
-      "label": "Run restore test",
-      "queued": "Restore test queued",
+      "label": "Start restore check",
+      "queued": "Restore check scheduled",
       "queuedNote": "{appName} reads sample files of the newest backup back and compares their checksums. The result appears under Reports.",
-      "already": "A restore test is already queued or running for this machine.",
-      "failed": "The restore test could not be started",
-      "needsBackup": "A restore test needs a successful backup first."
-    }
+      "already": "A restore check for this machine is already waiting or running.",
+      "failed": "The restore check could not be started",
+      "needsBackup": "A restore check needs a successful backup first."
+    },
+    "revoked": "The machine is revoked."
   },
   "facts": {
     "title": "This machine",
@@ -430,15 +442,15 @@
     "configRevoked": "Version {version}"
   },
   "repository": {
-    "title": "Repository",
-    "description": "The restic repository that holds the backups of this machine in your storage target.",
+    "title": "Backup data",
+    "description": "The restic repository that holds the backups of this machine in your storage location.",
     "size": "Size in storage",
     "snapshots": "Snapshots kept",
     "measured": "Measured",
     "notMeasured": "Not measured yet; it appears with the first backup",
     "lastRetention": "Last retention run",
-    "lastCheck": "Last repository check",
-    "lastRestoreTest": "Last restore test",
+    "lastCheck": "Last integrity check",
+    "lastRestoreTest": "Last restore check",
     "retention": "Kept: {daily} daily, {weekly} weekly and {monthly} monthly snapshots. Only the server removes older ones; the agent can add backups but never delete them.",
     "ofBudget": "{used} of {budget} ({percent} %)",
     "budget": "Storage budget",
@@ -449,7 +461,7 @@
     "tenantOf": "{used} of {budget}",
     "refused": "Last refused upload",
     "quota": {
-      "near": "The repository uses more than 90 percent of its storage budget. Raise the budget in the settings or keep fewer snapshots before new backups are refused.",
+      "near": "The backup data of this machine uses more than 90 percent of its storage budget. Raise the budget in the settings or keep fewer restore points before new backups are refused.",
       "exceeded": "The storage budget is used up: new backups of this machine are refused until the budget is raised or retention frees space. Restores keep working."
     }
   },
@@ -459,7 +471,7 @@
     "kind": {
       "backup_now": "Back up now",
       "restore": "Restore",
-      "verify_sample": "Restore test",
+      "verify_sample": "Restore check",
       "update_config": "Apply new settings",
       "uninstall": "Uninstall the agent"
     },
@@ -481,7 +493,7 @@
   },
   "runs": {
     "title": "Runs",
-    "description": "What the agent did on this machine: backups, restores and restore tests, newest first. Open a run for its log and the files it could not read.",
+    "description": "What the agent did on this machine: backups, restores and restore checks, newest first. Open a run for its log and the files it could not read.",
     "empty": "No run reported yet. The first one appears after the machine has started a backup.",
     "unknown": "Unknown",
     "columns": {
@@ -512,7 +524,7 @@
       "filesNew": "New files",
       "filesChanged": "Changed files",
       "filesUnmodified": "Unchanged files",
-      "dataAdded": "Data added to the repository"
+      "dataAdded": "Data added to storage"
     },
     "progress": {
       "heading": "Progress",
@@ -538,17 +550,17 @@
       "empty": "The agent sent no log for this run."
     },
     "interruptedNote": "The agent was restarted while this run was going and picks the work up again by itself. This is not a failure; nothing needs to be done.",
-    "incompleteNote": "This restore test could not complete, so it says nothing about the backup: nothing was rated, no alert went out, and the last restore test stays as it was. The machine gets the test again after a wait while this backup is its newest; otherwise the next backup brings a new test.",
-    "incompleteNoteFinal": "This restore test could not complete, so it says nothing about the backup: nothing was rated and no alert went out. The machine is revoked and gets no more tests.",
+    "incompleteNote": "This restore check could not complete, so it says nothing about the backup: nothing was rated, no alert went out, and the last restore check stays as it was. The machine gets the restore check again after a wait while this backup is its newest; otherwise the next backup brings a new one.",
+    "incompleteNoteFinal": "This restore check could not complete, so it says nothing about the backup: nothing was rated and no alert went out. The machine is revoked and gets no more restore checks.",
     "errorCount": "{count, plural, one {# error} other {# errors}}"
   },
   "reports": {
     "title": "Reports",
-    "description": "What {appName} found out about the repository: restore tests, repository checks and retention runs.",
-    "empty": "No report yet. Restore tests, repository checks and retention runs appear here.",
+    "description": "What {appName} found out about the backup data: restore checks, integrity checks and retention runs.",
+    "empty": "No report yet. Restore checks, integrity checks and retention runs appear here.",
     "kind": {
-      "restore_test": "Restore test",
-      "repository_check": "Repository check",
+      "restore_test": "Restore check",
+      "repository_check": "Integrity check",
       "retention": "Retention run"
     },
     "origin": {
@@ -563,14 +575,14 @@
       "noResult": "The test did not finish"
     },
     "check": {
-      "headline": "Repository check",
+      "headline": "Integrity check",
       "subset": "Checked {percent}% of the stored data"
     },
     "retention": {
       "headline": "Retention run",
       "removed": "{count, plural, one {# snapshot removed} other {# snapshots removed}}",
       "kept": "{kept} snapshots kept",
-      "size": "Repository size afterwards: {size}",
+      "size": "Size of the backup data afterwards: {size}",
       "unrecorded": "{count, plural, one {# snapshot no backup reported was kept} other {# snapshots no backup reported were kept}}"
     },
     "mismatches": {
@@ -583,28 +595,28 @@
   },
   "snapshots": {
     "title": "Restore points",
-    "description": "{count, plural, one {# snapshot in the repository. Pick one to browse its files.} other {# snapshots in the repository. Pick one to browse its files.}}",
+    "description": "{count, plural, one {# restore point. Pick it to browse its files.} other {# restore points. Pick one to browse its files.}}",
     "files": "{count, plural, one {# file} other {# files}}",
-    "errorTitle": "The snapshots could not be read",
-    "busyTitle": "The repository is busy",
+    "errorTitle": "The restore points could not be read",
+    "busyTitle": "The backup data is busy",
     "empty": {
-      "title": "No snapshot yet",
-      "description": "A snapshot is created by every successful backup. Once the machine has finished its first backup, its restore points appear here."
+      "title": "No restore point yet",
+      "description": "Every successful backup creates a restore point. Once the machine has finished its first backup, its restore points appear here."
     },
     "flags": {
       "unrecorded": "Not reported by any backup",
       "future_time": "Dated in the future",
-      "hint": "Retention keeps this snapshot. Check the machine: it may be compromised."
+      "hint": "Retention keeps this restore point. Check the machine: it may be compromised."
     },
     "timelineLabel": "Restore points of {name}"
   },
   "browser": {
-    "title": "Files in snapshot {id}",
+    "title": "Files in restore point {id}",
     "auditNote": "Browsing and downloading are recorded in the audit log.",
     "pathBar": "Folder path",
-    "root": "Snapshot root",
+    "root": "Top level",
     "pick": {
-      "title": "Pick a snapshot",
+      "title": "Pick a restore point",
       "description": "Choose a restore point on the left to browse its folders and files."
     },
     "columns": {
@@ -619,7 +631,7 @@
     "symlink": "link",
     "special": "special file, cannot be restored",
     "errorTitle": "The folder could not be read",
-    "busyTitle": "The repository is busy",
+    "busyTitle": "The backup data is busy",
     "revokedNote": "This machine is revoked, so files cannot be restored onto it. You can still download them as a ZIP.",
     "selection": {
       "none": "Nothing selected",
@@ -648,16 +660,18 @@
   "restore": {
     "title": "Restore to the machine",
     "description": "The selected files and folders are restored on {name} by its agent.",
-    "selection": "{count, plural, one {# item} other {# items}} from snapshot {id} of {time}",
+    "selection": "{count, plural, one {# item} other {# items}} from restore point {id} of {time}",
     "moreItems": "{count, plural, one {and # more} other {and # more}}",
     "target": {
       "label": "Target folder (optional)",
       "placeholder": "/srv/restore",
-      "hint": "An absolute path on the machine. Without one, the agent creates a new folder named Restow-Restore followed by the date and time, inside the first folder that is backed up.",
+      "hint": "An absolute path on the machine (Linux or macOS), for example /srv/restore-2026. The folder must not exist yet or must be empty, and the folder above it must exist; otherwise the run stops without writing anything. Without one, the agent creates a new folder named Restow-Restore followed by the date and time, inside the first folder that is backed up.",
       "errors": {
-        "notAbsolute": "Enter an absolute path, starting with a slash.",
+        "notAbsolute": "Enter an absolute path starting with /, for example /srv/restore-2026. Windows paths are not supported.",
         "controlCharacters": "The path contains control characters.",
-        "tooLong": "The path is too long."
+        "tooLong": "The path is too long.",
+        "root": "The root folder / cannot be the target. Enter a folder below it.",
+        "notPlain": "Enter the path without “.”, “..”, double or trailing slashes."
       }
     },
     "neverOverwrites": "A restore never overwrites existing files. Everything is written into a new folder, so files that are on the machine now stay untouched.",
@@ -793,7 +807,15 @@
       "keepWeekly": "Weekly snapshots",
       "keepMonthly": "Monthly snapshots",
       "default": "Default: {count}",
-      "note": "The server applies these rules and removes older snapshots; the agent can only add backups, never delete them. Lowering a number permanently removes older snapshots at the next retention run."
+      "note": "The server applies these rules and removes older snapshots; the agent can only add backups, never delete them. Lowering a number permanently removes older snapshots at the next retention run.",
+      "stricter": {
+        "title": "Shorten the retention?",
+        "description": "The next retention run removes older restore points of this machine for good, up to:",
+        "keepDaily": "{count, plural, one {# daily restore point} other {# daily restore points}}",
+        "keepWeekly": "{count, plural, one {# weekly restore point} other {# weekly restore points}}",
+        "keepMonthly": "{count, plural, one {# monthly restore point} other {# monthly restore points}}",
+        "confirm": "Shorten and save"
+      }
     },
     "alerts": {
       "title": "Alerts",
@@ -845,7 +867,7 @@
     },
     "quota": {
       "title": "Storage budget",
-      "description": "The most the repository of this machine may take in the storage target. Uploads beyond it are refused; restores keep working.",
+      "description": "The most the backup data of this machine may take in the storage location. Uploads beyond it are refused; restores keep working.",
       "label": "Budget in GiB",
       "hintDefault": "Leave empty for the installation's default of {size}.",
       "hintUnlimited": "Leave empty for no limit (the installation sets none).",
@@ -855,15 +877,15 @@
   "repositoryKey": {
     "title": "Restore without {appName}",
     "description": "The backup of this machine is a normal restic repository.",
-    "body": "With the repository password and access to the storage target, you can restore the backup with restic alone, even if this {appName} server is gone. The server also keeps the password sealed next to the repository, so the master key and the storage are enough: the command restow-restore endpoint-password recovers it. Keep the password safe all the same, for example in a password manager.",
+    "body": "With the repository password and access to the storage location, you can restore the backup with restic alone, even if this {appName} server is gone. The server also keeps the password sealed next to the restic repository, so the master key and the storage are enough: the command restow-restore endpoint-password recovers it. Keep the password safe all the same, for example in a password manager.",
     "show": "Show repository password",
     "dialog": {
       "title": "Repository password",
-      "description": "Confirm that you want to see the password of this machine's repository.",
+      "description": "Confirm that you want to see the repository password of this machine.",
       "shownDescription": "Copy the password now. It is hidden again when you close this window.",
       "warningTitle": "Handle with care",
       "audit": "Showing the password is recorded in the audit log.",
-      "power": "The password decrypts the whole backup of this machine. Anyone who has it and can read the storage target can read every backed-up file.",
+      "power": "The password decrypts the whole backup of this machine. Anyone who has it and can read the storage location can read every backed-up file.",
       "stepUp": "If you signed in more than 10 minutes ago, you confirm it is you first.",
       "cancel": "Cancel",
       "confirm": "Show password",
@@ -872,7 +894,7 @@
       "hideNote": "Not stored in this browser. Closing the window hides it.",
       "example": "Example command",
       "copyCommand": "Copy the example command",
-      "exampleNote": "Replace /path/to/storage with the folder of your storage target and run restic with this password. It restores the newest snapshot into /restore. For object storage, use the restic repository address of your bucket instead.",
+      "exampleNote": "Replace /path/to/storage with the folder of your storage location and run restic with this password. It restores the newest snapshot into /restore. For object storage, use the restic repository address of your bucket instead.",
       "hide": "Hide and close"
     }
   },
@@ -910,9 +932,9 @@
   },
   "errors": {
     "resticBusy": "The server is reading other backups right now. Try again in a moment.",
-    "repositoryLocked": "The repository is busy with a backup or maintenance. Try again shortly.",
-    "repositoryUnavailable": "The repository of this machine could not be opened in the storage target. Check that the storage target is reachable.",
-    "resticFailed": "Reading the repository failed. The details are in the server log.",
+    "repositoryLocked": "The backup data is busy with a backup or maintenance. Try again shortly.",
+    "repositoryUnavailable": "The backup data of this machine could not be opened in the storage location. Check that the storage location is reachable.",
+    "resticFailed": "Reading the backup data failed. The details are in the server log.",
     "resticUnavailable": "The restic program is not available on the server, so snapshots cannot be read.",
     "unsupportedOs": "This operating system is not supported yet. This release backs up Linux and macOS machines.",
     "revoked": "This machine is revoked and takes no changes or tasks.",
@@ -938,10 +960,10 @@
     "open": "Open",
     "openFor": "Open {name}",
     "result": {
-      "green": "The restore test of the newest backup matched every checked file.",
-      "yellow": "The restore test passed, but the newest backup is partial: some files could not be read.",
-      "red": "The restore test of the newest backup failed, or a repository check found damage.",
-      "unverified": "A backup exists but was never verified.",
+      "green": "The restore check of the newest backup matched every checked file.",
+      "yellow": "The restore check passed, but the newest backup has warnings: some files could not be read.",
+      "red": "The restore check of the newest backup failed, or an integrity check found damage.",
+      "unverified": "A backup exists but was never checked.",
       "noBackup": "Nothing to verify until the first backup completes.",
       "noBackupOverdue": "No backup within 24 hours of protection starting."
     }
@@ -954,14 +976,17 @@
     "hooks_not_allowed": "The command before or after the backup was not run: the machine does not allow hooks from {appName}",
     "timeout": "The run took too long and was stopped",
     "target_not_empty": "The target folder was not empty, so nothing was restored and nothing was overwritten",
+    "target_unusable": "The target folder could not be used, for example because the folder above it is missing or permissions are lacking. Nothing was restored.",
     "invalid_task": "The machine could not carry out the request",
     "hash_mismatch": "A file differs from the checksum recorded at backup time",
-    "missing": "A file was not found in the snapshot",
+    "missing": "A file was not found in the restore point",
     "not_regular": "The entry is not a regular file, so it could not be compared",
     "read_error": "A file could not be read",
     "restic_exit": "restic ended with exit code {code}",
+    "restic_error": "restic stopped with an error",
+    "truncated": "Further errors are not listed here",
     "unknown": "Error code {code}",
-    "detail": "Message from the agent",
+    "detail": "Technical message from the agent",
     "agent_stopped": "The agent stopped reporting while the run was in progress"
   },
   "agentUpdates": {
@@ -1018,6 +1043,6 @@
   "proxmox": {
     "label": "Connect Proxmox",
     "title": "Proxmox VE",
-    "description": "Connect Proxmox VE 8.4 or newer and back up virtual machines and LXC containers through Proxmox's official backup interface: only changed blocks leave the host, straight into your {appName} repositories. Coming after 0.2.0."
+    "description": "Connect Proxmox VE 8.4 or newer and back up VMs and LXC containers through Proxmox's official backup interface: only changed blocks leave the node, straight into your storage locations. Coming after 0.2.0."
   }
 }

@@ -51,6 +51,12 @@ vi.mock("../api.js", async (importOriginal) => {
   };
 });
 
+const fetchJobDefaults = vi.fn();
+vi.mock("@/features/backup-jobs/api", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/features/backup-jobs/api")>();
+  return { ...actual, fetchJobDefaults: (...args: unknown[]) => fetchJobDefaults(...args) };
+});
+
 const SECRET = "rset_TOPSECRETVALUE";
 const INSTALL = "curl -fsSL 'https://restow.example/install/linux.sh' | sudo sh";
 const UNATTENDED =
@@ -142,6 +148,8 @@ describe("EnrollDialog", () => {
     createToken.mockReset();
     fetchTokens.mockReset();
     fetchTokens.mockResolvedValue([]);
+    fetchJobDefaults.mockReset();
+    fetchJobDefaults.mockResolvedValue({ repository: { status: "ok" } });
   });
   afterEach(() => {
     page?.unmount();
@@ -171,6 +179,17 @@ describe("EnrollDialog", () => {
     expect(page.text()).toContain("does not create disk images");
     // Nothing was created yet.
     expect(createToken).not.toHaveBeenCalled();
+  });
+
+  it("warns before enrolling while the storage location fails its check", async () => {
+    viewer.role = "tenant_admin";
+    fetchJobDefaults.mockResolvedValue({ repository: { status: "error" } });
+    await open();
+    await page.settle();
+    expect(document.querySelector('[data-warning="storage_error"]')?.textContent).toContain(
+      "its backups cannot be written",
+    );
+    viewer.role = null;
   });
 
   it("does not let a click on the planned system choose it", async () => {

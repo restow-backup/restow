@@ -2,10 +2,12 @@ import type { Webhook, WebhookDelivery } from "@restow/db";
 import { describe, expect, it } from "vitest";
 import {
   WEBHOOK_EVENTS,
+  WEBHOOK_FORMATS,
   WEBHOOK_MAX_ATTEMPTS,
   WEBHOOK_PAYLOAD_VERSION,
   buildWebhookEnvelope,
   generateWebhookSecret,
+  isSignedFormat,
   isWebhookEvent,
 } from "../../lib/webhooks.js";
 import { ProblemError } from "../../problem.js";
@@ -32,6 +34,7 @@ function webhook(overrides: Partial<Webhook> = {}): Webhook {
     secretRef: "44444444-4444-4444-8444-444444444444",
     events: ["job.failed", "job.completed"],
     active: true,
+    format: "restow",
     createdAt: new Date("2026-09-01T08:00:00Z"),
     updatedAt: new Date("2026-09-02T08:00:00Z"),
     ...overrides,
@@ -124,7 +127,27 @@ describe("webhook request schemas", () => {
       // Deduplicated and in the documented order.
       events: ["job.failed", "job.completed"],
       active: true,
+      // Existing integrations that never name a format keep the signed envelope.
+      format: "restow",
     });
+  });
+
+  it("accept every format and nothing else", () => {
+    const base = { url: "https://discord.com/api/webhooks/1/abc", events: ["job.failed"] };
+    for (const format of WEBHOOK_FORMATS) {
+      expect(createWebhookSchema.parse({ ...base, format }).format).toBe(format);
+    }
+    expect(createWebhookSchema.safeParse({ ...base, format: "mattermost" }).success).toBe(false);
+    expect(createWebhookSchema.safeParse({ ...base, format: "" }).success).toBe(false);
+    expect(createWebhookSchema.safeParse({ ...base, format: null }).success).toBe(false);
+    // A chat format needs no secret or anything else beyond URL and events.
+    expect(createWebhookSchema.safeParse({ ...base, format: "discord" }).success).toBe(true);
+    expect(updateWebhookSchema.parse({ format: "teams" })).toEqual({ format: "teams" });
+    expect(updateWebhookSchema.safeParse({ format: "xml" }).success).toBe(false);
+  });
+
+  it("sign only the restow format", () => {
+    expect(WEBHOOK_FORMATS.filter(isSignedFormat)).toEqual(["restow"]);
   });
 
   it("accept the RMM contract shape (url and events only)", () => {
@@ -133,9 +156,9 @@ describe("webhook request schemas", () => {
     ).toBe(true);
   });
 
-  it("refuse unknown events, empty subscriptions and bad URLs", () => {
+  it("refuse unknown events and bad URLs, and allow a webhook only rules send to", () => {
     const base = { url: "https://x.example", events: ["job.failed"] };
-    expect(createWebhookSchema.safeParse({ ...base, events: [] }).success).toBe(false);
+    expect(createWebhookSchema.safeParse({ ...base, events: [] }).success).toBe(true);
     expect(createWebhookSchema.safeParse({ ...base, events: ["job.started"] }).success).toBe(false);
     expect(createWebhookSchema.safeParse({ ...base, url: "ftp://x.example" }).success).toBe(false);
   });
@@ -233,6 +256,7 @@ describe("webhook DTOs", () => {
       url: "https://dash.example.com/hooks/restow",
       events: ["job.failed", "job.completed"],
       active: true,
+      format: "restow",
       secretConfigured: true,
       stats: { pending: 0, failedLast24h: 0, deliveredLast24h: 0, lastDelivery: null },
     });
@@ -278,6 +302,8 @@ describe("describeChanges", () => {
       events: ["job.failed"],
     });
     expect(describeChanges(before, { name: null })).toEqual({ name: null });
+    expect(describeChanges(before, { format: "slack" })).toEqual({ format: "slack" });
+    expect(describeChanges(before, { format: "restow" })).toEqual({});
   });
 
   it("reduce URLs to their origin", () => {

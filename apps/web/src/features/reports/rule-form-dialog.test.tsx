@@ -100,3 +100,24 @@ describe("the recipients field of a rule", () => {
     expect(field?.readOnly).toBe(false);
   });
 });
+
+describe("the deadline for missing backups", () => {
+  it("is not offered for a rule without backup.overdue", async () => {
+    await open({ events: ["backup.failed"] });
+    expect(document.querySelector('[data-slot="overdue-deadline"]')).toBeNull();
+  });
+
+  it("shows the rule's own hours for a rule with backup.overdue", async () => {
+    await open({ events: ["backup.overdue"], overdueAfterHours: 96 });
+    expect(document.querySelector('[data-slot="overdue-deadline"]')).not.toBeNull();
+    expect(document.body.textContent).toContain("Deadline for missing backups");
+    expect(document.body.textContent).toContain("Own deadline");
+    expect(document.querySelector<HTMLInputElement>("#rule-overdue-hours")?.value).toBe("96");
+  });
+
+  it("follows the schedules for a rule without a deadline of its own", async () => {
+    await open({ events: ["backup.overdue"], overdueAfterHours: null });
+    expect(document.body.textContent).toContain("By the backup jobs' schedules");
+    expect(document.querySelector("#rule-overdue-hours")).toBeNull();
+  });
+});

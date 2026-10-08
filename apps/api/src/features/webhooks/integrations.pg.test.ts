@@ -432,6 +432,39 @@ describe.skipIf(!testDatabaseAdminUrl)("API keys and webhooks against Postgres",
       expect(entry?.details).toMatchObject({ urlOrigin: "https://dash.example.com" });
     });
 
+    it("stores the format: restow by default, a chat format on request, changeable", async () => {
+      const signed = await createHook({ url: "https://psa.example/hook", events: ["job.failed"] });
+      expect((signed as CreatedHook & { format: string }).format).toBe("restow");
+      const chat = (await createHook({
+        url: "https://discord.com/api/webhooks/1/token",
+        events: ["job.failed"],
+        format: "discord",
+      })) as CreatedHook & { format: string };
+      expect(chat.format).toBe("discord");
+      const [row] = await db.select().from(webhooks).where(eq(webhooks.id, chat.id));
+      expect(row?.format).toBe("discord");
+
+      const refused = await app.request("/webhooks", {
+        method: "POST",
+        headers: { authorization: `Bearer ${manager}`, "content-type": "application/json" },
+        body: JSON.stringify({ url: "https://x.example", events: ["job.failed"], format: "irc" }),
+      });
+      expect(refused.status).toBe(422);
+
+      const patched = await app.request(`/webhooks/${chat.id}`, {
+        method: "PATCH",
+        headers: { authorization: `Bearer ${manager}`, "content-type": "application/json" },
+        body: JSON.stringify({ format: "slack" }),
+      });
+      expect(patched.status).toBe(200);
+      expect(((await patched.json()) as { format: string }).format).toBe("slack");
+      const [entry] = await db
+        .select()
+        .from(auditLog)
+        .where(and(eq(auditLog.action, "webhook.updated"), eq(auditLog.target, chat.id)));
+      expect(entry?.details).toMatchObject({ format: "slack" });
+    });
+
     it("fans an emitted event out to subscribed, active webhooks only", async () => {
       const failed = await createHook({ url: "https://a.example/hook", events: ["job.failed"] });
       const completed = await createHook({
@@ -514,6 +547,19 @@ describe.skipIf(!testDatabaseAdminUrl)("API keys and webhooks against Postgres",
       const listed = (await hooks.listWebhooks(db, tenantId)).find((item) => item.id === hook.id);
       expect(listed?.stats.pending).toBe(5);
       expect(listed?.stats.lastDelivery?.id).toBe(seen[0]);
+
+      // The same log as CSV, for proof that a receiver was told.
+      const csv = await app.request(`/webhooks/${hook.id}/deliveries/export`, bearer(manager));
+      expect(csv.status).toBe(200);
+      expect(csv.headers.get("content-type")).toContain("text/csv");
+      const lines = (await csv.text())
+        .replace(/^\uFEFF/, "")
+        .trim()
+        .split("\r\n");
+      expect(lines[0]).toBe(
+        "createdAt,event,eventId,status,attempts,deliveredAt,error,httpStatus,detail",
+      );
+      expect(lines).toHaveLength(6);
     });
 
     it("queues test events and redelivers finished deliveries with the same event id", async () => {

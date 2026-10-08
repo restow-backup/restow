@@ -25,7 +25,17 @@ export type JobOrigin = "user" | "migration";
  * or missing restore check, or nothing backed up yet), empty (nothing in
  * scope), ok. `ok` says the backups ran, not that they are restorable.
  */
-export type JobState = "paused" | "failing" | "running" | "queued" | "attention" | "empty" | "ok";
+export type JobState =
+  | "paused"
+  | "empty"
+  | "storage_error"
+  | "failing"
+  | "running"
+  | "queued"
+  | "overdue"
+  | "manual"
+  | "attention"
+  | "ok";
 
 // --- Schedule and settings (packages/core backup-jobs/types.ts) -------------------
 
@@ -84,6 +94,12 @@ export interface Repository {
   kind: "local" | "s3" | "installation_default";
   role: "primary" | "copy" | "previous" | null;
   status: "unverified" | "ok" | "error" | null;
+  /**
+   * Whether the target's bucket enforces S3 Object Lock (WORM): what the last
+   * check of the target found. False for a local target; null for the
+   * installation default, whose bucket this view does not know.
+   */
+  objectLock: boolean | null;
 }
 
 export interface JobRetentionView {
@@ -135,6 +151,8 @@ export interface BackupJob {
   kind: JobKind;
   name: string;
   enabled: boolean;
+  /** Mail jobs: the job's mailboxes are archived through journaling. Machine jobs: false. */
+  archive: boolean;
   origin: JobOrigin;
   scopeMode: JobScopeMode;
   /** Null: no schedule, the job runs when someone starts it. */
@@ -158,6 +176,8 @@ export interface BackupJobList {
   items: BackupJob[];
   /** What no job covers: active mail objects, and machines that are in no job. */
   uncovered: { mail: number; endpoint: number };
+  /** In a job, but the job is paused or runs by hand only: not backed up on a schedule. */
+  unscheduled?: { mail: number; endpoint: number };
 }
 
 export type MemberKind = "mailbox" | "onedrive" | "imap" | "server" | "client";
@@ -237,6 +257,8 @@ export interface JobDefaults {
   verifySchedule: JobSchedule | null;
   /** Machine jobs: the folders and exclusions a new Linux server starts with; `{}` for mail jobs. */
   settings: JobEndpointSettings;
+  /** Machine jobs started from chosen machines: their systems and profiles; null otherwise. */
+  basis?: { os: string[]; profiles: ("server" | "client")[]; mixed: boolean } | null;
   /** The tenant's primary storage target: the only one jobs write to. */
   repository: Repository;
   retentionPolicies: RetentionPolicyChoice[];
@@ -298,6 +320,8 @@ export interface CreateBackupJobInput {
   retentionPolicyId?: string | null;
   settings?: JobEndpointSettings;
   enabled?: boolean;
+  /** Mail jobs: archive the job's mailboxes through journaling. */
+  archive?: boolean;
   /** Take objects and machines that belong to another job instead of refusing them. */
   moveMembers?: boolean;
 }
@@ -311,6 +335,7 @@ export interface UpdateBackupJobInput {
   retentionPolicyId?: string | null;
   settings?: JobEndpointSettings;
   enabled?: boolean;
+  archive?: boolean;
 }
 
 export interface ReplaceMembersInput {
@@ -377,8 +402,8 @@ export const backupJobKeys = {
     ["tenant", tenantId, "backup-jobs", "detail", jobId, "members"] as const,
   runs: (tenantId: TenantKey, jobId: string, limit: number) =>
     ["tenant", tenantId, "backup-jobs", "detail", jobId, "runs", limit] as const,
-  defaults: (tenantId: TenantKey, kind: JobKind) =>
-    ["tenant", tenantId, "backup-jobs", "defaults", kind] as const,
+  defaults: (tenantId: TenantKey, kind: JobKind, endpointIds: readonly string[] = []) =>
+    ["tenant", tenantId, "backup-jobs", "defaults", kind, ...endpointIds] as const,
   candidates: (tenantId: TenantKey, kind: JobKind, search: string, limit: number) =>
     ["tenant", tenantId, "backup-jobs", "candidates", kind, search, limit] as const,
 };
@@ -405,8 +430,13 @@ export function fetchBackupJobs(kind?: JobKind): Promise<BackupJobList> {
   return apiFetch<BackupJobList>(`${BASE}${queryString({ kind })}`);
 }
 
-export function fetchJobDefaults(kind: JobKind): Promise<JobDefaults> {
-  return apiFetch<JobDefaults>(`${BASE}/defaults${queryString({ kind })}`);
+export function fetchJobDefaults(
+  kind: JobKind,
+  endpointIds: readonly string[] = [],
+): Promise<JobDefaults> {
+  return apiFetch<JobDefaults>(
+    `${BASE}/defaults${queryString({ kind, endpointIds: endpointIds.join(",") })}`,
+  );
 }
 
 export function fetchJobCandidates(

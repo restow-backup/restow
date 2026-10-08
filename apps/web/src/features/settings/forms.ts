@@ -3,7 +3,16 @@ import { z } from "zod";
 
 import type { MailTransport, OperatingMode, SmtpSecurity } from "@/lib/api";
 import { validationKey } from "@/lib/form";
-import type { InstallationSettings, MailInput, MailSettings, SettingsPatch } from "./api";
+import { PASSWORD_MIN_LENGTH } from "@/lib/password";
+import type {
+  CredentialKind,
+  GraphMailApp,
+  InstallationSettings,
+  MailInput,
+  MailSettings,
+  SettingsPatch,
+} from "./api";
+import { MICROSOFT_APP_FIELD_REASONS } from "./microsoft-app/presenters";
 
 /**
  * Form models and validation for the settings sections. The rules mirror the
@@ -21,7 +30,10 @@ const FEATURE_REASONS: ReadonlySet<string> = new Set([
   "passwordRequired",
   "usernameRequired",
   "tenantId",
+  "tenantGuid",
+  "serviceAccountKey",
   "host",
+  "samePassword",
 ]);
 
 /**
@@ -35,6 +47,10 @@ export function fieldMessageKey(error: FieldError | undefined): string | undefin
   const reason = typeof error.message === "string" ? error.message : "";
   if (FEATURE_REASONS.has(reason)) {
     return `settings:validation.${reason}`;
+  }
+  // The own app registration's fields share their reasons with Installation › Microsoft 365.
+  if (MICROSOFT_APP_FIELD_REASONS.has(reason)) {
+    return `settings:microsoftApp.validation.${reason}`;
   }
   const key = validationKey(error);
   return key ? `common:${key}` : undefined;
@@ -150,6 +166,30 @@ export function leavesPublicMode(
   return settings.operatingMode === "public" && values.operatingMode === "local";
 }
 
+/**
+ * Why a change would make the registered passkeys stop working, or null:
+ * leaving public mode hides the passkey sign-in, and a public URL on another
+ * host name is another WebAuthn relying party, for which no passkey exists.
+ * A new port or scheme on the same host keeps the passkeys.
+ */
+export type PasskeyLoss = "leave_public" | "host_change";
+
+export function passkeyLoss(
+  values: GeneralFormValues,
+  settings: Pick<InstallationSettings, "operatingMode" | "publicUrl">,
+): PasskeyLoss | null {
+  if (leavesPublicMode(values, settings)) {
+    return "leave_public";
+  }
+  if (settings.operatingMode !== "public" || values.operatingMode !== "public") {
+    return null;
+  }
+  const before = settings.publicUrl ? parseUrl(settings.publicUrl)?.hostname : undefined;
+  const origin = publicUrlOrigin(values.publicUrl);
+  const after = origin ? parseUrl(origin)?.hostname : undefined;
+  return before && after && before !== after ? "host_change" : null;
+}
+
 // --- Mail ---------------------------------------------------------------------------------
 
 export const SMTP_SECURITY: readonly SmtpSecurity[] = ["starttls", "tls", "none"];
@@ -171,15 +211,39 @@ export interface MailFormValues {
     from: string;
   };
   graph: {
+    /** The notification mail's own app registration, or the backup app. */
+    app: GraphMailApp;
     sender: string;
     tenantId: string;
+    clientId: string;
+    credentialKind: CredentialKind;
+    /** Write-only: empty keeps the stored secret (same tenant, app and kind). */
+    clientSecret: string;
+    /** Write-only: empty keeps the stored certificate (same tenant, app and kind). */
+    certificatePem: string;
+  };
+  google: {
+    sender: string;
+    /** Write-only: the service account's JSON key; empty keeps the stored one. */
+    serviceAccountKey: string;
   };
 }
 
-/** What the mail form compares against: the stored SMTP identity and the environment. */
+/** What the mail form compares against: the stored credentials' identity and the environment. */
 export interface MailFormContext {
   storedSmtp: { host: string; username: string | null; passwordStored: boolean } | null;
   graphDefaultTenantId: string | null;
+  /** The backup app registration is usable, so Graph can send as it. */
+  graphBackupAppConfigured: boolean;
+  /** The own app as stored, when Graph sends as it. */
+  storedGraphOwn: {
+    tenantId: string;
+    clientId: string;
+    credentialKind: CredentialKind;
+    credentialStored: boolean;
+  } | null;
+  /** A Google service account key is stored for the Google transport. */
+  googleKeyStored: boolean;
 }
 
 export function mailFormContext(settings: InstallationSettings): MailFormContext {
@@ -194,6 +258,17 @@ export function mailFormContext(settings: InstallationSettings): MailFormContext
           }
         : null,
     graphDefaultTenantId: settings.capabilities.graphMail.defaultTenantId,
+    graphBackupAppConfigured: settings.capabilities.graphMail.appConfigured,
+    storedGraphOwn:
+      mail.transport === "graph" && mail.graph.app === "own" && mail.graph.ownApp
+        ? {
+            tenantId: mail.graph.tenantId ?? "",
+            clientId: mail.graph.ownApp.clientId,
+            credentialKind: mail.graph.ownApp.credentialKind,
+            credentialStored: mail.graph.ownApp.credentialStored,
+          }
+        : null,
+    googleKeyStored: mail.transport === "google" && mail.google.keyStored,
   };
 }
 
@@ -206,9 +281,24 @@ const EMPTY_SMTP: MailFormValues["smtp"] = {
   from: "",
 };
 
+/** A new Microsoft 365 transport starts with an own app registration (the recommended way). */
+const EMPTY_GRAPH: MailFormValues["graph"] = {
+  app: "own",
+  sender: "",
+  tenantId: "",
+  clientId: "",
+  credentialKind: "secret",
+  clientSecret: "",
+  certificatePem: "",
+};
+
+const EMPTY_GOOGLE: MailFormValues["google"] = { sender: "", serviceAccountKey: "" };
+
 export function mailFormFromSettings(mail: MailSettings): MailFormValues {
+  const empty = { smtp: EMPTY_SMTP, graph: EMPTY_GRAPH, google: EMPTY_GOOGLE };
   if (mail.transport === "smtp") {
     return {
+      ...empty,
       transport: "smtp",
       smtp: {
         host: mail.smtp.host,
@@ -218,17 +308,30 @@ export function mailFormFromSettings(mail: MailSettings): MailFormValues {
         password: "",
         from: mail.smtp.from,
       },
-      graph: { sender: "", tenantId: "" },
     };
   }
   if (mail.transport === "graph") {
     return {
+      ...empty,
       transport: "graph",
-      smtp: EMPTY_SMTP,
-      graph: { sender: mail.graph.sender, tenantId: mail.graph.tenantId ?? "" },
+      graph: {
+        ...EMPTY_GRAPH,
+        app: mail.graph.app,
+        sender: mail.graph.sender,
+        tenantId: mail.graph.tenantId ?? "",
+        clientId: mail.graph.ownApp?.clientId ?? "",
+        credentialKind: mail.graph.ownApp?.credentialKind ?? "secret",
+      },
     };
   }
-  return { transport: "smtp", smtp: EMPTY_SMTP, graph: { sender: "", tenantId: "" } };
+  if (mail.transport === "google") {
+    return {
+      ...empty,
+      transport: "google",
+      google: { sender: mail.google.sender, serviceAccountKey: "" },
+    };
+  }
+  return { ...empty, transport: "smtp" };
 }
 
 function sameHost(a: string, b: string): boolean {
@@ -249,6 +352,23 @@ export function mayKeepStoredPassword(
   const username = smtp.username.trim();
   return (
     sameHost(smtp.host, stored.host) && (username.length > 0 ? username : null) === stored.username
+  );
+}
+
+/**
+ * The own app's stored secret or certificate is only reused for the tenant,
+ * application ID and credential kind it was saved for (the API enforces the
+ * same rule).
+ */
+export function mayKeepGraphCredential(
+  graph: Pick<MailFormValues["graph"], "tenantId" | "clientId" | "credentialKind">,
+  stored: MailFormContext["storedGraphOwn"],
+): boolean {
+  return (
+    stored?.credentialStored === true &&
+    sameHost(graph.tenantId, stored.tenantId) &&
+    sameHost(graph.clientId, stored.clientId) &&
+    graph.credentialKind === stored.credentialKind
   );
 }
 
@@ -283,8 +403,49 @@ export function isValidTenantId(value: string): boolean {
   return TENANT_GUID.test(tenant) || TENANT_DOMAIN.test(tenant);
 }
 
+export function isGuid(value: string): boolean {
+  return TENANT_GUID.test(value.trim());
+}
+
 function isEmail(value: string): boolean {
   return z.string().email().safeParse(value.trim()).success;
+}
+
+/** The public facts of a pasted service account key, or null when it is not one. */
+export interface ServiceAccountKeyPreview {
+  clientEmail: string;
+  clientId: string;
+}
+
+/**
+ * Read what the guide needs (the client ID for the domain-wide delegation)
+ * from a pasted key, without keeping the private key anywhere but the field.
+ * The API checks the key itself again.
+ */
+export function previewServiceAccountKey(text: string): ServiceAccountKeyPreview | null {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (typeof raw !== "object" || raw === null) {
+    return null;
+  }
+  const value = raw as Record<string, unknown>;
+  const { type, client_email: clientEmail, client_id: clientId, private_key: key } = value;
+  if (
+    type !== "service_account" ||
+    typeof clientEmail !== "string" ||
+    !isEmail(clientEmail) ||
+    typeof clientId !== "string" ||
+    !/^\d{6,30}$/.test(clientId) ||
+    typeof key !== "string" ||
+    !key.includes("PRIVATE KEY")
+  ) {
+    return null;
+  }
+  return { clientEmail, clientId };
 }
 
 type Issue = { path: (string | number)[]; message: string };
@@ -314,6 +475,28 @@ function smtpIssues(smtp: MailFormValues["smtp"], context: MailFormContext): Iss
   return issues;
 }
 
+function ownAppIssues(graph: MailFormValues["graph"], context: MailFormContext): Issue[] {
+  const issues: Issue[] = [];
+  const tenant = graph.tenantId.trim();
+  if (tenant.length === 0) {
+    issues.push({ path: ["graph", "tenantId"], message: "required" });
+  } else if (!isGuid(tenant)) {
+    issues.push({ path: ["graph", "tenantId"], message: "tenantGuid" });
+  }
+  const clientId = graph.clientId.trim();
+  if (!isGuid(clientId)) {
+    issues.push({ path: ["graph", "clientId"], message: clientId ? "guid" : "required" });
+  }
+  const field = graph.credentialKind === "secret" ? "clientSecret" : "certificatePem";
+  const supplied = graph[field].trim();
+  if (supplied.length === 0 && !mayKeepGraphCredential(graph, context.storedGraphOwn)) {
+    issues.push({ path: ["graph", field], message: "credentialRequired" });
+  } else if (field === "clientSecret" && isGuid(supplied)) {
+    issues.push({ path: ["graph", field], message: "secretIsId" });
+  }
+  return issues;
+}
+
 function graphIssues(graph: MailFormValues["graph"], context: MailFormContext): Issue[] {
   const issues: Issue[] = [];
   if (!isEmail(graph.sender)) {
@@ -321,6 +504,9 @@ function graphIssues(graph: MailFormValues["graph"], context: MailFormContext): 
       path: ["graph", "sender"],
       message: graph.sender.trim() ? "email" : "required",
     });
+  }
+  if (graph.app === "own") {
+    return [...issues, ...ownAppIssues(graph, context)];
   }
   const tenant = graph.tenantId.trim();
   if (tenant.length > 0 && !isValidTenantId(tenant)) {
@@ -331,11 +517,30 @@ function graphIssues(graph: MailFormValues["graph"], context: MailFormContext): 
   return issues;
 }
 
+function googleIssues(google: MailFormValues["google"], context: MailFormContext): Issue[] {
+  const issues: Issue[] = [];
+  if (!isEmail(google.sender)) {
+    issues.push({
+      path: ["google", "sender"],
+      message: google.sender.trim() ? "email" : "required",
+    });
+  }
+  const key = google.serviceAccountKey.trim();
+  if (key.length === 0) {
+    if (!context.googleKeyStored) {
+      issues.push({ path: ["google", "serviceAccountKey"], message: "required" });
+    }
+  } else if (!previewServiceAccountKey(key)) {
+    issues.push({ path: ["google", "serviceAccountKey"], message: "serviceAccountKey" });
+  }
+  return issues;
+}
+
 /** Only the selected transport's fields are validated. */
 export function mailFormSchema(context: MailFormContext) {
   return z
     .object({
-      transport: z.enum(["smtp", "graph"]),
+      transport: z.enum(["smtp", "graph", "google"]),
       smtp: z.object({
         host: z.string(),
         port: z.string(),
@@ -344,28 +549,65 @@ export function mailFormSchema(context: MailFormContext) {
         password: z.string(),
         from: z.string(),
       }),
-      graph: z.object({ sender: z.string(), tenantId: z.string() }),
+      graph: z.object({
+        app: z.enum(["backup", "own"]),
+        sender: z.string(),
+        tenantId: z.string(),
+        clientId: z.string(),
+        credentialKind: z.enum(["secret", "certificate"]),
+        clientSecret: z.string(),
+        certificatePem: z.string(),
+      }),
+      google: z.object({ sender: z.string(), serviceAccountKey: z.string() }),
     })
     .superRefine((values, ctx) => {
       const issues =
         values.transport === "smtp"
           ? smtpIssues(values.smtp, context)
-          : graphIssues(values.graph, context);
+          : values.transport === "graph"
+            ? graphIssues(values.graph, context)
+            : googleIssues(values.google, context);
       for (const issue of issues) {
         ctx.addIssue({ code: z.ZodIssueCode.custom, ...issue });
       }
     });
 }
 
-/** The API payload for validated form values; an empty password keeps the stored one. */
+/** The API payload for validated form values; an empty secret keeps the stored one. */
 export function toMailInput(values: MailFormValues): MailInput {
   if (values.transport === "graph") {
-    const tenantId = values.graph.tenantId.trim();
+    const { graph } = values;
+    const tenantId = graph.tenantId.trim();
+    const base = {
+      sender: graph.sender.trim(),
+      tenantId: tenantId.length > 0 ? tenantId : null,
+    };
+    if (graph.app === "backup") {
+      return { transport: "graph", graph: { ...base, app: "backup" } };
+    }
+    const clientSecret = graph.clientSecret.trim();
+    const certificatePem = graph.certificatePem.trim();
     return {
       transport: "graph",
       graph: {
-        sender: values.graph.sender.trim(),
-        tenantId: tenantId.length > 0 ? tenantId : null,
+        ...base,
+        app: "own",
+        ownApp: {
+          clientId: graph.clientId.trim(),
+          credentialKind: graph.credentialKind,
+          ...(graph.credentialKind === "secret" && clientSecret ? { clientSecret } : {}),
+          ...(graph.credentialKind === "certificate" && certificatePem ? { certificatePem } : {}),
+        },
+      },
+    };
+  }
+  if (values.transport === "google") {
+    const key = values.google.serviceAccountKey.trim();
+    return {
+      transport: "google",
+      google: {
+        sender: values.google.sender.trim(),
+        ...(key.length > 0 ? { serviceAccountKey: key } : {}),
       },
     };
   }
@@ -423,6 +665,33 @@ export interface PasswordConfirmValues {
 export const passwordConfirmSchema = z.object({
   password: z.string().min(1, "required"),
 });
+
+export interface ChangePasswordValues {
+  current: string;
+  password: string;
+  confirm: string;
+  revokeOtherSessions: boolean;
+}
+
+/**
+ * The own password: the current one, a new one of at least
+ * {@link PASSWORD_MIN_LENGTH} characters that differs from it, typed twice.
+ */
+export const changePasswordSchema = z
+  .object({
+    current: z.string().min(1, "required"),
+    password: z.string().min(PASSWORD_MIN_LENGTH, "minLength"),
+    confirm: z.string(),
+    revokeOtherSessions: z.boolean(),
+  })
+  .superRefine((values, ctx) => {
+    if (values.password !== values.confirm) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["confirm"], message: "passwordMismatch" });
+    }
+    if (values.password !== "" && values.password === values.current) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["password"], message: "samePassword" });
+    }
+  });
 
 export interface TotpCodeValues {
   code: string;
