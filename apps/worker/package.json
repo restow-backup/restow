@@ -18,10 +18,10 @@
     "@restow/core": "workspace:*",
     "@restow/db": "workspace:*",
     "drizzle-orm": "^0.45.3",
-    "imapflow": "^1.0.171",
-    "pg-boss": "^10.1.5"
+    "imapflow": "^1.7.8",
+    "pg-boss": "^10.4.2"
   },
   "devDependencies": {
-    "tsx": "^4.19.2"
+    "tsx": "^4.23.15"
   }
 }
