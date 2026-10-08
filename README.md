@@ -9,7 +9,7 @@ control, and every week reads a sample of each backup back through the restore
 path and compares it with the recorded hashes. A backup only counts as
 restorable once it has been read back.
 
-**Status: beta (0.2.1).** Run it alongside your
+**Status: beta (0.3.0).** Run it alongside your
 existing backups, not as your only one, until you have verified restores
 against your own data. Microsoft 365 backup and restore have been tested
 against a simulated Graph API, never against a real Microsoft 365 tenant. What
@@ -40,6 +40,11 @@ Known Issues.
   application data (`/opt`, `/usr/local`, `/var/lib`, `/var/backups`) besides
   `/etc`, `/home` and `/srv` by default, and every machine can be assigned to a
   person of the directory. Included in the Community edition.
+- **Proxmox VE (preview):** VMs and containers on Proxmox VE 8.4 and newer
+  through the Backup Provider API. VM disks are read over NBD with dirty
+  bitmaps, so after the first run only changed blocks are uploaded; containers
+  go through restic. Restores create a new VM or container. See
+  [docs/PVE.md](docs/PVE.md).
 - **Backup jobs:** one job covers many mailboxes or machines with one schedule,
   one set of folders and one retention, with per-member overrides. "Run now" on
   machines shows the request as queued until the agent picks it up at its next
@@ -47,8 +52,8 @@ Known Issues.
 - **Restore** of a single mail, a folder, a file, a file version or a whole
   account, next to the original, never over it; or as a ZIP download. People
   with the role "user" restore only their own mailbox and OneDrive. File restore
-  lists machines and mailboxes side by side, with their restore points on one
-  timeline by day and a jump to any date.
+  lists the machines with their restore points on one timeline by day and a
+  jump to any date; mailboxes and OneDrive are restored in the restore explorer.
 - **Restore checks:** every week a sample of every backup is read back through
   the restore path and compared with the recorded hashes; the result is shown
   per mailbox, OneDrive and machine as recovery readiness. The checks do not
@@ -56,11 +61,11 @@ Known Issues.
 - **Archive:** Exchange Online journal mail (Business and Service Provider) and
   imported mail files go into an append-only store with a SHA-256 hash chain,
   chain verification and search over subject, extracted text and addresses (not
-  attachments). Business adds enforced retention (fixed at 8 years in 0.2.1) and
+  attachments). Business adds enforced retention (fixed at 8 years in 0.3.0) and
   legal hold, designed for GoBD-compliant use (not certified). Continuous
-  IMAP and Graph archive sync are not part of 0.2.1. On local and NFS
+  IMAP and Graph archive sync are not part of 0.3.0. On local and NFS
   targets the archive's immutability is enforced by the application only, and on
-  S3 with Object Lock 0.2.1 locks the archive item records but not the packs
+  S3 with Object Lock 0.3.0 locks the archive item records but not the packs
   that hold the message content; see Known Issues in the changelog.
 - **Import and export of mail files:** bring a legacy mailbox in from EML, MSG, MBOX,
   ZIP or a MailStore export folder (chunked, resumable, encrypted upload or a
@@ -75,13 +80,18 @@ Known Issues.
   with a copy target next to the primary, promotion of a copy and replacement of
   the primary without losing access to existing backups. The installation's
   default storage is set in the web interface (or the environment); tenants on it
-  stay separated by their own prefix and key.
+  stay separated by their own prefix and key. NFS shares are mounted from the web
+  interface through the opt-in mounter container (Installation › Network shares,
+  [docs/MOUNTS.md](docs/MOUNTS.md)).
 - **Multi-tenant** for IT service providers (Service Provider edition), with a
   REST API (OpenAPI) and webhooks for RMM and PSA tools. The other editions run
   one organisation.
-- **Alerts and reports:** rules that send an e-mail, a bell entry or a signed
-  webhook when a backup fails or a restore check does not pass, and (Business)
-  a daily, weekly or monthly summary report, with a delivery log. The Overview,
+- **Alerts and reports:** rules that send an e-mail, a bell entry or a webhook
+  (signed JSON, Discord, Slack or Microsoft Teams) when a backup fails, is
+  overdue for its schedule or a restore check does not pass; warnings name the
+  items that were not backed up and can be acknowledged. Notification mail goes
+  out through SMTP, Microsoft 365 or Google Workspace. Business adds a daily,
+  weekly or monthly summary report; every channel has a delivery log. The Overview,
   with its tabs Status and Statistics (CSV and PDF, always the active tenant),
   shows the state at a glance; the statistics of all tenants have a page of their
   own under Installation (Service Provider).
@@ -98,7 +108,7 @@ Known Issues.
   multi-selection to put several machines or mailboxes into a new job, full-width
   tables, German and English.
 
-Not included in 0.2.1: PST and OST import, PST and MSG export, a Windows agent,
+Not included in 0.3.0: PST and OST import, PST and MSG export, a Windows agent,
 continuous IMAP and Graph archive sync, SharePoint, Teams, Google Workspace and
 public folders. The first backup of a large tenant can take days because
 Microsoft throttles Graph; Restow shows that wait instead of hiding it.
@@ -242,8 +252,8 @@ the cosign signatures of the two images and starts the stack. Download it,
 check it, then run it:
 
 ```sh
-curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.1/install.sh
-curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.1/install.sh.sha256
+curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.3.0/install.sh
+curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.3.0/install.sh.sha256
 sha256sum -c install.sh.sha256
 sudo bash install.sh
 ```
@@ -272,10 +282,10 @@ the script is the one the release workflow published, verify the signed
 checksum list with [cosign](https://docs.sigstore.dev/cosign/) first:
 
 ```sh
-curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.1/SHA256SUMS
-curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.2.1/SHA256SUMS.sigstore.json
+curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.3.0/SHA256SUMS
+curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.3.0/SHA256SUMS.sigstore.json
 cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
-  --certificate-identity https://github.com/restow-backup/restow/.github/workflows/release.yml@refs/tags/v0.2.1 \
+  --certificate-identity https://github.com/restow-backup/restow/.github/workflows/release.yml@refs/tags/v0.3.0 \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 sha256sum -c --ignore-missing SHA256SUMS
 ```
@@ -314,7 +324,7 @@ installation without its `.env`. It never updates an installation (see
 As a shortcut, the script also runs straight from the download:
 
 ```sh
-curl -fsSL https://github.com/restow-backup/restow/releases/download/v0.2.1/install.sh | sudo bash
+curl -fsSL https://github.com/restow-backup/restow/releases/download/v0.3.0/install.sh | sudo bash
 ```
 
 That runs whatever arrives without your own check of the script first. It still
@@ -379,23 +389,23 @@ step 2.
 
 1. **Get the release stack.** It runs the published, signed images and builds
    nothing. Download `docker-compose.yml` and `env.example` from the
-   [release assets](https://github.com/restow-backup/restow/releases/tag/v0.2.1)
+   [release assets](https://github.com/restow-backup/restow/releases/tag/v0.3.0)
    into an empty directory and run `cp env.example .env`, or clone the tag and
    work in `deploy/release/`:
 
    ```sh
-   git clone --branch v0.2.1 https://github.com/restow-backup/restow.git
+   git clone --branch v0.3.0 https://github.com/restow-backup/restow.git
    cd restow/deploy/release
    cp .env.example .env
    ```
 
 2. **Fill in `.env`.** The comments in the file say how; the sections marked
    optional can stay empty. At minimum the two images of one build, either the
-   full build (`RESTOW_IMAGE=ghcr.io/restow-backup/restow:0.2.1`,
-   `RESTOW_WEB_IMAGE=ghcr.io/restow-backup/restow-web:0.2.1`; Business and
+   full build (`RESTOW_IMAGE=ghcr.io/restow-backup/restow:0.3.0`,
+   `RESTOW_WEB_IMAGE=ghcr.io/restow-backup/restow-web:0.3.0`; Business and
    Service Provider stay locked until a license key is installed) or the
-   Community build (`ghcr.io/restow-backup/restow-community:0.2.1`,
-   `ghcr.io/restow-backup/restow-web-community:0.2.1`; the Apache-2.0 core
+   Community build (`ghcr.io/restow-backup/restow-community:0.3.0`,
+   `ghcr.io/restow-backup/restow-web-community:0.3.0`; the Apache-2.0 core
    alone), then `POSTGRES_PASSWORD`, the three database connection strings
    (`DATABASE_MIGRATION_URL`, `DATABASE_URL`, `DATABASE_PROVIDER_URL`),
    `RESTOW_MASTER_KEY`, `BETTER_AUTH_SECRET`, `RESTOW_PUBLIC_URL` and

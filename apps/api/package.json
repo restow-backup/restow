@@ -1,6 +1,6 @@
 {
   "name": "@restow/api",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Restow HTTP API: Hono, better-auth, REST /api/v1, setup wizard, notifications.",

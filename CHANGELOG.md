@@ -8,7 +8,7 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
-## [0.3.0] - Unreleased
+## [0.3.0] - 2026-10-08
 
 Beta release. Run it alongside your existing backups, not as your only one, until
 you have verified restores against your own data.
@@ -156,7 +156,14 @@ filled in).
 
 ### Verification
 
-To be filled in by the release run.
+Before the tag, on 2026-10-08: lint, typecheck and the full test suites with Postgres 16
+and restic 0.19.1 (apps/api 3214, apps/web 3721, apps/worker 434, packages/core 1976,
+ee/api 243, ee/web 176, packages/i18n 259, apps/scheduler 65, packages/db 144), the Go
+agent and `restow-pve` with `go test -race`, the agent integration tests against real
+restic and rest-server, the PVE helper end to end against qemu-nbd, qemu-img and restic,
+the Perl shim tests, the installer tests (624) and shellcheck. The release pipeline adds
+the image builds, the release smoke checks and the scans below. Not run against a real
+Proxmox VE host, NFS server, Microsoft 365 or Google Workspace tenant (see Known Issues).
 
 ## [0.2.2] - 2026-10-06
 
