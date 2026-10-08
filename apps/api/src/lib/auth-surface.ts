@@ -76,6 +76,12 @@ export const AUTH_RATE_LIMIT = {
     "/request-password-reset": { window: 15 * 60, max: 5 },
     // Setting the new password with the token from that mail.
     "/reset-password": { window: 60, max: 10 },
+    // Reading one's own session runs on every page load and route guard and
+    // guesses nothing (it only reads the cookie). Under the default rule the
+    // counter resets only after 10 s without a call, so a few minutes of
+    // clicking, or several people behind one address, ended in 429 and the
+    // shell's "could not be loaded" page.
+    "/get-session": false,
   },
 } satisfies RateLimitOptions;
 

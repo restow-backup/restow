@@ -192,6 +192,19 @@ describe("the HTTP surface of a better-auth instance", () => {
     expect((await attempt()).status).toBe(429);
   });
 
+  it("never limits reading one's own session", async () => {
+    const auth = testAuth();
+    const read = () =>
+      auth.handler(
+        new Request("http://localhost:3000/api/auth/get-session", {
+          headers: { "x-forwarded-for": "203.0.113.9" },
+        }),
+      );
+    for (let i = 0; i < AUTH_RATE_LIMIT.max * 2; i += 1) {
+      expect((await read()).status).toBe(200);
+    }
+  });
+
   it("limits second-factor attempts per client", async () => {
     const auth = testAuth();
     const attempt = () => auth.handler(post("/two-factor/verify-totp", { code: "000000" }));
