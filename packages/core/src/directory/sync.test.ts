@@ -109,12 +109,14 @@ describe("syncDirectory", () => {
     // Guests are never probed; members are, both probes in one $batch.
     const batches = graph.callsTo("POST", "/$batch");
     expect(batches).toHaveLength(1);
-    const probed = (batches[0]?.json as { requests: { id: string }[] }).requests.map((r) => r.id);
+    const probed = (batches[0]?.json as { requests: { url: string }[] }).requests.map((r) =>
+      r.url.replace(/\?.*$/, ""),
+    );
     expect(probed.sort()).toEqual([
-      "drive:user-1",
-      "drive:user-shared",
-      "mailbox:user-1",
-      "mailbox:user-shared",
+      "/users/user-1/drive",
+      "/users/user-1/mailboxSettings",
+      "/users/user-shared/drive",
+      "/users/user-shared/mailboxSettings",
     ]);
   });
 

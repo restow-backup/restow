@@ -194,6 +194,20 @@ export function batchEnvelope(
   const payload = call.json as {
     requests: Array<{ id: string; method: string; url: string; body?: unknown }>;
   };
+  // Like Graph: a repeated request id refuses the whole batch.
+  const ids = payload.requests.map((sub) => sub.id);
+  const repeated = ids.find((id, index) => ids.indexOf(id) !== index);
+  if (repeated !== undefined) {
+    return {
+      status: 400,
+      json: {
+        error: {
+          code: "BadRequest",
+          message: `Request Id ${repeated} has to be unique in a batch.`,
+        },
+      },
+    };
+  }
   return {
     status: 200,
     json: { responses: payload.requests.map((sub) => ({ id: sub.id, ...answer(sub) })) },

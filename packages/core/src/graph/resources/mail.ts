@@ -183,8 +183,15 @@ export async function listMailFolderTree(
     depth: (parent?.depth ?? -1) + 1,
   });
 
+  // Graph's paging can list a folder twice (a folder created or moved while the
+  // pages are read); each folder goes into the tree once.
+  const seen = new Set<string>();
   let frontier: MailFolderNode[] = [];
   for await (const raw of paginate<RawFolder>(client, `${userPath(userId)}/mailFolders${suffix}`)) {
+    if (seen.has(raw.id)) {
+      continue;
+    }
+    seen.add(raw.id);
     const node = toNode(raw, null);
     nodes.push(node);
     frontier.push(node);
@@ -221,6 +228,10 @@ export async function listMailFolderTree(
         children.push(...(await collect(paginate<RawFolder>(client, page["@odata.nextLink"]))));
       }
       for (const raw of children) {
+        if (seen.has(raw.id)) {
+          continue;
+        }
+        seen.add(raw.id);
         const node = toNode(raw, parent);
         nodes.push(node);
         frontier.push(node);
