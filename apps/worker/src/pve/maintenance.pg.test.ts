@@ -32,6 +32,7 @@ import {
   chunks,
   createDb,
   pveClusters,
+  pveEnrollmentTokens,
   pveGuests,
   pveJobs,
   pveNodes,
@@ -39,6 +40,7 @@ import {
   pveRuns,
   pveSnapshots,
   pveTasks,
+  secrets,
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
 import { eq, sql } from "drizzle-orm";
@@ -55,6 +57,7 @@ import {
   applyRetention,
   closeStaleRuns,
   coveredBy,
+  dropPveTokenSecrets,
   planJobs,
   verifyDue,
 } from "./maintenance.js";
@@ -370,5 +373,45 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
       .from(chunks)
       .where(eq(chunks.storedId, written.chunks[0] ?? ""));
     expect(chunk?.refcount).toBe(0);
+  });
+
+  it("deletes an existing PVE API token once its enrollment token is used, revoked or expired", async () => {
+    const secretRow = async (label: string) => {
+      const [row] = await owner
+        .insert(secrets)
+        .values({ tenantId, kind: "pve_api_token", ciphertext: `sealed-${label}` })
+        .returning();
+      return row?.id ?? "";
+    };
+    const token = async (
+      label: string,
+      values: { expiresAt: Date; revokedAt?: Date; usedByNodeId?: string },
+    ) => {
+      const secretId = await secretRow(label);
+      await owner.insert(pveEnrollmentTokens).values({
+        tenantId,
+        tokenHash: createHash("sha256").update(label).digest("hex"),
+        pveTokenSecretId: secretId,
+        ...values,
+      });
+      return secretId;
+    };
+    const later = new Date(clock.getTime() + DAY);
+    const valid = await token("valid", { expiresAt: later });
+    const expired = await token("expired", { expiresAt: new Date(clock.getTime() - 1000) });
+    const revoked = await token("revoked", { expiresAt: later, revokedAt: clock });
+    const used = await token("used", { expiresAt: later, usedByNodeId: guestId });
+
+    expect(await dropPveTokenSecrets(deps, clock)).toBe(3);
+    const left = (await owner.select({ id: secrets.id }).from(secrets)).map((r) => r.id);
+    expect(left).toContain(valid);
+    for (const gone of [expired, revoked, used]) {
+      expect(left).not.toContain(gone);
+    }
+    const refs = await owner
+      .select({ ref: pveEnrollmentTokens.pveTokenSecretId })
+      .from(pveEnrollmentTokens);
+    expect(refs.filter((r) => r.ref !== null).map((r) => r.ref)).toEqual([valid]);
+    expect(await dropPveTokenSecrets(deps, clock)).toBe(0);
   });
 });

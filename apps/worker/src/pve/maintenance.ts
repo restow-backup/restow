@@ -12,6 +12,8 @@ import { createHash } from "node:crypto";
  *              map (containers: restic check of a 5 % subset)
  *   test       monthly restore check where a job asks for one: restore into the
  *              restore pool, check, delete (needs capacity, off by default)
+ *   tokens     an existing PVE API token an admin gave for an enrollment is deleted
+ *              once that enrollment token is used, revoked or expired
  *
  * One pass every five minutes, in one worker at a time (a session advisory lock).
  */
@@ -42,6 +44,7 @@ import {
   type PveGuest,
   type PveJob,
   type PveSnapshot,
+  pveEnrollmentTokens,
   pveGuests,
   pveJobs,
   pveNodes,
@@ -49,9 +52,10 @@ import {
   pveRuns,
   pveSnapshots,
   pveTasks,
+  secrets,
   tenants,
 } from "@restow/db";
-import { and, desc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { appendAuditEntry } from "../audit.js";
 import {
   PgChunkIndex,
@@ -86,6 +90,7 @@ export interface PvePassSummary {
   pruned: number;
   verified: number;
   restoreTests: number;
+  pveTokensDropped: number;
 }
 
 async function chunkContext(deps: PveDeps, tenantId: string) {
@@ -557,6 +562,50 @@ export async function planRestoreTests(deps: PveDeps, now: Date): Promise<number
 }
 
 // ---------------------------------------------------------------------------
+// Existing PVE API tokens handed to an enrollment
+// ---------------------------------------------------------------------------
+
+/**
+ * Delete the sealed PVE API token of every enrollment token that can no longer
+ * hand it over: used by a node (the enrollment deletes it already; this is the
+ * second line), revoked or expired. Restow keeps an admin's PVE token only as
+ * long as the node may still need it (docs/PVE.md, security).
+ */
+export async function dropPveTokenSecrets(deps: PveDeps, now: Date): Promise<number> {
+  const done = await deps.providerDb
+    .select({
+      tenantId: pveEnrollmentTokens.tenantId,
+      secretId: pveEnrollmentTokens.pveTokenSecretId,
+    })
+    .from(pveEnrollmentTokens)
+    .where(
+      and(
+        isNotNull(pveEnrollmentTokens.pveTokenSecretId),
+        or(
+          lte(pveEnrollmentTokens.expiresAt, now),
+          isNotNull(pveEnrollmentTokens.revokedAt),
+          isNotNull(pveEnrollmentTokens.usedByNodeId),
+        ),
+      ),
+    );
+  const byTenant = new Map<string, string[]>();
+  for (const row of done) {
+    if (row.secretId) {
+      byTenant.set(row.tenantId, [...(byTenant.get(row.tenantId) ?? []), row.secretId]);
+    }
+  }
+  let n = 0;
+  for (const [tenantId, ids] of byTenant) {
+    // The reference on the enrollment token goes null with the secret (ON DELETE SET NULL).
+    const removed = await withTenantTx(deps.db, tenantId, (tx) =>
+      tx.delete(secrets).where(inArray(secrets.id, ids)).returning({ id: secrets.id }),
+    );
+    n += removed.length;
+  }
+  return n;
+}
+
+// ---------------------------------------------------------------------------
 // The pass
 // ---------------------------------------------------------------------------
 
@@ -568,6 +617,7 @@ export async function pvePass(deps: PveDeps): Promise<PvePassSummary> {
     pruned: await applyRetention(deps, now),
     verified: await verifyDue(deps, now),
     restoreTests: await planRestoreTests(deps, now),
+    pveTokensDropped: await dropPveTokenSecrets(deps, now),
   };
 }
 

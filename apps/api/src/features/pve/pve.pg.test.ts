@@ -25,11 +25,13 @@ import {
 import {
   auditLog,
   chunks,
+  pveEnrollmentTokens,
   pveGuests,
   pveRunBlocks,
   pveRuns,
   pveSnapshots,
   pveTasks,
+  secrets,
 } from "@restow/db";
 import { and, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
@@ -170,6 +172,120 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     const taken = await enroll(fixture.otherTenantId, fingerprint);
     expect(taken.status).toBe(409);
     expect((await call({ ...node, nodeSecret: "rsea_wrong" }, "/listing")).status).toBe(401);
+  });
+
+  const preflight = (token: string) =>
+    app.request("/agent/pve/v1/enroll/preflight", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-for": `192.0.2.${ip++}` },
+      body: JSON.stringify({ token }),
+    });
+
+  it("gives the node one command with its enrollment token in the environment", async () => {
+    const created = await service.createEnrollmentToken(
+      shared.db,
+      fixture.tenantId,
+      actor(),
+      instance,
+    );
+    expect(created.nodeCommand).toBe(
+      `curl -fsSL 'https://restow.test.example/install/pve.sh' | RESTOW_ENROLL_TOKEN='${created.token}' sh`,
+    );
+    expect(created.pveTokenId).toBeNull();
+    // The installer checks the token first; without an existing PVE token it creates its own.
+    expect(await json(await preflight(created.token))).toEqual({
+      expiresAt: created.expiresAt,
+      pveTokenId: null,
+      pveTokenSecret: null,
+    });
+    const unknown = await preflight("rset_unknown-token-of-sufficient-length");
+    expect(unknown.status).toBe(401);
+  });
+
+  it("hands an existing PVE API token over once, sealed, and deletes it when the node enrolled", async () => {
+    const pveToken = { id: "backup@pve!restow", secret: "9f1c2d3e-aaaa-4bbb-8ccc-0123456789ab" };
+    const created = await service.createEnrollmentToken(
+      shared.db,
+      fixture.tenantId,
+      actor(),
+      instance,
+      { pveToken },
+    );
+    expect(created.pveTokenId).toBe(pveToken.id);
+    const [row] = await fixture.db
+      .select()
+      .from(pveEnrollmentTokens)
+      .where(eq(pveEnrollmentTokens.id, created.id));
+    const secretId = row?.pveTokenSecretId;
+    expect(secretId).toBeTruthy();
+    const [sealed] = await fixture.db
+      .select()
+      .from(secrets)
+      .where(eq(secrets.id, secretId as string));
+    expect(sealed).toMatchObject({ tenantId: fixture.tenantId, kind: "pve_api_token" });
+    expect(sealed?.ciphertext).not.toContain(pveToken.secret);
+    expect(Buffer.from(sealed?.ciphertext ?? "", "base64").toString("latin1")).not.toContain(
+      pveToken.secret,
+    );
+    // The audit names the token id, never the secret.
+    const audits = await fixture.db
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, "pve.token.created"));
+    expect(JSON.stringify(audits)).toContain(pveToken.id);
+    expect(JSON.stringify(audits)).not.toContain(pveToken.secret);
+
+    // The preflight hands it over and does not use the enrollment token up.
+    const expected = {
+      expiresAt: created.expiresAt,
+      pveTokenId: pveToken.id,
+      pveTokenSecret: pveToken.secret,
+    };
+    expect(await json(await preflight(created.token))).toEqual(expected);
+    expect(await json(await preflight(created.token))).toEqual(expected);
+
+    const enrolled = await app.request("/agent/pve/v1/enroll", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forwarded-for": `192.0.2.${ip++}` },
+      body: JSON.stringify({
+        token: created.token,
+        clusterName: "handover",
+        clusterFingerprint: "c".repeat(64),
+        nodeName: "pve9",
+        pveVersion: "9.2.1",
+        helperVersion: "0.3.0",
+        fleecingStorage: "local-lvm",
+      }),
+    });
+    expect(enrolled.status).toBe(201);
+    expect(
+      await fixture.db
+        .select()
+        .from(secrets)
+        .where(eq(secrets.id, secretId as string)),
+    ).toHaveLength(0);
+    const [after] = await fixture.db
+      .select()
+      .from(pveEnrollmentTokens)
+      .where(eq(pveEnrollmentTokens.id, created.id));
+    expect(after?.pveTokenSecretId).toBeNull();
+    // Used: the next node needs a new command.
+    expect((await preflight(created.token)).status).toBe(401);
+  });
+
+  it("refuses a malformed existing PVE API token", async () => {
+    const { createTokenSchema } = await import("./schemas.js");
+    for (const id of ["root@pam", "restow@pve!", "a b@pve!x", 'restow@pve!x"; rm']) {
+      expect(
+        createTokenSchema.safeParse({
+          pveToken: { id, secret: "9f1c2d3e-aaaa-4bbb-8ccc-0123456789ab" },
+        }).success,
+      ).toBe(false);
+    }
+    expect(
+      createTokenSchema.safeParse({ pveToken: { id: "restow@pve!x", secret: "short" } }).success,
+    ).toBe(false);
+    expect(createTokenSchema.safeParse({}).success).toBe(true);
   });
 
   let guestId: string;

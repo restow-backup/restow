@@ -49,7 +49,21 @@ sub calls {
 }
 
 my $plugin = 'PVE::Storage::Custom::RestowPlugin';
-is($plugin->api, 11, 'storage API version 11 (PVE 8.4) and newer');
+is($plugin->api, 11, 'storage API version 11 without PVE::Storage (tests, perl -c)');
+# api() answers with the running PVE's APIVER inside the verified range (no
+# "older storage API" warning on PVE 9.x), else the newest verified version.
+{
+    no warnings 'once';
+    my $apiver;
+    local *PVE::Storage::APIVER = sub { $apiver };
+    for my $case ([11, 11, 'PVE 8.4'], [12, 12, 'PVE 9.0'], [15, 15, 'PVE 9.2 (APIVER 15)'],
+        [16, 16, 'PVE 9.x (APIVER 16)'], [17, 16, 'a newer PVE gets the newest verified version'],
+        [10, 11, 'PVE 8.3 and older: PVE refuses 11 itself'])
+    {
+        $apiver = $case->[0];
+        is($plugin->api, $case->[1], "APIVER $case->[0]: $case->[2]");
+    }
+}
 is($plugin->type, 'restow', 'type');
 is($plugin->plugindata->{features}->{'backup-provider'}, 1, 'declares the backup-provider feature');
 

@@ -47,6 +47,13 @@ export const pveEnrollmentTokens = pgTable(
     usedAt: timestamp("used_at", { withTimezone: true }),
     usedByNodeId: uuid("used_by_node_id"),
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    // Optional: an existing PVE API token the admin entered for this enrollment
+    // (sealed JSON {id, secret} in the secret store). The node fetches it once
+    // before it enrolls; it is deleted when the node enrolls, and by the worker
+    // once the enrollment token is used, revoked or expired (docs/PVE.md).
+    pveTokenSecretId: uuid("pve_token_secret_id").references(() => secrets.id, {
+      onDelete: "set null",
+    }),
     createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },

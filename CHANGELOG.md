@@ -15,10 +15,9 @@ you have verified restores against your own data.
 
 ### Summary
 
-Restow 0.3.2 fixes Microsoft 365 mailbox backups that stopped in the folders step
-with "Microsoft refused the request" (HTTP 400), and the inventory leads to the
-Proxmox VE page instead of announcing it. Nothing needs your attention beyond
-updating; the next scheduled run picks the mailbox up again.
+Restow 0.3.2 connects a Proxmox VE node with one command and no input, and fixes
+Microsoft 365 mailbox backups that stopped in the folders step with "Microsoft
+refused the request" (HTTP 400). One database migration runs on update.
 
 ### Breaking Changes
 
@@ -26,10 +25,21 @@ None.
 
 ### Added
 
-None.
+- Proxmox VE (preview): "Use an existing PVE API token instead" in Connect Proxmox VE.
+  Restow keeps the token id and secret encrypted only until the node enrolled with
+  them (or the enrollment token expires) and hands them to that node once.
 
 ### Changed
 
+- Proxmox VE (preview), Connect Proxmox VE: one command per node, with the enrollment
+  token in it. The node installer sets up the user `restow@pve`, the roles and the
+  restore pool itself (again on a second run without errors), creates its own API
+  token `restow@pve!<node>`, checks its privileges before it installs anything and
+  picks the thin storage for fleecing by itself. No more pveum block to paste, no
+  prompts. "Command for another node" adds the next node; the dialog is wider and
+  no longer scrolls sideways.
+- Proxmox VE: the storage plugin reports the storage API of the running PVE (8.4 up
+  to 9.1), so PVE 9 no longer warns that it "is implementing an older storage API".
 - Servers & endpoints › Inventory: the "Connect Proxmox (soon)" placeholder is now a
   "Proxmox VE" button that opens VMs & containers, for the roles that may open it.
 
@@ -47,19 +57,27 @@ None.
 
 ### Upgrade Notes
 
-New image; no database migration. Coming from 0.2.x, read the notes of 0.3.1 below
-first (six migrations, the new setup notice, the new compose file).
+New image; migrations run on start. One migration: `0032_pve_enrollment_pve_token`
+(adds one column; instant). Coming from 0.2.x, read the notes of 0.3.1 below first
+(six migrations, the new setup notice, the new compose file).
+
+- Proxmox VE nodes connected with 0.3.1 keep working. To get the new storage plugin
+  (no more warning on PVE 9), run `restow-pve update` on each node.
 
 ### Known Issues
 
-The known issues of 0.3.1 still apply.
+- The new Proxmox VE onboarding was tested against stand-ins for `pveum` and `pvesm`,
+  not yet on a Proxmox VE host.
+- The known issues of 0.3.1 still apply.
 
 ### Verification
 
 Before the tag, on 2026-10-09: the packages/core suite (1978 tests, with restic 0.19.1),
 including new tests for repeated batch ids and a folder listed twice that fail without
-the fix, the worker's failure tests against Postgres 16, typecheck, lint and the
-installer tests. The release pipeline adds the full CI, the image builds, the release
+the fix; apps/api (3220 tests) and apps/web (3726 tests) with Postgres 16, the worker's
+PVE and failure tests, the Go agent and `restow-pve`, the Perl shim tests (49), the new
+node installer test against stand-ins for pveum and pvesm, typecheck, lint, shellcheck
+and the installer tests. The release pipeline adds the full CI, the image builds, the release
 smoke checks and the scans below.
 
 ## [0.3.1] - 2026-10-08

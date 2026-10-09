@@ -15,6 +15,7 @@ import type { PveActor } from "./audit.js";
 import {
   assignJobSchema,
   backupNowSchema,
+  createTokenSchema,
   idParamSchema,
   jobSchema,
   restoreSchema,
@@ -37,7 +38,8 @@ import {
  * (docs/PVE.md). Every change is audited.
  *
  *   GET    /                                 clusters with nodes, guests, jobs
- *   POST   /tokens                           a one-time enrollment token with the onboarding commands
+ *   POST   /tokens                           a one-time enrollment token with the node command
+ *                                             (optionally bound to an existing PVE API token)
  *   POST   /nodes/:id/revoke                 refuse a node from now on
  *   GET    /guests/:id                       a guest with its restore points and runs
  *   POST   /guests/:id/backup                back up now (optionally a verify read)
@@ -58,11 +60,13 @@ function actorOf(c: Context<TenantEnv>): PveActor {
 pveRoutes.get("/", admin, async (c) => c.json(await overview(db, c.get("tenantId"))));
 
 pveRoutes.post("/tokens", admin, async (c) => {
+  const input = await parseJsonBody(c.req, createTokenSchema);
   const created = await createEnrollmentToken(
     db,
     c.get("tenantId"),
     actorOf(c),
     await instanceUrl(c),
+    input,
   );
   c.header("cache-control", "no-store");
   return c.json(created, 201);
@@ -124,7 +128,8 @@ pveRoutes.delete("/jobs/:id", admin, async (c) => {
 /**
  * GET /install/pve.sh: the node installer (agent/install/pve.sh), with the
  * instance address, the release version and the release signing key filled
- * in. No login, no secret in it (the token is typed in when it asks).
+ * in. No login, no secret in it (the command shown in Restow passes the
+ * enrollment token in the environment).
  */
 export async function pveInstallScript(c: Context): Promise<Response> {
   const template = await readInstallScript("pve.sh");

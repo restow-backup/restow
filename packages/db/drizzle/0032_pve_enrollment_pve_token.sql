@@ -1,0 +1,2 @@
+ALTER TABLE "pve_enrollment_tokens" ADD COLUMN "pve_token_secret_id" uuid;--> statement-breakpoint
+ALTER TABLE "pve_enrollment_tokens" ADD CONSTRAINT "pve_enrollment_tokens_pve_token_secret_id_secrets_id_fk" FOREIGN KEY ("pve_token_secret_id") REFERENCES "public"."secrets"("id") ON DELETE set null ON UPDATE no action;

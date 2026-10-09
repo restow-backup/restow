@@ -59,6 +59,11 @@ JSON on stdin and stdout; it holds no Restow logic.
 SPDX headers and license text present, no core code inside, referenced only
 where `scripts/ci/license-policy.json` (`separateWorks`) allows, copied
 nowhere. Its tests: `prove integrations/pve/plugin/t/`.
+Its `api()` answers PVE's storage API version (`APIVER`) for every version it
+was checked against (11 of PVE 8.4 up to 16, see the comment in
+`RestowPlugin.pm`), so PVE 9.x does not warn about "an older storage API" on
+every `pveum` or `pvesm` call; a newer PVE gets 16, which it accepts (with
+that warning) while its `APIAGE` still covers 16.
 
 ## Requirements
 
@@ -71,34 +76,83 @@ nowhere. Its tests: `prove integrations/pve/plugin/t/`.
 
 ## Onboarding
 
-In Restow: **Servers & clients > VMs & containers > Connect Proxmox VE**. It
-creates a one-time enrollment token (24 hours) and shows:
+In Restow: **Servers & clients > VMs & containers > Connect Proxmox VE >
+Create command**. Restow shows one command for one node, with that node's
+one-time enrollment token (24 hours, single use) in it. Run it as root on the
+node:
 
-1. **Once per cluster**, as root on any node: the user `restow@pve`, the roles
-   `RestowBackup` (`VM.Audit, VM.Backup, Datastore.Audit, Datastore.AllocateSpace, Sys.Audit`
-   on `/`) and `RestowRestore` (`VM.Allocate` and the `VM.Config.*` privileges a
-   restore needs, on `/pool/restow-restore`; `Datastore.AllocateSpace` on
-   `/storage`; `SDN.Use` on `/sdn`), the pool `restow-restore` and an API token.
-   The installer does this itself with `--setup-pve-user`.
-2. **On every node**, as root:
+```sh
+curl -fsSL 'https://<instance>/install/pve.sh' | RESTOW_ENROLL_TOKEN='rset_…' sh
+```
 
-   ```sh
-   curl -fsSL 'https://<instance>/install/pve.sh' | sh
-   # first node of a cluster, with the PVE side of step 1:
-   curl -fsSL 'https://<instance>/install/pve.sh' | sh -s -- --setup-pve-user
-   ```
+The token goes to the installer through its environment, not its arguments
+(it may land in root's shell history; it is useless once the node enrolled).
+**Command for another node** in the same dialog creates the next command; every
+node needs its own. Connect the nodes one after another.
 
-   The script checks the maintainer's signature over the release and every file,
-   installs `/opt/restow-pve/bin/{restow-pve,restic}`, the shim
-   (`/usr/share/perl5/PVE/Storage/Custom/RestowPlugin.pm`,
-   `/usr/share/perl5/PVE/BackupProvider/Plugin/Restow.pm`, license in
-   `/opt/restow-pve/RestowPlugin.LICENSE.txt`), asks for the enrollment token,
-   the API token and the fleecing storage (hidden input), enrolls the node,
-   adds the storage `restow` to the cluster once (content `backup`, limited to
-   the nodes with the plugin), starts `restow-pve.service` and restarts
-   `pvedaemon`, `pveproxy`, `pvestatd` and `pvescheduler`.
-   Unattended: `RESTOW_TOKEN_FILE`, `RESTOW_PVE_TOKEN_ID`,
-   `RESTOW_PVE_TOKEN_SECRET_FILE`, `--fleecing-storage=<storage>`.
+Nothing to type. The installer, before it downloads anything:
+
+1. checks the enrollment token with Restow (`POST /agent/pve/v1/enroll/preflight`)
+   and stops at once if it was used, revoked or has expired;
+2. sets up the PVE side, cluster-wide and idempotent (existing objects are
+   fine, a second run repairs): the user `restow@pve`, the pool
+   `restow-restore`, the roles `RestowBackup`
+   (`VM.Audit, VM.Backup, Datastore.Audit, Datastore.AllocateSpace, Sys.Audit`
+   on `/`) and `RestowRestore` (`VM.Allocate` and the `VM.Config.*` privileges
+   a restore needs, on `/pool/restow-restore`; `Datastore.AllocateSpace` on
+   `/storage`; `SDN.Use` on `/sdn`). Existing roles get exactly these
+   privileges again (`pveum role modify`), the ACLs are applied again;
+3. creates the node's own API token `restow@pve!<node name>` with privilege
+   separation off. A token of that name from an earlier install is removed
+   and created again: PVE shows a secret only once. The secret stays on the
+   node;
+4. checks the token's privileges (`pveum user token permissions`) and stops
+   with the token id and the missing privileges if one is missing;
+5. picks the fleecing storage: the node's only active thin storage with
+   content `images` (`lvmthin`, `zfspool`, `rbd`, `btrfs`), else `local-lvm`,
+   else `local-zfs`, else the first thin one, and says which;
+   `--fleecing-storage=<storage>` (after `sh -s --`) overrides it. Without a
+   thin storage it stops.
+
+Then it checks the maintainer's signature over the release and every file,
+installs `/opt/restow-pve/bin/{restow-pve,restic}`, the shim
+(`/usr/share/perl5/PVE/Storage/Custom/RestowPlugin.pm`,
+`/usr/share/perl5/PVE/BackupProvider/Plugin/Restow.pm`, license in
+`/opt/restow-pve/RestowPlugin.LICENSE.txt`), enrolls the node (restow-pve
+checks the token against the local PVE API once more), adds the storage
+`restow` to the cluster once (content `backup`, limited to the nodes with the
+plugin), starts `restow-pve.service` and restarts `pvedaemon`, `pveproxy`,
+`pvestatd` and `pvescheduler`. Running it again on an enrolled node upgrades
+or repairs it and keeps the enrollment.
+
+**An existing PVE API token instead** (optional, for rules that require a
+token you created yourself): open **Use an existing PVE API token instead** in
+the dialog and enter the token id (`user@realm!name`; Restow expects
+`restow@pve` but accepts another user) and its secret. The token needs
+privilege separation off and the roles above. The installer then skips steps 2
+and 3, still checks the privileges, and checks the secret against the local
+PVE API. See Security for how Restow keeps that token.
+
+**Unattended** (scripts, configuration management): `RESTOW_ENROLL_TOKEN` or
+`RESTOW_TOKEN_FILE` for the enrollment token; `RESTOW_PVE_TOKEN_ID` with
+`RESTOW_PVE_TOKEN_SECRET_FILE` for an existing PVE API token set on the node
+itself; `--fleecing-storage=<storage>`. Without an enrollment token and on a
+terminal the installer asks for it (hidden input).
+
+**Manual reference.** What step 2 and 3 do, as commands (as root on any node;
+`<node>` is the node name):
+
+```sh
+pveum user add restow@pve --comment "Restow backup"
+pveum pool add restow-restore --comment "Guests restored by Restow"
+pveum role add RestowBackup --privs "VM.Audit,VM.Backup,Datastore.Audit,Datastore.AllocateSpace,Sys.Audit"
+pveum role add RestowRestore --privs "VM.Allocate,VM.Config.Disk,VM.Config.CDROM,VM.Config.CPU,VM.Config.Memory,VM.Config.Network,VM.Config.HWType,VM.Config.Options,VM.Config.Cloudinit,Datastore.AllocateSpace,SDN.Use"
+pveum acl modify / --users restow@pve --roles RestowBackup
+pveum acl modify /pool/restow-restore --users restow@pve --roles RestowRestore
+pveum acl modify /storage --users restow@pve --roles RestowRestore
+pveum acl modify /sdn --users restow@pve --roles RestowRestore
+pveum user token add restow@pve <node> --privsep 0
+```
 
 The guests appear within a minute. **Nothing is backed up before a guest is in a
 backup job** (the same rule as for machines).
@@ -184,8 +238,22 @@ reads), `/run/restow-pve` (per-job state), `journalctl -u restow-pve`.
 
 ## Security
 
-- The PVE API token never leaves the node; the token can create (and delete)
-  guests only in `restow-restore` and never restores over an existing guest.
+- **Default: the PVE API token never leaves the node.** The installer creates
+  it on the node and keeps its secret in the node's state file; Restow never
+  receives it. The token can create (and delete) guests only in
+  `restow-restore` and never restores over an existing guest.
+- **Optional: an existing PVE API token entered in Restow.** Then the token
+  does pass through Restow, once: it is sealed with the tenant key in the
+  secret store (AES-256-GCM, like storage credentials), bound to that one
+  enrollment token, handed over only to the holder of the enrollment token
+  (the installer's preflight, over HTTPS) and deleted as soon as the node
+  enrolled with it; the worker deletes it when the enrollment token was
+  revoked or expired (24 hours), whichever comes first. The audit log records
+  the token id, never the secret. While it is stored, whoever controls the
+  Restow server and its master key could read it.
+- **The enrollment token** is single use, valid for 24 hours, stored only as
+  its SHA-256, and goes to the installer through the environment, not its
+  arguments. Failed attempts per address are limited.
 - The node authenticates with its own secret (only its SHA-256 is stored).
   It may open runs only for guests of its own cluster, append to its own open
   runs, commit once, and read restore points of its own cluster; it cannot

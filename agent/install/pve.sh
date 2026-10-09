@@ -1,20 +1,27 @@
 #!/bin/sh
 # Restow node helper installer for Proxmox VE (8.4 or newer, x86_64).
 #
-# Run it as root on every node that should back up its guests, as shown in
-# Restow (Inventory > Proxmox VE > Connect):
+# Run it as root on every node that should back up its guests, exactly as
+# Restow shows it (Servers & clients > VMs & containers > Connect Proxmox VE),
+# with the node's one-time enrollment token in the environment:
 #
-#   curl -fsSL 'https://<your instance>/install/pve.sh' | sh
+#   curl -fsSL 'https://<your instance>/install/pve.sh' | RESTOW_ENROLL_TOKEN='rset_...' sh
 #
-# It asks for the one-time enrollment token (hidden input), the PVE API token
-# (`restow@pve!<name>` and its secret, hidden) and the thin storage of this node
-# for fleecing images. With --setup-pve-user (first node of a cluster) it
-# creates the user restow@pve, the roles, the restore pool and an API token
-# itself. Unattended: RESTOW_TOKEN_FILE, RESTOW_PVE_TOKEN_ID,
-# RESTOW_PVE_TOKEN_SECRET_FILE and --fleecing-storage=<storage>.
+# Nothing to type. Before it downloads anything it
+#   - checks the enrollment token with Restow,
+#   - sets up the PVE side (idempotent, cluster-wide): user restow@pve, pool
+#     restow-restore, roles RestowBackup and RestowRestore with their ACLs,
+#   - creates the node's own API token restow@pve!<node> (privilege separation
+#     off; an older token of that name is replaced, PVE cannot show a secret
+#     twice). Its secret stays on this node. Instead, an existing API token is
+#     used when the admin entered one in Restow for this enrollment token, or
+#     when RESTOW_PVE_TOKEN_ID and RESTOW_PVE_TOKEN_SECRET_FILE are set,
+#   - checks that the token holds every privilege backups need,
+#   - picks the fleecing storage: the node's only thin storage, else local-lvm,
+#     local-zfs, else the first thin one (--fleecing-storage=NAME overrides).
 #
-# What it does: downloads restow-pve, restic and the storage plugin shim from
-# your Restow instance (or takes them from RESTOW_PVE_LOCAL_DIR), checks the
+# Then it downloads restow-pve, restic and the storage plugin shim from your
+# Restow instance (or takes them from RESTOW_PVE_LOCAL_DIR), checks the
 # maintainer's signature over SHA256SUMS and the SHA-256 of every file before
 # anything is executed, installs
 #   /opt/restow-pve/bin/restow-pve, /opt/restow-pve/bin/restic
@@ -28,7 +35,6 @@
 # upgrades in place and keeps the enrollment.
 #
 # Options (after `sh -s --`):
-#   --setup-pve-user           create user, roles, pool and API token (root@pam)
 #   --fleecing-storage=NAME    the fleecing storage of this node
 #   --uninstall                remove restow-pve and the plugin again
 set -eu
@@ -63,6 +69,10 @@ if [ -n "${RESTOW_PVE_TOKEN_SECRET_FILE:-}" ]; then
   PVE_TOKEN_SECRET=$(head -n 1 "$RESTOW_PVE_TOKEN_SECRET_FILE" | tr -d '\r\n\t ')
 fi
 FLEECING="${RESTOW_PVE_FLEECING:-}"
+# Where the PVE token came from: env (set on this node), restow (entered in
+# Restow for this enrollment) or own (created here for this node).
+PVE_TOKEN_SOURCE=''
+[ -n "$PVE_TOKEN_ID" ] && [ -n "$PVE_TOKEN_SECRET" ] && PVE_TOKEN_SOURCE='env'
 
 TMP=''
 TTY_ECHO_OFF=''
@@ -70,18 +80,21 @@ TOKEN=''
 
 usage() {
   cat <<'USAGE'
-Usage: pve.sh [--setup-pve-user] [--fleecing-storage=NAME] [--uninstall]
+Usage: RESTOW_ENROLL_TOKEN=<token> pve.sh [--fleecing-storage=NAME] [--uninstall]
 
   (no option)               install, repair or upgrade restow-pve and enroll this node
-  --setup-pve-user          create user restow@pve, roles, pool restow-restore and an API token
-  --fleecing-storage=NAME   thin storage of this node for fleecing images
+  --fleecing-storage=NAME   thin storage of this node for fleecing images (default: picked)
   --uninstall               remove restow-pve, the storage plugin and the node's credentials
 
 Environment:
+  RESTOW_ENROLL_TOKEN            the one-time enrollment token (the command in Restow sets it)
   RESTOW_TOKEN_FILE              file with the one-time enrollment token
-  RESTOW_PVE_TOKEN_ID            PVE API token id, e.g. restow@pve!restow
-  RESTOW_PVE_TOKEN_SECRET_FILE   file with the PVE API token secret
+  RESTOW_PVE_TOKEN_ID            an existing PVE API token to use, e.g. restow@pve!restow
+  RESTOW_PVE_TOKEN_SECRET_FILE   file with that token's secret
   RESTOW_PVE_LOCAL_DIR           install from local release files instead of downloading
+
+Without a PVE API token it sets up user restow@pve, its roles and the pool
+restow-restore and creates the API token restow@pve!<node name> itself.
 USAGE
 }
 
@@ -121,6 +134,17 @@ fetch() {
     curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 900 -o "$2" "$1"
   else
     curl -fsSL --proto '=https' --tlsv1.2 --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 900 -o "$2" "$1"
+  fi
+}
+
+# post_json <url> <request file> <response file>: prints the HTTP status.
+post_json() {
+  if [ -n "$ALLOW_HTTP" ]; then
+    curl -sS --connect-timeout 15 --max-time 60 -H 'Content-Type: application/json' \
+      --data-binary "@$2" -o "$3" -w '%{http_code}' "$1"
+  else
+    curl -sS --proto '=https' --tlsv1.2 --connect-timeout 15 --max-time 60 -H 'Content-Type: application/json' \
+      --data-binary "@$2" -o "$3" -w '%{http_code}' "$1"
   fi
 }
 
@@ -308,15 +332,18 @@ verify_release() {
 
 # ---- token --------------------------------------------------------------------
 
-# read_token sets TOKEN from RESTOW_TOKEN_FILE, RESTOW_TOKEN or a hidden prompt.
+# read_token sets TOKEN from RESTOW_ENROLL_TOKEN, RESTOW_TOKEN_FILE,
+# RESTOW_TOKEN or, as a fallback on a terminal, a hidden prompt.
 read_token() {
-  if [ -n "${RESTOW_TOKEN_FILE:-}" ]; then
+  if [ -n "${RESTOW_ENROLL_TOKEN:-}" ]; then
+    TOKEN="$RESTOW_ENROLL_TOKEN"
+  elif [ -n "${RESTOW_TOKEN_FILE:-}" ]; then
     [ -f "$RESTOW_TOKEN_FILE" ] || die "RESTOW_TOKEN_FILE $RESTOW_TOKEN_FILE does not exist"
     case "$(mode_of "$RESTOW_TOKEN_FILE")" in
       *00) ;;
       *) warn "$RESTOW_TOKEN_FILE can be read by other users; keep token files at mode 0600 and delete them after use" ;;
     esac
-    TOKEN=$(head -n 1 "$RESTOW_TOKEN_FILE" | tr -d '\r\n\t ')
+    TOKEN=$(head -n 1 "$RESTOW_TOKEN_FILE")
   elif [ -n "${RESTOW_TOKEN:-}" ]; then
     TOKEN="$RESTOW_TOKEN"
   elif (: </dev/tty) 2>/dev/null; then
@@ -330,65 +357,207 @@ read_token() {
       TTY_ECHO_OFF=''
     fi
     printf '\n' >/dev/tty
-    TOKEN=$(printf '%s' "$TOKEN" | tr -d '\r\n\t ')
   fi
-  unset RESTOW_TOKEN
+  TOKEN=$(printf '%s' "$TOKEN" | tr -d '\r\n\t ')
+  unset RESTOW_TOKEN RESTOW_ENROLL_TOKEN
+  case "$TOKEN" in
+    *[!A-Za-z0-9_-]*) die "the enrollment token contains characters a token from Restow never has; copy the command from Restow again" ;;
+  esac
 }
 
+# preflight: asks Restow whether the enrollment token is still good (before
+# anything on this node changes) and whether the admin entered an existing
+# PVE API token for it. The token goes in a request body, never in argv.
+preflight() {
+  _req="$TMP/preflight.json"
+  _out="$TMP/preflight.out"
+  (umask 077 && printf '{"token":"%s"}' "$TOKEN" >"$_req")
+  _code=$(post_json "$INSTANCE_URL/agent/pve/v1/enroll/preflight" "$_req" "$_out") || _code=000
+  rm -f "$_req"
+  case "$_code" in
+    200) ;;
+    401) die "Restow does not accept this enrollment token: it was used for another node, has expired (24 hours) or was revoked. In Restow, use \"Command for another node\" and run the new command." ;;
+    429) die "Restow refuses enrollments from this address for a while (too many failed attempts). Try again later." ;;
+    000) die "cannot reach $INSTANCE_URL from this node (HTTPS, port 443)" ;;
+    *) die "Restow answered $_code when checking the enrollment token: $(head -c 300 "$_out" 2>/dev/null)" ;;
+  esac
+  grep -q '"expiresAt"' "$_out" || die "unexpected answer from $INSTANCE_URL when checking the enrollment token (is this the address of your Restow instance?)"
+  _id=$(sed -n 's/.*"pveTokenId"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$_out")
+  _secret=$(sed -n 's/.*"pveTokenSecret"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$_out")
+  rm -f "$_out"
+  if [ -n "$_id" ] && [ -n "$_secret" ]; then
+    if [ "$PVE_TOKEN_SOURCE" = env ]; then
+      say "    using the API token from RESTOW_PVE_TOKEN_ID ($PVE_TOKEN_ID), not the one entered in Restow ($_id)"
+    else
+      PVE_TOKEN_ID="$_id"
+      PVE_TOKEN_SECRET="$_secret"
+      PVE_TOKEN_SOURCE=restow
+    fi
+  fi
+}
 
 # ---- Proxmox VE --------------------------------------------------------------------
 
-# ask <prompt> <variable> [hidden]: read a value from the terminal unless set.
-ask() {
-  eval "_cur=\${$2:-}"
-  if [ -n "$_cur" ]; then
-    return 0
-  fi
-  if ! (: </dev/tty) 2>/dev/null; then
-    return 0
-  fi
-  printf '%s' "$1" >/dev/tty
-  if [ "${3:-}" = hidden ] && stty -echo </dev/tty 2>/dev/null; then
-    TTY_ECHO_OFF=yes
-  fi
-  IFS= read -r _val </dev/tty || _val=''
-  if [ -n "$TTY_ECHO_OFF" ]; then
-    stty echo </dev/tty 2>/dev/null || true
-    TTY_ECHO_OFF=''
-    printf '\n' >/dev/tty
-  fi
-  _val=$(printf '%s' "$_val" | tr -d '\r\n\t ')
-  eval "$2=\$_val"
+BACKUP_PRIVS="VM.Audit,VM.Backup,Datastore.Audit,Datastore.AllocateSpace,Sys.Audit"
+
+# pveum_q: pveum without the "older storage API" notice an earlier version of
+# the Restow plugin makes PVE 9.x print on every call; everything else on
+# stderr stays.
+pveum_q() {
+  _err="$TMP/pveum.err"
+  _rc=0
+  pveum "$@" 2>"$_err" || _rc=$?
+  grep -v 'is implementing an older storage API' "$_err" >&2 || true
+  rm -f "$_err"
+  return "$_rc"
 }
 
-# setup_pve_user: the PVE side of the onboarding, once per cluster (idempotent):
-# user restow@pve, restore pool, two roles, the ACLs and an API token whose
-# secret is captured for this node.
-setup_pve_user() {
-  step "Setting up user restow@pve, roles, the pool $RESTORE_POOL and an API token"
-  pveum user add restow@pve --comment "Restow backup" 2>/dev/null || say "    user restow@pve exists"
-  pveum pool add "$RESTORE_POOL" --comment "Guests restored by Restow" 2>/dev/null || say "    pool $RESTORE_POOL exists"
-  pveum role add RestowBackup --privs "VM.Audit,VM.Backup,Datastore.Audit,Datastore.AllocateSpace,Sys.Audit" 2>/dev/null ||
-    pveum role modify RestowBackup --privs "VM.Audit,VM.Backup,Datastore.Audit,Datastore.AllocateSpace,Sys.Audit"
-  pveum role add RestowRestore --privs "$RESTORE_PRIVS" 2>/dev/null || pveum role modify RestowRestore --privs "$RESTORE_PRIVS"
-  pveum acl modify / --users restow@pve --roles RestowBackup
-  pveum acl modify "/pool/$RESTORE_POOL" --users restow@pve --roles RestowRestore
-  pveum acl modify /storage --users restow@pve --roles RestowRestore
-  pveum acl modify /sdn --users restow@pve --roles RestowRestore 2>/dev/null || warn "no /sdn path on this PVE version; bridges need SDN.Use only on 8.x with SDN"
-  if [ -z "$PVE_TOKEN_SECRET" ]; then
-    _name="restow-$(hostname -s)"
-    pveum user token remove restow@pve "$_name" >/dev/null 2>&1 || true
-    _json=$(pveum user token add restow@pve "$_name" --privsep 0 --output-format json) || die "cannot create the API token"
-    PVE_TOKEN_ID="restow@pve!$_name"
-    PVE_TOKEN_SECRET=$(printf '%s' "$_json" | sed -n 's/.*"value"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-    [ -n "$PVE_TOKEN_SECRET" ] || die "cannot read the secret of the new API token"
-    say "    API token $PVE_TOKEN_ID created (its secret stays on this node)"
+# json_has <json> <key> <value>: the PVE CLI's JSON output holds "key":"value".
+json_has() {
+  printf '%s' "$1" | grep -Eq "\"$2\"[[:space:]]*:[[:space:]]*\"$3\""
+}
+
+# setup_pve: the PVE side of the onboarding (cluster-wide, idempotent): user
+# restow@pve, the restore pool, the roles RestowBackup and RestowRestore (their
+# privileges set again when they exist) and the ACLs (re-applied harmlessly).
+setup_pve() {
+  step "Setting up user restow@pve, roles RestowBackup and RestowRestore and the pool $RESTORE_POOL"
+  if json_has "$(pveum_q user list --output-format json)" userid 'restow@pve'; then
+    say "    user restow@pve: exists"
+  else
+    pveum_q user add restow@pve --comment "Restow backup" || die "cannot create the user restow@pve"
+    say "    user restow@pve: created"
+  fi
+  if json_has "$(pveum_q pool list --output-format json)" poolid "$RESTORE_POOL"; then
+    say "    pool $RESTORE_POOL: exists"
+  else
+    pveum_q pool add "$RESTORE_POOL" --comment "Guests restored by Restow" || die "cannot create the pool $RESTORE_POOL"
+    say "    pool $RESTORE_POOL: created"
+  fi
+  _roles=$(pveum_q role list --output-format json) || _roles=''
+
+  for _pair in "RestowBackup:$BACKUP_PRIVS" "RestowRestore:$RESTORE_PRIVS"; do
+    _role=${_pair%%:*}
+    _privs=${_pair#*:}
+    if json_has "$_roles" roleid "$_role"; then
+      pveum_q role modify "$_role" --privs "$_privs" || die "cannot update the role $_role"
+      say "    role $_role: updated"
+    else
+      pveum_q role add "$_role" --privs "$_privs" || die "cannot create the role $_role"
+      say "    role $_role: created"
+    fi
+  done
+  pveum_q acl modify / --users restow@pve --roles RestowBackup || die "cannot grant RestowBackup on /"
+  pveum_q acl modify "/pool/$RESTORE_POOL" --users restow@pve --roles RestowRestore || die "cannot grant RestowRestore on /pool/$RESTORE_POOL"
+  pveum_q acl modify /storage --users restow@pve --roles RestowRestore || die "cannot grant RestowRestore on /storage"
+  pveum_q acl modify /sdn --users restow@pve --roles RestowRestore 2>/dev/null ||
+    warn "no /sdn path on this PVE version; restores need SDN.Use only where SDN is in use"
+  say "    ACLs: /, /pool/$RESTORE_POOL, /storage, /sdn"
+}
+
+# node_token_name: the API token name of this node (PVE: a letter first, then
+# letters, digits, '.', '-', '_').
+node_token_name() {
+  _n=$(hostname -s | tr -c 'A-Za-z0-9._\n-' '-')
+  case "$_n" in
+    [A-Za-z]?*) printf '%s' "$_n" ;;
+    *) printf 'node-%s' "$_n" ;;
+  esac
+}
+
+# create_node_token: the node's own API token restow@pve!<node>, privilege
+# separation off (the user's roles apply). An existing token of that name is
+# removed first: PVE shows a secret only once, so it cannot be reused.
+create_node_token() {
+  _name=$(node_token_name)
+  PVE_TOKEN_ID="restow@pve!$_name"
+  if json_has "$(pveum_q user token list restow@pve --output-format json)" tokenid "$_name"; then
+    pveum_q user token remove restow@pve "$_name" >/dev/null || die "cannot replace the existing API token $PVE_TOKEN_ID"
+    say "    API token $PVE_TOKEN_ID: existed, replaced (its old secret stops working)"
+  fi
+  _json=$(pveum_q user token add restow@pve "$_name" --privsep 0 --comment "Restow node helper on $(hostname -s)" --output-format json) ||
+    die "cannot create the API token $PVE_TOKEN_ID"
+  PVE_TOKEN_SECRET=$(printf '%s' "$_json" | sed -n 's/.*"value"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+  [ -n "$PVE_TOKEN_SECRET" ] || die "cannot read the secret of the new API token $PVE_TOKEN_ID"
+  PVE_TOKEN_SOURCE=own
+  say "    API token $PVE_TOKEN_ID: created (its secret stays on this node)"
+}
+
+# check_token_privileges: the token holds every privilege backups need on /
+# (and, as a warning, what restores need in the restore pool). Checked with
+# pveum as root, before anything is downloaded or installed.
+check_token_privileges() {
+  case "$PVE_TOKEN_ID" in
+    *@*!*) ;;
+    *) die "'$PVE_TOKEN_ID' is not a PVE API token id (user@realm!name)" ;;
+  esac
+  _user=${PVE_TOKEN_ID%%!*}
+  _tname=${PVE_TOKEN_ID#*!}
+  step "Checking the privileges of the API token $PVE_TOKEN_ID"
+  _perms=$(pveum_q user token permissions "$_user" "$_tname" --path / --output-format json 2>&1) ||
+    die "cannot read the privileges of the API token $PVE_TOKEN_ID: $_perms
+Check the token id (user@realm!name) in Restow or in Datacenter > Permissions > API Tokens."
+  _missing=''
+  for _p in $(printf '%s' "$BACKUP_PRIVS" | tr ',' ' '); do
+    printf '%s' "$_perms" | grep -q "\"$_p\"" || _missing="$_missing${_missing:+, }$_p"
+  done
+  if [ -n "$_missing" ]; then
+    die "the API token $PVE_TOKEN_ID lacks $_missing on /. Give it the role RestowBackup on / with privilege separation off (see docs/PVE.md), or let this installer create its own token: run the command from Restow without an existing API token."
+  fi
+  say "    $BACKUP_PRIVS on /: OK"
+  _pool=$(pveum_q user token permissions "$_user" "$_tname" --path "/pool/$RESTORE_POOL" --output-format json 2>/dev/null) || _pool=''
+  if printf '%s' "$_pool" | grep -q '"VM.Allocate"'; then
+    say "    VM.Allocate on /pool/$RESTORE_POOL: OK"
+  else
+    warn "the API token $PVE_TOKEN_ID lacks VM.Allocate on /pool/$RESTORE_POOL: backups work, restores from Restow will fail until it has the role RestowRestore there"
   fi
 }
 
-# thin_storages: active local storages fit for fleecing images (thin: lvmthin, zfspool, rbd, btrfs).
+# check_token_secret: the local PVE API accepts the token's secret (an API
+# token entered elsewhere may be mistyped). Only over a certificate signed by
+# the cluster CA; with a custom pveproxy certificate restow-pve checks it later.
+check_token_secret() {
+  _ca=/etc/pve/pve-root-ca.pem
+  [ -f "$_ca" ] || return 0
+  _hdr="$TMP/pve-auth"
+  (umask 077 && printf 'Authorization: PVEAPIToken=%s=%s\n' "$PVE_TOKEN_ID" "$PVE_TOKEN_SECRET" >"$_hdr")
+  _code=$(curl -sS --cacert "$_ca" --connect-timeout 5 --max-time 20 -H "@$_hdr" -o /dev/null -w '%{http_code}' \
+    https://127.0.0.1:8006/api2/json/version 2>/dev/null) || _code=000
+  rm -f "$_hdr"
+  case "$_code" in
+    200) say "    the PVE API accepts the secret of $PVE_TOKEN_ID" ;;
+    401) die "the PVE API does not accept the secret of the API token $PVE_TOKEN_ID (mistyped, expired or deleted)" ;;
+    *) say "    the secret of $PVE_TOKEN_ID is checked when this node enrolls" ;;
+  esac
+}
+
+# thin_storages: active storages of this node fit for fleecing images (thin:
+# lvmthin, zfspool, rbd, btrfs; content images).
 thin_storages() {
-  pvesm status 2>/dev/null | awk 'NR > 1 && $3 == "active" && ($2 == "lvmthin" || $2 == "zfspool" || $2 == "rbd" || $2 == "btrfs") { print $1 }'
+  pvesm status --content images 2>/dev/null | awk 'NR > 1 && $3 == "active" && ($2 == "lvmthin" || $2 == "zfspool" || $2 == "rbd" || $2 == "btrfs") { print $1 }'
+}
+
+# pick_fleecing: the only thin storage, else local-lvm, local-zfs, else the
+# first thin storage. --fleecing-storage overrides.
+pick_fleecing() {
+  _thin=$(thin_storages)
+  if [ -n "$FLEECING" ]; then
+    printf '%s\n' "$_thin" | grep -qx "$FLEECING" ||
+      warn "$FLEECING is not an active thin storage with content images on this node (found: $(printf '%s' "$_thin" | tr '\n' ' ')); fleecing may fail or reserve full disk sizes"
+    say "Fleecing storage: $FLEECING (--fleecing-storage)"
+    return 0
+  fi
+  [ -n "$_thin" ] || die "this node has no active thin storage with content images (lvmthin, zfspool, rbd or btrfs). PVE backs up VMs through a backup provider only with fleecing: add one, or name another storage with --fleecing-storage=NAME (after sh -s --)."
+  if [ "$(printf '%s\n' "$_thin" | wc -l)" -eq 1 ]; then
+    FLEECING=$_thin
+  elif printf '%s\n' "$_thin" | grep -qx local-lvm; then
+    FLEECING=local-lvm
+  elif printf '%s\n' "$_thin" | grep -qx local-zfs; then
+    FLEECING=local-zfs
+  else
+    FLEECING=$(printf '%s\n' "$_thin" | head -n 1)
+  fi
+  say "Fleecing storage: $FLEECING (thin storages on this node: $(printf '%s' "$_thin" | tr '\n' ' ' | sed 's/ $//'); change with --fleecing-storage=NAME)"
 }
 
 restart_pve_daemons() {
@@ -443,11 +612,11 @@ uninstall() {
 
 main() {
   action=install
-  SETUP_PVE_USER=''
   while [ $# -gt 0 ]; do
     case "$1" in
       --uninstall) action=uninstall ;;
-      --setup-pve-user) SETUP_PVE_USER=yes ;;
+      # Earlier releases asked for it; the PVE side is always set up now.
+      --setup-pve-user) ;;
       --fleecing-storage=*) FLEECING="${1#--fleecing-storage=}" ;;
       -h | --help)
         usage
@@ -505,32 +674,41 @@ main() {
   command -v curl >/dev/null 2>&1 || die "curl is required"
   check_trusted_dir "$BIN_DIR"
 
-  enrolled=no
-  [ -f "$STATE_FILE" ] && enrolled=yes
-  if [ "$enrolled" = no ]; then
-    read_token
-    [ -n "$TOKEN" ] || die "this node is not enrolled and no enrollment token was given. Create one in Restow (Inventory > Proxmox VE > Connect) and run this again."
-    [ -n "$SETUP_PVE_USER" ] && [ -z "$ROOT" ] && setup_pve_user
-    ask "PVE API token id (e.g. restow@pve!restow): " PVE_TOKEN_ID
-    ask "PVE API token secret (input is hidden): " PVE_TOKEN_SECRET hidden
-    if [ -z "$PVE_TOKEN_ID" ] || [ -z "$PVE_TOKEN_SECRET" ]; then
-      die "the PVE API token is needed (RESTOW_PVE_TOKEN_ID and RESTOW_PVE_TOKEN_SECRET_FILE, or --setup-pve-user)"
-    fi
-    if [ -z "$FLEECING" ] && [ -z "$ROOT" ]; then
-      suggestions=$(thin_storages | tr '\n' ' ')
-      say "Thin storages on this node for fleecing images: ${suggestions:-none found}"
-      ask "Fleecing storage for this node: " FLEECING
-    fi
-    [ -n "$FLEECING" ] || die "a fleecing storage is required: PVE backs up VMs through the backup provider only with fleecing"
-  fi
-
   say "Restow node helper for Proxmox VE"
   say "Instance: $INSTANCE_URL"
   say "Version:  $AGENT_VERSION"
   say ""
 
-  # ---- download (or take a local copy) and verify ------------------------------------
   TMP=$(mktemp -d)
+  enrolled=no
+  [ -f "$STATE_FILE" ] && enrolled=yes
+  if [ "$enrolled" = no ]; then
+    read_token
+    [ -n "$TOKEN" ] || die "this node is not enrolled and no enrollment token was given. In Restow (Servers & clients > VMs & containers > Connect Proxmox VE), copy the command for this node and run it here."
+    step "Checking the enrollment token with $INSTANCE_URL"
+    preflight
+    say "    enrollment token: OK"
+    if [ -z "$ROOT" ]; then
+      command -v pveum >/dev/null 2>&1 || die "pveum not found: this is not a Proxmox VE node"
+      case "$PVE_TOKEN_SOURCE" in
+        env) say "Using the API token $PVE_TOKEN_ID (RESTOW_PVE_TOKEN_ID)" ;;
+        restow) say "Using the API token $PVE_TOKEN_ID entered in Restow for this node" ;;
+        *)
+          setup_pve
+          create_node_token
+          ;;
+      esac
+      check_token_privileges
+      [ "$PVE_TOKEN_SOURCE" = own ] || check_token_secret
+      pick_fleecing
+    fi
+    if [ -z "$PVE_TOKEN_ID" ] || [ -z "$PVE_TOKEN_SECRET" ]; then
+      die "no PVE API token (set RESTOW_PVE_TOKEN_ID and RESTOW_PVE_TOKEN_SECRET_FILE)"
+    fi
+    [ -n "$FLEECING" ] || die "a fleecing storage is required: PVE backs up VMs through the backup provider only with fleecing (--fleecing-storage=NAME)"
+  fi
+
+  # ---- download (or take a local copy) and verify ------------------------------------
   target=linux-amd64
   files="restow-pve restic RestowPlugin.pm RestowProvider.pm RestowPlugin.LICENSE.txt THIRD_PARTY_NOTICES.txt"
   if [ -n "$LOCAL_DIR" ]; then
@@ -596,7 +774,7 @@ main() {
     RESTOW_PVE_ROOT="$ROOT" RESTOW_TOKEN="$TOKEN" RESTOW_URL="$INSTANCE_URL" RESTOW_PVE_TOKEN_SECRET_FILE="$_secret_file" \
       "$PVE_BIN" enroll --pve-token-id "$PVE_TOKEN_ID" --fleecing-storage "$FLEECING" $enroll_flags || {
       rm -f "$_secret_file"
-      die "enrollment failed (see above). Create a new token in Restow and run this again."
+      die "enrollment failed (see above). Run this command again; if Restow says the token was used or expired, use \"Command for another node\" in Restow."
     }
     rm -f "$_secret_file"
   fi
@@ -635,10 +813,13 @@ main() {
   say ""
   "$PVE_BIN" diagnose || true
   say ""
-  say "Next: the guests of this node appear in Restow (Inventory > Proxmox VE) within a minute."
+  say "Next: the guests of this node appear in Restow (Servers & clients > VMs & containers) within a minute."
   say "      Put them into a backup job there; nothing is backed up before."
   say "Logs:   journalctl -u restow-pve"
   say "Remove: sh pve.sh --uninstall   (or: $PVE_BIN uninstall --yes)"
 }
 
-main "$@"
+# Tests load the functions without running the installer (agent/scripts/test-pve-install.sh).
+if [ "${RESTOW_PVE_INSTALLER_FUNCTIONS_ONLY:-}" != 1 ]; then
+  main "$@"
+fi

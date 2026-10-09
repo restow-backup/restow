@@ -18,6 +18,7 @@ const BROWSER_GUARDED: Readonly<Record<string, string>> = {
   "POST /api/v1/accounts/set-password": "/api/v1/accounts/set-password",
   "POST /agent/v1/enroll": "/agent/v1/enroll",
   "POST /agent/pve/v1/enroll": "/agent/pve/v1/enroll",
+  "POST /agent/pve/v1/enroll/preflight": "/agent/pve/v1/enroll/preflight",
 };
 
 /** Protected some other way, which a page on another site cannot meet either. */

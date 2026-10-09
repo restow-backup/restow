@@ -115,11 +115,20 @@ export interface PveGuestDetail {
   runs: PveRun[];
 }
 
+/** A one-time enrollment token and the one command that connects a node with it. */
 export interface CreatedPveToken {
+  id: string;
   token: string;
   expiresAt: string;
-  clusterCommands: string[];
+  /** The existing PVE API token the node gets with this enrollment, or null (it creates its own). */
+  pveTokenId: string | null;
   nodeCommand: string;
+}
+
+/** An existing PVE API token an admin hands to an enrollment instead of the node's own. */
+export interface ExistingPveToken {
+  id: string;
+  secret: string;
 }
 
 export interface JobInput {
@@ -139,8 +148,11 @@ export const pveKeys = {
 export const fetchOverview = () => apiFetch<PveOverview>("/pve");
 export const fetchGuest = (id: string) =>
   apiFetch<PveGuestDetail>(`/pve/guests/${encodeURIComponent(id)}`);
-export const createToken = () =>
-  apiFetch<CreatedPveToken>("/pve/tokens", { method: "POST", body: {} });
+export const createToken = (pveToken?: ExistingPveToken) =>
+  apiFetch<CreatedPveToken>("/pve/tokens", {
+    method: "POST",
+    body: pveToken ? { pveToken } : {},
+  });
 export const revokeNode = (id: string) =>
   apiFetch<void>(`/pve/nodes/${encodeURIComponent(id)}/revoke`, {
     method: "POST",

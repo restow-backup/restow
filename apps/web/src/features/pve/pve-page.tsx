@@ -6,7 +6,6 @@ import { useTranslation } from "react-i18next";
 
 import {
   ConfirmDialog,
-  CopyButton,
   EmptyState,
   PageHeader,
   RefreshButton,
@@ -17,7 +16,6 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -37,19 +35,18 @@ import { useTenantScope } from "@/features/endpoints/hooks";
 import { formatBytes, formatDateTime } from "@/lib/format";
 
 import {
-  type CreatedPveToken,
   type JobInput,
   type PveGuest,
   type PveJob,
   assignJob,
   backupNow,
-  createToken,
   deleteJob,
   fetchOverview,
   pveKeys,
   revokeNode,
   saveJob,
 } from "./api.js";
+import { ConnectDialog } from "./connect-dialog.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { guestTo } from "./paths.js";
 
@@ -72,77 +69,6 @@ function problemLabel(
   const key = `problems.${code}`;
   const label = t(key);
   return label === key ? t("problems.unknown", { code }) : label;
-}
-
-/** The onboarding: a token and the commands, per cluster and per node. */
-function ConnectDialog() {
-  const { t, i18n } = useTranslation(PVE_NAMESPACE);
-  const [open, setOpen] = React.useState(false);
-  const [created, setCreated] = React.useState<CreatedPveToken | null>(null);
-  const mutation = useMutation({ mutationFn: createToken, onSuccess: setCreated });
-  const close = (next: boolean) => {
-    setOpen(next);
-    if (!next) {
-      setCreated(null);
-    }
-  };
-  const language = i18n.resolvedLanguage ?? i18n.language;
-  return (
-    <Dialog open={open} onOpenChange={close}>
-      <Button type="button" size="sm" onClick={() => setOpen(true)} data-slot="pve-connect">
-        <Server aria-hidden="true" />
-        {t("connect.button")}
-      </Button>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>{t("connect.title")}</DialogTitle>
-          <DialogDescription>{t("connect.description")}</DialogDescription>
-        </DialogHeader>
-        {created ? (
-          <div className="space-y-4 text-sm">
-            <div>
-              <p className="font-medium">{t("connect.stepCluster")}</p>
-              <pre className="mt-2 overflow-x-auto rounded-md bg-muted p-3 text-xs">
-                {created.clusterCommands.join("\n")}
-              </pre>
-              <CopyButton value={created.clusterCommands.join("\n")} />
-            </div>
-            <div>
-              <p className="font-medium">{t("connect.stepNode")}</p>
-              <pre className="mt-2 overflow-x-auto rounded-md bg-muted p-3 text-xs">
-                {created.nodeCommand}
-              </pre>
-              <CopyButton value={created.nodeCommand} />
-              <p className="mt-1 text-muted-foreground">{t("connect.stepNodeHint")}</p>
-            </div>
-            <div>
-              <p className="font-medium">
-                {t("connect.token", { expires: formatDateTime(created.expiresAt, language) ?? "" })}
-              </p>
-              <div className="mt-2 flex items-center gap-2">
-                <code className="break-all rounded-md bg-muted p-2 text-xs" data-slot="pve-token">
-                  {created.token}
-                </code>
-                <CopyButton value={created.token} />
-              </div>
-              <p className="mt-1 text-muted-foreground">{t("connect.tokenWarning")}</p>
-            </div>
-          </div>
-        ) : null}
-        <DialogFooter>
-          {created ? (
-            <Button type="button" variant="outline" onClick={() => close(false)}>
-              {t("connect.close")}
-            </Button>
-          ) : (
-            <Button type="button" onClick={() => mutation.mutate()} disabled={mutation.isPending}>
-              {t("connect.create")}
-            </Button>
-          )}
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
 }
 
 /** Create or change a backup job for VMs and containers. */

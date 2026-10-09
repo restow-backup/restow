@@ -133,6 +133,7 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   // Proxmox VE (docs/PVE.md): the node helper authenticates with its own secret,
   // the node installer is a public download.
   "POST /agent/pve/v1/enroll",
+  "POST /agent/pve/v1/enroll/preflight",
   "POST /agent/pve/v1/heartbeat",
   "POST /agent/pve/v1/inventory",
   "GET /agent/pve/v1/listing",
