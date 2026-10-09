@@ -17,6 +17,8 @@ paths = [
   '''(^|/)scripts/smoke/lib/restow\.test\.mjs$''',
   # The installer's shell test suite feeds made-up setup tokens to install.sh
   '''(^|/)deploy/install/test\.sh$''',
+  # The PVE node installer's shell test feeds made-up enrollment and PVE API tokens to pve.sh
+  '''(^|/)agent/scripts/test-pve-install\.sh$''',
 ]
 regexes = [
   # i18n keys such as "m365.consentResult.granted" in presenters
