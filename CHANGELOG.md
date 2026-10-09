@@ -16,7 +16,8 @@ you have verified restores against your own data.
 ### Summary
 
 Restow 0.3.2 fixes Microsoft 365 mailbox backups that stopped in the folders step
-with "Microsoft refused the request" (HTTP 400). Nothing needs your attention beyond
+with "Microsoft refused the request" (HTTP 400), and the inventory leads to the
+Proxmox VE page instead of announcing it. Nothing needs your attention beyond
 updating; the next scheduled run picks the mailbox up again.
 
 ### Breaking Changes
@@ -29,7 +30,8 @@ None.
 
 ### Changed
 
-None.
+- Servers & endpoints › Inventory: the "Connect Proxmox (soon)" placeholder is now a
+  "Proxmox VE" button that opens VMs & containers, for the roles that may open it.
 
 ### Fixed
 

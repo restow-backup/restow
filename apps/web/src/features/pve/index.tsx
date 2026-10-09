@@ -7,7 +7,7 @@ import { appLayoutRoute } from "@/routes/tree";
 
 import { PveGuestPage } from "./guest-page.js";
 import "./i18n.js";
-import { PVE_GUEST_PATTERN, PVE_PATH } from "./paths.js";
+import { PVE_GUEST_PATTERN, PVE_PATH, PVE_ROLES } from "./paths.js";
 import { PvePage } from "./pve-page.js";
 
 /**
@@ -18,7 +18,7 @@ import { PvePage } from "./pve-page.js";
  * restore check and runs. For administrators.
  */
 
-export const PVE_ROLES = ["provider_admin", "tenant_admin"] as const;
+export { PVE_ROLES };
 
 function PveRoute() {
   return (

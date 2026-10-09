@@ -1041,8 +1041,6 @@
     "noMachines": "Noch kein Rechner."
   },
   "proxmox": {
-    "label": "Proxmox verbinden",
-    "title": "Proxmox VE",
-    "description": "Proxmox VE ab 8.4 anbinden und VMs sowie LXC-Container über die offizielle Backup-Schnittstelle von Proxmox sichern: Nur geänderte Blöcke verlassen den Knoten, direkt an Ihre Speicherorte. Kommt nach 0.2.0."
+    "label": "Proxmox VE"
   }
 }
