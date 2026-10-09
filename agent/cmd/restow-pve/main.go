@@ -159,6 +159,32 @@ func readSecretArg(direct, file string) (string, error) {
 	return strings.TrimSpace(direct), nil
 }
 
+// checkPVEToken makes sure the PVE API accepts the token, PVE is new enough
+// and the token holds every privilege backups need on "/". Every error names
+// the token it checked.
+func checkPVEToken(ctx context.Context, api *pve.PVEAPI, tokenID string) (string, error) {
+	version, err := api.Version(ctx)
+	if err != nil {
+		var pe *pve.PVEAPIError
+		if errors.As(err, &pe) && pe.Status == 401 {
+			return "", fmt.Errorf("the PVE API does not accept the API token %s (wrong id or secret, expired or deleted): %w", tokenID, err)
+		}
+		return "", fmt.Errorf("cannot check the API token %s with the local PVE API: %w", tokenID, err)
+	}
+	if !pve.VersionAtLeast(version, 8, 4) {
+		return "", fmt.Errorf("this node runs Proxmox VE %s; the backup provider interface needs 8.4 or newer", version)
+	}
+	perms, err := api.Permissions(ctx)
+	if err != nil {
+		return "", fmt.Errorf("cannot read the privileges of the API token %s: %w", tokenID, err)
+	}
+	if missing := pve.MissingPrivileges(perms); len(missing) > 0 {
+		return "", fmt.Errorf("the API token %s lacks %s on / (privilege separation off, roles as in docs/PVE.md, onboarding)",
+			tokenID, strings.Join(missing, ", "))
+	}
+	return version, nil
+}
+
 func cmdEnroll(layout pve.Layout, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("enroll", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -177,7 +203,11 @@ func cmdEnroll(layout pve.Layout, args []string, stdin io.Reader, stdout, stderr
 		fmt.Fprintf(stdout, "This node is already enrolled (node %s). Use --force to enroll again.\n", existing.NodeID)
 		return 0
 	}
-	token, err := readSecretArg(os.Getenv("RESTOW_TOKEN"), *tokenFile)
+	direct := os.Getenv("RESTOW_TOKEN")
+	if direct == "" {
+		direct = os.Getenv("RESTOW_ENROLL_TOKEN")
+	}
+	token, err := readSecretArg(direct, *tokenFile)
 	if err != nil {
 		fmt.Fprintln(stderr, "restow-pve:", err)
 		return 1
@@ -188,7 +218,7 @@ func cmdEnroll(layout pve.Layout, args []string, stdin io.Reader, stdout, stderr
 		return 1
 	}
 	if token == "" || secret == "" || *url == "" || *tokenID == "" {
-		fmt.Fprintln(stderr, "restow-pve: enroll needs --url, the enrollment token (RESTOW_TOKEN_FILE), --pve-token-id and the token secret (RESTOW_PVE_TOKEN_SECRET_FILE)")
+		fmt.Fprintln(stderr, "restow-pve: enroll needs --url, the enrollment token (RESTOW_ENROLL_TOKEN or RESTOW_TOKEN_FILE), --pve-token-id and the token secret (RESTOW_PVE_TOKEN_SECRET_FILE)")
 		return 2
 	}
 	_ = stdin
@@ -206,20 +236,10 @@ func cmdEnroll(layout pve.Layout, args []string, stdin io.Reader, stdout, stderr
 		fmt.Fprintln(stderr, "restow-pve:", err)
 		return 1
 	}
-	version, err := api.Version(ctx)
+	version, err := checkPVEToken(ctx, api, st.PVETokenID)
 	if err != nil {
-		fmt.Fprintf(stderr, "restow-pve: the PVE API does not accept the token: %v\n", err)
+		fmt.Fprintln(stderr, "restow-pve:", err)
 		return 1
-	}
-	if !pve.VersionAtLeast(version, 8, 4) {
-		fmt.Fprintf(stderr, "restow-pve: Proxmox VE %s is too old; the backup provider interface needs 8.4 or newer\n", version)
-		return 1
-	}
-	if perms, err := api.Permissions(ctx); err == nil {
-		if missing := pve.MissingPrivileges(perms); len(missing) > 0 {
-			fmt.Fprintf(stderr, "restow-pve: the token lacks %s on / (see docs/PVE.md, onboarding)\n", strings.Join(missing, ", "))
-			return 1
-		}
 	}
 	name, fp := clusterFacts()
 	if name == "" {

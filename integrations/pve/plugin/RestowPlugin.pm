@@ -112,10 +112,38 @@ sub call_helper {
 
 # --- plugin definition ---------------------------------------------------------
 
-# Storage API version 11 introduced the backup provider interface (PVE 8.4);
-# later versions keep it within their accepted age.
+# The storage API versions this plugin was checked against. 11 introduced the
+# backup provider interface (PVE 8.4: APIVER 11, APIAGE 2). The changes up to
+# 16 (pve-storage ApiChangeLog) touch only what this plugin does not use:
+#   12  qemu_blockdev_options, rename_snapshot, volume_qemu_snapshot_method,
+#       get_formats (the default keeps the plugindata behaviour)
+#   13  $hints for activate_volume/map_volume (ignored here), on_update_hook_full
+#   14  get_identity (optional; the base implementation dies)
+#   15  $snapname for volume_resize, virtual-size in volume_snapshot_info
+#       (no images, no snapshots here)
+#   16  volname_for_format and friends, called only by the base alloc_image and
+#       rename_volume (alloc_image dies here, rename is not offered)
+use constant MIN_API => 11;
+use constant MAX_VERIFIED_API => 16;
+
+# api: the running APIVER while it lies in the verified range, so PVE 9.x does
+# not warn about "an older storage API" on every pveum/pvesm call. A newer PVE
+# gets the newest verified version: it loads (and warns) while APIAGE still
+# accepts it and is refused by PVE itself once it does not. Without
+# PVE::Storage loaded (tests, perl -c) the minimum.
 sub api {
-    return 11;
+    my $apiver = _pve_storage_apiver();
+    return MIN_API if !defined($apiver);
+    return $apiver if $apiver >= MIN_API && $apiver <= MAX_VERIFIED_API;
+    return MAX_VERIFIED_API if $apiver > MAX_VERIFIED_API;
+    # Older than the backup provider interface: PVE refuses it with a clear message.
+    return MIN_API;
+}
+
+# The APIVER of the running PVE::Storage (which loads this plugin), else undef.
+sub _pve_storage_apiver {
+    my $apiver = UNIVERSAL::can('PVE::Storage', 'APIVER');
+    return $apiver ? $apiver->() : undef;
 }
 
 sub type {

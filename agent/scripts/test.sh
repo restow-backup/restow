@@ -1,7 +1,8 @@
 #!/bin/sh
 # Unit tests and static checks: gofmt, go vet for all four release targets, the
 # tests with the race detector, the build.sh test (scripts/test-build.sh, needs
-# neither Go nor Docker) and ShellCheck. Uses the local Go toolchain if present,
+# neither Go nor Docker), the PVE installer test (scripts/test-pve-install.sh) and
+# ShellCheck. Uses the local Go toolchain if present,
 # else the pinned golang Docker image.
 #
 #   scripts/test.sh
@@ -24,6 +25,7 @@ if [ "${1:-}" != "--inner" ]; then
       "$GO_IMAGE" sh scripts/test.sh --inner
   fi
   "$AGENT_DIR/scripts/test-build.sh"
+  sh "$AGENT_DIR/scripts/test-pve-install.sh"
   "$AGENT_DIR/scripts/lint.sh"
   exit 0
 fi

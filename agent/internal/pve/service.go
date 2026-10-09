@@ -129,11 +129,13 @@ func (s *Service) Problems(ctx context.Context) []string {
 var RequiredPrivileges = []string{"VM.Audit", "VM.Backup", "Datastore.Audit", "Datastore.AllocateSpace", "Sys.Audit"}
 
 // MissingPrivileges compares GET /access/permissions with RequiredPrivileges.
+// PVE lists every privilege the token holds on a path; the value is only the
+// propagate flag, so a privilege set without propagation (0) is held as well.
 func MissingPrivileges(perms map[string]map[string]int) []string {
 	root := perms["/"]
 	var missing []string
 	for _, p := range RequiredPrivileges {
-		if root[p] == 0 {
+		if _, ok := root[p]; !ok {
 			missing = append(missing, p)
 		}
 	}

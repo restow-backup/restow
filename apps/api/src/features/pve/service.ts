@@ -22,6 +22,7 @@ import {
   pveTasks,
 } from "@restow/db";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { storeSecret } from "../../lib/secrets.js";
 import { withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { isSafeOrigin } from "../endpoints/distribution.js";
@@ -174,16 +175,32 @@ export async function overview(database: Database, tenantId: string, now: Date =
   });
 }
 
+/** Secret kind of an existing PVE API token handed to one enrollment (sealed JSON {id, secret}). */
+export const PVE_API_TOKEN_SECRET_KIND = "pve_api_token";
+
+/** The environment variable the node installer reads the enrollment token from. */
+export const ENROLL_TOKEN_ENV = "RESTOW_ENROLL_TOKEN";
+
+/** The one command to run as root on a node (docs/PVE.md, onboarding). */
+export function nodeCommand(instanceUrl: string, token: string): string {
+  // The token goes to the installer through its environment, not its arguments.
+  return `curl -fsSL '${instanceUrl}/install/pve.sh' | ${ENROLL_TOKEN_ENV}='${token}' sh`;
+}
+
 /**
- * A one-time enrollment token (24 hours) and the commands to run: once per
- * cluster as root on any node (user, roles, restore pool, token), then once
- * per node (the installer, which asks for the token and the API token).
+ * A one-time enrollment token (24 hours, one node) and the one command to run
+ * as root on that node. The installer sets up the PVE side itself (user, roles,
+ * restore pool, an API token of its own for the node) unless the admin gives an
+ * existing PVE API token here: that one is sealed with the tenant key, bound to
+ * this enrollment token, handed to the node once before it enrolls and deleted
+ * when the node enrolled (or by the worker when the token expired).
  */
 export async function createEnrollmentToken(
   database: Database,
   tenantId: string,
   actor: PveActor,
   instance: { url: string },
+  input: { pveToken?: { id: string; secret: string } | undefined } = {},
   now: Date = new Date(),
 ) {
   if (!instance.url || !isSafeOrigin(instance.url)) {
@@ -192,13 +209,22 @@ export async function createEnrollmentToken(
     });
   }
   const token = generateEnrollmentToken();
+  const pveToken = input.pveToken ?? null;
   const row = await withTenantTx(database, tenantId, async (tx) => {
+    const sealed = pveToken
+      ? await storeSecret(tx, {
+          tenantId,
+          kind: PVE_API_TOKEN_SECRET_KIND,
+          plaintext: JSON.stringify({ id: pveToken.id, secret: pveToken.secret }),
+        })
+      : null;
     const [created] = await tx
       .insert(pveEnrollmentTokens)
       .values({
         tenantId,
         tokenHash: token.hash,
         expiresAt: enrollmentTokenExpiry(now),
+        pveTokenSecretId: sealed?.id ?? null,
         createdBy: actor.userId,
       })
       .returning();
@@ -211,7 +237,11 @@ export async function createEnrollmentToken(
       action: PVE_AUDIT_ACTIONS.tokenCreated,
       target: created.id,
       targetType: "pve_enrollment_token",
-      details: { expiresAt: created.expiresAt.toISOString() },
+      details: {
+        expiresAt: created.expiresAt.toISOString(),
+        // Only the id of an existing PVE API token, never its secret.
+        pveTokenId: pveToken?.id ?? null,
+      },
     });
     return created;
   });
@@ -219,24 +249,9 @@ export async function createEnrollmentToken(
     id: row.id,
     token: token.value,
     expiresAt: row.expiresAt.toISOString(),
-    clusterCommands: clusterSetupCommands(),
-    nodeCommand: `curl -fsSL '${instance.url}/install/pve.sh' | sh`,
+    pveTokenId: pveToken?.id ?? null,
+    nodeCommand: nodeCommand(instance.url, token.value),
   };
-}
-
-/** The PVE side of the onboarding, once per cluster (docs/PVE.md "Onboarding"). */
-export function clusterSetupCommands(): string[] {
-  return [
-    `pveum user add restow@pve --comment "Restow backup"`,
-    `pveum pool add ${RESTORE_POOL} --comment "Guests restored by Restow"`,
-    `pveum role add RestowBackup --privs "VM.Audit,VM.Backup,Datastore.Audit,Datastore.AllocateSpace,Sys.Audit"`,
-    `pveum role add RestowRestore --privs "VM.Allocate,VM.Config.Disk,VM.Config.CDROM,VM.Config.CPU,VM.Config.Memory,VM.Config.Network,VM.Config.HWType,VM.Config.Options,VM.Config.Cloudinit,Datastore.AllocateSpace,SDN.Use"`,
-    "pveum acl modify / --users restow@pve --roles RestowBackup",
-    `pveum acl modify /pool/${RESTORE_POOL} --users restow@pve --roles RestowRestore`,
-    "pveum acl modify /storage --users restow@pve --roles RestowRestore",
-    "pveum acl modify /sdn --users restow@pve --roles RestowRestore",
-    "pveum user token add restow@pve restow --privsep 0",
-  ];
 }
 
 async function loadGuest(

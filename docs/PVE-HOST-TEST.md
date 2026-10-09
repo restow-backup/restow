@@ -72,8 +72,9 @@ once running (incremental path) and once stopped with `ORACLE=1`.
 The script
 
 1. records `pveversion -v`, storages and the test guests' configuration,
-2. installs restow-pve with `--setup-pve-user` (user `restow@pve`, roles,
-   pool `restow-restore`, an API token per node), checks that the plugin loads
+2. installs restow-pve (the installer sets up user `restow@pve`, roles,
+   pool `restow-restore` and the node's own API token `restow@pve!<node>`,
+   and checks the token's privileges), checks that the plugin loads
    in PVE's Perl, runs `restow-pve diagnose` and `test`, checks that storage
    `restow` is active and waits one heartbeat,
 3. backs up the VM twice with `vzdump --storage restow --mode snapshot

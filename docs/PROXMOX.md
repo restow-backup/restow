@@ -573,6 +573,13 @@ restic repositories (password export as for endpoints).
 
 ### 2.7 Onboarding: "API token plus one command per node"
 
+> **As implemented (docs/PVE.md, Onboarding):** simpler than designed here. The wizard shows one
+> ready-to-run command per node with the enrollment token in the environment; the installer sets up
+> user, roles, pool and ACLs idempotently on every run, creates the node's own token
+> `restow@pve!<node>`, checks its privileges and picks the fleecing storage, without prompts. An
+> admin may hand over an existing token instead (sealed in Restow until the node enrolled). The
+> commands below remain the manual reference.
+
 In Restow (wizard "Connect Proxmox"):
 
 1. Choose the tenant. The wizard shows the PVE-side commands to run **once per cluster**, as root on any
@@ -624,7 +631,7 @@ by the last node (or by the admin). Backups stay in Restow.
 | Asset | Where | Protection |
 | --- | --- | --- |
 | Node secret (`rsea_`) | `/etc/restow-pve/state.json` 0600 root, local disk (not pmxcfs) | Server keeps SHA-256 only. One secret per node, revocable per node. |
-| PVE API token | same file | Never sent to Restow. Least privilege (2.7). `VM.Allocate` only on `/pool/restow-restore`, so the token cannot delete production guests. Its `VM.Backup` on `/` allows backup and restore-over-existing *only with `force`*; the helper never uses `force` and the server cannot instruct it to. |
+| PVE API token | same file | Never sent to Restow (default; an admin-supplied existing token passes through Restow once, sealed, see docs/PVE.md). Least privilege (2.7). `VM.Allocate` only on `/pool/restow-restore`, so the token cannot delete production guests. Its `VM.Backup` on `/` allows backup and restore-over-existing *only with `force`*; the helper never uses `force` and the server cannot instruct it to. |
 | Restic repo password (CT) | Restow server (KEK and tenant DEK), handed to the node per run | As with endpoints. The node can read its guests' CT backups. |
 | Tenant DEK | Restow server only | Server-side ingest: nodes never see keys. |
 | Node to server authorization | `/agent/pve/v1/*` | A node may only open runs for guests of its own cluster and tenant (inventory), append blocks to its own open run, commit, and read maps and blocks of its own cluster's guests (restore). No delete; no overwrite of a committed snapshot. Hash-verified block uploads. Quotas per guest and tenant, as `endpoint-quota`. |

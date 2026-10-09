@@ -25,7 +25,8 @@
 #   FLEECING         a thin storage of this node for fleecing (local-lvm, local-zfs, ...)
 #   TARGET_STORAGE   where restored guests are allocated (local-lvm, ...)
 # For a node that is not enrolled yet:
-#   RESTOW_TOKEN_FILE   file with the enrollment token from Restow (Connect Proxmox VE)
+#   RESTOW_TOKEN_FILE   file with the enrollment token from Restow (Connect Proxmox VE;
+#                       the token is the RESTOW_ENROLL_TOKEN value in the command shown)
 # Optional:
 #   RESTOW_PVE_LOCAL_DIR  install from a local release folder (build-node-tarball.sh)
 #                         instead of the instance; with RESTOW_ALLOW_UNSIGNED_DEV=1
@@ -145,7 +146,7 @@ if [ -z "${SKIP_INSTALL:-}" ]; then
   else
     curl -fsSL "$RESTOW_URL/install/pve.sh" -o "$WORK/pve.sh" || bad "download pve.sh from $RESTOW_URL"
   fi
-  if RESTOW_URL="$RESTOW_URL" sh "$WORK/pve.sh" --setup-pve-user --fleecing-storage="$FLEECING" 2>&1 | redact | tee -a "$REPORT"; then
+  if RESTOW_URL="$RESTOW_URL" sh "$WORK/pve.sh" --fleecing-storage="$FLEECING" 2>&1 | redact | tee -a "$REPORT"; then
     ok "installer finished"
   else
     bad "installer failed"

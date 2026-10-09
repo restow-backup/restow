@@ -18,6 +18,28 @@ export const enrollSchema = z.object({
   fleecingStorage: z.string().max(64).default(""),
 });
 
+export const enrollPreflightSchema = z.object({ token: z.string().min(10).max(200) });
+
+/**
+ * A PVE API token id: `user@realm!name` (the characters PVE allows for realm and
+ * token name; the user part limited to what is safe in the installer's shell).
+ */
+export const PVE_TOKEN_ID_RE = /^[A-Za-z0-9._-]+@[A-Za-z][A-Za-z0-9._-]+![A-Za-z][A-Za-z0-9._-]+$/;
+
+/** The optional existing PVE API token for an enrollment (docs/PVE.md, onboarding). */
+export const createTokenSchema = z.object({
+  pveToken: z
+    .object({
+      id: z.string().trim().max(200).regex(PVE_TOKEN_ID_RE, "user@realm!name"),
+      // PVE generates a UUID; any token secret is URL- and shell-safe.
+      secret: z
+        .string()
+        .trim()
+        .regex(/^[A-Za-z0-9._-]{16,128}$/, "the secret PVE showed when the token was created"),
+    })
+    .optional(),
+});
+
 export const heartbeatSchema = z.object({
   helperVersion: z.string().max(64),
   pveVersion: z.string().max(64).default(""),

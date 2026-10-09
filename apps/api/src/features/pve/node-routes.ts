@@ -8,6 +8,7 @@ import { instanceUrl } from "../endpoints/instance-url.js";
 import { type NodeEnv, requireNode } from "./node-auth.js";
 import {
   enrollNode,
+  enrollmentPreflight,
   listing,
   nodeHeartbeat,
   pveEnrollFailures,
@@ -32,6 +33,7 @@ import {
 import {
   blocksQuerySchema,
   commitSchema,
+  enrollPreflightSchema,
   enrollSchema,
   finishSchema,
   heartbeatSchema,
@@ -54,6 +56,7 @@ import {
  * one-time token in its body, everything else with HTTP Basic
  * `nodeId:nodeSecret`.
  *
+ *   POST /enroll/preflight                            token -> still valid? the admin's PVE API token, if any
  *   POST /enroll                                      token + cluster facts -> node id and secret
  *   POST /heartbeat                                   state in, tasks out
  *   POST /inventory                                   the guests of this node
@@ -96,6 +99,37 @@ pveNodeRoutes.post("/enroll", async (c) => {
     const result = await enrollNode(input, clientIp(c));
     c.header("cache-control", "no-store");
     return c.json(result, 201);
+  } catch (error) {
+    if (error instanceof ProblemError && error.status === 401) {
+      pveEnrollFailures.record(key, now);
+      authFailures.record(key, now);
+    }
+    throw error;
+  }
+});
+
+pveNodeRoutes.post("/enroll/preflight", async (c) => {
+  const key = clientIp(c) ?? "unknown";
+  const now = Date.now();
+  if (pveEnrollFailures.isBlocked(key, now)) {
+    throw new ProblemError(429, "Too many requests", {
+      type: "urn:restow:problem:rate-limited",
+      detail: "Too many failed enrollments from this address. Try again later.",
+    });
+  }
+  let input: ReturnType<typeof enrollPreflightSchema.parse>;
+  try {
+    await guardBrowserRequest(c);
+    input = await parseJsonBody(c.req, enrollPreflightSchema);
+  } catch (error) {
+    pveEnrollFailures.record(key, now);
+    authFailures.record(key, now);
+    throw error;
+  }
+  try {
+    const result = await enrollmentPreflight(input.token);
+    c.header("cache-control", "no-store");
+    return c.json(result);
   } catch (error) {
     if (error instanceof ProblemError && error.status === 401) {
       pveEnrollFailures.record(key, now);

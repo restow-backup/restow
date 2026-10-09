@@ -19,7 +19,7 @@
 # On the node:
 #   tar xzf restow-pve-<version>-linux-amd64.tar.gz && cd restow-pve-<version>
 #   RESTOW_URL=https://<instance> RESTOW_VERSION=<version> RESTOW_PVE_LOCAL_DIR=$PWD \
-#     RESTOW_ALLOW_UNSIGNED_DEV=1 sh pve.sh --setup-pve-user
+#     RESTOW_ALLOW_UNSIGNED_DEV=1 RESTOW_ENROLL_TOKEN='<token from Restow>' sh pve.sh
 # (RESTOW_ALLOW_UNSIGNED_DEV only for a development version such as 0.3.0-dev;
 # a release is signed by the maintainer: copy SHA256SUMS.sig next to SHA256SUMS.)
 #

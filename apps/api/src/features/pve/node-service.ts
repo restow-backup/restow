@@ -14,10 +14,12 @@ import {
   pveRuns,
   pveSnapshots,
   pveTasks,
+  secrets,
   tenants,
 } from "@restow/db";
 import { and, asc, desc, eq, gt, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
 import { db, providerDb } from "../../db.js";
+import { readSecret } from "../../lib/secrets.js";
 import { withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { FailureTracker } from "../endpoints/agent-auth.js";
@@ -177,6 +179,11 @@ export async function enrollNode(
         .update(pveEnrollmentTokens)
         .set({ usedByNodeId: node.id })
         .where(eq(pveEnrollmentTokens.id, claimed.id));
+      // An existing PVE API token handed over for this enrollment has served its
+      // purpose: the node keeps it, Restow does not (the reference goes null).
+      if (claimed.pveTokenSecretId) {
+        await tx.delete(secrets).where(eq(secrets.id, claimed.pveTokenSecretId));
+      }
       await auditPve(tx, {
         tenantId,
         actor: nodeActor(input.nodeName, ip),
@@ -204,6 +211,44 @@ export async function enrollNode(
     await release().catch(() => undefined);
     throw error;
   }
+}
+
+/**
+ * Before a node enrolls (docs/PVE-PROTOCOL.md): is the enrollment token still
+ * good, and did the admin give an existing PVE API token with it? The installer
+ * asks this first, so it fails early on a used or expired token and uses the
+ * admin's PVE token instead of creating one. It does not use the enrollment
+ * token up; the PVE token is deleted when the node enrolled with it.
+ */
+export async function enrollmentPreflight(
+  token: string,
+  now: Date = new Date(),
+): Promise<{ expiresAt: string; pveTokenId: string | null; pveTokenSecret: string | null }> {
+  const [row] = await providerDb
+    .select()
+    .from(pveEnrollmentTokens)
+    .where(eq(pveEnrollmentTokens.tokenHash, hashSecret(token)))
+    .limit(1);
+  const state = row ? enrollmentTokenState(row, now) : "unknown";
+  if (!row || state !== "valid") {
+    throw new ProblemError(401, "Enrollment token not valid", {
+      type: PVE_ENROLLMENT_INVALID,
+      detail: "The enrollment token is unknown, expired, revoked or already used.",
+      extensions: { reason: state },
+    });
+  }
+  let pveToken: { id: string; secret: string } | null = null;
+  if (row.pveTokenSecretId) {
+    const plaintext = await readSecret(db, { id: row.pveTokenSecretId, tenantId: row.tenantId });
+    if (plaintext) {
+      pveToken = JSON.parse(plaintext) as { id: string; secret: string };
+    }
+  }
+  return {
+    expiresAt: row.expiresAt.toISOString(),
+    pveTokenId: pveToken?.id ?? null,
+    pveTokenSecret: pveToken?.secret ?? null,
+  };
 }
 
 export interface HeartbeatInput {

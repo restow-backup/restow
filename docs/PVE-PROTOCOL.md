@@ -11,7 +11,7 @@ Changes are additive: new fields may appear, existing ones keep their meaning.
 | Command | Purpose |
 | --- | --- |
 | `restow-pve provider <verb>` | One call of the storage plugin (below). |
-| `restow-pve enroll` | Enroll the node: `--url`, `--pve-token-id`, `--fleecing-storage`, `--node`; secrets only from files or the environment: `RESTOW_TOKEN_FILE` / `RESTOW_TOKEN`, `RESTOW_PVE_TOKEN_SECRET_FILE` / `RESTOW_PVE_TOKEN_SECRET`. |
+| `restow-pve enroll` | Enroll the node: `--url`, `--pve-token-id`, `--fleecing-storage`, `--node`; secrets only from files or the environment: `RESTOW_TOKEN_FILE` / `RESTOW_TOKEN` / `RESTOW_ENROLL_TOKEN`, `RESTOW_PVE_TOKEN_SECRET_FILE` / `RESTOW_PVE_TOKEN_SECRET`. |
 | `restow-pve run` | The service: heartbeat every minute, tasks, inventory every five minutes, caches, self-update. |
 | `restow-pve status [--json]` | Local state and the last heartbeat. |
 | `restow-pve diagnose [--json]` / `test` | All checks (plugin files, restic, storage.cfg, enrollment, PVE API and version, token privileges, restore pool, fleecing storage, Restow server); `test` exits 1 on any failure. |
@@ -90,6 +90,7 @@ except enrollment. Binary formats are defined in
 
 | Route | Purpose |
 | --- | --- |
+| `POST /enroll/preflight` | `{token}` → `{expiresAt, pveTokenId, pveTokenSecret}`: the installer's check before it changes anything. 401 when the token is unknown, used, revoked or expired. `pveTokenId`/`pveTokenSecret` are the existing PVE API token an admin gave for this enrollment, else `null`. Does not use the token up. |
 | `POST /enroll` | `{token, clusterName, clusterFingerprint, nodeName, pveVersion, helperVersion, fleecingStorage}` → `{nodeId, nodeSecret, clusterId, storageId, createdCluster}` |
 | `POST /heartbeat` | node facts → `{tasks, storageId, usage, update}` |
 | `POST /inventory` | `{guests: [...]}` of this node |

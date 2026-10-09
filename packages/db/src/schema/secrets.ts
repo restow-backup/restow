@@ -30,6 +30,11 @@ export type SecretKind =
   | "update_source_token"
   | "s3_credentials"
   | "webhook_signing_secret"
+  // Proxmox VE (tenant level): a container's restic repository password, and an
+  // existing PVE API token an admin handed to one enrollment (sealed JSON
+  // {id, secret}; deleted once the node enrolled or the enrollment token ended).
+  | "pve_ct_repository"
+  | "pve_api_token"
   | (string & {});
 
 /**
