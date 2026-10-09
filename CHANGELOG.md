@@ -8,6 +8,58 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [0.3.2] - 2026-10-09
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.3.2 fixes Microsoft 365 mailbox backups that stopped in the folders step
+with "Microsoft refused the request" (HTTP 400). Nothing needs your attention beyond
+updating; the next scheduled run picks the mailbox up again.
+
+### Breaking Changes
+
+None.
+
+### Added
+
+None.
+
+### Changed
+
+None.
+
+### Fixed
+
+- A Microsoft 365 mailbox backup could fail in the folders step with HTTP 400 "Request
+  Id ... has to be unique in a batch": when Microsoft listed a folder twice while the
+  folder list was read, Restow asked for that folder's subfolders twice in one batch
+  under the same id, and Microsoft refused the whole batch. Every batch now uses ids of
+  its own, and each folder is read once.
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New image; no database migration. Coming from 0.2.x, read the notes of 0.3.1 below
+first (six migrations, the new setup notice, the new compose file).
+
+### Known Issues
+
+The known issues of 0.3.1 still apply.
+
+### Verification
+
+Before the tag, on 2026-10-09: the packages/core suite (1978 tests, with restic 0.19.1),
+including new tests for repeated batch ids and a folder listed twice that fail without
+the fix, the worker's failure tests against Postgres 16, typecheck, lint and the
+installer tests. The release pipeline adds the full CI, the image builds, the release
+smoke checks and the scans below.
+
 ## [0.3.1] - 2026-10-08
 
 Beta release. Run it alongside your existing backups, not as your only one, until

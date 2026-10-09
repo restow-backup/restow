@@ -1,6 +1,6 @@
 {
   "name": "@restow/i18n",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "type": "module",
   "description": "Restow translations (de, en) and the shared i18next setup with ICU message formatting.",
