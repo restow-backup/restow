@@ -335,7 +335,11 @@ export class FetchGraphClient implements GraphClient {
     return { status: response.status, headers, body };
   }
 
-  async batch(requests: BatchRequest[]): Promise<BatchResponse[]> {
+  async batch(callerRequests: BatchRequest[]): Promise<BatchResponse[]> {
+    // Graph refuses a whole $batch whose request ids repeat (400 "has to be unique
+    // in a batch"). Callers often use resource ids, which can repeat, so the
+    // batch sends its own ids (the position) and hands back the caller's.
+    const requests = callerRequests.map((r, index) => ({ ...r, id: String(index) }));
     const responses = new Map<string, BatchResponse>();
     let pending = requests;
     for (let attempt = 0; pending.length > 0; attempt++) {
@@ -375,9 +379,10 @@ export class FetchGraphClient implements GraphClient {
       }
     }
     // Keep the caller's order so results line up with the requests.
-    return requests.flatMap((r) => {
+    return requests.flatMap((r, index) => {
       const found = responses.get(r.id);
-      return found ? [found] : [];
+      const callerId = callerRequests[index]?.id ?? r.id;
+      return found ? [{ ...found, id: callerId }] : [];
     });
   }
 

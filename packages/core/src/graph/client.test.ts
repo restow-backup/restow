@@ -29,7 +29,7 @@ describe("batching", () => {
         respond: (call) => {
           round += 1;
           return batchEnvelope(call, (sub) =>
-            sub.id === "b" && round === 1
+            sub.url === "/users/b" && round === 1
               ? {
                   status: 429,
                   headers: { "Retry-After": "1" },
@@ -54,9 +54,29 @@ describe("batching", () => {
       ["c", 200],
     ]);
     expect(round).toBe(2);
-    const secondRound = graph.callsTo("POST", "$batch")[1]?.json as { requests: { id: string }[] };
-    expect(secondRound.requests.map((r) => r.id)).toEqual(["b"]);
+    const secondRound = graph.callsTo("POST", "$batch")[1]?.json as { requests: { url: string }[] };
+    expect(secondRound.requests.map((r) => r.url)).toEqual(["/users/b"]);
     expect(throttles).toEqual([1000]);
+  });
+
+  it("sends unique ids even when the caller's ids repeat, and hands back the caller's", async () => {
+    const graph = createFakeGraph([
+      {
+        method: "POST",
+        url: "/v1.0/$batch",
+        respond: (call) => batchEnvelope(call, (sub) => ({ status: 200, body: { url: sub.url } })),
+      },
+    ]);
+    const responses = await graph.client().batch([
+      { id: "AAMkFolder", method: "GET", url: "/a" },
+      { id: "AAMkFolder", method: "GET", url: "/b" },
+    ]);
+    expect(responses.map((r) => [r.id, (r.body as { url: string }).url])).toEqual([
+      ["AAMkFolder", "/a"],
+      ["AAMkFolder", "/b"],
+    ]);
+    const sent = graph.callsTo("POST", "$batch")[0]?.json as { requests: { id: string }[] };
+    expect(new Set(sent.requests.map((r) => r.id)).size).toBe(2);
   });
 
   it("adds Content-Type to batch sub-requests that carry a body", async () => {

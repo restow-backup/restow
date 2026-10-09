@@ -109,6 +109,52 @@ describe("mail folders", () => {
   });
 });
 
+describe("mail folder tree with a folder listed twice", () => {
+  it("keeps each folder once and asks for its children once", async () => {
+    const page1 = foldersFixture.topLevelPage1;
+    const inbox = must(page1.value.find((folder) => folder.id === "AAMkFolderInbox"));
+    const graph = createFakeGraph([
+      {
+        method: "POST",
+        url: "/v1.0/$batch",
+        respond: (call) =>
+          batchEnvelope(call, (sub) => {
+            if (sub.url.includes("/childFolders")) {
+              return { status: 200, body: { value: [] } };
+            }
+            const name = sub.url.match(/mailFolders\/([^/?]+)/)?.[1] ?? "";
+            const id = (foldersFixture.wellKnown as Record<string, string>)[name];
+            return id
+              ? { status: 200, body: { id } }
+              : { status: 404, body: graphError("ErrorFolderNotFound") };
+          }),
+      },
+      {
+        url: (u) => u.pathname === `/v1.0/users/${USER}/mailFolders` && !u.search.includes("skip"),
+        respond: { status: 200, json: page1 },
+      },
+      {
+        url: /\$skip=100/,
+        respond: {
+          status: 200,
+          json: {
+            ...foldersFixture.topLevelPage2,
+            value: [...foldersFixture.topLevelPage2.value, inbox],
+          },
+        },
+      },
+    ]);
+
+    const tree = await listMailFolderTree(graph.client(), USER);
+    expect(tree.filter((f) => f.id === "AAMkFolderInbox")).toHaveLength(1);
+    const childLookups = graph
+      .callsTo("POST", "$batch")
+      .flatMap((call) => (call.json as { requests: { url: string }[] }).requests)
+      .filter((sub) => sub.url.includes("AAMkFolderInbox/childFolders"));
+    expect(childLookups).toHaveLength(1);
+  });
+});
+
 describe("messages delta", () => {
   it("selects the envelope fields the mail restore explorer metadata contract needs", () => {
     expect(MESSAGE_DELTA_SELECT).toEqual(
