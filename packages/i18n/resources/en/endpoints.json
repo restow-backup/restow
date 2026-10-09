@@ -1041,8 +1041,6 @@
     "noMachines": "No machine yet."
   },
   "proxmox": {
-    "label": "Connect Proxmox",
-    "title": "Proxmox VE",
-    "description": "Connect Proxmox VE 8.4 or newer and back up VMs and LXC containers through Proxmox's official backup interface: only changed blocks leave the node, straight into your storage locations. Coming after 0.2.0."
+    "label": "Proxmox VE"
   }
 }

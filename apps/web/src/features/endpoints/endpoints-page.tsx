@@ -9,7 +9,7 @@ import { useSession } from "@/lib/session";
 import { EndpointsTable } from "./components/endpoints-table.js";
 import { EnrollDialog } from "./components/enroll-dialog.js";
 import { PendingTokens } from "./components/pending-tokens.js";
-import { ProxmoxTeaser } from "./components/proxmox-teaser.js";
+import { ProxmoxLink } from "./components/proxmox-link.js";
 import { WithoutBackupBanner, canManageJobs } from "./components/without-backup.js";
 import { useEndpoints } from "./hooks.js";
 import { type EndpointArea, type EndpointProfile, profileOfArea } from "./paths.js";
@@ -62,8 +62,8 @@ export function EndpointsPage({
           fetching={endpoints.isFetching}
           label={t("list.refresh")}
         />
-        {/* A teaser, not a flow: what comes after this release. */}
-        <ProxmoxTeaser />
+        {/* VMs and containers are backed up on the Proxmox VE page, not by an agent. */}
+        <ProxmoxLink />
         {area === "agents"
           ? [newButton("client", false), newButton("server", true)]
           : newButton(profile ?? "server", true)}

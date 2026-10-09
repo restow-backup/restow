@@ -10,10 +10,15 @@ import { type Mounted, mount } from "./dom-harness.js";
 import { EndpointsPage } from "./endpoints-page.js";
 import "./i18n.js";
 
-const session = { status: "authenticated", activeTenant: { id: "t-1", name: "Contoso" } };
-vi.mock("@/lib/session", () => ({
-  useSession: () => session,
-}));
+const session = {
+  status: "authenticated",
+  activeTenant: { id: "t-1", name: "Contoso" },
+  role: "tenant_admin" as string | null,
+};
+vi.mock("@/lib/session", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/session")>();
+  return { canAccess: actual.canAccess, useSession: () => session };
+});
 vi.mock("radix-ui", async (importOriginal) => {
   const actual = await importOriginal<typeof import("radix-ui")>();
   const InPlacePortal = ({ children }: { children?: unknown }) => children;
@@ -129,24 +134,29 @@ describe("EndpointsPage", () => {
     expect(fetchAgentUpdates).not.toHaveBeenCalled();
   });
 
-  it("offers a Proxmox teaser next to the buttons that add an agent, and starts nothing", async () => {
+  it("links to the Proxmox VE page next to the buttons that add an agent", async () => {
     await open("agents");
-    const teaser = document.querySelector<HTMLButtonElement>('[data-slot="proxmox-teaser"]');
-    expect(teaser?.textContent).toContain("Connect Proxmox");
-    expect(teaser?.textContent).toContain("Soon");
+    const link = document.querySelector<HTMLAnchorElement>('[data-slot="proxmox-link"]');
+    expect(link?.getAttribute("href")).toBe("/virtualization");
+    expect(link?.textContent).toContain("Proxmox VE");
+    expect(link?.textContent).not.toContain("Soon");
     // The size of the buttons that add an agent, and secondary: they are the page's actions.
-    const header = teaser?.closest('[data-slot="page-header"]');
+    const header = link?.closest('[data-slot="page-header"]');
     const newClient = [...(header?.querySelectorAll("button") ?? [])].find((button) =>
       button.textContent?.includes("New client"),
     );
-    expect(teaser?.getAttribute("data-size")).toBe(newClient?.getAttribute("data-size"));
-    expect(teaser?.getAttribute("data-variant")).toBe("outline");
-    // It opens a short explanation instead of a flow.
-    await page.click(teaser as Element);
-    await page.settle();
-    expect(document.body.textContent).toContain("Proxmox VE 8.4 or newer");
-    expect(document.body.textContent).toContain("Coming after 0.2.0");
-    expect(document.querySelector('[role="dialog"]')?.textContent ?? "").not.toContain("Install");
+    expect(link?.getAttribute("data-size")).toBe(newClient?.getAttribute("data-size"));
+    expect(link?.getAttribute("data-variant")).toBe("outline");
+  });
+
+  it("shows no Proxmox VE link to a role that may not open that page", async () => {
+    session.role = "tenant_user";
+    try {
+      await open("agents");
+      expect(document.querySelector('[data-slot="proxmox-link"]')).toBeNull();
+    } finally {
+      session.role = "tenant_admin";
+    }
   });
 
   it("asks the API for servers only on the servers page, clients only on clients, all on agents", async () => {
