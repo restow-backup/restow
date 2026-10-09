@@ -25,7 +25,7 @@ name: restow
 
 # Shared configuration for the three server roles (same image, same env).
 x-restow-app: &restow-app
-  image: ${RESTOW_IMAGE:?set RESTOW_IMAGE in .env (for example ghcr.io/restow-backup/restow:0.3.1 or ghcr.io/restow-backup/restow-community:0.3.1)}
+  image: ${RESTOW_IMAGE:?set RESTOW_IMAGE in .env (for example ghcr.io/restow-backup/restow:0.3.2 or ghcr.io/restow-backup/restow-community:0.3.2)}
   env_file:
     - .env
   depends_on:
@@ -128,7 +128,7 @@ services:
   # for RESTOW_APP_DOMAIN, which must resolve to this host with ports 80 and 443
   # reachable), and proxies /api/* to the api.
   caddy:
-    image: ${RESTOW_WEB_IMAGE:?set RESTOW_WEB_IMAGE in .env (for example ghcr.io/restow-backup/restow-web:0.3.1 or ghcr.io/restow-backup/restow-web-community:0.3.1)}
+    image: ${RESTOW_WEB_IMAGE:?set RESTOW_WEB_IMAGE in .env (for example ghcr.io/restow-backup/restow-web:0.3.2 or ghcr.io/restow-backup/restow-web-community:0.3.2)}
     environment:
       RESTOW_APP_DOMAIN: ${RESTOW_APP_DOMAIN:?set RESTOW_APP_DOMAIN in .env (for example app.example.com)}
       RESTOW_EDGE_HSTS: ${RESTOW_EDGE_HSTS:-}
@@ -157,7 +157,7 @@ services:
   # Read "The opt-in updater" in docs/UPDATING.md first. Nothing has to be set in .env for it.
   #
   # Its image: there is no separate updater image. The updater is the application image
-  # (RESTOW_IMAGE, for example ghcr.io/restow-backup/restow:0.3.1) started with ROLE=updater.
+  # (RESTOW_IMAGE, for example ghcr.io/restow-backup/restow:0.3.2) started with ROLE=updater.
   # RESTOW_UPDATER_IMAGE is optional: while it is empty this service starts the image in
   # RESTOW_IMAGE, and on that first start the updater writes RESTOW_UPDATER_IMAGE into .env,
   # pinned by digest to the image it runs. From then on the updater's image no longer follows

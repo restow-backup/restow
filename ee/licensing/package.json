@@ -1,6 +1,6 @@
 {
   "name": "@restow/ee-licensing",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "private": true,
   "type": "module",
   "description": "Restow license key verification, editions and capabilities, shared by the Business and Service Provider modules (ee/api, ee/worker) and compiled into the apps that load them.",
