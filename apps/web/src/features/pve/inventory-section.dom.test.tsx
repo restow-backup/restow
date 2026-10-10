@@ -196,6 +196,9 @@ describe("PveInventorySection", () => {
     expect(rows[0]?.querySelector("a")?.getAttribute("href")).toBe("/virtualization/g-100");
     expect(rows[1]?.textContent).toContain("No backup job");
     expect(rows[2]?.textContent).toContain("Last run failed");
+    expect(rows[2]?.querySelector('[data-slot="pve-inventory-error"]')?.textContent).toBe(
+      "fleecing full",
+    );
     expect(rows[3]?.textContent).toContain("Stopped");
   });
 

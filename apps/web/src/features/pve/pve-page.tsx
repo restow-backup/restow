@@ -236,7 +236,20 @@ function GuestState({ guest }: { guest: PveGuest }) {
       </Badge>,
     );
   }
-  return <div className="flex flex-wrap gap-1">{badges}</div>;
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap gap-1">{badges}</div>
+      {guest.lastRunStatus === "failed" && guest.lastRunError ? (
+        // The reason in plain sight, not only in the badge's tooltip.
+        <p
+          className="max-w-prose text-xs break-words text-destructive-text"
+          data-slot="pve-guest-error"
+        >
+          {guest.lastRunError}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 export function PvePage() {
