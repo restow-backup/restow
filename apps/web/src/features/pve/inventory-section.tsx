@@ -179,6 +179,14 @@ function NodeRow({ group }: { group: NodeGroup }) {
                           </span>
                         ) : null}
                       </span>
+                      {protection === "failed" && guest.lastRunError ? (
+                        <p
+                          className="mt-1 max-w-prose text-xs break-words text-destructive-text"
+                          data-slot="pve-inventory-error"
+                        >
+                          {guest.lastRunError}
+                        </p>
+                      ) : null}
                     </TableCell>
                   </TableRow>
                 );
