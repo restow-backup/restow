@@ -882,7 +882,13 @@ func TestUnreachableServerDuringRunKeepsReportAndResumes(t *testing.T) {
 	if !ok {
 		t.Fatal("run report was not stored in the outbox")
 	}
-	st := h.status.Snapshot()
+	// The report reaches the outbox a moment before the status records the
+	// interruption; wait for the status instead of reading it once.
+	var st status.Status
+	fakeserver.WaitFor(5*time.Second, func() bool {
+		st = h.status.Snapshot()
+		return st.Interrupted
+	})
 	if !st.Interrupted || st.ConsecutiveFailures != 0 {
 		t.Fatalf("a failure caused by a lost connection is an interruption: %+v", st)
 	}
