@@ -280,9 +280,9 @@ function ruleProblem(violation: StorageRuleViolation): ProblemError {
 /** A location that failed validation: 422 naming the fields, so the form can mark them. */
 export function invalidLocationProblem(issues: readonly StorageConfigIssue[]): ProblemError {
   const first = issues[0];
-  return new ProblemError(422, "Invalid storage location", {
+  return new ProblemError(422, "Invalid repository", {
     type: `${PROBLEM_PREFIX}invalid-location`,
-    detail: "The storage location is not usable as entered.",
+    detail: "The repository is not usable as entered.",
     extensions: {
       field: first?.field ?? null,
       reason: first?.reason ?? null,

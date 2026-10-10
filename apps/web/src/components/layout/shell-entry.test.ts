@@ -1,4 +1,4 @@
-import { ScrollText, Settings } from "lucide-react";
+import { HardDrive, ScrollText, Settings } from "lucide-react";
 import { describe, expect, it } from "vitest";
 
 import type { NavItem } from "@/lib/navigation";
@@ -142,5 +142,45 @@ describe("resolveShellEntry for the tenants", () => {
         "provider_admin",
       ),
     ).toMatchObject({ item: { id: "tenants" } });
+  });
+});
+
+describe("the tenant page's entries", () => {
+  const tenantItems: NavItem[] = [
+    {
+      id: "organisation-settings",
+      path: "/tenants/t1/overview",
+      matches: ["/tenants/t1"],
+      labelKey: "nav.items.organisationSettings",
+      icon: Settings,
+      roles: ["provider_admin", "tenant_admin"],
+      group: "tenants",
+    },
+    {
+      id: "repositories",
+      path: "/tenants/t1/storage",
+      labelKey: "storage:nav",
+      icon: HardDrive,
+      roles: ["provider_admin", "tenant_admin"],
+      group: "tenants",
+    },
+  ];
+
+  it("highlights Repositories on its section and the settings on every other section", () => {
+    expect(
+      resolveShellEntry(tenantItems, "/tenants/t1/storage", {}, undefined, "tenant_admin"),
+    ).toMatchObject({ item: { id: "repositories" }, group: "tenants" });
+    for (const section of ["overview", "connections", "members"]) {
+      expect(
+        resolveShellEntry(tenantItems, `/tenants/t1/${section}`, {}, undefined, "tenant_admin"),
+        section,
+      ).toMatchObject({ item: { id: "organisation-settings" } });
+    }
+  });
+
+  it("leaves another tenant's repositories to the settings entry", () => {
+    expect(
+      resolveShellEntry(tenantItems, "/tenants/t2/storage", {}, undefined, "provider_admin"),
+    ).toMatchObject({ item: { id: "organisation-settings" } });
   });
 });

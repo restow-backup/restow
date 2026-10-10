@@ -136,7 +136,7 @@
   },
   "storage": {
     "title": "Storage integrity",
-    "description": "Every pack file is read from each storage location and checked against its recorded SHA-256: a sample every week, all packs every month. Damage is repaired from an intact copy where one exists.",
+    "description": "Every pack file is read from each repository and checked against its recorded SHA-256: a sample every week, all packs every month. Damage is repaired from an intact copy where one exists.",
     "state": {
       "ok": "Intact",
       "repaired": "Repaired",
@@ -160,11 +160,11 @@
     "packs": "{checked} of {total} packs checked, {bytes} read",
     "never": "No storage check has run yet.",
     "corruptTitle": "{count, plural, one {# pack is damaged} other {# packs are damaged}}",
-    "corrupt": "No intact copy exists in any storage location, so the damage could not be repaired. Every object whose data sits in these packs is rated not restorable.",
+    "corrupt": "No intact copy exists in any repository, so the damage could not be repaired. Every object whose data sits in these packs is rated not restorable.",
     "corruptHeal": "A full backup of the affected objects writes the damaged content again from the source, as far as the source still holds it. Backups no longer reuse data from these packs. Once no backup needs a damaged pack any more, the next storage check retires it.",
     "retired": "{count, plural, one {# damaged pack is} other {# damaged packs are}} no longer needed: later backups wrote their content again. {count, plural, one {It was} other {They were}} removed from the index and {count, plural, one {its file is} other {their files are}} deleted by a storage check one day later at the earliest.",
     "repairedTitle": "{count, plural, one {# pack was repaired} other {# packs were repaired}}",
-    "repaired": "A storage location held a damaged or missing copy; it was rewritten from an intact copy and read back to confirm.",
+    "repaired": "A repository held a damaged or missing copy; it was rewritten from an intact copy and read back to confirm.",
     "target": {
       "primary": "Primary storage",
       "copy": "Copy {index}"
@@ -267,7 +267,7 @@
     },
     "damagedPacks": {
       "title": "{count, plural, one {# damaged pack in this backup} other {# damaged packs in this backup}}",
-      "description": "The latest storage check found these pack files damaged in every storage location. Items stored in them cannot be restored, even if the sample did not touch them."
+      "description": "The latest storage check found these pack files damaged in every repository. Items stored in them cannot be restored, even if the sample did not touch them."
     },
     "manifestFailure": {
       "title": "Why the catalogue of this backup could not be read"
@@ -283,7 +283,7 @@
     },
     "scrub": {
       "title": "Storage check finding",
-      "description": "The storage check found pack files holding data of this object damaged in every storage location and could not repair them from a copy."
+      "description": "The storage check found pack files holding data of this object damaged in every repository and could not repair them from a copy."
     },
     "unknown": {
       "title": "Details not readable",

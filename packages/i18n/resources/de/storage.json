@@ -1,14 +1,14 @@
 {
-  "nav": "Speicherorte",
-  "title": "Speicherorte",
-  "subtitle": "Wo Backups liegen, ob jeder Speicherort funktioniert und wie viel gespeichert ist.",
-  "tenantScope": "Speicherorte von {tenant}",
+  "nav": "Repositories",
+  "title": "Repositories",
+  "subtitle": "Wo Backups liegen, ob jedes Repository funktioniert und wie viel gespeichert ist.",
+  "tenantScope": "Repositories von {tenant}",
   "noTenant": {
     "title": "Kein Mandant ausgewählt",
-    "description": "Wählen Sie oben einen Mandanten, um seine Speicherorte zu verwalten."
+    "description": "Wählen Sie oben einen Mandanten, um seine Repositories zu verwalten."
   },
   "error": {
-    "title": "Speicherorte konnten nicht geladen werden"
+    "title": "Repositories konnten nicht geladen werden"
   },
   "kindLong": {
     "local": "Serverpfad (Volume, NFS)",
@@ -22,8 +22,8 @@
     "primaryHint": "Backups werden zuerst hierhin geschrieben; Wiederherstellungen lesen von hier.",
     "copyHint": "Jedes neue Backup wird auch hierhin geschrieben. Daten aus der Zeit vor der Kopie spiegelt und prüft der Kopierlauf.",
     "previousHint": "Abgelöst: Wird nicht mehr beschrieben. Bleibt bis zur Entfernung erhalten; Wiederherstellung, Prüfung, Downloads und spätere Backups von vor der Umstellung geschützten Objekten lesen weiterhin von hier, sobald ein Sicherungsstand nur noch hier liegt.",
-    "replacePrimary": "Primären Speicherort ersetzen",
-    "replacePrimaryHint": "Wählen Sie unten, ob vorhandene Backups zuerst zum neuen Speicherort wandern oder dort bleiben, wo sie sind."
+    "replacePrimary": "Primäres Repository ersetzen",
+    "replacePrimaryHint": "Wählen Sie unten, ob vorhandene Backups zuerst zum neuen Repository wandern oder dort bleiben, wo sie sind."
   },
   "status": {
     "ok": "Funktioniert",
@@ -31,7 +31,7 @@
     "unverified": "Nicht getestet"
   },
   "actions": {
-    "add": "Speicherort hinzufügen",
+    "add": "Repository hinzufügen",
     "addS3": "S3-kompatibler Speicher",
     "addLocal": "Serverpfad (Volume, NFS)",
     "localProviderOnly": "Nur für Provider-Admins",
@@ -41,10 +41,10 @@
     "testSettings": "Einstellungen testen",
     "edit": "Bearbeiten",
     "delete": "Entfernen",
-    "promote": "Zum primären Speicherort machen",
+    "promote": "Zum primären Repository machen",
     "checkCopy": "Kopie prüfen",
     "moreActions": "Weitere Aktionen für {name}",
-    "create": "Speicherort hinzufügen",
+    "create": "Repository hinzufügen",
     "useDefault": "Installationsstandard nutzen"
   },
   "usage": {
@@ -58,7 +58,7 @@
     "logical": "Geschützte Daten",
     "logicalHint": "{count, plural, =0 {Noch kein abgeschlossenes Backup} one {Letztes Backup von # Objekt} other {Letzte Backups von # Objekten}}",
     "physical": "Gespeichert",
-    "physicalHint": "{count, plural, one {# Pack} other {# Packs}}, an jedem Speicherort",
+    "physicalHint": "{count, plural, one {# Pack} other {# Packs}}, in jedem Repository",
     "savings": "Durch Deduplizierung gespart",
     "savingsHint": "Gegenüber {bytes} in {count, plural, one {# aufbewahrten Backup} other {# aufbewahrten Backups}}",
     "growth": "Zuwachs, {count} Tage",
@@ -75,41 +75,41 @@
     "tableBytes": "Gespeichert"
   },
   "targets": {
-    "title": "Speicherorte",
-    "description": "Der primäre Speicherort erhält jedes Backup zuerst; Kopien erhalten dieselben Daten an einem anderen Ort.",
+    "title": "Repositories",
+    "description": "Das primäre Repository erhält jedes Backup zuerst; Kopien erhalten dieselben Daten an einem anderen Ort.",
     "managedByProvider": "Serverpfade verwaltet der Provider-Admin.",
     "retiredLocation": "Steht für die Speichereinstellungen der Umgebung von vor der Ablösung. Es hat keinen eigenen Ort zum Testen.",
     "singleLocation": {
-      "title": "Nur ein Speicherort",
-      "description": "Alle Backups dieses Mandanten liegen an einem Ort. Fügen Sie einen Kopie-Speicherort an einem anderen Ort hinzu, etwa externen Objektspeicher, damit ein einzelner Ausfall nicht alle Kopien trifft (3-2-1-Regel)."
+      "title": "Nur ein Repository",
+      "description": "Alle Backups dieses Mandanten liegen an einem Ort. Fügen Sie ein Kopie-Repository an einem anderen Ort hinzu, etwa externen Objektspeicher, damit ein einzelner Ausfall nicht alle Kopien trifft (3-2-1-Regel)."
     }
   },
   "default": {
     "name": "Installationsstandard",
-    "description": "Vom Provider für diese Installation festgelegt; gilt, solange dieser Mandant keinen eigenen primären Speicherort hat.",
+    "description": "Vom Provider für diese Installation festgelegt; gilt, solange dieser Mandant kein eigenes primäres Repository hat.",
     "managedByProvider": "Von Ihrem Provider konfiguriert",
     "copy": "Jeder Schreibvorgang wird zusätzlich in einen zweiten Pfad auf dem Server kopiert.",
     "copyAt": "Jeder Schreibvorgang wird zusätzlich nach {location} kopiert.",
     "notChecked": "In dieser Sitzung nicht getestet. Der Installationsstandard speichert keinen Testverlauf.",
     "misconfigured": {
-      "title": "Der Standardspeicher der Installation ist falsch konfiguriert",
-      "description": "Der Speicher-Standard der Installation ist nicht nutzbar. Backups dieses Mandanten können erst geschrieben werden, wenn der Provider ihn korrigiert oder ein primärer Speicherort hinzugefügt wird."
+      "title": "Das Standard-Repository der Installation ist falsch konfiguriert",
+      "description": "Das Standard-Repository der Installation ist nicht nutzbar. Backups dieses Mandanten können erst geschrieben werden, wenn der Provider es korrigiert oder ein primäres Repository hinzugefügt wird."
     },
-    "inUse": "Ausgewählt: Neue Backups dieses Mandanten gehen hierhin. Um stattdessen einen eigenen Speicherort zu nutzen, fügen Sie einen mit der Rolle „Primär“ hinzu.",
-    "notInUse": "Nicht in Verwendung: Dieser Mandant hat einen eigenen primären Speicherort.",
+    "inUse": "Ausgewählt: Neue Backups dieses Mandanten gehen hierhin. Um stattdessen ein eigenes Repository zu nutzen, fügen Sie eines mit der Rolle „Primär“ hinzu.",
+    "notInUse": "Nicht in Verwendung: Dieser Mandant hat ein eigenes primäres Repository.",
     "notInUseBadge": "Nicht in Verwendung",
-    "backBlocked": "Sobald Backups am eigenen Speicherort des Mandanten liegen, ist ein Wechsel zurück zum Installationsstandard nicht möglich: {appName} kann sie noch nicht dorthin verschieben. Sie bleiben, wo sie sind.",
+    "backBlocked": "Sobald Backups im eigenen Repository des Mandanten liegen, ist ein Wechsel zurück zum Installationsstandard nicht möglich: {appName} kann sie noch nicht dorthin verschieben. Sie bleiben, wo sie sind.",
     "use": {
       "title": "Installationsstandard nutzen?",
-      "description": "{name} wird als primärer Speicherort entfernt, und neue Backups dieses Mandanten gehen an den Installationsstandard. In {name} ist noch nichts gespeichert.",
+      "description": "{name} wird als primäres Repository entfernt, und neue Backups dieses Mandanten gehen an den Installationsstandard. In {name} ist noch nichts gespeichert.",
       "confirm": "Installationsstandard nutzen"
     }
   },
   "health": {
     "ok": "Funktioniert",
     "okWithWarnings": "Funktioniert, mit Warnungen",
-    "notTested": "Noch nicht getestet. Testen Sie den Speicherort, bevor Sie sich darauf verlassen.",
-    "configInvalid": "Die gespeicherten Einstellungen sind nicht mehr gültig. Bearbeiten Sie den Speicherort.",
+    "notTested": "Noch nicht getestet. Testen Sie das Repository, bevor Sie sich darauf verlassen.",
+    "configInvalid": "Die gespeicherten Einstellungen sind nicht mehr gültig. Bearbeiten Sie das Repository.",
     "failedAt": "(abgebrochen bei: {step})",
     "stepDuration": "{step} {ms} ms",
     "detail": "Details: {message}",
@@ -144,7 +144,7 @@
   },
   "objectLock": {
     "filesystem": "Kein Hardware-WORM",
-    "filesystemHint": "Ein Dateisystem kann Unveränderbarkeit nicht erzwingen: Wer Zugriff auf den Server hat, kann Dateien ändern oder löschen. Ein Archiv auf diesem Speicherort ist nur durch {appName} und die Hash-Kette geschützt.",
+    "filesystemHint": "Ein Dateisystem kann Unveränderbarkeit nicht erzwingen: Wer Zugriff auf den Server hat, kann Dateien ändern oder löschen. Ein Archiv in diesem Repository ist nur durch {appName} und die Hash-Kette geschützt.",
     "notChecked": "Object Lock noch nicht geprüft",
     "notCheckedHint": "Ein erfolgreicher Test erkennt auch, ob der Bucket Object Lock (WORM) erzwingt.",
     "enabled": "Object Lock aktiv (WORM)",
@@ -152,7 +152,7 @@
     "disabled": "Object Lock nicht aktiv",
     "disabledHint": "Für Backups geeignet. Ein Archiv auf diesem Bucket ist nur durch {appName} und die Hash-Kette geschützt. Object Lock lässt sich nur beim Anlegen eines Buckets einschalten und sperrt in dieser Version auch dann nur die Datensätze der Archiv-Elemente, nicht die Nachrichteninhalte.",
     "unsupported": "Object Lock wird von diesem Anbieter nicht unterstützt",
-    "unsupportedHint": "Für Backups geeignet. Ein Archiv auf diesem Speicherort ist nur durch {appName} und die Hash-Kette geschützt.",
+    "unsupportedHint": "Für Backups geeignet. Ein Archiv in diesem Repository ist nur durch {appName} und die Hash-Kette geschützt.",
     "unknownAccess": "Object-Lock-Status unbekannt",
     "unknownAccessHint": "Der Schlüssel darf die Object-Lock-Konfiguration des Buckets nicht lesen (s3:GetBucketObjectLockConfiguration).",
     "unknownError": "Object-Lock-Status unbekannt",
@@ -181,14 +181,14 @@
     "switched": "Umgeschaltet",
     "retired": "Abgelöst",
     "failed": "Migration fehlgeschlagen",
-    "failedSource": "Ablösung fehlgeschlagen; dieser Ort ist weiterhin der primäre Speicherort",
+    "failedSource": "Ablösung fehlgeschlagen; dieses Repository bleibt das primäre",
     "cancelled": "Migration abgebrochen",
-    "cancelledSource": "Ablösung abgebrochen; dieser Ort ist weiterhin der primäre Speicherort",
+    "cancelledSource": "Ablösung abgebrochen; dieses Repository bleibt das primäre",
     "stalled": "Migration ins Stocken geraten; zum Abschließen abbrechen",
-    "stalledSource": "Ablösung ins Stocken geraten; dieser Ort ist weiterhin der primäre Speicherort",
+    "stalledSource": "Ablösung ins Stocken geraten; dieses Repository bleibt das primäre",
     "cancel": "Migration abbrechen",
     "cancelConfirmTitle": "Diese Migration abbrechen?",
-    "cancelConfirmDescription": "Das Kopieren stoppt beim nächsten Kontrollpunkt. Nichts geht verloren: Der alte primäre Speicherort bedient Backups und Wiederherstellungen weiter, und dieser Speicherort bleibt eine Kopie, die Sie entfernen oder erneut versuchen können.",
+    "cancelConfirmDescription": "Das Kopieren stoppt beim nächsten Kontrollpunkt. Nichts geht verloren: Das alte primäre Repository bedient Backups und Wiederherstellungen weiter, und dieses Repository bleibt eine Kopie, die Sie entfernen oder erneut versuchen können.",
     "cancelConfirm": "Migration abbrechen",
     "etaLabel": "Noch etwa {duration}",
     "eta": {
@@ -204,7 +204,7 @@
       "s3": "S3-kompatiblen Speicher hinzufügen",
       "local": "Serverpfad hinzufügen"
     },
-    "editTitle": "Speicherort bearbeiten",
+    "editTitle": "Repository bearbeiten",
     "description": {
       "s3": "Ein Bucket bei Hetzner Object Storage, Amazon S3, Wasabi, Backblaze B2, Garage oder einem anderen S3-kompatiblen Dienst. Zugangsdaten werden verschlüsselt gespeichert.",
       "local": "Ein Verzeichnis in den Containern: das Standard-Volume oder ein NFS-Netzlaufwerk, das in die Container api und worker eingebunden ist."
@@ -216,14 +216,14 @@
     },
     "role": "Rolle",
     "primaryBlocked": {
-      "primaryExists": "Dieser Mandant hat bereits einen primären Speicherort. Fügen Sie eine Kopie hinzu und befördern Sie sie später, oder wählen Sie oben „Primären Speicherort ersetzen“.",
-      "tenantHasData": "Dieser Mandant hat bereits Backups im Installationsstandard. Fügen Sie eine Kopie hinzu und befördern Sie sie später, oder wählen Sie oben „Primären Speicherort ersetzen“."
+      "primaryExists": "Dieser Mandant hat bereits ein primäres Repository. Fügen Sie eine Kopie hinzu und befördern Sie sie später, oder wählen Sie oben „Primäres Repository ersetzen“.",
+      "tenantHasData": "Dieser Mandant hat bereits Backups im Installationsstandard. Fügen Sie eine Kopie hinzu und befördern Sie sie später, oder wählen Sie oben „Primäres Repository ersetzen“."
     },
     "migrationMode": "Wie vorhandene Backups umziehen",
     "migrationModeMove": "Vorhandene Backups verschieben (empfohlen)",
-    "migrationModeMoveHint": "Ein Hintergrundlauf kopiert jedes Pack, jedes Manifest und jeden Schlüssel zum neuen Speicherort und prüft es per Hash, dann schaltet er den primären Speicherort automatisch um. Der alte Ort bleibt bis zur Entfernung schreibgeschützt bestehen.",
+    "migrationModeMoveHint": "Ein Hintergrundlauf kopiert jedes Pack, jedes Manifest und jeden Schlüssel zum neuen Repository und prüft es per Hash, dann schaltet er das primäre Repository automatisch um. Der alte Ort bleibt bis zur Entfernung schreibgeschützt bestehen.",
     "migrationModeKeep": "Vorhandene Backups dort belassen, wo sie sind",
-    "migrationModeKeepHint": "Der neue Speicherort wird sofort zum primären Speicherort, ohne dass etwas kopiert wird. Der alte Ort bleibt schreibgeschützt bestehen: Wiederherstellung, Prüfung und Backup von Objekten aus der Zeit vor der Umstellung funktionieren weiterhin und lesen von dort, aber jedes neue Byte wird nur an den neuen Speicherort geschrieben. Eine eigenständige Wiederherstellung (restow-restore) für einen Snapshot von nach dieser Umstellung benötigt beide Orte über --storage.",
+    "migrationModeKeepHint": "Das neue Repository wird sofort zum primären, ohne dass etwas kopiert wird. Der alte Ort bleibt schreibgeschützt bestehen: Wiederherstellung, Prüfung und Backup von Objekten aus der Zeit vor der Umstellung funktionieren weiterhin und lesen von dort, aber jedes neue Byte wird nur in das neue Repository geschrieben. Eine eigenständige Wiederherstellung (restow-restore) für einen Snapshot von nach dieser Umstellung benötigt beide Orte über --storage.",
     "local": {
       "basePath": "Pfad",
       "basePathPlaceholder": "/mnt/backup/restow",
@@ -278,8 +278,8 @@
     "invalid_characters": "Enthält nicht erlaubte Zeichen.",
     "absolute_path": "Geben Sie einen absoluten Pfad an, der mit / beginnt.",
     "path_traversal": "Der Pfad darf keine Abschnitte . oder .. enthalten.",
-    "root_path": "Das Wurzelverzeichnis kann kein Speicherort sein.",
-    "system_path": "Systemverzeichnisse können nicht als Speicherort dienen.",
+    "root_path": "Das Wurzelverzeichnis kann kein Repository sein.",
+    "system_path": "Systemverzeichnisse können nicht als Repository dienen.",
     "bucket_name": "3 bis 63 Zeichen: Kleinbuchstaben, Ziffern, Punkte und Bindestriche, Beginn und Ende mit Buchstabe oder Ziffer.",
     "prefix": "Nur Buchstaben, Ziffern, Punkte, Unterstriche, Bindestriche und Schrägstriche, ohne leere, . oder .. Abschnitte.",
     "endpoint_url": "Geben Sie eine vollständige URL an, z. B. https://fsn1.your-objectstorage.com.",
@@ -287,23 +287,23 @@
     "endpoint_path": "Geben Sie nur die Adresse des Dienstes an, ohne Pfad oder Bucket-Namen.",
     "endpoint_credentials": "Der Endpunkt darf keinen Benutzernamen und kein Passwort enthalten.",
     "region": "Nur Buchstaben, Ziffern, Bindestriche und Unterstriche.",
-    "unknown_kind": "Unbekannte Art von Speicherort.",
+    "unknown_kind": "Unbekannte Art von Repository.",
     "https_required": "Nur HTTPS-Endpunkte sind erlaubt.",
     "private_address": "Der Endpunkt zeigt in ein privates oder lokales Netz.",
     "local_hostname": "Verwenden Sie den öffentlichen Hostnamen des Dienstes.",
     "unresolvable": "Dieser Hostname lässt sich nicht auflösen.",
-    "not_applicable": "Für diesen Speicherort nicht anwendbar.",
+    "not_applicable": "Für dieses Repository nicht anwendbar.",
     "credentials_pair": "Geben Sie Access Key ID und Secret an oder lassen Sie beide leer, um den gespeicherten Schlüssel zu behalten.",
     "credentials_again": "Der Endpunkt hat sich geändert: Geben Sie das Schlüsselpaar erneut ein.",
     "whitespace": "Darf keine Leerzeichen oder Zeilenumbrüche enthalten."
   },
   "completeness": {
     "title": "Kopie {name} prüfen",
-    "description": "Vergleicht die Kopie mit dem primären Speicherort: Jedes Pack, jedes Backup-Manifest und jeder Schlüssel muss vorhanden sein.",
-    "checking": "Kopie wird mit dem primären Speicherort verglichen …",
+    "description": "Vergleicht die Kopie mit dem primären Repository: Jedes Pack, jedes Backup-Manifest und jeder Schlüssel muss vorhanden sein.",
+    "checking": "Kopie wird mit dem primären Repository verglichen …",
     "complete": {
       "title": "Die Kopie ist vollständig",
-      "description": "Alles, was der primäre Speicherort enthält, ist auf dieser Kopie vorhanden."
+      "description": "Alles, was das primäre Repository enthält, ist auf dieser Kopie vorhanden."
     },
     "incomplete": {
       "title": "Die Kopie ist noch nicht vollständig",
@@ -317,29 +317,29 @@
     "again": "Erneut prüfen"
   },
   "promote": {
-    "title": "{name} zum primären Speicherort machen",
-    "description": "Der bisherige primäre Speicherort wird zur Kopie und erhält weiterhin jedes Backup. Ab jetzt lesen Wiederherstellungen zuerst von diesem Speicherort.",
-    "descriptionFromDefault": "Ab jetzt nutzen Backups und Wiederherstellungen zuerst diesen Speicherort, und dieser Mandant nutzt den Installationsstandard nicht mehr. Dort bereits gespeicherte Daten bleiben erhalten, bis der Provider sie entfernt.",
+    "title": "{name} zum primären Repository machen",
+    "description": "Das bisherige primäre Repository wird zur Kopie und erhält weiterhin jedes Backup. Ab jetzt lesen Wiederherstellungen zuerst aus diesem Repository.",
+    "descriptionFromDefault": "Ab jetzt nutzen Backups und Wiederherstellungen zuerst dieses Repository, und dieser Mandant nutzt den Installationsstandard nicht mehr. Dort bereits gespeicherte Daten bleiben erhalten, bis der Provider sie entfernt.",
     "notVerified": {
-      "title": "Testen Sie den Speicherort zuerst",
-      "description": "Nur ein Speicherort, dessen letzter Test erfolgreich war, kann primärer Speicherort werden."
+      "title": "Testen Sie das Repository zuerst",
+      "description": "Nur ein Repository, dessen letzter Test erfolgreich war, kann primäres Repository werden."
     },
     "effect": "Alles ist vorhanden. Die Umstellung gilt für das nächste Backup und die nächste Wiederherstellung.",
-    "confirm": "Zum primären Speicherort machen"
+    "confirm": "Zum primären Repository machen"
   },
   "delete": {
     "title": "{name} entfernen?",
     "description": "{appName} schreibt keine Backups mehr in diese Kopie.",
-    "descriptionPrimary": "{appName} nutzt diesen Speicherort nicht mehr. Ohne eigenen primären Speicherort nutzt dieser Mandant wieder den Installationsstandard.",
-    "descriptionPrevious": "Dieser Ort wurde als primärer Speicherort abgelöst. Beim Entfernen sind ältere Backups, die nur noch hier liegen, nicht mehr wiederherstellbar, prüfbar oder durchsuchbar.",
+    "descriptionPrimary": "{appName} nutzt dieses Repository nicht mehr. Ohne eigenes primäres Repository nutzt dieser Mandant wieder den Installationsstandard.",
+    "descriptionPrevious": "Dieses Repository wurde als primäres abgelöst. Beim Entfernen sind ältere Backups, die nur noch hier liegen, nicht mehr wiederherstellbar, prüfbar oder durchsuchbar.",
     "dataStays": "Bereits an diesem Ort gespeicherte Daten werden nicht gelöscht. Entfernen Sie sie beim Speicheranbieter, wenn sie nicht mehr gebraucht werden.",
-    "confirm": "Speicherort entfernen"
+    "confirm": "Repository entfernen"
   },
   "toasts": {
     "created": "{name} hinzugefügt. Wird jetzt getestet.",
     "updated": "{name} gespeichert.",
     "deleted": "{name} entfernt.",
-    "promoted": "{name} ist jetzt der primäre Speicherort.",
+    "promoted": "{name} ist jetzt das primäre Repository.",
     "testOk": "{name} funktioniert.",
     "testFailed": "Der Test von {name} ist fehlgeschlagen.",
     "migrationCancelled": "Die Migration zu {name} wurde abgebrochen.",
@@ -348,35 +348,35 @@
   },
   "errors": {
     "localRequiresProviderAdmin": "Nur ein Provider-Admin kann Serverpfade verwalten.",
-    "primaryExists": "Dieser Mandant hat bereits einen primären Speicherort. Fügen Sie eine Kopie hinzu und machen Sie sie zum primären Speicherort, sobald sie vollständig ist.",
-    "tenantHasData": "Dieser Mandant hat bereits Backups. Fügen Sie den neuen Ort als Kopie hinzu; sobald sie vollständig ist, machen Sie sie zum primären Speicherort.",
+    "primaryExists": "Dieser Mandant hat bereits ein primäres Repository. Fügen Sie eine Kopie hinzu und machen Sie sie zum primären Repository, sobald sie vollständig ist.",
+    "tenantHasData": "Dieser Mandant hat bereits Backups. Fügen Sie den neuen Ort als Kopie hinzu; sobald sie vollständig ist, machen Sie sie zum primären Repository.",
     "locationOverlap": "Dieser Ort wird von diesem Mandanten bereits genutzt oder liegt innerhalb eines genutzten Ortes.",
-    "locationLocked": "Der primäre Speicherort enthält Backups, deshalb kann sich sein Ort nicht ändern. Fügen Sie den neuen Ort als Kopie hinzu und machen Sie ihn zum primären Speicherort, sobald er vollständig ist.",
-    "primaryHoldsData": "Der primäre Speicherort enthält Backups und kann nicht entfernt werden. Machen Sie zuerst einen anderen Speicherort zum primären Speicherort.",
-    "alreadyPrimary": "Dieser Speicherort ist bereits der primäre Speicherort.",
-    "notVerified": "Testen Sie den Speicherort erfolgreich, bevor Sie ihn zum primären Speicherort machen.",
+    "locationLocked": "Das primäre Repository enthält Backups, deshalb kann sich sein Ort nicht ändern. Fügen Sie den neuen Ort als Kopie hinzu und machen Sie ihn zum primären Repository, sobald er vollständig ist.",
+    "primaryHoldsData": "Das primäre Repository enthält Backups und kann nicht entfernt werden. Machen Sie zuerst ein anderes Repository zum primären.",
+    "alreadyPrimary": "Dieses Repository ist bereits das primäre.",
+    "notVerified": "Testen Sie das Repository erfolgreich, bevor Sie es zum primären Repository machen.",
     "copyIncomplete": "Die Kopie ist noch nicht vollständig.",
     "invalidLocation": "Der Ort ist ungültig. Prüfen Sie die markierten Felder.",
     "endpointNotAllowed": "Dieser Endpunkt ist nicht erlaubt. Mandanten-Admins können nur öffentliche HTTPS-Endpunkte nutzen.",
-    "targetNotFound": "Dieser Speicherort existiert nicht mehr.",
-    "credentialsNotApplicable": "Nur S3-Speicherorte haben Zugangsdaten.",
+    "targetNotFound": "Dieses Repository existiert nicht mehr.",
+    "credentialsNotApplicable": "Nur S3-Repositories haben Zugangsdaten.",
     "credentialsRequired": "Geben Sie das Schlüsselpaar ein.",
-    "configInvalid": "Die gespeicherten Einstellungen dieses Speicherorts sind nicht mehr gültig. Bearbeiten Sie den Speicherort.",
+    "configInvalid": "Die gespeicherten Einstellungen dieses Repositorys sind nicht mehr gültig. Bearbeiten Sie das Repository.",
     "credentialsUnusable": "Die gespeicherten Zugangsdaten können nicht gelesen werden. Geben Sie sie erneut ein.",
-    "defaultMisconfigured": "Der Standardspeicher der Installation ist auf dem Server falsch konfiguriert.",
-    "unreachable": "Primärer Speicherort oder Kopie konnten nicht aufgelistet werden. Testen Sie beide Speicherorte.",
+    "defaultMisconfigured": "Das Standard-Repository der Installation ist auf dem Server falsch konfiguriert.",
+    "unreachable": "Primäres Repository oder Kopie konnten nicht aufgelistet werden. Testen Sie beide Repositories.",
     "masterKeyMissing": "Der Server hat keinen Master-Key (RESTOW_MASTER_KEY), deshalb können keine Zugangsdaten gespeichert werden.",
     "migrationInProgress": "Dieser Mandant hat bereits eine laufende Speichermigration. Warten Sie, bis sie fertig ist, oder brechen Sie sie ab.",
-    "notACopy": "Nur eine Kopie kann zum primären Speicherort befördert werden.",
-    "migrationNotFound": "Für diesen Speicherort gibt es keine Speichermigration zum Abbrechen.",
+    "notACopy": "Nur eine Kopie kann zum primären Repository befördert werden.",
+    "migrationNotFound": "Für dieses Repository gibt es keine Speichermigration zum Abbrechen.",
     "migrationNotCancellable": "Diese Migration ist bereits abgeschlossen und kann nicht mehr abgebrochen werden.",
     "migrationNotRetryable": "Nur eine fehlgeschlagene Verschiebung kann erneut versucht werden.",
-    "keepTargetUnreachable": "Der neue Speicherort konnte mit einer kurzen Schreib-, Lese- und Löschprüfung nicht bestätigt werden. Beheben Sie den Ort oder die Zugangsdaten, oder wählen Sie stattdessen „Verschieben“.",
+    "keepTargetUnreachable": "Das neue Repository konnte mit einer kurzen Schreib-, Lese- und Löschprüfung nicht bestätigt werden. Beheben Sie den Ort oder die Zugangsdaten, oder wählen Sie stattdessen „Verschieben“.",
     "keepBlockedByActiveJob": "Für diesen Mandanten läuft noch eine Sicherung, Archivierung, Aufbewahrung, Speicherprüfung oder Speichermigration oder wartet in der Warteschlange. Warten Sie, bis der Lauf fertig ist, und versuchen Sie es dann erneut.",
-    "previousHoldsExclusiveData": "Dieser Ort enthält noch Backup-Daten, die kein anderer Speicherort hat. Führen Sie zuerst eine „Verschieben“-Ablösung durch, um sie auf den aktuellen primären Speicherort zu kopieren, und entfernen Sie diesen Ort danach.",
+    "previousHoldsExclusiveData": "Dieser Ort enthält noch Backup-Daten, die kein anderes Repository hat. Führen Sie zuerst eine „Verschieben“-Ablösung durch, um sie auf das aktuelle primäre Repository zu kopieren, und entfernen Sie diesen Ort danach.",
     "installationDefaultReadonly": "Dieser Platzhalter steht für einen abgelösten Installationsstandard und hat keine eigenen Einstellungen.",
     "queueNotReady": "Die Warteschlange für Hintergrundläufe ist noch nicht bereit. Versuchen Sie es gleich noch einmal.",
-    "activeEndpoints": "Server oder Clients sichern über den Agenten an diesen Speicherort, und ein Wechsel des primären Speicherorts verschiebt deren Backups noch nicht. Sperren oder deinstallieren Sie diese Rechner zuerst; ihre vorhandenen Backups bleiben vom alten Ort lesbar, der angebunden bleiben muss.",
-    "previousHoldsEndpointRepositories": "Dieser Ort enthält noch Backups eines Servers oder Clients, die nur er hat. Ein Wechsel des Speicherorts verschiebt diese noch nicht; lassen Sie diesen Ort daher angebunden."
+    "activeEndpoints": "Server oder Clients sichern über den Agenten in dieses Repository, und ein Wechsel des primären Repositorys verschiebt deren Backups noch nicht. Sperren oder deinstallieren Sie diese Rechner zuerst; ihre vorhandenen Backups bleiben vom alten Ort lesbar, der angebunden bleiben muss.",
+    "previousHoldsEndpointRepositories": "Dieser Ort enthält noch Backups eines Servers oder Clients, die nur er hat. Ein Wechsel des Repositorys verschiebt diese noch nicht; lassen Sie diesen Ort daher angebunden."
   }
 }

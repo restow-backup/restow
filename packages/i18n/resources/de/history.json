@@ -124,7 +124,7 @@
       "hint": "{unit} · an der Quelle gelesen und geprüft"
     },
     "transferred": {
-      "title": "Übertragung zum Speicherort",
+      "title": "Übertragung ins Repository",
       "hint": "{unit} · nach Deduplizierung und Kompression · Durchschnitt über {seconds} s"
     },
     "now": "jetzt",
@@ -136,7 +136,7 @@
       "recent": "der letzten 5 Minuten",
       "whole": "des gesamten Laufs",
       "processed": "Verarbeitung: jetzt {current}, Mittel {average}, Spitze {peak}.",
-      "transferred": "Übertragung zum Speicherort (Durchschnitt über {seconds} s): jetzt {current}, Mittel {average}, Spitze {peak}.",
+      "transferred": "Übertragung ins Repository (Durchschnitt über {seconds} s): jetzt {current}, Mittel {average}, Spitze {peak}.",
       "keys": "Mit den Pfeiltasten links und rechts gehen Sie durch die Messpunkte, mit Pos1 und Ende springen Sie an die Enden."
     }
   },

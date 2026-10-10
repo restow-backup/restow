@@ -181,7 +181,7 @@ describe("EnrollDialog", () => {
     expect(createToken).not.toHaveBeenCalled();
   });
 
-  it("warns before enrolling while the storage location fails its check", async () => {
+  it("warns before enrolling while the repository fails its check", async () => {
     viewer.role = "tenant_admin";
     fetchJobDefaults.mockResolvedValue({ repository: { status: "error" } });
     await open();

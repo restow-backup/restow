@@ -322,7 +322,7 @@ describe("pause, repository and retention", () => {
         },
         t("en"),
       ),
-    ).toBe("Default storage location of the installation");
+    ).toBe("Default repository of the installation");
   });
 
   it("words the retention: a policy, the tenant default, or numbers", () => {

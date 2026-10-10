@@ -267,7 +267,7 @@ export class MountsService {
     if (users.length > 0) {
       throw new ProblemError(409, "The share is in use", {
         type: MOUNT_PROBLEMS.inUse,
-        detail: `${users.length} storage location(s) lie on ${mountPathOf(name)}. Move or remove them first.`,
+        detail: `${users.length} ${users.length === 1 ? "repository lies" : "repositories lie"} on ${mountPathOf(name)}. Move or remove them first.`,
         extensions: { users },
       });
     }

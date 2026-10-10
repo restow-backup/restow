@@ -92,7 +92,7 @@
     "repository_damaged": {
       "label": "Backup data damaged",
       "hint": "An integrity check found damage in the stored backup data.",
-      "message": "An integrity check found damage in the stored backup data of this machine. Restores may fail. See Reports for details, and check the storage location."
+      "message": "An integrity check found damage in the stored backup data of this machine. Restores may fail. See Reports for details, and check the repository."
     },
     "never_seen": {
       "label": "Never connected",
@@ -308,9 +308,9 @@
         "elsewhere": "Whoever runs this installation sets the public address."
       },
       "storage": {
-        "title": "The storage location is failing",
-        "description": "You can enroll the machine, but its backups cannot be written until the storage location's fault is fixed.",
-        "link": "Open storage locations"
+        "title": "The repository is failing",
+        "description": "You can enroll the machine, but its backups cannot be written until the repository's fault is fixed.",
+        "link": "Open repositories"
       }
     },
     "status": {
@@ -443,7 +443,7 @@
   },
   "repository": {
     "title": "Backup data",
-    "description": "The restic repository that holds the backups of this machine in your storage location.",
+    "description": "The restic repository of this machine. It lives inside your repository and holds the machine's backups.",
     "size": "Size in storage",
     "snapshots": "Snapshots kept",
     "measured": "Measured",
@@ -867,7 +867,7 @@
     },
     "quota": {
       "title": "Storage budget",
-      "description": "The most the backup data of this machine may take in the storage location. Uploads beyond it are refused; restores keep working.",
+      "description": "The most the backup data of this machine may take in the repository. Uploads beyond it are refused; restores keep working.",
       "label": "Budget in GiB",
       "hintDefault": "Leave empty for the installation's default of {size}.",
       "hintUnlimited": "Leave empty for no limit (the installation sets none).",
@@ -877,7 +877,7 @@
   "repositoryKey": {
     "title": "Restore without {appName}",
     "description": "The backup of this machine is a normal restic repository.",
-    "body": "With the repository password and access to the storage location, you can restore the backup with restic alone, even if this {appName} server is gone. The server also keeps the password sealed next to the restic repository, so the master key and the storage are enough: the command restow-restore endpoint-password recovers it. Keep the password safe all the same, for example in a password manager.",
+    "body": "With the repository password and access to the folder or bucket of your repository, you can restore the backup with restic alone, even if this {appName} server is gone. The server also keeps the password sealed next to the restic repository, so the master key and the storage are enough: the command restow-restore endpoint-password recovers it. Keep the password safe all the same, for example in a password manager.",
     "show": "Show repository password",
     "dialog": {
       "title": "Repository password",
@@ -885,7 +885,7 @@
       "shownDescription": "Copy the password now. It is hidden again when you close this window.",
       "warningTitle": "Handle with care",
       "audit": "Showing the password is recorded in the audit log.",
-      "power": "The password decrypts the whole backup of this machine. Anyone who has it and can read the storage location can read every backed-up file.",
+      "power": "The password decrypts the whole backup of this machine. Anyone who has it and can read the repository can read every backed-up file.",
       "stepUp": "If you signed in more than 10 minutes ago, you confirm it is you first.",
       "cancel": "Cancel",
       "confirm": "Show password",
@@ -894,7 +894,7 @@
       "hideNote": "Not stored in this browser. Closing the window hides it.",
       "example": "Example command",
       "copyCommand": "Copy the example command",
-      "exampleNote": "Replace /path/to/storage with the folder of your storage location and run restic with this password. It restores the newest snapshot into /restore. For object storage, use the restic repository address of your bucket instead.",
+      "exampleNote": "Replace /path/to/storage with the folder of your repository and run restic with this password. It restores the newest snapshot into /restore. For object storage, use the restic repository address of your bucket instead.",
       "hide": "Hide and close"
     }
   },
@@ -933,7 +933,7 @@
   "errors": {
     "resticBusy": "The server is reading other backups right now. Try again in a moment.",
     "repositoryLocked": "The backup data is busy with a backup or maintenance. Try again shortly.",
-    "repositoryUnavailable": "The backup data of this machine could not be opened in the storage location. Check that the storage location is reachable.",
+    "repositoryUnavailable": "The backup data of this machine could not be opened in the repository. Check that the repository is reachable.",
     "resticFailed": "Reading the backup data failed. The details are in the server log.",
     "resticUnavailable": "The restic program is not available on the server, so snapshots cannot be read.",
     "unsupportedOs": "This operating system is not supported yet. This release backs up Linux and macOS machines.",

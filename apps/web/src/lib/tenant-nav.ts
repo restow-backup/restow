@@ -33,6 +33,18 @@ export const TENANT_SETTINGS_PATH = `/tenants/${ACTIVE_TENANT_PLACEHOLDER}/overv
 export const TENANT_PAGE_MATCH = `/tenants/${ACTIVE_TENANT_PLACEHOLDER}`;
 
 /**
+ * Id of the entry "Repositories" next to the settings entry: a shortcut into
+ * the section of the tenant page that lists the active tenant's repositories
+ * (features/storage). On that section it is the entry the shell highlights
+ * (components/layout/shell-entry.ts); every other section belongs to the
+ * settings entry.
+ */
+export const REPOSITORIES_NAV_ID = "repositories";
+
+/** The address of the "Repositories" entry: the storage section of the active tenant. */
+export const REPOSITORIES_PATH = `/tenants/${ACTIVE_TENANT_PLACEHOLDER}/storage`;
+
+/**
  * The items with the active tenant in the settings entry's address. Without an
  * active tenant (the profile is still loading, or the person belongs to none)
  * the entry leads to the list of tenants, which a provider admin can open and

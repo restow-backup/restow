@@ -230,7 +230,7 @@
   },
   "soon": {
     "resources": {
-      "description": "Zeigt Auslastung und Wachstum je Mandant und je Speicherort, mit einer klaren Prognose wie „voll in etwa N Tagen“."
+      "description": "Zeigt Auslastung und Wachstum je Mandant und je Repository, mit einer klaren Prognose wie „voll in etwa N Tagen“."
     }
   },
   "chooseTenant": {

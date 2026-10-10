@@ -136,7 +136,7 @@
   },
   "storage": {
     "title": "Speicherintegrität",
-    "description": "Jede Pack-Datei wird von jedem Speicherort gelesen und mit ihrer erfassten SHA-256-Prüfsumme verglichen: wöchentlich eine Stichprobe, monatlich alle Packs. Schäden werden aus einer intakten Kopie repariert, sofern es eine gibt.",
+    "description": "Jede Pack-Datei wird aus jedem Repository gelesen und mit ihrer erfassten SHA-256-Prüfsumme verglichen: wöchentlich eine Stichprobe, monatlich alle Packs. Schäden werden aus einer intakten Kopie repariert, sofern es eine gibt.",
     "state": {
       "ok": "Intakt",
       "repaired": "Repariert",
@@ -160,11 +160,11 @@
     "packs": "{checked} von {total} Packs geprüft, {bytes} gelesen",
     "never": "Es lief noch keine Speicherprüfung.",
     "corruptTitle": "{count, plural, one {# Pack ist beschädigt} other {# Packs sind beschädigt}}",
-    "corrupt": "An keinem Speicherort gibt es eine intakte Kopie, daher ließ sich der Schaden nicht reparieren. Jedes Objekt, dessen Daten in diesen Packs liegen, gilt als nicht wiederherstellbar.",
+    "corrupt": "In keinem Repository gibt es eine intakte Kopie, daher ließ sich der Schaden nicht reparieren. Jedes Objekt, dessen Daten in diesen Packs liegen, gilt als nicht wiederherstellbar.",
     "corruptHeal": "Eine Vollsicherung der betroffenen Objekte schreibt die beschädigten Inhalte erneut aus der Quelle, soweit die Quelle sie noch enthält. Sicherungen verwenden Daten aus diesen Packs nicht mehr. Sobald keine Sicherung ein beschädigtes Pack mehr braucht, nimmt die nächste Speicherprüfung es aus dem Bestand.",
     "retired": "{count, plural, one {# beschädigtes Pack wird} other {# beschädigte Packs werden}} nicht mehr gebraucht: spätere Sicherungen haben die Inhalte neu geschrieben. {count, plural, one {Es wurde} other {Sie wurden}} aus dem Index entfernt, {count, plural, one {seine Datei wird} other {ihre Dateien werden}} frühestens einen Tag später von einer Speicherprüfung gelöscht.",
     "repairedTitle": "{count, plural, one {# Pack wurde repariert} other {# Packs wurden repariert}}",
-    "repaired": "Ein Speicherort hatte eine beschädigte oder fehlende Kopie; sie wurde aus einer intakten Kopie neu geschrieben und zur Bestätigung zurückgelesen.",
+    "repaired": "Ein Repository hatte eine beschädigte oder fehlende Kopie; sie wurde aus einer intakten Kopie neu geschrieben und zur Bestätigung zurückgelesen.",
     "target": {
       "primary": "Primärspeicher",
       "copy": "Kopie {index}"
@@ -267,7 +267,7 @@
     },
     "damagedPacks": {
       "title": "{count, plural, one {# beschädigtes Pack in dieser Sicherung} other {# beschädigte Packs in dieser Sicherung}}",
-      "description": "Die letzte Speicherprüfung hat diese Pack-Dateien an jedem Speicherort beschädigt vorgefunden. Darin gespeicherte Elemente lassen sich nicht wiederherstellen, auch wenn die Stichprobe sie nicht berührt hat."
+      "description": "Die letzte Speicherprüfung hat diese Pack-Dateien in jedem Repository beschädigt vorgefunden. Darin gespeicherte Elemente lassen sich nicht wiederherstellen, auch wenn die Stichprobe sie nicht berührt hat."
     },
     "manifestFailure": {
       "title": "Warum das Verzeichnis dieses Backups nicht gelesen werden konnte"
@@ -283,7 +283,7 @@
     },
     "scrub": {
       "title": "Befund der Speicherprüfung",
-      "description": "Die Speicherprüfung hat Pack-Dateien mit Daten dieses Objekts an jedem Speicherort beschädigt vorgefunden und konnte sie aus keiner Kopie reparieren."
+      "description": "Die Speicherprüfung hat Pack-Dateien mit Daten dieses Objekts in jedem Repository beschädigt vorgefunden und konnte sie aus keiner Kopie reparieren."
     },
     "unknown": {
       "title": "Details nicht lesbar",

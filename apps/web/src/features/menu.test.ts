@@ -72,9 +72,10 @@ describe("the menu per edition", () => {
       mail: MAIL,
       endpoints: ENDPOINTS,
       // "Settings" of the one organisation instead of "Tenant settings"; the
-      // list of all tenants stays as a greyed-out entry. Repositories, integrations,
-      // members and the rest are sections of the settings page, not entries.
-      tenants: ["organisation-settings", "tenants (locked)"],
+      // list of all tenants stays as a greyed-out entry. Repositories have an entry
+      // of their own that opens their section of the settings page (maintainer
+      // decision 2026-10-10); integrations, members and the rest are sections only.
+      tenants: ["organisation-settings", "repositories", "tenants (locked)"],
       // Members (the provider team, id `team`) is in every edition (0.3.0).
       installation: ["settings", "team", "audit (locked)", "license", "resources (soon 0.5.0)"],
     });
@@ -85,7 +86,7 @@ describe("the menu per edition", () => {
       daily: DAILY,
       mail: MAIL,
       endpoints: ENDPOINTS,
-      tenants: ["organisation-settings", "tenants (locked)"],
+      tenants: ["organisation-settings", "repositories", "tenants (locked)"],
       installation: ["settings", "team", "audit", "license", "resources (soon 0.5.0)"],
     });
   });
@@ -95,7 +96,7 @@ describe("the menu per edition", () => {
       daily: DAILY,
       mail: MAIL,
       endpoints: ENDPOINTS,
-      tenants: ["tenant-settings", "tenants"],
+      tenants: ["tenant-settings", "repositories", "tenants"],
       // The statistics of all tenants open the pinned Installation section (0.3.0).
       installation: [
         "stats-all-tenants",
@@ -127,14 +128,14 @@ describe("the menu per edition", () => {
     expect(entry).toMatchObject({ path: "/statistics/all", group: "installation" });
   });
 
-  it("tenant admin in a Service Provider installation: the settings of their tenant, nothing else of the tenant level", () => {
+  it("tenant admin in a Service Provider installation: the settings and the repositories of their tenant, nothing else of the tenant level", () => {
     // The old gap: no entry of their own for the tenant's settings here. Their members, audit
-    // log and the rest are sections of that page.
+    // log and the rest are sections of that page; the repositories have a shortcut of their own.
     expect(menu("tenant_admin", SERVICE_PROVIDER)).toEqual({
       daily: DAILY,
       mail: MAIL,
       endpoints: ENDPOINTS,
-      tenants: ["tenant-settings"],
+      tenants: ["tenant-settings", "repositories"],
     });
   });
 
@@ -156,8 +157,14 @@ describe("the menu per edition", () => {
   });
 
   it("tenant admin in Community and Business: the organisation's settings", () => {
-    expect(menu("tenant_admin", COMMUNITY).tenants).toEqual(["organisation-settings"]);
-    expect(menu("tenant_admin", BUSINESS).tenants).toEqual(["organisation-settings"]);
+    expect(menu("tenant_admin", COMMUNITY).tenants).toEqual([
+      "organisation-settings",
+      "repositories",
+    ]);
+    expect(menu("tenant_admin", BUSINESS).tenants).toEqual([
+      "organisation-settings",
+      "repositories",
+    ]);
   });
 
   it("shows the Installation section to provider admins only", () => {
@@ -232,10 +239,9 @@ describe("the menu per edition", () => {
     }
   });
 
-  it("has no menu entry for the pages that are sections of the tenant page", () => {
+  it("has no menu entry for the pages that are sections of the tenant page, the repositories aside", () => {
     const ids = items.map((item) => item.id);
     for (const gone of [
-      "repositories",
       "integrations",
       "tenant-members",
       "tenant-audit",
@@ -264,6 +270,19 @@ describe("the menu per edition", () => {
         roles: ["provider_admin", "tenant_admin"],
       });
       expect(entry?.matches).toEqual(["/tenants/$activeTenant"]);
+    }
+  });
+
+  it("opens the repositories section of the active tenant's page from its own entry, for those who administer the tenant", () => {
+    const entry = items.find((item) => item.id === "repositories");
+    expect(entry).toMatchObject({
+      path: "/tenants/$activeTenant/storage",
+      group: "tenants",
+      labelKey: "storage:nav",
+      roles: ["provider_admin", "tenant_admin"],
+    });
+    for (const ctx of [COMMUNITY, BUSINESS, SERVICE_PROVIDER]) {
+      expect(Object.values(menu("tenant_user", ctx)).flat()).not.toContain("repositories");
     }
   });
 
@@ -373,7 +392,7 @@ describe("the menu per edition", () => {
       "Ihre Organisation",
       "Server & Betrieb",
       "Mitglieder",
-      "Speicherorte",
+      "Repositories",
       "Lizenz",
       "Kapazitätsplanung",
       "Statistik aller Mandanten",
@@ -407,7 +426,7 @@ describe("the menu per edition", () => {
       "Tenant settings",
       "Your organisation",
       "Members",
-      "Storage locations",
+      "Repositories",
       "License",
       "Capacity planning",
       "Statistics of all tenants",

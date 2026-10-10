@@ -283,7 +283,7 @@ describe("the popover", () => {
     expect(item("firstVerification")?.textContent).toContain("Needs attention.");
     // A done step has no button.
     expect(item("storage")?.querySelector("a")).toBeNull();
-    expect(item("storage")?.textContent).not.toContain("Open storage");
+    expect(item("storage")?.textContent).not.toContain("Open repositories");
     expect(popover()?.textContent).toContain(
       "Start disappears from the menu once every step is done.",
     );

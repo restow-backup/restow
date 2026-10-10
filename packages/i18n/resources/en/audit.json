@@ -146,7 +146,7 @@
     "snapshot": "Backup contents",
     "source": "Sources",
     "stats": "Statistics",
-    "storage": "Storage",
+    "storage": "Repositories",
     "tenant": "Tenants",
     "verify": "Restore checks",
     "webhook": "Webhooks",
@@ -303,9 +303,9 @@
     },
     "settings": {
       "default_storage": {
-        "removed": "Default storage removed, the server environment applies again",
-        "saved": "Default storage saved",
-        "tested": "Default storage tested"
+        "removed": "Default repository removed, the server environment applies again",
+        "saved": "Default repository saved",
+        "tested": "Default repository tested"
       },
       "disclaimer_accepted": "Operator responsibility notice accepted",
       "mail": {
@@ -366,9 +366,9 @@
     },
     "storage": {
       "default": {
-        "removed": "Default storage removed, the server environment applies again",
-        "saved": "Default storage saved",
-        "tested": "Default storage tested"
+        "removed": "Default repository removed, the server environment applies again",
+        "saved": "Default repository saved",
+        "tested": "Default repository tested"
       },
       "migration": {
         "started": "Storage migration started",
@@ -377,12 +377,12 @@
         "cancelled": "Storage migration cancelled"
       },
       "target": {
-        "created": "Storage location added",
-        "deleted": "Storage location removed",
-        "probed": "Storage location probed",
-        "promoted": "Storage location made primary",
-        "tested": "Storage location tested",
-        "updated": "Storage location changed"
+        "created": "Repository added",
+        "deleted": "Repository removed",
+        "probed": "Repository probed",
+        "promoted": "Repository made primary",
+        "tested": "Repository tested",
+        "updated": "Repository changed"
       }
     },
     "tenant": {
@@ -581,8 +581,8 @@
     "snapshot": "Snapshot",
     "source": "Source",
     "stats": "Statistics",
-    "storage_location": "Storage location",
-    "storage_target": "Storage location",
+    "storage_location": "Repository",
+    "storage_target": "Repository",
     "tenant": "Tenant",
     "user": "User",
     "verify_report": "Restore check report",

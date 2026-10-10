@@ -339,7 +339,7 @@ describe("ExportPage", () => {
     );
     await mount();
     expect(text()).toContain("The export failed");
-    expect(text()).toContain("The storage location is full");
+    expect(text()).toContain("The repository is full");
     // The raw engine message is not the explanation: it sits in the collapsed technical details.
     const details = container.querySelector("details");
     expect(details?.hasAttribute("open")).toBe(false);

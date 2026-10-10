@@ -104,13 +104,13 @@
       "skipped": "Inhalte: nicht gelesen. Die Prüfung oben betrifft nur die Prüfsummen in der Datenbank. Ob die Nachrichten im Speicher unverändert sind, zeigt die Stichprobe.",
       "ok": "Inhalte: {count, plural, one {# Nachricht} other {# Nachrichten}} aus dem Speicher gelesen, jede stimmt mit ihrer Prüfsumme überein.",
       "failed": "Inhalte: {failed} von {total} gelesenen Nachrichten stimmen nicht mit ihrer Prüfsumme überein oder ließen sich nicht lesen.",
-      "notRecorded": "{count, plural, one {# Nachricht der Stichprobe wurde archiviert, bevor ihr Speicherort festgehalten wurde, und ließ} other {# Nachrichten der Stichprobe wurden archiviert, bevor ihr Speicherort festgehalten wurde, und ließen}} sich so nicht vergleichen.",
+      "notRecorded": "{count, plural, one {# Nachricht der Stichprobe wurde archiviert, bevor ihr Repository festgehalten wurde, und ließ} other {# Nachrichten der Stichprobe wurden archiviert, bevor ihr Repository festgehalten wurde, und ließen}} sich so nicht vergleichen.",
       "none": "Inhalte: Keine Nachricht der Stichprobe ließ sich vergleichen."
     },
     "problem": {
       "mismatch": "Inhalt weicht von der Prüfsumme ab",
       "unreadable": "Nicht aus dem Speicher lesbar",
-      "not_recorded": "Speicherort nicht erfasst"
+      "not_recorded": "Repository nicht erfasst"
     }
   },
   "legalHold": {
@@ -256,7 +256,7 @@
   },
   "protection": {
     "title": "Schutz des Archivspeichers",
-    "storageLink": "Speicherort öffnen",
+    "storageLink": "Repository öffnen",
     "filesystem": {
       "title": "Nur durch {appName} geschützt",
       "description": "Das Archiv liegt auf einem Dateisystem (lokaler Speicher oder NFS). {appName} ändert und löscht archivierte Nachrichten nicht vor dem Ende ihrer Aufbewahrungsfrist, und die Hash-Kette macht Änderungen erkennbar. Wer Zugriff auf den Server oder den Speicher hat, kann die Dateien trotzdem ändern oder löschen."
@@ -271,11 +271,11 @@
     },
     "s3_unknown": {
       "title": "Object Lock nicht geprüft",
-      "description": "Ob der Bucket Object Lock erzwingt, ist nicht bekannt. Testen Sie den Speicherort. Bis dahin gilt: Archivierte Nachrichten sind nur durch {appName} und die Hash-Kette geschützt."
+      "description": "Ob der Bucket Object Lock erzwingt, ist nicht bekannt. Testen Sie das Repository. Bis dahin gilt: Archivierte Nachrichten sind nur durch {appName} und die Hash-Kette geschützt."
     },
     "unknown": {
       "title": "Schutz unbekannt",
-      "description": "Der Speicherort des Archivs konnte nicht ermittelt werden."
+      "description": "Das Repository des Archivs konnte nicht ermittelt werden."
     }
   }
 }

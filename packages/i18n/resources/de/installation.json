@@ -10,7 +10,7 @@
     "mail": "Benachrichtigungs-Mail",
     "microsoftApp": "Microsoft-Multi-Tenant-App",
     "journal": "Journal-Empfang",
-    "defaultStorage": "Speicher-Standard",
+    "defaultStorage": "Standard-Repository",
     "mounts": "Netzlaufwerke",
     "providerApi": "Provider-API",
     "updates": "Updates",
@@ -22,7 +22,7 @@
     "mail": "Der Transport für Berichte, Warnungen und Einladungen. Gilt für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
     "microsoftApp": "Die App-Registrierung, über die diese Installation Microsoft 365 erreicht.",
     "journal": "Der SMTP-Empfänger für Exchange-Journalberichte. Ein Empfänger bedient {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
-    "defaultStorage": "Wo Daten liegen für {scope, select, organisation {Ihre Organisation} other {jeden Mandanten ohne eigenen Speicherort}}.",
+    "defaultStorage": "Wo Daten liegen für {scope, select, organisation {Ihre Organisation} other {jeden Mandanten ohne eigenes Repository}}.",
     "mounts": "Netzlaufwerke (NFS) als Backup-Speicher.",
     "providerApi": "Schlüssel für RMM- und PSA-Werkzeuge, die über alle Mandanten hinweg arbeiten.",
     "updates": "Welche Version läuft, welche Releases es gibt und wie Sie aktualisieren.",
@@ -62,10 +62,10 @@
     "optional": "Optional. Diese App wird nur gebraucht, wenn {scope, select, organisation {Ihre Organisation per Consent-Link statt über eine eigene App verbunden wird} other {Mandanten per Consent-Link statt über eine eigene App verbunden werden}}."
   },
   "defaultStorage": {
-    "loadError": "Der Speicher-Standard konnte nicht gelesen werden.",
+    "loadError": "Das Standard-Repository konnte nicht gelesen werden.",
     "card": {
-      "title": "Speicher-Standard",
-      "description": "Wo Daten liegen, wenn {scope, select, organisation {Ihre Organisation keinen eigenen Speicherort hat} other {ein Mandant keinen eigenen Speicherort hat}}. Er wird unten festgelegt oder kommt, ohne gespeicherte Einstellung, aus der Server-Umgebung."
+      "title": "Standard-Repository",
+      "description": "Wo Daten liegen, wenn {scope, select, organisation {Ihre Organisation kein eigenes Repository hat} other {ein Mandant kein eigenes Repository hat}}. Es wird unten festgelegt oder kommt, ohne gespeicherte Einstellung, aus der Server-Umgebung."
     },
     "kind": {
       "local": "Verzeichnis auf dem Server",
@@ -77,21 +77,21 @@
     "noCopy": "Keine Kopie eingerichtet",
     "usage": {
       "label": "Genutzt von",
-      "none": "Keinem Mandanten. Jeder Mandant hat einen eigenen Speicherort.",
+      "none": "Keinem Mandanten. Jeder Mandant hat ein eigenes Repository.",
       "some": "{using} von {total} Mandanten",
-      "organisationYes": "Ihrer Organisation. Sie hat keinen eigenen Speicherort.",
-      "organisationNo": "Niemandem. Ihre Organisation hat einen eigenen Speicherort."
+      "organisationYes": "Ihrer Organisation. Sie hat kein eigenes Repository.",
+      "organisationNo": "Niemandem. Ihre Organisation hat ein eigenes Repository."
     },
     "misconfigured": {
       "title": "Die Speichereinstellungen sind ungültig",
-      "description": "STORAGE_TARGET, STORAGE_LOCAL_PATH oder die S3_*-Werte in der .env-Datei des Servers beschreiben keinen nutzbaren Speicher. Korrigieren Sie sie und starten Sie {appName} neu, oder speichern Sie unten einen Speicher-Standard.",
-      "savedTitle": "Der gespeicherte Speicher-Standard ist nicht nutzbar",
-      "savedDescription": "Der auf dieser Seite gespeicherte Speicher-Standard lässt sich nicht öffnen, zum Beispiel weil sich der Hauptschlüssel geändert hat. Speichern Sie ihn unten erneut."
+      "description": "STORAGE_TARGET, STORAGE_LOCAL_PATH oder die S3_*-Werte in der .env-Datei des Servers beschreiben kein nutzbares Repository. Korrigieren Sie sie und starten Sie {appName} neu, oder speichern Sie unten ein Standard-Repository.",
+      "savedTitle": "Das gespeicherte Standard-Repository ist nicht nutzbar",
+      "savedDescription": "Das auf dieser Seite gespeicherte Standard-Repository lässt sich nicht öffnen, zum Beispiel weil sich der Hauptschlüssel geändert hat. Speichern Sie es unten erneut."
     },
     "test": {
       "title": "Test",
       "description": "Schreibt, liest, listet und löscht ein kleines Objekt im Standard und prüft, ob er Objekte sperren kann. Der Test wird protokolliert.",
-      "action": "Speicher-Standard testen",
+      "action": "Standard-Repository testen",
       "again": "Erneut testen",
       "never": "Noch nicht getestet.",
       "passed": "Der letzte Test war erfolgreich {when}, ausgeführt von {who}.",
@@ -102,7 +102,7 @@
       "misconfigured": "Die Speichereinstellungen in der Umgebung sind ungültig, es gibt also nichts zu testen.",
       "environmentInvalid": "Die Speichereinstellungen in der Server-Umgebung sind nicht nutzbar, daher lässt sich die gespeicherte Einstellung nicht entfernen. Korrigieren Sie sie zuerst.",
       "unreachable": "Der Ort hat den Test nicht bestanden, es wurde nichts gespeichert.",
-      "inUse": "Im aktuellen Speicher-Standard liegen Backups, daher kann er noch nicht auf einen anderen Ort zeigen."
+      "inUse": "Im aktuellen Standard-Repository liegen Backups, daher kann es noch nicht auf einen anderen Ort zeigen."
     },
     "source": {
       "label": "Festgelegt in",
@@ -111,26 +111,26 @@
     },
     "override": {
       "title": "Die hier gespeicherte Einstellung hat Vorrang",
-      "description": "Die Server-Umgebung beschreibt ebenfalls einen Speicher-Standard. Er gilt wieder, sobald die hier gespeicherte Einstellung entfernt wird:"
+      "description": "Die Server-Umgebung beschreibt ebenfalls ein Standard-Repository. Es gilt wieder, sobald die hier gespeicherte Einstellung entfernt wird:"
     },
     "configure": {
-      "title": "Speicher-Standard ändern",
-      "description": "Ein Verzeichnis auf dem Server oder S3-kompatibler Objektspeicher, mit denselben Einstellungen wie ein Speicherort. Vor dem Speichern wird dort ein kleines Testobjekt geschrieben, gelesen, gelistet und gelöscht; ein Ort, der den Test nicht besteht, wird nicht gespeichert. Zugangsschlüssel werden verschlüsselt gespeichert und nie wieder angezeigt.",
+      "title": "Standard-Repository ändern",
+      "description": "Ein Verzeichnis auf dem Server oder S3-kompatibler Objektspeicher, mit denselben Einstellungen wie ein Repository. Vor dem Speichern wird dort ein kleines Testobjekt geschrieben, gelesen, gelistet und gelöscht; ein Ort, der den Test nicht besteht, wird nicht gespeichert. Zugangsschlüssel werden verschlüsselt gespeichert und nie wieder angezeigt.",
       "testHint": {
         "local": "Das Verzeichnis muss auf dem Server bereits existieren und beschreibbar sein, zum Beispiel ein eingebundenes Volume oder ein Netzlaufwerk.",
         "s3": "Lassen Sie beide Schlüsselfelder leer, um das gespeicherte Schlüsselpaar zu behalten. Es wird nur für den Endpunkt verwendet, für den es gespeichert wurde."
       },
       "save": "Testen und speichern",
-      "saved": "Speicher-Standard gespeichert.",
+      "saved": "Standard-Repository gespeichert.",
       "remove": "Wieder die Server-Umgebung nutzen",
       "removeTitle": "Wieder die Server-Umgebung nutzen?",
-      "removeDescription": "Die hier gespeicherte Einstellung wird entfernt, und der Speicher-Standard aus der Server-Umgebung gilt wieder. Er wird vorher getestet:",
+      "removeDescription": "Die hier gespeicherte Einstellung wird entfernt, und das Standard-Repository aus der Server-Umgebung gilt wieder. Es wird vorher getestet:",
       "removeConfirm": "Server-Umgebung nutzen",
       "removed": "Die Server-Umgebung gilt wieder."
     },
     "blockers": {
       "title": "{scope, select, organisation {Ihre Organisation hat Backups im aktuellen Standard} other {Mandanten haben Backups im aktuellen Standard}}",
-      "description": "Würde der Standard auf einen anderen Ort zeigen, blieben diese Backups zurück. Deshalb sind nur Änderungen möglich, die den Ort beibehalten: Schlüsselpaar, Region oder Adressierung. Geben Sie zuerst {scope, select, organisation {Ihrer Organisation} other {jedem aufgeführten Mandanten}} unter Speicherorte einen eigenen Speicherort: Ersetzen Sie den primären Speicherort und verschieben Sie die vorhandenen Backups, oder fügen Sie eine Kopie hinzu und machen Sie sie zum primären Speicherort, sobald sie vollständig ist.",
+      "description": "Würde der Standard auf einen anderen Ort zeigen, blieben diese Backups zurück. Deshalb sind nur Änderungen möglich, die den Ort beibehalten: Schlüsselpaar, Region oder Adressierung. Geben Sie zuerst {scope, select, organisation {Ihrer Organisation} other {jedem aufgeführten Mandanten}} unter Repositories ein eigenes Repository: Ersetzen Sie das primäre Repository und verschieben Sie die vorhandenen Backups, oder fügen Sie eine Kopie hinzu und machen Sie sie zum primären Repository, sobald sie vollständig ist.",
       "reasons": {
         "data": "hat hier Backups",
         "previous": "ältere Backups liegen nach einem Wechsel noch hier",
@@ -177,7 +177,7 @@
   },
   "mounts": {
     "loadError": "Die Netzlaufwerke konnten nicht geladen werden.",
-    "intro": "Netzlaufwerke (NFS), die {appName} als Backup-Speicher nutzt. Jedes Netzlaufwerk erscheint in API und Worker unter {path}; ein Speicherort der Art \"Verzeichnis\" zeigt dann dorthin.",
+    "intro": "Netzlaufwerke (NFS), die {appName} als Backup-Speicher nutzt. Jedes Netzlaufwerk erscheint in API und Worker unter {path}; ein Repository der Art \"Verzeichnis\" zeigt dann dorthin.",
     "unavailable": {
       "title": "Der Mounter läuft nicht",
       "description": "Netzlaufwerke fügt der Mounter hinzu, ein optionaler Container neben {appName}. Er ist standardmäßig aus. Um ihn zu nutzen, führen Sie diesen Befehl einmal in dem Verzeichnis aus, das docker-compose.yml enthält:",
@@ -204,7 +204,7 @@
       "test": "Testen",
       "remove": "Entfernen",
       "copyPath": "Pfad kopieren",
-      "storageHint": "Um Backups auf einem Netzlaufwerk abzulegen, legen Sie einen Speicherort der Art \"Verzeichnis\" mit dem Pfad des Netzlaufwerks oder einem Ordner darunter an."
+      "storageHint": "Um Backups auf einem Netzlaufwerk abzulegen, legen Sie ein Repository der Art \"Verzeichnis\" mit dem Pfad des Netzlaufwerks oder einem Ordner darunter an."
     },
     "blockers": {
       "title": "Netzlaufwerke können gerade nicht geändert werden",
@@ -314,8 +314,8 @@
       "title": "Netzlaufwerk {name} entfernen?",
       "description": "Das Netzlaufwerk wird aus API und Worker ausgehängt, die dafür neu starten. Die Daten auf dem Server bleiben unberührt.",
       "confirm": "Netzlaufwerk entfernen",
-      "inUse": "Das Netzlaufwerk wird noch von diesen Speicherorten genutzt:",
-      "installationDefault": "der Standardspeicher der Installation"
+      "inUse": "Das Netzlaufwerk wird noch von diesen Repositories genutzt:",
+      "installationDefault": "das Standard-Repository der Installation"
     },
     "toast": {
       "adding": "Das Netzlaufwerk wird hinzugefügt.",
@@ -324,7 +324,7 @@
     "errors": {
       "unavailable": "Der Mounter läuft nicht.",
       "jobsRunning": "Es laufen Backups oder Wiederherstellungen. Eine Änderung an den Netzlaufwerken startet API und Worker neu; versuchen Sie es erneut, wenn sie abgeschlossen sind.",
-      "inUse": "Das Netzlaufwerk wird noch von einem Speicherort genutzt.",
+      "inUse": "Das Netzlaufwerk wird noch von einem Repository genutzt.",
       "demo": "In der Demo können Netzlaufwerke nicht geändert werden.",
       "rejected": {
         "busy": "Eine andere Änderung an den Netzlaufwerken läuft gerade.",
@@ -366,7 +366,7 @@
       "waitingTitle": "Warten, bis laufende Jobs abgeschlossen sind",
       "starting": "Das Netzlaufwerk wird eingebunden ...",
       "retry": "Erneut versuchen",
-      "done": "Das Netzlaufwerk {name} ist eingebunden und sein Pfad wurde eingetragen. Speichern Sie den Speicherort, um ihn zu verwenden."
+      "done": "Das Netzlaufwerk {name} ist eingebunden und sein Pfad wurde eingetragen. Speichern Sie das Repository, um es zu verwenden."
     }
   },
   "editionLink": "Edition ansehen",

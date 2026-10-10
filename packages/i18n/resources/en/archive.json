@@ -104,13 +104,13 @@
       "skipped": "Content: not read. The check above covers only the checksums in the database. Whether the messages in storage are unchanged is what the sample shows.",
       "ok": "Content: {count, plural, one {# message} other {# messages}} read from storage, each matches its checksum.",
       "failed": "Content: {failed} of {total} messages read do not match their checksum or could not be read.",
-      "notRecorded": "{count, plural, one {# message of the sample was archived before its storage location was recorded and could not be compared.} other {# messages of the sample were archived before their storage location was recorded and could not be compared.}}",
+      "notRecorded": "{count, plural, one {# message of the sample was archived before its repository was recorded and could not be compared.} other {# messages of the sample were archived before their repository was recorded and could not be compared.}}",
       "none": "Content: no message of the sample could be compared."
     },
     "problem": {
       "mismatch": "Content differs from its checksum",
       "unreadable": "Not readable from storage",
-      "not_recorded": "Storage location not recorded"
+      "not_recorded": "Repository not recorded"
     }
   },
   "legalHold": {
@@ -256,7 +256,7 @@
   },
   "protection": {
     "title": "Protection of the archive storage",
-    "storageLink": "Open storage location",
+    "storageLink": "Open repository",
     "filesystem": {
       "title": "Protected by {appName} only",
       "description": "The archive is on a filesystem (local storage or NFS). {appName} neither changes nor deletes archived mail before its retention ends, and the hash chain makes changes detectable. Anyone with access to the server or the storage can still change or delete the files."
@@ -271,11 +271,11 @@
     },
     "s3_unknown": {
       "title": "Object Lock not checked",
-      "description": "Whether the bucket enforces Object Lock is not known. Test the storage location. Until then, archived mail is protected by {appName} and the hash chain only."
+      "description": "Whether the bucket enforces Object Lock is not known. Test the repository. Until then, archived mail is protected by {appName} and the hash chain only."
     },
     "unknown": {
       "title": "Protection unknown",
-      "description": "The archive's storage location could not be determined."
+      "description": "The archive's repository could not be determined."
     }
   }
 }

@@ -80,7 +80,7 @@
   },
   "empty": {
     "title": "Noch keine Wartungszeitpläne",
-    "description": "Nichts hält den Speicherort von selbst gesund: Integritätsprüfungen, Verzeichnis-Sync und Aufbewahrung laufen nur, wenn jemand sie startet."
+    "description": "Nichts hält das Repository von selbst gesund: Integritätsprüfungen, Verzeichnis-Sync und Aufbewahrung laufen nur, wenn jemand sie startet."
   },
   "notices": {
     "readOnly": "Sie sehen die Zeitpläne dieses Mandanten. Ändern können sie nur Mandanten-Administratoren.",

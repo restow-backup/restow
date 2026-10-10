@@ -15,7 +15,7 @@ describe("the pages that only exist per tenant", () => {
     }
   });
 
-  it("covers jobs, history, restore, archive, exports, the machines and the tenant's settings", () => {
+  it("covers jobs, history, restore, archive, exports, the machines, the tenant's settings and repositories", () => {
     for (const id of [
       "mail-jobs",
       "endpoint-jobs",
@@ -28,6 +28,7 @@ describe("the pages that only exist per tenant", () => {
       "file-restore",
       "tenant-settings",
       "organisation-settings",
+      "repositories",
     ]) {
       expect(isTenantOnlyNavItem(id), id).toBe(true);
     }

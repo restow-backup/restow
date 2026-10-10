@@ -292,7 +292,7 @@ Die Zuordnung steht in `archive_item_mailboxes` (nur hinzufügen, nie ändern, w
   (Envelope-Empfänger bleiben je Zuordnung erhalten).
 - Ohne Object Lock (lokaler Speicher, NFS, S3 ohne Lock): Restow erzwingt Unveränderbarkeit
   nur auf Anwendungsebene (kein Lösch-/Änderungspfad im Code, Kettenprüfung); wer Zugriff auf
-  die Dateien oder den Server hat, kann sie ändern oder löschen. Die Seite Speicherorte zeigt solche
+  die Dateien oder den Server hat, kann sie ändern oder löschen. Die Seite Repositories zeigt solche
   Ziele als "Kein Hardware-WORM" bzw. "Object Lock nicht aktiviert".
 - Das Feld `object_lock` eines Archivobjekts und der Zähler `objectLocked` in Archivstatus und
   Nachweisbericht bedeuten in 0.1.0 nur "hat ein Fristende", nicht "liegt unter Object Lock".

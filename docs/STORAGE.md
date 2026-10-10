@@ -8,6 +8,11 @@ access to existing backups at any point. Background and the chunk-store format i
 are in `docs/ARCHITECTURE.md` ("Chunk-Store / Backends"); this document only covers
 the storage-target lifecycle.
 
+The web interface calls a storage target a **repository** (German: Repository, plural
+Repositories; docs/GLOSSARY.md): the menu entry Repositories opens the section of the
+tenant's page that lists them. The code, the API (`/api/v1/storage`) and this document
+keep the technical name storage target.
+
 ## Targets and roles
 
 A tenant's chunk store (packs, manifests, wrapped keys) lives on one or more
@@ -24,7 +29,7 @@ the storage form"). Every target has a role:
 - **primary** — receives every new backup first. A tenant has at most one. A tenant
   with no primary target of its own uses the installation's default storage as its
   primary (see "Installation default" below: the default a provider owner saved under
-  Installation → Default storage, otherwise the environment's `STORAGE_TARGET` /
+  Installation → Default repository, otherwise the environment's `STORAGE_TARGET` /
   `STORAGE_LOCAL_PATH` / `S3_*` settings), so a fresh install works out of the box
   with a single container plus Postgres.
 - **copy** — receives every new backup too, in addition to the primary. Data written
@@ -45,7 +50,7 @@ the storage form"). Every target has a role:
   (`withReadOnlyFallback`, `packages/core/src/storage/copy.ts`). Archive jobs and
   scrub never read it (see "Known limitations" for the scrub gap this leaves).
 
-The Storage section of a tenant's page (`/tenants/<tenant>/storage`; the earlier address `/repositories` leads there) lists every target with its role,
+The Repositories section of a tenant's page (`/tenants/<tenant>/storage`, also opened by the menu entry Repositories; the earlier address `/repositories` leads there) lists every target with its role,
 health (the result of its last test), and — for S3 targets — whether the bucket
 enforces Object Lock (WORM), which matters for the GoBD archive layer
 (`docs/ARCHIVE.md`). In 0.1.0 Object Lock covers only the archive's item records, not
@@ -56,7 +61,7 @@ retention; local and NFS targets are shown as having no hardware WORM.
 
 The installation default is the storage every tenant without a primary target of its
 own writes to. It is one location for the whole installation, shown under
-Installation → Default storage (`/installation/default-storage`).
+Installation → Default repository (`/installation/default-storage`).
 
 ### Where it comes from
 
@@ -115,7 +120,7 @@ the tenants named in `blockers`) while any tenant
   queued or running (`active_job`).
 
 The page lists the same tenants with their reasons before anyone tries. They need a
-storage target of their own first (Storage → Add a target → Replace the primary with
+storage target of their own first (Repositories → Add repository → Replace the primary with
 "move existing backups", or a copy promoted once complete); then the default is free
 to move. A change that keeps the location (the key pair, the region, the addressing
 style; the same path, or the same endpoint, bucket and prefix) is always possible. A
@@ -277,7 +282,7 @@ and hashing, that nothing is lost: an existing backup is never made unreachable 
 
 A `move` migration runs as a background job (`storage_migration` queue) with its own
 row (`storage_migrations`) tracking its state, independent of the generic job list, so
-the target's card in the Storage section can show it directly:
+the target's card in the Repositories section can show it directly:
 
 1. **queued** — accepted, waiting for a worker.
 2. **copying** — every pack, manifest and wrapped key the current primary holds (or,

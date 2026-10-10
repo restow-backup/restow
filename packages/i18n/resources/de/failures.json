@@ -204,8 +204,8 @@
         "why": "Das Betriebssystem hat den Zugriff{has_path, select, yes { auf {path}} other {}} verweigert. Der Ordner ist schreibgeschützt oder gehört einem Benutzer, unter dem der Worker von {appName} nicht läuft."
       },
       "full": {
-        "title": "Der Speicherort ist voll",
-        "why": "Am Speicherort ist kein Platz mehr frei oder sein Kontingent ist aufgebraucht. {appName} kann keine neuen Backup-Daten schreiben, bis wieder Platz da ist."
+        "title": "Das Repository ist voll",
+        "why": "Im Repository ist kein Platz mehr frei oder sein Kontingent ist aufgebraucht. {appName} kann keine neuen Backup-Daten schreiben, bis wieder Platz da ist."
       },
       "access_denied": {
         "title": "Der Speicherdienst hat den Zugriff verweigert",
@@ -213,22 +213,22 @@
       },
       "credentials_invalid": {
         "title": "Der Speicherdienst akzeptiert die Zugangsdaten nicht",
-        "why": "Der Zugriffsschlüssel oder das Geheimnis des Speicherorts ist falsch, abgelaufen oder wurde widerrufen."
+        "why": "Der Zugriffsschlüssel oder das Geheimnis des Repositorys ist falsch, abgelaufen oder wurde widerrufen."
       },
       "bucket_missing": {
         "title": "Der Bucket existiert nicht",
-        "why": "Der Speicherdienst meldet, dass der für diesen Speicherort eingestellte Bucket nicht existiert oder das Konto ihn nicht sehen kann."
+        "why": "Der Speicherdienst meldet, dass der für dieses Repository eingestellte Bucket nicht existiert oder das Konto ihn nicht sehen kann."
       },
       "wrong_region": {
         "title": "Der Bucket liegt an einem anderen Endpunkt oder in einer anderen Region",
-        "why": "Der Speicherdienst hat die Anfrage umgeleitet oder die Signatur für diese Region abgelehnt. Endpunkt-URL oder Region des Speicherorts passen nicht dazu, wo der Bucket liegt."
+        "why": "Der Speicherdienst hat die Anfrage umgeleitet oder die Signatur für diese Region abgelehnt. Endpunkt-URL oder Region des Repositorys passen nicht dazu, wo der Bucket liegt."
       },
       "unreachable": {
-        "title": "Der Speicherort ist nicht erreichbar",
+        "title": "Das Repository ist nicht erreichbar",
         "why": "Die Verbindung zum Speicher-Endpunkt{has_host, select, yes { {host}} other {}} ist fehlgeschlagen. Firewalls, DNS-Probleme oder eine Störung beim Speicheranbieter verursachen das."
       },
       "timeout": {
-        "title": "Der Speicherort hat nicht rechtzeitig geantwortet",
+        "title": "Das Repository hat nicht rechtzeitig geantwortet",
         "why": "Der Speicher-Endpunkt hat innerhalb der Zeitgrenze nicht geantwortet. Das Netz ist vielleicht langsam oder der Dienst überlastet."
       },
       "tls": {
@@ -241,10 +241,10 @@
       },
       "integrity": {
         "title": "Daten im Speicher stimmen nicht mit dem überein, was {appName} geschrieben hat",
-        "why": "{reason, select, source_missing {Ein Objekt, das der Index kennt, fehlt am primären Speicherort.} source_corrupt {Ein Objekt am primären Speicherort hat eine andere Größe oder Prüfsumme als vermerkt.} verify_failed {Ein Kopie-Speicherort hat andere Bytes zurückgegeben, als geschrieben wurden.} other {Das Zurücklesen gespeicherter Daten stimmte nicht überein.}} {appName} hat den Schaden nicht auf andere Speicherorte übertragen."
+        "why": "{reason, select, source_missing {Ein Objekt, das der Index kennt, fehlt im primären Repository.} source_corrupt {Ein Objekt im primären Repository hat eine andere Größe oder Prüfsumme als vermerkt.} verify_failed {Ein Kopie-Repository hat andere Bytes zurückgegeben, als geschrieben wurden.} other {Das Zurücklesen gespeicherter Daten stimmte nicht überein.}} {appName} hat den Schaden nicht auf andere Repositories übertragen."
       },
       "error": {
-        "title": "Der Speicherort hat einen unerwarteten Fehler gemeldet",
+        "title": "Das Repository hat einen unerwarteten Fehler gemeldet",
         "why": "Das Schreiben oder Lesen von Backup-Daten ist fehlgeschlagen, und {appName} konnte nicht genau sagen, warum. Die technischen Details enthalten die Antwort des Speichers."
       }
     },
@@ -265,7 +265,7 @@
       },
       "chunk_missing": {
         "title": "Teile des Backups fehlen",
-        "why": "{has_count, select, yes {{count, plural, one {# geprüftes Element verweist} other {# geprüfte Elemente verweisen}}} other {Geprüfte Elemente verweisen}} auf Backup-Daten, die nicht mehr da sind: Der Speicherindex führt sie nicht, oder kein Speicherort hat die Datendatei, die sie enthält, noch. Diese Elemente lassen sich nicht vollständig wiederherstellen."
+        "why": "{has_count, select, yes {{count, plural, one {# geprüftes Element verweist} other {# geprüfte Elemente verweisen}}} other {Geprüfte Elemente verweisen}} auf Backup-Daten, die nicht mehr da sind: Der Speicherindex führt sie nicht, oder kein Repository hat die Datendatei, die sie enthält, noch. Diese Elemente lassen sich nicht vollständig wiederherstellen."
       },
       "pack_unreadable": {
         "title": "Backup-Daten im Speicher sind beschädigt",
@@ -421,7 +421,7 @@
       },
       "repository_missing": {
         "title": "Die Sicherungsdaten wurden nicht gefunden",
-        "why": "Das Sicherungsprogramm hat die Sicherungsdaten dieses Rechners am Speicherort nicht gefunden. Dateien im Speicher wurden möglicherweise außerhalb der Sicherungssoftware verschoben oder gelöscht, oder der Speicherort wurde geändert."
+        "why": "Das Sicherungsprogramm hat die Sicherungsdaten dieses Rechners im Repository nicht gefunden. Dateien im Speicher wurden möglicherweise außerhalb der Sicherungssoftware verschoben oder gelöscht, oder das Repository wurde geändert."
       },
       "repository_password": {
         "title": "Das Repository-Passwort wird abgelehnt",
@@ -492,12 +492,12 @@
     "enable_source": "Schalten Sie die Quelle in ihren Einstellungen wieder ein.",
     "reconnect_source": "Schließen Sie die Verbindung der Quelle ab: Bei Microsoft 365 die Administratorzustimmung erteilen, bei IMAP die Verbindung testen.",
     "check_storage_path": "Prüfen Sie, ob der Ordner existiert, in den Container eingebunden ist und der Worker von {appName} dort schreiben darf.",
-    "free_storage_space": "Schaffen Sie Platz am Speicherort oder fügen Sie unter Speicherorte einen weiteren Speicherort hinzu.",
-    "check_storage_credentials": "Prüfen Sie Zugriffsschlüssel und Geheimnis des Speicherorts.",
+    "free_storage_space": "Schaffen Sie Platz im Repository oder fügen Sie unter Repositories ein weiteres Repository hinzu.",
+    "check_storage_credentials": "Prüfen Sie Zugriffsschlüssel und Geheimnis des Repositorys.",
     "check_storage_permissions": "Prüfen Sie, ob die Zugangsdaten im Bucket lesen, schreiben, auflisten und löschen dürfen.",
     "check_bucket": "Prüfen Sie den Namen des Buckets.",
-    "check_storage_endpoint": "Prüfen Sie Endpunkt-URL und Region des Speicherorts.",
-    "check_storage_health": "Führen Sie einen Verbindungstest am Speicherort durch und bei beschädigten Daten eine Speicherprüfung.",
+    "check_storage_endpoint": "Prüfen Sie Endpunkt-URL und Region des Repositorys.",
+    "check_storage_health": "Führen Sie einen Verbindungstest des Repositorys durch und bei beschädigten Daten eine Speicherprüfung.",
     "check_master_key": "Stellen Sie sicher, dass RESTOW_MASTER_KEY für API und Worker gesetzt ist und genau den Wert hat, der die Mandantenschlüssel verschlüsselt hat. Ändern Sie ihn nie, ohne die Schlüssel neu zu verpacken.",
     "restore_key_backup": "Stellen Sie den Hauptschlüssel aus Ihrer Schlüsselsicherung wieder her.",
     "run_backup_again": "Starten Sie ein neues Backup. Kehrt das Problem zurück, starten Sie eine Gesundheitsprüfung.",
@@ -506,7 +506,7 @@
     "check_test_target": "Prüfen Sie das Ziel der Test-Wiederherstellung an der Quelle und ob die App von {appName} dort schreiben darf.",
     "wait_for_exports_to_expire": "Fertige Exporte werden nach ihrer Download-Zeit automatisch gelöscht. Warten Sie darauf und fordern Sie den Export dann erneut an.",
     "export_less_mail": "Exportieren Sie eine kleinere Auswahl, zum Beispiel einen Ordner oder einen Zeitraum, oder teilen Sie den Export in mehrere Teile auf.",
-    "raise_export_limit": "Hat der Speicherort Platz, kann ein Administrator der Installation das Limit mit der Einstellung EXPORT_MAX_TENANT_BYTES erhöhen.",
+    "raise_export_limit": "Hat das Repository Platz, kann ein Administrator der Installation das Limit mit der Einstellung EXPORT_MAX_TENANT_BYTES erhöhen.",
     "check_database": "Prüfen Sie, ob Postgres läuft und erreichbar ist, freien Speicherplatz und freie Verbindungen hat.",
     "worker_resources": "Werden Läufe häufig unterbrochen, prüfen Sie Speicher und Neustarts des Worker-Containers.",
     "read_technical_details": "Die technischen Details unten zeigen die genaue Antwort.",
@@ -523,7 +523,7 @@
     "source": "Quelle öffnen",
     "sources": "Quellen öffnen",
     "directory": "Geschützte Objekte öffnen",
-    "storage": "Speicherorte öffnen",
+    "storage": "Repositories öffnen",
     "verify": "Wiederherstellbarkeit öffnen",
     "jobs": "Backup öffnen"
   }

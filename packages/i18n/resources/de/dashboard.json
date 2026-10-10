@@ -41,9 +41,9 @@
     },
     "items": {
       "storage": {
-        "label": "Speicherort funktioniert",
-        "hint": "Sicherungen brauchen einen Speicherort, der antwortet.",
-        "action": "Speicher öffnen"
+        "label": "Repository funktioniert",
+        "hint": "Sicherungen brauchen ein Repository, das antwortet.",
+        "action": "Repositories öffnen"
       },
       "source": {
         "label": "Quelle verbunden",
@@ -77,10 +77,10 @@
       }
     },
     "reasons": {
-      "target_error": "Die letzte Prüfung des Speicherorts ist fehlgeschlagen.",
-      "target_unverified": "Der Speicherort wurde noch nicht getestet.",
-      "default_untested": "Es wird der Standardspeicher des Servers verwendet; er wurde noch nicht getestet oder beschrieben.",
-      "default_misconfigured": "Der Standardspeicher des Servers ist nicht richtig eingerichtet.",
+      "target_error": "Die letzte Prüfung des Repositorys ist fehlgeschlagen.",
+      "target_unverified": "Das Repository wurde noch nicht getestet.",
+      "default_untested": "Es wird das Standard-Repository des Servers verwendet; es wurde noch nicht getestet oder beschrieben.",
+      "default_misconfigured": "Das Standard-Repository des Servers ist nicht richtig eingerichtet.",
       "source_error": "Eine Quelle meldet einen Fehler.",
       "consent_pending": "Eine Quelle wartet auf die Zustimmung des Administrators.",
       "no_backup_schedule": "Kein Sicherungszeitplan ist aktiv.",
@@ -184,11 +184,11 @@
     "title": "Gespeichert",
     "logical": "{bytes} gesichert",
     "saved": "{share} durch Deduplizierung gespart",
-    "link": "Speicher öffnen",
+    "link": "Repositories öffnen",
     "target": {
-      "unverified": "Speicher noch nicht getestet",
-      "error": "Speicherort fehlerhaft",
-      "misconfigured": "Standardspeicher falsch eingerichtet"
+      "unverified": "Repository noch nicht getestet",
+      "error": "Repository fehlerhaft",
+      "misconfigured": "Standard-Repository falsch eingerichtet"
     },
     "empty": {
       "title": "Noch nichts gespeichert",
@@ -414,7 +414,7 @@
       },
       "kinds": {
         "unavailable": "Die Zahlen des Mandanten konnten nicht gelesen werden.",
-        "storage_error": "Der Speicherort besteht seine Prüfung nicht.",
+        "storage_error": "Das Repository besteht seine Prüfung nicht.",
         "not_restorable": "{count, plural, one {# Objekt ist nicht wiederherstellbar.} other {# Objekte sind nicht wiederherstellbar.}}",
         "failed_jobs": "{count, plural, one {# Lauf ist in den letzten 24 Stunden fehlgeschlagen.} other {# Läufe sind in den letzten 24 Stunden fehlgeschlagen.}}",
         "over_cap": "{count, plural, one {# Postfach über der für diesen Mandanten vereinbarten Obergrenze.} other {# Postfächer über der für diesen Mandanten vereinbarten Obergrenze.}}",

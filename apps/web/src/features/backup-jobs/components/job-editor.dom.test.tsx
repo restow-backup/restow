@@ -370,7 +370,7 @@ describe("taking objects from another job", () => {
 describe("a machine job", () => {
   it("shows folders, exclusions, bandwidth and retention, with the commands behind Advanced", async () => {
     await open("/jobs?type=endpoint&new=1", ENDPOINT_ROUTES);
-    for (const title of ["Folders", "Exclusions", "Bandwidth", "Retention", "Storage location"]) {
+    for (const title of ["Folders", "Exclusions", "Bandwidth", "Retention", "Repository"]) {
       expect(
         [...editor().querySelectorAll("h3")].some((heading) => heading.textContent === title),
         title,
@@ -395,7 +395,7 @@ describe("a machine job", () => {
     // The size limit says which agent it needs, and no longer that it has no effect yet.
     expect(textOf(editor())).toContain("Needs agent version 0.2.0 or later on the machine");
     expect(textOf(editor())).not.toContain("An agent without support for this limit");
-    expect(textOf(editor())).toContain("Every backup job writes to the primary storage location");
+    expect(textOf(editor())).toContain("Every backup job writes to the primary repository");
   });
 
   it("switches exclusion chips on and off, and each chip says it is pressed", async () => {

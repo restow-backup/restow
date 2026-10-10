@@ -1589,7 +1589,7 @@ check_disk() {
   case "$(level_verdict "$kib" "$MIN_DOCKER_DISK_KIB" "$RECOMMENDED_DOCKER_DISK_KIB")" in
     ok) ok "$(kib_to_gib "$kib") GiB free for Docker ($root)" ;;
     warn)
-      warn "$(kib_to_gib "$kib") GiB free for Docker ($root). It is enough to start; but until you add another storage target the backups go into a Docker volume there. 50 GiB or more are recommended, or an off-site target (S3 with Object Lock)."
+      warn "$(kib_to_gib "$kib") GiB free for Docker ($root). It is enough to start; but until you add another repository the backups go into a Docker volume there. 50 GiB or more are recommended, or an off-site target (S3 with Object Lock)."
       lvm_free_hint "$root"
       ;;
     fail)
@@ -2405,7 +2405,7 @@ print_next_steps() {
   say "   4. Set up the notification mail, or skip it: it can be set up later under"
   say "      Installation > Notification mail (without it Restow sends no alert mails)."
   say "  After the wizard:"
-  say "   5. Add a storage target off this machine (menu: Repositories). The default one is a"
+  say "   5. Add a repository off this machine (menu: Repositories). The default one is a"
   say "      Docker volume on this VM; S3-compatible object storage with Object Lock is"
   say "      recommended, never only the hardware of the systems you protect."
   say "   6. Run the first backup, then check that a restore works."

@@ -47,6 +47,9 @@ export interface ShellEntry {
  * yours, a tenant's page in the moment before it becomes the active one), so that
  * such a page never reads as the list of all tenants.
  *
+ * An entry that opens one section of the active tenant's page ("Repositories")
+ * wins on that section, so the menu highlights it there and not the settings.
+ *
  * Given the `role`, an entry the role is offered wins over one it is not, so
  * the page belongs to the section the person sees it in; a page the role has
  * no entry for (it is denied there) still resolves to the most specific entry.
@@ -75,6 +78,17 @@ export function resolveShellEntry(
     }
   }
   if (parseTenantPagePath(pathname)) {
+    // An entry that opens one section of the active tenant's page ("Repositories",
+    // lib/tenant-nav.ts) is the more specific one on that section.
+    const sectionEntries = offered.filter(
+      (candidate) =>
+        !TENANT_SETTINGS_NAV_IDS.includes(candidate.id) &&
+        candidate.path.startsWith(`${TENANTS_PATH}/`),
+    );
+    const section = findActiveNavItem(sectionEntries, pathname, search);
+    if (section) {
+      return { item: section, group: navGroupOf(section) };
+    }
     const settings =
       offered.find((candidate) => TENANT_SETTINGS_NAV_IDS.includes(candidate.id)) ??
       present.find((candidate) => TENANT_SETTINGS_NAV_IDS.includes(candidate.id));
