@@ -8,6 +8,79 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [0.3.3] - 2026-10-10
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.3.3 shows the Proxmox VE nodes with their VMs and containers in the
+inventory, mounts an NFS share straight from the path field of a repository, and calls
+the place where backups are stored "repository" everywhere. No database migration.
+
+### Breaking Changes
+
+None.
+
+### Added
+
+- Servers & clients › Inventory (All and Servers): every Proxmox VE node as a row you
+  can expand, with its online state and counts (protected, failed, no job, not backed
+  up yet); expanded, each VM and container with its status, backup job and backup
+  state, linked to its page. For administrators, once a cluster is connected.
+- Repositories: the path field of a directory repository accepts an NFS address
+  (`192.168.1.10:/export/backup`, `nas.local:/volume1/restow`, `nfs://…`). The
+  provider owner can test and mount it right there; Restow fills in the path. When
+  jobs are running, the mount waits until none runs (and can be cancelled).
+- A menu entry "Repositories" under your organisation.
+
+### Changed
+
+- The interface says "repository" (German "Repository", plural "Repositories")
+  instead of "storage location" / "Speicherort". The API and the setup notice keep
+  their wording.
+- Proxmox VE, Connect Proxmox VE: a command made with an existing PVE API token says
+  so plainly, and "New command without this token" makes one that lets the installer
+  create its own token.
+- Proxmox VE: VMs & containers and the inventory show why the last backup of a guest
+  failed, not only in a tooltip.
+
+### Fixed
+
+- The Proxmox VE node installer named only the missing privileges when an existing API
+  token had privilege separation on (the default when a token is created in the PVE web
+  interface); it now says so and shows the `pveum` command that turns it off.
+- An agent test could fail when the run report reached the outbox a moment before the
+  status recorded the interruption.
+
+### Security
+
+- The Dependabot alerts are cleared: uuid 11.1.1 (through `@azure/msal-node`, which
+  only uses v4), esbuild 0.25 (development only) and vitest 4.1.11 (development only).
+  None of the vulnerable code paths was reachable in Restow.
+
+### Upgrade Notes
+
+New image; no database migration. Coming from 0.3.0 or older, read the notes of
+0.3.2 and 0.3.1 below.
+
+### Known Issues
+
+- Mounting an NFS share from the path field was tested against the mounter's
+  stand-ins, not yet against a real NFS server. While a mount waits for running jobs,
+  new jobs still start, so on a server that is never idle it keeps waiting.
+- The known issues of 0.3.2 still apply.
+
+### Verification
+
+Before the tag, on 2026-10-10, on the release candidate (main plus the 0.3.3 changes):
+lint, typecheck and the full test suites with Postgres 16 and restic 0.19.1 (apps/api
+3235, apps/web 3794, apps/worker 435, packages/core 1978, packages/i18n 259,
+packages/db 144, apps/scheduler 65, ee/api 243, ee/web 176, ee/licensing 59,
+ee/worker 5, packages/cli 34), the PVE node installer test, the server installer
+tests (624) and `pnpm audit` (no known vulnerabilities).
+
 ## [0.3.2] - 2026-10-09
 
 Beta release. Run it alongside your existing backups, not as your only one, until
