@@ -242,6 +242,15 @@
 		}
 	}
 
+	# /internal/* is the api's internal surface: the opt-in updater's token route and the
+	# file share runners' restic endpoint (docs/FILESHARES.md 2.3, 5.3), reached only on
+	# the compose networks. It is never forwarded; this explicit 404 is the second fence
+	# besides the api's own refusal of proxied requests (the SPA fallback below would
+	# otherwise answer index.html).
+	handle /internal/* {
+		respond 404
+	}
+
 	# Liveness/readiness are the api's own job, not the SPA fallback below.
 	# /readyz reports only {status, checks: {database, worker, scheduler}}
 	# (apps/api/src/app.ts) — nothing host- or install-specific — so it is safe to

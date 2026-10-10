@@ -67,6 +67,9 @@ describe("mounter boundary", () => {
       "override.ts",
       "config.ts",
       "ops.ts",
+      "runner-protocol.ts",
+      "runner-ops.ts",
+      "runner-engine.ts",
     ]) {
       expect(names).toContain(expected);
     }
@@ -104,6 +107,42 @@ describe("mounter boundary", () => {
       for (const value of strings) {
         expect(credentialNames.test(value), `${file.name} mentions ${value}`).toBe(false);
       }
+    }
+  });
+
+  it("runner exception: the persisted run record holds no secret and no share settings", async () => {
+    const { PERSISTED_RUN_FIELDS } = await import("./runner-engine.js");
+    expect(PERSISTED_RUN_FIELDS.length).toBeGreaterThan(0);
+    for (const field of PERSISTED_RUN_FIELDS) {
+      expect(field, field).not.toMatch(
+        /password|token|secret|spec|share$|options|^o$|mounts|username/i,
+      );
+    }
+  });
+
+  it("runner exception: only the runner files handle share passwords and run tokens", async () => {
+    for (const file of await sources()) {
+      const handles = /\.password\b|RESTOW_SHARE_RUN_TOKEN|\brequest\.token\b/.test(file.text);
+      if (handles) {
+        expect(file.name, `${file.name} handles a runner secret`).toMatch(
+          /^runner-(ops|engine)\.ts$/,
+        );
+      }
+    }
+  });
+
+  it("runner exception: runner requests are not written to the operation history or logged", async () => {
+    const files = await sources();
+    const engine = (files.find((file) => file.name === "runner-engine.ts")?.text ?? "")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/(^|[^:])\/\/.*$/gm, "$1");
+    // The runner never touches the operation store of share mounts.
+    expect(engine).not.toMatch(/OperationStore|store\.begin|history/);
+    // Log lines name runs, never a request, a spec or its options.
+    for (const match of engine.matchAll(/logger\.(?:info|warn|error)\(([^;]*)\);/g)) {
+      expect(match[1], match[0]).not.toMatch(
+        /\b(request|spec|share|options|password|token)\b(?!Id)/,
+      );
     }
   });
 

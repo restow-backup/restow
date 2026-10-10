@@ -105,6 +105,11 @@ describe("the append-only authorization matrix", () => {
     it(`agent: ${label} is ${agent ? "allowed" : "refused"}`, () => {
       expect(authorizeResticAction("agent", action, resource, exists, ownLock).allowed).toBe(agent);
     });
+    it(`reader: ${label} is ${action === "head" || action === "read" || action === "list" ? "allowed" : "refused"}`, () => {
+      expect(authorizeResticAction("reader", action, resource, exists, ownLock).allowed).toBe(
+        action === "head" || action === "read" || action === "list",
+      );
+    });
     it(`maintenance: ${label} is allowed`, () => {
       expect(authorizeResticAction("maintenance", action, resource, exists, ownLock).allowed).toBe(
         true,
@@ -143,5 +148,7 @@ describe("the append-only authorization matrix", () => {
     expect(needsExistenceCheck("agent", "write")).toBe(true);
     expect(needsExistenceCheck("agent", "read")).toBe(false);
     expect(needsExistenceCheck("maintenance", "write")).toBe(false);
+    expect(needsExistenceCheck("reader", "write")).toBe(false);
+    expect(needsLockOwnership("reader", "delete", object("locks"))).toBe(false);
   });
 });

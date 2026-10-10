@@ -42,6 +42,7 @@ async function call(
     maxBodyBytes?: number;
     locks?: ResticLockRegistry;
     remainingBytes?: number | null;
+    quotaProblem?: { type: string; detail: string };
   } = {},
 ) {
   const request = new Request(`http://localhost${path}${init.query ?? ""}`, {
@@ -66,6 +67,7 @@ async function call(
     locks: init.locks,
     remainingBytes:
       init.remainingBytes === undefined ? undefined : async () => init.remainingBytes ?? null,
+    quotaProblem: init.quotaProblem,
     onQuotaExceeded: ({ declaredBytes }) => {
       overBudget.push(declaredBytes);
     },
@@ -253,6 +255,32 @@ describe("restic REST protocol on the storage abstraction", () => {
       expect(unlimited.response.status).toBe(200);
     });
 
+    it("answers with the caller's problem type (file shares), by declared length and while streaming", async () => {
+      const storage = new MemoryStorage();
+      const quotaProblem = {
+        type: "urn:restow:problem:file-share-quota-exceeded",
+        detail: "The budget of this file share is used up.",
+      };
+      const declared = await call(storage, "agent", "POST", `/data/${name}`, {
+        body: pack,
+        headers: { "content-length": String(pack.length) },
+        remainingBytes: 1000,
+        quotaProblem,
+      });
+      expect(JSON.parse((await declared.text()).toString())).toMatchObject({
+        type: quotaProblem.type,
+        detail: quotaProblem.detail,
+      });
+      const streamed = await call(storage, "agent", "POST", `/data/${name}`, {
+        body: pack,
+        remainingBytes: 1000,
+        quotaProblem,
+      });
+      expect(streamed.response.status).toBe(403);
+      expect(streamed.overBudget).toEqual([null]);
+      expect(JSON.parse((await streamed.text()).toString()).type).toBe(quotaProblem.type);
+    });
+
     it("never refuses a lock file, so a restore still works with the budget used up", async () => {
       const storage = new MemoryStorage();
       const locks = lockRegistry();
@@ -264,6 +292,40 @@ describe("restic REST protocol on the storage abstraction", () => {
       });
       expect(written.response.status).toBe(200);
     });
+  });
+
+  it("lets a reader read and list, and nothing else, not even a lock", async () => {
+    const storage = new MemoryStorage();
+    const pack = Buffer.from("pack");
+    await call(storage, "maintenance", "POST", `/data/${sha256(pack)}`, { body: pack });
+    expect((await call(storage, "reader", "GET", `/data/${sha256(pack)}`)).response.status).toBe(
+      200,
+    );
+    expect((await call(storage, "reader", "HEAD", `/data/${sha256(pack)}`)).response.status).toBe(
+      200,
+    );
+    expect((await call(storage, "reader", "GET", "/data/", { headers: V2 })).response.status).toBe(
+      200,
+    );
+    const locks = lockRegistry();
+    const lock = Buffer.from("lock");
+    for (const [method, path] of [
+      ["POST", `/locks/${sha256(lock)}`],
+      ["POST", `/data/${sha256("new")}`],
+      ["DELETE", `/data/${sha256(pack)}`],
+      ["POST", "/config"],
+      ["POST", "/"],
+    ] as const) {
+      const result = await call(storage, "reader", method, path, {
+        body: method === "POST" ? lock : undefined,
+        query: path === "/" ? "?create=true" : undefined,
+        locks,
+      });
+      expect(result.response.status, `${method} ${path}`).toBe(403);
+      expect(result.denied[0]?.reason).toBe("not_allowed");
+    }
+    expect(locks.names.size).toBe(0);
+    expect(storage.files.size).toBe(1);
   });
 
   it("refuses the config and the repository itself to an agent", async () => {

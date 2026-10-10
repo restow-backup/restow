@@ -1,7 +1,8 @@
 # File shares (SMB and NFS): design
 
 Status: binding design for the release that introduces file share backup, written 2026-10-10.
-Nothing of it is implemented yet. It is the blueprint the four build phases (section 17) follow;
+The infrastructure part of Phase A is implemented (section 17 says what and what moved); the
+rest is not yet. It is the blueprint the four build phases (section 17) follow;
 a deviation is recorded here first, the way docs/PROXMOX.md records its own. Once a phase ships,
 the operator documentation of what exists goes into this file's "How it works" sections, in the
 style of [PVE.md](PVE.md).
@@ -276,7 +277,10 @@ Validation (shared regexes in `runner-protocol.ts`, test vectors mirrored in
   name, `^[A-Za-z0-9][A-Za-z0-9.-]{0,254}$`.
 - `password`: 1-256 bytes UTF-8, no control characters (U+0000-U+001F, U+007F). Commas are doubled
   when the option string is built (the kernel's escape for a literal comma in `password=` [K]);
-  `$` needs no escape because no compose file is involved. A test covers `,` `,,` `$` `%` `=` `"`
+  `$` needs no escape because no compose file is involved. Docker's local driver takes the mount
+  flags (`ro`, `nosuid`, `bind`, ...) out of `o=` before the rest reaches the kernel
+  (moby/sys/mount `parseOptions` [K]); a password with a comma-separated piece that equals one
+  of them would lose that piece, so such a password is refused (host check 2 confirms the rest). A test covers `,` `,,` `$` `%` `=` `"`
   `'` space, backslash and non-ASCII.
 - `smbVersion`: `3.1.1` (default), `3.0`, `2.1`. `1.0` and `2.0` are rejected by the schema.
   `seal` requires `3.0` or newer.
@@ -543,7 +547,8 @@ of files the walk dominates on high-latency links. Two mitigations are part of P
   file systems]. The walk keeps the previous sidecar's descriptor of a path whose `ctime` and size
   did not change instead of asking the server again. The previous sidecar is read at the start with
   `restic dump <parent> /.restow/acls.jsonl.gz`. A share setting **Read all permissions every run**
-  turns the reuse off; every 30th run reads them all anyway.
+  turns the reuse off; every 30th run reads them all anyway (the dispatcher sets the session's
+  `rereadPermissions` for it; the runner keeps no counter).
 - **Permissions off per share** for shares where nobody needs them (a scanner inbox).
 
 ### 4.4 restic flags (backup)
@@ -626,7 +631,7 @@ as `pb` (base64 of the raw bytes) instead of `p`.
 | --- | --- |
 | `h` | Header, first line. `xattr` names what `b` holds. `protocol` is `smb` or `nfs`. |
 | `d` | A descriptor, written once before its first use: `id` = first 16 hex characters of the SHA-256 of the raw bytes, `b` = base64 of the raw xattr value (self-relative `SECURITY_DESCRIPTOR` for SMB, the raw `nfs4_acl` XDR for NFSv4, a JSON object `{ "access": b64, "default": b64 }` for POSIX ACLs). Inherited permissions make most files share a handful of descriptors. |
-| `e` | An entry: path, descriptor id, optional DOS attributes `a`, optional creation time `c` (decimal string, 64-bit). |
+| `e` | An entry: path, descriptor id, optional DOS attributes `a`, optional creation time `c` (decimal string, 64-bit), optional change time `ct` (ns since 1970, decimal string) and size `s`: the next run's ACL reuse (4.3) compares those two, a restore ignores them. A path whose descriptor could not be read has an `x` line and an `e` line without `d` (its DOS attributes may still be there). |
 | `x` | A path whose permissions could not be read, with the errno name. |
 | `z` | Trailer, last line, with the counts. A sidecar without a trailer is incomplete: a restore applies what it has and says so. |
 
@@ -650,7 +655,7 @@ Session parameters (5.2): `snapshotId`, `paths` (relative to the share root; emp
 | Step | What happens |
 | --- | --- |
 | Guard | 4.2 with `rw`. Target folder: `original` = the share root of the same share (same subfolder as the backup); `new_folder` = `Restow-Restore-YYYYMMDD-HHMMSS` in the share root; `folder` = the chosen folder on the target share, default `Restow-Restore-YYYYMMDD-HHMMSS`. The folder is created; it must not exist yet for `new_folder`. |
-| restic restore | `restic restore <snap>:/share --target <dest> [--include <path> ...] --no-lock --overwrite <mode> --exclude-xattr 'system.*' --exclude-xattr 'security.*' [--verify] --json`. `overwrite` → `--overwrite if-changed`; `skip` → `--overwrite never`; `new_folder`/`folder` → `--overwrite never` (the folder is new); `keep_both` → restore into the staging folder `<root>/.restow-restore-<runId8>` with `--overwrite never`, then the reconcile step. |
+| restic restore | `restic restore <snap>:/share --target <dest> [--include <path> ...] --no-lock --overwrite <mode> --exclude-xattr 'system.*' --exclude-xattr 'security.*' [--verify] --json -vv` (`-vv`: restic reports every item it restored or updated; the permission write-back touches only those, and in `skip` mode only restored files, never a folder that was there). `overwrite` → `--overwrite if-changed`; `skip` → `--overwrite never`; `new_folder`/`folder` → `--overwrite never` (the folder is new); `keep_both` → restore into the staging folder `<root>/.restow-restore-<runId8>` with `--overwrite never`, then the reconcile step. |
 | Reconcile (`keep_both` only) | For every staged file: destination missing → rename into place; destination with the same size and mtime → drop the staged copy (counted as identical); otherwise rename the staged file to `<name> (restored 2026-10-10 2200)<ext>` next to the original. Renames stay on the server (same share). The staging folder is removed at the end; a leftover from a crashed run is removed by the next run into that share (its name carries the old run id). |
 | Permissions | When `restorePermissions` and the sidecar's protocol matches the target: stream the sidecar from the snapshot (`restic dump <snap> /.restow/acls.jsonl.gz`), apply top-down for the restored paths. SMB: try `system.cifs_ntsd_full`, then `system.cifs_ntsd`, then `system.cifs_acl`; the level reached per file is counted (owner and SACL need `SeRestorePrivilege`/`SeSecurityPrivilege` on the server [K]). A file that keeps the inherited permissions of the target gets an item `share.acl_not_restored`. DOS attributes and creation time are set last (a read-only attribute would block the rest), best effort [I which servers accept it]. NFS: `system.nfs4_acl` or the POSIX ACL xattrs, best effort. Protocol mismatch (SMB data into an NFS share or the reverse): one warning, no permissions. |
 | Finish | Counts: restored, skipped, renamed, identical, failed, permissions applied per level, permissions failed. |
@@ -1061,7 +1066,9 @@ restore-check schedule.
 The preset "Skip temporary and system files" is: `~$*`, `*.tmp`, `Thumbs.db`, `desktop.ini`,
 `.DS_Store`, `*.lck`, `$RECYCLE.BIN`, `System Volume Information`, `.snapshot`, `~snapshot`,
 `#recycle`, `#snapshot`, `@eaDir`, `.@__thumb`. (The snapshot folders of NetApp, Synology and QNAP
-would otherwise back up every server-side snapshot again.)
+would otherwise back up every server-side snapshot again.) Session patterns are patterns, not
+exclude-file lines: a leading `#` is a literal character, which the runner writes as `\#` (restic
+would read the line as a comment otherwise).
 
 Bandwidth windows are resolved once, when the run starts (restic cannot change its limit while it
 runs); a run that crosses into another window keeps its start limit. The job form says so.
@@ -1678,6 +1685,29 @@ image; generalised restic route with the `reader` principal and persisted locks,
 `restow-share`; installer default and `--without-mounter` (3.9) with `test.sh`; the updater's
 `POST /v1/mounter/enable`; the host checks of 16.3 with results recorded here. Exit: a backup and a restore of a Samba share driven from a test script through the api's
 internal routes, permissions round-trip, no restart.
+
+*Phase A as built (2026-10-10, infrastructure part).* Done: the mounter's runner operations
+(`runner-protocol.ts`, `runner-ops.ts`, `runner-engine.ts`, routes in `server.ts`, settings of
+3.8, adoption and label GC on start, deadline sweep, `runner-runs.json` without secrets; a test or
+list is capped at 4 at a time and 256 MiB); `restow-share` (`agent/cmd/restow-share`,
+`agent/internal/share`) with probe, list, backup, restore, keep both, mirror with the marker, the
+sidecar (golden file `agent/internal/share/testdata/sidecar/v1-basic.jsonl`), built by
+`agent/build.sh` into `dist/server/linux-<arch>/` (in no SHA256SUMS: it is not a download) and
+installed as `/usr/local/bin/restow-share` by the Dockerfile, which compiles it from source when a
+signed prebuilt release lacks it; `lib/restic-run-route.ts` with the `reader` principal, the PVE
+route on it, `/internal/file-shares/restic` with the credential lookup behind an interface;
+Caddy's `/internal/*` 404; the `runners` network and the worker's mounter access in both compose
+files; the core's runner types, validation mirror and HTTP client
+(`packages/core/src/file-shares/`), the worker's `file-shares/mounter-client.ts`. Moved to Phase B
+because they need its tables: the runner routes `/internal/file-shares/v1/*` (restow-share
+implements their client side, 5.2), the persisted run credentials (until then
+`MemoryRunCredentials`, so the restic route answers 401 to every real runner), the persisted lock
+registry and the budgets of the restic route, and the audit entry `file_share.repository.denied`
+(it needs its labels, Phase C; denials are logged until then). Not in this part: the installer
+default and the updater's `POST /v1/mounter/enable` (3.9), and the host checks of 16.3, which need
+real file servers. The session of a restore (5.2) carries `restore.targetShareId` and, for a copy
+run, `restore.copy` (`jobId`, `sourceShareId`, `mode`, `mirrorConfirmed`, `lastCopiedFileCount`,
+`force`), which the runner checks again (4.10 rules 2-6).
 
 **Phase B: database, core, scheduler, worker.**
 Schema and migrations 0033-0035, RLS (7); core modules (validation, queues, protection, readiness,

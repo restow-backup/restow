@@ -12,7 +12,7 @@
  *
  * with the types `data`, `keys`, `locks`, `snapshots` and `index`.
  *
- * Two principals exist:
+ * Three principals exist:
  *
  *   agent        append-only. It reads everything and adds objects that do not
  *                exist yet, nothing more: an existing object is never
@@ -25,6 +25,11 @@
  *                stays. Everything else is 403. A machine that is compromised
  *                can therefore add garbage but cannot destroy or replace a
  *                single backup, nor lift a lock of the server's maintenance.
+ *   reader       read-only (docs/FILESHARES.md 5.3): HEAD and GET of the config,
+ *                of objects and of lists, nothing else, not even a lock file
+ *                (a file share restore runs restic with --no-lock). It reads
+ *                the source repository of a restore into another share and
+ *                can change nothing in it.
  *   maintenance  full access. Used by the server itself (retention, check,
  *                downloads, restore tests, `init`) over a loopback listener
  *                that only lives as long as one operation; the credential is
@@ -34,7 +39,7 @@
 export const RESTIC_TYPES = ["data", "keys", "locks", "snapshots", "index"] as const;
 export type ResticType = (typeof RESTIC_TYPES)[number];
 
-export type ResticPrincipal = "agent" | "maintenance";
+export type ResticPrincipal = "agent" | "reader" | "maintenance";
 
 /** What a request addresses, parsed from its path. */
 export type ResticResource =
@@ -130,6 +135,11 @@ export function authorizeResticAction(
 ): ResticDecision {
   if (principal === "maintenance") {
     return { allowed: true };
+  }
+  if (principal === "reader") {
+    return action === "head" || action === "read" || action === "list"
+      ? { allowed: true }
+      : { allowed: false, reason: "not_allowed" };
   }
   switch (action) {
     case "head":

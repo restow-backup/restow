@@ -1,0 +1,12 @@
+{"t":"h","format":"restow-share-permissions","v":1,"protocol":"smb","xattr":"system.cifs_ntsd_full","created":"2026-10-10T22:00:03Z","runner":"0.4.0","reused":0}
+{"t":"d","id":"fceb84ea54c639f5","b":"ZGVzY3JpcHRvci1B"}
+{"t":"e","p":"","d":"fceb84ea54c639f5","a":16}
+{"t":"e","p":"Finance","d":"fceb84ea54c639f5","a":16,"ct":"1760133603000000000"}
+{"t":"d","id":"598a2a10dfb46596","b":"ZGVzY3JpcHRvci1C"}
+{"t":"e","p":"Finance/2026/Q3.xlsx","d":"598a2a10dfb46596","a":32,"c":"133701234567890000","ct":"1760133603123456789","s":4096}
+{"t":"e","pb":"R3L832UudHh0","d":"598a2a10dfb46596"}
+{"t":"x","p":"HR/locked","err":"EACCES"}
+{"t":"e","p":"HR/locked"}
+{"t":"d","id":"5f61d6f8c156fdfc","b":{"access":"AgAAAA=="}}
+{"t":"e","p":"Ünïcode/ok","d":"5f61d6f8c156fdfc"}
+{"t":"z","entries":6,"descriptors":3,"errors":1}

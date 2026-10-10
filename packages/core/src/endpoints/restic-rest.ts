@@ -94,6 +94,11 @@ export interface ResticRestOptions {
    * Asked before every upload except a lock file.
    */
   remainingBytes?: () => Promise<number | null>;
+  /**
+   * The problem type and text of a refused upload (default: the endpoint's,
+   * {@link QUOTA_EXCEEDED_PROBLEM}); file shares use their own (docs/FILESHARES.md 5.3).
+   */
+  quotaProblem?: { type: string; detail: string };
   /** Called when an upload was refused because it does not fit the storage budget. */
   onQuotaExceeded?: (event: {
     resource: ResticResource;
@@ -121,11 +126,12 @@ function text(status: number, message: string): Response {
   });
 }
 
-function quotaExceededError(): ResticHttpError {
+function quotaExceededError(problem?: { type: string; detail: string }): ResticHttpError {
   return new ResticHttpError(
     403,
-    "The storage budget of this endpoint's repository is used up; the upload was refused.",
-    QUOTA_EXCEEDED_PROBLEM,
+    problem?.detail ??
+      "The storage budget of this endpoint's repository is used up; the upload was refused.",
+    problem?.type ?? QUOTA_EXCEEDED_PROBLEM,
   );
 }
 
@@ -215,6 +221,8 @@ export class UploadGuard extends Transform {
     private readonly expectedSha256: string | null,
     /** Bytes the storage budget still allows, or null for no budget. */
     private readonly budget: number | null = null,
+    /** The problem of a refused upload (ResticRestOptions.quotaProblem). */
+    private readonly quotaProblem?: { type: string; detail: string },
   ) {
     super();
   }
@@ -227,7 +235,7 @@ export class UploadGuard extends Transform {
       return;
     }
     if (this.budget !== null && this.bytes > this.budget) {
-      this.failure = quotaExceededError();
+      this.failure = quotaExceededError(this.quotaProblem);
       callback(this.failure);
       return;
     }
@@ -326,17 +334,23 @@ async function writeObject(
   request: Request,
   limit: number,
   budget: number | null,
+  quotaProblem?: { type: string; detail: string },
 ): Promise<{ response: Response; bytes: number; overBudget: boolean }> {
+  const quotaType = quotaProblem?.type ?? QUOTA_EXCEEDED_PROBLEM;
   const declared = declaredLength(request);
   if (declared !== null && declared > limit) {
     return { response: text(413, "request body too large"), bytes: 0, overBudget: false };
   }
   if (budget !== null && (budget <= 0 || (declared !== null && declared > budget))) {
-    return { response: errorResponse(quotaExceededError()), bytes: 0, overBudget: true };
+    return {
+      response: errorResponse(quotaExceededError(quotaProblem)),
+      bytes: 0,
+      overBudget: true,
+    };
   }
   // Every object but the repository config is named by the SHA-256 of its content.
   const expected = resource.kind === "object" ? resource.name : null;
-  const guard = new UploadGuard(limit, expected, budget);
+  const guard = new UploadGuard(limit, expected, budget, quotaProblem);
   // The verdict can come before the storage starts reading (it opens a file
   // first); an error event nobody listens for would crash the process.
   guard.on("error", () => undefined);
@@ -353,7 +367,7 @@ async function writeObject(
       return {
         response: errorResponse(cause),
         bytes: guard.bytes,
-        overBudget: cause.problemType === QUOTA_EXCEEDED_PROBLEM,
+        overBudget: cause.problemType === quotaType,
       };
     }
     throw error;
@@ -364,7 +378,7 @@ async function writeObject(
     return {
       response: errorResponse(guard.failure),
       bytes: guard.bytes,
-      overBudget: guard.failure.problemType === QUOTA_EXCEEDED_PROBLEM,
+      overBudget: guard.failure.problemType === quotaType,
     };
   }
   return { response: new Response(null, { status: 200 }), bytes: guard.bytes, overBudget: false };
@@ -478,6 +492,7 @@ export async function handleResticRequest(
         request,
         limit,
         budget,
+        options.quotaProblem,
       );
       if (response.ok) {
         await options.onAllowed?.({ action, resource, bytes });

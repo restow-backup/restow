@@ -29,6 +29,10 @@ import { resticRoutes } from "./features/endpoints/restic-route.js";
 import { endpointsRoutes } from "./features/endpoints/routes.js";
 import { mountPath as exportsMountPath } from "./features/exports/meta.js";
 import { exportsRoutes } from "./features/exports/routes.js";
+import {
+  FILE_SHARE_RESTIC_PATH,
+  fileShareResticRoutes,
+} from "./features/file-shares/restic-route.js";
 import { mountPath as historyMountPath, liveMountPath } from "./features/history/meta.js";
 import { historyRoutes, liveRoutes } from "./features/history/routes.js";
 import { mountPath as importsMountPath } from "./features/imports/meta.js";
@@ -179,6 +183,10 @@ export function buildApp() {
 
   // For the opt-in updater only (shared secret, never routed by the edge).
   app.route(INTERNAL_MOUNT_PATH, internalRoutes);
+  // File share runners (docs/FILESHARES.md 5.3): the restic endpoint of share
+  // repositories, reached over the internal `runners` network only, with a per-run
+  // credential. Never routed by the edge either.
+  app.route(FILE_SHARE_RESTIC_PATH, fileShareResticRoutes);
 
   // Endpoint backup (docs/AGENT.md): the agent API, the restic REST endpoint the
   // agents write through and the install scripts. None of them uses the session:

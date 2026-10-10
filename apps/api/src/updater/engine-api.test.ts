@@ -105,6 +105,68 @@ describe("EngineClient", () => {
     expect(request?.query.get("all")).toBe("1");
   });
 
+  it("lists containers with labels and state, stops one, checks networks", async () => {
+    api.summaries = [
+      {
+        Id: "r1",
+        Labels: { "com.restow.mounter.runner": "x" },
+        State: "running",
+        ImageID: "sha256:img",
+        Created: 1760000000,
+      },
+      { Id: "r2" },
+    ];
+    const listed = await client.listContainers(["com.restow.mounter.runner", "a=b"]);
+    expect(listed).toEqual([
+      {
+        Id: "r1",
+        Labels: { "com.restow.mounter.runner": "x" },
+        State: "running",
+        ImageID: "sha256:img",
+        Created: 1760000000,
+      },
+      { Id: "r2", Labels: {}, State: "", ImageID: "", Created: 0 },
+    ]);
+    const filters = JSON.parse(
+      api.callsTo("GET", "/containers/json")[0]?.query.get("filters") ?? "",
+    );
+    expect(filters).toEqual({ label: ["com.restow.mounter.runner", "a=b"] });
+    await client.stopContainer("r1", 30);
+    expect(api.stopped).toEqual(["r1"]);
+    expect(api.callsTo("POST", "/containers/r1/stop")[0]?.query.get("t")).toBe("30");
+    api.networks.add("restow_runners");
+    expect(await client.networkExists("restow_runners")).toBe(true);
+    expect(await client.networkExists("other_runners")).toBe(false);
+  });
+
+  it("passes the runner's host settings through unchanged", async () => {
+    await client.createContainer(
+      {
+        Image: "sha256:img",
+        Entrypoint: ["/usr/local/bin/restow-share"],
+        Cmd: ["run"],
+        HostConfig: {
+          Binds: ["v:/share:ro"],
+          CapDrop: ["ALL"],
+          CapAdd: ["DAC_READ_SEARCH"],
+          ReadonlyRootfs: true,
+          Tmpfs: { "/tmp": "size=64m,mode=1777" },
+          Memory: 1024,
+          MemorySwap: 1024,
+          PidsLimit: 256,
+          LogConfig: { Type: "json-file", Config: { "max-size": "1m" } },
+        },
+      },
+      "runner-x",
+    );
+    const body = api.callsTo("POST", "/containers/create")[0]?.body as {
+      HostConfig: Record<string, unknown>;
+    };
+    expect(body.HostConfig.CapDrop).toEqual(["ALL"]);
+    expect(body.HostConfig.ReadonlyRootfs).toBe(true);
+    expect(body.HostConfig.PidsLimit).toBe(256);
+  });
+
   it("demultiplexes the log into stdout and stderr, whatever the chunking", async () => {
     const id = await client.createContainer(
       { Image: "x", Entrypoint: [], Cmd: [], HostConfig: { Binds: [] } },

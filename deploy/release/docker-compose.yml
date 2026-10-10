@@ -87,6 +87,11 @@ services:
       - restow-updater-shared:/updater-shared:ro
       # The mounter's shared secret (empty until the mounts profile ran once).
       - restow-mounter-shared:/mounter-shared:ro
+    networks:
+      - default
+      # The file share runners reach the api here, and nothing else: no database, no
+      # internet, no other service (docs/FILESHARES.md 3.4).
+      - runners
     healthcheck:
       test:
         - CMD
@@ -105,9 +110,13 @@ services:
     <<: *restow-app
     environment:
       ROLE: worker
+      # The mounter starts the file share runs the worker dispatches (docs/FILESHARES.md 8.2).
+      RESTOW_MOUNTER_URL: ${RESTOW_MOUNTER_URL:-http://mounter:8091}
     volumes:
       - restow-data:/data
       - ${RESTOW_IMPORT_DIR:-./import}:/var/lib/restow/import:ro
+      # The mounter's shared secret (empty until the mounts profile ran once).
+      - restow-mounter-shared:/mounter-shared:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -257,3 +266,9 @@ volumes:
   restow-updater-shared:
   restow-mounter:
   restow-mounter-shared:
+
+networks:
+  # The network of the file share runners (docs/FILESHARES.md 3.4): the mounter starts
+  # them on it, the api answers them on it. Internal: no route out of the host.
+  runners:
+    internal: true

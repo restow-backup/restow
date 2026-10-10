@@ -323,6 +323,28 @@ export const mounterCapabilitiesSchema = z.object({
 });
 export type MounterCapabilities = z.infer<typeof mounterCapabilitiesSchema>;
 
+/** Protocols of the runner (file share backup, runner-protocol.ts). */
+export const RUNNER_PROTOCOLS = ["smb", "nfs"] as const;
+
+export const RUNNER_BLOCKER_CODES = [
+  "docker_unreachable",
+  "runner_network_missing",
+  "runner_image_unknown",
+] as const;
+export type RunnerBlockerCode = (typeof RUNNER_BLOCKER_CODES)[number];
+
+/** The runner part of the state (docs/FILESHARES.md 3.1). */
+export const runnerCapabilitiesSchema = z.object({
+  ready: z.boolean(),
+  blockers: z.array(z.object({ code: z.enum(RUNNER_BLOCKER_CODES), detail: z.string().max(600) })),
+  protocols: z.array(z.enum(RUNNER_PROTOCOLS)),
+  running: z.number().int().nonnegative(),
+  limit: z.number().int().positive(),
+  /** The image runner containers start from (the api container's image id). */
+  image: z.string().nullable(),
+});
+export type RunnerCapabilities = z.infer<typeof runnerCapabilitiesSchema>;
+
 export const mounterStateSchema = z.object({
   mounterVersion: z.string().nullable(),
   mounts: z.array(mountViewSchema),
@@ -331,6 +353,8 @@ export const mounterStateSchema = z.object({
   /** Earlier operations, newest first. */
   history: z.array(operationSchema),
   capabilities: mounterCapabilitiesSchema,
+  /** File share runners; absent from a mounter that predates them. */
+  runner: runnerCapabilitiesSchema.optional(),
   serverTime: iso,
 });
 export type MounterState = z.infer<typeof mounterStateSchema>;

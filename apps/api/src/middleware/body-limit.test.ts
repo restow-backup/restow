@@ -87,6 +87,8 @@ describe("bodyLimitFor", () => {
   it("leaves the streamed routes to their own caps", () => {
     expect(bodyLimitFor("PUT", "/agent/restic/0b0f/data/abc")).toBeNull();
     expect(bodyLimitFor("POST", "/agent/restic/0b0f/locks/abc")).toBeNull();
+    expect(bodyLimitFor("POST", "/internal/file-shares/restic/0b0f/data/abc")).toBeNull();
+    expect(bodyLimitFor("POST", "/internal/file-shares/v1/finish")).not.toBeNull();
     expect(bodyLimitFor("PUT", "/api/v1/imports/uploads/0b0f/segments/3")).toBeNull();
   });
 });
