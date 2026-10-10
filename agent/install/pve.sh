@@ -483,6 +483,14 @@ create_node_token() {
   say "    API token $PVE_TOKEN_ID: created (its secret stays on this node)"
 }
 
+# token_privsep_on <user> <token name>: the token is listed with privilege
+# separation on (it then holds only the privileges given to the token itself).
+token_privsep_on() {
+  pveum_q user token list "$1" --output-format json 2>/dev/null | tr '}' '\n' |
+    grep "\"tokenid\"[[:space:]]*:[[:space:]]*\"$2\"" |
+    grep -Eq '"privsep"[[:space:]]*:[[:space:]]*"?1'
+}
+
 # check_token_privileges: the token holds every privilege backups need on /
 # (and, as a warning, what restores need in the restore pool). Checked with
 # pveum as root, before anything is downloaded or installed.
@@ -501,6 +509,9 @@ Check the token id (user@realm!name) in Restow or in Datacenter > Permissions > 
   for _p in $(printf '%s' "$BACKUP_PRIVS" | tr ',' ' '); do
     printf '%s' "$_perms" | grep -q "\"$_p\"" || _missing="$_missing${_missing:+, }$_p"
   done
+  if [ -n "$_missing" ] && token_privsep_on "$_user" "$_tname"; then
+    die "the API token $PVE_TOKEN_ID has privilege separation on, so it holds none of $_user's privileges and lacks $_missing on /. Turn it off with: pveum user token modify $_user $_tname --privsep 0 (and give $_user the role RestowBackup on / unless it has these privileges), or let this installer create its own token: run the command from Restow without an existing API token."
+  fi
   if [ -n "$_missing" ]; then
     die "the API token $PVE_TOKEN_ID lacks $_missing on /. Give it the role RestowBackup on / with privilege separation off (see docs/PVE.md), or let this installer create its own token: run the command from Restow without an existing API token."
   fi
