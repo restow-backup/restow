@@ -794,6 +794,12 @@ NFS-Freigaben als Docker-Volumes des `local`-Treibers in `api` und `worker` unte
   laufen, und das Entfernen einer Freigabe, die ein Speicherziel oder der Standardspeicher nutzt.
 - Nur NFS. Das Protokollfeld (`protocol`) lässt Platz für ein weiteres Protokoll (SMB) über
   denselben Container.
+- Freigaben-Backup (SMB und NFS als Quelle, Design in `docs/FILESHARES.md`): eine zweite
+  Operationsfamilie desselben Mounters, der "Runner". Je Lauf ein temporäres Volume (Zugangsdaten
+  nur in dessen Optionen) und ein kurzlebiger Container mit `restow-share` (Go, `agent/`), ohne
+  Override-Datei und ohne Neustart von `api` oder `worker`; restic schreibt über
+  `/internal/file-shares/restic/*` der API (nur internes Netz `runners`) in ein Repository je
+  Freigabe unter `file-shares/<id>/`. Speicherziele bleiben NFS-only.
 
 ## Erweiterungsschnittstelle und `ee/`
 

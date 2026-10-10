@@ -9,6 +9,13 @@ Only NFS is supported. SMB was removed from the product; the mounter's request f
 carries a `protocol` field so that another protocol can be added later through the
 same container, but there is none today.
 
+The same mounter also runs **file share backups** (SMB and NFS shares that Restow backs up
+and restores into, docs/FILESHARES.md): for each run it creates a temporary volume and a
+short-lived runner container and removes both afterwards. That path never touches the
+compose override and never restarts the api or the worker, so tenant admins may add file
+shares themselves. Everything below is about network shares as **storage**, which stay NFS
+only and owner-managed.
+
 ## What it does
 
 The mounter turns each share into a Docker volume of the `local` driver with NFS
