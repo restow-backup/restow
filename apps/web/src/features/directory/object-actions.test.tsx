@@ -168,7 +168,7 @@ describe("SetCredentialDialog", () => {
     // The regression: a reset effect keyed on the whole mutation result
     // reran after this render too, calling setPassword("") right back.
     expect((input as HTMLInputElement).value).toBe("s3cret-mailbox-password");
-    const loopErrors = consoleError.mock.calls.filter((call) =>
+    const loopErrors = consoleError.mock.calls.filter((call: unknown[]) =>
       String(call[0]).includes("Maximum update depth exceeded"),
     );
     expect(loopErrors).toHaveLength(0);
