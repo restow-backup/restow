@@ -23,11 +23,12 @@
     "existingSecurity": "{appName} speichert den Token verschlüsselt, übergibt ihn dem Knoten einmal beim Verbinden und löscht ihn danach, spätestens wenn der Befehl abläuft.",
     "node": "Knoten {number}",
     "runHint": "Als root auf dem Knoten ausführen. Gilt für einen Knoten bis {expires}.",
-    "usesToken": "Der Knoten verwendet den API-Token {tokenId}.",
+    "usesToken": "Dieser Befehl verwendet den hier eingetragenen API-Token {tokenId}. Gibt es diesen Token nicht mehr oder fehlen ihm Rechte, erzeugen Sie einen neuen Befehl ohne ihn.",
     "copy": "Befehl kopieren",
     "another": "Befehl für einen weiteren Knoten",
     "anotherHint": "Jeder Knoten braucht einen eigenen Befehl. Verbinden Sie die Knoten nacheinander; der erste fügt den Speicher zum Cluster hinzu.",
-    "close": "Schließen"
+    "close": "Schließen",
+    "withoutToken": "Neuer Befehl ohne diesen Token"
   },
   "nodes": {
     "title": "Knoten",

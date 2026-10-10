@@ -188,13 +188,24 @@ describe("ConnectDialog", () => {
 
     const sent = { id: "restow@pve!restow", secret: "9f1c2d3e-aaaa-4bbb-8ccc-0123456789ab" };
     expect(createToken).toHaveBeenCalledWith(sent);
-    expect(text()).toContain("The node uses the API token restow@pve!restow.");
+    expect(slot("pve-uses-token")?.textContent).toContain(
+      "This command uses the API token restow@pve!restow entered here.",
+    );
     // The secret is never displayed.
     expect(text()).not.toContain(sent.secret);
 
     await click(slot("pve-another"));
     expect(createToken).toHaveBeenLastCalledWith(sent);
     expect(all("pve-command")).toHaveLength(2);
+
+    // A way out when the entered token turns out unusable: the next command goes without it.
+    await click(slot("pve-without-token"));
+    expect(createToken).toHaveBeenLastCalledWith(undefined);
+    expect(all("pve-command")).toHaveLength(3);
+    expect(all("pve-uses-token")).toHaveLength(2);
+    expect(slot("pve-without-token")).toBeNull();
+    await click(slot("pve-another"));
+    expect(createToken).toHaveBeenLastCalledWith(undefined);
   });
 });
 
