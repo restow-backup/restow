@@ -74,8 +74,16 @@ case "$1 $2" in
   "user token")
     case "$3" in
       list)
-        grep "^$4!" "$S/tokens" | sed 's/^[^!]*!//' >"$S/tokens.of" || true
-        list "$S/tokens.of" tokenid ;;
+        # Tokens named in $S/privsep are listed with privilege separation on.
+        printf '['
+        _sep=''
+        for _t in $(grep "^$4!" "$S/tokens" | sed 's/^[^!]*!//'); do
+          _ps=0
+          if grep -qx "$4!$_t" "$S/privsep" 2>/dev/null; then _ps=1; fi
+          printf '%s{"comment":"","expire":0,"privsep":%s,"tokenid":"%s"}' "$_sep" "$_ps" "$_t"
+          _sep=,
+        done
+        printf ']\n' ;;
       add)
         if grep -qx "$4!$5" "$S/tokens"; then echo "Token already exists." >&2; exit 255; fi
         echo "$4!$5" >>"$S/tokens"
@@ -228,10 +236,18 @@ PVE_TOKEN_ID='root@pam!restow'
 if run privs-unknown check_token_privileges; then fail "unknown token accepted"; fi
 grep -q 'cannot read the privileges of the API token root@pam!restow' "$WORK/privs-unknown.out" || fail "unknown token message: $(cat "$WORK/privs-unknown.out")"
 PVE_TOKEN_ID='restow@pve!pve1'
+printf '%s\n' '{}' >"$STATE/perms-root"
+printf '%s\n' 'restow@pve!pve1' >"$STATE/privsep"
+if run privs-privsep check_token_privileges; then fail "a token with privilege separation and no privileges accepted"; fi
+grep -q 'the API token restow@pve!pve1 has privilege separation on' "$WORK/privs-privsep.out" ||
+  fail "privilege separation not named: $(cat "$WORK/privs-privsep.out")"
+grep -q 'pveum user token modify restow@pve pve1 --privsep 0' "$WORK/privs-privsep.out" || fail "privsep fix not shown"
+rm -f "$STATE/privsep"
+printf '%s\n' "$FULL_ROOT" >"$STATE/perms-root"
 printf '%s\n' '{}' >"$STATE/perms-pool"
 run privs-pool check_token_privileges || fail "a token without restore privileges must still back up"
 grep -q 'lacks VM.Allocate on /pool/restow-restore' "$WORK/privs-pool.out" || fail "missing restore privileges not warned"
-ok "privileges checked before anything is installed; errors name the token"
+ok "privileges checked before anything is installed; errors name the token and privilege separation"
 
 # ---- fleecing storage ------------------------------------------------------------------------
 
