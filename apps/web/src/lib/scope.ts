@@ -1,4 +1,4 @@
-import { TENANT_SETTINGS_NAV_IDS } from "@/lib/tenant-nav";
+import { REPOSITORIES_NAV_ID, TENANT_SETTINGS_NAV_IDS } from "@/lib/tenant-nav";
 
 /**
  * The pages that only exist per tenant. While the session works on "All
@@ -24,6 +24,7 @@ export const TENANT_ONLY_NAV_IDS: readonly string[] = [
   "inventory",
   "file-restore",
   ...TENANT_SETTINGS_NAV_IDS,
+  REPOSITORIES_NAV_ID,
 ];
 
 /** Pages below an entry of their own, or without one, that still belong to one tenant (a readiness report, the warnings). */

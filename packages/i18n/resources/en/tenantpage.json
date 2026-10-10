@@ -8,7 +8,7 @@
     "protection": "Protection",
     "jobs": "Jobs & schedules",
     "retention": "Backup retention",
-    "storage": "Storage",
+    "storage": "Repositories",
     "agents": "Agents",
     "archive": "Archive",
     "notifications": "Notifications",
@@ -211,10 +211,10 @@
       "description": "These values are the same for everyone on this server and are shown here to read.",
       "publicUrl": "Public address",
       "publicUrlNone": "Not set: this installation runs in local mode.",
-      "defaultStorage": "Default storage",
+      "defaultStorage": "Default repository",
       "defaultStorageNone": "Not available.",
       "defaultStorageUsed": "In use here: {scope, select, organisation {your organisation} other {this tenant}} stores on the installation's default ({kind, select, s3 {S3} other {local storage}}).",
-      "defaultStorageUnused": "Not in use here: {scope, select, organisation {your organisation} other {this tenant}} has storage of its own."
+      "defaultStorageUnused": "Not in use here: {scope, select, organisation {your organisation} other {this tenant}} has a repository of its own."
     }
   }
 }

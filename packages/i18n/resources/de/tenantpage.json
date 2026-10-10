@@ -8,7 +8,7 @@
     "protection": "Schutz",
     "jobs": "Jobs & Zeitpläne",
     "retention": "Backup-Aufbewahrung",
-    "storage": "Speicher",
+    "storage": "Repositories",
     "agents": "Agenten",
     "archive": "Archiv",
     "notifications": "Benachrichtigungen",
@@ -211,10 +211,10 @@
       "description": "Diese Werte gelten für alle auf diesem Server gleich und stehen hier zum Nachlesen.",
       "publicUrl": "Öffentliche Adresse",
       "publicUrlNone": "Nicht gesetzt: Diese Installation läuft im lokalen Modus.",
-      "defaultStorage": "Standardspeicher",
+      "defaultStorage": "Standard-Repository",
       "defaultStorageNone": "Nicht verfügbar.",
       "defaultStorageUsed": "Hier in Benutzung: {scope, select, organisation {Ihre Organisation} other {dieser Mandant}} speichert auf dem Standard der Installation ({kind, select, s3 {S3} other {lokaler Speicher}}).",
-      "defaultStorageUnused": "Hier nicht in Benutzung: {scope, select, organisation {Ihre Organisation} other {dieser Mandant}} hat einen eigenen Speicher."
+      "defaultStorageUnused": "Hier nicht in Benutzung: {scope, select, organisation {Ihre Organisation} other {dieser Mandant}} hat ein eigenes Repository."
     }
   }
 }

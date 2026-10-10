@@ -58,7 +58,7 @@ describe("RoleField replace-primary radios", () => {
     );
     expect(html).toContain("Keep existing backups where they are");
     expect(html).toContain(
-      "The new storage location becomes primary right away, nothing is copied. The old location stays in place, read-only: restoring, checking and backing up objects from before the switch keep working by reading it, but every new byte is written to the new storage location only.",
+      "The new repository becomes primary right away, nothing is copied. The old location stays in place, read-only: restoring, checking and backing up objects from before the switch keep working by reading it, but every new byte is written to the new repository only.",
     );
 
     const keepTag = radioTag(html, "migration-mode-keep");

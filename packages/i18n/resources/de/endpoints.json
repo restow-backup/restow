@@ -92,7 +92,7 @@
     "repository_damaged": {
       "label": "Sicherungsdaten beschädigt",
       "hint": "Eine Integritätsprüfung hat Schäden in den gespeicherten Sicherungsdaten gefunden.",
-      "message": "Eine Integritätsprüfung hat Schäden in den gespeicherten Sicherungsdaten dieses Rechners gefunden. Wiederherstellungen können fehlschlagen. Details stehen unter Berichte; prüfen Sie außerdem den Speicherort."
+      "message": "Eine Integritätsprüfung hat Schäden in den gespeicherten Sicherungsdaten dieses Rechners gefunden. Wiederherstellungen können fehlschlagen. Details stehen unter Berichte; prüfen Sie außerdem das Repository."
     },
     "never_seen": {
       "label": "Noch nie verbunden",
@@ -308,9 +308,9 @@
         "elsewhere": "Die öffentliche Adresse legt der Betreiber dieser Installation fest."
       },
       "storage": {
-        "title": "Der Speicherort ist gestört",
-        "description": "Sie können den Rechner anmelden, aber seine Sicherungen lassen sich nicht schreiben, bis der Fehler des Speicherorts behoben ist.",
-        "link": "Speicherorte öffnen"
+        "title": "Das Repository ist gestört",
+        "description": "Sie können den Rechner anmelden, aber seine Sicherungen lassen sich nicht schreiben, bis der Fehler des Repositorys behoben ist.",
+        "link": "Repositories öffnen"
       }
     },
     "status": {
@@ -443,7 +443,7 @@
   },
   "repository": {
     "title": "Sicherungsdaten",
-    "description": "Das restic-Repository, das die Sicherungen dieses Rechners an Ihrem Speicherort enthält.",
+    "description": "Das restic-Repository dieses Rechners. Es liegt in Ihrem Repository und enthält die Sicherungen des Rechners.",
     "size": "Größe im Speicher",
     "snapshots": "Vorhandene Snapshots",
     "measured": "Gemessen",
@@ -867,7 +867,7 @@
     },
     "quota": {
       "title": "Speicherbudget",
-      "description": "Wie viel die Sicherungsdaten dieses Rechners am Speicherort höchstens belegen dürfen. Uploads darüber hinaus werden abgelehnt; Wiederherstellungen funktionieren weiter.",
+      "description": "Wie viel die Sicherungsdaten dieses Rechners im Repository höchstens belegen dürfen. Uploads darüber hinaus werden abgelehnt; Wiederherstellungen funktionieren weiter.",
       "label": "Budget in GiB",
       "hintDefault": "Leer lassen für den Standard der Installation von {size}.",
       "hintUnlimited": "Leer lassen für unbegrenzt (die Installation legt keinen Standard fest).",
@@ -877,7 +877,7 @@
   "repositoryKey": {
     "title": "Wiederherstellung ohne {appName}",
     "description": "Die Sicherung dieses Rechners ist ein gewöhnliches restic-Repository.",
-    "body": "Mit dem Repository-Passwort und Zugriff auf den Speicherort lässt sich die Sicherung allein mit restic wiederherstellen, auch wenn der Server von {appName} nicht mehr existiert. Der Server legt das Passwort außerdem versiegelt neben das restic-Repository, sodass Master-Key und Speicher genügen: Der Befehl restow-restore endpoint-password stellt es wieder her. Bewahren Sie das Passwort trotzdem sicher auf, zum Beispiel in einem Passwortmanager.",
+    "body": "Mit dem Repository-Passwort und Zugriff auf den Ordner oder Bucket Ihres Repositorys lässt sich die Sicherung allein mit restic wiederherstellen, auch wenn der Server von {appName} nicht mehr existiert. Der Server legt das Passwort außerdem versiegelt neben das restic-Repository, sodass Master-Key und Speicher genügen: Der Befehl restow-restore endpoint-password stellt es wieder her. Bewahren Sie das Passwort trotzdem sicher auf, zum Beispiel in einem Passwortmanager.",
     "show": "Repository-Passwort anzeigen",
     "dialog": {
       "title": "Repository-Passwort",
@@ -885,7 +885,7 @@
       "shownDescription": "Kopieren Sie das Passwort jetzt. Es wird wieder ausgeblendet, sobald Sie dieses Fenster schließen.",
       "warningTitle": "Sorgfältig behandeln",
       "audit": "Das Anzeigen des Passworts wird im Audit-Log protokolliert.",
-      "power": "Das Passwort entschlüsselt die gesamte Sicherung dieses Rechners. Wer es besitzt und den Speicherort lesen kann, kann jede gesicherte Datei lesen.",
+      "power": "Das Passwort entschlüsselt die gesamte Sicherung dieses Rechners. Wer es besitzt und das Repository lesen kann, kann jede gesicherte Datei lesen.",
       "stepUp": "Liegt Ihre Anmeldung länger als 10 Minuten zurück, bestätigen Sie zuerst, dass Sie es sind.",
       "cancel": "Abbrechen",
       "confirm": "Passwort anzeigen",
@@ -894,7 +894,7 @@
       "hideNote": "Wird nicht in diesem Browser gespeichert. Das Schließen des Fensters blendet es aus.",
       "example": "Beispielbefehl",
       "copyCommand": "Beispielbefehl kopieren",
-      "exampleNote": "Ersetzen Sie /path/to/storage durch den Ordner Ihres Speicherorts und führen Sie restic mit diesem Passwort aus. Der Befehl stellt den neuesten Snapshot nach /restore wieder her. Bei Objektspeicher verwenden Sie stattdessen die restic-Repository-Adresse Ihres Buckets.",
+      "exampleNote": "Ersetzen Sie /path/to/storage durch den Ordner Ihres Repositorys und führen Sie restic mit diesem Passwort aus. Der Befehl stellt den neuesten Snapshot nach /restore wieder her. Bei Objektspeicher verwenden Sie stattdessen die restic-Repository-Adresse Ihres Buckets.",
       "hide": "Ausblenden und schließen"
     }
   },
@@ -933,7 +933,7 @@
   "errors": {
     "resticBusy": "Der Server liest gerade andere Sicherungen. Versuchen Sie es gleich noch einmal.",
     "repositoryLocked": "Die Sicherungsdaten sind gerade mit einer Sicherung oder Wartung beschäftigt. Versuchen Sie es in Kürze noch einmal.",
-    "repositoryUnavailable": "Die Sicherungsdaten dieses Rechners konnten am Speicherort nicht geöffnet werden. Prüfen Sie, ob der Speicherort erreichbar ist.",
+    "repositoryUnavailable": "Die Sicherungsdaten dieses Rechners konnten im Repository nicht geöffnet werden. Prüfen Sie, ob das Repository erreichbar ist.",
     "resticFailed": "Das Lesen der Sicherungsdaten ist fehlgeschlagen. Die Einzelheiten stehen im Server-Log.",
     "resticUnavailable": "Das Programm restic ist auf dem Server nicht verfügbar, daher lassen sich Snapshots nicht lesen.",
     "unsupportedOs": "Dieses Betriebssystem wird noch nicht unterstützt. Diese Version sichert Linux- und macOS-Rechner.",

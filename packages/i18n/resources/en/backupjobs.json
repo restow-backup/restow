@@ -44,7 +44,7 @@
   "list": {
     "title": "Jobs",
     "description": {
-      "mail": "What is backed up, when and to which storage location, for many mailboxes, OneDrives and IMAP accounts at once. The runs are in History.",
+      "mail": "What is backed up, when and to which repository, for many mailboxes, OneDrives and IMAP accounts at once. The runs are in History.",
       "endpoint": "Which folders of which servers and clients are backed up, when and with what left out. One job covers many machines, and single machines can do things differently. The runs are in History."
     },
     "table": {
@@ -58,7 +58,7 @@
       "name": "Job",
       "scope": "Scope",
       "schedule": "Schedule",
-      "repository": "Storage location",
+      "repository": "Repository",
       "lastRun": "Last run",
       "nextRun": "Next run",
       "restoreCheck": "Restore check"
@@ -92,7 +92,7 @@
     "attention": "Needs attention",
     "empty": "Empty",
     "ok": "Active",
-    "storage_error": "Storage location failing",
+    "storage_error": "Repository failing",
     "overdue": "Overdue",
     "manual": "Manual only"
   },
@@ -322,7 +322,7 @@
     "restoreCheckSchedule": "Restore check",
     "lastRun": "Last run",
     "nextRun": "Next run",
-    "repository": "Storage location",
+    "repository": "Repository",
     "retention": "Retention",
     "restoreChecks": "Restore checks",
     "restoreChecksNone": "Nothing in this job to check yet.",
@@ -338,7 +338,7 @@
     "intro": "Everything this job says. Changing it opens the editor.",
     "general": "General",
     "schedule": "Schedule",
-    "repositoryAndRetention": "Storage location and retention",
+    "repositoryAndRetention": "Repository and retention",
     "folders": "Folders",
     "exclusions": "Exclusions",
     "bandwidth": "Bandwidth",
@@ -351,7 +351,7 @@
       "updated": "Changed",
       "schedule": "Schedule",
       "restoreCheck": "Restore check",
-      "repository": "Storage location",
+      "repository": "Repository",
       "retention": "Retention",
       "fileTypes": "File types left out",
       "ownPatterns": "Own patterns",
@@ -558,7 +558,7 @@
       "switch": "Archive this job's mailboxes",
       "hint": "The archive takes in every journal report and assigns it to the mailboxes that received or sent it. Mail for mailboxes outside an archiving job is archived all the same, only not assigned to a job.",
       "noObjectLock": "This tenant's storage has no Object Lock. The archive is then immutable at application level only: whoever can reach the storage or the server can change or delete data.",
-      "objectLockUnknown": "The archive is kept in the installation's default storage. Whether it has Object Lock is shown under Storage.",
+      "objectLockUnknown": "The archive is kept in the installation's default repository. Whether it has Object Lock is shown under Repositories.",
       "edition": "Capture through Exchange journaling is part of the Business edition. Without it the setting is kept, but nothing is archived."
     },
     "folders": {
@@ -584,13 +584,13 @@
       "description": "Commands the agents run around each backup, for example to dump a database so that its files are consistent."
     },
     "repository": {
-      "title": "Storage location",
+      "title": "Repository",
       "description": "Where the encrypted backups are written.",
-      "primary": "(primary storage location)",
-      "sentence": "Every backup job writes to the primary storage location of the tenant; a backup job cannot choose another one.",
-      "errorTitle": "The storage location is failing",
-      "errorBody": "The last check of the storage location failed. This job's backups cannot be written there until the fault is fixed.",
-      "errorLink": "Open storage locations"
+      "primary": "(primary repository)",
+      "sentence": "Every backup job writes to the primary repository of the tenant; a backup job cannot choose another one.",
+      "errorTitle": "The repository is failing",
+      "errorBody": "The last check of the repository failed. This job's backups cannot be written there until the fault is fixed.",
+      "errorLink": "Open repositories"
     },
     "fix": {
       "title": "Some fields need a correction",
@@ -727,12 +727,12 @@
     "keep": "Daily {keepDaily}, weekly {keepWeekly}, monthly {keepMonthly}"
   },
   "repository": {
-    "installationDefault": "Default storage location of the installation",
-    "error": "Storage location failing"
+    "installationDefault": "Default repository of the installation",
+    "error": "Repository failing"
   },
   "tenant": {
     "title": "Backup jobs",
-    "description": "What is backed up on a schedule for this tenant. The maintenance schedules below keep the storage location healthy.",
+    "description": "What is backed up on a schedule for this tenant. The maintenance schedules below keep the repository healthy.",
     "new": {
       "mail": "Mail & SaaS job",
       "endpoint": "Server or client job"

@@ -177,7 +177,7 @@ describe("RepositoryKeyCard", () => {
     await page.click(page.byText("button", "Show repository password"));
     await page.click(page.byText("button", "Show password"));
     await page.settle();
-    expect(page.text()).toContain("could not be opened in the storage location");
+    expect(page.text()).toContain("could not be opened in the repository");
     expect(page.text()).not.toContain(PASSWORD);
   });
 

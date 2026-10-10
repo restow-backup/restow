@@ -2,8 +2,8 @@
 
 This document is for operators. It explains the opt-in **mounter**: a small container
 that adds NFS shares to a Restow installation from the web interface (Installation >
-Network shares), so that a share can hold a tenant's storage location or the installation
-default storage without editing compose files by hand.
+Network shares), so that a share can hold a tenant's repository or the installation
+default repository without editing compose files by hand.
 
 Only NFS is supported. SMB was removed from the product; the mounter's request format
 carries a `protocol` field so that another protocol can be added later through the
@@ -26,16 +26,16 @@ options and mounts it into the `api` and the `worker` containers at
    --pull never api worker`) and waits until the api reports healthy and the worker
    runs.
 
-After that, add a storage target of the kind "directory" with the path
-`/mnt/restow/<name>` (or a folder below it): the storage form offers the paths of the
-mounted shares under its path field. The installation default storage can point there
-as well (Installation > Default storage).
+After that, add a repository of the kind "directory" with the path
+`/mnt/restow/<name>` (or a folder below it): the repository form offers the paths of the
+mounted shares under its path field. The installation default repository can point there
+as well (Installation > Default repository).
 
 ### From the storage form
 
 The admin does not have to visit Installation > Network shares first. Type the NFS
-address into the path field of a storage location of the kind "directory" (a tenant's
-storage location or Installation > Default storage):
+address into the path field of a repository of the kind "directory" (a tenant's
+repository or Installation > Default repository):
 
 | Typed | Server | Export path |
 | --- | --- | --- |
@@ -51,7 +51,7 @@ from the address (the host's first label and the export's last folder, for examp
 mounted read-write. Mount and use adds the share exactly as the section does (the steps
 above; the api and the worker restart once, the page reconnects by itself), follows the
 operation, and when it succeeded puts `/mnt/restow/<name>` (or the folder below it) into
-the path field. Save the storage location to finish.
+the path field. Save the repository to finish.
 
 Not taken for an NFS address: a path that starts with `/`, Windows paths (`C:\backup`,
 `c:/backup`: a single letter before the colon is a drive letter, never a host), an IPv6

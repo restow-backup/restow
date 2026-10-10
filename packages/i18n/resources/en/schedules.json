@@ -80,7 +80,7 @@
   },
   "empty": {
     "title": "No maintenance schedules yet",
-    "description": "Nothing keeps the storage location healthy on its own: integrity checks, directory sync and retention run only when someone starts them."
+    "description": "Nothing keeps the repository healthy on its own: integrity checks, directory sync and retention run only when someone starts them."
   },
   "notices": {
     "readOnly": "You can see the schedules of this tenant. Only tenant administrators can change them.",

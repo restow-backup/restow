@@ -146,7 +146,7 @@
     "snapshot": "Sicherungsinhalte",
     "source": "Quellen",
     "stats": "Statistik",
-    "storage": "Speicher",
+    "storage": "Repositories",
     "tenant": "Mandanten",
     "verify": "Restore-Prüfungen",
     "webhook": "Webhooks",
@@ -303,9 +303,9 @@
     },
     "settings": {
       "default_storage": {
-        "removed": "Standardspeicher entfernt, die Server-Umgebung gilt wieder",
-        "saved": "Standardspeicher gespeichert",
-        "tested": "Standardspeicher getestet"
+        "removed": "Standard-Repository entfernt, die Server-Umgebung gilt wieder",
+        "saved": "Standard-Repository gespeichert",
+        "tested": "Standard-Repository getestet"
       },
       "disclaimer_accepted": "Hinweis zur Betreiberverantwortung akzeptiert",
       "mail": {
@@ -366,9 +366,9 @@
     },
     "storage": {
       "default": {
-        "removed": "Standardspeicher entfernt, die Server-Umgebung gilt wieder",
-        "saved": "Standardspeicher gespeichert",
-        "tested": "Standardspeicher getestet"
+        "removed": "Standard-Repository entfernt, die Server-Umgebung gilt wieder",
+        "saved": "Standard-Repository gespeichert",
+        "tested": "Standard-Repository getestet"
       },
       "migration": {
         "started": "Speichermigration gestartet",
@@ -377,12 +377,12 @@
         "cancelled": "Speichermigration abgebrochen"
       },
       "target": {
-        "created": "Speicherort hinzugefügt",
-        "deleted": "Speicherort entfernt",
-        "probed": "Speicherort abgefragt",
-        "promoted": "Speicherort zum primären gemacht",
-        "tested": "Speicherort getestet",
-        "updated": "Speicherort geändert"
+        "created": "Repository hinzugefügt",
+        "deleted": "Repository entfernt",
+        "probed": "Repository abgefragt",
+        "promoted": "Repository zum primären gemacht",
+        "tested": "Repository getestet",
+        "updated": "Repository geändert"
       }
     },
     "tenant": {
@@ -581,8 +581,8 @@
     "snapshot": "Snapshot",
     "source": "Quelle",
     "stats": "Statistik",
-    "storage_location": "Speicherort",
-    "storage_target": "Speicherort",
+    "storage_location": "Repository",
+    "storage_target": "Repository",
     "tenant": "Mandant",
     "user": "Benutzer",
     "verify_report": "Prüfbericht",

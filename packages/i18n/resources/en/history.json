@@ -124,7 +124,7 @@
       "hint": "{unit} · read and checked at the source"
     },
     "transferred": {
-      "title": "Transfer to the storage location",
+      "title": "Transfer to the repository",
       "hint": "{unit} · after deduplication and compression · average over {seconds} s"
     },
     "now": "now",
@@ -136,7 +136,7 @@
       "recent": "the last 5 minutes",
       "whole": "the whole run",
       "processed": "Processing: now {current}, average {average}, peak {peak}.",
-      "transferred": "Transfer to the storage location (average over {seconds} s): now {current}, average {average}, peak {peak}.",
+      "transferred": "Transfer to the repository (average over {seconds} s): now {current}, average {average}, peak {peak}.",
       "keys": "Use the left and right arrow keys to move through the measurements, Home and End to jump to the ends."
     }
   },

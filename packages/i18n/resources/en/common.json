@@ -230,7 +230,7 @@
   },
   "soon": {
     "resources": {
-      "description": "Shows utilisation and growth per tenant and per storage location, with a plain forecast such as “full in about N days”."
+      "description": "Shows utilisation and growth per tenant and per repository, with a plain forecast such as “full in about N days”."
     }
   },
   "chooseTenant": {

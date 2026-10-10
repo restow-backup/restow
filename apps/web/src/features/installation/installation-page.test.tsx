@@ -123,7 +123,7 @@ describe("who opens the installation page", () => {
       "Server",
       "Notification mail",
       "Microsoft multi-tenant app",
-      "Default storage",
+      "Default repository",
       "Network shares",
       "Updates",
       "Edition",
@@ -324,7 +324,7 @@ describe("Microsoft multi-tenant app", () => {
   });
 });
 
-describe("Default storage", () => {
+describe("Default repository", () => {
   it("states where the default is and who uses it, and says it comes from the environment", async () => {
     vi.stubGlobal("fetch", routes().mock);
     await open("/installation/default-storage", {
@@ -344,7 +344,7 @@ describe("Default storage", () => {
     await open("/installation/default-storage", {
       session: providerSession("owner", { features: [] }),
     });
-    expect(text()).toContain("Your organisation. It has no storage location of its own.");
+    expect(text()).toContain("Your organisation. It has no repository of its own.");
     expect(text(slot("page-header"))).not.toMatch(/tenant/i);
     expect(text(slot("installation-section"))).not.toMatch(/tenant/i);
   });
@@ -389,7 +389,7 @@ describe("Default storage", () => {
     });
     vi.stubGlobal("fetch", mock);
     await open("/installation/default-storage");
-    await click(buttonByText(document.body, "Test default storage"));
+    await click(buttonByText(document.body, "Test default repository"));
     await flush(6);
     expect(requests.filter((request) => request.method === "POST")).toEqual([
       { method: "POST", path: "/settings/default-storage/test", body: undefined },
@@ -506,12 +506,12 @@ describe("Default storage", () => {
     ).not.toBeNull();
   });
 
-  it("says what is wrong, and offers no test, when the environment describes no usable storage", async () => {
+  it("says what is wrong, and offers no test, when the environment describes no usable repository", async () => {
     const broken = { ...DEFAULT_STORAGE, configured: false, kind: null, location: null };
     vi.stubGlobal("fetch", routes({ "GET /settings/default-storage": () => json(broken) }).mock);
     await open("/installation/default-storage");
     expect(text()).toContain("The storage settings are invalid");
-    expect(buttonByText(document.body, "Test default storage")).toBeNull();
+    expect(buttonByText(document.body, "Test default repository")).toBeNull();
   });
 });
 
@@ -567,7 +567,7 @@ describe("a provider role that may look but not change", () => {
     await open("/installation/default-storage", { session: providerSession("technician") });
     expect(slot("access-note")?.textContent).toContain("needs the Administrator role");
     expect(
-      buttonByText(document.body, "Test default storage")?.closest("fieldset[disabled]"),
+      buttonByText(document.body, "Test default repository")?.closest("fieldset[disabled]"),
     ).not.toBeNull();
     await mounted?.unmount();
     mounted = null;
@@ -577,7 +577,7 @@ describe("a provider role that may look but not change", () => {
       [...document.body.querySelectorAll('[data-slot="access-note"]')].map((note) => text(note)),
     ).toEqual([expect.stringContaining("needs the Owner role")]);
     expect(
-      buttonByText(document.body, "Test default storage")?.closest("fieldset[disabled]"),
+      buttonByText(document.body, "Test default repository")?.closest("fieldset[disabled]"),
     ).toBeNull();
   });
 
@@ -605,7 +605,7 @@ describe("sections an extension adds", () => {
     vi.stubGlobal("fetch", routes().mock);
     await open("/installation/example?requires=business");
     expect(subnavEntries().indexOf("Provider API")).toBe(
-      subnavEntries().indexOf("Default storage") - 1,
+      subnavEntries().indexOf("Default repository") - 1,
     );
     expect(slot("example-section")?.textContent).toBe("example:business");
   });

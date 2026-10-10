@@ -76,11 +76,12 @@ Known Issues.
   anything leaves the server. Deduplication stays within a tenant. One master key
   (`RESTOW_MASTER_KEY`) wraps every tenant key: whoever holds it and can read the
   storage can decrypt it, so keep it offline and apart from the storage.
-- **Storage you choose:** local disk, S3-compatible object storage or NFS,
-  with a copy target next to the primary, promotion of a copy and replacement of
-  the primary without losing access to existing backups. The installation's
-  default storage is set in the web interface (or the environment); tenants on it
-  stay separated by their own prefix and key. NFS shares are mounted from the web
+- **Storage you choose:** repositories on local disk, S3-compatible object
+  storage or NFS, with a copy repository next to the primary, promotion of a copy
+  and replacement of the primary without losing access to existing backups (menu:
+  Repositories). The installation's default repository is set in the web
+  interface (or the environment); tenants on it stay separated by their own
+  prefix and key. NFS shares are mounted from the web
   interface through the opt-in mounter container (Installation › Network shares,
   [docs/MOUNTS.md](docs/MOUNTS.md)).
 - **Multi-tenant** for IT service providers (Service Provider edition), with a

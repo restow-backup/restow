@@ -23,7 +23,7 @@ literally (use `{appName}`).
 | Mailbox, OneDrive, IMAP account or machine that a job covers | protected object | geschütztes Objekt | Element, Quelle (for the object) |
 | A run that went through but could not back up some items | warning (with warnings) | Warnung (mit Warnungen) | Teilfehler, teilweise erfolgreich |
 | Accepting a warning after looking at its causes, so it no longer counts | acknowledge (acknowledgement) | bestätigen (Bestätigung) | quittieren, ignorieren, ausblenden |
-| Where backups are stored | storage location | Speicherort | Repository (in the UI), Ziel (alone) |
+| Where backups are stored (a tenant's primary, copy or retired target, or the installation default) | repository (plural: repositories) | Repository (Plural: Repositories) | storage location, Speicherort, storage target (in the UI), Ziel (alone) |
 | A customer organisation in the installation | tenant | Mandant | Kunde, Tenant, Organisation (for a tenant) |
 | A person who administers the installation | member (owner, admin, …) | Mitglied (Inhaber, Administrator, …) | Owner, Teammitglied |
 | A person of a tenant | tenant user | Benutzer des Mandanten | Kunde |
@@ -31,6 +31,15 @@ literally (use `{appName}`).
 | A network share mounted by the mounter | network share | Netzlaufwerk | Mount, Freigabe (in the UI) |
 | A VM or container of Proxmox VE | guest (VM, container) | Gast (VM, Container) | Instanz, Maschine, CT |
 | A Proxmox VE server with the node helper | node | Knoten | Host, Hypervisor (for a node) |
+
+Repository: maintainer decision 2026-10-10, replacing "storage location" /
+"Speicherort". German uses the neuter ("das Repository", "des Repositorys") and the
+plural "Repositories", as most German IT interfaces do, not the Duden plural
+"Repositorys". The code, the API (`/api/v1/storage`) and the technical docs keep the
+name storage target. A Restow repository is the storage target as a whole; the restic
+repositories of servers, clients and containers are folders inside it
+(`endpoints/<id>/`, `pve-guests/<id>/`) and are called
+"restic repository" (restic-Repository) where the UI has to name them.
 
 Times are relative where they describe the past ("vor 3 Stunden") and
 absolute with the time zone where they plan the future ("morgen, 22:00").

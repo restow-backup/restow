@@ -667,7 +667,7 @@ describe("key figures", () => {
     const html = render(<StorageWidget view={ready(data.storage)} {...state} canAdminister />);
     expectTranslated(html);
     expect(html).toContain("75% saved by deduplication");
-    expect(html).toContain("Storage location failing");
+    expect(html).toContain("Repository failing");
     expectLoading(render(<StorageWidget view={loading} {...state} canAdminister />));
     expectFailed(render(<StorageWidget view={failed} {...state} canAdminister />));
     const empty = render(

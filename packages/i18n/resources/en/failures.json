@@ -204,8 +204,8 @@
         "why": "The operating system denied access{has_path, select, yes { to {path}} other {}}. The folder is read-only or belongs to a user the {appName} worker does not run as."
       },
       "full": {
-        "title": "The storage location is full",
-        "why": "There is no space left in the storage location, or its quota is used up. {appName} cannot write new backup data until space is available."
+        "title": "The repository is full",
+        "why": "There is no space left in the repository, or its quota is used up. {appName} cannot write new backup data until space is available."
       },
       "access_denied": {
         "title": "The storage service denied access",
@@ -213,22 +213,22 @@
       },
       "credentials_invalid": {
         "title": "The storage service does not accept the credentials",
-        "why": "The access key or the secret of the storage location is wrong, expired or was revoked."
+        "why": "The access key or the secret of the repository is wrong, expired or was revoked."
       },
       "bucket_missing": {
         "title": "The bucket does not exist",
-        "why": "The storage service reports that the bucket configured for this storage location does not exist, or the account cannot see it."
+        "why": "The storage service reports that the bucket configured for this repository does not exist, or the account cannot see it."
       },
       "wrong_region": {
         "title": "The bucket is at a different endpoint or region",
-        "why": "The storage service redirected the request or rejected the signature for this region. The endpoint URL or the region of the storage location does not match where the bucket lives."
+        "why": "The storage service redirected the request or rejected the signature for this region. The endpoint URL or the region of the repository does not match where the bucket lives."
       },
       "unreachable": {
-        "title": "The storage location cannot be reached",
+        "title": "The repository cannot be reached",
         "why": "The connection to the storage endpoint{has_host, select, yes { {host}} other {}} failed. Firewalls, DNS problems or an outage at the storage provider cause this."
       },
       "timeout": {
-        "title": "The storage location did not answer in time",
+        "title": "The repository did not answer in time",
         "why": "The storage endpoint did not respond within the time limit. The network may be slow or the service overloaded."
       },
       "tls": {
@@ -241,10 +241,10 @@
       },
       "integrity": {
         "title": "Data on the storage does not match what {appName} wrote",
-        "why": "{reason, select, source_missing {An object that the index knows is missing in the primary storage location.} source_corrupt {An object in the primary storage location has a different size or checksum than recorded.} verify_failed {A copy storage location returned different bytes than were written.} other {A read-back of stored data did not match.}} {appName} did not spread the damage to other storage locations."
+        "why": "{reason, select, source_missing {An object that the index knows is missing in the primary repository.} source_corrupt {An object in the primary repository has a different size or checksum than recorded.} verify_failed {A copy repository returned different bytes than were written.} other {A read-back of stored data did not match.}} {appName} did not spread the damage to other repositories."
       },
       "error": {
-        "title": "The storage location returned an unexpected error",
+        "title": "The repository returned an unexpected error",
         "why": "Writing or reading backup data failed and {appName} could not tell exactly why. The technical details contain the answer of the storage."
       }
     },
@@ -265,7 +265,7 @@
       },
       "chunk_missing": {
         "title": "Parts of the backup are missing",
-        "why": "{has_count, select, yes {{count, plural, one {# checked item refers} other {# checked items refer}}} other {Checked items refer}} to backup data that is no longer there: the storage index does not list it, or no storage location has the data file that holds it any more. These items cannot be restored completely."
+        "why": "{has_count, select, yes {{count, plural, one {# checked item refers} other {# checked items refer}}} other {Checked items refer}} to backup data that is no longer there: the storage index does not list it, or no repository has the data file that holds it any more. These items cannot be restored completely."
       },
       "pack_unreadable": {
         "title": "Backup data in the storage is damaged",
@@ -421,7 +421,7 @@
       },
       "repository_missing": {
         "title": "The backup data was not found",
-        "why": "The backup program could not find this machine's backup data in the storage location. Files in the storage may have been moved or deleted outside of the backup software, or the storage location was changed."
+        "why": "The backup program could not find this machine's backup data in the repository. Files in the storage may have been moved or deleted outside of the backup software, or the repository was changed."
       },
       "repository_password": {
         "title": "The repository password is rejected",
@@ -492,12 +492,12 @@
     "enable_source": "Switch the source on again in its settings.",
     "reconnect_source": "Finish connecting the source: for Microsoft 365 grant admin consent, for IMAP test the connection.",
     "check_storage_path": "Check that the folder exists, is mounted into the container and that the {appName} worker may write to it.",
-    "free_storage_space": "Free up space in the storage location, or add another storage location under Storage locations.",
-    "check_storage_credentials": "Check the access key and the secret of the storage location.",
+    "free_storage_space": "Free up space in the repository, or add another repository under Repositories.",
+    "check_storage_credentials": "Check the access key and the secret of the repository.",
     "check_storage_permissions": "Check that the credentials may read, write, list and delete in the bucket.",
     "check_bucket": "Check the name of the bucket.",
-    "check_storage_endpoint": "Check the endpoint URL and the region of the storage location.",
-    "check_storage_health": "Run a connection test on the storage location and, if data is damaged, a storage check.",
+    "check_storage_endpoint": "Check the endpoint URL and the region of the repository.",
+    "check_storage_health": "Run a connection test on the repository and, if data is damaged, a storage check.",
     "check_master_key": "Make sure RESTOW_MASTER_KEY is set for the API and the worker and has exactly the value that encrypted the tenant keys. Never change it without wrapping the keys again.",
     "restore_key_backup": "Restore the master key from your key backup.",
     "run_backup_again": "Run a new backup. If the problem returns, run a health check.",
@@ -506,7 +506,7 @@
     "check_test_target": "Check the test restore target of the source and that the {appName} app may write there.",
     "wait_for_exports_to_expire": "Finished exports are deleted automatically after their download time. Wait for that, then request the export again.",
     "export_less_mail": "Export a smaller selection, for example one folder or one period, or split the export into several parts.",
-    "raise_export_limit": "If the storage location has room, an administrator of the installation can raise the limit with the setting EXPORT_MAX_TENANT_BYTES.",
+    "raise_export_limit": "If the repository has room, an administrator of the installation can raise the limit with the setting EXPORT_MAX_TENANT_BYTES.",
     "check_database": "Check that Postgres is running and reachable, has free disk space and has connections left.",
     "worker_resources": "If runs are interrupted often, check memory and restarts of the worker container.",
     "read_technical_details": "The technical details below show the exact answer.",
@@ -523,7 +523,7 @@
     "source": "Open the source",
     "sources": "Open Sources",
     "directory": "Open Protected objects",
-    "storage": "Open Storage locations",
+    "storage": "Open repositories",
     "verify": "Open Recovery readiness",
     "jobs": "Open Backup"
   }

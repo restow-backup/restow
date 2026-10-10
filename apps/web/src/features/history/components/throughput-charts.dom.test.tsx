@@ -87,7 +87,7 @@ describe("the throughput charts", () => {
     expect(summary).toContain("Throughput of the last 5 minutes.");
     expect(summary).toMatch(/Processing: now [\d.,]+ \w+\/s, average [\d.,]+ \w+\/s, peak/);
     // The transfer is an average and says over how long; the processing is as measured.
-    expect(summary).toMatch(/Transfer to the storage location \(average over 15 s\): now/);
+    expect(summary).toMatch(/Transfer to the repository \(average over 15 s\): now/);
     expect(summary).not.toMatch(/Processing \(average/);
     expect(summary).toContain("arrow keys");
     // A finished run's summary speaks of the whole run.
@@ -128,7 +128,7 @@ describe("the throughput charts", () => {
     expect(labels).not.toContain("3 MB/s");
     await press("End");
     expect(tooltip()?.textContent).toContain("1 MB/s");
-    expect(status()).toContain("Transfer to the storage location (average over 15 s): 1 MB/s");
+    expect(status()).toContain("Transfer to the repository (average over 15 s): 1 MB/s");
     expect(status()).toMatch(/Processing: [\d.,]+ \w+\/s/);
     expect(status()).not.toContain("Processing (average");
   });
@@ -173,7 +173,7 @@ describe("the throughput charts", () => {
     await press("End");
     expect(tooltip()?.textContent).toContain("now");
     expect(tooltip()?.textContent).toMatch(/Processing/);
-    expect(tooltip()?.textContent).toMatch(/Transfer to the storage location/);
+    expect(tooltip()?.textContent).toMatch(/Transfer to the repository/);
     expect(tooltip()?.textContent).toMatch(/[\d.,]+ [kKM]B\/s/);
     expect(status()).toContain("now");
     expect(status()).toMatch(/Processing: [\d.,]+ [kKM]B\/s/);

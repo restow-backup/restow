@@ -44,7 +44,7 @@
   "list": {
     "title": "Jobs",
     "description": {
-      "mail": "Was wann an welchen Speicherort gesichert wird, für viele Postfächer, OneDrives und IMAP-Konten auf einmal. Die Läufe stehen im Verlauf.",
+      "mail": "Was wann in welches Repository gesichert wird, für viele Postfächer, OneDrives und IMAP-Konten auf einmal. Die Läufe stehen im Verlauf.",
       "endpoint": "Welche Ordner welcher Server und Clients wann gesichert werden und was dabei ausgelassen wird. Ein Job gilt für viele Rechner, einzelne Rechner können abweichen. Die Läufe stehen im Verlauf."
     },
     "table": {
@@ -58,7 +58,7 @@
       "name": "Job",
       "scope": "Umfang",
       "schedule": "Zeitplan",
-      "repository": "Speicherort",
+      "repository": "Repository",
       "lastRun": "Letzter Lauf",
       "nextRun": "Nächster Lauf",
       "restoreCheck": "Restore-Prüfung"
@@ -92,7 +92,7 @@
     "attention": "Braucht Aufmerksamkeit",
     "empty": "Leer",
     "ok": "Aktiv",
-    "storage_error": "Speicherort gestört",
+    "storage_error": "Repository gestört",
     "overdue": "Überfällig",
     "manual": "Nur von Hand"
   },
@@ -322,7 +322,7 @@
     "restoreCheckSchedule": "Restore-Prüfung",
     "lastRun": "Letzter Lauf",
     "nextRun": "Nächster Lauf",
-    "repository": "Speicherort",
+    "repository": "Repository",
     "retention": "Aufbewahrung",
     "restoreChecks": "Restore-Prüfungen",
     "restoreChecksNone": "In diesem Job gibt es noch nichts zu prüfen.",
@@ -338,7 +338,7 @@
     "intro": "Alles, was dieser Job festlegt. Zum Ändern öffnet sich der Editor.",
     "general": "Allgemein",
     "schedule": "Zeitplan",
-    "repositoryAndRetention": "Speicherort und Aufbewahrung",
+    "repositoryAndRetention": "Repository und Aufbewahrung",
     "folders": "Ordner",
     "exclusions": "Ausschlüsse",
     "bandwidth": "Bandbreite",
@@ -351,7 +351,7 @@
       "updated": "Geändert",
       "schedule": "Zeitplan",
       "restoreCheck": "Restore-Prüfung",
-      "repository": "Speicherort",
+      "repository": "Repository",
       "retention": "Aufbewahrung",
       "fileTypes": "Ausgelassene Dateitypen",
       "ownPatterns": "Eigene Muster",
@@ -558,7 +558,7 @@
       "switch": "Postfächer dieses Jobs archivieren",
       "hint": "Das Archiv nimmt jede Journal-Mail auf und ordnet sie den Postfächern zu, die sie empfangen oder gesendet haben. Mails an Postfächer außerhalb eines Archiv-Jobs werden trotzdem archiviert, nur keinem Job zugeordnet.",
       "noObjectLock": "Der Speicher dieses Mandanten hat kein Object Lock. Das Archiv ist dann nur auf Anwendungsebene unveränderbar: Wer Zugriff auf den Speicher oder den Server hat, kann Daten ändern oder löschen.",
-      "objectLockUnknown": "Das Archiv liegt im Standardspeicher der Installation. Ob dieser Object Lock hat, sehen Sie unter Speicher.",
+      "objectLockUnknown": "Das Archiv liegt im Standard-Repository der Installation. Ob dieses Object Lock hat, sehen Sie unter Repositories.",
       "edition": "Die Erfassung über Exchange-Journaling gehört zur Business-Edition. Ohne sie bleibt die Einstellung gespeichert, es wird aber nichts archiviert."
     },
     "folders": {
@@ -584,13 +584,13 @@
       "description": "Befehle, die die Agents um jede Sicherung herum ausführen, zum Beispiel um eine Datenbank zu sichern, damit ihre Dateien konsistent sind."
     },
     "repository": {
-      "title": "Speicherort",
+      "title": "Repository",
       "description": "Wohin die verschlüsselten Sicherungen geschrieben werden.",
-      "primary": "(primärer Speicherort)",
-      "sentence": "Jeder Backup-Job schreibt an den primären Speicherort des Mandanten; ein Backup-Job kann keinen anderen wählen.",
-      "errorTitle": "Der Speicherort ist gestört",
-      "errorBody": "Die letzte Prüfung des Speicherorts ist fehlgeschlagen. Sicherungen dieses Jobs können dort nicht geschrieben werden, bis der Fehler behoben ist.",
-      "errorLink": "Speicherorte öffnen"
+      "primary": "(primäres Repository)",
+      "sentence": "Jeder Backup-Job schreibt in das primäre Repository des Mandanten; ein Backup-Job kann kein anderes wählen.",
+      "errorTitle": "Das Repository ist gestört",
+      "errorBody": "Die letzte Prüfung des Repositorys ist fehlgeschlagen. Sicherungen dieses Jobs können dort nicht geschrieben werden, bis der Fehler behoben ist.",
+      "errorLink": "Repositories öffnen"
     },
     "fix": {
       "title": "Einige Felder müssen korrigiert werden",
@@ -727,12 +727,12 @@
     "keep": "Täglich {keepDaily}, wöchentlich {keepWeekly}, monatlich {keepMonthly}"
   },
   "repository": {
-    "installationDefault": "Standard-Speicherort der Installation",
-    "error": "Speicherort gestört"
+    "installationDefault": "Standard-Repository der Installation",
+    "error": "Repository gestört"
   },
   "tenant": {
     "title": "Backup-Jobs",
-    "description": "Was für diesen Mandanten nach Zeitplan gesichert wird. Die Wartungszeitpläne darunter halten den Speicherort gesund.",
+    "description": "Was für diesen Mandanten nach Zeitplan gesichert wird. Die Wartungszeitpläne darunter halten das Repository gesund.",
     "new": {
       "mail": "Mail-&-SaaS-Job",
       "endpoint": "Job für Server oder Clients"
