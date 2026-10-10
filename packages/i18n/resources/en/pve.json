@@ -176,5 +176,33 @@
       "noBackup": "Nothing to check until the first backup has finished.",
       "noBackupOverdue": "No backup within 24 hours after the guest was put into a backup job."
     }
+  },
+  "inventory": {
+    "title": "Proxmox VE",
+    "open": "Open VMs & containers",
+    "unknownNode": "Node not known",
+    "guestCount": "VMs and containers: {count}",
+    "noGuests": "No VMs or containers reported on this node.",
+    "running": "Status",
+    "protection": "Backup",
+    "count": {
+      "protected": "Protected: {count}",
+      "failed": "Failed: {count}",
+      "noJob": "No job: {count}",
+      "never": "Not backed up yet: {count}"
+    },
+    "state": {
+      "protected": "Protected",
+      "failed": "Last run failed",
+      "noJob": "No backup job",
+      "never": "Not backed up yet",
+      "excluded": "Not backed up (template or gone)"
+    },
+    "status": {
+      "running": "Running",
+      "stopped": "Stopped",
+      "paused": "Paused",
+      "suspended": "Suspended"
+    }
   }
 }
