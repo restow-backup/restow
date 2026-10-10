@@ -625,6 +625,100 @@ describe("VMs and containers on the status tab", () => {
   });
 });
 
+describe("file shares on the status tab", () => {
+  it("lists them as a type of their own, judged by the share jobs' schedules", () => {
+    const html = render(
+      <LastBackupWidget
+        view={ready({
+          lastSuccess: { mail: null, onedrive: null, imap: null, archive: null },
+          protectedKinds: { mailbox: 0, onedrive: 0, imap: 0 },
+          machines: { protected: 0, withoutJob: 0, lastSuccessAt: null },
+          fileShares: {
+            protected: 1,
+            withoutJob: 1,
+            lastSuccessAt: new Date(Date.now() - 3 * 86_400_000).toISOString(),
+          },
+          staleAfterHours: { mail: 48, machines: 48, fileShares: 48 },
+        })}
+        {...state}
+        canAdminister
+      />,
+    );
+    expectTranslated(html);
+    expect(html).not.toContain('data-state="empty"');
+    expect(html).toContain('data-type="fileShares"');
+    expect(html).toContain("File shares");
+    expect(html).toContain("Older than 2 days");
+  });
+
+  it("is not 'nothing protected' while only shares exist, and counts failures, jobs and warnings", () => {
+    const html = render(
+      <ProtectedObjectsWidget
+        view={ready({
+          ...data.protectedObjects,
+          active: 0,
+          failed: 0,
+          withItemFailures: 0,
+          acknowledgedWarnings: 0,
+          machines: { protected: 0, withoutJob: 0, failedLastBackup: 0 },
+          fileShares: {
+            protected: 4,
+            withoutJob: 1,
+            failedLastBackup: 1,
+            warnings: 2,
+            restorePoints: 9,
+          },
+          noBackup: 0,
+        })}
+        {...state}
+        canAdminister
+      />,
+    );
+    expectTranslated(html);
+    expect(html).not.toContain('data-state="empty"');
+    expect(html).toContain("including 4 file shares");
+    expect(html).toContain("1 failed");
+    expect(html).toContain("1 file share in no backup job");
+    expect(html).toContain("2 file shares with warnings");
+    // A warning always leads to its reasons.
+    expect(html).toContain('href="/warnings"');
+    expect(html).not.toContain("No failures in the latest runs");
+    const unjobbed = render(
+      <ProtectedObjectsWidget
+        view={ready({
+          ...data.protectedObjects,
+          active: 0,
+          machines: { protected: 0, withoutJob: 0, failedLastBackup: 0 },
+          fileShares: {
+            protected: 0,
+            withoutJob: 1,
+            failedLastBackup: 0,
+            warnings: 0,
+            restorePoints: 0,
+          },
+        })}
+        {...state}
+        canAdminister
+      />,
+    );
+    expect(unjobbed).not.toContain('data-state="empty"');
+  });
+
+  it("flags shares that left every backup job on the readiness card", () => {
+    const html = render(
+      <ReadinessWidget
+        view={ready({ ...data.readiness, sharesWithoutJob: 2, overall: "yellow" as const })}
+        {...state}
+        canAdminister
+      />,
+    );
+    expectTranslated(html);
+    expect(html).toContain('data-flag="shares-without-job"');
+    expect(html).toContain("2 file shares in no backup job");
+    expect(html).toContain('href="/file-shares"');
+  });
+});
+
 describe("key figures", () => {
   it("shows protected objects with failures apart from runs that left items", () => {
     const html = render(

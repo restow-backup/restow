@@ -29,6 +29,7 @@ function state(overrides: Partial<StateView> = {}): StateView {
       checkedAt: "2026-10-01T09:00:00.000Z",
     },
     selfUpdate: null,
+    mounterEnable: null,
     serverTime: "2026-10-01T09:00:00.000Z",
     ...overrides,
   };
@@ -162,6 +163,29 @@ describe("the updater client", () => {
     expect(url).toBe("http://updater:8090/v1/schedule");
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body as string)).toEqual(request);
+  });
+
+  it("asks the updater to start the mounter and reads the outcome", async () => {
+    const outcome = {
+      last: {
+        status: "started" as const,
+        reason: null,
+        image: null,
+        requestedAt: "2026-10-01T09:00:00.000Z",
+        finishedAt: "2026-10-01T09:00:05.000Z",
+        detail: "",
+      },
+    };
+    const fetcher = vi.fn(async () => reply(state({ mounterEnable: outcome })));
+    const result = await client(fetcher as unknown as typeof fetch).enableMounter();
+    expect(result.mounterEnable).toEqual(outcome);
+    const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://updater:8090/v1/mounter/enable");
+    expect(init.method).toBe("POST");
+    expect((init.headers as Record<string, string>).authorization).toBe("Bearer the-shared-secret");
+    await expect(
+      updaterClientFromEnv({ RESTOW_UPDATER_URL: "" }).enableMounter(),
+    ).rejects.toBeInstanceOf(UpdaterUnavailableError);
   });
 
   it("is switched off by an empty URL and in the demo", async () => {

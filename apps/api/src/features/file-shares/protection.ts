@@ -1,4 +1,5 @@
 import {
+  DEFAULT_STALE_BACKUP_HOURS,
   type ShareProtectionJob,
   type ShareProtectionMember,
   type ShareReadinessReport,
@@ -11,6 +12,7 @@ import {
   shareWarningCauses,
 } from "@restow/core";
 import {
+  type Database,
   type FileShare,
   type FileShareRun,
   backupJobMembers,
@@ -22,7 +24,8 @@ import {
   warningAcknowledgements,
 } from "@restow/db";
 import { and, count, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
-import type { Transaction } from "../../lib/tenant-context.js";
+import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
+import { type ObjectState, type RatedObject, isFirstBackupOverdue } from "../verify/summary.js";
 
 /**
  * File shares in the overviews (docs/FILESHARES.md section 13): the SQL side of the one rule of
@@ -77,6 +80,8 @@ export interface ShareFact {
   staleAfterHours: number;
   restorePoints: number;
   standing: ShareStanding;
+  /** When protection began (the later of the share and its job), for the first backup's grace. */
+  protectionStartedAt: Date;
 }
 
 export interface ShareCounts {
@@ -279,6 +284,8 @@ export async function loadShareFacts(
       readiness.state !== "no_backup" && shareVerifyOverdue(readiness.checkedAt, now);
     const staleAfterHours = shareStaleBackupHours(share, protectionJobs, protectionMembers, now);
     const since = shareProtectedSince(share, job);
+    const protectionStartedAt =
+      job && job.createdAt > share.createdAt ? job.createdAt : share.createdAt;
     const overdue =
       isProtected && now.getTime() - since.getTime() > staleAfterHours * 60 * 60 * 1000;
     const failed = isProtected && lastRun?.status === "failed";
@@ -323,6 +330,7 @@ export async function loadShareFacts(
       staleAfterHours,
       restorePoints: pointsOf.get(share.id) ?? 0,
       standing,
+      protectionStartedAt,
     };
   });
 }
@@ -353,3 +361,155 @@ export const PROTECTED_SHARE_SQL = sql`
     SELECT 1 FROM ${backupJobMembers} m JOIN ${backupJobs} j ON j.id = m.job_id
      WHERE m.file_share_id = ${fileShares.id} AND j.kind = 'share' AND j.enabled
   )`;
+
+// ---------------------------------------------------------------------------
+// Overviews (docs/FILESHARES.md 13): counts, readiness rows and rated objects
+// ---------------------------------------------------------------------------
+
+/** One share in Recovery readiness, as the guests and machines have their rows. */
+export interface ShareReadinessRowDto {
+  id: string;
+  name: string;
+  protocol: "smb" | "nfs";
+  server: string;
+  state: ObjectState;
+  /** The rating of the newest restore point; null while it is unverified or without one. */
+  readiness: "green" | "yellow" | "red" | null;
+  checkedAt: string | null;
+  overdue: boolean;
+  latestBackupAt: string | null;
+  latestSnapshotId: string | null;
+  /** The share is in an enabled share job; false: nothing backs it up any more. */
+  inJob: boolean;
+}
+
+/** The tenant's file shares in figures (zeros for a tenant without shares). */
+export interface ShareCountsDto {
+  /** Shares that are not retired, in a job or not. */
+  total: number;
+  /** Shares in an enabled share job. */
+  protected: number;
+  /** Shares in no enabled job: nothing backs them up. */
+  withoutJob: number;
+  /** Protected shares whose newest finished backup run failed. */
+  failedLastBackup: number;
+  /** Shares whose newest backup ended with warnings nobody acknowledged. */
+  warnings: number;
+  /** Newest successful backup of a share that is not retired; null when none exists. */
+  lastSuccessAt: string | null;
+  /** Restore points kept for the tenant's shares. */
+  restorePoints: number;
+}
+
+export const NO_SHARE_COUNTS: ShareCountsDto = {
+  total: 0,
+  protected: 0,
+  withoutJob: 0,
+  failedLastBackup: 0,
+  warnings: 0,
+  lastSuccessAt: null,
+  restorePoints: 0,
+};
+
+export interface ShareProtection {
+  rows: ShareReadinessRowDto[];
+  /** The rated shares, as the readiness summary counts them. */
+  rated: RatedObject[];
+  counts: ShareCountsDto;
+  /** Hours without a successful backup after which a share reads as overdue (by the share jobs). */
+  staleAfterHours: number;
+  facts: ShareFact[];
+}
+
+/**
+ * Everything the overviews need about the tenant's shares, in its pinned transaction. A share is
+ * rated while it is protected, or out of every job but still holding a restore point (like a
+ * guest); a retired share is not rated. A share that waits for its first backup is overdue once
+ * the first backup's grace period has passed without a run of it in progress.
+ */
+export async function loadShareProtection(
+  tx: Transaction,
+  tenantId: string,
+  now: Date,
+): Promise<ShareProtection> {
+  const facts = await loadShareFacts(tx, tenantId, now);
+  const counts = { ...NO_SHARE_COUNTS };
+  const rows: ShareReadinessRowDto[] = [];
+  const rated: RatedObject[] = [];
+  let lastSuccess: Date | null = null;
+  let staleAfterHours: number | null = null;
+  for (const fact of facts) {
+    const { share } = fact;
+    if (share.retiredAt !== null) {
+      continue;
+    }
+    counts.total += 1;
+    counts.restorePoints += fact.restorePoints;
+    if (fact.protected) {
+      counts.protected += 1;
+      if (fact.failed) {
+        counts.failedLastBackup += 1;
+      }
+      staleAfterHours = Math.max(staleAfterHours ?? 0, fact.staleAfterHours);
+    } else {
+      counts.withoutJob += 1;
+    }
+    if (fact.warnings) {
+      counts.warnings += 1;
+    }
+    if (share.lastSuccessAt && (!lastSuccess || share.lastSuccessAt > lastSuccess)) {
+      lastSuccess = share.lastSuccessAt;
+    }
+    const isRated = fact.protected || share.lastSnapshotId !== null;
+    if (!isRated) {
+      continue;
+    }
+    const state: ObjectState = fact.readiness.state;
+    const backingUp = fact.activeRun?.kind === "backup" && fact.activeRun.fileShareId === share.id;
+    const overdue =
+      state === "no_backup"
+        ? isFirstBackupOverdue(fact.protectionStartedAt, now) && !backingUp
+        : fact.readiness.overdue;
+    const readiness = state === "green" || state === "yellow" || state === "red" ? state : null;
+    rows.push({
+      id: share.id,
+      name: share.name,
+      protocol: share.protocol,
+      server: share.server,
+      state,
+      readiness,
+      checkedAt: fact.readiness.checkedAt?.toISOString() ?? null,
+      overdue,
+      latestBackupAt: share.lastSuccessAt?.toISOString() ?? null,
+      latestSnapshotId: share.lastSnapshotId,
+      inJob: fact.protected,
+    });
+    rated.push({
+      state,
+      overdue,
+      checkedAt: fact.readiness.checkedAt,
+      withoutJob: !fact.protected,
+      share: true,
+    });
+  }
+  counts.lastSuccessAt = lastSuccess?.toISOString() ?? null;
+  return {
+    rows,
+    rated,
+    counts,
+    staleAfterHours: staleAfterHours ?? DEFAULT_STALE_BACKUP_HOURS,
+    facts,
+  };
+}
+
+/** The shares of a tenant on their own (the dashboard, the status and the provider view). */
+export async function loadShareCounts(
+  db: Database,
+  tenantId: string,
+  now: Date,
+): Promise<Pick<ShareProtection, "counts" | "staleAfterHours">> {
+  return withTenantTx(db, tenantId, async (tx) => {
+    const { counts, staleAfterHours } = await loadShareProtection(tx, tenantId, now);
+    return { counts, staleAfterHours };
+  });
+}

@@ -3,6 +3,7 @@ import type {
   EndpointRun,
   EndpointRunProgress,
   EndpointRunStats,
+  FileShareRun,
   RunSamplePoint,
 } from "@restow/db";
 import { currentThroughput, latestSamples } from "@restow/db";
@@ -18,7 +19,8 @@ import type {
 
 /**
  * One shape for every run, whoever did the work: a mail run (a row of `jobs`, done by the
- * worker) and a run an agent reported (`endpoint_runs`). History lists them together, the live
+ * worker), a run an agent reported (`endpoint_runs`) and a run of a file share
+ * (`file_share_runs`, a runner container; docs/FILESHARES.md 13). History lists them together, the live
  * channel streams them, and the run drawer opens one. Nothing here reads the database: the
  * mapping from rows to these shapes is pure and tested without one (the queries are in
  * ./read.ts, the stream in ./live.ts).
@@ -37,19 +39,19 @@ export const RUN_CATEGORIES = [
 ] as const;
 export type RunCategory = (typeof RUN_CATEGORIES)[number];
 
-export type RunSource = "mail" | "endpoint";
+export type RunSource = "mail" | "endpoint" | "file_share";
 
 /** `succeeded` is a run that completed; whether the backup is restorable is the restore check's word. */
 export type RunState = "queued" | "running" | "succeeded" | "partial" | "failed" | "cancelled";
 
-export type SubjectKind = "mailbox" | "onedrive" | "imap" | "server" | "client";
+export type SubjectKind = "mailbox" | "onedrive" | "imap" | "server" | "client" | "file_share";
 
 /** The object or machine a run works on. */
 export interface RunSubjectDto {
   kind: SubjectKind;
   id: string;
   name: string;
-  /** The address of a mailbox, the operating system of a machine. */
+  /** The address of a mailbox, the operating system of a machine, the location of a file share. */
   detail: string | null;
 }
 
@@ -286,6 +288,39 @@ export const ENDPOINT_KINDS_OF_CATEGORY: Readonly<
   import: [],
   maintenance: [],
 };
+
+/**
+ * The runs of file shares per category: backups, and restores (a copy run is a restore run).
+ * Their restore checks are the server's reports, not runs.
+ */
+export const SHARE_KINDS_OF_CATEGORY: Readonly<
+  Record<RunCategory, readonly FileShareRun["kind"][]>
+> = {
+  backup: ["backup"],
+  restore: ["restore"],
+  restore_check: [],
+  export: [],
+  import: [],
+  maintenance: [],
+};
+
+export function stateOfShareRun(status: FileShareRun["status"]): RunState {
+  switch (status) {
+    case "queued":
+      return "queued";
+    case "starting":
+    case "running":
+      return "running";
+    case "warning":
+      return "partial";
+    case "succeeded":
+    case "failed":
+    case "cancelled":
+      return status;
+    default:
+      return "failed";
+  }
+}
 
 export function stateOfJob(status: JobStatusName, failedItems: number): RunState {
   switch (status) {
@@ -551,6 +586,109 @@ export function endpointRun(input: EndpointRunInput): RunDto {
     throttle: null,
     errorMessage: interruptedOnly ? null : (run.errors[0]?.message ?? null),
     failure: failureDto(run.failure),
+    cancellable: false,
+  };
+}
+
+/** A file share as a run knows it. */
+export interface ShareFact {
+  id: string;
+  name: string;
+  protocol: "smb" | "nfs";
+  server: string;
+  shareName: string | null;
+  exportPath: string | null;
+}
+
+/** Where a share is, as people write it: `\\\\server\\share` or `server:/export`. */
+export function shareLocation(share: Omit<ShareFact, "id" | "name">): string {
+  return share.protocol === "smb"
+    ? `\\\\${share.server}\\${share.shareName ?? ""}`
+    : `${share.server}:${share.exportPath ?? ""}`;
+}
+
+export interface ShareRunInput {
+  run: FileShareRun;
+  share: ShareFact;
+  job: RunJobDto | null;
+  samples?: readonly RunSamplePoint[] | null;
+  sampleCount?: number;
+}
+
+/**
+ * A run of a file share: a backup, a restore or a scheduled copy (a restore run of a copy job;
+ * `type` says `copy`). The subject is the share backed up, or the source of a restore.
+ */
+export function shareRun(input: ShareRunInput): RunDto {
+  const { run, share, job } = input;
+  const state = stateOfShareRun(run.status);
+  const running = state === "running";
+  const progress = running ? run.progress : null;
+  const stats = run.stats ?? {};
+  const samples = input.samples ?? null;
+  const last =
+    samples && samples.length > 0 ? (samples[samples.length - 1] as RunSamplePoint) : null;
+  const throughput = throughputOf(samples, running);
+  const bytesDone = progress?.bytesDone ?? stats.bytes ?? last?.[1] ?? 0;
+  const bytesTotal = progress && progress.totalBytes > 0 ? progress.totalBytes : null;
+  let percent: number | null = null;
+  if (running && progress) {
+    if (bytesTotal) {
+      percent = percentOf(bytesDone, bytesTotal);
+    } else if (progress.totalFiles > 0) {
+      percent = percentOf(progress.filesDone, progress.totalFiles);
+    }
+  } else if (state === "succeeded" || state === "partial") {
+    percent = 100;
+  }
+  const remaining = bytesTotal !== null ? Math.max(0, bytesTotal - bytesDone) : null;
+  const etaSeconds =
+    running && remaining !== null && throughput && throughput.processedBps > 0
+      ? Math.round(remaining / throughput.processedBps)
+      : null;
+  const queuedAt = run.queuedAt.toISOString();
+  const copy = run.trigger === "copy";
+  return {
+    id: run.id,
+    source: "file_share",
+    kind: run.kind === "backup" ? "backup" : "restore",
+    type: copy ? "copy" : run.kind,
+    state,
+    checkIncomplete: false,
+    attempt: null,
+    subject: {
+      kind: "file_share",
+      id: share.id,
+      name: share.name,
+      detail: shareLocation(share),
+    },
+    job,
+    trigger: run.trigger === "schedule" || copy ? "scheduled" : "manual",
+    full: false,
+    createdAt: run.createdAt.toISOString(),
+    startedAt: iso(run.startedAt),
+    finishedAt: iso(run.finishedAt),
+    updatedAt: iso(run.finishedAt) ?? iso(run.lastProgressAt) ?? iso(run.startedAt) ?? queuedAt,
+    progress: {
+      percent,
+      itemsDone: progress?.filesDone ?? stats.files ?? 0,
+      itemsTotal: progress && progress.totalFiles > 0 ? progress.totalFiles : (stats.files ?? null),
+      itemsFailed: run.itemCount,
+      bytesProcessed: bytesDone,
+      bytesTransferred: progress?.bytesUploaded ?? last?.[2] ?? 0,
+      bytesNew: typeof stats.dataAdded === "number" ? stats.dataAdded : null,
+      bytesTotal,
+      etaSeconds,
+      currentPath: progress?.currentPath || null,
+      updatedAt: progress?.at ?? null,
+    },
+    throughput,
+    samples: samplesOf(samples, input.sampleCount ?? LIST_SAMPLE_COUNT),
+    phase: null,
+    throttle: null,
+    errorMessage: run.status === "failed" ? run.errorMessage : null,
+    failure: run.status === "failed" ? failureDto(run.failure) : null,
+    // Cancelling is on the share's page (it reaches the runner through its progress report).
     cancellable: false,
   };
 }

@@ -48,6 +48,7 @@ import { formatRelative } from "@/lib/format";
 import { isRecentSignInRequired } from "@/lib/recent-sign-in";
 
 import { AccessNote, ReadOnlyGroup, useInstallationAccess } from "../access";
+import { EnableMounterButton, canEnableThroughUpdater } from "./enable-mounter";
 import {
   type MOUNT_STEPS,
   type MountOperation,
@@ -151,6 +152,9 @@ export function MountsContent({ view }: { view: MountsView }) {
 export function UnavailableCard({ view }: { view: MountsView }) {
   const { t } = useTranslation("installation");
   const { t: tu } = useTranslation("updates");
+  const access = useInstallationAccess();
+  // "Enable network shares" through the opt-in updater (docs/FILESHARES.md 3.9), for the owner.
+  const button = access.change === null && canEnableThroughUpdater(view);
   if (view.demo) {
     return (
       <Alert variant="info" data-slot="mounts-demo">
@@ -166,6 +170,8 @@ export function UnavailableCard({ view }: { view: MountsView }) {
         <CardDescription>{t("mounts.unavailable.description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {button ? <EnableMounterButton view={view} mayEnable /> : null}
+        {button ? <p className="text-sm">{t("mounts.enable.orCommand")}</p> : null}
         <CommandBlock command={view.enableCommand} copyLabel={tu("commands.copy")} />
         {view.unavailableReason && view.unavailableReason !== "unreachable" ? (
           <p className="text-sm text-muted-foreground">

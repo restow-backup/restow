@@ -8,6 +8,7 @@ import {
   evaluateWarning,
   isInterruptedOnly,
   normalizeCauses,
+  shareWarningCauses,
 } from "@restow/core";
 import {
   type EndpointRunError,
@@ -15,6 +16,8 @@ import {
   type WarningAcknowledgement,
   endpointRuns,
   endpoints,
+  fileShareRuns,
+  fileShares,
   itemFailures,
   jobProgress,
   jobs,
@@ -33,7 +36,8 @@ import type { Transaction } from "../../lib/tenant-context.js";
  * number of objects.
  */
 
-export type WarningTargetKind = "object" | "machine";
+/** `share`: a file share (docs/FILESHARES.md 13): its backups end "with warnings" by item causes. */
+export type WarningTargetKind = "object" | "machine" | "share";
 
 export interface WarningFact {
   kind: WarningTargetKind;
@@ -383,6 +387,140 @@ export async function loadMachineWarnings(
   for (const id of ids ?? []) {
     if (!result.has(id)) {
       result.set(id, evaluate("machine", id, null, {}, ackBy.get(id) ?? null, false));
+    }
+  }
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// File shares (docs/FILESHARES.md 13)
+// ---------------------------------------------------------------------------
+
+/** How a finished share backup ended: `warning` is a backup that left items behind. */
+export function shareOutcome(status: string): BackupOutcome | null {
+  if (status === "succeeded") return "succeeded";
+  if (status === "warning") return "partial";
+  if (status === "failed") return "failed";
+  return null;
+}
+
+/** The warning causes of a share run's item counts (`stats.items`), as a record. */
+export function shareCauseCounts(
+  items: Readonly<Record<string, number>> | null | undefined,
+): Record<string, number> {
+  return Object.fromEntries(shareWarningCauses(items).map((cause) => [cause.code, cause.count]));
+}
+
+export async function loadShareWarnings(
+  tx: Transaction,
+  tenantId: string,
+  scope: WarningScope = {},
+): Promise<Map<string, WarningFact>> {
+  const result = new Map<string, WarningFact>();
+  if (scope.ids && scope.ids.length === 0) {
+    return result;
+  }
+  const ids = scope.ids ? [...new Set(scope.ids)] : null;
+  const latestRows = await tx
+    .selectDistinctOn([fileShareRuns.fileShareId], {
+      shareId: fileShareRuns.fileShareId,
+      id: fileShareRuns.id,
+      status: fileShareRuns.status,
+      finishedAt: fileShareRuns.finishedAt,
+      queuedAt: fileShareRuns.queuedAt,
+      stats: fileShareRuns.stats,
+      itemCount: fileShareRuns.itemCount,
+    })
+    .from(fileShareRuns)
+    .innerJoin(fileShares, eq(fileShares.id, fileShareRuns.fileShareId))
+    .where(
+      and(
+        eq(fileShareRuns.tenantId, tenantId),
+        eq(fileShareRuns.kind, "backup"),
+        inArray(fileShareRuns.status, ["succeeded", "warning", "failed"]),
+        isNotNull(fileShareRuns.finishedAt),
+        ids ? inArray(fileShareRuns.fileShareId, ids) : sql`${fileShares.retiredAt} is null`,
+      ),
+    )
+    .orderBy(fileShareRuns.fileShareId, desc(fileShareRuns.finishedAt), desc(fileShareRuns.id));
+
+  const shareIds = ids ?? latestRows.map((row) => row.shareId);
+  const acks = shareIds.length
+    ? await tx
+        .select()
+        .from(warningAcknowledgements)
+        .where(
+          and(
+            eq(warningAcknowledgements.tenantId, tenantId),
+            inArray(warningAcknowledgements.fileShareId, shareIds),
+          ),
+        )
+    : [];
+  const ackBy = new Map(acks.map((row) => [row.fileShareId as string, row]));
+  const failedSince = new Set<string>();
+  if (acks.length > 0) {
+    const rows = await tx
+      .selectDistinct({ shareId: fileShareRuns.fileShareId })
+      .from(fileShareRuns)
+      .innerJoin(
+        warningAcknowledgements,
+        and(
+          eq(warningAcknowledgements.fileShareId, fileShareRuns.fileShareId),
+          gt(fileShareRuns.finishedAt, warningAcknowledgements.acknowledgedAt),
+        ),
+      )
+      .where(
+        and(
+          eq(fileShareRuns.tenantId, tenantId),
+          eq(fileShareRuns.kind, "backup"),
+          eq(fileShareRuns.status, "failed"),
+          inArray(
+            fileShareRuns.fileShareId,
+            acks.map((row) => row.fileShareId as string),
+          ),
+        ),
+      );
+    for (const row of rows) {
+      failedSince.add(row.shareId);
+    }
+  }
+
+  for (const row of latestRows) {
+    const outcome = shareOutcome(row.status) ?? "failed";
+    const causeCounts =
+      outcome === "succeeded"
+        ? {}
+        : shareCauseCounts(row.stats?.items as Record<string, number> | undefined);
+    const counted = Object.values(causeCounts).reduce((sum, value) => sum + value, 0);
+    const latest: LatestBackupFact = {
+      runId: row.id,
+      outcome,
+      finishedAt: (row.finishedAt ?? row.queuedAt).toISOString(),
+      failedItems: Math.max(counted, outcome === "succeeded" ? 0 : row.itemCount),
+      causes:
+        outcome === "partial"
+          ? normalizeCauses(
+              Object.keys(causeCounts).length > 0
+                ? Object.keys(causeCounts)
+                : [UNKNOWN_WARNING_CAUSE],
+            )
+          : [],
+    };
+    result.set(
+      row.shareId,
+      evaluate(
+        "share",
+        row.shareId,
+        latest,
+        causeCounts,
+        ackBy.get(row.shareId) ?? null,
+        failedSince.has(row.shareId),
+      ),
+    );
+  }
+  for (const id of ids ?? []) {
+    if (!result.has(id)) {
+      result.set(id, evaluate("share", id, null, {}, ackBy.get(id) ?? null, false));
     }
   }
   return result;

@@ -48,6 +48,22 @@
     "unverified": "Nicht nachgewiesen",
     "no_backup": "Noch keine Sicherung"
   },
+  "readinessRow": {
+    "overdue": "Überfällig",
+    "notChecked": "Nicht nachgewiesen",
+    "noBackupYet": "Noch kein Sicherungsstand",
+    "open": "Öffnen",
+    "openFor": "{name} öffnen",
+    "noJob": "In keinem Backup-Job",
+    "result": {
+      "green": "Die Restore-Prüfung des neuesten Sicherungsstands hat jede geprüfte Datei zurückgelesen.",
+      "yellow": "Die Restore-Prüfung des neuesten Sicherungsstands ist mit Lücken durchgelaufen: Einige Dateien oder Berechtigungen wichen ab.",
+      "red": "Die Restore-Prüfung des neuesten Sicherungsstands ist fehlgeschlagen: Dateien stimmten nicht überein oder ließen sich nicht lesen.",
+      "unverified": "Ein Sicherungsstand ist vorhanden, wurde aber noch nicht geprüft.",
+      "noBackup": "Nichts zu prüfen, bis die erste Sicherung abgeschlossen ist.",
+      "noBackupOverdue": "Keine Sicherung innerhalb von 24 Stunden, nachdem die Freigabe in einen Backup-Job kam."
+    }
+  },
   "protocol": {
     "smb": "SMB",
     "nfs": "NFS"
@@ -57,10 +73,11 @@
     "blockedTitle": "Läufe für Freigaben können nicht starten",
     "tenant": "Diese Installation sichert noch keine Freigaben. Ihr Anbieter kann das einschalten.",
     "provider": "Eine Inhaberin oder ein Inhaber der Installation kann Netzlaufwerke einschalten.",
-    "owner": "Freigaben werden vom Mounter eingebunden, der nicht läuft. Führen Sie auf dem Server diesen Befehl aus, um ihn zu starten:",
+    "owner": "Freigaben werden vom Mounter eingebunden, der nicht läuft. Starten Sie ihn hier, oder führen Sie auf dem Server diesen Befehl aus:",
     "blockedOwner": "Der Mounter läuft, kann aber noch keine Läufe starten:",
     "copy": "Befehl kopieren",
-    "commandHint": "Führen Sie ihn als root im Installationsordner aus. Das Einschalten über diese Seite folgt mit einer späteren Version."
+    "commandHint": "Führen Sie ihn als root im Installationsordner aus.",
+    "ownerCommand": "Freigaben werden vom Mounter eingebunden, der nicht läuft. Führen Sie auf dem Server diesen Befehl aus, um ihn zu starten:"
   },
   "add": {
     "title": "Freigabe hinzufügen",

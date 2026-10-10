@@ -9,14 +9,20 @@ import type { WarningFact, WarningTargetKind } from "./state.js";
  * packages/core/src/failures/warnings.ts for the rules of acknowledging one.
  */
 
-export type WarningSubjectKind = "mailbox" | "onedrive" | "imap" | "server" | "client";
+export type WarningSubjectKind =
+  | "mailbox"
+  | "onedrive"
+  | "imap"
+  | "server"
+  | "client"
+  | "file_share";
 
 export interface WarningTargetDto {
   kind: WarningTargetKind;
   id: string;
   subjectKind: WarningSubjectKind;
   name: string;
-  /** The address of a mailbox, the operating system of a machine. */
+  /** The address of a mailbox, the operating system of a machine, the location of a file share. */
   detail: string | null;
 }
 
@@ -59,7 +65,7 @@ export interface WarningSummaryDto {
 export interface WarningListDto {
   items: WarningSummaryDto[];
   /**
-   * `failed`: protected objects and machines whose newest backup failed outright;
+   * `failed`: protected objects, machines and file shares whose newest backup failed outright;
    * `failedGuests`: VMs and containers of Proxmox VE in a backup job whose newest backup failed
    * (their runs are on the guest's page, not in History).
    */

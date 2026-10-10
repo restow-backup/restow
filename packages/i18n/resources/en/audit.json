@@ -157,6 +157,7 @@
     "endpoint": "Servers and clients",
     "backup_job": "Backup jobs",
     "mount": "Network shares",
+    "mounter": "Mounter",
     "pve": "Proxmox VE",
     "file_share": "File shares",
     "warning": "Warnings"
@@ -523,6 +524,11 @@
       "remove_requested": "Network share removed",
       "tested": "Network share tested"
     },
+    "mounter": {
+      "enable_requested": "Mounter start requested",
+      "enabled": "Mounter started",
+      "enable_failed": "Mounter could not be started"
+    },
     "pve": {
       "token": {
         "created": "Enrollment token for Proxmox VE created"
@@ -621,6 +627,7 @@
     "endpoint_enrollment_token": "Enrollment token",
     "backup_job": "Backup job",
     "mount": "Network share",
+    "mounter": "Mounter",
     "pve_node": "Node (Proxmox VE)",
     "pve_guest": "Guest (VM or container)",
     "file_share": "File share",

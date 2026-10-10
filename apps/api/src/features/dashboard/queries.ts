@@ -11,6 +11,9 @@ import {
   endpointReports,
   endpointRuns,
   endpoints,
+  fileShareReports,
+  fileShareRuns,
+  fileShares,
   jobProgress,
   jobs,
   legalHolds,
@@ -119,6 +122,49 @@ async function machineSetupFacts(
       return {
         active: machineRow?.active ?? 0,
         backedUp: machineRow?.backedUp ?? 0,
+        enabledJobs: jobRow?.n ?? 0,
+        checks: checkRow?.reports ?? 0,
+        greenChecks: checkRow?.green ?? 0,
+      };
+    });
+  } catch {
+    return NO_MACHINES;
+  }
+}
+
+/** The tenant's file shares for the setup checklist (setup.ts `SetupFacts.shares`). */
+async function shareSetupFacts(tx: Transaction, tenantId: string): Promise<SetupFacts["machines"]> {
+  try {
+    return await tx.transaction(async (savepoint) => {
+      const [shareRow] = await savepoint
+        .select({
+          active: count(),
+          backedUp: countWhere(sql`${fileShares.lastSuccessAt} is not null`),
+        })
+        .from(fileShares)
+        .where(and(eq(fileShares.tenantId, tenantId), isNull(fileShares.retiredAt)));
+      const [jobRow] = await savepoint
+        .select({ n: count() })
+        .from(backupJobs)
+        .where(
+          and(
+            eq(backupJobs.tenantId, tenantId),
+            eq(backupJobs.kind, "share"),
+            eq(backupJobs.enabled, true),
+          ),
+        );
+      const [checkRow] = await savepoint
+        .select({
+          reports: count(),
+          green: countWhere(sql`${fileShareReports.readiness} = 'green'`),
+        })
+        .from(fileShareReports)
+        .where(
+          and(eq(fileShareReports.tenantId, tenantId), eq(fileShareReports.kind, "restore_test")),
+        );
+      return {
+        active: shareRow?.active ?? 0,
+        backedUp: shareRow?.backedUp ?? 0,
         enabledJobs: jobRow?.n ?? 0,
         checks: checkRow?.reports ?? 0,
         greenChecks: checkRow?.green ?? 0,
@@ -346,6 +392,8 @@ export async function loadTenantFacts(
     // without the machines instead of failing with them (the endpoints widget
     // reports that failure on its own).
     const machines = await machineSetupFacts(tx, tenantId);
+    // File shares the same way (docs/FILESHARES.md 13).
+    const shares = await shareSetupFacts(tx, tenantId);
 
     const policyRows = await tx
       .select({
@@ -392,6 +440,7 @@ export async function loadTenantFacts(
         completedSnapshots: snapshotRow?.backups ?? 0,
         verification: { reports: reportRow?.reports ?? 0, green: reportRow?.green ?? 0 },
         machines,
+        shares,
       },
       retention: {
         rows: policyRows,
@@ -556,8 +605,9 @@ export async function loadTenantCap(tx: Transaction, tenantId: string): Promise<
 
 export interface TenantHealthExtras {
   /**
-   * Jobs of any kind, backups and restores of servers and clients, and backups and restores of
-   * VMs and containers of Proxmox VE, that failed in the last 24 hours.
+   * Jobs of any kind, backups and restores of servers and clients, backups and restores of VMs
+   * and containers of Proxmox VE, and backups, restores and copies of file shares, that failed in
+   * the last 24 hours.
    */
   failures24h: number;
   /** The same for the 24 hours before, so the provider view can show the trend. */
@@ -621,15 +671,35 @@ export async function loadTenantHealthExtras(
           sql`${finishedAt} >= ${previousSince}`,
         ),
       );
+    // So do backups, restores and copies of file shares.
+    const shareFinishedAt = sql`coalesce(${fileShareRuns.finishedAt}, ${fileShareRuns.queuedAt})`;
+    const [shareRuns] = await tx
+      .select({
+        last: countWhere(sql`${shareFinishedAt} >= ${since}`),
+        previous: countWhere(sql`${shareFinishedAt} < ${since}`),
+      })
+      .from(fileShareRuns)
+      .where(
+        and(
+          eq(fileShareRuns.tenantId, tenantId),
+          eq(fileShareRuns.status, "failed"),
+          sql`${shareFinishedAt} >= ${previousSince}`,
+        ),
+      );
     const [target] = await tx
       .select({ status: storageTargets.status })
       .from(storageTargets)
       .where(and(eq(storageTargets.tenantId, tenantId), eq(storageTargets.role, "primary")))
       .limit(1);
     return {
-      failures24h: (failed?.last ?? 0) + machineLast + (guestRuns?.last ?? 0),
+      failures24h:
+        (failed?.last ?? 0) + machineLast + (guestRuns?.last ?? 0) + (shareRuns?.last ?? 0),
       failuresPrevious24h:
-        (failed?.previous ?? 0) + machineFailures.length - machineLast + (guestRuns?.previous ?? 0),
+        (failed?.previous ?? 0) +
+        machineFailures.length -
+        machineLast +
+        (guestRuns?.previous ?? 0) +
+        (shareRuns?.previous ?? 0),
       storageError: target?.status === "error",
     };
   });

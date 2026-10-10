@@ -27,15 +27,32 @@ export interface SetupFacts {
    * machines (all, and the passed ones). A tenant that protects only machines
    * finishes the checklist with them.
    */
-  machines: {
-    active: number;
-    backedUp: number;
-    enabledJobs: number;
-    checks: number;
-    greenChecks: number;
-  };
+  machines: SetupKindFacts;
+  /**
+   * File shares (docs/FILESHARES.md 13), counted like the machines: shares that are not retired,
+   * the ones with a good backup, enabled share jobs, and the restore checks of shares. A tenant
+   * that protects only file shares finishes the checklist with them. Absent: none.
+   */
+  shares?: SetupKindFacts;
   mail: { configured: boolean; lastTestOk: boolean | null; notNeeded: boolean };
 }
+
+/** What the checklist counts of a kind that is protected on its own (machines, file shares). */
+export interface SetupKindFacts {
+  active: number;
+  backedUp: number;
+  enabledJobs: number;
+  checks: number;
+  greenChecks: number;
+}
+
+const NO_KIND: SetupKindFacts = {
+  active: 0,
+  backedUp: 0,
+  enabledJobs: 0,
+  checks: 0,
+  greenChecks: 0,
+};
 
 type Judgement = Pick<SetupItemDto, "state" | "reason">;
 
@@ -70,10 +87,13 @@ function judgeSource(sources: SetupFacts["sources"], machines: number): Judgemen
 
 function judgeVerification(facts: SetupFacts): Judgement {
   const { verification, machines } = facts;
-  if (verification.green > 0 || machines.greenChecks > 0) {
+  const shares = facts.shares ?? NO_KIND;
+  if (verification.green > 0 || machines.greenChecks > 0 || shares.greenChecks > 0) {
     return done;
   }
-  return verification.reports > 0 || machines.checks > 0 ? attention("not_green") : open();
+  return verification.reports > 0 || machines.checks > 0 || shares.checks > 0
+    ? attention("not_green")
+    : open();
 }
 
 /**
@@ -98,17 +118,27 @@ function judgeMail(mail: SetupFacts["mail"]): Judgement {
 
 const JUDGE: Readonly<Record<SetupItemId, (facts: SetupFacts) => Judgement>> = {
   storage: (facts) => judgeStorage(facts.storage),
-  source: (facts) => judgeSource(facts.sources, facts.machines.active),
-  // A machine is a protected object of its own.
-  objects: (facts) => (facts.activeObjects > 0 || facts.machines.active > 0 ? done : open()),
-  // A machine backup job counts once there is a machine for it to back up.
+  // A file share that was added is a connected source too.
+  source: (facts) =>
+    judgeSource(facts.sources, facts.machines.active + (facts.shares ?? NO_KIND).active),
+  // A machine is a protected object of its own; so is a file share.
+  objects: (facts) =>
+    facts.activeObjects > 0 || facts.machines.active > 0 || (facts.shares ?? NO_KIND).active > 0
+      ? done
+      : open(),
+  // A machine or share job counts once there is a machine or share for it to back up.
   schedules: (facts) =>
     facts.enabledBackupSchedules > 0 ||
-    (facts.machines.active > 0 && facts.machines.enabledJobs > 0)
+    (facts.machines.active > 0 && facts.machines.enabledJobs > 0) ||
+    ((facts.shares ?? NO_KIND).active > 0 && (facts.shares ?? NO_KIND).enabledJobs > 0)
       ? done
       : open("no_backup_schedule"),
   firstBackup: (facts) =>
-    facts.completedSnapshots > 0 || facts.machines.backedUp > 0 ? done : open(),
+    facts.completedSnapshots > 0 ||
+    facts.machines.backedUp > 0 ||
+    (facts.shares ?? NO_KIND).backedUp > 0
+      ? done
+      : open(),
   firstVerification: (facts) => judgeVerification(facts),
   notificationMail: (facts) => judgeMail(facts.mail),
 };

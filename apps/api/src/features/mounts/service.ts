@@ -7,6 +7,12 @@ import {
   mountPathOf,
 } from "../../mounter/protocol.js";
 import { ProblemError } from "../../problem.js";
+import type { MounterEnableRecord, StateView } from "../../updater/protocol.js";
+import {
+  type UpdaterClient,
+  UpdaterRejectedError,
+  UpdaterUnavailableError,
+} from "../updates/updater-client.js";
 import {
   type MounterClient,
   type MounterFailure,
@@ -37,6 +43,13 @@ export const MOUNT_AUDIT_ACTIONS = {
   tested: "mount.tested",
 } as const;
 
+/** "Enable network shares" (docs/FILESHARES.md 3.9), in the installation's audit chain. */
+export const MOUNTER_AUDIT_ACTIONS = {
+  enableRequested: "mounter.enable_requested",
+  enabled: "mounter.enabled",
+  enableFailed: "mounter.enable_failed",
+} as const;
+
 export const MOUNT_PROBLEMS = {
   unavailable: "urn:restow:problem:mounter-unavailable",
   rejected: "urn:restow:problem:mounter-rejected",
@@ -47,10 +60,34 @@ export const MOUNT_PROBLEMS = {
   pendingExists: "urn:restow:problem:mount-pending-exists",
   /** No waiting request of that name. */
   pendingNotFound: "urn:restow:problem:mount-pending-not-found",
+  /** No updater that can start the mounter: the command is the way. */
+  enableUnavailable: "urn:restow:problem:mounter-enable-unavailable",
+  /** The updater refused to start the mounter now (an update is scheduled or running). */
+  enableRefused: "urn:restow:problem:mounter-enable-refused",
 } as const;
 
 /** What the Mounts section shows how to start the mounter with. */
 export const ENABLE_MOUNTER_COMMAND = "docker compose --profile mounts up -d mounter";
+
+/** How the mounter is stopped again (a command only, docs/MOUNTS.md). */
+export const DISABLE_MOUNTER_COMMAND = "docker compose --profile mounts stop mounter";
+
+/**
+ * How the mounter can be switched on (docs/FILESHARES.md 3.9): `via` is `updater` when the
+ * opt-in updater runs and can start it (`POST /api/v1/mounts/enable`), `command` when only
+ * the command helps, null while it runs.
+ */
+export interface MounterEnableInfo {
+  running: boolean;
+  via: "updater" | "command" | null;
+  command: string;
+  disableCommand: string;
+  /** The updater's last start of the mounter; null when there was none (or no updater). */
+  lastAttempt: MounterEnableRecord | null;
+}
+
+/** The part of the updater client the section needs. */
+export type MounterEnableUpdater = Pick<UpdaterClient, "enabled" | "state" | "enableMounter">;
 
 export interface MountsActor {
   id: string | null;
@@ -109,6 +146,8 @@ export interface MountsServiceDeps {
   usersOf: (path: string) => Promise<MountUser[]>;
   audit: (event: AuditEvent) => Promise<void>;
   demo?: boolean;
+  /** The opt-in updater, which can start the mounter; absent: only the command. */
+  updater?: MounterEnableUpdater;
 }
 
 export interface MountsView {
@@ -122,6 +161,8 @@ export interface MountsView {
   state: MounterState | null;
   /** An add that waits until no job runs, or one that failed when it was its turn. */
   pending: PendingMount | null;
+  /** How to switch the mounter on (docs/FILESHARES.md 3.9). */
+  enable: MounterEnableInfo;
 }
 
 export interface AddMountInput {
@@ -143,7 +184,121 @@ export class MountsService {
       mountRoot: MOUNT_ROOT,
       state,
       pending: await this.loadPending(),
+      enable: await this.enableInfo(state !== null, options.refresh === true),
     };
+  }
+
+  /**
+   * "Enable network shares": the provider owner asks the opt-in updater to start the
+   * mounter (docs/FILESHARES.md 3.9). A mounter that answers already makes this a no-op;
+   * without an updater that can do it, the answer is the command (409).
+   */
+  async enable(actor: MountsActor): Promise<MountsView> {
+    this.refuseDemo();
+    if ((await this.deps.client.state({ refresh: true })) !== null) {
+      return await this.view();
+    }
+    const updater = this.deps.updater;
+    const updaterState = await this.updaterState(true);
+    if (!updater || !updaterState || updaterState.mounterEnable === null) {
+      throw new ProblemError(409, "The mounter cannot be started from here", {
+        type: MOUNT_PROBLEMS.enableUnavailable,
+        detail: `The updater does not run (or cannot start the mounter). Start it on the host, in the directory with docker-compose.yml: ${ENABLE_MOUNTER_COMMAND}`,
+        extensions: { command: ENABLE_MOUNTER_COMMAND },
+      });
+    }
+    await this.auditEnable(MOUNTER_AUDIT_ACTIONS.enableRequested, actor, {});
+    let result: StateView;
+    try {
+      result = await updater.enableMounter();
+    } catch (error) {
+      if (error instanceof UpdaterRejectedError) {
+        const message = (error.body as { message?: unknown } | null)?.message;
+        const detail = typeof message === "string" ? message.slice(0, 600) : undefined;
+        await this.auditEnable(MOUNTER_AUDIT_ACTIONS.enableFailed, actor, {
+          code: error.code,
+          ...(detail ? { detail } : {}),
+        });
+        throw new ProblemError(409, "The updater refused to start the mounter", {
+          type: MOUNT_PROBLEMS.enableRefused,
+          detail,
+          extensions: { code: error.code, command: ENABLE_MOUNTER_COMMAND },
+        });
+      }
+      if (error instanceof UpdaterUnavailableError) {
+        await this.auditEnable(MOUNTER_AUDIT_ACTIONS.enableFailed, actor, {
+          code: error.reason,
+        });
+        throw new ProblemError(503, "The updater did not answer", {
+          type: MOUNT_PROBLEMS.enableUnavailable,
+          detail: `Start the mounter on the host instead: ${ENABLE_MOUNTER_COMMAND}`,
+          extensions: { reason: error.reason, command: ENABLE_MOUNTER_COMMAND },
+        });
+      }
+      throw error;
+    }
+    const last = result.mounterEnable?.last ?? null;
+    if (last?.status === "started") {
+      await this.auditEnable(MOUNTER_AUDIT_ACTIONS.enabled, actor, {
+        ...(last.image ? { image: last.image } : {}),
+      });
+    } else if (last?.status === "failed") {
+      await this.auditEnable(MOUNTER_AUDIT_ACTIONS.enableFailed, actor, {
+        code: last.reason,
+        detail: last.detail,
+      });
+    }
+    return await this.view({ refresh: true });
+  }
+
+  private async updaterState(fresh: boolean): Promise<StateView | null> {
+    const updater = this.deps.updater;
+    if (this.deps.demo || !updater?.enabled) {
+      return null;
+    }
+    try {
+      return await updater.state(fresh ? { fresh: true } : {});
+    } catch {
+      return null;
+    }
+  }
+
+  private async enableInfo(running: boolean, fresh: boolean): Promise<MounterEnableInfo> {
+    const base = {
+      running,
+      command: ENABLE_MOUNTER_COMMAND,
+      disableCommand: DISABLE_MOUNTER_COMMAND,
+    };
+    if (running) {
+      return { ...base, via: null, lastAttempt: null };
+    }
+    if (this.deps.demo) {
+      return { ...base, via: null, lastAttempt: null };
+    }
+    const updaterState = await this.updaterState(fresh);
+    const capable = updaterState?.mounterEnable ?? null;
+    return {
+      ...base,
+      via: capable ? "updater" : "command",
+      lastAttempt: capable?.last ?? null,
+    };
+  }
+
+  private async auditEnable(
+    action: (typeof MOUNTER_AUDIT_ACTIONS)[keyof typeof MOUNTER_AUDIT_ACTIONS],
+    actor: MountsActor,
+    details: Record<string, unknown>,
+  ): Promise<void> {
+    await this.deps.audit({
+      tenantId: null,
+      actor: actor.email,
+      actorUserId: actor.id,
+      action,
+      target: "mounter",
+      targetType: "mounter",
+      ip: actor.ip,
+      details,
+    });
   }
 
   /** The paths of the shares, for the storage form; empty when the mounter is not there. */

@@ -108,6 +108,10 @@ services:
       ROLE: worker
       # The mounter starts the file share runs the worker dispatches (docs/FILESHARES.md 8.2).
       RESTOW_MOUNTER_URL: ${RESTOW_MOUNTER_URL:-http://mounter:8091}
+      # The mounter's caps for runner containers (docs/FILESHARES.md 3.8): the worker keeps the
+      # installation settings within them. The mounter below gets the same two values.
+      RESTOW_MOUNTER_MAX_RUNNERS: ${RESTOW_MOUNTER_MAX_RUNNERS:-8}
+      RESTOW_MOUNTER_RUNNER_MAX_MEMORY_MIB: ${RESTOW_MOUNTER_RUNNER_MAX_MEMORY_MIB:-16384}
     volumes:
       - restow-data:/data
       # The server-side import folder, read-only like on the api
@@ -230,6 +234,8 @@ services:
     environment:
       ROLE: mounter
       RESTOW_MOUNTER_PROJECT_DIR: ${RESTOW_PROJECT_DIR:-}
+      RESTOW_MOUNTER_MAX_RUNNERS: ${RESTOW_MOUNTER_MAX_RUNNERS:-8}
+      RESTOW_MOUNTER_RUNNER_MAX_MEMORY_MIB: ${RESTOW_MOUNTER_RUNNER_MAX_MEMORY_MIB:-16384}
     expose:
       - "8091"
     volumes:

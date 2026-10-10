@@ -25,14 +25,16 @@
     "directory": "Directory sync",
     "retention": "Retention run",
     "scrub": "Storage check",
-    "storage_migration": "Storage migration"
+    "storage_migration": "Storage migration",
+    "copy": "Copy"
   },
   "subject": {
     "mailbox": "Mailbox",
     "onedrive": "OneDrive",
     "imap": "IMAP account",
     "server": "Server",
-    "client": "Client"
+    "client": "Client",
+    "file_share": "File share"
   },
   "trigger": {
     "scheduled": "Scheduled",
@@ -245,6 +247,7 @@
     "editJob": "Edit job",
     "openInHistory": "Open in History",
     "openMachine": "Open machine",
+    "openShare": "Open file share",
     "runNow": "Run now",
     "retry": "Retry",
     "retried": "Queued again",

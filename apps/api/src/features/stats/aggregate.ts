@@ -11,6 +11,8 @@ import {
   emptyReadinessCounts,
   mergeReadiness,
 } from "./readiness.js";
+import { NO_SHARE_FACTS } from "./share-facts.js";
+import { ShareTimeline } from "./share-timeline.js";
 
 /**
  * From one tenant's facts to figures per bucket and per period (pure), and
@@ -147,10 +149,16 @@ export function aggregateTenant(
   for (const row of guestFacts.backupRuns) {
     addBackupRuns(row.day, row.status, row.count);
   }
+  // And the backups of file shares.
+  const shareFacts = facts.fileShares ?? NO_SHARE_FACTS;
+  for (const row of shareFacts.backupRuns) {
+    addBackupRuns(row.day, row.status, row.count);
+  }
 
   const restores = filled(size, emptyRestores);
   const restoreTotals = { current: emptyRestores(), previous: emptyRestores() };
-  for (const row of facts.restoreRuns) {
+  // A restore of a file share (a scheduled copy included) is a restore like any other.
+  for (const row of [...facts.restoreRuns, ...shareFacts.restoreRuns]) {
     const where = locate(period, dayIndex, row.day);
     if (where === "previous") {
       restoreTotals.previous[row.status] += row.count;
@@ -191,6 +199,14 @@ export function aggregateTenant(
       packsAdded[bucket] = (packsAdded[bucket] ?? 0) + row.bytes;
     }
   }
+  // What the backups of file shares covered and added to their repositories (share-facts.ts).
+  for (const row of shareFacts.volume) {
+    const bucket = dayIndex.get(row.day);
+    if (bucket !== undefined) {
+      (volume[bucket] as VolumeBytes).logicalBytes += row.bytes;
+      (volume[bucket] as VolumeBytes).physicalBytes += row.bytesAdded;
+    }
+  }
   let stored = facts.levels.start.physicalBytes;
   const storage = packsAdded.map((added) => {
     stored += added;
@@ -204,12 +220,16 @@ export function aggregateTenant(
     facts.endpoints.reports,
   );
   const guestTimeline = new GuestTimeline(guestFacts.list, guestFacts.restorePoints);
-  // Protected objects, protected endpoints and protected guests are rated side by side and
-  // counted as one.
+  const shareTimeline = new ShareTimeline(shareFacts.list, shareFacts.restorePoints);
+  // Protected objects, protected endpoints, protected guests and protected file shares are rated
+  // side by side and counted as one.
   const readinessAt = (moment: Date) =>
     mergeReadiness(
-      mergeReadiness(timeline.at(moment), endpointTimeline.at(moment)),
-      guestTimeline.at(moment),
+      mergeReadiness(
+        mergeReadiness(timeline.at(moment), endpointTimeline.at(moment)),
+        guestTimeline.at(moment),
+      ),
+      shareTimeline.at(moment),
     );
   const readiness = period.buckets.map((bucket) => readinessAt(bucket.end).counts);
   const atStart = readinessAt(period.current.start);
@@ -259,8 +279,10 @@ export function aggregateTenant(
       objects:
         facts.protectedObjectCount > 0 ||
         facts.endpoints.list.length > 0 ||
-        guestFacts.list.length > 0,
-      backups: facts.hasBackups,
+        guestFacts.list.length > 0 ||
+        shareFacts.list.length > 0,
+      backups:
+        facts.hasBackups || shareFacts.volume.length > 0 || shareFacts.restorePoints.length > 0,
       microsoft365: facts.hasMicrosoft365,
     },
     backups,

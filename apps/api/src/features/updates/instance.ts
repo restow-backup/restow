@@ -4,11 +4,14 @@ import { UpdateService } from "./service.js";
 import { updateState } from "./state-instance.js";
 import { updaterClientFromEnv } from "./updater-client.js";
 
+/** The process-wide updater client (also used by Installation > Network shares). */
+export const updaterClient = updaterClientFromEnv(process.env, config.demo.enabled);
+
 /** The process-wide update service, on the installation pool. */
 export const updateService = new UpdateService({
   db: providerDb,
   state: updateState,
-  updater: updaterClientFromEnv(process.env, config.demo.enabled),
+  updater: updaterClient,
   demo: config.demo.enabled,
   log: (level, message, fields) =>
     (level === "error" ? console.error : level === "warn" ? console.warn : console.log)(

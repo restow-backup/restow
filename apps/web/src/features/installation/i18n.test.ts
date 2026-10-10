@@ -212,6 +212,7 @@ describe("installation translations", () => {
       detail: "mount.nfs: access denied by server",
       server: "nas.local",
       export: "/volume1/restow",
+      command: "docker compose --profile mounts stop mounter",
     };
     for (const language of ["en", "de"]) {
       await i18n.changeLanguage(language);

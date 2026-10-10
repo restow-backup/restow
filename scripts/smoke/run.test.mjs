@@ -12,7 +12,7 @@ test("the checks have unique ids and every dependency exists", () => {
   assert.equal(new Set(ids).size, ids.length);
   assert.deepEqual(
     [...ids].sort((a, b) => Number(a) - Number(b)),
-    ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"],
+    ["1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12"],
   );
   for (const check of CHECKS) {
     for (const need of check.needs) {
@@ -26,7 +26,8 @@ test("--only pulls in what a check builds on, in run order", () => {
     selectChecks(CHECKS, { only: null, skip: [], ...options }).map((check) => check.id);
   assert.deepEqual(ids({ only: ["7"] }), ["1", "3", "5", "7"]);
   assert.deepEqual(ids({ only: ["9"] }), ["9"]);
-  assert.deepEqual(ids({}).length, 11);
+  assert.deepEqual(ids({}).length, 12);
+  assert.deepEqual(ids({ only: ["12"] }), ["1", "3", "12"]);
 });
 
 test("check 2 takes /readyz as ready only with the database, the worker and the scheduler ok", () => {

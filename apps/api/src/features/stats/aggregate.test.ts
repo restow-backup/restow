@@ -376,3 +376,78 @@ describe("aggregateTenant with VMs and containers of Proxmox VE", () => {
     expect(aggregate.readinessStart).toEqual({ green: 0, yellow: 0, red: 1, unverified: 2 });
   });
 });
+
+describe("file shares in the statistics", () => {
+  const office = { id: "office", createdAt: at("2026-09-01"), inJob: true };
+  const scans = { id: "scans", createdAt: at("2026-09-01"), inJob: true };
+  const old = { id: "old", createdAt: at("2026-09-01"), inJob: false };
+  const idle = { id: "idle", createdAt: at("2026-09-01"), inJob: false };
+
+  it("rates shares by their newest check, and counts their backups, restores and volume", () => {
+    const aggregate = aggregateTenant(
+      facts({
+        fileShares: {
+          list: [office, scans, old, idle],
+          restorePoints: [
+            // An older point checked red, a newer one checked yellow on 09-22: yellow decides.
+            {
+              shareId: "office",
+              sequence: 1,
+              at: at("2026-09-15"),
+              prunedAt: null,
+              checks: [{ at: at("2026-09-16"), readiness: "red" }],
+            },
+            {
+              shareId: "office",
+              sequence: 2,
+              at: at("2026-09-21"),
+              prunedAt: null,
+              checks: [{ at: at("2026-09-22"), readiness: "yellow" }],
+            },
+            // Out of every job, its restore point still kept and checked green.
+            {
+              shareId: "old",
+              sequence: 4,
+              at: at("2026-09-05"),
+              prunedAt: null,
+              checks: [{ at: at("2026-09-06"), readiness: "green" }],
+            },
+          ],
+          backupRuns: [
+            { day: "2026-09-21", status: "succeeded", count: 3 },
+            { day: "2026-09-22", status: "failed", count: 1 },
+            { day: "2026-09-23", status: "cancelled", count: 1 },
+            { day: "2026-09-18", status: "failed", count: 2 },
+          ],
+          restoreRuns: [
+            { day: "2026-09-22", status: "completed", count: 2 },
+            { day: "2026-09-19", status: "failed", count: 1 },
+          ],
+          volume: [{ day: "2026-09-21", bytes: 5000, bytesAdded: 300 }],
+        },
+      }),
+      period,
+      "tenant",
+    );
+    // office yellow, scans without a backup (unverified), old green; idle in no job, no point.
+    expect(aggregate.readinessEnd).toEqual({ green: 1, yellow: 1, red: 0, unverified: 1 });
+    expect(aggregate.levels.end.protectedObjects).toBe(3);
+    // A share out of every job keeps the tenant from green, a share without a backup makes it red.
+    expect(aggregate.overallEnd).toBe("red");
+    // At the start office's newest point was the red one.
+    expect(aggregate.readinessStart).toEqual({ green: 1, yellow: 0, red: 1, unverified: 1 });
+    expect(aggregate.available.objects).toBe(true);
+    expect(aggregate.available.backups).toBe(true);
+    expect(aggregate.backupTotals.current).toEqual({ succeeded: 3, failed: 1, cancelled: 1 });
+    expect(aggregate.backupTotals.previous).toEqual({ succeeded: 0, failed: 2, cancelled: 0 });
+    expect(aggregate.restoreTotals.current).toEqual({ completed: 2, failed: 0 });
+    expect(aggregate.restoreTotals.previous).toEqual({ completed: 0, failed: 1 });
+    expect(aggregate.volume[0]).toEqual({ logicalBytes: 5000, physicalBytes: 300 });
+  });
+
+  it("a tenant without shares adds nothing", () => {
+    const aggregate = aggregateTenant(facts(), period, "tenant");
+    expect(aggregate.available).toEqual({ objects: false, backups: false, microsoft365: false });
+    expect(aggregate.readinessEnd).toEqual({ green: 0, yellow: 0, red: 0, unverified: 0 });
+  });
+});

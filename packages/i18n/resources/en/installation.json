@@ -191,6 +191,23 @@
       },
       "demo": "Network shares cannot be added in the demo."
     },
+    "enable": {
+      "description": "The updater can start the mounter for you. The mounter mounts the Docker socket, which amounts to root access on the host.",
+      "button": "Enable network shares",
+      "starting": "The mounter is starting. This page updates as soon as it answers.",
+      "started": "The updater started the mounter {when}. If it does not answer within a minute, look at its log: docker compose logs mounter",
+      "orCommand": "Or run this command on the host, in the directory that holds docker-compose.yml:",
+      "disable": "Switching it off stays a command on the host ({command}); runs of file shares in progress then fail.",
+      "failed": {
+        "title": "The updater could not start the mounter",
+        "compose_unsupported": "The docker-compose.yml of this installation has no mounter service that takes its image from RESTOW_MOUNTER_IMAGE. Use the docker-compose.yml of this release.",
+        "env_write_failed": "The updater could not write RESTOW_MOUNTER_IMAGE into .env.",
+        "launch_failed": "The updater could not start its helper container.",
+        "helper_failed": "docker compose up of the mounter failed.",
+        "interrupted": "The updater stopped while it started the mounter.",
+        "generic": "The start did not succeed."
+      }
+    },
     "list": {
       "title": "Network shares",
       "description": "Network shares that are mounted into the api and the worker.",
@@ -338,7 +355,9 @@
       },
       "generic": "The request failed.",
       "pendingExists": "Another network share is already waiting for running jobs to finish. Cancel it under Installation > Network shares first.",
-      "pendingNotFound": "This network share is no longer waiting."
+      "pendingNotFound": "This network share is no longer waiting.",
+      "enableUnavailable": "The mounter cannot be started from here: the updater does not run. Run the command on the host.",
+      "enableRefused": "The updater cannot start the mounter right now (an update is scheduled or running). Try again when it has finished."
     },
     "storageHint": {
       "label": "Mounted network shares",

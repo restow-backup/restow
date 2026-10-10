@@ -3,6 +3,7 @@ import {
   loadStaleThresholds,
   loadTenantHealthExtras,
 } from "../../../../apps/api/src/features/dashboard/queries.js";
+import { loadShareCounts } from "../../../../apps/api/src/features/file-shares/protection.js";
 import { loadGuestCounts } from "../../../../apps/api/src/features/pve/protection.js";
 import { loadEndpointCounts } from "../../../../apps/api/src/routes/v1/endpoints.js";
 import { loadTenantSummary } from "../../../../apps/api/src/routes/v1/status.js";
@@ -23,16 +24,19 @@ export const providerDashboardLoader: ProviderDashboardLoader = {
         const stale = await loadStaleThresholds(db, tenant.id, now);
         const machines = await loadEndpointCounts(db, tenant.id, now);
         const guests = await loadGuestCounts(db, tenant.id, now);
+        const shares = await loadShareCounts(db, tenant.id, now);
         return {
           summary: await loadTenantSummary(db, tenant.id, now),
           ...(await loadTenantHealthExtras(db, tenant.id, now)),
           machines,
           guests: guests.counts,
+          fileShares: shares.counts,
           // The tenant is stale only once every kind it protects is: the most relaxed bound applies.
           staleAfterHours: Math.max(
             stale.mail,
             machines.total > 0 ? stale.machines : 0,
             guests.counts.protected > 0 ? guests.staleAfterHours : 0,
+            shares.counts.protected > 0 ? shares.staleAfterHours : 0,
           ),
         };
       });

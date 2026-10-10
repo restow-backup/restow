@@ -196,6 +196,7 @@ function TenantReadiness({
             items={data.objects}
             endpoints={data.endpoints ?? []}
             guests={data.guests ?? []}
+            shares={data.shares ?? []}
             format={format}
             startingObjectId={starting?.scope === "object" ? starting.objectId : null}
             nextBackupAt={data.schedules.backup?.nextRunAt ?? null}

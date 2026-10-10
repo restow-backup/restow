@@ -20,6 +20,8 @@ import type { MountsActor, MountsService } from "./service.js";
  *   DELETE /:name        remove a share                             owner + recent sign-in
  *   DELETE /:name?pending=1  withdraw the add of <name> that waits for running jobs  owner
  *   POST   /test         test settings ({ mount }) or a share ({ name })  owner
+ *   POST   /enable       start the mounter through the opt-in updater   owner + recent sign-in
+ *                        ("Enable network shares", docs/FILESHARES.md 3.9)
  *
  * Adding and removing restart the api and the worker on the host, with a mount the
  * Docker daemon makes as root: like an update, they need a recent sign-in. With
@@ -72,6 +74,11 @@ export function buildMountsRoutes(service: MountsService): Hono<SessionEnv> {
     }
     assertRecentSignIn(c.get("auth").session);
     return c.json(await service.remove(name, actorOf(c)), 202);
+  });
+
+  routes.post("/enable", async (c) => {
+    assertRecentSignIn(c.get("auth").session);
+    return c.json(await service.enable(actorOf(c)));
   });
 
   routes.post("/test", async (c) => {

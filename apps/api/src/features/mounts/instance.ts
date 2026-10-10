@@ -4,6 +4,7 @@ import { config } from "../../config.js";
 import { providerDb } from "../../db.js";
 import { audit } from "../../lib/audit.js";
 import { currentInstallationDefault } from "../../lib/installation-default.js";
+import { updaterClient } from "../updates/instance.js";
 import { mounterClientFromEnv } from "./mounter-client.js";
 import { secretPendingMountStore } from "./pending.js";
 import { type ActiveWork, type MountUser, MountsService, liesOn } from "./service.js";
@@ -78,4 +79,5 @@ export const mountsService = new MountsService({
     await audit(providerDb, event);
   },
   demo: config.demo.enabled,
+  updater: updaterClient,
 });

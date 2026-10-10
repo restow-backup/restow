@@ -191,6 +191,23 @@
       },
       "demo": "In der Demo können keine Netzlaufwerke hinzugefügt werden."
     },
+    "enable": {
+      "description": "Der Updater kann den Mounter für Sie starten. Der Mounter bindet den Docker-Socket ein, was Root-Zugriff auf den Host bedeutet.",
+      "button": "Netzlaufwerke einschalten",
+      "starting": "Der Mounter startet. Diese Seite aktualisiert sich, sobald er antwortet.",
+      "started": "Der Updater hat den Mounter {when} gestartet. Antwortet er nicht innerhalb einer Minute, sehen Sie in sein Protokoll: docker compose logs mounter",
+      "orCommand": "Oder führen Sie diesen Befehl auf dem Host aus, in dem Verzeichnis, das docker-compose.yml enthält:",
+      "disable": "Ausschalten bleibt ein Befehl auf dem Host ({command}); laufende Läufe von Freigaben schlagen dann fehl.",
+      "failed": {
+        "title": "Der Updater konnte den Mounter nicht starten",
+        "compose_unsupported": "Die docker-compose.yml dieser Installation hat keinen Dienst mounter, der sein Image aus RESTOW_MOUNTER_IMAGE nimmt. Verwenden Sie die docker-compose.yml dieser Version.",
+        "env_write_failed": "Der Updater konnte RESTOW_MOUNTER_IMAGE nicht in die .env schreiben.",
+        "launch_failed": "Der Updater konnte seinen Hilfscontainer nicht starten.",
+        "helper_failed": "docker compose up des Mounters ist fehlgeschlagen.",
+        "interrupted": "Der Updater wurde beendet, während er den Mounter startete.",
+        "generic": "Der Start ist nicht gelungen."
+      }
+    },
     "list": {
       "title": "Netzlaufwerke",
       "description": "Netzlaufwerke, die in API und Worker eingebunden sind.",
@@ -338,7 +355,9 @@
       },
       "generic": "Die Anfrage ist fehlgeschlagen.",
       "pendingExists": "Ein anderes Netzlaufwerk wartet bereits darauf, dass laufende Jobs abgeschlossen sind. Brechen Sie es zuerst unter Installation > Netzlaufwerke ab.",
-      "pendingNotFound": "Dieses Netzlaufwerk wartet nicht mehr."
+      "pendingNotFound": "Dieses Netzlaufwerk wartet nicht mehr.",
+      "enableUnavailable": "Der Mounter kann von hier aus nicht gestartet werden: Der Updater läuft nicht. Führen Sie den Befehl auf dem Host aus.",
+      "enableRefused": "Der Updater kann den Mounter gerade nicht starten (ein Update ist geplant oder läuft). Versuchen Sie es, wenn es beendet ist."
     },
     "storageHint": {
       "label": "Eingebundene Netzlaufwerke",

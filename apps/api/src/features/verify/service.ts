@@ -17,6 +17,7 @@ import { isImportedObject, notImported } from "../../lib/imported-objects.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { type EndpointReadinessRowDto, loadEndpointOverview } from "../endpoints/overview.js";
+import { type ShareReadinessRowDto, loadShareProtection } from "../file-shares/protection.js";
 import { type Page, decodeCursor, encodeCursor } from "../jobs/pagination.js";
 import { sendJob } from "../jobs/queue.js";
 import { type GuestReadinessRowDto, loadGuestProtection } from "../pve/protection.js";
@@ -171,6 +172,8 @@ export interface ReadinessOverviewDto {
    * restore point left; counted in `summary` as well.
    */
   guests: GuestReadinessRowDto[];
+  /** File shares (docs/FILESHARES.md 13): one row per rated share. */
+  shares: ShareReadinessRowDto[];
   storage: StorageIntegrityDto;
   schedules: { backup: ScheduleDto | null; verify: ScheduleDto | null; scrub: ScheduleDto | null };
 }
@@ -544,6 +547,7 @@ export async function readinessOverview(
 
     const endpointOverview = await loadEndpointOverview(tx, tenantId, now);
     const guestOverview = await loadGuestProtection(tx, tenantId, now);
+    const shareOverview = await loadShareProtection(tx, tenantId, now);
     const summary = summarize(
       [
         ...items.map((item, index) => ({
@@ -556,6 +560,8 @@ export async function readinessOverview(
         ...endpointOverview.rated,
         // So do the VMs and containers of Proxmox VE.
         ...guestOverview.rated,
+        // And the file shares.
+        ...shareOverview.rated,
       ],
       runningByObject.size,
     );
@@ -564,6 +570,7 @@ export async function readinessOverview(
       objects: items,
       endpoints: endpointOverview.rows,
       guests: guestOverview.rows,
+      shares: shareOverview.rows,
       storage,
       schedules: scheduled,
     };

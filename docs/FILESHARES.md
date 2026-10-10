@@ -1,9 +1,10 @@
 # File shares (SMB and NFS): design
 
-Status: binding design for the release that introduces file share backup, written 2026-10-10.
-The infrastructure part of Phase A, Phase B (database, core, scheduler, worker) and Phase C
-(api, web, i18n) are implemented (section 17 says what, what moved and where the build deviates);
-Phase D is not yet. It is the blueprint the four build phases (section 17) follow;
+Status: **built** (2026-10-10). All four phases are implemented: the infrastructure part of
+Phase A, Phase B (database, core, scheduler, worker), Phase C (api, web, i18n) and Phase D
+(overviews, enabling the mounter, the installer default, the smoke check, the operator
+documentation); section 17 says what, what moved and where the build deviates, and lists the
+checks that still need a real file server. It was the blueprint the four build phases followed;
 a deviation is recorded here first, the way docs/PROXMOX.md records its own. Once a phase ships,
 the operator documentation of what exists goes into this file's "How it works" sections, in the
 style of [PVE.md](PVE.md).
@@ -25,6 +26,133 @@ How this document marks evidence:
   source as the author knows it; not re-checked in this session.
 - **[I]** inferred. Phase A checks it on a real host before anything depends on it; section 16.3
   lists every such check.
+
+---
+
+## How it works (operator guide)
+
+This part is for the people who run Restow; the numbered sections after it are the design the
+build follows. Terms: a **file share** (German: Freigabe) is an SMB share or an NFS export; a
+**runner** is the short-lived container that mounts one share for one run.
+
+### Requirements
+
+- **The mounter.** File share backup runs in containers the mounter starts (docs/MOUNTS.md).
+  `install.sh` starts it by default for new installations (`--no-mounter` leaves it off). On
+  an existing installation the provider owner clicks **Enable network shares** (Installation >
+  Network shares, or the notice on the File shares page) when the opt-in updater runs, or runs
+  `docker compose --profile mounts up -d mounter` in the installation folder. While it is off,
+  the File shares pages say so, and scheduled backups of shares wait (`share.mounter_unavailable`).
+  The mounter holds the Docker socket: read the security section of docs/MOUNTS.md first.
+- **The kernel's clients on the Docker host.** The Docker daemon mounts the share, so the
+  host's kernel needs the `cifs` module for SMB (`modprobe cifs`; on Ubuntu cloud kernels it is
+  in `linux-modules-extra-$(uname -r)`) and the NFS client for NFS (`nfs-common` on Debian and
+  Ubuntu, `nfs-utils` on RHEL). A missing client fails the test with `share.client_missing`.
+  On a host with SELinux enforcing set `RESTOW_MOUNTER_SELINUX_CONTEXT=true` for the mounter.
+- **Network.** The Docker host (not the containers) must reach the file server: TCP 445 for SMB,
+  TCP 2049 for NFS (NFSv3 also needs the portmapper, 111, and the mount daemon). Runners have no
+  network of their own except the internal `runners` network to the api.
+- **The account (SMB).** A domain or local account that may read everything to back up. Best is
+  a member of **Backup Operators** (Windows) or an account with `SeBackupPrivilege` (Samba
+  `sec privileges`): it reads files whose ACL would deny it, and their permissions. For restores
+  into the share it needs write access, and to put permissions back `SeRestorePrivilege`
+  (owners) and `SeSecurityPrivilege` (auditing entries); without them restores still write the
+  content and report `share.acl_partial`. SMB 2.1, 3.0, 3.0.2 or 3.1.1; SMB1 and NTLMv1 are
+  refused. Encryption (`seal`) needs SMB 3.
+- **NFS.** The export must allow the Docker host's address; with `root_squash` (the default)
+  the runner reads as `nobody`, so files only root may read are skipped with a warning: export
+  with `no_root_squash` for a complete backup, or make the files readable.
+- **Private networks.** A file server on a private or loopback address (most are) may be
+  added by provider admins at any time. Tenant admins need a provider admin's approval of that
+  share (its settings tab) or the installation switch **Tenants may use private networks**
+  (Installation > Network shares > File share runners, provider owner).
+
+### Adding a share and backing it up
+
+File shares are in the menu next to "VMs & containers". **Add file share** asks for the protocol,
+the server, the share or export, an optional subfolder, the account and password (SMB), tests
+the connection (the top level and whether permissions are readable) and saves the share; the
+password is sealed with the tenant key and never shown again. Then put the share into a backup
+job of the kind **File shares** (from the add dialog, or Backup jobs): a schedule (daily, every
+N hours, cron; at most hourly), the folders to back up (all by default), file types to skip,
+system files, read concurrency, offline files, and retention (keep daily/weekly/monthly).
+
+Every run mounts the share read-only in a new runner container, backs it up with restic into the
+share's own repository (`file-shares/<shareId>/` on the tenant's primary repository) and records
+the NTFS or NFS permissions in a sidecar inside the same restore point. Files that are open
+exclusively, unreadable or offline are skipped with a warning; the run then ends "with
+warnings" and the files are listed in the run (by cause). The api and the worker are never
+restarted. A share with no files where the previous restore point had some is not backed up
+(`share.empty_source`); **Back up the empty share once** on its page allows it once.
+
+**Budgets.** Off by default. A provider administrator sets a share's budget on its page, a
+default for new shares and one for all shares of a tenant under File share runners. At 80 % the
+share warns (`file_share.storage_quota`), at 100 % new backups are refused (`share.quota_exceeded`);
+restores, retention and checks keep working.
+
+**Runners.** Installation > Network shares > File share runners: how many runs at a time
+(default 2), memory per runner (default 2048 MiB; restic's index grows with the number of
+files, so very large shares need more), the longest run, read concurrency. The mounter caps them (`RESTOW_MOUNTER_MAX_RUNNERS`,
+`RESTOW_MOUNTER_RUNNER_MAX_MEMORY_MIB` in `.env`, passed to the mounter and the worker).
+
+### Copy jobs
+
+A **copy job** writes the newest restore point that passed its restore check of share A into a
+folder of share B (which must have **Allow restore to this share**), on a schedule. Mode
+`overwrite` adds and replaces files; `mirror` also deletes what the restore point does not have,
+inside that folder only. A mirror is refused into a share root, into the source share, and into
+a non-empty folder Restow did not create unless you confirm it by typing the folder; it also
+stops when the restore point has fewer than half the files of the last copy (**Copy anyway** on
+the job's page). A copy job is not a backup: the target keeps no versions.
+
+### In the overviews
+
+A share in an enabled share job is protected and counted next to mailboxes, machines and VMs:
+the status tab and `GET /api/v1/status` (`fileShares`), the start page (last successful backup,
+protected objects, recovery readiness with "file shares in no backup job"), Recovery readiness
+(one row per share, rated by the restore check of its newest restore point), the warnings page
+(a backup with warnings, acknowledged like any other), History (backup, restore and copy runs,
+linked to the share), the statistics (readiness, backup outcomes, restores, and the volume
+from what each restore point covered and added) and the provider view (`fileShares`,
+`fileSharesWithoutJob`, `fileSharesFailed`, alerts `file_share_backup_failed` and
+`file_shares_without_job`). An overdue share raises `backup.overdue`. Copy runs count as
+restores, never as protection.
+
+### Restore
+
+From a restore point (file browser, search, versions): **Download as ZIP** (without the
+permissions sidecar), **Restore to a new folder** (`Restow-Restore-<time>` in the same share),
+**Restore to the original location** (overwrite, keep both: the restored file is placed as
+`<name> (restored <time>)<ext>` next to a changed one, or skip), or **into another share**.
+Restores into a share need **Allow restore to this share** on it (off by default). Permissions
+are restored where the target allows it; files whose permissions could not be set are listed.
+
+### Troubleshooting
+
+The run, the test and the share page show the classified cause with what to do; the most
+common ones:
+
+| Cause | What to do |
+| --- | --- |
+| `share.auth_failed` | Wrong or expired password, locked account, or no access to this share. Enter the new password in the share's settings (no re-adding); the share shows the credential warning until a test or run succeeds. |
+| `share.unreachable` | The Docker host gets no answer: address, firewall (445/2049), VPN, routing from the host. |
+| `share.not_found` | The share, export or subfolder name is wrong, or it was removed. |
+| `share.version_mismatch` | Choose another SMB version (3.0 is the most compatible), or switch encryption off; for NFS another version. |
+| `share.permission_denied` | Mounted, but the account may not list the folder: give it read rights, ideally Backup Operators. |
+| `share.client_missing` | Load the kernel client on the Docker host (Requirements). |
+| `share.address_blocked` | A private address added by a tenant admin: approve the share (provider admin) or switch on **Tenants may use private networks**. |
+| `share.empty_source`, `share.include_missing` | Check the share and the job's folders; **Back up the empty share once** if the share is meant to be empty. |
+| `share.locked_files`, `share.read_errors`, `share.acl_partial` | Warnings: back up at night for files people keep open; give the account Backup Operators for unreadable files and permissions; acknowledge on the warnings page what is expected. |
+| `share.files_dropped` | Fewer than half the files of the previous restore point: check the share before retention removes older points. |
+| `share.quota_exceeded` | Raise the budget or tighten retention. |
+| `share.out_of_memory`, `share.timeout` | Raise the runner memory or the longest run under File share runners. |
+| `share.mounter_unavailable`, `share.runner_lost`, `share.runner_failed`, `share.runner_stalled` | The mounter is off, restarting or not ready: Installation > Network shares shows why; `docker compose logs mounter`. |
+| `share.copy_no_verified_point`, `share.copy_unsafe_target`, `share.copy_empty_source` | Run the restore check of the source; choose a folder (not a share root) in another share; **Copy anyway** when fewer files are intended. |
+| `share.repository_locked`, `share.repository_damaged` | Stale locks of finished runs are cleared by retention and the repository check; a lock that stays, or damage restic reports, is a case for the repository password (share settings) and `restic check` by hand. |
+| SELinux: a test mounts but reads "Permission denied" | Set `RESTOW_MOUNTER_SELINUX_CONTEXT=true` and restart the mounter. |
+
+Limits of this release are in section 15 (no VSS over SMB, no alternate data streams, no DFS,
+no Kerberos, no SMB1, repositories on the primary storage only).
 
 ---
 
@@ -1919,6 +2047,84 @@ style of PVE.md (requirements: mounter, kernel modules, the account and its righ
 docs/MOUNTS.md ("Enabling it": on by default for new installations, the button for existing ones)
 and docs/ARCHITECTURE.md updated, the installer's `--help` and README, CHANGELOG entry, THIRD_PARTY_NOTICES unchanged (stdlib only),
 release notes. Exit: release smoke green.
+
+*Phase D as built (2026-10-10).* Done:
+
+- **Overviews** (13), all on the SQL rule of `features/file-shares/protection.ts`, which gained
+  `loadShareProtection` (counts, readiness rows, rated objects, the tenant's overdue bound) and
+  `loadShareCounts`. `GET /status` (both routes) carries `fileShares` (OpenAPI `FileShareCounts`);
+  Recovery readiness rates every share in a job or with a restore point (one row per share,
+  `shares` in the overview, `sharesWithoutJob` in the summary, `RatedObject.share`); the dashboard
+  DTO has `lastBackup.fileShares`, `staleAfterHours.fileShares`, `protectedObjects.fileShares`
+  (with `warnings`) and `readiness.sharesWithoutJob`; the setup checklist counts shares like
+  machines; `failures24h` counts failed share runs; the provider view (ee) has `fileShares`,
+  `fileSharesWithoutJob`, `fileSharesFailed`, the alerts `file_share_backup_failed` and
+  `file_shares_without_job`, shares in the stale bound and in "nothing protected". Warnings
+  (`features/warnings`): target kind `share` (subject `file_share`), facts from the newest backup
+  run and its `stats.items` (`loadShareWarnings`), the detail with the runs and the per-file items
+  by cause, acknowledging and revoking through `warning_acknowledgements.file_share_id`.
+  History (`history/read.ts`): `file_share_runs` as the third source of the keyset union and of
+  the live window, `RunSource` `file_share`, subject kind `file_share`, a copy run is a restore
+  with `type` `copy`, the scope of a share job (its shares' backups) and of a copy job (its runs),
+  the detail with the restore point, its restore check, the items and the log tail. Statistics:
+  `stats/share-facts.ts` and `share-timeline.ts` (readiness, backup outcomes, restores and copies
+  as restores, volume from `bytes` and `bytes_added`), merged in `aggregate.ts` for the tenant and
+  the all-tenants scope. Web: the dashboard widgets (last backup row "File shares", the protected
+  tile with shares, missing jobs and warnings, the readiness flag), a share row in the Recovery
+  readiness table (`file-shares/components/readiness-row.tsx`), share runs in History with
+  "Open file share" and "Run now" through the job, shares on the warnings page with a link,
+  the statistics hint; translations in both languages.
+- **Enable network shares** (3.9): the updater's `POST /v1/mounter/enable`
+  (`updater/mounter-enable.ts`, `MounterEnabler`, state `mounterEnable` in `status.json` and in
+  `GET /v1/state`); `POST /api/v1/mounts/enable` (owner, recent sign-in, `own()`), `GET
+  /api/v1/mounts` with `enable { running, via, command, disableCommand, lastAttempt }`; audit
+  `mounter.enable_requested`, `mounter.enabled`, `mounter.enable_failed` (target type `mounter`);
+  the web button `EnableMounterButton` in the "mounter not running" card of Installation > Network
+  shares (which the storage form's NFS offer shows too) and in the notice of the File shares pages,
+  the command otherwise.
+- **Installer** (3.9): on by default, `--without-mounter`, `--no-mounter`/`--with-mounter` last
+  wins, a default install of a release before `MOUNTER_MIN_VERSION` quietly off ("off: release
+  X has no mounter"), a re-run keeps the installation's choice; `test.sh` covers every case.
+- **Compose**: `RESTOW_MOUNTER_MAX_RUNNERS` and `RESTOW_MOUNTER_RUNNER_MAX_MEMORY_MIB` passed to
+  the worker and the mounter in both compose files (defaults 8 and 16384), documented in
+  `.env.example`.
+- **Smoke check 12** (16.4) `scripts/smoke/checks/12-file-share.mjs`, pure helpers in
+  `scripts/smoke/lib/fileshares.mjs` (node tests), the Samba server built from
+  `scripts/smoke/samba` (overlay service `samba`), both builds, the cifs module loaded by both
+  smoke workflows; docs/CI.md lists it.
+- **Documentation**: the operator guide at the top of this file, docs/MOUNTS.md "Enabling it",
+  README, docs/UPDATING.md, docs/ARCHITECTURE.md, docs/GLOSSARY.md (mounter, copy job).
+
+Deviations from the design above, decided while building:
+
+1. **The smoke check is `12-file-share.mjs`** and the Samba server a small Dockerfile on Alpine
+   (like the demo's Dovecot) instead of a digest-pinned third-party image; NT ACLs are kept in
+   `user.NTACL` so the container needs no capability. The check signs in as the provider admin
+   only, so the tenant admin's refused private address is left to the pg suites; a file held
+   open exclusively is replaced by a file the account may not read (the same per-file warning
+   path); NFS is not in it (16.4 says so).
+2. **The updater writes `RESTOW_MOUNTER_IMAGE` only with an image it verified itself**: the image
+   its last self-update pinned and confirmed. An image it pinned on its first start (what the
+   operator started) is not "signed" in that sense, so the line is then left as it is. It never
+   empties a line that is set.
+3. **`POST /v1/mounter/enable` waits up to a minute** for its helper and answers 200 with the
+   outcome (202 while it still runs); the api audits the outcome it receives. The api's client
+   waits 90 seconds for it.
+4. **Warnings of shares use the core warning rule** (`evaluateWarning`, a failure after the
+   acknowledgement supersedes it), the same as mail and machines.
+5. **The statistics count a backup "with warnings" as succeeded** (like an agent's partial
+   backup) and treat a tenant with share restore points as "has backups" (volume and restores are
+   then shown, the chunk-store figures stay real zeros).
+6. Scheduled reports do not have a "File shares" block yet (14, last bullet); the report events
+   themselves came with Phase B.
+
+Still needs a real host (the maintainer's homelab), besides the checks of 16.3: the smoke
+check 12 itself (Docker with the cifs module; nothing could pull images here), a Windows Server
+share (Backup Operators, `backupuid=0`, NTFS ACL round trip, a file open in Excel), a Synology
+or TrueNAS share, NFS v3 and v4.2 exports, Docker's local driver with `addr=` for cifs, SELinux
+with `RESTOW_MOUNTER_SELINUX_CONTEXT`, **Enable network shares** with a real updater and
+helper container (pinned and unpinned updater image), the installer's default on a fresh VM and
+a re-run, and the E2E of 16.5 in a browser.
 
 ---
 

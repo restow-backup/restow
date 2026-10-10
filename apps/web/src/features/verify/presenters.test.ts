@@ -148,6 +148,28 @@ describe("readinessRows", () => {
     expect(sortRowsByUrgency(rows).map(rowName)).toEqual(["VM 101", "Ada"]);
   });
 
+  it("lists the file shares last, rated and named like the guests", () => {
+    const share = {
+      id: "s-1",
+      name: "Office",
+      protocol: "smb" as const,
+      server: "files.example.test",
+      state: "no_backup" as const,
+      readiness: null,
+      checkedAt: null,
+      overdue: true,
+      latestBackupAt: null,
+      latestSnapshotId: null,
+      inJob: true,
+    };
+    const rows = readinessRows([item("Ada", "green")], [], [], [share]);
+    expect(rows.map((row) => row.type)).toEqual(["object", "share"]);
+    const row = rows[1] as ReturnType<typeof readinessRows>[number];
+    expect(rowRating(row)).toMatchObject({ state: "no_backup", overdue: true });
+    expect(rowName(row)).toBe("Office");
+    expect(sortRowsByUrgency(rows).map(rowName)).toEqual(["Office", "Ada"]);
+  });
+
   it("works for a server that sends no machines", () => {
     expect(readinessRows([item("Ada", "green")])).toHaveLength(1);
     expect(readinessRows([], undefined)).toEqual([]);

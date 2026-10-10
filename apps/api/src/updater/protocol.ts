@@ -431,6 +431,52 @@ export const selfUpdateViewSchema = z.object({
 });
 export type SelfUpdateView = z.infer<typeof selfUpdateViewSchema>;
 
+/**
+ * Starting the mounter from the web interface (mounter-enable.ts, docs/FILESHARES.md 3.9,
+ * `POST /v1/mounter/enable`): the updater checks the compose file, writes
+ * RESTOW_MOUNTER_IMAGE only when it runs a release image whose signature it verified
+ * itself, and starts its helper container with
+ * `docker compose --profile mounts up -d --no-deps --no-build --pull missing mounter`.
+ *
+ *   running    the helper runs
+ *   started    `docker compose up` of the mounter finished
+ *   failed     it did not happen (`reason`, `detail` redacted)
+ */
+export const MOUNTER_ENABLE_STATUSES = ["running", "started", "failed"] as const;
+export type MounterEnableStatus = (typeof MOUNTER_ENABLE_STATUSES)[number];
+
+export const MOUNTER_ENABLE_REASONS = [
+  /** The compose file has no `mounter` service in the profile `mounts` taking RESTOW_MOUNTER_IMAGE. */
+  "compose_unsupported",
+  /** RESTOW_MOUNTER_IMAGE could not be written to `.env`. */
+  "env_write_failed",
+  /** The helper container could not be started. */
+  "launch_failed",
+  /** `docker compose up` of the mounter failed or did not finish in time. */
+  "helper_failed",
+  /** The updater stopped while the helper ran. */
+  "interrupted",
+] as const;
+export type MounterEnableReason = (typeof MOUNTER_ENABLE_REASONS)[number];
+
+export const mounterEnableRecordSchema = z.object({
+  status: z.enum(MOUNTER_ENABLE_STATUSES),
+  reason: z.enum(MOUNTER_ENABLE_REASONS).nullable().default(null),
+  /** The image written to RESTOW_MOUNTER_IMAGE; null when the line was left as it was. */
+  image: z.string().nullable().default(null),
+  requestedAt: iso,
+  finishedAt: iso.nullable().default(null),
+  /** Redacted, single-line detail of a failure. */
+  detail: z.string().max(1000).default(""),
+});
+export type MounterEnableRecord = z.infer<typeof mounterEnableRecordSchema>;
+
+/** What `GET /v1/state` says about it; its presence says the updater has the route. */
+export const mounterEnableViewSchema = z.object({
+  last: mounterEnableRecordSchema.nullable(),
+});
+export type MounterEnableView = z.infer<typeof mounterEnableViewSchema>;
+
 /** `GET /v1/state` (authenticated): everything the api needs. */
 export const stateViewSchema = z.object({
   updaterVersion: z.string().nullable(),
@@ -441,6 +487,8 @@ export const stateViewSchema = z.object({
   capabilities: capabilitiesSchema,
   /** null: an updater that predates its self-update (0.2.0), which never updates itself. */
   selfUpdate: selfUpdateViewSchema.nullable().default(null),
+  /** null: an updater that cannot start the mounter (before Phase D of docs/FILESHARES.md). */
+  mounterEnable: mounterEnableViewSchema.nullable().default(null),
   serverTime: iso,
 });
 export type StateView = z.infer<typeof stateViewSchema>;

@@ -6,6 +6,7 @@ import { type Role, isTenantAdmin } from "../../middleware/rbac.js";
 import type { TenantContext } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
 import { type TenantSummaryDto, loadTenantSummary } from "../../routes/v1/status.js";
+import { type ShareProtection, loadShareCounts } from "../file-shares/protection.js";
 import { listJobsQuerySchema } from "../jobs/schemas.js";
 import { listJobs } from "../jobs/service.js";
 import { type GuestProtection, loadGuestCounts } from "../pve/protection.js";
@@ -255,6 +256,7 @@ interface Sources {
   endpoints: Settled<EndpointsWidget>;
   stale: Settled<StaleThresholds>;
   guests: Settled<Pick<GuestProtection, "counts" | "staleAfterHours">>;
+  shares: Settled<Pick<ShareProtection, "counts" | "staleAfterHours">>;
 }
 
 function buildWidgets(
@@ -277,10 +279,11 @@ function buildWidgets(
         break;
       case "lastBackup":
         widgets.lastBackup = widget(
-          [summary, facts, sources.endpoints, sources.stale, sources.guests],
+          [summary, facts, sources.endpoints, sources.stale, sources.guests, sources.shares],
           () => {
             const machines = value(sources.endpoints);
             const guests = value(sources.guests);
+            const shares = value(sources.shares);
             return {
               lastSuccess: value(summary).lastSuccess,
               protectedKinds: value(facts).kinds,
@@ -294,7 +297,16 @@ function buildWidgets(
                 withoutJob: guests.counts.withoutJob,
                 lastSuccessAt: guests.counts.lastSuccessAt,
               },
-              staleAfterHours: { ...value(sources.stale), guests: guests.staleAfterHours },
+              fileShares: {
+                protected: shares.counts.protected,
+                withoutJob: shares.counts.withoutJob,
+                lastSuccessAt: shares.counts.lastSuccessAt,
+              },
+              staleAfterHours: {
+                ...value(sources.stale),
+                guests: guests.staleAfterHours,
+                fileShares: shares.staleAfterHours,
+              },
             };
           },
         );
@@ -313,31 +325,43 @@ function buildWidgets(
             overdue: readiness.overdue,
             withoutJob: readiness.withoutJob,
             guestsWithoutJob: readiness.guestsWithoutJob,
+            sharesWithoutJob: readiness.sharesWithoutJob,
             running: readiness.running,
             lastCheckedAt: readiness.lastCheckedAt,
           };
         });
         break;
       case "protectedObjects":
-        widgets.protectedObjects = widget([summary, sources.endpoints, sources.guests], () => {
-          const machines = value(sources.endpoints);
-          const guests = value(sources.guests).counts;
-          return {
-            ...value(summary).objects,
-            machines: {
-              protected: machines.protected,
-              withoutJob: machines.withoutJob,
-              failedLastBackup: machines.failedLastBackup,
-            },
-            guests: {
-              protected: guests.protected,
-              withoutJob: guests.withoutJob,
-              failedLastBackup: guests.failedLastBackup,
-              restorePoints: guests.restorePoints,
-            },
-            noBackup: value(summary).readiness.noBackup,
-          };
-        });
+        widgets.protectedObjects = widget(
+          [summary, sources.endpoints, sources.guests, sources.shares],
+          () => {
+            const machines = value(sources.endpoints);
+            const guests = value(sources.guests).counts;
+            const shares = value(sources.shares).counts;
+            return {
+              ...value(summary).objects,
+              machines: {
+                protected: machines.protected,
+                withoutJob: machines.withoutJob,
+                failedLastBackup: machines.failedLastBackup,
+              },
+              guests: {
+                protected: guests.protected,
+                withoutJob: guests.withoutJob,
+                failedLastBackup: guests.failedLastBackup,
+                restorePoints: guests.restorePoints,
+              },
+              fileShares: {
+                protected: shares.protected,
+                withoutJob: shares.withoutJob,
+                failedLastBackup: shares.failedLastBackup,
+                warnings: shares.warnings,
+                restorePoints: shares.restorePoints,
+              },
+              noBackup: value(summary).readiness.noBackup,
+            };
+          },
+        );
         break;
       case "storage":
         widgets.storage = widget([summary, facts], () => ({
@@ -442,7 +466,7 @@ export async function loadDashboard(
     needed ? settle(source, tenantId, run) : Promise.resolve(NOT_NEEDED as Settled<T>);
 
   const readUsage = usageReader(deps.providerDb);
-  const [summary, facts, mail, trends, jobs, mailboxes, endpoints, stale, guests] =
+  const [summary, facts, mail, trends, jobs, mailboxes, endpoints, stale, guests, shares] =
     await Promise.all([
       load("summary", needs("lastBackup", "readiness", "protectedObjects", "storage"), () =>
         loadTenantSummary(deps.db, tenantId, now),
@@ -478,6 +502,10 @@ export async function loadDashboard(
       load("guests", needs("lastBackup", "protectedObjects"), () =>
         loadGuestCounts(deps.db, tenantId, now),
       ),
+      // File shares (docs/FILESHARES.md 13), counted next to the guests.
+      load("shares", needs("lastBackup", "protectedObjects"), () =>
+        loadShareCounts(deps.db, tenantId, now),
+      ),
     ]);
 
   let provider: DashboardDto["provider"] = null;
@@ -500,7 +528,7 @@ export async function loadDashboard(
     tenant: { id: tenant.id, name: tenant.name, slug: tenant.slug, status: tenant.status },
     widgets: buildWidgets(
       wanted,
-      { summary, facts, mail, trends, jobs, mailboxes, endpoints, stale, guests },
+      { summary, facts, mail, trends, jobs, mailboxes, endpoints, stale, guests, shares },
       viewer,
       now,
     ),

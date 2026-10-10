@@ -1,6 +1,6 @@
 name: Smoke
 
-# The release smoke (scripts/smoke, its eleven checks, "The release smoke" in
+# The release smoke (scripts/smoke, its twelve checks, "The release smoke" in
 # docs/CI.md) on any commit, without publishing anything: it builds the images
 # from the checkout and runs every check, once for the full build and once for
 # the Community build (--variant community, docs/CI.md "Two build targets"). Nightly on main, so a
@@ -46,6 +46,19 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: .nvmrc
+
+      - name: The cifs kernel module (smoke check 12, file shares)
+        # The Docker daemon mounts the Samba share of check 12 with the host's cifs module;
+        # a GitHub runner's kernel ships it in linux-modules-extra (docs/FILESHARES.md 16.4).
+        run: |
+          if ! grep -qw cifs /proc/filesystems; then
+            sudo modprobe cifs || {
+              sudo apt-get update -qq
+              sudo apt-get install -y -qq "linux-modules-extra-$(uname -r)"
+              sudo modprobe cifs
+            }
+          fi
+          grep -w cifs /proc/filesystems
 
       - name: Run the smoke checks
         env:

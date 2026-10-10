@@ -116,6 +116,7 @@ function idleState(over: Partial<StateView> = {}): StateView {
     events: [],
     capabilities: capabilities(),
     selfUpdate: null,
+    mounterEnable: null,
     serverTime: "2026-10-01T09:00:00.000Z",
     ...over,
   };
@@ -127,9 +128,15 @@ class ScriptedUpdater implements UpdaterClient {
   readonly scheduled: ScheduleRequest[] = [];
   cancelled = 0;
   acknowledged = 0;
+  enabledMounter = 0;
 
   async state() {
     return this.view;
+  }
+
+  async enableMounter() {
+    this.enabledMounter += 1;
+    return this.view as StateView;
   }
 
   async schedule(request: ScheduleRequest) {

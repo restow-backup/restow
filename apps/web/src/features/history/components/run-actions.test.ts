@@ -35,6 +35,30 @@ describe("what Run now does", () => {
   });
 });
 
+describe("Run now for the runs of file shares", () => {
+  const subject = { kind: "file_share" as const, id: "share-1", name: "Office", detail: null };
+  const job = { id: "job-1", name: "Shares" };
+
+  it("backs up the share through its job, and runs a copy job as a whole", () => {
+    expect(runNowOf({ ...run(), source: "file_share", subject, job, type: "backup" })).toEqual({
+      kind: "job",
+      job,
+      target: { id: "share-1", name: "Office" },
+    });
+    expect(
+      runNowOf({ ...run(), source: "file_share", subject, job, kind: "restore", type: "copy" }),
+    ).toEqual({ kind: "job", job, target: null });
+  });
+
+  it("offers nothing for a share backup without a job (its page has Back up now)", () => {
+    expect(runNowOf({ ...run(), source: "file_share", subject, job: null })).toBeNull();
+  });
+
+  it("never retries a share run from History", () => {
+    expect(retryable({ source: "file_share", state: "failed", type: "backup" })).toBe(false);
+  });
+});
+
 describe("what can be retried", () => {
   it("is a failed or cancelled mail backup or restore check, nothing else", () => {
     expect(retryable(finished("failed"))).toBe(true);

@@ -16,6 +16,7 @@ import { i18n } from "@/i18n";
 import { resetWebExtensionsForTesting } from "@/lib/extensions";
 
 import {
+  mounterStarting,
   mountsErrorKey,
   validExportPath,
   validMountName,
@@ -145,6 +146,101 @@ describe("Mounts", () => {
     expect(text(card)).toContain("docker compose --profile mounts up -d mounter");
     expect(text(card)).toContain("Docker socket");
     expect(slot("mounts-list")).toBeNull();
+  });
+
+  it("offers Enable network shares to the owner when the updater can start the mounter", async () => {
+    const enable = {
+      running: false,
+      via: "updater",
+      command: "docker compose --profile mounts up -d mounter",
+      disableCommand: "docker compose --profile mounts stop mounter",
+      lastAttempt: null,
+    };
+    const down = view({ available: false, unavailableReason: "unreachable", state: null, enable });
+    const started = view({ enable: { ...enable, running: true, via: null } });
+    let current = down;
+    const { mock, requests } = routes({
+      "GET /mounts": () => json(current),
+      "POST /mounts/enable": () => {
+        current = started;
+        return json(started);
+      },
+    });
+    vi.stubGlobal("fetch", mock);
+    await open();
+    const card = slot("mounts-unavailable");
+    expect(text(card)).toContain("The updater can start the mounter for you");
+    expect(text(card)).toContain("Or run this command on the host");
+    expect(text(card)).toContain("docker compose --profile mounts stop mounter");
+    const button = buttonByText(card as HTMLElement, "Enable network shares");
+    expect(button).not.toBeNull();
+    await click(button as HTMLElement);
+    await flush(8);
+    expect(
+      requests.some((request) => request.method === "POST" && request.path === "/mounts/enable"),
+    ).toBe(true);
+    expect(slot("mounts-unavailable")).toBeNull();
+    expect(slot("mounts-list")).not.toBeNull();
+  });
+
+  it("shows why the updater could not start the mounter", async () => {
+    const down = view({
+      available: false,
+      unavailableReason: "unreachable",
+      state: null,
+      enable: {
+        running: false,
+        via: "updater",
+        command: "docker compose --profile mounts up -d mounter",
+        disableCommand: "docker compose --profile mounts stop mounter",
+        lastAttempt: {
+          status: "failed",
+          reason: "compose_unsupported",
+          image: null,
+          requestedAt: "2026-10-02T09:00:00.000Z",
+          finishedAt: "2026-10-02T09:00:02.000Z",
+          detail: "resolves to nothing",
+        },
+      },
+    });
+    vi.stubGlobal("fetch", routes({ "GET /mounts": () => json(down) }).mock);
+    await open();
+    const failed = slot("enable-mounter-failed");
+    expect(text(failed)).toContain("could not start the mounter");
+    expect(text(failed)).toContain("RESTOW_MOUNTER_IMAGE");
+    expect(text(failed)).toContain("resolves to nothing");
+  });
+
+  it("shows only the command without an updater, and no button to other roles", async () => {
+    const command = {
+      running: false,
+      via: "command",
+      command: "docker compose --profile mounts up -d mounter",
+      disableCommand: "docker compose --profile mounts stop mounter",
+      lastAttempt: null,
+    };
+    let down = view({
+      available: false,
+      unavailableReason: "unreachable",
+      state: null,
+      enable: command,
+    });
+    vi.stubGlobal("fetch", routes({ "GET /mounts": () => json(down) }).mock);
+    await open();
+    expect(slot("enable-mounter")).toBeNull();
+    expect(text(slot("mounts-unavailable"))).toContain(
+      "docker compose --profile mounts up -d mounter",
+    );
+    await mounted?.unmount();
+    down = view({
+      available: false,
+      unavailableReason: "unreachable",
+      state: null,
+      enable: { ...command, via: "updater" },
+    });
+    vi.stubGlobal("fetch", routes({ "GET /mounts": () => json(down) }).mock);
+    await open({ session: providerSession("administrator") });
+    expect(slot("enable-mounter")).toBeNull();
   });
 
   it("lists the shares with their path in the application", async () => {
@@ -329,5 +425,23 @@ describe("mounts helpers", () => {
 
   it("maps errors to messages", () => {
     expect(mountsErrorKey(new Error("x"))).toBe("installation:mounts.errors.generic");
+  });
+
+  it("follows a start of the mounter for two minutes at most", () => {
+    const now = Date.parse("2026-10-02T10:00:00.000Z");
+    const attempt = (status: string, finishedAt: string | null) =>
+      ({
+        available: false,
+        demo: false,
+        enable: {
+          via: "updater",
+          lastAttempt: { status, requestedAt: "2026-10-02T09:59:00.000Z", finishedAt },
+        },
+      }) as unknown as Parameters<typeof mounterStarting>[0];
+    expect(mounterStarting(attempt("running", null), now)).toBe(true);
+    expect(mounterStarting(attempt("started", "2026-10-02T09:59:30.000Z"), now)).toBe(true);
+    expect(mounterStarting(attempt("started", "2026-10-02T09:57:00.000Z"), now)).toBe(false);
+    expect(mounterStarting(attempt("failed", "2026-10-02T09:59:30.000Z"), now)).toBe(false);
+    expect(mounterStarting(undefined, now)).toBe(false);
   });
 });

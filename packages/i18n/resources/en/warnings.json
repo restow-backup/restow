@@ -16,7 +16,7 @@
   "empty": {
     "open": {
       "title": "No open warnings",
-      "description": "The last backups of all protected objects and machines are complete, or their warnings are acknowledged."
+      "description": "The last backups of all protected objects, machines and file shares are complete, or their warnings are acknowledged."
     },
     "acknowledged": {
       "title": "No acknowledged warnings",
@@ -37,7 +37,8 @@
     "onedrive": "OneDrive",
     "imap": "IMAP account",
     "server": "Server",
-    "client": "Client"
+    "client": "Client",
+    "file_share": "File share"
   },
   "state": {
     "open": "Warning",
@@ -63,7 +64,8 @@
     "acknowledgeAgain": "Acknowledge again",
     "acknowledgeSelected": "{count, plural, one {Acknowledge # warning} other {Acknowledge # warnings}}",
     "revoke": "Revoke acknowledgement",
-    "openRun": "Open run"
+    "openRun": "Open run",
+    "openShare": "Open file share"
   },
   "reasons": {
     "notAllowed": "Your role does not allow acknowledging warnings.",

@@ -25,14 +25,16 @@
     "directory": "Verzeichnis-Sync",
     "retention": "Aufbewahrungslauf",
     "scrub": "Speicherprüfung",
-    "storage_migration": "Speichermigration"
+    "storage_migration": "Speichermigration",
+    "copy": "Kopie"
   },
   "subject": {
     "mailbox": "Postfach",
     "onedrive": "OneDrive",
     "imap": "IMAP-Konto",
     "server": "Server",
-    "client": "Client"
+    "client": "Client",
+    "file_share": "Freigabe"
   },
   "trigger": {
     "scheduled": "Nach Zeitplan",
@@ -245,6 +247,7 @@
     "editJob": "Job bearbeiten",
     "openInHistory": "Im Verlauf öffnen",
     "openMachine": "Rechner öffnen",
+    "openShare": "Freigabe öffnen",
     "runNow": "Jetzt ausführen",
     "retry": "Wiederholen",
     "retried": "Erneut eingereiht",

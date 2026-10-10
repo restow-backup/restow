@@ -402,7 +402,7 @@ checked in the full run) are reported as skipped with that reason.
 It needs Docker with compose and buildx, Node 22 and, for check 9, `pnpm` (or corepack). It
 copies `deploy/release/docker-compose.yml` into `smoke-out/run/stack`, generates every
 secret of that stack fresh, adds the overlay `scripts/smoke/docker-compose.smoke.yml`
-(Dovecot, Garage, a bind-mounted directory standing in for an NFS share), starts it
+(Dovecot, Garage, Samba, a bind-mounted directory standing in for an NFS share), starts it
 as the compose project `restow-smoke` on the ports from 38300 (`--port-base`), runs the
 checks and removes the stack and its volumes again. Output: `smoke-report.md` (check,
 result, duration, detail and the date of each), the service logs in `smoke-out/logs`, the
@@ -461,6 +461,21 @@ The checks:
     MBOX uploaded in segments become one imported mailbox; it is exported as an EML ZIP and as
     MBOX files; the EML files come back byte for byte, every message by Message-ID, and both
     checksum lists agree with the files.
+12. **File shares** (docs/FILESHARES.md 16.4, both builds): the mounter started with the
+    profile `mounts` (the installer's default) and a Samba server built from
+    `scripts/smoke/samba` (SMB 3, NT ACLs in `user.NTACL`); the share added through the api as
+    the provider admin by the Samba container's address, the connection test, a share job with
+    one excluded file type, a backup that ends "with warnings" for one file the account may not
+    read, the restore point with its permissions sidecar, browsing, the catalog search, a ZIP
+    of two folders compared by SHA-256, the restore check, a change and a deletion and a second
+    backup, a folder restored into a new folder with its permissions (content by SHA-256, the
+    explicit ACL entry read back with `smbcacls`), a "keep both" restore to the original
+    location, the runs in History and the share on the dashboard, a mirror copy job into a
+    folder of a second share (a deletion reaches it, a file outside the folder stays) and a
+    mirror into a share root refused, a wrong password (`share.auth_failed`), an emptied share
+    refused as `share.empty_source` with its restore points untouched, and the api and the
+    worker never restarted. The Docker host needs the `cifs` kernel module: both workflows load
+    it (`linux-modules-extra-$(uname -r)` on the runner) before the smoke runs.
 
 ### What the smoke does not do
 
@@ -476,6 +491,10 @@ The report states each of these; none is ever shown as a pass.
   for each build from its own previous images.
 - The Community run skips check 6 and check 8 (above) and says so in its report; the
   same code is checked in the full run.
+- Check 12 runs against Samba only: no Windows Server, no NAS, no NFS (a kernel NFS server
+  needs a privileged container), no file held open by another client (the per-file warning
+  path is shown with a file the account may not read), and a tenant admin's refused private
+  address is left to the Postgres suites (the smoke signs in as the provider admin).
 - Check 6 does not compare the stored bytes of a journal item with the report it came from:
   no API serves an archived item's raw bytes; the export is the witness.
 - Check 9 counts critical Trivy findings **that have a fix**. Criticals the distribution has

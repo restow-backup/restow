@@ -138,6 +138,11 @@
       "title": "{count, plural, one {# Gast in keinem Backup-Job} other {# Gäste in keinem Backup-Job}}",
       "description": "Diese VMs und Container werden nicht mehr gesichert. Ihre bisherigen Sicherungsstände bleiben bewertet, neue entstehen erst, wenn Sie den Gast einem Backup-Job zuordnen.",
       "action": "VMs & Container öffnen"
+    },
+    "sharesWithoutJob": {
+      "title": "{count, plural, one {# Freigabe in keinem Backup-Job} other {# Freigaben in keinem Backup-Job}}",
+      "description": "Diese Freigaben werden nicht mehr gesichert. Ihre bisherigen Sicherungsstände bleiben bewertet, neue entstehen erst, wenn Sie die Freigabe einem Backup-Job zuordnen.",
+      "action": "Freigaben öffnen"
     }
   },
   "lastBackup": {
@@ -150,7 +155,8 @@
       "imap": "IMAP-Postfächer",
       "archive": "Archiv",
       "machines": "Server und Clients",
-      "guests": "VMs und Container"
+      "guests": "VMs und Container",
+      "fileShares": "Freigaben"
     },
     "empty": {
       "title": "Noch keine Sicherungen",
@@ -178,7 +184,10 @@
     "withGuests": "{count, plural, one {davon # VM oder Container} other {davon # VMs und Container}}",
     "noBackup": "{count, plural, one {# ohne Sicherung} other {# ohne Sicherung}}",
     "withoutJob": "{count, plural, one {# Rechner in keinem Backup-Job} other {# Rechner in keinem Backup-Job}}",
-    "guestsWithoutJob": "{count, plural, one {# Gast in keinem Backup-Job} other {# Gäste in keinem Backup-Job}}"
+    "guestsWithoutJob": "{count, plural, one {# Gast in keinem Backup-Job} other {# Gäste in keinem Backup-Job}}",
+    "withShares": "{count, plural, one {davon # Freigabe} other {davon # Freigaben}}",
+    "sharesWithoutJob": "{count, plural, one {# Freigabe in keinem Backup-Job} other {# Freigaben in keinem Backup-Job}}",
+    "sharesWithWarnings": "{count, plural, one {# Freigabe mit Warnungen} other {# Freigaben mit Warnungen}}"
   },
   "storage": {
     "title": "Gespeichert",
@@ -425,6 +434,8 @@
         "machines_without_job": "{count, plural, one {# Rechner ist in keinem Backup-Job und wird nicht gesichert.} other {# Rechner sind in keinem Backup-Job und werden nicht gesichert.}}",
         "guest_backup_failed": "{count, plural, one {Bei # Gast (VM oder Container) ist die letzte Sicherung fehlgeschlagen.} other {Bei # Gästen (VMs oder Container) ist die letzte Sicherung fehlgeschlagen.}}",
         "guests_without_job": "{count, plural, one {# Gast (VM oder Container) ist in keinem Backup-Job und wird nicht gesichert.} other {# Gäste (VMs oder Container) sind in keinem Backup-Job und werden nicht gesichert.}}",
+        "file_share_backup_failed": "{count, plural, one {Die letzte Sicherung von # Freigabe ist fehlgeschlagen.} other {Die letzte Sicherung von # Freigaben ist fehlgeschlagen.}}",
+        "file_shares_without_job": "{count, plural, one {# Freigabe ist in keinem Backup-Job und wird nicht gesichert.} other {# Freigaben sind in keinem Backup-Job und werden nicht gesichert.}}",
         "needs_attention": "{count, plural, one {# Objekt braucht Aufmerksamkeit (Lücken oder überfällige Restore-Prüfung).} other {# Objekte brauchen Aufmerksamkeit (Lücken oder überfällige Restore-Prüfung).}}",
         "nothing_protected": "Der Mandant schützt noch nichts."
       },

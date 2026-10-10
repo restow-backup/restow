@@ -6,6 +6,7 @@ import type {
   TenantKind,
   TenantStatus,
 } from "../../../../apps/api/src/features/dashboard/dto.js";
+import type { ShareCountsDto } from "../../../../apps/api/src/features/file-shares/protection.js";
 import type { GuestCountsDto } from "../../../../apps/api/src/features/pve/protection.js";
 import type { EndpointCountsDto } from "../../../../apps/api/src/routes/v1/endpoints.js";
 import type { TenantSummaryDto } from "../../../../apps/api/src/routes/v1/status.js";
@@ -47,6 +48,11 @@ export interface TenantHealthFacts {
   /** The tenant's VMs and containers of Proxmox VE (GET /status `guests`); absent, it has none. */
   guests?: Pick<
     GuestCountsDto,
+    "protected" | "withoutJob" | "failedLastBackup" | "lastSuccessAt"
+  > | null;
+  /** The tenant's file shares (GET /status `fileShares`); absent, it has none. */
+  fileShares?: Pick<
+    ShareCountsDto,
     "protected" | "withoutJob" | "failedLastBackup" | "lastSuccessAt"
   > | null;
   /** After how many hours without a successful backup the tenant reads as stale (by its schedules). */
@@ -105,6 +111,9 @@ export function tenantRow(
       guests: null,
       guestsWithoutJob: null,
       guestsFailed: null,
+      fileShares: null,
+      fileSharesWithoutJob: null,
+      fileSharesFailed: null,
       physicalBytes: null,
       storageError: null,
     };
@@ -112,6 +121,7 @@ export function tenantRow(
   const { summary } = facts;
   const machines = facts.machines ?? null;
   const guests = facts.guests ?? null;
+  const shares = facts.fileShares ?? null;
   return {
     ...base,
     loaded: true,
@@ -130,6 +140,7 @@ export function tenantRow(
       summary.lastSuccess.imap,
       machines?.lastSuccessAt ?? null,
       guests?.lastSuccessAt ?? null,
+      shares?.lastSuccessAt ?? null,
     ]),
     staleAfterHours: facts.staleAfterHours ?? STALE_BACKUP_HOURS,
     machines: machines ? machines.total - machines.withoutJob : 0,
@@ -138,6 +149,9 @@ export function tenantRow(
     guests: guests?.protected ?? 0,
     guestsWithoutJob: guests?.withoutJob ?? 0,
     guestsFailed: guests?.failedLastBackup ?? 0,
+    fileShares: shares?.protected ?? 0,
+    fileSharesWithoutJob: shares?.withoutJob ?? 0,
+    fileSharesFailed: shares?.failedLastBackup ?? 0,
     physicalBytes: summary.storage.physicalBytes,
     storageError: facts.storageError,
   };
@@ -178,6 +192,9 @@ export function alertsFor(row: ProviderTenantRowDto, now: Date): ProviderAlertDt
   if (row.guestsFailed > 0) {
     alerts.push(alert("guest_backup_failed", "destructive", row.guestsFailed));
   }
+  if (row.fileSharesFailed > 0) {
+    alerts.push(alert("file_share_backup_failed", "destructive", row.fileSharesFailed));
+  }
   if (row.mailboxCap !== null && row.mailboxes > row.mailboxCap) {
     alerts.push(alert("over_cap", "warning", row.mailboxes - row.mailboxCap));
   }
@@ -193,11 +210,14 @@ export function alertsFor(row: ProviderTenantRowDto, now: Date): ProviderAlertDt
   if (row.guestsWithoutJob > 0) {
     alerts.push(alert("guests_without_job", "warning", row.guestsWithoutJob));
   }
+  if (row.fileSharesWithoutJob > 0) {
+    alerts.push(alert("file_shares_without_job", "warning", row.fileSharesWithoutJob));
+  }
   if (row.needsAttention > 0) {
     // Proven restorable with gaps, or a rating that is overdue: not "secured and checked".
     alerts.push(alert("needs_attention", "warning", row.needsAttention));
   }
-  const protects = row.protectedObjects + row.machines + row.guests > 0;
+  const protects = row.protectedObjects + row.machines + row.guests + row.fileShares > 0;
   if (
     protects &&
     row.lastBackupAt !== null &&
@@ -209,6 +229,7 @@ export function alertsFor(row: ProviderTenantRowDto, now: Date): ProviderAlertDt
     !protects &&
     row.machinesWithoutJob === 0 &&
     row.guestsWithoutJob === 0 &&
+    row.fileSharesWithoutJob === 0 &&
     row.status === "active" &&
     row.kind !== "internal"
   ) {

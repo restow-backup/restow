@@ -13,6 +13,7 @@ import { jobDefinitionTo, linkProps } from "@/features/backup-jobs/paths";
 import { createTask } from "@/features/endpoints/api";
 import { endpointDetailTo } from "@/features/endpoints/paths";
 import { endpointErrorKey } from "@/features/endpoints/presenters";
+import { fileShareTo, linkTo } from "@/features/file-shares/paths";
 import { jobDetailTo } from "@/features/jobs/paths";
 import { useStartBackup } from "@/features/jobs/use-jobs";
 import { ApiError, errorMessageKey } from "@/lib/api";
@@ -38,14 +39,18 @@ export type RunNow =
   | { kind: "mail"; objectId: string }
   | { kind: "machine"; endpointId: string };
 
-export function runNowOf(run: Pick<Run, "job" | "kind" | "source" | "subject">): RunNow | null {
+export function runNowOf(
+  run: Pick<Run, "job" | "kind" | "source" | "subject"> & Partial<Pick<Run, "type">>,
+): RunNow | null {
   if (run.job) {
-    if (run.kind === "backup" && run.subject) {
+    // A copy run's subject is the source share, not a member of the copy job: run the job.
+    if (run.kind === "backup" && run.subject && run.type !== "copy") {
       return { kind: "job", job: run.job, target: { id: run.subject.id, name: run.subject.name } };
     }
     return { kind: "job", job: run.job, target: null };
   }
-  if (run.kind !== "backup" || !run.subject) {
+  // A share is backed up by its job only (the share's page has "Back up now").
+  if (run.kind !== "backup" || !run.subject || run.source === "file_share") {
     return null;
   }
   return run.source === "mail"
@@ -94,7 +99,14 @@ export function RunActions({ run, where, className }: RunActionsProps) {
   const [confirmingJob, setConfirmingJob] = React.useState(false);
 
   const now = runNowOf(run);
-  const kind = run.source === "mail" ? "mail" : "endpoint";
+  const kind =
+    run.source === "mail"
+      ? "mail"
+      : run.source === "endpoint"
+        ? "endpoint"
+        : run.type === "copy"
+          ? "copy"
+          : "share";
   const closedHint = access.closed ? { "aria-describedby": access.noteId } : {};
   const failed = (error: unknown) =>
     toast.error(t("actions.failed"), { description: tc(errorMessageKey(error)) });
@@ -254,6 +266,14 @@ export function RunActions({ run, where, className }: RunActionsProps) {
             setConfirmingJob(false);
           }}
         />
+      ) : null}
+      {run.subject && run.source === "file_share" ? (
+        <Button variant="ghost" asChild>
+          <Link {...linkTo(fileShareTo(run.subject.id, "runs"))}>
+            <ExternalLink aria-hidden="true" />
+            {t("actions.openShare")}
+          </Link>
+        </Button>
       ) : null}
       {where === "page" && run.subject && run.source === "endpoint" ? (
         <Button variant="ghost" asChild>

@@ -119,15 +119,32 @@ installation default still uses.
 ## Enabling it
 
 The mounter is part of the release's `docker-compose.yml` as the service `mounter` in
-the compose profile `mounts`. Nothing runs until you start it, once, in the directory
-that holds `docker-compose.yml`:
+the compose profile `mounts`. It also runs the containers that back up and restore file
+shares (SMB, NFS; [FILESHARES.md](FILESHARES.md)), so file share backup needs it too.
+
+- **New installations: on by default.** `install.sh` starts the `mounts` profile together
+  with the stack for every release that has the mounter (0.3.0 and newer); `--no-mounter`
+  (or its alias `--without-mounter`) leaves it off, `--with-mounter` is still accepted. For
+  an explicitly chosen older release the default stays off quietly. Running the installer
+  again on an existing installation keeps that installation's choice: it starts no profile.
+- **Existing installations, with the opt-in updater: Enable network shares.** Installation >
+  Network shares (and the notice on the File shares pages and in the storage form's NFS
+  offer) shows the provider owner the button **Enable network shares** while the mounter is
+  off and the updater runs. It needs a recent sign-in and is written to the installation's
+  audit log (`mounter.enable_requested`, then `mounter.enabled` or `mounter.enable_failed`).
+  The api forwards it to the updater (`POST /v1/mounter/enable`), which refuses while an
+  update is scheduled or running, checks that `docker-compose.yml` has the `mounter` service
+  in the profile `mounts` taking its image from `RESTOW_MOUNTER_IMAGE`, writes that line only
+  when the updater itself runs a release image whose signature it verified (otherwise it
+  leaves the line as it is, and an empty line lets the mounter pin its own image), and runs
+  `docker compose --profile mounts up -d --no-deps --no-build --pull missing mounter` in its
+  helper container. The outcome (started, or failed with the reason) is shown in the section.
+- **Existing installations, without the updater: the one command.** In the directory that
+  holds `docker-compose.yml`:
 
 ```sh
 docker compose --profile mounts up -d mounter
 ```
-
-A new installation can start it right away: `install.sh --with-mounter` (from 0.3.0)
-starts the `mounts` profile together with the stack.
 
 No line in `.env` is needed. It does not need the opt-in updater, and the updater does
 not need it; with the updater running, the mounter follows every signed update by
@@ -157,9 +174,10 @@ The mounter needs Compose to find the override on its own: the project must use 
 of the default file names (`docker-compose.yml`, `compose.yaml`, ...) and `.env` must
 not set `COMPOSE_FILE`. The section says so when that is not the case.
 
-To switch it off again: `docker compose --profile mounts stop mounter`. The shares
-stay mounted (they are in the override file); remove them in the web interface first
-if you want them gone.
+To switch it off again: `docker compose --profile mounts stop mounter` (a command only;
+the web interface does not switch it off). The shares stay mounted (they are in the
+override file); remove them in the web interface first if you want them gone. File share
+runs in progress then end as `share.runner_lost`, and no new file share run starts.
 
 ## Updates
 

@@ -59,17 +59,20 @@ export interface KpiDto {
 export interface KpisDto {
   /**
    * Succeeded / (succeeded + failed) backup runs that finished in the period
-   * (0..1), jobs and agent backups of servers and clients together. A backup
-   * of the agent that ended partial counts as succeeded; one that only says it
-   * was interrupted (the agent restarted) is left out.
+   * (0..1), jobs and agent backups of servers and clients, backups of VMs and
+   * containers and of file shares together. A backup of the agent that ended
+   * partial, and one of a file share that ended with warnings, count as
+   * succeeded; one that only says it was interrupted (the agent restarted) is
+   * left out.
    */
   backupSuccessRate: KpiDto;
   /**
    * Protected objects at the end of the period: active ones, and orphaned ones
    * (gone from their source) while they still have a backup. Excluded objects
    * are not protected. Servers and clients backed up by the agent count too,
-   * from their enrollment until they are revoked. The readiness series counts
-   * exactly these objects and machines.
+   * from their enrollment until they are revoked, and so do VMs and containers
+   * and file shares in a backup job (or with a restore point). The readiness
+   * series counts exactly these objects, machines, guests and shares.
    */
   protectedObjects: KpiDto;
   /** The newest backup of every protected object at the end of the period, added up. */
@@ -78,7 +81,7 @@ export interface KpisDto {
   physicalBytes: KpiDto;
   /** Retained snapshot bytes per stored byte at the end of the period. */
   dedupRatio: KpiDto;
-  /** Restores that finished (completed or failed) in the period. */
+  /** Restores that finished (completed or failed) in the period; restores and copies of file shares included. */
   restores: KpiDto;
   /**
    * Share of protected objects whose newest backup a restore check of that

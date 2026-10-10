@@ -16,7 +16,7 @@
   "empty": {
     "open": {
       "title": "Keine offenen Warnungen",
-      "description": "Die letzten Sicherungen aller geschützten Objekte und Rechner sind vollständig, oder ihre Warnungen sind bestätigt."
+      "description": "Die letzten Sicherungen aller geschützten Objekte, Rechner und Freigaben sind vollständig, oder ihre Warnungen sind bestätigt."
     },
     "acknowledged": {
       "title": "Keine bestätigten Warnungen",
@@ -37,7 +37,8 @@
     "onedrive": "OneDrive",
     "imap": "IMAP-Konto",
     "server": "Server",
-    "client": "Client"
+    "client": "Client",
+    "file_share": "Freigabe"
   },
   "state": {
     "open": "Warnung",
@@ -63,7 +64,8 @@
     "acknowledgeAgain": "Erneut bestätigen",
     "acknowledgeSelected": "{count, plural, one {# Warnung bestätigen} other {# Warnungen bestätigen}}",
     "revoke": "Bestätigung zurücknehmen",
-    "openRun": "Lauf öffnen"
+    "openRun": "Lauf öffnen",
+    "openShare": "Freigabe öffnen"
   },
   "reasons": {
     "notAllowed": "Ihre Rolle erlaubt es nicht, Warnungen zu bestätigen.",

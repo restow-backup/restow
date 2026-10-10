@@ -96,7 +96,7 @@
     },
     "protectedObjects": {
       "label": "Protected objects",
-      "hint": "Mailboxes, OneDrives, IMAP accounts, servers and clients in scope"
+      "hint": "Mailboxes, OneDrives, IMAP accounts, servers and clients, VMs and containers, file shares in scope"
     },
     "restores": {
       "label": "Restores",

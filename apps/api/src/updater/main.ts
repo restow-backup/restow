@@ -9,6 +9,7 @@ import { EngineClient } from "./engine-api.js";
 import { UpdateEngine } from "./engine.js";
 import { EnvFile, postgresSettings } from "./env-file.js";
 import { consoleLogger } from "./logger.js";
+import { MounterEnabler } from "./mounter-enable.js";
 import { HttpMounterStatus } from "./mounter-status.js";
 import { CliDockerOps } from "./ops-cli.js";
 import { type CommandRunner, type SelfContainer, systemClock } from "./ops.js";
@@ -230,6 +231,20 @@ async function main(): Promise<void> {
   });
   await engine.init();
 
+  // "Enable network shares" in the web interface (docs/FILESHARES.md 3.9): the same helper
+  // that moves the mounter after an update starts it.
+  const mounterEnabler = new MounterEnabler({
+    envFile,
+    ops,
+    launcher: mounterLauncher,
+    store,
+    phase: () => engine.view().phase,
+    clock: systemClock,
+    logger,
+    redactor,
+  });
+  await mounterEnabler.reconcile();
+
   const app = buildServer({
     engine,
     preflight,
@@ -239,6 +254,7 @@ async function main(): Promise<void> {
     logger,
     redactor,
     selfUpdate: () => selfUpdater.view(),
+    mounterEnable: mounterEnabler,
   });
   const server = serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
     logger.info(

@@ -214,6 +214,26 @@ export interface GuestReadinessRow {
   inJob: boolean;
 }
 
+/**
+ * A file share in the readiness overview (apps/api features/file-shares/protection.ts): rated by
+ * the restore check of its newest restore point, and counted in the summary. Listed while it is
+ * in a backup job, or out of every job with a restore point left.
+ */
+export interface ShareReadinessRow {
+  id: string;
+  name: string;
+  protocol: "smb" | "nfs";
+  server: string;
+  state: ObjectState;
+  readiness: Readiness | null;
+  checkedAt: string | null;
+  overdue: boolean;
+  latestBackupAt: string | null;
+  latestSnapshotId: string | null;
+  /** In an enabled backup job; false: nothing backs it up any more. */
+  inJob: boolean;
+}
+
 export interface ReadinessOverview {
   summary: ReadinessSummary;
   objects: ObjectReadiness[];
@@ -221,6 +241,8 @@ export interface ReadinessOverview {
   endpoints?: EndpointReadinessRow[];
   /** VMs and containers of Proxmox VE; absent from servers that predate them. */
   guests?: GuestReadinessRow[];
+  /** File shares; absent from servers that predate them. */
+  shares?: ShareReadinessRow[];
   storage: StorageIntegrity;
   schedules: { backup: Schedule | null; verify: Schedule | null; scrub: Schedule | null };
 }

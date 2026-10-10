@@ -32,6 +32,8 @@ literally (use `{appName}`).
 | An SMB share or NFS export Restow backs up and restores into (docs/FILESHARES.md) | file share | Freigabe | Netzlaufwerk (that is the storage mount), Share, Dateifreigabe (alone is fine in prose) |
 | The short-lived container that mounts a file share for one run | runner (operators only) | Runner (nur Betrieb) | Agent, Helfer |
 | The NTFS or NFS permissions of files and folders | permissions | Berechtigungen | ACLs (in the UI), Rechte |
+| The optional container that mounts network shares and starts the runners (docs/MOUNTS.md) | mounter | Mounter | Mount-Dienst, Agent |
+| A job that writes the newest verified restore point of one file share into a folder of another | copy job | Kopierjob | Sicherungsjob, Spiegel (for the job) |
 | Restoring into the share the data came from | original location | ursprünglicher Ort | Quelle |
 | A VM or container of Proxmox VE | guest (VM, container) | Gast (VM, Container) | Instanz, Maschine, CT |
 | A Proxmox VE server with the node helper | node | Knoten | Host, Hypervisor (for a node) |
@@ -48,7 +50,9 @@ repositories of servers, clients and containers are folders inside it
 File share: Phase C of docs/FILESHARES.md (2026-10-10). "Freigabe" means a file share
 and nothing else; the storage mount of the mounter stays "Netzlaufwerk". A copy job of
 file shares is labelled "Not a backup: no versions on the target" ("Keine Sicherung:
-keine Versionen am Ziel").
+keine Versionen am Ziel"). Phase D adds the mounter and the copy job rows; the button that starts the
+mounter through the updater is "Enable network shares" ("Netzlaufwerke einschalten"), since
+the mounter serves both network shares and file shares.
 
 Times are relative where they describe the past ("vor 3 Stunden") and
 absolute with the time zone where they plan the future ("morgen, 22:00").

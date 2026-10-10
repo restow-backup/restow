@@ -45,6 +45,13 @@ Known Issues.
   bitmaps, so after the first run only changed blocks are uploaded; containers
   go through restic. Restores create a new VM or container. See
   [docs/PVE.md](docs/PVE.md).
+- **File shares (SMB, NFS):** Windows servers, Samba and NAS shares and NFS exports
+  backed up from the server side, without an agent on the file server: a short-lived
+  container mounts the share read-only for one run, restic writes into a repository of
+  its own, NTFS permissions are kept and restored, and a restore goes to a ZIP, a new
+  folder, the original location or another share. Scheduled copy jobs keep a folder of
+  another share in step. Needs the mounter (on by default for new installations;
+  [docs/FILESHARES.md](docs/FILESHARES.md)).
 - **Backup jobs:** one job covers many mailboxes or machines with one schedule,
   one set of folders and one retention, with per-member overrides. "Run now" on
   machines shows the request as queued until the agent picks it up at its next
@@ -82,7 +89,7 @@ Known Issues.
   Repositories). The installation's default repository is set in the web
   interface (or the environment); tenants on it stay separated by their own
   prefix and key. NFS shares are mounted from the web
-  interface through the opt-in mounter container (Installation › Network shares,
+  interface through the mounter container (Installation › Network shares,
   [docs/MOUNTS.md](docs/MOUNTS.md)).
 - **Multi-tenant** for IT service providers (Service Provider edition), with a
   REST API (OpenAPI) and webhooks for RMM and PSA tools. The other editions run
@@ -303,8 +310,9 @@ sudo bash install.sh --non-interactive --domain backup.example.com --edition com
 `--edition full|community` (default full), `--version`, `--dir` (default
 `/opt/restow`), `--yes` or `--non-interactive`, `--with-updater` (the opt-in
 updater stays off unless you ask for it, see [docs/UPDATING.md](docs/UPDATING.md)),
-`--with-mounter` (from 0.3.0: the opt-in mounter for NFS network shares, off
-unless you ask for it, see [docs/MOUNTS.md](docs/MOUNTS.md)),
+`--no-mounter` or `--without-mounter` (the mounter, which backs up file shares and
+mounts NFS network shares, starts by default for 0.3.0 and newer; these leave it off,
+`--with-mounter` is still accepted; see [docs/MOUNTS.md](docs/MOUNTS.md)),
 `--local` (an evaluation without a public domain: the edge serves
 `https://localhost` or an internal name such as `restow.internal` over HTTPS
 with a certificate from Caddy's own authority, browsers warn about it and

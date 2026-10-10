@@ -94,6 +94,35 @@ export interface PendingMount {
   failure: { code: string | null; detail: string | null } | null;
 }
 
+/** The updater's last start of the mounter (apps/api src/updater/protocol.ts). */
+export interface MounterEnableAttempt {
+  status: "running" | "started" | "failed";
+  reason:
+    | "compose_unsupported"
+    | "env_write_failed"
+    | "launch_failed"
+    | "helper_failed"
+    | "interrupted"
+    | null;
+  image: string | null;
+  requestedAt: string;
+  finishedAt: string | null;
+  detail: string;
+}
+
+/**
+ * How the mounter can be switched on (docs/FILESHARES.md 3.9): `updater` when the opt-in
+ * updater can start it ("Enable network shares"), `command` when only the command helps,
+ * null while it runs (or in the demo).
+ */
+export interface MounterEnableInfo {
+  running: boolean;
+  via: "updater" | "command" | null;
+  command: string;
+  disableCommand: string;
+  lastAttempt: MounterEnableAttempt | null;
+}
+
 export interface MountsView {
   available: boolean;
   unavailableReason: MounterFailure | null;
@@ -103,6 +132,8 @@ export interface MountsView {
   state: MounterState | null;
   /** Absent from an api before 0.3.3. */
   pending?: PendingMount | null;
+  /** Absent from an api before file shares (docs/FILESHARES.md 3.9). */
+  enable?: MounterEnableInfo;
 }
 
 export interface MountTestResult {
@@ -130,6 +161,8 @@ export const MOUNT_PROBLEMS = {
   demo: "urn:restow:problem:mounts-demo",
   pendingExists: "urn:restow:problem:mount-pending-exists",
   pendingNotFound: "urn:restow:problem:mount-pending-not-found",
+  enableUnavailable: "urn:restow:problem:mounter-enable-unavailable",
+  enableRefused: "urn:restow:problem:mounter-enable-refused",
 } as const;
 
 const REJECTED_CODES = new Set([
@@ -158,6 +191,10 @@ export function mountsErrorKey(error: unknown): string {
       return "installation:mounts.errors.pendingExists";
     case MOUNT_PROBLEMS.pendingNotFound:
       return "installation:mounts.errors.pendingNotFound";
+    case MOUNT_PROBLEMS.enableUnavailable:
+      return "installation:mounts.errors.enableUnavailable";
+    case MOUNT_PROBLEMS.enableRefused:
+      return "installation:mounts.errors.enableRefused";
     case MOUNT_PROBLEMS.rejected: {
       const code = typeof problem.code === "string" ? problem.code : "";
       return REJECTED_CODES.has(code)
@@ -169,10 +206,12 @@ export function mountsErrorKey(error: unknown): string {
   }
 }
 
-/** The mounter's own words for a refusal (redacted there), when it sent some. */
+/** The mounter's (or updater's) own words for a refusal (redacted there), when it sent some. */
 export function mountsErrorDetail(error: unknown): string | null {
   const problem = error instanceof ApiError ? error.problem : null;
-  return problem?.type === MOUNT_PROBLEMS.rejected && typeof problem.detail === "string"
+  return (problem?.type === MOUNT_PROBLEMS.rejected ||
+    problem?.type === MOUNT_PROBLEMS.enableRefused) &&
+    typeof problem.detail === "string"
     ? problem.detail
     : null;
 }
@@ -197,9 +236,26 @@ export const MOUNTS_ACTIVE_REFRESH_MS = 2_000;
 /** While an add waits for running jobs, often enough to see it start. */
 export const MOUNTS_PENDING_REFRESH_MS = 5_000;
 
+/** After "Enable network shares" until the mounter answers, and for at most this long. */
+export const MOUNTS_ENABLING_REFRESH_MS = 3_000;
+export const MOUNTS_ENABLING_WINDOW_MS = 2 * 60_000;
+
+/** The updater started the mounter (or still starts it) a short while ago: it should answer soon. */
+export function mounterStarting(view: MountsView | undefined, now = Date.now()): boolean {
+  const attempt = view?.enable?.lastAttempt;
+  if (!view || view.available || !attempt || attempt.status === "failed") {
+    return false;
+  }
+  const at = Date.parse(attempt.finishedAt ?? attempt.requestedAt);
+  return Number.isFinite(at) && now - at < MOUNTS_ENABLING_WINDOW_MS;
+}
+
 export function mountsRefetchInterval(view: MountsView | undefined): number | false {
   if (view?.state?.operation?.status === "running") {
     return MOUNTS_ACTIVE_REFRESH_MS;
+  }
+  if (mounterStarting(view)) {
+    return MOUNTS_ENABLING_REFRESH_MS;
   }
   return view?.pending && !view.pending.failure ? MOUNTS_PENDING_REFRESH_MS : false;
 }
@@ -246,6 +302,11 @@ export function testMount(
     body: target,
     tenantId: null,
   });
+}
+
+/** "Enable network shares": the opt-in updater starts the mounter (provider owner). */
+export function enableMounter(): Promise<MountsView> {
+  return apiFetch<MountsView>("/mounts/enable", { method: "POST", tenantId: null });
 }
 
 export function useMounts(enabled = true) {
@@ -305,6 +366,21 @@ export function useRemoveMount() {
 
 export function useTestMount() {
   return useMutation({ mutationFn: testMount });
+}
+
+export function useEnableMounter() {
+  const write = useViewWriter();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: enableMounter,
+    onSuccess: (view) => {
+      write(view);
+      // The file share pages read the runner's state from their own settings.
+      void queryClient.invalidateQueries({
+        predicate: (query) => query.queryKey.includes("file-shares"),
+      });
+    },
+  });
 }
 
 // ---------------------------------------------------------------------------

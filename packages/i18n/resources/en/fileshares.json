@@ -48,6 +48,22 @@
     "unverified": "Unverified",
     "no_backup": "No backup yet"
   },
+  "readinessRow": {
+    "overdue": "Overdue",
+    "notChecked": "Unverified",
+    "noBackupYet": "No restore point yet",
+    "open": "Open",
+    "openFor": "Open {name}",
+    "noJob": "In no backup job",
+    "result": {
+      "green": "The restore check of the newest restore point read back every file it sampled.",
+      "yellow": "The restore check of the newest restore point passed with gaps: some files or permissions differed.",
+      "red": "The restore check of the newest restore point failed: files did not match or could not be read.",
+      "unverified": "A restore point exists but has not been checked yet.",
+      "noBackup": "Nothing to check until the first backup has finished.",
+      "noBackupOverdue": "No backup within 24 hours after the share was put into a backup job."
+    }
+  },
   "protocol": {
     "smb": "SMB",
     "nfs": "NFS"
@@ -57,10 +73,11 @@
     "blockedTitle": "File share runs cannot start",
     "tenant": "This installation does not back up file shares yet. Your provider can switch it on.",
     "provider": "An owner of the installation can switch on network shares.",
-    "owner": "File shares are mounted by the mounter, which is not running. Run this command on the server to start it:",
+    "owner": "File shares are mounted by the mounter, which is not running. Start it from here, or run this command on the server:",
     "blockedOwner": "The mounter is running but cannot start runs yet:",
     "copy": "Copy command",
-    "commandHint": "Run it as root in the installation folder. Switching it on from this page follows with a later release."
+    "commandHint": "Run it as root in the installation folder.",
+    "ownerCommand": "File shares are mounted by the mounter, which is not running. Run this command on the server to start it:"
   },
   "add": {
     "title": "Add file share",

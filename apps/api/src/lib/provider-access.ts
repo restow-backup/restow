@@ -257,6 +257,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/mounts": own(),
   "DELETE /api/v1/mounts/:name": own(),
   "POST /api/v1/mounts/test": own(),
+  "POST /api/v1/mounts/enable": own(),
 
   // --- API keys -----------------------------------------------------------------
   "GET /api/v1/api-keys": view(),

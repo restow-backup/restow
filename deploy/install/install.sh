@@ -83,7 +83,8 @@ TOKEN_WAIT_SECONDS=60
 # The first release whose edge can serve an encrypted hop to a reverse proxy in front of it
 # (RESTOW_EDGE_TLS=internal, the Caddyfile of that release).
 PROXY_TLS_MIN_VERSION="0.2.0"
-# The first release with the opt-in mounter (compose profile "mounts", docs/MOUNTS.md).
+# The first release with the mounter (compose profile "mounts", docs/MOUNTS.md). A new
+# installation of it or a newer release starts the mounter by default (--no-mounter turns it off).
 MOUNTER_MIN_VERSION="0.3.0"
 DOCS_URL="https://docs.restowbackup.com"
 PROXY_DOCS_URL="https://docs.restowbackup.com/administrators/get-started/#behind-a-reverse-proxy"
@@ -124,7 +125,10 @@ OPT_DRY_RUN=0
 OPT_SKIP_SIGNATURES=0
 OPT_LOCAL=0
 OPT_UPDATER=0
-OPT_MOUNTER=0
+# The mounter is on by default; OPT_MOUNTER_FLAG remembers an explicit --with-mounter ("with")
+# or --no-mounter ("no"), so that a release without the mounter can keep the default quietly off.
+OPT_MOUNTER=1
+OPT_MOUNTER_FLAG=""
 OPT_BEHIND_PROXY=0
 # The addresses of the reverse proxy, normalized (/32 or /128 added), separated by spaces.
 OPT_PROXY_IPS=""
@@ -133,6 +137,8 @@ ACTION="install"
 
 # ---- State ----------------------------------------------------------------------------
 LOG_READY=0
+# Why the plan shows the mounter off although nobody asked (a release without it).
+MOUNTER_OFF_REASON=""
 INTERACTIVE=0
 WARNINGS=0
 PREFLIGHT_FAILED=0
@@ -205,12 +211,15 @@ Options:
   --no-updater             leave the opt-in updater off (the default)
   --with-updater           also start the opt-in updater (compose profile "updater"). It
                            mounts the Docker socket: read docs/UPDATING.md first.
-  --no-mounter             leave the opt-in mounter off (the default)
-  --with-mounter           also start the opt-in mounter (compose profile "mounts"), which
-                           adds NFS network shares as storage from the web interface. It
-                           mounts the Docker socket: read docs/MOUNTS.md first. With the
-                           updater on, it follows every signed update by itself. Needs
-                           release ${MOUNTER_MIN_VERSION} or newer.
+  --with-mounter           start the mounter (compose profile "mounts"; the default), which
+                           backs up file shares (SMB, NFS) and adds NFS network shares as
+                           storage from the web interface. It mounts the Docker socket:
+                           read docs/MOUNTS.md. With the updater on, it follows every
+                           signed update by itself. Releases before ${MOUNTER_MIN_VERSION} have no
+                           mounter; for them the default is off.
+  --no-mounter, --without-mounter
+                           leave the mounter off (no file share backups; turn it on later
+                           from the web interface or with one command, docs/MOUNTS.md)
   --local                  evaluation only: no public domain, no Let's Encrypt. The edge
                            serves https://localhost (or the internal name given with
                            --domain: *.internal, *.home.arpa, *.localhost) over HTTPS
@@ -989,12 +998,14 @@ parse_args() {
         OPT_UPDATER=1
         shift
         ;;
-      --no-mounter)
+      --no-mounter | --without-mounter)
         OPT_MOUNTER=0
+        OPT_MOUNTER_FLAG=no
         shift
         ;;
       --with-mounter)
         OPT_MOUNTER=1
+        OPT_MOUNTER_FLAG=with
         shift
         ;;
       --local)
@@ -1995,7 +2006,7 @@ write_env() {
   # RESTOW_UPDATER_IMAGE stays empty, also with --with-updater: the updater is the application
   # image, and on its first start it pins the image it runs into .env by digest (stronger than
   # the tag this script knows), then moves itself after every update from a signed release.
-  # RESTOW_MOUNTER_IMAGE stays empty with --with-mounter for the same reason; the updater
+  # RESTOW_MOUNTER_IMAGE stays empty with the mounter on for the same reason; the updater
   # moves the mounter along with it.
   ENV_TMP="$OPT_DIR/.env.install.$$"
   # shellcheck disable=SC2086 # $keys is a list of key names
@@ -2436,7 +2447,8 @@ print_next_steps() {
     say "      runs the application image and mounts the Docker socket: read docs/UPDATING.md)."
   fi
   if [ "$OPT_MOUNTER" = 1 ]; then
-    say "      The opt-in mounter runs: add NFS network shares under Installation > Mounts."
+    say "      The mounter runs: add file shares under File shares, NFS storage under"
+    say "      Installation > Network shares. Turn it off: cd $OPT_DIR && docker compose --profile mounts stop mounter"
     if [ "$OPT_UPDATER" = 1 ]; then
       say "      It moves to the verified image of each signed update the updater installs."
     else
@@ -2615,22 +2627,41 @@ proxy_version_problem() {
 }
 
 # mounter_version_problem <version>: says why this release cannot start the mounter, if so.
+# Only an explicit --with-mounter is a problem; the default stays off quietly (mounter_default).
 mounter_version_problem() {
-  if [ "$OPT_MOUNTER" = 1 ] && ! version_ge "$1" "$MOUNTER_MIN_VERSION"; then
+  if [ "$OPT_MOUNTER" = 1 ] && [ "${OPT_MOUNTER_FLAG:-}" = with ] && ! version_ge "$1" "$MOUNTER_MIN_VERSION"; then
     echo "--with-mounter needs release $MOUNTER_MIN_VERSION or newer: $1 has no mounter. Install $MOUNTER_MIN_VERSION or newer (--version), or leave --with-mounter out."
   fi
 }
 
+# mounter_default <version>: prints the mounter setting (1 or 0) for a new installation of
+# <version>: the option given, else on for releases that have the mounter and off for older ones.
+mounter_default() {
+  if [ -n "${OPT_MOUNTER_FLAG:-}" ]; then
+    echo "$OPT_MOUNTER"
+  elif version_ge "$1" "$MOUNTER_MIN_VERSION"; then
+    echo 1
+  else
+    echo 0
+  fi
+}
+
 # require_mounter_release: --with-mounter on a release without the mounter stops before any
-# check. An installation that exists is only checked and started (like --with-updater).
+# check; without the option, such a release keeps the mounter off. An installation that exists
+# is only checked and started, and keeps its own choice (start_stack starts no profile there).
 require_mounter_release() {
-  local problem
-  if [ "$OPT_MOUNTER" != 1 ] || [ -f "$OPT_DIR/.env" ]; then
+  local problem version
+  if [ -f "$OPT_DIR/.env" ]; then
     return 0
   fi
-  problem=$(mounter_version_problem "${OPT_VERSION:-$DEFAULT_VERSION}")
+  version=${OPT_VERSION:-$DEFAULT_VERSION}
+  problem=$(mounter_version_problem "$version")
   if [ -n "$problem" ]; then
     die "$EXIT_USAGE" "$problem"
+  fi
+  OPT_MOUNTER=$(mounter_default "$version")
+  if [ "$OPT_MOUNTER" = 0 ] && [ -z "$OPT_MOUNTER_FLAG" ]; then
+    MOUNTER_OFF_REASON="off: release $version has no mounter"
   fi
 }
 
@@ -2831,12 +2862,14 @@ show_plan() {
   fi
   if [ "$OPT_MOUNTER" = 1 ]; then
     if [ "$OPT_UPDATER" = 1 ]; then
-      mounter="on: the application image in the mounter role, moved along with every signed update (mounts the Docker socket; docs/MOUNTS.md)"
+      mounter="on: the application image in the mounter role, moved along with every signed update (mounts the Docker socket; turn off with --no-mounter; docs/MOUNTS.md)"
     else
-      mounter="on: the application image in the mounter role, pinned by digest on its first start (mounts the Docker socket; docs/MOUNTS.md)"
+      mounter="on: the application image in the mounter role, pinned by digest on its first start (mounts the Docker socket; turn off with --no-mounter; docs/MOUNTS.md)"
     fi
+  elif [ -n "${MOUNTER_OFF_REASON:-}" ]; then
+    mounter=$MOUNTER_OFF_REASON
   else
-    mounter="off (opt-in later, docs/MOUNTS.md)"
+    mounter="off (--no-mounter; file share backups need it: turn it on later from the web interface or with one command, docs/MOUNTS.md)"
   fi
   if [ "$OPT_SKIP_SIGNATURES" = 1 ]; then
     signatures="NOT checked (--skip-signature-check)"
@@ -2926,6 +2959,9 @@ install_fresh() {
 resume_existing() {
   local env="$OPT_DIR/.env" missing current_domain web_version app_domain
   step "Existing installation in $OPT_DIR"
+  # The mounter keeps this installation's choice: start_stack starts no profile here, and
+  # the summary does not claim a state it did not set.
+  OPT_MOUNTER=kept
   say "    $env exists: nothing in $OPT_DIR is changed; the installer checks the images and makes sure the stack runs."
   if [ ! -f "$OPT_DIR/docker-compose.yml" ]; then
     die "$EXIT_EXISTING" "$env exists but $OPT_DIR/docker-compose.yml does not. Put back the docker-compose.yml of your release (release assets) and run the installer again."

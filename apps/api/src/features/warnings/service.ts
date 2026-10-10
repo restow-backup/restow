@@ -1,6 +1,7 @@
 import {
   type FailureCause,
   type FailureCode,
+  SHARE_ITEM_CAUSES,
   UNKNOWN_WARNING_CAUSE,
   acknowledgeRefusal,
   buildCause,
@@ -12,6 +13,9 @@ import {
   type Database,
   endpointRuns,
   endpoints,
+  fileShareRunItems,
+  fileShareRuns,
+  fileShares,
   itemFailures,
   jobProgress,
   jobs,
@@ -42,6 +46,7 @@ import {
   type WarningTargetKind,
   loadMachineWarnings,
   loadMailWarnings,
+  loadShareWarnings,
 } from "./state.js";
 
 /**
@@ -139,6 +144,51 @@ async function machineTargets(
   );
 }
 
+async function shareTargets(
+  tx: Transaction,
+  tenantId: string,
+  ids: readonly string[],
+): Promise<Map<string, WarningTargetDto>> {
+  if (ids.length === 0) return new Map();
+  const rows = await tx
+    .select({
+      id: fileShares.id,
+      name: fileShares.name,
+      protocol: fileShares.protocol,
+      server: fileShares.server,
+      shareName: fileShares.shareName,
+      exportPath: fileShares.exportPath,
+    })
+    .from(fileShares)
+    .where(and(eq(fileShares.tenantId, tenantId), inArray(fileShares.id, [...ids])));
+  return new Map(
+    rows.map((row) => [
+      row.id,
+      {
+        kind: "share" as const,
+        id: row.id,
+        subjectKind: "file_share" as const,
+        name: row.name,
+        detail:
+          row.protocol === "smb"
+            ? `\\\\${row.server}\\${row.shareName ?? ""}`
+            : `${row.server}:${row.exportPath ?? ""}`,
+      },
+    ]),
+  );
+}
+
+async function targetsOf(
+  tx: Transaction,
+  tenantId: string,
+  kind: WarningTargetKind,
+  ids: readonly string[],
+): Promise<Map<string, WarningTargetDto>> {
+  if (kind === "object") return objectTargets(tx, tenantId, ids);
+  if (kind === "machine") return machineTargets(tx, tenantId, ids);
+  return shareTargets(tx, tenantId, ids);
+}
+
 async function factsOf(
   tx: Transaction,
   tenantId: string,
@@ -148,6 +198,10 @@ async function factsOf(
   if (kind === "object") {
     const targets = await objectTargets(tx, tenantId, ids);
     return { facts: await loadMailWarnings(tx, tenantId, { ids: [...targets.keys()] }), targets };
+  }
+  if (kind === "share") {
+    const targets = await shareTargets(tx, tenantId, ids);
+    return { facts: await loadShareWarnings(tx, tenantId, { ids: [...targets.keys()] }), targets };
   }
   const targets = await machineTargets(tx, tenantId, ids);
   return { facts: await loadMachineWarnings(tx, tenantId, { ids: [...targets.keys()] }), targets };
@@ -166,6 +220,8 @@ export async function listWarnings(
   return withTenantTx(db, tenantId, async (tx) => {
     const mail = await loadMailWarnings(tx, tenantId);
     const machines = await loadMachineWarnings(tx, tenantId);
+    // File shares: a backup that left files behind (locked, unreadable) ends "with warnings".
+    const shares = await loadShareWarnings(tx, tenantId);
     // VMs and containers of Proxmox VE: a backup of a guest either succeeds or fails (it never
     // leaves items behind), so a guest only ever counts as failed, never as a warning.
     const guests = await loadGuestProtection(tx, tenantId, new Date());
@@ -174,7 +230,7 @@ export async function listWarnings(
     ).length;
     const counts = { open: 0, acknowledged: 0, failed: 0, failedGuests };
     const wanted: WarningFact[] = [];
-    for (const fact of [...mail.values(), ...machines.values()]) {
+    for (const fact of [...mail.values(), ...machines.values(), ...shares.values()]) {
       const state = fact.evaluation.state;
       if (state === "open" || state === "acknowledged" || state === "failed") {
         counts[state]++;
@@ -202,8 +258,14 @@ export async function listWarnings(
       tenantId,
       page.filter((fact) => fact.kind === "machine").map((fact) => fact.id),
     );
+    const shareNames = await shareTargets(
+      tx,
+      tenantId,
+      page.filter((fact) => fact.kind === "share").map((fact) => fact.id),
+    );
+    const names = { object: objectNames, machine: machineNames, share: shareNames };
     const items = page.flatMap((fact): WarningSummaryDto[] => {
-      const target = (fact.kind === "object" ? objectNames : machineNames).get(fact.id);
+      const target = names[fact.kind].get(fact.id);
       return target ? [summaryDto(target, fact)] : [];
     });
     return { items, counts, truncated: wanted.length > page.length };
@@ -368,6 +430,90 @@ async function machineDetail(
   return detailOf(target, fact, runs, items, examples);
 }
 
+/** The run of a share as the warning detail lists it. */
+function shareRunOutcome(status: string): WarningRunDto["outcome"] {
+  switch (status) {
+    case "queued":
+      return "queued";
+    case "starting":
+    case "running":
+      return "running";
+    case "warning":
+      return "partial";
+    case "succeeded":
+    case "failed":
+    case "cancelled":
+      return status;
+    default:
+      return "failed";
+  }
+}
+
+async function shareDetail(
+  tx: Transaction,
+  tenantId: string,
+  target: WarningTargetDto,
+  fact: WarningFact,
+): Promise<WarningDetailDto> {
+  const runRows = await tx
+    .select({
+      id: fileShareRuns.id,
+      status: fileShareRuns.status,
+      startedAt: fileShareRuns.startedAt,
+      finishedAt: fileShareRuns.finishedAt,
+      itemCount: fileShareRuns.itemCount,
+      failure: fileShareRuns.failure,
+    })
+    .from(fileShareRuns)
+    .where(
+      and(
+        eq(fileShareRuns.tenantId, tenantId),
+        eq(fileShareRuns.kind, "backup"),
+        eq(fileShareRuns.fileShareId, target.id),
+      ),
+    )
+    .orderBy(desc(fileShareRuns.queuedAt), desc(fileShareRuns.id))
+    .limit(DETAIL_RUNS);
+  const runs: WarningRunDto[] = runRows.map((row) => ({
+    id: row.id,
+    outcome: shareRunOutcome(row.status),
+    startedAt: row.startedAt?.toISOString() ?? null,
+    finishedAt: row.finishedAt?.toISOString() ?? null,
+    failedItems: row.itemCount,
+    failure: row.status === "failed" ? failureDto(row.failure) : null,
+  }));
+
+  const focus = fact.latest;
+  let items: FailedItemDto[] = [];
+  const examples = new Map<string, FailedItemDto["failure"]>();
+  if (focus) {
+    const rows = await tx
+      .select()
+      .from(fileShareRunItems)
+      .where(
+        and(eq(fileShareRunItems.tenantId, tenantId), eq(fileShareRunItems.runId, focus.runId)),
+      )
+      .orderBy(asc(fileShareRunItems.createdAt), asc(fileShareRunItems.id))
+      .limit(DETAIL_ITEMS);
+    items = rows.map((row) => {
+      const code: FailureCode = SHARE_ITEM_CAUSES[row.code] ?? "share.read_errors";
+      const failure = causeToFailureDto(buildCause(code), row.createdAt.toISOString());
+      examples.set(failure.code, failure);
+      const ref = row.path.slice(0, 1000);
+      return {
+        ref,
+        location: locateFailedItem(ref),
+        itemDate: null,
+        failedAt: row.createdAt.toISOString(),
+        attempts: 1,
+        message: (row.message || row.code).slice(0, 2000),
+        failure,
+      };
+    });
+  }
+  return detailOf(target, fact, runs, items, examples);
+}
+
 function detailOf(
   target: WarningTargetDto,
   fact: WarningFact,
@@ -402,6 +548,9 @@ export async function getWarning(
     if (!target || !fact) {
       throw NOT_FOUND();
     }
+    if (kind === "share") {
+      return shareDetail(tx, tenantId, target, fact);
+    }
     return kind === "object"
       ? mailDetail(tx, tenantId, target, fact)
       : machineDetail(tx, tenantId, target, fact);
@@ -411,6 +560,19 @@ export async function getWarning(
 // ---------------------------------------------------------------------------
 // Acknowledging and revoking
 // ---------------------------------------------------------------------------
+
+/** The acknowledgement row of a target: by its object, machine or share column. */
+function ackColumnOf(kind: WarningTargetKind, id: string) {
+  if (kind === "object") return eq(warningAcknowledgements.protectedObjectId, id);
+  if (kind === "machine") return eq(warningAcknowledgements.endpointId, id);
+  return eq(warningAcknowledgements.fileShareId, id);
+}
+
+/** The audit log's target type of a warning target. */
+function auditTargetType(kind: WarningTargetKind, target: WarningTargetDto): string {
+  if (kind === "object") return target.subjectKind;
+  return kind === "machine" ? "endpoint" : "file_share";
+}
 
 function trimNote(note: string | null | undefined): string | null {
   const value = note?.trim() ?? "";
@@ -436,7 +598,7 @@ export async function acknowledgeWarnings(
   const note = trimNote(input.note);
   return withTenantTx(db, tenantId, async (tx) => {
     const result: AcknowledgeResultDto = { acknowledged: [], skipped: [] };
-    for (const kind of ["object", "machine"] as const) {
+    for (const kind of ["object", "machine", "share"] as const) {
       const ids = [
         ...new Set(input.targets.filter((ref) => ref.kind === kind).map((ref) => ref.id)),
       ];
@@ -463,12 +625,7 @@ export async function acknowledgeWarnings(
           acknowledgedBy: actor.label,
           acknowledgedAt: now,
         };
-        const where = and(
-          eq(warningAcknowledgements.tenantId, tenantId),
-          kind === "object"
-            ? eq(warningAcknowledgements.protectedObjectId, id)
-            : eq(warningAcknowledgements.endpointId, id),
-        );
+        const where = and(eq(warningAcknowledgements.tenantId, tenantId), ackColumnOf(kind, id));
         const [updated] = await tx
           .update(warningAcknowledgements)
           .set(values)
@@ -481,7 +638,11 @@ export async function acknowledgeWarnings(
               .insert(warningAcknowledgements)
               .values({
                 tenantId,
-                ...(kind === "object" ? { protectedObjectId: id } : { endpointId: id }),
+                ...(kind === "object"
+                  ? { protectedObjectId: id }
+                  : kind === "machine"
+                    ? { endpointId: id }
+                    : { fileShareId: id }),
                 ...values,
               })
               .returning()
@@ -492,7 +653,7 @@ export async function acknowledgeWarnings(
           actor: actor.label,
           action: WARNING_AUDIT_ACTIONS.acknowledged,
           target: id,
-          targetType: kind === "object" ? target.subjectKind : "endpoint",
+          targetType: auditTargetType(kind, target),
           ip: actor.ip,
           details: {
             name: target.name,
@@ -529,24 +690,14 @@ export async function revokeAcknowledgement(
   actor: WarningActor,
 ): Promise<void> {
   await withTenantTx(db, tenantId, async (tx) => {
-    const targets =
-      ref.kind === "object"
-        ? await objectTargets(tx, tenantId, [ref.id])
-        : await machineTargets(tx, tenantId, [ref.id]);
+    const targets = await targetsOf(tx, tenantId, ref.kind, [ref.id]);
     const target = targets.get(ref.id);
     if (!target) {
       throw NOT_FOUND();
     }
     const [removed] = await tx
       .delete(warningAcknowledgements)
-      .where(
-        and(
-          eq(warningAcknowledgements.tenantId, tenantId),
-          ref.kind === "object"
-            ? eq(warningAcknowledgements.protectedObjectId, ref.id)
-            : eq(warningAcknowledgements.endpointId, ref.id),
-        ),
-      )
+      .where(and(eq(warningAcknowledgements.tenantId, tenantId), ackColumnOf(ref.kind, ref.id)))
       .returning();
     if (!removed) {
       throw new ProblemError(404, "No acknowledgement to revoke");
@@ -557,7 +708,7 @@ export async function revokeAcknowledgement(
       actor: actor.label,
       action: WARNING_AUDIT_ACTIONS.revoked,
       target: ref.id,
-      targetType: ref.kind === "object" ? target.subjectKind : "endpoint",
+      targetType: auditTargetType(ref.kind, target),
       ip: actor.ip,
       details: {
         name: target.name,

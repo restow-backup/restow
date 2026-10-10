@@ -96,7 +96,7 @@
     },
     "protectedObjects": {
       "label": "Geschützte Objekte",
-      "hint": "Postfächer, OneDrives, IMAP-Konten, Server und Clients im Schutzumfang"
+      "hint": "Postfächer, OneDrives, IMAP-Konten, Server und Clients, VMs und Container, Freigaben im Schutzumfang"
     },
     "restores": {
       "label": "Wiederherstellungen",

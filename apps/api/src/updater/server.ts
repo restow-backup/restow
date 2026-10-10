@@ -2,6 +2,11 @@ import { Hono } from "hono";
 import { isAuthorized } from "./auth.js";
 import { EngineError, type UpdateEngine } from "./engine.js";
 import type { Logger } from "./logger.js";
+import {
+  MOUNTER_ENABLE_ANSWER_WAIT_MS,
+  MounterEnableRefusedError,
+  type MounterEnabler,
+} from "./mounter-enable.js";
 import type { Clock } from "./ops.js";
 import type { Preflight } from "./preflight.js";
 import {
@@ -23,6 +28,8 @@ import type { Redactor } from "./redact.js";
  *   POST /v1/schedule        announce an update
  *   POST /v1/cancel          cancel a scheduled update
  *   POST /v1/acknowledge     clear a finished run
+ *   POST /v1/mounter/enable  start the mounter (mounter-enable.ts); answers when the helper
+ *                            finished (200) or after a minute with the start still running (202)
  *
  * Everything under /v1 needs `Authorization: Bearer <shared secret>`. Errors are
  * `{ "code": "...", "message": "..." }`; nothing in a response carries the secret.
@@ -40,6 +47,10 @@ export interface ServerDeps {
   redactor: Redactor;
   /** The updater's own update (self-update.ts); null when this updater has none. */
   selfUpdate?: () => SelfUpdateView | null;
+  /** Starting the mounter from the web interface (mounter-enable.ts); absent: not offered. */
+  mounterEnable?: MounterEnabler;
+  /** How long `POST /v1/mounter/enable` waits for the helper (tests shorten it). */
+  mounterEnableWaitMs?: number;
 }
 
 const STATUS_OF: Record<UpdaterErrorCode, 401 | 404 | 409 | 422 | 500> = {
@@ -87,6 +98,7 @@ export function buildServer(deps: ServerDeps): Hono {
       events: view.events,
       capabilities: await deps.preflight.get(refresh),
       selfUpdate: deps.selfUpdate?.() ?? null,
+      mounterEnable: deps.mounterEnable?.view() ?? null,
       serverTime: deps.clock.now().toISOString(),
     };
   };
@@ -171,6 +183,35 @@ export function buildServer(deps: ServerDeps): Hono {
       throw error;
     }
     return c.json(await stateView(false));
+  });
+
+  app.post("/v1/mounter/enable", async (c) => {
+    const enabler = deps.mounterEnable;
+    if (!enabler) {
+      return fail("not_found", "This updater cannot start the mounter.");
+    }
+    let started: { done: Promise<void> };
+    try {
+      started = await enabler.start();
+    } catch (error) {
+      if (error instanceof MounterEnableRefusedError) {
+        return fail(error.code, error.message);
+      }
+      throw error;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finished = await Promise.race([
+      started.done.then(() => true),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(
+          () => resolve(false),
+          deps.mounterEnableWaitMs ?? MOUNTER_ENABLE_ANSWER_WAIT_MS,
+        );
+        timer.unref?.();
+      }),
+    ]);
+    clearTimeout(timer);
+    return c.json(await stateView(false), finished ? 200 : 202);
   });
 
   app.notFound(() => fail("not_found", "There is nothing at this path."));

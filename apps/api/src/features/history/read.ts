@@ -1,4 +1,4 @@
-import { classifyRunError, mailJobObjectIds } from "@restow/core";
+import { SHARE_ITEM_CAUSES, classifyRunError, mailJobObjectIds } from "@restow/core";
 import {
   type Database,
   type EndpointReport,
@@ -9,6 +9,11 @@ import {
   endpointRuns,
   endpointTasks,
   endpoints,
+  fileShareReports,
+  fileShareRunItems,
+  fileShareRuns,
+  fileShareSnapshots,
+  fileShares,
   itemFailures,
   jobs,
   runSamples,
@@ -41,20 +46,23 @@ import {
   type RunSource,
   type RunState,
   type RunSummaryDto,
+  SHARE_KINDS_OF_CATEGORY,
   batchOf,
   endpointRun,
   isFinished,
   mailRun,
+  shareRun,
   timeline,
 } from "./dto.js";
 
 /**
- * The read model of History: one list over the mail runs (`jobs`) and the runs agents
- * reported (`endpoint_runs`), the detail of one run and the set of runs the live channel
- * follows. Every read runs in the tenant's pinned transaction.
+ * The read model of History: one list over the mail runs (`jobs`), the runs agents
+ * reported (`endpoint_runs`) and the runs of file shares (`file_share_runs`), the detail of one
+ * run and the set of runs the live channel follows. Every read runs in the tenant's pinned
+ * transaction.
  *
- * The list is keyset-paged by `(created_at, id)`, newest first, over both tables at once: a page
- * names the ids and sources of its rows (one UNION query that touches nothing but the two
+ * The list is keyset-paged by `(created_at, id)`, newest first, over the three tables at once: a
+ * page names the ids and sources of its rows (one UNION query that touches nothing but the
  * indexes on `(tenant_id, created_at)`), then each source loads its own rows.
  *
  * A restore test on a machine that could not complete is offered again as a new task, and each
@@ -105,7 +113,10 @@ interface HydrateOptions {
 async function loadSamples(
   tx: Transaction,
   tenantId: string,
-  column: typeof runSamples.jobId | typeof runSamples.endpointRunId,
+  column:
+    | typeof runSamples.jobId
+    | typeof runSamples.endpointRunId
+    | typeof runSamples.fileShareRunId,
   ids: readonly string[],
 ): Promise<Map<string, RunSamplePoint[]>> {
   const result = new Map<string, RunSamplePoint[]>();
@@ -181,6 +192,7 @@ export async function hydrateRuns(
   const result = new Map<string, RunDto>();
   const mailIds = refs.filter((ref) => ref.source === "mail").map((ref) => ref.id);
   const endpointIds = refs.filter((ref) => ref.source === "endpoint").map((ref) => ref.id);
+  const shareRunIds = refs.filter((ref) => ref.source === "file_share").map((ref) => ref.id);
 
   const mail = await loadMail(tx, tenantId, mailIds);
   const mailSampleIds = [...mail.dtos.values()]
@@ -256,7 +268,71 @@ export async function hydrateRuns(
       );
     }
   }
+  if (shareRunIds.length > 0) {
+    for (const [id, dto] of await loadShareRuns(tx, tenantId, shareRunIds, options)) {
+      result.set(id, dto);
+    }
+  }
   return { runs: result, jobs: mail.dtos };
+}
+
+/** The share runs behind `ids` as DTOs, with their share and job names. */
+async function loadShareRuns(
+  tx: Transaction,
+  tenantId: string,
+  ids: readonly string[],
+  options: HydrateOptions,
+): Promise<Map<string, RunDto>> {
+  const result = new Map<string, RunDto>();
+  const runs = await tx
+    .select()
+    .from(fileShareRuns)
+    .where(and(eq(fileShareRuns.tenantId, tenantId), inArray(fileShareRuns.id, [...ids])));
+  if (runs.length === 0) {
+    return result;
+  }
+  const shareIds = [...new Set(runs.map((run) => run.fileShareId))];
+  const shares = await tx
+    .select({
+      id: fileShares.id,
+      name: fileShares.name,
+      protocol: fileShares.protocol,
+      server: fileShares.server,
+      shareName: fileShares.shareName,
+      exportPath: fileShares.exportPath,
+    })
+    .from(fileShares)
+    .where(and(eq(fileShares.tenantId, tenantId), inArray(fileShares.id, shareIds)));
+  const shareBy = new Map(shares.map((share) => [share.id, share]));
+  const jobIds = [...new Set(runs.flatMap((run) => (run.backupJobId ? [run.backupJobId] : [])))];
+  const named = jobIds.length
+    ? await tx
+        .select({ id: backupJobs.id, name: backupJobs.name })
+        .from(backupJobs)
+        .where(and(eq(backupJobs.tenantId, tenantId), inArray(backupJobs.id, jobIds)))
+    : [];
+  const jobBy = new Map(named.map((job) => [job.id, job]));
+  const sampleIds = runs
+    .filter(
+      (run) => options.samples === "all" || run.status === "running" || run.status === "starting",
+    )
+    .map((run) => run.id);
+  const samples = await loadSamples(tx, tenantId, runSamples.fileShareRunId, sampleIds);
+  for (const run of runs) {
+    const share = shareBy.get(run.fileShareId);
+    if (!share) continue;
+    result.set(
+      run.id,
+      shareRun({
+        run,
+        share,
+        job: run.backupJobId ? (jobBy.get(run.backupJobId) ?? null) : null,
+        samples: samples.get(run.id) ?? null,
+        sampleCount: options.sampleCount,
+      }),
+    );
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -270,6 +346,11 @@ interface JobScope {
   objectIds: string[] | null;
   /** Machine jobs: the machines in it; null for a mail job. */
   endpointIds: string[] | null;
+  /**
+   * Share jobs: the shares in it (their backups); copy jobs: none (their runs carry the job).
+   * Null for a mail or machine job.
+   */
+  shareIds: string[] | null;
 }
 
 async function scopeOfJob(tx: Transaction, tenantId: string, jobId: string): Promise<JobScope> {
@@ -288,6 +369,17 @@ async function scopeOfJob(tx: Transaction, tenantId: string, jobId: string): Pro
         objects,
       ),
       endpointIds: null,
+      shareIds: null,
+    };
+  }
+  if (job.kind === "share" || job.kind === "copy") {
+    return {
+      jobId,
+      objectIds: null,
+      endpointIds: null,
+      shareIds: members
+        .filter((member) => member.jobId === jobId && member.fileShareId)
+        .map((member) => member.fileShareId as string),
     };
   }
   return {
@@ -296,6 +388,7 @@ async function scopeOfJob(tx: Transaction, tenantId: string, jobId: string): Pro
     endpointIds: members
       .filter((member) => member.jobId === jobId && member.endpointId)
       .map((member) => member.endpointId as string),
+    shareIds: null,
   };
 }
 
@@ -319,6 +412,7 @@ export async function pageOfRefs(
 ): Promise<{ ref: RunRef; sortAt: string }[]> {
   const queues = query.category ? QUEUES_OF_CATEGORY[query.category] : null;
   const kinds = query.category ? ENDPOINT_KINDS_OF_CATEGORY[query.category] : null;
+  const shareKinds = query.category ? SHARE_KINDS_OF_CATEGORY[query.category] : null;
 
   // The mail branch.
   const mailWhere: SQL[] = [sql`j.tenant_id = ${tenantId}`];
@@ -347,6 +441,22 @@ export async function pageOfRefs(
       scope.endpointIds?.length ? sql`r.endpoint_id in (${list(scope.endpointIds)})` : sql`false`,
     );
   }
+  // The file share branch.
+  const shareWhere: SQL[] = [sql`s.tenant_id = ${tenantId}`];
+  if (shareKinds) {
+    shareWhere.push(shareKinds.length ? sql`s.kind in (${list(shareKinds)})` : sql`false`);
+  }
+  if (scope) {
+    if (scope.shareIds === null) {
+      shareWhere.push(sql`false`);
+    } else {
+      // A share job: the backups of its shares, and whatever it queued itself (a copy job's runs).
+      const members = scope.shareIds.length
+        ? sql`(s.kind = 'backup' and s.file_share_id in (${list(scope.shareIds)}))`
+        : sql`false`;
+      shareWhere.push(sql`(${members} or s.backup_job_id = ${scope.jobId})`);
+    }
+  }
   // One row for the tries of one restore test: leave a run out when a newer run tests the same snapshot.
   endpointWhere.push(sql`not (r.kind = 'verify_sample' and exists (
     select 1
@@ -367,6 +477,9 @@ export async function pageOfRefs(
     endpointWhere.push(
       sql`(date_trunc('milliseconds', r.created_at), r.id) < (${at}::timestamptz, ${cursor.id}::uuid)`,
     );
+    shareWhere.push(
+      sql`(date_trunc('milliseconds', s.created_at), s.id) < (${at}::timestamptz, ${cursor.id}::uuid)`,
+    );
   }
 
   const result = await tx.execute(sql`
@@ -380,6 +493,11 @@ export async function pageOfRefs(
              date_trunc('milliseconds', r.created_at) as sort_key
         from endpoint_runs r
        where ${sql.join(endpointWhere, sql` and `)}
+      union all
+      select 'file_share'::text as source, s.id as id, ${SORT_AT(sql`s.created_at`)} as sort_at,
+             date_trunc('milliseconds', s.created_at) as sort_key
+        from file_share_runs s
+       where ${sql.join(shareWhere, sql` and `)}
     ) page
     order by sort_key desc, id desc
     limit ${query.limit + 1}`);
@@ -453,6 +571,13 @@ export async function liveRuns(
         from endpoint_runs r
        where r.tenant_id = ${tenantId}
          and (r.status = 'running' or r.finished_at >= ${since} or r.created_at >= ${since})
+      union all
+      select 'file_share'::text, s.id, (s.status in ('starting', 'running')),
+             coalesce(s.finished_at, s.last_progress_at, s.started_at, s.queued_at)
+        from file_share_runs s
+       where s.tenant_id = ${tenantId}
+         and (s.status in ('queued', 'starting', 'running') or s.finished_at >= ${since}
+              or s.queued_at >= ${since})
     ) live
     order by active desc, changed desc, id desc
     limit ${LIVE_RUN_LIMIT}`);
@@ -729,6 +854,14 @@ export async function getRunDetail(
       .limit(1);
     if (run) {
       return endpointDetail(tx, tenantId, run);
+    }
+    const [share] = await tx
+      .select()
+      .from(fileShareRuns)
+      .where(and(eq(fileShareRuns.tenantId, tenantId), eq(fileShareRuns.id, id)))
+      .limit(1);
+    if (share) {
+      return shareDetail(tx, tenantId, share);
     }
     throw NOT_FOUND();
   });
@@ -1061,6 +1194,135 @@ async function endpointDetail(
       cause: classifyRunError(error).code,
     })),
     errorCount: row.errors.length,
+    logTail: row.logTail,
+    docsUrl: config.docsTroubleshootingUrl,
+  };
+}
+
+/** A run of a file share: its restore point, its restore check, its files and its timeline. */
+async function shareDetail(
+  tx: Transaction,
+  tenantId: string,
+  row: typeof fileShareRuns.$inferSelect,
+): Promise<RunDetailDto> {
+  const hydrated = await hydrateRuns(tx, tenantId, [{ source: "file_share", id: row.id }], {
+    sampleCount: MAX_RUN_SAMPLES,
+    samples: "all",
+  });
+  const run = hydrated.runs.get(row.id);
+  if (!run) {
+    throw NOT_FOUND();
+  }
+  // The restore point a backup made and the restore check of it (the server's report).
+  let restoreCheck: RunRestoreCheckDto = NO_CHECK;
+  let snapshot: RunSummaryDto["snapshot"] = null;
+  if (row.kind === "backup" && row.snapshotId) {
+    const [point] = await tx
+      .select({
+        id: fileShareSnapshots.id,
+        sequence: fileShareSnapshots.sequence,
+        resticSnapshotId: fileShareSnapshots.resticSnapshotId,
+      })
+      .from(fileShareSnapshots)
+      .where(
+        and(eq(fileShareSnapshots.tenantId, tenantId), eq(fileShareSnapshots.id, row.snapshotId)),
+      )
+      .limit(1);
+    if (point) {
+      snapshot = { id: point.id, sequence: point.sequence };
+      const [report] = await tx
+        .select({ readiness: fileShareReports.readiness, checkedAt: fileShareReports.checkedAt })
+        .from(fileShareReports)
+        .where(
+          and(
+            eq(fileShareReports.tenantId, tenantId),
+            eq(fileShareReports.fileShareId, row.fileShareId),
+            eq(fileShareReports.kind, "restore_test"),
+            eq(fileShareReports.snapshotId, point.resticSnapshotId),
+          ),
+        )
+        .orderBy(desc(fileShareReports.checkedAt))
+        .limit(1);
+      restoreCheck = report
+        ? {
+            state: readinessState(report.readiness),
+            checkedAt: report.checkedAt.toISOString(),
+            runId: null,
+          }
+        : { state: "unverified", checkedAt: null, runId: null };
+    }
+  }
+
+  // The files the run could not handle (the first ones the server keeps).
+  const items = await tx
+    .select({
+      path: fileShareRunItems.path,
+      code: fileShareRunItems.code,
+      message: fileShareRunItems.message,
+      createdAt: fileShareRunItems.createdAt,
+    })
+    .from(fileShareRunItems)
+    .where(and(eq(fileShareRunItems.tenantId, tenantId), eq(fileShareRunItems.runId, row.id)))
+    .orderBy(asc(fileShareRunItems.createdAt), asc(fileShareRunItems.id))
+    .limit(MAX_ERRORS);
+  const errors: RunErrorDto[] = items.map((item) => ({
+    path: item.path.slice(0, 300),
+    message: (item.message || item.code).slice(0, 500),
+    code: item.code,
+    cause: SHARE_ITEM_CAUSES[item.code] ?? "share.read_errors",
+  }));
+
+  const stats = row.stats ?? {};
+  const events: Omit<RunEventDto, "durationMs">[] = [
+    { at: row.queuedAt.toISOString(), type: "queued", params: {} },
+  ];
+  if (run.startedAt) {
+    events.push({ at: run.startedAt, type: "started", params: {} });
+  }
+  for (const item of items) {
+    events.push({
+      at: item.createdAt.toISOString(),
+      type: "item_failed",
+      params: { item: item.path.slice(0, 200), reason: (item.message || item.code).slice(0, 300) },
+    });
+  }
+  if (run.finishedAt && isFinished(run.state)) {
+    events.push({
+      at: run.finishedAt,
+      type: "finished",
+      params: {
+        state: run.state,
+        filesNew: null,
+        filesChanged: null,
+        dataAdded: typeof stats.dataAdded === "number" ? stats.dataAdded : null,
+      },
+    });
+  }
+  const checkLine = row.kind === "backup" ? checkEvent(restoreCheck, run.finishedAt) : null;
+  if (checkLine) {
+    events.push(checkLine);
+  }
+
+  return {
+    ...run,
+    summary: {
+      itemsWritten: typeof stats.files === "number" ? stats.files : null,
+      itemsTotal: typeof stats.files === "number" ? stats.files : null,
+      filesNew: null,
+      filesChanged: null,
+      bytesNew: typeof stats.dataAdded === "number" ? stats.dataAdded : null,
+      snapshot,
+      throttleWaits: 0,
+      throttleWaitMs: 0,
+    },
+    restoreCheck,
+    batch: null,
+    objects: run.subject
+      ? [{ runId: run.id, subject: run.subject, state: run.state, restoreCheck, current: true }]
+      : [],
+    events: timeline(events),
+    errors,
+    errorCount: Math.max(row.itemCount, errors.length),
     logTail: row.logTail,
     docsUrl: config.docsTroubleshootingUrl,
   };

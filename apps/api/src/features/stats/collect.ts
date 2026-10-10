@@ -25,6 +25,7 @@ import type {
 } from "./facts.js";
 import { collectGuestFacts } from "./guest-facts.js";
 import type { ResolvedPeriod } from "./period.js";
+import { collectShareFacts } from "./share-facts.js";
 
 /**
  * Reading one tenant's statistics sources inside a tenant-pinned transaction
@@ -448,6 +449,8 @@ export async function collectTenantFacts(
     endpoints: await collectEndpointFacts(tx, tenantId, period),
     // So do the VMs and containers of Proxmox VE (guest-facts.ts).
     guests: await collectGuestFacts(tx, tenantId, period),
+    // And the file shares (share-facts.ts), which add their restores and their volume.
+    fileShares: await collectShareFacts(tx, tenantId, period),
     largestSnapshots: largest.map((row) => ({
       objectId: String(row.object_id),
       bytes: toNumber(row.bytes),

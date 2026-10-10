@@ -2,6 +2,8 @@ import type { AuditEvent } from "@restow/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { type MountSpec, mountSpecSchema } from "../../mounter/protocol.js";
 import { ProblemError } from "../../problem.js";
+import type { StateView } from "../../updater/protocol.js";
+import { UpdaterRejectedError, UpdaterUnavailableError } from "../updates/updater-client.js";
 import {
   MounterRejectedError,
   MounterUnavailableError,
@@ -190,6 +192,165 @@ describe("MountsService", () => {
     expect(liesOn("/mnt/restow/nas/", "/mnt/restow/nas")).toBe(true);
     expect(liesOn("/mnt/restow/nas/tenant-a", "/mnt/restow/nas")).toBe(true);
     expect(liesOn("/mnt/restow/nas2", "/mnt/restow/nas")).toBe(false);
+  });
+});
+
+describe("Enable network shares (docs/FILESHARES.md 3.9)", () => {
+  const STARTED = {
+    status: "started" as const,
+    reason: null,
+    image: null,
+    requestedAt: "2026-10-01T10:00:00.000Z",
+    finishedAt: "2026-10-01T10:00:04.000Z",
+    detail: "",
+  };
+
+  function updaterState(mounterEnable: StateView["mounterEnable"]): StateView {
+    return { mounterEnable } as unknown as StateView;
+  }
+
+  const updater = {
+    enabled: true,
+    state: vi.fn(),
+    enableMounter: vi.fn(),
+  };
+
+  function withUpdater(demo = false) {
+    return new MountsService({
+      client,
+      activeWork: async () => work,
+      usersOf: async () => users,
+      audit: async (event) => {
+        audits.push(event);
+      },
+      demo,
+      updater,
+    });
+  }
+
+  beforeEach(() => {
+    updater.enabled = true;
+    updater.state.mockReset();
+    updater.enableMounter.mockReset();
+    client.state.mockResolvedValue(null);
+    client.failure.mockReturnValue("unreachable");
+  });
+
+  it("offers the button when the updater can start the mounter, the command otherwise", async () => {
+    updater.state.mockResolvedValue(updaterState({ last: null }));
+    expect((await withUpdater().view()).enable).toEqual({
+      running: false,
+      via: "updater",
+      command: "docker compose --profile mounts up -d mounter",
+      disableCommand: "docker compose --profile mounts stop mounter",
+      lastAttempt: null,
+    });
+    // An updater that predates the route.
+    updater.state.mockResolvedValue(updaterState(null));
+    expect((await withUpdater().view()).enable.via).toBe("command");
+    // No updater at all.
+    updater.state.mockResolvedValue(null);
+    expect((await withUpdater().view()).enable.via).toBe("command");
+    updater.state.mockRejectedValue(new UpdaterUnavailableError("incompatible"));
+    expect((await withUpdater().view()).enable.via).toBe("command");
+    expect((await service().view()).enable.via).toBe("command");
+    // The demo offers neither.
+    expect((await withUpdater(true).view()).enable.via).toBeNull();
+  });
+
+  it("says nothing more while the mounter runs", async () => {
+    client.state.mockResolvedValue(STATE);
+    updater.state.mockResolvedValue(updaterState({ last: STARTED }));
+    expect((await withUpdater().view()).enable).toMatchObject({
+      running: true,
+      via: null,
+      lastAttempt: null,
+    });
+    expect(updater.state).not.toHaveBeenCalled();
+  });
+
+  it("starts the mounter through the updater and audits the request and the outcome", async () => {
+    updater.state.mockResolvedValue(updaterState({ last: null }));
+    updater.enableMounter.mockResolvedValue(updaterState({ last: STARTED }));
+    const view = await withUpdater().enable(ACTOR);
+    expect(updater.enableMounter).toHaveBeenCalledTimes(1);
+    expect(view.enable.via).toBe("updater");
+    expect(audits.map((event) => event.action)).toEqual([
+      "mounter.enable_requested",
+      "mounter.enabled",
+    ]);
+    expect(audits[0]).toMatchObject({
+      tenantId: null,
+      actor: "owner@example.com",
+      actorUserId: "u1",
+      target: "mounter",
+      targetType: "mounter",
+      ip: "192.0.2.1",
+    });
+  });
+
+  it("audits a failed start with the updater's redacted detail", async () => {
+    updater.state.mockResolvedValue(updaterState({ last: null }));
+    updater.enableMounter.mockResolvedValue(
+      updaterState({
+        last: { ...STARTED, status: "failed", reason: "compose_unsupported", detail: "no service" },
+      }),
+    );
+    await withUpdater().enable(ACTOR);
+    expect(audits.at(-1)).toMatchObject({
+      action: "mounter.enable_failed",
+      details: { code: "compose_unsupported", detail: "no service" },
+    });
+  });
+
+  it("does nothing when the mounter answers already", async () => {
+    client.state.mockResolvedValue(STATE);
+    const view = await withUpdater().enable(ACTOR);
+    expect(view.available).toBe(true);
+    expect(updater.enableMounter).not.toHaveBeenCalled();
+    expect(audits).toEqual([]);
+  });
+
+  it("answers 409 with the command when no updater can do it", async () => {
+    updater.state.mockResolvedValue(updaterState(null));
+    let problem = await problemOf(withUpdater().enable(ACTOR));
+    expect(problem.status).toBe(409);
+    expect(problem.type).toBe(MOUNT_PROBLEMS.enableUnavailable);
+    expect(problem.extensions).toMatchObject({
+      command: "docker compose --profile mounts up -d mounter",
+    });
+    problem = await problemOf(service().enable(ACTOR));
+    expect(problem.type).toBe(MOUNT_PROBLEMS.enableUnavailable);
+    expect(updater.enableMounter).not.toHaveBeenCalled();
+    expect(audits).toEqual([]);
+  });
+
+  it("passes the updater's refusal on (an update is scheduled)", async () => {
+    updater.state.mockResolvedValue(updaterState({ last: null }));
+    updater.enableMounter.mockRejectedValue(
+      new UpdaterRejectedError(409, "busy", { code: "busy", message: "An update is scheduled." }),
+    );
+    const problem = await problemOf(withUpdater().enable(ACTOR));
+    expect(problem.status).toBe(409);
+    expect(problem.type).toBe(MOUNT_PROBLEMS.enableRefused);
+    expect(problem.detail).toBe("An update is scheduled.");
+    expect(audits.map((event) => event.action)).toEqual([
+      "mounter.enable_requested",
+      "mounter.enable_failed",
+    ]);
+  });
+
+  it("turns an updater that went away into 503", async () => {
+    updater.state.mockResolvedValue(updaterState({ last: null }));
+    updater.enableMounter.mockRejectedValue(new UpdaterUnavailableError("timeout"));
+    const problem = await problemOf(withUpdater().enable(ACTOR));
+    expect(problem.status).toBe(503);
+    expect(problem.type).toBe(MOUNT_PROBLEMS.enableUnavailable);
+  });
+
+  it("is refused in the demo", async () => {
+    const problem = await problemOf(withUpdater(true).enable(ACTOR));
+    expect(problem.type).toBe(MOUNT_PROBLEMS.demo);
   });
 });
 

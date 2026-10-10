@@ -102,14 +102,20 @@ parsed_mounter() {
   (
     set -Eeuo pipefail
     parse_args "$@"
-    printf '%s|%s' "$OPT_MOUNTER" "$OPT_UPDATER"
+    printf '%s|%s|%s' "$OPT_MOUNTER" "$OPT_UPDATER" "$OPT_MOUNTER_FLAG"
   ) 2>/dev/null
 }
-assert_eq "0|0" "$(parsed_mounter)" "the mounter is off by default"
-assert_eq "1|0" "$(parsed_mounter --with-mounter)" "--with-mounter, without the updater"
-assert_eq "1|1" "$(parsed_mounter --with-updater --with-mounter)" "--with-mounter next to --with-updater"
-assert_eq "0|0" "$(parsed_mounter --with-mounter --no-mounter)" "--no-mounter wins when last"
+assert_eq "1|0|" "$(parsed_mounter)" "the mounter is on by default"
+assert_eq "1|0|with" "$(parsed_mounter --with-mounter)" "--with-mounter is still accepted"
+assert_eq "1|1|with" "$(parsed_mounter --with-updater --with-mounter)" "--with-mounter next to --with-updater"
+assert_eq "0|0|no" "$(parsed_mounter --no-mounter)" "--no-mounter turns it off"
+assert_eq "0|0|no" "$(parsed_mounter --without-mounter)" "--without-mounter is the alias of --no-mounter"
+assert_eq "0|0|no" "$(parsed_mounter --with-mounter --no-mounter)" "--no-mounter wins when last"
+assert_eq "1|0|with" "$(parsed_mounter --no-mounter --with-mounter)" "--with-mounter wins when last"
+assert_eq "0|0|no" "$(parsed_mounter --with-mounter --without-mounter)" "--without-mounter wins when last"
 assert_contains "--with-mounter" "$(usage)" "--help names --with-mounter"
+assert_contains "--without-mounter" "$(usage)" "--help names --without-mounter"
+assert_contains "--no-mounter" "$(usage)" "--help names --no-mounter"
 assert_contains "docs/MOUNTS.md" "$(usage)" "--help points to docs/MOUNTS.md"
 assert_status 2 "--uninstall is refused" parse_args --uninstall
 assert_status 2 "unknown option" parse_args --frobnicate
@@ -855,7 +861,9 @@ assert_contains "would download SHA256SUMS, SHA256SUMS.sigstore.json, docker-com
 assert_contains "signer: https://github.com/restow-backup/restow/.github/workflows/release.yml@refs/tags/v0.3.3" "$DRY_OUT" "fresh dry run: signer"
 assert_contains "would write $dir3/.env" "$DRY_OUT" "fresh dry run: .env"
 assert_contains "would run: docker pull $COSIGN_IMAGE" "$DRY_OUT" "fresh dry run: cosign"
-assert_contains "would run: docker compose up -d" "$DRY_OUT" "fresh dry run: start"
+assert_contains "would run: docker compose --profile mounts up -d" "$DRY_OUT" "fresh dry run: the mounter starts by default"
+assert_contains "Mounter      on: the application image in the mounter role" "$DRY_OUT" "fresh dry run: the plan says the mounter is on"
+assert_contains "turn off with --no-mounter" "$DRY_OUT" "fresh dry run: the plan names the opt-out"
 assert_contains "Dry run finished: nothing was changed." "$DRY_OUT" "fresh dry run: end"
 assert_status 1 "fresh dry run: no directory created" test -e "$dir3"
 no_mutation "fresh dry run"
@@ -867,10 +875,32 @@ assert_contains "ghcr.io/restow-backup/restow-web-community:0.3.3" "$DRY_OUT" "C
 assert_contains "--skip-signature-check: the cosign signatures" "$DRY_OUT" "loud warning for --skip-signature-check"
 assert_contains "NOT check the signature" "$DRY_OUT" "signatures skipped"
 assert_not_contains "docker pull $COSIGN_IMAGE" "$DRY_OUT" "no cosign without signature checks"
-assert_contains "would run: docker compose --profile updater up -d" "$DRY_OUT" "updater started on request"
-assert_not_contains "--profile mounts" "$DRY_OUT" "no mounter unless asked for"
-assert_contains "Mounter      off" "$DRY_OUT" "the plan says the mounter stays off"
+assert_contains "would run: docker compose --profile updater --profile mounts up -d" "$DRY_OUT" "updater started on request, next to the default mounter"
+assert_contains "Mounter      on:" "$DRY_OUT" "Community: the mounter is on by default (file shares are core)"
 no_mutation "Community dry run"
+
+dry_main "$OS_DEBIAN13" "$MEM_8G" --non-interactive --dir "$dir3" --domain backup.example.com --no-mounter
+assert_eq 0 "$DRY_STATUS" "dry run with --no-mounter exits 0"
+assert_not_contains "--profile mounts" "$DRY_OUT" "--no-mounter: no mounter"
+assert_contains "would run: docker compose up -d" "$DRY_OUT" "--no-mounter: the stack starts without profiles"
+assert_contains "Mounter      off (--no-mounter" "$DRY_OUT" "--no-mounter: the plan says the mounter stays off"
+no_mutation "dry run with --no-mounter"
+
+dry_main "$OS_DEBIAN13" "$MEM_8G" --non-interactive --dir "$dir3" --domain backup.example.com --without-mounter
+assert_eq 0 "$DRY_STATUS" "dry run with --without-mounter exits 0"
+assert_not_contains "--profile mounts" "$DRY_OUT" "--without-mounter: no mounter"
+assert_contains "Mounter      off (--no-mounter" "$DRY_OUT" "--without-mounter: the plan says the mounter stays off"
+
+dry_main "$OS_DEBIAN13" "$MEM_8G" --non-interactive --dir "$dir3" --domain backup.example.com --with-mounter --no-mounter
+assert_eq 0 "$DRY_STATUS" "--with-mounter then --no-mounter exits 0"
+assert_not_contains "--profile mounts" "$DRY_OUT" "--no-mounter last wins in a dry run"
+
+dry_main "$OS_DEBIAN13" "$MEM_8G" --non-interactive --dir "$dir3" --domain backup.example.com --version 0.2.2
+assert_eq 0 "$DRY_STATUS" "default install of a release before the mounter exits 0"
+assert_not_contains "--profile mounts" "$DRY_OUT" "a release before the mounter: no mounter by default"
+assert_contains "Mounter      off: release 0.2.2 has no mounter" "$DRY_OUT" "the plan says why the mounter is off"
+assert_not_contains "--with-mounter needs release" "$DRY_OUT" "the quiet default is no error"
+no_mutation "default install of a release before the mounter"
 
 dry_main "$OS_DEBIAN13" "$MEM_8G" --non-interactive --dir "$dir3" --domain backup.example.com --version 0.3.0 --with-mounter
 assert_eq 0 "$DRY_STATUS" "dry run with the mounter exits 0"
@@ -1017,6 +1047,12 @@ assert_not_contains "would write" "$DRY_OUT" "re-run writes no .env"
 assert_not_contains "compose pull postgres" "$DRY_OUT" "re-run does not pull PostgreSQL again"
 assert_eq "$before" "$(sha256_of "$env1")" "re-run leaves .env unchanged"
 no_mutation "re-run"
+assert_not_contains "--profile mounts" "$DRY_OUT" "re-run keeps the installation's mounter choice (no profile started)"
+assert_not_contains "The mounter runs" "$DRY_OUT" "re-run does not claim a mounter state"
+
+STUB_VOLUMES="restow_pgdata" STUB_PROJECT_DIRS="$dir1" dry_main "$OS_DEBIAN12" "$MEM_8G" --yes --dir "$dir1" --no-mounter
+assert_eq 0 "$DRY_STATUS" "re-run with --no-mounter exits 0"
+assert_not_contains "stop mounter" "$DRY_OUT" "re-run with --no-mounter stops nothing"
 
 dry_main "$OS_DEBIAN12" "$MEM_8G" --yes --dir "$dir1" --version 0.2.0
 assert_eq 8 "$DRY_STATUS" "re-run with another version: refused (no updates)"
@@ -1100,10 +1136,15 @@ assert_contains "use a domain name" "$(domain_problem 10.0.0.1 0 1)" "an IP behi
 assert_status 0 "0.2.0 can serve the encrypted hop" version_ge 0.2.0 "$PROXY_TLS_MIN_VERSION"
 assert_status 1 "0.1.0 cannot serve the encrypted hop" version_ge 0.1.0 "$PROXY_TLS_MIN_VERSION"
 assert_status 0 "a pre-release of 0.2.0 can" version_ge 0.2.0-rc.1 "$PROXY_TLS_MIN_VERSION"
-assert_eq "" "$(OPT_MOUNTER=1 mounter_version_problem 0.3.0)" "0.3.0 has the mounter"
-assert_eq "" "$(OPT_MOUNTER=1 mounter_version_problem 0.3.0-rc.1)" "a pre-release of 0.3.0 has it"
-assert_eq "" "$(OPT_MOUNTER=0 mounter_version_problem 0.2.2)" "no mounter asked for: any release"
-assert_contains "--with-mounter needs release $MOUNTER_MIN_VERSION or newer" "$(OPT_MOUNTER=1 mounter_version_problem 0.2.2)" "0.2.2 has no mounter"
+assert_eq "" "$(OPT_MOUNTER=1 OPT_MOUNTER_FLAG=with mounter_version_problem 0.3.0)" "0.3.0 has the mounter"
+assert_eq "" "$(OPT_MOUNTER=1 OPT_MOUNTER_FLAG=with mounter_version_problem 0.3.0-rc.1)" "a pre-release of 0.3.0 has it"
+assert_eq "" "$(OPT_MOUNTER=0 OPT_MOUNTER_FLAG=no mounter_version_problem 0.2.2)" "no mounter asked for: any release"
+assert_eq "" "$(OPT_MOUNTER=1 OPT_MOUNTER_FLAG='' mounter_version_problem 0.2.2)" "the default on an old release is no problem"
+assert_contains "--with-mounter needs release $MOUNTER_MIN_VERSION or newer" "$(OPT_MOUNTER=1 OPT_MOUNTER_FLAG=with mounter_version_problem 0.2.2)" "0.2.2 has no mounter"
+assert_eq "1" "$(OPT_MOUNTER=1 OPT_MOUNTER_FLAG='' mounter_default 0.3.3)" "mounter_default: on for a release with the mounter"
+assert_eq "1" "$(OPT_MOUNTER=1 OPT_MOUNTER_FLAG='' mounter_default 0.3.0-rc.1)" "mounter_default: on for a pre-release of the first one"
+assert_eq "0" "$(OPT_MOUNTER=1 OPT_MOUNTER_FLAG='' mounter_default 0.2.2)" "mounter_default: off for a release without it"
+assert_eq "0" "$(OPT_MOUNTER=0 OPT_MOUNTER_FLAG=no mounter_default 0.3.3)" "mounter_default: --no-mounter is kept"
 
 # ---- Behind a reverse proxy: .env ----------------------------------------------------------
 
@@ -1373,6 +1414,7 @@ e2e_main() {
       TTY_OUT=$out
     fi
     if [ -n "${E2E_STDOUT_TTY:-}" ]; then
+      # shellcheck disable=SC2317 # called by main below; shellcheck 0.9 loses track of it in a test file this long
       stdout_is_tty() { return 0; }
     fi
     set -Eeuo pipefail
