@@ -224,6 +224,25 @@ describe("Mounts", () => {
     expect(text(slot("mounts-users"))).toContain("/mnt/restow/nas/contoso");
   });
 
+  it("shows a share that waits for running jobs, and its failure", async () => {
+    const pending = {
+      mount: { ...SHARE, name: "nas2" },
+      requestedBy: { userId: "u1", label: "owner@example.test", ip: null },
+      requestedAt: "2026-10-02T09:59:00.000Z",
+      failure: null,
+    };
+    vi.stubGlobal("fetch", routes({ "GET /mounts": () => json(view({ pending })) }).mock);
+    await open();
+    expect(text(slot("mounts-pending"))).toContain("The network share nas2 waits for running jobs");
+    expect(buttonByText(slot("mounts-pending") as HTMLElement, "Cancel")).not.toBeNull();
+    await mounted?.unmount();
+    const failed = { ...pending, failure: { code: "limit", detail: "20 shares" } };
+    vi.stubGlobal("fetch", routes({ "GET /mounts": () => json(view({ pending: failed })) }).mock);
+    await open();
+    expect(text(slot("mounts-pending"))).toContain("maximum number of network shares");
+    expect(buttonByText(slot("mounts-pending") as HTMLElement, "Dismiss")).not.toBeNull();
+  });
+
   it("closes every change to everyone but the owner", async () => {
     vi.stubGlobal("fetch", routes().mock);
     await open({ session: providerSession("administrator") });

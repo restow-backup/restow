@@ -122,4 +122,32 @@ describe.skipIf(!testDatabaseAdminUrl)("mount checks against Postgres", () => {
       .where(eq(jobs.id, job?.id ?? ""));
     expect(await instance.activeWork()).toEqual({ jobs: 0, endpointRuns: 0 });
   });
+
+  it("keeps a waiting add of a share across restarts, sealed in the secret store", async () => {
+    const { secretPendingMountStore } = await import("./pending.js");
+    const { providerDb } = await import("../../db.js");
+    const store = secretPendingMountStore(providerDb);
+    expect(await store.load()).toBeNull();
+    const pending = {
+      mount: {
+        protocol: "nfs" as const,
+        name: "nas",
+        server: "10.0.0.5",
+        export: "/srv/backup",
+        nfsVersion: "4.1" as const,
+        readOnly: false,
+      },
+      requestedBy: { userId: null, label: "owner@example.com", ip: null },
+      requestedAt: "2026-10-10T08:00:00.000Z",
+      failure: null,
+    };
+    await store.save(pending);
+    await store.save({ ...pending, failure: { code: "limit", detail: null } });
+    expect(await secretPendingMountStore(providerDb).load()).toEqual({
+      ...pending,
+      failure: { code: "limit", detail: null },
+    });
+    await store.clear();
+    expect(await store.load()).toBeNull();
+  });
 });

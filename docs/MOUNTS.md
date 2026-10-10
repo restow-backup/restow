@@ -31,6 +31,53 @@ After that, add a storage target of the kind "directory" with the path
 mounted shares under its path field. The installation default storage can point there
 as well (Installation > Default storage).
 
+### From the storage form
+
+The admin does not have to visit Installation > Network shares first. Type the NFS
+address into the path field of a storage location of the kind "directory" (a tenant's
+storage location or Installation > Default storage):
+
+| Typed | Server | Export path |
+| --- | --- | --- |
+| `192.168.1.10:/export/backup` | `192.168.1.10` | `/export/backup` |
+| `nas.local:/volume1/restow` | `nas.local` | `/volume1/restow` |
+| `[fd00::5]:/srv/backup` | `fd00::5` | `/srv/backup` |
+| `nfs://192.168.1.10/export/backup` | `192.168.1.10` | `/export/backup` |
+
+The form recognises the address and offers **Mount as NFS network share**: a name derived
+from the address (the host's first label and the export's last folder, for example
+`nas-restow`; editable), the NFS version (4.1 by default), an optional folder on the share,
+**Test connection** (the same test as in the section) and **Mount and use**. The share is
+mounted read-write. Mount and use adds the share exactly as the section does (the steps
+above; the api and the worker restart once, the page reconnects by itself), follows the
+operation, and when it succeeded puts `/mnt/restow/<name>` (or the folder below it) into
+the path field. Save the storage location to finish.
+
+Not taken for an NFS address: a path that starts with `/`, Windows paths (`C:\backup`,
+`c:/backup`: a single letter before the colon is a drive letter, never a host), an IPv6
+address without brackets, a port (`nas:2049:/x`, `nfs://nas:2049/x`), a user, query or
+fragment in the URL, and anything the mounter would refuse (spaces, commas, `=`, `..`).
+
+- **A share that is mounted already.** When a mounted share has the same server and the
+  typed export path or a folder above it, the form offers its path
+  (`/mnt/restow/<name>/<rest>`) instead of mounting again.
+- **Who.** Only the provider owner sees the offer to mount; adding asks for a recent
+  sign-in like the section. Everyone else gets a note to ask the provider owner, with the
+  server and export path to pass on (a share mounted already is still offered to every
+  provider admin with all tenants).
+- **Mounter not running.** The form shows the same card with the command that starts it.
+- **Jobs running: apply when idle.** The form sends the add with `whenIdle: true`. While
+  backups, restores or other jobs run, the api does not refuse it but keeps it (one at a
+  time, sealed in the installation's secret store as `pending_mount_request`, so a restart
+  of the api does not lose it) and checks every 15 seconds; as soon as no job runs, the
+  mounter is ready and no other change runs, it starts the add, on behalf of the owner who
+  asked (audit: `mount.add_queued`, then `mount.add_requested` with `queued: true`). The
+  form and the section show "Waiting for running jobs to finish" with **Cancel**
+  (`DELETE /api/v1/mounts/<name>?pending=1`, audit `mount.add_queue_cancelled`). Should the
+  mounter refuse it when it is its turn (the name was taken meanwhile, the limit is
+  reached), the request stays with the reason until it is dismissed. New jobs are not held
+  back meanwhile: on a server that is never idle the request waits.
+
 Everything else in the override file is left exactly as it is, comments included:
 the mounter edits it as a YAML document and only touches `x-restow-mounts`, top-level
 volumes whose name starts with `restow-nfs-`, and service volume entries whose source
@@ -57,7 +104,8 @@ restored". If that rollback fails as well, the operation says "please check the
 server": see "Troubleshooting" below.
 
 The api refuses a change while backups, restores or other jobs are running (the
-restart would cut them off; try again when they have finished), and refuses to remove
+restart would cut them off; try again when they have finished; an add from the storage
+form waits instead, see "From the storage form"), and refuses to remove
 a share that a storage target of any tenant, a retired target included, or the
 installation default still uses.
 

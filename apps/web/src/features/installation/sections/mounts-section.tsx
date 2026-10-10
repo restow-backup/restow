@@ -56,10 +56,12 @@ import {
   type MountsView,
   NFS_VERSIONS,
   type NfsVersion,
+  type PendingMount,
   mountUsersOf,
   mountsErrorDetail,
   mountsErrorKey,
   useAddMount,
+  useCancelPendingMount,
   useMounts,
   useRemoveMount,
   useTestMount,
@@ -128,6 +130,9 @@ export function MountsContent({ view }: { view: MountsView }) {
               </AlertDescription>
             </Alert>
           ) : null}
+          {view.pending ? (
+            <PendingCard pending={view.pending} closed={access.change !== null} />
+          ) : null}
           {state.operation ? <OperationCard operation={state.operation} /> : null}
           <SharesCard
             mounts={state.mounts}
@@ -140,7 +145,7 @@ export function MountsContent({ view }: { view: MountsView }) {
   );
 }
 
-function UnavailableCard({ view }: { view: MountsView }) {
+export function UnavailableCard({ view }: { view: MountsView }) {
   const { t } = useTranslation("installation");
   const { t: tu } = useTranslation("updates");
   if (view.demo) {
@@ -170,6 +175,73 @@ function UnavailableCard({ view }: { view: MountsView }) {
         </Alert>
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * An add that waits until no job runs (asked for from the storage form while backups
+ * ran), or one the mounter refused when it was its turn: the owner can withdraw it.
+ */
+export function PendingCard({
+  pending,
+  closed,
+  onCancelled,
+}: {
+  pending: PendingMount;
+  closed: boolean;
+  onCancelled?: () => void;
+}) {
+  const { t, i18n } = useTranslation("installation");
+  const { t: tc } = useTranslation();
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  const cancel = useCancelPendingMount();
+  const name = pending.mount.name;
+  const failure = pending.failure;
+  return (
+    <Alert
+      variant={failure ? "warning" : "info"}
+      data-slot="mounts-pending"
+      data-failed={failure ? "true" : "false"}
+    >
+      {failure ? <TriangleAlert /> : <LoaderCircle className="animate-spin" />}
+      <AlertTitle>
+        {failure ? t("mounts.pending.failedTitle", { name }) : t("mounts.pending.title", { name })}
+      </AlertTitle>
+      <AlertDescription>
+        <div className="space-y-2">
+          {failure ? (
+            <>
+              <p>
+                {t(`mounts.errors.rejected.${failure.code ?? "generic"}`, {
+                  defaultValue: t("mounts.errors.rejected.generic"),
+                })}
+              </p>
+              {failure.detail ? (
+                <p className="break-words font-mono text-xs">{failure.detail}</p>
+              ) : null}
+            </>
+          ) : (
+            <p>
+              {t("mounts.pending.description", {
+                who: pending.requestedBy.label,
+                when: formatRelative(pending.requestedAt, language) ?? pending.requestedAt,
+              })}
+            </p>
+          )}
+          {cancel.isError ? <ErrorAlert error={cancel.error} /> : null}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={closed}
+            loading={cancel.isPending}
+            onClick={() => cancel.mutate(name, { onSuccess: () => onCancelled?.() })}
+          >
+            {failure ? t("mounts.pending.dismiss") : tc("actions.cancel")}
+          </Button>
+        </div>
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -222,7 +294,7 @@ export function operationPercent(operation: MountOperation): number {
   return Math.round(total);
 }
 
-function OperationCard({ operation }: { operation: MountOperation }) {
+export function OperationCard({ operation }: { operation: MountOperation }) {
   const { t, i18n } = useTranslation("installation");
   const language = i18n.resolvedLanguage ?? i18n.language;
   const running = operation.status === "running";
@@ -411,7 +483,7 @@ function ShareRow({
   );
 }
 
-function TestOutcome({ result }: { result: MountTestResult }) {
+export function TestOutcome({ result }: { result: MountTestResult }) {
   const { t } = useTranslation("installation");
   if (result.ok) {
     return (
@@ -441,7 +513,7 @@ function TestOutcome({ result }: { result: MountTestResult }) {
   );
 }
 
-function ErrorAlert({ error }: { error: unknown }) {
+export function ErrorAlert({ error }: { error: unknown }) {
   const { t } = useTranslation();
   const detail = mountsErrorDetail(error);
   return (

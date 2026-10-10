@@ -336,11 +336,37 @@
         "invalid_request": "The mounter did not accept the settings.",
         "generic": "The mounter refused the change."
       },
-      "generic": "The request failed."
+      "generic": "The request failed.",
+      "pendingExists": "Another network share is already waiting for running jobs to finish. Cancel it under Installation > Network shares first.",
+      "pendingNotFound": "This network share is no longer waiting."
     },
     "storageHint": {
       "label": "Mounted network shares",
       "use": "Use {path}"
+    },
+    "pending": {
+      "title": "The network share {name} waits for running jobs",
+      "description": "Backups or restores are running. {appName} adds the network share as soon as they have finished. Requested by {who}, {when}.",
+      "failedTitle": "The waiting network share {name} could not be added",
+      "dismiss": "Dismiss"
+    },
+    "storageOffer": {
+      "detected": "This is the address of an NFS network share:",
+      "existing": "This network share is mounted already as {name}.",
+      "askOwner": "Only the owner of the provider team can mount network shares. Ask the provider owner to mount this network share under Installation > Network shares: server {server}, export path {export}, NFS 4.1, read-write. Its path then appears below this field.",
+      "loading": "Checking the network shares ...",
+      "description": "{appName} can mount it read-write through the mounter and fill in its path for you.",
+      "offer": "Mount as NFS network share",
+      "subfolder": "Folder on the network share (optional)",
+      "subfolderHint": "The path becomes {path}.",
+      "invalidSubfolder": "Enter a relative folder, without commas, spaces, \":\", \"=\" or \"..\".",
+      "restart": "{appName} restarts its api and worker once (a few seconds); the page reconnects by itself.",
+      "blocked": "Network shares cannot be changed right now: another change is running or the mounter is not ready. See Installation > Network shares.",
+      "submit": "Mount and use",
+      "waitingTitle": "Waiting for running jobs to finish",
+      "starting": "The network share is being mounted ...",
+      "retry": "Try again",
+      "done": "The network share {name} is mounted and its path was filled in. Save the storage location to use it."
     }
   },
   "editionLink": "See editions",
