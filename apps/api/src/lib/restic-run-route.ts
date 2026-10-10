@@ -83,6 +83,8 @@ export interface RunResticRouteOptions {
     bytes: number,
     action: string,
   ): void | Promise<void>;
+  /** Called when an upload was refused because the budget is used up. */
+  onQuotaExceeded?(access: RunResticAccess, repoId: string): void | Promise<void>;
   /** Called for every request the authorization matrix refused. */
   audit(access: RunResticAccess, repoId: string, denial: RunResticDenial): void;
   failures: CredentialFailures;
@@ -168,6 +170,9 @@ export function buildRunResticRoute(options: RunResticRouteOptions): Hono {
       quotaProblem: options.quotaProblem,
       onAllowed: options.onAllowed
         ? ({ action, bytes }) => options.onAllowed?.(access, repoId, bytes, action)
+        : undefined,
+      onQuotaExceeded: options.onQuotaExceeded
+        ? () => options.onQuotaExceeded?.(access, repoId)
         : undefined,
       onDenied: ({ action, resource, reason }) => {
         const type =

@@ -455,6 +455,128 @@
         "title": "Die Sicherungsdaten sind beschädigt",
         "why": "Die Integritätsprüfung hat beschädigte oder fehlende Daten in den Sicherungen dieses Rechners gefunden. Neue Sicherungen sind nicht betroffen, ältere Daten lassen sich aber möglicherweise nicht wiederherstellen. Die technischen Details zeigen, was die Prüfung gemeldet hat."
       }
+    },
+    "share": {
+      "auth_failed": {
+        "title": "Der Dateiserver hat das Konto abgelehnt",
+        "why": "{reason, select, expired {Das Kennwort des Kontos ist abgelaufen.} other {Der Server hat das Konto abgelehnt: Das Kennwort ist falsch oder wurde geändert, das Konto ist gesperrt oder hat keinen Zugriff auf diese Freigabe.}} Von der Freigabe wurde nichts gelesen."
+      },
+      "unreachable": {
+        "title": "Der Dateiserver antwortet nicht",
+        "why": "{appName} konnte den Server nicht erreichen: Die Adresse ist falsch, eine Firewall sperrt den Port (445 für SMB, 2049 für NFS) oder das VPN zum Standort ist getrennt."
+      },
+      "not_found": {
+        "title": "Freigabe, Export oder Ordner gibt es nicht",
+        "why": "Der Server antwortet, aber die Freigabe, der NFS-Export oder der Unterordner aus den Einstellungen existiert nicht (mehr)."
+      },
+      "version_mismatch": {
+        "title": "Der Server spricht die gewählte Protokollversion nicht",
+        "why": "Der Server hat die eingestellte SMB- oder NFS-Version oder die Verschlüsselung abgelehnt."
+      },
+      "permission_denied": {
+        "title": "Das Konto darf diesen Ordner nicht lesen",
+        "why": "Die Freigabe wurde eingebunden, aber das Konto darf {has_path, select, yes {{path}} other {den Ordner}} nicht lesen."
+      },
+      "client_missing": {
+        "title": "Dem Docker-Host fehlt der SMB- oder NFS-Client",
+        "why": "Dem Kernel des Docker-Hosts, auf dem {appName} läuft, fehlt das Modul cifs oder nfs; er kann die Freigabe nicht einbinden."
+      },
+      "mount_failed": {
+        "title": "Die Freigabe konnte nicht eingebunden werden",
+        "why": "Das Einbinden der Freigabe ist aus einem Grund fehlgeschlagen, den {appName} nicht kennt. Die technischen Details zeigen, was das System gemeldet hat."
+      },
+      "address_blocked": {
+        "title": "Die Adresse des Servers ist nicht erlaubt",
+        "why": "Der Server löst auf eine Loopback-, private oder reservierte Adresse auf, die kein Provider-Admin für diese Freigabe freigegeben hat, oder auf eine andere als die freigegebene."
+      },
+      "wrong_filesystem": {
+        "title": "Die Freigabe war nicht wie erwartet eingebunden",
+        "why": "Der Runner hat die Freigabe nicht dort eingebunden gefunden, wo er sie erwartet; er hat nichts gelesen. Das sollte nicht vorkommen; bitte einen Supportfall eröffnen."
+      },
+      "empty_source": {
+        "title": "Die Freigabe ist leer",
+        "why": "Die Freigabe oder ihre einbezogenen Ordner sind leer, obwohl der letzte Sicherungsstand Dateien hatte. Es wurde nichts gesichert und aus den Sicherungen wird nichts entfernt."
+      },
+      "include_missing": {
+        "title": "Ein einbezogener Ordner existiert nicht mehr",
+        "why": "Ein Ordner, den der Sicherungsjob dieser Freigabe einbezieht, {has_path, select, yes {({path}) } other {}}existiert auf der Freigabe nicht mehr."
+      },
+      "locked_files": {
+        "title": "Einige Dateien waren auf dem Server geöffnet",
+        "why": "{has_count, select, yes {{count, plural, one {# Datei war} other {# Dateien waren}}} other {Einige Dateien waren}} auf dem Server gesperrt geöffnet und konnten nicht gelesen werden. Der Rest der Sicherung ist vollständig."
+      },
+      "read_errors": {
+        "title": "Einige Dateien konnten nicht gelesen werden",
+        "why": "{has_count, select, yes {{count, plural, one {# Datei konnte} other {# Dateien konnten}}} other {Einige Dateien konnten}} nicht von der Freigabe gelesen werden. Der Rest der Sicherung ist vollständig."
+      },
+      "files_dropped": {
+        "title": "Viel weniger Dateien als beim letzten Mal",
+        "why": "Die Freigabe enthält weniger als die Hälfte der Dateien des vorigen Sicherungsstands. Gesichert wurde, was vorhanden war; prüfen Sie, ob Dateien absichtlich gelöscht wurden."
+      },
+      "acl_partial": {
+        "title": "Berechtigungen wurden nicht für jede Datei gesichert oder wiederhergestellt",
+        "why": "Dem Konto fehlt das Recht, die Berechtigungen einiger Dateien zu lesen oder zu schreiben (zum Beispiel die Gruppe Sicherungs-Operatoren oder das Recht für Überwachungseinträge)."
+      },
+      "offline_skipped": {
+        "title": "Offline-Dateien wurden übersprungen",
+        "why": "Dateien, die auf dem Server nur als Platzhalter liegen (in die Cloud oder ein Archiv ausgelagert), wurden wie eingestellt übersprungen und nicht zurückgeholt."
+      },
+      "restore_not_allowed": {
+        "title": "Die Ziel-Freigabe erlaubt keine Wiederherstellung",
+        "why": "Eine Wiederherstellung schreibt nur in eine Freigabe, bei der Wiederherstellung in diese Freigabe erlauben eingeschaltet ist."
+      },
+      "copy_no_verified_point": {
+        "title": "Noch kein geprüfter Sicherungsstand zum Kopieren",
+        "why": "Der Kopierjob kopiert den neuesten Sicherungsstand mit bestandener Restore-Prüfung, und die Quell-Freigabe hat noch keinen."
+      },
+      "copy_unsafe_target": {
+        "title": "Das Kopierziel ist nicht sicher",
+        "why": "{reason, select, same_share {Das Ziel ist die Quell-Freigabe selbst oder derselbe Ort unter anderem Namen.} share_root {Eine Spiegelkopie schreibt nie in das Stammverzeichnis einer Freigabe.} foreign_marker {Der Zielordner gehört einem anderen Kopierjob.} not_confirmed {Der Zielordner ist nicht leer und niemand hat bestätigt, dass sein Inhalt gelöscht werden darf.} other {Das Ziel des Kopierjobs verletzt eine der Sicherheitsregeln.}} Es wurde nichts kopiert."
+      },
+      "copy_empty_source": {
+        "title": "Spiegelkopie abgelehnt: Die Quelle wirkt geleert",
+        "why": "Der zu kopierende Sicherungsstand ist leer oder hat weniger als die Hälfte der Dateien des zuletzt kopierten. Ein Spiegel würde die Dateien im Ziel löschen; es wurde nichts kopiert."
+      },
+      "restore_partial": {
+        "title": "Einige Dateien konnten nicht geschrieben werden",
+        "why": "Einige Dateien konnten nicht wiederhergestellt werden: ein Name, den das Ziel nicht kennt, fehlende Rechte oder kein Platz mehr."
+      },
+      "repository_locked": {
+        "title": "Das restic-Repository der Freigabe blieb gesperrt",
+        "why": "Ein anderer Lauf oder die Wartung des Servers hielt das Repository der Freigabe gesperrt. {appName} versucht es erneut."
+      },
+      "repository_damaged": {
+        "title": "Das restic-Repository der Freigabe meldet einen Schaden",
+        "why": "restic meldet, dass das Repository der Freigabe beschädigt ist oder sich nicht öffnen lässt."
+      },
+      "quota_exceeded": {
+        "title": "Das Speicherbudget für Freigabe-Sicherungen ist aufgebraucht",
+        "why": "Das Budget dieser Freigabe oder aller Freigaben des Mandanten ist aufgebraucht; neue Sicherungen werden abgelehnt. Wiederherstellungen und Kopien funktionieren weiter."
+      },
+      "out_of_memory": {
+        "title": "Dem Runner ging der Speicher aus",
+        "why": "Der Runner hat sein Speicherlimit überschritten, das große Freigaben mit vielen Dateien brauchen."
+      },
+      "timeout": {
+        "title": "Der Lauf dauerte zu lange",
+        "why": "Der Lauf ist nicht innerhalb der längsten erlaubten Laufzeit fertig geworden und wurde beendet."
+      },
+      "mounter_unavailable": {
+        "title": "Der Mounter läuft nicht",
+        "why": "Der Mounter, der Freigaben für {appName} einbindet, läuft nicht oder kann gerade keine Runner starten (Netzwerk, Image oder Limit)."
+      },
+      "runner_failed": {
+        "title": "Der Runner endete ohne Ergebnis",
+        "why": "Der Runner hat aufgehört, bevor er gemeldet hat, wie der Lauf ausging{has_exitCode, select, yes { (Exit-Code {exitCode})} other {}}."
+      },
+      "runner_lost": {
+        "title": "Der Runner ist verschwunden",
+        "why": "Der Mounter kennt den Runner dieses Laufs nicht mehr, zum Beispiel weil er neu gestartet oder beendet wurde."
+      },
+      "runner_stalled": {
+        "title": "Der Runner meldet sich nicht mehr",
+        "why": "Der Runner hat lange keinen Fortschritt gemeldet und wurde beendet."
+      }
     }
   },
   "steps": {
@@ -509,6 +631,21 @@
     "raise_export_limit": "Hat das Repository Platz, kann ein Administrator der Installation das Limit mit der Einstellung EXPORT_MAX_TENANT_BYTES erhöhen.",
     "check_database": "Prüfen Sie, ob Postgres läuft und erreichbar ist, freien Speicherplatz und freie Verbindungen hat.",
     "worker_resources": "Werden Läufe häufig unterbrochen, prüfen Sie Speicher und Neustarts des Worker-Containers.",
+    "check_share_account": "Prüfen Sie das Konto in den Einstellungen der Freigabe: Tragen Sie dort das neue Kennwort ein, wenn es geändert wurde (die Freigabe muss nicht neu angelegt werden), und stellen Sie sicher, dass das Konto nicht gesperrt ist und auf diese Freigabe zugreifen darf.",
+    "check_share_server": "Prüfen Sie, ob der Dateiserver eingeschaltet und vom Docker-Host erreichbar ist: die Adresse, die Firewall (Port 445 für SMB, 2049 für NFS) und bei einem entfernten Standort das VPN.",
+    "check_share_path": "Prüfen Sie den Freigabenamen oder NFS-Export und den Unterordner in den Einstellungen der Freigabe sowie die Ordner, die der Sicherungsjob einbezieht.",
+    "choose_share_version": "Wählen Sie in den Einstellungen der Freigabe eine andere Protokollversion (bei SMB 3.0) oder schalten Sie die Verschlüsselung aus.",
+    "grant_share_read": "Geben Sie dem Konto Leserechte auf der Freigabe, am besten über die Gruppe Sicherungs-Operatoren, damit es auch die Berechtigungen jeder Datei lesen kann.",
+    "install_share_client": "Laden Sie den Client auf dem Docker-Host: modprobe cifs (auf manchen Cloud-Kerneln zuerst linux-modules-extra für den laufenden Kernel installieren), für NFS nfs-common oder nfs-utils installieren.",
+    "check_share_content": "Prüfen Sie auf dem Dateiserver, ob die Dateien gelöscht oder verschoben wurden oder ob die Freigabe jetzt auf einen anderen Ordner zeigt.",
+    "back_up_empty_share_once": "Wurde die Freigabe absichtlich geleert, wählen Sie beim fehlgeschlagenen Lauf Leere Freigabe einmal sichern.",
+    "allow_share_restore": "Schalten Sie in den Einstellungen der Ziel-Freigabe Wiederherstellung in diese Freigabe erlauben ein oder wählen Sie ein anderes Ziel.",
+    "check_copy_target": "Prüfen Sie den Kopierjob: Quell- und Ziel-Freigabe, Zielordner und Modus. Wählen Sie Trotzdem kopieren nur, wenn die Quelle absichtlich geleert wurde.",
+    "wait_share_restore_check": "Warten Sie auf die Restore-Prüfung des neuesten Sicherungsstands der Quelle oder starten Sie sie jetzt bei der Quell-Freigabe.",
+    "raise_share_budget": "Erhöhen Sie das Speicherbudget der Freigabe oder aller Freigaben des Mandanten, oder verkürzen Sie die Aufbewahrung, damit ältere Sicherungsstände entfernt werden.",
+    "raise_runner_memory": "Erhöhen Sie den Speicher der Runner unter Installation > Netzlaufwerke > Runner für Freigaben.",
+    "raise_run_hours": "Erhöhen Sie die längste Laufzeit unter Installation > Netzlaufwerke > Runner für Freigaben oder sichern Sie die Freigabe in kleineren Teilen.",
+    "start_mounter": "Stellen Sie sicher, dass der Mounter läuft: Starten Sie ihn mit docker compose --profile mounts up -d mounter im Ordner mit docker-compose.yml oder schalten Sie ihn unter Installation > Netzlaufwerke ein.",
     "read_technical_details": "Die technischen Details unten zeigen die genaue Antwort.",
     "check_endpoint_paths": "Prüfen Sie, ob die Ordner aus den Einstellungen des Rechners auf ihm existieren, oder ändern Sie die Ordner.",
     "check_endpoint_hooks": "Führen Sie die Befehle vor und nach der Sicherung aus den Einstellungen von Hand auf dem Rechner als Administrator aus und beheben Sie, was fehlschlägt.",

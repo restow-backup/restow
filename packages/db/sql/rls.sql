@@ -124,6 +124,15 @@ DECLARE
     'pve_run_blocks',
     'pve_snapshots',
     'warning_acknowledgements',
+    'file_shares',
+    'file_share_runs',
+    'file_share_run_items',
+    'file_share_snapshots',
+    'file_share_samples',
+    'file_share_reports',
+    'file_share_repository_locks',
+    'file_share_downloads',
+    'file_share_catalog',
     -- Read and written only by the installation role (packages/db roles.ts);
     -- the policy is a second line should the tenant role ever be granted it.
     'provider_member_tenants'

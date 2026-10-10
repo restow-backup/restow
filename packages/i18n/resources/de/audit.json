@@ -158,6 +158,7 @@
     "backup_job": "Backup-Jobs",
     "mount": "Netzlaufwerke",
     "pve": "Proxmox VE",
+    "file_share": "Freigaben",
     "warning": "Warnungen"
   },
   "events": {
@@ -548,6 +549,12 @@
         "pruned": "Sicherungsstand des Gasts entfernt (Aufbewahrung)"
       }
     },
+    "file_share": {
+      "repository": {
+        "denied": "Unerlaubter Zugriff eines Freigabe-Runners abgelehnt"
+      },
+      "purged": "Sicherungen der Freigabe gelöscht"
+    },
     "warning": {
       "acknowledged": "Warnung bestätigt",
       "acknowledgement_revoked": "Bestätigung einer Warnung zurückgenommen"
@@ -596,6 +603,7 @@
     "mount": "Netzlaufwerk",
     "pve_node": "Knoten (Proxmox VE)",
     "pve_guest": "Gast (VM oder Container)",
+    "file_share": "Freigabe",
     "pve_snapshot": "Sicherungsstand (VM oder Container)",
     "pve_job": "Backup-Job (VMs und Container)",
     "pve_enrollment_token": "Enrollment-Token (Proxmox VE)"

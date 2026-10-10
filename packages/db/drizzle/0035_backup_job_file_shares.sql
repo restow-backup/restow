@@ -1,0 +1,11 @@
+ALTER TABLE "backup_job_members" DROP CONSTRAINT "backup_job_members_one_target_ck";--> statement-breakpoint
+ALTER TABLE "backup_job_members" ADD COLUMN "file_share_id" uuid;--> statement-breakpoint
+ALTER TABLE "backup_jobs" ADD COLUMN "source_file_share_id" uuid;--> statement-breakpoint
+ALTER TABLE "backup_jobs" ADD COLUMN "target_file_share_id" uuid;--> statement-breakpoint
+ALTER TABLE "backup_job_members" ADD CONSTRAINT "backup_job_members_file_share_id_file_shares_id_fk" FOREIGN KEY ("file_share_id") REFERENCES "public"."file_shares"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "backup_jobs" ADD CONSTRAINT "backup_jobs_source_file_share_id_file_shares_id_fk" FOREIGN KEY ("source_file_share_id") REFERENCES "public"."file_shares"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "backup_jobs" ADD CONSTRAINT "backup_jobs_target_file_share_id_file_shares_id_fk" FOREIGN KEY ("target_file_share_id") REFERENCES "public"."file_shares"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "backup_job_members_file_share_uq" ON "backup_job_members" USING btree ("file_share_id") WHERE "backup_job_members"."file_share_id" IS NOT NULL;--> statement-breakpoint
+ALTER TABLE "backup_job_members" ADD CONSTRAINT "backup_job_members_one_target_ck" CHECK (num_nonnulls("backup_job_members"."protected_object_id", "backup_job_members"."endpoint_id", "backup_job_members"."file_share_id") = 1);--> statement-breakpoint
+ALTER TABLE "backup_jobs" ADD CONSTRAINT "backup_jobs_copy_shares_ck" CHECK (CASE WHEN "backup_jobs"."kind"::text = 'copy' THEN "backup_jobs"."source_file_share_id" IS NOT NULL AND "backup_jobs"."target_file_share_id" IS NOT NULL ELSE "backup_jobs"."source_file_share_id" IS NULL AND "backup_jobs"."target_file_share_id" IS NULL END);--> statement-breakpoint
+ALTER TABLE "backup_jobs" ADD CONSTRAINT "backup_jobs_copy_distinct_ck" CHECK ("backup_jobs"."source_file_share_id" <> "backup_jobs"."target_file_share_id");

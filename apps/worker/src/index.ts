@@ -81,6 +81,8 @@ import { configureDefaultStorage } from "./default-storage.js";
 import { registerEndpointJobs } from "./endpoints/register.js";
 import { configureEntraApp } from "./entra-app.js";
 import { extensionHandlers, extensionRetentionTasks } from "./extensions.js";
+import { runnerClientFromEnv } from "./file-shares/mounter-client.js";
+import { registerFileShareJobs } from "./file-shares/register.js";
 import { registerAuditAnchor } from "./handlers/audit-anchor.js";
 import {
   HandlerRegistry,
@@ -366,6 +368,19 @@ async function main(): Promise<void> {
   await registerEndpointJobs(
     boss,
     { db, providerDb, runtime },
+    { pollingIntervalSeconds: config.pollSeconds },
+  );
+
+  // File shares (docs/FILESHARES.md 8): queued runs, the dispatcher that starts runners through
+  // the mounter, the monitor, retention, checks, restore checks, the catalog and the purge.
+  await registerFileShareJobs(
+    boss,
+    {
+      db,
+      providerDb,
+      runtime,
+      runner: runnerClientFromEnv(process.env, { demo: process.env.RESTOW_DEMO === "true" }),
+    },
     { pollingIntervalSeconds: config.pollSeconds },
   );
 

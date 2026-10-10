@@ -18,6 +18,7 @@ import {
 import PgBoss from "pg-boss";
 import { loadConfig } from "./config.js";
 import { ENDPOINT_QUEUE_OPTIONS, EndpointJobPlanner } from "./endpoints.js";
+import { FILE_SHARE_QUEUE_OPTIONS, FileShareJobPlanner } from "./file-shares.js";
 import { LeaderElection } from "./leader.js";
 import { errorMessage, logger } from "./logger.js";
 import { JOB_QUEUES, pgBossQueueOptions } from "./queues.js";
@@ -58,8 +59,12 @@ async function main(): Promise<void> {
     );
   }
   logger.info("job queues ready", { queues: [...JOB_QUEUES] });
-  // The endpoint backup queues (docs/AGENT.md): the worker creates the same ones.
-  for (const options of Object.values(ENDPOINT_QUEUE_OPTIONS)) {
+  // The endpoint backup queues (docs/AGENT.md) and the file share queues (docs/FILESHARES.md
+  // 8.1): the worker creates the same ones.
+  for (const options of [
+    ...Object.values(ENDPOINT_QUEUE_OPTIONS),
+    ...Object.values(FILE_SHARE_QUEUE_OPTIONS),
+  ]) {
     await retryConcurrentSetup(
       async () => {
         await boss.createQueue(options.name, options);
@@ -81,6 +86,8 @@ async function main(): Promise<void> {
     reports: new ReportRuleStore({ tenant: db.$client, installation: providerDb.$client }),
     // Retention, check and restore tests of endpoint repositories, queued for the worker.
     endpoints: new EndpointJobPlanner({ installation: providerDb.$client }, boss),
+    // Backups, copies and maintenance of file shares, queued for the worker.
+    fileShares: new FileShareJobPlanner({ installation: providerDb.$client }, boss),
     // Read leadership lazily; `election` is initialised just below and the tick
     // that calls this only runs after startup completes.
     isLeader: () => election.isLeader(),

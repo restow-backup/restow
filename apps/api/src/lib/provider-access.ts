@@ -108,6 +108,13 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   "GET /readyz",
   // Guarded by the updater's shared secret, not by a session (features/updates/internal.ts).
   "GET /internal/updater/source-token",
+  // File share runners (docs/FILESHARES.md 5.2): the runner authenticates with its run's own
+  // credential (HTTP Basic), on the internal network only (features/file-shares/runner-routes.ts).
+  "GET /internal/file-shares/v1/session",
+  "POST /internal/file-shares/v1/progress",
+  "POST /internal/file-shares/v1/items",
+  "POST /internal/file-shares/v1/samples",
+  "POST /internal/file-shares/v1/finish",
   "GET /api/v1/setup/state",
   "POST /api/v1/setup",
   "POST /api/v1/setup/token",

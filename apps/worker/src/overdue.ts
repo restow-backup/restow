@@ -7,8 +7,8 @@
  * The bound follows the tenant's jobs (`staleBackupHours` in @restow/core: twice the longest
  * planned gap of the most relaxed enabled job of the kind, two days without any schedule), for
  * mailboxes, OneDrives and IMAP accounts by the mail jobs, for servers and clients by the
- * endpoint jobs, and for VMs and containers of Proxmox VE by the PVE jobs
- * (`pveStaleBackupHours`). An object counts from its newest committed backup, or from when its
+ * endpoint jobs, for VMs and containers of Proxmox VE by the PVE jobs
+ * (`pveStaleBackupHours`), and for file shares by the share jobs (docs/FILESHARES.md 13). An object counts from its newest committed backup, or from when its
  * protection started if it never had one. A guest counts while it is in an enabled PVE job, or
  * once it had a successful backup (it left its job: nothing backs it up any more); a guest the
  * inventory found that nobody ever put into a job is not overdue.
@@ -34,8 +34,10 @@ import {
 } from "@restow/core";
 import {
   type NewNotification,
+  backupJobMembers,
   backupJobs,
   endpoints,
+  fileShares,
   notifications,
   protectedObjects,
   pveGuests,
@@ -46,7 +48,7 @@ import {
   sources,
   tenants,
 } from "@restow/db";
-import { and, eq, isNotNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import type { EndpointJobDeps } from "./endpoints/common.js";
 import { withTenantTx } from "./handlers/framework.js";
 import { lastAlertAt, queueRuleDeliveries, raiseEvents } from "./reporting.js";
@@ -56,7 +58,7 @@ const HOUR_MS = 60 * 60 * 1000;
 const MAX_ALERTS_PER_TENANT = 100;
 
 export interface OverdueCandidate {
-  kind: "object" | "endpoint" | "guest";
+  kind: "object" | "endpoint" | "guest" | "file_share";
   id: string;
   name: string;
   /** The newest successful backup, or when protection started without one. */
@@ -71,6 +73,8 @@ export interface OverdueBounds {
   machines: number;
   /** VMs and containers of Proxmox VE; absent, the machines' bound applies. */
   guests?: number;
+  /** File shares (docs/FILESHARES.md 13); absent, the machines' bound applies. */
+  fileShares?: number;
 }
 
 /** The bound of a candidate's kind. */
@@ -80,6 +84,8 @@ export function boundOf(candidate: Pick<OverdueCandidate, "kind">, bounds: Overd
       return bounds.machines;
     case "guest":
       return bounds.guests ?? bounds.machines;
+    case "file_share":
+      return bounds.fileShares ?? bounds.machines;
     default:
       return bounds.mail;
   }
@@ -116,6 +122,8 @@ function subjectDetails(candidate: OverdueCandidate): Record<string, string> {
       return { endpointId: candidate.id };
     case "guest":
       return { pveGuestId: candidate.id };
+    case "file_share":
+      return { fileShareId: candidate.id };
     default:
       return { protectedObjectId: candidate.id };
   }
@@ -273,6 +281,37 @@ async function tenantCandidates(
     });
   }
 
+  // File shares (docs/FILESHARES.md 13): protected while not retired and in an enabled share job;
+  // copy jobs are never protection.
+  const shareMembers = await db
+    .select({
+      id: fileShares.id,
+      name: fileShares.name,
+      createdAt: fileShares.createdAt,
+      lastSuccessAt: fileShares.lastSuccessAt,
+      jobCreatedAt: backupJobs.createdAt,
+    })
+    .from(fileShares)
+    .innerJoin(backupJobMembers, eq(backupJobMembers.fileShareId, fileShares.id))
+    .innerJoin(backupJobs, eq(backupJobs.id, backupJobMembers.jobId))
+    .where(
+      and(
+        eq(fileShares.tenantId, tenantId),
+        isNull(fileShares.retiredAt),
+        eq(backupJobs.kind, "share"),
+        eq(backupJobs.enabled, true),
+      ),
+    );
+  const shareCandidates: OverdueCandidate[] = shareMembers.map((share) => ({
+    kind: "file_share",
+    id: share.id,
+    name: share.name,
+    since:
+      share.lastSuccessAt ??
+      (share.jobCreatedAt > share.createdAt ? share.jobCreatedAt : share.createdAt),
+    backedUp: share.lastSuccessAt !== null,
+  }));
+
   return {
     bounds: {
       mail: staleBackupHours(
@@ -285,6 +324,10 @@ async function tenantCandidates(
       ),
       guests: pveStaleBackupHours(
         pveJobRows.filter((job) => job.enabled).map((job) => job.schedule),
+        now,
+      ),
+      fileShares: staleBackupHours(
+        schedules.filter((row) => row.kind === "share").map((row) => row.schedule),
         now,
       ),
     },
@@ -304,6 +347,7 @@ async function tenantCandidates(
         backedUp: machine.lastSuccessAt !== null,
       })),
       ...guestCandidates,
+      ...shareCandidates,
     ],
   };
 }
@@ -325,9 +369,11 @@ async function announcedSubjects(
         ? `endpoint:${details.endpointId}`
         : typeof details.pveGuestId === "string"
           ? `guest:${details.pveGuestId}`
-          : typeof details.protectedObjectId === "string"
-            ? `object:${details.protectedObjectId}`
-            : null;
+          : typeof details.fileShareId === "string"
+            ? `file_share:${details.fileShareId}`
+            : typeof details.protectedObjectId === "string"
+              ? `object:${details.protectedObjectId}`
+              : null;
     if (key && (!announced.get(key) || (announced.get(key) as Date) < row.createdAt)) {
       announced.set(key, row.createdAt);
     }

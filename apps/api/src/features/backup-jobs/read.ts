@@ -39,6 +39,7 @@ import type {
   JobScopeDto,
 } from "./dto.js";
 import { earliestOf, isOverdue, iso, jobStateOf, latestOf, nextCheckInOf } from "./dto.js";
+import { type SupportedJob, assertSupportedJob, supportedJobs } from "./kinds.js";
 import {
   type EndpointFact,
   type MailFact,
@@ -82,7 +83,11 @@ export function visibleSettings(settings: BackupJobSettings, reveal: boolean): B
   return { ...settings, hooks };
 }
 
-export async function loadJob(tx: Transaction, tenantId: string, id: string): Promise<BackupJob> {
+export async function loadJob(
+  tx: Transaction,
+  tenantId: string,
+  id: string,
+): Promise<SupportedJob> {
   const [row] = await tx
     .select()
     .from(backupJobs)
@@ -91,6 +96,7 @@ export async function loadJob(tx: Transaction, tenantId: string, id: string): Pr
   if (!row) {
     throw NOT_FOUND();
   }
+  assertSupportedJob(row);
   return row;
 }
 
@@ -192,7 +198,7 @@ function outcomeCounts(states: readonly MemberOutcome[]): JobLastRunDto {
 }
 
 function mailJobDto(
-  job: BackupJob,
+  job: SupportedJob,
   facts: TenantFacts,
   repository: BackupJobDto["repository"],
   policies: readonly SnapshotPolicyInfo[],
@@ -288,7 +294,7 @@ function memberQueued(fact: EndpointFact): boolean {
 }
 
 function endpointJobDto(
-  job: BackupJob,
+  job: SupportedJob,
   facts: TenantFacts,
   repository: BackupJobDto["repository"],
   reveal: boolean,
@@ -372,7 +378,7 @@ async function buildDtos(
   tx: Transaction,
   tenantId: string,
   all: readonly BackupJob[],
-  selected: readonly BackupJob[],
+  selected: readonly SupportedJob[],
   options: ReadOptions,
   now: Date,
 ): Promise<{ items: BackupJobDto[]; facts: TenantFacts }> {
@@ -401,11 +407,13 @@ export async function listBackupJobs(
   now: Date = new Date(),
 ): Promise<BackupJobListDto> {
   return withTenantTx(db, tenantId, async (tx) => {
-    const all = await tx
-      .select()
-      .from(backupJobs)
-      .where(eq(backupJobs.tenantId, tenantId))
-      .orderBy(asc(backupJobs.kind), asc(backupJobs.name));
+    const all = supportedJobs(
+      await tx
+        .select()
+        .from(backupJobs)
+        .where(eq(backupJobs.tenantId, tenantId))
+        .orderBy(asc(backupJobs.kind), asc(backupJobs.name)),
+    );
     const selected = query.kind ? all.filter((job) => job.kind === query.kind) : all;
     const { items, facts } = await buildDtos(tx, tenantId, all, selected, options, now);
     // Without a mail job nothing was loaded for the scope rule; every eligible object is then uncovered.
@@ -461,11 +469,13 @@ export async function jobDto(
   options: ReadOptions,
   now: Date,
 ): Promise<BackupJobDto> {
-  const all = await tx.select().from(backupJobs).where(eq(backupJobs.tenantId, tenantId));
-  const job = all.find((candidate) => candidate.id === id);
+  const rows = await tx.select().from(backupJobs).where(eq(backupJobs.tenantId, tenantId));
+  const job = rows.find((candidate) => candidate.id === id);
   if (!job) {
     throw NOT_FOUND();
   }
+  assertSupportedJob(job);
+  const all = supportedJobs(rows);
   const { items } = await buildDtos(tx, tenantId, all, [job], options, now);
   return items[0] as BackupJobDto;
 }
@@ -482,11 +492,13 @@ export async function listMembers(
   now: Date = new Date(),
 ): Promise<BackupJobMembersDto> {
   return withTenantTx(db, tenantId, async (tx) => {
-    const all = await tx.select().from(backupJobs).where(eq(backupJobs.tenantId, tenantId));
-    const job = all.find((candidate) => candidate.id === id);
+    const rows = await tx.select().from(backupJobs).where(eq(backupJobs.tenantId, tenantId));
+    const job = rows.find((candidate) => candidate.id === id);
     if (!job) {
       throw NOT_FOUND();
     }
+    assertSupportedJob(job);
+    const all = supportedJobs(rows);
     const facts = await loadFacts(tx, tenantId, all, now);
     const own = facts.members.filter((member) => member.jobId === id);
     const items =
@@ -627,11 +639,13 @@ export async function listJobRuns(
   limit: number,
 ): Promise<BackupJobRunsDto> {
   return withTenantTx(db, tenantId, async (tx) => {
-    const all = await tx.select().from(backupJobs).where(eq(backupJobs.tenantId, tenantId));
-    const job = all.find((candidate) => candidate.id === id);
+    const rows = await tx.select().from(backupJobs).where(eq(backupJobs.tenantId, tenantId));
+    const job = rows.find((candidate) => candidate.id === id);
     if (!job) {
       throw NOT_FOUND();
     }
+    assertSupportedJob(job);
+    const all = supportedJobs(rows);
     const members = await loadAllMembers(tx, tenantId);
     const items: JobRunDto[] = [];
     if (job.kind === "mail") {
@@ -733,7 +747,9 @@ export async function listCandidates(
 ): Promise<JobCandidatesDto> {
   return withTenantTx(db, tenantId, async (tx) => {
     const members = await loadAllMembers(tx, tenantId);
-    const allJobs = await tx.select().from(backupJobs).where(eq(backupJobs.tenantId, tenantId));
+    const allJobs = supportedJobs(
+      await tx.select().from(backupJobs).where(eq(backupJobs.tenantId, tenantId)),
+    );
     const jobName = new Map(allJobs.map((job) => [job.id, job.name]));
     const jobOf = (member: BackupJobMember | undefined) =>
       member ? { id: member.jobId, name: jobName.get(member.jobId) ?? "" } : null;

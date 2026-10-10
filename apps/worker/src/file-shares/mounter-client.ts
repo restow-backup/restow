@@ -9,8 +9,8 @@ import { type RunnerClient, createRunnerClient } from "@restow/core";
  * (`restow-mounter-shared`, mounted read-only into the worker by both compose files)
  * and sends it only to RESTOW_MOUNTER_URL. The request shapes are the core's
  * (packages/core/src/file-shares/runner.ts), pinned to the mounter's schemas.
- *
- * Phase B wires this into dispatch.ts and monitor.ts; Phase A provides the client.
+ * dispatch.ts starts runs with it, monitor.ts asks about and stops them, purge.ts removes a
+ * share's cache volume.
  */
 
 export const DEFAULT_MOUNTER_URL = "http://mounter:8091";

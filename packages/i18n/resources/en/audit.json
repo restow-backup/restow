@@ -158,6 +158,7 @@
     "backup_job": "Backup jobs",
     "mount": "Network shares",
     "pve": "Proxmox VE",
+    "file_share": "File shares",
     "warning": "Warnings"
   },
   "events": {
@@ -548,6 +549,12 @@
         "pruned": "Restore point of the guest removed (retention)"
       }
     },
+    "file_share": {
+      "repository": {
+        "denied": "Forbidden access of a file share runner refused"
+      },
+      "purged": "Backups of the file share deleted"
+    },
     "warning": {
       "acknowledged": "Warning acknowledged",
       "acknowledgement_revoked": "Warning acknowledgement revoked"
@@ -596,6 +603,7 @@
     "mount": "Network share",
     "pve_node": "Node (Proxmox VE)",
     "pve_guest": "Guest (VM or container)",
+    "file_share": "File share",
     "pve_snapshot": "Restore point (VM or container)",
     "pve_job": "Backup job (VMs and containers)",
     "pve_enrollment_token": "Enrollment token (Proxmox VE)"

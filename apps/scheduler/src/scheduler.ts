@@ -13,6 +13,7 @@
 import { randomUUID } from "node:crypto";
 import type PgBoss from "pg-boss";
 import type { EndpointJobPlanner } from "./endpoints.js";
+import type { FileShareJobPlanner } from "./file-shares.js";
 import { errorMessage, logger } from "./logger.js";
 import {
   type JobUnit,
@@ -46,6 +47,8 @@ export interface SchedulerLoopDeps {
   readonly reports?: ReportRuleStore;
   /** Server-side jobs of endpoint backup (./endpoints.ts); omitted, the loop plans none. */
   readonly endpoints?: EndpointJobPlanner;
+  /** File share backups, copies and maintenance (./file-shares.ts); omitted, none. */
+  readonly fileShares?: FileShareJobPlanner;
   /** Injectable clock and job id source (tests pin them). */
   readonly now?: () => Date;
   readonly newJobId?: () => string;
@@ -141,6 +144,20 @@ export class SchedulerLoop {
         const planned = await this.deps.endpoints.plan(now);
         if (planned && (planned.retention || planned.check || planned.verify)) {
           logger.info("endpoint jobs queued", { ...planned, at: now.toISOString() });
+        }
+      }
+      if (this.deps.fileShares && !this.stopped && this.deps.isLeader()) {
+        const planned = await this.deps.fileShares.plan(now);
+        if (
+          planned &&
+          (planned.backup ||
+            planned.copy ||
+            planned.retention ||
+            planned.check ||
+            planned.verify ||
+            planned.catalog)
+        ) {
+          logger.info("file share jobs queued", { ...planned, at: now.toISOString() });
         }
       }
       if (

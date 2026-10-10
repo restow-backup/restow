@@ -25,6 +25,7 @@ export type FailureCategory =
   | "verify"
   | "config"
   | "endpoint"
+  | "share"
   | "system";
 
 export const FAILURE_CODES = [
@@ -123,6 +124,37 @@ export const FAILURE_CODES = [
   "endpoint.interrupted",
   "endpoint.silent",
   "endpoint.backup_overdue",
+  // File shares, SMB and NFS (docs/FILESHARES.md section 11)
+  "share.auth_failed",
+  "share.unreachable",
+  "share.not_found",
+  "share.version_mismatch",
+  "share.permission_denied",
+  "share.client_missing",
+  "share.mount_failed",
+  "share.address_blocked",
+  "share.wrong_filesystem",
+  "share.empty_source",
+  "share.include_missing",
+  "share.locked_files",
+  "share.read_errors",
+  "share.files_dropped",
+  "share.acl_partial",
+  "share.offline_skipped",
+  "share.restore_not_allowed",
+  "share.copy_no_verified_point",
+  "share.copy_unsafe_target",
+  "share.copy_empty_source",
+  "share.restore_partial",
+  "share.repository_locked",
+  "share.repository_damaged",
+  "share.quota_exceeded",
+  "share.out_of_memory",
+  "share.timeout",
+  "share.mounter_unavailable",
+  "share.runner_failed",
+  "share.runner_lost",
+  "share.runner_stalled",
   // Mail export (docs/IMPORT.md)
   "export.quota_exceeded",
   // The platform itself
@@ -264,6 +296,21 @@ export const FAILURE_STEP_IDS = [
   "raise_export_limit",
   "check_database",
   "worker_resources",
+  "check_share_account",
+  "check_share_server",
+  "check_share_path",
+  "choose_share_version",
+  "grant_share_read",
+  "install_share_client",
+  "check_share_content",
+  "back_up_empty_share_once",
+  "allow_share_restore",
+  "check_copy_target",
+  "wait_share_restore_check",
+  "raise_share_budget",
+  "raise_runner_memory",
+  "raise_run_hours",
+  "start_mounter",
   "read_technical_details",
 ] as const;
 

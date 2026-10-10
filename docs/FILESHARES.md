@@ -1,8 +1,9 @@
 # File shares (SMB and NFS): design
 
 Status: binding design for the release that introduces file share backup, written 2026-10-10.
-The infrastructure part of Phase A is implemented (section 17 says what and what moved); the
-rest is not yet. It is the blueprint the four build phases (section 17) follow;
+The infrastructure part of Phase A and Phase B (database, core, scheduler, worker) are
+implemented (section 17 says what, what moved and where the build deviates); Phases C and D are
+not yet. It is the blueprint the four build phases (section 17) follow;
 a deviation is recorded here first, the way docs/PROXMOX.md records its own. Once a phase ships,
 the operator documentation of what exists goes into this file's "How it works" sections, in the
 style of [PVE.md](PVE.md).
@@ -1716,6 +1717,123 @@ scheduler planning of share and copy jobs (8.1); worker dispatcher with budget a
 monitor, finish, retention, check, restore check, catalog, purge (8.2-8.6); parametrised
 `quota.ts`; failure catalog entries (11); overdue, webhooks, report events (14).
 Exit: the pg suites of 16.2 green; a scheduled backup runs end to end without UI.
+
+*Phase B as built (2026-10-10).* Done, in the places section 2.4 names:
+
+- **Database.** `packages/db/src/schema/file-shares.ts` with the tables of 7.1; migrations
+  `0033_file_shares` (tables, `settings.file_share_settings`, `run_samples.file_share_run_id`,
+  `warning_acknowledgements.file_share_id` with their `num_nonnulls` checks, the `pg_trgm` block),
+  `0034_backup_job_kinds_share_copy` (the two enum values only) and
+  `0035_backup_job_file_shares` (member column, copy job columns and checks); RLS for the nine
+  tables in `sql/rls.sql`; secret kinds `file_share_password`, `file_share_repository`;
+  `recordRunSample` takes a `fileShareRunId`. Tests: `packages/db/src/file-shares.pg.test.ts`
+  (isolation of every table, the run singletons, the name rule, the cascade) and an upgrade case
+  in `migrate.pg.test.ts` (0033-0035 on a 0032 database with jobs, members, samples and
+  acknowledgements; the new checks; a deleted share takes its copy jobs along).
+- **Core** (`packages/core/src/file-shares/`): `model.ts` (repository prefix and cache key, the
+  snapshot paths, the settings of 7.4 with their bounds and the mounter's caps, the exclude list
+  of 7.5), `queues.ts`, `budget.ts` (on `quota.ts`, whose thresholds are now a parameter;
+  machines keep 90/80, shares use 80/70), `failures.ts`, `readiness.ts`, `protection.ts`,
+  `sidecar.ts` (reads the Go golden file), `catalog.ts`, `copy.ts` (rules 1-3, 5, 6 and the
+  restore point a copy takes), `session.ts` (the run credential and the backup half of the
+  session), `address.ts` (the address rule of 10.1 with the /24 and /64 approval range),
+  `restic.ts` (streaming `restic diff --json` and `ls --json`). `RepositoryAccess.endpointId` is
+  now `repositoryKey`; `endpoints/repository-key.ts` is one document with a
+  `RepositoryPasswordKind` per kind of repository, the endpoint functions unchanged on top. The
+  failure catalog has the category `share` with the 30 codes of section 11 and 15 new steps,
+  texts in `en` and `de`; the report events `file_share.storage_quota` and
+  `file_share.repository_locked` with their texts; alerts about a share use the subject key
+  `file_share:<id>`.
+- **api.** The runner routes `/internal/file-shares/v1/{session,progress,items,samples,finish}`
+  (`features/file-shares/runner-routes.ts`, public routes classified in `provider-access.ts` and
+  the public-routes test); the restic route now looks credentials up in `file_share_runs`
+  (`PgRunCredentials`), keeps the backup runners' locks in `file_share_repository_locks`, counts
+  uploads into `file_shares.repository_bytes`, refuses uploads over the share's or tenant's
+  budget (and notes `quota_refused_at`) and audits denials as `file_share.repository.denied`
+  (labelled in `audit.json`, like the worker's `file_share.purged`; the feature's constants are
+  in `features/file-shares/constants.ts`, since a `meta.ts` there would declare the tenant
+  routes of Phase C).
+  `features/backup-jobs` leaves `share` and `copy` jobs out of every list and answers 409
+  `urn:restow:problem:backup-job-kind-unsupported` on any route that names one, until Phase C.
+- **Scheduler.** `apps/scheduler/src/file-shares.ts`: due share jobs, members with their own
+  schedule, copy jobs, and the maintenance of 8.1 from the share rows; the queues are created
+  with the shared settings.
+- **Worker** (`apps/worker/src/file-shares/`): `queue.ts` (the two queueing handlers),
+  `dispatch.ts` (the loop of 8.2, repository initialisation of 5.4, the address rule, the
+  budget, the copy rules), `finish.ts` (8.3 finish processing, alerts and webhooks), `monitor.ts`,
+  `maintenance.ts` (retention, check, restore check, lock counting), `catalog.ts`, `purge.ts`,
+  `register.ts`; `overdue.ts` knows the candidate kind `file_share`. The endpoints' lock
+  clearing is now the shared `clearClientLocks` (`apps/worker/src/endpoints/maintenance.ts`).
+- **Tests.** Besides the unit tests of every core module: `apps/api/.../file-shares.pg.test.ts`,
+  `apps/worker/src/file-shares/file-shares.pg.test.ts` (queueing, dispatcher, monitor, finish,
+  budget alerts, overdue, retention against restic), `apps/scheduler/src/file-shares.pg.test.ts`,
+  and the exit test `apps/worker/src/file-shares/e2e.pg.test.ts`: the dispatcher starts a run
+  through a stand-in mounter that runs the real `restow-share` on a folder, the runner talks to
+  the api's real runner and restic routes in a child process
+  (`apps/api/src/features/file-shares/testing/runner-server.ts`), restic 0.19.1 writes the
+  repository; then the restore point is recorded, checked green, catalogued from `restic diff`,
+  retention prunes the older point, and a restore run writes the newest one into a new folder,
+  compared byte for byte. The runner build for it is `go build -tags sharetest`
+  (`agent/cmd/restow-share/testmount.go`: a plain folder stands in for the mount; release builds
+  do not contain the file).
+
+Deviations from the design above, decided while building:
+
+1. **0035 compares `kind::text = 'copy'`.** Drizzle's migrator applies every pending migration in
+   one transaction, and a value `ALTER TYPE ... ADD VALUE` added cannot be used as an enum value
+   before that transaction commits. On an installation at 0032, 0034 and 0035 run together, so
+   the checks compare the text. The copy checks are one `CASE` (a copy job has both shares, any
+   other job neither) and `source <> target`.
+2. **`file_share_catalog` has an `id` and `created_at`** (the schema's convention, checked by
+   `schema.test.ts`); the doc's primary key is the unique index
+   `(file_share_id, path, first_seq)`, and an index on `(file_share_id, end_seq)` finds the open
+   versions. Paths longer than 2,000 bytes are not catalogued (a btree entry must fit a page).
+3. **Two columns more:** `file_share_runs.finish_processed_at` (the worker processes a finish
+   once; the monitor processes finishes nobody queued) and `file_share_snapshots.cataloged_at`
+   (what the catalog planner looks at). Reports and samples carry the restic snapshot id as text,
+   as for endpoints; `file_shares.last_snapshot_id` is the restore point row.
+4. **A tenant's own budget for all its shares** is `tenantShareQuotaGibByTenant` in the
+   installation settings (the tenants table has no settings column); Phase C writes it.
+5. **No separate cancel route.** A cancel reaches the runner in the answer of `POST /progress`
+   (5.2); the monitor stops a run that did not honour it within two minutes, and a queued run
+   with a cancel request ends without starting.
+6. **The repeated finish** is recognised by its status, restic snapshot id and code (no body
+   digest is stored), and accepted for 15 minutes after the run ended; a different one is 409.
+7. **The session's repository URL** is built from the `Host` the runner used to reach the api
+   (the mounter's `RESTOW_MOUNTER_RUNNER_API_URL`), so no second setting can disagree with it.
+8. **A scheduled tick while the share's backup is still queued** is recorded as a cancelled run
+   with the note "Skipped: the previous run was still running", rather than measured against the
+   job's interval.
+9. **The empty-source guard has a second line on the server:** a backup that reports success with
+   0 files after a restore point with files, without "back up the empty share once", is recorded
+   as failed (`share.empty_source`); its restic snapshot is then one no run recorded, which
+   retention never deletes. Retention also never removes the newest restore point with files.
+10. **The check reads a rotating twentieth** of the data (`checkSubset` of the endpoints, 5 % a
+    week, the whole repository in five months) instead of a random 5 %.
+11. **Suspicious snapshots** (not recorded, dated in the future) are counted in the retention
+    report only; shares have no table like `endpoint_snapshot_flags` and raise no alert for them.
+12. **Shares share the endpoints' advisory lock space** (`withEndpointRepositoryLock` with the key
+    `file-share:<id>`) for retention, check, restore check and catalog.
+13. **The runner limit** is counted from the database (`starting` and `running` runs); the
+    mounter's own `runner.limit` refusal puts the run back into the queue like an unreachable
+    mounter. A name that does not resolve fails the run as `share.unreachable`.
+14. **The catalog after a gap** (the first backup, a previous restore point that is gone, a share
+    that had no catalog) closes every open version and opens the listed ones from `restic ls`;
+    a restore point with more files than `maxEntriesPerShare` removes the share's catalog.
+
+Deferred to Phase C: the tenant routes of 9.1 (nothing queues `file-share-purge` yet, and manual
+backups, restores and copies are not requested by any route), copy and share jobs in the
+backup-job routes (refused until then), the quota, private-network-approval, settings and
+repository-password routes, downloads and browsing (the tables and the sidecar reader exist),
+the SQL mirror of `protection.ts`, the labels of the audit actions of 9.2 and the name lookup
+of the target type `file_share` (`ee/api/src/audit-log/labels.ts`), the web's copy of the report
+event list (`apps/web/src/features/reports/api.ts`, `presenters.ts`) with
+the two new events, the targets of the new failure steps in the UI, the chat formats of
+`webhook-formats.ts` naming the share. Deferred to Phase D: overviews, statistics, history,
+dashboard counts, the smoke check, the operator documentation. The worker reads the mounter's
+caps from `RESTOW_MOUNTER_MAX_RUNNERS` and `RESTOW_MOUNTER_RUNNER_MAX_MEMORY_MIB` in its own
+environment, which the compose files do not set yet (the defaults 8 and 16384 match the
+mounter's).
 
 **Phase C: api, web, i18n.**
 Tenant routes and provider rules (9), copy jobs in the backup-job routes, the quota route,

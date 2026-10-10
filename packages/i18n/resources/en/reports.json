@@ -399,6 +399,10 @@
       "storage_quota": "Storage budget of servers and clients",
       "repository_locked": "Backup data of a server or client stays locked"
     },
+    "file_share": {
+      "storage_quota": "Storage budget of file shares",
+      "repository_locked": "Backup data of a file share stays locked"
+    },
     "update": {
       "available": "Update available"
     }
@@ -432,6 +436,10 @@
       "suspicious_snapshot": "A snapshot appeared that no backup run reported, or one dated in the future. Retention keeps it; the machine may be compromised.",
       "storage_quota": "The backup data of a machine, or all of a tenant's together, reached 90 percent of the storage budget, or backups were refused because it is used up.",
       "repository_locked": "Retention and checks kept finding a machine's backup data locked for more than twelve hours."
+    },
+    "file_share": {
+      "storage_quota": "The backup data of a file share, or all of a tenant's shares together, reached 80 percent of the storage budget, or new backups are refused because it is used up.",
+      "repository_locked": "Retention and checks kept finding a file share's backup data locked for more than twelve hours."
     },
     "update": {
       "available": "A newer version of the software is available. Raised once per version for the whole installation, so only provider administrators can choose it."
@@ -537,6 +545,10 @@
     "endpoint": {
       "stale": "Not reporting: {object}",
       "suspicious_snapshot": "Suspicious snapshot: {object}",
+      "storage_quota": "Storage budget: {object}",
+      "repository_locked": "Backup data locked: {object}"
+    },
+    "file_share": {
       "storage_quota": "Storage budget: {object}",
       "repository_locked": "Backup data locked: {object}"
     },

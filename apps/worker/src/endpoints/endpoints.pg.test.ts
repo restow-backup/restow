@@ -208,7 +208,7 @@ describe.skipIf(!adminUrl || !resticAvailable())(
         storage: new LocalStorageBackend(storageDir),
         prefix: endpointPrefix(made.id),
         repositoryPassword: made.password,
-        endpointId: made.id,
+        repositoryKey: made.id,
         cacheBase: join(work, "cache"),
       });
       try {
@@ -284,7 +284,7 @@ describe.skipIf(!adminUrl || !resticAvailable())(
         storage,
         prefix: endpointPrefix(id),
         repositoryPassword: password,
-        endpointId: id,
+        repositoryKey: id,
         cacheBase: join(work, "cache"),
       });
       try {
@@ -308,7 +308,7 @@ describe.skipIf(!adminUrl || !resticAvailable())(
           storage: new LocalStorageBackend(storageDir),
           prefix: endpointPrefix(made.id),
           repositoryPassword: made.password,
-          endpointId: made.id,
+          repositoryKey: made.id,
           cacheBase: join(work, "cache"),
         },
         async (session) => (await resticSnapshots(session)).map((snapshot) => snapshot.id),

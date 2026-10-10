@@ -455,6 +455,128 @@
         "title": "The backup data is damaged",
         "why": "The integrity check found damaged or missing data among this machine's backups. Backups made from now on are not affected, but older data may not be restorable. The technical details show what the check reported."
       }
+    },
+    "share": {
+      "auth_failed": {
+        "title": "The file server refused the account",
+        "why": "{reason, select, expired {The password of the account has expired.} other {The server refused the account: the password is wrong or was changed, the account is locked, or it has no access to this share.}} Nothing was read from the share."
+      },
+      "unreachable": {
+        "title": "The file server did not answer",
+        "why": "{appName} could not reach the server: the address is wrong, a firewall blocks the port (445 for SMB, 2049 for NFS), or the VPN to the site is down."
+      },
+      "not_found": {
+        "title": "The share, export or folder does not exist",
+        "why": "The server answered, but the share, the NFS export or the subfolder in the settings does not exist (any more)."
+      },
+      "version_mismatch": {
+        "title": "The server does not speak the selected protocol version",
+        "why": "The server refused the SMB or NFS version in the settings, or it refused encryption."
+      },
+      "permission_denied": {
+        "title": "The account may not read this folder",
+        "why": "The share was mounted, but the account has no right to read {has_path, select, yes {{path}} other {the folder}}."
+      },
+      "client_missing": {
+        "title": "The Docker host has no SMB or NFS client",
+        "why": "The kernel of the Docker host that runs {appName} has no cifs or nfs module, so it cannot mount the share."
+      },
+      "mount_failed": {
+        "title": "The share could not be mounted",
+        "why": "Mounting the share failed for a reason {appName} does not recognise. The technical details show what the system reported."
+      },
+      "address_blocked": {
+        "title": "The server's address is not allowed",
+        "why": "The server resolves to a loopback, private or reserved address that no provider administrator approved for this share, or to another address than the one approved."
+      },
+      "wrong_filesystem": {
+        "title": "The share was not mounted as expected",
+        "why": "The runner did not find the share mounted where it expected it, so it read nothing. This should not happen; please open a support case."
+      },
+      "empty_source": {
+        "title": "The share is empty",
+        "why": "The share or its included folders are empty although the last restore point had files. Nothing was backed up and nothing will be removed from the backups."
+      },
+      "include_missing": {
+        "title": "An included folder no longer exists",
+        "why": "A folder this share's backup job includes {has_path, select, yes {({path}) } other {}}no longer exists on the share."
+      },
+      "locked_files": {
+        "title": "Some files were open on the server",
+        "why": "{has_count, select, yes {{count, plural, one {# file was} other {# files were}}} other {Some files were}} open with a lock on the server and could not be read. The rest of the backup is complete."
+      },
+      "read_errors": {
+        "title": "Some files could not be read",
+        "why": "{has_count, select, yes {{count, plural, one {# file} other {# files}}} other {Some files}} could not be read from the share. The rest of the backup is complete."
+      },
+      "files_dropped": {
+        "title": "Far fewer files than last time",
+        "why": "The share holds fewer than half the files of the previous restore point. This was backed up as found; check whether files were deleted on purpose."
+      },
+      "acl_partial": {
+        "title": "Permissions were not saved or restored for every file",
+        "why": "The account lacks the right to read or write the permissions of some files (for example the Backup Operators group, or the right for auditing entries)."
+      },
+      "offline_skipped": {
+        "title": "Offline files were skipped",
+        "why": "Files that only exist as placeholders on the server (tiered to the cloud or an archive) were skipped, as the job is set up, so they were not recalled."
+      },
+      "restore_not_allowed": {
+        "title": "The target share does not allow restores",
+        "why": "Restoring writes into a share only when that share has Allow restore to this share switched on."
+      },
+      "copy_no_verified_point": {
+        "title": "No checked restore point to copy yet",
+        "why": "The copy job copies the newest restore point whose restore check passed, and the source share has none yet."
+      },
+      "copy_unsafe_target": {
+        "title": "The copy target is not safe",
+        "why": "{reason, select, same_share {The target is the source share itself or the same location under another name.} share_root {A mirror copy never writes into the root of a share.} foreign_marker {The target folder belongs to another copy job.} not_confirmed {The target folder is not empty and nobody confirmed that whatever is in it may be deleted.} other {The target of the copy job breaks one of the safety rules.}} Nothing was copied."
+      },
+      "copy_empty_source": {
+        "title": "Mirror copy refused: the source looks emptied",
+        "why": "The restore point to copy is empty or has fewer than half the files of the one copied last. A mirror would delete the target's files, so nothing was copied."
+      },
+      "restore_partial": {
+        "title": "Some files could not be written",
+        "why": "Some files could not be restored: a name the target cannot hold, missing rights, or no space left."
+      },
+      "repository_locked": {
+        "title": "The restic repository of the share stayed locked",
+        "why": "Another run or the server's maintenance held the share's repository locked. {appName} tries again."
+      },
+      "repository_damaged": {
+        "title": "The restic repository of the share reported damage",
+        "why": "restic reported that the share's repository is damaged or cannot be opened."
+      },
+      "quota_exceeded": {
+        "title": "The storage budget for file share backups is used up",
+        "why": "The budget of this share, or of all of the tenant's shares, is used up, so new backups are refused. Restores and copies keep working."
+      },
+      "out_of_memory": {
+        "title": "The runner ran out of memory",
+        "why": "The runner exceeded its memory limit, which large shares with many files need."
+      },
+      "timeout": {
+        "title": "The run took too long",
+        "why": "The run did not finish within the longest time a run may take and was stopped."
+      },
+      "mounter_unavailable": {
+        "title": "The mounter is not running",
+        "why": "The mounter, which mounts shares for {appName}, is not running, or it cannot start runners right now (network, image or limit)."
+      },
+      "runner_failed": {
+        "title": "The runner ended without a result",
+        "why": "The runner stopped before it reported how the run ended{has_exitCode, select, yes { (exit code {exitCode})} other {}}."
+      },
+      "runner_lost": {
+        "title": "The runner disappeared",
+        "why": "The mounter no longer knows the runner of this run, for example because it was restarted or stopped."
+      },
+      "runner_stalled": {
+        "title": "The runner stopped reporting",
+        "why": "The runner sent no progress for a long time and was stopped."
+      }
     }
   },
   "steps": {
@@ -509,6 +631,21 @@
     "raise_export_limit": "If the repository has room, an administrator of the installation can raise the limit with the setting EXPORT_MAX_TENANT_BYTES.",
     "check_database": "Check that Postgres is running and reachable, has free disk space and has connections left.",
     "worker_resources": "If runs are interrupted often, check memory and restarts of the worker container.",
+    "check_share_account": "Check the account in the share's settings: enter the new password there if it was changed (the share does not have to be added again), and make sure the account is not locked and may access this share.",
+    "check_share_server": "Check that the file server is switched on and reachable from the Docker host: the address, the firewall (port 445 for SMB, 2049 for NFS) and, for a remote site, the VPN.",
+    "check_share_path": "Check the share name or NFS export and the subfolder in the share's settings, and the folders the backup job includes.",
+    "choose_share_version": "Select another protocol version in the share's settings (for SMB try 3.0), or switch encryption off.",
+    "grant_share_read": "Give the account read rights on the share, ideally through the Backup Operators group, so it can also read the permissions of every file.",
+    "install_share_client": "Load the client on the Docker host: modprobe cifs (on some cloud kernels install linux-modules-extra for the running kernel first), for NFS install nfs-common or nfs-utils.",
+    "check_share_content": "Check on the file server whether the files were deleted or moved, or whether the share now points to another folder.",
+    "back_up_empty_share_once": "If the share was emptied on purpose, choose Back up the empty share once on the failed run.",
+    "allow_share_restore": "Switch on Allow restore to this share in the target share's settings, or choose another target.",
+    "check_copy_target": "Check the copy job: its source and target share, the target folder and the mode. Use Copy anyway only when the source was emptied on purpose.",
+    "wait_share_restore_check": "Wait for the restore check of the source's newest restore point, or start it now on the source share.",
+    "raise_share_budget": "Raise the storage budget of the share or of the tenant's shares, or tighten the retention so older restore points are removed.",
+    "raise_runner_memory": "Raise the memory of the runners under Installation > Network shares > File share runners.",
+    "raise_run_hours": "Raise the longest run time under Installation > Network shares > File share runners, or back up the share in smaller parts.",
+    "start_mounter": "Make sure the mounter runs: start it with docker compose --profile mounts up -d mounter in the folder with docker-compose.yml, or enable it under Installation > Network shares.",
     "read_technical_details": "The technical details below show the exact answer.",
     "check_endpoint_paths": "Check that the folders in the machine's settings exist on the machine, or change the folders.",
     "check_endpoint_hooks": "Run the before and after commands from the settings by hand on the machine as administrator and fix what fails.",

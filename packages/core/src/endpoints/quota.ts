@@ -27,6 +27,23 @@ export const QUOTA_NEAR_RATIO = 0.9;
 /** Below this share a warning that went out is re-armed. */
 export const QUOTA_CLEAR_RATIO = 0.8;
 
+/**
+ * When a budget warns and when a warning that went out is re-armed. Machines warn from 90 percent
+ * and re-arm below 80 ({@link ENDPOINT_QUOTA_THRESHOLDS}); file shares from 80 and below 70
+ * (docs/FILESHARES.md 7.4).
+ */
+export interface QuotaThresholds {
+  /** From this share of a budget on, the level is `near`. */
+  readonly near: number;
+  /** Below this share a warning that went out is re-armed. */
+  readonly clear: number;
+}
+
+export const ENDPOINT_QUOTA_THRESHOLDS: QuotaThresholds = {
+  near: QUOTA_NEAR_RATIO,
+  clear: QUOTA_CLEAR_RATIO,
+};
+
 export interface EndpointQuotaLimits {
   /** Budget of one endpoint in bytes, unless its settings say otherwise; null for none. */
   readonly endpointBytes: number | null;
@@ -94,8 +111,15 @@ export function quotaRatio(used: number, budget: number | null): number | null {
   return budget <= 0 ? Number.POSITIVE_INFINITY : used / budget;
 }
 
-/** How full a budget is: `exceeded` when nothing fits any more, `near` from 90 percent. */
-export function quotaLevelOf(used: number, budget: number | null): QuotaLevel {
+/**
+ * How full a budget is: `exceeded` when nothing fits any more, `near` from the threshold's share
+ * (90 percent for machines, the default).
+ */
+export function quotaLevelOf(
+  used: number,
+  budget: number | null,
+  thresholds: QuotaThresholds = ENDPOINT_QUOTA_THRESHOLDS,
+): QuotaLevel {
   const ratio = quotaRatio(used, budget);
   if (ratio === null) {
     return "ok";
@@ -103,5 +127,15 @@ export function quotaLevelOf(used: number, budget: number | null): QuotaLevel {
   if (ratio >= 1) {
     return "exceeded";
   }
-  return ratio >= QUOTA_NEAR_RATIO ? "near" : "ok";
+  return ratio >= thresholds.near ? "near" : "ok";
+}
+
+/** Whether a warning that went out may be re-armed: usage fell below the clear threshold. */
+export function quotaCleared(
+  used: number,
+  budget: number | null,
+  thresholds: QuotaThresholds = ENDPOINT_QUOTA_THRESHOLDS,
+): boolean {
+  const ratio = quotaRatio(used, budget);
+  return ratio === null || ratio < thresholds.clear;
 }

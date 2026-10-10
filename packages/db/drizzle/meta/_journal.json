@@ -232,6 +232,27 @@
       "when": 1791543022531,
       "tag": "0032_pve_enrollment_pve_token",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791645293298,
+      "tag": "0033_file_shares",
+      "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1791645307321,
+      "tag": "0034_backup_job_kinds_share_copy",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1791645317648,
+      "tag": "0035_backup_job_file_shares",
+      "breakpoints": true
     }
   ]
 }

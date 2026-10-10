@@ -1566,3 +1566,217 @@ describe.skipIf(!adminUrl)(
     }, 60_000);
   },
 );
+
+describe.skipIf(!adminUrl)(
+  "upgrading to file shares (0033 tables, 0034 job kinds, 0035 job members and copy jobs)",
+  () => {
+    const base = adminUrl as string;
+    const database = `restow_db_migrate_file_shares_${suffix}`;
+    const owner: RoleLogin = {
+      name: `restow_mig_shares_${suffix}`,
+      password: randomBytes(18).toString("base64url"),
+    };
+    const ids = {
+      provider: randomUUID(),
+      tenant: randomUUID(),
+      endpoint: randomUUID(),
+      job: randomUUID(),
+      member: randomUUID(),
+      run: randomUUID(),
+      sample: randomUUID(),
+      ack: randomUUID(),
+    };
+    let folder = "";
+
+    beforeAll(async () => {
+      folder = migrationsFolderUpTo("0032_pve_enrollment_pve_token");
+      const admin = new pg.Pool({ connectionString: base });
+      try {
+        await admin.query(
+          `CREATE ROLE ${owner.name} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE PASSWORD '${owner.password}'`,
+        );
+        await admin.query(`CREATE DATABASE ${database} OWNER ${owner.name}`);
+      } finally {
+        await admin.end();
+      }
+    });
+
+    afterAll(async () => {
+      if (folder) rmSync(folder, { recursive: true, force: true });
+      await dropTestDatabase(base, database);
+      const admin = new pg.Pool({ connectionString: base });
+      try {
+        await admin.query(`DROP ROLE IF EXISTS ${owner.name}`);
+      } finally {
+        await admin.end();
+      }
+    });
+
+    it("keeps existing jobs, members, samples and acknowledgements and accepts them under the new checks", async () => {
+      const url = urlFor(base, database, owner);
+      await applyReleasedSchema(url, folder, null);
+      const pool = new pg.Pool({ connectionString: url });
+      try {
+        await pool.query("INSERT INTO providers (id, name) VALUES ($1, 'p')", [ids.provider]);
+        await asTenant(pool, ids.tenant, async (client) => {
+          await client.query(
+            "INSERT INTO tenants (id, provider_id, name, slug) VALUES ($1, $2, 'Contoso', 'contoso')",
+            [ids.tenant, ids.provider],
+          );
+          await client.query(
+            `INSERT INTO endpoints (id, tenant_id, hostname, os, arch, profile, secret_hash, config)
+             VALUES ($1, $2, 'srv', 'linux', 'amd64', 'server', 'x', '{}'::jsonb)`,
+            [ids.endpoint, ids.tenant],
+          );
+          await client.query(
+            "INSERT INTO backup_jobs (id, tenant_id, kind, name) VALUES ($1, $2, 'endpoint', 'Machines')",
+            [ids.job, ids.tenant],
+          );
+          await client.query(
+            "INSERT INTO backup_job_members (id, tenant_id, job_id, endpoint_id) VALUES ($1, $2, $3, $4)",
+            [ids.member, ids.tenant, ids.job, ids.endpoint],
+          );
+          await client.query(
+            "INSERT INTO endpoint_runs (id, tenant_id, endpoint_id, kind, started_at) VALUES ($1, $2, $3, 'backup', now())",
+            [ids.run, ids.tenant, ids.endpoint],
+          );
+          await client.query(
+            "INSERT INTO run_samples (id, tenant_id, endpoint_run_id) VALUES ($1, $2, $3)",
+            [ids.sample, ids.tenant, ids.run],
+          );
+          await client.query(
+            "INSERT INTO warning_acknowledgements (id, tenant_id, endpoint_id, acknowledged_by) VALUES ($1, $2, $3, 'admin')",
+            [ids.ack, ids.tenant, ids.endpoint],
+          );
+        });
+
+        await runMigrations(url);
+        expect(await appliedMigrations(pool)).toBe(journal.entries.length);
+
+        await asTenant(pool, ids.tenant, async (client) => {
+          const member = await client.query(
+            "SELECT endpoint_id, file_share_id FROM backup_job_members WHERE id = $1",
+            [ids.member],
+          );
+          expect(member.rows).toEqual([{ endpoint_id: ids.endpoint, file_share_id: null }]);
+          const job = await client.query(
+            "SELECT kind, source_file_share_id, target_file_share_id FROM backup_jobs WHERE id = $1",
+            [ids.job],
+          );
+          expect(job.rows).toEqual([
+            { kind: "endpoint", source_file_share_id: null, target_file_share_id: null },
+          ]);
+          const sample = await client.query(
+            "SELECT endpoint_run_id, file_share_run_id FROM run_samples WHERE id = $1",
+            [ids.sample],
+          );
+          expect(sample.rows).toEqual([{ endpoint_run_id: ids.run, file_share_run_id: null }]);
+          const ack = await client.query(
+            "SELECT endpoint_id, file_share_id FROM warning_acknowledgements WHERE id = $1",
+            [ids.ack],
+          );
+          expect(ack.rows).toEqual([{ endpoint_id: ids.endpoint, file_share_id: null }]);
+        });
+      } finally {
+        await pool.end();
+      }
+    }, 120_000);
+
+    it("uses the new kinds, keeps one target per member and cascades a deleted share to its copy jobs", async () => {
+      const url = urlFor(base, database, owner);
+      const pool = new pg.Pool({ connectionString: url });
+      try {
+        await asTenant(pool, ids.tenant, async (client) => {
+          const share = async (name: string) =>
+            (
+              await client.query<{ id: string }>(
+                `INSERT INTO file_shares (tenant_id, name, protocol, server, share_name)
+                 VALUES ($1, $2, 'smb', 'files.example.test', 'data') RETURNING id`,
+                [ids.tenant, name],
+              )
+            ).rows[0]?.id as string;
+          const a = await share("A");
+          const b = await share("B");
+          const shareJob = (
+            await client.query<{ id: string }>(
+              "INSERT INTO backup_jobs (tenant_id, kind, name) VALUES ($1, 'share', 'Shares') RETURNING id",
+              [ids.tenant],
+            )
+          ).rows[0]?.id as string;
+          await client.query(
+            "INSERT INTO backup_job_members (tenant_id, job_id, file_share_id) VALUES ($1, $2, $3)",
+            [ids.tenant, shareJob, a],
+          );
+          // Two targets in one member, or none, break the check.
+          await client.query("SAVEPOINT s1");
+          await expect(
+            client.query(
+              "INSERT INTO backup_job_members (tenant_id, job_id, endpoint_id, file_share_id) VALUES ($1, $2, $3, $4)",
+              [ids.tenant, shareJob, ids.endpoint, b],
+            ),
+          ).rejects.toThrow(/backup_job_members_one_target_ck|backup_job_members_endpoint_uq/);
+          await client.query("ROLLBACK TO SAVEPOINT s1");
+          // A share is in one job at most.
+          await expect(
+            client.query(
+              "INSERT INTO backup_job_members (tenant_id, job_id, file_share_id) VALUES ($1, $2, $3)",
+              [ids.tenant, shareJob, a],
+            ),
+          ).rejects.toThrow(/backup_job_members_file_share_uq/);
+          await client.query("ROLLBACK TO SAVEPOINT s1");
+          // A copy job needs both shares, and two different ones; other kinds take none.
+          await expect(
+            client.query(
+              "INSERT INTO backup_jobs (tenant_id, kind, name, source_file_share_id) VALUES ($1, 'copy', 'C1', $2)",
+              [ids.tenant, a],
+            ),
+          ).rejects.toThrow(/backup_jobs_copy_shares_ck/);
+          await client.query("ROLLBACK TO SAVEPOINT s1");
+          await expect(
+            client.query(
+              "INSERT INTO backup_jobs (tenant_id, kind, name, source_file_share_id, target_file_share_id) VALUES ($1, 'copy', 'C2', $2, $2)",
+              [ids.tenant, a],
+            ),
+          ).rejects.toThrow(/backup_jobs_copy_distinct_ck/);
+          await client.query("ROLLBACK TO SAVEPOINT s1");
+          await expect(
+            client.query(
+              "INSERT INTO backup_jobs (tenant_id, kind, name, source_file_share_id, target_file_share_id) VALUES ($1, 'share', 'S2', $2, $3)",
+              [ids.tenant, a, b],
+            ),
+          ).rejects.toThrow(/backup_jobs_copy_shares_ck/);
+          await client.query("ROLLBACK TO SAVEPOINT s1");
+          const copy = (
+            await client.query<{ id: string }>(
+              "INSERT INTO backup_jobs (tenant_id, kind, name, source_file_share_id, target_file_share_id) VALUES ($1, 'copy', 'Copy', $2, $3) RETURNING id",
+              [ids.tenant, a, b],
+            )
+          ).rows[0]?.id as string;
+          await client.query("DELETE FROM file_shares WHERE id = $1", [b]);
+          const left = await client.query("SELECT id FROM backup_jobs WHERE id = $1", [copy]);
+          expect(left.rows).toEqual([]);
+          // The share job and its other member stay.
+          const members = await client.query(
+            "SELECT file_share_id FROM backup_job_members WHERE job_id = $1",
+            [shareJob],
+          );
+          expect(members.rows).toEqual([{ file_share_id: a }]);
+        });
+      } finally {
+        await pool.end();
+      }
+    }, 60_000);
+
+    it("changes nothing on a second run of the migration step", async () => {
+      const url = urlFor(base, database, owner);
+      const pool = new pg.Pool({ connectionString: url });
+      try {
+        const before = await appliedMigrations(pool);
+        await runMigrations(url);
+        expect(await appliedMigrations(pool)).toBe(before);
+      } finally {
+        await pool.end();
+      }
+    }, 60_000);
+  },
+);

@@ -93,6 +93,7 @@ describe("plannedDeliveries", () => {
 describe("subjectKeyOf", () => {
   it("throttles per object, else per queue, else per event", () => {
     expect(subjectKeyOf("verify.red", { protectedObjectId: "o1" })).toBe("object:o1");
+    expect(subjectKeyOf("file_share.storage_quota", { fileShareId: "f1" })).toBe("file_share:f1");
     expect(subjectKeyOf("directory.failed", { queue: "directory" })).toBe("queue:directory");
     expect(subjectKeyOf("scrub.corrupt", {})).toBe("event:scrub.corrupt");
   });

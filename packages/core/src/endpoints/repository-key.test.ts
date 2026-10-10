@@ -4,11 +4,16 @@ import { Keyring } from "../engine/keyring.js";
 import { MemoryStorage } from "../verify/testing.js";
 import {
   ENDPOINT_PASSWORD_FORMAT,
+  FILE_SHARE_PASSWORD_KIND,
   endpointPasswordKey,
   ensureEndpointPasswordFile,
+  ensureRepositoryPasswordFile,
   openEndpointPassword,
+  openRepositoryPassword,
   readEndpointPasswordDocument,
+  repositoryPasswordKey,
   sealEndpointPassword,
+  sealRepositoryPassword,
   singleKeyring,
 } from "./repository-key.js";
 
@@ -108,5 +113,46 @@ describe("the repository password sealed next to the repository", () => {
         keys.open(blob),
       ).password,
     ).toBe("pw-2");
+  });
+});
+
+describe("the same document for a file share's repository (docs/FILESHARES.md 5.4)", () => {
+  const SHARE = "55555555-5555-4555-8555-555555555555";
+
+  it("has its own format, location and binding", async () => {
+    const keys = singleKeyring(dek(1, 7));
+    expect(repositoryPasswordKey(FILE_SHARE_PASSWORD_KIND, SHARE)).toBe(
+      `file-shares/${SHARE}/restow-repository-password.json`,
+    );
+    const sealed = sealRepositoryPassword(FILE_SHARE_PASSWORD_KIND, {
+      tenantId: TENANT,
+      id: SHARE,
+      password: "share-pw",
+      dek: keys.current,
+    });
+    const parsed = JSON.parse(sealed.toString("utf8")) as Record<string, unknown>;
+    expect(parsed.format).toBe("restow-file-share-repository-password-v1");
+    expect(parsed.fileShareId).toBe(SHARE);
+    expect(parsed.endpointId).toBeUndefined();
+    expect(openRepositoryPassword(FILE_SHARE_PASSWORD_KIND, sealed, keys.open, SHARE)).toEqual({
+      tenantId: TENANT,
+      id: SHARE,
+      password: "share-pw",
+    });
+    // An endpoint's reader does not take it, and a copy to another share does not open.
+    expect(() => readEndpointPasswordDocument(sealed)).toThrow(/is not a/);
+    const moved = Buffer.from(sealed.toString("utf8").replace(SHARE, ENDPOINT));
+    expect(() => openRepositoryPassword(FILE_SHARE_PASSWORD_KIND, moved, keys.open)).toThrow(
+      /bound to another tenant or file share/,
+    );
+
+    const storage = new MemoryStorage();
+    const input = { tenantId: TENANT, id: SHARE, password: "share-pw", keys };
+    expect(await ensureRepositoryPasswordFile(FILE_SHARE_PASSWORD_KIND, storage, input)).toBe(
+      "written",
+    );
+    expect(await ensureRepositoryPasswordFile(FILE_SHARE_PASSWORD_KIND, storage, input)).toBe(
+      "unchanged",
+    );
   });
 });

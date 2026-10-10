@@ -132,8 +132,8 @@ export const RUNNER_FAILURE_CODES = [
 export type RunnerFailureCode = (typeof RUNNER_FAILURE_CODES)[number];
 
 /**
- * The share failure cause of a runner or restow-share code (3.6, 4.8, section 11).
- * Phase B adds the causes to the failure catalog; the codes are fixed here.
+ * The share failure cause of a runner or restow-share code (3.6, 4.8, section 11); every
+ * cause has its entry in the failure catalog (../failures/catalog.ts).
  */
 export const SHARE_CAUSE_OF: Readonly<Record<string, string>> = {
   "mount.auth_failed": "share.auth_failed",

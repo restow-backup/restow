@@ -3,12 +3,13 @@ import { check, index, pgTable, text, timestamp, uniqueIndex, uuid } from "drizz
 import { timestamps } from "./_shared.js";
 import { user } from "./auth.js";
 import { endpoints } from "./endpoints.js";
+import { fileShares } from "./file-shares.js";
 import { protectedObjects } from "./sources.js";
 import { tenants } from "./tenants.js";
 
 /**
- * An acknowledged warning of a protected object (mailbox, OneDrive, IMAP account) or a machine
- * (packages/core/src/failures/warnings.ts). A warning is a backup that went through but left
+ * An acknowledged warning of a protected object (mailbox, OneDrive, IMAP account), a machine or
+ * a file share (packages/core/src/failures/warnings.ts). A warning is a backup that went through but left
  * items behind; acknowledging it says "seen, accepted" for the causes it had (`causes`), with an
  * optional note. While the newest run of the object has no other cause and no run failed
  * outright since `acknowledged_at`, the warning does not count in the overview, the status API
@@ -29,9 +30,10 @@ export const warningAcknowledgements = pgTable(
       onDelete: "cascade",
     }),
     endpointId: uuid("endpoint_id").references(() => endpoints.id, { onDelete: "cascade" }),
+    fileShareId: uuid("file_share_id").references(() => fileShares.id, { onDelete: "cascade" }),
     // The cause codes the acknowledgement covers ("unknown" for items without a classified cause).
     causes: text("causes").array().notNull().default(sql`'{}'::text[]`),
-    // The run that was looked at (a mail job or a machine run); no foreign key, it is one of two tables.
+    // The run that was looked at (a mail job, a machine run or a file share run); no foreign key.
     runId: uuid("run_id"),
     note: text("note"),
     // better-auth identity of who acknowledged; the label stays when the account is deleted.
@@ -50,9 +52,12 @@ export const warningAcknowledgements = pgTable(
     uniqueIndex("warning_acknowledgements_endpoint_uq")
       .on(t.endpointId)
       .where(sql`${t.endpointId} IS NOT NULL`),
+    uniqueIndex("warning_acknowledgements_file_share_uq")
+      .on(t.fileShareId)
+      .where(sql`${t.fileShareId} IS NOT NULL`),
     check(
       "warning_acknowledgements_one_target_ck",
-      sql`(${t.protectedObjectId} IS NOT NULL) <> (${t.endpointId} IS NOT NULL)`,
+      sql`num_nonnulls(${t.protectedObjectId}, ${t.endpointId}, ${t.fileShareId}) = 1`,
     ),
     check(
       "warning_acknowledgements_note_ck",

@@ -59,6 +59,8 @@ export const BODY_LIMIT_RULES: readonly BodyLimitRule[] = [
   { method: "*", path: /^\/agent\/pve\/restic\//, limit: null },
   // ... and of file shares, written by the runners on the internal network (docs/FILESHARES.md 5.3).
   { method: "*", path: /^\/internal\/file-shares\/restic\//, limit: null },
+  // Up to 500 per-file problems of a runner at once (paths up to 4 KiB each).
+  { method: "POST", path: /^\/internal\/file-shares\/v1\/items$/, limit: 4 * 1024 * 1024 },
   // One frame of VM disk blocks (16 x 4 MiB); the route checks MAX_FRAME_BYTES itself.
   { method: "PUT", path: new RegExp(`^/agent/pve/v1/runs/${SEGMENT}/blocks$`), limit: null },
   // A restore point's commit carries the guest and firewall configuration.

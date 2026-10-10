@@ -37,6 +37,7 @@ import { enqueueBackup } from "../jobs/service.js";
 import type { BackupJobDto, RunBackupJobResult } from "./dto.js";
 import { releaseEndpointConfigs, syncEndpointConfigs } from "./endpoint-sync.js";
 import { sameJson } from "./json.js";
+import { type SupportedJob, assertSupportedJob } from "./kinds.js";
 import { loadAllMembers, loadObjectInfos, loadPrimaryTarget, objectName } from "./loaders.js";
 import { type ReadOptions, jobDto, loadJob } from "./read.js";
 import {
@@ -513,7 +514,7 @@ async function auditJob(
 async function insertMembers(
   tx: Transaction,
   tenantId: string,
-  job: BackupJob,
+  job: SupportedJob,
   members: readonly ResolvedMember[],
   now: Date,
 ): Promise<void> {
@@ -660,6 +661,7 @@ export async function createBackupJob(
     if (!job) {
       throw new Error("backup job insert returned no row");
     }
+    assertSupportedJob(job);
     await insertMembers(tx, tenantId, job, members, now);
     if (kind === "endpoint") {
       await syncEndpointConfigs(tx, tenantId, job, {
@@ -806,6 +808,7 @@ export async function updateBackupJob(
     if (!before) {
       throw new ProblemError(404, "Backup job not found");
     }
+    assertSupportedJob(before);
     const kind = before.kind;
     const scheduleGiven = patch.schedule !== undefined;
     const base = checkedBase(
@@ -956,6 +959,7 @@ export async function replaceMembers(
     if (!job) {
       throw new ProblemError(404, "Backup job not found");
     }
+    assertSupportedJob(job);
     const mode = input.mode ?? job.scopeMode;
     if (job.kind === "endpoint" && mode === "all") {
       throw jobProblem(

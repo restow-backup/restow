@@ -597,7 +597,7 @@ describe.skipIf(!resticAvailable())("a damaged or incomplete repository, read wi
       storage: new LocalStorageBackend(join(work, "storage")),
       prefix: endpointPrefix(ENDPOINT),
       repositoryPassword: "repository-password-for-tests",
-      endpointId: ENDPOINT,
+      repositoryKey: ENDPOINT,
       cacheBase: join(work, "cache"),
     };
     snapshotId = await withRepository(access, async (session) => {

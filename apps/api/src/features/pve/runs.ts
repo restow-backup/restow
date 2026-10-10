@@ -852,7 +852,7 @@ async function ensureRepository(tenantId: string, guestId: string): Promise<stri
       storage: store.write.primary,
       prefix,
       repositoryPassword: password,
-      endpointId: guest.id,
+      repositoryKey: guest.id,
       binary: resticBinary(),
       cacheBase: resticCacheBase(),
     },

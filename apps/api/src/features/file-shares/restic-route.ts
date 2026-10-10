@@ -1,6 +1,9 @@
-import { hashSecret, secretMatchesHash } from "@restow/core";
-import type { StorageBackend } from "@restow/core";
-import { db } from "../../db.js";
+import { fileShareRepositoryPrefix, hashSecret, secretMatchesHash } from "@restow/core";
+import type { ResticLockRegistry, StorageBackend } from "@restow/core";
+import { fileShareRuns, tenants } from "@restow/db";
+import { eq } from "drizzle-orm";
+import { db, providerDb } from "../../db.js";
+import { audit } from "../../lib/audit.js";
 import { DeniedThrottle } from "../../lib/denied-audit.js";
 import {
   type RunResticAccess,
@@ -10,6 +13,13 @@ import {
 } from "../../lib/restic-run-route.js";
 import { authFailures } from "../endpoints/agent-auth.js";
 import { tenantStorage } from "../endpoints/repository.js";
+import { FILE_SHARE_AUDIT_ACTIONS } from "./constants.js";
+import {
+  addShareUsage,
+  noteShareQuotaRefusal,
+  shareLockRegistry,
+  shareRemaining,
+} from "./usage.js";
 
 /**
  * /internal/file-shares/restic/:shareId: the restic REST backend of the file share
@@ -22,10 +32,12 @@ import { tenantStorage } from "../endpoints/repository.js";
  * read-only `reader` principal on the repository of the share it restores from.
  * Repositories live under `file-shares/<shareId>/` of the tenant's primary target.
  *
- * Phase A provides the route and the credential lookup behind an interface; the
- * runs themselves (file_share_runs with token_hash and token_expires_at), the
- * persisted lock registry (file_share_repository_locks) and the budgets come with
- * Phase B (docs/FILESHARES.md 17), which replaces {@link fileShareRunCredentials}.
+ * The credential is a row of `file_share_runs` (`token_hash`, `token_expires_at`,
+ * valid while the run is starting or running and its tenant active), the lock files
+ * a backup writes are recorded in `file_share_repository_locks`, uploads are counted
+ * into `file_shares.repository_bytes` and refused when the share's or the tenant's
+ * budget is used up (7.4), and refusals of the authorization matrix are audited as
+ * `file_share.repository.denied`.
  */
 
 export const FILE_SHARE_RESTIC_PATH = "/internal/file-shares/restic";
@@ -36,12 +48,9 @@ export const FILE_SHARE_QUOTA_PROBLEM = {
   detail: "The storage budget for this file share's backups is used up; the upload was refused.",
 };
 
-/** The storage prefix of a share's repository. */
-export function fileShareRepositoryPrefix(shareId: string): string {
-  return `file-shares/${shareId}/`;
-}
+export { fileShareRepositoryPrefix };
 
-/** What the api knows about a run's credential (Phase B: a row of file_share_runs). */
+/** What the api knows about a run's credential: a row of file_share_runs. */
 export interface FileShareRunCredential {
   runId: string;
   tenantId: string;
@@ -60,13 +69,7 @@ export interface FileShareRunCredentials {
   lookup(runId: string): Promise<FileShareRunCredential | null>;
 }
 
-/**
- * The run credentials of this process, in memory.
- * TODO(Phase B, docs/FILESHARES.md 7.1 and 8.2): look the run up in file_share_runs
- * (token_hash, token_expires_at, status, the tenant's status) instead; the dispatcher
- * issues the token when it starts the run. Until then nothing issues credentials
- * outside tests and the Phase A test script, so the route answers 401 to everyone.
- */
+/** Run credentials in memory, for tests of the route without a database. */
 export class MemoryRunCredentials implements FileShareRunCredentials {
   private readonly runs = new Map<string, FileShareRunCredential>();
 
@@ -89,7 +92,44 @@ export class MemoryRunCredentials implements FileShareRunCredentials {
   }
 }
 
-export const fileShareRunCredentials = new MemoryRunCredentials();
+/**
+ * The run credentials in `file_share_runs`, looked up on the installation pool (the tenant is
+ * not known before the run is). The dispatcher issues the token when it starts a run (8.2).
+ */
+export class PgRunCredentials implements FileShareRunCredentials {
+  async lookup(runId: string): Promise<FileShareRunCredential | null> {
+    const [row] = await providerDb
+      .select({
+        runId: fileShareRuns.id,
+        tenantId: fileShareRuns.tenantId,
+        kind: fileShareRuns.kind,
+        status: fileShareRuns.status,
+        tokenHash: fileShareRuns.tokenHash,
+        expiresAt: fileShareRuns.tokenExpiresAt,
+        repositoryShareId: fileShareRuns.fileShareId,
+        tenantStatus: tenants.status,
+      })
+      .from(fileShareRuns)
+      .innerJoin(tenants, eq(tenants.id, fileShareRuns.tenantId))
+      .where(eq(fileShareRuns.id, runId))
+      .limit(1);
+    if (!row || !row.tokenHash || !row.expiresAt) {
+      return null;
+    }
+    return {
+      runId: row.runId,
+      tenantId: row.tenantId,
+      kind: row.kind,
+      status: row.status,
+      tenantActive: row.tenantStatus === "active",
+      tokenHash: row.tokenHash,
+      expiresAt: row.expiresAt,
+      repositoryShareId: row.repositoryShareId,
+    };
+  }
+}
+
+export const fileShareRunCredentials: FileShareRunCredentials = new PgRunCredentials();
 
 /** Decide what a presented credential may do in the repository of `shareId`. */
 export async function resolveFileShareCredential(
@@ -129,15 +169,24 @@ export async function resolveFileShareCredential(
 export interface FileShareResticRouteDeps {
   credentials: FileShareRunCredentials;
   storageOf: (tenantId: string) => Promise<StorageBackend>;
-  /** TODO(Phase B): budgets of 7.4 (share and tenant); none in Phase A. */
+  /** The budgets of 7.4 (share and tenant); none without it. */
   remainingBytes?: (access: RunResticAccess, shareId: string) => Promise<number | null>;
+  /** The lock registry of a backup run's own locks; process-local without it. */
+  locks?: (access: RunResticAccess, shareId: string) => ResticLockRegistry;
+  /** Accounting of uploads and deletions. */
+  onAllowed?: (
+    access: RunResticAccess,
+    shareId: string,
+    bytes: number,
+    action: string,
+  ) => void | Promise<void>;
+  /** An upload the budget refused. */
+  onQuotaExceeded?: (access: RunResticAccess, shareId: string) => void | Promise<void>;
   /** Refusals of the authorization matrix (throttled per run and reason). */
   onDenied: (access: RunResticAccess, shareId: string, details: Record<string, unknown>) => void;
 }
 
 export function buildFileShareResticRoutes(deps: FileShareResticRouteDeps) {
-  // TODO(Phase B): persist the backup runs' locks (file_share_repository_locks, 5.3), so a
-  // restarted api still lets restic release them and maintenance tells them from stale ones.
   const runLocks = processLocalLocks();
   const throttle = new DeniedThrottle();
   return buildRunResticRoute({
@@ -147,9 +196,11 @@ export function buildFileShareResticRoutes(deps: FileShareResticRouteDeps) {
     internalOnly: true,
     resolve: (presented, shareId, now) =>
       resolveFileShareCredential(deps.credentials, deps.storageOf, presented, shareId, now),
-    locks: (access) => runLocks(access.runId),
+    locks: (access, shareId) => (deps.locks ? deps.locks(access, shareId) : runLocks(access.runId)),
     remainingBytes: deps.remainingBytes,
     quotaProblem: FILE_SHARE_QUOTA_PROBLEM,
+    onAllowed: deps.onAllowed,
+    onQuotaExceeded: deps.onQuotaExceeded,
     failures: authFailures,
     audit: (access, shareId, denial) => {
       if (throttle.allow(`${access.runId}:${denial.action}:${denial.reason}`, Date.now())) {
@@ -159,24 +210,42 @@ export function buildFileShareResticRoutes(deps: FileShareResticRouteDeps) {
   });
 }
 
-/**
- * The routes app.ts mounts. Denials are logged (without the token) until Phase B writes
- * them to the tenant's audit log as `file_share.repository.denied` (5.3, 9.2), together
- * with the action's labels (Phase C, with the glossary rows of section 1).
- */
+/** The routes app.ts mounts. */
 export const fileShareResticRoutes = buildFileShareResticRoutes({
   credentials: fileShareRunCredentials,
   storageOf: async (tenantId) => (await tenantStorage(db, tenantId)).storage,
+  locks: (access, shareId) =>
+    shareLockRegistry({ tenantId: access.tenantId, fileShareId: shareId }),
+  remainingBytes: async (access, shareId) =>
+    access.principal === "agent"
+      ? shareRemaining({ tenantId: access.tenantId, fileShareId: shareId }, access.storage)
+      : null,
+  onAllowed: async (access, shareId, bytes, action) => {
+    const share = { tenantId: access.tenantId, fileShareId: shareId };
+    if (action === "write") {
+      await addShareUsage(share, bytes);
+    } else if (action === "delete") {
+      await addShareUsage(share, -bytes);
+    }
+  },
+  onQuotaExceeded: (access, shareId) =>
+    noteShareQuotaRefusal({ tenantId: access.tenantId, fileShareId: shareId }, Date.now()),
   onDenied: (access, shareId, details) => {
-    console.warn(
-      JSON.stringify({
-        level: "warn",
-        msg: "file share runner refused",
-        tenantId: access.tenantId,
+    void audit(db, {
+      tenantId: access.tenantId,
+      actor: `runner:${access.runId}`,
+      actorUserId: null,
+      ip: typeof details.ip === "string" ? details.ip : null,
+      action: FILE_SHARE_AUDIT_ACTIONS.repositoryDenied,
+      target: shareId,
+      targetType: "file_share",
+      details: {
         runId: access.runId,
-        shareId,
-        ...details,
-      }),
-    );
+        action: details.action,
+        type: details.type,
+        reason: details.reason,
+        method: details.method,
+      },
+    }).catch(() => undefined);
   },
 });
