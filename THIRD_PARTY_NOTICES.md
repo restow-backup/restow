@@ -31,7 +31,7 @@ https://go.dev/LICENSE. Linked into restow-agent, the endpoint agent that is bui
 
 - License: BSD-3-Clause
 - Copyright: `Copyright 2009 The Go Authors.`
-- License text: [text 13](#text-13)
+- License text: [text 14](#text-14)
 
 ### msgreader test files
 
@@ -170,7 +170,7 @@ Source: https://github.com/Backblaze/blazer (tag v0.7.2).
 
 - License: Apache-2.0
 - Copyright: `Copyright 2016, the Blazer authors`
-- License text: [text 2](#text-2), [text 89](#text-89)
+- License text: [text 2](#text-2), [text 88](#text-88)
 
 ### github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.31.0
 
@@ -207,7 +207,7 @@ Source: https://github.com/anacrolix/fuse (tag v0.3.1).
   - `Copyright (c) 2009, 2011, 2012 The Go Authors.`
   - `Copyright (C) 2001-2007  Miklos Szeredi <miklos@szeredi.hu>`
   - `Copyright (C) 2001-2007 Miklos Szeredi. All rights reserved.`
-- License text: [text 80](#text-80)
+- License text: [text 79](#text-79)
 
 ### github.com/cenkalti/backoff/v4 v4.3.0
 
@@ -239,7 +239,7 @@ Source: https://github.com/dustin/go-humanize (tag v1.0.1).
 
 - License: MIT
 - Copyright: `Copyright (c) 2005-2008  Dustin Sallings <dustin@spy.net>`
-- License text: [text 105](#text-105)
+- License text: [text 103](#text-103)
 
 ### github.com/elithrar/simple-scrypt v1.4.1
 
@@ -263,7 +263,7 @@ Source: https://github.com/go-ini/ini (tag v1.67.0).
 
 - License: Apache-2.0
 - Copyright: `Copyright 2014 Unknwon`
-- License text: [text 73](#text-73)
+- License text: [text 72](#text-72)
 
 ### github.com/go-logr/logr v1.4.3
 
@@ -289,7 +289,7 @@ Source: https://github.com/golang-jwt/jwt (tag v5.3.1).
 - Copyright:
   - `Copyright (c) 2012 Dave Grijalva`
   - `Copyright (c) 2021 golang-jwt maintainers`
-- License text: [text 9](#text-9)
+- License text: [text 8](#text-8)
 
 ### github.com/google/s2a-go v0.1.9
 
@@ -329,7 +329,7 @@ Covered by the Mozilla Public License 2.0. restic contains this module unmodifie
 
 - License: MPL-2.0
 - Copyright: `Copyright (c) 2014 HashiCorp, Inc.`
-- License text: [text 79](#text-79)
+- License text: [text 78](#text-78)
 
 ### github.com/klauspost/compress v1.18.6
 
@@ -343,7 +343,7 @@ Source: https://github.com/klauspost/compress (tag v1.18.6).
   - `Copyright (c) 2015 Klaus Post`
   - `Copyright (c) 2011 The Snappy-Go Authors. All rights reserved.`
   - `Copyright 2016 The filepathx Authors`
-- License text: [text 78](#text-78)
+- License text: [text 77](#text-77)
 
 ### github.com/klauspost/cpuid/v2 v2.2.11
 
@@ -400,7 +400,7 @@ Source: https://github.com/minio/minio-go (tag v7.1.0).
 - License: Apache-2.0
 - Copyright: no copyright line in the module's license or NOTICE files
 - License text: [text 2](#text-2)
-- Notice file: [text 103](#text-103)
+- Notice file: [text 101](#text-101)
 
 ### github.com/ncw/swift/v2 v2.0.5
 
@@ -408,7 +408,7 @@ Source: https://github.com/ncw/swift (tag v2.0.5).
 
 - License: MIT
 - Copyright: `Copyright (C) 2012 by Nick Craig-Wood http://www.craig-wood.com/nick/`
-- License text: [text 8](#text-8)
+- License text: [text 10](#text-10)
 
 ### github.com/peterbourgon/unixtransport v0.0.7
 
@@ -424,7 +424,7 @@ Source: https://github.com/philhofer/fwd (tag v1.2.0).
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2015, Philip Hofer`
-- License text: [text 9](#text-9)
+- License text: [text 8](#text-8)
 
 ### github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 
@@ -448,7 +448,7 @@ Source: https://github.com/pkg/sftp (tag v1.13.10).
 
 - License: BSD-2-Clause
 - Copyright: `Copyright (c) 2013, Dave Cheney`
-- License text: [text 120](#text-120)
+- License text: [text 118](#text-118)
 
 ### github.com/pkg/xattr v0.4.12
 
@@ -458,7 +458,7 @@ Source: https://github.com/pkg/xattr (tag v0.4.12).
 - Copyright:
   - `Copyright (c) 2012 Dave Cheney. All rights reserved.`
   - `Copyright (c) 2014 Kuba Podgórski. All rights reserved.`
-- License text: [text 117](#text-117)
+- License text: [text 115](#text-115)
 
 ### github.com/restic/chunker v0.4.0
 
@@ -466,7 +466,7 @@ Source: the Go module github.com/restic/chunker v0.4.0.
 
 - License: BSD-2-Clause
 - Copyright: `Copyright (c) 2014, Alexander Neumann <alexander@bumpern.de>`
-- License text: [text 118](#text-118)
+- License text: [text 116](#text-116)
 
 ### github.com/rs/xid v1.6.0
 
@@ -474,7 +474,7 @@ Source: https://github.com/rs/xid (tag v1.6.0).
 
 - License: MIT
 - Copyright: `Copyright (c) 2015 Olivier Poitrey <rs@dailymotion.com>`
-- License text: [text 108](#text-108)
+- License text: [text 106](#text-106)
 
 ### github.com/russross/blackfriday/v2 v2.1.0
 
@@ -482,7 +482,7 @@ Source: the Go module github.com/russross/blackfriday/v2 v2.1.0.
 
 - License: BSD-2-Clause
 - Copyright: `Copyright © 2011 Russ Ross`
-- License text: [text 77](#text-77)
+- License text: [text 76](#text-76)
 
 ### github.com/spf13/cobra v1.10.2
 
@@ -508,7 +508,7 @@ Source: https://github.com/tinylib/msgp (tag v1.6.1).
 
 - License: MIT
 - Copyright: `Copyright (c) 2014 Philip Hofer`
-- License text: [text 116](#text-116)
+- License text: [text 114](#text-114)
 
 ### github.com/zeebo/xxh3 v1.1.0
 
@@ -518,7 +518,7 @@ Source: https://github.com/zeebo/xxh3 (tag v1.1.0).
 - Copyright:
   - `Copyright (c) 2012-2014, Yann Collet`
   - `Copyright (c) 2019, Jeff Wendling`
-- License text: [text 75](#text-75)
+- License text: [text 74](#text-74)
 
 ### go.opentelemetry.io/auto/sdk v1.2.1
 
@@ -534,7 +534,7 @@ Source: https://github.com/open-telemetry/opentelemetry-go-contrib (tag detector
 
 - License: Apache-2.0 AND BSD-3-Clause
 - Copyright: `Copyright 2009 The Go Authors.`
-- License text: [text 16](#text-16)
+- License text: [text 17](#text-17)
 
 ### go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.67.0
 
@@ -542,7 +542,7 @@ Source: https://github.com/open-telemetry/opentelemetry-go-contrib (tag instrume
 
 - License: Apache-2.0 AND BSD-3-Clause
 - Copyright: `Copyright 2009 The Go Authors.`
-- License text: [text 16](#text-16)
+- License text: [text 17](#text-17)
 
 ### go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0
 
@@ -550,7 +550,7 @@ Source: https://github.com/open-telemetry/opentelemetry-go-contrib (tag instrume
 
 - License: Apache-2.0 AND BSD-3-Clause
 - Copyright: `Copyright 2009 The Go Authors.`
-- License text: [text 16](#text-16)
+- License text: [text 17](#text-17)
 
 ### go.opentelemetry.io/otel v1.43.0
 
@@ -558,7 +558,7 @@ Source: https://github.com/open-telemetry/opentelemetry-go (tag v1.43.0).
 
 - License: Apache-2.0 AND BSD-3-Clause
 - Copyright: `Copyright 2009 The Go Authors.`
-- License text: [text 16](#text-16)
+- License text: [text 17](#text-17)
 
 ### go.opentelemetry.io/otel/metric v1.43.0
 
@@ -566,7 +566,7 @@ Source: https://github.com/open-telemetry/opentelemetry-go (tag metric/v1.43.0, 
 
 - License: Apache-2.0 AND BSD-3-Clause
 - Copyright: `Copyright 2009 The Go Authors.`
-- License text: [text 16](#text-16)
+- License text: [text 17](#text-17)
 
 ### go.opentelemetry.io/otel/sdk v1.43.0
 
@@ -574,7 +574,7 @@ Source: https://github.com/open-telemetry/opentelemetry-go (tag sdk/v1.43.0, fol
 
 - License: Apache-2.0 AND BSD-3-Clause
 - Copyright: `Copyright 2009 The Go Authors.`
-- License text: [text 16](#text-16)
+- License text: [text 17](#text-17)
 
 ### go.opentelemetry.io/otel/sdk/metric v1.43.0
 
@@ -582,7 +582,7 @@ Source: https://github.com/open-telemetry/opentelemetry-go (tag sdk/metric/v1.43
 
 - License: Apache-2.0 AND BSD-3-Clause
 - Copyright: `Copyright 2009 The Go Authors.`
-- License text: [text 16](#text-16)
+- License text: [text 17](#text-17)
 
 ### go.opentelemetry.io/otel/trace v1.43.0
 
@@ -590,7 +590,7 @@ Source: https://github.com/open-telemetry/opentelemetry-go (tag trace/v1.43.0, f
 
 - License: Apache-2.0 AND BSD-3-Clause
 - Copyright: `Copyright 2009 The Go Authors.`
-- License text: [text 16](#text-16)
+- License text: [text 17](#text-17)
 
 ### go.uber.org/automaxprocs v1.6.0
 
@@ -598,7 +598,7 @@ Source: https://github.com/uber-go/automaxprocs (tag v1.6.0).
 
 - License: MIT
 - Copyright: `Copyright (c) 2017 Uber Technologies, Inc.`
-- License text: [text 8](#text-8)
+- License text: [text 10](#text-10)
 
 ### go.yaml.in/yaml/v3 v3.0.4
 
@@ -610,8 +610,8 @@ Source: https://github.com/yaml/go-yaml (tag v3.0.4).
   - `Copyright (c) 2006-2011 Kirill Simonov`
   - `Copyright (c) 2011-2019 Canonical Ltd`
   - `Copyright 2011-2016 Canonical Ltd.`
-- License text: [text 2](#text-2), [text 133](#text-133)
-- Notice file: [text 81](#text-81)
+- License text: [text 2](#text-2), [text 130](#text-130)
+- Notice file: [text 80](#text-80)
 
 ### golang.org/x/crypto v0.52.0
 
@@ -619,7 +619,7 @@ Source: https://go.googlesource.com/crypto (tag v0.52.0).
 
 - License: BSD-3-Clause
 - Copyright: `Copyright 2009 The Go Authors.`
-- License text: [text 13](#text-13)
+- License text: [text 14](#text-14)
 
 ### golang.org/x/net v0.55.0
 
@@ -627,7 +627,7 @@ Source: https://go.googlesource.com/net (tag v0.55.0).
 
 - License: BSD-3-Clause
 - Copyright: `Copyright 2009 The Go Authors.`
-- License text: [text 13](#text-13)
+- License text: [text 14](#text-14)
 
 ### golang.org/x/oauth2 v0.36.0
 
@@ -635,7 +635,7 @@ Source: https://go.googlesource.com/oauth2 (tag v0.36.0).
 
 - License: BSD-3-Clause
 - Copyright: `Copyright 2009 The Go Authors.`
-- License text: [text 13](#text-13)
+- License text: [text 14](#text-14)
 
 ### golang.org/x/sync v0.20.0
 
@@ -643,7 +643,7 @@ Source: https://go.googlesource.com/sync (tag v0.20.0).
 
 - License: BSD-3-Clause
 - Copyright: `Copyright 2009 The Go Authors.`
-- License text: [text 13](#text-13)
+- License text: [text 14](#text-14)
 
 ### golang.org/x/sys v0.45.0
 
@@ -651,7 +651,7 @@ Source: https://go.googlesource.com/sys (tag v0.45.0).
 
 - License: BSD-3-Clause
 - Copyright: `Copyright 2009 The Go Authors.`
-- License text: [text 13](#text-13)
+- License text: [text 14](#text-14)
 
 ### golang.org/x/term v0.43.0
 
@@ -659,7 +659,7 @@ Source: https://go.googlesource.com/term (tag v0.43.0).
 
 - License: BSD-3-Clause
 - Copyright: `Copyright 2009 The Go Authors.`
-- License text: [text 13](#text-13)
+- License text: [text 14](#text-14)
 
 ### golang.org/x/text v0.37.0
 
@@ -667,7 +667,7 @@ Source: https://go.googlesource.com/text (tag v0.37.0).
 
 - License: BSD-3-Clause
 - Copyright: `Copyright 2009 The Go Authors.`
-- License text: [text 13](#text-13)
+- License text: [text 14](#text-14)
 
 ### golang.org/x/time v0.15.0
 
@@ -675,7 +675,7 @@ Source: https://go.googlesource.com/time (tag v0.15.0).
 
 - License: BSD-3-Clause
 - Copyright: `Copyright 2009 The Go Authors.`
-- License text: [text 13](#text-13)
+- License text: [text 14](#text-14)
 
 ### google.golang.org/api v0.282.0
 
@@ -716,7 +716,7 @@ Source: https://github.com/grpc/grpc-go (tag v1.81.1).
 - License: Apache-2.0
 - Copyright: `Copyright 2014 gRPC authors.`
 - License text: [text 2](#text-2)
-- Notice file: [text 82](#text-82)
+- Notice file: [text 81](#text-81)
 
 ### google.golang.org/protobuf v1.36.11
 
@@ -726,7 +726,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2018 The Go Authors. All rights reserved.`
 - License text: [text 18](#text-18)
 
-## Packages (562)
+## Packages (551)
 
 ### @aws-sdk/checksums 3.1001.1
 
@@ -744,13 +744,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 71](#text-71)
+- License text: [text 70](#text-70)
 
 ### @aws-sdk/credential-provider-env 3.972.72
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 10](#text-10)
+- License text: [text 9](#text-9)
 
 ### @aws-sdk/credential-provider-http 3.972.74
 
@@ -762,7 +762,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 10](#text-10)
+- License text: [text 9](#text-9)
 
 ### @aws-sdk/credential-provider-login 3.972.79
 
@@ -774,7 +774,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 10](#text-10)
+- License text: [text 9](#text-9)
 
 ### @aws-sdk/credential-provider-process 3.972.72
 
@@ -816,19 +816,19 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 10](#text-10)
+- License text: [text 9](#text-9)
 
 ### @aws-sdk/types 3.974.6
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 10](#text-10)
+- License text: [text 9](#text-9)
 
 ### @aws-sdk/xml-builder 3.972.41
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 10](#text-10)
+- License text: [text 9](#text-9)
 
 ### @aws/lambda-invoke-store 0.3.0
 
@@ -858,49 +858,49 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
-- License text: [text 15](#text-15)
+- License text: [text 16](#text-16)
 
 ### @better-auth/drizzle-adapter 1.7.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
-- License text: [text 15](#text-15)
+- License text: [text 16](#text-16)
 
 ### @better-auth/kysely-adapter 1.7.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
-- License text: [text 15](#text-15)
+- License text: [text 16](#text-16)
 
 ### @better-auth/memory-adapter 1.7.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
-- License text: [text 15](#text-15)
+- License text: [text 16](#text-16)
 
 ### @better-auth/mongo-adapter 1.7.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
-- License text: [text 15](#text-15)
+- License text: [text 16](#text-16)
 
 ### @better-auth/passkey 1.7.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
-- License text: [text 15](#text-15)
+- License text: [text 16](#text-16)
 
 ### @better-auth/prisma-adapter 1.7.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
-- License text: [text 15](#text-15)
+- License text: [text 16](#text-16)
 
 ### @better-auth/telemetry 1.7.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
-- License text: [text 15](#text-15)
+- License text: [text 16](#text-16)
 
 ### @better-auth/utils 0.4.2
 
@@ -924,7 +924,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright © 2024 Sasha Koss`
-- License text: [text 100](#text-100)
+- License text: [text 98](#text-98)
 
 ### @drizzle-team/brocli 0.10.2
 
@@ -975,7 +975,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
   - `Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-ThinItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-ExtraLight.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-ExtraLightItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Light.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-LightItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Regular.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Italic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Medium.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-MediumItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-SemiBold.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-SemiBoldItalic.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-Bold.ttf: Copyright 2017 IBM Corp. All rights reserved. IBMPlexMono-BoldItalic.ttf: Copyright 2017 IBM Corp. All rights reserved.`
   - `Copyright Holder. This restriction only applies to the primary font name as`
   - `Copyright Holder(s) and the Author(s) or with their explicit written`
-- License text: [text 83](#text-83)
+- License text: [text 82](#text-82)
 
 ### @fontsource/inter-tight 5.3.0
 
@@ -984,37 +984,37 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
   - `Copyright 2022 The Inter Project Authors (https://github.com/rsms/inter-tight) InterTight-Italic[wght].ttf: Copyright 2022 The Inter Project Authors (https://github.com/rsms/inter-tight)`
   - `Copyright Holder. This restriction only applies to the primary font name as`
   - `Copyright Holder(s) and the Author(s) or with their explicit written`
-- License text: [text 84](#text-84)
+- License text: [text 83](#text-83)
 
 ### @formatjs/ecma402-abstract 2.3.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2023 FormatJS`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### @formatjs/fast-memoize 2.2.7
 
 - License: MIT
 - Copyright: `Copyright (c) 2023 FormatJS`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### @formatjs/icu-messageformat-parser 2.11.4
 
 - License: MIT
 - Copyright: `Copyright (c) 2023 FormatJS`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### @formatjs/icu-skeleton-parser 1.8.16
 
 - License: MIT
 - Copyright: `Copyright (c) 2023 FormatJS`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### @formatjs/intl-localematcher 0.6.2
 
 - License: MIT
 - Copyright: `Copyright (c) 2023 FormatJS`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### @hexagon/base64 1.1.28
 
@@ -1032,13 +1032,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: ISC
 - Copyright: `Copyright (c) 2015, Contributors`
-- License text: [text 112](#text-112)
+- License text: [text 110](#text-110)
 
 ### @jridgewell/sourcemap-codec 1.6.0
 
 - License: MIT
 - Copyright: `Copyright 2024 Justin Ridgewell <justin@ridgewell.name>`
-- License text: [text 104](#text-104)
+- License text: [text 102](#text-102)
 
 ### @kenjiuno/decompressrtf 0.1.4
 
@@ -1668,25 +1668,25 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 10](#text-10)
+- License text: [text 9](#text-9)
 
 ### @smithy/fetch-http-handler 5.8.0
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 10](#text-10)
+- License text: [text 9](#text-9)
 
 ### @smithy/node-http-handler 4.12.1
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 10](#text-10)
+- License text: [text 9](#text-9)
 
 ### @smithy/signature-v4 5.7.4
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
-- License text: [text 10](#text-10)
+- License text: [text 9](#text-9)
 
 ### @smithy/types 4.19.0
 
@@ -1826,12 +1826,6 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) Microsoft Corporation.`
 - License text: [text 6](#text-6)
 
-### @types/debug 4.1.13
-
-- License: MIT
-- Copyright: `Copyright (c) Microsoft Corporation.`
-- License text: [text 6](#text-6)
-
 ### @types/deep-eql 4.0.2
 
 - License: MIT
@@ -1839,12 +1833,6 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - License text: [text 6](#text-6)
 
 ### @types/estree 1.0.9
-
-- License: MIT
-- Copyright: `Copyright (c) Microsoft Corporation.`
-- License text: [text 6](#text-6)
-
-### @types/ms 2.1.0
 
 - License: MIT
 - Copyright: `Copyright (c) Microsoft Corporation.`
@@ -1898,46 +1886,46 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) Microsoft Corporation.`
 - License text: [text 6](#text-6)
 
-### @vitest/expect 3.2.7
+### @vitest/expect 4.1.11
 
 - License: MIT
-- Copyright: `Copyright (c) 2021-Present Vitest Team`
+- Copyright: `Copyright (c) 2021-Present VoidZero Inc. and Vitest contributors`
 - License text: [text 1](#text-1)
 
-### @vitest/mocker 3.2.7
+### @vitest/mocker 4.1.11
 
 - License: MIT
-- Copyright: `Copyright (c) 2021-Present Vitest Team`
+- Copyright: `Copyright (c) 2021-Present VoidZero Inc. and Vitest contributors`
 - License text: [text 1](#text-1)
 
-### @vitest/pretty-format 3.2.7
+### @vitest/pretty-format 4.1.11
 
 - License: MIT
-- Copyright: `Copyright (c) 2021-Present Vitest Team`
+- Copyright: `Copyright (c) 2021-Present VoidZero Inc. and Vitest contributors`
 - License text: [text 1](#text-1)
 
-### @vitest/runner 3.2.7
+### @vitest/runner 4.1.11
 
 - License: MIT
-- Copyright: `Copyright (c) 2021-Present Vitest Team`
+- Copyright: `Copyright (c) 2021-Present VoidZero Inc. and Vitest contributors`
 - License text: [text 1](#text-1)
 
-### @vitest/snapshot 3.2.7
+### @vitest/snapshot 4.1.11
 
 - License: MIT
-- Copyright: `Copyright (c) 2021-Present Vitest Team`
+- Copyright: `Copyright (c) 2021-Present VoidZero Inc. and Vitest contributors`
 - License text: [text 1](#text-1)
 
-### @vitest/spy 3.2.7
+### @vitest/spy 4.1.11
 
 - License: MIT
-- Copyright: `Copyright (c) 2021-Present Vitest Team`
+- Copyright: `Copyright (c) 2021-Present VoidZero Inc. and Vitest contributors`
 - License text: [text 1](#text-1)
 
-### @vitest/utils 3.2.7
+### @vitest/utils 4.1.11
 
 - License: MIT
-- Copyright: `Copyright (c) 2021-Present Vitest Team`
+- Copyright: `Copyright (c) 2021-Present VoidZero Inc. and Vitest contributors`
 - License text: [text 1](#text-1)
 
 ### @zone-eu/mailsplit 5.4.16
@@ -1968,37 +1956,37 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### ansi-regex 6.3.0
 
 - License: MIT
 - Copyright: `Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### ansi-styles 4.3.0
 
 - License: MIT
 - Copyright: `Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### ansi-styles 6.2.3
 
 - License: MIT
 - Copyright: `Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### archiver 7.0.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2012-2014 Chris Talkington, contributors.`
-- License text: [text 17](#text-17)
+- License text: [text 12](#text-12)
 
 ### archiver-utils 5.0.2
 
 - License: MIT
 - Copyright: `Copyright (c) 2015 Chris Talkington.`
-- License text: [text 17](#text-17)
+- License text: [text 12](#text-12)
 
 ### aria-hidden 1.2.6
 
@@ -2012,7 +2000,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright:
   - `Copyright (c) 2014, GMO GlobalSign`
   - `Copyright (c) 2015-2022, Peculiar Ventures`
-- License text: [text 74](#text-74)
+- License text: [text 73](#text-73)
 
 ### assertion-error 2.0.1
 
@@ -2024,13 +2012,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2010-2018 Caolan McMahon`
-- License text: [text 8](#text-8)
+- License text: [text 10](#text-10)
 
 ### atomic-sleep 1.0.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2020 David Mark Clements`
-- License text: [text 130](#text-130)
+- License text: [text 128](#text-128)
 
 ### b4a 1.9.0
 
@@ -2063,7 +2051,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
   - `Copyright 2023 Holepunch Inc`
   - `Copyright Joyent, Inc. and other Node contributors.`
 - License text: [text 2](#text-2)
-- Notice file: [text 85](#text-85)
+- Notice file: [text 84](#text-84)
 
 ### bare-stream 2.13.4
 
@@ -2081,19 +2069,19 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2014`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### base64-js 1.5.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2014 Jameson Little`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### better-auth 1.7.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
-- License text: [text 15](#text-15)
+- License text: [text 16](#text-16)
 
 ### better-call 1.4.0
 
@@ -2111,7 +2099,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright 2015, Dustin Diaz (the "Original Author")`
-- License text: [text 97](#text-97)
+- License text: [text 96](#text-96)
 
 ### brace-expansion 2.1.7
 
@@ -2129,19 +2117,19 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) Feross Aboukhadijeh, and other contributors.`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### buffer-crc32 1.0.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2013-2024 Brian J. Brennan`
-- License text: [text 128](#text-128)
+- License text: [text 126](#text-126)
 
 ### buffer-equal-constant-time 1.0.1
 
 - License: BSD-3-Clause
 - Copyright: `Copyright (c) 2013, GoInstant Inc., a salesforce.com company`
-- License text: [text 121](#text-121)
+- License text: [text 119](#text-119)
 
 ### buffer-from 1.1.2
 
@@ -2153,25 +2141,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright © 2017 Aditya Yadav, http://netroy.in`
-- License text: [text 131](#text-131)
+- License text: [text 129](#text-129)
 
-### cac 6.7.14
-
-- License: MIT
-- Copyright: `Copyright (c) EGOIST <0x142857@gmail.com> (https://github.com/egoist)`
-- License text: [text 4](#text-4)
-
-### chai 5.3.3
+### chai 6.3.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2017 Chai.js Assertion Library`
 - License text: [text 1](#text-1)
-
-### check-error 2.1.3
-
-- License: MIT
-- Copyright: `Copyright (c) 2013 Jake Luer <jake@alogicalparadox.com> (http://alogicalparadox.com)`
-- License text: [text 8](#text-8)
 
 ### class-variance-authority 0.7.1
 
@@ -2183,13 +2159,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright © 2011-2015 Paul Vorbach <paul@vorba.ch>`
-- License text: [text 110](#text-110)
+- License text: [text 108](#text-108)
 
 ### clsx 2.1.1
 
 - License: MIT
 - Copyright: `Copyright (c) Luke Edwards <luke.edwards05@gmail.com> (lukeed.com)`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### cmdk 1.1.1
 
@@ -2207,7 +2183,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2011-2016 Heather Arthur <fayearthur@gmail.com>`
-- License text: [text 12](#text-12)
+- License text: [text 13](#text-13)
 
 ### color-name 1.1.4
 
@@ -2225,7 +2201,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2011 Heather Arthur <fayearthur@gmail.com>`
-- License text: [text 12](#text-12)
+- License text: [text 13](#text-13)
 
 ### commander 12.1.0
 
@@ -2237,7 +2213,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2014 Chris Talkington, contributors.`
-- License text: [text 17](#text-17)
+- License text: [text 12](#text-12)
+
+### convert-source-map 2.0.0
+
+- License: MIT
+- Copyright: `Copyright 2013 Thorsten Lorenz.`
+- License text: [text 12](#text-12)
 
 ### cookie-es 3.1.1
 
@@ -2246,7 +2228,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
   - `Copyright (c) 2012-2014 Roman Shtylman <shtylman@gmail.com>`
   - `Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>`
   - `Copyright (c) 2015 Nathan Friedly <nathan@nfriedly.com> (http://nfriedly.com/)`
-- License text: [text 95](#text-95)
+- License text: [text 94](#text-94)
 
 ### core-util-is 1.0.3
 
@@ -2264,7 +2246,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2014 Chris Talkington, contributors.`
-- License text: [text 17](#text-17)
+- License text: [text 12](#text-12)
 
 ### cron-parser 4.9.0
 
@@ -2276,13 +2258,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2018 Made With MOXY Lda <hello@moxy.studio>`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### csstype 3.2.3
 
 - License: MIT
 - Copyright: `Copyright (c) 2017-2018 Fredrik Nicol`
-- License text: [text 107](#text-107)
+- License text: [text 105](#text-105)
 
 ### d3-array 3.2.4
 
@@ -2302,7 +2284,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright:
   - `Copyright 2010-2021 Mike Bostock`
   - `Copyright 2001 Robert Penner`
-- License text: [text 119](#text-119)
+- License text: [text 117](#text-117)
 
 ### d3-format 3.1.2
 
@@ -2376,31 +2358,25 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2025 Michael Mclaughlin`
-- License text: [text 126](#text-126)
+- License text: [text 124](#text-124)
 
 ### decimal.js-light 2.5.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2020 Michael Mclaughlin`
-- License text: [text 125](#text-125)
-
-### deep-eql 5.0.2
-
-- License: MIT
-- Copyright: `Copyright (c) 2013 Jake Luer <jake@alogicalparadox.com> (http://alogicalparadox.com)`
-- License text: [text 8](#text-8)
+- License text: [text 123](#text-123)
 
 ### deepmerge 4.3.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2012 James Halliday, Josh Duff, and other contributors`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### deepmerge-ts 8.0.2
 
 - License: BSD-3-Clause
 - Copyright: `Copyright (c) 2021, Rebecca Stevens`
-- License text: [text 76](#text-76)
+- License text: [text 75](#text-75)
 
 ### defu 6.1.7
 
@@ -2430,49 +2406,49 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2014 The cheeriojs contributors`
-- License text: [text 88](#text-88)
+- License text: [text 87](#text-87)
 
 ### dom-serializer 3.1.1
 
 - License: MIT
 - Copyright: `Copyright © 2022 The Cheerio contributors`
-- License text: [text 111](#text-111)
+- License text: [text 109](#text-109)
 
 ### domelementtype 2.3.0
 
 - License: BSD-2-Clause
 - Copyright: `Copyright (c) Felix Böhm`
-- License text: [text 14](#text-14)
+- License text: [text 15](#text-15)
 
 ### domelementtype 3.0.0
 
 - License: BSD-2-Clause
 - Copyright: `Copyright (c) Felix Böhm`
-- License text: [text 14](#text-14)
+- License text: [text 15](#text-15)
 
 ### domhandler 5.0.3
 
 - License: BSD-2-Clause
 - Copyright: `Copyright (c) Felix Böhm`
-- License text: [text 14](#text-14)
+- License text: [text 15](#text-15)
 
 ### domhandler 6.0.1
 
 - License: BSD-2-Clause
 - Copyright: `Copyright (c) Felix Böhm`
-- License text: [text 14](#text-14)
+- License text: [text 15](#text-15)
 
 ### domutils 3.2.2
 
 - License: BSD-2-Clause
 - Copyright: `Copyright (c) Felix Böhm`
-- License text: [text 14](#text-14)
+- License text: [text 15](#text-15)
 
 ### domutils 4.0.2
 
 - License: BSD-2-Clause
 - Copyright: `Copyright (c) Felix Böhm`
-- License text: [text 14](#text-14)
+- License text: [text 15](#text-15)
 
 ### drizzle-kit 0.31.11
 
@@ -2496,19 +2472,19 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: Apache-2.0
 - Copyright: `Copyright 2015 D2L Corporation`
-- License text: [text 72](#text-72)
+- License text: [text 71](#text-71)
 
 ### emoji-regex 8.0.0
 
 - License: MIT
 - Copyright: `Copyright Mathias Bynens <https://mathiasbynens.be/>`
-- License text: [text 12](#text-12)
+- License text: [text 13](#text-13)
 
 ### emoji-regex 9.2.2
 
 - License: MIT
 - Copyright: `Copyright Mathias Bynens <https://mathiasbynens.be/>`
-- License text: [text 12](#text-12)
+- License text: [text 13](#text-13)
 
 ### emoji-regex-xs 1.0.0
 
@@ -2528,37 +2504,37 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright:
   - `Copyright (c) 2012-present polygonplanet`
   - `Copyright (c) Microsoft Corporation.`
-- License text: [text 98](#text-98)
+- License text: [text 97](#text-97)
 
 ### entities 4.5.0
 
 - License: BSD-2-Clause
 - Copyright: `Copyright (c) Felix Böhm`
-- License text: [text 14](#text-14)
+- License text: [text 15](#text-15)
 
 ### entities 7.0.1
 
 - License: BSD-2-Clause
 - Copyright: `Copyright (c) Felix Böhm`
-- License text: [text 14](#text-14)
+- License text: [text 15](#text-15)
 
 ### entities 8.1.0
 
 - License: BSD-2-Clause
 - Copyright: `Copyright (c) Felix Böhm`
-- License text: [text 14](#text-14)
+- License text: [text 15](#text-15)
 
 ### env-paths 3.0.0
 
 - License: MIT
 - Copyright: `Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
-### es-module-lexer 1.7.0
+### es-module-lexer 2.3.2
 
 - License: MIT
 - Copyright: `Copyright (C) 2018-2022 Guy Bedford`
-- License text: [text 102](#text-102)
+- License text: [text 100](#text-100)
 
 ### es-toolkit 1.52.0
 
@@ -2567,13 +2543,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
   - `Copyright (c) 2024 Viva Republica, Inc.`
   - `Copyright OpenJS Foundation and other contributors <https://openjsf.org/>`
 - License text: [text 1](#text-1)
-- Notice file: [text 134](#text-134)
-
-### esbuild 0.18.20
-
-- License: MIT
-- Copyright: `Copyright (c) 2020 Evan Wallace`
-- License text: [text 1](#text-1)
+- Notice file: [text 131](#text-131)
 
 ### esbuild 0.25.12
 
@@ -2591,13 +2561,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### estree-walker 3.0.3
 
 - License: MIT
 - Copyright: `Copyright (c) 2015-20 [these people](https://github.com/Rich-Harris/estree-walker/graphs/contributors)`
-- License text: [text 9](#text-9)
+- License text: [text 8](#text-8)
 
 ### event-target-shim 5.0.1
 
@@ -2615,7 +2585,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright Joyent, Inc. and other Node contributors.`
-- License text: [text 91](#text-91)
+- License text: [text 90](#text-90)
 
 ### events-universal 1.0.1
 
@@ -2639,13 +2609,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2019 Mathias Buus`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### fdir 6.5.0
 
 - License: MIT
 - Copyright: `Copyright 2023 Abdullah Atta`
-- License text: [text 9](#text-9)
+- License text: [text 8](#text-8)
 
 ### fflate 0.8.3
 
@@ -2705,7 +2675,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright Mathias Bynens <https://mathiasbynens.be/>`
-- License text: [text 12](#text-12)
+- License text: [text 13](#text-13)
 
 ### hono 4.13.11
 
@@ -2735,7 +2705,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: no copyright line in the package; author in package.json: Malte Legenhausen
-- License text: [text 101](#text-101)
+- License text: [text 99](#text-99)
 
 ### htmlparser2 10.1.0
 
@@ -2753,7 +2723,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: ISC
 - Copyright: `Copyright (c) 2021, Yevhen Tiurin <yevhentiurin@gmail.com>`
-- License text: [text 86](#text-86)
+- License text: [text 85](#text-85)
 
 ### i18next 24.2.3
 
@@ -2771,19 +2741,19 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2011 Alexander Shtuchkin`
-- License text: [text 12](#text-12)
+- License text: [text 13](#text-13)
 
 ### iconv-lite 0.7.3
 
 - License: MIT
 - Copyright: `Copyright (c) 2011 Alexander Shtuchkin`
-- License text: [text 12](#text-12)
+- License text: [text 13](#text-13)
 
 ### ieee754 1.2.1
 
 - License: BSD-3-Clause
 - Copyright: `Copyright 2008 Fair Oaks Labs, Inc.`
-- License text: [text 122](#text-122)
+- License text: [text 120](#text-120)
 
 ### imapflow 1.7.8
 
@@ -2801,7 +2771,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: ISC
 - Copyright: `Copyright (c) Isaac Z. Schlueter`
-- License text: [text 124](#text-124)
+- License text: [text 122](#text-122)
 
 ### internmap 2.0.3
 
@@ -2813,13 +2783,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: BSD-3-Clause
 - Copyright: `Copyright (c) 2023, Oath Inc.`
-- License text: [text 90](#text-90)
+- License text: [text 89](#text-89)
 
 ### ip-address 10.7.2
 
 - License: MIT
 - Copyright: `Copyright (C) 2011 by Beau Gunderson`
-- License text: [text 8](#text-8)
+- License text: [text 10](#text-10)
 
 ### ipv6-normalize 1.0.1
 
@@ -2831,25 +2801,25 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### is-plain-object 5.1.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2017, Jon Schlinkert.`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### is-stream 2.0.1
 
 - License: MIT
 - Copyright: `Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### is-url 1.2.4
 
 - License: MIT
 - Copyright: no copyright line in the package; no author in package.json
-- License text: [text 92](#text-92)
+- License text: [text 91](#text-91)
 
 ### isarray 1.0.0
 
@@ -2903,13 +2873,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2014, 2015, 2016, 2017, 2018 Simon Lydell`
-- License text: [text 4](#text-4)
-
-### js-tokens 9.0.1
-
-- License: MIT
-- Copyright: `Copyright (c) 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024 Simon Lydell`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### jsonwebtoken 9.0.3
 
@@ -2945,7 +2909,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2013 J. Pommerening, contributors.`
-- License text: [text 17](#text-17)
+- License text: [text 12](#text-12)
 
 ### leac 0.7.0
 
@@ -2957,37 +2921,37 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2017 Andris Reinman`
-- License text: [text 8](#text-8)
+- License text: [text 10](#text-10)
 
 ### libbase64 1.3.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2017 Andris Reinman`
-- License text: [text 8](#text-8)
+- License text: [text 10](#text-10)
 
 ### libmime 5.4.3
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2016 Andris Reinman`
-- License text: [text 8](#text-8)
+- License text: [text 10](#text-10)
 
 ### libmime 5.4.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2016 Andris Reinman`
-- License text: [text 8](#text-8)
+- License text: [text 10](#text-10)
 
 ### libqp 2.1.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2022 Andris Reinman`
-- License text: [text 8](#text-8)
+- License text: [text 10](#text-10)
 
 ### libqp 2.1.2
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2022 Andris Reinman`
-- License text: [text 8](#text-8)
+- License text: [text 10](#text-10)
 
 ### lightningcss 1.33.0
 
@@ -3005,7 +2969,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2015 Vitaly Puzrin.`
-- License text: [text 17](#text-17)
+- License text: [text 12](#text-12)
 
 ### lodash 4.18.1
 
@@ -3069,13 +3033,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2015 Andres Suarez <zertosh@gmail.com>`
-- License text: [text 4](#text-4)
-
-### loupe 3.2.1
-
-- License: MIT
-- Copyright: `Copyright (c) 2011-2013 Jake Luer jake@alogicalparadox.com`
-- License text: [text 66](#text-66)
+- License text: [text 5](#text-5)
 
 ### lru-cache 10.4.3
 
@@ -3093,13 +3051,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright 2019 JS Foundation and other contributors`
-- License text: [text 9](#text-9)
+- License text: [text 8](#text-8)
 
 ### magic-string 0.30.21
 
 - License: MIT
 - Copyright: `Copyright 2018 Rich Harris`
-- License text: [text 9](#text-9)
+- License text: [text 8](#text-8)
 
 ### mailparser 3.9.31
 
@@ -3159,7 +3117,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2018, Jon Schlinkert.`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### normalize-svg-path 1.1.0
 
@@ -3174,7 +3132,16 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
+
+### obug 2.2.1
+
+- License: MIT
+- Copyright:
+  - `Copyright © 2025-PRESENT Kevin Deng (https://github.com/sxzz)`
+  - `Copyright (c) 2014-2017 TJ Holowaychuk <tj@vision-media.ca>`
+  - `Copyright (c) 2018-2021 Josh Junon`
+- License text: [text 3](#text-3)
 
 ### on-exit-leak-free 2.1.2
 
@@ -3186,7 +3153,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: BlueOak-1.0.0
 - Copyright: no copyright line in the package; author in package.json: Isaac Z. Schlueter
-- License text: [text 70](#text-70)
+- License text: [text 69](#text-69)
 
 ### pako 0.2.9
 
@@ -3216,7 +3183,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### path-scurry 1.11.1
 
@@ -3231,19 +3198,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
   - `Copyright (c) Pooya Parsa <pooya@pi0.io> - Daniel Roe <daniel@roe.dev>`
   - `Copyright Joyent, Inc. and other Node contributors.`
   - `Copyright (c) 2023-present Fabio Spampinato`
-- License text: [text 96](#text-96)
-
-### pathval 2.0.1
-
-- License: MIT
-- Copyright: `Copyright (c) 2011-2013 Jake Luer jake@alogicalparadox.com`
-- License text: [text 99](#text-99)
+- License text: [text 95](#text-95)
 
 ### pdfkit 0.20.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2014 Devon Govett`
-- License text: [text 93](#text-93)
+- License text: [text 92](#text-92)
 
 ### peberminta 0.10.0
 
@@ -3255,7 +3216,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2014 Andrew Kelley`
-- License text: [text 129](#text-129)
+- License text: [text 127](#text-127)
 
 ### pg 8.23.0
 
@@ -3285,7 +3246,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: ISC
 - Copyright: `Copyright © 2017, Charmander <~@charmander.me>`
-- License text: [text 115](#text-115)
+- License text: [text 113](#text-113)
 
 ### pg-pool 3.14.0
 
@@ -3321,7 +3282,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2017-present, Jon Schlinkert.`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### pino 10.3.1
 
@@ -3339,7 +3300,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright Mateo Collina, David Mark Clements, James Sumners`
-- License text: [text 9](#text-9)
+- License text: [text 8](#text-8)
 
 ### png-js 2.0.0
 
@@ -3357,31 +3318,31 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) Bogdan Chadkin <trysound@yandex.ru>`
-- License text: [text 17](#text-17)
+- License text: [text 12](#text-12)
 
 ### postgres-array 2.0.0
 
 - License: MIT
 - Copyright: `Copyright (c) Ben Drucker <bvdrucker@gmail.com> (bendrucker.me)`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### postgres-bytea 1.0.1
 
 - License: MIT
 - Copyright: `Copyright (c) Ben Drucker <bvdrucker@gmail.com> (bendrucker.me)`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### postgres-date 1.0.7
 
 - License: MIT
 - Copyright: `Copyright (c) Ben Drucker <bvdrucker@gmail.com> (bendrucker.me)`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### postgres-interval 1.2.0
 
 - License: MIT
 - Copyright: `Copyright (c) Ben Drucker <bvdrucker@gmail.com> (bendrucker.me)`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### process 0.11.10
 
@@ -3393,7 +3354,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2015 Calvin Metcalf`
-- License text: [text 106](#text-106)
+- License text: [text 104](#text-104)
 
 ### process-warning 5.1.0
 
@@ -3411,7 +3372,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright Mathias Bynens <https://mathiasbynens.be/>`
-- License text: [text 12](#text-12)
+- License text: [text 13](#text-13)
 
 ### pvtsutils 1.3.6
 
@@ -3423,7 +3384,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2016-2019, Peculiar Ventures`
-- License text: [text 94](#text-94)
+- License text: [text 93](#text-93)
 
 ### queue 6.0.2
 
@@ -3572,13 +3533,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - License: Apache-2.0
 - Copyright: `Copyright (c) Microsoft Corporation. All rights reserved.`
 - License text: [text 36](#text-36)
-- Notice file: [text 68](#text-68)
+- Notice file: [text 67](#text-67)
 
 ### require-from-string 2.0.2
 
 - License: MIT
 - Copyright: `Copyright (c) Vsevolod Strukchinsky <floatdrop@gmail.com> (github.com/floatdrop)`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### reselect 5.2.0
 
@@ -3614,13 +3575,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) Feross Aboukhadijeh`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### safe-buffer 5.2.1
 
 - License: MIT
 - Copyright: `Copyright (c) Feross Aboukhadijeh`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### safe-stable-stringify 2.5.0
 
@@ -3638,7 +3599,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2013, 2014, 2015 P'unk Avenue LLC`
-- License text: [text 9](#text-9)
+- License text: [text 8](#text-8)
 
 ### scheduler 0.25.0-rc-603e6108-20241029
 
@@ -3668,7 +3629,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### seroval 1.6.7
 
@@ -3686,37 +3647,37 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2015 Nathan Friedly <nathan@nfriedly.com> (http://nfriedly.com/)`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### shebang-command 2.0.0
 
 - License: MIT
 - Copyright: `Copyright (c) Kevin Mårtensson <kevinmartensson@gmail.com> (github.com/kevva)`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### shebang-regex 3.0.0
 
 - License: MIT
 - Copyright: `Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### shell-quote 1.12.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2013 James Halliday (mail@substack.net)`
-- License text: [text 127](#text-127)
+- License text: [text 125](#text-125)
 
 ### siginfo 2.0.0
 
 - License: ISC
 - Copyright: `Copyright (c) 2017, Emil Bay <github@tixz.dk>`
-- License text: [text 113](#text-113)
+- License text: [text 111](#text-111)
 
 ### signal-exit 4.1.0
 
 - License: ISC
 - Copyright: `Copyright (c) 2015-2023 Benjamin Coe, Isaac Z. Schlueter, and Contributors`
-- License text: [text 123](#text-123)
+- License text: [text 121](#text-121)
 
 ### smart-buffer 4.2.0
 
@@ -3770,7 +3731,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: ISC
 - Copyright: `Copyright (c) 2014-2018, Matteo Collina <hello@matteocollina.com>`
-- License text: [text 114](#text-114)
+- License text: [text 112](#text-112)
 
 ### stackback 0.0.2
 
@@ -3778,7 +3739,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: no copyright line in the package; author in package.json: Roman Shtylman
 - License text: [text 1](#text-1) (the package ships no license file; this is the text most packages with this license use)
 
-### std-env 3.10.0
+### std-env 4.3.0
 
 - License: MIT
 - Copyright: `Copyright (c) Pooya Parsa <pooya@pi0.io>`
@@ -3788,19 +3749,19 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2019 Mathias Buus`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### string-width 4.2.3
 
 - License: MIT
 - Copyright: `Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### string-width 5.1.2
 
 - License: MIT
 - Copyright: `Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### string_decoder 1.1.1
 
@@ -3822,25 +3783,19 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### strip-ansi 7.2.0
 
 - License: MIT
 - Copyright: `Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)`
-- License text: [text 5](#text-5)
-
-### strip-literal 3.1.0
-
-- License: MIT
-- Copyright: `Copyright (c) 2022 Anthony Fu <https://github.com/antfu>`
-- License text: [text 1](#text-1)
+- License text: [text 4](#text-4)
 
 ### svg-arc-to-cubic-bezier 3.2.0
 
 - License: ISC
 - Copyright: `` Copyright (c) `2017`, `Colin Meinke` ``
-- License text: [text 87](#text-87)
+- License text: [text 86](#text-86)
 
 ### tailwindcss 4.3.3
 
@@ -3852,13 +3807,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2014 Mathias Buus`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### teex 1.0.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2020 Mathias Buus`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### text-decoder 1.2.7
 
@@ -3896,7 +3851,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2022 Tinylibs`
 - License text: [text 1](#text-1)
 
-### tinyexec 0.3.2
+### tinyexec 1.3.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 Tinylibs`
@@ -3908,19 +3863,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2024 Madeline Gurriarán`
 - License text: [text 1](#text-1)
 
-### tinypool 2.2.0
-
-- License: MIT
-- Copyright: `Copyright (c) 2020 James M Snell and the Piscina contributors`
-- License text: [text 132](#text-132)
-
-### tinyrainbow 2.0.0
-
-- License: MIT
-- Copyright: `Copyright (c) 2022 Tinylibs`
-- License text: [text 1](#text-1)
-
-### tinyspy 4.0.6
+### tinyrainbow 3.2.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 Tinylibs`
@@ -3937,14 +3880,14 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - License: 0BSD
 - Copyright: `Copyright (c) Microsoft Corporation.`
 - License text: [text 43](#text-43)
-- Notice file: [text 67](#text-67)
+- Notice file: [text 66](#text-66)
 
 ### tslib 2.8.1
 
 - License: 0BSD
 - Copyright: `Copyright (c) Microsoft Corporation.`
 - License text: [text 43](#text-43)
-- Notice file: [text 69](#text-69)
+- Notice file: [text 68](#text-68)
 
 ### tsx 4.23.15
 
@@ -3968,7 +3911,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: (MIT OR CC0-1.0)
 - Copyright: `Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https:/sindresorhus.com)`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### typescript 5.9.3
 
@@ -3980,7 +3923,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright Mathias Bynens <https://mathiasbynens.be/>`
-- License text: [text 12](#text-12)
+- License text: [text 13](#text-13)
 
 ### undici-types 6.21.0
 
@@ -3998,13 +3941,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright 2018`
-- License text: [text 9](#text-9)
+- License text: [text 8](#text-8)
 
 ### unicode-trie 2.0.0
 
 - License: MIT
 - Copyright: `Copyright 2018`
-- License text: [text 9](#text-9)
+- License text: [text 8](#text-8)
 
 ### use-callback-ref 1.3.3
 
@@ -4030,7 +3973,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2014 Nathan Rajlich <nathan@tootallnate.net>`
 - License text: [text 63](#text-63)
 
-### uuid 8.3.2
+### uuid 11.1.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2010-2020 Robert Kieffer and other contributors`
@@ -4040,7 +3983,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2023 Emil Kowalski`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### victory-vendor 37.3.6
 
@@ -4054,16 +3997,10 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2019-present, VoidZero Inc. and Vite contributors`
 - License text: [text 60](#text-60) (the part of the file that reprints the licenses of the package's own bundled dependencies is left out)
 
-### vite-node 3.2.4
+### vitest 4.1.11
 
 - License: MIT
-- Copyright: `Copyright (c) 2021-Present Vitest Team`
-- License text: [text 1](#text-1)
-
-### vitest 3.2.7
-
-- License: MIT
-- Copyright: `Copyright (c) 2021-Present Vitest Team`
+- Copyright: `Copyright (c) 2021-Present VoidZero Inc. and Vitest contributors`
 - License text: [text 61](#text-61) (the part of the file that reprints the licenses of the package's own bundled dependencies is left out)
 
 ### void-elements 3.1.0
@@ -4076,7 +4013,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright © Domenic Denicola <d@domenic.me>`
-- License text: [text 9](#text-9)
+- License text: [text 8](#text-8)
 
 ### which 2.0.2
 
@@ -4094,19 +4031,19 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2016 Mathias Buus`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### wrap-ansi 7.0.0
 
 - License: MIT
 - Copyright: `Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### wrap-ansi 8.1.0
 
 - License: MIT
 - Copyright: `Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)`
-- License text: [text 5](#text-5)
+- License text: [text 4](#text-4)
 
 ### ws 8.21.3
 
@@ -4115,13 +4052,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
   - `Copyright (c) 2011 Einar Otto Stangvik <einaros@gmail.com>`
   - `Copyright (c) 2013 Arnout Kazemier and contributors`
   - `Copyright (c) 2016 Luigi Pinca and contributors`
-- License text: [text 109](#text-109)
+- License text: [text 107](#text-107)
 
 ### xtend 4.0.2
 
 - License: MIT
 - Copyright: `Copyright (c) 2012-2014 Raynos.`
-- License text: [text 4](#text-4)
+- License text: [text 5](#text-5)
 
 ### yaml 2.9.1
 
@@ -4145,7 +4082,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 - License: MIT
 - Copyright: `Copyright (c) 2014 Chris Talkington, contributors.`
-- License text: [text 17](#text-17)
+- License text: [text 12](#text-12)
 
 ### zod 3.25.76
 
@@ -4159,11 +4096,11 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2025 Colin McDonnell`
 - License text: [text 1](#text-1)
 
-## License texts (134)
+## License texts (131)
 
 ### Text 1
 
-Used by 220 entries.
+Used by 216 entries.
 
 ```text
 MIT License
@@ -4397,7 +4334,7 @@ Used by 41 entries.
 
 ### Text 3
 
-Used by 31 entries.
+Used by 32 entries.
 
 ```text
 The MIT License (MIT)
@@ -4423,7 +4360,21 @@ SOFTWARE.
 
 ### Text 4
 
-Used by 27 entries.
+Used by 26 entries.
+
+```text
+MIT License
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+### Text 5
+
+Used by 25 entries.
 
 ```text
 The MIT License (MIT)
@@ -4447,23 +4398,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### Text 5
-
-Used by 26 entries.
-
-```text
-MIT License
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
 ### Text 6
 
-Used by 25 entries.
+Used by 23 entries.
 
 ```text
     MIT License
@@ -4507,30 +4444,6 @@ THIS SOFTWARE.
 
 ### Text 8
 
-Used by 12 entries.
-
-```text
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-```
-
-### Text 9
-
 Used by 11 entries.
 
 ```text
@@ -4541,7 +4454,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 10
+### Text 9
 
 Used by 10 entries.
 
@@ -4749,6 +4662,30 @@ Apache License
    limitations under the License.
 ```
 
+### Text 10
+
+Used by 10 entries.
+
+```text
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
+
 ### Text 11
 
 Used by 10 entries.
@@ -4774,6 +4711,33 @@ IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 Used by 9 entries.
 
 ```text
+Permission is hereby granted, free of charge, to any person
+obtaining a copy of this software and associated documentation
+files (the "Software"), to deal in the Software without
+restriction, including without limitation the rights to use,
+copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following
+conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+OTHER DEALINGS IN THE SOFTWARE.
+```
+
+### Text 13
+
+Used by 9 entries.
+
+```text
 Permission is hereby granted, free of charge, to any person obtaining
 a copy of this software and associated documentation files (the
 "Software"), to deal in the Software without restriction, including
@@ -4794,7 +4758,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 13
+### Text 14
 
 Used by 9 entries.
 
@@ -4826,7 +4790,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 14
+### Text 15
 
 Used by 9 entries.
 
@@ -4841,7 +4805,7 @@ THIS IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRE
 EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 15
+### Text 16
 
 Used by 9 entries.
 
@@ -4867,7 +4831,7 @@ ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 16
+### Text 17
 
 Used by 8 entries.
 
@@ -5103,33 +5067,6 @@ DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
 THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-```
-
-### Text 17
-
-Used by 8 entries.
-
-```text
-Permission is hereby granted, free of charge, to any person
-obtaining a copy of this software and associated documentation
-files (the "Software"), to deal in the Software without
-restriction, including without limitation the rights to use,
-copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the
-Software is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice shall be
-included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
-OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
-WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
-OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 ### Text 18
@@ -9109,20 +9046,6 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 Used by 1 entry.
 
 ```text
-(The MIT License)
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
-### Text 67
-
-Used by 1 entry.
-
-```text
 /*! *****************************************************************************
 Copyright (c) Microsoft Corporation.
 
@@ -9139,7 +9062,7 @@ PERFORMANCE OF THIS SOFTWARE.
 ***************************************************************************** */
 ```
 
-### Text 68
+### Text 67
 
 Used by 1 entry.
 
@@ -9160,7 +9083,7 @@ and limitations under the License.
 ***************************************************************************** */
 ```
 
-### Text 69
+### Text 68
 
 Used by 1 entry.
 
@@ -9181,7 +9104,7 @@ PERFORMANCE OF THIS SOFTWARE.
 ***************************************************************************** */
 ```
 
-### Text 70
+### Text 69
 
 Used by 1 entry.
 
@@ -9251,7 +9174,7 @@ will be liable to anyone for any damages related to this
 software or this license, under any kind of legal claim.***
 ```
 
-### Text 71
+### Text 70
 
 Used by 1 entry.
 
@@ -9459,7 +9382,7 @@ Apache License
    limitations under the License.
 ```
 
-### Text 72
+### Text 71
 
 Used by 1 entry.
 
@@ -9667,7 +9590,7 @@ Apache License
    limitations under the License.
 ```
 
-### Text 73
+### Text 72
 
 Used by 1 entry.
 
@@ -9865,7 +9788,7 @@ third-party archives.
    limitations under the License.
 ```
 
-### Text 74
+### Text 73
 
 Used by 1 entry.
 
@@ -9898,7 +9821,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 75
+### Text 74
 
 Used by 1 entry.
 
@@ -9929,7 +9852,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 76
+### Text 75
 
 Used by 1 entry.
 
@@ -9962,7 +9885,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 77
+### Text 76
 
 Used by 1 entry.
 
@@ -9997,7 +9920,7 @@ Blackfriday is distributed under the Simplified BSD License:
 > POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 78
+### Text 77
 
 Used by 1 entry.
 
@@ -10308,7 +10231,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 79
+### Text 78
 
 Used by 1 entry.
 
@@ -10679,7 +10602,7 @@ Exhibit B - "Incompatible With Secondary Licenses" Notice
       the Mozilla Public License, v. 2.0.
 ```
 
-### Text 80
+### Text 79
 
 Used by 1 entry.
 
@@ -10780,7 +10703,7 @@ File fuse_kernel.go:
 */
 ```
 
-### Text 81
+### Text 80
 
 Used by 1 entry.
 
@@ -10800,7 +10723,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-### Text 82
+### Text 81
 
 Used by 1 entry.
 
@@ -10820,7 +10743,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-### Text 83
+### Text 82
 
 Used by 1 entry.
 
@@ -10920,7 +10843,7 @@ FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
 ```
 
-### Text 84
+### Text 83
 
 Used by 1 entry.
 
@@ -11020,7 +10943,7 @@ FROM, OUT OF THE USE OR INABILITY TO USE THE FONT SOFTWARE OR FROM
 OTHER DEALINGS IN THE FONT SOFTWARE.
 ```
 
-### Text 85
+### Text 84
 
 Used by 1 entry.
 
@@ -11055,7 +10978,7 @@ The above copyright notice and this permission notice shall be included
 in all copies or substantial portions of the Software.
 ```
 
-### Text 86
+### Text 85
 
 Used by 1 entry.
 
@@ -11075,7 +10998,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### Text 87
+### Text 86
 
 Used by 1 entry.
 
@@ -11096,7 +11019,7 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
 
-### Text 88
+### Text 87
 
 Used by 1 entry.
 
@@ -11112,7 +11035,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 89
+### Text 88
 
 Used by 1 entry.
 
@@ -11130,7 +11053,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-### Text 90
+### Text 89
 
 Used by 1 entry.
 
@@ -11168,7 +11091,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 91
+### Text 90
 
 Used by 1 entry.
 
@@ -11195,7 +11118,7 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE
 USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 92
+### Text 91
 
 Used by 1 entry.
 
@@ -11221,7 +11144,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### Text 93
+### Text 92
 
 Used by 1 entry.
 
@@ -11235,7 +11158,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 94
+### Text 93
 
 Used by 1 entry.
 
@@ -11263,7 +11186,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### Text 95
+### Text 94
 
 Used by 1 entry.
 
@@ -11295,7 +11218,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### Text 96
+### Text 95
 
 Used by 1 entry.
 
@@ -11372,7 +11295,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 97
+### Text 96
 
 Used by 1 entry.
 
@@ -11414,7 +11337,7 @@ programs and associated documentation files created by the
 Original Author, when distributed with the Software.
 ```
 
-### Text 98
+### Text 97
 
 Used by 1 entry.
 
@@ -11462,28 +11385,7 @@ The contributors credited in the upstream package are:
 The MIT License terms stated above apply equally to these files.
 ```
 
-### Text 99
-
-Used by 1 entry.
-
-```text
-MIT License
-
-Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
-documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit
-persons to whom the Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all copies or substantial
-portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO
-THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
-TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-```
-
-### Text 100
+### Text 98
 
 Used by 1 entry.
 
@@ -11497,7 +11399,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 101
+### Text 99
 
 Used by 1 entry.
 
@@ -11529,7 +11431,7 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 102
+### Text 100
 
 Used by 1 entry.
 
@@ -11544,7 +11446,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 103
+### Text 101
 
 Used by 1 entry.
 
@@ -11560,7 +11462,7 @@ code for these subcomponents is subject to the terms and conditions
 of Apache License Version 2.0
 ```
 
-### Text 104
+### Text 102
 
 Used by 1 entry.
 
@@ -11584,7 +11486,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### Text 105
+### Text 103
 
 Used by 1 entry.
 
@@ -11610,7 +11512,7 @@ SOFTWARE.
 <http://www.opensource.org/licenses/mit-license.php>
 ```
 
-### Text 106
+### Text 104
 
 Used by 1 entry.
 
@@ -11634,7 +11536,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.**
 ```
 
-### Text 107
+### Text 105
 
 Used by 1 entry.
 
@@ -11658,7 +11560,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### Text 108
+### Text 106
 
 Used by 1 entry.
 
@@ -11682,7 +11584,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### Text 109
+### Text 107
 
 Used by 1 entry.
 
@@ -11705,7 +11607,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 110
+### Text 108
 
 Used by 1 entry.
 
@@ -11728,7 +11630,7 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 111
+### Text 109
 
 Used by 1 entry.
 
@@ -11740,7 +11642,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 112
+### Text 110
 
 Used by 1 entry.
 
@@ -11759,7 +11661,7 @@ WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
 ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### Text 113
+### Text 111
 
 Used by 1 entry.
 
@@ -11777,7 +11679,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
 OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### Text 114
+### Text 112
 
 Used by 1 entry.
 
@@ -11795,7 +11697,7 @@ ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
 IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### Text 115
+### Text 113
 
 Used by 1 entry.
 
@@ -11813,7 +11715,7 @@ OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### Text 116
+### Text 114
 
 Used by 1 entry.
 
@@ -11827,7 +11729,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 117
+### Text 115
 
 Used by 1 entry.
 
@@ -11856,7 +11758,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 118
+### Text 116
 
 Used by 1 entry.
 
@@ -11883,7 +11785,7 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 119
+### Text 117
 
 Used by 1 entry.
 
@@ -11914,7 +11816,7 @@ ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 120
+### Text 118
 
 Used by 1 entry.
 
@@ -11927,7 +11829,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 121
+### Text 119
 
 Used by 1 entry.
 
@@ -11943,7 +11845,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 122
+### Text 120
 
 Used by 1 entry.
 
@@ -11959,7 +11861,7 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### Text 123
+### Text 121
 
 Used by 1 entry.
 
@@ -11980,7 +11882,7 @@ WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
 ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### Text 124
+### Text 122
 
 Used by 1 entry.
 
@@ -12000,7 +11902,7 @@ OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR
 PERFORMANCE OF THIS SOFTWARE.
 ```
 
-### Text 125
+### Text 123
 
 Used by 1 entry.
 
@@ -12027,7 +11929,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 126
+### Text 124
 
 Used by 1 entry.
 
@@ -12054,7 +11956,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 127
+### Text 125
 
 Used by 1 entry.
 
@@ -12083,7 +11985,7 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 128
+### Text 126
 
 Used by 1 entry.
 
@@ -12107,7 +12009,7 @@ FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TOR
 ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 129
+### Text 127
 
 Used by 1 entry.
 
@@ -12135,7 +12037,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### Text 130
+### Text 128
 
 Used by 1 entry.
 
@@ -12161,7 +12063,7 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE
 OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 131
+### Text 129
 
 Used by 1 entry.
 
@@ -12175,36 +12077,7 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### Text 132
-
-Used by 1 entry.
-
-```text
-The MIT License (MIT)
-
-Piscina contributors listed at https://github.com/jasnell/piscina#the-team and
-in the README file.
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
-### Text 133
+### Text 130
 
 Used by 1 entry.
 
@@ -12255,7 +12128,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ```
 
-### Text 134
+### Text 131
 
 Used by 1 entry.
 
