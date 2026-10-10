@@ -6,9 +6,11 @@ import { EmptyState, PageHeader, RefreshButton } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { useSession } from "@/lib/session";
 
+import { PveInventorySection } from "@/features/pve/inventory-section";
 import { EndpointsTable } from "./components/endpoints-table.js";
 import { EnrollDialog } from "./components/enroll-dialog.js";
 import { PendingTokens } from "./components/pending-tokens.js";
+
 import { ProxmoxLink } from "./components/proxmox-link.js";
 import { WithoutBackupBanner, canManageJobs } from "./components/without-backup.js";
 import { useEndpoints } from "./hooks.js";
@@ -136,6 +138,9 @@ export function EndpointsPage({
           )
         }
       />
+
+      {/* VMs and containers on the Proxmox VE nodes, in "All" and "Servers". */}
+      {area === "clients" ? null : <PveInventorySection />}
 
       <EnrollDialog
         open={enrolling !== null}

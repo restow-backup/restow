@@ -176,5 +176,33 @@
       "noBackup": "Nichts zu prüfen, bis die erste Sicherung abgeschlossen ist.",
       "noBackupOverdue": "Keine Sicherung innerhalb von 24 Stunden, nachdem der Gast in einen Backup-Job kam."
     }
+  },
+  "inventory": {
+    "title": "Proxmox VE",
+    "open": "VMs & Container öffnen",
+    "unknownNode": "Knoten unbekannt",
+    "guestCount": "VMs und Container: {count}",
+    "noGuests": "Auf diesem Knoten sind keine VMs oder Container gemeldet.",
+    "running": "Status",
+    "protection": "Sicherung",
+    "count": {
+      "protected": "Geschützt: {count}",
+      "failed": "Fehlgeschlagen: {count}",
+      "noJob": "Ohne Job: {count}",
+      "never": "Noch nicht gesichert: {count}"
+    },
+    "state": {
+      "protected": "Geschützt",
+      "failed": "Letzter Lauf fehlgeschlagen",
+      "noJob": "Kein Backup-Job",
+      "never": "Noch nicht gesichert",
+      "excluded": "Nicht gesichert (Vorlage oder entfernt)"
+    },
+    "status": {
+      "running": "Läuft",
+      "stopped": "Gestoppt",
+      "paused": "Pausiert",
+      "suspended": "Angehalten"
+    }
   }
 }
