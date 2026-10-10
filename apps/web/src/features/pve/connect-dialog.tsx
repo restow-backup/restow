@@ -84,6 +84,15 @@ export function ConnectDialog() {
     }
   };
 
+  // The next commands go without the entered PVE API token: the installer creates its own.
+  const withoutToken = () => {
+    setUseExisting(false);
+    setTokenId("");
+    setSecret("");
+    setSubmitted(false);
+    mutation.mutate(undefined);
+  };
+
   const language = i18n.resolvedLanguage ?? i18n.language;
   const started = commands.length > 0;
   return (
@@ -115,10 +124,16 @@ export function ConnectDialog() {
                   {t("connect.runHint", {
                     expires: formatDateTime(created.expiresAt, language) ?? "",
                   })}
-                  {created.pveTokenId
-                    ? ` ${t("connect.usesToken", { tokenId: created.pveTokenId })}`
-                    : null}
                 </p>
+                {created.pveTokenId ? (
+                  // Easy to overlook otherwise: this command brings the token entered above.
+                  <p
+                    className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2"
+                    data-slot="pve-uses-token"
+                  >
+                    {t("connect.usesToken", { tokenId: created.pveTokenId })}
+                  </p>
+                ) : null}
               </li>
             ))}
           </ol>
@@ -200,6 +215,17 @@ export function ConnectDialog() {
                 <Plus aria-hidden="true" />
                 {t("connect.another")}
               </Button>
+              {useExisting ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={withoutToken}
+                  disabled={mutation.isPending}
+                  data-slot="pve-without-token"
+                >
+                  {t("connect.withoutToken")}
+                </Button>
+              ) : null}
               <Button type="button" onClick={() => close(false)}>
                 {t("connect.close")}
               </Button>

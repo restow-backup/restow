@@ -23,11 +23,12 @@
     "existingSecurity": "{appName} stores the token encrypted, hands it to the node once while it connects and then deletes it, at the latest when the command expires.",
     "node": "Node {number}",
     "runHint": "Run as root on the node. Works for one node until {expires}.",
-    "usesToken": "The node uses the API token {tokenId}.",
+    "usesToken": "This command uses the API token {tokenId} entered here. If that token is gone or lacks privileges, create a new command without it.",
     "copy": "Copy command",
     "another": "Command for another node",
     "anotherHint": "Every node needs its own command. Connect the nodes one after another; the first one adds the storage to the cluster.",
-    "close": "Close"
+    "close": "Close",
+    "withoutToken": "New command without this token"
   },
   "nodes": {
     "title": "Nodes",
