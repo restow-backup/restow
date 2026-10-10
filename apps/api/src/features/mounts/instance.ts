@@ -5,6 +5,7 @@ import { providerDb } from "../../db.js";
 import { audit } from "../../lib/audit.js";
 import { currentInstallationDefault } from "../../lib/installation-default.js";
 import { mounterClientFromEnv } from "./mounter-client.js";
+import { secretPendingMountStore } from "./pending.js";
 import { type ActiveWork, type MountUser, MountsService, liesOn } from "./service.js";
 
 /** Endpoint runs older than this that still say "running" are stale, not running. */
@@ -70,6 +71,7 @@ export async function usersOf(path: string): Promise<MountUser[]> {
 /** The process-wide service, on the installation pool. */
 export const mountsService = new MountsService({
   client: mounterClientFromEnv(process.env, config.demo.enabled),
+  pending: secretPendingMountStore(providerDb),
   activeWork,
   usersOf,
   audit: async (event) => {

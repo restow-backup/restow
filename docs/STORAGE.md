@@ -15,7 +15,11 @@ A tenant's chunk store (packs, manifests, wrapped keys) lives on one or more
 share) or an S3-compatible bucket (Hetzner Object Storage, AWS S3, Wasabi, Backblaze
 B2, Garage — not MinIO, which is no longer open source). An NFS share can be added from
 the web interface with the opt-in mounter (Installation > Network shares, `docs/MOUNTS.md`); it
-then appears in the api and the worker at `/mnt/restow/<name>`. Every target has a role:
+then appears in the api and the worker at `/mnt/restow/<name>`. The path field of a
+"directory" target (and of the installation default storage) also takes an NFS address
+such as `nas.local:/volume1/restow` or `nfs://192.168.1.10/export/backup`: the form offers
+to mount it right there and then fills in `/mnt/restow/<name>` (`docs/MOUNTS.md`, "From
+the storage form"). Every target has a role:
 
 - **primary** — receives every new backup first. A tenant has at most one. A tenant
   with no primary target of its own uses the installation's default storage as its

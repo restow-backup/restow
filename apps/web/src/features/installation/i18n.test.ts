@@ -210,6 +210,8 @@ describe("installation translations", () => {
       name: "nas",
       path: "/mnt/restow/nas",
       detail: "mount.nfs: access denied by server",
+      server: "nas.local",
+      export: "/volume1/restow",
     };
     for (const language of ["en", "de"]) {
       await i18n.changeLanguage(language);

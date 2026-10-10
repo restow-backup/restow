@@ -83,6 +83,17 @@ export interface MounterState {
 
 export type MounterFailure = "disabled" | "no_secret" | "unreachable" | "timeout" | "incompatible";
 
+/**
+ * An add the owner asked for while jobs ran ("apply when idle"): the api starts it once
+ * none runs. `failure` is set when the mounter refused it when it was its turn.
+ */
+export interface PendingMount {
+  mount: MountSpec;
+  requestedBy: { userId: string | null; label: string; ip: string | null };
+  requestedAt: string;
+  failure: { code: string | null; detail: string | null } | null;
+}
+
 export interface MountsView {
   available: boolean;
   unavailableReason: MounterFailure | null;
@@ -90,6 +101,8 @@ export interface MountsView {
   enableCommand: string;
   mountRoot: string;
   state: MounterState | null;
+  /** Absent from an api before 0.3.3. */
+  pending?: PendingMount | null;
 }
 
 export interface MountTestResult {
@@ -115,6 +128,8 @@ export const MOUNT_PROBLEMS = {
   jobsRunning: "urn:restow:problem:mounts-jobs-running",
   inUse: "urn:restow:problem:mount-in-use",
   demo: "urn:restow:problem:mounts-demo",
+  pendingExists: "urn:restow:problem:mount-pending-exists",
+  pendingNotFound: "urn:restow:problem:mount-pending-not-found",
 } as const;
 
 const REJECTED_CODES = new Set([
@@ -139,6 +154,10 @@ export function mountsErrorKey(error: unknown): string {
       return "installation:mounts.errors.inUse";
     case MOUNT_PROBLEMS.demo:
       return "installation:mounts.errors.demo";
+    case MOUNT_PROBLEMS.pendingExists:
+      return "installation:mounts.errors.pendingExists";
+    case MOUNT_PROBLEMS.pendingNotFound:
+      return "installation:mounts.errors.pendingNotFound";
     case MOUNT_PROBLEMS.rejected: {
       const code = typeof problem.code === "string" ? problem.code : "";
       return REJECTED_CODES.has(code)
@@ -175,8 +194,14 @@ export const mountsKeys = {
 /** While an operation runs the section follows it closely. */
 export const MOUNTS_ACTIVE_REFRESH_MS = 2_000;
 
+/** While an add waits for running jobs, often enough to see it start. */
+export const MOUNTS_PENDING_REFRESH_MS = 5_000;
+
 export function mountsRefetchInterval(view: MountsView | undefined): number | false {
-  return view?.state?.operation?.status === "running" ? MOUNTS_ACTIVE_REFRESH_MS : false;
+  if (view?.state?.operation?.status === "running") {
+    return MOUNTS_ACTIVE_REFRESH_MS;
+  }
+  return view?.pending && !view.pending.failure ? MOUNTS_PENDING_REFRESH_MS : false;
 }
 
 export function fetchMounts(refresh = false): Promise<MountsView> {
@@ -187,8 +212,23 @@ export function fetchMountPaths(): Promise<{ paths: string[] }> {
   return apiFetch<{ paths: string[] }>("/mounts/paths", { tenantId: null });
 }
 
-export function addMount(mount: MountSpec): Promise<MountsView> {
-  return apiFetch<MountsView>("/mounts", { method: "POST", body: { mount }, tenantId: null });
+export function addMount(
+  mount: MountSpec,
+  options: { whenIdle?: boolean } = {},
+): Promise<MountsView> {
+  return apiFetch<MountsView>("/mounts", {
+    method: "POST",
+    body: options.whenIdle ? { mount, whenIdle: true } : { mount },
+    tenantId: null,
+  });
+}
+
+/** Withdraw the add of `name` that waits for running jobs (or dismiss its failure). */
+export function cancelPendingMount(name: string): Promise<MountsView> {
+  return apiFetch<MountsView>(`/mounts/${encodeURIComponent(name)}?pending=1`, {
+    method: "DELETE",
+    tenantId: null,
+  });
 }
 
 export function removeMount(name: string): Promise<MountsView> {
@@ -208,10 +248,11 @@ export function testMount(
   });
 }
 
-export function useMounts() {
+export function useMounts(enabled = true) {
   return useQuery({
     queryKey: mountsKeys.view,
     queryFn: () => fetchMounts(),
+    enabled,
     staleTime: 10_000,
     refetchInterval: (query) => mountsRefetchInterval(query.state.data),
     // The api restarts while a share is added or removed: keep the last view meanwhile.
@@ -240,7 +281,21 @@ function useViewWriter() {
 
 export function useAddMount() {
   const write = useViewWriter();
-  return useMutation({ mutationFn: addMount, onSuccess: write });
+  return useMutation({ mutationFn: (mount: MountSpec) => addMount(mount), onSuccess: write });
+}
+
+/** Add a share; while jobs run, the api keeps it and applies it once they have finished. */
+export function useAddMountWhenIdle() {
+  const write = useViewWriter();
+  return useMutation({
+    mutationFn: (mount: MountSpec) => addMount(mount, { whenIdle: true }),
+    onSuccess: write,
+  });
+}
+
+export function useCancelPendingMount() {
+  const write = useViewWriter();
+  return useMutation({ mutationFn: cancelPendingMount, onSuccess: write });
 }
 
 export function useRemoveMount() {

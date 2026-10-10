@@ -16,16 +16,22 @@ import type { MountsActor, MountsService } from "./service.js";
  *
  *   GET    /             the shares, the running or last operation, how to start the mounter
  *   GET    /paths        only the paths of the shares (the storage form)
- *   POST   /             add a share: { mount }                     owner + recent sign-in
+ *   POST   /             add a share: { mount, whenIdle? }          owner + recent sign-in
  *   DELETE /:name        remove a share                             owner + recent sign-in
+ *   DELETE /:name?pending=1  withdraw the add of <name> that waits for running jobs  owner
  *   POST   /test         test settings ({ mount }) or a share ({ name })  owner
  *
  * Adding and removing restart the api and the worker on the host, with a mount the
- * Docker daemon makes as root: like an update, they need a recent sign-in. API keys
- * are refused (403): these are web UI routes.
+ * Docker daemon makes as root: like an update, they need a recent sign-in. With
+ * `whenIdle: true` an add that would be refused because jobs run waits instead and is
+ * applied once none runs (service.ts, pending.ts); withdrawing such a waiting request
+ * changes nothing on the host and needs no fresh sign-in. API keys are refused (403):
+ * these are web UI routes.
  */
 
-const addMountInputSchema = z.object({ mount: mountSpecSchema }).strict();
+const addMountInputSchema = z
+  .object({ mount: mountSpecSchema, whenIdle: z.boolean().optional() })
+  .strict();
 const testMountInputSchema = z.union([
   z.object({ mount: mountSpecSchema }).strict(),
   z.object({ name: z.string().refine(isValidMountName, "not a share name") }).strict(),
@@ -59,6 +65,10 @@ export function buildMountsRoutes(service: MountsService): Hono<SessionEnv> {
       throw new ProblemError(422, "Validation failed", {
         detail: "A share name has 1 to 32 characters: a-z, 0-9 and '-'.",
       });
+    }
+    const pending = c.req.query("pending");
+    if (pending === "1" || pending === "true") {
+      return c.json(await service.cancelPending(name, actorOf(c)));
     }
     assertRecentSignIn(c.get("auth").session);
     return c.json(await service.remove(name, actorOf(c)), 202);

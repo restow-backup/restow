@@ -38,6 +38,7 @@ const service = {
   paths: vi.fn(),
   add: vi.fn(),
   remove: vi.fn(),
+  cancelPending: vi.fn(),
   test: vi.fn(),
 };
 
@@ -91,6 +92,7 @@ const ROUTES: [string, string, unknown?][] = [
   ["GET", "/api/v1/mounts/paths"],
   ["POST", "/api/v1/mounts", { mount: SHARE }],
   ["DELETE", "/api/v1/mounts/nas"],
+  ["DELETE", "/api/v1/mounts/nas?pending=1"],
   ["POST", "/api/v1/mounts/test", { name: "nas" }],
 ];
 
@@ -175,6 +177,17 @@ describe("what needs a recent sign-in", () => {
     expect(service.remove).not.toHaveBeenCalled();
   });
 
+  it("withdrawing a waiting add needs no fresh sign-in", async () => {
+    signedIn("admin", { signedInSecondsAgo: 8 * 60 * 60 });
+    expect((await call("DELETE", "/api/v1/mounts/nas?pending=1")).status).toBe(200);
+    expect(service.cancelPending).toHaveBeenCalledWith("nas", {
+      id: "admin-id",
+      email: "admin@provider.test",
+      ip: null,
+    });
+    expect(service.remove).not.toHaveBeenCalled();
+  });
+
   it("a test and the list need no fresh sign-in", async () => {
     signedIn("admin", { signedInSecondsAgo: 8 * 60 * 60 });
     expect((await call("POST", "/api/v1/mounts/test", { body: { name: "nas" } })).status).toBe(200);
@@ -191,6 +204,17 @@ describe("what the routes accept", () => {
       { mount: { ...SHARE, nfsVersion: "3", readOnly: false } },
       { id: "admin-id", email: "admin@provider.test", ip: null },
     );
+  });
+
+  it("passes whenIdle on", async () => {
+    await call("POST", "/api/v1/mounts", { body: { mount: SHARE, whenIdle: true } });
+    expect(service.add).toHaveBeenCalledWith(
+      { mount: { ...SHARE, nfsVersion: "4.1", readOnly: false }, whenIdle: true },
+      expect.anything(),
+    );
+    expect(
+      (await call("POST", "/api/v1/mounts", { body: { mount: SHARE, whenIdle: "yes" } })).status,
+    ).toBe(422);
   });
 
   it("refuses invalid shares before the service runs", async () => {

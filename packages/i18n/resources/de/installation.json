@@ -336,11 +336,37 @@
         "invalid_request": "Der Mounter hat die Einstellungen nicht angenommen.",
         "generic": "Der Mounter hat die Änderung abgelehnt."
       },
-      "generic": "Die Anfrage ist fehlgeschlagen."
+      "generic": "Die Anfrage ist fehlgeschlagen.",
+      "pendingExists": "Ein anderes Netzlaufwerk wartet bereits darauf, dass laufende Jobs abgeschlossen sind. Brechen Sie es zuerst unter Installation > Netzlaufwerke ab.",
+      "pendingNotFound": "Dieses Netzlaufwerk wartet nicht mehr."
     },
     "storageHint": {
       "label": "Eingebundene Netzlaufwerke",
       "use": "{path} verwenden"
+    },
+    "pending": {
+      "title": "Das Netzlaufwerk {name} wartet auf laufende Jobs",
+      "description": "Es laufen Backups oder Wiederherstellungen. {appName} fügt das Netzlaufwerk hinzu, sobald sie abgeschlossen sind. Angefordert von {who}, {when}.",
+      "failedTitle": "Das wartende Netzlaufwerk {name} konnte nicht hinzugefügt werden",
+      "dismiss": "Ausblenden"
+    },
+    "storageOffer": {
+      "detected": "Das ist die Adresse eines NFS-Netzlaufwerks:",
+      "existing": "Dieses Netzlaufwerk ist bereits als {name} eingebunden.",
+      "askOwner": "Nur der Inhaber des Provider-Teams kann Netzlaufwerke einbinden. Bitten Sie den Provider-Inhaber, dieses Netzlaufwerk unter Installation > Netzlaufwerke einzubinden: Server {server}, Exportpfad {export}, NFS 4.1, mit Schreibzugriff. Sein Pfad erscheint dann unter diesem Feld.",
+      "loading": "Netzlaufwerke werden geprüft ...",
+      "description": "{appName} kann es über den Mounter mit Schreibzugriff einbinden und den Pfad für Sie eintragen.",
+      "offer": "Als NFS-Netzlaufwerk einbinden",
+      "subfolder": "Ordner auf dem Netzlaufwerk (optional)",
+      "subfolderHint": "Der Pfad lautet dann {path}.",
+      "invalidSubfolder": "Geben Sie einen relativen Ordner ein, ohne Kommas, Leerzeichen, \":\", \"=\" oder \"..\".",
+      "restart": "{appName} startet API und Worker einmal neu (wenige Sekunden); die Seite verbindet sich von selbst wieder.",
+      "blocked": "Netzlaufwerke können gerade nicht geändert werden: Eine andere Änderung läuft oder der Mounter ist nicht bereit. Siehe Installation > Netzlaufwerke.",
+      "submit": "Einbinden und verwenden",
+      "waitingTitle": "Warten, bis laufende Jobs abgeschlossen sind",
+      "starting": "Das Netzlaufwerk wird eingebunden ...",
+      "retry": "Erneut versuchen",
+      "done": "Das Netzlaufwerk {name} ist eingebunden und sein Pfad wurde eingetragen. Speichern Sie den Speicherort, um ihn zu verwenden."
     }
   },
   "editionLink": "Edition ansehen",

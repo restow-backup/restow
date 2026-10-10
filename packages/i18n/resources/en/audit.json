@@ -517,6 +517,8 @@
     },
     "mount": {
       "add_requested": "Network share added",
+      "add_queued": "Network share waits for running jobs",
+      "add_queue_cancelled": "Waiting network share cancelled",
       "remove_requested": "Network share removed",
       "tested": "Network share tested"
     },

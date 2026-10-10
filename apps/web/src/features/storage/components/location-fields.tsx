@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { MountPathHints } from "@/features/installation/sections/mount-paths";
+import { NfsPathOffer } from "@/features/installation/sections/nfs-path-offer";
 import {
   HETZNER_LOCATIONS,
   type HetznerLocation,
@@ -68,6 +69,12 @@ export function LocationFields({
     form.setValue("forcePathStyle", defaults.forcePathStyle);
   };
 
+  const pickPath = (path: string) =>
+    form.setValue("basePath", path, {
+      shouldDirty: true,
+      shouldValidate: form.formState.isSubmitted,
+    });
+
   const selectHetznerLocation = (location: HetznerLocation) => {
     form.setValue("endpoint", hetznerEndpoint(location), {
       shouldValidate: form.formState.isSubmitted,
@@ -94,15 +101,10 @@ export function LocationFields({
           {...form.register("basePath")}
         />
       </Field>
+      {/* An NFS address typed into the field (nas:/export): mount it and fill in its path. */}
+      <NfsPathOffer value={values.basePath ?? ""} onUse={pickPath} />
       {/* Network shares the mounter added (Installation > Mounts): one click fills the path. */}
-      <MountPathHints
-        onPick={(path) =>
-          form.setValue("basePath", path, {
-            shouldDirty: true,
-            shouldValidate: form.formState.isSubmitted,
-          })
-        }
-      />
+      <MountPathHints onPick={pickPath} />
     </>
   ) : (
     <>

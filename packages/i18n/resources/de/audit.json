@@ -517,6 +517,8 @@
     },
     "mount": {
       "add_requested": "Netzlaufwerk hinzugefügt",
+      "add_queued": "Netzlaufwerk wartet auf laufende Jobs",
+      "add_queue_cancelled": "Wartendes Netzlaufwerk abgebrochen",
       "remove_requested": "Netzlaufwerk entfernt",
       "tested": "Netzlaufwerk getestet"
     },

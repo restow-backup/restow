@@ -7,7 +7,15 @@ import {
   MounterUnavailableError,
   createMounterClient,
 } from "./mounter-client.js";
-import { MOUNT_PROBLEMS, type MountUser, MountsService, liesOn } from "./service.js";
+import { pendingMountService } from "./pending.js";
+import {
+  MOUNT_PROBLEMS,
+  type MountUser,
+  MountsService,
+  type PendingMount,
+  type PendingMountStore,
+  liesOn,
+} from "./service.js";
 
 const ACTOR = { id: "u1", email: "owner@example.com", ip: "192.0.2.1" };
 const SHARE: MountSpec = mountSpecSchema.parse({
@@ -183,6 +191,188 @@ describe("MountsService", () => {
     expect(liesOn("/mnt/restow/nas/tenant-a", "/mnt/restow/nas")).toBe(true);
     expect(liesOn("/mnt/restow/nas2", "/mnt/restow/nas")).toBe(false);
   });
+});
+
+describe("apply when idle", () => {
+  let stored: PendingMount | null = null;
+  const store: PendingMountStore = {
+    load: async () => (stored ? structuredClone(stored) : null),
+    save: async (pending) => {
+      stored = structuredClone(pending);
+    },
+    clear: async () => {
+      stored = null;
+    },
+  };
+  const idleService = () =>
+    new MountsService({
+      client,
+      pending: store,
+      activeWork: async () => work,
+      usersOf: async () => users,
+      audit: async (event) => {
+        audits.push(event);
+      },
+      now: () => new Date("2026-10-10T08:00:00.000Z"),
+    });
+
+  beforeEach(() => {
+    stored = null;
+  });
+
+  it("keeps the add while jobs run and shows it in the view", async () => {
+    work = { jobs: 1, endpointRuns: 0 };
+    const view = await idleService().add({ mount: SHARE, whenIdle: true }, ACTOR);
+    expect(client.add).not.toHaveBeenCalled();
+    expect(view.pending).toEqual({
+      mount: SHARE,
+      requestedBy: { userId: "u1", label: "owner@example.com", ip: "192.0.2.1" },
+      requestedAt: "2026-10-10T08:00:00.000Z",
+      failure: null,
+    });
+    expect(audits.map((event) => event.action)).toEqual(["mount.add_queued"]);
+  });
+
+  it("still refuses without whenIdle, and adds at once when nothing runs", async () => {
+    work = { jobs: 1, endpointRuns: 0 };
+    expect((await problemOf(idleService().add({ mount: SHARE }, ACTOR))).type).toBe(
+      MOUNT_PROBLEMS.jobsRunning,
+    );
+    work = { jobs: 0, endpointRuns: 0 };
+    const view = await idleService().add({ mount: SHARE, whenIdle: true }, ACTOR);
+    expect(client.add).toHaveBeenCalledTimes(1);
+    expect(view.pending).toBeNull();
+  });
+
+  it("refuses a second waiting share and a name that exists, and needs the mounter", async () => {
+    work = { jobs: 1, endpointRuns: 0 };
+    await idleService().add({ mount: SHARE, whenIdle: true }, ACTOR);
+    const other = { ...SHARE, name: "nas2" };
+    let problem = await problemOf(idleService().add({ mount: other, whenIdle: true }, ACTOR));
+    expect(problem.type).toBe(MOUNT_PROBLEMS.pendingExists);
+    stored = null;
+    client.state.mockResolvedValueOnce({
+      ...STATE,
+      mounts: [{ mount: SHARE, path: "/mnt/restow/nas", volume: "restow-nfs-nas-1" }],
+    });
+    problem = await problemOf(idleService().add({ mount: SHARE, whenIdle: true }, ACTOR));
+    expect(problem.extensions?.code).toBe("exists");
+    client.state.mockResolvedValueOnce(null);
+    client.failure.mockReturnValue("unreachable");
+    problem = await problemOf(idleService().add({ mount: SHARE, whenIdle: true }, ACTOR));
+    expect(problem.status).toBe(503);
+    expect(stored).toBeNull();
+  });
+
+  it("applies the waiting add once no job runs, with the owner who asked", async () => {
+    work = { jobs: 1, endpointRuns: 0 };
+    const mounts = idleService();
+    await mounts.add({ mount: SHARE, whenIdle: true }, ACTOR);
+    expect(await mounts.applyPending()).toBe("waiting");
+    expect(client.add).not.toHaveBeenCalled();
+
+    work = { jobs: 0, endpointRuns: 0 };
+    client.state.mockResolvedValueOnce({
+      ...STATE,
+      operation: { ...operation(), status: "running" },
+    });
+    expect(await mounts.applyPending()).toBe("waiting");
+
+    expect(await mounts.applyPending()).toBe("applied");
+    expect(client.add).toHaveBeenCalledWith({
+      mount: SHARE,
+      requestedBy: { userId: "u1", label: "owner@example.com", ip: "192.0.2.1" },
+    });
+    expect(stored).toBeNull();
+    expect(audits.at(-1)).toMatchObject({
+      action: "mount.add_requested",
+      actor: "owner@example.com",
+      details: expect.objectContaining({ queued: true }),
+    });
+    expect(await mounts.applyPending()).toBe("none");
+  });
+
+  it("keeps waiting while the mounter is away, and notes a refusal", async () => {
+    stored = pendingOf();
+    client.add.mockRejectedValueOnce(new MounterUnavailableError("unreachable"));
+    expect(await idleService().applyPending()).toBe("waiting");
+    expect(stored).toEqual(pendingOf());
+
+    client.add.mockRejectedValueOnce(new MounterRejectedError(409, "limit", "too many"));
+    expect(await idleService().applyPending()).toBe("failed");
+    expect(stored?.failure).toEqual({ code: "limit", detail: "too many" });
+    // A failed request waits for nothing more.
+    expect(await idleService().applyPending()).toBe("none");
+    expect(client.add).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not add twice when the api restarted after the add", async () => {
+    stored = pendingOf();
+    client.state.mockResolvedValueOnce({
+      ...STATE,
+      mounts: [{ mount: SHARE, path: "/mnt/restow/nas", volume: "restow-nfs-nas-1" }],
+    });
+    expect(await idleService().applyPending()).toBe("applied");
+    expect(client.add).not.toHaveBeenCalled();
+    expect(stored).toBeNull();
+  });
+
+  it("lets the owner withdraw the waiting add", async () => {
+    stored = pendingOf();
+    const mounts = idleService();
+    expect((await problemOf(mounts.cancelPending("other", ACTOR))).status).toBe(404);
+    const view = await mounts.cancelPending("nas", ACTOR);
+    expect(view.pending).toBeNull();
+    expect(audits.at(-1)?.action).toBe("mount.add_queue_cancelled");
+  });
+
+  it("runs the check on a timer and survives a failing pass", async () => {
+    vi.useFakeTimers();
+    try {
+      const applyPending = vi
+        .fn()
+        .mockRejectedValueOnce(new Error("db away"))
+        .mockResolvedValue("waiting");
+      const log = vi.fn();
+      const running = await pendingMountService(
+        { applyPending },
+        { intervalMs: 1000, log },
+      ).start();
+      await vi.advanceTimersByTimeAsync(2500);
+      expect(applyPending).toHaveBeenCalledTimes(3);
+      expect(log).toHaveBeenCalledWith("error", expect.any(String), { reason: "db away" });
+      running?.close();
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(applyPending).toHaveBeenCalledTimes(3);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  function pendingOf(): PendingMount {
+    return {
+      mount: SHARE,
+      requestedBy: { userId: "u1", label: "owner@example.com", ip: null },
+      requestedAt: "2026-10-10T08:00:00.000Z",
+      failure: null,
+    };
+  }
+
+  function operation() {
+    return {
+      id: "op-1",
+      kind: "add" as const,
+      name: "other",
+      mount: null,
+      status: "succeeded" as const,
+      steps: [],
+      failure: null,
+      warnings: [],
+      requestedBy: { userId: null, label: "x", ip: null },
+      startedAt: "2026-10-10T07:00:00.000Z",
+      finishedAt: null,
+    };
+  }
 });
 
 describe("createMounterClient", () => {
