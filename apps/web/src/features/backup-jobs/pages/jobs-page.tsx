@@ -9,14 +9,15 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { directoryTo } from "@/features/directory/search";
 import { inventoryTo } from "@/features/endpoints/paths";
+import { fileSharesTo } from "@/features/file-shares/paths";
 import { RunDrawerHost } from "@/features/history/components/run-drawer";
 import { useRunDrawer } from "@/features/history/hooks";
 
 import type { BackupJob, JobKind } from "../api.js";
 import { JobsAccessNote, closedProps, useJobsAccess } from "../components/access-note.js";
 import { useJobActions } from "../components/job-actions.js";
-import { JobEditor } from "../components/job-editor.js";
 import { JobsTable } from "../components/jobs-table.js";
+import { KindEditor } from "../components/kind-editor.js";
 import { useBackupJobs } from "../hooks.js";
 
 /**
@@ -24,6 +25,9 @@ import { useBackupJobs } from "../hooks.js";
  * they stand towards the jobs, or the inventory (its "without backup" banner and filter).
  */
 function uncoveredLink(kind: JobKind, job: "none" | "unscheduled") {
+  if (kind === "share" || kind === "copy") {
+    return fileSharesTo();
+  }
   return kind === "mail" ? { to: directoryTo(), search: { job } as never } : { to: inventoryTo() };
 }
 
@@ -37,6 +41,8 @@ export interface JobsPageProps {
   onCreate: () => void;
   /** Close the editor on a new job (the address drops `new` and `select`). */
   onCreateClosed: () => void;
+  /** Source, target and folder a new copy job starts with (`?source=&target=&folder=`). */
+  copy?: { source: string | null; target: string | null; folder: string | null };
   /** Open one job. */
   onOpenJob: (job: BackupJob) => void;
 }
@@ -52,6 +58,7 @@ export function JobsPage({
   kind,
   creating,
   select,
+  copy,
   onCreate,
   onCreateClosed,
   onOpenJob,
@@ -123,7 +130,7 @@ export function JobsPage({
           <ShieldOff aria-hidden="true" />
           <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <span>{t(`list.unscheduled.${kind}`, { count: unscheduled })}</span>
-            {kind === "mail" ? (
+            {kind !== "endpoint" ? (
               <Button variant="outline" size="sm" className="shrink-0" asChild>
                 <Link {...uncoveredLink(kind, "unscheduled")}>{t("list.uncovered.show")}</Link>
               </Button>
@@ -171,7 +178,7 @@ export function JobsPage({
         onDelete={actions.askDelete}
       />
 
-      <JobEditor
+      <KindEditor
         open={creating || editing !== null}
         onOpenChange={(open) => {
           if (open) return;
@@ -184,6 +191,7 @@ export function JobsPage({
         kind={kind}
         job={editing}
         preselect={select}
+        copy={copy}
         access={access}
         onSaved={onSaved}
       />

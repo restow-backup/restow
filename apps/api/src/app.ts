@@ -30,10 +30,12 @@ import { endpointsRoutes } from "./features/endpoints/routes.js";
 import { mountPath as exportsMountPath } from "./features/exports/meta.js";
 import { exportsRoutes } from "./features/exports/routes.js";
 import { FILE_SHARE_RUNNER_PATH } from "./features/file-shares/constants.js";
+import { mountPath as fileSharesMountPath } from "./features/file-shares/meta.js";
 import {
   FILE_SHARE_RESTIC_PATH,
   fileShareResticRoutes,
 } from "./features/file-shares/restic-route.js";
+import { fileSharesRoutes } from "./features/file-shares/routes.js";
 import { fileShareRunnerRoutes } from "./features/file-shares/runner-routes.js";
 import { mountPath as historyMountPath, liveMountPath } from "./features/history/meta.js";
 import { historyRoutes, liveRoutes } from "./features/history/routes.js";
@@ -243,6 +245,7 @@ export function buildApp() {
   app.route(`${API_V1}${maintenanceMountPath}`, maintenanceRoutes);
   app.route(`${API_V1}${mountsMountPath}`, mountsRoutes);
   app.route(`${API_V1}${pveMountPath}`, pveRoutes);
+  app.route(`${API_V1}${fileSharesMountPath}`, fileSharesRoutes);
 
   // Extension route groups, each behind the guard its extension supplies.
   for (const contribution of sessionRouteContributions()) {

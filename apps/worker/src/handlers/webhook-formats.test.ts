@@ -150,6 +150,20 @@ describe("buildChatMessage", () => {
     expect(msg.text).toBeNull();
   });
 
+  it("names the file share of a share run and links its page", () => {
+    const msg = buildChatMessage(
+      "job.failed",
+      envelope("job.failed", {
+        job: { id: "r-9", queue: "file-share-backup", status: "failed", errorMessage: null },
+        fileShare: { id: "s-1", name: "Finance", protocol: "smb" },
+        failure: null,
+      }),
+      DE,
+    );
+    expect(msg.title).toBe("Sicherung der Freigabe fehlgeschlagen: Finance");
+    expect(msg.link?.url).toContain("/file-shares/s-1");
+  });
+
   it("reports a completed run as success and an unknown queue as a run", () => {
     const msg = buildChatMessage(
       "job.completed",

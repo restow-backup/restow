@@ -53,7 +53,7 @@ export function OverviewTab({
               <JobStateBadge state={job.state} />
             </Fact>
             <Fact label={t("overview.scope")}>
-              <span>{describeScope(job.scope, job.kind, t)}</span>
+              <span>{describeScope(job.scope, job.kind, t, job.copy)}</span>
               {note ? <span className="block text-xs text-muted-foreground">{note}</span> : null}
             </Fact>
             <Fact label={t("overview.schedule")}>

@@ -228,7 +228,11 @@ export type FailureTarget =
   | "directory"
   | "storage"
   | "verify"
-  | "jobs";
+  | "jobs"
+  /** The file share the failure concerns (its page), else the file share list. */
+  | "file_share"
+  /** The file share runners of the installation (Installation > Network shares). */
+  | "file_share_runners";
 
 /** One thing to do, with an optional place in the UI to do it. */
 export interface FailureStep {

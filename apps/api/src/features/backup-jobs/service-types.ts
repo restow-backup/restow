@@ -1,3 +1,5 @@
+import type { HostResolver, RunnerClient } from "@restow/core";
+
 /** Who acts: the signed-in administrator, or the system (the migration). */
 export interface JobActor {
   userId: string | null;
@@ -16,6 +18,8 @@ export interface JobContext {
    * machine); throws to refuse the whole change (the route passes the recent-sign-in check).
    */
   confirmHookChange?: () => void;
+  /** File share copy jobs: the mounter and the name resolution (tests replace them). */
+  fileShares?: { runner?: RunnerClient; resolve?: HostResolver };
 }
 
 export const BACKUP_JOB_AUDIT_ACTIONS = {

@@ -1,9 +1,9 @@
 # File shares (SMB and NFS): design
 
 Status: binding design for the release that introduces file share backup, written 2026-10-10.
-The infrastructure part of Phase A and Phase B (database, core, scheduler, worker) are
-implemented (section 17 says what, what moved and where the build deviates); Phases C and D are
-not yet. It is the blueprint the four build phases (section 17) follow;
+The infrastructure part of Phase A, Phase B (database, core, scheduler, worker) and Phase C
+(api, web, i18n) are implemented (section 17 says what, what moved and where the build deviates);
+Phase D is not yet. It is the blueprint the four build phases (section 17) follow;
 a deviation is recorded here first, the way docs/PROXMOX.md records its own. Once a phase ships,
 the operator documentation of what exists goes into this file's "How it works" sections, in the
 style of [PVE.md](PVE.md).
@@ -1840,6 +1840,77 @@ Tenant routes and provider rules (9), copy jobs in the backup-job routes, the qu
 `POST /api/v1/mounts/enable`, problem types, audit; web pages, dialogs, share and copy job editors,
 budget field, **Enable network shares**, restore generalisation (12); overviews, statistics, history (13); i18n in both languages; GLOSSARY.md
 rows (1). Exit: E2E of 16.5; every route classified; no missing keys.
+
+*Phase C as built (2026-10-10).* Done:
+
+- **Tenant routes** (`apps/api/src/features/file-shares/`): every route of 9.1 in `routes.ts`
+  (mounted at `/api/v1/file-shares`, `meta.ts`), the logic in `service.ts` (shares, tests through
+  the runner's `probe`, the live `list` of a folder, backup now, runs and their items, cancel,
+  restores with the defaults of 4.7, restore check now, retire, reactivate, purge with the name
+  confirmed, budget, private-network approval, the repository password, the installation
+  settings) and `browse.ts` (restore points, the loopback browse with `/share` mapped to `/` and
+  `/.restow` hidden, catalog search, versions, ZIP downloads without `/.restow`); request schemas
+  in `schemas.ts`, DTOs in `dto.ts`, the runner client in `runner.ts` (replaceable in tests), the
+  problem types in `constants.ts`. Every route is classified in `lib/provider-access.ts` (view,
+  operate, configure; the installation settings PROVIDER scope; quota and approval for provider
+  admins only, the private-network switch for owners). `DELETE /:id` and
+  `POST /:id/repository-password` require a recent sign-in.
+- **Audit** (9.2): `audit.ts` writes the `file_share.*` actions with target type `file_share`;
+  their labels are in `audit.json` (en, de); `ee/api/src/audit-log/labels.ts` looks up the
+  share's name.
+- **SQL mirror of `protection.ts`** (`features/file-shares/protection.ts`): the standing, the
+  readiness, the active and last runs, overdue and the counts of the list, in one query per page.
+- **Backup-job routes**: share and copy jobs throughout (`kinds.ts`, `share-jobs.ts`, `read.ts`,
+  `write.ts`): members with their include folders, copy jobs with source, target, folder, mode,
+  permissions and check, the rules of 4.10 (`422 file-share-copy-unsafe-target`,
+  `422 file-share-restore-not-allowed`, `409 file-share-copy-confirm` with the entry count of the
+  target folder, read through the runner, until `confirmMirror: true`), schedules (daily, every
+  N hours, cron; at most hourly, `MIN_SHARE_INTERVAL_MINUTES` in core), run now (with
+  `force: true` for "Copy anyway"). The 409 `backup-job-kind-unsupported` refusal is gone.
+- **Web** (`apps/web/src/features/file-shares/`): the menu entry "File shares" next to "VMs &
+  containers"; the list; the add dialog (protocol, connection checked while typing, the test with
+  the classified failure or the top level and the permission level, a top-level folder as the
+  subfolder, options, saving without a passed test only after a confirmation, then the job with
+  folders from a live picker); the share page (overview with the live progress and its phase,
+  "Back up the empty share once", the budget and the connection; restore points with the file
+  browser, search and version history; runs with the per-file items by cause; settings with the
+  connection and password, options, "Allow restore to this share", approval, job and folders,
+  budget, copy jobs, repository password, retire and delete); the restore dialog with every
+  destination and conflict mode; the notice while the mounter is off (with the command for
+  owners). The runners' installation settings are a card under Installation > Network shares.
+  The file browser of restore points is `features/restore/files/` (`RestorePointBrowser` with a
+  `FileSourceAdapter`); the machines' snapshots tab builds its adapter and is unchanged for the
+  person and its tests. In `features/backup-jobs`: `share-job-editor.tsx`, `copy-job-editor.tsx`
+  (badge "Not a backup: no versions on the target", mirror confirmation by typing the folder),
+  `kind-editor.tsx`, `copy-scope.tsx`, the settings view per kind and "Copy anyway" on a copy
+  job's page. The report event list and the failure step targets (`file_share`,
+  `file_share_runners`) are in the web; the chat formats name the share and link to its page.
+- **i18n**: the namespace `fileshares` (en, de), the share and copy keys of `backupjobs`,
+  GLOSSARY.md rows (file share/Freigabe, runner, permissions, original location).
+- **Tests**: api pg suites `tenant.pg.test.ts`, `browse.pg.test.ts` (real restic),
+  `backup-jobs/share-jobs.pg.test.ts`, the route test `routes.test.ts`; web DOM tests of the add
+  dialog, the share page, the restore points with the generalised browser and the restore
+  dialog, the share and copy job editors and the copy job page; unit tests of the presenters,
+  the namespace and `share-form.ts`.
+
+Deviations from the design above, decided while building:
+
+1. **The runners card lives in Installation > Network shares** (beside the mounter it needs),
+   not on a page of its own.
+2. **Share and copy jobs have their own editors** (`share-job-editor.tsx`, `copy-job-editor.tsx`)
+   rather than more branches in the mail and machine editor; a share job's folders are edited in
+   its editor (the member overrides sheet is not used for shares).
+3. **The generalised file browser keeps its texts in the `endpoints` namespace** and imports the
+   endpoints' presenters; only the words that name the source come from the adapter.
+4. **`destination` of a restore to another share is stored as `folder`** in the run's parameters
+   (the runner's term); the web words both.
+5. **Restore check now** is a link under the restore check of the overview.
+
+Left for Phase D: the overviews, statistics, history and dashboard counts that include file
+shares (13; the history does not list share runs yet, the share page does); the E2E of 16.5 in a
+browser and the smoke check with Samba (16.4); **Enable network shares** as a button (the
+updater's route and `POST /api/v1/mounts/enable` do not exist yet; the page shows the command);
+the installer default (3.9); the operator documentation.
 
 **Phase D: integration and documentation.**
 Smoke check 12 (16.4); operator documentation: the "how it works" sections of this file in the

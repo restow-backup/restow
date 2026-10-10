@@ -45,11 +45,15 @@
     "title": "Jobs",
     "description": {
       "mail": "What is backed up, when and to which repository, for many mailboxes, OneDrives and IMAP accounts at once. The runs are in History.",
-      "endpoint": "Which folders of which servers and clients are backed up, when and with what left out. One job covers many machines, and single machines can do things differently. The runs are in History."
+      "endpoint": "Which folders of which servers and clients are backed up, when and with what left out. One job covers many machines, and single machines can do things differently. The runs are in History.",
+      "share": "Which file shares are backed up, which of their folders, when and with what left out. Every new restore point of a file share is checked. The runs are on each share's page.",
+      "copy": "Copies of the newest restore point of one file share into a folder of another. Not a backup: no versions on the target."
     },
     "table": {
       "mail": "Mail & SaaS jobs",
-      "endpoint": "Server and client jobs"
+      "endpoint": "Server and client jobs",
+      "share": "File share jobs",
+      "copy": "Copy jobs"
     },
     "search": "Search jobs",
     "nextInline": "Next:",
@@ -67,21 +71,29 @@
       "mail": "{count, plural, one {# protected object is in no job and is not backed up on a schedule.} other {# protected objects are in no job and are not backed up on a schedule.}}",
       "endpoint": "{count, plural, one {# machine is in no job and is not backed up.} other {# machines are in no job and are not backed up.}} A machine without a job backs nothing up; only a job sets its schedule and folders.",
       "action": "Create a job",
-      "show": "Show"
+      "show": "Show",
+      "share": "{count, plural, one {# file share is in no job and is not backed up.} other {# file shares are in no job and are not backed up.}}",
+      "copy": "{count, plural, one {# copy is not set up.} other {# copies are not set up.}}"
     },
     "empty": {
       "title": {
         "mail": "No mail jobs yet",
-        "endpoint": "No server or client jobs yet"
+        "endpoint": "No server or client jobs yet",
+        "share": "No file share jobs yet",
+        "copy": "No copy jobs yet"
       },
       "description": {
         "mail": "Without a job nothing is backed up on a schedule. A job covers mailboxes, OneDrives and IMAP accounts, runs on a schedule and checks that the backups can be restored.",
-        "endpoint": "A job tells the agents which folders to back up, when, and what to leave out. A machine without a job is not backed up."
+        "endpoint": "A job tells the agents which folders to back up, when, and what to leave out. A machine without a job is not backed up.",
+        "share": "A job says which file shares and folders are backed up, when, and what is left out. A file share without a job is not backed up.",
+        "copy": "A copy job writes the newest restore point of a file share into a folder of another file share, for example to keep a second site up to date. It does not keep versions."
       }
     },
     "unscheduled": {
       "mail": "{count, plural, one {# protected object is in a paused job or a job without a schedule and is not backed up automatically.} other {# protected objects are in paused jobs or jobs without a schedule and are not backed up automatically.}}",
-      "endpoint": "{count, plural, one {# machine is in a job without a schedule and is not backed up automatically.} other {# machines are in jobs without a schedule and are not backed up automatically.}}"
+      "endpoint": "{count, plural, one {# machine is in a job without a schedule and is not backed up automatically.} other {# machines are in jobs without a schedule and are not backed up automatically.}}",
+      "share": "{count, plural, one {# file share is in a job without a schedule and is not backed up automatically.} other {# file shares are in jobs without a schedule and are not backed up automatically.}}",
+      "copy": "{count, plural, one {# copy job has no schedule and runs only when someone starts it.} other {# copy jobs have no schedule and run only when someone starts them.}}"
     }
   },
   "state": {
@@ -158,14 +170,18 @@
       "imap": "{count, plural, one {# IMAP account} other {# IMAP accounts}}",
       "server": "{count, plural, one {# server} other {# servers}}",
       "client": "{count, plural, one {# client} other {# clients}}",
-      "other": "{count, plural, one {# other} other {# others}}"
+      "other": "{count, plural, one {# other} other {# others}}",
+      "smb": "{count, plural, one {# SMB file share} other {# SMB file shares}}",
+      "nfs": "{count, plural, one {# NFS file share} other {# NFS file shares}}"
     },
     "kindNames": {
       "mailbox": "Mailbox",
       "onedrive": "OneDrive",
       "imap": "IMAP account",
       "server": "Server",
-      "client": "Client"
+      "client": "Client",
+      "smb": "SMB file share",
+      "nfs": "NFS file share"
     },
     "nothing": "Nothing yet",
     "allLine": "Everything in no other job, new ones included",
@@ -198,11 +214,15 @@
     },
     "table": {
       "mail": "Objects of the job",
-      "endpoint": "Machines of the job"
+      "endpoint": "Machines of the job",
+      "share": "File shares of the job",
+      "copy": "File shares of the copy"
     },
     "search": {
       "mail": "Search by name or address",
-      "endpoint": "Search by machine name"
+      "endpoint": "Search by machine name",
+      "share": "Search by name or location",
+      "copy": "Search by name or location"
     },
     "loadError": "The objects of this job could not be loaded",
     "actions": {
@@ -213,27 +233,36 @@
     "empty": {
       "title": {
         "mail": "No objects in this job yet",
-        "endpoint": "No machines in this job yet"
+        "endpoint": "No machines in this job yet",
+        "share": "No file shares in this job yet",
+        "copy": "No file share chosen"
       },
       "description": {
         "mail": "Add the mailboxes, OneDrives and IMAP accounts this job should back up.",
-        "endpoint": "Add the servers and clients this job should manage."
+        "endpoint": "Add the servers and clients this job should manage.",
+        "share": "Add the file shares this job should back up, in the job's editor.",
+        "copy": "Choose the source and the target in the job's editor."
       }
     },
     "remove": {
       "title": "Remove {name} from the job?",
       "description": {
         "mail": "It is no longer backed up by {job}. Without another job it is not backed up on a schedule.",
-        "endpoint": "It leaves {job} and is no longer backed up until you add it to another job. Its folders and settings stay for the next job."
+        "endpoint": "It leaves {job} and is no longer backed up until you add it to another job. Its folders and settings stay for the next job.",
+        "share": "It leaves {job} and is no longer backed up until you add it to another job. Its restore points stay.",
+        "copy": "Nothing more is copied by {job}."
       },
       "confirm": "Remove from job"
-    }
+    },
+    "copyRoute": "{source} to {target}, folder {folder}"
   },
   "overrides": {
     "title": "Overrides of {name}",
     "description": {
       "mail": "What this object does differently from {job}. Anything left off follows the job.",
-      "endpoint": "What this machine does differently from {job}. Anything left off follows the job."
+      "endpoint": "What this machine does differently from {job}. Anything left off follows the job.",
+      "share": "The folders of this file share are chosen in the job's editor.",
+      "copy": "A copy job has no own settings per file share."
     },
     "save": "Save overrides",
     "groups": {
@@ -284,11 +313,15 @@
   "addMembers": {
     "title": {
       "mail": "Add objects",
-      "endpoint": "Add machines"
+      "endpoint": "Add machines",
+      "share": "Add file shares",
+      "copy": "Add file shares"
     },
     "description": {
       "mail": "Choose the objects {job} should cover. One that is in another job is taken over only after you confirm.",
-      "endpoint": "Choose the machines {job} should manage. One that is in another job is taken over only after you confirm."
+      "endpoint": "Choose the machines {job} should manage. One that is in another job is taken over only after you confirm.",
+      "share": "Choose the file shares {job} should back up. One that is in another job is taken over only after you confirm.",
+      "copy": "A copy job copies one file share; change it in the editor of {job}."
     },
     "submit": "Add",
     "submitSome": "Add {count} selected"
@@ -331,7 +364,9 @@
     "restoreChecksNote": "A backup counts as restorable once a restore check proved it. Green means every object passed.",
     "showScope": {
       "mail": "Show the objects",
-      "endpoint": "Show the machines"
+      "endpoint": "Show the machines",
+      "share": "Show the file shares",
+      "copy": "Show source and target"
     }
   },
   "settings": {
@@ -361,7 +396,9 @@
     },
     "kinds": {
       "mail": "Mail & SaaS",
-      "endpoint": "Servers and clients"
+      "endpoint": "Servers and clients",
+      "share": "File shares",
+      "copy": "Copy of a file share"
     },
     "scopeMode": {
       "all": "Everything that is in no other job",
@@ -376,7 +413,11 @@
     "hooksHidden": "Set, hidden for your role.",
     "restoreCheckOff": "Off: no restore checks run for this job.",
     "windowsNone": "None",
-    "windowsZone": "Read in {zone}. A limit applies when a run starts."
+    "windowsZone": "Read in {zone}. A limit applies when a run starts.",
+    "shareRepository": "A restic repository of its own for each file share, in the tenant's primary repository",
+    "on": "On",
+    "off": "Off",
+    "automatic": "Automatic"
   },
   "runs": {
     "table": "Runs of the job",
@@ -402,7 +443,8 @@
       "source_pending": "{count, plural, one {# waits for its source to be connected.} other {# wait for their source to be connected.}}",
       "source_disabled": "{count, plural, one {# has a source that is switched off.} other {# have a source that is switched off.}}",
       "revoked": "{count, plural, one {# machine is revoked.} other {# machines are revoked.}}",
-      "not_in_job": "{count, plural, one {# is not in this job.} other {# are not in this job.}}"
+      "not_in_job": "{count, plural, one {# is not in this job.} other {# are not in this job.}}",
+      "retired": "{count, plural, one {# file share is retired.} other {# file shares are retired.}}"
     }
   },
   "toasts": {
@@ -413,7 +455,9 @@
     "resumed": "{name} resumed",
     "runQueued": {
       "mail": "{count, plural, one {# backup of {name} queued} other {# backups of {name} queued}}",
-      "endpoint": "{count, plural, one {Backup requested from # machine} other {Backup requested from # machines}}"
+      "endpoint": "{count, plural, one {Backup requested from # machine} other {Backup requested from # machines}}",
+      "share": "{count, plural, one {Backup of # file share queued} other {Backups of # file shares queued}}",
+      "copy": "{count, plural, one {Copy of {name} queued} other {# copies of {name} queued}}"
     },
     "runQueuedNote": {
       "endpoint": "The machine starts it at its next check-in, usually within 5 minutes."
@@ -421,7 +465,9 @@
     "runWaiting": {
       "title": "Already waiting",
       "endpoint": "{count, plural, one {A backup is waiting for the machine and starts at its next check-in.} other {Backups are waiting for the machines and start at their next check-in.}}",
-      "mail": "{count, plural, one {The backup is already waiting to start or running.} other {All # backups are already waiting to start or running.}}"
+      "mail": "{count, plural, one {The backup is already waiting to start or running.} other {All # backups are already waiting to start or running.}}",
+      "share": "{count, plural, one {The backup is already waiting to start or running.} other {All # backups are already waiting to start or running.}}",
+      "copy": "{count, plural, one {The copy is already waiting to start or running.} other {All # copies are already waiting to start or running.}}"
     },
     "runNothing": "Nothing started for {name}",
     "failed": "That did not work",
@@ -429,7 +475,9 @@
     "removed": "{name} removed from the job",
     "added": {
       "mail": "{count, plural, one {# object added to {name}} other {# objects added to {name}}}",
-      "endpoint": "{count, plural, one {# machine added to {name}} other {# machines added to {name}}}"
+      "endpoint": "{count, plural, one {# machine added to {name}} other {# machines added to {name}}}",
+      "share": "{count, plural, one {# file share added to {name}} other {# file shares added to {name}}}",
+      "copy": "{count, plural, one {# file share added to {name}} other {# file shares added to {name}}}"
     }
   },
   "pause": {
@@ -442,7 +490,9 @@
     "empty": "The job covers nothing right now.",
     "impact": {
       "mail": "{scope} will no longer be backed up on a schedule until another job takes them.",
-      "endpoint": "{scope} leave the job and are no longer backed up until another job takes them."
+      "endpoint": "{scope} leave the job and are no longer backed up until another job takes them.",
+      "share": "{scope} leave the job and are no longer backed up until another job takes them. Their restore points stay.",
+      "copy": "Nothing more is copied. What was copied stays in the target folder."
     },
     "after": "The job and its settings cannot be brought back.",
     "confirm": "Delete job",
@@ -455,16 +505,22 @@
   "picker": {
     "search": {
       "mail": "Search by name or address",
-      "endpoint": "Search by machine name"
+      "endpoint": "Search by machine name",
+      "share": "Search by name or location",
+      "copy": "Search by name or location"
     },
     "showSelected": "Selected ({count})",
     "table": {
       "mail": "Objects to choose from",
-      "endpoint": "Machines to choose from"
+      "endpoint": "Machines to choose from",
+      "share": "File shares to choose from",
+      "copy": "File shares to choose from"
     },
     "empty": {
       "mail": "No object matches.",
-      "endpoint": "No machine matches."
+      "endpoint": "No machine matches.",
+      "share": "No file share matches.",
+      "copy": "No file share matches."
     },
     "noneSelected": "Nothing selected yet.",
     "selectAll": "Select all shown",
@@ -489,12 +545,16 @@
   "editor": {
     "createTitle": {
       "mail": "New mail job",
-      "endpoint": "New server or client job"
+      "endpoint": "New server or client job",
+      "share": "New file share job",
+      "copy": "New copy job"
     },
     "editTitle": "Edit {name}",
     "description": {
       "mail": "Choose what is backed up, when, and how restore checks prove it.",
-      "endpoint": "Choose the machines, when they are backed up, which folders and what is left out."
+      "endpoint": "Choose the machines, when they are backed up, which folders and what is left out.",
+      "share": "Choose the file shares and their folders, when they are backed up and what is left out.",
+      "copy": "Choose the file share to copy from, where to copy to and how."
     },
     "loading": "Loading the editor",
     "loadError": "The editor could not be loaded",
@@ -503,11 +563,15 @@
       "name": "Name",
       "nameHint": {
         "mail": "Shown in the list, in History and in alerts.",
-        "endpoint": "Shown in the list, in the inventory and in alerts."
+        "endpoint": "Shown in the list, in the inventory and in alerts.",
+        "share": "Shown in the list, on the file share pages and in alerts.",
+        "copy": "Shown in the list, on the file share pages and in alerts."
       },
       "namePlaceholder": {
         "mail": "e.g. Executive board, hourly",
-        "endpoint": "e.g. Servers, hourly"
+        "endpoint": "e.g. Servers, hourly",
+        "share": "e.g. File server, nightly",
+        "copy": "e.g. Projects to the second site"
       },
       "enabled": "Switched on",
       "enabledHint": "Switched off, the job keeps its settings but does not run."
@@ -515,11 +579,15 @@
     "scope": {
       "title": {
         "mail": "Objects",
-        "endpoint": "Machines"
+        "endpoint": "Machines",
+        "share": "File shares",
+        "copy": "Source and target"
       },
       "description": {
         "mail": "Which mailboxes, OneDrives and IMAP accounts this job backs up.",
-        "endpoint": "Which servers and clients this job manages. A machine is in one job at a time."
+        "endpoint": "Which servers and clients this job manages. A machine is in one job at a time.",
+        "share": "Which file shares this job backs up. A file share is in one job at a time.",
+        "copy": "The file share copied from and the one copied into."
       },
       "mode": "What the job covers",
       "all": "All objects that are in no other job",
@@ -724,7 +792,8 @@
     "note": "The server applies these rules and removes older restore points; the agent can only add backups, never delete them. Lowering a number permanently removes older restore points at the next retention run.",
     "tenantDefault": "Tenant default",
     "tenantDefaultNamed": "Tenant default ({name})",
-    "keep": "Daily {keepDaily}, weekly {keepWeekly}, monthly {keepMonthly}"
+    "keep": "Daily {keepDaily}, weekly {keepWeekly}, monthly {keepMonthly}",
+    "copy": "None: the target holds the newest state only"
   },
   "repository": {
     "installationDefault": "Default repository of the installation",
@@ -752,7 +821,9 @@
     },
     "kinds": {
       "mail": "Mail & SaaS",
-      "endpoint": "Servers and clients"
+      "endpoint": "Servers and clients",
+      "share": "File shares",
+      "copy": "Copies of file shares"
     }
   },
   "problems": {
@@ -788,6 +859,13 @@
         "kbps": "Enter a whole number of kbit/s from 0 (unlimited) to {max}.",
         "overlap": "This window overlaps window {other}. Let one end where the other starts.",
         "tooMany": "A job can have at most {max} time windows."
+      },
+      "cron": "Enter a cron expression with five fields, for example 0 22 * * 1-5.",
+      "fileType": "Enter file types as letters and digits, for example iso or bak.",
+      "copy": {
+        "sameShare": "Choose a target other than the source.",
+        "folderInvalid": "The folder cannot contain . or .. as a part.",
+        "mirrorRoot": "A mirror deletes what the source does not have, so it needs a folder. Enter one."
       }
     },
     "server": {
@@ -811,5 +889,123 @@
     "state": "The job is not in a state that allows this.",
     "allJobExists": "Another job already covers every object that is in no other job. A tenant has one such job.",
     "invalid": "The job cannot be saved like this."
+  },
+  "shareEditor": {
+    "enabled": "Switched on",
+    "shares": {
+      "title": "File shares",
+      "description": "Which file shares this job backs up and which of their folders. A file share is in one job at a time.",
+      "none": "No file shares yet. Add one under File shares first.",
+      "pick": "Select {name}",
+      "inJob": "In {job}",
+      "folders": "Folders",
+      "everything": "everything",
+      "everythingAction": "Back up everything",
+      "pickFolders": "Choose folders",
+      "donePicking": "Done"
+    },
+    "schedule": {
+      "title": "Schedule",
+      "on": "Run on a schedule",
+      "manual": "Without a schedule the job runs only when someone starts it.",
+      "check": "Every new restore point is checked right after the backup. There is no separate restore check schedule.",
+      "kind": "How often",
+      "kinds": {
+        "daily": "Every day",
+        "interval": "Every few hours",
+        "cron": "Cron expression"
+      },
+      "time": "Time",
+      "hours": "Every how many hours",
+      "hoursHint": "At least every hour.",
+      "cron": "Cron expression",
+      "cronHint": "Five fields: minute, hour, day of month, month, weekday.",
+      "zone": "Time zone"
+    },
+    "retention": {
+      "title": "Retention",
+      "description": "How many restore points each file share keeps.",
+      "keepDaily": "Daily restore points",
+      "keepWeekly": "Weekly restore points",
+      "keepMonthly": "Monthly restore points"
+    },
+    "exclusions": {
+      "title": "Exclusions",
+      "preset": "Skip temporary and system files",
+      "patterns": "Own patterns",
+      "patternsHint": "One pattern per line, for example *.bak or Archive/Old.",
+      "fileTypes": "Leave out file types",
+      "removeType": "Remove .{ext}",
+      "addType": "Add",
+      "fileTypesHint": "Type a file type and press Enter.",
+      "larger": "Leave out files larger than",
+      "largerGb": "Size in GB",
+      "offline": "Recall offline files",
+      "offlineHint": "Files moved to slower storage (tiering, cloud sync) are left out unless this is on. Reading them brings them back to the server first."
+    },
+    "transfer": {
+      "title": "Reading and bandwidth",
+      "description": "Keep backups from using up the network or the file server.",
+      "bandwidth": "Upload limit (kbit/s)",
+      "bandwidthHint": "Empty for no limit.",
+      "concurrency": "Parallel reads",
+      "concurrencyHint": "From 1 to 16. Empty for the installation's default."
+    }
+  },
+  "copyEditor": {
+    "notBackup": "Not a backup: no versions on the target",
+    "into": "into",
+    "retired": "A file share of this copy is retired",
+    "lastCopied": "Last copied {when}",
+    "neverCopied": "Nothing copied yet",
+    "latestOnly": "Each run copies the newest restore point of the source. The target keeps no earlier states.",
+    "rules": {
+      "same_share": "Source and target are the same place. A copy never writes into the file share it copies.",
+      "share_root": "A mirror deletes what the source does not have, so it never writes into the root of a file share. Choose a folder.",
+      "retired": "A retired file share cannot be copied from or into.",
+      "restore_not_allowed": "The target does not allow restores into it. Switch on \"Allow restore to this share\" in its settings first.",
+      "unsafe": "This copy is not allowed."
+    },
+    "confirm": {
+      "title": "Confirm the mirror",
+      "notEmpty": "{count, plural, one {The folder {folder} on {share} is not empty (# entry).} other {The folder {folder} on {share} is not empty (# entries).}} A mirror deletes everything in it that is not in the source.",
+      "unreadable": "The folder {folder} on {share} could not be read. A mirror deletes everything in it that is not in the source.",
+      "type": "Type {folder} to confirm",
+      "action": "Mirror into this folder"
+    },
+    "where": {
+      "title": "Source and target",
+      "description": "Only file shares that allow restores into them can be targets.",
+      "source": "Copy from",
+      "target": "Copy into",
+      "targetHint": "A file share with \"Allow restore to this share\" switched on.",
+      "pick": "Choose a file share",
+      "noTargets": "No file share allows restores into it yet. Switch on \"Allow restore to this share\" in a file share's settings.",
+      "folder": "Target folder",
+      "folderHint": "Relative to the root of the target. It is created when it does not exist.",
+      "browse": "Browse"
+    },
+    "mode": {
+      "title": "How to copy",
+      "overwrite": {
+        "label": "Overwrite",
+        "description": "Files of the source replace those with the same name. Nothing else in the target folder is touched."
+      },
+      "mirror": {
+        "label": "Mirror",
+        "description": "The target folder becomes the same as the source: what the source does not have is deleted."
+      },
+      "mirrorWarning": "A mirror deletes files in the target folder. It refuses to run when the newest restore point is empty or has fewer than half the files of the last copy."
+    },
+    "permissions": "Copy the permissions",
+    "permissionsHint": "Only useful when both file servers know the same accounts.",
+    "verify": "Verify written files",
+    "verifyHint": "Reads every file back after writing. Slower; on by default for NFS targets.",
+    "anyway": {
+      "action": "Copy anyway",
+      "title": "Copy {name} anyway?",
+      "description": "The copy runs even if the newest restore point is empty or has fewer than half the files of the last copy. In a mirror, files the source no longer has are deleted from the target folder.",
+      "confirm": "Copy anyway"
+    }
   }
 }

@@ -1,6 +1,7 @@
 import {
   DEFAULT_ENDPOINT_RETENTION,
   DEFAULT_SCHEDULE_TIMEZONE,
+  DEFAULT_SHARE_RETENTION,
   RECOMMENDED_SCHEDULE_DEFAULTS,
   defaultEndpointConfig,
   defaultSchedule,
@@ -16,6 +17,7 @@ import {
   backupJobs,
   endpointRuns,
   endpoints,
+  fileShares,
   jobs,
   tenants,
 } from "@restow/db";
@@ -57,6 +59,15 @@ import {
   repositoryDto,
   restoreCheckOf,
 } from "./loaders.js";
+import {
+  type ShareJobFacts,
+  copyJobDto,
+  loadShareJobFacts,
+  shareCandidates,
+  shareJobDto,
+  shareJobRuns,
+  shareMembers,
+} from "./share-jobs.js";
 
 /**
  * Reading jobs: the list with how each one stands, one job, its members, the runs of its scope,
@@ -111,6 +122,7 @@ interface TenantFacts {
   covered: Map<string, string[]>;
   mail: Map<string, MailFact>;
   endpoint: Map<string, EndpointFact>;
+  share: ShareJobFacts;
 }
 
 /** What the DTOs of `list` need, in a fixed number of queries whatever the number of jobs. */
@@ -145,6 +157,7 @@ async function loadFacts(
     covered,
     mail: await loadMailFacts(tx, tenantId, mailIds),
     endpoint: await loadEndpointFacts(tx, tenantId, endpointIds, now),
+    share: await loadShareJobFacts(tx, tenantId, all, now),
   };
 }
 
@@ -283,6 +296,7 @@ function mailJobDto(
       storageError: repository.status === "error",
     }),
     settings: visibleSettings(job.settings ?? {}, reveal),
+    copy: null,
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),
   };
@@ -368,6 +382,7 @@ function endpointJobDto(
       storageError: repository.status === "error",
     }),
     settings: visibleSettings(job.settings ?? {}, reveal),
+    copy: null,
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),
   };
@@ -393,7 +408,11 @@ async function buildDtos(
     items.push(
       job.kind === "mail"
         ? mailJobDto(job, facts, repository, policies, options.revealHooks, now)
-        : endpointJobDto(job, facts, repository, options.revealHooks, now),
+        : job.kind === "share"
+          ? shareJobDto(job, facts.members, facts.share, repository, now)
+          : job.kind === "copy"
+            ? copyJobDto(job, facts.share, repository, now)
+            : endpointJobDto(job, facts, repository, options.revealHooks, now),
     );
   }
   return { items, facts };
@@ -443,10 +462,42 @@ export async function listBackupJobs(
       if (!member || !job) uncoveredMachines++;
       else if (!runsOnSchedule(job, member)) unscheduledMachines++;
     }
+    // File shares: in no share job, or in one that is paused or runs by hand only.
+    let uncoveredShares = 0;
+    let unscheduledShares = 0;
+    const shareMember = new Map(
+      facts.members.flatMap((member) =>
+        member.fileShareId ? [[member.fileShareId, member] as const] : [],
+      ),
+    );
+    const shareFacts =
+      facts.share.shares.size > 0
+        ? [...facts.share.shares.values()].map((fact) => fact.share)
+        : await tx
+            .select({ id: fileShares.id, retiredAt: fileShares.retiredAt })
+            .from(fileShares)
+            .where(eq(fileShares.tenantId, tenantId));
+    for (const share of shareFacts) {
+      if (share.retiredAt) continue;
+      const member = shareMember.get(share.id);
+      const job = member ? jobsById.get(member.jobId) : undefined;
+      if (!member || !job) uncoveredShares++;
+      else if (!runsOnSchedule(job, member)) unscheduledShares++;
+    }
     return {
       items,
-      uncovered: { mail: mail.none, endpoint: uncoveredMachines },
-      unscheduled: { mail: mail.unscheduled, endpoint: unscheduledMachines },
+      uncovered: {
+        mail: mail.none,
+        endpoint: uncoveredMachines,
+        share: uncoveredShares,
+        copy: 0,
+      },
+      unscheduled: {
+        mail: mail.unscheduled,
+        endpoint: unscheduledMachines,
+        share: unscheduledShares,
+        copy: 0,
+      },
     };
   });
 }
@@ -504,7 +555,11 @@ export async function listMembers(
     const items =
       job.kind === "mail"
         ? mailMembers(job, own, facts, options)
-        : endpointMembers(job, own, facts, options);
+        : job.kind === "share"
+          ? shareMembers(job, own, facts.share)
+          : job.kind === "copy"
+            ? []
+            : endpointMembers(job, own, facts, options);
     return { mode: job.scopeMode, items };
   });
 }
@@ -648,7 +703,9 @@ export async function listJobRuns(
     const all = supportedJobs(rows);
     const members = await loadAllMembers(tx, tenantId);
     const items: JobRunDto[] = [];
-    if (job.kind === "mail") {
+    if (job.kind === "share" || job.kind === "copy") {
+      items.push(...(await shareJobRuns(tx, tenantId, job, members, limit)));
+    } else if (job.kind === "mail") {
       const objects = await loadObjectInfos(tx, tenantId);
       const ids = mailJobObjectIds(
         job,
@@ -754,6 +811,13 @@ export async function listCandidates(
     const jobOf = (member: BackupJobMember | undefined) =>
       member ? { id: member.jobId, name: jobName.get(member.jobId) ?? "" } : null;
     const term = query.q ? `%${query.q.replace(/[%_\\]/g, (char) => `\\${char}`)}%` : null;
+    if (query.kind === "share") {
+      return shareCandidates(tx, tenantId, query, members, jobName);
+    }
+    if (query.kind === "copy") {
+      // A copy job names its two shares; it has no members to choose.
+      return { items: [], total: 0 };
+    }
     if (query.kind === "mail") {
       const byObject = new Map(
         members.flatMap((member) =>
@@ -888,6 +952,30 @@ export async function getDefaults(
         repository: repositoryDto(primary),
         retentionPolicies: policies.map((policy) => ({ ...policy })),
         endpointRetention: { ...DEFAULT_ENDPOINT_RETENTION },
+      };
+    }
+    if (kind === "share" || kind === "copy") {
+      return {
+        kind,
+        timeZone,
+        schedule: { kind: "daily", timeOfDay: kind === "share" ? "22:00" : "06:00", timeZone },
+        verifySchedule: null,
+        settings:
+          kind === "share"
+            ? {
+                excludes: [],
+                presets: { systemFiles: true },
+                fileTypes: { exclude: [] },
+                excludeLargerThanGib: null,
+                bandwidthKbps: null,
+                skipOffline: true,
+                retention: { ...DEFAULT_SHARE_RETENTION },
+              }
+            : { targetFolder: "", mode: "overwrite", restorePermissions: false },
+        basis: null,
+        repository: repositoryDto(primary),
+        retentionPolicies: [],
+        endpointRetention: { ...DEFAULT_SHARE_RETENTION },
       };
     }
     const machines =

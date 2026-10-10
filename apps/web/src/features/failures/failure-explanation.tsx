@@ -54,6 +54,8 @@ export interface FailureExplanationProps {
   subject: FailureSubject;
   /** The source the failure concerns, so steps can link to it. */
   sourceId?: string | null;
+  /** The file share the failure concerns: its steps link to the share's settings. */
+  fileShareId?: string | null;
   /** The time to state when the failure has none of its own (old rows). */
   at?: string | null;
   /** The troubleshooting page to offer when the failure carries none (old rows). */
@@ -89,6 +91,7 @@ export function FailureExplanation({
   message = null,
   subject,
   sourceId = null,
+  fileShareId = null,
   at = null,
   docsUrl: fallbackDocsUrl = null,
   affectedItems = 0,
@@ -179,7 +182,7 @@ export function FailureExplanation({
                       steps.findIndex((other) => other.target === step.target) === index;
                     const link =
                       firstOfTarget && !skipTargets.includes(String(step.target))
-                        ? stepLink(step, { sourceId })
+                        ? stepLink(step, { sourceId, fileShareId })
                         : null;
                     return (
                       <li key={`${step.id}-${step.target}`}>

@@ -553,7 +553,27 @@
       "repository": {
         "denied": "Unerlaubter Zugriff eines Freigabe-Runners abgelehnt"
       },
-      "purged": "Sicherungen der Freigabe gelöscht"
+      "purged": "Sicherungen der Freigabe gelöscht",
+      "created": "Freigabe hinzugefügt",
+      "updated": "Freigabe geändert",
+      "password_changed": "Passwort der Freigabe geändert",
+      "tested": "Verbindung zur Freigabe getestet",
+      "retired": "Freigabe nicht mehr geschützt (Sicherungen bleiben)",
+      "reactivated": "Freigabe wieder geschützt",
+      "purge_requested": "Löschen der Sicherungen der Freigabe angefordert",
+      "backup_requested": "Sicherung der Freigabe angefordert",
+      "restore_requested": "Wiederherstellung aus der Freigabe angefordert",
+      "restore_test_requested": "Restore-Prüfung der Freigabe angefordert",
+      "run_cancel_requested": "Lauf der Freigabe abgebrochen",
+      "quota_changed": "Speicherbudget der Freigabe geändert",
+      "download_created": "Download gesicherter Dateien vorbereitet",
+      "downloaded": "Gesicherte Dateien der Freigabe heruntergeladen",
+      "browsed": "Gesicherte Dateien der Freigabe durchsucht",
+      "searched": "Gesicherte Dateien der Freigabe gesucht",
+      "repository_password_shown": "Repository-Passwort der Freigabe angezeigt",
+      "private_network_approved": "Freigabe in einem privaten Netz genehmigt",
+      "private_network_withdrawn": "Genehmigung für ein privates Netz zurückgezogen",
+      "settings_changed": "Freigabe-Einstellungen der Installation geändert"
     },
     "warning": {
       "acknowledged": "Warnung bestätigt",

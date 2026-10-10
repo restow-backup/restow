@@ -22,6 +22,8 @@ export const REPORT_EVENTS = [
   "endpoint.suspicious_snapshot",
   "endpoint.storage_quota",
   "endpoint.repository_locked",
+  "file_share.storage_quota",
+  "file_share.repository_locked",
   "update.available",
 ] as const;
 export type ReportEvent = (typeof REPORT_EVENTS)[number];

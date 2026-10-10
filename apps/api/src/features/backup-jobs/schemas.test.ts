@@ -119,11 +119,14 @@ describe("backup job requests", () => {
   });
 
   it("runs the whole job or the chosen members", () => {
-    expect(runBackupJobSchema.parse({})).toEqual({ full: false });
+    expect(runBackupJobSchema.parse({})).toEqual({ full: false, force: false });
     expect(runBackupJobSchema.safeParse({ targetIds: [] }).success).toBe(false);
     expect(runBackupJobSchema.parse({ targetIds: [ID], full: true })).toEqual({
       targetIds: [ID],
       full: true,
+      force: false,
     });
+    // "Copy anyway" of a copy job (docs/FILESHARES.md 4.10 rule 6).
+    expect(runBackupJobSchema.parse({ force: true })).toEqual({ full: false, force: true });
   });
 });

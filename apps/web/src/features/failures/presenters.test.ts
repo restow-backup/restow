@@ -105,6 +105,12 @@ describe("stepLink", () => {
   it("links to the very source when it is known, to the list otherwise", () => {
     expect(stepLink({ id: "x", target: "source" }, { sourceId: "a b" })?.to).toBe("/sources/a%20b");
     expect(stepLink({ id: "x", target: "source" })?.to).toBe("/sources");
+    expect(stepLink({ id: "x", target: "file_share" }, { fileShareId: "s 1" })).toEqual({
+      to: "/file-shares/s%201",
+      search: { tab: "settings" },
+    });
+    expect(stepLink({ id: "x", target: "file_share" })?.to).toBe("/file-shares");
+    expect(stepLink({ id: "x", target: "file_share_runners" })?.to).toBe("/installation/mounts");
   });
 
   it("links nowhere for a step without a place or one this version does not know", () => {

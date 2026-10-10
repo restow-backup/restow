@@ -553,7 +553,27 @@
       "repository": {
         "denied": "Forbidden access of a file share runner refused"
       },
-      "purged": "Backups of the file share deleted"
+      "purged": "Backups of the file share deleted",
+      "created": "File share added",
+      "updated": "File share changed",
+      "password_changed": "Password of the file share changed",
+      "tested": "Connection to the file share tested",
+      "retired": "File share no longer protected (backups kept)",
+      "reactivated": "File share protected again",
+      "purge_requested": "Deletion of the file share's backups requested",
+      "backup_requested": "Backup of the file share requested",
+      "restore_requested": "Restore from the file share requested",
+      "restore_test_requested": "Restore check of the file share requested",
+      "run_cancel_requested": "File share run cancelled",
+      "quota_changed": "Storage budget of the file share changed",
+      "download_created": "Download of backed-up files prepared",
+      "downloaded": "Backed-up files of the file share downloaded",
+      "browsed": "Backed-up files of the file share browsed",
+      "searched": "Backed-up files of the file share searched",
+      "repository_password_shown": "Repository password of the file share shown",
+      "private_network_approved": "File share on a private network approved",
+      "private_network_withdrawn": "Approval for a private network withdrawn",
+      "settings_changed": "File share settings of the installation changed"
     },
     "warning": {
       "acknowledged": "Warning acknowledged",

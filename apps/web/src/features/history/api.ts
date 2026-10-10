@@ -193,7 +193,7 @@ export const HISTORY_PAGE_SIZE = 50;
 
 export interface BackupJobLive {
   id: string;
-  kind: "mail" | "endpoint";
+  kind: "mail" | "endpoint" | "share" | "copy";
   enabled: boolean;
   state: JobState;
   scope: { count: number; byKind: Record<string, number>; overrides: number };

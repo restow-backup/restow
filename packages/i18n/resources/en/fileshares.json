@@ -1,0 +1,556 @@
+{
+  "nav": {
+    "label": "File shares"
+  },
+  "list": {
+    "title": "File shares",
+    "description": "SMB shares and NFS exports of file servers and NAS devices, backed up with their permissions. Every new restore point is checked.",
+    "refresh": "Refresh file shares",
+    "jobs": "Jobs",
+    "copyJobs": "Copy jobs",
+    "add": "Add file share",
+    "loadError": "The file shares could not be loaded",
+    "noTenant": {
+      "title": "Choose a tenant",
+      "description": "File shares belong to a tenant. Choose one at the top to see its file shares."
+    },
+    "empty": {
+      "title": "No file shares yet",
+      "description": "Add an SMB share or an NFS export. The connection is tested before it is saved."
+    },
+    "counts": "{total, plural, one {# file share} other {# file shares}}: {protected} protected, {withoutJob} without a job, {failed} failed",
+    "columns": {
+      "name": "File share",
+      "state": "State",
+      "readiness": "Restore check",
+      "lastBackup": "Last backup",
+      "job": "Job"
+    },
+    "never": "Never",
+    "noJob": "No job",
+    "passwordRefused": "The password was refused",
+    "showRetired": "{count, plural, one {Show # retired file share} other {Show # retired file shares}}"
+  },
+  "standing": {
+    "retired": "Retired",
+    "failed": "Failed",
+    "running": "Running",
+    "overdue": "Overdue",
+    "warning": "With warnings",
+    "no_job": "In no job",
+    "no_backup": "No backup yet",
+    "ok": "Protected"
+  },
+  "readiness": {
+    "green": "Ready",
+    "yellow": "Check overdue",
+    "red": "Not restorable",
+    "unverified": "Unverified",
+    "no_backup": "No backup yet"
+  },
+  "protocol": {
+    "smb": "SMB",
+    "nfs": "NFS"
+  },
+  "mounter": {
+    "offTitle": "Network shares are not switched on",
+    "blockedTitle": "File share runs cannot start",
+    "tenant": "This installation does not back up file shares yet. Your provider can switch it on.",
+    "provider": "An owner of the installation can switch on network shares.",
+    "owner": "File shares are mounted by the mounter, which is not running. Run this command on the server to start it:",
+    "blockedOwner": "The mounter is running but cannot start runs yet:",
+    "copy": "Copy command",
+    "commandHint": "Run it as root in the installation folder. Switching it on from this page follows with a later release."
+  },
+  "add": {
+    "title": "Add file share",
+    "description": "Connect an SMB share or an NFS export. The connection is tested before it is saved; the password is stored encrypted.",
+    "steps": {
+      "label": "Steps",
+      "protocol": "Protocol",
+      "connection": "Connection",
+      "test": "Test",
+      "options": "Options"
+    },
+    "protocol": {
+      "label": "Protocol",
+      "smb": {
+        "title": "SMB (Windows, Samba, NAS)",
+        "description": "A share of a Windows server, Samba or a NAS, with an account that may read it and its permissions."
+      },
+      "nfs": {
+        "title": "NFS",
+        "description": "An export of a Linux server or NAS. The export must allow this server's address and root access (no_root_squash) to read everything."
+      }
+    },
+    "fields": {
+      "server": "Server",
+      "share": "Share",
+      "export": "Export",
+      "subfolder": "Subfolder",
+      "account": "Account",
+      "domain": "Domain",
+      "password": "Password",
+      "smbVersion": "SMB version",
+      "seal": "Encrypt the connection",
+      "nfsVersion": "NFS version",
+      "name": "Name",
+      "permissions": "Back up the permissions",
+      "allowRestore": "Allow restore to this share"
+    },
+    "hints": {
+      "server": "Host name or IP address, without \\\\ or smb://.",
+      "share": "The share name, for example Projects.",
+      "export": "The exported path, for example /volume1/data.",
+      "subfolder": "Optional: back up only this folder of the share.",
+      "account": "For example backup or DOMAIN\\backup. Read access to all files is enough.",
+      "domain": "Optional; can also be written before the account.",
+      "seal": "SMB 3 encryption. Needed when the server requires it.",
+      "name": "Shown in the list, in jobs and in alerts.",
+      "permissions": "Stores the NTFS or NFS permissions of every file and folder, so a restore puts them back.",
+      "allowRestore": "Off by default. On, restores and copies may write into this share."
+    },
+    "errors": {
+      "required": "Enter a value.",
+      "serverNoProtocol": "Enter the server without \\\\ or a protocol such as smb://.",
+      "serverInvalid": "Enter a host name or an IP address.",
+      "shareInvalid": "A share name has at most 80 characters and none of \\ / : * ? \" < > |.",
+      "subfolderInvalid": "Enter a folder path without . or .. as a part.",
+      "accountInvalid": "The account cannot contain , = or /.",
+      "domainInvalid": "Enter a domain such as CORP or corp.example.com.",
+      "passwordTooLong": "The password can have at most 256 bytes.",
+      "passwordControl": "The password cannot contain control characters.",
+      "passwordMountFlag": "A part of the password between commas equals a mount option (such as ro or exec). Such a password cannot be used.",
+      "sealNeedsSmb3": "Encryption needs SMB 3."
+    },
+    "smbVersions": {
+      "3_1_1": "3.1.1 (recommended)",
+      "3_0": "3.0",
+      "2_1": "2.1 (outdated, no encryption)"
+    },
+    "nfsVersion": "NFS {version}",
+    "private": {
+      "title": "Address in a private network",
+      "provider": "The server is in a private network. As a provider administrator you can approve this file share in its settings after saving.",
+      "allowed": "The server is in a private network. This installation allows file shares there.",
+      "tenant": "The server is in a private network. A provider administrator has to approve this file share before it can be backed up."
+    },
+    "test": {
+      "location": "Location:",
+      "run": "Test connection",
+      "ok": "Connected to {address}",
+      "permissions": {
+        "full": "Owner, permissions and auditing entries can be read.",
+        "owner": "Owner and permissions can be read.",
+        "dacl": "Permissions only: the owner cannot be read with this account.",
+        "nfs": "NFS permissions can be read.",
+        "none": "Permissions cannot be read with this account. Files are backed up without them."
+      },
+      "topLevel": "Top-level folders",
+      "topLevelOf": "Folders in {folder}",
+      "empty": "The share is empty.",
+      "useFolder": "Use as subfolder",
+      "truncated": "Only the first folders are shown.",
+      "hint": "The test mounts the share once, reads its top folder and unmounts it."
+    },
+    "untested": {
+      "description": "The connection has not passed a test. You can save it all the same, for example when the server is offline for now.",
+      "confirm": "Save without a passed test"
+    },
+    "next": "Next",
+    "back": "Back",
+    "cancel": "Cancel",
+    "save": "Save file share",
+    "saved": "File share {name} added",
+    "job": {
+      "title": "{name} is saved. Which job backs it up?",
+      "description": "A file share without a job is not backed up.",
+      "choose": "Job",
+      "folders": "Folders",
+      "foldersHint": "Nothing chosen means everything.",
+      "none": "There is no file share job yet.",
+      "later": "Later",
+      "newJob": "New job",
+      "add": "Add to job",
+      "added": "{name} added to the job"
+    }
+  },
+  "picker": {
+    "path": "Folder path",
+    "root": "Root",
+    "rootFolder": "The root of the file share",
+    "thisFolder": "This folder: {path}",
+    "use": "Use this folder",
+    "chosen": "Chosen",
+    "noFolders": "No folders here.",
+    "include": "Include {name}",
+    "truncated": "Only the first folders are shown.",
+    "reading": "Reading the folders of the file share"
+  },
+  "detail": {
+    "back": "File shares",
+    "loadError": "The file share could not be loaded",
+    "notFound": "This file share does not exist (any more)",
+    "test": "Test connection",
+    "testOk": "The connection works",
+    "testFailed": "The connection test failed. The overview says why.",
+    "backupNow": "Back up now",
+    "backupQueued": "Backup of {name} queued",
+    "backupWaiting": "A backup of {name} is already waiting or running",
+    "smb21": "SMB 2.1: outdated",
+    "restoreAllowed": "Restore allowed",
+    "tabs": {
+      "label": "File share",
+      "overview": "Overview",
+      "restore-points": "Restore points",
+      "runs": "Runs",
+      "settings": "Settings"
+    }
+  },
+  "overview": {
+    "credential": {
+      "title": "The password was refused",
+      "description": "The file server refused the password at {time}. Enter the current one under Settings; backups fail until then."
+    },
+    "emptyOnce": "Back up the empty share once",
+    "progress": "Progress",
+    "progressLine": "{files} of {totalFiles} files, {bytes} of {totalBytes}",
+    "waiting": "Waiting for a free runner",
+    "showRuns": "Show runs",
+    "phase": {
+      "prepare": "Preparing",
+      "scan": "Reading the folders",
+      "backup": "Backing up",
+      "restore": "Restoring",
+      "permissions": "Restoring permissions",
+      "verify": "Verifying",
+      "finalize": "Finishing"
+    },
+    "protection": {
+      "title": "Protection",
+      "state": "State",
+      "readiness": "Restore check",
+      "checkedAt": "Checked {time}",
+      "job": "Job",
+      "noJob": "In no job: not backed up",
+      "folders": "Folders",
+      "everything": "Everything",
+      "lastSuccess": "Last backup",
+      "restorePoints": "Restore points",
+      "checkNow": "Run a restore check now",
+      "checkQueued": "Restore check requested"
+    },
+    "repository": {
+      "title": "restic repository",
+      "description": "The file share's own restic repository in the tenant's primary repository.",
+      "notMeasured": "Not measured yet",
+      "used": "{used} used",
+      "usedOf": "{used} of {budget} used",
+      "tenant": "All file shares of the tenant: {used} of {budget}",
+      "ok": "Within the budget",
+      "near": "Close to the budget",
+      "exceeded": "Budget used up: new backups are refused"
+    },
+    "connection": {
+      "title": "Connection",
+      "location": "Location",
+      "protocol": "Protocol",
+      "smb": "SMB {version} {seal}",
+      "sealed": "(encrypted)",
+      "nfs": "NFS {version}",
+      "lastTest": "Last test",
+      "testOk": "Passed {time}",
+      "testFailed": "Failed {time}",
+      "notTested": "Not tested yet"
+    }
+  },
+  "runs": {
+    "title": "Run",
+    "loadError": "The runs could not be loaded",
+    "empty": {
+      "title": "No runs yet",
+      "description": "Backups, restores and copies of this file share are listed here."
+    },
+    "columns": {
+      "kind": "Run",
+      "status": "Status",
+      "started": "Started",
+      "duration": "Duration",
+      "files": "Files",
+      "added": "Added",
+      "warnings": "Warnings"
+    },
+    "kind": {
+      "backup": "Backup",
+      "restore": "Restore",
+      "copy": "Copy"
+    },
+    "status": {
+      "queued": "Waiting",
+      "starting": "Starting",
+      "running": "Running",
+      "succeeded": "Completed",
+      "restored": "Restored",
+      "warning": "With warnings",
+      "failed": "Failed",
+      "cancelled": "Cancelled"
+    },
+    "upToDate": "Nothing changed",
+    "destination": "Restored to",
+    "destinations": {
+      "original": "The original location",
+      "new_folder": "New folder {folder}",
+      "other_share": "Another file share, folder {folder}",
+      "folder": "Another file share, folder {folder}"
+    },
+    "note": "Note",
+    "cancel": "Cancel run",
+    "log": "Log"
+  },
+  "items": {
+    "title": "{count, plural, one {# file with a warning} other {# files with warnings}}",
+    "all": "All",
+    "notStored": "{count, plural, one {# more is counted but not listed.} other {# more are counted but not listed.}}",
+    "codes": {
+      "locked_file": "Locked by another program",
+      "read_error": "Could not be read",
+      "acl_unreadable": "Permissions could not be read",
+      "acl_not_restored": "Permissions not restored",
+      "owner_not_restored": "Owner not restored",
+      "offline_skipped": "Offline file left out",
+      "name_invalid": "Name not allowed on the target",
+      "write_error": "Could not be written",
+      "files_dropped": "Far fewer files than last time",
+      "other": "Other"
+    }
+  },
+  "copy": {
+    "notBackup": "Not a backup: no versions on the target",
+    "modes": {
+      "overwrite": "Overwrite",
+      "mirror": "Mirror"
+    }
+  },
+  "points": {
+    "files": "{count, plural, one {# file} other {# files}}",
+    "added": "{size} added",
+    "permissions": "{count, plural, one {Permissions of # entry} other {Permissions of # entries}}",
+    "restore": "Restore",
+    "timelineLabel": "Restore points of {name}",
+    "downloadFailed": "The download could not be prepared",
+    "empty": {
+      "title": "No restore points yet",
+      "description": "Once the first backup has run, its restore points are listed here."
+    }
+  },
+  "search": {
+    "title": "Find a file",
+    "description": "Searches the names of all files in all restore points of this file share.",
+    "placeholder": "File or folder name",
+    "run": "Search",
+    "none": "Nothing found.",
+    "deleted": "Deleted",
+    "versions": "Versions",
+    "download": "Download",
+    "restore": "Restore",
+    "unavailable": "The search is not available: the catalog is switched off for this installation or is being built."
+  },
+  "versions": {
+    "title": "Versions of {path}",
+    "modified": "changed {time}",
+    "since": "in restore points since {time}",
+    "pruned": "only in restore points that were removed",
+    "current": "newest"
+  },
+  "restore": {
+    "title": "Restore",
+    "description": "From {name}, restore point of {time}",
+    "everything": "Everything in the restore point",
+    "selection": "{count, plural, one {# item} other {# items}}",
+    "more": "{count, plural, one {and # more} other {and # more}}",
+    "where": "Where to",
+    "options": {
+      "zip": "Download as ZIP",
+      "original": "The original location",
+      "new_folder": "A new folder in the same file share",
+      "other_share": "Another file share"
+    },
+    "noTargets": "No other file share allows restores into it.",
+    "notAllowed": "This file share does not allow restores into it.",
+    "openSettings": "Open the settings",
+    "ifExists": "If a file exists",
+    "conflict": {
+      "overwrite": "Overwrite",
+      "keep_both": "Keep both",
+      "skip": "Skip"
+    },
+    "conflictHint": {
+      "overwrite": "The restored file replaces the one there.",
+      "keep_both": "The restored file gets a new name next to the one there.",
+      "skip": "The file there stays; the restored one is left out."
+    },
+    "targetShare": "File share",
+    "folder": "Folder",
+    "folderHint": "Created when it does not exist. Empty: a new folder named after the date and time.",
+    "repeat": "Repeat on a schedule as a copy job",
+    "permissions": "Restore the permissions",
+    "permissionsHint": "Puts back owner and permissions as they were backed up.",
+    "permissionsOther": "Only useful when the other file server knows the same accounts.",
+    "verify": "Verify written files",
+    "verifyHint": "Reads every file back after writing. Slower; on by default for NFS.",
+    "summaryTitle": "Please check",
+    "summary": {
+      "original": "{count, plural, one {# item} other {# items}} go back to {name}, where they came from. If a file exists: {conflict}.",
+      "new_folder": "{count, plural, one {# item goes} other {# items go}} into the folder {folder} of {name}.",
+      "other_share": "{count, plural, one {# item goes} other {# items go}} into the folder {folder} of {name}."
+    },
+    "next": "Next",
+    "back": "Back",
+    "cancel": "Cancel",
+    "confirm": "Restore",
+    "download": "Download",
+    "close": "Close",
+    "requested": "Restore requested",
+    "requestedTitle": "The restore is on its way",
+    "requestedDescription": "It runs as soon as a runner is free. Its progress and result are under Runs.",
+    "showRuns": "Show runs"
+  },
+  "settings": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "saved": "Settings saved",
+    "connection": {
+      "title": "Connection",
+      "description": "Where the file share is and how it is reached.",
+      "subfolderHint": "Changing the server, share, export or subfolder points the backups at another place.",
+      "password": "New password",
+      "passwordHint": "Empty keeps the stored password.",
+      "moveTitle": "Back up another place?",
+      "moveDescription": "The next backup reads the new location. Restore points of the old one stay, but the next backup counts as a first one.",
+      "moveConfirm": "Change the location"
+    },
+    "options": {
+      "title": "Options",
+      "reread": "Read all permissions again",
+      "rereadHint": "Once, at the next backup; otherwise only changed files are read again."
+    },
+    "approval": {
+      "title": "Private network",
+      "description": "A file share in a private network is backed up only after a provider administrator approved it.",
+      "approved": "Approved for {range} by {by}, {time}",
+      "none": "Not approved",
+      "approve": "Approve",
+      "withdraw": "Withdraw approval"
+    },
+    "job": {
+      "title": "Job and folders",
+      "description": "The job that backs up this file share and which of its folders.",
+      "paused": "paused",
+      "folders": "Folders",
+      "pickFolders": "Choose folders",
+      "none": "In no job: this file share is not backed up.",
+      "newJob": "New job"
+    },
+    "budget": {
+      "title": "Budget",
+      "description": "At 80 % the file share warns; at 100 % new backups are refused.",
+      "noLimitUsed": "No budget, {used} used",
+      "limit": "Limit the storage",
+      "gib": "Budget in GB",
+      "invalid": "Enter a whole number of GB.",
+      "providerOnly": "Only provider administrators can change the budget."
+    },
+    "copies": {
+      "title": "Copy jobs",
+      "none": "No copy job copies from or into this file share.",
+      "source": "Copies from here",
+      "target": "Copies into here",
+      "new": "New copy job"
+    },
+    "repository": {
+      "title": "restic repository password",
+      "description": "Needed only to open the restic repository without this installation, for example after a disaster.",
+      "show": "Show password",
+      "notYet": "The restic repository is created with the first backup.",
+      "dialogTitle": "Show the restic repository password?",
+      "dialogDescription": "Showing it is recorded in the audit log.",
+      "confirm": "Show",
+      "copy": "Copy password",
+      "prefix": "restic repository: {prefix}",
+      "warningTitle": "Keep it safe",
+      "warning": "Anyone with this password and access to the repository can read every backup of this file share.",
+      "hide": "Close"
+    },
+    "danger": {
+      "title": "Retire or delete",
+      "retireNote": "Retiring stops the backups and keeps the restore points.",
+      "retiredNote": "This file share is retired: it is not backed up, its restore points stay.",
+      "retire": "Retire",
+      "reactivate": "Reactivate",
+      "deleteNote": "Deleting removes the file share with all its restore points for good.",
+      "delete": "Delete with all restore points",
+      "deleteTitle": "Delete {name}?",
+      "deleteDescription": "All restore points of this file share are deleted for good. This cannot be undone.",
+      "typeName": "Type {name} to confirm",
+      "deleteConfirm": "Delete for good",
+      "purged": "{name} is being deleted"
+    }
+  },
+  "runners": {
+    "title": "File share runners",
+    "description": "Each backup, restore or copy of a file share runs in a short-lived container of its own.",
+    "loadError": "The runner settings could not be loaded",
+    "ready": "Ready: {running} of {limit} running",
+    "blocked": "Cannot start runs",
+    "off": "Network shares are off",
+    "offHint": "Runners need the mounter. Start it with this command:",
+    "range": "Enter a whole number from {min} to {max}.",
+    "fields": {
+      "maxConcurrentRunners": "Runs at the same time",
+      "runnerMemoryMiB": "Memory per runner (MiB)",
+      "goMemLimitPercent": "Memory soft limit (%)",
+      "maxRunHours": "Longest run (hours)",
+      "defaultReadConcurrency": "Parallel reads (default)",
+      "defaultShareQuotaGib": "Budget per file share (GB, 0 = none)",
+      "tenantShareQuotaGib": "Budget of a tenant's file shares (GB, 0 = none)"
+    },
+    "hints": {
+      "maxConcurrentRunners": "More runs wait until one finishes.",
+      "runnerMemoryMiB": "Large file shares with millions of files need more.",
+      "goMemLimitPercent": "Share of the memory at which the runner frees memory more eagerly.",
+      "maxRunHours": "A run that takes longer is stopped.",
+      "defaultReadConcurrency": "For jobs that set none.",
+      "defaultShareQuotaGib": "For new file shares.",
+      "tenantShareQuotaGib": "For all file shares of one tenant together."
+    },
+    "memoryNote": "Changes apply to runs that start afterwards.",
+    "save": "Save",
+    "saved": "Runner settings saved",
+    "privateNetworks": "Tenants may add file shares in private networks",
+    "privateNetworksHint": "Off: a provider administrator approves each such file share.",
+    "privateNetworksOwner": "Only an owner of the installation can change this.",
+    "catalog": "File catalog",
+    "catalogHint": "Keeps the names of all backed-up files for the search. Uses database space."
+  },
+  "errors": {
+    "generic": "That did not work. Please try again.",
+    "nameTaken": "Another file share already has this name.",
+    "restoreNotAllowed": "The target does not allow restores into it.",
+    "busy": "A run of this file share is in progress. Try again when it has finished.",
+    "mounterUnavailable": "Network shares are not switched on in this installation.",
+    "locationChange": "The location changes. Confirm to go on.",
+    "confirmName": "The name does not match.",
+    "retired": "This file share is retired.",
+    "catalogUnavailable": "The search is not available right now.",
+    "repositoryUnavailable": "The restic repository cannot be reached right now.",
+    "downloadGone": "The download is no longer available. Prepare it again.",
+    "pathNotFound": "This path is not in the restore point.",
+    "providerOnly": "Only provider administrators can do this.",
+    "recentSignIn": "Please sign in again to do this.",
+    "forbiddenAddress": "This address cannot be used for a file share.",
+    "privateNetwork": "The server is in a private network that is not approved for this file share.",
+    "forbidden": "Your role does not allow this.",
+    "notFound": "Not found.",
+    "invalid": "Some values are not valid."
+  }
+}

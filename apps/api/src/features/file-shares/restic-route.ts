@@ -13,7 +13,7 @@ import {
 } from "../../lib/restic-run-route.js";
 import { authFailures } from "../endpoints/agent-auth.js";
 import { tenantStorage } from "../endpoints/repository.js";
-import { FILE_SHARE_AUDIT_ACTIONS } from "./constants.js";
+import { FILE_SHARE_RUNNER_AUDIT_ACTIONS } from "./constants.js";
 import {
   addShareUsage,
   noteShareQuotaRefusal,
@@ -236,7 +236,7 @@ export const fileShareResticRoutes = buildFileShareResticRoutes({
       actor: `runner:${access.runId}`,
       actorUserId: null,
       ip: typeof details.ip === "string" ? details.ip : null,
-      action: FILE_SHARE_AUDIT_ACTIONS.repositoryDenied,
+      action: FILE_SHARE_RUNNER_AUDIT_ACTIONS.repositoryDenied,
       target: shareId,
       targetType: "file_share",
       details: {

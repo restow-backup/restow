@@ -90,6 +90,7 @@ export const EVENT_GROUPS: Record<
     "directory.failed",
     "endpoint.stale",
     "endpoint.repository_locked",
+    "file_share.repository_locked",
   ],
   recoverability: ["verify.red", "verify.yellow", "verify.recovered"],
   storage: [
@@ -97,6 +98,7 @@ export const EVENT_GROUPS: Record<
     "scrub.repaired",
     "endpoint.suspicious_snapshot",
     "endpoint.storage_quota",
+    "file_share.storage_quota",
   ],
   // About the installation, not a tenant's data: only provider administrators may pick these.
   system: ["update.available"],

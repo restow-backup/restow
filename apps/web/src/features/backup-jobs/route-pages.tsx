@@ -22,7 +22,7 @@ export { JOB_ROLES };
 /** The jobs of the kind the address names; the editor follows `new` and `select` in the address. */
 export function JobsRoute() {
   const raw = useSearch({ strict: false }) as Record<string, unknown>;
-  const { type, create, select } = parseJobsSearch(raw);
+  const { type, create, select, copy } = parseJobsSearch(raw);
   const navigate = useNavigate();
   if (type === null) {
     // The route's guard leads such an address to History before this renders.
@@ -38,6 +38,7 @@ export function JobsRoute() {
         kind={type}
         creating={create}
         select={select}
+        copy={copy}
         onCreate={() => to(newJobTo(type).search)}
         onCreateClosed={() => to({ type }, true)}
         onOpenJob={(job) => {

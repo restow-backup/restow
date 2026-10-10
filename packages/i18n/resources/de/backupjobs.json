@@ -45,11 +45,15 @@
     "title": "Jobs",
     "description": {
       "mail": "Was wann in welches Repository gesichert wird, für viele Postfächer, OneDrives und IMAP-Konten auf einmal. Die Läufe stehen im Verlauf.",
-      "endpoint": "Welche Ordner welcher Server und Clients wann gesichert werden und was dabei ausgelassen wird. Ein Job gilt für viele Rechner, einzelne Rechner können abweichen. Die Läufe stehen im Verlauf."
+      "endpoint": "Welche Ordner welcher Server und Clients wann gesichert werden und was dabei ausgelassen wird. Ein Job gilt für viele Rechner, einzelne Rechner können abweichen. Die Läufe stehen im Verlauf.",
+      "share": "Welche Freigaben gesichert werden, welche ihrer Ordner, wann und was ausgelassen wird. Jeder neue Sicherungsstand einer Freigabe wird geprüft. Die Läufe stehen auf der Seite der jeweiligen Freigabe.",
+      "copy": "Kopien des neuesten Sicherungsstands einer Freigabe in einen Ordner einer anderen. Keine Sicherung: keine Versionen am Ziel."
     },
     "table": {
       "mail": "Mail-&-SaaS-Jobs",
-      "endpoint": "Jobs für Server und Clients"
+      "endpoint": "Jobs für Server und Clients",
+      "share": "Jobs für Freigaben",
+      "copy": "Kopierjobs"
     },
     "search": "Jobs durchsuchen",
     "nextInline": "Nächster:",
@@ -67,21 +71,29 @@
       "mail": "{count, plural, one {# geschütztes Objekt ist in keinem Job und wird nicht nach Zeitplan gesichert.} other {# geschützte Objekte sind in keinem Job und werden nicht nach Zeitplan gesichert.}}",
       "endpoint": "{count, plural, one {# Rechner ist in keinem Job und wird nicht gesichert.} other {# Rechner sind in keinem Job und werden nicht gesichert.}} Ein Rechner ohne Job sichert nichts; erst ein Job legt Zeitplan und Ordner fest.",
       "action": "Job anlegen",
-      "show": "Anzeigen"
+      "show": "Anzeigen",
+      "share": "{count, plural, one {# Freigabe ist in keinem Job und wird nicht gesichert.} other {# Freigaben sind in keinem Job und werden nicht gesichert.}}",
+      "copy": "{count, plural, one {# Kopie ist nicht eingerichtet.} other {# Kopien sind nicht eingerichtet.}}"
     },
     "empty": {
       "title": {
         "mail": "Noch keine Mail-Jobs",
-        "endpoint": "Noch keine Jobs für Server und Clients"
+        "endpoint": "Noch keine Jobs für Server und Clients",
+        "share": "Noch keine Jobs für Freigaben",
+        "copy": "Noch keine Kopierjobs"
       },
       "description": {
         "mail": "Ohne Job wird nichts nach Zeitplan gesichert. Ein Job umfasst Postfächer, OneDrives und IMAP-Konten, läuft nach Zeitplan und prüft, ob sich die Sicherungen wiederherstellen lassen.",
-        "endpoint": "Ein Job sagt den Agents, welche Ordner sie wann sichern und was sie auslassen. Ein Rechner ohne Job wird nicht gesichert."
+        "endpoint": "Ein Job sagt den Agents, welche Ordner sie wann sichern und was sie auslassen. Ein Rechner ohne Job wird nicht gesichert.",
+        "share": "Ein Job legt fest, welche Freigaben und Ordner wann gesichert werden und was ausgelassen wird. Eine Freigabe ohne Job wird nicht gesichert.",
+        "copy": "Ein Kopierjob schreibt den neuesten Sicherungsstand einer Freigabe in einen Ordner einer anderen Freigabe, etwa um einen zweiten Standort aktuell zu halten. Er behält keine Versionen."
       }
     },
     "unscheduled": {
       "mail": "{count, plural, one {# geschütztes Objekt ist in einem pausierten Job oder einem Job ohne Zeitplan und wird nicht automatisch gesichert.} other {# geschützte Objekte sind in pausierten Jobs oder Jobs ohne Zeitplan und werden nicht automatisch gesichert.}}",
-      "endpoint": "{count, plural, one {# Rechner ist in einem Job ohne Zeitplan und wird nicht automatisch gesichert.} other {# Rechner sind in Jobs ohne Zeitplan und werden nicht automatisch gesichert.}}"
+      "endpoint": "{count, plural, one {# Rechner ist in einem Job ohne Zeitplan und wird nicht automatisch gesichert.} other {# Rechner sind in Jobs ohne Zeitplan und werden nicht automatisch gesichert.}}",
+      "share": "{count, plural, one {# Freigabe ist in einem Job ohne Zeitplan und wird nicht automatisch gesichert.} other {# Freigaben sind in Jobs ohne Zeitplan und werden nicht automatisch gesichert.}}",
+      "copy": "{count, plural, one {# Kopierjob hat keinen Zeitplan und läuft nur, wenn ihn jemand startet.} other {# Kopierjobs haben keinen Zeitplan und laufen nur, wenn sie jemand startet.}}"
     }
   },
   "state": {
@@ -158,14 +170,18 @@
       "imap": "{count, plural, one {# IMAP-Konto} other {# IMAP-Konten}}",
       "server": "{count, plural, one {# Server} other {# Server}}",
       "client": "{count, plural, one {# Client} other {# Clients}}",
-      "other": "{count, plural, one {# weiteres} other {# weitere}}"
+      "other": "{count, plural, one {# weiteres} other {# weitere}}",
+      "smb": "{count, plural, one {# SMB-Freigabe} other {# SMB-Freigaben}}",
+      "nfs": "{count, plural, one {# NFS-Freigabe} other {# NFS-Freigaben}}"
     },
     "kindNames": {
       "mailbox": "Postfach",
       "onedrive": "OneDrive",
       "imap": "IMAP-Konto",
       "server": "Server",
-      "client": "Client"
+      "client": "Client",
+      "smb": "SMB-Freigabe",
+      "nfs": "NFS-Freigabe"
     },
     "nothing": "Noch nichts",
     "allLine": "Alles, was in keinem anderen Job ist, auch Neues",
@@ -198,11 +214,15 @@
     },
     "table": {
       "mail": "Objekte des Jobs",
-      "endpoint": "Rechner des Jobs"
+      "endpoint": "Rechner des Jobs",
+      "share": "Freigaben des Jobs",
+      "copy": "Freigaben der Kopie"
     },
     "search": {
       "mail": "Nach Name oder Adresse suchen",
-      "endpoint": "Nach Rechnernamen suchen"
+      "endpoint": "Nach Rechnernamen suchen",
+      "share": "Nach Name oder Ort suchen",
+      "copy": "Nach Name oder Ort suchen"
     },
     "loadError": "Die Objekte dieses Jobs konnten nicht geladen werden",
     "actions": {
@@ -213,27 +233,36 @@
     "empty": {
       "title": {
         "mail": "Noch keine Objekte in diesem Job",
-        "endpoint": "Noch keine Rechner in diesem Job"
+        "endpoint": "Noch keine Rechner in diesem Job",
+        "share": "Noch keine Freigaben in diesem Job",
+        "copy": "Keine Freigabe gewählt"
       },
       "description": {
         "mail": "Fügen Sie die Postfächer, OneDrives und IMAP-Konten hinzu, die dieser Job sichern soll.",
-        "endpoint": "Fügen Sie die Server und Clients hinzu, die dieser Job verwalten soll."
+        "endpoint": "Fügen Sie die Server und Clients hinzu, die dieser Job verwalten soll.",
+        "share": "Fügen Sie die Freigaben, die dieser Job sichern soll, im Editor des Jobs hinzu.",
+        "copy": "Wählen Sie Quelle und Ziel im Editor des Jobs."
       }
     },
     "remove": {
       "title": "{name} aus dem Job entfernen?",
       "description": {
         "mail": "Es wird nicht mehr von {job} gesichert. Ohne einen anderen Job wird es nicht nach Zeitplan gesichert.",
-        "endpoint": "Er verlässt {job} und wird nicht mehr gesichert, bis Sie ihn einem anderen Job hinzufügen. Seine Ordner und Einstellungen bleiben für den nächsten Job stehen."
+        "endpoint": "Er verlässt {job} und wird nicht mehr gesichert, bis Sie ihn einem anderen Job hinzufügen. Seine Ordner und Einstellungen bleiben für den nächsten Job stehen.",
+        "share": "Sie verlässt {job} und wird nicht mehr gesichert, bis Sie sie einem anderen Job hinzufügen. Ihre Sicherungsstände bleiben erhalten.",
+        "copy": "{job} kopiert nichts mehr."
       },
       "confirm": "Aus dem Job entfernen"
-    }
+    },
+    "copyRoute": "{source} nach {target}, Ordner {folder}"
   },
   "overrides": {
     "title": "Abweichungen von {name}",
     "description": {
       "mail": "Was dieses Objekt anders macht als {job}. Alles, was aus bleibt, folgt dem Job.",
-      "endpoint": "Was dieser Rechner anders macht als {job}. Alles, was aus bleibt, folgt dem Job."
+      "endpoint": "Was dieser Rechner anders macht als {job}. Alles, was aus bleibt, folgt dem Job.",
+      "share": "Die Ordner dieser Freigabe wählen Sie im Editor des Jobs.",
+      "copy": "Ein Kopierjob hat keine eigenen Einstellungen je Freigabe."
     },
     "save": "Abweichungen speichern",
     "groups": {
@@ -284,11 +313,15 @@
   "addMembers": {
     "title": {
       "mail": "Objekte hinzufügen",
-      "endpoint": "Rechner hinzufügen"
+      "endpoint": "Rechner hinzufügen",
+      "share": "Freigaben hinzufügen",
+      "copy": "Freigaben hinzufügen"
     },
     "description": {
       "mail": "Wählen Sie die Objekte, die {job} umfassen soll. Ein Objekt, das in einem anderen Job ist, wird erst nach Ihrer Bestätigung übernommen.",
-      "endpoint": "Wählen Sie die Rechner, die {job} verwalten soll. Ein Rechner, der in einem anderen Job ist, wird erst nach Ihrer Bestätigung übernommen."
+      "endpoint": "Wählen Sie die Rechner, die {job} verwalten soll. Ein Rechner, der in einem anderen Job ist, wird erst nach Ihrer Bestätigung übernommen.",
+      "share": "Wählen Sie die Freigaben, die {job} sichern soll. Eine Freigabe, die in einem anderen Job ist, wird erst nach Ihrer Bestätigung übernommen.",
+      "copy": "Ein Kopierjob kopiert eine Freigabe; ändern Sie sie im Editor von {job}."
     },
     "submit": "Hinzufügen",
     "submitSome": "{count} Ausgewählte hinzufügen"
@@ -331,7 +364,9 @@
     "restoreChecksNote": "Eine Sicherung gilt als wiederherstellbar, sobald eine Restore-Prüfung es belegt hat. Grün heißt: Jedes Objekt hat bestanden.",
     "showScope": {
       "mail": "Objekte anzeigen",
-      "endpoint": "Rechner anzeigen"
+      "endpoint": "Rechner anzeigen",
+      "share": "Freigaben anzeigen",
+      "copy": "Quelle und Ziel anzeigen"
     }
   },
   "settings": {
@@ -361,7 +396,9 @@
     },
     "kinds": {
       "mail": "Mail & SaaS",
-      "endpoint": "Server und Clients"
+      "endpoint": "Server und Clients",
+      "share": "Freigaben",
+      "copy": "Kopie einer Freigabe"
     },
     "scopeMode": {
       "all": "Alles, was in keinem anderen Job ist",
@@ -376,7 +413,11 @@
     "hooksHidden": "Gesetzt, für Ihre Rolle verborgen.",
     "restoreCheckOff": "Aus: Für diesen Job laufen keine Restore-Prüfungen.",
     "windowsNone": "Keine",
-    "windowsZone": "Gelesen in {zone}. Ein Limit gilt ab dem Start eines Laufs."
+    "windowsZone": "Gelesen in {zone}. Ein Limit gilt ab dem Start eines Laufs.",
+    "shareRepository": "Ein eigenes restic-Repository je Freigabe, im primären Repository des Mandanten",
+    "on": "An",
+    "off": "Aus",
+    "automatic": "Automatisch"
   },
   "runs": {
     "table": "Läufe des Jobs",
@@ -402,7 +443,8 @@
       "source_pending": "{count, plural, one {# wartet darauf, dass seine Quelle verbunden wird.} other {# warten darauf, dass ihre Quelle verbunden wird.}}",
       "source_disabled": "{count, plural, one {# hat eine ausgeschaltete Quelle.} other {# haben eine ausgeschaltete Quelle.}}",
       "revoked": "{count, plural, one {# Rechner ist gesperrt.} other {# Rechner sind gesperrt.}}",
-      "not_in_job": "{count, plural, one {# ist nicht in diesem Job.} other {# sind nicht in diesem Job.}}"
+      "not_in_job": "{count, plural, one {# ist nicht in diesem Job.} other {# sind nicht in diesem Job.}}",
+      "retired": "{count, plural, one {# Freigabe ist stillgelegt.} other {# Freigaben sind stillgelegt.}}"
     }
   },
   "toasts": {
@@ -413,7 +455,9 @@
     "resumed": "{name} fortgesetzt",
     "runQueued": {
       "mail": "{count, plural, one {# Sicherung von {name} eingereiht} other {# Sicherungen von {name} eingereiht}}",
-      "endpoint": "{count, plural, one {Sicherung bei # Rechner angefordert} other {Sicherung bei # Rechnern angefordert}}"
+      "endpoint": "{count, plural, one {Sicherung bei # Rechner angefordert} other {Sicherung bei # Rechnern angefordert}}",
+      "share": "{count, plural, one {Sicherung von # Freigabe eingeplant} other {Sicherungen von # Freigaben eingeplant}}",
+      "copy": "{count, plural, one {Kopie von {name} eingeplant} other {# Kopien von {name} eingeplant}}"
     },
     "runQueuedNote": {
       "endpoint": "Der Rechner startet sie bei seinem nächsten Kontakt, meist innerhalb weniger Minuten."
@@ -421,7 +465,9 @@
     "runWaiting": {
       "title": "Wartet bereits",
       "endpoint": "{count, plural, one {Eine Sicherung wartet auf den Rechner und startet bei seinem nächsten Kontakt.} other {Sicherungen warten auf die Rechner und starten bei deren nächstem Kontakt.}}",
-      "mail": "{count, plural, one {Die Sicherung wartet bereits auf den Start oder läuft gerade.} other {Alle # Sicherungen warten bereits auf den Start oder laufen gerade.}}"
+      "mail": "{count, plural, one {Die Sicherung wartet bereits auf den Start oder läuft gerade.} other {Alle # Sicherungen warten bereits auf den Start oder laufen gerade.}}",
+      "share": "{count, plural, one {Die Sicherung wartet bereits auf den Start oder läuft gerade.} other {Alle # Sicherungen warten bereits auf den Start oder laufen gerade.}}",
+      "copy": "{count, plural, one {Die Kopie wartet bereits auf den Start oder läuft gerade.} other {Alle # Kopien warten bereits auf den Start oder laufen gerade.}}"
     },
     "runNothing": "Für {name} wurde nichts gestartet",
     "failed": "Das hat nicht geklappt",
@@ -429,7 +475,9 @@
     "removed": "{name} aus dem Job entfernt",
     "added": {
       "mail": "{count, plural, one {# Objekt zu {name} hinzugefügt} other {# Objekte zu {name} hinzugefügt}}",
-      "endpoint": "{count, plural, one {# Rechner zu {name} hinzugefügt} other {# Rechner zu {name} hinzugefügt}}"
+      "endpoint": "{count, plural, one {# Rechner zu {name} hinzugefügt} other {# Rechner zu {name} hinzugefügt}}",
+      "share": "{count, plural, one {# Freigabe zu {name} hinzugefügt} other {# Freigaben zu {name} hinzugefügt}}",
+      "copy": "{count, plural, one {# Freigabe zu {name} hinzugefügt} other {# Freigaben zu {name} hinzugefügt}}"
     }
   },
   "pause": {
@@ -442,7 +490,9 @@
     "empty": "Der Job umfasst im Moment nichts.",
     "impact": {
       "mail": "{scope} werden nicht mehr nach Zeitplan gesichert, bis ein anderer Job sie übernimmt.",
-      "endpoint": "{scope} verlassen den Job und werden nicht mehr gesichert, bis ein anderer Job sie aufnimmt."
+      "endpoint": "{scope} verlassen den Job und werden nicht mehr gesichert, bis ein anderer Job sie aufnimmt.",
+      "share": "{scope} verlassen den Job und werden nicht mehr gesichert, bis ein anderer Job sie aufnimmt. Ihre Sicherungsstände bleiben erhalten.",
+      "copy": "Es wird nichts mehr kopiert. Was bereits kopiert wurde, bleibt im Zielordner."
     },
     "after": "Der Job und seine Einstellungen lassen sich nicht zurückholen.",
     "confirm": "Job löschen",
@@ -455,16 +505,22 @@
   "picker": {
     "search": {
       "mail": "Nach Name oder Adresse suchen",
-      "endpoint": "Nach Rechnernamen suchen"
+      "endpoint": "Nach Rechnernamen suchen",
+      "share": "Nach Name oder Ort suchen",
+      "copy": "Nach Name oder Ort suchen"
     },
     "showSelected": "Ausgewählt ({count})",
     "table": {
       "mail": "Objekte zur Auswahl",
-      "endpoint": "Rechner zur Auswahl"
+      "endpoint": "Rechner zur Auswahl",
+      "share": "Freigaben zur Auswahl",
+      "copy": "Freigaben zur Auswahl"
     },
     "empty": {
       "mail": "Kein Objekt passt.",
-      "endpoint": "Kein Rechner passt."
+      "endpoint": "Kein Rechner passt.",
+      "share": "Keine Freigabe passt.",
+      "copy": "Keine Freigabe passt."
     },
     "noneSelected": "Noch nichts ausgewählt.",
     "selectAll": "Alle angezeigten auswählen",
@@ -489,12 +545,16 @@
   "editor": {
     "createTitle": {
       "mail": "Neuer Mail-Job",
-      "endpoint": "Neuer Job für Server oder Clients"
+      "endpoint": "Neuer Job für Server oder Clients",
+      "share": "Neuer Job für Freigaben",
+      "copy": "Neuer Kopierjob"
     },
     "editTitle": "{name} bearbeiten",
     "description": {
       "mail": "Legen Sie fest, was gesichert wird, wann, und wie Restore-Prüfungen es belegen.",
-      "endpoint": "Legen Sie fest, welche Rechner wann gesichert werden, welche Ordner und was ausgelassen wird."
+      "endpoint": "Legen Sie fest, welche Rechner wann gesichert werden, welche Ordner und was ausgelassen wird.",
+      "share": "Wählen Sie die Freigaben und ihre Ordner, wann sie gesichert werden und was ausgelassen wird.",
+      "copy": "Wählen Sie die Freigabe, von der kopiert wird, wohin und wie."
     },
     "loading": "Der Editor wird geladen",
     "loadError": "Der Editor konnte nicht geladen werden",
@@ -503,11 +563,15 @@
       "name": "Name",
       "nameHint": {
         "mail": "Erscheint in der Liste, im Verlauf und in Alarmen.",
-        "endpoint": "Erscheint in der Liste, im Inventar und in Alarmen."
+        "endpoint": "Erscheint in der Liste, im Inventar und in Alarmen.",
+        "share": "Erscheint in der Liste, auf den Seiten der Freigaben und in Warnungen.",
+        "copy": "Erscheint in der Liste, auf den Seiten der Freigaben und in Warnungen."
       },
       "namePlaceholder": {
         "mail": "z. B. Geschäftsführung, stündlich",
-        "endpoint": "z. B. Server, stündlich"
+        "endpoint": "z. B. Server, stündlich",
+        "share": "z. B. Dateiserver, nachts",
+        "copy": "z. B. Projekte zum zweiten Standort"
       },
       "enabled": "Eingeschaltet",
       "enabledHint": "Ausgeschaltet behält der Job seine Einstellungen, läuft aber nicht."
@@ -515,11 +579,15 @@
     "scope": {
       "title": {
         "mail": "Objekte",
-        "endpoint": "Rechner"
+        "endpoint": "Rechner",
+        "share": "Freigaben",
+        "copy": "Quelle und Ziel"
       },
       "description": {
         "mail": "Welche Postfächer, OneDrives und IMAP-Konten dieser Job sichert.",
-        "endpoint": "Welche Server und Clients dieser Job verwaltet. Ein Rechner ist immer nur in einem Job."
+        "endpoint": "Welche Server und Clients dieser Job verwaltet. Ein Rechner ist immer nur in einem Job.",
+        "share": "Welche Freigaben dieser Job sichert. Eine Freigabe ist immer nur in einem Job.",
+        "copy": "Die Freigabe, von der kopiert wird, und die, in die kopiert wird."
       },
       "mode": "Was der Job umfasst",
       "all": "Alle Objekte, die in keinem anderen Job sind",
@@ -724,7 +792,8 @@
     "note": "Der Server wendet diese Regeln an und entfernt ältere Sicherungsstände; der Agent kann Sicherungen nur hinzufügen, nie löschen. Wer eine Zahl senkt, entfernt beim nächsten Aufbewahrungslauf ältere Sicherungsstände endgültig.",
     "tenantDefault": "Standard des Mandanten",
     "tenantDefaultNamed": "Standard des Mandanten ({name})",
-    "keep": "Täglich {keepDaily}, wöchentlich {keepWeekly}, monatlich {keepMonthly}"
+    "keep": "Täglich {keepDaily}, wöchentlich {keepWeekly}, monatlich {keepMonthly}",
+    "copy": "Keine: das Ziel enthält nur den neuesten Stand"
   },
   "repository": {
     "installationDefault": "Standard-Repository der Installation",
@@ -752,7 +821,9 @@
     },
     "kinds": {
       "mail": "Mail & SaaS",
-      "endpoint": "Server und Clients"
+      "endpoint": "Server und Clients",
+      "share": "Freigaben",
+      "copy": "Kopien von Freigaben"
     }
   },
   "problems": {
@@ -788,6 +859,13 @@
         "kbps": "Geben Sie eine ganze Zahl in kbit/s von 0 (unbegrenzt) bis {max} ein.",
         "overlap": "Dieses Zeitfenster überschneidet sich mit Zeitfenster {other}. Lassen Sie eines dort enden, wo das andere beginnt.",
         "tooMany": "Ein Job kann höchstens {max} Zeitfenster haben."
+      },
+      "cron": "Geben Sie einen Cron-Ausdruck mit fünf Feldern ein, zum Beispiel 0 22 * * 1-5.",
+      "fileType": "Geben Sie Dateitypen aus Buchstaben und Ziffern ein, zum Beispiel iso oder bak.",
+      "copy": {
+        "sameShare": "Wählen Sie ein anderes Ziel als die Quelle.",
+        "folderInvalid": "Der Ordner darf . oder .. nicht als Teil enthalten.",
+        "mirrorRoot": "Eine Spiegelung löscht, was die Quelle nicht hat, und braucht deshalb einen Ordner. Geben Sie einen ein."
       }
     },
     "server": {
@@ -811,5 +889,123 @@
     "state": "Der Job ist nicht in einem Zustand, der das erlaubt.",
     "allJobExists": "Ein anderer Job deckt bereits alle Objekte ab, die in keinem anderen Job sind. Ein Mandant hat einen solchen Job.",
     "invalid": "Der Job lässt sich so nicht speichern."
+  },
+  "shareEditor": {
+    "enabled": "Eingeschaltet",
+    "shares": {
+      "title": "Freigaben",
+      "description": "Welche Freigaben dieser Job sichert und welche ihrer Ordner. Eine Freigabe ist immer nur in einem Job.",
+      "none": "Noch keine Freigaben. Fügen Sie zuerst unter Freigaben eine hinzu.",
+      "pick": "{name} auswählen",
+      "inJob": "In {job}",
+      "folders": "Ordner",
+      "everything": "alles",
+      "everythingAction": "Alles sichern",
+      "pickFolders": "Ordner wählen",
+      "donePicking": "Fertig"
+    },
+    "schedule": {
+      "title": "Zeitplan",
+      "on": "Nach Zeitplan ausführen",
+      "manual": "Ohne Zeitplan läuft der Job nur, wenn ihn jemand startet.",
+      "check": "Jeder neue Sicherungsstand wird direkt nach der Sicherung geprüft. Einen eigenen Zeitplan für Restore-Prüfungen gibt es nicht.",
+      "kind": "Wie oft",
+      "kinds": {
+        "daily": "Jeden Tag",
+        "interval": "Alle paar Stunden",
+        "cron": "Cron-Ausdruck"
+      },
+      "time": "Uhrzeit",
+      "hours": "Alle wie viele Stunden",
+      "hoursHint": "Höchstens einmal pro Stunde.",
+      "cron": "Cron-Ausdruck",
+      "cronHint": "Fünf Felder: Minute, Stunde, Tag des Monats, Monat, Wochentag.",
+      "zone": "Zeitzone"
+    },
+    "retention": {
+      "title": "Aufbewahrung",
+      "description": "Wie viele Sicherungsstände jede Freigabe behält.",
+      "keepDaily": "Tägliche Sicherungsstände",
+      "keepWeekly": "Wöchentliche Sicherungsstände",
+      "keepMonthly": "Monatliche Sicherungsstände"
+    },
+    "exclusions": {
+      "title": "Ausnahmen",
+      "preset": "Temporäre und Systemdateien auslassen",
+      "patterns": "Eigene Muster",
+      "patternsHint": "Ein Muster pro Zeile, zum Beispiel *.bak oder Archiv/Alt.",
+      "fileTypes": "Dateitypen auslassen",
+      "removeType": ".{ext} entfernen",
+      "addType": "Hinzufügen",
+      "fileTypesHint": "Geben Sie einen Dateityp ein und drücken Sie die Eingabetaste.",
+      "larger": "Dateien auslassen, die größer sind als",
+      "largerGb": "Größe in GB",
+      "offline": "Offline-Dateien zurückholen",
+      "offlineHint": "Dateien, die auf langsameren Speicher verschoben wurden (Tiering, Cloud-Synchronisation), werden ausgelassen, solange dies aus ist. Beim Lesen werden sie zuerst auf den Server zurückgeholt."
+    },
+    "transfer": {
+      "title": "Lesen und Bandbreite",
+      "description": "Verhindert, dass Sicherungen das Netz oder den Dateiserver auslasten.",
+      "bandwidth": "Upload-Limit (kbit/s)",
+      "bandwidthHint": "Leer für kein Limit.",
+      "concurrency": "Parallele Lesevorgänge",
+      "concurrencyHint": "Von 1 bis 16. Leer für den Standard der Installation."
+    }
+  },
+  "copyEditor": {
+    "notBackup": "Keine Sicherung: keine Versionen am Ziel",
+    "into": "nach",
+    "retired": "Eine Freigabe dieser Kopie ist stillgelegt",
+    "lastCopied": "Zuletzt kopiert {when}",
+    "neverCopied": "Noch nichts kopiert",
+    "latestOnly": "Jeder Lauf kopiert den neuesten Sicherungsstand der Quelle. Das Ziel behält keine früheren Stände.",
+    "rules": {
+      "same_share": "Quelle und Ziel sind derselbe Ort. Eine Kopie schreibt nie in die Freigabe, die sie kopiert.",
+      "share_root": "Eine Spiegelung löscht, was die Quelle nicht hat, und schreibt deshalb nie in das Stammverzeichnis einer Freigabe. Wählen Sie einen Ordner.",
+      "retired": "Von einer stillgelegten Freigabe und in eine stillgelegte Freigabe wird nicht kopiert.",
+      "restore_not_allowed": "Das Ziel erlaubt keine Wiederherstellung. Schalten Sie zuerst in seinen Einstellungen „Wiederherstellung in diese Freigabe erlauben“ ein.",
+      "unsafe": "Diese Kopie ist nicht zulässig."
+    },
+    "confirm": {
+      "title": "Spiegelung bestätigen",
+      "notEmpty": "{count, plural, one {Der Ordner {folder} auf {share} ist nicht leer (# Eintrag).} other {Der Ordner {folder} auf {share} ist nicht leer (# Einträge).}} Eine Spiegelung löscht darin alles, was nicht in der Quelle ist.",
+      "unreadable": "Der Ordner {folder} auf {share} konnte nicht gelesen werden. Eine Spiegelung löscht darin alles, was nicht in der Quelle ist.",
+      "type": "Geben Sie zur Bestätigung {folder} ein",
+      "action": "In diesen Ordner spiegeln"
+    },
+    "where": {
+      "title": "Quelle und Ziel",
+      "description": "Ziel kann nur eine Freigabe sein, die Wiederherstellungen in sich erlaubt.",
+      "source": "Kopieren von",
+      "target": "Kopieren nach",
+      "targetHint": "Eine Freigabe, bei der „Wiederherstellung in diese Freigabe erlauben“ eingeschaltet ist.",
+      "pick": "Freigabe wählen",
+      "noTargets": "Noch keine Freigabe erlaubt Wiederherstellungen. Schalten Sie in den Einstellungen einer Freigabe „Wiederherstellung in diese Freigabe erlauben“ ein.",
+      "folder": "Zielordner",
+      "folderHint": "Relativ zum Stammverzeichnis des Ziels. Er wird angelegt, wenn es ihn nicht gibt.",
+      "browse": "Durchsuchen"
+    },
+    "mode": {
+      "title": "Wie kopiert wird",
+      "overwrite": {
+        "label": "Überschreiben",
+        "description": "Dateien der Quelle ersetzen gleichnamige. Alles andere im Zielordner bleibt unberührt."
+      },
+      "mirror": {
+        "label": "Spiegeln",
+        "description": "Der Zielordner wird gleich der Quelle: was die Quelle nicht hat, wird gelöscht."
+      },
+      "mirrorWarning": "Eine Spiegelung löscht Dateien im Zielordner. Sie läuft nicht, wenn der neueste Sicherungsstand leer ist oder weniger als die Hälfte der Dateien der letzten Kopie hat."
+    },
+    "permissions": "Berechtigungen mitkopieren",
+    "permissionsHint": "Nur sinnvoll, wenn beide Dateiserver dieselben Konten kennen.",
+    "verify": "Geschriebene Dateien prüfen",
+    "verifyHint": "Liest jede Datei nach dem Schreiben zurück. Langsamer; bei NFS-Zielen standardmäßig an.",
+    "anyway": {
+      "action": "Trotzdem kopieren",
+      "title": "{name} trotzdem kopieren?",
+      "description": "Die Kopie läuft auch, wenn der neueste Sicherungsstand leer ist oder weniger als die Hälfte der Dateien der letzten Kopie hat. Bei einer Spiegelung werden Dateien, die die Quelle nicht mehr hat, aus dem Zielordner gelöscht.",
+      "confirm": "Trotzdem kopieren"
+    }
   }
 }

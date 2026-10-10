@@ -20,6 +20,7 @@ const SKIP_REASONS: readonly SkipReason[] = [
   "source_pending",
   "source_disabled",
   "revoked",
+  "retired",
   "not_in_job",
 ];
 
@@ -44,9 +45,17 @@ export function useJobActions(options: { onDeleted?: (job: BackupJob) => void } 
   );
 
   const runNow = React.useCallback(
-    (job: Pick<BackupJob, "id" | "kind" | "name">, targetIds?: string[]) => {
+    (
+      job: Pick<BackupJob, "id" | "kind" | "name">,
+      targetIds?: string[],
+      options: { force?: boolean } = {},
+    ) => {
       run.mutate(
-        { jobId: job.id, ...(targetIds ? { targetIds } : {}) },
+        {
+          jobId: job.id,
+          ...(targetIds ? { targetIds } : {}),
+          ...(options.force && job.kind === "copy" ? { force: true } : {}),
+        },
         {
           onSuccess: (result: RunBackupJobResult) => {
             const skipped = SKIP_REASONS.map((reason) => ({
@@ -167,7 +176,7 @@ export function DeleteJobDialog({
                 ? t("delete.empty")
                 : t(`delete.impact.${job.kind}`, {
                     count: job.scope.count,
-                    scope: describeScope(job.scope, job.kind, t),
+                    scope: describeScope(job.scope, job.kind, t, job.copy),
                   })}
             </p>
             <p data-slot="delete-restore-points">

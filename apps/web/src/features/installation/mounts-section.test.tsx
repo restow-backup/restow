@@ -101,6 +101,23 @@ function routes(overrides: Record<string, () => Response> = {}) {
   return routedFetch({
     "GET /settings": () => json(SETTINGS),
     "GET /mounts": () => json(view()),
+    "GET /file-shares/installation-settings": () =>
+      json({
+        settings: {
+          maxConcurrentRunners: 2,
+          runnerMemoryMiB: 2048,
+          goMemLimitPercent: 80,
+          maxRunHours: 72,
+          defaultReadConcurrency: 4,
+          tenantsMayUsePrivateNetworks: false,
+          defaultShareQuotaGib: 0,
+          tenantShareQuotaGib: 0,
+          tenantShareQuotaGibByTenant: {},
+          catalog: { enabled: true, maxEntriesPerShare: 20000000 },
+        },
+        runner: { available: true, ready: true, blockers: [], running: 0, limit: 8 },
+        enableCommand: "docker compose --profile mounts up -d mounter",
+      }),
     ...overrides,
   });
 }

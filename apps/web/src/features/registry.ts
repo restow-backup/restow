@@ -5,6 +5,7 @@ import * as backupJobs from "@/features/backup-jobs";
 import * as directory from "@/features/directory";
 import * as endpoints from "@/features/endpoints";
 import * as mailExports from "@/features/exports";
+import * as fileShares from "@/features/file-shares";
 import * as history from "@/features/history";
 import * as mailImports from "@/features/imports";
 import * as installation from "@/features/installation";
@@ -55,6 +56,7 @@ const features = [
   mailExports,
   endpoints,
   pve,
+  fileShares,
   tenants,
   tenantPage,
   directory,
@@ -83,7 +85,7 @@ interface Placement {
  *
  *   Daily                Overview, History, Warnings, Recovery readiness, Alerts
  *   Mail & SaaS          Jobs, Restore explorer, Archive, Exports
- *   Servers & endpoints  Jobs, Inventory, File restore
+ *   Servers & endpoints  Jobs, Inventory, VMs & containers, File shares, File restore
  *   Tenants              Tenant settings, All tenants (tenant management);
  *   (Organisation)       "Settings" instead of "Tenant settings" and no
  *                        "Tenants" wording where the installation has one
@@ -118,6 +120,7 @@ const NAV_PLACEMENT: Readonly<Record<string, Placement>> = {
   "endpoint-jobs": { group: "endpoints", order: 10 },
   inventory: { group: "endpoints", order: 20 },
   virtualization: { group: "endpoints", order: 25 },
+  "file-shares": { group: "endpoints", order: 27 },
   "file-restore": { group: "endpoints", order: 30 },
   "tenant-settings": { group: "tenants", order: 10 },
   "organisation-settings": { group: "tenants", order: 10 },

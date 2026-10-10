@@ -1,0 +1,556 @@
+{
+  "nav": {
+    "label": "Freigaben"
+  },
+  "list": {
+    "title": "Freigaben",
+    "description": "SMB-Freigaben und NFS-Exporte von Dateiservern und NAS-Geräten, gesichert mit ihren Berechtigungen. Jeder neue Sicherungsstand wird geprüft.",
+    "refresh": "Freigaben aktualisieren",
+    "jobs": "Jobs",
+    "copyJobs": "Kopierjobs",
+    "add": "Freigabe hinzufügen",
+    "loadError": "Die Freigaben konnten nicht geladen werden",
+    "noTenant": {
+      "title": "Wählen Sie einen Mandanten",
+      "description": "Freigaben gehören zu einem Mandanten. Wählen Sie oben einen, um seine Freigaben zu sehen."
+    },
+    "empty": {
+      "title": "Noch keine Freigaben",
+      "description": "Fügen Sie eine SMB-Freigabe oder einen NFS-Export hinzu. Die Verbindung wird vor dem Speichern getestet."
+    },
+    "counts": "{total, plural, one {# Freigabe} other {# Freigaben}}: {protected} geschützt, {withoutJob} ohne Job, {failed} fehlgeschlagen",
+    "columns": {
+      "name": "Freigabe",
+      "state": "Status",
+      "readiness": "Restore-Prüfung",
+      "lastBackup": "Letzte Sicherung",
+      "job": "Job"
+    },
+    "never": "Nie",
+    "noJob": "Kein Job",
+    "passwordRefused": "Das Passwort wurde abgelehnt",
+    "showRetired": "{count, plural, one {# stillgelegte Freigabe anzeigen} other {# stillgelegte Freigaben anzeigen}}"
+  },
+  "standing": {
+    "retired": "Stillgelegt",
+    "failed": "Fehlgeschlagen",
+    "running": "Läuft",
+    "overdue": "Überfällig",
+    "warning": "Mit Warnungen",
+    "no_job": "In keinem Job",
+    "no_backup": "Noch keine Sicherung",
+    "ok": "Geschützt"
+  },
+  "readiness": {
+    "green": "Bereit",
+    "yellow": "Prüfung überfällig",
+    "red": "Nicht wiederherstellbar",
+    "unverified": "Nicht nachgewiesen",
+    "no_backup": "Noch keine Sicherung"
+  },
+  "protocol": {
+    "smb": "SMB",
+    "nfs": "NFS"
+  },
+  "mounter": {
+    "offTitle": "Netzlaufwerke sind nicht eingeschaltet",
+    "blockedTitle": "Läufe für Freigaben können nicht starten",
+    "tenant": "Diese Installation sichert noch keine Freigaben. Ihr Anbieter kann das einschalten.",
+    "provider": "Eine Inhaberin oder ein Inhaber der Installation kann Netzlaufwerke einschalten.",
+    "owner": "Freigaben werden vom Mounter eingebunden, der nicht läuft. Führen Sie auf dem Server diesen Befehl aus, um ihn zu starten:",
+    "blockedOwner": "Der Mounter läuft, kann aber noch keine Läufe starten:",
+    "copy": "Befehl kopieren",
+    "commandHint": "Führen Sie ihn als root im Installationsordner aus. Das Einschalten über diese Seite folgt mit einer späteren Version."
+  },
+  "add": {
+    "title": "Freigabe hinzufügen",
+    "description": "Verbinden Sie eine SMB-Freigabe oder einen NFS-Export. Die Verbindung wird vor dem Speichern getestet; das Passwort wird verschlüsselt gespeichert.",
+    "steps": {
+      "label": "Schritte",
+      "protocol": "Protokoll",
+      "connection": "Verbindung",
+      "test": "Test",
+      "options": "Optionen"
+    },
+    "protocol": {
+      "label": "Protokoll",
+      "smb": {
+        "title": "SMB (Windows, Samba, NAS)",
+        "description": "Eine Freigabe eines Windows-Servers, von Samba oder eines NAS, mit einem Konto, das sie und ihre Berechtigungen lesen darf."
+      },
+      "nfs": {
+        "title": "NFS",
+        "description": "Ein Export eines Linux-Servers oder NAS. Der Export muss die Adresse dieses Servers und root-Zugriff (no_root_squash) erlauben, damit alles gelesen werden kann."
+      }
+    },
+    "fields": {
+      "server": "Server",
+      "share": "Freigabename",
+      "export": "Export",
+      "subfolder": "Unterordner",
+      "account": "Konto",
+      "domain": "Domäne",
+      "password": "Passwort",
+      "smbVersion": "SMB-Version",
+      "seal": "Verbindung verschlüsseln",
+      "nfsVersion": "NFS-Version",
+      "name": "Name",
+      "permissions": "Berechtigungen sichern",
+      "allowRestore": "Wiederherstellung in diese Freigabe erlauben"
+    },
+    "hints": {
+      "server": "Hostname oder IP-Adresse, ohne \\\\ oder smb://.",
+      "share": "Der Name der Freigabe, zum Beispiel Projekte.",
+      "export": "Der exportierte Pfad, zum Beispiel /volume1/daten.",
+      "subfolder": "Optional: nur diesen Ordner der Freigabe sichern.",
+      "account": "Zum Beispiel backup oder DOMÄNE\\backup. Lesezugriff auf alle Dateien genügt.",
+      "domain": "Optional; kann auch vor das Konto geschrieben werden.",
+      "seal": "SMB-3-Verschlüsselung. Nötig, wenn der Server sie verlangt.",
+      "name": "Erscheint in der Liste, in Jobs und in Warnungen.",
+      "permissions": "Speichert die NTFS- oder NFS-Berechtigungen jeder Datei und jedes Ordners, damit eine Wiederherstellung sie zurückschreibt.",
+      "allowRestore": "Standardmäßig aus. Eingeschaltet dürfen Wiederherstellungen und Kopien in diese Freigabe schreiben."
+    },
+    "errors": {
+      "required": "Geben Sie einen Wert ein.",
+      "serverNoProtocol": "Geben Sie den Server ohne \\\\ oder ein Protokoll wie smb:// ein.",
+      "serverInvalid": "Geben Sie einen Hostnamen oder eine IP-Adresse ein.",
+      "shareInvalid": "Ein Freigabename hat höchstens 80 Zeichen und keines von \\ / : * ? \" < > |.",
+      "subfolderInvalid": "Geben Sie einen Ordnerpfad ohne . oder .. als Teil ein.",
+      "accountInvalid": "Das Konto darf weder , noch = noch / enthalten.",
+      "domainInvalid": "Geben Sie eine Domäne wie CORP oder corp.example.com ein.",
+      "passwordTooLong": "Das Passwort darf höchstens 256 Byte haben.",
+      "passwordControl": "Das Passwort darf keine Steuerzeichen enthalten.",
+      "passwordMountFlag": "Ein Teil des Passworts zwischen Kommas entspricht einer Mount-Option (etwa ro oder exec). Ein solches Passwort lässt sich nicht verwenden.",
+      "sealNeedsSmb3": "Verschlüsselung braucht SMB 3."
+    },
+    "smbVersions": {
+      "3_1_1": "3.1.1 (empfohlen)",
+      "3_0": "3.0",
+      "2_1": "2.1 (veraltet, ohne Verschlüsselung)"
+    },
+    "nfsVersion": "NFS {version}",
+    "private": {
+      "title": "Adresse in einem privaten Netz",
+      "provider": "Der Server liegt in einem privaten Netz. Als Administrator des Anbieters können Sie diese Freigabe nach dem Speichern in ihren Einstellungen freigeben.",
+      "allowed": "Der Server liegt in einem privaten Netz. Diese Installation erlaubt dort Freigaben.",
+      "tenant": "Der Server liegt in einem privaten Netz. Ein Administrator des Anbieters muss diese Freigabe genehmigen, bevor sie gesichert werden kann."
+    },
+    "test": {
+      "location": "Ort:",
+      "run": "Verbindung testen",
+      "ok": "Verbunden mit {address}",
+      "permissions": {
+        "full": "Besitzer, Berechtigungen und Überwachungseinträge sind lesbar.",
+        "owner": "Besitzer und Berechtigungen sind lesbar.",
+        "dacl": "Nur Berechtigungen: der Besitzer ist mit diesem Konto nicht lesbar.",
+        "nfs": "NFS-Berechtigungen sind lesbar.",
+        "none": "Berechtigungen sind mit diesem Konto nicht lesbar. Dateien werden ohne sie gesichert."
+      },
+      "topLevel": "Ordner der obersten Ebene",
+      "topLevelOf": "Ordner in {folder}",
+      "empty": "Die Freigabe ist leer.",
+      "useFolder": "Als Unterordner verwenden",
+      "truncated": "Nur die ersten Ordner werden angezeigt.",
+      "hint": "Der Test bindet die Freigabe einmal ein, liest ihren obersten Ordner und trennt sie wieder."
+    },
+    "untested": {
+      "description": "Die Verbindung hat noch keinen Test bestanden. Sie können sie trotzdem speichern, etwa wenn der Server gerade offline ist.",
+      "confirm": "Ohne bestandenen Test speichern"
+    },
+    "next": "Weiter",
+    "back": "Zurück",
+    "cancel": "Abbrechen",
+    "save": "Freigabe speichern",
+    "saved": "Freigabe {name} hinzugefügt",
+    "job": {
+      "title": "{name} ist gespeichert. Welcher Job sichert sie?",
+      "description": "Eine Freigabe ohne Job wird nicht gesichert.",
+      "choose": "Job",
+      "folders": "Ordner",
+      "foldersHint": "Ohne Auswahl wird alles gesichert.",
+      "none": "Es gibt noch keinen Job für Freigaben.",
+      "later": "Später",
+      "newJob": "Neuer Job",
+      "add": "Zum Job hinzufügen",
+      "added": "{name} wurde dem Job hinzugefügt"
+    }
+  },
+  "picker": {
+    "path": "Ordnerpfad",
+    "root": "Stamm",
+    "rootFolder": "Das Stammverzeichnis der Freigabe",
+    "thisFolder": "Dieser Ordner: {path}",
+    "use": "Diesen Ordner verwenden",
+    "chosen": "Gewählt",
+    "noFolders": "Hier gibt es keine Ordner.",
+    "include": "{name} einschließen",
+    "truncated": "Nur die ersten Ordner werden angezeigt.",
+    "reading": "Die Ordner der Freigabe werden gelesen"
+  },
+  "detail": {
+    "back": "Freigaben",
+    "loadError": "Die Freigabe konnte nicht geladen werden",
+    "notFound": "Diese Freigabe gibt es nicht (mehr)",
+    "test": "Verbindung testen",
+    "testOk": "Die Verbindung funktioniert",
+    "testFailed": "Der Verbindungstest ist fehlgeschlagen. Die Übersicht nennt den Grund.",
+    "backupNow": "Jetzt sichern",
+    "backupQueued": "Sicherung von {name} eingeplant",
+    "backupWaiting": "Eine Sicherung von {name} wartet bereits oder läuft",
+    "smb21": "SMB 2.1: veraltet",
+    "restoreAllowed": "Wiederherstellung erlaubt",
+    "tabs": {
+      "label": "Freigabe",
+      "overview": "Übersicht",
+      "restore-points": "Sicherungsstände",
+      "runs": "Läufe",
+      "settings": "Einstellungen"
+    }
+  },
+  "overview": {
+    "credential": {
+      "title": "Das Passwort wurde abgelehnt",
+      "description": "Der Dateiserver hat das Passwort am {time} abgelehnt. Geben Sie unter Einstellungen das aktuelle ein; bis dahin schlagen Sicherungen fehl."
+    },
+    "emptyOnce": "Die leere Freigabe einmal sichern",
+    "progress": "Fortschritt",
+    "progressLine": "{files} von {totalFiles} Dateien, {bytes} von {totalBytes}",
+    "waiting": "Wartet auf einen freien Runner",
+    "showRuns": "Läufe anzeigen",
+    "phase": {
+      "prepare": "Wird vorbereitet",
+      "scan": "Ordner werden gelesen",
+      "backup": "Wird gesichert",
+      "restore": "Wird wiederhergestellt",
+      "permissions": "Berechtigungen werden wiederhergestellt",
+      "verify": "Wird geprüft",
+      "finalize": "Wird abgeschlossen"
+    },
+    "protection": {
+      "title": "Schutz",
+      "state": "Status",
+      "readiness": "Restore-Prüfung",
+      "checkedAt": "Geprüft {time}",
+      "job": "Job",
+      "noJob": "In keinem Job: wird nicht gesichert",
+      "folders": "Ordner",
+      "everything": "Alles",
+      "lastSuccess": "Letzte Sicherung",
+      "restorePoints": "Sicherungsstände",
+      "checkNow": "Restore-Prüfung jetzt starten",
+      "checkQueued": "Restore-Prüfung angefordert"
+    },
+    "repository": {
+      "title": "restic-Repository",
+      "description": "Das eigene restic-Repository der Freigabe im primären Repository des Mandanten.",
+      "notMeasured": "Noch nicht gemessen",
+      "used": "{used} belegt",
+      "usedOf": "{used} von {budget} belegt",
+      "tenant": "Alle Freigaben des Mandanten: {used} von {budget}",
+      "ok": "Im Rahmen des Budgets",
+      "near": "Nahe am Budget",
+      "exceeded": "Budget aufgebraucht: neue Sicherungen werden abgelehnt"
+    },
+    "connection": {
+      "title": "Verbindung",
+      "location": "Ort",
+      "protocol": "Protokoll",
+      "smb": "SMB {version} {seal}",
+      "sealed": "(verschlüsselt)",
+      "nfs": "NFS {version}",
+      "lastTest": "Letzter Test",
+      "testOk": "Bestanden {time}",
+      "testFailed": "Fehlgeschlagen {time}",
+      "notTested": "Noch nicht getestet"
+    }
+  },
+  "runs": {
+    "title": "Lauf",
+    "loadError": "Die Läufe konnten nicht geladen werden",
+    "empty": {
+      "title": "Noch keine Läufe",
+      "description": "Sicherungen, Wiederherstellungen und Kopien dieser Freigabe erscheinen hier."
+    },
+    "columns": {
+      "kind": "Lauf",
+      "status": "Status",
+      "started": "Gestartet",
+      "duration": "Dauer",
+      "files": "Dateien",
+      "added": "Hinzugekommen",
+      "warnings": "Warnungen"
+    },
+    "kind": {
+      "backup": "Sicherung",
+      "restore": "Wiederherstellung",
+      "copy": "Kopie"
+    },
+    "status": {
+      "queued": "Wartet",
+      "starting": "Startet",
+      "running": "Läuft",
+      "succeeded": "Abgeschlossen",
+      "restored": "Wiederhergestellt",
+      "warning": "Mit Warnungen",
+      "failed": "Fehlgeschlagen",
+      "cancelled": "Abgebrochen"
+    },
+    "upToDate": "Nichts geändert",
+    "destination": "Wiederhergestellt nach",
+    "destinations": {
+      "original": "Den ursprünglichen Ort",
+      "new_folder": "Neuer Ordner {folder}",
+      "other_share": "Eine andere Freigabe, Ordner {folder}",
+      "folder": "Eine andere Freigabe, Ordner {folder}"
+    },
+    "note": "Hinweis",
+    "cancel": "Lauf abbrechen",
+    "log": "Protokoll"
+  },
+  "items": {
+    "title": "{count, plural, one {# Datei mit Warnung} other {# Dateien mit Warnungen}}",
+    "all": "Alle",
+    "notStored": "{count, plural, one {# weitere ist gezählt, aber nicht aufgeführt.} other {# weitere sind gezählt, aber nicht aufgeführt.}}",
+    "codes": {
+      "locked_file": "Von einem anderen Programm gesperrt",
+      "read_error": "Konnte nicht gelesen werden",
+      "acl_unreadable": "Berechtigungen konnten nicht gelesen werden",
+      "acl_not_restored": "Berechtigungen nicht wiederhergestellt",
+      "owner_not_restored": "Besitzer nicht wiederhergestellt",
+      "offline_skipped": "Offline-Datei ausgelassen",
+      "name_invalid": "Name am Ziel nicht zulässig",
+      "write_error": "Konnte nicht geschrieben werden",
+      "files_dropped": "Weit weniger Dateien als beim letzten Mal",
+      "other": "Sonstiges"
+    }
+  },
+  "copy": {
+    "notBackup": "Keine Sicherung: keine Versionen am Ziel",
+    "modes": {
+      "overwrite": "Überschreiben",
+      "mirror": "Spiegeln"
+    }
+  },
+  "points": {
+    "files": "{count, plural, one {# Datei} other {# Dateien}}",
+    "added": "{size} hinzugekommen",
+    "permissions": "{count, plural, one {Berechtigungen von # Eintrag} other {Berechtigungen von # Einträgen}}",
+    "restore": "Wiederherstellen",
+    "timelineLabel": "Sicherungsstände von {name}",
+    "downloadFailed": "Der Download konnte nicht vorbereitet werden",
+    "empty": {
+      "title": "Noch keine Sicherungsstände",
+      "description": "Sobald die erste Sicherung gelaufen ist, erscheinen ihre Sicherungsstände hier."
+    }
+  },
+  "search": {
+    "title": "Datei finden",
+    "description": "Durchsucht die Namen aller Dateien in allen Sicherungsständen dieser Freigabe.",
+    "placeholder": "Datei- oder Ordnername",
+    "run": "Suchen",
+    "none": "Nichts gefunden.",
+    "deleted": "Gelöscht",
+    "versions": "Versionen",
+    "download": "Herunterladen",
+    "restore": "Wiederherstellen",
+    "unavailable": "Die Suche ist nicht verfügbar: der Katalog ist für diese Installation ausgeschaltet oder wird gerade aufgebaut."
+  },
+  "versions": {
+    "title": "Versionen von {path}",
+    "modified": "geändert {time}",
+    "since": "in Sicherungsständen seit {time}",
+    "pruned": "nur in Sicherungsständen, die entfernt wurden",
+    "current": "neueste"
+  },
+  "restore": {
+    "title": "Wiederherstellen",
+    "description": "Aus {name}, Sicherungsstand vom {time}",
+    "everything": "Alles im Sicherungsstand",
+    "selection": "{count, plural, one {# Element} other {# Elemente}}",
+    "more": "{count, plural, one {und # weiteres} other {und # weitere}}",
+    "where": "Wohin",
+    "options": {
+      "zip": "Als ZIP herunterladen",
+      "original": "Den ursprünglichen Ort",
+      "new_folder": "Einen neuen Ordner in derselben Freigabe",
+      "other_share": "Eine andere Freigabe"
+    },
+    "noTargets": "Keine andere Freigabe erlaubt Wiederherstellungen.",
+    "notAllowed": "Diese Freigabe erlaubt keine Wiederherstellung in sich.",
+    "openSettings": "Einstellungen öffnen",
+    "ifExists": "Wenn eine Datei vorhanden ist",
+    "conflict": {
+      "overwrite": "Überschreiben",
+      "keep_both": "Beide behalten",
+      "skip": "Überspringen"
+    },
+    "conflictHint": {
+      "overwrite": "Die wiederhergestellte Datei ersetzt die vorhandene.",
+      "keep_both": "Die wiederhergestellte Datei bekommt neben der vorhandenen einen neuen Namen.",
+      "skip": "Die vorhandene Datei bleibt; die wiederhergestellte wird ausgelassen."
+    },
+    "targetShare": "Freigabe",
+    "folder": "Ordner",
+    "folderHint": "Wird angelegt, wenn es ihn nicht gibt. Leer: ein neuer Ordner mit Datum und Uhrzeit im Namen.",
+    "repeat": "Als Kopierjob nach Zeitplan wiederholen",
+    "permissions": "Berechtigungen wiederherstellen",
+    "permissionsHint": "Schreibt Besitzer und Berechtigungen so zurück, wie sie gesichert wurden.",
+    "permissionsOther": "Nur sinnvoll, wenn der andere Dateiserver dieselben Konten kennt.",
+    "verify": "Geschriebene Dateien prüfen",
+    "verifyHint": "Liest jede Datei nach dem Schreiben zurück. Langsamer; bei NFS standardmäßig an.",
+    "summaryTitle": "Bitte prüfen Sie",
+    "summary": {
+      "original": "{count, plural, one {# Element geht} other {# Elemente gehen}} zurück nach {name}, woher sie stammen. Wenn eine Datei vorhanden ist: {conflict}.",
+      "new_folder": "{count, plural, one {# Element geht} other {# Elemente gehen}} in den Ordner {folder} von {name}.",
+      "other_share": "{count, plural, one {# Element geht} other {# Elemente gehen}} in den Ordner {folder} von {name}."
+    },
+    "next": "Weiter",
+    "back": "Zurück",
+    "cancel": "Abbrechen",
+    "confirm": "Wiederherstellen",
+    "download": "Herunterladen",
+    "close": "Schließen",
+    "requested": "Wiederherstellung angefordert",
+    "requestedTitle": "Die Wiederherstellung ist unterwegs",
+    "requestedDescription": "Sie läuft, sobald ein Runner frei ist. Fortschritt und Ergebnis stehen unter Läufe.",
+    "showRuns": "Läufe anzeigen"
+  },
+  "settings": {
+    "save": "Speichern",
+    "cancel": "Abbrechen",
+    "saved": "Einstellungen gespeichert",
+    "connection": {
+      "title": "Verbindung",
+      "description": "Wo die Freigabe liegt und wie sie erreicht wird.",
+      "subfolderHint": "Wer Server, Freigabename, Export oder Unterordner ändert, richtet die Sicherungen auf einen anderen Ort.",
+      "password": "Neues Passwort",
+      "passwordHint": "Leer behält das gespeicherte Passwort.",
+      "moveTitle": "Einen anderen Ort sichern?",
+      "moveDescription": "Die nächste Sicherung liest den neuen Ort. Die Sicherungsstände des alten bleiben, die nächste Sicherung zählt aber als erste.",
+      "moveConfirm": "Ort ändern"
+    },
+    "options": {
+      "title": "Optionen",
+      "reread": "Alle Berechtigungen neu lesen",
+      "rereadHint": "Einmal, bei der nächsten Sicherung; sonst werden nur geänderte Dateien neu gelesen."
+    },
+    "approval": {
+      "title": "Privates Netz",
+      "description": "Eine Freigabe in einem privaten Netz wird erst gesichert, wenn ein Administrator des Anbieters sie genehmigt hat.",
+      "approved": "Genehmigt für {range} von {by}, {time}",
+      "none": "Nicht genehmigt",
+      "approve": "Genehmigen",
+      "withdraw": "Genehmigung zurückziehen"
+    },
+    "job": {
+      "title": "Job und Ordner",
+      "description": "Der Job, der diese Freigabe sichert, und welche ihrer Ordner.",
+      "paused": "pausiert",
+      "folders": "Ordner",
+      "pickFolders": "Ordner wählen",
+      "none": "In keinem Job: diese Freigabe wird nicht gesichert.",
+      "newJob": "Neuer Job"
+    },
+    "budget": {
+      "title": "Budget",
+      "description": "Ab 80 % warnt die Freigabe; ab 100 % werden neue Sicherungen abgelehnt.",
+      "noLimitUsed": "Kein Budget, {used} belegt",
+      "limit": "Speicher begrenzen",
+      "gib": "Budget in GB",
+      "invalid": "Geben Sie eine ganze Zahl in GB ein.",
+      "providerOnly": "Nur Administratoren des Anbieters können das Budget ändern."
+    },
+    "copies": {
+      "title": "Kopierjobs",
+      "none": "Kein Kopierjob kopiert von oder in diese Freigabe.",
+      "source": "Kopiert von hier",
+      "target": "Kopiert hierher",
+      "new": "Neuer Kopierjob"
+    },
+    "repository": {
+      "title": "Passwort des restic-Repositorys",
+      "description": "Nur nötig, um das restic-Repository ohne diese Installation zu öffnen, etwa nach einem Totalausfall.",
+      "show": "Passwort anzeigen",
+      "notYet": "Das restic-Repository wird mit der ersten Sicherung angelegt.",
+      "dialogTitle": "Passwort des restic-Repositorys anzeigen?",
+      "dialogDescription": "Das Anzeigen wird im Audit-Log festgehalten.",
+      "confirm": "Anzeigen",
+      "copy": "Passwort kopieren",
+      "prefix": "restic-Repository: {prefix}",
+      "warningTitle": "Bewahren Sie es sicher auf",
+      "warning": "Wer dieses Passwort und Zugriff auf das Repository hat, kann jede Sicherung dieser Freigabe lesen.",
+      "hide": "Schließen"
+    },
+    "danger": {
+      "title": "Stilllegen oder löschen",
+      "retireNote": "Stilllegen beendet die Sicherungen und behält die Sicherungsstände.",
+      "retiredNote": "Diese Freigabe ist stillgelegt: sie wird nicht gesichert, ihre Sicherungsstände bleiben erhalten.",
+      "retire": "Stilllegen",
+      "reactivate": "Wieder aktivieren",
+      "deleteNote": "Löschen entfernt die Freigabe mit allen Sicherungsständen endgültig.",
+      "delete": "Mit allen Sicherungsständen löschen",
+      "deleteTitle": "{name} löschen?",
+      "deleteDescription": "Alle Sicherungsstände dieser Freigabe werden endgültig gelöscht. Das lässt sich nicht rückgängig machen.",
+      "typeName": "Geben Sie zur Bestätigung {name} ein",
+      "deleteConfirm": "Endgültig löschen",
+      "purged": "{name} wird gelöscht"
+    }
+  },
+  "runners": {
+    "title": "Runner für Freigaben",
+    "description": "Jede Sicherung, Wiederherstellung oder Kopie einer Freigabe läuft in einem eigenen, kurzlebigen Container.",
+    "loadError": "Die Einstellungen der Runner konnten nicht geladen werden",
+    "ready": "Bereit: {running} von {limit} laufen",
+    "blocked": "Kann keine Läufe starten",
+    "off": "Netzlaufwerke sind aus",
+    "offHint": "Runner brauchen den Mounter. Starten Sie ihn mit diesem Befehl:",
+    "range": "Geben Sie eine ganze Zahl von {min} bis {max} ein.",
+    "fields": {
+      "maxConcurrentRunners": "Gleichzeitige Läufe",
+      "runnerMemoryMiB": "Arbeitsspeicher je Runner (MiB)",
+      "goMemLimitPercent": "Weiche Speichergrenze (%)",
+      "maxRunHours": "Längster Lauf (Stunden)",
+      "defaultReadConcurrency": "Parallele Lesevorgänge (Standard)",
+      "defaultShareQuotaGib": "Budget je Freigabe (GB, 0 = keines)",
+      "tenantShareQuotaGib": "Budget der Freigaben eines Mandanten (GB, 0 = keines)"
+    },
+    "hints": {
+      "maxConcurrentRunners": "Weitere Läufe warten, bis einer fertig ist.",
+      "runnerMemoryMiB": "Große Freigaben mit Millionen von Dateien brauchen mehr.",
+      "goMemLimitPercent": "Anteil des Arbeitsspeichers, ab dem der Runner Speicher eifriger freigibt.",
+      "maxRunHours": "Ein Lauf, der länger dauert, wird beendet.",
+      "defaultReadConcurrency": "Für Jobs, die keinen Wert festlegen.",
+      "defaultShareQuotaGib": "Für neue Freigaben.",
+      "tenantShareQuotaGib": "Für alle Freigaben eines Mandanten zusammen."
+    },
+    "memoryNote": "Änderungen gelten für Läufe, die danach starten.",
+    "save": "Speichern",
+    "saved": "Einstellungen der Runner gespeichert",
+    "privateNetworks": "Mandanten dürfen Freigaben in privaten Netzen hinzufügen",
+    "privateNetworksHint": "Aus: ein Administrator des Anbieters genehmigt jede solche Freigabe.",
+    "privateNetworksOwner": "Nur eine Inhaberin oder ein Inhaber der Installation kann das ändern.",
+    "catalog": "Dateikatalog",
+    "catalogHint": "Hält die Namen aller gesicherten Dateien für die Suche vor. Belegt Platz in der Datenbank."
+  },
+  "errors": {
+    "generic": "Das hat nicht geklappt. Bitte versuchen Sie es erneut.",
+    "nameTaken": "Eine andere Freigabe hat bereits diesen Namen.",
+    "restoreNotAllowed": "Das Ziel erlaubt keine Wiederherstellung.",
+    "busy": "Ein Lauf dieser Freigabe ist im Gange. Versuchen Sie es erneut, wenn er beendet ist.",
+    "mounterUnavailable": "Netzlaufwerke sind in dieser Installation nicht eingeschaltet.",
+    "locationChange": "Der Ort ändert sich. Bestätigen Sie, um fortzufahren.",
+    "confirmName": "Der Name stimmt nicht überein.",
+    "retired": "Diese Freigabe ist stillgelegt.",
+    "catalogUnavailable": "Die Suche ist gerade nicht verfügbar.",
+    "repositoryUnavailable": "Das restic-Repository ist gerade nicht erreichbar.",
+    "downloadGone": "Der Download ist nicht mehr verfügbar. Bereiten Sie ihn erneut vor.",
+    "pathNotFound": "Dieser Pfad ist nicht im Sicherungsstand.",
+    "providerOnly": "Das können nur Administratoren des Anbieters.",
+    "recentSignIn": "Bitte melden Sie sich erneut an, um das zu tun.",
+    "forbiddenAddress": "Diese Adresse kann nicht für eine Freigabe verwendet werden.",
+    "privateNetwork": "Der Server liegt in einem privaten Netz, das für diese Freigabe nicht genehmigt ist.",
+    "forbidden": "Ihre Rolle erlaubt das nicht.",
+    "notFound": "Nicht gefunden.",
+    "invalid": "Einige Werte sind ungültig."
+  }
+}

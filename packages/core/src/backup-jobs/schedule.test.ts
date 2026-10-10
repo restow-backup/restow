@@ -8,6 +8,7 @@ import {
   longestPlannedGapMinutes,
   mailCadenceOf,
   normalizeMailSchedule,
+  plannedByScheduler,
   runsAtLeastAsOften,
   scheduleGaps,
   scheduleKey,
@@ -71,6 +72,28 @@ describe("mail schedules", () => {
     expect(
       validateJobSchedule("mail", { kind: "on_connect", timeZone: ZONE }, NOW, "verifySchedule"),
     ).toMatchObject({ path: ["verifySchedule", "kind"], code: "schedule_kind_not_supported" });
+  });
+});
+
+describe("file share and copy schedules (docs/FILESHARES.md 7.5)", () => {
+  it("are planned like mail jobs, at most once an hour", () => {
+    for (const kind of ["share", "copy"] as const) {
+      expect(
+        validateJobSchedule(kind, { kind: "daily", timeOfDay: "22:00", timeZone: ZONE }, NOW),
+      ).toBeNull();
+      expect(
+        validateJobSchedule(kind, { kind: "interval", intervalMinutes: 60, timeZone: ZONE }, NOW),
+      ).toBeNull();
+      expect(
+        validateJobSchedule(kind, { kind: "interval", intervalMinutes: 30, timeZone: ZONE }, NOW)
+          ?.code,
+      ).toBe("interval_out_of_range");
+      expect(validateJobSchedule(kind, { kind: "on_connect", timeZone: ZONE }, NOW)?.code).toBe(
+        "schedule_kind_not_supported",
+      );
+    }
+    expect(plannedByScheduler("share")).toBe(true);
+    expect(plannedByScheduler("endpoint")).toBe(false);
   });
 });
 

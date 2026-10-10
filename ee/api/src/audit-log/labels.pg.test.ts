@@ -13,6 +13,7 @@ import {
   backupJobs,
   createDb,
   endpoints,
+  fileShares,
   importUploads,
   mailImports,
   protectedObjects,
@@ -167,6 +168,26 @@ describe.skipIf(!testDatabaseAdminUrl)("audit target names against Postgres", ()
     expect(targetLabelOf(entries[0] as never, labels)).toBe("Mail backup");
     expect(targetLabelOf(entries[1] as never, labels)).toBe("Deleted job");
     expect(targetLabelOf(entries[2] as never, labels)).toBeNull();
+  });
+
+  it("names a file share after itself, and after the name its entry recorded once it is purged", async () => {
+    const [share] = await db
+      .insert(fileShares)
+      .values({
+        tenantId,
+        name: "Finance",
+        protocol: "smb",
+        server: "files.example",
+        shareName: "finance",
+      })
+      .returning();
+    const entries = [
+      { target: share?.id as string, targetType: "file_share" },
+      { target: randomUUID(), targetType: "file_share", details: { name: "Old scans" } },
+    ];
+    const labels = await resolveTargetLabels(db, entries);
+    expect(targetLabelOf(entries[0] as never, labels)).toBe("Finance");
+    expect(targetLabelOf(entries[1] as never, labels)).toBe("Old scans");
   });
 
   it("keeps the recorded name for an import that no longer exists, and no label for an unknown id", async () => {

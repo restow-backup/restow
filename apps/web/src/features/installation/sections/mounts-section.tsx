@@ -41,6 +41,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
+import { FileShareRunnersCard } from "@/features/file-shares/components/runners-card";
 import { CommandBlock } from "@/features/updates/components/command-block";
 import { ProgressBar } from "@/features/updates/progress-bar";
 import { formatRelative } from "@/lib/format";
@@ -141,6 +142,8 @@ export function MountsContent({ view }: { view: MountsView }) {
           />
         </>
       )}
+      {/* File share runners (docs/FILESHARES.md 7.4): the mounter runs them, so they are here. */}
+      <FileShareRunnersCard />
     </div>
   );
 }

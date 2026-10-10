@@ -14,8 +14,20 @@ import {
 } from "../schedule/index.js";
 import type { JobSchedule } from "./types.js";
 
-/** The kinds of job: what a mail job and what an endpoint job are scheduled with differs. */
-export type JobKind = "mail" | "endpoint";
+/**
+ * The kinds of job: what a mail job and what an endpoint job are scheduled with differs. File
+ * share jobs (`share`) and copy jobs (`copy`, docs/FILESHARES.md 7.5) are planned by the
+ * scheduler like mail jobs (interval, cron or daily), with an interval of at least an hour.
+ */
+export type JobKind = "mail" | "endpoint" | "share" | "copy";
+
+/** Whether a job of this kind is planned by the scheduler (mail, file shares, copies). */
+export function plannedByScheduler(kind: JobKind): boolean {
+  return kind !== "endpoint";
+}
+
+/** The shortest interval of a file share or copy job (docs/FILESHARES.md 7.5). */
+export const MIN_SHARE_INTERVAL_MINUTES = 60;
 
 /** What is wrong with one field of a job, for a 422 problem and the form behind it. */
 export interface JobIssue {
@@ -36,7 +48,7 @@ const MINUTE_MS = 60_000;
 
 /** The schedule kinds a job of this kind may use. */
 export function scheduleKindsOf(kind: JobKind): readonly JobSchedule["kind"][] {
-  return kind === "mail" ? ["interval", "cron", "daily"] : ["interval", "daily", "on_connect"];
+  return kind === "endpoint" ? ["interval", "daily", "on_connect"] : ["interval", "cron", "daily"];
 }
 
 function issue(path: readonly string[], code: string, message: string): JobIssue {
@@ -162,7 +174,19 @@ export function validateJobSchedule(
       `"${String(schedule.timeZone)}" is not an IANA time zone such as Europe/Berlin.`,
     );
   }
-  if (kind === "mail") {
+  if (plannedByScheduler(kind)) {
+    if (
+      kind !== "mail" &&
+      schedule.kind === "interval" &&
+      typeof schedule.intervalMinutes === "number" &&
+      schedule.intervalMinutes < MIN_SHARE_INTERVAL_MINUTES
+    ) {
+      return issue(
+        [field, "intervalMinutes"],
+        "interval_out_of_range",
+        `A file share job runs at most once every ${MIN_SHARE_INTERVAL_MINUTES} minutes.`,
+      );
+    }
     const cadence = mailCadenceOf(schedule);
     if (cadence === null) {
       const missing =

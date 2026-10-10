@@ -163,6 +163,35 @@ describe("backupjobs translations", () => {
         `overrides.description.${kind}`,
         `addMembers.title.${kind}`,
       ]),
+      // File share jobs and copy jobs (docs/FILESHARES.md 12.5, 12.6).
+      ...["share", "copy"].flatMap((kind) => [
+        `list.description.${kind}`,
+        `list.table.${kind}`,
+        `list.empty.title.${kind}`,
+        `list.empty.description.${kind}`,
+        `list.uncovered.${kind}`,
+        `list.unscheduled.${kind}`,
+        `editor.createTitle.${kind}`,
+        `editor.description.${kind}`,
+        `editor.general.nameHint.${kind}`,
+        `scope.empty.title.${kind}`,
+        `scope.remove.description.${kind}`,
+        `delete.impact.${kind}`,
+        `toasts.runQueued.${kind}`,
+        `toasts.runWaiting.${kind}`,
+        `toasts.added.${kind}`,
+        `overview.showScope.${kind}`,
+        `settings.kinds.${kind}`,
+      ]),
+      ...["same_share", "share_root", "retired", "restore_not_allowed", "unsafe"].map(
+        (rule) => `copyEditor.rules.${rule}`,
+      ),
+      ...["overwrite", "mirror"].flatMap((mode) => [
+        `copyEditor.mode.${mode}.label`,
+        `copyEditor.mode.${mode}.description`,
+      ]),
+      ...["daily", "interval", "cron"].map((kind) => `shareEditor.schedule.kinds.${kind}`),
+      ...["sameShare", "folderInvalid", "mirrorRoot"].map((code) => `problems.form.copy.${code}`),
       ...Object.values(MEMBER_KINDS_OF)
         .flat()
         .flatMap((kind) => [`scope.kinds.${kind}`, `scope.kindNames.${kind}`]),
@@ -180,6 +209,7 @@ describe("backupjobs translations", () => {
         "source_pending",
         "source_disabled",
         "revoked",
+        "retired",
         "not_in_job",
       ].map((reason) => `run.skipped.${reason}`),
       ...["overview", "scope", "settings", "runs"].map((tab) => `detail.tabs.${tab}`),

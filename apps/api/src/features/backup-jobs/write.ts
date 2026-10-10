@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
 import {
+  type CopyShareFacts,
   type JobKind,
   type JobMemberOverrides,
   type JobSchedule,
+  checkCopyRules,
+  cleanTargetFolder,
   endpointScheduleOf,
   nextRunAt as firstRunAt,
   jobScheduleFromEndpoint,
@@ -17,13 +20,16 @@ import {
   type BackupJobMember,
   type BackupJobSettings,
   type Database,
+  type FileShare,
   backupJobMembers,
   backupJobs,
   endpointTasks,
   endpoints,
+  fileShareRuns,
+  fileShares,
   retentionPolicies,
 } from "@restow/db";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
@@ -31,17 +37,22 @@ import { ENDPOINT_AUDIT_ACTIONS, auditEndpoint } from "../endpoints/audit.js";
 import { type BandwidthWindowsProblem, checkedBandwidthWindows } from "../endpoints/bandwidth.js";
 import { hookFingerprint } from "../endpoints/dto.js";
 import { AGENT_TASK_TTL_MS } from "../endpoints/service.js";
+import { FILE_SHARE_TENANT_AUDIT_ACTIONS, auditShare } from "../file-shares/audit.js";
+import { FILE_SHARE_PROBLEMS } from "../file-shares/constants.js";
+import { listShareSource } from "../file-shares/service.js";
 import { backupBlockedReason } from "../jobs/dto.js";
 import { isMissingQueueSchema } from "../jobs/queue.js";
 import { enqueueBackup } from "../jobs/service.js";
 import type { BackupJobDto, RunBackupJobResult } from "./dto.js";
 import { releaseEndpointConfigs, syncEndpointConfigs } from "./endpoint-sync.js";
 import { sameJson } from "./json.js";
-import { type SupportedJob, assertSupportedJob } from "./kinds.js";
+import { type SupportedJob, assertSupportedJob, hasMembers } from "./kinds.js";
 import { loadAllMembers, loadObjectInfos, loadPrimaryTarget, objectName } from "./loaders.js";
 import { type ReadOptions, jobDto, loadJob } from "./read.js";
 import {
   type AddMembersInput,
+  COPY_CONFIRM_PROBLEM,
+  COPY_UNSAFE_TARGET_PROBLEM,
   type CreateBackupJobInput,
   IN_OTHER_JOB_PROBLEM,
   JOB_STATE_PROBLEM,
@@ -93,9 +104,9 @@ function checkedSchedule(
   if (issue) {
     throw jobProblem([...path.slice(0, -1), ...issue.path], issue.code, issue.message);
   }
-  return kind === "mail"
-    ? normalizeMailSchedule(schedule)
-    : jobScheduleFromEndpoint(endpointScheduleOf(schedule));
+  return kind === "endpoint"
+    ? jobScheduleFromEndpoint(endpointScheduleOf(schedule))
+    : normalizeMailSchedule(schedule);
 }
 
 /** When a mail schedule runs next, from its last run; null for no schedule. */
@@ -121,6 +132,46 @@ const ENDPOINT_OVERRIDE_KEYS = [
   "retention",
 ] as const;
 
+const SHARE_OVERRIDE_KEYS = [
+  "schedule",
+  "includes",
+  "excludes",
+  "presets",
+  "fileTypes",
+  "excludeLargerThanGib",
+  "bandwidthKbps",
+  "bandwidthWindows",
+  "readConcurrency",
+  "skipOffline",
+  "retention",
+] as const;
+
+function overrideKeysOf(kind: JobKind): readonly string[] {
+  switch (kind) {
+    case "mail":
+      return MAIL_OVERRIDE_KEYS;
+    case "share":
+      return SHARE_OVERRIDE_KEYS;
+    case "copy":
+      return [];
+    default:
+      return ENDPOINT_OVERRIDE_KEYS;
+  }
+}
+
+function overrideRefusal(kind: JobKind): string {
+  switch (kind) {
+    case "mail":
+      return "A mailbox can only have its own schedule and restore check.";
+    case "share":
+      return "A file share has no restore-check schedule or hooks of its own: every backup is checked.";
+    case "copy":
+      return "A copy job has no members.";
+    default:
+      return "A machine has no restore-check schedule of its own: every backup is checked.";
+  }
+}
+
 /** An override checked for the kind of job (a mail member only has schedules) and normalised. */
 function checkedOverrides(
   kind: JobKind,
@@ -129,16 +180,10 @@ function checkedOverrides(
   path: readonly string[],
 ): JobMemberOverrides {
   const input = overrides ?? {};
-  const allowed: readonly string[] = kind === "mail" ? MAIL_OVERRIDE_KEYS : ENDPOINT_OVERRIDE_KEYS;
+  const allowed = overrideKeysOf(kind);
   for (const [key, value] of Object.entries(input)) {
     if (value !== undefined && !allowed.includes(key)) {
-      throw jobProblem(
-        [...path, key],
-        "override_not_supported",
-        kind === "mail"
-          ? "A mailbox can only have its own schedule and restore check."
-          : "A machine has no restore-check schedule of its own: every backup is checked.",
-      );
+      throw jobProblem([...path, key], "override_not_supported", overrideRefusal(kind));
     }
   }
   const result: JobMemberOverrides = { ...input };
@@ -191,7 +236,7 @@ function timers(
   now: Date,
   before?: BackupJobMember,
 ): Pick<BackupJobMember, "nextRunAt" | "lastRunAt" | "verifyNextRunAt" | "verifyLastRunAt"> {
-  if (kind !== "mail") {
+  if (kind !== "mail" && kind !== "share") {
     return { nextRunAt: null, lastRunAt: null, verifyNextRunAt: null, verifyLastRunAt: null };
   }
   const keep = (schedule: JobSchedule | undefined, previous: JobSchedule | undefined) =>
@@ -214,13 +259,82 @@ function timers(
 // Settings
 // ---------------------------------------------------------------------------
 
-/** Machine settings checked for the job: a machine job needs folders, a mail job takes none. */
+const SHARE_SETTING_KEYS = [
+  "excludes",
+  "presets",
+  "fileTypes",
+  "excludeLargerThanGib",
+  "bandwidthKbps",
+  "bandwidthWindows",
+  "readConcurrency",
+  "skipOffline",
+  "retention",
+];
+const COPY_SETTING_KEYS = ["targetFolder", "mode", "restorePermissions", "verify"];
+const ENDPOINT_SETTING_KEYS = [
+  "paths",
+  "excludes",
+  "excludeLargerThanGib",
+  "hooks",
+  "bandwidthKbps",
+  "bandwidthWindows",
+  "retention",
+];
+
+/** Settings checked for the job: a machine job needs folders, a mail job takes none. */
 function checkedSettings(
   kind: JobKind,
   settings: BackupJobSettings,
   options: { requirePaths: boolean },
 ): BackupJobSettings {
   const entries = Object.entries(settings).filter(([, value]) => value !== undefined);
+  const allowed =
+    kind === "share"
+      ? SHARE_SETTING_KEYS
+      : kind === "copy"
+        ? COPY_SETTING_KEYS
+        : kind === "endpoint"
+          ? ENDPOINT_SETTING_KEYS
+          : [];
+  const foreign = entries.find(([key]) => kind !== "mail" && !allowed.includes(key));
+  if (foreign) {
+    throw jobProblem(
+      ["settings", foreign[0]],
+      "settings_not_supported",
+      `A ${kind} job has no setting "${foreign[0]}".`,
+    );
+  }
+  if (kind === "copy") {
+    if (settings.mode === undefined) {
+      throw jobProblem(["settings", "mode"], "required", "Choose overwrite or mirror.");
+    }
+    const clean: BackupJobSettings = {
+      targetFolder: cleanTargetFolder(settings.targetFolder ?? ""),
+      mode: settings.mode,
+      restorePermissions: settings.restorePermissions === true,
+    };
+    if (settings.verify !== undefined) {
+      clean.verify = settings.verify;
+    }
+    return clean;
+  }
+  if (kind === "share") {
+    const clean: BackupJobSettings = {};
+    for (const [key, value] of entries) {
+      if (key !== "bandwidthWindows") {
+        (clean as Record<string, unknown>)[key] = value;
+      }
+    }
+    const windows = checkedBandwidthWindows(
+      settings.bandwidthWindows,
+      ["settings", "bandwidthWindows"],
+      windowsProblem,
+    );
+    if (windows) {
+      clean.bandwidthWindows = windows;
+    }
+    return clean;
+  }
   if (kind === "mail") {
     if (entries.length > 0) {
       throw jobProblem(
@@ -275,6 +389,22 @@ function checkedBase(
       ["schedule"],
       "required",
       "A machine job needs a schedule: the agent decides from it when to back up.",
+    );
+  }
+  if ((kind === "share" || kind === "copy") && input.verifySchedule) {
+    throw jobProblem(
+      ["verifySchedule"],
+      "restore_check_not_supported",
+      kind === "share"
+        ? "Every new restore point of a file share is checked; there is no schedule to set."
+        : "A copy job has no restore checks: it is not a backup.",
+    );
+  }
+  if ((kind === "share" || kind === "copy") && input.retentionPolicyId) {
+    throw jobProblem(
+      ["retentionPolicyId"],
+      "retention_policy_not_supported",
+      "A file share job sets how many daily, weekly and monthly restore points to keep instead.",
     );
   }
   if (kind === "endpoint" && input.verifySchedule) {
@@ -385,6 +515,37 @@ async function assertTargets(
     });
     return;
   }
+  if (kind === "share") {
+    const shares = await tx
+      .select({ id: fileShares.id, retiredAt: fileShares.retiredAt })
+      .from(fileShares)
+      .where(and(eq(fileShares.tenantId, tenantId), inArray(fileShares.id, ids)));
+    const known = new Map(shares.map((row) => [row.id, row]));
+    targetIds.forEach((id, index) => {
+      const row = known.get(id);
+      if (!row) {
+        throw jobProblem(
+          pathOf(index),
+          "file_share_not_found",
+          "The file share does not exist in this tenant.",
+        );
+      }
+      if (row.retiredAt) {
+        throw jobProblem(
+          pathOf(index),
+          "file_share_retired",
+          "A retired file share cannot be in a job. Reactivate it first.",
+        );
+      }
+    });
+    return;
+  }
+  if (kind === "copy") {
+    if (ids.length > 0) {
+      throw jobProblem(pathOf(0), "members_not_supported", "A copy job has no members.");
+    }
+    return;
+  }
   const rows = await tx
     .select({ id: endpoints.id, status: endpoints.status })
     .from(endpoints)
@@ -405,6 +566,35 @@ async function assertTargets(
   });
 }
 
+/** The member column of a kind's targets. */
+function memberColumn(kind: JobKind) {
+  switch (kind) {
+    case "mail":
+      return backupJobMembers.protectedObjectId;
+    case "share":
+    case "copy":
+      return backupJobMembers.fileShareId;
+    default:
+      return backupJobMembers.endpointId;
+  }
+}
+
+function memberTarget(kind: JobKind, targetId: string) {
+  switch (kind) {
+    case "mail":
+      return { protectedObjectId: targetId };
+    case "share":
+    case "copy":
+      return { fileShareId: targetId };
+    default:
+      return { endpointId: targetId };
+  }
+}
+
+function targetWords(kind: JobKind): string {
+  return kind === "mail" ? "objects" : kind === "endpoint" ? "machines" : "file shares";
+}
+
 /** Which of `targetIds` already belong to a job other than `jobId`. */
 async function conflictsOf(
   tx: Transaction,
@@ -416,7 +606,7 @@ async function conflictsOf(
   if (targetIds.length === 0) {
     return [];
   }
-  const column = kind === "mail" ? backupJobMembers.protectedObjectId : backupJobMembers.endpointId;
+  const column = memberColumn(kind);
   const rows = await tx
     .select({ member: backupJobMembers, jobName: backupJobs.name })
     .from(backupJobMembers)
@@ -426,7 +616,7 @@ async function conflictsOf(
 }
 
 function targetOf(member: BackupJobMember): string {
-  return (member.protectedObjectId ?? member.endpointId) as string;
+  return (member.protectedObjectId ?? member.endpointId ?? member.fileShareId) as string;
 }
 
 /**
@@ -448,7 +638,7 @@ async function releaseTargets(
   if (!move) {
     throw new ProblemError(409, "Already in another job", {
       type: IN_OTHER_JOB_PROBLEM,
-      detail: `${conflicts.length} of the chosen ${kind === "mail" ? "objects" : "machines"} already belong to another job. An object or machine is in one job at a time.`,
+      detail: `${conflicts.length} of the chosen ${targetWords(kind)} already belong to another job. An object, machine or file share is in one job at a time.`,
       extensions: {
         conflicts: conflicts.map(({ member, jobName }) => ({
           targetId: targetOf(member),
@@ -526,9 +716,7 @@ async function insertMembers(
       id: randomUUID(),
       tenantId,
       jobId: job.id,
-      ...(job.kind === "mail"
-        ? { protectedObjectId: member.targetId }
-        : { endpointId: member.targetId }),
+      ...memberTarget(job.kind, member.targetId),
       overrides: member.overrides,
       ...timers(job.kind, member.overrides, now),
     })),
@@ -559,6 +747,185 @@ function resolveInputs(
 }
 
 // ---------------------------------------------------------------------------
+// Copy jobs (docs/FILESHARES.md 4.10)
+// ---------------------------------------------------------------------------
+
+function assertHasMembers(job: SupportedJob): void {
+  if (!hasMembers(job.kind)) {
+    throw new ProblemError(409, "A copy job has no members", {
+      type: JOB_STATE_PROBLEM,
+      detail: "A copy job names its source and target file share; it has no members to change.",
+      extensions: { code: "members_not_supported" },
+    });
+  }
+}
+
+function copyFactsOf(share: FileShare): CopyShareFacts {
+  return {
+    id: share.id,
+    protocol: share.protocol,
+    server: share.server,
+    shareName: share.shareName,
+    exportPath: share.exportPath,
+    subfolder: share.subfolder,
+    allowRestore: share.allowRestore,
+    retiredAt: share.retiredAt,
+  };
+}
+
+async function loadCopyShares(
+  tx: Transaction,
+  tenantId: string,
+  sourceId: string | null | undefined,
+  targetId: string | null | undefined,
+): Promise<{ source: FileShare; target: FileShare }> {
+  if (!sourceId) {
+    throw jobProblem(["sourceFileShareId"], "required", "Choose the file share to copy from.");
+  }
+  if (!targetId) {
+    throw jobProblem(["targetFileShareId"], "required", "Choose the file share to copy into.");
+  }
+  const rows = await tx
+    .select()
+    .from(fileShares)
+    .where(and(eq(fileShares.tenantId, tenantId), inArray(fileShares.id, [sourceId, targetId])));
+  const source = rows.find((row) => row.id === sourceId);
+  const target = rows.find((row) => row.id === targetId);
+  if (!source) {
+    throw jobProblem(
+      ["sourceFileShareId"],
+      "file_share_not_found",
+      "The file share does not exist in this tenant.",
+    );
+  }
+  if (!target) {
+    throw jobProblem(
+      ["targetFileShareId"],
+      "file_share_not_found",
+      "The file share does not exist in this tenant.",
+    );
+  }
+  return { source, target };
+}
+
+/** Rules 1 to 3 of 4.10 when a copy job is saved: a refusal names the rule. */
+function assertCopyRules(source: FileShare, target: FileShare, settings: BackupJobSettings): void {
+  const result = checkCopyRules(copyFactsOf(source), copyFactsOf(target), {
+    mode: settings.mode ?? "overwrite",
+    targetFolder: settings.targetFolder ?? "",
+  });
+  if (result.ok) {
+    return;
+  }
+  if (result.rule === "restore_not_allowed") {
+    throw new ProblemError(422, "Restore not allowed", {
+      type: FILE_SHARE_PROBLEMS.restoreNotAllowed,
+      detail: `"${target.name}" does not allow restores into it, so nothing can be copied there. Switch on "Allow restore to this share" in its settings first.`,
+      extensions: { field: "targetFileShareId", rule: result.rule },
+    });
+  }
+  const detail =
+    result.rule === "same_share"
+      ? "Source and target are the same place. A copy never writes into the share it copies."
+      : result.rule === "share_root"
+        ? "A mirror deletes what the source does not have, so it never writes into the root of a share. Choose a folder."
+        : "A retired file share cannot be copied from or into.";
+  throw new ProblemError(422, "Unsafe copy target", {
+    type: COPY_UNSAFE_TARGET_PROBLEM,
+    detail,
+    extensions: {
+      field: result.rule === "share_root" ? "settings" : "targetFileShareId",
+      rule: result.rule,
+    },
+  });
+}
+
+/**
+ * How many entries the mirror's target folder has (4.10 rule 4): 0 when it is empty or does not
+ * exist yet (Restow creates it and writes its marker), null when the share could not be asked
+ * (then the admin confirms as for a non-empty folder).
+ */
+async function mirrorFolderEntries(
+  db: Database,
+  tenantId: string,
+  target: FileShare,
+  folder: string,
+  actor: JobActor,
+  context: JobContext,
+): Promise<number | null> {
+  try {
+    const listing = await listShareSource(
+      db,
+      tenantId,
+      target.id,
+      { path: folder, limit: 2000 },
+      {
+        actor,
+        isProviderAdmin: false,
+        providerRole: null,
+        now: context.now,
+        runner: context.fileShares?.runner,
+        resolve: context.fileShares?.resolve,
+      },
+    );
+    if (listing.ok) {
+      return listing.entries.length;
+    }
+    return listing.cause === "share.not_found" ? 0 : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The settings of a copy job after the mirror check: confirmed now, kept, or refused (409). */
+async function confirmedCopySettings(
+  db: Database,
+  tenantId: string,
+  target: FileShare,
+  settings: BackupJobSettings,
+  previous: { targetId: string | null; settings: BackupJobSettings } | null,
+  confirm: boolean,
+  actor: JobActor,
+  context: JobContext,
+): Promise<BackupJobSettings> {
+  const { mirrorConfirmedAt: _dropped, ...rest } = settings;
+  const next: BackupJobSettings = rest;
+  if (settings.mode !== "mirror") {
+    return next;
+  }
+  const sameTarget =
+    previous !== null &&
+    previous.targetId === target.id &&
+    (previous.settings.targetFolder ?? "") === (settings.targetFolder ?? "") &&
+    previous.settings.mode === "mirror";
+  if (sameTarget && previous?.settings.mirrorConfirmedAt) {
+    // Nothing about the target changed: the confirmation stays (changing it clears it).
+    next.mirrorConfirmedAt = previous.settings.mirrorConfirmedAt;
+    return next;
+  }
+  if (confirm) {
+    next.mirrorConfirmedAt = context.now.toISOString();
+    return next;
+  }
+  if (sameTarget) {
+    return next;
+  }
+  const folder = settings.targetFolder ?? "";
+  const entries = await mirrorFolderEntries(db, tenantId, target, folder, actor, context);
+  if (entries === 0) {
+    return next;
+  }
+  throw new ProblemError(409, "Confirm the mirror", {
+    type: COPY_CONFIRM_PROBLEM,
+    detail:
+      entries === null
+        ? `The folder "${folder}" on "${target.name}" could not be read. A mirror deletes everything in the folder that is not in the source; confirm to go on.`
+        : `The folder "${folder}" on "${target.name}" is not empty (${entries} entries). Everything in it that is not in the source will be deleted; confirm to go on.`,
+    extensions: { field: "settings", folder, entries, targetName: target.name },
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Create
 // ---------------------------------------------------------------------------
 
@@ -582,6 +949,14 @@ function definitionOf(job: BackupJob): Record<string, unknown> {
     retentionPolicyId: job.retentionPolicyId,
     settings,
     hooks: hookDetails(job.settings ?? {}),
+    ...(job.kind === "copy"
+      ? {
+          sourceFileShareId: job.sourceFileShareId,
+          targetFileShareId: job.targetFileShareId,
+          mode: job.settings.mode ?? "overwrite",
+          mirrorConfirmed: Boolean(job.settings.mirrorConfirmedAt),
+        }
+      : {}),
   };
 }
 
@@ -596,7 +971,43 @@ export async function createBackupJob(
   const { now } = context;
   const kind = input.kind;
   const { schedule, verifySchedule } = checkedBase(kind, input, now);
-  const settings = checkedSettings(kind, input.settings, { requirePaths: true });
+  let settings = checkedSettings(kind, input.settings, { requirePaths: true });
+  if (kind !== "copy" && (input.sourceFileShareId || input.targetFileShareId)) {
+    throw jobProblem(
+      [input.sourceFileShareId ? "sourceFileShareId" : "targetFileShareId"],
+      "not_a_copy_job",
+      "Only a copy job names a source and a target file share.",
+    );
+  }
+  if (kind === "copy") {
+    if (input.scope.mode === "all" || input.scope.members.length > 0) {
+      throw jobProblem(["scope"], "members_not_supported", "A copy job has no members.");
+    }
+    const { source, target } = await withTenantTx(db, tenantId, (tx) =>
+      loadCopyShares(tx, tenantId, input.sourceFileShareId, input.targetFileShareId),
+    );
+    assertCopyRules(source, target, settings);
+    settings = await confirmedCopySettings(
+      db,
+      tenantId,
+      target,
+      settings,
+      null,
+      input.confirmMirror,
+      actor,
+      context,
+    );
+  }
+  if (kind === "share" && input.scope.mode === "all") {
+    throw jobProblem(
+      ["scope", "mode"],
+      "scope_all_not_supported",
+      "A file share job covers the shares you choose.",
+    );
+  }
+  if ((kind === "share" || kind === "copy") && input.archive) {
+    throw jobProblem(["archive"], "archive_not_supported", archiveMessage());
+  }
   if (kind === "endpoint" && input.scope.mode === "all") {
     throw jobProblem(
       ["scope", "mode"],
@@ -650,8 +1061,10 @@ export async function createBackupJob(
           enabled: input.enabled,
           archive: input.archive,
           origin: "user",
-          nextRunAt: nextOf(schedule, now, null),
+          nextRunAt: kind === "endpoint" ? null : nextOf(schedule, now, null),
           verifyNextRunAt: kind === "mail" ? nextOf(verifySchedule, now, null) : null,
+          sourceFileShareId: kind === "copy" ? (input.sourceFileShareId ?? null) : null,
+          targetFileShareId: kind === "copy" ? (input.targetFileShareId ?? null) : null,
           createdBy: actor.userId,
         })
         .returning();
@@ -772,6 +1185,8 @@ function describeChanges(before: BackupJob, after: BackupJob): Record<string, un
     changes.verifySchedule = { from: before.verifySchedule, to: after.verifySchedule };
   }
   compare("storageTargetId", before.storageTargetId, after.storageTargetId);
+  compare("sourceFileShareId", before.sourceFileShareId, after.sourceFileShareId);
+  compare("targetFileShareId", before.targetFileShareId, after.targetFileShareId);
   compare("retentionPolicyId", before.retentionPolicyId, after.retentionPolicyId);
   const a = before.settings ?? {};
   const b = after.settings ?? {};
@@ -830,13 +1245,43 @@ export async function updateBackupJob(
     if (kind === "endpoint" && patch.enabled === false) {
       throw jobProblem(["enabled"], "pause_not_supported", pauseMessage());
     }
-    if (kind === "endpoint" && patch.archive) {
+    if (kind !== "mail" && patch.archive) {
       throw jobProblem(["archive"], "archive_not_supported", archiveMessage());
     }
-    const settings =
+    let settings =
       patch.settings !== undefined
         ? checkedSettings(kind, patch.settings, { requirePaths: true })
         : (before.settings ?? {});
+    let sourceFileShareId = before.sourceFileShareId;
+    let targetFileShareId = before.targetFileShareId;
+    if (kind !== "copy" && (patch.sourceFileShareId || patch.targetFileShareId)) {
+      throw jobProblem(
+        [patch.sourceFileShareId ? "sourceFileShareId" : "targetFileShareId"],
+        "not_a_copy_job",
+        "Only a copy job names a source and a target file share.",
+      );
+    }
+    if (kind === "copy") {
+      sourceFileShareId = patch.sourceFileShareId ?? before.sourceFileShareId;
+      targetFileShareId = patch.targetFileShareId ?? before.targetFileShareId;
+      const { source, target } = await loadCopyShares(
+        tx,
+        tenantId,
+        sourceFileShareId,
+        targetFileShareId,
+      );
+      assertCopyRules(source, target, settings);
+      settings = await confirmedCopySettings(
+        db,
+        tenantId,
+        target,
+        settings,
+        { targetId: before.targetFileShareId, settings: before.settings ?? {} },
+        patch.confirmMirror === true,
+        actor,
+        context,
+      );
+    }
     const storageTargetId =
       patch.storageTargetId !== undefined
         ? await checkRepository(tx, tenantId, patch.storageTargetId)
@@ -860,8 +1305,10 @@ export async function updateBackupJob(
         settings,
         enabled,
         archive: patch.archive ?? before.archive,
+        sourceFileShareId,
+        targetFileShareId,
         // A new or resumed cadence starts from its last run; an untouched one keeps its timer.
-        ...(kind === "mail" && (scheduleChanged || resumed)
+        ...(kind !== "endpoint" && (scheduleChanged || resumed)
           ? { nextRunAt: nextOf(base.schedule, now, before.lastRunAt) }
           : {}),
         ...(kind === "mail" && (verifyChanged || resumed)
@@ -960,8 +1407,9 @@ export async function replaceMembers(
       throw new ProblemError(404, "Backup job not found");
     }
     assertSupportedJob(job);
+    assertHasMembers(job);
     const mode = input.mode ?? job.scopeMode;
-    if (job.kind === "endpoint" && mode === "all") {
+    if ((job.kind === "endpoint" || job.kind === "share") && mode === "all") {
       throw jobProblem(
         ["mode"],
         "scope_all_not_supported",
@@ -1063,6 +1511,7 @@ export async function addMembers(
   const { now } = context;
   return withTenantTx(db, tenantId, async (tx) => {
     const job = await loadJob(tx, tenantId, id);
+    assertHasMembers(job);
     const wanted = resolveInputs(job.kind, input.members, now, ["members"]);
     await assertTargets(
       tx,
@@ -1117,8 +1566,8 @@ export async function removeMember(
 ): Promise<BackupJobDto> {
   return withTenantTx(db, tenantId, async (tx) => {
     const job = await loadJob(tx, tenantId, id);
-    const column =
-      job.kind === "mail" ? backupJobMembers.protectedObjectId : backupJobMembers.endpointId;
+    assertHasMembers(job);
+    const column = memberColumn(job.kind);
     const [member] = await tx
       .select()
       .from(backupJobMembers)
@@ -1158,9 +1607,9 @@ export async function setMemberOverrides(
   const { now } = context;
   return withTenantTx(db, tenantId, async (tx) => {
     const job = await loadJob(tx, tenantId, id);
+    assertHasMembers(job);
     const overrides = checkedOverrides(job.kind, input.overrides, now, ["overrides"]);
-    const column =
-      job.kind === "mail" ? backupJobMembers.protectedObjectId : backupJobMembers.endpointId;
+    const column = memberColumn(job.kind);
     const [member] = await tx
       .select()
       .from(backupJobMembers)
@@ -1281,6 +1730,107 @@ export async function runBackupJob(
           result.queued++;
         }
       }
+    } else if (job.kind === "share") {
+      const own = members.filter((member) => member.jobId === id && member.fileShareId);
+      const ownIds = new Set(own.map((member) => member.fileShareId as string));
+      const scope = input.targetIds ?? [...ownIds];
+      const rows = scope.length
+        ? await tx
+            .select()
+            .from(fileShares)
+            .where(and(eq(fileShares.tenantId, tenantId), inArray(fileShares.id, scope)))
+        : [];
+      const byId = new Map(rows.map((row) => [row.id, row]));
+      for (const targetId of scope) {
+        const share = byId.get(targetId);
+        const name = share?.name ?? null;
+        if (!share || !ownIds.has(targetId)) {
+          result.skipped.push({ targetId, name, reason: "not_in_job" });
+          continue;
+        }
+        if (share.retiredAt) {
+          result.skipped.push({ targetId, name, reason: "retired" });
+          continue;
+        }
+        const [waiting] = await tx
+          .select({ id: fileShareRuns.id })
+          .from(fileShareRuns)
+          .where(
+            and(
+              eq(fileShareRuns.fileShareId, targetId),
+              eq(fileShareRuns.kind, "backup"),
+              eq(fileShareRuns.status, "queued"),
+            ),
+          )
+          .limit(1);
+        if (waiting) {
+          result.skipped.push({ targetId, name, reason: "already_queued" });
+          continue;
+        }
+        const [run] = await tx
+          .insert(fileShareRuns)
+          .values({
+            tenantId,
+            fileShareId: targetId,
+            lockShareId: targetId,
+            kind: "backup",
+            status: "queued",
+            trigger: "manual",
+            backupJobId: id,
+            requestedBy: actor.userId,
+            queuedAt: now,
+          })
+          .returning({ id: fileShareRuns.id });
+        await auditShare(tx, {
+          tenantId,
+          actor,
+          action: FILE_SHARE_TENANT_AUDIT_ACTIONS.backupRequested,
+          shareId: targetId,
+          details: {
+            name: share.name,
+            runId: run?.id ?? null,
+            via: { job: { id, name: job.name } },
+          },
+        });
+        result.queued++;
+      }
+    } else if (job.kind === "copy") {
+      const targetId = job.targetFileShareId as string;
+      const { source, target } = await loadCopyShares(
+        tx,
+        tenantId,
+        job.sourceFileShareId,
+        job.targetFileShareId,
+      );
+      assertCopyRules(source, target, job.settings ?? {});
+      const [waiting] = await tx
+        .select({ id: fileShareRuns.id })
+        .from(fileShareRuns)
+        .where(
+          and(
+            eq(fileShareRuns.backupJobId, id),
+            inArray(fileShareRuns.status, ["queued", "starting", "running"]),
+          ),
+        )
+        .limit(1);
+      if (waiting) {
+        result.skipped.push({ targetId, name: target.name, reason: "already_queued" });
+      } else {
+        await tx.insert(fileShareRuns).values({
+          tenantId,
+          fileShareId: source.id,
+          lockShareId: target.id,
+          targetShareId: target.id,
+          kind: "restore",
+          status: "queued",
+          trigger: "copy",
+          backupJobId: id,
+          params: input.force ? { force: true } : {},
+          requestedBy: actor.userId,
+          queuedAt: now,
+        });
+        result.queued++;
+      }
     } else {
       const own = members.filter((member) => member.jobId === id && member.endpointId);
       const ownIds = new Set(own.map((member) => member.endpointId as string));
@@ -1351,6 +1901,7 @@ export async function runBackupJob(
       skipped: result.skipped.length,
       selected: input.targetIds ? input.targetIds.length : null,
       full: job.kind === "mail" ? input.full : false,
+      ...(job.kind === "copy" ? { force: input.force } : {}),
       targets: (input.targetIds ?? []).slice(0, 50),
     });
     return result;

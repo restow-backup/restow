@@ -22,6 +22,9 @@
       "endpoint_backup": "Sicherung eines Rechners",
       "endpoint_restore": "Wiederherstellung auf einem Rechner",
       "endpoint_verify_sample": "Restore-Prüfung eines Rechners",
+      "file-share-backup": "Sicherung der Freigabe",
+      "file-share-restore": "Wiederherstellung der Freigabe",
+      "file-share-copy": "Kopie der Freigabe",
       "other": "Lauf"
     },
     "verify": {

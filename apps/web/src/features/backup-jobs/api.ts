@@ -12,8 +12,11 @@ import type { BandwidthWindow } from "./bandwidth-windows.js";
 
 export type { BandwidthWindow } from "./bandwidth-windows.js";
 
-export type JobKind = "mail" | "endpoint";
+export type JobKind = "mail" | "endpoint" | "share" | "copy";
+/** The kinds the tenant's job card and the classic job lists show (mail and machines). */
 export const JOB_KINDS: readonly JobKind[] = ["mail", "endpoint"];
+/** Every kind: with file share jobs and their copies (docs/FILESHARES.md 7.5, 12.5, 12.6). */
+export const ALL_JOB_KINDS: readonly JobKind[] = ["mail", "endpoint", "share", "copy"];
 
 export type JobScopeMode = "all" | "selected";
 export type JobOrigin = "user" | "migration";
@@ -76,6 +79,23 @@ export interface JobEndpointSettings {
    */
   bandwidthWindows?: BandwidthWindow[];
   retention?: JobRetention;
+  // --- File share jobs (docs/FILESHARES.md 7.5) ---
+  /** "Skip temporary and system files" (default on). */
+  presets?: { systemFiles?: boolean };
+  /** File extensions to skip, without the dot. */
+  fileTypes?: { exclude: string[] };
+  /** restic's read concurrency; default the installation's. */
+  readConcurrency?: number;
+  /** Skip offline (tiered) files instead of recalling them (default on). */
+  skipOffline?: boolean;
+  // --- Copy jobs (4.10) ---
+  /** Relative to the target share's root; never "" for a mirror. */
+  targetFolder?: string;
+  mode?: "overwrite" | "mirror";
+  restorePermissions?: boolean;
+  /** Set by the server when the admin confirmed a non-empty folder. */
+  mirrorConfirmedAt?: string | null;
+  verify?: boolean;
 }
 
 /** What one member does differently from the job; a field set here replaces the job's value. */
@@ -83,7 +103,19 @@ export type JobMemberOverrides = JobEndpointSettings & {
   schedule?: JobSchedule;
   /** Mail: its own restore-check schedule. */
   verifySchedule?: JobSchedule;
+  /** File shares: the folders to back up, relative to the share root; empty = everything. */
+  includes?: string[];
 };
+
+/** A copy job's shares and state (docs/FILESHARES.md 4.10); "Not a backup: no versions on the target". */
+export interface CopyJobInfo {
+  source: { id: string; name: string; retired: boolean };
+  target: { id: string; name: string; retired: boolean; allowRestore: boolean };
+  mode: "overwrite" | "mirror";
+  targetFolder: string;
+  mirrorConfirmedAt: string | null;
+  lastCopied: { snapshotId: string | null; at: string | null } | null;
+}
 
 // --- Responses (apps/api backup-jobs/dto.ts) ----------------------------------------
 
@@ -168,6 +200,8 @@ export interface BackupJob {
   restoreCheck: JobRestoreCheck;
   state: JobState;
   settings: JobEndpointSettings;
+  /** Copy jobs: the two shares and the copy's state; null for every other kind. */
+  copy?: CopyJobInfo | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -175,12 +209,12 @@ export interface BackupJob {
 export interface BackupJobList {
   items: BackupJob[];
   /** What no job covers: active mail objects, and machines that are in no job. */
-  uncovered: { mail: number; endpoint: number };
+  uncovered: { mail: number; endpoint: number; share?: number; copy?: number };
   /** In a job, but the job is paused or runs by hand only: not backed up on a schedule. */
-  unscheduled?: { mail: number; endpoint: number };
+  unscheduled?: { mail: number; endpoint: number; share?: number; copy?: number };
 }
 
-export type MemberKind = "mailbox" | "onedrive" | "imap" | "server" | "client";
+export type MemberKind = "mailbox" | "onedrive" | "imap" | "server" | "client" | "smb" | "nfs";
 export type MemberRestoreState = "green" | "yellow" | "red" | "unverified" | "no_backup";
 export type MemberOutcome = "succeeded" | "partial" | "failed" | "running" | "queued";
 
@@ -268,8 +302,11 @@ export interface JobDefaults {
 
 export interface JobRun {
   id: string;
-  /** `mail`: a run of the queue (backup, restore check); `endpoint`: a run an agent reported. */
-  source: "mail" | "endpoint";
+  /**
+   * `mail`: a run of the queue (backup, restore check); `endpoint`: a run an agent reported;
+   * `file_share`: a backup or restore of a share (a copy run is a restore run, type `copy`).
+   */
+  source: "mail" | "endpoint" | "file_share";
   /** Mail: the queue; machines: backup, restore or verify_sample. */
   type: string;
   status: string;
@@ -291,6 +328,7 @@ export type SkipReason =
   | "source_pending"
   | "source_disabled"
   | "revoked"
+  | "retired"
   | "not_in_job";
 
 export interface RunBackupJobResult {
@@ -324,6 +362,11 @@ export interface CreateBackupJobInput {
   archive?: boolean;
   /** Take objects and machines that belong to another job instead of refusing them. */
   moveMembers?: boolean;
+  /** Copy jobs: the share copied from and the share copied into. */
+  sourceFileShareId?: string;
+  targetFileShareId?: string;
+  /** Copy jobs in mirror mode: the admin confirmed a non-empty target folder. */
+  confirmMirror?: boolean;
 }
 
 /** `settings` replaces the whole settings object: send all of it. */
@@ -336,6 +379,9 @@ export interface UpdateBackupJobInput {
   settings?: JobEndpointSettings;
   enabled?: boolean;
   archive?: boolean;
+  sourceFileShareId?: string;
+  targetFileShareId?: string;
+  confirmMirror?: boolean;
 }
 
 export interface ReplaceMembersInput {
@@ -354,6 +400,8 @@ export interface RunBackupJobInput {
   targetIds?: string[];
   /** Mail jobs: re-enumerate everything instead of continuing from the delta state. */
   full?: boolean;
+  /** Copy jobs: "Copy anyway", past the guard against a source that lost half its files. */
+  force?: boolean;
 }
 
 /** The API's limits (schemas.ts), so the UI stops before the request is refused. */
@@ -384,6 +432,11 @@ export const LIMITS = {
 export const INVALID_JOB_PROBLEM = "urn:restow:problem:invalid-backup-job";
 export const IN_OTHER_JOB_PROBLEM = "urn:restow:problem:backup-job-member-in-other-job";
 export const JOB_STATE_PROBLEM = "urn:restow:problem:backup-job-state";
+/** A copy target that breaks a safety rule (docs/FILESHARES.md 4.10); `rule` names it. */
+export const COPY_UNSAFE_TARGET_PROBLEM = "urn:restow:problem:file-share-copy-unsafe-target";
+/** A mirror into a folder that is not empty: the admin confirms (`entries`, `folder`). */
+export const COPY_CONFIRM_PROBLEM = "urn:restow:problem:file-share-copy-confirm";
+export const RESTORE_NOT_ALLOWED_PROBLEM = "urn:restow:problem:file-share-restore-not-allowed";
 /** A machine in a job gets its configuration from the job: its own `config` cannot be changed. */
 export const ENDPOINT_MANAGED_BY_JOB_PROBLEM = "urn:restow:problem:endpoint-config-managed-by-job";
 

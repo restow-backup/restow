@@ -642,7 +642,7 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     category: "share",
     transient: false,
     retryable: true,
-    steps: () => [step("check_share_account"), READ_DETAILS],
+    steps: () => [step("check_share_account", "file_share"), READ_DETAILS],
   },
   "share.unreachable": {
     category: "share",
@@ -654,13 +654,13 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     category: "share",
     transient: false,
     retryable: true,
-    steps: () => [step("check_share_path"), READ_DETAILS],
+    steps: () => [step("check_share_path", "file_share"), READ_DETAILS],
   },
   "share.version_mismatch": {
     category: "share",
     transient: false,
     retryable: true,
-    steps: () => [step("choose_share_version")],
+    steps: () => [step("choose_share_version", "file_share")],
   },
   "share.permission_denied": {
     category: "share",
@@ -684,7 +684,7 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     category: "share",
     transient: false,
     retryable: true,
-    steps: () => [step("approve_private_network")],
+    steps: () => [step("approve_private_network", "file_share")],
   },
   "share.wrong_filesystem": {
     category: "share",
@@ -696,7 +696,7 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     category: "share",
     transient: false,
     retryable: true,
-    steps: () => [step("check_share_content"), step("back_up_empty_share_once")],
+    steps: () => [step("check_share_content"), step("back_up_empty_share_once", "file_share")],
   },
   "share.include_missing": {
     category: "share",
@@ -738,7 +738,7 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     category: "share",
     transient: false,
     retryable: true,
-    steps: () => [step("allow_share_restore")],
+    steps: () => [step("allow_share_restore", "file_share")],
   },
   "share.copy_no_verified_point": {
     category: "share",
@@ -780,25 +780,25 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     category: "share",
     transient: false,
     retryable: true,
-    steps: () => [step("raise_share_budget")],
+    steps: () => [step("raise_share_budget", "file_share")],
   },
   "share.out_of_memory": {
     category: "share",
     transient: false,
     retryable: true,
-    steps: () => [step("raise_runner_memory")],
+    steps: () => [step("raise_runner_memory", "file_share_runners")],
   },
   "share.timeout": {
     category: "share",
     transient: false,
     retryable: true,
-    steps: () => [step("raise_run_hours")],
+    steps: () => [step("raise_run_hours", "file_share_runners")],
   },
   "share.mounter_unavailable": {
     category: "share",
     transient: true,
     retryable: true,
-    steps: () => [step("start_mounter"), step("wait_automatic")],
+    steps: () => [step("start_mounter", "file_share_runners"), step("wait_automatic")],
   },
   "share.runner_failed": {
     category: "share",
@@ -810,7 +810,7 @@ export const FAILURE_CATALOG: Readonly<Record<FailureCode, FailureCatalogEntry>>
     category: "share",
     transient: true,
     retryable: true,
-    steps: () => [step("start_mounter"), step("wait_automatic")],
+    steps: () => [step("start_mounter", "file_share_runners"), step("wait_automatic")],
   },
   "share.runner_stalled": {
     category: "share",

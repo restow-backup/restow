@@ -43,7 +43,12 @@ export function jobProblem(
   });
 }
 
-export const jobKindSchema = z.enum(["mail", "endpoint"]);
+export const jobKindSchema = z.enum(["mail", "endpoint", "share", "copy"]);
+
+/** Problem type of a copy job whose target breaks a safety rule (docs/FILESHARES.md 4.10). */
+export const COPY_UNSAFE_TARGET_PROBLEM = "urn:restow:problem:file-share-copy-unsafe-target";
+/** Problem type of a mirror into a non-empty folder that was not confirmed (4.10 rule 4). */
+export const COPY_CONFIRM_PROBLEM = "urn:restow:problem:file-share-copy-confirm";
 
 const timeOfDay = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "use HH:MM");
 
@@ -73,12 +78,70 @@ const endpointSettingsShape = {
   retention: retentionSchema.optional(),
 };
 
-export const jobSettingsSchema = z.object(endpointSettingsShape);
+/** A file extension to skip, without the dot (`bak`, `tmp`). */
+const fileExtension = z
+  .string()
+  .trim()
+  .transform((value) => value.replace(/^\*?\./, ""))
+  .pipe(z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_+-]{0,31}$/, "an extension such as bak"));
+
+/** Settings of a file share job (docs/FILESHARES.md 7.5); every field has a default. */
+const shareSettingsShape = {
+  presets: z.object({ systemFiles: z.boolean().optional() }).strict().optional(),
+  fileTypes: z
+    .object({ exclude: z.array(fileExtension).max(200) })
+    .strict()
+    .optional(),
+  readConcurrency: z.number().int().min(1).max(16).optional(),
+  skipOffline: z.boolean().optional(),
+};
+
+/** A folder relative to a share root (`a/b`, `""` for the root). */
+const relativeFolder = z
+  .string()
+  .max(1100)
+  .transform((value) =>
+    value
+      .replace(/\\/g, "/")
+      .split("/")
+      .filter((segment) => segment.length > 0)
+      .join("/"),
+  )
+  .refine(
+    (value) =>
+      value === "" ||
+      value.split("/").every(
+        (segment) =>
+          segment !== "." &&
+          segment !== ".." &&
+          segment.length <= 255 &&
+          // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are refused.
+          !/[\u0000-\u001f\u007f]/.test(segment),
+      ),
+    { message: "folder names separated by /, without . or .." },
+  );
+
+/** Settings of a copy job (4.10, 7.5). */
+const copySettingsShape = {
+  targetFolder: relativeFolder.optional(),
+  mode: z.enum(["overwrite", "mirror"]).optional(),
+  restorePermissions: z.boolean().optional(),
+  verify: z.boolean().optional(),
+};
+
+export const jobSettingsSchema = z.object({
+  ...endpointSettingsShape,
+  ...shareSettingsShape,
+  ...copySettingsShape,
+});
 
 export const memberOverridesSchema = z.object({
   ...endpointSettingsShape,
+  ...shareSettingsShape,
   schedule: jobScheduleSchema.optional(),
   verifySchedule: jobScheduleSchema.optional(),
+  /** File shares: the folders to back up, relative to the share root; empty = everything. */
+  includes: z.array(relativeFolder).max(200).optional(),
 });
 
 /** One member in a request: the id of the protected object (mail jobs) or the machine (machine jobs). */
@@ -112,6 +175,12 @@ export const createBackupJobSchema = z.object({
   archive: z.boolean().default(false),
   /** Take objects and machines that belong to another job instead of refusing them. */
   moveMembers: z.boolean().default(false),
+  /** Copy jobs: the share whose newest verified restore point is copied. */
+  sourceFileShareId: uuid.optional(),
+  /** Copy jobs: the share the restore point is copied into (it must allow restores). */
+  targetFileShareId: uuid.optional(),
+  /** Copy jobs in mirror mode: the admin confirmed a non-empty target folder (4.10 rule 4). */
+  confirmMirror: z.boolean().default(false),
 });
 export type CreateBackupJobInput = z.infer<typeof createBackupJobSchema>;
 
@@ -125,10 +194,17 @@ export const updateBackupJobSchema = z
     settings: jobSettingsSchema.optional(),
     enabled: z.boolean().optional(),
     archive: z.boolean().optional(),
+    sourceFileShareId: uuid.optional(),
+    targetFileShareId: uuid.optional(),
+    confirmMirror: z.boolean().optional(),
   })
-  .refine((patch) => Object.values(patch).some((value) => value !== undefined), {
-    message: "Nothing to update.",
-  });
+  .refine(
+    (patch) =>
+      Object.entries(patch).some(([key, value]) => key !== "confirmMirror" && value !== undefined),
+    {
+      message: "Nothing to update.",
+    },
+  );
 export type UpdateBackupJobInput = z.infer<typeof updateBackupJobSchema>;
 
 export const replaceMembersSchema = z.object({
@@ -152,6 +228,8 @@ export const runBackupJobSchema = z.object({
   targetIds: z.array(uuid).min(1).max(5000).optional(),
   /** Mail jobs: re-enumerate everything instead of continuing from the delta state. */
   full: z.boolean().default(false),
+  /** Copy jobs: "Copy anyway" (4.10 rule 6), past the halved-files guard of a mirror. */
+  force: z.boolean().default(false),
 });
 export type RunBackupJobInput = z.infer<typeof runBackupJobSchema>;
 

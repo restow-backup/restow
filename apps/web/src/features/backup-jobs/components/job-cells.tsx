@@ -133,7 +133,7 @@ export function ScopeCell({ job }: { job: BackupJob }) {
   const note = scopeNote(job, t);
   return (
     <div className="min-w-0">
-      <div>{describeScope(job.scope, job.kind, t)}</div>
+      <div>{describeScope(job.scope, job.kind, t, job.copy)}</div>
       {note ? <div className="text-xs text-muted-foreground">{note}</div> : null}
     </div>
   );

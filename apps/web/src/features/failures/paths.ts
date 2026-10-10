@@ -21,6 +21,8 @@ export interface StepLink {
 export interface StepContext {
   /** The source the failure concerns; resolves `source` targets. */
   sourceId?: string | null;
+  /** The file share the failure concerns; resolves `file_share` targets. */
+  fileShareId?: string | null;
 }
 
 /** The link for a step, or null when it points nowhere in the app. */
@@ -44,6 +46,16 @@ export function stepLink(step: FailureStep, context: StepContext = {}): StepLink
       return { to: "/verify" as LinkProps["to"] };
     case "jobs":
       return { to: activeTenantPageTo("protection", "backup") };
+    case "file_share":
+      // The share's settings, where the account, the version, restores and the budget are.
+      return context.fileShareId
+        ? {
+            to: `/file-shares/${encodeURIComponent(context.fileShareId)}` as LinkProps["to"],
+            search: { tab: "settings" },
+          }
+        : { to: "/file-shares" as LinkProps["to"] };
+    case "file_share_runners":
+      return { to: "/installation/mounts" as LinkProps["to"] };
     default:
       return null;
   }
