@@ -43,7 +43,7 @@ export function guestProtection(guest: PveGuest): GuestProtection {
 }
 
 const PROTECTION_BADGE = {
-  protected: "success",
+  protected: "outline",
   failed: "destructive",
   noJob: "warning",
   never: "warning",
