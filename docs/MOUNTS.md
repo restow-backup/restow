@@ -2,7 +2,7 @@
 
 This document is for operators. It explains the opt-in **mounter**: a small container
 that adds NFS shares to a Restow installation from the web interface (Installation >
-Network shares), so that a share can hold a tenant's repository or the installation
+Default repository & network shares), so that a share can hold a tenant's repository or the installation
 default repository without editing compose files by hand.
 
 Only NFS is supported. SMB was removed from the product; the mounter's request format
@@ -29,13 +29,13 @@ options and mounts it into the `api` and the `worker` containers at
 After that, add a repository of the kind "directory" with the path
 `/mnt/restow/<name>` (or a folder below it): the repository form offers the paths of the
 mounted shares under its path field. The installation default repository can point there
-as well (Installation > Default repository).
+as well (Installation > Default repository & network shares).
 
 ### From the storage form
 
-The admin does not have to visit Installation > Network shares first. Type the NFS
+The admin does not have to visit Installation > Default repository & network shares first. Type the NFS
 address into the path field of a repository of the kind "directory" (a tenant's
-repository or Installation > Default repository):
+repository or Installation > Default repository & network shares):
 
 | Typed | Server | Export path |
 | --- | --- | --- |
@@ -201,7 +201,7 @@ it to the new release's image, and recreate it:
 docker compose --profile mounts up -d --no-deps mounter
 ```
 
-Wait until no change of a share is running (Installation > Network shares) before you do.
+Wait until no change of a share is running (Installation > Default repository & network shares) before you do.
 
 ## Security
 

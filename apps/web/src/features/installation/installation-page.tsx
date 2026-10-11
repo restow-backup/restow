@@ -20,6 +20,9 @@ import { InstallationSubNav } from "./subnav";
 /** The installation's settings are the provider's; a tenant's admins manage their tenant elsewhere. */
 export const INSTALLATION_ROLES = ["provider_admin"] as const;
 
+/** Sections that became part of another one: their old address opens the new one. */
+const MOVED_SECTIONS: Readonly<Record<string, string>> = { mounts: "default-storage" };
+
 /**
  * The installation page: the settings of the server and of the operation of
  * all tenants (or of the one organisation), one section per address
@@ -37,8 +40,9 @@ export function InstallationPage() {
   const search = parseInstallationSearch(useSearch({ strict: false }));
 
   const states = sectionStates(installationSections(), session);
+  const wanted = section ? (MOVED_SECTIONS[section] ?? section) : section;
   const active =
-    states.find(({ spec }) => spec.id === section) ??
+    states.find(({ spec }) => spec.id === wanted) ??
     states.find(({ spec }) => spec.id === DEFAULT_SECTION_ID) ??
     states[0];
   if (!active) {

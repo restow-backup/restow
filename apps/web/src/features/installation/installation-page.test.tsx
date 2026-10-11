@@ -123,8 +123,7 @@ describe("who opens the installation page", () => {
       "Server",
       "Notification mail",
       "Microsoft multi-tenant app",
-      "Default repository",
-      "Network shares",
+      "Default repository & network shares",
       "Updates",
       "Edition",
       "About",
@@ -161,6 +160,15 @@ describe("who opens the installation page", () => {
     vi.stubGlobal("fetch", routes().mock);
     await open("/installation/does-not-exist");
     expect(document.body.querySelector("h1")?.textContent).toBe("Server");
+  });
+
+  it("opens the network shares, now part of the default repository's section, at their old address", async () => {
+    vi.stubGlobal("fetch", routes().mock);
+    await open("/installation/mounts");
+    expect(document.body.querySelector("h1")?.textContent).toBe(
+      "Default repository & network shares",
+    );
+    expect(slot("repository-section")).not.toBeNull();
   });
 
   it("offers a select above the content for a narrow screen, with the same sections", async () => {
@@ -605,7 +613,7 @@ describe("sections an extension adds", () => {
     vi.stubGlobal("fetch", routes().mock);
     await open("/installation/example?requires=business");
     expect(subnavEntries().indexOf("Provider API")).toBe(
-      subnavEntries().indexOf("Default repository") - 1,
+      subnavEntries().indexOf("Default repository & network shares") - 1,
     );
     expect(slot("example-section")?.textContent).toBe("example:business");
   });
