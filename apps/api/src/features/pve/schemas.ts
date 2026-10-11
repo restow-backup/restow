@@ -84,9 +84,19 @@ export const inventorySchema = z.object({
     .transform((v) => v ?? []),
 });
 
+/**
+ * An error text from the node: kept, but cut to 4000 characters. A longer one
+ * (restic lists every unreadable file) used to be refused with 422, the node
+ * only logged that, and the run stayed "running".
+ */
+const nodeErrorText = z
+  .string()
+  .max(1024 * 1024)
+  .transform((s) => s.slice(0, 4000));
+
 export const taskResultSchema = z.object({
   status: z.enum(["done", "failed"]),
-  error: z.string().max(4000).optional(),
+  error: nodeErrorText.optional(),
   result: z
     .record(z.unknown())
     .nullish()
@@ -143,11 +153,19 @@ export const commitSchema = z.object({
   resticTotalBytes: z.number().int().min(0).optional(),
   resticRoot: z.string().max(4096).optional(),
   pveVersion: z.string().max(64).optional(),
+  /** Container backups: restic could not read this many items (exit 3); the restore point misses them. */
+  resticUnreadable: z.number().int().min(0).optional(),
+  /** One line on what the restore point misses (the first unreadable item). */
+  consistency: z
+    .string()
+    .max(1024 * 1024)
+    .transform((s) => s.slice(0, 2000))
+    .optional(),
 });
 
 export const finishSchema = z.object({
   status: z.enum(["succeeded", "failed"]),
-  error: z.string().max(4000).optional(),
+  error: nodeErrorText.optional(),
   stats: z
     .record(z.unknown())
     .nullish()
