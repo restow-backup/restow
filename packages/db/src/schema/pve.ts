@@ -274,6 +274,9 @@ export type PveRunStats = {
   zeroBlocks?: number;
   hashSkipped?: number;
   resticBytesAdded?: number;
+  /** Container backups: items restic could not read; the restore point misses them. */
+  resticUnreadable?: number;
+  consistency?: string | null;
   [key: string]: unknown;
 };
 

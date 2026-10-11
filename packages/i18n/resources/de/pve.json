@@ -81,7 +81,10 @@
     "lastFailed": "Letzter Lauf fehlgeschlagen",
     "incremental": "Inkrementell",
     "fullRead": "Vollständiges Lesen (VM neu gestartet)",
-    "never": "Noch nie"
+    "never": "Noch nie",
+    "queued": "Wartet auf den Knoten",
+    "running": "Sicherung läuft",
+    "lastSucceeded": "Letzte Sicherung erfolgreich"
   },
   "jobs": {
     "title": "Backup-Jobs",

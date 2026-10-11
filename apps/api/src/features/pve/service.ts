@@ -77,10 +77,14 @@ export function bitmapState(
   return modes.every((m) => m === "reuse") ? "incremental" : "full_read";
 }
 
+/** What is happening with a guest's backup right now: handed to its node, or running. */
+export type GuestActivity = "queued" | "running" | null;
+
 function guestDto(
   g: PveGuest,
   jobs: Map<string, PveJob>,
   lastRun: { status: string; error: string | null } | undefined,
+  activity: GuestActivity = null,
 ) {
   const attention: string[] = [];
   if (g.template && g.kind === "vm") {
@@ -120,6 +124,7 @@ function guestDto(
     lastSnapshotId: g.lastSnapshotId,
     lastRunStatus: lastRun?.status ?? null,
     lastRunError: lastRun?.error ?? null,
+    activity,
     bitmapState: bitmapState(g),
     attention,
   };
@@ -160,6 +165,17 @@ export async function overview(database: Database, tenantId: string, now: Date =
     const runByGuest = new Map(
       lastRuns.rows.map((r) => [r.guest_id, { status: r.status, error: r.error_message }]),
     );
+    const running = await tx.execute<{ guest_id: string }>(sql`
+      SELECT DISTINCT guest_id FROM pve_runs WHERE kind = 'backup' AND status = 'running'`);
+    const queued = await tx.execute<{ guest_id: string }>(sql`
+      SELECT DISTINCT guest_id FROM pve_tasks
+       WHERE kind = 'backup' AND status IN ('pending', 'delivered') AND guest_id IS NOT NULL`);
+    const activity = new Map<string, GuestActivity>(
+      queued.rows.map((r) => [r.guest_id, "queued" as const]),
+    );
+    for (const r of running.rows) {
+      activity.set(r.guest_id, "running");
+    }
     const jobMap = new Map(jobs.map((j) => [j.id, j]));
     return {
       clusters: clusters.map((c) => ({
@@ -168,7 +184,9 @@ export async function overview(database: Database, tenantId: string, now: Date =
         storageId: c.storageId,
         nodes: nodes.filter((n) => n.clusterId === c.id).map((n) => nodeDto(n, now)),
       })),
-      guests: guests.map((g) => guestDto(g, jobMap, runByGuest.get(g.id))),
+      guests: guests.map((g) =>
+        guestDto(g, jobMap, runByGuest.get(g.id), activity.get(g.id) ?? null),
+      ),
       jobs: jobs.map(jobDto),
       restorePool: RESTORE_POOL,
     };

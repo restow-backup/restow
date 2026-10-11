@@ -36,6 +36,11 @@ PVE node                                                 Restow instance
   over the directory PVE prepares, into one restic repository per guest
   (`pve-guests/<guest id>/` in the tenant's primary storage target). The node
   gets a credential per run that expires with the run and only adds data.
+  The `lost+found` at the root of the container and of each mount point is left
+  out (on ext4 it belongs to the host's root, which an unprivileged container's
+  ID map does not include). When restic cannot read some files (exit code 3),
+  the restore point is kept; the PVE task log names the missing items and the
+  run records how many there were.
 - **Restore** creates a new guest with a new VMID in the pool `restow-restore`
   through PVE's own restore. For a VM, `restow-pve` serves each disk to
   `qemu-img convert` over NBD; for a container it unpacks the restic snapshot

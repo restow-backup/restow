@@ -81,7 +81,10 @@
     "lastFailed": "Last run failed",
     "incremental": "Incremental",
     "fullRead": "Full read (VM was restarted)",
-    "never": "Never"
+    "never": "Never",
+    "queued": "Waiting for the node",
+    "running": "Backup running",
+    "lastSucceeded": "Last backup succeeded"
   },
   "jobs": {
     "title": "Backup jobs",

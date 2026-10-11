@@ -45,6 +45,8 @@ export interface PveGuest {
   lastSuccessAt: string | null;
   lastRunStatus: string | null;
   lastRunError: string | null;
+  /** What is happening now: the backup was handed to the node, or runs; null otherwise (and on older servers). */
+  activity?: "queued" | "running" | null;
   bitmapState: "incremental" | "full_read" | null;
   attention: string[];
 }

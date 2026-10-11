@@ -8,6 +8,80 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [0.3.4] - 2026-10-11
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.3.4 is a hotfix: Proxmox VE container backups no longer fail on the
+`lost+found` folder of an unprivileged container, VMs & containers show when a backup
+waits for its node or runs, and a short hiccup while the browser re-checks the sign-in
+no longer replaces the whole interface with "Restow could not be loaded". No database
+migration.
+
+### Breaking Changes
+
+None.
+
+### Added
+
+- Proxmox VE › VMs & containers: the state of a guest says "Waiting for the node" once
+  a backup was handed out and "Backup running" while it runs; a container whose last
+  backup succeeded says so (a VM says it with its incremental/full-read badge).
+
+### Changed
+
+- Proxmox VE container backups that restic could not read completely (exit code 3: the
+  snapshot is written, some files are missing) keep their restore point instead of
+  failing. The PVE task log names the unreadable items (the first 20) and the restore
+  point records how many there were.
+
+### Fixed
+
+- Container backups of unprivileged containers on ext4 (LVM, LVM-thin, directory
+  storage) failed with "open lost+found: permission denied": that folder belongs to the
+  host's root, which the container's ID map does not include. The `lost+found` at the
+  root of the container and of every mount point is left out, as vzdump does.
+- A failed container backup with a long restic error could stay "running" forever: the
+  server refused error texts over 4000 characters (422), and the node only logged that.
+  The server now keeps the first 4000 characters.
+- A backup whose own end the node could not report is closed when the node reports its
+  task: succeeded with a restore point, failed without one. A task that failed closes
+  every run it left open, not only one.
+- A backup still running after 30 minutes was handed to its node a second time.
+- The interface fell back to "Restow could not be loaded" whenever a single background
+  re-check of the sign-in failed (when the window got the focus again, after the network
+  came back, or while the API restarted), although the session was still valid. It now
+  stays up and keeps the session; only a failed first load or a 401 changes the screen.
+  Errors of the sign-in service name a server or connection problem instead of the
+  generic "The action could not be completed".
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New image and a new `restow-pve` helper for the Proxmox VE nodes; no database
+migration. After the server update, run `restow-pve update` on every node so the
+container fix applies there; the server part works with older helpers too.
+
+### Known Issues
+
+- The inventory's node rows do not yet show "Waiting for the node" or "Backup running";
+  VMs & containers does.
+- The known issues of 0.3.3 still apply.
+
+### Verification
+
+Before the tag, on 2026-10-11, on the release candidate (main plus the 0.3.4 changes):
+lint, typecheck, the Go tests of the agent and the PVE helper (including new tests for
+the container backup's arguments, exit code 3 and other failures), apps/web 3803, and
+the Proxmox VE suites of apps/api with Postgres 16 (pve 11, protection 6). The full
+suites run in CI on the release pull request.
+
 ## [0.3.3] - 2026-10-10
 
 Beta release. Run it alongside your existing backups, not as your only one, until

@@ -384,6 +384,8 @@ export interface CommitInput {
   resticTotalBytes?: number;
   resticRoot?: string;
   pveVersion?: string;
+  resticUnreadable?: number;
+  consistency?: string;
 }
 
 interface WrittenObject {
@@ -642,6 +644,10 @@ async function commitOnce(node: NodeContext, run: PveRun, input: CommitInput, no
       zeroBlocks: (input.devices ?? []).reduce((s, d) => s + d.zeroBlocks, 0),
       hashSkipped: (input.devices ?? []).reduce((s, d) => s + d.hashSkipped, 0),
       ...(kind === "ct" ? { resticBytesAdded: input.resticBytesAdded ?? 0 } : {}),
+      // An incomplete container snapshot (restic exit 3) says what it misses.
+      ...(kind === "ct" && input.resticUnreadable
+        ? { resticUnreadable: input.resticUnreadable, consistency: input.consistency ?? null }
+        : {}),
     };
     await withTenantTx(db, node.tenantId, async (tx) => {
       await tx.insert(pveSnapshots).values({
@@ -776,16 +782,16 @@ export async function finishFailedTaskRun(
   message: string,
   now: Date,
 ): Promise<void> {
-  const [run] = await tx
-    .select()
-    .from(pveRuns)
+  // Every run the task left open fails with it (a redelivered task can have opened several).
+  const closed = await tx
+    .update(pveRuns)
+    .set({ status: "failed", finishedAt: now, errorMessage: message })
     .where(and(eq(pveRuns.taskId, task.id), eq(pveRuns.status, "running")))
-    .limit(1);
-  if (run) {
-    await tx
-      .update(pveRuns)
-      .set({ status: "failed", finishedAt: now, errorMessage: message })
-      .where(eq(pveRuns.id, run.id));
+    .returning({ id: pveRuns.id, guestId: pveRuns.guestId });
+  if (closed.length > 0) {
+    for (const guestId of new Set(closed.map((r) => r.guestId))) {
+      await tx.update(pveGuests).set({ lastBackupAt: now }).where(eq(pveGuests.id, guestId));
+    }
     return;
   }
   if (task.kind === "backup" && task.guestId) {

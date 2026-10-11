@@ -466,6 +466,8 @@ type CommitRequest struct {
 	ResticRoot        string         `json:"resticRoot,omitempty"`
 	PVEVersion        string         `json:"pveVersion,omitempty"`
 	ConsistencyRemark string         `json:"consistency,omitempty"`
+	// ResticUnreadable counts the items a container backup could not read.
+	ResticUnreadable int `json:"resticUnreadable,omitempty"`
 }
 
 // CommitResponse is the answer of a commit.

@@ -113,6 +113,13 @@ export function errorMessageKey(error: unknown): string {
     if (error.status === 400 || error.status === 422) return "errors.validation";
     if (error.status >= 500) return "errors.server";
   }
+  // The auth client's errors are plain objects carrying the HTTP status.
+  const status =
+    typeof error === "object" && error !== null ? (error as { status?: unknown }).status : null;
+  if (typeof status === "number") {
+    if (status === 502 || status === 503 || status === 504 || status === 0) return "errors.network";
+    if (status >= 500) return "errors.server";
+  }
   return "errors.generic";
 }
 
