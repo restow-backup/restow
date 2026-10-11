@@ -624,4 +624,85 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     });
     expect(await fixture.db.select().from(chunks).limit(1)).toHaveLength(1);
   });
+  it("shows a container's backup as queued, then running, and closes a run whose end the node never reported", async () => {
+    const [ct] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 200));
+    const ctId = ct?.id ?? "";
+    const queued = await service.backupNow(
+      shared.db,
+      fixture.tenantId,
+      ctId,
+      { verifyRead: false },
+      actor(),
+    );
+    const activityOf = async () =>
+      (await service.overview(shared.db, fixture.tenantId)).guests.find((g) => g.vmid === 200)
+        ?.activity;
+    expect(await activityOf()).toBe("queued");
+    await call(node, "/heartbeat", { json: { helperVersion: "0.3.0", state: "idle" } });
+    const run = await json<{ runId: string }>(
+      await call(node, "/runs", {
+        json: {
+          vmid: 200,
+          kind: "ct",
+          archiveName: "ct/200/2026-10-11T02:00:00Z",
+          storageId: "restow",
+          startedAt: "2026-10-11T02:00:00Z",
+        },
+      }),
+      201,
+    );
+    expect(await activityOf()).toBe("running");
+    // The node reports the task done, but its run's own end got lost: no restore point, so failed.
+    await json(
+      await call(node, `/tasks/${queued.taskId}/result`, { json: { status: "done" } }),
+      204,
+    );
+    const [row] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, run.runId));
+    expect(row).toMatchObject({ status: "failed" });
+    expect(row?.errorMessage).toContain("without reporting a restore point");
+    const guest = (await service.overview(shared.db, fixture.tenantId)).guests.find(
+      (g) => g.vmid === 200,
+    );
+    expect(guest).toMatchObject({ activity: null, lastRunStatus: "failed" });
+  });
+
+  it("takes a long error from the node, cut, instead of refusing it", async () => {
+    const [ct] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 200));
+    const queued = await service.backupNow(
+      shared.db,
+      fixture.tenantId,
+      ct?.id ?? "",
+      { verifyRead: false },
+      actor(),
+    );
+    await call(node, "/heartbeat", { json: { helperVersion: "0.3.0", state: "idle" } });
+    const run = await json<{ runId: string }>(
+      await call(node, "/runs", {
+        json: {
+          vmid: 200,
+          kind: "ct",
+          archiveName: "ct/200/2026-10-11T03:00:00Z",
+          storageId: "restow",
+          startedAt: "2026-10-11T03:00:00Z",
+        },
+      }),
+      201,
+    );
+    const long = `restic backup failed: exit status 1: ${"x".repeat(6000)}`;
+    await json(
+      await call(node, `/runs/${run.runId}/finish`, { json: { status: "failed", error: long } }),
+      204,
+    );
+    const [row] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, run.runId));
+    expect(row?.status).toBe("failed");
+    expect(row?.errorMessage?.startsWith("restic backup failed")).toBe(true);
+    // The task closed with the run, so a late result for it is not taken twice.
+    expect(
+      (
+        await call(node, `/tasks/${queued.taskId}/result`, {
+          json: { status: "failed", error: long },
+        })
+      ).status,
+    ).toBe(404);
+  });
 });

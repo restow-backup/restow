@@ -192,7 +192,7 @@ function JobDialog({ job, onClose }: { job: PveJob | null; onClose: () => void }
   );
 }
 
-function GuestState({ guest }: { guest: PveGuest }) {
+export function GuestState({ guest }: { guest: PveGuest }) {
   const { t } = useTranslation(PVE_NAMESPACE);
   const badges: React.ReactNode[] = [];
   if (guest.template && guest.kind === "vm") {
@@ -216,10 +216,30 @@ function GuestState({ guest }: { guest: PveGuest }) {
       </Badge>,
     );
   }
+  if (guest.activity === "running") {
+    badges.push(
+      <Badge key="run" variant="info" data-slot="pve-guest-activity">
+        {t("guests.running")}
+      </Badge>,
+    );
+  } else if (guest.activity === "queued") {
+    badges.push(
+      <Badge key="q" variant="muted" data-slot="pve-guest-activity">
+        {t("guests.queued")}
+      </Badge>,
+    );
+  }
   if (guest.lastRunStatus === "failed") {
     badges.push(
       <Badge key="f" variant="destructive" title={guest.lastRunError ?? undefined}>
         {t("guests.lastFailed")}
+      </Badge>,
+    );
+  } else if (guest.lastRunStatus === "succeeded" && guest.bitmapState === null) {
+    // A VM says it with its bitmap badge; a container has none.
+    badges.push(
+      <Badge key="s" variant="outline" data-slot="pve-guest-succeeded">
+        {t("guests.lastSucceeded")}
       </Badge>,
     );
   }
