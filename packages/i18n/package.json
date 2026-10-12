@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "i18next": "^24.2.0",
-    "i18next-icu": "^2.3.0",
+    "i18next-icu": "^2.5.0",
     "intl-messageformat": "^10.7.0"
   }
 }
