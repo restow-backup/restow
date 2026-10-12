@@ -13,15 +13,30 @@ import { MountsSection } from "./mounts-section";
  */
 export function RepositorySection() {
   const { t } = useTranslation("installation");
+  // Narrow: default, its test, then the shares, one below the other. Wide: the
+  // default on the left over both rows, the shares and under them the test on
+  // the right, so both columns end about level and the page fits a 1080p screen.
   return (
-    <div className="grid items-start gap-8 2xl:grid-cols-2" data-slot="repository-section">
-      <section aria-labelledby="installation-default-storage" className="min-w-0 space-y-4">
+    <div
+      className="grid items-start gap-6 2xl:grid-cols-2 2xl:grid-rows-[auto_1fr] 2xl:gap-x-8"
+      data-slot="repository-section"
+    >
+      <section
+        aria-labelledby="installation-default-storage"
+        className="min-w-0 space-y-4 2xl:row-span-2"
+      >
         <h2 id="installation-default-storage" className="text-base font-semibold">
           {t("sections.defaultStorage")}
         </h2>
-        <DefaultStorageSection />
+        <DefaultStorageSection parts="main" />
       </section>
-      <section aria-labelledby="installation-mounts" className="min-w-0 space-y-4">
+      <div className="min-w-0 empty:hidden 2xl:col-start-2 2xl:row-start-2">
+        <DefaultStorageSection parts="test" />
+      </div>
+      <section
+        aria-labelledby="installation-mounts"
+        className="min-w-0 space-y-4 2xl:col-start-2 2xl:row-start-1"
+      >
         {/* The shares' own introduction says what they are for. */}
         <h2 id="installation-mounts" className="text-base font-semibold">
           {t("sections.mounts")}

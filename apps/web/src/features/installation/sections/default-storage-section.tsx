@@ -66,9 +66,20 @@ type Kind = "local" | "s3";
  * data on it (and names them), and tests it. A passed test is a state, not
  * proof of a restore: it is shown in the neutral tone.
  */
-export function DefaultStorageSection() {
+/**
+ * Which cards to show: everything (the default), the default and its form
+ * ("main"), or only the test ("test"); the installation's repository page
+ * puts the test beside the network shares so neither column runs long.
+ */
+export type DefaultStorageParts = "all" | "main" | "test";
+
+export function DefaultStorageSection({ parts = "all" }: { parts?: DefaultStorageParts } = {}) {
   const { t } = useTranslation("installation");
   const query = useDefaultStorage();
+  if (parts === "test" && (query.isPending || query.isError)) {
+    // The main part shows the loading and the error once.
+    return null;
+  }
   if (query.isPending) {
     return (
       <div className="space-y-4" aria-busy="true">
@@ -87,21 +98,29 @@ export function DefaultStorageSection() {
       />
     );
   }
-  return <DefaultStorageContent view={query.data} />;
+  return <DefaultStorageContent view={query.data} parts={parts} />;
 }
 
-export function DefaultStorageContent({ view }: { view: DefaultStorageView }) {
+export function DefaultStorageContent({
+  view,
+  parts = "all",
+}: { view: DefaultStorageView; parts?: DefaultStorageParts }) {
   const access = useInstallationAccess();
+  const test =
+    view.configured && parts !== "main" ? (
+      <ReadOnlyGroup closed={access.operate !== null}>
+        <TestCard view={view} />
+      </ReadOnlyGroup>
+    ) : null;
+  if (parts === "test") {
+    return test;
+  }
   return (
     <div className="space-y-6">
       <AccessNote block={access.operate} level="administrator" />
       <DefaultCard view={view} />
       <ConfigureCard view={view} closed={access.change} />
-      {view.configured ? (
-        <ReadOnlyGroup closed={access.operate !== null}>
-          <TestCard view={view} />
-        </ReadOnlyGroup>
-      ) : null}
+      {test}
     </div>
   );
 }
