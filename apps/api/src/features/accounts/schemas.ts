@@ -7,7 +7,7 @@ import { passwordSchema } from "../../schemas.js";
  */
 
 /** Local copy of the tenant role enum (apps/api/src/middleware/rbac.ts `TenantRole`). */
-export const accountRoleSchema = z.enum(["tenant_admin", "tenant_user"]);
+export const accountRoleSchema = z.enum(["tenant_admin", "tenant_restore", "tenant_user"]);
 
 export const provisionAccountSchema = z.object({
   email: z.string().trim().toLowerCase().email(),

@@ -6,9 +6,9 @@
     "invited": {
       "title": "Sign-in link ready",
       "lead": "Share this link with the invited person, or send it again from the members list later.",
-      "summary": "{email} is added as {role, select, tenant_admin {tenant admin} other {user}}.",
+      "summary": "{email} is added as {role, select, tenant_admin {tenant admin} tenant_restore {restore operator} other {user}}.",
       "reusedSummary": "{email} already had an account on {appName}. It is added to this tenant, and can choose a password with this link.",
-      "alreadySignedIn": "{email} already has a way to sign in and is now added to this tenant as {role, select, tenant_admin {tenant admin} other {user}}. There is nothing to send. They can sign in right away.",
+      "alreadySignedIn": "{email} already has a way to sign in and is now added to this tenant as {role, select, tenant_admin {tenant admin} tenant_restore {restore operator} other {user}}. There is nothing to send. They can sign in right away.",
       "microsoftHint": "Microsoft sign-in is available on this installation, but only for accounts already linked to Microsoft. This one is not, so {email} signs in with the password from this link instead."
     },
     "added": {

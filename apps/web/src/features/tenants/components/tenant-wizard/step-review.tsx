@@ -114,7 +114,9 @@ export function ReviewStep({ form }: StepProps) {
               // biome-ignore lint/suspicious/noArrayIndexKey: rows have no stable id before creation.
               <li key={index} className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="font-medium">{admin.email}</span>
-                <Badge variant="outline">{t(`members.roles.${admin.role}`)}</Badge>
+                {admin.role ? (
+                  <Badge variant="outline">{t(`members.roles.${admin.role}`)}</Badge>
+                ) : null}
               </li>
             ))}
           </ul>

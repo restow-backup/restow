@@ -19,7 +19,7 @@ import { config } from "../../config.js";
 import { audit } from "../../lib/audit.js";
 import { segmentStoreFor } from "../../lib/segment-store.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
-import { isTenantAdmin } from "../../middleware/rbac.js";
+import { isTenantAdmin, restoresForTenant } from "../../middleware/rbac.js";
 import { ProblemError } from "../../problem.js";
 import { archiveSearchConditions } from "../archive/service.js";
 import { failureDto } from "../failures/dto.js";
@@ -471,9 +471,12 @@ function exportQuery(tx: DbExecutor) {
     .leftJoin(user, eq(user.id, mailExports.actorUserId));
 }
 
-/** SQL filter for the exports a viewer may see: admins all of the tenant, everybody else their own requests. */
+/**
+ * SQL filter for the exports a viewer may see: restore operators and admins
+ * all of the tenant, everybody else their own requests.
+ */
 function visibleExportsCondition(viewer: Viewer): SQL | null {
-  if (isTenantAdmin(viewer.role)) {
+  if (restoresForTenant(viewer.role)) {
     return null;
   }
   return viewer.userId === null ? sql`false` : eq(mailExports.actorUserId, viewer.userId);
@@ -481,7 +484,7 @@ function visibleExportsCondition(viewer: Viewer): SQL | null {
 
 function isVisibleTo(viewer: Viewer, row: ExportRow): boolean {
   return (
-    isTenantAdmin(viewer.role) ||
+    restoresForTenant(viewer.role) ||
     (viewer.userId !== null && row.export.actorUserId === viewer.userId)
   );
 }

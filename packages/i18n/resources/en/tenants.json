@@ -175,10 +175,14 @@
     },
     "roles": {
       "tenant_admin": "Tenant admin",
+      "tenant_restore": "Restore operator",
       "tenant_user": "User"
     },
+    "rolePlaceholder": "Choose a role …",
     "roleHints": {
+      "none": "Choose what this person may see and do in this tenant.",
       "tenant_admin": "Manages sources, protection, members and restores for everyone in the tenant.",
+      "tenant_restore": "Browses, restores and exports every account of the tenant, but changes no sources, jobs or members.",
       "tenant_user": "Restores only their own mailbox and OneDrive."
     },
     "invitations": {
@@ -219,7 +223,7 @@
     "error": "The invitation could not be loaded.",
     "heading": "You are invited to {tenant}",
     "headingGeneric": "You are invited to a tenant",
-    "lead": "Accept to get access as {role, select, tenant_admin {tenant admin} other {user}}.",
+    "lead": "Accept to get access as {role, select, tenant_admin {tenant admin} tenant_restore {restore operator} other {user}}.",
     "leadGeneric": "Accept to get access with the role your administrator chose for you.",
     "fields": {
       "account": "Your account",
@@ -297,8 +301,8 @@
     "resumed": "{name} is active again.",
     "deleted": "{name} is being deleted.",
     "entered": "You are now working in {name}.",
-    "memberAdded": "{email} now has access as {role, select, tenant_admin {tenant admin} other {user}}.",
-    "roleChanged": "{name} is now {role, select, tenant_admin {a tenant admin} other {a user}}.",
+    "memberAdded": "{email} now has access as {role, select, tenant_admin {tenant admin} tenant_restore {restore operator} other {user}}.",
+    "roleChanged": "{name} is now {role, select, tenant_admin {a tenant admin} tenant_restore {a restore operator} other {a user}}.",
     "memberRemoved": "{name} no longer has access.",
     "invitationCanceled": "The invitation for {email} was cancelled.",
     "copied": "Link copied.",

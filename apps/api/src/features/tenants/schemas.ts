@@ -13,7 +13,7 @@ export const tenantSlugSchema = z
 /** A tenant's display name; the same rule for customers and for the operator's own organisation. */
 export const tenantNameSchema = z.string().trim().min(1).max(200);
 
-export const tenantRoleSchema = z.enum(["tenant_admin", "tenant_user"]);
+export const tenantRoleSchema = z.enum(["tenant_admin", "tenant_restore", "tenant_user"]);
 export const tenantStatusSchema = z.enum(["active", "suspended"]);
 export const tenantLanguageSchema = z.enum(["de", "en"]);
 

@@ -5,6 +5,7 @@ import {
   isProviderAdminRole,
   isTenantAdmin,
   membershipRoleFromTenantRole,
+  restoresForTenant,
   roleSatisfies,
   splitRoles,
   tenantRoleFromMembership,
@@ -40,12 +41,22 @@ describe("tenantRoleFromMembership", () => {
     expect(tenantRoleFromMembership(null)).toBe("tenant_user");
   });
 
+  it("maps restore to tenant_restore, below an admin role in the same list", () => {
+    expect(tenantRoleFromMembership("restore")).toBe("tenant_restore");
+    expect(tenantRoleFromMembership("member,restore")).toBe("tenant_restore");
+    expect(tenantRoleFromMembership("restore,admin")).toBe("tenant_admin");
+  });
+
   it("round-trips through the better-auth role", () => {
     expect(tenantRoleFromMembership(membershipRoleFromTenantRole("tenant_admin"))).toBe(
       "tenant_admin",
     );
     expect(tenantRoleFromMembership(membershipRoleFromTenantRole("tenant_user"))).toBe(
       "tenant_user",
+    );
+    expect(membershipRoleFromTenantRole("tenant_restore")).toBe("restore");
+    expect(tenantRoleFromMembership(membershipRoleFromTenantRole("tenant_restore"))).toBe(
+      "tenant_restore",
     );
   });
 });
@@ -59,6 +70,23 @@ describe("roleSatisfies", () => {
     expect(isTenantAdmin("provider_admin")).toBe(true);
     expect(isTenantAdmin("tenant_user")).toBe(false);
   });
+
+  it("puts tenant_restore between tenant_user and tenant_admin", () => {
+    expect(roleSatisfies("tenant_restore", "tenant_user")).toBe(true);
+    expect(roleSatisfies("tenant_restore", "tenant_restore")).toBe(true);
+    expect(roleSatisfies("tenant_restore", "tenant_admin")).toBe(false);
+    expect(roleSatisfies("tenant_user", "tenant_restore")).toBe(false);
+    expect(isTenantAdmin("tenant_restore")).toBe(false);
+  });
+});
+
+describe("restoresForTenant", () => {
+  it("is true for restore operators and everybody above them", () => {
+    expect(restoresForTenant("provider_admin")).toBe(true);
+    expect(restoresForTenant("tenant_admin")).toBe(true);
+    expect(restoresForTenant("tenant_restore")).toBe(true);
+    expect(restoresForTenant("tenant_user")).toBe(false);
+  });
 });
 
 describe("globalRole", () => {
@@ -66,6 +94,8 @@ describe("globalRole", () => {
     expect(globalRole("admin", [])).toBe("provider_admin");
     expect(globalRole("user", ["member", "owner"])).toBe("tenant_admin");
     expect(globalRole(null, ["member"])).toBe("tenant_user");
+    expect(globalRole(null, ["member", "restore"])).toBe("tenant_restore");
+    expect(globalRole(null, ["restore", "admin"])).toBe("tenant_admin");
     expect(globalRole(null, [])).toBe("tenant_user");
   });
 });

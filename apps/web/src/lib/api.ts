@@ -204,8 +204,27 @@ export async function apiFetch<T>(path: string, init: ApiRequestInit = {}): Prom
 export type OperatingMode = "local" | "public";
 export type MailTransport = "smtp" | "graph" | "google";
 export type SmtpSecurity = "starttls" | "tls" | "none";
-export type Role = "provider_admin" | "tenant_admin" | "tenant_user";
+export type Role = "provider_admin" | "tenant_admin" | "tenant_restore" | "tenant_user";
 export type TenantRole = Exclude<Role, "provider_admin">;
+
+/** The tenant roles, strongest first (apps/api/src/middleware/rbac.ts). */
+export const TENANT_ROLES: readonly TenantRole[] = [
+  "tenant_admin",
+  "tenant_restore",
+  "tenant_user",
+];
+
+export function isTenantRole(value: unknown): value is TenantRole {
+  return TENANT_ROLES.includes(value as TenantRole);
+}
+
+/**
+ * Whether the role browses, restores and exports every account of a tenant,
+ * not only the viewer's own: restore operators and administrators.
+ */
+export function restoresForTenant(role: Role | null | undefined): boolean {
+  return role === "provider_admin" || role === "tenant_admin" || role === "tenant_restore";
+}
 
 export type PasskeyReadyReason =
   | "mode_not_public"

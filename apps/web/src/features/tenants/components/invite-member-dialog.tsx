@@ -30,7 +30,7 @@ import {
 import { useProvisionAccount } from "@/features/accounts/hooks";
 import { type Message, provisionError } from "@/features/accounts/presenters";
 import type { ProvisionResult } from "@/features/accounts/types";
-import { type TenantRole, notificationMailConfigured } from "@/lib/api";
+import { notificationMailConfigured } from "@/lib/api";
 import { zodResolver } from "@/lib/form";
 import { setupStateQueryOptions } from "@/routes/tree";
 
@@ -41,7 +41,6 @@ interface InviteMemberDialogProps {
   onOpenChange: (open: boolean) => void;
   tenantId: string;
   tenantName: string;
-  defaultRole: TenantRole;
 }
 
 /** Whether a provisioned account can also sign in with Microsoft directly (an extra path, never the only one). */
@@ -104,7 +103,6 @@ export function InviteMemberDialog({
   onOpenChange,
   tenantId,
   tenantName,
-  defaultRole,
 }: InviteMemberDialogProps) {
   const microsoftSignIn = useMicrosoftSignInAvailable();
   const setup = useQuery(setupStateQueryOptions);
@@ -138,7 +136,6 @@ export function InviteMemberDialog({
           <InviteForm
             key={formKey}
             tenantId={tenantId}
-            defaultRole={defaultRole}
             mailConfigured={mailConfigured}
             onProvisioned={setProvisioned}
             onDone={() => handleOpenChange(false)}
@@ -151,31 +148,25 @@ export function InviteMemberDialog({
 
 interface InviteFormProps {
   tenantId: string;
-  defaultRole: TenantRole;
   /** Whether a link could actually be emailed; changes the submit button's wording. */
   mailConfigured: boolean;
   onProvisioned: (result: ProvisionResult) => void;
   onDone: () => void;
 }
 
-function InviteForm({
-  tenantId,
-  defaultRole,
-  mailConfigured,
-  onProvisioned,
-  onDone,
-}: InviteFormProps) {
+function InviteForm({ tenantId, mailConfigured, onProvisioned, onDone }: InviteFormProps) {
   const { t } = useTranslation(["accounts", "tenants"]);
   const provision = useProvisionAccount(tenantId);
   const [submitError, setSubmitError] = React.useState<Message | null>(null);
 
   const form = useForm<ProvisionAccountValues>({
     resolver: zodResolver(provisionAccountSchema),
-    defaultValues: emptyProvisionForm(defaultRole),
+    defaultValues: emptyProvisionForm(),
   });
   const { errors, isSubmitting } = form.formState;
   const role = useWatch({ control: form.control, name: "role" });
   const emailMessage = fieldMessageKey(errors.email);
+  const roleMessage = fieldMessageKey(errors.role);
 
   const onSubmit = form.handleSubmit(async (values) => {
     setSubmitError(null);
@@ -213,14 +204,19 @@ function InviteForm({
           render={({ field }) => (
             <RoleSelect
               id="invite-role"
-              value={field.value}
+              value={field.value ?? null}
               onChange={field.onChange}
+              invalid={roleMessage !== undefined}
               describedBy={messageId("invite-role")}
             />
           )}
         />
-        <p id={messageId("invite-role")} className="text-xs text-muted-foreground">
-          {t(`tenants:members.roleHints.${role}`)}
+        <p
+          id={messageId("invite-role")}
+          className={roleMessage ? "text-xs text-destructive" : "text-xs text-muted-foreground"}
+          role={roleMessage ? "alert" : undefined}
+        >
+          {roleMessage ? t(roleMessage) : t(`tenants:members.roleHints.${role ?? "none"}`)}
         </p>
       </div>
 

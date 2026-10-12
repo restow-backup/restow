@@ -69,7 +69,11 @@ Worker skalierbar. Postgres 16 ist die einzige Zustandsquelle außer dem Chunk-S
   `imap` im Speicherformat des IMAP-Backups, siehe docs/IMPORT.md)
 - `protected_object`: Postfach, OneDrive, IMAP-Konto; Herkunft `directory_sync` oder
   `manual`; Schutzstatus (aktiv, ausgeschlossen, verwaist)
-- Rollen: `provider_admin`, `tenant_admin` (inkl. entra_global_admin via SSO), `tenant_user`
+- Rollen: `provider_admin`, `tenant_admin` (inkl. entra_global_admin via SSO),
+  `tenant_restore` (Restore-Operator: durchsucht, stellt wieder her und exportiert alle
+  Konten des Mandanten, ändert aber keine Quellen, Jobs oder Mitglieder; better-auth-Rolle
+  `restore`), `tenant_user` (nur das eigene Postfach/OneDrive). Beim Anlegen oder Einladen
+  einer Person ist die Rolle immer eine bewusste Wahl, nie vorbelegt.
 - Row Level Security: jede Tabelle mit `tenant_id` hat eine Policy; API setzt
   `SET LOCAL app.tenant_id` je Request. Provider-Admin arbeitet mit explizitem
   Mandantenwechsel, nie tenant-übergreifend in einer Query.

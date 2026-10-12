@@ -43,7 +43,7 @@ export const navItems: NavItem[] = [
     labelKey: "exports:nav",
     icon: FileDown,
     // Like restore: end users export their own mailbox, admins everything of the tenant.
-    roles: ["provider_admin", "tenant_admin", "tenant_user"],
+    roles: ["provider_admin", "tenant_admin", "tenant_restore", "tenant_user"],
     group: "mail",
     order: 40,
   },

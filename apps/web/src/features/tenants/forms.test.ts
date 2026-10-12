@@ -6,6 +6,7 @@ import {
   customerDataFormFrom,
   editTenantFormFrom,
   editTenantSchema,
+  emptyAdmin,
   emptyContact,
   emptyRecipient,
   emptyTenantWizardForm,
@@ -82,6 +83,18 @@ describe("inviteMemberSchema", () => {
       false,
     );
   });
+
+  it("accepts the restore operator and refuses a missing role", () => {
+    expect(
+      inviteMemberSchema.safeParse({ email: "help@b.de", role: "tenant_restore" }).success,
+    ).toBe(true);
+    expect(reasons(inviteMemberSchema.safeParse({ email: "a@b.de" }))).toEqual({
+      role: "required",
+    });
+    expect(reasons(inviteMemberSchema.safeParse({ email: "a@b.de", role: null }))).toEqual({
+      role: "required",
+    });
+  });
 });
 
 describe("tenantWizardSchema", () => {
@@ -96,6 +109,14 @@ describe("tenantWizardSchema", () => {
 
   it("accepts the minimal wizard values (one primary contact, no recipients or admins)", () => {
     expect(tenantWizardSchema.safeParse(validValues()).success).toBe(true);
+  });
+
+  it("refuses an administrator row whose role nobody chose", () => {
+    const result = tenantWizardSchema.safeParse({
+      ...validValues(),
+      admins: [{ ...emptyAdmin(), email: "ada@example.org" }],
+    });
+    expect(reasons(result)).toEqual({ "admins.0.role": "required" });
   });
 
   it("requires at least one contact and exactly one primary", () => {

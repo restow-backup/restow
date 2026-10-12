@@ -1,7 +1,7 @@
-import type { FieldError } from "react-hook-form";
+import type { DefaultValues, FieldError } from "react-hook-form";
 import { z } from "zod";
 
-import type { TenantRole } from "@/lib/api";
+import { type TenantRole, isTenantRole } from "@/lib/api";
 import { PASSWORD_MIN_LENGTH } from "@/lib/password";
 
 /**
@@ -11,14 +11,21 @@ import { PASSWORD_MIN_LENGTH } from "@/lib/password";
  * apps/web/src/features/tenants/forms.ts).
  */
 
+/**
+ * The role of a new person: always chosen explicitly, never preset, so nobody
+ * gets more (or less) access than whoever created them meant to give.
+ */
+export const chosenTenantRole = z.custom<TenantRole>(isTenantRole, "required");
+
 export const provisionAccountSchema = z.object({
   email: z.string().trim().min(1, "required").email("email"),
-  role: z.enum(["tenant_admin", "tenant_user"]),
+  role: chosenTenantRole,
 });
 export type ProvisionAccountValues = z.infer<typeof provisionAccountSchema>;
 
-export function emptyProvisionForm(defaultRole: TenantRole): ProvisionAccountValues {
-  return { email: "", role: defaultRole };
+/** An empty form: no address and no role chosen yet. */
+export function emptyProvisionForm(): DefaultValues<ProvisionAccountValues> {
+  return { email: "" };
 }
 
 const COMMON_REASONS = new Set(["required", "email"]);

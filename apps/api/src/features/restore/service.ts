@@ -28,7 +28,7 @@ import {
 import { sanitizeRestoreInputForDemo } from "../../lib/demo.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { DEMO_READ_ONLY_PROBLEM } from "../../middleware/demo-guard.js";
-import { isTenantAdmin } from "../../middleware/rbac.js";
+import { restoresForTenant } from "../../middleware/rbac.js";
 import { ProblemError } from "../../problem.js";
 import { type FailureDto, failureDto } from "../failures/dto.js";
 import { type JobThrottleDto, runtimeThrottleOf } from "../jobs/dto.js";
@@ -359,10 +359,10 @@ export async function createRestore(
       });
     }
 
-    if (input.target.type === "other" && !isTenantAdmin(actor.role)) {
+    if (input.target.type === "other" && !restoresForTenant(actor.role)) {
       throw new ProblemError(403, "Insufficient role", {
-        detail: "Restoring into another account requires the tenant_admin role.",
-        extensions: { requiredRole: "tenant_admin", role: actor.role },
+        detail: "Restoring into another account requires the tenant_restore role.",
+        extensions: { requiredRole: "tenant_restore", role: actor.role },
       });
     }
     if (input.target.type === "original" && object.status === "orphaned") {
@@ -639,7 +639,7 @@ function visibleRestoresCondition(viewer: Viewer): SQL | null {
 
 function isVisibleTo(viewer: Viewer, row: RestoreRow): boolean {
   const ownRequest = viewer.userId !== null && row.restore.actorUserId === viewer.userId;
-  if (isTenantAdmin(viewer.role) || ownRequest) {
+  if (restoresForTenant(viewer.role) || ownRequest) {
     return true;
   }
   return row.object
