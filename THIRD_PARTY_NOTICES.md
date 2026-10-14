@@ -726,93 +726,93 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2018 The Go Authors. All rights reserved.`
 - License text: [text 18](#text-18)
 
-## Packages (551)
+## Packages (549)
 
-### @aws-sdk/checksums 3.1001.1
+### @aws-sdk/checksums 3.1001.3
 
 - License: Apache-2.0
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 20](#text-20)
 
-### @aws-sdk/client-s3 3.1143.0
+### @aws-sdk/client-s3 3.1152.0
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 52](#text-52)
 
-### @aws-sdk/core 3.978.1
+### @aws-sdk/core 3.978.3
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 70](#text-70)
 
-### @aws-sdk/credential-provider-env 3.972.72
+### @aws-sdk/credential-provider-env 3.972.74
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 9](#text-9)
 
-### @aws-sdk/credential-provider-http 3.972.74
+### @aws-sdk/credential-provider-http 3.972.76
 
 - License: Apache-2.0
 - Copyright: no copyright line in the package; author in package.json: AWS SDK for JavaScript Team
 - License text: [text 2](#text-2) (the package ships no license file; this is the text most packages with this license use)
 
-### @aws-sdk/credential-provider-ini 3.973.17
+### @aws-sdk/credential-provider-ini 3.973.19
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 9](#text-9)
 
-### @aws-sdk/credential-provider-login 3.972.79
+### @aws-sdk/credential-provider-login 3.972.81
 
 - License: Apache-2.0
 - Copyright: no copyright line in the package; author in package.json: AWS SDK for JavaScript Team
 - License text: [text 2](#text-2) (the package ships no license file; this is the text most packages with this license use)
 
-### @aws-sdk/credential-provider-node 3.972.84
+### @aws-sdk/credential-provider-node 3.972.86
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 9](#text-9)
 
-### @aws-sdk/credential-provider-process 3.972.72
+### @aws-sdk/credential-provider-process 3.972.74
 
 - License: Apache-2.0
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 30](#text-30)
 
-### @aws-sdk/credential-provider-sso 3.973.16
+### @aws-sdk/credential-provider-sso 3.973.18
 
 - License: Apache-2.0
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 30](#text-30)
 
-### @aws-sdk/credential-provider-web-identity 3.972.78
+### @aws-sdk/credential-provider-web-identity 3.972.80
 
 - License: Apache-2.0
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 30](#text-30)
 
-### @aws-sdk/middleware-sdk-s3 3.972.77
+### @aws-sdk/middleware-sdk-s3 3.972.79
 
 - License: Apache-2.0
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 20](#text-20)
 
-### @aws-sdk/nested-clients 3.997.46
+### @aws-sdk/nested-clients 3.997.48
 
 - License: Apache-2.0
 - Copyright: no copyright line in the package; author in package.json: AWS SDK for JavaScript Team
 - License text: [text 2](#text-2) (the package ships no license file; this is the text most packages with this license use)
 
-### @aws-sdk/signature-v4-multi-region 3.996.47
+### @aws-sdk/signature-v4-multi-region 3.996.48
 
 - License: Apache-2.0
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
 - License text: [text 20](#text-20)
 
-### @aws-sdk/token-providers 3.1138.0
+### @aws-sdk/token-providers 3.1150.0
 
 - License: Apache-2.0
 - Copyright: `Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
@@ -854,59 +854,53 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2014-present Sebastian McKenzie and other contributors`
 - License text: [text 32](#text-32)
 
-### @better-auth/core 1.7.6
+### @better-auth/core 1.7.8
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 16](#text-16)
 
-### @better-auth/drizzle-adapter 1.7.6
+### @better-auth/drizzle-adapter 1.7.8
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 16](#text-16)
 
-### @better-auth/kysely-adapter 1.7.6
+### @better-auth/kysely-adapter 1.7.8
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 16](#text-16)
 
-### @better-auth/memory-adapter 1.7.6
+### @better-auth/memory-adapter 1.7.8
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 16](#text-16)
 
-### @better-auth/mongo-adapter 1.7.6
+### @better-auth/mongo-adapter 1.7.8
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 16](#text-16)
 
-### @better-auth/passkey 1.7.6
+### @better-auth/passkey 1.7.8
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 16](#text-16)
 
-### @better-auth/prisma-adapter 1.7.6
+### @better-auth/prisma-adapter 1.7.8
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 16](#text-16)
 
-### @better-auth/telemetry 1.7.6
+### @better-auth/telemetry 1.7.8
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 16](#text-16)
-
-### @better-auth/utils 0.4.2
-
-- License: MIT
-- Copyright: no copyright line in the package; author in package.json: Bereket Engida
-- License text: [text 1](#text-1) (the package ships no license file; this is the text most packages with this license use)
 
 ### @better-auth/utils 0.5.0
 
@@ -1196,61 +1190,61 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/primitive 1.1.7
+### @radix-ui/primitive 1.2.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-accessible-icon 1.1.15
+### @radix-ui/react-accessible-icon 1.2.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-accordion 1.2.20
+### @radix-ui/react-accordion 1.3.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-alert-dialog 1.1.23
+### @radix-ui/react-alert-dialog 1.2.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-arrow 1.1.15
+### @radix-ui/react-arrow 1.1.17
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-aspect-ratio 1.1.15
+### @radix-ui/react-aspect-ratio 1.2.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-avatar 1.2.6
+### @radix-ui/react-avatar 1.3.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-checkbox 1.3.11
+### @radix-ui/react-checkbox 1.4.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-collapsible 1.1.20
+### @radix-ui/react-collapsible 1.2.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-collection 1.1.15
+### @radix-ui/react-collection 1.2.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
@@ -1262,61 +1256,61 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-context 1.2.2
+### @radix-ui/react-context 1.3.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-context-menu 2.3.7
+### @radix-ui/react-context-menu 2.4.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-dialog 1.1.23
+### @radix-ui/react-dialog 1.3.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-direction 1.1.4
+### @radix-ui/react-direction 1.2.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-dismissable-layer 1.1.19
+### @radix-ui/react-dismissable-layer 1.2.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-dropdown-menu 2.1.24
+### @radix-ui/react-dropdown-menu 2.2.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-focus-guards 1.1.6
+### @radix-ui/react-focus-guards 1.2.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-focus-scope 1.1.16
+### @radix-ui/react-focus-scope 1.3.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-form 0.1.16
+### @radix-ui/react-form 0.3.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-hover-card 1.1.23
+### @radix-ui/react-hover-card 1.2.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
@@ -1328,169 +1322,169 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-label 2.1.15
+### @radix-ui/react-label 2.1.17
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-menu 2.1.24
+### @radix-ui/react-menu 2.2.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-menubar 1.1.24
+### @radix-ui/react-menubar 1.2.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-navigation-menu 1.2.22
+### @radix-ui/react-navigation-menu 1.4.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-one-time-password-field 0.1.16
+### @radix-ui/react-one-time-password-field 0.2.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-password-toggle-field 0.1.11
+### @radix-ui/react-password-toggle-field 0.2.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-popover 1.1.23
+### @radix-ui/react-popover 1.3.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-popper 1.3.7
+### @radix-ui/react-popper 1.4.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-portal 1.1.17
+### @radix-ui/react-portal 1.2.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-presence 1.1.10
+### @radix-ui/react-presence 1.1.11
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-primitive 2.1.10
+### @radix-ui/react-primitive 2.2.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-progress 1.1.16
+### @radix-ui/react-progress 1.2.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-radio-group 1.4.7
+### @radix-ui/react-radio-group 1.5.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-roving-focus 1.1.19
+### @radix-ui/react-roving-focus 1.2.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-scroll-area 1.2.18
+### @radix-ui/react-scroll-area 1.4.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-select 2.3.7
+### @radix-ui/react-select 2.4.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-separator 1.1.15
+### @radix-ui/react-separator 1.2.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-slider 1.4.7
+### @radix-ui/react-slider 1.6.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-slot 1.3.3
+### @radix-ui/react-slot 1.5.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-switch 1.3.7
+### @radix-ui/react-switch 1.4.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-tabs 1.1.21
+### @radix-ui/react-tabs 1.2.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-toast 1.2.23
+### @radix-ui/react-toast 1.3.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-toggle 1.1.18
+### @radix-ui/react-toggle 1.2.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-toggle-group 1.1.19
+### @radix-ui/react-toggle-group 1.2.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-toolbar 1.1.19
+### @radix-ui/react-toolbar 1.2.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-tooltip 1.2.16
+### @radix-ui/react-tooltip 1.4.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-use-callback-ref 1.1.4
+### @radix-ui/react-use-callback-ref 1.1.5
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-use-controllable-state 1.2.6
+### @radix-ui/react-use-controllable-state 1.3.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
@@ -1502,7 +1496,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-use-escape-keydown 1.1.5
+### @radix-ui/react-use-escape-keydown 1.1.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
@@ -1532,13 +1526,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-use-size 1.1.4
+### @radix-ui/react-use-size 1.1.5
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
 - License text: [text 1](#text-1)
 
-### @radix-ui/react-visually-hidden 1.2.11
+### @radix-ui/react-visually-hidden 1.2.13
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
@@ -1658,7 +1652,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2020 Matthew Miller`
 - License text: [text 40](#text-40)
 
-### @smithy/core 3.35.1
+### @smithy/core 3.36.0
 
 - License: Apache-2.0
 - Copyright: `Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.`
@@ -1712,31 +1706,31 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright 2024 SWC contributors.`
 - License text: [text 53](#text-53)
 
-### @tanstack/history 1.162.4
+### @tanstack/history 1.162.5
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-present Tanner Linsley`
 - License text: [text 1](#text-1)
 
-### @tanstack/query-core 5.104.0
+### @tanstack/query-core 5.104.2
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-present Tanner Linsley`
 - License text: [text 1](#text-1)
 
-### @tanstack/react-query 5.104.0
+### @tanstack/react-query 5.104.2
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-present Tanner Linsley`
 - License text: [text 1](#text-1)
 
-### @tanstack/react-router 1.170.40
+### @tanstack/react-router 1.170.44
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-present Tanner Linsley`
 - License text: [text 1](#text-1)
 
-### @tanstack/react-store 0.11.1
+### @tanstack/react-store 0.11.2
 
 - License: MIT
 - Copyright: `Copyright (c) 2021 Tanner Linsley`
@@ -1748,13 +1742,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2016 Tanner Linsley`
 - License text: [text 1](#text-1)
 
-### @tanstack/router-core 1.171.33
+### @tanstack/router-core 1.171.37
 
 - License: MIT
 - Copyright: `Copyright (c) 2021-present Tanner Linsley`
 - License text: [text 1](#text-1)
 
-### @tanstack/store 0.11.1
+### @tanstack/store 0.11.2
 
 - License: MIT
 - Copyright: `Copyright (c) 2021 Tanner Linsley`
@@ -1838,7 +1832,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) Microsoft Corporation.`
 - License text: [text 6](#text-6)
 
-### @types/node 22.20.4
+### @types/node 22.20.5
 
 - License: MIT
 - Copyright: `Copyright (c) Microsoft Corporation.`
@@ -1934,7 +1928,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media OÜ`
 - License text: [text 1](#text-1), [text 38](#text-38)
 
-### @zone-eu/mailsplit 5.4.19
+### @zone-eu/mailsplit 5.4.21
 
 - License: (MIT OR EUPL-1.1+)
 - Copyright: `Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media OÜ`
@@ -2077,13 +2071,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2014 Jameson Little`
 - License text: [text 5](#text-5)
 
-### better-auth 1.7.6
+### better-auth 1.7.8
 
 - License: MIT
 - Copyright: `Copyright (c) 2024 - present, Bereket Engida`
 - License text: [text 16](#text-16)
 
-### better-call 1.4.0
+### better-call 1.4.2
 
 - License: MIT
 - Copyright: `Copyright (c) 2025 Bereket Engida`
@@ -2366,12 +2360,6 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2020 Michael Mclaughlin`
 - License text: [text 123](#text-123)
 
-### deepmerge 4.3.1
-
-- License: MIT
-- Copyright: `Copyright (c) 2012 James Halliday, Josh Duff, and other contributors`
-- License text: [text 5](#text-5)
-
 ### deepmerge-ts 8.0.2
 
 - License: BSD-3-Clause
@@ -2456,7 +2444,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: no copyright line in the package; author in package.json: Drizzle Team
 - License text: [text 1](#text-1) (the package ships no license file; this is the text most packages with this license use)
 
-### drizzle-orm 0.45.3
+### drizzle-orm 0.45.4
 
 - License: Apache-2.0
 - Copyright: no copyright line in the package; author in package.json: Drizzle Team
@@ -2665,7 +2653,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2011-2022 Isaac Z. Schlueter, Ben Noordhuis, and Contributors`
 - License text: [text 11](#text-11)
 
-### happy-dom 20.14.5
+### happy-dom 20.14.6
 
 - License: MIT
 - Copyright: `Copyright (c) 2019 David Ortner (capricorn86)`
@@ -2677,7 +2665,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright Mathias Bynens <https://mathiasbynens.be/>`
 - License text: [text 13](#text-13)
 
-### hono 4.13.11
+### hono 4.13.13
 
 - License: MIT
 - Copyright: `Copyright (c) 2021 - present, Yusuke Wada and Hono contributors`
@@ -2731,7 +2719,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2025 i18next`
 - License text: [text 3](#text-3)
 
-### i18next-icu 2.4.4
+### i18next-icu 2.5.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2018-present i18next`
@@ -2899,11 +2887,11 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2022 Sami Koskimäki`
 - License text: [text 3](#text-3)
 
-### launder 1.7.1
+### launder 1.7.2
 
 - License: MIT
-- Copyright: no copyright line in the package; author in package.json: Apostrophe Technologies, Inc.
-- License text: [text 1](#text-1) (the package ships no license file; this is the text most packages with this license use)
+- Copyright: `Copyright (c) 2021 Apostrophe Technologies, Inc.`
+- License text: [text 8](#text-8)
 
 ### lazystream 1.0.1
 
@@ -2923,7 +2911,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2014-2017 Andris Reinman`
 - License text: [text 10](#text-10)
 
-### libbase64 1.3.1
+### libbase64 1.3.3
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2017 Andris Reinman`
@@ -2935,7 +2923,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2014-2016 Andris Reinman`
 - License text: [text 10](#text-10)
 
-### libmime 5.4.6
+### libmime 5.4.8
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2016 Andris Reinman`
@@ -3059,7 +3047,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright 2018 Rich Harris`
 - License text: [text 8](#text-8)
 
-### mailparser 3.9.31
+### mailparser 3.9.39
 
 - License: MIT
 - Copyright: `Copyright (c) 2020 - 2025 Andris Reinman`
@@ -3107,7 +3095,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright 2020 Andrey Sitnik <andrey@sitnik.es>`
 - License text: [text 19](#text-19)
 
-### nodemailer 10.0.12
+### nodemailer 10.1.1
 
 - License: MIT-0
 - Copyright: `Copyright (c) 2011-2023 Andris Reinman`
@@ -3218,7 +3206,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2014 Andrew Kelley`
 - License text: [text 127](#text-127)
 
-### pg 8.23.0
+### pg 8.23.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2010 - 2021 Brian Carlson`
@@ -3230,13 +3218,13 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2016 Tim Jones`
 - License text: [text 3](#text-3)
 
-### pg-cloudflare 1.4.0
+### pg-cloudflare 1.4.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2010 - 2021 Brian Carlson`
 - License text: [text 1](#text-1)
 
-### pg-connection-string 2.14.0
+### pg-connection-string 2.14.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2014 Iced Development`
@@ -3254,7 +3242,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2017 Brian M. Carlson`
 - License text: [text 1](#text-1)
 
-### pg-protocol 1.16.0
+### pg-protocol 1.16.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2010 - 2021 Brian Carlson`
@@ -3398,7 +3386,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2016-2019 David Mark Clements`
 - License text: [text 3](#text-3)
 
-### radix-ui 1.6.7
+### radix-ui 1.8.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2022 WorkOS`
@@ -3410,7 +3398,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) Meta Platforms, Inc. and affiliates.`
 - License text: [text 1](#text-1)
 
-### react-day-picker 10.0.1
+### react-day-picker 10.0.2
 
 - License: MIT
 - Copyright: `Copyright (c) 2014-2026 Giampaolo Bellavite <io@gpbl.dev> and contributors`
@@ -3422,7 +3410,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) Meta Platforms, Inc. and affiliates.`
 - License text: [text 1](#text-1)
 
-### react-hook-form 7.89.0
+### react-hook-form 7.90.0
 
 - License: MIT
 - Copyright: `Copyright (c) 2019-present Beier(Bill) Luo`
@@ -3464,7 +3452,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: no copyright line in the package; author in package.json: Anton Korzunov
 - License text: [text 1](#text-1) (the package ships no license file; this is the text most packages with this license use)
 
-### react-resizable-panels 4.14.1
+### react-resizable-panels 4.14.5
 
 - License: MIT
 - Copyright: `Copyright (c) 2018 Brian Vaughn`
@@ -3595,7 +3583,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2018 Nikita Skovoroda <chalkerx@gmail.com>`
 - License text: [text 1](#text-1)
 
-### sanitize-html 2.17.7
+### sanitize-html 2.18.1
 
 - License: MIT
 - Copyright: `Copyright (c) 2013, 2014, 2015 P'unk Avenue LLC`
@@ -3685,7 +3673,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: `Copyright (c) 2013-2017 Josh Glazebrook`
 - License text: [text 19](#text-19)
 
-### smtp-server 3.19.15
+### smtp-server 3.19.22
 
 - License: MIT-0
 - Copyright: `Copyright (c) 2015-2025 Andris Reinman`
@@ -3991,7 +3979,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 - Copyright: no copyright line in the package; author in package.json: Formidable
 - License text: [text 1](#text-1), [text 7](#text-7) (the package ships no license file; this is the text most packages with this license use)
 
-### vite 6.4.3
+### vite 6.4.4
 
 - License: MIT
 - Copyright: `Copyright (c) 2019-present, VoidZero Inc. and Vite contributors`
@@ -4100,7 +4088,7 @@ Source: https://go.googlesource.com/protobuf (tag v1.36.11).
 
 ### Text 1
 
-Used by 216 entries.
+Used by 214 entries.
 
 ```text
 MIT License
@@ -4374,7 +4362,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### Text 5
 
-Used by 25 entries.
+Used by 24 entries.
 
 ```text
 The MIT License (MIT)
@@ -4444,7 +4432,7 @@ THIS SOFTWARE.
 
 ### Text 8
 
-Used by 11 entries.
+Used by 12 entries.
 
 ```text
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
