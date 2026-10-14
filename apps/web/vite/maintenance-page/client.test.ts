@@ -112,6 +112,36 @@ describe("parseStatus", () => {
   });
 });
 
+describe("an update that finished long ago", () => {
+  const finished = "2026-10-14T10:00:00.000Z";
+  const succeeded = (serverTime: string) =>
+    parseStatus({
+      phase: "succeeded",
+      outcome: "succeeded",
+      finishedAt: finished,
+      serverTime,
+      steps: [{ id: "finish", status: "done" }],
+      progress: 100,
+    });
+
+  it("still reads as succeeded right after the update", () => {
+    expect(modeOf(succeeded("2026-10-14T10:05:00.000Z"))).toBe("succeeded");
+  });
+
+  it("reads as unavailable later, so a down application is not shown as just updated", () => {
+    const status = succeeded("2026-10-14T12:00:00.000Z");
+    expect(modeOf(status)).toBe("unavailable");
+    expect(status?.steps).toEqual([]);
+    expect(shouldReload({ status, ready: false, now: 1, lastReloadAt: null, guarded: true })).toBe(
+      false,
+    );
+  });
+
+  it("keeps the phase when the times are missing", () => {
+    expect(modeOf(parseStatus({ phase: "succeeded" }))).toBe("succeeded");
+  });
+});
+
 describe("modeOf", () => {
   it("says what the page is about", () => {
     expect(modeOf(null)).toBe("unavailable");
