@@ -228,7 +228,8 @@
     "never": "Nie",
     "snapshotSummary": "{count, plural, one {# Element} other {# Elemente}}, {size}",
     "noJob": "Noch kein Lauf",
-    "loadError": "Die geschützten Objekte konnten nicht geladen werden."
+    "loadError": "Die geschützten Objekte konnten nicht geladen werden.",
+    "technicalId": "Technische ID: {id}"
   },
   "readiness": {
     "green": "Bereit",

@@ -228,7 +228,8 @@
     "never": "Never",
     "snapshotSummary": "{count, plural, one {# item} other {# items}}, {size}",
     "noJob": "No run yet",
-    "loadError": "The protected objects could not be loaded."
+    "loadError": "The protected objects could not be loaded.",
+    "technicalId": "Technical id: {id}"
   },
   "readiness": {
     "green": "Ready",

@@ -14,6 +14,7 @@ import {
   protectedObjects,
   snapshots,
   sources,
+  users,
 } from "@restow/db";
 import {
   type SQL,
@@ -105,6 +106,12 @@ const objectSelection = {
   displayName: protectedObjects.displayName,
   externalId: protectedObjects.externalId,
   status: protectedObjects.status,
+  // The linked user's address, so a view can name a mailbox or OneDrive by
+  // its owner instead of the opaque Entra/drive id in `externalId` (#55). An
+  // SQL expression, not a column, so a job without an object still maps to
+  // `object: null`. Every query selecting this must
+  // `leftJoin(users, eq(protectedObjects.userId, users.id))`.
+  ownerEmail: sql<string | null>`coalesce(${users.email}, ${users.upn})`,
 };
 
 export function jobViewQuery(tx: Transaction) {
@@ -112,7 +119,8 @@ export function jobViewQuery(tx: Transaction) {
     .select({ job: jobs, progress: jobProgress, object: objectSelection })
     .from(jobs)
     .leftJoin(jobProgress, eq(jobProgress.jobId, jobs.id))
-    .leftJoin(protectedObjects, eq(protectedObjects.id, jobs.protectedObjectId));
+    .leftJoin(protectedObjects, eq(protectedObjects.id, jobs.protectedObjectId))
+    .leftJoin(users, eq(protectedObjects.userId, users.id));
 }
 
 /** `created_at` at the precision a cursor can carry (JavaScript dates are milliseconds). */
@@ -879,6 +887,7 @@ export async function listSnapshots(
     const [object] = await tx
       .select(objectSelection)
       .from(protectedObjects)
+      .leftJoin(users, eq(protectedObjects.userId, users.id))
       .where(
         and(eq(protectedObjects.tenantId, tenantId), eq(protectedObjects.id, protectedObjectId)),
       )
@@ -941,6 +950,7 @@ export async function listBackupTargets(
       })
       .from(protectedObjects)
       .innerJoin(sources, eq(sources.id, protectedObjects.sourceId))
+      .leftJoin(users, eq(protectedObjects.userId, users.id))
       .where(and(...filters))
       .orderBy(asc(protectedObjects.displayName), asc(protectedObjects.externalId));
     const ids = objects.map((row) => row.object.id);
@@ -969,6 +979,7 @@ export async function listBackupTargets(
       .from(jobs)
       .leftJoin(jobProgress, eq(jobProgress.jobId, jobs.id))
       .leftJoin(protectedObjects, eq(protectedObjects.id, jobs.protectedObjectId))
+      .leftJoin(users, eq(protectedObjects.userId, users.id))
       .where(
         and(
           eq(jobs.tenantId, tenantId),

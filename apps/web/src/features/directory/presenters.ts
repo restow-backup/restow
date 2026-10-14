@@ -1,6 +1,7 @@
 import type { BadgeProps } from "@/components/ui/badge";
 import type { Failure } from "@/features/failures/api";
 import { ApiError, errorMessageKey } from "@/lib/api";
+import { protectedObjectAddress, protectedObjectName } from "@/lib/protected-object";
 
 import type {
   CredentialStatus,
@@ -85,14 +86,12 @@ export const READINESS_VARIANT: Record<RecoveryReadiness, BadgeVariant> = {
 
 /** Primary line of an object: its name, else its address, else its id. */
 export function objectTitle(object: ProtectedObject): string {
-  return object.displayName ?? object.email ?? object.externalId;
+  return protectedObjectName(object);
 }
 
 /** Secondary line: the address (or IMAP login) when it adds information. */
 export function objectSubtitle(object: ProtectedObject): string | null {
-  const candidate =
-    object.kind === "imap" ? object.externalId : (object.email ?? object.upn ?? null);
-  return candidate && candidate !== objectTitle(object) ? candidate : null;
+  return protectedObjectAddress(object);
 }
 
 export type BackupState =

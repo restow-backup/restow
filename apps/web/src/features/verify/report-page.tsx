@@ -32,7 +32,7 @@ import { ItemCause, ReasonFindings } from "@/features/verify/components/reason-f
 import { SnapshotVerificationBadge } from "@/features/verify/components/snapshot-verification-badge";
 import { ObjectKindIcon, StateBadge } from "@/features/verify/components/status";
 import { VERIFY_ICON, verifyOverviewTo, verifyReportTo } from "@/features/verify/paths";
-import { objectName } from "@/features/verify/presenters";
+import { objectAddress, objectLabel, objectName } from "@/features/verify/presenters";
 import {
   type VerifyFormat,
   useReport,
@@ -450,6 +450,23 @@ function LatestBackupNotice({ latest, format }: { latest: LatestBackup; format: 
   );
 }
 
+/**
+ * "OneDrive · anna@example.com": the kind and whose object it is. The raw
+ * external id (a drive or Entra object id for M365) only in the tooltip.
+ */
+function ObjectLine({ object, t }: { object: ReportDetail["object"]; t: VerifyFormat["t"] }) {
+  const kind = t(`kind.${object.kind}`);
+  const who = objectAddress(object) ?? objectLabel(object, t);
+  return (
+    <span
+      className="min-w-0 truncate text-sm text-muted-foreground"
+      title={t("table.technicalId", { id: object.externalId })}
+    >
+      {who === kind ? kind : `${kind} · ${who}`}
+    </span>
+  );
+}
+
 function BackLink({ format }: { format: VerifyFormat }) {
   return (
     <Link
@@ -508,7 +525,7 @@ export function ReportPage({ reportId }: { reportId: string }) {
     <div className="space-y-6">
       <BackLink format={format} />
       <PageHeader
-        title={objectName(report.object)}
+        title={objectLabel(report.object, t)}
         icon={VERIFY_ICON}
         description={t("report.subtitle", {
           kind: t(checkKindKey(report)),
@@ -533,9 +550,7 @@ export function ReportPage({ reportId }: { reportId: string }) {
       <Card>
         <CardHeader className="flex flex-row flex-wrap items-center gap-3 space-y-0">
           <ObjectKindIcon kind={report.object.kind} />
-          <span className="text-sm text-muted-foreground">
-            {t(`kind.${report.object.kind}`)} · {report.object.externalId}
-          </span>
+          <ObjectLine object={report.object} t={t} />
           <StateBadge state={report.readiness} className="ml-auto text-sm" />
         </CardHeader>
         <CardContent>

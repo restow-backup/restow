@@ -37,6 +37,7 @@ function job(overrides: Partial<JobDto> = {}): JobDto {
       displayName: "Ada Lovelace",
       externalId: "ada@contoso.example",
       status: "active",
+      ownerEmail: null,
     },
     scheduleId: null,
     backupJobId: null,

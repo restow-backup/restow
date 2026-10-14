@@ -162,6 +162,8 @@ export interface RestoreTargetDto {
   kind: ProtectedObject["kind"];
   externalId: string;
   displayName: string | null;
+  /** The linked user's email or UPN, to tell accounts apart by their person (#55). */
+  ownerEmail: string | null;
 }
 
 function iso(value: Date | null | undefined): string | null {
@@ -571,9 +573,11 @@ export async function listTargets(
         kind: protectedObjects.kind,
         externalId: protectedObjects.externalId,
         displayName: protectedObjects.displayName,
+        ownerEmail: sql<string | null>`coalesce(${users.email}, ${users.upn})`,
       })
       .from(protectedObjects)
       .innerJoin(sources, eq(sources.id, protectedObjects.sourceId))
+      .leftJoin(users, eq(users.id, protectedObjects.userId))
       .where(
         and(
           eq(protectedObjects.tenantId, tenantId),

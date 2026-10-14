@@ -59,6 +59,8 @@ export interface JobObject {
   displayName: string | null;
   externalId: string;
   status: ObjectStatus;
+  /** The linked user's email or UPN (#55); older servers omit it. */
+  ownerEmail?: string | null;
 }
 
 export interface Job {
@@ -182,6 +184,8 @@ export interface BackupTarget {
   displayName: string | null;
   externalId: string;
   status: ObjectStatus;
+  /** The linked user's email or UPN (#55); older servers omit it. */
+  ownerEmail?: string | null;
   source: { id: string; name: string; kind: "m365" | "imap"; status: string };
   blocked: BackupBlockedReason | null;
   lastSnapshot: JobSnapshot | null;

@@ -39,6 +39,7 @@ import { objectLabel } from "@/features/restore/explorer/entry-icon";
 import { useSnapshotObjects } from "@/features/restore/use-restore-data";
 import { ExtensionSlot } from "@/lib/extensions";
 import { formatInteger } from "@/lib/format";
+import { protectedObjectAddress } from "@/lib/protected-object";
 import { activeTenantPageTo } from "@/lib/tenant-paths";
 
 import type { ArchiveSearchResult, ArchiveSource } from "./api.js";
@@ -84,9 +85,8 @@ export function mailboxesOfArchive(
     .map((object) => {
       const name = objectLabel(object);
       // The owner's address, or an IMAP account's login; never the opaque Entra id.
-      const address = object.ownerEmail ?? (object.kind === "imap" ? object.externalId : null);
-      const repeats = !address || address.toLowerCase() === name.toLowerCase();
-      return { id: object.id, label: repeats ? name : `${name} (${address})` };
+      const address = protectedObjectAddress(object);
+      return { id: object.id, label: address ? `${name} (${address})` : name };
     })
     .sort((a, b) => a.label.localeCompare(b.label));
 }

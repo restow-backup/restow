@@ -14,6 +14,11 @@ import type {
   VerifyObject,
 } from "@/features/verify/api";
 import { ApiError, errorMessageKey } from "@/lib/api";
+import {
+  hasOnlyTechnicalId,
+  protectedObjectAddress,
+  protectedObjectName,
+} from "@/lib/protected-object";
 
 /**
  * Pure presentation rules for the readiness pages: ordering, badge colours
@@ -93,13 +98,12 @@ const URGENCY: Record<ObjectState, number> = {
 /**
  * The object's name for messages and sorting: its display name, else its
  * address, else (only for `imap`, where it is the login, or as a last
- * resort) the raw external id. The "Object" column never shows that last
- * resort as the primary label — see `objects-table.tsx`.
+ * resort) the raw external id. See `lib/protected-object.ts`.
  */
 export function objectName(
-  object: Pick<VerifyObject, "displayName" | "email" | "externalId">,
+  object: Pick<VerifyObject, "kind" | "displayName" | "email" | "upn" | "externalId">,
 ): string {
-  return object.displayName?.trim() || object.email?.trim() || object.externalId;
+  return protectedObjectName(object);
 }
 
 /**
@@ -111,9 +115,19 @@ export function objectName(
 export function objectAddress(
   object: Pick<VerifyObject, "kind" | "displayName" | "externalId" | "email" | "upn">,
 ): string | null {
-  const candidate =
-    object.kind === "imap" ? object.externalId : (object.email ?? object.upn ?? null);
-  return candidate && candidate !== objectName(object) ? candidate : null;
+  return protectedObjectAddress(object);
+}
+
+/**
+ * The object's primary label: its name, or its translated kind when the
+ * only thing known is the GUID-like technical id (a mailbox or OneDrive
+ * without a linked address). That id belongs in a tooltip, never a label.
+ */
+export function objectLabel(
+  object: Pick<VerifyObject, "kind" | "displayName" | "email" | "upn" | "externalId">,
+  t: (key: string) => string,
+): string {
+  return hasOnlyTechnicalId(object) ? t(`kind.${object.kind}`) : objectName(object);
 }
 
 /**

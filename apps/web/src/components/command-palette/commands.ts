@@ -26,6 +26,7 @@ import {
   groupNavItems,
   navGroupLabelKey,
 } from "@/lib/navigation";
+import { protectedObjectName } from "@/lib/protected-object";
 import type { SessionTenant } from "@/lib/session";
 import { canEnterTenant } from "@/lib/tenant";
 import { tenantPagePath } from "@/lib/tenant-paths";
@@ -321,7 +322,7 @@ export function objectGroup(
     id: "objects",
     heading: t("search.groups.objects"),
     commands: objects.map((object) => {
-      const name = object.displayName ?? object.email ?? object.externalId;
+      const name = protectedObjectName(object);
       return {
         id: `object:${object.id}`,
         label: name,
