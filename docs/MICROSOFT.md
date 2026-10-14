@@ -57,7 +57,15 @@ Schutzumfang" anzeigen, nicht als Fehler).
 - Strategie: Parallelität über Postfächer, nicht innerhalb eines Postfachs; Delta-
   Queries; `$select` minimal; Batch-Requests (max. 20 je Batch, teilen sich Limits).
 - Erstsicherung großer Tenants dauert Tage. Das ist so und wird in der UI so gesagt
-  (Restlaufzeit-Schätzung, Fortschritt je Postfach).
+  (Restlaufzeit-Schätzung, Fortschritt je Postfach). Während der ersten Sicherung eines
+  Postfachs zeigen Verlauf, Laufdetail und Job-Liste "Erste Sicherung: X von Y Elementen"
+  über alle Versuche hinweg: Y ist die Summe der `totalItemCount` der gesicherten
+  Mailordner (Kalender und Kontakte kommen beim Lesen dazu), X zählt, was frühere Versuche
+  im Teil-Snapshot gespeichert haben, plus den laufenden Versuch. Die Restzeit wird aus der
+  Geschwindigkeit des laufenden Versuchs geschätzt, gerundet (bis 10 Min. minutengenau, dann
+  5 Min., bis 10 Std. Viertelstunden, darüber Stunden) und als Schätzung bezeichnet. Ein
+  OneDrive nennt seine Elementzahl erst nach vollständiger Aufzählung: Dort steht "X
+  Elemente bisher" ohne Restzeit und ohne Prozentangabe.
 
 ## Exchange: Sichern
 

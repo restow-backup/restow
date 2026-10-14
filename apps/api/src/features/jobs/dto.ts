@@ -52,6 +52,20 @@ export interface JobThrottleDto {
   totalWaitMs: number;
 }
 
+/**
+ * A first backup over all its attempts (#47): the worker records under
+ * `payload.runtime.firstBackup` what earlier attempts stored and the item total
+ * the source gave up front; `job_progress` counts the current attempt.
+ */
+export interface JobFirstBackupDto {
+  /** Items stored so far, earlier attempts included. */
+  itemsDone: number;
+  /** Items to back up in all; null when the source gives no total up front (OneDrive). */
+  itemsTotal: number | null;
+  /** Seconds left at the rate this attempt observed; null without a total or before a rate. */
+  etaSeconds: number | null;
+}
+
 export interface JobObjectDto {
   id: string;
   /** The source the object belongs to, so a failure can link to it. */
@@ -96,6 +110,8 @@ export interface JobDto {
   progress: JobProgressDto | null;
   phase: JobPhaseDto | null;
   throttle: JobThrottleDto | null;
+  /** A running first backup; null for every other run. */
+  firstBackup: JobFirstBackupDto | null;
   cancellable: boolean;
   retryable: boolean;
   /**
@@ -295,6 +311,35 @@ export function runtimeThrottleOf(payload: Record<string, unknown> | null): JobT
   };
 }
 
+/**
+ * A running first backup's progress over all its attempts, from what the worker
+ * stored under `payload.runtime.firstBackup` and this attempt's counters. The
+ * total is the source's own count, never less than what is done; without one
+ * there is no time left either, since a guess from a growing count would only
+ * look precise.
+ */
+export function firstBackupOf(
+  payload: Record<string, unknown> | null,
+  progress: Pick<JobProgress, "total" | "done" | "etaSeconds"> | null,
+): JobFirstBackupDto | null {
+  const first = record(record(payload?.runtime)?.firstBackup);
+  const before = finiteNumber(first?.itemsBefore);
+  if (!first || before === null || before < 0) {
+    return null;
+  }
+  const sourceTotal = finiteNumber(first.itemsTotal);
+  const itemsDone = before + (progress?.done ?? 0);
+  if (sourceTotal === null || sourceTotal < 0) {
+    return { itemsDone, itemsTotal: null, etaSeconds: null };
+  }
+  return {
+    itemsDone,
+    // The attempt's total adds what the source counts only as it is read (calendar, contacts).
+    itemsTotal: Math.max(sourceTotal, before + (progress?.total ?? 0), itemsDone),
+    etaSeconds: progress?.etaSeconds ?? null,
+  };
+}
+
 /** The result a finished backup stored under `payload.result`, if well-formed. */
 export function backupResultOf(
   queue: JobQueueName,
@@ -387,6 +432,7 @@ export function toJobDto(row: JobViewRow, itemCauses: ItemCauseCountDto[] = []):
     // Only a running job has a phase or a wait; a stale one must not linger.
     phase: running ? runtimePhaseOf(payload) : null,
     throttle: running ? runtimeThrottleOf(payload) : null,
+    firstBackup: running ? firstBackupOf(payload, progress) : null,
     cancellable: job.status === "queued" || job.status === "active",
     retryable: isRetryable(job, object),
     checkIncomplete:

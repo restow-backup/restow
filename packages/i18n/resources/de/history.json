@@ -270,5 +270,19 @@
     "back": "Zurück zum Verlauf",
     "loadError": "Der Lauf konnte nicht geladen werden",
     "notFound": "Diesen Lauf gibt es nicht mehr, oder er gehört zu einem anderen Mandanten."
+  },
+  "firstBackup": {
+    "items": "Erste Sicherung: {done} von {total} Elementen",
+    "itemsOpen": "Erste Sicherung: {done} Elemente bisher",
+    "eta": "noch etwa {time} (geschätzt)",
+    "etaHint": "Geschätzt aus der bisherigen Geschwindigkeit dieses Laufs. Drosselung durch Microsoft 365 und sehr große Elemente können das ändern.",
+    "noEta": "Keine Schätzung: Die Gesamtzahl steht erst fest, wenn alles aufgelistet ist.",
+    "estimate": {
+      "underMinute": "weniger als eine Minute",
+      "minutes": "{minutes} Min.",
+      "hours": "{hours} Std.",
+      "hoursMinutes": "{hours} Std. {minutes} Min.",
+      "days": "{days, plural, one {# Tag} other {# Tage}} {hours} Std."
+    }
   }
 }

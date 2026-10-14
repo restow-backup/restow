@@ -35,6 +35,7 @@ function run(overrides: Partial<RunDto> = {}): RunDto {
     samples: null,
     phase: null,
     throttle: null,
+    firstBackup: null,
     errorMessage: null,
     failure: null,
     cancellable: true,

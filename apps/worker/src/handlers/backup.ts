@@ -47,6 +47,7 @@ import {
   type FailureCause,
   type FailureCode,
   FetchGraphClient,
+  type FirstBackupProgress,
   type GraphClient,
   type ImapAccountConfig,
   ImapBackupEngine,
@@ -195,6 +196,12 @@ export interface BackupRuntimeState {
   /** ISO-8601 time the phase began. */
   readonly phaseSince: string | null;
   readonly throttle: ThrottleState | null;
+  /**
+   * The run is the object's first backup: what earlier attempts stored and the
+   * item total the source gave up front, if any (#47). The counters of this
+   * attempt are in `job_progress`; the API adds the two up.
+   */
+  readonly firstBackup?: FirstBackupProgress | null;
 }
 
 export const IDLE_RUNTIME_STATE: BackupRuntimeState = {
@@ -264,6 +271,14 @@ export class PhaseRecorder implements ProgressReporter {
       return;
     }
     this.record({ ...this.state, phase: name, phaseSince: this.now().toISOString() });
+  }
+
+  /** The engine runs the object's first backup; record what it knows about its size. */
+  firstBackup(info: FirstBackupProgress): void {
+    this.record({
+      ...this.state,
+      firstBackup: { itemsBefore: info.itemsBefore, itemsTotal: info.itemsTotal },
+    });
   }
 
   /** Graph made the run wait; record it so the UI can show the wait honestly. */

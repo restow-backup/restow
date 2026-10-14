@@ -105,6 +105,23 @@ export interface ItemFailureDetails {
 }
 
 /**
+ * What an engine knows about a first backup of its object (no completed
+ * snapshot yet), so the UI can say "First backup: X of Y items" (#47). The
+ * counters of the reporter cover only the current attempt: `itemsBefore` is
+ * what earlier attempts already stored (the partial snapshot this attempt
+ * continues), and the engine raises `total()` only by what is still to do.
+ */
+export interface FirstBackupProgress {
+  /** Items earlier attempts of this first backup stored; 0 for the first attempt. */
+  readonly itemsBefore: number;
+  /**
+   * Items the source holds as far as it says up front (Graph's folder totals of a
+   * mailbox); null when it does not say (a OneDrive is counted as it is enumerated).
+   */
+  readonly itemsTotal: number | null;
+}
+
+/**
  * Progress reporting for the UI (job_progress, streamed over SSE). Methods are
  * synchronous and cheap; persistence happens in batches behind the scenes.
  * `flush()` forces the pending state out (the framework calls it at the end).
@@ -130,6 +147,11 @@ export interface ProgressReporter {
   fail(itemRef: string, reason: string, cause?: FailureCause, details?: ItemFailureDetails): void;
   /** Name the current phase, e.g. "enumerate", "download", "manifest". */
   phase(name: string): void;
+  /**
+   * The run is the object's first backup: what earlier attempts stored and what the
+   * source holds in all. Optional: reporters that do not show it ignore it.
+   */
+  firstBackup?(info: FirstBackupProgress): void;
   /** Current counters. */
   snapshot(): ProgressSnapshot;
   /** Persist whatever is pending. */

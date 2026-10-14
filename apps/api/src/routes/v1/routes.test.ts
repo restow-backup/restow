@@ -467,6 +467,7 @@ describe("jobs", () => {
     progress: null,
     phase: null,
     throttle: null,
+    firstBackup: null,
     cancellable: true,
     retryable: false,
     checkIncomplete: false,

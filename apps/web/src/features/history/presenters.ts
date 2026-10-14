@@ -134,6 +134,46 @@ export function barPercent(run: Pick<Run, "state" | "progress">): number | null 
   return run.state === "running" ? null : 0;
 }
 
+export type EstimateUnit = "underMinute" | "minutes" | "hours" | "hoursMinutes" | "days";
+
+/**
+ * A time left worded as the estimate it is (#47): the further out, the coarser,
+ * so a rate measured over a few minutes does not pose as exact to the second.
+ * Under a minute; whole minutes up to 10; then 5 minutes; 15 minutes up to
+ * 10 hours; whole hours beyond, with days from 48 hours.
+ */
+export function estimateParts(totalSeconds: number): {
+  key: `firstBackup.estimate.${EstimateUnit}`;
+  values: { days: number; hours: number; minutes: number };
+} {
+  const seconds = Number.isFinite(totalSeconds) ? Math.max(0, totalSeconds) : 0;
+  const parts = (unit: EstimateUnit, days: number, hours: number, minutes: number) => ({
+    key: `firstBackup.estimate.${unit}` as const,
+    values: { days, hours, minutes },
+  });
+  if (seconds < 60) {
+    return parts("underMinute", 0, 0, 0);
+  }
+  const minutes = seconds / 60;
+  if (minutes < 10) {
+    return parts("minutes", 0, 0, Math.round(minutes));
+  }
+  const byFive = Math.round(minutes / 5) * 5;
+  if (byFive < 60) {
+    return parts("minutes", 0, 0, byFive);
+  }
+  if (minutes < 600) {
+    const byQuarter = Math.round(minutes / 15) * 15;
+    const hours = Math.floor(byQuarter / 60);
+    const rest = byQuarter % 60;
+    return rest === 0 ? parts("hours", 0, hours, 0) : parts("hoursMinutes", 0, hours, rest);
+  }
+  const hours = Math.round(minutes / 60);
+  return hours >= 48
+    ? parts("days", Math.floor(hours / 24), hours % 24, 0)
+    : parts("hours", 0, hours, 0);
+}
+
 /** The share of what was read that did not have to be written: deduplication and compression. */
 export function savingsPercent(processed: number, transferred: number): number | null {
   if (!(processed > 0) || !(transferred >= 0)) {

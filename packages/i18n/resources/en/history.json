@@ -270,5 +270,19 @@
     "back": "Back to History",
     "loadError": "The run could not be loaded",
     "notFound": "This run does not exist any more, or it belongs to another tenant."
+  },
+  "firstBackup": {
+    "items": "First backup: {done} of {total} items",
+    "itemsOpen": "First backup: {done} items so far",
+    "eta": "about {time} left (estimate)",
+    "etaHint": "Estimated from the speed of this run so far. Throttling by Microsoft 365 and very large items can change it.",
+    "noEta": "No estimate: the total is only known once everything has been listed.",
+    "estimate": {
+      "underMinute": "less than a minute",
+      "minutes": "{minutes} min",
+      "hours": "{hours} h",
+      "hoursMinutes": "{hours} h {minutes} min",
+      "days": "{days, plural, one {# day} other {# days}} {hours} h"
+    }
   }
 }

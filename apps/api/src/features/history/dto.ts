@@ -73,6 +73,15 @@ export interface RunProgressDto {
   updatedAt: string | null;
 }
 
+/** A running first backup over all its attempts (#47): "First backup: X of Y items". */
+export interface RunFirstBackupDto {
+  itemsDone: number;
+  /** Null when the source gives no total up front; then there is no time left either. */
+  itemsTotal: number | null;
+  /** An estimate at the rate this attempt observed. */
+  etaSeconds: number | null;
+}
+
 export interface RunAttemptDto {
   /** The attempt this row shows (1 = first). */
   number: number;
@@ -111,6 +120,8 @@ export interface RunDto {
   /** The last time anything about the run changed (the stream's change marker). */
   updatedAt: string;
   progress: RunProgressDto | null;
+  /** A running first backup of a mailbox or OneDrive; null for everything else. */
+  firstBackup: RunFirstBackupDto | null;
   /** The current speed over the last seconds; null before a second measurement or for a finished run. */
   throughput: { processedBps: number; transferredBps: number } | null;
   /**
@@ -396,8 +407,15 @@ export function mailRun(input: MailRunInput): RunDto {
   const finished = isFinished(state);
   const progress = row.progress;
   const total = progress?.total ?? 0;
+  // A first backup is measured over all its attempts, and only against a total the source gave.
+  const first = running ? dto.firstBackup : null;
   let percent: number | null = null;
-  if (progress && total > 0) {
+  if (first) {
+    percent =
+      first.itemsTotal !== null && first.itemsTotal > 0
+        ? percentOf(first.itemsDone + (progress?.failed ?? 0), first.itemsTotal)
+        : null;
+  } else if (progress && total > 0) {
     percent = percentOf(progress.done + progress.failed, total);
   } else if (state === "succeeded" || state === "partial") {
     percent = 100;
@@ -440,11 +458,12 @@ export function mailRun(input: MailRunInput): RunDto {
           bytesTransferred: progress.bytesTransferred,
           bytesNew: progress.bytes,
           bytesTotal: null,
-          etaSeconds: running ? progress.etaSeconds : null,
+          etaSeconds: first ? first.etaSeconds : running ? progress.etaSeconds : null,
           currentPath: null,
           updatedAt: progress.updatedAt.toISOString(),
         }
       : null,
+    firstBackup: first,
     throughput: throughputOf(samples, running),
     samples: samplesOf(samples, input.sampleCount ?? LIST_SAMPLE_COUNT),
     phase: dto.phase,
@@ -545,6 +564,7 @@ export function endpointRun(input: EndpointRunInput): RunDto {
       currentPath: progress?.currentPath ?? null,
       updatedAt: progress?.updatedAt ?? null,
     },
+    firstBackup: null,
     throughput,
     samples: samplesOf(samples, input.sampleCount ?? LIST_SAMPLE_COUNT),
     phase: null,

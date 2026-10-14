@@ -123,6 +123,19 @@ describe("the run drawer opened by an address", () => {
     expect(section("timeline")?.textContent).toContain("Run started");
   });
 
+  it("shows how far a first backup is over all its attempts, and its time left as an estimate (#47)", async () => {
+    const first = run({
+      id: RUN_IDS.mailRunning,
+      firstBackup: { itemsDone: 4_050, itemsTotal: 12_000, etaSeconds: 11_460 },
+    });
+    await open(RUN_IDS.mailRunning, {
+      [`GET /history/${RUN_IDS.mailRunning}`]: () => json(detail(first, { batch: null })),
+    });
+    expect(section("progress")?.textContent).toContain("First backup: 4,050 of 12,000 items");
+    const remaining = section("stats")?.querySelector('[data-term="remaining"]');
+    expect(remaining?.textContent).toBe("about 3 h 15 min left (estimate)");
+  });
+
   it("says which attempt a retried restore check is, in the header", async () => {
     const retry = run({
       id: RUN_IDS.mailRunning,

@@ -910,7 +910,9 @@ async function retryFailedMessages(
     folderId: folder.node.id,
     messages: ids.length,
   });
-  run.expectMore(ids.length);
+  if (!run.mailTotalKnown) {
+    run.expectMore(ids.length);
+  }
   for (const id of ids) {
     run.throwIfAborted();
     const existing = run.index.get(OBJECT_TYPES.mail, id);
@@ -1019,9 +1021,10 @@ export async function syncMailFolder(
       failed.clear();
     }
     mode = batch.mode;
-    if (mode === "incremental") {
+    // A first backup counted its items up front from the folder totals.
+    if (!run.mailTotalKnown && mode === "incremental") {
       run.expectMore(batch.items.length);
-    } else if (!countedFull) {
+    } else if (!run.mailTotalKnown && !countedFull) {
       run.expectMore(folder.node.totalItemCount);
       countedFull = true;
     }
@@ -1067,6 +1070,27 @@ export async function syncMailFolder(
   });
 }
 
+/**
+ * A first backup knows its size before it reads a message: Graph's item totals
+ * of the folders it will back up. What earlier attempts already stored (the
+ * partial snapshot this attempt continues) is counted as done, so the progress
+ * total covers only what is left, and the UI can say "First backup: X of Y
+ * items" with a time left from this attempt's own rate (#47). Calendar and
+ * contacts are counted as they are read; Graph gives no total for them.
+ */
+export function announceFirstBackup(run: BackupRun, planned: readonly PlannedFolder[]): void {
+  const itemsTotal = planned.reduce(
+    (sum, folder) =>
+      sum +
+      (Number.isFinite(folder.node.totalItemCount) ? Math.max(0, folder.node.totalItemCount) : 0),
+    0,
+  );
+  const itemsBefore = run.writer.listObjects().filter((o) => o.type === OBJECT_TYPES.mail).length;
+  run.mailTotalKnown = true;
+  run.expectMore(Math.max(0, itemsTotal - itemsBefore));
+  run.reporter.firstBackup?.({ itemsBefore, itemsTotal });
+}
+
 /** The whole mail phase: tree, reconciliation, one delta run per folder. */
 export async function backupMail(run: BackupRun, options: MailPhaseOptions): Promise<void> {
   run.enterPhase("mail", EXCHANGE_PHASES.folders);
@@ -1085,6 +1109,9 @@ export async function backupMail(run: BackupRun, options: MailPhaseOptions): Pro
     skipped: tree.length - planned.length,
     pending: planned.filter((f) => !run.progress.completedFolders.includes(f.node.id)).length,
   });
+  if (run.firstBackup) {
+    announceFirstBackup(run, planned);
+  }
   await run.checkpoint();
 
   for (const folder of planned) {

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { JobAbortedError } from "../../engine/chunkstore.js";
 import type { ProgressUpdate } from "../../engine/progress.js";
+import type { FirstBackupProgress, JobContext } from "../../engine/types.js";
 import type { DriveDeltaItem } from "../../graph/resources/drive.js";
 import { type FixtureRoute, graphError, must } from "../../graph/testing/fake-graph.js";
 import driveFixture from "../../graph/testing/fixtures/drive-delta.json" with { type: "json" };
@@ -73,6 +74,13 @@ function itemRoute(id: string): (url: URL) => boolean {
 
 function state(manifest: { state?: Record<string, unknown> }): OneDriveManifestState {
   return manifest.state as unknown as OneDriveManifestState;
+}
+
+/** What the engine said about a first backup through this context's reporter. */
+function firstBackupsOf(ctx: JobContext): FirstBackupProgress[] {
+  const seen: FirstBackupProgress[] = [];
+  ctx.progress.firstBackup = (info) => seen.push(info);
+  return seen;
 }
 
 describe("OneDriveBackupEngine", () => {
@@ -164,7 +172,11 @@ describe("OneDriveBackupEngine", () => {
     ]);
     const engine = harness.engine(graph);
     const first = await engine.run(harness.context({ jobId: "job-1" }), oneDrive, {});
-    const second = await engine.run(harness.context({ jobId: "job-2" }), oneDrive, {});
+    const secondCtx = harness.context({ jobId: "job-2" });
+    const announced = firstBackupsOf(secondCtx);
+    const second = await engine.run(secondCtx, oneDrive, {});
+    // A follow-up run is no first backup.
+    expect(announced).toEqual([]);
 
     expect(second).toMatchObject({ snapshotId: "snap-2", sequence: 2, objectsTotal: 6 });
     // The renamed folder, the moved file and the new file changed; nothing else.
@@ -411,9 +423,11 @@ describe("OneDriveBackupEngine", () => {
     ]);
     const engine = harness.engine(graph, { checkpointEveryItems: 2 });
 
-    await expect(
-      engine.run(harness.context({ jobId: "job-1", signal: controller.signal }), oneDrive, {}),
-    ).rejects.toBeInstanceOf(JobAbortedError);
+    const firstCtx = harness.context({ jobId: "job-1", signal: controller.signal });
+    const first = firstBackupsOf(firstCtx);
+    await expect(engine.run(firstCtx, oneDrive, {})).rejects.toBeInstanceOf(JobAbortedError);
+    // A first backup; the drive says its item count only by being enumerated (#47).
+    expect(first).toEqual([{ itemsBefore: 0, itemsTotal: null }]);
 
     const saved = readCursor(harness.cursor.cursor, DRIVE) as OneDriveCursor;
     expect(saved).toMatchObject({
@@ -430,7 +444,11 @@ describe("OneDriveBackupEngine", () => {
     expect(saved.snapshot?.objectCount).toBe(3);
     expect((await harness.snapshots.get("snap-1"))?.manifestPath).toBeNull();
 
-    const result = await engine.run(harness.context({ jobId: "job-1", attempt: 1 }), oneDrive, {});
+    const secondCtx = harness.context({ jobId: "job-1", attempt: 1 });
+    const second = firstBackupsOf(secondCtx);
+    const result = await engine.run(secondCtx, oneDrive, {});
+    // The resumed attempt counts what the first one stored as done.
+    expect(second).toEqual([{ itemsBefore: 3, itemsTotal: null }]);
     expect(result.snapshotId).toBe("snap-1");
     expect(result.objectsTotal).toBe(6);
     // Everything is new relative to the (absent) previous snapshot, across both attempts.

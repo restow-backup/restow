@@ -43,6 +43,7 @@ function job(overrides: Partial<JobDto> = {}): JobDto {
     progress: PROGRESS,
     phase: { name: "download", since: "2026-01-01T10:00:02.000Z" },
     throttle: null,
+    firstBackup: null,
     cancellable: true,
     retryable: false,
     checkIncomplete: false,
