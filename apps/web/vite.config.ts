@@ -2,7 +2,7 @@ import path from "node:path";
 
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { type Plugin, defineConfig } from "vite";
 
 import { maintenancePagePlugin } from "./vite/maintenance-page";
 
@@ -33,53 +33,77 @@ const VENDOR_CHUNKS: readonly (readonly [chunk: string, packages: readonly strin
   ["auth", ["better-auth", "@better-auth", "@simplewebauthn", "better-call", "nanostores"]],
 ];
 
+/**
+ * The vendor chunks as Rolldown code-splitting groups, in priority order: a
+ * group also takes the dependencies of what it captures, so React's group
+ * comes first and keeps React (and react-dom) whole instead of letting the
+ * first library that imports it pull it into its own chunk. Packages outside
+ * the named groups are left to Rolldown's automatic splitting.
+ */
+const VENDOR_GROUPS = VENDOR_CHUNKS.map(([chunk, packages], index) => ({
+  name: `vendor-${chunk}`,
+  priority: VENDOR_CHUNKS.length - index,
+  test: (id: string) => {
+    const name = packageOf(id);
+    return name !== null && packages.some((prefix) => name === prefix || name.startsWith(prefix));
+  },
+}));
+
 function packageOf(id: string): string | null {
   const match = /node_modules\/(?:\.pnpm\/[^/]+\/node_modules\/)?((?:@[^/]+\/)?[^/]+)/.exec(id);
   return match?.[1] ?? null;
 }
 
 /**
- * Packages outside the named groups are left to Rollup: a catch-all chunk
- * imported by, and importing from, the React chunk is a circular chunk, and in
- * production React's CommonJS exports are then read before they exist (blank
- * page). The CommonJS interop helper goes with React, its first user.
+ * A circular chunk builds fine and breaks only at runtime (a chunk reads
+ * another's exports before they exist: blank page). Rollup warned about it,
+ * Rolldown does not, so the build checks the chunk graph itself and fails on a
+ * cycle.
  */
-function vendorChunk(id: string): string | undefined {
-  if (id.includes("commonjsHelpers")) {
-    return "vendor-react";
-  }
-  const name = packageOf(id);
-  if (!name) {
-    return undefined;
-  }
-  for (const [chunk, packages] of VENDOR_CHUNKS) {
-    if (packages.some((prefix) => name === prefix || name.startsWith(prefix))) {
-      return `vendor-${chunk}`;
-    }
-  }
-  return undefined;
+function noCircularChunks(): Plugin {
+  return {
+    name: "no-circular-chunks",
+    apply: "build",
+    generateBundle(_options, bundle) {
+      const imports = new Map<string, readonly string[]>();
+      for (const output of Object.values(bundle)) {
+        if (output.type === "chunk") {
+          imports.set(output.fileName, output.imports);
+        }
+      }
+      const done = new Set<string>();
+      const visit = (file: string, path: readonly string[]) => {
+        if (path.includes(file)) {
+          throw new Error(`Refusing to build: circular chunks ${[...path, file].join(" -> ")}`);
+        }
+        if (done.has(file)) {
+          return;
+        }
+        for (const next of imports.get(file) ?? []) {
+          visit(next, [...path, file]);
+        }
+        done.add(file);
+      };
+      for (const file of imports.keys()) {
+        visit(file, []);
+      }
+    },
+  };
 }
 
 // Vite config for the Restow web app. Tailwind v4 runs through its own Vite
 // plugin (no PostCSS config), and `@/` resolves to `src/` to match tsconfig.
 export default defineConfig({
   // maintenancePagePlugin writes dist/maintenance/*: the page the edge serves while the api is down.
-  plugins: [react(), tailwindcss(), maintenancePagePlugin()],
+  plugins: [react(), tailwindcss(), maintenancePagePlugin(), noCircularChunks()],
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "./src"),
     },
   },
   build: {
-    rollupOptions: {
-      output: { manualChunks: vendorChunk },
-      // A circular chunk builds fine and breaks only at runtime; fail the build instead.
-      onwarn(warning, warn) {
-        if (warning.message.startsWith("Circular chunk")) {
-          throw new Error(`Refusing to build: ${warning.message}`);
-        }
-        warn(warning);
-      },
+    rolldownOptions: {
+      output: { codeSplitting: { groups: VENDOR_GROUPS } },
     },
   },
   server: {
