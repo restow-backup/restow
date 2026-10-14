@@ -37,8 +37,8 @@ import { reclaimLegacyManifestSpace, runMigrations } from "./migrate.js";
 import { chunkIdsFromDriver } from "./schema/manifest.js";
 import { dropTestDatabase } from "./testing/database.js";
 
-// The two tests that walk a whole backup history take about a second alone and
-// several under a full parallel CI run; vitest's 5 s default is too tight.
+// Two tests here walk a whole backup history: about a second alone, several
+// under a full parallel CI run, past vitest's 5 s default.
 const SLOW_TEST_MS = 60_000;
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
@@ -331,7 +331,7 @@ async function expectAllMatch(db: Database, tenantId: string, recorded: readonly
   }
 }
 
-describe.skipIf(!adminUrl)("manifest versions", () => {
+describe.skipIf(!adminUrl)("manifest versions", { timeout: SLOW_TEST_MS }, () => {
   let db: Database;
   let fixture: Fixture;
 
@@ -509,7 +509,7 @@ describe.skipIf(!adminUrl)("manifest versions", () => {
       }
       expect(await versionCount(db, objectId)).toBe(0);
     }
-  }, SLOW_TEST_MS);
+  });
 
   it("replaces what an earlier attempt mirrored when a commit is retried", async () => {
     const objectId = await protectedObject(db, fixture);
@@ -674,7 +674,7 @@ async function insertLegacyRows(
   }
 }
 
-describe.skipIf(!adminUrl)("upgrading a 0.3.4 manifest index", () => {
+describe.skipIf(!adminUrl)("upgrading a 0.3.4 manifest index", { timeout: SLOW_TEST_MS }, () => {
   let folder: string;
   let pool: pg.Pool;
   let db: Database;
@@ -846,5 +846,5 @@ describe.skipIf(!adminUrl)("upgrading a 0.3.4 manifest index", () => {
     } finally {
       await ownerPool.end();
     }
-  }, SLOW_TEST_MS);
+  });
 });
