@@ -265,6 +265,49 @@ describe("forgetting snapshots by id", () => {
   );
 });
 
+describe("the sizes restic keeps in a snapshot", () => {
+  let work: string;
+
+  beforeAll(async () => {
+    work = await mkdtemp(join(tmpdir(), "restow-restic-summary-"));
+  });
+
+  afterAll(async () => {
+    await rm(work, { recursive: true, force: true });
+  });
+
+  async function listedBy(json: string): Promise<ResticSession> {
+    const fake = join(work, `restic-${Math.random().toString(36).slice(2)}.sh`);
+    await writeFile(fake, `#!/bin/sh\ncat <<'EOF'\n${json}\nEOF\n`);
+    await chmod(fake, 0o755);
+    return {
+      repositoryUrl: join(work, "repo"),
+      username: "",
+      password: "",
+      repositoryPassword: "x",
+      cacheDir: join(work, "cache"),
+      binary: fake,
+    };
+  }
+
+  it("reads what a backup added from the summary of restic 0.17+, and null before", async () => {
+    const id = "a".repeat(64);
+    const withSummary = await listedBy(
+      JSON.stringify([
+        {
+          id,
+          time: "2026-10-14T00:00:00Z",
+          summary: { files_new: 3, total_bytes_processed: 9000, data_added: 1234 },
+        },
+      ]),
+    );
+    const [point] = await resticSnapshots(withSummary);
+    expect(point).toMatchObject({ filesNew: 3, totalBytesProcessed: 9000, dataAdded: 1234 });
+    const older = await listedBy(JSON.stringify([{ id, time: "2026-10-14T00:00:00Z" }]));
+    expect((await resticSnapshots(older))[0]?.dataAdded).toBeNull();
+  });
+});
+
 describe("a restic process stopped by a signal", () => {
   let work: string;
   let session: ResticSession;

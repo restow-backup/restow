@@ -200,6 +200,23 @@ describe("SnapshotsTab", () => {
     expect(fetchBrowse).not.toHaveBeenCalled();
   });
 
+  it("says what a restore point contains and what it added, in the same words as a Proxmox VE guest", async () => {
+    fetchSnapshots.mockResolvedValue([
+      snapshot(FULL_ID, "2026-09-29T22:00:00.000Z", {
+        totalBytesProcessed: 9 * 1024 ** 3,
+        dataAdded: 2.5 * 1024 ** 2,
+      }),
+      // An older server, or a snapshot no run reported: no "new" figure, not "+0 B".
+      snapshot(OLDER_ID, "2026-09-28T22:00:00.000Z", { dataAdded: null }),
+    ]);
+    await open();
+    const items = [...document.querySelectorAll('[data-slot="snapshot-list"] li')];
+    expect(items[0]?.textContent).toContain("9 GB in the backup");
+    expect(items[0]?.textContent).toContain("+2.5 MB new");
+    expect(items[1]?.textContent).toContain("4 kB in the backup");
+    expect(items[1]?.textContent).not.toMatch(/\+.* new/);
+  });
+
   it("marks a snapshot retention found suspicious", async () => {
     fetchSnapshots.mockResolvedValue([
       snapshot(FULL_ID, "2031-01-01T00:00:00.000Z", { flags: ["unrecorded", "future_time"] }),

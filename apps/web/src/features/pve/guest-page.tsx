@@ -30,6 +30,7 @@ import { useTenantScope } from "@/features/endpoints/hooks";
 import { formatBytes, formatDateTime } from "@/lib/format";
 
 import {
+  type PveFollowUpAverage,
   type PveGuestDetail,
   type PveRestorePoint,
   fetchGuest,
@@ -190,6 +191,17 @@ function PointType({ point }: { point: PveRestorePoint }) {
   );
 }
 
+/** What a follow-up backup of this guest adds on average, over its newest restore points (#58). */
+export function FollowUpNote({ followUp }: { followUp: PveFollowUpAverage }) {
+  const { t, i18n } = useTranslation(PVE_NAMESPACE);
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  return (
+    <p className="text-sm text-muted-foreground tabular-nums" data-slot="pve-follow-up">
+      {t("guest.followUp", { size: formatBytes(followUp.added, language), count: followUp.points })}
+    </p>
+  );
+}
+
 export function PveGuestPage({ guestId }: { guestId: string }) {
   const { t, i18n } = useTranslation(PVE_NAMESPACE);
   const language = i18n.resolvedLanguage ?? i18n.language;
@@ -238,6 +250,7 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
         <h2 id="pve-points" className="text-lg font-semibold">
           {t("guest.restorePoints")}
         </h2>
+        {data?.followUp ? <FollowUpNote followUp={data.followUp} /> : null}
         {data && data.snapshots.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("guest.noRestorePoints")}</p>
         ) : (

@@ -91,6 +91,7 @@
     "backupContains": "{size} im Backup",
     "backupAdded": "+{size} neu im letzten Lauf",
     "backupFirst": "Erste Sicherung am {date}: {size} gespeichert",
+    "backupFollowUp": "Durchschnitt je Folgesicherung: +{size} (letzte {count, plural, one {# Sicherung} other {# Sicherungen}})",
     "backupNone": "Noch keine Sicherung",
     "incomplete": "Letzte Sicherung unvollständig",
     "incompleteHint": "{count, plural, one {# Element konnte} other {# Elemente konnten}} nicht gelesen werden; dem Sicherungsstand fehlen sie."
@@ -165,6 +166,7 @@
     "sizeHint": "Alles, was dieser Sicherungsstand wiederherstellt: alle Dateien eines Containers, alle Disks einer VM. Unveränderte Daten werden nur einmal gespeichert.",
     "added": "Neu in dieser Sicherung",
     "addedHint": "Was diese Sicherung dem Repository hinzugefügt hat, nach Deduplizierung und Komprimierung unveränderter Daten.",
+    "followUp": "Eine Folgesicherung fügt im Durchschnitt +{size} hinzu (letzte {count, plural, one {# Sicherung} other {# Sicherungen}}).",
     "type": "Art",
     "backupType": {
       "first": "Erste Sicherung",

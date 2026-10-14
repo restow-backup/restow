@@ -395,6 +395,8 @@ export interface EndpointSnapshot {
   filesNew: number | null;
   totalFilesProcessed: number | null;
   totalBytesProcessed: number | null;
+  /** What the backup added to the repository after deduplication; null when unknown (older servers omit it). */
+  dataAdded?: number | null;
   /** The rating of exactly this snapshot (restore tests). */
   verification: { state: VerificationState; checkedAt: string | null };
   /** Why retention found this snapshot suspicious; empty for a normal one. */

@@ -316,6 +316,8 @@ export interface SnapshotDto {
   filesNew: number | null;
   totalFilesProcessed: number | null;
   totalBytesProcessed: number | null;
+  /** What the backup added to the repository after deduplication; null when unknown. */
+  dataAdded: number | null;
   /** The readiness rating of exactly this snapshot (restore tests). */
   verification: { state: "green" | "red" | "unverified"; checkedAt: string | null };
   /**

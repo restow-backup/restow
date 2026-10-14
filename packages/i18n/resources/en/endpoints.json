@@ -598,6 +598,10 @@
     "description": "{count, plural, one {# restore point. Pick it to browse its files.} other {# restore points. Pick one to browse its files.}}",
     "files": "{count, plural, one {# file} other {# files}}",
     "errorTitle": "The restore points could not be read",
+    "contains": "{size} in the backup",
+    "containsHint": "Everything this restore point restores. Unchanged data is stored only once.",
+    "added": "+{size} new",
+    "addedHint": "What this backup added to the repository after deduplication and compression of unchanged data.",
     "busyTitle": "The backup data is busy",
     "empty": {
       "title": "No restore point yet",

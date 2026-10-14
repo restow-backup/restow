@@ -598,6 +598,10 @@
     "description": "{count, plural, one {# Sicherungsstand. Wählen Sie ihn, um seine Dateien zu durchsuchen.} other {# Sicherungsstände. Wählen Sie einen, um seine Dateien zu durchsuchen.}}",
     "files": "{count, plural, one {# Datei} other {# Dateien}}",
     "errorTitle": "Die Sicherungsstände konnten nicht gelesen werden",
+    "contains": "{size} im Backup",
+    "containsHint": "Alles, was dieser Sicherungsstand wiederherstellt. Unveränderte Daten werden nur einmal gespeichert.",
+    "added": "+{size} neu",
+    "addedHint": "Was diese Sicherung dem Repository hinzugefügt hat, nach Deduplizierung und Komprimierung unveränderter Daten.",
     "busyTitle": "Die Sicherungsdaten sind gerade belegt",
     "empty": {
       "title": "Noch kein Sicherungsstand",
