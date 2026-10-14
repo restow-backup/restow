@@ -37,6 +37,10 @@ import { reclaimLegacyManifestSpace, runMigrations } from "./migrate.js";
 import { chunkIdsFromDriver } from "./schema/manifest.js";
 import { dropTestDatabase } from "./testing/database.js";
 
+// The two tests that walk a whole backup history take about a second alone and
+// several under a full parallel CI run; vitest's 5 s default is too tight.
+const SLOW_TEST_MS = 60_000;
+
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
 const suffix = randomBytes(4).toString("hex");
 const DATABASE = `restow_db_manifest_versions_${suffix}`;
@@ -505,7 +509,7 @@ describe.skipIf(!adminUrl)("manifest versions", () => {
       }
       expect(await versionCount(db, objectId)).toBe(0);
     }
-  });
+  }, SLOW_TEST_MS);
 
   it("replaces what an earlier attempt mirrored when a commit is retried", async () => {
     const objectId = await protectedObject(db, fixture);
@@ -842,5 +846,5 @@ describe.skipIf(!adminUrl)("upgrading a 0.3.4 manifest index", () => {
     } finally {
       await ownerPool.end();
     }
-  });
+  }, SLOW_TEST_MS);
 });
