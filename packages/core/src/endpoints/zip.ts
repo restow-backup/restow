@@ -15,7 +15,7 @@
  */
 import { basename } from "node:path/posix";
 import type { Readable } from "node:stream";
-import archiver from "archiver";
+import { type Archiver, ZipArchive } from "archiver";
 import {
   type ResticSession,
   normaliseSnapshotPath,
@@ -92,7 +92,7 @@ export function parentPrefix(requested: string): string {
   return parts.length <= 1 ? "" : `${parts.slice(0, -1).join("/")}/`;
 }
 
-function nextEntry(archive: archiver.Archiver): Promise<void> {
+function nextEntry(archive: Archiver): Promise<void> {
   return new Promise((resolve, reject) => {
     const onEntry = () => {
       archive.off("error", onError);
@@ -151,7 +151,7 @@ export function streamSnapshotZip(
   options: SnapshotZipOptions & { selection: { path: string; type: "file" | "dir" }[] },
 ): SnapshotZip {
   const { session, snapshotId, selection, signal } = options;
-  const archive = archiver("zip", { zlib: { level: 1 }, comment: options.comment });
+  const archive = new ZipArchive({ zlib: { level: 1 }, comment: options.comment });
   const names = new UniqueNames();
 
   const pump = async (): Promise<void> => {
