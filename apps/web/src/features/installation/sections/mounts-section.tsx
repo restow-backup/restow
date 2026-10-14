@@ -149,12 +149,26 @@ export function MountsContent({ view }: { view: MountsView }) {
   );
 }
 
-export function UnavailableCard({ view }: { view: MountsView }) {
+/**
+ * How to start the mounter: the command runs in the project directory (the default
+ * /opt/restow when the api does not know it). When the api knows that the compose file has
+ * no mounter service, the installer has to update the file first.
+ */
+export function UnavailableCard({
+  view,
+  wrapCommands = false,
+}: {
+  view: MountsView;
+  /** Wrap long commands instead of scrolling them sideways (inside a dialog). */
+  wrapCommands?: boolean;
+}) {
   const { t } = useTranslation("installation");
   const { t: tu } = useTranslation("updates");
   const access = useInstallationAccess();
-  // "Enable network shares" through the opt-in updater (docs/FILESHARES.md 3.9), for the owner.
-  const button = access.change === null && canEnableThroughUpdater(view);
+  // "Enable network shares" through the opt-in updater (docs/FILESHARES.md 3.9), for the owner;
+  // not while the compose file lacks the mounter (the installer has to update it first).
+  const button =
+    access.change === null && !view.updateComposeCommand && canEnableThroughUpdater(view);
   if (view.demo) {
     return (
       <Alert variant="info" data-slot="mounts-demo">
@@ -172,7 +186,31 @@ export function UnavailableCard({ view }: { view: MountsView }) {
       <CardContent className="space-y-4">
         {button ? <EnableMounterButton view={view} mayEnable /> : null}
         {button ? <p className="text-sm">{t("mounts.enable.orCommand")}</p> : null}
-        <CommandBlock command={view.enableCommand} copyLabel={tu("commands.copy")} />
+        {view.updateComposeCommand ? (
+          <Alert variant="warning" data-slot="mounts-compose-outdated">
+            <TriangleAlert />
+            <AlertTitle>{t("mounts.unavailable.composeOutdated.title")}</AlertTitle>
+            <AlertDescription className="min-w-0 gap-2">
+              <p>{t("mounts.unavailable.composeOutdated.description")}</p>
+              <CommandBlock
+                command={view.updateComposeCommand}
+                copyLabel={tu("commands.copy")}
+                wrap={wrapCommands}
+              />
+              <p>{t("mounts.unavailable.composeOutdated.then")}</p>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+        <CommandBlock
+          command={view.enableCommand}
+          copyLabel={tu("commands.copy")}
+          wrap={wrapCommands}
+        />
+        {view.projectDir === null ? (
+          <p className="text-sm text-muted-foreground" data-slot="mounts-default-dir">
+            {t("mounts.unavailable.defaultDir")}
+          </p>
+        ) : null}
         {view.unavailableReason && view.unavailableReason !== "unreachable" ? (
           <p className="text-sm text-muted-foreground">
             {t(`mounts.unavailable.reason.${view.unavailableReason}`)}
@@ -362,8 +400,16 @@ export function OperationCard({ operation }: { operation: MountOperation }) {
             data-code={operation.failure.code}
           >
             <TriangleAlert />
-            <AlertTitle>{t(`mounts.failures.${operation.failure.code}`)}</AlertTitle>
+            <AlertTitle>
+              {t(
+                `mounts.failures.${operation.failure.code}`,
+                exportOf(operation.mount, operation.failure.detail),
+              )}
+            </AlertTitle>
             <AlertDescription>
+              {operation.failure.code === "probe.export_not_found" ? (
+                <ExportNotFoundHints {...exportOf(operation.mount, operation.failure.detail)} />
+              ) : null}
               <p className="break-words font-mono text-xs">{operation.failure.detail}</p>
               {operation.status === "needs_attention" ? (
                 <p className="mt-2">{t("mounts.operation.needsAttention")}</p>
@@ -486,13 +532,58 @@ function ShareRow({
           </Button>
         </div>
       </div>
-      {test.data ? <TestOutcome result={test.data} /> : null}
+      {test.data ? <TestOutcome result={test.data} mount={mount} /> : null}
       {test.isError ? <ErrorAlert error={test.error} /> : null}
     </li>
   );
 }
 
-export function TestOutcome({ result }: { result: MountTestResult }) {
+/**
+ * The server and the export path a failure is about: from the share's settings, else from
+ * the error (mount.nfs: "mounting <server>:<path> failed", Docker: "addr=<server>" and
+ * "mount :<path>:"). Empty strings when neither says.
+ */
+export function exportOf(
+  mount: Pick<MountSpec, "server" | "export"> | null | undefined,
+  detail: string | null | undefined,
+): { server: string; export: string } {
+  if (mount) {
+    return { server: mount.server, export: mount.export };
+  }
+  const text = detail ?? "";
+  const nfs = /mounting (\S+?):(\/\S*) failed/.exec(text);
+  if (nfs) {
+    return { server: nfs[1] ?? "", export: nfs[2] ?? "" };
+  }
+  return {
+    server: /addr=([^,\s]+)/.exec(text)?.[1] ?? "",
+    export: /mount :(\/[^:\s]*):/.exec(text)?.[1] ?? "",
+  };
+}
+
+/** What to check when the server has no such export path (probe.export_not_found). */
+function ExportNotFoundHints({ server, export: path }: { server: string; export: string }) {
+  const { t } = useTranslation("installation");
+  return (
+    <ul className="list-disc space-y-1 pl-5" data-slot="mounts-export-hints">
+      <li>
+        {t("mounts.exportNotFound.showmount")}{" "}
+        <code className="font-mono text-xs [overflow-wrap:anywhere]">
+          showmount -e {server || "<server>"}
+        </code>
+      </li>
+      <li>
+        {t("mounts.exportNotFound.synology", {
+          // A path that names a volume already is shown with an example instead.
+          path: !path || /^\/volume\d+(\/|$)/.test(path) ? "/backup" : path,
+        })}
+      </li>
+      <li>{t("mounts.exportNotFound.nfsVersion")}</li>
+    </ul>
+  );
+}
+
+export function TestOutcome({ result, mount }: { result: MountTestResult; mount?: MountSpec }) {
   const { t } = useTranslation("installation");
   if (result.ok) {
     return (
@@ -505,17 +596,21 @@ export function TestOutcome({ result }: { result: MountTestResult }) {
     );
   }
   const code = result.code ?? "probe.failed";
+  const target = exportOf(mount, result.detail);
   return (
     <Alert variant="destructive" data-slot="mounts-test" data-ok="false" data-code={code}>
       <CircleX />
       <AlertTitle>
-        {t(`mounts.failures.${code}`, { defaultValue: t("mounts.test.failed") })}
+        {t(`mounts.failures.${code}`, { ...target, defaultValue: t("mounts.test.failed") })}
       </AlertTitle>
-      {result.detail ? (
+      {result.detail || code === "probe.export_not_found" ? (
         <AlertDescription>
-          <p className="break-words font-mono text-xs">
-            {t("mounts.test.detail", { detail: result.detail })}
-          </p>
+          {code === "probe.export_not_found" ? <ExportNotFoundHints {...target} /> : null}
+          {result.detail ? (
+            <p className="break-words font-mono text-xs">
+              {t("mounts.test.detail", { detail: result.detail })}
+            </p>
+          ) : null}
         </AlertDescription>
       ) : null}
     </Alert>
@@ -723,7 +818,7 @@ function AddShareDialog({
           <p id="mount-readonly-hint" className="text-xs text-muted-foreground">
             {t("mounts.dialog.readOnlyHint")}
           </p>
-          {test.data ? <TestOutcome result={test.data} /> : null}
+          {test.data ? <TestOutcome result={test.data} mount={specOf(form)} /> : null}
           {test.isError ? <ErrorAlert error={test.error} /> : null}
           {add.isError && !isRecentSignInRequired(add.error) ? (
             <ErrorAlert error={add.error} />

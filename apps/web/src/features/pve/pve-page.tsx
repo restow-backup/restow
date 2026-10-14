@@ -42,15 +42,15 @@ import {
   backupNow,
   deleteJob,
   fetchOverview,
+  overviewRefreshMs,
   pveKeys,
   revokeNode,
   saveJob,
 } from "./api.js";
+import { BackupSizeCell } from "./backup-size.js";
 import { ConnectDialog } from "./connect-dialog.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { guestTo } from "./paths.js";
-
-const REFRESH_MS = 30_000;
 
 function useOverview() {
   const { tenantId, enabled } = useTenantScope();
@@ -58,7 +58,7 @@ function useOverview() {
     queryKey: pveKeys.overview(tenantId),
     queryFn: fetchOverview,
     enabled,
-    refetchInterval: REFRESH_MS,
+    refetchInterval: (query) => overviewRefreshMs(query.state.data),
   });
 }
 
@@ -71,8 +71,16 @@ function problemLabel(
   return label === key ? t("problems.unknown", { code }) : label;
 }
 
-/** Create or change a backup job for VMs and containers. */
-function JobDialog({ job, onClose }: { job: PveJob | null; onClose: () => void }) {
+/** Create or change a backup job for VMs and containers; `onSaved` gets the job as saved. */
+export function JobDialog({
+  job,
+  onClose,
+  onSaved,
+}: {
+  job: PveJob | null;
+  onClose: () => void;
+  onSaved?: (job: PveJob) => void;
+}) {
   const { t } = useTranslation(PVE_NAMESPACE);
   const queryClient = useQueryClient();
   const { tenantId } = useTenantScope();
@@ -89,9 +97,10 @@ function JobDialog({ job, onClose }: { job: PveJob | null; onClose: () => void }
   const [testEnabled, setTestEnabled] = React.useState(job?.settings.restoreTest?.enabled ?? false);
   const mutation = useMutation({
     mutationFn: (input: JobInput) => saveJob(job?.id ?? null, input),
-    onSuccess: () => {
+    onSuccess: (saved) => {
       toast.success(t("jobs.saved"));
       void queryClient.invalidateQueries({ queryKey: pveKeys.all(tenantId) });
+      onSaved?.(saved);
       onClose();
     },
   });
@@ -192,7 +201,7 @@ function JobDialog({ job, onClose }: { job: PveJob | null; onClose: () => void }
   );
 }
 
-function GuestState({ guest }: { guest: PveGuest }) {
+export function GuestState({ guest }: { guest: PveGuest }) {
   const { t } = useTranslation(PVE_NAMESPACE);
   const badges: React.ReactNode[] = [];
   if (guest.template && guest.kind === "vm") {
@@ -216,10 +225,42 @@ function GuestState({ guest }: { guest: PveGuest }) {
       </Badge>,
     );
   }
+  if (guest.activity === "running") {
+    badges.push(
+      <Badge key="run" variant="info" data-slot="pve-guest-activity">
+        {t("guests.running")}
+      </Badge>,
+    );
+  } else if (guest.activity === "queued") {
+    badges.push(
+      <Badge key="q" variant="muted" data-slot="pve-guest-activity">
+        {t("guests.queued")}
+      </Badge>,
+    );
+  }
   if (guest.lastRunStatus === "failed") {
     badges.push(
       <Badge key="f" variant="destructive" title={guest.lastRunError ?? undefined}>
         {t("guests.lastFailed")}
+      </Badge>,
+    );
+  } else if ((guest.backups?.last?.unreadable ?? 0) > 0) {
+    // Succeeded, but the restore point misses what restic could not read.
+    badges.push(
+      <Badge
+        key="g"
+        variant="warning"
+        data-slot="pve-guest-incomplete"
+        title={t("guests.incompleteHint", { count: guest.backups?.last?.unreadable ?? 0 })}
+      >
+        {t("guests.incomplete")}
+      </Badge>,
+    );
+  } else if (guest.lastRunStatus === "succeeded" && guest.bitmapState === null) {
+    // A VM says it with its bitmap badge; a container has none.
+    badges.push(
+      <Badge key="s" variant="outline" data-slot="pve-guest-succeeded">
+        {t("guests.lastSucceeded")}
       </Badge>,
     );
   }
@@ -264,8 +305,12 @@ export function PvePage() {
   const [deleting, setDeleting] = React.useState<PveJob | null>(null);
   const backup = useMutation({
     mutationFn: (id: string) => backupNow(id),
-    onSuccess: () => {
-      toast.success(t("guests.backupQueued"));
+    onSuccess: (result) => {
+      if (result.alreadyQueued) {
+        toast.info(t("guests.backupAlreadyQueued"));
+      } else {
+        toast.success(t("guests.backupQueued"));
+      }
       refresh();
     },
   });
@@ -421,7 +466,8 @@ export function PvePage() {
                 <TableHead>{t("guests.name")}</TableHead>
                 <TableHead>{t("guests.kind")}</TableHead>
                 <TableHead>{t("guests.node")}</TableHead>
-                <TableHead>{t("guests.size")}</TableHead>
+                <TableHead title={t("guests.sizeHint")}>{t("guests.size")}</TableHead>
+                <TableHead>{t("guests.backup")}</TableHead>
                 <TableHead>{t("guests.job")}</TableHead>
                 <TableHead>{t("guests.lastBackup")}</TableHead>
                 <TableHead>{t("guests.state")}</TableHead>
@@ -439,7 +485,12 @@ export function PvePage() {
                   </TableCell>
                   <TableCell>{t(`guests.${g.kind}`)}</TableCell>
                   <TableCell>{g.node ?? ""}</TableCell>
-                  <TableCell>{g.diskBytes > 0 ? formatBytes(g.diskBytes, language) : ""}</TableCell>
+                  <TableCell title={t("guests.sizeHint")}>
+                    {g.diskBytes > 0 ? formatBytes(g.diskBytes, language) : ""}
+                  </TableCell>
+                  <TableCell>
+                    <BackupSizeCell guest={g} />
+                  </TableCell>
                   <TableCell>
                     <select
                       className="h-8 rounded-md border bg-background px-2 text-sm"

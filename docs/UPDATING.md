@@ -94,6 +94,32 @@ docker compose pull
 docker compose up -d
 ```
 
+Running jobs get 60 seconds to save a checkpoint when the worker stops
+(`stop_grace_period: 60s` on the `worker` service). A Compose file from
+before 0.3.5 does not have that line, so Docker stops the worker after 10
+seconds; copy it from the current `docker-compose.yml`.
+
+Updating to 0.3.5 converts the backup index of Microsoft 365 backups
+(`manifest_objects`) into item versions. The worker does it in the
+background after the start, one backup at a time; backups, browsing and
+restores keep working meanwhile. Follow it in the worker's log:
+
+```sh
+docker compose logs worker | grep "manifest index conversion"
+```
+
+Once it says `manifest index conversion finished`, the old table is empty,
+and from 0.3.6 on the api hands its disk space back to the file system by
+itself: it checks every 15 minutes (only the table's size, which reads no
+row) and empties the table as soon as nothing is left in it, then stops
+checking. Its log says `the old manifest table was emptied and its disk
+space given back`. No restart is needed. It does this as the database owner
+(`DATABASE_MIGRATION_URL`, the connection its migration step uses), with one
+short connection per attempt that it closes again; no other role gets a new
+right. On 0.3.5 itself, restart the api once instead
+(`docker compose restart api`): its migration step does the same at every
+start.
+
 If the updater ever wrote `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE` into `.env`,
 those two lines decide which images the services run. Change them, or remove
 them to go back to building from the source checkout. `RESTOW_UPDATER_IMAGE`
@@ -550,7 +576,12 @@ everyone sees a full-screen notice with the steps and the progress.
 3. **Database backup.** `pg_dump -Fc` of the database into the updater's
    volume, checked for readability; the last three are kept (plus the one a
    run that needs attention depends on, so never fewer than you need).
-4. **Stop worker and scheduler.** Jobs in the queue resume after the restart.
+4. **Stop worker and scheduler.** Running jobs get up to 60 seconds to save a
+   checkpoint and stop. Queued jobs, and interrupted ones that saved a
+   checkpoint, continue after the restart from where they stopped; such an
+   interruption does not use up one of the job's retries. Machine and Proxmox
+   VE backups that run on the agents are not stopped, but may fail if the
+   server is unreachable for longer than the agent retries.
 5. **Start the new version.** The api is recreated with the new image and
    applies its database migrations as it starts.
 6. **Health check.** Waits until the api reports ready and the new version
@@ -687,6 +718,39 @@ process is up.
 Then check the version in the sidebar footer of the web interface, and run
 **Verify now** for one tenant: a restore check that passes proves the new
 version can still read what the old one wrote.
+
+### Restart required
+
+Now and then a change takes effect only after one service has been
+restarted: something an update did in the background has finished, or a
+setting is read only at start. Restow then records which service needs a
+restart and why. Provider administrators see a notice above every page
+("Restart required: worker."), and **Installation > Updates** lists each
+service with its reason and the command to run on the server, for example:
+
+```sh
+cd /opt/restow && docker compose restart worker
+```
+
+When the opt-in updater runs, the command names the installation's own
+directory; without it the page assumes `/opt/restow` and says to use your
+installation's directory instead (the one with `docker-compose.yml` and
+`.env`).
+
+With the updater running, the owner of the provider team also gets a
+**Restart now** button. After a confirmation the updater runs
+`docker compose restart <service>` for exactly that service, and only for
+`api`, `worker` or `scheduler`: never the database, the edge, the updater or
+the mounter, and not while an update is announced or running. The audit log
+records who asked. A restart briefly interrupts the service; the worker's
+running jobs save a checkpoint and continue afterwards (its 60 s stop grace
+period applies). An updater from before 0.3.6 cannot restart services: the
+page says so and shows the command, or recreate the updater
+(`docker compose --profile updater up -d updater`).
+
+Nothing restarts on its own: the notice stays until the service has started
+again, by the button, by the command or by the next update, and then
+disappears by itself.
 
 ## Rollback
 

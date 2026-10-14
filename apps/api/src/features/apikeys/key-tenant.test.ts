@@ -29,7 +29,7 @@ const tenantKey = { tenantId: TENANT_ID, isProvider: false };
 function deps(script: ScriptedDb, providerKeys = true): KeyTenantDeps {
   return {
     db: script.db,
-    requireFeature: async (_db, feature) => {
+    requireFeature: async (feature) => {
       if (!providerKeys) {
         throw featureUnavailable(feature);
       }

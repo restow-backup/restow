@@ -32,11 +32,11 @@ import {
   auditLog,
   chunks,
   createDb,
-  manifestObjects,
+  manifestEntries,
   packs,
   protectedObjects,
 } from "@restow/db";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { withTenantTx } from "../../lib/tenant-context.js";
 import type { Viewer } from "./access.js";
@@ -49,6 +49,7 @@ import {
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "./testing/explorer-fixture.js";
+import { insertManifestRows } from "./testing/manifest-rows.js";
 
 const DATABASE = "restow_api_preview_test";
 const CLIENT_IP = "198.51.100.9";
@@ -201,19 +202,21 @@ describe.skipIf(!testDatabaseAdminUrl)("mail preview against Postgres", () => {
     const stored = input.content ? await storeContent(input.content) : null;
     const id = randomUUID();
     const slash = input.path.lastIndexOf("/");
-    await db.insert(manifestObjects).values({
-      id,
-      tenantId: f.tenantId,
-      snapshotId: input.snapshotId,
-      protectedObjectId: input.protectedObjectId,
-      kind: "mail",
-      path: input.path,
-      name: slash < 0 ? input.path : input.path.slice(slash + 1),
-      parentPath: slash < 0 ? "" : input.path.slice(0, slash),
-      size: input.size ?? stored?.size ?? 0,
-      chunkRefs: stored?.chunkRefs ?? null,
-      metadata: input.metadata ?? null,
-    });
+    await insertManifestRows(db, [
+      {
+        id,
+        tenantId: f.tenantId,
+        snapshotId: input.snapshotId,
+        protectedObjectId: input.protectedObjectId,
+        kind: "mail",
+        path: input.path,
+        name: slash < 0 ? input.path : input.path.slice(slash + 1),
+        parentPath: slash < 0 ? "" : input.path.slice(0, slash),
+        size: input.size ?? stored?.size ?? 0,
+        chunkRefs: stored?.chunkRefs ?? null,
+        metadata: input.metadata ?? null,
+      },
+    ]);
     return id;
   }
 
@@ -532,17 +535,14 @@ describe.skipIf(!testDatabaseAdminUrl)("mail preview against Postgres", () => {
     });
 
     it("404s for an id that is not a mail entry (a folder)", async () => {
-      const [folder] = await db
-        .select({ id: manifestObjects.id })
-        .from(manifestObjects)
-        .where(
-          and(
-            eq(manifestObjects.tenantId, f.tenantId),
-            eq(manifestObjects.snapshotId, f.mailbox.first),
-            eq(manifestObjects.path, "mail/Inbox"),
-          ),
-        )
-        .limit(1);
+      const [folder] = (
+        await db.execute<{ id: string }>(sql`
+          SELECT m.id::text AS id
+          FROM ${manifestEntries({ tenantId: f.tenantId, snapshots: sql`s.id = ${f.mailbox.first}::uuid` })} AS m
+          WHERE m.path = 'mail/Inbox'
+          LIMIT 1
+        `)
+      ).rows;
       await expect(
         service.previewMailEntry(
           db,
@@ -668,7 +668,8 @@ describe.skipIf(!testDatabaseAdminUrl)("mail preview against Postgres", () => {
 
   describe("tree sort", () => {
     it("orders undated mail naturally (2, 10, 11) instead of lexically (1, 10, 11, 2)", async () => {
-      await db.insert(manifestObjects).values(
+      await insertManifestRows(
+        db,
         ["2.eml", "10.eml", "11.eml"].map((name) => ({
           tenantId: f.tenantId,
           snapshotId: f.imap,

@@ -175,7 +175,7 @@ async function render(
     };
   }
   const renderer = featureHook("reportSummary");
-  if (!renderer || !(await featureEnabled(deps.providerDb, "reports.timed"))) {
+  if (!renderer || !(await featureEnabled("reports.timed", deps.providerDb))) {
     return { skip: "not_available" };
   }
   const rendered = await withTenantTx(deps.db, delivery.tenantId, (tx) =>

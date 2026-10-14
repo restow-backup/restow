@@ -187,7 +187,7 @@ tenantsRoutes.put("/:id/notification-recipients", requireSession, async (c) => {
 
 tenantsRoutes.get("/:id/members", requireSession, async (c) => {
   const tenant = await tenantForAdmin(c);
-  return c.json(await listMembers(db, tenant));
+  return c.json(await listMembers(tenant));
 });
 
 tenantsRoutes.post("/:id/members", requireSession, async (c) => {

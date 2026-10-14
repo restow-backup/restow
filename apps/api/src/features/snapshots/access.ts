@@ -1,12 +1,12 @@
 import { protectedObjects, users } from "@restow/db";
 import { type SQL, eq, or, sql } from "drizzle-orm";
 import type { Role } from "../../middleware/rbac.js";
-import { isTenantAdmin } from "../../middleware/rbac.js";
+import { restoresForTenant } from "../../middleware/rbac.js";
 
 /**
  * Self-service scoping: an end user sees and
- * restores only their own mailbox / OneDrive, admins see everything in the
- * tenant. Ownership is decided by e-mail: the signed-in identity (better-auth
+ * restores only their own mailbox / OneDrive; restore operators and admins
+ * see everything in the tenant. Ownership is decided by e-mail: the signed-in identity (better-auth
  * user) matches a protected object when the directory user behind it, or the
  * object's own external id (a mailbox address), carries the same address.
  */
@@ -22,9 +22,9 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-/** Whether the viewer may see every protected object of the tenant. */
+/** Whether the viewer may see every protected object of the tenant (restore operators and admins). */
 export function seesAllObjects(viewer: Pick<Viewer, "role">): boolean {
-  return isTenantAdmin(viewer.role);
+  return restoresForTenant(viewer.role);
 }
 
 export interface OwnedObject {
@@ -45,8 +45,8 @@ export function isOwnObject(viewer: Pick<Viewer, "email">, object: OwnedObject):
 }
 
 /**
- * True when the viewer may browse and restore the object. Admins always may;
- * end users only for their own objects.
+ * True when the viewer may browse and restore the object. Restore operators
+ * and admins always may; end users only for their own objects.
  */
 export function canAccessObject(viewer: Viewer, object: OwnedObject): boolean {
   return seesAllObjects(viewer) || isOwnObject(viewer, object);
@@ -54,7 +54,7 @@ export function canAccessObject(viewer: Viewer, object: OwnedObject): boolean {
 
 /**
  * Whether a restore by this viewer of this object is an impersonation (an
- * admin acting for another person), which requires a reason and is audited
+ * admin or restore operator acting for another person), which requires a reason and is audited
  * as such.
  */
 export function isImpersonation(viewer: Viewer, object: OwnedObject): boolean {
@@ -73,7 +73,7 @@ export function onBehalfOfOwner(viewer: Pick<Viewer, "email">, object: OwnedObje
 /**
  * SQL filter for the viewer's visible protected objects. Queries using it must
  * LEFT JOIN `users` on `protected_objects.user_id` (the owner's directory row).
- * Returns null when no filter is needed (admins).
+ * Returns null when no filter is needed (restore operators and admins).
  */
 export function visibleObjectsCondition(viewer: Viewer): SQL | null {
   if (seesAllObjects(viewer)) {

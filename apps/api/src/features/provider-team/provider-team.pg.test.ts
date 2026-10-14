@@ -156,7 +156,6 @@ describe.skipIf(!testDatabaseAdminUrl)("the provider team against Postgres", () 
     expect(invited.mailOutcome).toBe("not_configured");
     const password = `pw-${randomBytes(12).toString("hex")}`;
     await accounts.redeemSetPasswordToken(
-      sharedDb,
       { token: invited.setPasswordToken as string, password },
       { ip: "203.0.113.9" },
     );
@@ -241,7 +240,11 @@ describe.skipIf(!testDatabaseAdminUrl)("the provider team against Postgres", () 
   afterAll(async () => {
     resetExtensionsForTesting();
     const shared = await import("../../db.js");
-    await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
+    await Promise.all([
+      shared.db.$client.end(),
+      shared.providerDb.$client.end(),
+      shared.authDb.$client.end(),
+    ]);
     await appRole?.$client.end();
     await owner?.$client.end();
     await dropDatabase(testDatabaseAdminUrl as string, DATABASE);
@@ -514,7 +517,6 @@ describe.skipIf(!testDatabaseAdminUrl)("the provider team against Postgres", () 
     // The link sets a new password; the member sets up the authenticator app again.
     const password = `pw-${randomBytes(12).toString("hex")}`;
     await accounts.redeemSetPasswordToken(
-      sharedDb,
       { token: result.setPasswordToken as string, password },
       { ip: "203.0.113.9" },
     );
@@ -547,7 +549,6 @@ describe.skipIf(!testDatabaseAdminUrl)("the provider team against Postgres", () 
     expect((await call("GET", "/me", ownerCookie)).status).toBe(401);
     const password = `pw-${randomBytes(12).toString("hex")}`;
     await accounts.redeemSetPasswordToken(
-      sharedDb,
       { token: result.setPasswordToken as string, password },
       { ip: "203.0.113.9" },
     );

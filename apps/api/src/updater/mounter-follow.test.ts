@@ -200,7 +200,11 @@ describe("the mounter follows the updater after an image-mode update", () => {
     expect(mounterLauncher.launches).toBe(0);
     expect(envValueOf(await h.readEnv(), "RESTOW_MOUNTER_IMAGE")).toBe("");
     expect(h.selfUpdater?.view().last?.mounter).toBeNull();
-    expect(h.ops.callsTo("configMounterImage")).toEqual([]);
+    // Only the preflight reads whether the service exists (with no variable set); nothing
+    // asks what RESTOW_MOUNTER_IMAGE would resolve to.
+    expect(
+      h.ops.callsTo("configMounterImage").filter((call) => call !== "configMounterImage {}"),
+    ).toEqual([]);
   });
 
   it("waits while the mounter changes a share, then goes ahead", async () => {

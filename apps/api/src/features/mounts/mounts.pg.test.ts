@@ -76,7 +76,11 @@ describe.skipIf(!testDatabaseAdminUrl)("mount checks against Postgres", () => {
 
   afterAll(async () => {
     const shared = await import("../../db.js");
-    await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
+    await Promise.all([
+      shared.db.$client.end(),
+      shared.providerDb.$client.end(),
+      shared.authDb.$client.end(),
+    ]);
     await db?.$client.end();
     await dropDatabase(testDatabaseAdminUrl as string, DATABASE);
     await roles?.drop(testDatabaseAdminUrl as string);

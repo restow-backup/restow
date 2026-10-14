@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import {
+  type RestartableService,
   type ScheduleRequest,
   type StateView,
   UPDATER_AUTH_SCHEME,
@@ -68,6 +69,8 @@ export interface UpdaterClient {
    * answers once its helper finished, or after a minute with the start still running.
    */
   enableMounter(): Promise<StateView>;
+  /** Ask the updater to restart one application service; it answers before the restart ends. */
+  restart(service: RestartableService): Promise<StateView>;
 }
 
 /** How long the api waits for `POST /v1/mounter/enable` (the updater waits up to a minute). */
@@ -254,6 +257,9 @@ export function createUpdaterClient(options: UpdaterClientOptions): UpdaterClien
         toState(await request("POST", "/v1/mounter/enable", {}, ENABLE_MOUNTER_TIMEOUT_MS)),
       );
     },
+    async restart(service) {
+      return remember(toState(await request("POST", "/v1/restart", { service })));
+    },
   };
 }
 
@@ -275,6 +281,9 @@ export const disabledUpdaterClient: UpdaterClient = {
     throw new UpdaterUnavailableError("disabled");
   },
   enableMounter: async () => {
+    throw new UpdaterUnavailableError("disabled");
+  },
+  restart: async () => {
     throw new UpdaterUnavailableError("disabled");
   },
 };

@@ -1,6 +1,6 @@
 {
   "name": "@restow/core",
-  "version": "0.3.3",
+  "version": "0.3.6",
   "private": true,
   "type": "module",
   "description": "Restow open storage format: content-defined chunking, per-tenant crypto and the encrypted pack store.",
@@ -31,12 +31,12 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.1143.0",
+    "@aws-sdk/client-s3": "^3.1149.0",
     "@kenjiuno/msgreader": "^1.28.0",
     "archiver": "^7.0.1",
     "imapflow": "^1.0.171",
-    "mailparser": "^3.9.31",
-    "nodemailer": "^10.0.12",
+    "mailparser": "^3.9.38",
+    "nodemailer": "^10.1.0",
     "yauzl": "^3.4.0"
   },
   "devDependencies": {

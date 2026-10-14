@@ -128,6 +128,19 @@ describe("Preflight", () => {
     expect(h.ops.callsTo("configUpdaterImage")).toHaveLength(3);
   });
 
+  it("reports the project directory and whether the compose file defines the mounter", async () => {
+    let capabilities = await h.preflight.check();
+    expect(capabilities.projectDir).toBe(h.projectDir);
+    expect(capabilities.mounterService).toBe(true);
+    // An installation from before 0.3.0 keeps a compose file without the mounter.
+    h.ops.mounterImage = "none";
+    capabilities = await h.preflight.check({ deep: true });
+    expect(capabilities.mounterService).toBe(false);
+    expect(capabilities.ready).toBe(true);
+    h.ops.failOn("configMounterImage", new Error("compose failed"));
+    expect((await h.preflight.check({ deep: true })).mounterService).toBeNull();
+  });
+
   it("does not block when the Compose configuration cannot be read, and asks again", async () => {
     h.ops.failOn("configUpdaterImage", new Error("compose failed"), 0);
     expect((await h.preflight.check()).ready).toBe(true);

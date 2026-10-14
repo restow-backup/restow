@@ -9,7 +9,6 @@ import {
   jobProgress,
   jobs,
   mailExports,
-  manifestObjects,
   protectedObjects,
   user,
   users,
@@ -19,14 +18,14 @@ import { config } from "../../config.js";
 import { audit } from "../../lib/audit.js";
 import { segmentStoreFor } from "../../lib/segment-store.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
-import { isTenantAdmin } from "../../middleware/rbac.js";
+import { isTenantAdmin, restoresForTenant } from "../../middleware/rbac.js";
 import { ProblemError } from "../../problem.js";
 import { archiveSearchConditions } from "../archive/service.js";
 import { failureDto } from "../failures/dto.js";
 import { sendJob } from "../jobs/queue.js";
 import type { SelectionEntry } from "../restore/schemas.js";
 import { type ResolvedSelection, requestedKeys, resolveSelection } from "../restore/selection.js";
-import { implicitFolders } from "../restore/service.js";
+import { implicitFolders, selectedEntries } from "../restore/service.js";
 import { type Viewer, isImpersonation, onBehalfOfOwner } from "../snapshots/access.js";
 import { loadSnapshotForViewer } from "../snapshots/service.js";
 import {
@@ -178,27 +177,7 @@ async function resolveSnapshotSelection(
   entries: readonly SelectionEntry[],
 ): Promise<ResolvedSelection> {
   const keys = requestedKeys(entries);
-  const matches: SQL[] = [
-    ...(keys.paths.length > 0 ? [inArray(manifestObjects.path, keys.paths)] : []),
-    ...(keys.itemIds.length > 0 ? [inArray(manifestObjects.itemId, keys.itemIds)] : []),
-  ];
-  const rows =
-    matches.length > 0
-      ? await tx
-          .select({
-            path: manifestObjects.path,
-            kind: manifestObjects.kind,
-            itemId: manifestObjects.itemId,
-          })
-          .from(manifestObjects)
-          .where(
-            and(
-              eq(manifestObjects.tenantId, tenantId),
-              eq(manifestObjects.snapshotId, snapshotId),
-              or(...matches),
-            ),
-          )
-      : [];
+  const rows = await selectedEntries(tx, tenantId, snapshotId, keys);
   const kindByPath = new Map(rows.map((row) => [row.path, row.kind] as const));
   const knownItemIds = new Set(
     rows.map((row) => row.itemId).filter((id): id is string => id !== null),
@@ -471,9 +450,12 @@ function exportQuery(tx: DbExecutor) {
     .leftJoin(user, eq(user.id, mailExports.actorUserId));
 }
 
-/** SQL filter for the exports a viewer may see: admins all of the tenant, everybody else their own requests. */
+/**
+ * SQL filter for the exports a viewer may see: restore operators and admins
+ * all of the tenant, everybody else their own requests.
+ */
 function visibleExportsCondition(viewer: Viewer): SQL | null {
-  if (isTenantAdmin(viewer.role)) {
+  if (restoresForTenant(viewer.role)) {
     return null;
   }
   return viewer.userId === null ? sql`false` : eq(mailExports.actorUserId, viewer.userId);
@@ -481,7 +463,7 @@ function visibleExportsCondition(viewer: Viewer): SQL | null {
 
 function isVisibleTo(viewer: Viewer, row: ExportRow): boolean {
   return (
-    isTenantAdmin(viewer.role) ||
+    restoresForTenant(viewer.role) ||
     (viewer.userId !== null && row.export.actorUserId === viewer.userId)
   );
 }

@@ -239,7 +239,7 @@ async function run(command: Command): Promise<number> {
     );
     return 1;
   }
-  const { db, providerDb } = await import("../db.js");
+  const { authDb, db, providerDb } = await import("../db.js");
   const recovery = await import("./admin-recovery.js");
   try {
     if (command.kind === "list") {
@@ -281,7 +281,7 @@ async function run(command: Command): Promise<number> {
     }
     throw error;
   } finally {
-    await Promise.allSettled([db.$client.end(), providerDb.$client.end()]);
+    await Promise.allSettled([db.$client.end(), providerDb.$client.end(), authDb.$client.end()]);
   }
 }
 

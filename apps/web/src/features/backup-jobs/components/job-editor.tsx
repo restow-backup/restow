@@ -45,6 +45,7 @@ import {
   type JobScopeMode,
   LIMITS,
 } from "../api.js";
+import { addFolder } from "../folders.js";
 import {
   type JobDraft,
   type JobProblems,
@@ -85,6 +86,7 @@ import { EditorSection } from "./editor-section.js";
 import { ExclusionsField } from "./exclusions-field.js";
 import { type BrowsableMachine, FoldersField } from "./folders-field.js";
 import { MemberPicker } from "./member-picker.js";
+import { MissingDataFoldersNotice } from "./missing-data-folders.js";
 import {
   BandwidthField,
   EndpointScheduleFields,
@@ -208,6 +210,21 @@ interface LoaderProps {
   onCancel: () => void;
   onDirtyChange: (dirty: boolean) => void;
   onSaved: JobEditorProps["onSaved"];
+}
+
+/**
+ * Whether the job's folders are Linux folders: absolute Unix paths outside a Mac's
+ * /Users, and no system known to be in the scope other than Linux (#59).
+ */
+function linuxFolders(paths: readonly string[], systems: readonly string[] | undefined): boolean {
+  if (systems && systems.length > 0 && !systems.includes("linux")) {
+    return false;
+  }
+  return (
+    paths.length > 0 &&
+    paths.every((path) => path.startsWith("/")) &&
+    !paths.some((path) => path === "/Users" || path.startsWith("/Users/"))
+  );
 }
 
 /** Waits for what the form starts from (the recommended values, and the objects of the job being changed). */
@@ -814,6 +831,19 @@ function EditorForm({
                     machines={machines}
                     error={settingsText("paths") ?? at("paths")}
                   />
+                  {linuxFolders(draft.settings.paths, defaults.basis?.os) ? (
+                    <MissingDataFoldersNotice
+                      paths={draft.settings.paths}
+                      onAdd={(missing) =>
+                        editSettings({
+                          paths: missing.reduce(
+                            (paths, folder) => addFolder(paths, folder),
+                            draft.settings.paths,
+                          ),
+                        })
+                      }
+                    />
+                  ) : null}
                 </EditorSection>
 
                 <EditorSection

@@ -66,11 +66,54 @@ export const MOUNT_PROBLEMS = {
   enableRefused: "urn:restow:problem:mounter-enable-refused",
 } as const;
 
-/** What the Mounts section shows how to start the mounter with. */
+/** What the Mounts section shows how to start the mounter with, in the project directory. */
 export const ENABLE_MOUNTER_COMMAND = "docker compose --profile mounts up -d mounter";
+/** The installer's default directory, shown when the api does not know the real one. */
+export const DEFAULT_PROJECT_DIR = "/opt/restow";
+const RELEASES_URL = "https://github.com/restow-backup/restow/releases";
+
+/**
+ * What the api can find out about the compose project it runs in (instance.ts), for the
+ * commands it shows while the mounter is not there. Every field is null when unknown.
+ */
+export interface ComposeFacts {
+  /** The host directory that holds docker-compose.yml (RESTOW_PROJECT_DIR, or the updater's). */
+  projectDir: string | null;
+  /**
+   * Whether the compose file defines the `mounter` service. false: it predates the
+   * mounter (installations from before 0.3.0 keep their file across updates).
+   */
+  mounterService: boolean | null;
+}
+
+/** `cd <dir> && docker compose --profile mounts up -d mounter`. */
+export function enableMounterCommand(projectDir: string | null): string {
+  return `cd ${projectDir ?? DEFAULT_PROJECT_DIR} && ${ENABLE_MOUNTER_COMMAND}`;
+}
+
+/**
+ * The installer of this release, run again on the installation: it replaces an older
+ * docker-compose.yml with the release's checked file and keeps the previous one as a backup.
+ */
+export function updateComposeCommand(projectDir: string | null, version: string | null): string {
+  const release = version?.trim().replace(/^v/, "") ?? "";
+  const url = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(release)
+    ? `${RELEASES_URL}/download/v${release}/install.sh`
+    : `${RELEASES_URL}/latest/download/install.sh`;
+  const dir = projectDir && projectDir !== DEFAULT_PROJECT_DIR ? ` --dir ${projectDir}` : "";
+  return `curl -fsSLO ${url} && sudo bash install.sh${dir}`;
+}
 
 /** How the mounter is stopped again (a command only, docs/MOUNTS.md). */
 export const DISABLE_MOUNTER_COMMAND = "docker compose --profile mounts stop mounter";
+
+/**
+ * `cd <dir> && docker compose --profile mounts stop mounter`; without the `cd` when the
+ * directory is unknown (it is asked only while the mounter is not there).
+ */
+export function disableMounterCommand(projectDir: string | null): string {
+  return projectDir ? `cd ${projectDir} && ${DISABLE_MOUNTER_COMMAND}` : DISABLE_MOUNTER_COMMAND;
+}
 
 /**
  * How the mounter can be switched on (docs/FILESHARES.md 3.9): `via` is `updater` when the
@@ -145,6 +188,10 @@ export interface MountsServiceDeps {
   /** Storage locations at or below `path`. */
   usersOf: (path: string) => Promise<MountUser[]>;
   audit: (event: AuditEvent) => Promise<void>;
+  /** What is known about the compose project; asked only while the mounter is not there. */
+  compose?: () => Promise<ComposeFacts>;
+  /** The running release (RESTOW_VERSION), for the installer's download address. */
+  version?: string | null;
   demo?: boolean;
   /** The opt-in updater, which can start the mounter; absent: only the command. */
   updater?: MounterEnableUpdater;
@@ -156,7 +203,15 @@ export interface MountsView {
   /** Why it did not; null when it did. */
   unavailableReason: MounterFailure | null;
   demo: boolean;
+  /** `cd <project directory> && docker compose --profile mounts up -d mounter`. */
   enableCommand: string;
+  /** The project directory in `enableCommand`; null: unknown, the installer's default is shown. */
+  projectDir: string | null;
+  /**
+   * Set when the compose file is known to have no `mounter` service: the installer, run
+   * again, replaces it with the release's file. null otherwise (also when that is unknown).
+   */
+  updateComposeCommand: string | null;
   mountRoot: string;
   state: MounterState | null;
   /** An add that waits until no job runs, or one that failed when it was its turn. */
@@ -176,15 +231,25 @@ export class MountsService {
 
   async view(options: { refresh?: boolean } = {}): Promise<MountsView> {
     const state = this.deps.demo ? null : await this.deps.client.state(options);
+    const facts = state || this.deps.demo ? null : await this.composeFacts();
     return {
       available: state !== null,
       unavailableReason: state ? null : this.deps.demo ? "disabled" : this.deps.client.failure(),
       demo: this.deps.demo === true,
-      enableCommand: ENABLE_MOUNTER_COMMAND,
+      enableCommand: enableMounterCommand(facts?.projectDir ?? null),
+      projectDir: facts?.projectDir ?? null,
+      updateComposeCommand:
+        facts?.mounterService === false
+          ? updateComposeCommand(facts.projectDir, this.deps.version ?? null)
+          : null,
       mountRoot: MOUNT_ROOT,
       state,
       pending: await this.loadPending(),
-      enable: await this.enableInfo(state !== null, options.refresh === true),
+      enable: await this.enableInfo(
+        state !== null,
+        options.refresh === true,
+        facts?.projectDir ?? null,
+      ),
     };
   }
 
@@ -200,11 +265,12 @@ export class MountsService {
     }
     const updater = this.deps.updater;
     const updaterState = await this.updaterState(true);
+    const command = enableMounterCommand((await this.composeFacts()).projectDir);
     if (!updater || !updaterState || updaterState.mounterEnable === null) {
       throw new ProblemError(409, "The mounter cannot be started from here", {
         type: MOUNT_PROBLEMS.enableUnavailable,
-        detail: `The updater does not run (or cannot start the mounter). Start it on the host, in the directory with docker-compose.yml: ${ENABLE_MOUNTER_COMMAND}`,
-        extensions: { command: ENABLE_MOUNTER_COMMAND },
+        detail: `The updater does not run (or cannot start the mounter). Start it on the host: ${command}`,
+        extensions: { command },
       });
     }
     await this.auditEnable(MOUNTER_AUDIT_ACTIONS.enableRequested, actor, {});
@@ -222,7 +288,7 @@ export class MountsService {
         throw new ProblemError(409, "The updater refused to start the mounter", {
           type: MOUNT_PROBLEMS.enableRefused,
           detail,
-          extensions: { code: error.code, command: ENABLE_MOUNTER_COMMAND },
+          extensions: { code: error.code, command },
         });
       }
       if (error instanceof UpdaterUnavailableError) {
@@ -231,8 +297,8 @@ export class MountsService {
         });
         throw new ProblemError(503, "The updater did not answer", {
           type: MOUNT_PROBLEMS.enableUnavailable,
-          detail: `Start the mounter on the host instead: ${ENABLE_MOUNTER_COMMAND}`,
-          extensions: { reason: error.reason, command: ENABLE_MOUNTER_COMMAND },
+          detail: `Start the mounter on the host instead: ${command}`,
+          extensions: { reason: error.reason, command },
         });
       }
       throw error;
@@ -263,11 +329,15 @@ export class MountsService {
     }
   }
 
-  private async enableInfo(running: boolean, fresh: boolean): Promise<MounterEnableInfo> {
+  private async enableInfo(
+    running: boolean,
+    fresh: boolean,
+    projectDir: string | null,
+  ): Promise<MounterEnableInfo> {
     const base = {
       running,
-      command: ENABLE_MOUNTER_COMMAND,
-      disableCommand: DISABLE_MOUNTER_COMMAND,
+      command: enableMounterCommand(projectDir),
+      disableCommand: disableMounterCommand(projectDir),
     };
     if (running) {
       return { ...base, via: null, lastAttempt: null };
@@ -500,7 +570,7 @@ export class MountsService {
     // Refuse early what the mounter would refuse once it is its turn.
     const state = await this.deps.client.state();
     if (!state) {
-      throw unavailableProblem(this.deps.client.failure() ?? "unreachable");
+      throw await this.unavailableProblem(this.deps.client.failure() ?? "unreachable");
     }
     if (state.mounts.some((entry) => entry.mount.name === mount.name)) {
       throw new ProblemError(409, "The mounter refused the change", {
@@ -546,13 +616,37 @@ export class MountsService {
     });
   }
 
+  private async composeFacts(): Promise<ComposeFacts> {
+    try {
+      return (await this.deps.compose?.()) ?? { projectDir: null, mounterService: null };
+    } catch {
+      return { projectDir: null, mounterService: null };
+    }
+  }
+
+  private async unavailableProblem(reason: MounterFailure): Promise<ProblemError> {
+    const facts = await this.composeFacts();
+    const command = enableMounterCommand(facts.projectDir);
+    const update =
+      facts.mounterService === false
+        ? updateComposeCommand(facts.projectDir, this.deps.version ?? null)
+        : null;
+    return new ProblemError(503, "The mounter is not running", {
+      type: MOUNT_PROBLEMS.unavailable,
+      detail: update
+        ? `The docker-compose.yml of this installation has no mounter service. Update it by running the installer again (${update}), then start the mounter with: ${command}`
+        : `Start it with: ${command}`,
+      extensions: { reason, command, ...(update ? { updateComposeCommand: update } : {}) },
+    });
+  }
+
   /** Call the mounter, turning its refusals into problem responses. */
   private async ask<T>(call: () => Promise<T>): Promise<T> {
     try {
       return await call();
     } catch (error) {
       if (error instanceof MounterUnavailableError) {
-        throw unavailableProblem(error.reason);
+        throw await this.unavailableProblem(error.reason);
       }
       if (error instanceof MounterRejectedError) {
         const status = error.status === 404 ? 404 : error.status === 422 ? 422 : 409;
@@ -569,14 +663,6 @@ export class MountsService {
 
 function requestedByOf(actor: MountsActor) {
   return { userId: actor.id, label: actor.email, ip: actor.ip };
-}
-
-function unavailableProblem(reason: MounterFailure): ProblemError {
-  return new ProblemError(503, "The mounter is not running", {
-    type: MOUNT_PROBLEMS.unavailable,
-    detail: `Start it with: ${ENABLE_MOUNTER_COMMAND}`,
-    extensions: { reason, command: ENABLE_MOUNTER_COMMAND },
-  });
 }
 
 function isBusy(work: ActiveWork): boolean {

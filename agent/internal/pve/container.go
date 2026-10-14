@@ -28,7 +28,11 @@ type ctCredentials struct {
 }
 
 type ctResult struct {
-	SnapshotID  string  `json:"snapshotId"`
+	SnapshotID string `json:"snapshotId"`
+	// Unreadable counts the items restic could not read (exit 3: the snapshot
+	// exists but misses them); Remark names the first of them for the run.
+	Unreadable  int     `json:"unreadable,omitempty"`
+	Remark      string  `json:"remark,omitempty"`
 	BytesAdded  uint64  `json:"bytesAdded"`
 	TotalBytes  uint64  `json:"totalBytes"`
 	Root        string  `json:"root"`
@@ -120,27 +124,24 @@ func (p *Provider) backupContainer(ctx context.Context, req ProviderRequest) (an
 	if len(sources) == 0 {
 		sources = []string{"."}
 	}
-	args := []string{"backup", "--json", "--no-scan", "--host", fmt.Sprintf("pve-ct-%d", req.VMID),
-		"--tag", fmt.Sprintf("vmid=%d", req.VMID), "--tag", "run=" + creds.RunID,
-		"--cache-dir", filepath.Join(pointer.RunDir, "cache")}
-	for _, ex := range req.ExcludePatterns {
-		if e := ExcludeToRestic(dir, ex); e != "" {
-			args = append(args, "--exclude", e)
-		}
-	}
-	if req.Info.BandwidthLimit > 0 {
-		args = append(args, "--limit-upload", fmt.Sprint(max(1, req.Info.BandwidthLimit/1024)))
-	}
-	args = append(args, "--")
-	args = append(args, sources...)
+	args := containerBackupArgs(dir, sources, req.ExcludePatterns, req.VMID, creds.RunID,
+		filepath.Join(pointer.RunDir, "cache"), req.Info.BandwidthLimit)
 	cmd := exec.CommandContext(ctx, creds.Restic, args...)
 	cmd.Dir = dir
 	cmd.Env = resticEnv(&creds.ResticAccess)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
+	// Exit 3: restic wrote the snapshot but could not read some items. The
+	// restore point is kept and the run says what is missing; any other
+	// failure fails the backup.
+	incomplete := false
 	if err != nil {
-		return nil, fmt.Errorf("restic backup failed: %v: %s", err, lastLines(stderr.String(), 10))
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) || exitErr.ExitCode() != resticExitIncomplete {
+			return nil, fmt.Errorf("restic backup failed: %v: %s", err, lastLines(stderr.String(), 10))
+		}
+		incomplete = true
 	}
 	res := ctResult{Root: dir, GuestConfig: req.GuestConfig, Firewall: req.Info.FirewallConfig}
 	sc := bufio.NewScanner(bytes.NewReader(out))
@@ -157,7 +158,23 @@ func (p *Provider) backupContainer(ctx context.Context, req ProviderRequest) (an
 		}
 	}
 	if res.SnapshotID == "" {
+		if incomplete {
+			return nil, fmt.Errorf("restic backup failed: exit status 3 without a snapshot: %s", lastLines(stderr.String(), 10))
+		}
 		return nil, errors.New("restic reported no snapshot")
+	}
+	if incomplete {
+		items := unreadableItems(stderr.Bytes(), out)
+		res.Unreadable = len(items)
+		for i, item := range items {
+			if i == maxLoggedUnreadable {
+				p.logf("warn", "... and %d more", len(items)-maxLoggedUnreadable)
+				break
+			}
+			p.logf("warn", "could not read %s", item)
+		}
+		res.Remark = unreadableRemark(items)
+		p.logf("warn", "%s", res.Remark)
 	}
 	data, _ := json.Marshal(res)
 	if err := os.WriteFile(filepath.Join(pointer.RunDir, "result.json"), data, 0o600); err != nil {
@@ -165,6 +182,82 @@ func (p *Provider) backupContainer(ctx context.Context, req ProviderRequest) (an
 	}
 	p.logf("info", "restic snapshot %s, %d MiB added", res.SnapshotID, res.BytesAdded>>20)
 	return map[string]any{}, nil
+}
+
+// resticExitIncomplete is restic's exit code for a snapshot that was written
+// although some source items could not be read.
+const resticExitIncomplete = 3
+
+// maxLoggedUnreadable bounds the unreadable items named in the PVE task log.
+const maxLoggedUnreadable = 20
+
+// containerBackupArgs is the restic command line of a container backup. Each
+// source is the root of one file system (the root fs and every mount point);
+// its lost+found is left out: on ext4 it belongs to the host's root, which an
+// unprivileged container's ID map does not include, so the mapped root cannot
+// read it (vzdump's own archives leave it out for the same reason).
+func containerBackupArgs(dir string, sources, excludes []string, vmid int, runID, cacheDir string, bwlimitKiB uint64) []string {
+	args := []string{"backup", "--json", "--no-scan", "--host", fmt.Sprintf("pve-ct-%d", vmid),
+		"--tag", fmt.Sprintf("vmid=%d", vmid), "--tag", "run=" + runID,
+		"--cache-dir", cacheDir}
+	for _, ex := range excludes {
+		if e := ExcludeToRestic(dir, ex); e != "" {
+			args = append(args, "--exclude", e)
+		}
+	}
+	for _, src := range sources {
+		args = append(args, "--exclude", filepath.Join(dir, src, "lost+found"))
+	}
+	if bwlimitKiB > 0 {
+		args = append(args, "--limit-upload", fmt.Sprint(max(1, bwlimitKiB/1024)))
+	}
+	args = append(args, "--")
+	return append(args, sources...)
+}
+
+// unreadableItems lists the items restic reported as unreadable (JSON
+// message_type "error"), from stderr (restic 0.19) and stdout (older restic),
+// each once, in restic's order.
+func unreadableItems(streams ...[]byte) []string {
+	var items []string
+	seen := map[string]bool{}
+	for _, stream := range streams {
+		sc := bufio.NewScanner(bytes.NewReader(stream))
+		sc.Buffer(make([]byte, 1<<20), 1<<20)
+		for sc.Scan() {
+			var m struct {
+				MessageType string `json:"message_type"`
+				Item        string `json:"item"`
+				Error       struct {
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if json.Unmarshal(sc.Bytes(), &m) != nil || m.MessageType != "error" {
+				continue
+			}
+			item := m.Item
+			if item == "" {
+				item = m.Error.Message
+			}
+			if item != "" && !seen[item] {
+				seen[item] = true
+				items = append(items, item)
+			}
+		}
+	}
+	return items
+}
+
+// unreadableRemark is the one line the restore point records about what it misses.
+func unreadableRemark(items []string) string {
+	switch len(items) {
+	case 0:
+		return "restic could not read some items; the restore point is incomplete"
+	case 1:
+		return fmt.Sprintf("restic could not read 1 item (%s); the restore point is incomplete", items[0])
+	default:
+		return fmt.Sprintf("restic could not read %d items (first: %s); the restore point is incomplete", len(items), items[0])
+	}
 }
 
 func resticEnv(a *ResticAccess) []string {
@@ -201,7 +294,8 @@ func (p *Provider) commitContainer(ctx context.Context, job *jobState) (uint64, 
 	}
 	commit, err := p.server.Commit(ctx, job.RunID, CommitRequest{CommitID: job.CommitID, GuestConfig: res.GuestConfig,
 		FirewallConfig: res.Firewall, ResticSnapshotID: res.SnapshotID, ResticBytesAdded: res.BytesAdded,
-		ResticTotalBytes: res.TotalBytes, ResticRoot: res.Root})
+		ResticTotalBytes: res.TotalBytes, ResticRoot: res.Root,
+		ConsistencyRemark: res.Remark, ResticUnreadable: res.Unreadable})
 	if err != nil {
 		return 0, fmt.Errorf("commit the restore point: %w", err)
 	}

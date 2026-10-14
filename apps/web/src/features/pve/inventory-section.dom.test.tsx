@@ -8,7 +8,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { i18n } from "@/i18n";
 
 import "./i18n";
-import type { PveGuest, PveNode, PveOverview } from "./api";
+import type { PveGuest, PveJob, PveNode, PveOverview } from "./api";
 import { PveInventorySection, groupByNode, guestProtection } from "./inventory-section";
 
 /**
@@ -36,9 +36,16 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
   };
 });
 const fetchOverview = vi.fn();
+const assignJob = vi.fn(async () => undefined);
+const backupNow = vi.fn(async () => ({ taskId: "task-1" }));
 vi.mock("./api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./api")>();
-  return { ...actual, fetchOverview: () => fetchOverview() };
+  return {
+    ...actual,
+    fetchOverview: () => fetchOverview(),
+    assignJob: (...args: unknown[]) => assignJob(...(args as [])),
+    backupNow: (...args: unknown[]) => backupNow(...(args as [])),
+  };
 });
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -87,11 +94,22 @@ function guest(vmid: number, over: Partial<PveGuest> = {}): PveGuest {
   };
 }
 
+const NIGHTLY: PveJob = {
+  id: "j-1",
+  name: "Nightly",
+  scopeAll: false,
+  schedule: { kind: "daily", timeOfDay: "22:00", timeZone: "Europe/Berlin" },
+  settings: {},
+  enabled: true,
+  nextRunAt: null,
+  lastRunAt: null,
+};
+
 function overview(guests: PveGuest[], nodes = [node("pmx02")]): PveOverview {
   return {
     clusters: [{ id: "c-1", name: "lab", storageId: "restow", nodes }],
     guests,
-    jobs: [],
+    jobs: [NIGHTLY],
     restorePool: "restow-restore",
   };
 }
@@ -218,5 +236,78 @@ describe("PveInventorySection", () => {
       await vi.waitFor(() => expect(fetchOverview).toHaveBeenCalled());
     });
     expect(slot("pve-inventory")).toBeNull();
+  });
+
+  async function openNode() {
+    await act(async () => {
+      await vi.waitFor(() => expect(text()).toContain("pmx02"));
+    });
+    await act(async () => {
+      slot("pve-inventory-node")?.querySelector("button")?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+
+  async function settle() {
+    await act(async () => {
+      for (let i = 0; i < 5; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    });
+  }
+
+  function choose(select: HTMLSelectElement, value: string) {
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+      setter?.call(select, value);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  }
+
+  it("selects the guests without a job in one click and adds them to a job", async () => {
+    fetchOverview.mockResolvedValue(
+      overview([
+        guest(100, { name: "dns" }),
+        guest(101, { name: "sonarr", kind: "ct", jobId: null, jobName: null }),
+        guest(102, { name: "radarr", kind: "ct", jobId: null, jobName: null }),
+        guest(103, { name: "tpl", template: true, jobId: null, jobName: null }),
+      ]),
+    );
+    await mount();
+    await openNode();
+    // The template cannot be backed up, so it is not among them.
+    expect(slot("pve-inventory-unprotected")?.textContent).toContain(
+      "2 VMs and containers have no backup job.",
+    );
+    const selectThem = [...(slot("pve-inventory-unprotected")?.querySelectorAll("button") ?? [])];
+    act(() => selectThem[0]?.click());
+    expect(slot("pve-inventory-selection")?.textContent).toContain("2 selected");
+
+    choose(slot("pve-inventory-add-to-job") as HTMLSelectElement, "j-1");
+    await settle();
+    expect(assignJob.mock.calls).toEqual([
+      ["g-101", "j-1"],
+      ["g-102", "j-1"],
+    ]);
+    expect(slot("pve-inventory-selection")).toBeNull();
+  });
+
+  it("backs up one guest now and changes its job right in the row", async () => {
+    fetchOverview.mockResolvedValue(
+      overview([guest(100, { name: "dns" }), guest(101, { name: "sonarr", jobId: null })]),
+    );
+    await mount();
+    await openNode();
+    const rows = [...document.querySelectorAll<HTMLElement>('[data-slot="pve-inventory-guest"]')];
+    const backUp = [...(rows[1]?.querySelectorAll("button") ?? [])].find(
+      (button) => button.textContent === "Back up now",
+    );
+    act(() => backUp?.click());
+    await settle();
+    expect(backupNow.mock.calls).toEqual([["g-101"]]);
+
+    choose(rows[1]?.querySelector('[data-slot="pve-inventory-job"]') as HTMLSelectElement, "j-1");
+    await settle();
+    expect(assignJob.mock.calls).toEqual([["g-101", "j-1"]]);
   });
 });

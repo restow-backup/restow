@@ -10,6 +10,7 @@
  */
 import { Readable } from "node:stream";
 import type { ReadableStream as WebReadableStream } from "node:stream/web";
+import { JobAbortedError } from "../engine/chunkstore.js";
 import { GraphError } from "./errors.js";
 
 /** Default Graph base URL. */
@@ -124,7 +125,42 @@ export interface GraphClientOptions {
    * surface "waiting for Graph (Retry-After 32 s)" honestly instead of appearing stuck.
    */
   onThrottle?: (info: ThrottleInfo) => void;
+  /**
+   * Aborts every request and every throttling wait, e.g. the job's signal when
+   * it is cancelled, reaches its time limit or the worker stops (#47).
+   */
+  signal?: AbortSignal;
+  /**
+   * How long one attempt may wait for Graph to answer (status and headers), in
+   * ms; a request that hangs fails and is retried instead of holding the job.
+   * Reading a streamed body is not limited by it. Default 5 minutes.
+   */
+  responseTimeoutMs?: number;
 }
+
+/** Graph did not send status and headers within the response timeout. */
+export class GraphResponseTimeoutError extends Error {
+  constructor(url: string, timeoutMs: number) {
+    super(
+      `Microsoft Graph did not answer within ${Math.round(timeoutMs / 1000)} s (${redactUrl(url)})`,
+    );
+    this.name = "GraphResponseTimeoutError";
+  }
+
+  /** Classified like undici's own header timeout: a transient timeout (failures/classify.ts). */
+  get code(): string {
+    return "UND_ERR_HEADERS_TIMEOUT";
+  }
+}
+
+/** The URL without its query string, which may carry tokens (download and upload links). */
+function redactUrl(url: string): string {
+  const index = url.indexOf("?");
+  return index === -1 ? url : url.slice(0, index);
+}
+
+/** Default {@link GraphClientOptions.responseTimeoutMs}. */
+export const GRAPH_RESPONSE_TIMEOUT_MS = 5 * 60_000;
 
 /** Details of one throttling wait. */
 export interface ThrottleInfo {
@@ -227,6 +263,8 @@ export class FetchGraphClient implements GraphClient {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly random: () => number;
   private readonly onThrottle: ((info: ThrottleInfo) => void) | undefined;
+  private readonly signal: AbortSignal | undefined;
+  private readonly responseTimeoutMs: number;
 
   constructor(options: GraphClientOptions) {
     this.accessTokenProvider = options.accessTokenProvider;
@@ -239,6 +277,64 @@ export class FetchGraphClient implements GraphClient {
     this.sleep = options.sleep ?? defaultSleep;
     this.random = options.random ?? Math.random;
     this.onThrottle = options.onThrottle;
+    this.signal = options.signal;
+    this.responseTimeoutMs = options.responseTimeoutMs ?? GRAPH_RESPONSE_TIMEOUT_MS;
+  }
+
+  /** A wait that ends early, with the signal's reason, when the client is aborted. */
+  private async pause(ms: number): Promise<void> {
+    const signal = this.signal;
+    if (!signal) {
+      await this.sleep(ms);
+      return;
+    }
+    if (signal.aborted) {
+      throw new JobAbortedError();
+    }
+    let onAbort: (() => void) | undefined;
+    try {
+      await Promise.race([
+        this.sleep(ms),
+        new Promise<never>((_, reject) => {
+          onAbort = () => reject(new JobAbortedError());
+          signal.addEventListener("abort", onAbort, { once: true });
+        }),
+      ]);
+    } finally {
+      if (onAbort) {
+        signal.removeEventListener("abort", onAbort);
+      }
+    }
+  }
+
+  /**
+   * One fetch, aborted by the client's signal at any time and by the response
+   * timeout until the headers arrived (the body of a stream may take as long as
+   * it takes).
+   */
+  private async fetchOnce(url: string, init: RequestInit): Promise<Response> {
+    if (this.signal?.aborted) {
+      throw new JobAbortedError();
+    }
+    const controller = new AbortController();
+    const onAbort = () => controller.abort(new JobAbortedError());
+    this.signal?.addEventListener("abort", onAbort, { once: true });
+    const timer = setTimeout(
+      () => controller.abort(new GraphResponseTimeoutError(url, this.responseTimeoutMs)),
+      this.responseTimeoutMs,
+    );
+    timer.unref?.();
+    try {
+      return await this.fetchImpl(url, { ...init, signal: controller.signal });
+    } catch (error) {
+      // The reason the request was aborted, not fetch's generic AbortError.
+      throw controller.signal.aborted ? controller.signal.reason : error;
+    } finally {
+      clearTimeout(timer);
+      // One listener per request would pile up on a job's signal; the engines
+      // check the signal between items, so a body being read finishes first.
+      this.signal?.removeEventListener("abort", onAbort);
+    }
   }
 
   private resolveUrl(url: string): string {
@@ -279,7 +375,7 @@ export class FetchGraphClient implements GraphClient {
       random: this.random,
     });
     this.onThrottle?.({ status, attempt, waitMs, retryAfterMs, url });
-    await this.sleep(waitMs);
+    await this.pause(waitMs);
   }
 
   /** The retry loop shared by {@link request} and {@link stream}. */
@@ -297,11 +393,21 @@ export class FetchGraphClient implements GraphClient {
       if (useAuth) {
         headers.Authorization = `Bearer ${await this.accessTokenProvider()}`;
       }
-      const response = await this.fetchImpl(url, {
-        method: req.method,
-        headers,
-        body: hasRawBody ? req.rawBody : hasJsonBody ? JSON.stringify(req.body) : undefined,
-      });
+      let response: Response;
+      try {
+        response = await this.fetchOnce(url, {
+          method: req.method,
+          headers,
+          body: hasRawBody ? req.rawBody : hasJsonBody ? JSON.stringify(req.body) : undefined,
+        });
+      } catch (error) {
+        // Graph did not answer in time: like a 504, retried with backoff.
+        if (error instanceof GraphResponseTimeoutError && attempt < this.maxRetries) {
+          await this.waitForRetry(504, attempt, url, null);
+          continue;
+        }
+        throw error;
+      }
 
       if (RETRYABLE_STATUSES.has(response.status) && attempt < this.maxRetries) {
         // Drain the body so the connection can be reused before we wait.

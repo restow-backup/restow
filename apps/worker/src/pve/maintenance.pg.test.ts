@@ -31,6 +31,7 @@ import {
   type RoleLogin,
   chunks,
   createDb,
+  deriveAuthLogin,
   pveClusters,
   pveEnrollmentTokens,
   pveGuests,
@@ -96,7 +97,11 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
       name: `restow_wp_inst_${suffix}`,
       password: randomBytes(12).toString("hex"),
     };
-    roleNames.push(tenantLogin.name, installationLogin.name);
+    roleNames.push(
+      tenantLogin.name,
+      installationLogin.name,
+      deriveAuthLogin(tenantLogin, installationLogin).name,
+    );
     await runMigrations(url.toString(), {
       roles: { tenant: tenantLogin, installation: installationLogin },
     });

@@ -14,7 +14,7 @@ import { type SupportedLanguage, createI18n } from "@restow/i18n";
 import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { auth } from "../../auth.js";
 import { config } from "../../config.js";
-import { providerDb } from "../../db.js";
+import { authDb, providerDb } from "../../db.js";
 import { audit } from "../../lib/audit.js";
 import { authCall } from "../../lib/auth-errors.js";
 import { type DbExecutor, isTransaction, withTenantTx } from "../../lib/tenant-context.js";
@@ -60,6 +60,12 @@ import type { ProvisionAccountInput } from "./schemas.js";
  * same person in more than one tenant, so `redeemSetPasswordToken` refuses
  * any other link once the person has gained a membership outside the tenant
  * it was issued for, whichever path added it.
+ *
+ * better-auth's tables (user, member, account, passkey, verification) are
+ * read and written on the auth pool (`authDb`, packages/db roles.ts); the
+ * application pool `db` the functions take writes the tenant's audit entries.
+ * The mail goes out through the installation's transport, read on the
+ * installation pool.
  *
  * The raw token is handed back to the caller (`setPasswordToken`) only when
  * it could not also be mailed to the address itself: once delivery to that
@@ -392,8 +398,8 @@ async function issueSetPasswordLink(
   return { token, expiresAt };
 }
 
-async function findLinkRow(db: Database, token: string) {
-  const [row] = await db
+async function findLinkRow(token: string) {
+  const [row] = await authDb
     .select()
     .from(verification)
     .where(eq(verification.identifier, identifierOf(token)))
@@ -512,7 +518,7 @@ export async function provisionAccount(
   const name = input.name?.trim() || email;
   const memberRole = membershipRoleFromTenantRole(input.role);
 
-  const [existing] = await db
+  const [existing] = await authDb
     .select({ id: user.id, role: user.role })
     .from(user)
     .where(eq(user.email, email))
@@ -525,12 +531,15 @@ export async function provisionAccount(
     if (isProviderAdminRole(existing.role)) {
       throw providerAdminTargetProblem();
     }
-    if (!actor.isProviderAdmin && (await belongsToOtherTenant(db, existing.id, organizationId))) {
+    if (
+      !actor.isProviderAdmin &&
+      (await belongsToOtherTenant(authDb, existing.id, organizationId))
+    ) {
       throw crossTenantTargetProblem();
     }
     userId = existing.id;
     created = false;
-    alreadySignedIn = await hasSignInMethod(db, userId);
+    alreadySignedIn = await hasSignInMethod(authDb, userId);
   } else {
     const result = await authCall(() => auth.api.createUser({ body: { email, name } }));
     userId = result.user.id;
@@ -544,7 +553,7 @@ export async function provisionAccount(
   // members table's job — so the response and the audit entry must never
   // claim `input.role` took effect when it did not.
   let effectiveRole: TenantRole = input.role;
-  const [alreadyMember] = await db
+  const [alreadyMember] = await authDb
     .select({ id: member.id, role: member.role })
     .from(member)
     .where(and(eq(member.organizationId, organizationId), eq(member.userId, userId)))
@@ -591,7 +600,7 @@ export async function provisionAccount(
     };
   }
 
-  const link = await issueSetPasswordLink(db, {
+  const link = await issueSetPasswordLink(authDb, {
     userId,
     tenantId: tenant.id,
     issuedByProviderAdmin: actor.isProviderAdmin,
@@ -619,7 +628,7 @@ export async function provisionAccount(
     ip: actor.ip,
   });
 
-  const mailOutcome = await tryEmailLink(db, {
+  const mailOutcome = await tryEmailLink({
     email,
     name,
     tenantName: tenant.name,
@@ -650,7 +659,7 @@ export async function reissueAccountLink(
   language: SupportedLanguage,
 ): Promise<ProvisionResult> {
   const organizationId = requireOrganization(tenant);
-  const [row] = await db
+  const [row] = await authDb
     .select({ email: user.email, name: user.name, role: member.role, userRole: user.role })
     .from(member)
     .innerJoin(user, eq(user.id, member.userId))
@@ -667,14 +676,14 @@ export async function reissueAccountLink(
   // provider admin may add them to several), and a tenant admin must never
   // be able to fish the raw token for a membership that is not theirs out of
   // this endpoint just because the person also happens to be pending here.
-  if (!actor.isProviderAdmin && (await belongsToOtherTenant(db, userId, organizationId))) {
+  if (!actor.isProviderAdmin && (await belongsToOtherTenant(authDb, userId, organizationId))) {
     throw crossTenantTargetProblem();
   }
-  if (await hasSignInMethod(db, userId)) {
+  if (await hasSignInMethod(authDb, userId)) {
     throw notPendingProblem();
   }
 
-  const link = await issueSetPasswordLink(db, {
+  const link = await issueSetPasswordLink(authDb, {
     userId,
     tenantId: tenant.id,
     issuedByProviderAdmin: actor.isProviderAdmin,
@@ -691,7 +700,7 @@ export async function reissueAccountLink(
     details: { reissued: true },
   });
 
-  const mailOutcome = await tryEmailLink(db, {
+  const mailOutcome = await tryEmailLink({
     email: row.email,
     name: row.name,
     tenantName: tenant.name,
@@ -723,7 +732,6 @@ export async function reissueAccountLink(
  * someone redeems their link), unlike the full member list.
  */
 export async function listPendingAccounts(
-  db: Database,
   tenant: Pick<TenantContext, "organizationId">,
   options: { limit?: number } = {},
 ): Promise<PendingAccountDto[]> {
@@ -731,7 +739,7 @@ export async function listPendingAccounts(
     return [];
   }
   const limit = Math.min(Math.max(options.limit ?? DEFAULT_PENDING_LIMIT, 1), MAX_PENDING_LIMIT);
-  const rows = await db
+  const rows = await authDb
     .select({
       userId: member.userId,
       name: user.name,
@@ -758,7 +766,7 @@ export async function listPendingAccounts(
   // link redeemed) was excluded from `rows` above, so "used" never surfaces
   // here — only "valid", "expired", or "invalid" for someone whose pointer
   // is missing entirely (provisioned before this scheme, or otherwise stale).
-  const pointerRows = await db
+  const pointerRows = await authDb
     .select({ identifier: verification.identifier, expiresAt: verification.expiresAt })
     .from(verification)
     .where(
@@ -805,16 +813,15 @@ function linkProblem(status: Exclude<LinkStatus, "valid">): ProblemError {
 }
 
 export async function checkSetPasswordToken(
-  db: Database,
   token: string,
   now: Date = new Date(),
 ): Promise<LinkCheckResult> {
-  const row = await findLinkRow(db, token);
+  const row = await findLinkRow(token);
   const link = row ? decodeLinkValue(row.value) : null;
   if (!row || !link) {
     return { status: "invalid", emailHint: null };
   }
-  const [account_] = await db
+  const [account_] = await authDb
     .select({ email: user.email })
     .from(user)
     .where(eq(user.id, link.userId))
@@ -830,12 +837,11 @@ export async function checkSetPasswordToken(
 }
 
 export async function redeemSetPasswordToken(
-  db: Database,
   input: { token: string; password: string },
   actor: RedeemActor,
   now: Date = new Date(),
 ): Promise<RedeemResult> {
-  const row = await findLinkRow(db, input.token);
+  const row = await findLinkRow(input.token);
   const link = row ? decodeLinkValue(row.value) : null;
   if (!row || !link) {
     throw linkProblem("invalid");
@@ -847,7 +853,7 @@ export async function redeemSetPasswordToken(
     throw linkProblem("expired");
   }
 
-  const [person] = await db
+  const [person] = await authDb
     .select({ id: user.id, email: user.email, banned: user.banned, role: user.role })
     .from(user)
     .where(eq(user.id, link.userId))
@@ -857,7 +863,7 @@ export async function redeemSetPasswordToken(
   }
 
   if (link.tenantId === null) {
-    return redeemProviderInvitation(db, { row, link, person, password: input.password }, actor);
+    return redeemProviderInvitation({ row, link, person, password: input.password }, actor);
   }
   const tenantId = link.tenantId;
 
@@ -870,8 +876,10 @@ export async function redeemSetPasswordToken(
   // the same "unused" value, but only the first UPDATE still matches it once
   // it runs — the loser affects zero rows and is told the link was already
   // used, instead of both writes landing and the second password silently
-  // winning.
-  return withTenantTx(db, tenantId, async (tx) => {
+  // winning. All of it on the auth pool, whose role reads the tenant and
+  // appends to its audit chain under the same Row Level Security as the
+  // application role (packages/db roles.ts `AUTH_ROLE_RESTOW_GRANTS`).
+  return withTenantTx(authDb, tenantId, async (tx) => {
     // The membership this link was issued for might have been removed since
     // (or the tenant deleted outright): a person who no longer belongs to the
     // tenant must never be able to set a password on an account that no
@@ -934,7 +942,6 @@ export async function redeemSetPasswordToken(
  * the link and the password live in better-auth's own tables.
  */
 async function redeemProviderInvitation(
-  db: Database,
   input: {
     row: { id: string; value: string };
     link: LinkValue;
@@ -951,7 +958,7 @@ async function redeemProviderInvitation(
   if (!teamRow || !isProviderAdminRole(input.person.role)) {
     throw linkProblem("invalid");
   }
-  await db.transaction(async (tx) => {
+  await authDb.transaction(async (tx) => {
     const claimed = await tx
       .update(verification)
       .set({ value: encodeLinkValue({ ...input.link, used: true }) })
@@ -992,8 +999,9 @@ export function revealSetPasswordToken(mailOutcome: MailOutcome, token: string):
 
 // --- Best-effort mail (the admin can always copy the link instead) -----------------
 
-async function publicBaseUrl(db: Database): Promise<string | null> {
-  const [row] = await db.select({ publicUrl: settings.publicUrl }).from(settings).limit(1);
+/** The installation's public URL (settings, installation pool), else the environment's. */
+async function publicBaseUrl(): Promise<string | null> {
+  const [row] = await providerDb.select({ publicUrl: settings.publicUrl }).from(settings).limit(1);
   return row?.publicUrl ?? config.publicUrl ?? null;
 }
 
@@ -1006,13 +1014,14 @@ function absoluteSetPasswordUrl(base: string | null, token: string): string {
  * Mail a provider team invitation link (best effort, like a tenant account's:
  * the owner can always copy the link instead when this fails).
  */
-export async function emailProviderInvitation(
-  db: Database,
-  input: { email: string; token: string; language: SupportedLanguage },
-): Promise<MailOutcome> {
+export async function emailProviderInvitation(input: {
+  email: string;
+  token: string;
+  language: SupportedLanguage;
+}): Promise<MailOutcome> {
   let notifier: Notifier | null;
   try {
-    notifier = await createInstallationNotifier(db);
+    notifier = await createInstallationNotifier(providerDb);
   } catch {
     return "failed";
   }
@@ -1020,7 +1029,7 @@ export async function emailProviderInvitation(
     return "not_configured";
   }
   try {
-    const url = absoluteSetPasswordUrl(await publicBaseUrl(db), input.token);
+    const url = absoluteSetPasswordUrl(await publicBaseUrl(), input.token);
     const i18n = createI18n({ lng: input.language });
     const subject = String(i18n.t("accounts:mail.providerSubject"));
     const text = String(i18n.t("accounts:mail.providerBody", { url, hours: 72 }));
@@ -1031,23 +1040,20 @@ export async function emailProviderInvitation(
   }
 }
 
-async function tryEmailLink(
-  db: Database,
-  input: {
-    email: string;
-    name: string;
-    tenantName: string;
-    token: string;
-    expiresAt: Date;
-    language: SupportedLanguage;
-  },
-): Promise<MailOutcome> {
+async function tryEmailLink(input: {
+  email: string;
+  name: string;
+  tenantName: string;
+  token: string;
+  expiresAt: Date;
+  language: SupportedLanguage;
+}): Promise<MailOutcome> {
   let notifier: Notifier | null;
   try {
     // The installation's configured transport (Settings → Mail), shared with
     // every other feature that sends notifications: SMTP or Microsoft Graph,
     // resolved with its stored credentials. `null` means none is configured.
-    notifier = await createInstallationNotifier(db);
+    notifier = await createInstallationNotifier(providerDb);
   } catch {
     return "failed";
   }
@@ -1055,7 +1061,7 @@ async function tryEmailLink(
     return "not_configured";
   }
   try {
-    const base = await publicBaseUrl(db);
+    const base = await publicBaseUrl();
     const url = absoluteSetPasswordUrl(base, input.token);
     const i18n = createI18n({ lng: input.language });
     const subject = String(i18n.t("accounts:mail.subject", { tenant: input.tenantName }));

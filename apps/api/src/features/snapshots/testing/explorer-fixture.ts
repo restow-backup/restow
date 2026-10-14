@@ -11,9 +11,7 @@
 import { randomUUID } from "node:crypto";
 import {
   type Database,
-  type NewManifestObjectRow,
   createDb,
-  manifestObjects,
   protectedObjects,
   providers,
   snapshots,
@@ -24,6 +22,7 @@ import {
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
 import type { Viewer } from "../access.js";
+import { type ManifestFixtureRow, insertManifestRows } from "./manifest-rows.js";
 
 export const testDatabaseAdminUrl = process.env.RESTOW_TEST_DATABASE_URL;
 
@@ -114,11 +113,11 @@ function one<T>(rows: readonly T[]): T {
 const day = (n: number) => new Date(Date.UTC(2026, 0, n, 8, 0, 0));
 
 function row(
-  base: Pick<NewManifestObjectRow, "tenantId" | "snapshotId" | "protectedObjectId">,
+  base: Pick<ManifestFixtureRow, "tenantId" | "snapshotId" | "protectedObjectId">,
   path: string,
-  kind: NewManifestObjectRow["kind"],
-  extra: Partial<NewManifestObjectRow> = {},
-): NewManifestObjectRow {
+  kind: ManifestFixtureRow["kind"],
+  extra: Partial<ManifestFixtureRow> = {},
+): ManifestFixtureRow {
   const slash = path.lastIndexOf("/");
   return {
     ...base,
@@ -248,7 +247,7 @@ export async function createExplorerFixture(db: Database): Promise<ExplorerFixtu
     snapshotId,
     protectedObjectId: annaMailbox,
   });
-  const mailboxRows = (snapshotId: string, sequence: number): NewManifestObjectRow[] => [
+  const mailboxRows = (snapshotId: string, sequence: number): ManifestFixtureRow[] => [
     // No row for the area roots `mail` and `calendar`, nor for `calendar/Calendar`.
     row(mailbox(snapshotId), "mail/Inbox", "folder", { itemId: "folder-inbox" }),
     row(mailbox(snapshotId), "mail/Inbox/Projects", "folder", { itemId: "folder-projects" }),
@@ -284,10 +283,10 @@ export async function createExplorerFixture(db: Database): Promise<ExplorerFixtu
       itemId: "event-standup",
     }),
   ];
-  await db.insert(manifestObjects).values([...mailboxRows(first, 1), ...mailboxRows(second, 2)]);
+  await insertManifestRows(db, [...mailboxRows(first, 1), ...mailboxRows(second, 2)]);
 
   const driveBase = { tenantId, snapshotId: drive, protectedObjectId: annaDrive };
-  await db.insert(manifestObjects).values([
+  await insertManifestRows(db, [
     row(driveBase, "Documents", "folder"),
     row(driveBase, "Documents/report.docx", "file", {
       itemId: "drive-report",
@@ -304,27 +303,21 @@ export async function createExplorerFixture(db: Database): Promise<ExplorerFixtu
       metadata: { versionId: "2.0", lastModifiedBy: "Bob" },
     }),
   ]);
-  await db
-    .insert(manifestObjects)
-    .values([
-      row({ tenantId, snapshotId: imap, protectedObjectId: imapAccount }, "mail/INBOX", "folder"),
-      row(
-        { tenantId, snapshotId: imap, protectedObjectId: imapAccount },
-        "mail/INBOX/1.eml",
-        "mail",
-      ),
-      row(
-        { tenantId, snapshotId: bobSnapshot, protectedObjectId: bobMailbox },
-        "mail/Inbox",
-        "folder",
-      ),
-      row(
-        { tenantId, snapshotId: bobSnapshot, protectedObjectId: bobMailbox },
-        "mail/Inbox/Salary.gggg.eml",
-        "mail",
-        { metadata: { subject: "Quarterly salary review" } },
-      ),
-    ]);
+  await insertManifestRows(db, [
+    row({ tenantId, snapshotId: imap, protectedObjectId: imapAccount }, "mail/INBOX", "folder"),
+    row({ tenantId, snapshotId: imap, protectedObjectId: imapAccount }, "mail/INBOX/1.eml", "mail"),
+    row(
+      { tenantId, snapshotId: bobSnapshot, protectedObjectId: bobMailbox },
+      "mail/Inbox",
+      "folder",
+    ),
+    row(
+      { tenantId, snapshotId: bobSnapshot, protectedObjectId: bobMailbox },
+      "mail/Inbox/Salary.gggg.eml",
+      "mail",
+      { metadata: { subject: "Quarterly salary review" } },
+    ),
+  ]);
 
   const adminId = await signedInUser(db, "admin@provider.test", "Admin");
   const annaId = await signedInUser(db, "anna@contoso.test", "Anna");

@@ -6,9 +6,9 @@
     "invited": {
       "title": "Anmelde-Link bereit",
       "lead": "Diesen Link an die eingeladene Person weitergeben, oder später erneut aus der Mitgliederliste versenden.",
-      "summary": "{email} wurde als {role, select, tenant_admin {Mandanten-Admin} other {Nutzer}} hinzugefügt.",
+      "summary": "{email} wurde als {role, select, tenant_admin {Mandanten-Admin} tenant_restore {Restore-Operator} other {Nutzer}} hinzugefügt.",
       "reusedSummary": "{email} hatte bereits ein Konto bei {appName}. Es wurde zu diesem Mandanten hinzugefügt, mit diesem Link kann ein Passwort gewählt werden.",
-      "alreadySignedIn": "{email} kann sich bereits anmelden und wurde nun als {role, select, tenant_admin {Mandanten-Admin} other {Nutzer}} zu diesem Mandanten hinzugefügt. Es gibt nichts zu versenden. Die Anmeldung ist sofort möglich.",
+      "alreadySignedIn": "{email} kann sich bereits anmelden und wurde nun als {role, select, tenant_admin {Mandanten-Admin} tenant_restore {Restore-Operator} other {Nutzer}} zu diesem Mandanten hinzugefügt. Es gibt nichts zu versenden. Die Anmeldung ist sofort möglich.",
       "microsoftHint": "Diese Installation bietet auch Microsoft-Anmeldung, aber nur für bereits verknüpfte Konten. Dieses ist nicht verknüpft, daher meldet sich {email} stattdessen mit dem Passwort aus diesem Link an."
     },
     "added": {

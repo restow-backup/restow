@@ -47,7 +47,7 @@ export type ExchangeObjectType = (typeof OBJECT_TYPES)[keyof typeof OBJECT_TYPES
  * others are this engine's own bookkeeping.
  */
 export const META = {
-  /** restore: RFC 5322 Message-ID; the worker mirrors it into `manifest_objects.message_id`. */
+  /** restore: RFC 5322 Message-ID; the worker mirrors it into `manifest_versions.message_id`. */
   messageId: "messageId",
   /** restore: folder names from the area root down (`Inbox/Projects`; `""` = the area root). */
   folderPath: "folderPath",

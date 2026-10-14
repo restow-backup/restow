@@ -33,6 +33,7 @@ import {
   type PveGuestDetail,
   type PveRestorePoint,
   fetchGuest,
+  guestRefreshMs,
   pveKeys,
   restoreSnapshot,
   verifySnapshot,
@@ -159,6 +160,36 @@ function VerifyBadge({ point }: { point: PveRestorePoint }) {
   return <Badge variant="success">{t("guest.verifyOk", { blocks: point.verify.blocks })}</Badge>;
 }
 
+/**
+ * How a restore point came about (first backup, incremental, VM disks read in
+ * full), what the VM read per disk, and what a container backup could not read.
+ */
+function PointType({ point }: { point: PveRestorePoint }) {
+  const { t } = useTranslation(PVE_NAMESPACE);
+  const type =
+    point.backupType ??
+    (point.kind === "vm" && point.disks.some((d) => d.bitmapMode !== "reuse")
+      ? "full_read"
+      : "incremental");
+  const disks =
+    point.kind === "vm"
+      ? point.disks.map((d) => `${d.device}: ${t(`guest.bitmap.${d.bitmapMode}`)}`).join("\n")
+      : undefined;
+  const unreadable = point.unreadable ?? 0;
+  return (
+    <div className="flex flex-wrap items-center gap-1" data-slot="pve-point-type">
+      <Badge variant={type === "incremental" ? "outline" : "info"} title={disks}>
+        {t(`guest.backupType.${type}`)}
+      </Badge>
+      {unreadable > 0 ? (
+        <Badge variant="warning" title={point.consistency ?? undefined}>
+          {t("guest.unreadable", { count: unreadable })}
+        </Badge>
+      ) : null}
+    </div>
+  );
+}
+
 export function PveGuestPage({ guestId }: { guestId: string }) {
   const { t, i18n } = useTranslation(PVE_NAMESPACE);
   const language = i18n.resolvedLanguage ?? i18n.language;
@@ -168,7 +199,7 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
     queryKey: pveKeys.guest(tenantId, guestId),
     queryFn: () => fetchGuest(guestId),
     enabled,
-    refetchInterval: 15_000,
+    refetchInterval: (query) => guestRefreshMs(query.state.data),
   });
   const [restoring, setRestoring] = React.useState<PveRestorePoint | null>(null);
   const verify = useMutation({
@@ -214,9 +245,9 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
             <TableHeader>
               <TableRow>
                 <TableHead>{t("guest.time")}</TableHead>
-                <TableHead>{t("guest.size")}</TableHead>
-                <TableHead>{t("guest.changed")}</TableHead>
-                <TableHead>{t("guest.mode")}</TableHead>
+                <TableHead>{t("guest.type")}</TableHead>
+                <TableHead title={t("guest.sizeHint")}>{t("guest.size")}</TableHead>
+                <TableHead title={t("guest.addedHint")}>{t("guest.added")}</TableHead>
                 <TableHead>{t("guest.verify")}</TableHead>
                 <TableHead />
               </TableRow>
@@ -230,14 +261,16 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
                       {t(`guest.origin.${p.origin}`)}
                     </div>
                   </TableCell>
-                  <TableCell>{formatBytes(p.byteSize, language)}</TableCell>
-                  <TableCell>{p.disks.reduce((s, d) => s + d.changedBlocks, 0)}</TableCell>
                   <TableCell>
-                    {p.disks.map((d) => (
-                      <div key={d.device} className="text-xs">
-                        {d.device}: {t(`guest.bitmap.${d.bitmapMode}`)}
-                      </div>
-                    ))}
+                    <PointType point={p} />
+                  </TableCell>
+                  <TableCell className="tabular-nums">
+                    {formatBytes(p.byteSize, language)}
+                  </TableCell>
+                  <TableCell className="tabular-nums">
+                    {p.added === null || p.added === undefined
+                      ? "–"
+                      : formatBytes(p.added, language)}
                   </TableCell>
                   <TableCell>
                     <VerifyBadge point={p} />
@@ -291,10 +324,17 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
                   </TableCell>
                   <TableCell>{t(`guest.kind.${r.kind}`)}</TableCell>
                   <TableCell>
-                    <Badge variant={runTone(r)}>{t(`guest.${r.status}`)}</Badge>
+                    {r.status === "succeeded" && (r.stats?.resticUnreadable ?? 0) > 0 ? (
+                      <Badge variant="warning">{t("guest.succeededWithGaps")}</Badge>
+                    ) : (
+                      <Badge variant={runTone(r)}>{t(`guest.${r.status}`)}</Badge>
+                    )}
                   </TableCell>
-                  <TableCell className="max-w-md truncate text-xs" title={r.error ?? undefined}>
-                    {r.error ?? ""}
+                  <TableCell
+                    className="max-w-md truncate text-xs"
+                    title={r.error ?? r.stats?.consistency ?? undefined}
+                  >
+                    {r.error ?? r.stats?.consistency ?? ""}
                   </TableCell>
                 </TableRow>
               ))}

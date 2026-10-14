@@ -89,7 +89,7 @@ async function tenantForAccounts(c: Context<SessionEnv>) {
 accountsRoutes.get("/tenants/:tenantId/accounts", requireSession, async (c) => {
   const tenant = await tenantForAccounts(c);
   const { limit } = parseOrProblem(listAccountsQuerySchema, c.req.query());
-  return c.json({ items: await listPendingAccounts(db, tenant, { limit }) });
+  return c.json({ items: await listPendingAccounts(tenant, { limit }) });
 });
 
 accountsRoutes.post("/tenants/:tenantId/accounts", requireSession, async (c) => {
@@ -131,7 +131,7 @@ accountsPublicRoutes.get("/set-password/:token", async (c) => {
     throw tooManyRequests(decision.retryAfterMs);
   }
   const { token } = parseOrProblem(setPasswordTokenParamSchema, c.req.param());
-  return c.json(await checkSetPasswordToken(db, token));
+  return c.json(await checkSetPasswordToken(token));
 });
 
 accountsPublicRoutes.post("/set-password", async (c) => {
@@ -140,6 +140,6 @@ accountsPublicRoutes.post("/set-password", async (c) => {
     throw tooManyRequests(decision.retryAfterMs);
   }
   const input = await parseJsonBody(c.req, setPasswordSchema);
-  const result = await redeemSetPasswordToken(db, input, { ip: clientIp(c) });
+  const result = await redeemSetPasswordToken(input, { ip: clientIp(c) });
   return c.json(result);
 });

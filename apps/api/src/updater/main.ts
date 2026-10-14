@@ -15,6 +15,7 @@ import { CliDockerOps } from "./ops-cli.js";
 import { type CommandRunner, type SelfContainer, systemClock } from "./ops.js";
 import { Preflight } from "./preflight.js";
 import { Redactor } from "./redact.js";
+import { ServiceRestarter } from "./restart.js";
 import { HelperRunner } from "./runner-helper.js";
 import { LocalRunner } from "./runner-local.js";
 import { EngineSelfRecreateLauncher, MOUNTER_RECREATE_TARGET } from "./self-recreate.js";
@@ -231,6 +232,16 @@ async function main(): Promise<void> {
   });
   await engine.init();
 
+  // Restarts one application service when an administrator clicks for it (restart.ts).
+  const restarter = new ServiceRestarter({
+    ops,
+    updateActive: () => {
+      const { phase } = engine.view();
+      return phase === "scheduled" || phase === "running";
+    },
+    clock: systemClock,
+    logger,
+  });
   // "Enable network shares" in the web interface (docs/FILESHARES.md 3.9): the same helper
   // that moves the mounter after an update starts it.
   const mounterEnabler = new MounterEnabler({
@@ -254,6 +265,8 @@ async function main(): Promise<void> {
     logger,
     redactor,
     selfUpdate: () => selfUpdater.view(),
+    restarter,
+    projectDir: hostDir,
     mounterEnable: mounterEnabler,
   });
   const server = serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {

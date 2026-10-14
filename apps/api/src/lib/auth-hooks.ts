@@ -4,7 +4,7 @@ import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/a
 import { deleteSessionCookie } from "better-auth/cookies";
 import { eq, like } from "drizzle-orm";
 import { config } from "../config.js";
-import { db } from "../db.js";
+import { authDb } from "../db.js";
 import { PROVIDER_ADMIN_USER_ROLE } from "../middleware/rbac.js";
 import { isConfiguredDemoAccountEmail, isDemoAccountEmail } from "./demo.js";
 import {
@@ -84,7 +84,7 @@ async function refuseLastProviderAdminRevocation(path: string, body: unknown): P
   if (!targetId) {
     return;
   }
-  const admins = await db
+  const admins = await authDb
     .select({ id: user.id, role: user.role, banned: user.banned })
     .from(user)
     .where(like(user.role, `%${PROVIDER_ADMIN_USER_ROLE}%`));
@@ -122,7 +122,7 @@ const guardSessionAssurance = createAuthMiddleware(async (ctx) => {
 });
 
 async function hasPasskey(userId: string): Promise<boolean> {
-  const [registered] = await db
+  const [registered] = await authDb
     .select({ id: passkey.id })
     .from(passkey)
     .where(eq(passkey.userId, userId))

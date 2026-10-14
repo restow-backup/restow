@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { isAuthorized } from "./auth.js";
 import { EngineError, type UpdateEngine } from "./engine.js";
 import type { Logger } from "./logger.js";
@@ -15,9 +15,11 @@ import {
   type UpdaterError,
   type UpdaterErrorCode,
   publicStatusOf,
+  restartRequestSchema,
   scheduleRequestSchema,
 } from "./protocol.js";
 import type { Redactor } from "./redact.js";
+import { RestartRefusedError, type ServiceRestarter } from "./restart.js";
 
 /**
  * The updater's HTTP API (JSON, internal Docker network only):
@@ -30,6 +32,7 @@ import type { Redactor } from "./redact.js";
  *   POST /v1/acknowledge     clear a finished run
  *   POST /v1/mounter/enable  start the mounter (mounter-enable.ts); answers when the helper
  *                            finished (200) or after a minute with the start still running (202)
+ *   POST /v1/restart         restart one application service: { service: "api" | "worker" | "scheduler" }
  *
  * Everything under /v1 needs `Authorization: Bearer <shared secret>`. Errors are
  * `{ "code": "...", "message": "..." }`; nothing in a response carries the secret.
@@ -51,6 +54,10 @@ export interface ServerDeps {
   mounterEnable?: MounterEnabler;
   /** How long `POST /v1/mounter/enable` waits for the helper (tests shorten it). */
   mounterEnableWaitMs?: number;
+  /** Restarts one application service on request (restart.ts); without it `/v1/restart` is not found. */
+  restarter?: ServiceRestarter;
+  /** The project directory on the host, for the commands the Updates tab shows. */
+  projectDir?: string | null;
 }
 
 const STATUS_OF: Record<UpdaterErrorCode, 401 | 404 | 409 | 422 | 500> = {
@@ -99,6 +106,9 @@ export function buildServer(deps: ServerDeps): Hono {
       capabilities: await deps.preflight.get(refresh),
       selfUpdate: deps.selfUpdate?.() ?? null,
       mounterEnable: deps.mounterEnable?.view() ?? null,
+      restartableServices: [...(deps.restarter?.services ?? [])],
+      restart: deps.restarter?.view() ?? null,
+      projectDir: deps.projectDir ?? null,
       serverTime: deps.clock.now().toISOString(),
     };
   };
@@ -123,7 +133,8 @@ export function buildServer(deps: ServerDeps): Hono {
     return c.json(await stateView(refresh === "1" || refresh === "true"));
   });
 
-  app.post("/v1/schedule", async (c) => {
+  /** The JSON body, bounded in size; a Response when it is unusable. */
+  const readJson = async (c: Context): Promise<{ json: unknown } | Response> => {
     const declared = Number(c.req.header("content-length") ?? "0");
     if (Number.isFinite(declared) && declared > MAX_BODY_BYTES) {
       return fail("invalid_request", "The request body is too large.");
@@ -132,19 +143,29 @@ export function buildServer(deps: ServerDeps): Hono {
     if (text.length > MAX_BODY_BYTES) {
       return fail("invalid_request", "The request body is too large.");
     }
-    let json: unknown;
     try {
-      json = JSON.parse(text);
+      return { json: JSON.parse(text) };
     } catch {
       return fail("invalid_request", "The request body is not valid JSON.");
     }
-    const parsed = scheduleRequestSchema.safeParse(json);
+  };
+
+  const invalid = (issues: readonly { path: (string | number)[]; message: string }[]) => {
+    const summary = issues
+      .slice(0, 5)
+      .map((issue) => `${issue.path.join(".") || "body"}: ${issue.message}`)
+      .join("; ");
+    return fail("invalid_request", `The request is not valid: ${summary}`);
+  };
+
+  app.post("/v1/schedule", async (c) => {
+    const body = await readJson(c);
+    if (body instanceof Response) {
+      return body;
+    }
+    const parsed = scheduleRequestSchema.safeParse(body.json);
     if (!parsed.success) {
-      const summary = parsed.error.issues
-        .slice(0, 5)
-        .map((issue) => `${issue.path.join(".") || "body"}: ${issue.message}`)
-        .join("; ");
-      return fail("invalid_request", `The request is not valid: ${summary}`);
+      return invalid(parsed.error.issues);
     }
     try {
       await deps.engine.schedule(parsed.data);
@@ -183,6 +204,32 @@ export function buildServer(deps: ServerDeps): Hono {
       throw error;
     }
     return c.json(await stateView(false));
+  });
+
+  // Restart one application service, on an administrator's request: the allowlist is the
+  // schema's enum, and the service name never reaches a command line unchecked (restart.ts).
+  app.post("/v1/restart", async (c) => {
+    const restarter = deps.restarter;
+    if (!restarter) {
+      return fail("not_found", "There is nothing at this path.");
+    }
+    const body = await readJson(c);
+    if (body instanceof Response) {
+      return body;
+    }
+    const parsed = restartRequestSchema.safeParse(body.json);
+    if (!parsed.success) {
+      return invalid(parsed.error.issues);
+    }
+    try {
+      restarter.start(parsed.data.service);
+    } catch (error) {
+      if (error instanceof RestartRefusedError) {
+        return fail(error.code, error.message);
+      }
+      throw error;
+    }
+    return c.json(await stateView(false), 202);
   });
 
   app.post("/v1/mounter/enable", async (c) => {

@@ -241,7 +241,8 @@ export const SERVICE_HEARTBEAT_HOSTNAME_CHECK = "service_heartbeats_hostname_not
  * upserts its row (by `instance_id`) on a fixed interval and removes it on a
  * graceful shutdown, so `/readyz` and the system health view can tell a
  * stalled queue from an absent worker. Installation-level, no tenant data and
- * therefore no Row Level Security; both application roles read and write it.
+ * therefore no Row Level Security; the installation role alone reads and
+ * writes it (packages/db roles.ts `TABLE_ACCESS`).
  *
  * `hostname` identifies the machine or container for the operator. It is never
  * an IP address: the check constraint refuses IPv4 and IPv6 literals, so a
@@ -273,6 +274,39 @@ export const serviceHeartbeats = pgTable(
   ],
 );
 
+/** Name of the constraint that keeps `restart_requests.reason` a translation key. */
+export const RESTART_REQUEST_REASON_CHECK = "restart_requests_reason_key";
+
+/**
+ * Services that need a manual restart, and why: a process records a row when
+ * something it changed (or found) takes effect only after that service started
+ * again, and the service removes the rows recorded before its own start when it
+ * starts (restart-requests.ts). The installation administrators see the open
+ * rows on the Updates tab, with the command to run and, where the updater runs,
+ * a button that asks it to restart exactly that service.
+ *
+ * `reason` is a translation key (`updates:restart.reasons.<reason>`), never
+ * prose, so the check constraint keeps it to a short lower-case identifier.
+ * One row per service and reason: recording the same reason again moves its
+ * time forward. Installation-level, no tenant data and therefore no Row Level
+ * Security; the installation role alone reads and writes it.
+ */
+export const restartRequests = pgTable(
+  "restart_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    service: serviceRoleEnum("service").notNull(),
+    reason: text("reason").notNull(),
+    // The database clock, compared with the database clock at the service's next start.
+    requestedAt: timestamp("requested_at", { withTimezone: true }).notNull().defaultNow(),
+    ...timestamps(),
+  },
+  (t) => [
+    uniqueIndex("restart_requests_service_reason_uq").on(t.service, t.reason),
+    check(RESTART_REQUEST_REASON_CHECK, sql`${t.reason} ~ '^[a-z][a-z0-9_]{0,63}$'`),
+  ],
+);
+
 export type License = typeof license.$inferSelect;
 export type NewLicense = typeof license.$inferInsert;
 export type Settings = typeof settings.$inferSelect;
@@ -281,3 +315,4 @@ export type Edition = (typeof editionEnum.enumValues)[number];
 export type ServiceHeartbeat = typeof serviceHeartbeats.$inferSelect;
 export type NewServiceHeartbeat = typeof serviceHeartbeats.$inferInsert;
 export type ServiceRole = (typeof serviceRoleEnum.enumValues)[number];
+export type RestartRequest = typeof restartRequests.$inferSelect;

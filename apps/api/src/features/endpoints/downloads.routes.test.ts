@@ -18,7 +18,7 @@ const ids = vi.hoisted(() => ({
 }));
 const service = vi.hoisted(() => ({ prepareDownload: vi.fn(), openDownload: vi.fn() }));
 
-vi.mock("../../db.js", () => ({ db: {}, providerDb: {} }));
+vi.mock("../../db.js", () => ({ db: {}, providerDb: {}, authDb: {} }));
 vi.mock("../../middleware/session.js", () => {
   const user = { id: "user-1", email: "admin@contoso.example" };
   return {

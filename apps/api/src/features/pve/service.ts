@@ -12,6 +12,7 @@ import {
   type PveJobSchedule,
   type PveJobSettings,
   type PveNode,
+  type PveRunStats,
   pveClusters,
   pveEnrollmentTokens,
   pveGuests,
@@ -77,10 +78,65 @@ export function bitmapState(
   return modes.every((m) => m === "reuse") ? "incremental" : "full_read";
 }
 
+/** What is happening with a guest's backup right now: handed to its node, or running. */
+export type GuestActivity = "queued" | "running" | null;
+
+/**
+ * What a restore point added to the repository: a container's new data after
+ * restic's deduplication, a VM's uploaded blocks. Null when the point recorded
+ * neither (restore points from before 0.3.5 may lack the counter).
+ */
+export function addedBytes(kind: string, stats: PveRunStats | null | undefined): number | null {
+  const value = kind === "ct" ? stats?.resticBytesAdded : stats?.uploadedBytes;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/** Items restic could not read into a container restore point (0 when complete). */
+export function unreadableItems(stats: PveRunStats | null | undefined): number {
+  const value = stats?.resticUnreadable;
+  return typeof value === "number" && value > 0 ? value : 0;
+}
+
+/**
+ * The sizes of one restore point as the interface shows them: what it contains
+ * (every file or block it restores) and what it added to the repository.
+ */
+export interface BackupSize {
+  at: string;
+  contains: number;
+  added: number | null;
+  unreadable: number;
+}
+
+type SnapshotSizeRow = {
+  guest_id: string;
+  kind: string;
+  backup_at: Date | string;
+  byte_size: number | string;
+  stats: PveRunStats | null;
+};
+
+function backupSize(row: SnapshotSizeRow): BackupSize {
+  return {
+    at: new Date(row.backup_at).toISOString(),
+    contains: Number(row.byte_size),
+    added: addedBytes(row.kind, row.stats),
+    unreadable: unreadableItems(row.stats),
+  };
+}
+
+/** The first backup a guest ever had (also when retention removed it since) and its newest restore point. */
+export interface GuestBackupSizes {
+  first: BackupSize | null;
+  last: BackupSize | null;
+}
+
 function guestDto(
   g: PveGuest,
   jobs: Map<string, PveJob>,
   lastRun: { status: string; error: string | null } | undefined,
+  activity: GuestActivity = null,
+  sizes: GuestBackupSizes = { first: null, last: null },
 ) {
   const attention: string[] = [];
   if (g.template && g.kind === "vm") {
@@ -93,6 +149,9 @@ function guestDto(
   }
   if (lastRun?.status === "failed") {
     attention.push("last_backup_failed");
+  }
+  if ((sizes.last?.unreadable ?? 0) > 0) {
+    attention.push("last_backup_incomplete");
   }
   if (!g.present) {
     attention.push("absent");
@@ -120,7 +179,9 @@ function guestDto(
     lastSnapshotId: g.lastSnapshotId,
     lastRunStatus: lastRun?.status ?? null,
     lastRunError: lastRun?.error ?? null,
+    activity,
     bitmapState: bitmapState(g),
+    backups: sizes,
     attention,
   };
 }
@@ -160,6 +221,34 @@ export async function overview(database: Database, tenantId: string, now: Date =
     const runByGuest = new Map(
       lastRuns.rows.map((r) => [r.guest_id, { status: r.status, error: r.error_message }]),
     );
+    const running = await tx.execute<{ guest_id: string }>(sql`
+      SELECT DISTINCT guest_id FROM pve_runs WHERE kind = 'backup' AND status = 'running'`);
+    const queued = await tx.execute<{ guest_id: string }>(sql`
+      SELECT DISTINCT guest_id FROM pve_tasks
+       WHERE kind = 'backup' AND status IN ('pending', 'delivered') AND guest_id IS NOT NULL`);
+    const activity = new Map<string, GuestActivity>(
+      queued.rows.map((r) => [r.guest_id, "queued" as const]),
+    );
+    for (const r of running.rows) {
+      activity.set(r.guest_id, "running");
+    }
+    // The first backup ever (pruned ones included: it is the full one) and the newest
+    // restore point, per guest.
+    const firsts = await tx.execute<SnapshotSizeRow>(sql`
+      SELECT DISTINCT ON (guest_id) guest_id, kind, backup_at, byte_size, stats
+        FROM pve_snapshots ORDER BY guest_id, sequence ASC`);
+    const lasts = await tx.execute<SnapshotSizeRow>(sql`
+      SELECT DISTINCT ON (guest_id) guest_id, kind, backup_at, byte_size, stats
+        FROM pve_snapshots WHERE status = 'active' ORDER BY guest_id, sequence DESC`);
+    const sizes = new Map<string, GuestBackupSizes>();
+    for (const row of firsts.rows) {
+      sizes.set(row.guest_id, { first: backupSize(row), last: null });
+    }
+    for (const row of lasts.rows) {
+      const entry = sizes.get(row.guest_id) ?? { first: null, last: null };
+      entry.last = backupSize(row);
+      sizes.set(row.guest_id, entry);
+    }
     const jobMap = new Map(jobs.map((j) => [j.id, j]));
     return {
       clusters: clusters.map((c) => ({
@@ -168,7 +257,9 @@ export async function overview(database: Database, tenantId: string, now: Date =
         storageId: c.storageId,
         nodes: nodes.filter((n) => n.clusterId === c.id).map((n) => nodeDto(n, now)),
       })),
-      guests: guests.map((g) => guestDto(g, jobMap, runByGuest.get(g.id))),
+      guests: guests.map((g) =>
+        guestDto(g, jobMap, runByGuest.get(g.id), activity.get(g.id) ?? null, sizes.get(g.id)),
+      ),
       jobs: jobs.map(jobDto),
       restorePool: RESTORE_POOL,
     };
@@ -265,6 +356,24 @@ async function loadGuest(
   return guest;
 }
 
+/**
+ * How a restore point came about: the guest's first backup, an incremental one
+ * (a container's restic run reuses every unchanged file, a VM read only the
+ * changed blocks), or a VM that had to read whole disks again.
+ */
+export function backupType(
+  point: { kind: string; sequence: number; disks: { bitmapMode: string }[] },
+  firstSequence: number | null,
+): "first" | "incremental" | "full_read" {
+  if (firstSequence === null || point.sequence <= firstSequence) {
+    return "first";
+  }
+  if (point.kind === "vm" && point.disks.some((d) => d.bitmapMode !== "reuse")) {
+    return "full_read";
+  }
+  return "incremental";
+}
+
 /** One guest with its restore points, runs and open tasks. */
 export async function guestDetail(database: Database, tenantId: string, id: string) {
   return withTenantTx(database, tenantId, async (tx) => {
@@ -287,6 +396,14 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
       .where(and(eq(pveTasks.guestId, id), inArray(pveTasks.status, ["pending", "delivered"])))
       .orderBy(desc(pveTasks.createdAt));
     const jobs = await tx.select().from(pveJobs);
+    // The guest's first backup ever, also when retention pruned it since: a later
+    // point is never "the first one" just because the older ones are gone.
+    const [first] = await tx
+      .select({ sequence: sql<number>`min(${pveSnapshots.sequence})` })
+      .from(pveSnapshots)
+      .where(eq(pveSnapshots.guestId, id));
+    const firstSequence =
+      first?.sequence === null || first?.sequence === undefined ? null : Number(first.sequence);
     const [cluster] = await tx
       .select()
       .from(pveClusters)
@@ -306,6 +423,10 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         origin: s.origin,
         backupAt: s.backupAt.toISOString(),
         byteSize: s.byteSize,
+        added: addedBytes(s.kind, s.stats),
+        backupType: backupType(s, firstSequence),
+        unreadable: unreadableItems(s.stats),
+        consistency: typeof s.stats.consistency === "string" ? s.stats.consistency : null,
         stats: s.stats,
         disks: s.disks.map((d) => ({
           device: d.device,

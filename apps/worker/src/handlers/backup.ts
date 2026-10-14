@@ -760,6 +760,8 @@ export async function graphClientForSource(
   return new FetchGraphClient({
     accessTokenProvider: toTokenCallback(tokens),
     onThrottle: deps.throttled,
+    // A hanging request or throttling wait ends with the job (cancel, time limit, restart).
+    signal: deps.ctx.signal,
   });
 }
 

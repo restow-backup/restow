@@ -10,14 +10,29 @@
  *                 of another tenant.
  *   installation  BYPASSRLS (DATABASE_PROVIDER_URL): the few lookups made before a
  *                 tenant is known (session, API key, tenant list), installation-level
- *                 data (settings, provider secrets, the installation audit
- *                 chain) and the cross-tenant background scans. It also owns the
- *                 pg-boss queue schema.
+ *                 data (settings, license, provider secrets, the installation audit
+ *                 chain, service heartbeats) and the cross-tenant background scans.
+ *                 It also owns the pg-boss queue schema.
+ *   auth          the better-auth role (DATABASE_AUTH_URL, optional): NOSUPERUSER,
+ *                 NOBYPASSRLS, owns no table. better-auth and Restow's own sign-in,
+ *                 account and membership code run on it; it is the only role
+ *                 besides the installation role that reaches the better-auth tables
+ *                 (sessions, password hashes, TOTP secrets, passkeys,
+ *                 verification tokens). Of Restow's tables it may only read a
+ *                 tenant and append to its audit chain, under Row Level Security.
+ *                 Without DATABASE_AUTH_URL its login is derived from the other
+ *                 two ({@link deriveAuthLogin}), so no operator has to configure it.
+ *
+ * The tenant role keeps no access to the better-auth tables beyond the name
+ * and e-mail address of a user (who started a restore, created a key), and
+ * none to the installation tables or to queued jobs of the pg-boss schema
+ * beyond enqueueing one: {@link TABLE_ACCESS} classifies every table, and the
+ * schema tests fail on a table it does not name.
  *
  * Roles are provisioned by the migration step (./migrate.ts) from the login in
- * the tenant and installation connection strings, and every process checks
- * its pools at startup with {@link assertDatabaseRoles}: a tenant pool that can
- * bypass RLS would make every policy decorative, so the process refuses to run.
+ * the connection strings, and every process checks its pools at startup with
+ * {@link assertDatabaseRoles}: a tenant or auth pool that can bypass RLS would
+ * make every policy decorative, so the process refuses to run.
  */
 import { createHash, createHmac, pbkdf2Sync, randomBytes, timingSafeEqual } from "node:crypto";
 
@@ -29,13 +44,15 @@ export interface Queryable {
   ): Promise<{ rows: R[] }>;
 }
 
-/** The two login roles next to the owner. */
-export type RoleKind = "tenant" | "installation";
+/** The login roles next to the owner. */
+export type RoleKind = "tenant" | "installation" | "auth";
 
 /** The environment variable that carries each role's connection string. */
 export const ROLE_URL_VARIABLE: Record<RoleKind, string> = {
   tenant: "DATABASE_URL",
   installation: "DATABASE_PROVIDER_URL",
+  // Optional: derived from the other two when unset (deriveAuthLogin).
+  auth: "DATABASE_AUTH_URL",
 };
 
 /** What Postgres says about the role a pool connects as. */
@@ -57,9 +74,14 @@ export type RoleProblem =
   /** The installation role must see every tenant's rows. */
   | "no_bypass_rls";
 
+/** Roles that must stay subject to Row Level Security. */
+function boundByRls(kind: RoleKind): boolean {
+  return kind !== "installation";
+}
+
 /** Why a role may not serve as `kind`; empty when it may. */
 export function roleProblems(kind: RoleKind, role: DatabaseRoleInfo): RoleProblem[] {
-  if (kind === "installation") {
+  if (!boundByRls(kind)) {
     return role.superuser || role.bypassRls ? [] : ["no_bypass_rls"];
   }
   const problems: RoleProblem[] = [];
@@ -92,7 +114,9 @@ export function describeRoleProblems(
   const fix =
     kind === "tenant"
       ? "Point it at the application role that the migration step provisions (NOSUPERUSER, NOBYPASSRLS, owns no table), never at the database owner."
-      : "Point it at the installation role that the migration step provisions with BYPASSRLS.";
+      : kind === "auth"
+        ? "Point it at the auth role that the migration step provisions (NOSUPERUSER, NOBYPASSRLS, owns no table), or remove it so the derived auth role is used."
+        : "Point it at the installation role that the migration step provisions with BYPASSRLS.";
   return `${ROLE_URL_VARIABLE[kind]} connects as "${role.name}", which ${what}. ${fix}`;
 }
 
@@ -141,33 +165,44 @@ export async function inspectCurrentRole(client: Queryable): Promise<DatabaseRol
 
 /**
  * Refuse to run on pools whose roles defeat tenant isolation: the tenant pool
- * must be subject to RLS, the installation pool must be able to bypass it.
+ * (and the auth pool of the api) must be subject to RLS, the installation
+ * pool must be able to bypass it, and no two pools may share a role.
  */
 export async function assertDatabaseRoles(pools: {
   tenant: Queryable;
   installation: Queryable;
-}): Promise<{ tenant: DatabaseRoleInfo; installation: DatabaseRoleInfo }> {
+  auth?: Queryable;
+}): Promise<{ tenant: DatabaseRoleInfo; installation: DatabaseRoleInfo; auth?: DatabaseRoleInfo }> {
   const tenant = await inspectCurrentRole(pools.tenant);
   const installation = await inspectCurrentRole(pools.installation);
-  const messages: string[] = [];
-  for (const [kind, role] of [
+  const auth = pools.auth ? await inspectCurrentRole(pools.auth) : undefined;
+  const checked: [RoleKind, DatabaseRoleInfo][] = [
     ["tenant", tenant],
     ["installation", installation],
-  ] as const) {
+  ];
+  if (auth) {
+    checked.push(["auth", auth]);
+  }
+  const messages: string[] = [];
+  for (const [kind, role] of checked) {
     const problems = roleProblems(kind, role);
     if (problems.length > 0) {
       messages.push(describeRoleProblems(kind, role, problems));
     }
   }
-  if (tenant.name === installation.name) {
-    messages.push(
-      `DATABASE_URL and DATABASE_PROVIDER_URL both connect as "${tenant.name}"; they must be two different roles.`,
-    );
+  for (const [index, [kind, role]] of checked.entries()) {
+    for (const [otherKind, other] of checked.slice(index + 1)) {
+      if (role.name === other.name) {
+        messages.push(
+          `${ROLE_URL_VARIABLE[kind]} and ${ROLE_URL_VARIABLE[otherKind]} both connect as "${role.name}"; they must be different roles.`,
+        );
+      }
+    }
   }
   if (messages.length > 0) {
     throw new DatabaseRoleError(messages.join(" "));
   }
-  return { tenant, installation };
+  return auth ? { tenant, installation, auth } : { tenant, installation };
 }
 
 // ---------------------------------------------------------------------------
@@ -269,18 +304,205 @@ function literal(value: string): string {
 const ROLE_ATTRIBUTES: Record<RoleKind, string> = {
   tenant: "LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION INHERIT",
   installation: "LOGIN NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION INHERIT",
+  auth: "LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION INHERIT",
+};
+
+// ---------------------------------------------------------------------------
+// The auth role's login
+// ---------------------------------------------------------------------------
+
+/** Suffix of the derived auth role's name. */
+const AUTH_ROLE_SUFFIX = "_auth";
+
+/** Domain separation of the derived password: a new scheme gets a new label. */
+const AUTH_PASSWORD_LABEL = "restow/database-auth-role/v1";
+
+/**
+ * The auth role's login when DATABASE_AUTH_URL is not set: named after the
+ * tenant role (`restow_app` becomes `restow_app_auth`), its password an HMAC
+ * of that name keyed with the installation role's password. Deterministic, so
+ * the migration step (which creates the role) and the api (which connects
+ * with it) arrive at the same login from the variables both already have, and
+ * an upgrade needs no new setting. Whoever knows the installation password
+ * can compute it, and already holds a role that reaches strictly more; a
+ * changed installation password changes it too, and the next migration step
+ * sets the new one.
+ */
+export function deriveAuthLogin(tenant: RoleLogin, installation: RoleLogin): RoleLogin {
+  const name = `${tenant.name.slice(0, 63 - AUTH_ROLE_SUFFIX.length)}${AUTH_ROLE_SUFFIX}`;
+  const password = createHmac("sha256", Buffer.from(installation.password, "utf8"))
+    .update(`${AUTH_PASSWORD_LABEL}:${name}`, "utf8")
+    .digest("base64url");
+  return { name, password };
+}
+
+type Env = Readonly<Record<string, string | undefined>>;
+
+function envValue(env: Env, name: string): string | undefined {
+  const value = env[name]?.trim();
+  return value ? value : undefined;
+}
+
+/**
+ * The auth role's login from the environment: DATABASE_AUTH_URL when set,
+ * else derived from DATABASE_URL and DATABASE_PROVIDER_URL ({@link deriveAuthLogin}).
+ */
+export function authLoginFromEnvironment(env: Env): RoleLogin {
+  const explicit = envValue(env, ROLE_URL_VARIABLE.auth);
+  if (explicit) {
+    return roleLoginFromUrl(explicit, ROLE_URL_VARIABLE.auth);
+  }
+  const tenant = envValue(env, ROLE_URL_VARIABLE.tenant);
+  const installation = envValue(env, ROLE_URL_VARIABLE.installation);
+  if (!tenant || !installation) {
+    throw new DatabaseRoleError(
+      `${ROLE_URL_VARIABLE.tenant} and ${ROLE_URL_VARIABLE.installation} are required to derive the auth role (or set ${ROLE_URL_VARIABLE.auth}).`,
+    );
+  }
+  return deriveAuthLogin(
+    roleLoginFromUrl(tenant, ROLE_URL_VARIABLE.tenant),
+    roleLoginFromUrl(installation, ROLE_URL_VARIABLE.installation),
+  );
+}
+
+/**
+ * The auth pool's connection string: DATABASE_AUTH_URL when set, else
+ * DATABASE_URL (same host, database and options) with the derived login.
+ */
+export function authUrlFromEnvironment(env: Env): string {
+  const explicit = envValue(env, ROLE_URL_VARIABLE.auth);
+  if (explicit) {
+    return explicit;
+  }
+  const login = authLoginFromEnvironment(env);
+  const url = new URL(envValue(env, ROLE_URL_VARIABLE.tenant) as string);
+  url.username = login.name;
+  url.password = login.password;
+  return url.toString();
+}
+
+// ---------------------------------------------------------------------------
+// Which role reaches which table
+// ---------------------------------------------------------------------------
+
+/**
+ * Where a table belongs:
+ *
+ *   tenant        tenant data under the Row Level Security policy of
+ *                 sql/rls.sql: the tenant role within its pinned tenant, the
+ *                 installation role across tenants.
+ *   auth          better-auth's tables: the auth and installation roles. The
+ *                 tenant role reads {@link TENANT_USER_COLUMNS} of `user`, nothing else.
+ *   installation  installation-level rows: the installation role alone.
+ */
+export type TableAccess = "tenant" | "auth" | "installation";
+
+/**
+ * Every table that is not plain tenant data (a `tenant_id` column listed in
+ * sql/rls.sql). packages/db schema tests fail on a table that is neither, so a
+ * new table has to be placed here, or under Row Level Security, before it ships.
+ */
+export const TABLE_ACCESS: Readonly<Record<string, TableAccess>> = {
+  // Isolated on its own id (sql/rls.sql `tenant_isolation_self`).
+  tenants: "tenant",
+  // better-auth (schema/auth.ts).
+  user: "auth",
+  session: "auth",
+  account: "auth",
+  verification: "auth",
+  passkey: "auth",
+  organization: "auth",
+  member: "auth",
+  invitation: "auth",
+  two_factor: "auth",
+  rate_limit: "auth",
+  // Installation level.
+  providers: "installation",
+  settings: "installation",
+  license: "installation",
+  service_heartbeats: "installation",
+  // Services that need a manual restart (restart-requests.ts); no tenant data.
+  restart_requests: "installation",
+  // Who may do what on the provider side (schema/provider-team.ts): no
+  // tenant-scoped code path can widen a provider admin's rights.
+  provider_members: "installation",
+  // Carries tenant_id and a policy, a second line should it ever be granted.
+  provider_member_tenants: "installation",
+};
+
+/** The tables {@link TABLE_ACCESS} gives `access`. */
+export function tablesWithAccess(access: TableAccess): string[] {
+  return Object.entries(TABLE_ACCESS)
+    .filter(([, value]) => value === access)
+    .map(([table]) => table);
+}
+
+/**
+ * The columns of better-auth's `user` the tenant role may read: the name and
+ * address of whoever acted, which tenant views show next to their own rows
+ * (who requested a restore, an export or an import, who created an API key).
+ * Neither a credential nor the provider role of a person.
+ */
+export const TENANT_USER_COLUMNS = ["id", "name", "email"] as const;
+
+/**
+ * Restow tables the auth role reaches besides better-auth's, under Row Level
+ * Security like the tenant role: redeeming a set-password link checks the
+ * tenant it was issued for and appends that tenant's audit entry in the same
+ * pinned transaction as the password (apps/api features/accounts).
+ */
+export const AUTH_ROLE_RESTOW_GRANTS: Readonly<Record<string, string>> = {
+  tenants: "SELECT",
+  audit_log: "SELECT, INSERT",
 };
 
 /** Tables nobody but the owner may rewrite (the triggers in sql/rls.sql refuse it as well). */
 const APPEND_ONLY_TABLES = ["audit_log", "audit_anchor", "archive_anchor"];
 
+/** Run `statement` only when `table` exists (a database being upgraded may not have it yet). */
+function whenTableExists(table: string, statement: string): string {
+  return `DO $$ BEGIN IF to_regclass(${literal(`public.${ident(table)}`)}) IS NOT NULL THEN EXECUTE ${literal(statement)}; END IF; END $$`;
+}
+
+/** Serializes every change of the roles' grants (migration step, worker, scheduler). */
+const GRANT_LOCK = "SELECT pg_advisory_xact_lock(hashtext('restow.database-roles'))";
+
 /**
- * Who may do what on the provider side (schema/provider-team.ts): read and
- * written only by the installation role. The tenant role, which serves
- * requests pinned to one tenant, never needs them, so it gets no access at
- * all: no tenant-scoped code path can widen a provider admin's rights.
+ * What the tenant role may do in the pg-boss schema: enqueue a job, nothing
+ * else. pg-boss' `send` is one `INSERT INTO pgboss.job ... SELECT ... JOIN
+ * pgboss.queue ... RETURNING id`, so it needs INSERT on the job table, the id
+ * it returns, and the queue definitions (which the API also checks for before
+ * a first backup). It cannot read another job's payload, nor change, cancel
+ * or delete one: cancelling runs on the installation pool. Rows go through
+ * the partitioned `pgboss.job`, so the per-queue partitions need no grant.
  */
-const INSTALLATION_ONLY_TABLES = ["provider_members", "provider_member_tenants"];
+function queueAccessStatements(tenant: string): string[] {
+  const role = ident(tenant);
+  return [
+    `REVOKE ALL ON ALL TABLES IN SCHEMA pgboss FROM ${role}`,
+    `REVOKE ALL ON ALL SEQUENCES IN SCHEMA pgboss FROM ${role}`,
+    `GRANT USAGE ON SCHEMA pgboss TO ${role}`,
+    `DO $$ BEGIN IF to_regclass('pgboss.queue') IS NOT NULL THEN EXECUTE ${literal(`GRANT SELECT ON pgboss.queue TO ${role}`)}; END IF; END $$`,
+    `DO $$ BEGIN IF to_regclass('pgboss.job') IS NOT NULL THEN EXECUTE ${literal(`GRANT INSERT, SELECT (id) ON pgboss.job TO ${role}`)}; END IF; END $$`,
+  ];
+}
+
+/**
+ * Give the tenant role its enqueue-only access to the pg-boss schema. The
+ * migration step does it when the schema already exists; the worker and the
+ * scheduler, which create (and upgrade) the schema as the installation role
+ * that owns it, call this right after pg-boss has started, so a fresh
+ * installation and a pg-boss upgrade get the same grants. `installation`
+ * connects as that role; `tenantRole` is the tenant pool's role name. One
+ * statement batch, so it is a single transaction, serialized with the
+ * migration step's by an advisory lock.
+ */
+export async function grantQueueAccess(installation: Queryable, tenantRole: string): Promise<void> {
+  // Several statements in one simple query run as one implicit transaction:
+  // all or nothing, and the pooled connection never stays in a failed one.
+  const statements = [GRANT_LOCK, ...queueAccessStatements(tenantRole)];
+  await installation.query(statements.join(";\n"));
+}
 
 async function ensureRole(owner: Queryable, kind: RoleKind, login: RoleLogin): Promise<void> {
   const { rows } = await owner.query<{ exists: boolean }>(
@@ -365,15 +587,16 @@ END $$`;
 }
 
 /**
- * Create or update the tenant and installation roles and grant them what they
- * need. Idempotent; runs after every migration as the owner, which must be a
- * superuser (the compose default) or at least allowed to create BYPASSRLS roles.
- * `owner` must be one connection (a client, not a pool): everything happens
- * in a single transaction.
+ * Create or update the tenant, installation and auth roles and grant them
+ * what they need. Idempotent; runs after every migration as the owner, which
+ * must be a superuser (the compose default) or at least allowed to create
+ * BYPASSRLS roles. `owner` must be one connection (a client, not a pool):
+ * everything happens in a single transaction. Without `auth` the auth role's
+ * login is derived from the other two ({@link deriveAuthLogin}).
  */
 export async function provisionRoles(
   owner: Queryable,
-  roles: { tenant: RoleLogin; installation: RoleLogin },
+  roles: { tenant: RoleLogin; installation: RoleLogin; auth?: RoleLogin },
 ): Promise<void> {
   const { rows } = await owner.query<{ owner: string; database: string }>(
     "SELECT current_user AS owner, current_database() AS database",
@@ -382,36 +605,46 @@ export async function provisionRoles(
   if (!context) {
     throw new DatabaseRoleError("the migration connection could not name its role");
   }
-  if (roles.tenant.name === roles.installation.name) {
-    throw new DatabaseRoleError(
-      `DATABASE_URL and DATABASE_PROVIDER_URL must use two different roles (both use "${roles.tenant.name}").`,
-    );
-  }
-  for (const [kind, login] of [
-    ["tenant", roles.tenant],
-    ["installation", roles.installation],
-  ] as const) {
-    if (login.name === context.owner) {
+  const logins: Record<RoleKind, RoleLogin> = {
+    tenant: roles.tenant,
+    installation: roles.installation,
+    auth: roles.auth ?? deriveAuthLogin(roles.tenant, roles.installation),
+  };
+  const kinds = Object.keys(logins) as RoleKind[];
+  for (const [index, kind] of kinds.entries()) {
+    for (const other of kinds.slice(index + 1)) {
+      if (logins[kind].name === logins[other].name) {
+        throw new DatabaseRoleError(
+          `${ROLE_URL_VARIABLE[kind]} and ${ROLE_URL_VARIABLE[other]} must use different roles (both use "${logins[kind].name}").`,
+        );
+      }
+    }
+    if (logins[kind].name === context.owner) {
       throw new DatabaseRoleError(
-        `${ROLE_URL_VARIABLE[kind]} connects as "${login.name}", the owner that runs the migrations (DATABASE_MIGRATION_URL). Give it a role of its own.`,
+        `${ROLE_URL_VARIABLE[kind]} connects as "${logins[kind].name}", the owner that runs the migrations (DATABASE_MIGRATION_URL). Give it a role of its own.`,
       );
     }
   }
 
-  const tenant = ident(roles.tenant.name);
-  const installation = ident(roles.installation.name);
+  const tenant = ident(logins.tenant.name);
+  const installation = ident(logins.installation.name);
+  const auth = ident(logins.auth.name);
   const database = `"${context.database.replace(/"/g, '""')}"`;
   const both = `${tenant}, ${installation}`;
+  const all = `${tenant}, ${installation}, ${auth}`;
 
   await owner.query("BEGIN");
   try {
-    await ensureRole(owner, "tenant", roles.tenant);
-    await ensureRole(owner, "installation", roles.installation);
+    await owner.query(GRANT_LOCK);
+    for (const kind of kinds) {
+      await ensureRole(owner, kind, logins[kind]);
+    }
     for (const statement of [
-      `GRANT CONNECT ON DATABASE ${database} TO ${both}`,
+      `GRANT CONNECT ON DATABASE ${database} TO ${all}`,
       // pg-boss creates its own schema on first start, as the installation role.
       `GRANT CREATE ON DATABASE ${database} TO ${installation}`,
-      `GRANT USAGE ON SCHEMA public TO ${both}`,
+      `GRANT USAGE ON SCHEMA public TO ${all}`,
+      // Tenant data: everything not classified otherwise below is under Row Level Security.
       `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ${both}`,
       `GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO ${both}`,
       `ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${both}`,
@@ -421,19 +654,42 @@ export async function provisionRoles(
       `REVOKE UPDATE, TRUNCATE ON archive_items FROM ${both}`,
       `REVOKE DELETE ON archive_items FROM ${tenant}`,
       // An archived mail's mailbox assignments are append-only in the same way.
-      // (Guarded like the installation-only tables: an older database may not have it yet.)
-      `DO $$ BEGIN IF to_regclass('public.archive_item_mailboxes') IS NOT NULL THEN EXECUTE 'REVOKE UPDATE, TRUNCATE ON archive_item_mailboxes FROM ${both}'; EXECUTE 'REVOKE DELETE ON archive_item_mailboxes FROM ${tenant}'; END IF; END $$`,
-      // Only once the tables exist (a database being upgraded may not have them yet).
-      ...INSTALLATION_ONLY_TABLES.map(
-        (table) =>
-          `DO $$ BEGIN IF to_regclass('public.${table}') IS NOT NULL THEN EXECUTE 'REVOKE ALL ON ${table} FROM ${tenant}'; END IF; END $$`,
+      // (Guarded: an older database may not have it yet.)
+      whenTableExists(
+        "archive_item_mailboxes",
+        `REVOKE UPDATE, TRUNCATE ON archive_item_mailboxes FROM ${both}`,
       ),
-      // Whatever pg-boss creates as the installation role, the tenant role may enqueue into:
-      // the API and the scheduler insert jobs inside tenant-pinned transactions.
-      `ALTER DEFAULT PRIVILEGES FOR ROLE ${installation} GRANT USAGE ON SCHEMAS TO ${tenant}`,
-      `ALTER DEFAULT PRIVILEGES FOR ROLE ${installation} GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${tenant}`,
-      `ALTER DEFAULT PRIVILEGES FOR ROLE ${installation} GRANT USAGE, SELECT, UPDATE ON SEQUENCES TO ${tenant}`,
-      pgBossOwnershipSql(roles.installation.name),
+      whenTableExists(
+        "archive_item_mailboxes",
+        `REVOKE DELETE ON archive_item_mailboxes FROM ${tenant}`,
+      ),
+      // The installation tables are the installation role's alone.
+      ...tablesWithAccess("installation").map((table) =>
+        whenTableExists(table, `REVOKE ALL ON ${ident(table)} FROM ${tenant}`),
+      ),
+      // better-auth's tables: the auth role (and the installation role); the
+      // tenant role only the name and address of a user.
+      `REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ${auth}`,
+      ...tablesWithAccess("auth").flatMap((table) => [
+        whenTableExists(table, `REVOKE ALL ON ${ident(table)} FROM ${tenant}`),
+        whenTableExists(
+          table,
+          `GRANT SELECT, INSERT, UPDATE, DELETE ON ${ident(table)} TO ${auth}`,
+        ),
+      ]),
+      whenTableExists(
+        "user",
+        `GRANT SELECT (${TENANT_USER_COLUMNS.join(", ")}) ON ${ident("user")} TO ${tenant}`,
+      ),
+      ...Object.entries(AUTH_ROLE_RESTOW_GRANTS).map(([table, privileges]) =>
+        whenTableExists(table, `GRANT ${privileges} ON ${ident(table)} TO ${auth}`),
+      ),
+      // Until 0.3.5 the tenant role got everything the installation role created
+      // (the pg-boss schema); now it gets enqueue access only (queueAccessStatements).
+      `ALTER DEFAULT PRIVILEGES FOR ROLE ${installation} REVOKE ALL ON SCHEMAS FROM ${tenant}`,
+      `ALTER DEFAULT PRIVILEGES FOR ROLE ${installation} REVOKE ALL ON TABLES FROM ${tenant}`,
+      `ALTER DEFAULT PRIVILEGES FOR ROLE ${installation} REVOKE ALL ON SEQUENCES FROM ${tenant}`,
+      pgBossOwnershipSql(logins.installation.name),
     ]) {
       await owner.query(statement);
     }
@@ -441,13 +697,9 @@ export async function provisionRoles(
       "SELECT to_regnamespace('pgboss') IS NOT NULL AS present",
     );
     if (pgBoss[0]?.present) {
-      await owner.query(`GRANT USAGE ON SCHEMA pgboss TO ${tenant}`);
-      await owner.query(
-        `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA pgboss TO ${tenant}`,
-      );
-      await owner.query(
-        `GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA pgboss TO ${tenant}`,
-      );
+      for (const statement of queueAccessStatements(logins.tenant.name)) {
+        await owner.query(statement);
+      }
     }
     await owner.query("COMMIT");
   } catch (error) {

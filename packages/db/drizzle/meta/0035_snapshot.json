@@ -1,6 +1,6 @@
 {
-  "id": "49e0865f-7f70-44b9-8e2b-db8cbc9df454",
-  "prevId": "6a7fb315-8a24-43d2-9b94-036c826f2849",
+  "id": "c57e6448-2725-456e-bb25-123961d3888a",
+  "prevId": "d6f3c0d3-5aec-42a0-b3af-3d4f90628def",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3072,48 +3072,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "manifest_objects_tenant_path_idx": {
-          "name": "manifest_objects_tenant_path_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "path",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "manifest_objects_object_item_idx": {
-          "name": "manifest_objects_object_item_idx",
-          "columns": [
-            {
-              "expression": "protected_object_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "item_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -3161,6 +3119,229 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.manifest_versions": {
+      "name": "manifest_versions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "protected_object_id": {
+          "name": "protected_object_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "first_sequence": {
+          "name": "first_sequence",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_sequence": {
+          "name": "last_sequence",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content_hash": {
+          "name": "content_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "manifest_object_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "parent_path": {
+          "name": "parent_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "size": {
+          "name": "size",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "mtime": {
+          "name": "mtime",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "chunk_refs": {
+          "name": "chunk_refs",
+          "type": "bytea[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deleted": {
+          "name": "deleted",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "manifest_versions_object_last_idx": {
+          "name": "manifest_versions_object_last_idx",
+          "columns": [
+            {
+              "expression": "protected_object_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "last_sequence",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "manifest_versions_object_path_idx": {
+          "name": "manifest_versions_object_path_idx",
+          "columns": [
+            {
+              "expression": "protected_object_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "path",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "manifest_versions_object_item_idx": {
+          "name": "manifest_versions_object_item_idx",
+          "columns": [
+            {
+              "expression": "protected_object_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "item_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "manifest_versions_tenant_id_tenants_id_fk": {
+          "name": "manifest_versions_tenant_id_tenants_id_fk",
+          "tableFrom": "manifest_versions",
+          "tableTo": "tenants",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "manifest_versions_protected_object_id_protected_objects_id_fk": {
+          "name": "manifest_versions_protected_object_id_protected_objects_id_fk",
+          "tableFrom": "manifest_versions",
+          "tableTo": "protected_objects",
+          "columnsFrom": [
+            "protected_object_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "manifest_versions_range_ck": {
+          "name": "manifest_versions_range_ck",
+          "value": "\"manifest_versions\".\"first_sequence\" <= \"manifest_versions\".\"last_sequence\""
+        }
+      },
       "isRLSEnabled": false
     },
     "public.item_failures": {
@@ -8813,12 +8994,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "file_share_id": {
-          "name": "file_share_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "overrides": {
           "name": "overrides",
           "type": "jsonb",
@@ -8927,22 +9102,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "backup_job_members_file_share_uq": {
-          "name": "backup_job_members_file_share_uq",
-          "columns": [
-            {
-              "expression": "file_share_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"backup_job_members\".\"file_share_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -8997,19 +9156,6 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
-        },
-        "backup_job_members_file_share_id_file_shares_id_fk": {
-          "name": "backup_job_members_file_share_id_file_shares_id_fk",
-          "tableFrom": "backup_job_members",
-          "tableTo": "file_shares",
-          "columnsFrom": [
-            "file_share_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -9018,7 +9164,7 @@
       "checkConstraints": {
         "backup_job_members_one_target_ck": {
           "name": "backup_job_members_one_target_ck",
-          "value": "num_nonnulls(\"backup_job_members\".\"protected_object_id\", \"backup_job_members\".\"endpoint_id\", \"backup_job_members\".\"file_share_id\") = 1"
+          "value": "(\"backup_job_members\".\"protected_object_id\" IS NOT NULL) <> (\"backup_job_members\".\"endpoint_id\" IS NOT NULL)"
         }
       },
       "isRLSEnabled": false
@@ -9112,18 +9258,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'user'"
-        },
-        "source_file_share_id": {
-          "name": "source_file_share_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "target_file_share_id": {
-          "name": "target_file_share_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
         },
         "next_run_at": {
           "name": "next_run_at",
@@ -9309,32 +9443,6 @@
           "onDelete": "set null",
           "onUpdate": "no action"
         },
-        "backup_jobs_source_file_share_id_file_shares_id_fk": {
-          "name": "backup_jobs_source_file_share_id_file_shares_id_fk",
-          "tableFrom": "backup_jobs",
-          "tableTo": "file_shares",
-          "columnsFrom": [
-            "source_file_share_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "backup_jobs_target_file_share_id_file_shares_id_fk": {
-          "name": "backup_jobs_target_file_share_id_file_shares_id_fk",
-          "tableFrom": "backup_jobs",
-          "tableTo": "file_shares",
-          "columnsFrom": [
-            "target_file_share_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "backup_jobs_created_by_user_id_fk": {
           "name": "backup_jobs_created_by_user_id_fk",
           "tableFrom": "backup_jobs",
@@ -9352,16 +9460,7 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {
-        "backup_jobs_copy_shares_ck": {
-          "name": "backup_jobs_copy_shares_ck",
-          "value": "CASE WHEN \"backup_jobs\".\"kind\"::text = 'copy' THEN \"backup_jobs\".\"source_file_share_id\" IS NOT NULL AND \"backup_jobs\".\"target_file_share_id\" IS NOT NULL ELSE \"backup_jobs\".\"source_file_share_id\" IS NULL AND \"backup_jobs\".\"target_file_share_id\" IS NULL END"
-        },
-        "backup_jobs_copy_distinct_ck": {
-          "name": "backup_jobs_copy_distinct_ck",
-          "value": "\"backup_jobs\".\"source_file_share_id\" <> \"backup_jobs\".\"target_file_share_id\""
-        }
-      },
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.run_samples": {
@@ -13480,6 +13579,87 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.restart_requests": {
+      "name": "restart_requests",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "service": {
+          "name": "service",
+          "type": "service_role",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "reason": {
+          "name": "reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "requested_at": {
+          "name": "requested_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "restart_requests_service_reason_uq": {
+          "name": "restart_requests_service_reason_uq",
+          "columns": [
+            {
+              "expression": "service",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "reason",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "restart_requests_reason_key": {
+          "name": "restart_requests_reason_key",
+          "value": "\"restart_requests\".\"reason\" ~ '^[a-z][a-z0-9_]{0,63}$'"
+        }
+      },
+      "isRLSEnabled": false
+    },
     "public.service_heartbeats": {
       "name": "service_heartbeats",
       "schema": "",
@@ -14214,9 +14394,7 @@
       "schema": "public",
       "values": [
         "mail",
-        "endpoint",
-        "share",
-        "copy"
+        "endpoint"
       ]
     },
     "public.backup_job_scope": {

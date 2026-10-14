@@ -1,5 +1,8 @@
 # Restow release stack
 
+Every service, setting and variable of these two files is explained on
+[docs.restowbackup.com](https://docs.restowbackup.com).
+
 `docker-compose.yml` runs a published Restow release: PostgreSQL, the api,
 worker and scheduler roles from the application image, and the Caddy edge from the
 web image. It builds nothing. Both images carry the same tag, the release version
@@ -9,8 +12,8 @@ Every release comes in two builds. Pick one and use both of its images:
 
 | Build | `RESTOW_IMAGE` | `RESTOW_WEB_IMAGE` | Contains |
 | --- | --- | --- | --- |
-| full | `ghcr.io/restow-backup/restow:0.3.3` | `ghcr.io/restow-backup/restow-web:0.3.3` | the Apache-2.0 core plus the Business and Service Provider modules (Restow Enterprise License), which stay locked until a license key is installed |
-| Community | `ghcr.io/restow-backup/restow-community:0.3.3` | `ghcr.io/restow-backup/restow-web-community:0.3.3` | the Apache-2.0 core only: every backup source and every restore, for one tenant |
+| full | `ghcr.io/restow-backup/restow:0.3.6` | `ghcr.io/restow-backup/restow-web:0.3.6` | the Apache-2.0 core plus the Business and Service Provider modules (Restow Enterprise License), which stay locked until a license key is installed |
+| Community | `ghcr.io/restow-backup/restow-community:0.3.6` | `ghcr.io/restow-backup/restow-web-community:0.3.6` | the Apache-2.0 core only: every backup source and every restore, for one tenant |
 
 Take the full build if you may want the Business or Service Provider features later: a
 license key unlocks them without changing images. Take the Community build if you want the
@@ -54,8 +57,8 @@ The archive's Exchange Online journal receiver (Business and Service Provider) i
 reachable from the internet), and it needs `JOURNAL_HOSTNAME` and a TLS certificate for that host
 name: Exchange Online requires TLS, so without one the receiver does not start. Put `fullchain.pem`
 and `privkey.pem` into `./journal-tls` (mounted read-only into the api; `JOURNAL_TLS_DIR` changes
-the directory) and set `JOURNAL_TLS_CERT_PATH` and `JOURNAL_TLS_KEY_PATH` in `.env` as described in
-`.env.example`. A renewed certificate in those files is picked up within minutes, without a
+the directory) and set `JOURNAL_TLS_CERT_PATH=/etc/restow/journal-tls/fullchain.pem` and
+`JOURNAL_TLS_KEY_PATH=/etc/restow/journal-tls/privkey.pem` in `.env`. A renewed certificate in those files is picked up within minutes, without a
 restart. Details: the [Exchange journaling guide](https://docs.restowbackup.com/administrators/exchange-journaling/).
 
 Update by hand by changing the two image lines in `.env` and running
@@ -84,7 +87,7 @@ Every image of a release is signed with cosign (keyless, GitHub OIDC). For the C
 build, verify `restow-community` and `restow-web-community` the same way:
 
 ```sh
-cosign verify ghcr.io/restow-backup/restow:0.3.3 \
+cosign verify ghcr.io/restow-backup/restow:0.3.6 \
   --certificate-identity-regexp '^https://github.com/restow-backup/restow/\.github/workflows/release\.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```

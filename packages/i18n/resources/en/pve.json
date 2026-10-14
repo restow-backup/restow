@@ -64,7 +64,7 @@
     "name": "Name",
     "kind": "Type",
     "node": "Node",
-    "size": "Size",
+    "size": "Disk",
     "job": "Backup job",
     "lastBackup": "Last backup",
     "state": "State",
@@ -73,7 +73,8 @@
     "ct": "Container",
     "noJob": "No backup job",
     "backupNow": "Back up now",
-    "backupQueued": "The backup was handed to the node.",
+    "backupQueued": "Backup requested. The node starts it at its next check-in, usually within a minute.",
+    "backupAlreadyQueued": "A backup of this guest is already waiting for the node.",
     "open": "Open",
     "template": "Template (cannot be backed up)",
     "privileged": "Privileged",
@@ -81,7 +82,18 @@
     "lastFailed": "Last run failed",
     "incremental": "Incremental",
     "fullRead": "Full read (VM was restarted)",
-    "never": "Never"
+    "never": "Never",
+    "queued": "Waiting for the node",
+    "running": "Backup running",
+    "lastSucceeded": "Last backup succeeded",
+    "sizeHint": "Configured disk size in Proxmox VE: what is allocated, not what is in use.",
+    "backup": "Backup",
+    "backupContains": "{size} in the backup",
+    "backupAdded": "+{size} new in the last run",
+    "backupFirst": "First backup on {date}: {size} stored",
+    "backupNone": "No backup yet",
+    "incomplete": "Last backup incomplete",
+    "incompleteHint": "{count, plural, one {# item} other {# items}} could not be read; the restore point misses them."
   },
   "jobs": {
     "title": "Backup jobs",
@@ -116,7 +128,7 @@
     "restorePoints": "Restore points",
     "noRestorePoints": "No restore point yet.",
     "time": "Time",
-    "size": "Size",
+    "size": "Contains",
     "changed": "Changed blocks",
     "mode": "Read",
     "verify": "Restore check",
@@ -149,7 +161,18 @@
       "reuse": "Changed blocks only",
       "new": "Whole disk",
       "none": "Whole disk"
-    }
+    },
+    "sizeHint": "Everything this restore point restores: all files of a container, all disks of a VM. Unchanged data is stored only once.",
+    "added": "New in this backup",
+    "addedHint": "What this backup added to the repository after deduplication and compression of unchanged data.",
+    "type": "Type",
+    "backupType": {
+      "first": "First backup",
+      "incremental": "Incremental",
+      "full_read": "Full read"
+    },
+    "unreadable": "{count, plural, one {# item} other {# items}} not readable",
+    "succeededWithGaps": "Succeeded with gaps"
   },
   "restore": {
     "title": "Restore as a new guest",
@@ -159,7 +182,7 @@
     "vmid": "New ID (empty: next free one)",
     "start": "Start after the restore",
     "submit": "Restore",
-    "queued": "The restore was handed to the node.",
+    "queued": "Restore requested. The node starts it at its next check-in, usually within a minute.",
     "privileged": "Proxmox VE cannot restore privileged containers from a backup interface."
   },
   "readiness": {
@@ -184,16 +207,33 @@
     "guestCount": "VMs and containers: {count}",
     "noGuests": "No VMs or containers reported on this node.",
     "running": "Status",
-    "protection": "Backup",
+    "protection": "Protection",
+    "actions": {
+      "selected": "{count} selected",
+      "select": "Select {name}",
+      "selectAll": "Select all VMs and containers of this node",
+      "clear": "Clear selection",
+      "addToJob": "Add to job…",
+      "newJob": "New job…",
+      "jobOf": "Backup job of {name}",
+      "backupNowOf": "Back up {name} now",
+      "withoutJob": "{count, plural, one {# VM or container has} other {# VMs and containers have}} no backup job.",
+      "selectWithoutJob": "Select them",
+      "assigned": "{count, plural, one {# VM or container is} other {# VMs and containers are}} now in the job.",
+      "unassigned": "Removed from its backup job.",
+      "backupQueued": "{count, plural, one {Backup requested} other {# backups requested}}. The node starts them at its next check-in, usually within a minute."
+    },
     "count": {
       "protected": "Protected: {count}",
       "failed": "Failed: {count}",
+      "incomplete": "Incomplete: {count}",
       "noJob": "No job: {count}",
       "never": "Not backed up yet: {count}"
     },
     "state": {
       "protected": "Protected",
       "failed": "Last run failed",
+      "incomplete": "Last backup incomplete",
       "noJob": "No backup job",
       "never": "Not backed up yet",
       "excluded": "Not backed up (template or gone)"

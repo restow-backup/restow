@@ -175,10 +175,14 @@
     },
     "roles": {
       "tenant_admin": "Mandanten-Admin",
+      "tenant_restore": "Restore-Operator",
       "tenant_user": "Nutzer"
     },
+    "rolePlaceholder": "Rolle wählen …",
     "roleHints": {
+      "none": "Wählen Sie, was die Person in diesem Mandanten sehen und tun darf.",
       "tenant_admin": "Verwaltet Quellen, Schutz, Mitglieder und Wiederherstellungen für alle im Mandanten.",
+      "tenant_restore": "Durchsucht, stellt wieder her und exportiert alle Konten des Mandanten, ändert aber keine Quellen, Jobs oder Mitglieder.",
       "tenant_user": "Stellt nur das eigene Postfach und OneDrive wieder her."
     },
     "invitations": {
@@ -219,7 +223,7 @@
     "error": "Die Einladung konnte nicht geladen werden.",
     "heading": "Sie sind zu {tenant} eingeladen",
     "headingGeneric": "Sie sind zu einem Mandanten eingeladen",
-    "lead": "Nehmen Sie an, um Zugriff als {role, select, tenant_admin {Mandanten-Admin} other {Nutzer}} zu erhalten.",
+    "lead": "Nehmen Sie an, um Zugriff als {role, select, tenant_admin {Mandanten-Admin} tenant_restore {Restore-Operator} other {Nutzer}} zu erhalten.",
     "leadGeneric": "Nehmen Sie an, um Zugriff mit der Rolle zu erhalten, die Ihr Administrator für Sie gewählt hat.",
     "fields": {
       "account": "Ihr Konto",
@@ -297,8 +301,8 @@
     "resumed": "{name} ist wieder aktiv.",
     "deleted": "{name} wird gelöscht.",
     "entered": "Sie arbeiten jetzt in {name}.",
-    "memberAdded": "{email} hat jetzt Zugriff als {role, select, tenant_admin {Mandanten-Admin} other {Nutzer}}.",
-    "roleChanged": "{name} ist jetzt {role, select, tenant_admin {Mandanten-Admin} other {Nutzer}}.",
+    "memberAdded": "{email} hat jetzt Zugriff als {role, select, tenant_admin {Mandanten-Admin} tenant_restore {Restore-Operator} other {Nutzer}}.",
+    "roleChanged": "{name} ist jetzt {role, select, tenant_admin {Mandanten-Admin} tenant_restore {Restore-Operator} other {Nutzer}}.",
     "memberRemoved": "{name} hat keinen Zugriff mehr.",
     "invitationCanceled": "Die Einladung für {email} wurde zurückgezogen.",
     "copied": "Link kopiert.",

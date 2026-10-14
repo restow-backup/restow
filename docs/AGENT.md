@@ -166,6 +166,10 @@ Standardkonfiguration (`packages/core/src/endpoints/config.ts`):
   /usr/local /var/lib /var/backups` (dort liegen die Daten der Anwendungen, etwa in einem
   LXC-Container); macOS `/Users`, (Windows später `C:\Users`, bei Servern zusätzlich
   `C:\ProgramData`).
+- Fehlt einem Linux-Job einer dieser Datenordner (`/home /root /srv /var/www /opt /usr/local
+  /var/lib /var/backups`), etwa weil er mit den Client-Pfaden angelegt wurde, sagt der
+  Job-Editor das und bietet an, sie hinzuzufügen; der Datei-Restore sagt es zu einem
+  Sicherungsstand ohne sie (#59).
 - Ausschlüsse je System: Caches, Temp, Papierkorb, `node_modules`, `*.tmp`, der restic-Cache;
   unter Linux außerdem `/var/lib/docker`, `/var/lib/containerd` und `/var/lib/apt/lists`
   (Images und Paketlisten werden neu geladen, nicht wiederhergestellt). Datenbanken unter

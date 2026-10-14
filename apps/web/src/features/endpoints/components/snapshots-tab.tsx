@@ -1,4 +1,5 @@
 import { StatusBadge } from "@/components/kit";
+import { MissingDataFoldersNotice } from "@/features/backup-jobs/components/missing-data-folders";
 import type { FileSourceAdapter } from "@/features/restore/files/adapter";
 import {
   RestorePointBrowser,
@@ -101,6 +102,10 @@ export function SnapshotsTab({
     emptyTitle: t("snapshots.empty.title"),
     emptyDescription: t("snapshots.empty.description"),
     renderDetails: renderSnapshot,
+    renderBrowserExtra: (snapshot) =>
+      detail.os === "linux" ? (
+        <MissingDataFoldersNotice paths={snapshot.paths} context="restorePoint" />
+      ) : null,
     renderRestoreDialog: (props) => (
       <RestoreDialog
         open={props.open}

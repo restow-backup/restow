@@ -4,7 +4,11 @@ import {
   DatabaseRoleError,
   type DatabaseRoleInfo,
   type Queryable,
+  TABLE_ACCESS,
   assertDatabaseRoles,
+  authLoginFromEnvironment,
+  authUrlFromEnvironment,
+  deriveAuthLogin,
   describeRoleProblems,
   roleLoginFromUrl,
   roleProblems,
@@ -88,7 +92,104 @@ describe("assertDatabaseRoles", () => {
   it("refuses one role for both pools", async () => {
     await expect(
       assertDatabaseRoles({ tenant: poolAs(provider), installation: poolAs(provider) }),
-    ).rejects.toThrow(/two different roles|BYPASSRLS/);
+    ).rejects.toThrow(/different roles|BYPASSRLS/);
+  });
+
+  const authRole: DatabaseRoleInfo = { ...appRole, name: "restow_app_auth" };
+
+  it("checks the auth pool like the application pool", async () => {
+    await expect(
+      assertDatabaseRoles({
+        tenant: poolAs(appRole),
+        installation: poolAs(provider),
+        auth: poolAs(authRole),
+      }),
+    ).resolves.toEqual({ tenant: appRole, installation: provider, auth: authRole });
+    await expect(
+      assertDatabaseRoles({
+        tenant: poolAs(appRole),
+        installation: poolAs(provider),
+        auth: poolAs({ ...authRole, bypassRls: true }),
+      }),
+    ).rejects.toThrow(/DATABASE_AUTH_URL connects as "restow_app_auth", which has BYPASSRLS/);
+  });
+
+  it("refuses an auth pool that shares a role with another pool", async () => {
+    await expect(
+      assertDatabaseRoles({
+        tenant: poolAs(appRole),
+        installation: poolAs(provider),
+        auth: poolAs(appRole),
+      }),
+    ).rejects.toThrow(/DATABASE_URL and DATABASE_AUTH_URL both connect as "restow_app"/);
+  });
+});
+
+describe("the auth role's login", () => {
+  const tenant = { name: "restow_app", password: "app-secret" };
+  const installation = { name: "restow_provider", password: "provider-secret" };
+
+  it("is named after the application role and keyed with the installation password", () => {
+    const login = deriveAuthLogin(tenant, installation);
+    expect(login.name).toBe("restow_app_auth");
+    expect(login.password).toBe(
+      createHmac("sha256", "provider-secret")
+        .update("restow/database-auth-role/v1:restow_app_auth")
+        .digest("base64url"),
+    );
+    // Deterministic: the migration step and the api arrive at the same login.
+    expect(deriveAuthLogin(tenant, installation)).toEqual(login);
+    // A new installation password gives a new one; the application password plays no part.
+    expect(deriveAuthLogin(tenant, { ...installation, password: "other" }).password).not.toBe(
+      login.password,
+    );
+    expect(deriveAuthLogin({ ...tenant, password: "other" }, installation)).toEqual(login);
+  });
+
+  it("stays a valid role name for the longest application role name", () => {
+    const long = deriveAuthLogin({ name: "a".repeat(63), password: "x" }, installation);
+    expect(long.name).toBe(`${"a".repeat(58)}_auth`);
+    expect(long.name).toHaveLength(63);
+  });
+
+  it("comes from DATABASE_AUTH_URL when set, else from the other two URLs", () => {
+    const env = {
+      DATABASE_URL: "postgres://restow_app:app-secret@postgres:5432/restow?sslmode=disable",
+      DATABASE_PROVIDER_URL: "postgres://restow_provider:provider-secret@postgres:5432/restow",
+    };
+    const derived = deriveAuthLogin(tenant, installation);
+    expect(authLoginFromEnvironment(env)).toEqual(derived);
+    const url = new URL(authUrlFromEnvironment(env));
+    expect(roleLoginFromUrl(url.toString(), "x")).toEqual(derived);
+    expect(`${url.host}${url.pathname}${url.search}`).toBe("postgres:5432/restow?sslmode=disable");
+
+    const explicit = "postgres://restow_auth:own-secret@db:5432/restow";
+    expect(authUrlFromEnvironment({ ...env, DATABASE_AUTH_URL: ` ${explicit} ` })).toBe(explicit);
+    expect(authLoginFromEnvironment({ ...env, DATABASE_AUTH_URL: explicit })).toEqual({
+      name: "restow_auth",
+      password: "own-secret",
+    });
+    expect(authLoginFromEnvironment({ ...env, DATABASE_AUTH_URL: "" })).toEqual(derived);
+    expect(() => authLoginFromEnvironment({ DATABASE_URL: env.DATABASE_URL })).toThrow(
+      /DATABASE_AUTH_URL/,
+    );
+  });
+});
+
+describe("TABLE_ACCESS", () => {
+  it("keeps the credential tables away from the application role", () => {
+    for (const table of ["session", "account", "two_factor", "passkey", "verification"]) {
+      expect(TABLE_ACCESS[table], table).toBe("auth");
+    }
+    for (const table of [
+      "settings",
+      "license",
+      "providers",
+      "service_heartbeats",
+      "restart_requests",
+    ]) {
+      expect(TABLE_ACCESS[table], table).toBe("installation");
+    }
   });
 });
 

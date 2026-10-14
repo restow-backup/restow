@@ -185,22 +185,22 @@ export function ArchivePage() {
 
   if (!enabled) {
     return (
-      <>
+      <div className="space-y-6">
         {header}
         <EmptyState icon={ArchiveIcon} title={t("noTenant")} />
-      </>
+      </div>
     );
   }
 
   if (!canManage) {
     return (
-      <>
+      <div className="space-y-6">
         {header}
         <Alert variant="destructive">
           <ShieldAlert aria-hidden="true" />
           <AlertTitle>{t("forbidden")}</AlertTitle>
         </Alert>
-      </>
+      </div>
     );
   }
 
@@ -252,7 +252,7 @@ export function ArchivePage() {
   const number = (value: number) => formatInteger(value, language);
 
   return (
-    <>
+    <div className="space-y-6">
       {header}
 
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
@@ -531,6 +531,6 @@ export function ArchivePage() {
       <ExportDialog request={exportRequest} onClose={() => setExportRequest(null)} />
 
       <ExtensionSlot name="archive.sections" props={{}} />
-    </>
+    </div>
   );
 }

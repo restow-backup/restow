@@ -1,5 +1,5 @@
 import { Plus, Trash2 } from "lucide-react";
-import { type FieldError, type UseFormReturn, useFieldArray } from "react-hook-form";
+import { Controller, type FieldError, type UseFormReturn, useFieldArray } from "react-hook-form";
 import { useTranslation } from "react-i18next";
 
 import { Field, messageId } from "@/components/forms/field";
@@ -35,6 +35,7 @@ export function AdminsStep({ form }: StepProps) {
       {fields.map((field, index) => {
         const rowErrors = errors.admins?.[index];
         const emailKey = fieldMessageKey(rowErrors?.email);
+        const roleKey = fieldMessageKey(rowErrors?.role);
         const email = admins[index]?.email.trim();
         return (
           <Card key={field.id} className="py-0">
@@ -54,11 +55,23 @@ export function AdminsStep({ form }: StepProps) {
                   {...form.register(`admins.${index}.email`)}
                 />
               </Field>
-              <Field id={`wizard-admin-${index}-role`} label={t("wizard.admins.role")}>
-                <RoleSelect
-                  id={`wizard-admin-${index}-role`}
-                  value={admins[index]?.role ?? "tenant_user"}
-                  onChange={(role) => form.setValue(`admins.${index}.role`, role)}
+              <Field
+                id={`wizard-admin-${index}-role`}
+                label={t("wizard.admins.role")}
+                error={roleKey ? t(roleKey) : undefined}
+              >
+                <Controller
+                  control={form.control}
+                  name={`admins.${index}.role`}
+                  render={({ field: role }) => (
+                    <RoleSelect
+                      id={`wizard-admin-${index}-role`}
+                      value={role.value ?? null}
+                      invalid={roleKey !== undefined}
+                      describedBy={messageId(`wizard-admin-${index}-role`)}
+                      onChange={role.onChange}
+                    />
+                  )}
                 />
               </Field>
               <Button
@@ -76,7 +89,7 @@ export function AdminsStep({ form }: StepProps) {
           </Card>
         );
       })}
-      <Button type="button" variant="outline" onClick={() => append(emptyAdmin("tenant_admin"))}>
+      <Button type="button" variant="outline" onClick={() => append(emptyAdmin())}>
         <Plus />
         {t("wizard.admins.add")}
       </Button>

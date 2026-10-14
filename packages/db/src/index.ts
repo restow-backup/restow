@@ -32,6 +32,9 @@ export * from "./roles.js";
 // Process liveness: heartbeat writer and the status /readyz reports.
 export * from "./heartbeat.js";
 
+// Services that need a manual restart, and why (the Updates tab shows them).
+export * from "./restart-requests.js";
+
 // Reporting a failed query without its SQL text and bound parameters.
 export { reportableError, safeErrorMessage, withoutQueryText } from "./errors.js";
 export {
@@ -50,3 +53,6 @@ export * from "./repository-lock.js";
 export * from "./run-samples.js";
 // How the archive is filtered and held by mailbox, journal assignments included (#32).
 export * from "./archive-mailboxes.js";
+
+// The manifest index as versions: mirroring a snapshot, retention, the 0.3.5 conversion, reading.
+export * from "./manifest-versions.js";

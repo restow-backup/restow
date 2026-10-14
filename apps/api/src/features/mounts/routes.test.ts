@@ -27,6 +27,7 @@ vi.mock("../../db.js", () => {
     });
   return {
     db: { select: () => chain(() => mocks.memberships) },
+    authDb: { select: () => chain(() => mocks.memberships) },
     providerDb: { select: () => chain(() => mocks.providerRows) },
   };
 });
@@ -189,6 +190,17 @@ describe("what needs a recent sign-in", () => {
       email: "admin@provider.test",
       ip: null,
     });
+  });
+
+  it("withdrawing a waiting add needs no fresh sign-in", async () => {
+    signedIn("admin", { signedInSecondsAgo: 8 * 60 * 60 });
+    expect((await call("DELETE", "/api/v1/mounts/nas?pending=1")).status).toBe(200);
+    expect(service.cancelPending).toHaveBeenCalledWith("nas", {
+      id: "admin-id",
+      email: "admin@provider.test",
+      ip: null,
+    });
+    expect(service.remove).not.toHaveBeenCalled();
   });
 
   it("withdrawing a waiting add needs no fresh sign-in", async () => {

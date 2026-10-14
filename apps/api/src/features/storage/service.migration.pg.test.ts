@@ -431,7 +431,9 @@ describe.skipIf(!testDatabaseAdminUrl)("cancelMigration", () => {
       actor,
     );
 
-    const cancelled = await cancelMigration(db, tenantId, dto.id, actor);
+    // The queue belongs to the installation pool in the api; this suite's
+    // database has one owner, which stands in for it.
+    const cancelled = await cancelMigration(db, tenantId, dto.id, actor, db);
     expect(cancelled.status).toBe("cancelled");
     expect(cancelled.cancellable).toBe(false);
 
@@ -466,7 +468,7 @@ describe.skipIf(!testDatabaseAdminUrl)("cancelMigration", () => {
       actor,
     );
 
-    await cancelMigration(db, tenantId, dto.id, actor);
+    await cancelMigration(db, tenantId, dto.id, actor, db);
 
     const audited = await db.select().from(auditLog).where(eq(auditLog.tenantId, tenantId));
     const cancelEntry = audited.find((entry) => entry.action === "storage.migration.cancelled");
@@ -517,7 +519,7 @@ describe.skipIf(!testDatabaseAdminUrl)("cancelMigration", () => {
     // Pg-boss's retries are exhausted (the destination stayed unreachable);
     // nothing ever told storage_migrations, so it still reads "copying". The
     // cancel action is how an admin recovers it.
-    const result = await cancelMigration(db, tenantId, destination?.id as string, actor);
+    const result = await cancelMigration(db, tenantId, destination?.id as string, actor, db);
     expect(result.status).toBe("failed");
     expect(result.errorMessage).toContain("ECONNREFUSED");
     expect(result.cancellable).toBe(false);

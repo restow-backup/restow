@@ -98,7 +98,11 @@ describe.skipIf(!testDatabaseAdminUrl)("Microsoft 365 app registration against P
 
   afterAll(async () => {
     const shared = await import("../../../db.js");
-    await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
+    await Promise.all([
+      shared.db.$client.end(),
+      shared.providerDb.$client.end(),
+      shared.authDb.$client.end(),
+    ]);
     await Promise.all([db?.$client.end(), appDb?.$client.end(), workerDb?.$client.end()]);
     await dropDatabase(testDatabaseAdminUrl as string, DATABASE);
     await roles?.drop(testDatabaseAdminUrl as string);

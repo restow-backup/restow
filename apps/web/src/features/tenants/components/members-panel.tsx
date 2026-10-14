@@ -23,7 +23,7 @@ import { formatDateTime } from "@/lib/format";
 import { useSession } from "@/lib/session";
 
 import { useCancelInvitation, useMembers, useRemoveMember, useUpdateMemberRole } from "../hooks";
-import { isExpired, memberChangeError, suggestedRole } from "../presenters";
+import { isExpired, memberChangeError } from "../presenters";
 import type { Invitation, Member } from "../types";
 import { ConfirmDialog } from "./confirm-dialog";
 import { CopyInvitationLinkButton } from "./copy-link";
@@ -63,9 +63,6 @@ export function MembersPanel({
 
   const members = query.data?.members ?? [];
   const invitations = query.data?.invitations ?? [];
-  const adminCount = [...members, ...invitations].filter(
-    (entry) => entry.role === "tenant_admin",
-  ).length;
 
   let body: React.ReactNode;
   if (query.isPending) {
@@ -146,7 +143,6 @@ export function MembersPanel({
           onOpenChange={setInviteOpen}
           tenantId={tenantId}
           tenantName={tenantName}
-          defaultRole={suggestedRole(adminCount)}
         />
         <PendingActionDialog
           tenantId={tenantId}

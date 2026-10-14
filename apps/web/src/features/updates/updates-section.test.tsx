@@ -190,6 +190,7 @@ describe("the version card", () => {
     expect(text(status)).toContain("Update available: 0.2.0");
     expect(text(status)).toContain("Tag v0.2.0, released Sep 28, 2026");
     expect(text(slot("running-version", root) as HTMLElement)).toBe("0.1.0");
+    expect(text(slot("available-version", root) as HTMLElement)).toBe("0.2.0available");
   });
 
   it("compares nothing when the build reports no version", () => {
@@ -296,6 +297,8 @@ describe("the version card", () => {
       requests.some((request) => request.method === "POST" && request.path === "/updates/check"),
     ).toBe(true);
     expect(text(slot("check-status") as HTMLElement)).toContain("Update available: 0.2.0");
+    // The new version stands next to the running one, not only in the status line.
+    expect(text(slot("available-version") as HTMLElement)).toContain("0.2.0");
   });
 });
 
@@ -1237,7 +1240,16 @@ describe("an announced or running update", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        requests.push(`${init?.method ?? "GET"} ${new URL(String(input), "http://x").pathname}`);
+        const path = new URL(String(input), "http://x").pathname;
+        requests.push(`${init?.method ?? "GET"} ${path}`);
+        if (path.endsWith("/updates/restarts")) {
+          return json({
+            requests: [],
+            updater: "unavailable",
+            lastRestart: null,
+            projectDir: null,
+          });
+        }
         return json(init?.method === "DELETE" ? cancelled : view);
       }),
     );

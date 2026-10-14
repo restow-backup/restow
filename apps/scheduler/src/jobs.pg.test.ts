@@ -11,7 +11,7 @@
 // database and roles are created and dropped again); skipped otherwise.
 
 import { randomBytes } from "node:crypto";
-import { type RoleLogin, createDb } from "@restow/db";
+import { type RoleLogin, createDb, deriveAuthLogin, grantQueueAccess } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
 import PgBoss from "pg-boss";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -205,6 +205,10 @@ describe.skipIf(!adminUrl)("backup jobs planned by the scheduler", () => {
     });
     boss.on("error", ignoreTerminatedConnection);
     await boss.start();
+    // As the scheduler does right after starting pg-boss (packages/db roles.ts).
+    const queueOwner = createDb(urlFor(base, installationLogin));
+    await grantQueueAccess(queueOwner.$client, tenantLogin.name);
+    await queueOwner.$client.end();
     for (const queue of JOB_QUEUES) {
       await boss.createQueue(queue, pgBossQueueOptions(queue));
     }
@@ -225,6 +229,9 @@ describe.skipIf(!adminUrl)("backup jobs planned by the scheduler", () => {
     try {
       await admin.$client.query(`DROP ROLE IF EXISTS ${tenantLogin.name}`);
       await admin.$client.query(`DROP ROLE IF EXISTS ${installationLogin.name}`);
+      await admin.$client.query(
+        `DROP ROLE IF EXISTS ${deriveAuthLogin(tenantLogin, installationLogin).name}`,
+      );
     } finally {
       await admin.$client.end();
     }

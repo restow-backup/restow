@@ -245,6 +245,8 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/updates/edition/switch": own(),
   "PUT /api/v1/updates/edition/license-key": own(),
   "DELETE /api/v1/updates/edition/license-key": own(),
+  "GET /api/v1/updates/restarts": view(PROVIDER),
+  "POST /api/v1/updates/restarts/:service": own(),
   // The maintenance state is for everyone who is signed in.
   "GET /api/v1/maintenance": view(NONE),
 

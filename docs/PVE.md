@@ -36,6 +36,14 @@ PVE node                                                 Restow instance
   over the directory PVE prepares, into one restic repository per guest
   (`pve-guests/<guest id>/` in the tenant's primary storage target). The node
   gets a credential per run that expires with the run and only adds data.
+  The `lost+found` at the root of the container and of each mount point is left
+  out (on ext4 it belongs to the host's root, which an unprivileged container's
+  ID map does not include). When restic cannot read some files (exit code 3),
+  the restore point is kept; the run records how many there were and the
+  first of them. VMs & containers then shows "Last backup incomplete" instead
+  of "succeeded", the restore point carries "N items not readable", and the
+  run "Succeeded with gaps". The PVE task log of the whole job names the
+  missing items; PVE's per-guest log (the one notifications show) may not.
 - **Restore** creates a new guest with a new VMID in the pool `restow-restore`
   through PVE's own restore. For a VM, `restow-pve` serves each disk to
   `qemu-img convert` over NBD; for a container it unpacks the restic snapshot
@@ -206,6 +214,26 @@ alerts `guest_backup_failed` and `guests_without_job`), the warnings page (faile
 guest backups apart, with a link to the guests) and the statistics (readiness
 series and backup outcomes) all agree. "Nothing protected" is said only when a
 tenant has no object, no machine and no guest.
+
+### Sizes
+
+Three numbers describe a guest and its backups, and they mean different things:
+
+- **Disk** (VMs & containers): the disk size configured in PVE. What is
+  allocated, not what is in use.
+- **In the backup / Contains**: everything a restore point restores. For a
+  container that is all files restic read (restic's `total_bytes_processed`,
+  also what PVE's task log reports as "Size"); for a VM the size of its disks.
+  Every restore point is complete on its own, so this is about the same for
+  each point of a guest.
+- **New**: what a run added to the repository after deduplication: restic's
+  `data_added` for a container, the uploaded blocks for a VM. The first backup
+  stores (nearly) everything, later ones only what changed.
+
+VMs & containers and the inventory show the newest restore point ("9.4 GB in
+the backup, +2.5 MB new in the last run") and, on hover, the first backup. A
+guest's page lists every restore point as first backup, incremental, or (VM)
+full read, with what it contains and what it added.
 
 ## Restore
 

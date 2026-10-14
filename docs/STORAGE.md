@@ -19,7 +19,7 @@ A tenant's chunk store (packs, manifests, wrapped keys) lives on one or more
 **storage targets**, each a mounted filesystem path (a Docker volume or an NFS
 share) or an S3-compatible bucket (Hetzner Object Storage, AWS S3, Wasabi, Backblaze
 B2, Garage — not MinIO, which is no longer open source). An NFS share can be added from
-the web interface with the opt-in mounter (Installation > Network shares, `docs/MOUNTS.md`); it
+the web interface with the opt-in mounter (Installation > Default repository & network shares, `docs/MOUNTS.md`); it
 then appears in the api and the worker at `/mnt/restow/<name>`. The path field of a
 "directory" target (and of the installation default storage) also takes an NFS address
 such as `nas.local:/volume1/restow` or `nfs://192.168.1.10/export/backup`: the form offers
@@ -29,7 +29,7 @@ the storage form"). Every target has a role:
 - **primary** — receives every new backup first. A tenant has at most one. A tenant
   with no primary target of its own uses the installation's default storage as its
   primary (see "Installation default" below: the default a provider owner saved under
-  Installation → Default repository, otherwise the environment's `STORAGE_TARGET` /
+  Installation → Default repository & network shares, otherwise the environment's `STORAGE_TARGET` /
   `STORAGE_LOCAL_PATH` / `S3_*` settings), so a fresh install works out of the box
   with a single container plus Postgres.
 - **copy** — receives every new backup too, in addition to the primary. Data written
@@ -61,7 +61,7 @@ retention; local and NFS targets are shown as having no hardware WORM.
 
 The installation default is the storage every tenant without a primary target of its
 own writes to. It is one location for the whole installation, shown under
-Installation → Default repository (`/installation/default-storage`).
+Installation → Default repository & network shares (`/installation/default-storage`).
 
 ### Where it comes from
 

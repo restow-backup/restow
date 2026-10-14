@@ -1,4 +1,4 @@
-import { type TenantKind, type TenantRole, unwrapList } from "@/lib/api";
+import { type TenantKind, type TenantRole, isTenantRole, unwrapList } from "@/lib/api";
 
 import { tenantRoleFromMemberRole } from "./presenters";
 import {
@@ -66,7 +66,7 @@ function nullableOneOf<T extends string>(allowed: readonly T[], value: unknown):
 
 /** Tenant roles come as Restow roles; anything unknown is the least privileged role. */
 function asTenantRole(value: unknown): TenantRole {
-  return value === "tenant_admin" ? "tenant_admin" : "tenant_user";
+  return isTenantRole(value) ? value : "tenant_user";
 }
 
 export function decodeTenant(payload: unknown): TenantItem {

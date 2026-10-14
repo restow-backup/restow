@@ -612,12 +612,19 @@ export function consentingAdminLabel(
   return admin.username ?? admin.objectId;
 }
 
-/** The public origin (settings row, else environment, else what the browser reported). */
+/**
+ * The public origin (settings row, else environment, else what the browser
+ * reported). `installation` is the installation pool: the settings row is
+ * installation-level, the application role cannot read it.
+ */
 export async function resolvePublicOrigin(
-  db: DbExecutor,
+  installation: DbExecutor,
   observed: string | null,
 ): Promise<string | null> {
-  const [row] = await db.select({ publicUrl: settings.publicUrl }).from(settings).limit(1);
+  const [row] = await installation
+    .select({ publicUrl: settings.publicUrl })
+    .from(settings)
+    .limit(1);
   const candidate = row?.publicUrl ?? processConfig.publicUrl ?? observed;
   if (!candidate) {
     return null;
@@ -696,10 +703,13 @@ export async function getSource(db: Database, tenantId: string, id: string): Pro
 
 /** What the UI needs before connecting a tenant: is the Entra app usable, which callback to register. */
 export async function getEntraStatus(
-  db: Database,
+  installation: Database,
   observedOrigin: string | null,
 ): Promise<EntraAppStatus> {
-  return entraAppStatus(await resolveEntraApp(), await resolvePublicOrigin(db, observedOrigin));
+  return entraAppStatus(
+    await resolveEntraApp(),
+    await resolvePublicOrigin(installation, observedOrigin),
+  );
 }
 
 async function retainedData(tx: DbExecutor, sourceId: string): Promise<RetainedData> {
@@ -1232,10 +1242,10 @@ export async function createConsentLink(
   tenantId: string,
   id: string,
   actor: Actor,
-  options: { tenant?: string | null; observedOrigin: string | null },
+  options: { tenant?: string | null; observedOrigin: string | null; installation: Database },
 ): Promise<ConsentLinkDto> {
   await rejectImportSource(db, tenantId, id);
-  const publicOrigin = await resolvePublicOrigin(db, options.observedOrigin);
+  const publicOrigin = await resolvePublicOrigin(options.installation, options.observedOrigin);
   // The credentials are needed as well: the round trip ends with the sign-in
   // that proves the consenting tenant, and that code is redeemed as the app.
   const resolution = await resolveEntraApp();
@@ -1462,10 +1472,10 @@ async function bindSource(
 
 /** The app credentials and callback the proof sign-in needs, or null when the app is incomplete. */
 async function signInPrerequisites(
-  db: Database,
+  installation: Database,
   observedOrigin: string | null,
 ): Promise<{ app: AppCredentials; redirectUri: string } | null> {
-  const publicOrigin = await resolvePublicOrigin(db, observedOrigin);
+  const publicOrigin = await resolvePublicOrigin(installation, observedOrigin);
   const resolution = await resolveEntraApp();
   if (
     !publicOrigin ||
@@ -1491,7 +1501,7 @@ async function acceptAdminConsent(
 ): Promise<ConsentCallbackOutcome> {
   const { tenantId, sourceId } = state;
   const callback = parseAdminConsentCallback(query);
-  const prerequisites = await signInPrerequisites(db, context.observedOrigin);
+  const prerequisites = await signInPrerequisites(context.installation, context.observedOrigin);
   const claimedElsewhere = callback.ok
     ? await entraTenantBoundElsewhere(context.installation, sourceId, callback.claimedTenantId)
     : false;
@@ -1577,7 +1587,7 @@ type ProofResult =
 
 /** Redeem the sign-in and establish who signed in, in which tenant, with which role. */
 async function proveConsent(
-  db: Database,
+  installation: Database,
   state: ConsentStatePayload & { entraTenantId: string },
   query: URLSearchParams,
   observedOrigin: string | null,
@@ -1589,7 +1599,7 @@ async function proveConsent(
       : callback.error;
     return { ok: false, reason: "sign_in_failed", detail, account: null };
   }
-  const prerequisites = await signInPrerequisites(db, observedOrigin);
+  const prerequisites = await signInPrerequisites(installation, observedOrigin);
   if (!prerequisites) {
     return { ok: false, reason: "app_not_configured", detail: null, account: null };
   }
@@ -1632,7 +1642,7 @@ async function completeConsentSignIn(
   context: ConsentCallbackContext,
 ): Promise<ConsentResult> {
   const { tenantId, sourceId } = state;
-  const proof = await proveConsent(db, state, query, context.observedOrigin);
+  const proof = await proveConsent(context.installation, state, query, context.observedOrigin);
   const provenElsewhere = proof.ok
     ? await entraTenantBoundElsewhere(context.installation, sourceId, proof.admin.tenantId)
     : false;

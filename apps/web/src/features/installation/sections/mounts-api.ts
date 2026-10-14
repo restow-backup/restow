@@ -127,7 +127,12 @@ export interface MountsView {
   available: boolean;
   unavailableReason: MounterFailure | null;
   demo: boolean;
+  /** `cd <project directory> && docker compose --profile mounts up -d mounter` (from 0.3.6). */
   enableCommand: string;
+  /** The project directory in `enableCommand`; null: unknown, /opt/restow is shown. Absent before 0.3.6. */
+  projectDir?: string | null;
+  /** The installer command that updates a compose file without the mounter service. Absent before 0.3.6. */
+  updateComposeCommand?: string | null;
   mountRoot: string;
   state: MounterState | null;
   /** Absent from an api before 0.3.3. */

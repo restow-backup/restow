@@ -430,7 +430,10 @@ function buildWidgets(
 // ---------------------------------------------------------------------------
 
 /** Refuse the provider view to anyone but a provider admin, and while `dashboard.allTenants` is off. */
-export async function assertProviderView(viewer: DashboardViewer, db: Database): Promise<void> {
+export async function assertProviderView(
+  viewer: DashboardViewer,
+  installation: Database,
+): Promise<void> {
   if (!viewer.isProviderAdmin) {
     throw new ProblemError(403, "Provider admin required", {
       detail: "Only provider administrators may see the provider view.",
@@ -442,7 +445,7 @@ export async function assertProviderView(viewer: DashboardViewer, db: Database):
         "The provider view covers every tenant; your role in the provider team is limited to some.",
     });
   }
-  await requireFeature(db, "dashboard.allTenants");
+  await requireFeature("dashboard.allTenants", installation);
 }
 
 export async function loadDashboard(
@@ -452,7 +455,7 @@ export async function loadDashboard(
 ): Promise<DashboardDto> {
   const now = deps.now();
   if (query.provider) {
-    await assertProviderView(viewer, deps.db);
+    await assertProviderView(viewer, deps.providerDb);
   }
 
   const canAdminister = isTenantAdmin(viewer.role);
@@ -486,7 +489,7 @@ export async function loadDashboard(
           deps.defaultStorageConfigured ? await deps.defaultStorageConfigured() : undefined,
         );
       }),
-      load("mail", needs("setup"), () => loadMailFacts(deps.db, deps.providerDb)),
+      load("mail", needs("setup"), () => loadMailFacts(deps.providerDb)),
       load("trends", needs("backupTrend", "verificationHistory", "storageGrowth"), () =>
         loadTenantTrends(deps.db, tenantId, now),
       ),

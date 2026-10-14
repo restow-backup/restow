@@ -1,5 +1,5 @@
 {
-  "id": "62696ca6-8753-4bf9-9716-81a028a1c896",
+  "id": "90cab120-0edf-431e-9da7-56ed769bd299",
   "prevId": "8d293c58-8725-4b13-aaeb-562d949c5ab2",
   "version": "7",
   "dialect": "postgresql",
@@ -3072,48 +3072,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "manifest_objects_tenant_path_idx": {
-          "name": "manifest_objects_tenant_path_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "path",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "manifest_objects_object_item_idx": {
-          "name": "manifest_objects_object_item_idx",
-          "columns": [
-            {
-              "expression": "protected_object_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "item_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -3161,6 +3119,229 @@
       "uniqueConstraints": {},
       "policies": {},
       "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.manifest_versions": {
+      "name": "manifest_versions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "tenant_id": {
+          "name": "tenant_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "protected_object_id": {
+          "name": "protected_object_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "first_sequence": {
+          "name": "first_sequence",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "last_sequence": {
+          "name": "last_sequence",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content_hash": {
+          "name": "content_hash",
+          "type": "bytea",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "kind": {
+          "name": "kind",
+          "type": "manifest_object_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "parent_path": {
+          "name": "parent_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "size": {
+          "name": "size",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "mtime": {
+          "name": "mtime",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "item_id": {
+          "name": "item_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "message_id": {
+          "name": "message_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "chunk_refs": {
+          "name": "chunk_refs",
+          "type": "bytea[]",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "deleted": {
+          "name": "deleted",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "manifest_versions_object_last_idx": {
+          "name": "manifest_versions_object_last_idx",
+          "columns": [
+            {
+              "expression": "protected_object_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "last_sequence",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "manifest_versions_object_path_idx": {
+          "name": "manifest_versions_object_path_idx",
+          "columns": [
+            {
+              "expression": "protected_object_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "path",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "manifest_versions_object_item_idx": {
+          "name": "manifest_versions_object_item_idx",
+          "columns": [
+            {
+              "expression": "protected_object_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "item_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "manifest_versions_tenant_id_tenants_id_fk": {
+          "name": "manifest_versions_tenant_id_tenants_id_fk",
+          "tableFrom": "manifest_versions",
+          "tableTo": "tenants",
+          "columnsFrom": [
+            "tenant_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "manifest_versions_protected_object_id_protected_objects_id_fk": {
+          "name": "manifest_versions_protected_object_id_protected_objects_id_fk",
+          "tableFrom": "manifest_versions",
+          "tableTo": "protected_objects",
+          "columnsFrom": [
+            "protected_object_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "manifest_versions_range_ck": {
+          "name": "manifest_versions_range_ck",
+          "value": "\"manifest_versions\".\"first_sequence\" <= \"manifest_versions\".\"last_sequence\""
+        }
+      },
       "isRLSEnabled": false
     },
     "public.item_failures": {
@@ -9311,12 +9492,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "file_share_run_id": {
-          "name": "file_share_run_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "points": {
           "name": "points",
           "type": "jsonb",
@@ -9377,22 +9552,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "run_samples_file_share_run_uq": {
-          "name": "run_samples_file_share_run_uq",
-          "columns": [
-            {
-              "expression": "file_share_run_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"run_samples\".\"file_share_run_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -9434,19 +9593,6 @@
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
-        },
-        "run_samples_file_share_run_id_file_share_runs_id_fk": {
-          "name": "run_samples_file_share_run_id_file_share_runs_id_fk",
-          "tableFrom": "run_samples",
-          "tableTo": "file_share_runs",
-          "columnsFrom": [
-            "file_share_run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
         }
       },
       "compositePrimaryKeys": {},
@@ -9455,7 +9601,7 @@
       "checkConstraints": {
         "run_samples_one_run_ck": {
           "name": "run_samples_one_run_ck",
-          "value": "num_nonnulls(\"run_samples\".\"job_id\", \"run_samples\".\"endpoint_run_id\", \"run_samples\".\"file_share_run_id\") = 1"
+          "value": "(\"run_samples\".\"job_id\" IS NOT NULL) <> (\"run_samples\".\"endpoint_run_id\" IS NOT NULL)"
         }
       },
       "isRLSEnabled": false
@@ -11234,1849 +11380,6 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.file_share_catalog": {
-      "name": "file_share_catalog",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "file_share_id": {
-          "name": "file_share_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "path": {
-          "name": "path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "size": {
-          "name": "size",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "mtime": {
-          "name": "mtime",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "first_seq": {
-          "name": "first_seq",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "end_seq": {
-          "name": "end_seq",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "file_share_catalog_version_uq": {
-          "name": "file_share_catalog_version_uq",
-          "columns": [
-            {
-              "expression": "file_share_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "path",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "first_seq",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "file_share_catalog_open_idx": {
-          "name": "file_share_catalog_open_idx",
-          "columns": [
-            {
-              "expression": "file_share_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "end_seq",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "file_share_catalog_name_idx": {
-          "name": "file_share_catalog_name_idx",
-          "columns": [
-            {
-              "expression": "file_share_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "lower(\"name\") text_pattern_ops",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "file_share_catalog_tenant_id_tenants_id_fk": {
-          "name": "file_share_catalog_tenant_id_tenants_id_fk",
-          "tableFrom": "file_share_catalog",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "file_share_catalog_file_share_id_file_shares_id_fk": {
-          "name": "file_share_catalog_file_share_id_file_shares_id_fk",
-          "tableFrom": "file_share_catalog",
-          "tableTo": "file_shares",
-          "columnsFrom": [
-            "file_share_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.file_share_downloads": {
-      "name": "file_share_downloads",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "file_share_id": {
-          "name": "file_share_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "snapshot_id": {
-          "name": "snapshot_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "selection": {
-          "name": "selection",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "started_at": {
-          "name": "started_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "file_share_downloads_share_idx": {
-          "name": "file_share_downloads_share_idx",
-          "columns": [
-            {
-              "expression": "file_share_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "file_share_downloads_expires_idx": {
-          "name": "file_share_downloads_expires_idx",
-          "columns": [
-            {
-              "expression": "expires_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "file_share_downloads_tenant_id_tenants_id_fk": {
-          "name": "file_share_downloads_tenant_id_tenants_id_fk",
-          "tableFrom": "file_share_downloads",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "file_share_downloads_file_share_id_file_shares_id_fk": {
-          "name": "file_share_downloads_file_share_id_file_shares_id_fk",
-          "tableFrom": "file_share_downloads",
-          "tableTo": "file_shares",
-          "columnsFrom": [
-            "file_share_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "file_share_downloads_snapshot_id_file_share_snapshots_id_fk": {
-          "name": "file_share_downloads_snapshot_id_file_share_snapshots_id_fk",
-          "tableFrom": "file_share_downloads",
-          "tableTo": "file_share_snapshots",
-          "columnsFrom": [
-            "snapshot_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "file_share_downloads_created_by_user_id_fk": {
-          "name": "file_share_downloads_created_by_user_id_fk",
-          "tableFrom": "file_share_downloads",
-          "tableTo": "user",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.file_share_reports": {
-      "name": "file_share_reports",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "file_share_id": {
-          "name": "file_share_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "readiness": {
-          "name": "readiness",
-          "type": "recovery_readiness",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "snapshot_id": {
-          "name": "snapshot_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "summary": {
-          "name": "summary",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "run_id": {
-          "name": "run_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "alerted_at": {
-          "name": "alerted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "checked_at": {
-          "name": "checked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "file_share_reports_share_checked_idx": {
-          "name": "file_share_reports_share_checked_idx",
-          "columns": [
-            {
-              "expression": "file_share_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "checked_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "file_share_reports_tenant_kind_idx": {
-          "name": "file_share_reports_tenant_kind_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "kind",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "file_share_reports_tenant_id_tenants_id_fk": {
-          "name": "file_share_reports_tenant_id_tenants_id_fk",
-          "tableFrom": "file_share_reports",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "file_share_reports_file_share_id_file_shares_id_fk": {
-          "name": "file_share_reports_file_share_id_file_shares_id_fk",
-          "tableFrom": "file_share_reports",
-          "tableTo": "file_shares",
-          "columnsFrom": [
-            "file_share_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.file_share_repository_locks": {
-      "name": "file_share_repository_locks",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "file_share_id": {
-          "name": "file_share_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "file_share_repository_locks_share_name_uq": {
-          "name": "file_share_repository_locks_share_name_uq",
-          "columns": [
-            {
-              "expression": "file_share_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "name",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "file_share_repository_locks_tenant_id_tenants_id_fk": {
-          "name": "file_share_repository_locks_tenant_id_tenants_id_fk",
-          "tableFrom": "file_share_repository_locks",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "file_share_repository_locks_file_share_id_file_shares_id_fk": {
-          "name": "file_share_repository_locks_file_share_id_file_shares_id_fk",
-          "tableFrom": "file_share_repository_locks",
-          "tableTo": "file_shares",
-          "columnsFrom": [
-            "file_share_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.file_share_run_items": {
-      "name": "file_share_run_items",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "run_id": {
-          "name": "run_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "path": {
-          "name": "path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "code": {
-          "name": "code",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "phase": {
-          "name": "phase",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "message": {
-          "name": "message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "file_share_run_items_run_code_idx": {
-          "name": "file_share_run_items_run_code_idx",
-          "columns": [
-            {
-              "expression": "run_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "code",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "file_share_run_items_tenant_id_tenants_id_fk": {
-          "name": "file_share_run_items_tenant_id_tenants_id_fk",
-          "tableFrom": "file_share_run_items",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "file_share_run_items_run_id_file_share_runs_id_fk": {
-          "name": "file_share_run_items_run_id_file_share_runs_id_fk",
-          "tableFrom": "file_share_run_items",
-          "tableTo": "file_share_runs",
-          "columnsFrom": [
-            "run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.file_share_runs": {
-      "name": "file_share_runs",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "file_share_id": {
-          "name": "file_share_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "kind": {
-          "name": "kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'queued'"
-        },
-        "trigger": {
-          "name": "trigger",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'manual'"
-        },
-        "backup_job_id": {
-          "name": "backup_job_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "lock_share_id": {
-          "name": "lock_share_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "target_share_id": {
-          "name": "target_share_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "source_snapshot_id": {
-          "name": "source_snapshot_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "params": {
-          "name": "params",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "token_hash": {
-          "name": "token_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "token_expires_at": {
-          "name": "token_expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cancel_requested_at": {
-          "name": "cancel_requested_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "queued_at": {
-          "name": "queued_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "started_at": {
-          "name": "started_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "finished_at": {
-          "name": "finished_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_progress_at": {
-          "name": "last_progress_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "finish_processed_at": {
-          "name": "finish_processed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "progress": {
-          "name": "progress",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "stats": {
-          "name": "stats",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
-        },
-        "snapshot_id": {
-          "name": "snapshot_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "item_count": {
-          "name": "item_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "items_stored": {
-          "name": "items_stored",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "failure": {
-          "name": "failure",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "error_message": {
-          "name": "error_message",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "log_tail": {
-          "name": "log_tail",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "requested_by": {
-          "name": "requested_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "alerted_at": {
-          "name": "alerted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "file_share_runs_share_created_idx": {
-          "name": "file_share_runs_share_created_idx",
-          "columns": [
-            {
-              "expression": "file_share_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "file_share_runs_tenant_created_idx": {
-          "name": "file_share_runs_tenant_created_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "file_share_runs_status_queued_idx": {
-          "name": "file_share_runs_status_queued_idx",
-          "columns": [
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "queued_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "file_share_runs_lock_active_uq": {
-          "name": "file_share_runs_lock_active_uq",
-          "columns": [
-            {
-              "expression": "lock_share_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"file_share_runs\".\"status\" IN ('starting', 'running')",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "file_share_runs_backup_queued_uq": {
-          "name": "file_share_runs_backup_queued_uq",
-          "columns": [
-            {
-              "expression": "file_share_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"file_share_runs\".\"kind\" = 'backup' AND \"file_share_runs\".\"status\" = 'queued'",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "file_share_runs_tenant_id_tenants_id_fk": {
-          "name": "file_share_runs_tenant_id_tenants_id_fk",
-          "tableFrom": "file_share_runs",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "file_share_runs_file_share_id_file_shares_id_fk": {
-          "name": "file_share_runs_file_share_id_file_shares_id_fk",
-          "tableFrom": "file_share_runs",
-          "tableTo": "file_shares",
-          "columnsFrom": [
-            "file_share_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "file_share_runs_backup_job_id_backup_jobs_id_fk": {
-          "name": "file_share_runs_backup_job_id_backup_jobs_id_fk",
-          "tableFrom": "file_share_runs",
-          "tableTo": "backup_jobs",
-          "columnsFrom": [
-            "backup_job_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "file_share_runs_lock_share_id_file_shares_id_fk": {
-          "name": "file_share_runs_lock_share_id_file_shares_id_fk",
-          "tableFrom": "file_share_runs",
-          "tableTo": "file_shares",
-          "columnsFrom": [
-            "lock_share_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "file_share_runs_target_share_id_file_shares_id_fk": {
-          "name": "file_share_runs_target_share_id_file_shares_id_fk",
-          "tableFrom": "file_share_runs",
-          "tableTo": "file_shares",
-          "columnsFrom": [
-            "target_share_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "file_share_runs_source_snapshot_id_file_share_snapshots_id_fk": {
-          "name": "file_share_runs_source_snapshot_id_file_share_snapshots_id_fk",
-          "tableFrom": "file_share_runs",
-          "tableTo": "file_share_snapshots",
-          "columnsFrom": [
-            "source_snapshot_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "file_share_runs_requested_by_user_id_fk": {
-          "name": "file_share_runs_requested_by_user_id_fk",
-          "tableFrom": "file_share_runs",
-          "tableTo": "user",
-          "columnsFrom": [
-            "requested_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.file_share_samples": {
-      "name": "file_share_samples",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "file_share_id": {
-          "name": "file_share_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "run_id": {
-          "name": "run_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "snapshot_id": {
-          "name": "snapshot_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "path": {
-          "name": "path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "sha256": {
-          "name": "sha256",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "size": {
-          "name": "size",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "file_share_samples_run_path_uq": {
-          "name": "file_share_samples_run_path_uq",
-          "columns": [
-            {
-              "expression": "run_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "path",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "file_share_samples_share_snapshot_idx": {
-          "name": "file_share_samples_share_snapshot_idx",
-          "columns": [
-            {
-              "expression": "file_share_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "snapshot_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "file_share_samples_tenant_id_tenants_id_fk": {
-          "name": "file_share_samples_tenant_id_tenants_id_fk",
-          "tableFrom": "file_share_samples",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "file_share_samples_file_share_id_file_shares_id_fk": {
-          "name": "file_share_samples_file_share_id_file_shares_id_fk",
-          "tableFrom": "file_share_samples",
-          "tableTo": "file_shares",
-          "columnsFrom": [
-            "file_share_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "file_share_samples_run_id_file_share_runs_id_fk": {
-          "name": "file_share_samples_run_id_file_share_runs_id_fk",
-          "tableFrom": "file_share_samples",
-          "tableTo": "file_share_runs",
-          "columnsFrom": [
-            "run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.file_share_snapshots": {
-      "name": "file_share_snapshots",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "file_share_id": {
-          "name": "file_share_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "run_id": {
-          "name": "run_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "sequence": {
-          "name": "sequence",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "restic_snapshot_id": {
-          "name": "restic_snapshot_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "snapshot_time": {
-          "name": "snapshot_time",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "includes": {
-          "name": "includes",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'[]'::jsonb"
-        },
-        "files": {
-          "name": "files",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "dirs": {
-          "name": "dirs",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "bytes": {
-          "name": "bytes",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "bytes_added": {
-          "name": "bytes_added",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "permissions": {
-          "name": "permissions",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'active'"
-        },
-        "pruned_at": {
-          "name": "pruned_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "cataloged_at": {
-          "name": "cataloged_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "file_share_snapshots_share_sequence_uq": {
-          "name": "file_share_snapshots_share_sequence_uq",
-          "columns": [
-            {
-              "expression": "file_share_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "sequence",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "file_share_snapshots_share_restic_uq": {
-          "name": "file_share_snapshots_share_restic_uq",
-          "columns": [
-            {
-              "expression": "file_share_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "restic_snapshot_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "file_share_snapshots_tenant_idx": {
-          "name": "file_share_snapshots_tenant_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "file_share_snapshots_tenant_id_tenants_id_fk": {
-          "name": "file_share_snapshots_tenant_id_tenants_id_fk",
-          "tableFrom": "file_share_snapshots",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "file_share_snapshots_file_share_id_file_shares_id_fk": {
-          "name": "file_share_snapshots_file_share_id_file_shares_id_fk",
-          "tableFrom": "file_share_snapshots",
-          "tableTo": "file_shares",
-          "columnsFrom": [
-            "file_share_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.file_shares": {
-      "name": "file_shares",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tenant_id": {
-          "name": "tenant_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "protocol": {
-          "name": "protocol",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "server": {
-          "name": "server",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "share_name": {
-          "name": "share_name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "export_path": {
-          "name": "export_path",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "subfolder": {
-          "name": "subfolder",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "''"
-        },
-        "smb_version": {
-          "name": "smb_version",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "smb_encryption": {
-          "name": "smb_encryption",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "smb_domain": {
-          "name": "smb_domain",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "username": {
-          "name": "username",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "credential_secret_id": {
-          "name": "credential_secret_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "nfs_version": {
-          "name": "nfs_version",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "allow_restore": {
-          "name": "allow_restore",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "permissions_mode": {
-          "name": "permissions_mode",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'auto'"
-        },
-        "reread_permissions": {
-          "name": "reread_permissions",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "private_network_approval": {
-          "name": "private_network_approval",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "repository_secret_id": {
-          "name": "repository_secret_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "repository_ready_at": {
-          "name": "repository_ready_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "repository_bytes": {
-          "name": "repository_bytes",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "repository_measured_at": {
-          "name": "repository_measured_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "quota_gib": {
-          "name": "quota_gib",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "quota_alert_level": {
-          "name": "quota_alert_level",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "quota_alerted_at": {
-          "name": "quota_alerted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "quota_refused_at": {
-          "name": "quota_refused_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_test": {
-          "name": "last_test",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "credential_failed_at": {
-          "name": "credential_failed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_backup_at": {
-          "name": "last_backup_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_success_at": {
-          "name": "last_success_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_snapshot_id": {
-          "name": "last_snapshot_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_retention_at": {
-          "name": "last_retention_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_check_at": {
-          "name": "last_check_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_restore_test_at": {
-          "name": "last_restore_test_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "last_catalog_at": {
-          "name": "last_catalog_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "maintenance_locked_count": {
-          "name": "maintenance_locked_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "maintenance_locked_since": {
-          "name": "maintenance_locked_since",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "locked_alerted_at": {
-          "name": "locked_alerted_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "allow_empty_once": {
-          "name": "allow_empty_once",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": false
-        },
-        "retired_at": {
-          "name": "retired_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_by": {
-          "name": "created_by",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "file_shares_tenant_idx": {
-          "name": "file_shares_tenant_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "file_shares_tenant_name_uq": {
-          "name": "file_shares_tenant_name_uq",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "lower(\"name\")",
-              "asc": true,
-              "isExpression": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"file_shares\".\"retired_at\" IS NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "file_shares_tenant_retired_idx": {
-          "name": "file_shares_tenant_retired_idx",
-          "columns": [
-            {
-              "expression": "tenant_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "retired_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "file_shares_tenant_id_tenants_id_fk": {
-          "name": "file_shares_tenant_id_tenants_id_fk",
-          "tableFrom": "file_shares",
-          "tableTo": "tenants",
-          "columnsFrom": [
-            "tenant_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "file_shares_credential_secret_id_secrets_id_fk": {
-          "name": "file_shares_credential_secret_id_secrets_id_fk",
-          "tableFrom": "file_shares",
-          "tableTo": "secrets",
-          "columnsFrom": [
-            "credential_secret_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "file_shares_repository_secret_id_secrets_id_fk": {
-          "name": "file_shares_repository_secret_id_secrets_id_fk",
-          "tableFrom": "file_shares",
-          "tableTo": "secrets",
-          "columnsFrom": [
-            "repository_secret_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        },
-        "file_shares_created_by_user_id_fk": {
-          "name": "file_shares_created_by_user_id_fk",
-          "tableFrom": "file_shares",
-          "tableTo": "user",
-          "columnsFrom": [
-            "created_by"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "set null",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
     "public.warning_acknowledgements": {
       "name": "warning_acknowledgements",
       "schema": "",
@@ -13102,12 +11405,6 @@
         },
         "endpoint_id": {
           "name": "endpoint_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "file_share_id": {
-          "name": "file_share_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
@@ -13212,22 +11509,6 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
-        },
-        "warning_acknowledgements_file_share_uq": {
-          "name": "warning_acknowledgements_file_share_uq",
-          "columns": [
-            {
-              "expression": "file_share_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"warning_acknowledgements\".\"file_share_id\" IS NOT NULL",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
         }
       },
       "foreignKeys": {
@@ -13270,19 +11551,6 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "warning_acknowledgements_file_share_id_file_shares_id_fk": {
-          "name": "warning_acknowledgements_file_share_id_file_shares_id_fk",
-          "tableFrom": "warning_acknowledgements",
-          "tableTo": "file_shares",
-          "columnsFrom": [
-            "file_share_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "warning_acknowledgements_acknowledged_by_user_id_user_id_fk": {
           "name": "warning_acknowledgements_acknowledged_by_user_id_user_id_fk",
           "tableFrom": "warning_acknowledgements",
@@ -13303,7 +11571,7 @@
       "checkConstraints": {
         "warning_acknowledgements_one_target_ck": {
           "name": "warning_acknowledgements_one_target_ck",
-          "value": "num_nonnulls(\"warning_acknowledgements\".\"protected_object_id\", \"warning_acknowledgements\".\"endpoint_id\", \"warning_acknowledgements\".\"file_share_id\") = 1"
+          "value": "(\"warning_acknowledgements\".\"protected_object_id\" IS NOT NULL) <> (\"warning_acknowledgements\".\"endpoint_id\" IS NOT NULL)"
         },
         "warning_acknowledgements_note_ck": {
           "name": "warning_acknowledgements_note_ck",
@@ -13639,13 +11907,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "file_share_settings": {
-          "name": "file_share_settings",
-          "type": "jsonb",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "'{}'::jsonb"
         },
         "created_at": {
           "name": "created_at",

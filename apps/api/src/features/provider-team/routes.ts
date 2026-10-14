@@ -1,5 +1,5 @@
 import { type Context, Hono, type MiddlewareHandler } from "hono";
-import { db, providerDb } from "../../db.js";
+import { authDb, providerDb } from "../../db.js";
 import { requestLanguage } from "../../lib/language.js";
 import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
@@ -47,7 +47,7 @@ function actorOf(c: Context<SessionEnv>): TeamActor {
 
 export function buildProviderTeamRoutes(deps: ProviderTeamRoutesDeps): Hono<SessionEnv> {
   const routes = new Hono<SessionEnv>();
-  const team: TeamDeps = { providerDb: deps.providerDb, db: deps.db };
+  const team: TeamDeps = { providerDb: deps.providerDb, authDb: deps.authDb };
 
   routes.get("/", deps.requireProvider, async (c) => {
     return c.json({ items: await listTeam(team, c.get("user").id) });
@@ -88,6 +88,6 @@ export function buildProviderTeamRoutes(deps: ProviderTeamRoutesDeps): Hono<Sess
 
 export const providerTeamRoutes = buildProviderTeamRoutes({
   providerDb,
-  db,
+  authDb,
   requireProvider: requireProviderAdmin,
 });

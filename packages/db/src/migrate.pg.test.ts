@@ -39,7 +39,7 @@ import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runMigrations } from "./migrate.js";
-import { type RoleLogin, provisionRoles } from "./roles.js";
+import { type RoleLogin, deriveAuthLogin, provisionRoles } from "./roles.js";
 import { dropTestDatabase } from "./testing/database.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
@@ -329,7 +329,12 @@ describe.skipIf(!adminUrl)("migrations on a fresh and on a 0.300.x database", ()
     }
     const admin = new pg.Pool({ connectionString: base });
     try {
-      for (const role of [roles.tenant.name, roles.installation.name, restrictedOwner.name]) {
+      for (const role of [
+        roles.tenant.name,
+        roles.installation.name,
+        deriveAuthLogin(roles.tenant, roles.installation).name,
+        restrictedOwner.name,
+      ]) {
         await admin.query(`DROP ROLE IF EXISTS ${role}`);
       }
     } finally {
@@ -459,31 +464,47 @@ describe.skipIf(!adminUrl)("migrations on a fresh and on a 0.300.x database", ()
       ]);
     });
 
-    it("lets both application roles use the new tables on the upgraded database", async () => {
-      for (const login of [roles.tenant, roles.installation]) {
-        const pool = new pg.Pool({ connectionString: urlFor(base, databases.upgrade, login) });
-        try {
-          const instanceId = `${login.name}-api`;
-          await pool.query(
-            `INSERT INTO service_heartbeats (role, instance_id, version, hostname, started_at)
-             VALUES ('api', $1, '0.301.0', 'restow-api', now())`,
-            [instanceId],
-          );
-          await pool.query("UPDATE service_heartbeats SET beat_at = now() WHERE instance_id = $1", [
-            instanceId,
-          ]);
-          await pool.query(
-            "INSERT INTO rate_limit (id, key, count, last_request) VALUES ($1, $2, 1, $3)",
-            [randomUUID(), `${login.name}|/sign-in/email`, Date.now()],
-          );
-          const beats = await pool.query(
-            "SELECT 1 FROM service_heartbeats WHERE instance_id = $1",
-            [instanceId],
-          );
-          expect(beats.rowCount, login.name).toBe(1);
-        } finally {
-          await pool.end();
-        }
+    it("lets the installation role keep the heartbeats and the auth role the rate limits on the upgraded database", async () => {
+      const installation = new pg.Pool({
+        connectionString: urlFor(base, databases.upgrade, roles.installation),
+      });
+      const auth = new pg.Pool({
+        connectionString: urlFor(
+          base,
+          databases.upgrade,
+          deriveAuthLogin(roles.tenant, roles.installation),
+        ),
+      });
+      const tenant = new pg.Pool({
+        connectionString: urlFor(base, databases.upgrade, roles.tenant),
+      });
+      try {
+        const instanceId = `${roles.installation.name}-api`;
+        await installation.query(
+          `INSERT INTO service_heartbeats (role, instance_id, version, hostname, started_at)
+           VALUES ('api', $1, '0.301.0', 'restow-api', now())`,
+          [instanceId],
+        );
+        await installation.query(
+          "UPDATE service_heartbeats SET beat_at = now() WHERE instance_id = $1",
+          [instanceId],
+        );
+        const beats = await installation.query(
+          "SELECT 1 FROM service_heartbeats WHERE instance_id = $1",
+          [instanceId],
+        );
+        expect(beats.rowCount).toBe(1);
+        await auth.query(
+          "INSERT INTO rate_limit (id, key, count, last_request) VALUES ($1, $2, 1, $3)",
+          [randomUUID(), `${roles.tenant.name}|/sign-in/email`, Date.now()],
+        );
+        // Neither is the application role's (packages/db roles.ts TABLE_ACCESS).
+        await expect(tenant.query("SELECT 1 FROM service_heartbeats")).rejects.toThrow(
+          /permission denied/,
+        );
+        await expect(tenant.query("SELECT 1 FROM rate_limit")).rejects.toThrow(/permission denied/);
+      } finally {
+        await Promise.all([installation.end(), auth.end(), tenant.end()]);
       }
     });
 

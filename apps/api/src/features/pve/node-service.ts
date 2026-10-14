@@ -317,6 +317,8 @@ export async function nodeHeartbeat(
             and(
               eq(pveTasks.status, "delivered"),
               lt(pveTasks.deliveredAt, new Date(now.getTime() - REDELIVER_AFTER_MS)),
+              // Not while a run of it is still open: a long backup would start a second time.
+              sql`NOT EXISTS (SELECT 1 FROM pve_runs r WHERE r.task_id = "pve_tasks"."id" AND r.status = 'running')`,
             ),
           ),
         ),
@@ -458,6 +460,33 @@ export async function taskResult(
     }
     if (input.status === "failed") {
       await finishFailedTaskRun(tx, task, task.errorMessage ?? "failed", now);
+      return;
+    }
+    // A backup whose own end was never reported (the node could not send it)
+    // ends with its task: done with a restore point, failed without one.
+    if (task.kind === "backup") {
+      const open = await tx
+        .select()
+        .from(pveRuns)
+        .where(
+          and(
+            eq(pveRuns.taskId, task.id),
+            eq(pveRuns.status, "running"),
+            eq(pveRuns.kind, "backup"),
+          ),
+        );
+      for (const run of open) {
+        const succeeded = run.snapshotId !== null;
+        await tx
+          .update(pveRuns)
+          .set({
+            status: succeeded ? "succeeded" : "failed",
+            finishedAt: now,
+            errorMessage: succeeded ? null : "The backup ended without reporting a restore point.",
+          })
+          .where(eq(pveRuns.id, run.id));
+        await tx.update(pveGuests).set({ lastBackupAt: now }).where(eq(pveGuests.id, run.guestId));
+      }
       return;
     }
     // A restore task's run ends here: the node reports the new VMID.

@@ -1007,5 +1007,16 @@
       "description": "Die Kopie läuft auch, wenn der neueste Sicherungsstand leer ist oder weniger als die Hälfte der Dateien der letzten Kopie hat. Bei einer Spiegelung werden Dateien, die die Quelle nicht mehr hat, aus dem Zielordner gelöscht.",
       "confirm": "Trotzdem kopieren"
     }
+  },
+  "missingFolders": {
+    "job": {
+      "title": "Ordner, in denen Anwendungen ihre Daten ablegen, werden nicht gesichert",
+      "description": "Nicht in diesem Job: {folders}. Dort liegen Software und Datenbanken (zum Beispiel /opt für Anwendungen, /var/lib für PostgreSQL und MySQL). Ohne sie sichert ein Server oder LXC-Container kaum mehr als seine Konfiguration."
+    },
+    "restorePoint": {
+      "title": "Dieser Sicherungsstand enthält nicht alle Datenordner",
+      "description": "Gesichert werden nur die Ordner aus dem Backup-Job des Rechners, und diese waren nicht dabei: {folders}. Fügen Sie sie dem Job hinzu, damit sie ab dem nächsten Lauf gesichert werden."
+    },
+    "add": "{count, plural, one {Diesen Ordner hinzufügen} other {Diese # Ordner hinzufügen}}"
   }
 }

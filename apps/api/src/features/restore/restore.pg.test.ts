@@ -75,7 +75,11 @@ describe.skipIf(!testDatabaseAdminUrl)("restore requests against Postgres", () =
 
   afterAll(async () => {
     const shared = await import("../../db.js");
-    await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
+    await Promise.all([
+      shared.db.$client.end(),
+      shared.providerDb.$client.end(),
+      shared.authDb.$client.end(),
+    ]);
     await db?.$client.end();
     await dropDatabase(testDatabaseAdminUrl as string, DATABASE);
   });
@@ -253,6 +257,31 @@ describe.skipIf(!testDatabaseAdminUrl)("restore requests against Postgres", () =
         }),
       ),
     ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("lets a restore operator restore anybody's data into another account, with a reason", async () => {
+    const restorer = { ...f.admin, role: "tenant_restore" as const };
+    const input = {
+      snapshotId: f.mailbox.second,
+      selection: [{ path: "mail/Inbox" }],
+      target: { type: "other", accountId: "bob@contoso.test" },
+    };
+    await expect(
+      service.createRestore(db, f.tenantId, actor(restorer), request(input)),
+    ).rejects.toMatchObject({ status: 422, type: "urn:restow:problem:restore-reason-required" });
+    const created = await service.createRestore(
+      db,
+      f.tenantId,
+      actor(restorer),
+      request({ ...input, reason: "Ticket 4712: mails for the new colleague" }),
+    );
+    expect(created.impersonated).toBe(true);
+
+    const all = await service.listRestores(db, f.tenantId, restorer, { limit: 200 });
+    const viaAdmin = await service.listRestores(db, f.tenantId, f.admin, { limit: 200 });
+    expect(all.map((restore) => restore.id).sort()).toEqual(
+      viaAdmin.map((restore) => restore.id).sort(),
+    );
   });
 
   it("restores IMAP data only into accounts the tenant knows", async () => {

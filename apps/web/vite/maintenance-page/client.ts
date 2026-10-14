@@ -23,6 +23,12 @@ export const REQUEST_TIMEOUT_MS = 4000;
 /** No automatic reload within this time of the previous one (a loop guard). */
 export const RELOAD_BACKOFF_MS = 15000;
 export const RELOAD_STORAGE_KEY = "maintenance.reloadedAt";
+/**
+ * How long after an update finished the page still says it succeeded. The updater keeps
+ * reporting its last run until the next one; when the application is down later (a reboot,
+ * a crashed api), the page says it is unavailable instead of "updated, reloading now".
+ */
+export const SUCCESS_SHOWN_MS = 10 * 60 * 1000;
 
 export const PHASES = ["idle", "scheduled", "running", "succeeded", "failed"] as const;
 export const STEP_IDS = [
@@ -63,6 +69,23 @@ function text(value: unknown): string | null {
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
+const IDLE_STATUS: PageStatus = {
+  phase: "idle",
+  outcome: null,
+  targetVersion: null,
+  step: null,
+  steps: [],
+  progress: 0,
+  failureCode: null,
+};
+
+/** The run finished more than {@link SUCCESS_SHOWN_MS} ago, by the updater's own clock. */
+function successIsOld(finishedAt: unknown, serverTime: unknown): boolean {
+  const finished = typeof finishedAt === "string" ? Date.parse(finishedAt) : Number.NaN;
+  const now = typeof serverTime === "string" ? Date.parse(serverTime) : Number.NaN;
+  return Number.isFinite(finished) && Number.isFinite(now) && now - finished > SUCCESS_SHOWN_MS;
+}
+
 /** Read the status defensively; anything that is not one (an error page) is `null`. */
 export function parseStatus(payload: unknown): PageStatus | null {
   if (typeof payload !== "object" || payload === null) {
@@ -86,6 +109,9 @@ export function parseStatus(payload: unknown): PageStatus | null {
   }
   const progress =
     typeof raw.progress === "number" && Number.isFinite(raw.progress) ? raw.progress : 0;
+  if (phase === "succeeded" && successIsOld(raw.finishedAt, raw.serverTime)) {
+    return { ...IDLE_STATUS, steps: [] };
+  }
   return {
     phase,
     outcome: oneOf(OUTCOMES, raw.outcome),

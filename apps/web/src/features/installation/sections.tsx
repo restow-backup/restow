@@ -1,13 +1,12 @@
-import { AppWindow, Download, HardDrive, Info, Layers, Mail, Network, Server } from "lucide-react";
+import { AppWindow, Download, HardDrive, Info, Layers, Mail, Server } from "lucide-react";
 
 import { AboutSection } from "@/features/settings/sections/about-section";
 import { UpdatesSection } from "@/features/updates/updates-section";
 import { type InstallationSectionSpec, extensionInstallationSections } from "@/lib/extensions";
 
-import { DefaultStorageSection } from "./sections/default-storage-section";
 import { EditionSection } from "./sections/edition-section";
 import { MicrosoftAppSection } from "./sections/microsoft-app-section";
-import { MountsSection } from "./sections/mounts-section";
+import { RepositorySection } from "./sections/repository-section";
 import { MailSectionPage, ServerSectionPage } from "./sections/settings-sections";
 
 /**
@@ -18,7 +17,7 @@ import { MailSectionPage, ServerSectionPage } from "./sections/settings-sections
  * `InstallationSectionSpec`):
  *
  *   10 Server   20 Notification mail   30 Microsoft multi-tenant app
- *   40 Journal receiving (Business)    50 Default storage    55 Mounts
+ *   40 Journal receiving (Business)    50 Default repository & network shares
  *   60 Provider API (Service Provider) 70 Updates
  *   80 License (extension) or Edition  90 About
  *
@@ -57,22 +56,14 @@ export const CORE_INSTALLATION_SECTIONS: readonly InstallationSectionSpec[] = [
     component: MicrosoftAppSection,
   },
   {
+    // The default repository and the NFS shares (opt-in mounter, docs/MOUNTS.md) it and
+    // the tenants' repositories can point at, on one page.
     id: "default-storage",
-    labelKey: "installation:sections.defaultStorage",
-    descriptionKey: "installation:descriptions.defaultStorage",
+    labelKey: "installation:sections.repository",
+    descriptionKey: "installation:descriptions.repository",
     icon: HardDrive,
     order: 50,
-    component: DefaultStorageSection,
-  },
-  {
-    // NFS shares through the opt-in mounter (docs/MOUNTS.md), right after the default
-    // storage they usually serve.
-    id: "mounts",
-    labelKey: "installation:sections.mounts",
-    descriptionKey: "installation:descriptions.mounts",
-    icon: Network,
-    order: 55,
-    component: MountsSection,
+    component: RepositorySection,
   },
   {
     id: "updates",

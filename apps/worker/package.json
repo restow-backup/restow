@@ -1,6 +1,6 @@
 {
   "name": "@restow/worker",
-  "version": "0.3.3",
+  "version": "0.3.6",
   "private": true,
   "type": "module",
   "description": "Restow pg-boss worker: one handler per job queue (backup, restore, verify, archive, directory, retention, scrub).",
@@ -18,7 +18,7 @@
     "@restow/core": "workspace:*",
     "@restow/db": "workspace:*",
     "@restow/i18n": "workspace:*",
-    "drizzle-orm": "^0.45.3",
+    "drizzle-orm": "^0.45.4",
     "imapflow": "^1.0.171",
     "pg-boss": "^10.1.5"
   },

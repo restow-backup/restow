@@ -11,6 +11,7 @@
     "microsoftApp": "Microsoft multi-tenant app",
     "journal": "Journal receiving",
     "defaultStorage": "Default repository",
+    "repository": "Default repository & network shares",
     "mounts": "Network shares",
     "providerApi": "Provider API",
     "updates": "Updates",
@@ -23,6 +24,7 @@
     "microsoftApp": "The app registration this installation uses to reach Microsoft 365.",
     "journal": "The SMTP receiver for Exchange journal reports. One receiver serves {scope, select, organisation {your organisation} other {all tenants}}.",
     "defaultStorage": "Where data is kept for {scope, select, organisation {your organisation} other {every tenant without a repository of its own}}.",
+    "repository": "Where data is kept for {scope, select, organisation {your organisation} other {every tenant without a repository of its own}}, and the network shares (NFS) a repository can point at.",
     "mounts": "Network shares (NFS) used as backup storage.",
     "providerApi": "Keys for RMM and PSA tools that work across all tenants.",
     "updates": "Which version runs, which releases exist and how to update.",
@@ -180,7 +182,13 @@
     "intro": "Network shares (NFS) that {appName} uses as backup storage. Each network share appears in the api and the worker at {path}; a repository of the kind \"directory\" then points there.",
     "unavailable": {
       "title": "The mounter is not running",
-      "description": "Network shares are added by the mounter, an optional container next to {appName}. It is off by default. To use it, run this command once in the directory that holds docker-compose.yml:",
+      "description": "Network shares are added by the mounter, an optional container next to {appName}. It is off by default. To use it, run this command once on the server:",
+      "defaultDir": "The command assumes the installer's default directory /opt/restow. If {appName} is installed in another directory, use that one instead.",
+      "composeOutdated": {
+        "title": "The compose file has no mounter",
+        "description": "The docker-compose.yml of this installation was written before the mounter existed, and updates do not replace it. Run the installer again on the server: it replaces the file with the one of the installed release and keeps the previous one as a backup next to it. .env stays as it is.",
+        "then": "Then start the mounter with the command below."
+      },
       "security": "The mounter has access to the Docker socket, which amounts to root access on the host. Read the documentation on network shares before you enable it.",
       "reason": {
         "disabled": "The connection to the mounter is switched off on this server.",
@@ -280,6 +288,7 @@
       },
       "probe": {
         "mount_failed": "The network share could not be mounted. Check the server address, the export path, the NFS version and whether the server exports the path to this host.",
+        "export_not_found": "The export path {export} does not exist on {server}.",
         "not_writable": "The network share was mounted but is not writable. Check the permissions on the server (root squash maps root to an unprivileged user).",
         "timeout": "The server did not answer in time.",
         "failed": "The test of the network share failed."
@@ -297,6 +306,11 @@
         "crashed": "The api or the worker stopped after the restart."
       },
       "interrupted": "The mounter stopped while the change was running."
+    },
+    "exportNotFound": {
+      "showmount": "The server answered but has no export with this path. Check the exact path it exports with:",
+      "synology": "On a Synology NAS the path starts with the volume, for example /volume1{path}.",
+      "nfsVersion": "With NFSv4 some servers show their exports below a pseudo-root, with different paths. Try NFS version 3."
     },
     "dialog": {
       "title": "Add an NFS network share",

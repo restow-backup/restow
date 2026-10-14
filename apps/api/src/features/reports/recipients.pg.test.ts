@@ -82,7 +82,12 @@ describe.skipIf(!testDatabaseAdminUrl)(
     }, 60_000);
 
     afterAll(async () => {
-      if (shared) await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
+      if (shared)
+        await Promise.all([
+          shared.db.$client.end(),
+          shared.providerDb.$client.end(),
+          shared.authDb.$client.end(),
+        ]);
       await owner?.$client.end();
       if (testDatabaseAdminUrl) {
         await dropDatabase(testDatabaseAdminUrl, DATABASE);

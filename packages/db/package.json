@@ -1,6 +1,6 @@
 {
   "name": "@restow/db",
-  "version": "0.3.3",
+  "version": "0.3.6",
   "private": true,
   "type": "module",
   "description": "Restow database schema (Drizzle), migrations, Row Level Security and database roles.",
@@ -30,8 +30,8 @@
     "migrate": "tsc -p tsconfig.build.json && node -e \"import('./dist/migrate.js').then((m) => m.migrateFromEnvironment()).catch((e) => { console.error(e.message); process.exit(1); })\""
   },
   "dependencies": {
-    "drizzle-orm": "^0.45.3",
-    "pg": "^8.13.0"
+    "drizzle-orm": "^0.45.4",
+    "pg": "^8.23.1"
   },
   "devDependencies": {
     "@types/pg": "^8.11.0",

@@ -150,23 +150,51 @@ export interface SessionContextValue {
 
 const SessionContext = React.createContext<SessionContextValue | null>(null);
 
-function deriveStatus(
+/** The HTTP status of an error from the auth client or the API, when it carries one. */
+function statusOfError(error: unknown): number | null {
+  if (error instanceof ApiError) {
+    return error.status;
+  }
+  const status =
+    typeof error === "object" && error !== null ? (error as { status?: unknown }).status : null;
+  return typeof status === "number" ? status : null;
+}
+
+/**
+ * The session's state. A failed background refetch (the auth client reads
+ * the session again when the window gets the focus or the browser comes back
+ * online; the profile is refetched too) keeps the last good data next to the
+ * error: while that data is there and the failure is not a 401, the person
+ * stays signed in and the shell stays up. Only a failure without any data
+ * (the first load) shows the error page; a 401 always signs out.
+ */
+export function deriveStatus(
   session: { data: unknown; isPending: boolean; error: unknown },
   me: { data: Me | undefined; isPending: boolean; error: unknown },
 ): SessionStatus {
-  if (session.isPending) {
+  if (session.isPending && !session.data) {
     return "loading";
   }
   if (session.error) {
-    return "error";
+    if (statusOfError(session.error) === 401) {
+      return "unauthenticated";
+    }
+    if (!session.data) {
+      return "error";
+    }
   }
   if (!session.data) {
     return "unauthenticated";
   }
   if (me.error) {
-    return me.error instanceof ApiError && me.error.status === 401 ? "unauthenticated" : "error";
+    if (statusOfError(me.error) === 401) {
+      return "unauthenticated";
+    }
+    if (!me.data) {
+      return "error";
+    }
   }
-  if (me.isPending || !me.data) {
+  if (!me.data) {
     return "loading";
   }
   return "authenticated";

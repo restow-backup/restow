@@ -51,6 +51,7 @@
       "none": "Noch kein geschütztes Konto",
       "noneDescription": "Schützen Sie zunächst ein Postfach, OneDrive oder IMAP-Konto. Es erscheint hier, sobald es geschützt ist, auch vor der ersten abgeschlossenen Sicherung.",
       "noneAction": "Geschützte Objekte öffnen",
+      "noneRestoreDescription": "Für diesen Mandanten ist noch kein Postfach, OneDrive oder IMAP-Konto geschützt. Die Administration des Mandanten richtet die Sicherung ein; danach erscheinen die Konten hier.",
       "noneSelf": "Für Sie liegt noch keine Sicherung vor",
       "noneSelfDescription": "Ihr Postfach, Ihr OneDrive oder Ihr IMAP-Konto wird noch nicht gesichert. Wenden Sie sich an die Administration Ihres Unternehmens, damit es geschützt wird.",
       "kinds": {

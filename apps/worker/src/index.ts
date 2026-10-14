@@ -30,7 +30,8 @@ import { pathToFileURL } from "node:url";
  *   WORKER_CONCURRENCY           parallel jobs per queue in this process (default 2)
  *   WORKER_TENANT_CONCURRENCY    parallel jobs per tenant in this process (default 2)
  *   WORKER_POLL_SECONDS          pg-boss polling interval (default 2)
- *   WORKER_SHUTDOWN_TIMEOUT_MS   how long shutdown waits for jobs to checkpoint (default 30000)
+ *   WORKER_SHUTDOWN_TIMEOUT_MS   how long shutdown waits for jobs to checkpoint (default 50000;
+ *                                stays below the 60 s the updater and compose allow)
  *   WORKER_CANCEL_POLL_MS        how often a running job checks for cancellation (default 15000)
  *   WORKER_PROGRESS_FLUSH_ITEMS  progress rows are written every N items (default 50)
  *   WORKER_PROGRESS_FLUSH_MS     ... or at least this often (default 2000)
@@ -70,13 +71,16 @@ import {
 import {
   ServiceHeartbeatReporter,
   assertDatabaseRoles,
+  clearRestartRequests,
   createDb,
+  grantQueueAccess,
   heartbeatStore,
   retryConcurrentSetup,
   safeErrorMessage,
 } from "@restow/db";
 import { PRODUCT_NAME_ENV, configureProductName } from "@restow/i18n";
 import PgBoss from "pg-boss";
+import { grantContinuation } from "./continuation.js";
 import { configureDefaultStorage } from "./default-storage.js";
 import { registerEndpointJobs } from "./endpoints/register.js";
 import { configureEntraApp } from "./entra-app.js";
@@ -101,6 +105,7 @@ import { handlers } from "./handlers/index.js";
 import { mailFilesCleanupTask } from "./handlers/mail-files-cleanup.js";
 import { retentionTasks } from "./handlers/retention.js";
 import { emitJobWebhook, webhooksHandler } from "./handlers/webhooks.js";
+import { startManifestConversion } from "./manifest-conversion.js";
 import { startPveMaintenance } from "./pve/maintenance.js";
 import { QUEUE_NAMES, pgBossQueueOptions, queuePriority } from "./queues.js";
 import { raiseJobFinished } from "./reporting.js";
@@ -179,7 +184,7 @@ export function loadConfig(env: Env = process.env): WorkerConfig {
     concurrency: positiveInt(env, "WORKER_CONCURRENCY", 2),
     tenantConcurrency: positiveInt(env, "WORKER_TENANT_CONCURRENCY", 2),
     pollSeconds: positiveInt(env, "WORKER_POLL_SECONDS", 2),
-    shutdownTimeoutMs: positiveInt(env, "WORKER_SHUTDOWN_TIMEOUT_MS", 30_000),
+    shutdownTimeoutMs: positiveInt(env, "WORKER_SHUTDOWN_TIMEOUT_MS", 50_000),
     cancelPollMs: positiveInt(env, "WORKER_CANCEL_POLL_MS", 15_000),
     progressFlushEveryItems: positiveInt(env, "WORKER_PROGRESS_FLUSH_ITEMS", 50),
     progressFlushIntervalMs: positiveInt(env, "WORKER_PROGRESS_FLUSH_MS", 2000),
@@ -242,7 +247,16 @@ async function main(): Promise<void> {
   const registry = new HandlerRegistry([...handlers, ...extensionHandlers()]);
   const db = createDb(config.databaseUrl);
   const providerDb = createDb(config.databaseProviderUrl);
-  await assertDatabaseRoles({ tenant: db.$client, installation: providerDb.$client });
+  const roles = await assertDatabaseRoles({ tenant: db.$client, installation: providerDb.$client });
+  // This process has just started, so the restart requests recorded for its role are
+  // followed (packages/db restart-requests.ts); cleared before it does any work of its own.
+  try {
+    await clearRestartRequests(providerDb, "worker");
+  } catch (error) {
+    logger.warn("the restart requests for the worker could not be cleared", {
+      errorMessage: safeErrorMessage(error),
+    });
+  }
   // Staged uploads and finished exports are temporary: the retention job sweeps them.
   retentionTasks.register(mailFilesCleanupTask);
   // Retention tasks contributed by extensions, e.g. the archive deletion run
@@ -300,6 +314,8 @@ async function main(): Promise<void> {
       flushEveryItems: config.progressFlushEveryItems,
       flushIntervalMs: config.progressFlushIntervalMs,
     },
+    // An interrupted job that made progress keeps its attempts (#47).
+    continueInterrupted: (queue, pgBossJobId) => grantContinuation(providerDb, queue, pgBossJobId),
     // job.completed / job.failed for the tenant's webhooks (RMM tickets), and
     // the bell plus notification rules for failed jobs and finished restores.
     onJobFinished: async (tenantId, job) => {
@@ -311,7 +327,8 @@ async function main(): Promise<void> {
   const webhookDispatcher = webhooksHandler.start({ ...runtime, db: providerDb });
 
   // pg-boss owns its schema as the installation role; jobs are enqueued by the
-  // API and the scheduler on the application role, which may insert into it.
+  // API and the scheduler on the application role, which may insert into it
+  // and nothing else (packages/db roles.ts `grantQueueAccess`, below).
   const boss = new PgBoss({ connectionString: config.databaseProviderUrl });
   boss.on("error", (error) => {
     logger.error("pg-boss error", { errorMessage: error.message });
@@ -321,6 +338,9 @@ async function main(): Promise<void> {
   const onSetupRetry = (info: { attempt: number; code: string | null; delayMs: number }) =>
     logger.info("job queue setup raced with another process, retrying", info);
   await retryConcurrentSetup(() => boss.start(), { onRetry: onSetupRetry });
+  // pg-boss has just created or upgraded its schema: the application role gets
+  // its enqueue-only access to it (again).
+  await grantQueueAccess(providerDb.$client, roles.tenant.name);
 
   // Every queue exists with its policy before any producer or worker touches
   // it; updateQueue keeps the settings current across upgrades.
@@ -388,6 +408,10 @@ async function main(): Promise<void> {
   // one pass every five minutes in one worker at a time.
   startPveMaintenance({ db, providerDb, runtime });
 
+  // 0.3.5: fold the per-snapshot manifest mirror of 0.3.4 into versions, in the background
+  // (manifest-conversion.ts); ends by itself once nothing is left.
+  startManifestConversion({ db, providerDb, runtime });
+
   // Nightly seal of every audit chain (own cron queue, one catch-up run now).
   // Every chain, the installation chain included: on the installation pool.
   await registerAuditAnchor(boss, {
@@ -399,7 +423,8 @@ async function main(): Promise<void> {
   // removed again on a graceful shutdown (docs/ARCHITECTURE.md, Health).
   let stopping = false;
   const heartbeat = new ServiceHeartbeatReporter({
-    store: heartbeatStore(db),
+    // Installation-level (packages/db roles.ts): the installation pool.
+    store: heartbeatStore(providerDb),
     role: "worker",
     details: () => ({ state: stopping ? "stopping" : "running", queues: registry.queues() }),
     onError: (error) => {

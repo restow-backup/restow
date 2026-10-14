@@ -1007,5 +1007,16 @@
       "description": "The copy runs even if the newest restore point is empty or has fewer than half the files of the last copy. In a mirror, files the source no longer has are deleted from the target folder.",
       "confirm": "Copy anyway"
     }
+  },
+  "missingFolders": {
+    "job": {
+      "title": "Folders where applications keep their data are not backed up",
+      "description": "Not in this job: {folders}. Software and databases live there (for example /opt for applications, /var/lib for PostgreSQL and MySQL). Without them a server or LXC container backs up little more than its configuration."
+    },
+    "restorePoint": {
+      "title": "This restore point does not contain every data folder",
+      "description": "Only the folders of the machine's backup job are backed up, and these were not among them: {folders}. Add them to the job to back them up from the next run on."
+    },
+    "add": "{count, plural, one {Add this folder} other {Add these # folders}}"
   }
 }

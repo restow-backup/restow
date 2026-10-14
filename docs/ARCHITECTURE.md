@@ -69,7 +69,11 @@ Worker skalierbar. Postgres 16 ist die einzige Zustandsquelle außer dem Chunk-S
   `imap` im Speicherformat des IMAP-Backups, siehe docs/IMPORT.md)
 - `protected_object`: Postfach, OneDrive, IMAP-Konto; Herkunft `directory_sync` oder
   `manual`; Schutzstatus (aktiv, ausgeschlossen, verwaist)
-- Rollen: `provider_admin`, `tenant_admin` (inkl. entra_global_admin via SSO), `tenant_user`
+- Rollen: `provider_admin`, `tenant_admin` (inkl. entra_global_admin via SSO),
+  `tenant_restore` (Restore-Operator: durchsucht, stellt wieder her und exportiert alle
+  Konten des Mandanten, ändert aber keine Quellen, Jobs oder Mitglieder; better-auth-Rolle
+  `restore`), `tenant_user` (nur das eigene Postfach/OneDrive). Beim Anlegen oder Einladen
+  einer Person ist die Rolle immer eine bewusste Wahl, nie vorbelegt.
 - Row Level Security: jede Tabelle mit `tenant_id` hat eine Policy; API setzt
   `SET LOCAL app.tenant_id` je Request. Provider-Admin arbeitet mit explizitem
   Mandantenwechsel, nie tenant-übergreifend in einer Query.
@@ -80,19 +84,52 @@ Worker skalierbar. Postgres 16 ist die einzige Zustandsquelle außer dem Chunk-S
   - Anwendungsrolle (`DATABASE_URL`): `NOSUPERUSER`, `NOBYPASSRLS`, besitzt keine
     Tabelle. Alle Mandantenarbeit läuft darauf in `withTenantTx`; eine Abfrage ohne
     Mandantenfilter sieht trotzdem nur den gepinnten Mandanten, ohne Pin gar nichts.
+    Sie erreicht ausschließlich Mandantendaten: keine better-auth-Tabelle (Sessions,
+    Passwort-Hashes, TOTP-Geheimnisse, Passkeys, Verifikations-Token, Mitgliedschaften,
+    Einladungen, Rate-Limit-Zähler) außer Name und E-Mail-Adresse eines Benutzers
+    (`user.id`, `user.name`, `user.email`, für „angefordert von“ an Restores, Exporten,
+    Importen und API-Keys), keine Installationstabelle (`settings`, `license`,
+    `providers`, `service_heartbeats`, Provider-Team) und in `pgboss` nur das
+    Einstellen eines Jobs (`INSERT` auf `pgboss.job`, die zurückgegebene `id`, Lesen
+    von `pgboss.queue`); Payloads anderer Jobs lesen, Jobs ändern, abbrechen oder
+    löschen kann sie nicht (Abbrechen läuft über die Installationsrolle). Ein Fehler im
+    mandantenbezogenen Code (fehlender Filter, Injection) erreicht damit weder fremde
+    Sessions noch zweite Faktoren noch Installationseinstellungen.
+  - Auth-Rolle (`DATABASE_AUTH_URL`, optional): `NOSUPERUSER`, `NOBYPASSRLS`, besitzt
+    keine Tabelle. better-auth (`drizzleAdapter` in apps/api/src/auth.ts) und Restows
+    eigener Code auf dessen Tabellen (Sitzungs-Hooks, Konten und Set-Password-Links,
+    Mitglieder und Einladungen, Passwort-Reset, Provider-Team-Links) laufen auf diesem
+    Pool (`authDb`). Sie erreicht die better-auth-Tabellen und von Restows Tabellen nur
+    `tenants` (lesen) und `audit_log` (lesen, anhängen), beides unter RLS: das Einlösen
+    eines Set-Password-Links prüft Mandant und Mitgliedschaft und schreibt Passwort und
+    Audit-Eintrag in einer auf den Mandanten gepinnten Transaktion. Ohne
+    `DATABASE_AUTH_URL` wird ihr Login aus den beiden anderen abgeleitet: Name
+    `<Anwendungsrolle>_auth` (z. B. `restow_app_auth`), Passwort ein HMAC-SHA-256
+    dieses Namens mit dem Passwort der Installationsrolle als Schlüssel
+    (`deriveAuthLogin`). Migrationsschritt und api kommen so ohne neue Einstellung auf
+    dasselbe Login; wer das Installationspasswort kennt, hält ohnehin die stärkere Rolle.
   - Installationsrolle (`DATABASE_PROVIDER_URL`, `BYPASSRLS`): nur für Lookups, bevor
     ein Mandant feststeht (Session-Mandant, API-Key, Mandantenliste, `/me`),
-    installationsweite Daten (Settings, Provider-Secrets, Provider-API-Keys, die
-    Lizenztabelle des Moduls `ee/licensing`,
-    Installations-Auditkette), Provider-Übersichten, die mandantenübergreifenden Scans
-    (Scheduler, Webhook-Zustellung, Audit-Anker) und pg-boss (Eigentümer des Schemas
-    `pgboss`; die Anwendungsrolle darf dort Jobs einstellen).
-  Der Migrationsschritt legt beide Login-Rollen mit Name und Passwort aus ihren
+    installationsweite Daten (Settings, Lizenz – auch für die Feature-Gates –,
+    Provider-Secrets, Provider-API-Keys, die Lizenztabelle des Moduls `ee/licensing`,
+    Installations-Auditkette, Service-Heartbeats), Provider-Übersichten, die
+    mandantenübergreifenden Scans (Scheduler, Webhook-Zustellung, Audit-Anker) und
+    pg-boss (Eigentümer des Schemas `pgboss`).
+  Der Migrationsschritt legt die drei Login-Rollen mit Name und Passwort aus ihren
   Connection-Strings an (SCRAM-Verifier clientseitig berechnet, das Klartextpasswort
   steht in keinem SQL-Statement) und vergibt die Rechte; `audit_log`, `audit_anchor`,
-  `archive_anchor` sind für beide Rollen nicht änderbar, `archive_items` löscht nur die
-  Installationsrolle (Retention). api, worker und scheduler prüfen beim Start, dass die
-  Anwendungsrolle RLS nicht umgehen kann, und starten sonst nicht.
+  `archive_anchor` sind für keine Rolle änderbar, `archive_items` löscht nur die
+  Installationsrolle (Retention). Welche Rolle welche Tabelle erreicht, steht in
+  `TABLE_ACCESS` (packages/db/src/roles.ts): jede Tabelle ist entweder Mandantendatum
+  unter RLS (sql/rls.sql) oder dort als `auth` oder `installation` eingeordnet; der
+  Schematest schlägt bei einer nicht eingeordneten Tabelle fehl, der Postgres-Test
+  prüft die tatsächlichen Rechte jeder Tabelle. Die Rechte der Anwendungsrolle auf
+  `pgboss` vergeben der Migrationsschritt (wenn das Schema schon existiert) sowie
+  worker und scheduler direkt nach dem Start von pg-boss, das das Schema anlegt oder
+  migriert (`grantQueueAccess`). Bis 0.3.4 vergebene weitergehende Rechte entzieht der
+  Migrationsschritt beim Update von selbst. api, worker und scheduler prüfen beim Start,
+  dass Anwendungs- und Auth-Rolle RLS nicht umgehen können und alle Rollen verschieden
+  sind, und starten sonst nicht.
 
 ## Chunk-Store (offenes Format)
 
@@ -211,6 +248,12 @@ diese Schlüssel zuerst und öffnet damit das Manifest.
   reservieren Kapazität; 429 verkleinert das Budget, Erfolg vergrößert es (AIMD).
 - Wiederaufnahme: Job speichert Cursor (Ordner, Delta-Token, letzte Item-ID); Neustart
   setzt fort, nichts wird doppelt geladen.
+  Eine Unterbrechung durch das Zeitlimit (95 % der 23-Stunden-Frist von pg-boss) oder einen
+  Neustart verbraucht keinen der Wiederholungsversuche, solange der Versuch einen Checkpoint
+  gespeichert hat, bis 21 Tage nach dem ersten Start (`apps/worker/src/continuation.ts`, #47):
+  eine mehrtägige Erstsicherung eines großen Postfachs läuft bis zum Ende. Graph-Anfragen
+  ohne Antwort brechen nach 5 Minuten ab und werden wiederholt; Anfragen und
+  Throttling-Wartezeiten enden mit dem Job (Abbruch, Zeitlimit, Neustart).
 - Fehlgeschlagene Elemente bleiben als `item_failures` sichtbar mit Grund und werden
   beim nächsten Lauf erneut versucht; nach 3 Läufen in Folge schreibt der Worker eine Warnung ins
   Log (`item.failure.repeated`). Je Lauf bleiben die ersten 200 als Zeilen, alle zählt

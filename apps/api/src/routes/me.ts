@@ -176,7 +176,7 @@ me.get("/", requireSession, async (c) => {
     activeTenantId:
       rows.find((row) => row.organizationId !== null && row.organizationId === activeOrganizationId)
         ?.id ?? null,
-    features: await enabledFeatures(db),
+    features: await enabledFeatures(providerDb),
     extensions: await extensionFields(user.id, isProviderAdmin),
     version: versionSource.current(),
     provider:

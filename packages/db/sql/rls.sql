@@ -6,8 +6,9 @@
 -- copy of it is committed as a migration). It is idempotent.
 --
 -- Roles (provisioned right after this file by the migration step, src/roles.ts,
--- from the logins in DATABASE_URL and DATABASE_PROVIDER_URL; every process
--- refuses to start when its pools do not match this description):
+-- from the logins in DATABASE_URL and DATABASE_PROVIDER_URL, and the auth role
+-- better-auth runs on, DATABASE_AUTH_URL or derived from those two; every
+-- process refuses to start when its pools do not match this description):
 --   * the application role (DATABASE_URL): NOSUPERUSER, NOBYPASSRLS, owns no
 --     table, so it is SUBJECT to RLS. The API opens a transaction per request
 --     and pins the tenant before any query:
@@ -50,16 +51,19 @@ CREATE POLICY tenant_isolation_self ON tenants
 -- audit_log, audit_anchor, secrets, api_keys, notifications) intentionally hide
 -- their provider-scope (NULL) rows from a tenant-pinned session; those rows are
 -- reached only via the BYPASSRLS provider role. Lookups that happen before a
--- tenant is known (API-key authentication, better-auth sessions) run on that
+-- tenant is known (API-key authentication, the provider team) run on that
 -- role as well; the better-auth tables themselves carry no RLS.
 --
 -- Keep this list in sync with packages/db/src/schema: schema.test.ts fails when
--- a table with a tenant_id column is missing here.
+-- a table with a tenant_id column is missing here, or when any other table is
+-- not classified in TABLE_ACCESS (src/roles.ts).
 --
--- Installation-level tables carry no tenant data and no policy: providers,
--- license, settings, service_heartbeats (process liveness, written by the api,
--- worker and scheduler on either role) and the better-auth tables, rate_limit
--- (the auth rate-limit counters) included.
+-- Tables without a policy carry no tenant data, and the application role has
+-- no grant on them (src/roles.ts TABLE_ACCESS): the installation-level ones
+-- (providers, license, settings, service_heartbeats) belong to the installation
+-- role, the better-auth tables (rate_limit, the auth rate-limit counters,
+-- included) to the auth role, which better-auth runs on; the application role
+-- reads only a user's id, name and e-mail address.
 -- ---------------------------------------------------------------------------
 DO $$
 DECLARE
@@ -76,7 +80,10 @@ DECLARE
     'snapshots',
     'packs',
     'chunks',
+    -- The per-snapshot mirror of 0.3.4 and earlier, until the worker has folded it into
+    -- manifest_versions (src/manifest-versions.ts).
     'manifest_objects',
+    'manifest_versions',
     'jobs',
     'job_progress',
     'item_failures',

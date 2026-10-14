@@ -8,6 +8,306 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [0.3.6] - 2026-10-15
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.3.6 lets you protect Proxmox VE guests straight from the inventory, gives the
+disk space of the old backup index back without an api restart, shows a notice with a
+button when a service needs a restart, and updates the compose file of older
+installations when the installer runs again. One database migration.
+
+### Breaking Changes
+
+None. `docker-compose.yml` and `.env.example` of the release now carry almost no comments;
+the reference moved to https://docs.restowbackup.com. Nothing in them changed otherwise.
+
+### Added
+
+- Inventory › Proxmox VE: every VM and container has its backup job as a choice (an
+  existing job, none, or a new one) and Back up now. Guests can be ticked one by one, all
+  of a node, or all without a job in one click, and then added to a job or backed up
+  together; New job opens the job dialog and puts the selection into the new job.
+- Installation › Updates: a "Restart required" notice when a service needs a restart, with
+  the reason, a Restart now button (through the updater; api, worker or scheduler only,
+  never while an update runs, and only after a confirmation) and the command to copy, in
+  the installation's directory. Provider admins see a notice on every page. Nothing
+  restarts without a click.
+- Running `install.sh` again on an existing installation updates `docker-compose.yml` to
+  the release in `.env` (checked against the signed SHA256SUMS) and keeps the previous
+  file as `docker-compose.yml.bak-<timestamp>`. `.env` stays as it is.
+
+### Changed
+
+- After the 0.3.5 conversion of the backup index has finished, the api gives the old
+  table's disk space back by itself within about 15 minutes; the api restart is no longer
+  needed.
+- Installation › Updates: an available update stands next to the running version, in the
+  same size and highlighted, instead of only in the status line.
+- Mounts: when the mounter is not running, the command starts with the installation's
+  directory; a compose file from before the mounter is named as such, with the installer
+  command that updates it.
+- Repositories › Add a server path: the dialog is wider and no longer scrolls sideways.
+- The inventory's protection column is called Protection (it shared the heading Backup with
+  the size column).
+- `docker-compose.yml` and `.env.example` keep only the comments a reader must not miss.
+- Dependencies: patch and minor updates (among them better-auth 1.7.8, drizzle-orm 0.45.4,
+  hono 4.13.13, pg 8.23.1, nodemailer 10.1.1, radix-ui 1.8.1, vite 6.4.4) and the pinned
+  GitHub Actions setup-node, upload-artifact and download-artifact.
+
+### Fixed
+
+- Mounting an NFS export that does not exist on the server ended with a bare "no such file
+  or directory". The message now names the export path and how to find the right one
+  (`showmount -e`, Synology paths start with `/volume1/`, NFSv3).
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New image and one database migration (0034, a small table for restart notices), which runs
+in seconds. No new required environment variables.
+
+- The Restart now button needs the updater of 0.3.6. An updater from before 0.3.6 shows the
+  command instead until it runs the 0.3.6 image.
+- Installations from before 0.3.0 whose compose file lacks the `mounter` service: run the
+  0.3.6 installer again to update it (see docs/MOUNTS.md).
+- Still converting the 0.3.5 backup index: nothing to do; the space comes back by itself
+  once the conversion has finished. On a production installation with 14 million index
+  rows the conversion ran at about 6,000 rows per second after a slow first minutes.
+- Rollback: the migration is not reversible; go back to 0.3.5 only with the database dump
+  taken before the update.
+
+### Known Issues
+
+- No part of Restow records a restart request yet; the notice and the button are in place
+  for updates that need them.
+- The Docker error text for a missing NFS export was taken from Docker's documentation, not
+  from a real failed mount.
+- The known issues of 0.3.5 still apply.
+
+### Verification
+
+Before the tag, on the release branch (main plus the five 0.3.6 branches): lint and
+typecheck of all workspaces, the server installer tests (642), the CI and smoke tooling
+tests (208), and the full unit and Postgres suites on Postgres 16: packages/db 177,
+packages/i18n 259, packages/core 1981, apps/scheduler 65, apps/api 3279 (1 skipped),
+apps/web 3839, apps/worker 444, ee/api 243, ee/licensing 59, ee/web 176, ee/worker 5,
+packages/cli 34, the demo seed 208; 114 Postgres test files, none skipped. The release
+smoke runs in the release pipeline; no Microsoft 365 tenant was used before the tag.
+
+## [0.3.5] - 2026-10-14
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.3.5 makes long first backups of large mailboxes finish instead of running out
+of retries, says plainly how big a Proxmox VE guest's backups are and when a container
+backup is incomplete, warns when a machine job leaves out the folders where Linux
+services keep their data, and adds a restore operator role. It also stores the backup
+index (which items each backup contains) as item versions instead of a full copy per
+backup, which shrinks the database of large installations by an order of magnitude, and
+gives sign-in a database role of its own. One database migration, run automatically at
+start.
+
+### Breaking Changes
+
+None. A Compose file you keep yourself should get `stop_grace_period: 60s` on the
+`worker` service (see Changed); without it, Docker stops the worker after 10 seconds as
+before.
+
+The first start after the upgrade converts the existing backup index in the background
+(see Changed). Backups, browsing and restores keep working meanwhile. Once the worker log
+says `manifest index conversion finished`, restart the `api` once
+(`cd /opt/restow && docker compose restart api`): only then is the space of the old
+index handed back to the file system.
+
+### Added
+
+- A **restore operator** role per tenant: sees and restores every backup of the tenant,
+  without administering it (jobs, storage, users). Creating a user or an invitation now
+  always needs a role to be chosen; there is no preselected one any more.
+- Proxmox VE › VMs & containers and the inventory: a **Backup** column with what the
+  newest restore point contains and what its run added ("9.4 GB in the backup, +2.5 MB
+  new"), with the first backup on hover. The former "Size" column is now called "Disk".
+- Proxmox VE guest page: restore points show their type (first backup, incremental, full
+  read), what they contain and what they added. A container backup that restic could not
+  read completely shows as "Last backup incomplete" / "Succeeded with gaps" with the
+  number of unreadable items, and counts as "Incomplete" in the inventory.
+- Machine jobs and File restore (Linux): a notice names the usual data folders (`/opt`,
+  `/srv`, `/var/lib`, `/home`, …) that the job's paths leave out, with a button to add
+  them.
+
+### Changed
+
+- Installation: "Default repository" and "Network shares" are one page again. Old links
+  to the network shares open it.
+- A backup that is interrupted by its time limit (23 hours) or by a worker restart, after
+  it saved a checkpoint, continues without using up one of its retries, for up to 21
+  days after it first started. The run view shows such an interruption as information,
+  not as an error.
+- Microsoft 365: a Graph request that gets no answer within 5 minutes is retried, instead
+  of hanging until the job's time limit. Requests and throttling waits end with the job.
+- The worker gets 60 seconds to save checkpoints when it stops (`stop_grace_period` in
+  the Compose files, drain time 50 seconds, `WORKER_SHUTDOWN_TIMEOUT_MS`).
+- Proxmox VE: "Back up now" and restore say that the node starts the task at its next
+  check-in, a second click says a backup is already waiting, and the pages refresh every
+  5 seconds while a guest waits for its node or backs up.
+- Backup index: a backup no longer copies every item of a mailbox or OneDrive into the
+  database. Restow keeps one row per version of an item, so an unchanged item costs
+  nothing on later backups. On an installation with 14 million index rows (25 GB), the
+  index needs about 0.5 to 1.5 GB afterwards. The worker converts existing backups one at
+  a time after the upgrade.
+- Database roles: sign-in (sessions, passwords, passkeys, two-factor secrets) runs on a
+  third database role of its own, created and kept up to date by the migration. The
+  application role keeps to tenant data under Row Level Security and may only add jobs
+  to the queue. No `.env` change is needed; `DATABASE_AUTH_URL` is optional for
+  installations that manage their database roles themselves (see SECURITY.md).
+- File restore: the file list has a fixed height and scrolls inside, so the path bar and
+  the actions stay in place.
+
+### Fixed
+
+- A first backup of a large mailbox that needed several days ended as failed after five
+  interruptions, and the next run started over.
+- "The run was interrupted" said nothing was lost also after the last attempt, when the
+  checkpoint is discarded.
+- Archive: header, storage-protection notice, search and results had no space between
+  them.
+- The database of installations with many item backups (Microsoft 365) grew by the full
+  item count with every backup, until the disk ran full.
+- After an update, the maintenance page kept saying "Restow was updated, this page reloads
+  now" whenever the application was down later (for example after a reboot with a full
+  disk). After 10 minutes it now says the server is temporarily unavailable.
+- The browser console warned on every page load that three preloaded fonts were not used
+  within the first seconds. The fonts are no longer preloaded.
+- Forms reported no error for a missing field inside a list (for example the role of a
+  new user in the setup wizard).
+
+### Security
+
+- Database roles (hardening, no known exploit): up to 0.3.4 the application's database
+  role could also read and write the tables outside Row Level Security, among them
+  better-auth's sign-in tables, the installation settings, the license and the job
+  queue. A flaw in tenant-scoped query code could therefore have reached data beyond
+  its tenant. 0.3.5 moves sign-in to a role of its own and leaves the application role
+  only tenant data and adding jobs. Affected: up to 0.3.4. Nothing to do beyond
+  updating; the migration changes the grants of an existing installation.
+
+### Upgrade Notes
+
+New image and one database migration (0033), which only creates a table and drops two
+indexes and takes seconds on any database size. After the start, the worker converts
+the existing backup index in the background, one backup at a time (about 19,000 index
+rows per second in testing, so roughly 15 minutes for 14 million rows); backups,
+browsing and restores keep working meanwhile. When the worker log says
+`manifest index conversion finished`, restart the api once
+(`docker compose restart api`) to give the old table's space back.
+
+- Free space: the conversion writes the new index before the old one is released, and
+  the updater writes a database dump before it updates. On a nearly full disk, free
+  space first (see docs/UPDATING.md).
+- No new required environment variables. `DATABASE_AUTH_URL` is optional.
+- Compose files kept by hand: add `stop_grace_period: 60s` to the `worker` service.
+- Rollback: the migration is not reversible; go back to 0.3.4 only with the database
+  dump taken before the update.
+
+### Known Issues
+
+- The background conversion of the backup index was tested on generated histories, not
+  yet on a production database of 25 GB; how long it takes there is an estimate.
+- The known issues of 0.3.4 still apply.
+
+### Verification
+
+Before the tag, on 2026-10-14, on the release branch (main plus #71 and #72): CI green
+(lint, typecheck, build, Docker images, Go agent, licenses, secret scan, and the unit
+and Postgres suites on Postgres 16 with password authentication). Locally on the
+combined branch: packages/db 171, packages/core 1981, apps/worker 444,
+apps/scheduler 65, apps/api 3250 (1 skipped), apps/web 3820, ee/api 243. The release
+smoke runs in the release pipeline; no Microsoft 365 tenant was used before the tag.
+
+## [0.3.4] - 2026-10-11
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.3.4 is a hotfix: Proxmox VE container backups no longer fail on the
+`lost+found` folder of an unprivileged container, VMs & containers show when a backup
+waits for its node or runs, and a short hiccup while the browser re-checks the sign-in
+no longer replaces the whole interface with "Restow could not be loaded". No database
+migration.
+
+### Breaking Changes
+
+None.
+
+### Added
+
+- Proxmox VE › VMs & containers: the state of a guest says "Waiting for the node" once
+  a backup was handed out and "Backup running" while it runs; a container whose last
+  backup succeeded says so (a VM says it with its incremental/full-read badge).
+
+### Changed
+
+- Proxmox VE container backups that restic could not read completely (exit code 3: the
+  snapshot is written, some files are missing) keep their restore point instead of
+  failing. The PVE task log names the unreadable items (the first 20) and the restore
+  point records how many there were.
+
+### Fixed
+
+- Container backups of unprivileged containers on ext4 (LVM, LVM-thin, directory
+  storage) failed with "open lost+found: permission denied": that folder belongs to the
+  host's root, which the container's ID map does not include. The `lost+found` at the
+  root of the container and of every mount point is left out, as vzdump does.
+- A failed container backup with a long restic error could stay "running" forever: the
+  server refused error texts over 4000 characters (422), and the node only logged that.
+  The server now keeps the first 4000 characters.
+- A backup whose own end the node could not report is closed when the node reports its
+  task: succeeded with a restore point, failed without one. A task that failed closes
+  every run it left open, not only one.
+- A backup still running after 30 minutes was handed to its node a second time.
+- The interface fell back to "Restow could not be loaded" whenever a single background
+  re-check of the sign-in failed (when the window got the focus again, after the network
+  came back, or while the API restarted), although the session was still valid. It now
+  stays up and keeps the session; only a failed first load or a 401 changes the screen.
+  Errors of the sign-in service name a server or connection problem instead of the
+  generic "The action could not be completed".
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New image and a new `restow-pve` helper for the Proxmox VE nodes; no database
+migration. After the server update, run `restow-pve update` on every node so the
+container fix applies there; the server part works with older helpers too.
+
+### Known Issues
+
+- The inventory's node rows do not yet show "Waiting for the node" or "Backup running";
+  VMs & containers does.
+- The known issues of 0.3.3 still apply.
+
+### Verification
+
+Before the tag, on 2026-10-11, on the release candidate (main plus the 0.3.4 changes):
+lint, typecheck, the Go tests of the agent and the PVE helper (including new tests for
+the container backup's arguments, exit code 3 and other failures), apps/web 3803, and
+the Proxmox VE suites of apps/api with Postgres 16 (pve 11, protection 6). The full
+suites run in CI on the release pull request.
+
 ## [0.3.3] - 2026-10-10
 
 Beta release. Run it alongside your existing backups, not as your only one, until

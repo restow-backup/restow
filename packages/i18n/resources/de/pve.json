@@ -64,7 +64,7 @@
     "name": "Name",
     "kind": "Art",
     "node": "Knoten",
-    "size": "Größe",
+    "size": "Disk",
     "job": "Backup-Job",
     "lastBackup": "Letzte Sicherung",
     "state": "Zustand",
@@ -73,7 +73,8 @@
     "ct": "Container",
     "noJob": "Kein Backup-Job",
     "backupNow": "Jetzt sichern",
-    "backupQueued": "Die Sicherung wurde an den Knoten übergeben.",
+    "backupQueued": "Sicherung angefordert. Der Knoten startet sie bei seiner nächsten Meldung, meist innerhalb einer Minute.",
+    "backupAlreadyQueued": "Für diesen Gast wartet bereits eine Sicherung auf den Knoten.",
     "open": "Öffnen",
     "template": "Vorlage (nicht sicherbar)",
     "privileged": "Privilegiert",
@@ -81,7 +82,18 @@
     "lastFailed": "Letzter Lauf fehlgeschlagen",
     "incremental": "Inkrementell",
     "fullRead": "Vollständiges Lesen (VM neu gestartet)",
-    "never": "Noch nie"
+    "never": "Noch nie",
+    "queued": "Wartet auf den Knoten",
+    "running": "Sicherung läuft",
+    "lastSucceeded": "Letzte Sicherung erfolgreich",
+    "sizeHint": "In Proxmox VE eingestellte Disk-Größe: was zugewiesen ist, nicht was belegt ist.",
+    "backup": "Sicherung",
+    "backupContains": "{size} im Backup",
+    "backupAdded": "+{size} neu im letzten Lauf",
+    "backupFirst": "Erste Sicherung am {date}: {size} gespeichert",
+    "backupNone": "Noch keine Sicherung",
+    "incomplete": "Letzte Sicherung unvollständig",
+    "incompleteHint": "{count, plural, one {# Element konnte} other {# Elemente konnten}} nicht gelesen werden; dem Sicherungsstand fehlen sie."
   },
   "jobs": {
     "title": "Backup-Jobs",
@@ -116,7 +128,7 @@
     "restorePoints": "Sicherungsstände",
     "noRestorePoints": "Noch kein Sicherungsstand.",
     "time": "Zeitpunkt",
-    "size": "Größe",
+    "size": "Enthält",
     "changed": "Geänderte Blöcke",
     "mode": "Lesen",
     "verify": "Restore-Prüfung",
@@ -149,7 +161,18 @@
       "reuse": "Nur geänderte Blöcke",
       "new": "Ganzer Datenträger",
       "none": "Ganzer Datenträger"
-    }
+    },
+    "sizeHint": "Alles, was dieser Sicherungsstand wiederherstellt: alle Dateien eines Containers, alle Disks einer VM. Unveränderte Daten werden nur einmal gespeichert.",
+    "added": "Neu in dieser Sicherung",
+    "addedHint": "Was diese Sicherung dem Repository hinzugefügt hat, nach Deduplizierung und Komprimierung unveränderter Daten.",
+    "type": "Art",
+    "backupType": {
+      "first": "Erste Sicherung",
+      "incremental": "Inkrementell",
+      "full_read": "Vollständig gelesen"
+    },
+    "unreadable": "{count, plural, one {# Element} other {# Elemente}} nicht lesbar",
+    "succeededWithGaps": "Mit Lücken erfolgreich"
   },
   "restore": {
     "title": "Als neuen Gast wiederherstellen",
@@ -159,7 +182,7 @@
     "vmid": "Neue ID (leer: nächste freie)",
     "start": "Nach der Wiederherstellung starten",
     "submit": "Wiederherstellen",
-    "queued": "Die Wiederherstellung wurde an den Knoten übergeben.",
+    "queued": "Wiederherstellung angefordert. Der Knoten startet sie bei seiner nächsten Meldung, meist innerhalb einer Minute.",
     "privileged": "Privilegierte Container kann Proxmox VE aus einer Backup-Schnittstelle nicht wiederherstellen."
   },
   "readiness": {
@@ -184,16 +207,33 @@
     "guestCount": "VMs und Container: {count}",
     "noGuests": "Auf diesem Knoten sind keine VMs oder Container gemeldet.",
     "running": "Status",
-    "protection": "Sicherung",
+    "protection": "Schutz",
+    "actions": {
+      "selected": "{count} ausgewählt",
+      "select": "{name} auswählen",
+      "selectAll": "Alle VMs und Container dieses Knotens auswählen",
+      "clear": "Auswahl aufheben",
+      "addToJob": "Zu Job hinzufügen …",
+      "newJob": "Neuer Job …",
+      "jobOf": "Backup-Job von {name}",
+      "backupNowOf": "{name} jetzt sichern",
+      "withoutJob": "{count, plural, one {# VM oder Container hat} other {# VMs und Container haben}} keinen Backup-Job.",
+      "selectWithoutJob": "Auswählen",
+      "assigned": "{count, plural, one {# VM oder Container ist} other {# VMs und Container sind}} jetzt im Job.",
+      "unassigned": "Aus dem Backup-Job entfernt.",
+      "backupQueued": "{count, plural, one {Sicherung angefordert} other {# Sicherungen angefordert}}. Der Knoten startet sie bei seiner nächsten Meldung, meist innerhalb einer Minute."
+    },
     "count": {
       "protected": "Geschützt: {count}",
       "failed": "Fehlgeschlagen: {count}",
+      "incomplete": "Unvollständig: {count}",
       "noJob": "Ohne Job: {count}",
       "never": "Noch nicht gesichert: {count}"
     },
     "state": {
       "protected": "Geschützt",
       "failed": "Letzter Lauf fehlgeschlagen",
+      "incomplete": "Letzte Sicherung unvollständig",
       "noJob": "Kein Backup-Job",
       "never": "Noch nicht gesichert",
       "excluded": "Nicht gesichert (Vorlage oder entfernt)"

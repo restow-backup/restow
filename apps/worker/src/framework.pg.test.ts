@@ -34,7 +34,7 @@ import {
   itemFailures,
   jobProgress,
   jobs,
-  manifestObjects,
+  manifestEntries,
   packs,
   protectedObjects,
   providers,
@@ -343,7 +343,7 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
     expect((await catalog.chunksOf(kept?.id as string)).length).toBe(new Set(first.chunks).size);
   });
 
-  it("commits snapshots with a manifest_objects mirror, resumes from a checkpointed cursor", async () => {
+  it("commits snapshots with a manifest index mirror, resumes from a checkpointed cursor", async () => {
     const run = tenantRunner(db, fixture.tenantId);
     const jobId = randomUUID();
     await db.insert(jobs).values({
@@ -422,11 +422,20 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
     expect(row.manifestPath).toBe(committed.manifestPath);
     expect(row.itemCount).toBe(2);
     expect(row.sequence).toBe(1);
-    const mirrored = await db
-      .select()
-      .from(manifestObjects)
-      .where(eq(manifestObjects.snapshotId, committed.snapshotId));
-    expect(mirrored.map((m) => [m.kind, m.path, m.parentPath, m.messageId]).sort()).toEqual([
+    const mirrored = (
+      await db.execute<{
+        kind: string;
+        path: string;
+        parent_path: string;
+        message_id: string | null;
+      }>(
+        sql`SELECT * FROM ${manifestEntries({
+          tenantId: fixture.tenantId,
+          snapshots: sql`s.id = ${committed.snapshotId}::uuid`,
+        })} AS m`,
+      )
+    ).rows;
+    expect(mirrored.map((m) => [m.kind, m.path, m.parent_path, m.message_id]).sort()).toEqual([
       ["folder", "Inbox", "", null],
       ["mail", "Inbox/one.eml", "Inbox", "<one@x>"],
     ]);
@@ -943,6 +952,70 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
       const row = await jobRow(jobId);
       expect(row.status).toBe("queued");
       expect(row.cursor).toEqual({ lastItemId: "m7" });
+    });
+
+    it("gives an interrupted job that checkpointed its attempt back, so its last attempt is not its end (#47)", async () => {
+      const handler = (checkpoint: boolean) =>
+        handlerFor(async (ctx) => {
+          if (checkpoint) {
+            await ctx.cursor.save({ lastItemId: "m9" });
+          }
+          shutdown.abort("shutdown");
+          throw new JobAbortedError();
+        });
+      const granted: string[] = [];
+      const continueInterrupted = async (_queue: string, pgBossJobId: string) => {
+        granted.push(pgBossJobId);
+        return { retryCount: 2, retryLimit: 3 };
+      };
+      let shutdown = new AbortController();
+      // On its last attempt (3 of 3) with a checkpoint: continues instead of failing.
+      const jobId = randomUUID();
+      const last = pgBossJob({ jobId, tenantId: fixture.tenantId }, 3, 3);
+      await expect(
+        runJob(
+          runtime({ shutdownSignal: shutdown.signal, continueInterrupted }),
+          handler(true),
+          last,
+        ),
+      ).rejects.toBeInstanceOf(JobAbortedError);
+      expect(granted).toEqual([last.id]);
+      expect((await jobRow(jobId)).status).toBe("queued");
+      // Without a checkpoint in the attempt it counts as usual and ends there.
+      shutdown = new AbortController();
+      const other = randomUUID();
+      await expect(
+        runJob(
+          runtime({ shutdownSignal: shutdown.signal, continueInterrupted }),
+          handler(false),
+          pgBossJob({ jobId: other, tenantId: fixture.tenantId }, 3, 3),
+        ),
+      ).rejects.toBeInstanceOf(JobAbortedError);
+      expect(granted).toHaveLength(1);
+      expect((await jobRow(other)).status).toBe("failed");
+    });
+
+    it("never gives back the attempt of a job that failed with an error", async () => {
+      const jobId = randomUUID();
+      let asked = false;
+      const handler = handlerFor(async (ctx) => {
+        await ctx.cursor.save({ lastItemId: "m1" });
+        throw new Error("Graph said no");
+      });
+      await expect(
+        runJob(
+          runtime({
+            continueInterrupted: async () => {
+              asked = true;
+              return { retryCount: 0, retryLimit: 9 };
+            },
+          }),
+          handler,
+          pgBossJob({ jobId, tenantId: fixture.tenantId }, 3, 3),
+        ),
+      ).rejects.toThrow("Graph said no");
+      expect(asked).toBe(false);
+      expect((await jobRow(jobId)).status).toBe("failed");
     });
 
     it("rejects a job whose protected object does not exist without retrying", async () => {
