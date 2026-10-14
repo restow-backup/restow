@@ -323,6 +323,16 @@ export const capabilitiesSchema = z.object({
    * an installed image is identified by its published digest only. (true for an older updater.)
    */
   signatureChecks: z.boolean().default(true),
+  /**
+   * The project's host directory (the one that holds docker-compose.yml), for the commands
+   * the web shows. null from an updater that predates the field.
+   */
+  projectDir: z.string().nullable().default(null),
+  /**
+   * Whether the compose file defines the `mounter` service (profile `mounts`). false: it
+   * predates the mounter (0.3.0) and has to be replaced by the release's file. null: unknown.
+   */
+  mounterService: z.boolean().nullable().default(null),
   /** When the preflight ran. */
   checkedAt: iso,
 });

@@ -26,6 +26,8 @@ function state(overrides: Partial<StateView> = {}): StateView {
       dumps: [],
       sourceAllowlist: [],
       signatureChecks: true,
+      projectDir: "/srv/restow",
+      mounterService: true,
       checkedAt: "2026-10-01T09:00:00.000Z",
     },
     selfUpdate: null,

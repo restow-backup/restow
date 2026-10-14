@@ -7,7 +7,7 @@ import { i18n } from "@/i18n";
 
 import "../i18n";
 
-import { RoleField } from "./target-dialog";
+import { RoleField, targetDialogClass } from "./target-dialog";
 
 /**
  * "keep" switches the primary right away and leaves the old target attached
@@ -108,5 +108,16 @@ describe("RoleField replace-primary radios", () => {
       />,
     );
     expect(html).not.toContain("migration-mode-keep");
+  });
+});
+
+describe("targetDialogClass", () => {
+  it("makes the server path dialog wider, and nothing in it scrolls sideways", () => {
+    const local = targetDialogClass("local").split(" ");
+    expect(local).toContain("sm:max-w-2xl");
+    expect(local).toContain("overflow-x-hidden");
+    expect(local).toContain("[overflow-wrap:anywhere]");
+    expect(local).toContain("[&>*]:min-w-0");
+    expect(targetDialogClass("s3").split(" ")).toContain("sm:max-w-xl");
   });
 });

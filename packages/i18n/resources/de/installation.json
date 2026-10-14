@@ -182,7 +182,13 @@
     "intro": "Netzlaufwerke (NFS), die {appName} als Backup-Speicher nutzt. Jedes Netzlaufwerk erscheint in API und Worker unter {path}; ein Repository der Art \"Verzeichnis\" zeigt dann dorthin.",
     "unavailable": {
       "title": "Der Mounter läuft nicht",
-      "description": "Netzlaufwerke fügt der Mounter hinzu, ein optionaler Container neben {appName}. Er ist standardmäßig aus. Um ihn zu nutzen, führen Sie diesen Befehl einmal in dem Verzeichnis aus, das docker-compose.yml enthält:",
+      "description": "Netzlaufwerke fügt der Mounter hinzu, ein optionaler Container neben {appName}. Er ist standardmäßig aus. Um ihn zu nutzen, führen Sie diesen Befehl einmal auf dem Server aus:",
+      "defaultDir": "Der Befehl geht vom Standardverzeichnis des Installers aus, /opt/restow. Wenn {appName} in einem anderen Verzeichnis installiert ist, verwenden Sie stattdessen dieses.",
+      "composeOutdated": {
+        "title": "Die Compose-Datei enthält keinen Mounter",
+        "description": "Die docker-compose.yml dieser Installation stammt aus der Zeit vor dem Mounter, und Updates ersetzen sie nicht. Führen Sie den Installer auf dem Server erneut aus: Er ersetzt die Datei durch die der installierten Version und legt die bisherige als Sicherung daneben. Die .env bleibt unverändert.",
+        "then": "Starten Sie danach den Mounter mit dem Befehl darunter."
+      },
       "security": "Der Mounter hat Zugriff auf den Docker-Socket, was Root-Zugriff auf den Host bedeutet. Lesen Sie die Dokumentation zu Netzlaufwerken, bevor Sie ihn einschalten.",
       "reason": {
         "disabled": "Die Verbindung zum Mounter ist auf diesem Server ausgeschaltet.",
@@ -265,6 +271,7 @@
       },
       "probe": {
         "mount_failed": "Das Netzlaufwerk konnte nicht eingebunden werden. Prüfen Sie Serveradresse, Exportpfad, NFS-Version und ob der Server den Pfad für diesen Host freigibt.",
+        "export_not_found": "Der Exportpfad {export} existiert auf {server} nicht.",
         "not_writable": "Das Netzlaufwerk wurde eingebunden, ist aber nicht beschreibbar. Prüfen Sie die Berechtigungen auf dem Server (Root Squash bildet root auf einen Benutzer ohne Rechte ab).",
         "timeout": "Der Server hat nicht rechtzeitig geantwortet.",
         "failed": "Der Test des Netzlaufwerks ist fehlgeschlagen."
@@ -282,6 +289,11 @@
         "crashed": "API oder Worker haben sich nach dem Neustart beendet."
       },
       "interrupted": "Der Mounter wurde beendet, während die Änderung lief."
+    },
+    "exportNotFound": {
+      "showmount": "Der Server hat geantwortet, gibt aber keinen Export mit diesem Pfad frei. Prüfen Sie den genauen freigegebenen Pfad mit:",
+      "synology": "Auf einer Synology-NAS beginnt der Pfad mit dem Volume, zum Beispiel /volume1{path}.",
+      "nfsVersion": "Bei NFSv4 zeigen manche Server ihre Exporte unterhalb einer Pseudo-Root mit anderen Pfaden. Versuchen Sie NFS-Version 3."
     },
     "dialog": {
       "title": "NFS-Netzlaufwerk hinzufügen",

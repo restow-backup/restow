@@ -32,7 +32,8 @@
 #
 # `bash install.sh --help` lists the options and the exit codes. Running it again is
 # safe: it never overwrites .env, a secret or data, and it never updates or removes an
-# installation (updates: docs/UPDATING.md; removal: README.md, "Removing Restow").
+# installation (updates: docs/UPDATING.md; removal: README.md, "Removing Restow"). On an
+# installation it brings docker-compose.yml to the file of the release in .env (with a backup).
 # Log: /var/log/restow-install.log, without secrets.
 #
 # Everything below is a function; the last line calls main, so a download that was cut
@@ -1949,6 +1950,30 @@ install_files() {
   fi
 }
 
+# update_compose_file: an installation keeps the docker-compose.yml it was installed with,
+# while an update (also through the updater) changes only the images in .env. The checked
+# file of the release in .env replaces an older one (services added since, such as the
+# mounter); the previous one stays next to it as a backup.
+update_compose_file() {
+  local target="$OPT_DIR/docker-compose.yml" backup
+  step "docker-compose.yml of v$VERSION"
+  if is_dry; then
+    dry "replace $target with the release file if it differs, keeping the previous one as $target.bak-<time>"
+    return 0
+  fi
+  if cmp -s "$WORK/release/docker-compose.yml" "$target"; then
+    ok "$target is the release file already"
+    return 0
+  fi
+  backup="$target.bak-$(date -u '+%Y%m%dT%H%M%SZ')"
+  if [ -e "$backup" ]; then
+    backup="$backup.$$"
+  fi
+  run cp -p "$target" "$backup" || die "$EXIT_ERROR" "could not keep a backup of $target"
+  run install -m 0644 "$WORK/release/docker-compose.yml" "$target" || die "$EXIT_ERROR" "could not write $target"
+  ok "$target is now the file of v$VERSION; the previous one is $backup (merge your own changes into docker-compose.override.yml)"
+}
+
 # ---- .env ------------------------------------------------------------------------------
 
 write_env() {
@@ -2926,7 +2951,7 @@ install_fresh() {
 resume_existing() {
   local env="$OPT_DIR/.env" missing current_domain web_version app_domain
   step "Existing installation in $OPT_DIR"
-  say "    $env exists: nothing in $OPT_DIR is changed; the installer checks the images and makes sure the stack runs."
+  say "    $env exists and is kept: the installer brings docker-compose.yml to the file of the release, checks the images and makes sure the stack runs."
   if [ ! -f "$OPT_DIR/docker-compose.yml" ]; then
     die "$EXIT_EXISTING" "$env exists but $OPT_DIR/docker-compose.yml does not. Put back the docker-compose.yml of your release (release assets) and run the installer again."
   fi
@@ -2935,7 +2960,7 @@ resume_existing() {
   # shellcheck disable=SC2086 # a list of key names
   missing=$(env_missing_keys "$env" $REQUIRED_ENV_NAMES)
   if [ -n "$missing" ]; then
-    die "$EXIT_EXISTING" "$env lacks values for: $missing. Complete it by hand (the comments in the file say how); the installer never rewrites .env."
+    die "$EXIT_EXISTING" "$env lacks values for: $missing. Complete it by hand (every variable: https://docs.restowbackup.com); the installer never rewrites .env."
   fi
   VERSION=$(image_tag "$APP_IMAGE")
   EDITION=$(edition_of_image "$APP_IMAGE")
@@ -2985,11 +3010,18 @@ resume_existing() {
   say "    Release      ${VERSION:-unknown}, $(edition_label "$EDITION")"
   say "    Images       $APP_IMAGE"
   say "                 $WEB_IMAGE"
-  if ! confirm "Check the images and start the stack?"; then
+  if ! confirm "Update docker-compose.yml if needed, check the images and start the stack?"; then
     die "$EXIT_ABORTED" "aborted; nothing was changed"
   fi
   ensure_docker
   prepare_cosign
+  if valid_version "$VERSION"; then
+    fetch_release_files
+    verify_release_files
+    update_compose_file
+  else
+    warn "RESTOW_IMAGE names no release version; $OPT_DIR/docker-compose.yml is kept as it is"
+  fi
   step "Images"
   pull_and_verify "$APP_IMAGE"
   pull_and_verify "$WEB_IMAGE"

@@ -1,5 +1,8 @@
 # Restow release stack
 
+Every service, setting and variable of these two files is explained on
+[docs.restowbackup.com](https://docs.restowbackup.com).
+
 `docker-compose.yml` runs a published Restow release: PostgreSQL, the api,
 worker and scheduler roles from the application image, and the Caddy edge from the
 web image. It builds nothing. Both images carry the same tag, the release version
@@ -54,8 +57,8 @@ The archive's Exchange Online journal receiver (Business and Service Provider) i
 reachable from the internet), and it needs `JOURNAL_HOSTNAME` and a TLS certificate for that host
 name: Exchange Online requires TLS, so without one the receiver does not start. Put `fullchain.pem`
 and `privkey.pem` into `./journal-tls` (mounted read-only into the api; `JOURNAL_TLS_DIR` changes
-the directory) and set `JOURNAL_TLS_CERT_PATH` and `JOURNAL_TLS_KEY_PATH` in `.env` as described in
-`.env.example`. A renewed certificate in those files is picked up within minutes, without a
+the directory) and set `JOURNAL_TLS_CERT_PATH=/etc/restow/journal-tls/fullchain.pem` and
+`JOURNAL_TLS_KEY_PATH=/etc/restow/journal-tls/privkey.pem` in `.env`. A renewed certificate in those files is picked up within minutes, without a
 restart. Details: the [Exchange journaling guide](https://docs.restowbackup.com/administrators/exchange-journaling/).
 
 Update by hand by changing the two image lines in `.env` and running

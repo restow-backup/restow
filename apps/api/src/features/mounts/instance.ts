@@ -1,12 +1,21 @@
+import { access } from "node:fs/promises";
+import * as path from "node:path";
 import { endpointRuns, jobs, storageTargets, tenants } from "@restow/db";
 import { and, count, eq, gt, inArray, sql } from "drizzle-orm";
 import { config } from "../../config.js";
 import { providerDb } from "../../db.js";
 import { audit } from "../../lib/audit.js";
 import { currentInstallationDefault } from "../../lib/installation-default.js";
-import { mounterClientFromEnv } from "./mounter-client.js";
+import { updaterClient } from "../updates/instance.js";
+import { DEFAULT_MOUNTER_SECRET_FILE, mounterClientFromEnv } from "./mounter-client.js";
 import { secretPendingMountStore } from "./pending.js";
-import { type ActiveWork, type MountUser, MountsService, liesOn } from "./service.js";
+import {
+  type ActiveWork,
+  type ComposeFacts,
+  type MountUser,
+  MountsService,
+  liesOn,
+} from "./service.js";
 
 /** Endpoint runs older than this that still say "running" are stale, not running. */
 const ENDPOINT_RUN_STALE_MS = 24 * 60 * 60 * 1000;
@@ -68,6 +77,40 @@ export async function usersOf(path: string): Promise<MountUser[]> {
   return users;
 }
 
+async function exists(file: string): Promise<boolean> {
+  try {
+    await access(file);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * What the api knows about its compose project, for the commands of the Mounts section.
+ * The directory: RESTOW_PROJECT_DIR (the installer writes it into .env, which the api
+ * reads), else what the opt-in updater reports. Whether the compose file defines the
+ * mounter: the updater reads the configuration; without it, a containerized api that has
+ * no mounter volume (every compose file with the mounter mounts it into the api) was
+ * started from a compose file without the mounter.
+ */
+export async function composeFacts(
+  env: Record<string, string | undefined> = process.env,
+): Promise<ComposeFacts> {
+  const capabilities = (await updaterClient.state().catch(() => null))?.capabilities ?? null;
+  const projectDir = env.RESTOW_PROJECT_DIR?.trim() || capabilities?.projectDir || null;
+  let mounterService = capabilities?.mounterService ?? null;
+  if (mounterService === null) {
+    const secretDir = path.dirname(
+      env.RESTOW_MOUNTER_SECRET_FILE?.trim() || DEFAULT_MOUNTER_SECRET_FILE,
+    );
+    if ((await exists("/.dockerenv")) && !(await exists(secretDir))) {
+      mounterService = false;
+    }
+  }
+  return { projectDir, mounterService };
+}
+
 /** The process-wide service, on the installation pool. */
 export const mountsService = new MountsService({
   client: mounterClientFromEnv(process.env, config.demo.enabled),
@@ -77,5 +120,7 @@ export const mountsService = new MountsService({
   audit: async (event) => {
     await audit(providerDb, event);
   },
+  compose: () => composeFacts(),
+  version: process.env.RESTOW_VERSION?.trim() || null,
   demo: config.demo.enabled,
 });

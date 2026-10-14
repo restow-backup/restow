@@ -1015,6 +1015,8 @@ assert_contains "Existing installation in $dir1" "$DRY_OUT" "re-run detects the 
 assert_contains "would pull ghcr.io/restow-backup/restow:0.1.0" "$DRY_OUT" "re-run checks the images of .env"
 assert_not_contains "would write" "$DRY_OUT" "re-run writes no .env"
 assert_not_contains "compose pull postgres" "$DRY_OUT" "re-run does not pull PostgreSQL again"
+assert_contains "would replace $dir1/docker-compose.yml with the release file if it differs, keeping the previous one as $dir1/docker-compose.yml.bak-<time>" "$DRY_OUT" "re-run: the compose file is compared with the release"
+assert_contains "check the cosign signature of SHA256SUMS" "$DRY_OUT" "re-run: the release files are checked like on a new installation"
 assert_eq "$before" "$(sha256_of "$env1")" "re-run leaves .env unchanged"
 no_mutation "re-run"
 
@@ -1580,6 +1582,44 @@ e2e_out="$TMP_ROOT/e2e-again-flag.out"
 e2e_main - "$e2e_out" --yes --behind-proxy --skip-signature-check --dir "$TMP_ROOT/e2e-public"
 assert_eq 8 "$E2E_STATUS" "--behind-proxy on a public installation: refused, nothing changed"
 assert_contains "this installation was not set up behind a reverse proxy" "$(cat "$e2e_out")" "the refusal says why"
+
+# --- Running it again on an installation from before the mounter: docker-compose.yml is updated ----
+e2e_dir="$TMP_ROOT/e2e-proxy"
+printf 'services: {old: {}}\n' >"$e2e_dir/docker-compose.yml"
+env_before=$(sha256_of "$e2e_dir/.env")
+e2e_out="$TMP_ROOT/e2e-compose-old.out"
+: >"$E2E_LOG"
+e2e_main - "$e2e_out" --yes --skip-signature-check --dir "$e2e_dir"
+assert_eq 0 "$E2E_STATUS" "old compose file: exit 0"
+out=$(cat "$e2e_out")
+backups=$(cd "$e2e_dir" && ls docker-compose.yml.bak-* 2>/dev/null)
+assert_eq 1 "$(printf '%s\n' "$backups" | grep -c .)" "old compose file: one backup"
+assert_eq "services: {old: {}}" "$(cat "$e2e_dir/$backups" 2>/dev/null)" "old compose file: the backup holds the previous file"
+assert_eq "$(sha256_of "$E2E_RELEASE/docker-compose.yml")" "$(sha256_of "$e2e_dir/docker-compose.yml")" "old compose file: replaced by the release file"
+assert_eq "644" "$(file_mode "$e2e_dir/docker-compose.yml")" "old compose file: the new one is 0644"
+assert_contains "ok: $e2e_dir/docker-compose.yml is now the file of v0.2.0; the previous one is $e2e_dir/$backups" "$out" "old compose file: the run says so"
+assert_eq "$env_before" "$(sha256_of "$e2e_dir/.env")" "old compose file: .env is untouched"
+assert_contains "curl " "$(grep '/rel/v0.2.0/docker-compose.yml' "$E2E_LOG")" "old compose file: downloaded for the release in .env"
+assert_lt "$(line_number "docker-compose.yml is now the file" "$e2e_out")" "$(line_number "Starting the stack" "$e2e_out")" "old compose file: replaced before the stack starts"
+e2e_out="$TMP_ROOT/e2e-compose-same.out"
+e2e_main - "$e2e_out" --yes --skip-signature-check --dir "$e2e_dir"
+assert_eq 0 "$E2E_STATUS" "current compose file: exit 0"
+assert_contains "ok: $e2e_dir/docker-compose.yml is the release file already" "$(cat "$e2e_out")" "current compose file: kept and said so"
+assert_eq "$backups" "$(cd "$e2e_dir" && ls docker-compose.yml.bak-* 2>/dev/null)" "current compose file: no new backup"
+# A release file that does not match SHA256SUMS never replaces the installed one.
+cp "$E2E_RELEASE/docker-compose.yml" "$TMP_ROOT/release-compose.keep"
+printf 'services: {evil: {}}\n' >>"$E2E_RELEASE/docker-compose.yml"
+printf 'services: {old: {}}\n' >"$e2e_dir/docker-compose.yml"
+e2e_out="$TMP_ROOT/e2e-compose-tampered.out"
+: >"$E2E_LOG"
+e2e_main - "$e2e_out" --yes --skip-signature-check --dir "$e2e_dir"
+assert_eq 5 "$E2E_STATUS" "tampered compose file on a re-run: refused with exit code 5"
+assert_contains "docker-compose.yml does not match SHA256SUMS" "$(cat "$e2e_out")" "tampered compose file on a re-run: says why"
+assert_eq "services: {old: {}}" "$(cat "$e2e_dir/docker-compose.yml")" "tampered compose file on a re-run: the installed file stays"
+assert_not_contains "up -d" "$(cat "$E2E_LOG")" "tampered compose file on a re-run: the stack is not started"
+cp "$TMP_ROOT/release-compose.keep" "$E2E_RELEASE/docker-compose.yml"
+cp "$E2E_RELEASE/docker-compose.yml" "$e2e_dir/docker-compose.yml"
+rm -f "$e2e_dir"/docker-compose.yml.bak-*
 
 # The setup token of .env (RESTOW_SETUP_TOKEN) is the operator's own and is not printed.
 dir_env_token="$TMP_ROOT/e2e-env-token"

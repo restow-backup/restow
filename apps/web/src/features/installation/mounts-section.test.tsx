@@ -130,6 +130,43 @@ describe("Mounts", () => {
     expect(slot("mounts-list")).toBeNull();
   });
 
+  it("starts the command in the installation directory, and says when that is only the default", async () => {
+    const down = view({
+      available: false,
+      unavailableReason: "unreachable",
+      state: null,
+      enableCommand: "cd /opt/restow && docker compose --profile mounts up -d mounter",
+      projectDir: null,
+      updateComposeCommand: null,
+    });
+    vi.stubGlobal("fetch", routes({ "GET /mounts": () => json(down) }).mock);
+    await open();
+    const card = slot("mounts-unavailable");
+    expect(text(card)).toContain("cd /opt/restow && docker compose --profile mounts up -d mounter");
+    expect(text(slot("mounts-default-dir"))).toContain("default directory /opt/restow");
+    expect(slot("mounts-compose-outdated")).toBeNull();
+  });
+
+  it("asks to run the installer again when the compose file has no mounter service", async () => {
+    const install =
+      "curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.3.6/install.sh && sudo bash install.sh --dir /srv/restow";
+    const down = view({
+      available: false,
+      unavailableReason: "unreachable",
+      state: null,
+      enableCommand: "cd /srv/restow && docker compose --profile mounts up -d mounter",
+      projectDir: "/srv/restow",
+      updateComposeCommand: install,
+    });
+    vi.stubGlobal("fetch", routes({ "GET /mounts": () => json(down) }).mock);
+    await open();
+    const outdated = slot("mounts-compose-outdated");
+    expect(text(outdated)).toContain("The compose file has no mounter");
+    expect(text(outdated)).toContain(install);
+    expect(text(slot("mounts-unavailable"))).toContain("cd /srv/restow && docker compose");
+    expect(slot("mounts-default-dir")).toBeNull();
+  });
+
   it("lists the shares with their path in the application", async () => {
     vi.stubGlobal("fetch", routes().mock);
     await open();
@@ -162,6 +199,33 @@ describe("Mounts", () => {
     expect(text(operation)).toContain("Failed, nothing was changed");
     expect(text(slot("mounts-failure"))).toContain("not writable");
     expect(text(slot("mounts-failure"))).toContain("Permission denied");
+  });
+
+  it("names the export path the server does not have, with what to check", async () => {
+    const detail =
+      "mount.nfs: mounting 192.168.1.10:/backup failed, reason given by server: No such file or directory";
+    const failed = view();
+    (failed.state as Record<string, unknown>).operation = {
+      id: "op-2",
+      kind: "add",
+      name: "nas2",
+      mount: null,
+      status: "failed",
+      steps: steps(["done", "failed", "skipped", "skipped", "skipped", "skipped"]),
+      failure: { code: "probe.export_not_found", step: "probe", detail },
+      warnings: [],
+      requestedBy: { userId: "u1", label: "owner@example.test", ip: null },
+      startedAt: "2026-10-02T09:59:00.000Z",
+      finishedAt: "2026-10-02T10:00:00.000Z",
+    };
+    vi.stubGlobal("fetch", routes({ "GET /mounts": () => json(failed) }).mock);
+    await open();
+    const failure = text(slot("mounts-failure"));
+    expect(failure).toContain("The export path /backup does not exist on 192.168.1.10.");
+    expect(failure).toContain("showmount -e 192.168.1.10");
+    expect(failure).toContain("/volume1/backup");
+    expect(failure).toContain("Try NFS version 3");
+    expect(failure).toContain(detail);
   });
 
   it("checks a new share before it sends it, then sends it", async () => {

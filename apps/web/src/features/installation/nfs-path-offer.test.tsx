@@ -269,6 +269,38 @@ describe("an NFS address in the path field", () => {
     expect(requests.some((request) => request.method === "POST")).toBe(false);
   });
 
+  it("explains a test that finds no such export on the server, in English and in German", async () => {
+    const { mock } = routes({
+      "POST /mounts/test": () =>
+        json({
+          ok: false,
+          code: "probe.export_not_found",
+          detail:
+            "failed to mount local volume: mount :/volume1/restow:/x, data: addr=nas.local: no such file or directory",
+          wrote: false,
+          durationMs: 40,
+        }),
+    });
+    vi.stubGlobal("fetch", mock);
+    await open();
+    await enter("nas.local:/volume1/restow");
+    await click(buttonByText(document.body, "Mount as NFS network share"));
+    await flush(4);
+    await click(buttonByText(slot("nfs-offer-form") as HTMLElement, "Test connection"));
+    await flush(8);
+    const result = text(slot("mounts-test"));
+    expect(result).toContain("The export path /volume1/restow does not exist on nas.local.");
+    expect(result).toContain("showmount -e nas.local");
+    // The path names a volume already: the Synology hint shows an example.
+    expect(result).toContain("for example /volume1/backup");
+    await i18n.changeLanguage("de");
+    await flush(4);
+    expect(text(slot("mounts-test"))).toContain(
+      "Der Exportpfad /volume1/restow existiert auf nas.local nicht.",
+    );
+    expect(text(slot("mounts-test"))).toContain("Versuchen Sie NFS-Version 3");
+  });
+
   it("shows the command that starts the mounter when it does not run", async () => {
     const down = { ...view(), available: false, unavailableReason: "unreachable", state: null };
     vi.stubGlobal("fetch", routes({ "GET /mounts": () => json(down) }).mock);
@@ -277,6 +309,11 @@ describe("an NFS address in the path field", () => {
     const card = slot("mounts-unavailable");
     expect(text(card)).toContain("The mounter is not running");
     expect(text(card)).toContain("docker compose --profile mounts up -d mounter");
+    // Inside the dialog the command wraps instead of scrolling sideways.
+    const code = card?.querySelector("code");
+    expect(code?.className).toContain("whitespace-pre-wrap");
+    expect(code?.className).not.toContain("overflow-x-auto");
+    expect(slot("nfs-offer")?.className).toContain("[overflow-wrap:anywhere]");
     expect(buttonByText(document.body, "Mount as NFS network share")).toBeNull();
   });
 

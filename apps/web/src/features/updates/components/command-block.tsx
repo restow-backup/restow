@@ -4,17 +4,20 @@ import { cn } from "@/lib/utils";
 /**
  * One shell command, copyable. The command is shown exactly as it is copied
  * and scrolls sideways on a narrow screen instead of wrapping (a wrapped
- * command cannot be told apart from two).
+ * command cannot be told apart from two). `wrap` breaks it anywhere instead,
+ * for a narrow place such as a dialog, where a scroll region would be hard to use.
  */
 export function CommandBlock({
   command,
   copyLabel,
   className,
+  wrap = false,
 }: {
   command: string;
   /** Accessible name of the copy button, e.g. "Copy command". */
   copyLabel: string;
   className?: string;
+  wrap?: boolean;
 }) {
   return (
     <div
@@ -24,9 +27,12 @@ export function CommandBlock({
       )}
     >
       <code
-        className="min-w-0 flex-1 overflow-x-auto py-2 font-mono text-xs whitespace-pre"
+        className={cn(
+          "min-w-0 flex-1 py-2 font-mono text-xs",
+          wrap ? "whitespace-pre-wrap [overflow-wrap:anywhere]" : "overflow-x-auto whitespace-pre",
+        )}
         // A focusable scroll region, so a keyboard user can reach a long command.
-        tabIndex={0}
+        tabIndex={wrap ? undefined : 0}
       >
         {command}
       </code>

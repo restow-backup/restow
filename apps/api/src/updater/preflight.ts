@@ -20,7 +20,8 @@ import type { Redactor } from "./redact.js";
  * its first start, with the image it runs by digest (self-update.ts, pinOwnImage),
  * before the first check; the blocker remains only when that was not possible.
  * Fixing it by hand means recreating the updater, which starts a new process and so
- * a new check.
+ * a new check. The same read tells whether the compose file defines the `mounter`
+ * service at all (an installation from before 0.3.0 keeps a file without it).
  */
 
 export const PREFLIGHT_TTL_MS = 30_000;
@@ -64,6 +65,8 @@ export class Preflight {
   private cached: { at: number; value: Capabilities } | null = null;
   /** Whether the updater's own image follows RESTOW_IMAGE / RESTOW_WEB_IMAGE; null until known. */
   private updaterImage: { follows: boolean } | null = null;
+  /** Whether the compose file defines the `mounter` service; null until known. */
+  private mounterService: boolean | null = null;
 
   constructor(private readonly options: PreflightOptions) {}
 
@@ -157,6 +160,11 @@ export class Preflight {
         // Unknown for now: asked again by the next check, and a run's first step needs the answer.
         this.updaterImage = null;
       }
+      try {
+        this.mounterService = (await ops.configMounterImage({})) !== null;
+      } catch {
+        this.mounterService = null;
+      }
     }
     if (this.updaterImage?.follows) {
       add(
@@ -182,6 +190,8 @@ export class Preflight {
       dumps: dumpList,
       sourceAllowlist: [...(this.options.sourceAllowlist ?? [])],
       signatureChecks: this.options.verifySignatures !== false,
+      projectDir,
+      mounterService: this.mounterService,
       checkedAt: clock.now().toISOString(),
     };
   }
