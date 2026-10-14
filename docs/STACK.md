@@ -189,11 +189,11 @@ IBM Plex Mono 400, 500, 600), aufrecht, als woff2, mit eigenen `@font-face`-Rege
 `apps/web/src/fonts.css` (mit `unicode-range`, damit latin-ext nur bei Bedarf geladen wird).
 Vite legt die 14 Dateien (13 bis 38 KB, zusammen rund 320 KB, also nie inline) unter
 `/assets` ab; `apps/web/src/fonts.test.ts` schlägt bei jeder externen Schrift-URL fehl.
-Die latin-Dateien von Inter Tight 400, 500 und 600 (Fließtext, Menüs, Überschriften) lädt der
-Browser vorab: das Vite-Plugin `apps/web/vite/font-preload.ts` setzt beim Build
-`<link rel="preload" as="font" type="font/woff2" crossorigin>` mit den Hash-Namen in
-`dist/index.html`, damit der erste Aufbau nicht auf das Stylesheet warten muss. Fehlt eine
-der drei Dateien im Bundle, bricht der Build ab.
+Vorab geladen (`<link rel="preload">`) wird keine Schrift: die Oberfläche zeigt Text erst,
+wenn das JavaScript geladen und die Sitzung geprüft ist, und bis dahin hat der Browser die
+Schriften über das Stylesheet ohnehin angefordert. Ein Preload kam deshalb nie früher an,
+sondern brachte nur Warnungen in der Browser-Konsole (vorab geladen, aber nicht in den
+ersten Sekunden verwendet).
 Alternativen: die Fontsource-CSS-Dateien direkt einbinden (sie bringen zusätzlich woff-Dateien
 mit, die kein unterstützter Browser braucht, und ohne `unicode-range` je Subset); variable
 Schriften (`@fontsource-variable/*`): weniger Dateien, aber IBM Plex Mono gibt es nicht

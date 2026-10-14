@@ -93,6 +93,8 @@ index handed back to the file system.
 - After an update, the maintenance page kept saying "Restow was updated, this page reloads
   now" whenever the application was down later (for example after a reboot with a full
   disk). After 10 minutes it now says the server is temporarily unavailable.
+- The browser console warned on every page load that three preloaded fonts were not used
+  within the first seconds. The fonts are no longer preloaded.
 - Forms reported no error for a missing field inside a list (for example the role of a
   new user in the setup wizard).
 
