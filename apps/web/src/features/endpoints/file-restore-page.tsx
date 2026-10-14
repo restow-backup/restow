@@ -1,9 +1,9 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Boxes, Building2, FolderSearch, Search, Server } from "lucide-react";
+import { Boxes, Building2, CircleSlash, FolderSearch, Search, Server } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { EmptyState, ErrorState, PageHeader } from "@/components/kit";
+import { EmptyState, ErrorState, PageHeader, StatusBadge } from "@/components/kit";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -16,7 +16,7 @@ import type { EndpointSummary } from "./api.js";
 import { SnapshotsTab } from "./components/snapshots-tab.js";
 import { type EndpointFormat, useEndpoint, useEndpointFormat, useEndpoints } from "./hooks.js";
 import { type FileRestoreTarget, endpointDetailTo, fileRestoreTo, inventoryTo } from "./paths.js";
-import { endpointHostLine, endpointName } from "./presenters.js";
+import { endpointHostLine, endpointName, splitRevoked } from "./presenters.js";
 
 /** The machine list (a quarter, at least 13rem) beside the restore points and files. */
 export const FILE_RESTORE_GRID = "xl:grid-cols-[minmax(13rem,1fr)_minmax(0,3fr)]";
@@ -153,8 +153,16 @@ function MachinePicker({
   const format = useEndpointFormat();
   const { t } = format;
   const [text, setText] = React.useState("");
-  const shownMachines = machines.filter((machine) => machineMatches(machine, text));
-  const nothing = text.trim().length > 0 && !machinesPending && shownMachines.length === 0;
+  const matching = machines.filter((machine) => machineMatches(machine, text));
+  // Revoked machines take no backups any more, but what they have stays restorable (#65):
+  // they are listed apart, and only while they have a backup.
+  const { active: shownMachines, revoked } = splitRevoked(matching);
+  const revokedMachines = revoked.filter((machine) => machine.lastBackupAt !== null);
+  const nothing =
+    text.trim().length > 0 &&
+    !machinesPending &&
+    shownMachines.length === 0 &&
+    revokedMachines.length === 0;
 
   return (
     <Card className="gap-0 overflow-hidden py-0" data-slot="machine-picker">
@@ -203,6 +211,25 @@ function MachinePicker({
             )}
           </PickerGroup>
         )}
+        {!nothing && revokedMachines.length > 0 ? (
+          <PickerGroup
+            icon={CircleSlash}
+            title={t("fileRestore.revokedMachines")}
+            pending={false}
+            hidden={false}
+            slot="revoked-machine-list"
+          >
+            {revokedMachines.map((machine) => (
+              <MachineRow
+                key={machine.id}
+                machine={machine}
+                format={format}
+                selected={machine.id === selectedMachine}
+                onSelect={() => onSelect(fileRestoreTo(machine.id))}
+              />
+            ))}
+          </PickerGroup>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -272,7 +299,14 @@ function MachineRow({
         aria-current={selected ? "true" : undefined}
         className={cn(ROW_CLASS, selected && "bg-accent")}
       >
-        <span className="truncate font-medium">{endpointName(machine)}</span>
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate font-medium">{endpointName(machine)}</span>
+          {machine.status === "revoked" ? (
+            <StatusBadge tone="muted" icon={CircleSlash} className="shrink-0 whitespace-nowrap">
+              {t("status.revoked")}
+            </StatusBadge>
+          ) : null}
+        </span>
         {host ? (
           <span className="truncate font-mono text-xs text-muted-foreground">{host}</span>
         ) : null}

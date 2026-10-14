@@ -168,6 +168,11 @@
         "title": "No clients yet",
         "description": "Add a laptop or desktop: {appName} creates a one-time command that installs the backup agent. The client is backed up once you add it to a backup job."
       }
+    },
+    "showRevoked": "Show revoked machines ({count})",
+    "onlyRevoked": {
+      "title": "Only revoked machines",
+      "description": "Every machine here is revoked: it is no longer backed up, and its backups stay restorable."
     }
   },
   "noJob": {
@@ -899,8 +904,8 @@
     }
   },
   "danger": {
-    "title": "Remove this machine",
-    "description": "Backups that already exist stay restorable in both cases.",
+    "title": "Stop backing up this machine",
+    "description": "Neither action deletes the machine or its backups. The machine stays in the inventory as revoked (hidden until you show revoked machines), and the backups that exist stay restorable.",
     "uninstall": {
       "title": "Uninstall the agent",
       "description": "The machine removes the agent by itself with its next contact, and is revoked when it does. Use this when you no longer want to back the machine up.",
@@ -1038,7 +1043,8 @@
       "action": "Open inventory"
     },
     "sources": "Machines",
-    "noMachines": "No machine yet."
+    "noMachines": "No machine yet.",
+    "revokedMachines": "Revoked machines"
   },
   "proxmox": {
     "label": "Proxmox VE"

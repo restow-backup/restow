@@ -131,6 +131,22 @@ export function lastBackupOf(
   return { state: "done", at: endpoint.lastBackupAt, outcome };
 }
 
+/**
+ * The machines still in use and the revoked ones (#65). Revoking stops a
+ * machine's backups and tasks but deletes nothing, so the lists show revoked
+ * machines only on request; their backups stay restorable.
+ */
+export function splitRevoked<T extends Pick<EndpointSummary, "status">>(
+  machines: readonly T[],
+): { active: T[]; revoked: T[] } {
+  const active: T[] = [];
+  const revoked: T[] = [];
+  for (const machine of machines) {
+    (machine.status === "revoked" ? revoked : active).push(machine);
+  }
+  return { active, revoked };
+}
+
 // --- Attention -------------------------------------------------------------------------
 
 const ATTENTION_ORDER: readonly Attention[] = [

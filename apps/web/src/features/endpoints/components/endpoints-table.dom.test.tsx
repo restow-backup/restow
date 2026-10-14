@@ -125,7 +125,11 @@ const NO_JOB = machine({
   assignedTo: ALICE,
 });
 
-async function open(routes: Parameters<typeof routedFetch>[0] = {}, canManageJobs = true) {
+async function open(
+  routes: Parameters<typeof routedFetch>[0] = {},
+  canManageJobs = true,
+  items: EndpointSummary[] = [IN_JOB, NO_JOB],
+) {
   const { mock, requests } = routedFetch({
     "GET /setup/state": () =>
       json({ configured: true, demo: { enabled: false, email: null, password: null } }),
@@ -140,12 +144,12 @@ async function open(routes: Parameters<typeof routedFetch>[0] = {}, canManageJob
   mounted = mount(
     <EndpointsTable
       area="agents"
-      items={[IN_JOB, NO_JOB]}
+      items={items}
       loading={false}
       fetching={false}
       error={null}
       onRetry={() => {}}
-      empty={null}
+      empty={<p data-slot="no-machine">No machine yet</p>}
       canManageJobs={canManageJobs}
     />,
     { session: adminSession(), queryClient },
@@ -284,5 +288,45 @@ describe("several machines at once", () => {
   it("offers no selection to a viewer who may not manage jobs", async () => {
     await open({}, false);
     expect(document.querySelector('tbody [role="checkbox"]')).toBeNull();
+  });
+});
+
+describe("revoked machines (#65)", () => {
+  const REVOKED = machine({
+    id: "33333333-3333-4333-8333-333333333333",
+    hostname: "paperless",
+    status: "revoked",
+    revokedAt: "2026-10-01T00:00:00.000Z",
+  });
+  const toggle = () => document.querySelector<HTMLButtonElement>('[data-slot="show-revoked"]');
+
+  it("leaves them out until they are asked for, and marks them as revoked", async () => {
+    await open({}, true, [IN_JOB, REVOKED]);
+    expect(row("web-01")).toBeTruthy();
+    expect(row("paperless")).toBeUndefined();
+    expect(toggle()?.textContent).toBe("Show revoked machines (1)");
+    expect(toggle()?.getAttribute("aria-pressed")).toBe("false");
+
+    await click(toggle());
+    expect(toggle()?.getAttribute("aria-pressed")).toBe("true");
+    expect(row("paperless").textContent).toContain("Revoked");
+    expect(row("paperless").querySelector(".opacity-60")).not.toBeNull();
+    expect(row("paperless").textContent).not.toContain("Online");
+
+    await click(toggle());
+    expect(row("paperless")).toBeUndefined();
+  });
+
+  it("offers no toggle without revoked machines", async () => {
+    await open();
+    expect(toggle()).toBeNull();
+  });
+
+  it('says that only revoked machines are left instead of "no machine yet"', async () => {
+    await open({}, true, [REVOKED]);
+    expect(document.querySelector('[data-slot="no-machine"]')).toBeNull();
+    expect(document.body.textContent).toContain("Only revoked machines");
+    await click(toggle());
+    expect(row("paperless")).toBeTruthy();
   });
 });
