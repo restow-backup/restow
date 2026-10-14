@@ -46,6 +46,7 @@ import {
   revokeNode,
   saveJob,
 } from "./api.js";
+import { BackupSizeCell } from "./backup-size.js";
 import { ConnectDialog } from "./connect-dialog.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { guestTo } from "./paths.js";
@@ -233,6 +234,18 @@ export function GuestState({ guest }: { guest: PveGuest }) {
     badges.push(
       <Badge key="f" variant="destructive" title={guest.lastRunError ?? undefined}>
         {t("guests.lastFailed")}
+      </Badge>,
+    );
+  } else if ((guest.backups?.last?.unreadable ?? 0) > 0) {
+    // Succeeded, but the restore point misses what restic could not read.
+    badges.push(
+      <Badge
+        key="g"
+        variant="warning"
+        data-slot="pve-guest-incomplete"
+        title={t("guests.incompleteHint", { count: guest.backups?.last?.unreadable ?? 0 })}
+      >
+        {t("guests.incomplete")}
       </Badge>,
     );
   } else if (guest.lastRunStatus === "succeeded" && guest.bitmapState === null) {
@@ -441,7 +454,8 @@ export function PvePage() {
                 <TableHead>{t("guests.name")}</TableHead>
                 <TableHead>{t("guests.kind")}</TableHead>
                 <TableHead>{t("guests.node")}</TableHead>
-                <TableHead>{t("guests.size")}</TableHead>
+                <TableHead title={t("guests.sizeHint")}>{t("guests.size")}</TableHead>
+                <TableHead>{t("guests.backup")}</TableHead>
                 <TableHead>{t("guests.job")}</TableHead>
                 <TableHead>{t("guests.lastBackup")}</TableHead>
                 <TableHead>{t("guests.state")}</TableHead>
@@ -459,7 +473,12 @@ export function PvePage() {
                   </TableCell>
                   <TableCell>{t(`guests.${g.kind}`)}</TableCell>
                   <TableCell>{g.node ?? ""}</TableCell>
-                  <TableCell>{g.diskBytes > 0 ? formatBytes(g.diskBytes, language) : ""}</TableCell>
+                  <TableCell title={t("guests.sizeHint")}>
+                    {g.diskBytes > 0 ? formatBytes(g.diskBytes, language) : ""}
+                  </TableCell>
+                  <TableCell>
+                    <BackupSizeCell guest={g} />
+                  </TableCell>
                   <TableCell>
                     <select
                       className="h-8 rounded-md border bg-background px-2 text-sm"

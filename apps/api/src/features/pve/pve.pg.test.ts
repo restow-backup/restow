@@ -554,6 +554,25 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     });
   });
 
+  it("shows what each restore point contains and added, and which one was the first", async () => {
+    const guest = (await service.overview(shared.db, fixture.tenantId)).guests.find(
+      (g) => g.id === guestId,
+    );
+    // The first backup stored the whole disk, the incremental one only the changed block.
+    expect(guest?.backups.first).toMatchObject({ contains: data1.length, added: data1.length });
+    expect(guest?.backups.last).toMatchObject({
+      contains: data1.length,
+      added: PVE_BLOCK_SIZE,
+      unreadable: 0,
+    });
+    expect(guest?.attention).not.toContain("last_backup_incomplete");
+    const detail = await service.guestDetail(shared.db, fixture.tenantId, guestId);
+    expect(detail.snapshots.map((p) => [p.backupType, p.added])).toEqual([
+      ["incremental", PVE_BLOCK_SIZE],
+      ["first", data1.length],
+    ]);
+  });
+
   it("refuses another cluster's node and another tenant", async () => {
     const other = await json<Node>(await enroll(fixture.otherTenantId, "b".repeat(64)), 201);
     expect(

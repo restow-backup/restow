@@ -20,13 +20,20 @@ import { canAccess, useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
 import { type PveGuest, type PveNode, fetchOverview, pveKeys } from "./api.js";
+import { BackupSizeCell } from "./backup-size.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { PVE_ROLES, guestTo, pveTo } from "./paths.js";
 
 const REFRESH_MS = 30_000;
 
 /** Where a guest stands with its backups, worst first. */
-export type GuestProtection = "excluded" | "failed" | "noJob" | "never" | "protected";
+export type GuestProtection =
+  | "excluded"
+  | "failed"
+  | "noJob"
+  | "never"
+  | "incomplete"
+  | "protected";
 
 export function guestProtection(guest: PveGuest): GuestProtection {
   // Templates cannot be backed up (PVE disables fleecing) and absent guests are gone.
@@ -39,12 +46,17 @@ export function guestProtection(guest: PveGuest): GuestProtection {
   if (guest.lastRunStatus === "failed") {
     return "failed";
   }
-  return guest.lastSuccessAt ? "protected" : "never";
+  if (!guest.lastSuccessAt) {
+    return "never";
+  }
+  // Succeeded, but restic could not read some items: the restore point misses them.
+  return (guest.backups?.last?.unreadable ?? 0) > 0 ? "incomplete" : "protected";
 }
 
 const PROTECTION_BADGE = {
   protected: "outline",
   failed: "destructive",
+  incomplete: "warning",
   noJob: "warning",
   never: "warning",
   excluded: "muted",
@@ -92,7 +104,7 @@ export function groupByNode(nodes: PveNode[], guests: PveGuest[]): NodeGroup[] {
 function NodeRow({ group }: { group: NodeGroup }) {
   const { t } = useTranslation(PVE_NAMESPACE);
   const [open, setOpen] = React.useState(false);
-  const counts = { protected: 0, failed: 0, noJob: 0, never: 0, excluded: 0 };
+  const counts = { protected: 0, failed: 0, incomplete: 0, noJob: 0, never: 0, excluded: 0 };
   for (const guest of group.guests) {
     counts[guestProtection(guest)] += 1;
   }
@@ -122,7 +134,7 @@ function NodeRow({ group }: { group: NodeGroup }) {
           {t("inventory.guestCount", { count: group.guests.length })}
         </span>
         <span className="ml-auto flex flex-wrap gap-1" data-slot="pve-inventory-counts">
-          {(["protected", "failed", "noJob", "never"] as const).map((state) =>
+          {(["protected", "failed", "incomplete", "noJob", "never"] as const).map((state) =>
             counts[state] > 0 ? (
               <Badge key={state} variant={PROTECTION_BADGE[state]}>
                 {t(`inventory.count.${state}`, { count: counts[state] })}
@@ -142,6 +154,7 @@ function NodeRow({ group }: { group: NodeGroup }) {
                 <TableHead>{t("guests.name")}</TableHead>
                 <TableHead>{t("inventory.running")}</TableHead>
                 <TableHead>{t("guests.job")}</TableHead>
+                <TableHead>{t("guests.backup")}</TableHead>
                 <TableHead>{t("inventory.protection")}</TableHead>
               </TableRow>
             </TableHeader>
@@ -163,6 +176,9 @@ function NodeRow({ group }: { group: NodeGroup }) {
                       {guest.status ? t(`inventory.status.${guest.status}`, guest.status) : "–"}
                     </TableCell>
                     <TableCell>{guest.jobName ?? t("guests.noJob")}</TableCell>
+                    <TableCell>
+                      <BackupSizeCell guest={guest} />
+                    </TableCell>
                     <TableCell>
                       <span className="flex flex-wrap items-center gap-2">
                         <Badge

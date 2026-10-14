@@ -48,7 +48,26 @@ export interface PveGuest {
   /** What is happening now: the backup was handed to the node, or runs; null otherwise (and on older servers). */
   activity?: "queued" | "running" | null;
   bitmapState: "incremental" | "full_read" | null;
+  /** The first backup ever and the newest restore point; missing on servers before 0.3.5. */
+  backups?: PveGuestBackupSizes;
   attention: string[];
+}
+
+/**
+ * The sizes of one restore point: what it contains (everything it restores)
+ * and what it added to the repository (null when the point did not record it).
+ */
+export interface PveBackupSize {
+  at: string;
+  contains: number;
+  added: number | null;
+  /** Items a container backup could not read; the point misses them. */
+  unreadable: number;
+}
+
+export interface PveGuestBackupSizes {
+  first: PveBackupSize | null;
+  last: PveBackupSize | null;
 }
 
 export interface PveJobSchedule {
@@ -87,7 +106,14 @@ export interface PveRestorePoint {
   archiveName: string;
   origin: "restow" | "pve";
   backupAt: string;
+  /** Everything the point contains: a container's files, a VM's disks. */
   byteSize: number;
+  /** What this point added to the repository; null when not recorded (older points, older servers). */
+  added?: number | null;
+  backupType?: "first" | "incremental" | "full_read";
+  /** Items a container backup could not read (0 when complete). */
+  unreadable?: number;
+  consistency?: string | null;
   disks: {
     device: string;
     size: number;
@@ -108,6 +134,7 @@ export interface PveRun {
   startedAt: string;
   finishedAt: string | null;
   error: string | null;
+  stats?: { resticUnreadable?: number; consistency?: string | null } | null;
 }
 
 export interface PveGuestDetail {
