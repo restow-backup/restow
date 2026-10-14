@@ -386,7 +386,7 @@ describe("AdminsStep", () => {
   });
 
   it("renders an email field and a role picker for each administrator", () => {
-    const values = { ...emptyTenantWizardForm("en"), admins: [emptyAdmin("tenant_admin")] };
+    const values = { ...emptyTenantWizardForm("en"), admins: [emptyAdmin()] };
     const html = renderStep((form) => <AdminsStep form={form} />, values);
     expect(html).toContain('id="wizard-admin-0-email"');
     // The role picker (RoleSelect) is a Radix Select: its trigger renders,
@@ -394,6 +394,8 @@ describe("AdminsStep", () => {
     // control is wired rather than its (not yet server-rendered) text.
     expect(html).toContain('id="wizard-admin-0-role"');
     expect(html).toContain('role="combobox"');
+    // No role is preset: the picker asks for one.
+    expect(html).toContain("Choose a role");
   });
 });
 
@@ -504,6 +506,24 @@ async function enter(target: Element) {
     );
     await flush();
   });
+}
+
+/** Opens a Radix Select by keyboard and picks the option with the given label. */
+async function choose(trigger: Element, label: string) {
+  await act(async () => {
+    (trigger as HTMLElement).focus();
+    trigger.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+    await flush();
+  });
+  const option = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(
+    (element) => element.textContent?.trim() === label,
+  );
+  if (!option) {
+    throw new Error(`expected an option "${label}"`);
+  }
+  await enter(option);
 }
 
 function byId<T extends Element = HTMLElement>(container: HTMLElement, id: string): T {
@@ -754,9 +774,20 @@ describe("TenantWizard (interactive)", () => {
     await type(byId(document.body, "wizard-admin-0-email"), "ada@contoso.example");
     await click(byText(document.body, "Add an administrator"));
     await type(byId(document.body, "wizard-admin-1-email"), "bob@contoso.example");
+    // No role is preset: "Next" stays on the step and asks for both.
+    await click(byText(document.body, "Next"));
+    expect(document.body.querySelector("#wizard-admin-0-email")).not.toBeNull();
+    expect(byId(document.body, "wizard-admin-0-role").getAttribute("aria-invalid")).toBe("true");
+    await choose(byId(document.body, "wizard-admin-0-role"), "Tenant admin");
+    await choose(byId(document.body, "wizard-admin-1-role"), "Restore operator");
     await click(byText(document.body, "Next")); // Source
     await click(byText(document.body, "Next")); // Review
     await click(byText(document.body, "Create tenant"));
+    expect(
+      apiFetchMock.mock.calls
+        .filter(([path]) => path === "/tenants/tenant-1/members")
+        .map(([, init]) => (init as { body: { role: string } }).body.role),
+    ).toEqual(["tenant_admin", "tenant_restore"]);
 
     const text = document.body.textContent ?? "";
     expect(text).toContain("ada@contoso.example");

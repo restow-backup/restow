@@ -47,6 +47,11 @@ function getPath(target: Record<string, unknown>, path: string[]): unknown {
   return current;
 }
 
+/**
+ * Sets `value` at `path`, creating the containers on the way. A numeric key
+ * gets an array, as react-hook-form expects for a field array: it drops an
+ * error of a field-array row that arrives inside a plain object.
+ */
 function setPath(target: Record<string, unknown>, path: string[], value: unknown): void {
   let current = target;
   path.forEach((key, index) => {
@@ -56,7 +61,7 @@ function setPath(target: Record<string, unknown>, path: string[], value: unknown
     }
     const next = current[key];
     if (typeof next !== "object" || next === null) {
-      current[key] = {};
+      current[key] = /^\d+$/.test(path[index + 1] ?? "") ? [] : {};
     }
     current = current[key] as Record<string, unknown>;
   });

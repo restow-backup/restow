@@ -44,6 +44,7 @@ import {
   NoAccountsState,
   NoRestorePointState,
   useCanProtect,
+  useSeesAllAccounts,
 } from "@/features/restore/explorer/empty-states";
 import { objectLabel } from "@/features/restore/explorer/entry-icon";
 import { FolderTree } from "@/features/restore/explorer/folder-tree";
@@ -132,6 +133,7 @@ export function ExplorerPage() {
   // restore point, so the account list can say so instead of hiding it.
   const objects = useSnapshotObjects(true);
   const canProtect = useCanProtect();
+  const seesAll = useSeesAllAccounts();
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -148,7 +150,7 @@ export function ExplorerPage() {
           retrying={objects.isFetching}
         />
       ) : objects.data.length === 0 ? (
-        <NoAccountsState canProtect={canProtect} />
+        <NoAccountsState canProtect={canProtect} seesAll={seesAll} />
       ) : (
         <ExplorerShell objects={objects.data} />
       )}

@@ -28,7 +28,6 @@ import {
   parseTenantsSearch,
   readinessBadge,
   statusBadge,
-  suggestedRole,
   tenantRoleFromMemberRole,
 } from "./presenters";
 import type { TenantHealth, TenantItem, UsageOverview } from "./types";
@@ -169,11 +168,6 @@ describe("lists", () => {
     expect(isExpired("garbage", now)).toBe(false);
   });
 
-  it("suggests an admin role until someone administers the tenant", () => {
-    expect(suggestedRole(0)).toBe("tenant_admin");
-    expect(suggestedRole(1)).toBe("tenant_user");
-  });
-
   it("builds invitation links on the public URL", () => {
     expect(invitationLink("https://backup.example.org/", "abc")).toBe(
       "https://backup.example.org/invitations/abc",
@@ -302,6 +296,8 @@ describe("invitations", () => {
     expect(tenantRoleFromMemberRole("owner")).toBe("tenant_admin");
     expect(tenantRoleFromMemberRole("member,admin")).toBe("tenant_admin");
     expect(tenantRoleFromMemberRole("member")).toBe("tenant_user");
+    expect(tenantRoleFromMemberRole("restore")).toBe("tenant_restore");
+    expect(tenantRoleFromMemberRole("restore,admin")).toBe("tenant_admin");
     expect(tenantRoleFromMemberRole(null)).toBe("tenant_user");
   });
 });

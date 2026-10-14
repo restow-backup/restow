@@ -135,6 +135,7 @@
   "roles": {
     "provider_admin": "Provider admin",
     "tenant_admin": "Tenant admin",
+    "tenant_restore": "Restore operator",
     "tenant_user": "User"
   },
   "user": {

@@ -1,7 +1,7 @@
 import type { FieldError } from "react-hook-form";
 import { z } from "zod";
 
-import type { TenantRole } from "@/lib/api";
+import { type TenantRole, isTenantRole } from "@/lib/api";
 
 import { SLUG_MAX_LENGTH, SLUG_MIN_LENGTH, slugProblem } from "./slug";
 import type {
@@ -115,7 +115,7 @@ export interface InviteMemberValues {
 
 export const inviteMemberSchema = z.object({
   email: z.string().trim().min(1, "required").email("email"),
-  role: z.enum(["tenant_admin", "tenant_user"]),
+  role: z.custom<TenantRole>(isTenantRole, "required"),
 });
 
 export function emptyInviteForm(role: TenantRole): InviteMemberValues {
@@ -150,7 +150,8 @@ export interface TenantWizardRecipientValues {
 
 export interface TenantWizardAdminValues {
   email: string;
-  role: TenantRole;
+  /** Null until chosen; the schema refuses a row without a role. */
+  role: TenantRole | null;
 }
 
 export interface TenantWizardValues {
@@ -272,7 +273,7 @@ const wizardRecipientSchema = z.object({
 
 const wizardAdminSchema = z.object({
   email: z.string().trim().min(1, "required").email("email"),
-  role: z.enum(["tenant_admin", "tenant_user"]),
+  role: z.custom<TenantRole | null>(isTenantRole, "required"),
 });
 
 function uniqueEmails(entries: readonly { email: string }[]): boolean {
@@ -320,8 +321,9 @@ export function emptyRecipient(): TenantWizardRecipientValues {
   return { email: "", name: "", categories: [] };
 }
 
-export function emptyAdmin(role: TenantRole): TenantWizardAdminValues {
-  return { email: "", role };
+/** A new row: no address and no role chosen yet (the role is never preset). */
+export function emptyAdmin(): TenantWizardAdminValues {
+  return { email: "", role: null };
 }
 
 /** The IANA time zone the browser runs in, when it can be read; "" otherwise. */

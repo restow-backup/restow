@@ -37,6 +37,19 @@ describe("zodResolver", () => {
       message: "minLength",
     });
   });
+
+  it("puts the errors of a list's rows into an array, as react-hook-form's field arrays need", async () => {
+    const resolve = zodResolver(
+      z.object({ rows: z.array(z.object({ email: z.string().email("email") })) }),
+    );
+    const result = await resolve({ rows: [{ email: "a@b.de" }, { email: "nope" }] }, undefined, {
+      fields: {},
+      shouldUseNativeValidation: false,
+    });
+    const rows = (result.errors as Record<string, unknown>).rows;
+    expect(Array.isArray(rows)).toBe(true);
+    expect((rows as Record<string, unknown>[])[1]?.email).toMatchObject({ message: "email" });
+  });
 });
 
 describe("validationKey", () => {

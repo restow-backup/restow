@@ -32,13 +32,14 @@ import {
  *
  * `tenant_user` may use every route except the target suggestions; the
  * service narrows end users to their own objects and to original/download
- * targets (service.ts).
+ * targets (service.ts). Restore operators (`tenant_restore`) and admins
+ * restore every account of the tenant, into another one too.
  */
 
 export const restoreRoutes = new Hono<TenantEnv>();
 
 const tenantUser = requireTenant("tenant_user");
-const tenantAdmin = requireTenant("tenant_admin");
+const tenantRestore = requireTenant("tenant_restore");
 
 /**
  * The download is a plain browser navigation, which cannot carry the
@@ -76,7 +77,7 @@ restoreRoutes.get("/", tenantUser, async (c) => {
   return c.json({ items: await listRestores(db, c.get("tenantId"), actorOf(c), query) });
 });
 
-restoreRoutes.get("/targets", tenantAdmin, async (c) => {
+restoreRoutes.get("/targets", tenantRestore, async (c) => {
   const { objectId } = parseOrProblem(restoreTargetsQuerySchema, c.req.query());
   return c.json({ items: await listTargets(db, c.get("tenantId"), actorOf(c), objectId) });
 });

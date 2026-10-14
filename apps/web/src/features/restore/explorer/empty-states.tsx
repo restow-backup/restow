@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { EmptyState } from "@/components/kit";
 import { buttonVariants } from "@/components/ui/button";
 import { directoryTo } from "@/features/directory/search";
+import { restoresForTenant } from "@/lib/api";
 import { useSession } from "@/lib/session";
 
 /**
@@ -17,15 +18,38 @@ export function useCanProtect(): boolean {
   return isProviderAdmin || activeTenant?.role === "tenant_admin";
 }
 
-/** No protected account at all. */
-export function NoAccountsState({ canProtect }: { canProtect: boolean }) {
+/**
+ * Whether the viewer sees every account of the tenant (restore operators and
+ * administrators) rather than only their own.
+ */
+export function useSeesAllAccounts(): boolean {
+  const { isProviderAdmin, activeTenant } = useSession();
+  return isProviderAdmin || restoresForTenant(activeTenant?.role);
+}
+
+/**
+ * No protected account at all. Admins are pointed at protecting one; a
+ * restore operator learns the tenant has none yet; an end user that nothing
+ * of theirs is.
+ */
+export function NoAccountsState({
+  canProtect,
+  seesAll = canProtect,
+}: {
+  canProtect: boolean;
+  seesAll?: boolean;
+}) {
   const { t } = useTranslation("restore");
   return (
     <EmptyState
       icon={DatabaseBackup}
-      title={t(canProtect ? "explorer.object.none" : "explorer.object.noneSelf")}
+      title={t(seesAll ? "explorer.object.none" : "explorer.object.noneSelf")}
       description={t(
-        canProtect ? "explorer.object.noneDescription" : "explorer.object.noneSelfDescription",
+        canProtect
+          ? "explorer.object.noneDescription"
+          : seesAll
+            ? "explorer.object.noneRestoreDescription"
+            : "explorer.object.noneSelfDescription",
       )}
       actions={
         canProtect ? (

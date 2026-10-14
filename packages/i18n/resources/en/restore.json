@@ -51,6 +51,7 @@
       "none": "No protected account yet",
       "noneDescription": "Protect a mailbox, OneDrive or IMAP account first. It appears here as soon as it is protected, even before its first backup finishes.",
       "noneAction": "Go to Protected objects",
+      "noneRestoreDescription": "No mailbox, OneDrive or IMAP account of this tenant is protected yet. The tenant's administrators set up the backup; the accounts appear here once they have.",
       "noneSelf": "Nothing of yours is backed up yet",
       "noneSelfDescription": "Your mailbox, OneDrive or IMAP account is not backed up yet. Ask your organisation's administrators to protect it.",
       "kinds": {

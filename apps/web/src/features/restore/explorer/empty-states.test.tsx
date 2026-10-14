@@ -44,6 +44,14 @@ describe("explorer empty states", () => {
     expect(html).not.toContain("<a ");
   });
 
+  it("tells a restore operator that the tenant has no protected account, not that they have none", () => {
+    const html = render(<NoAccountsState canProtect={false} seesAll />);
+    expect(html).toContain("No protected account yet");
+    expect(html).toContain("No mailbox, OneDrive or IMAP account of this tenant");
+    expect(html).not.toContain("Nothing of yours");
+    expect(html).not.toContain("<a ");
+  });
+
   it("does the same when the account has no restore point yet", () => {
     expect(render(<NoRestorePointState canProtect />)).toContain("Go to Protected objects");
     const self = render(<NoRestorePointState canProtect={false} />);

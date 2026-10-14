@@ -201,11 +201,6 @@ export function isExpired(expiresAt: string | null, now: number): boolean {
   return !Number.isNaN(time) && time <= now;
 }
 
-/** Suggested role for the next invitation: the first person should administer the tenant. */
-export function suggestedRole(adminCount: number): "tenant_admin" | "tenant_user" {
-  return adminCount === 0 ? "tenant_admin" : "tenant_user";
-}
-
 // --- API failures ---------------------------------------------------------------
 
 const PROBLEM_TYPES = {
@@ -339,15 +334,17 @@ export type InvitationFailure =
   | "failed";
 
 /**
- * better-auth stores organization roles (`owner`, `admin`, `member`, possibly
- * comma-separated); owners and admins administer the tenant. Mirrors
- * `tenantRoleFromMembership` in apps/api/src/middleware/rbac.ts.
+ * better-auth stores organization roles (`owner`, `admin`, `restore`, `member`,
+ * possibly comma-separated); owners and admins administer the tenant, `restore`
+ * marks a restore operator. Mirrors `tenantRoleFromMembership` in
+ * apps/api/src/middleware/rbac.ts.
  */
 export function tenantRoleFromMemberRole(memberRole: string | null | undefined): TenantRole {
   const roles = (memberRole ?? "").split(",").map((role) => role.trim().toLowerCase());
-  return roles.some((role) => role === "owner" || role === "admin")
-    ? "tenant_admin"
-    : "tenant_user";
+  if (roles.some((role) => role === "owner" || role === "admin")) {
+    return "tenant_admin";
+  }
+  return roles.includes("restore") ? "tenant_restore" : "tenant_user";
 }
 
 // --- Tenant wizard: notifications --------------------------------------------

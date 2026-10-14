@@ -11,6 +11,7 @@ import {
 
 const user: Viewer = { role: "tenant_user", userId: "u1", email: "Anna@Example.com" };
 const tenantAdmin: Viewer = { role: "tenant_admin", userId: "u2", email: "admin@example.com" };
+const restorer: Viewer = { role: "tenant_restore", userId: "u4", email: "helpdesk@example.com" };
 const providerAdmin: Viewer = { role: "provider_admin", userId: "u3", email: "ops@provider.test" };
 
 const annasMailbox = { externalId: "anna@example.com", ownerEmail: null };
@@ -38,6 +39,13 @@ describe("canAccessObject / seesAllObjects", () => {
     expect(canAccessObject(user, annasMailbox)).toBe(true);
     expect(canAccessObject(tenantAdmin, bobsMailbox)).toBe(true);
     expect(canAccessObject(providerAdmin, bobsMailbox)).toBe(true);
+  });
+
+  it("lets restore operators see every object of the tenant, as somebody else's", () => {
+    expect(seesAllObjects(restorer)).toBe(true);
+    expect(canAccessObject(restorer, bobsMailbox)).toBe(true);
+    expect(visibleObjectsCondition(restorer)).toBeNull();
+    expect(isImpersonation(restorer, bobsMailbox)).toBe(true);
   });
 
   it("emits a SQL filter only for end users", () => {

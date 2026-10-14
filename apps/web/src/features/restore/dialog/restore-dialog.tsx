@@ -58,7 +58,7 @@ import {
 import { countSelection } from "@/features/restore/lib/selection";
 import { useOpenJob } from "@/features/restore/navigation";
 import { useCreateRestore, useRestoreTargets } from "@/features/restore/use-restore-data";
-import { setupStateQueryOptions } from "@/lib/api";
+import { restoresForTenant, setupStateQueryOptions } from "@/lib/api";
 import { formatBytes } from "@/lib/format";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -129,7 +129,7 @@ function RestoreForm({
   const context: RestoreFormContext = {
     canRestoreElsewhere:
       request.onlyTarget === undefined &&
-      (isProviderAdmin || activeTenant?.role === "tenant_admin"),
+      (isProviderAdmin || restoresForTenant(activeTenant?.role)),
     reasonRequired: !object.own,
     originalAvailable: request.onlyTarget === undefined && object.status !== "orphaned",
     downloadOnly: demoMode,

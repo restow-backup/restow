@@ -1,4 +1,4 @@
-import { type TenantRole, unwrapList } from "@/lib/api";
+import { type TenantRole, isTenantRole, unwrapList } from "@/lib/api";
 
 import type {
   AccountLinkStatus,
@@ -49,7 +49,7 @@ function asLinkStatus(value: unknown): AccountLinkStatus {
 }
 
 function asTenantRole(value: unknown): TenantRole {
-  return value === "tenant_admin" ? "tenant_admin" : "tenant_user";
+  return isTenantRole(value) ? value : "tenant_user";
 }
 
 export function decodeProvisionResult(payload: unknown): ProvisionResult {

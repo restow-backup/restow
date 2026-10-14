@@ -633,6 +633,26 @@ describe.skipIf(!testDatabaseAdminUrl)("accounts against Postgres", () => {
     expect(reissued.userId).toBe(inB.userId);
   });
 
+  it("provisions a restore operator as the better-auth role restore", async () => {
+    const result = await service.provisionAccount(
+      db,
+      tenantA,
+      { email: "helpdesk@contoso.example", role: "tenant_restore" },
+      actor(),
+      "en",
+    );
+    expect(result.role).toBe("tenant_restore");
+
+    const [membership] = await owner
+      .select()
+      .from(member)
+      .where(and(eq(member.organizationId, orgAId), eq(member.userId, result.userId)));
+    expect(membership?.role).toBe("restore");
+
+    const pending = await service.listPendingAccounts(db, tenantA);
+    expect(pending.find((row) => row.userId === result.userId)?.role).toBe("tenant_restore");
+  });
+
   it("reports the account's actual stored role, not the requested one, when re-provisioning an existing member", async () => {
     // Re-inviting an already-provisioned member must never claim a role
     // change that did not happen: provisioning only ever sets the role on a

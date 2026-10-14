@@ -20,6 +20,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/sonner";
+import type { TenantRole } from "@/lib/api";
 import { zodResolver } from "@/lib/form";
 import { formatDateTime } from "@/lib/format";
 import { useSession } from "@/lib/session";
@@ -28,7 +29,6 @@ import { setupStateQueryOptions } from "@/routes/tree";
 
 import { addMember, tenantKeys } from "../../api";
 import {
-  type TenantWizardAdminValues,
   type TenantWizardValues,
   WIZARD_STEPS,
   WIZARD_STEP_FIELDS,
@@ -105,7 +105,7 @@ export function TenantWizard({ open, onOpenChange }: TenantWizardProps) {
  */
 interface AdminOutcome {
   email: string;
-  role: TenantWizardAdminValues["role"];
+  role: TenantRole;
   result: AddMemberResult | null;
 }
 
@@ -194,14 +194,16 @@ function TenantWizardBody({
       try {
         const created = await create.mutateAsync(toCreateTenantInput(values));
         const admins: AdminOutcome[] = [];
-        if (values.admins.length > 0) {
+        // The schema refused every row without a role; this only narrows the type.
+        const chosen = values.admins.flatMap((admin) =>
+          admin.role ? [{ email: admin.email, role: admin.role }] : [],
+        );
+        if (chosen.length > 0) {
           const outcomes = await Promise.allSettled(
-            values.admins.map((admin) =>
-              addMember(created.id, { email: admin.email, role: admin.role }),
-            ),
+            chosen.map((admin) => addMember(created.id, admin)),
           );
           outcomes.forEach((outcome, index) => {
-            const admin = values.admins[index];
+            const admin = chosen[index];
             if (!admin) {
               return;
             }

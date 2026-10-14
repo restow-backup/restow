@@ -4,6 +4,7 @@ import { type BetterAuthOptions, betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { createAuthMiddleware } from "better-auth/api";
 import { admin, organization, twoFactor } from "better-auth/plugins";
+import { defaultRoles, memberAc } from "better-auth/plugins/organization/access";
 import { eq } from "drizzle-orm";
 import { config } from "./config.js";
 import { db, providerDb } from "./db.js";
@@ -26,6 +27,7 @@ import {
 } from "./lib/password-reset.js";
 import { clientIpOf, trustedProxies } from "./lib/request.js";
 import { totpIssuer } from "./lib/sign-in-options.js";
+import { ORGANIZATION_RESTORE_ROLE } from "./middleware/rbac.js";
 
 /**
  * Authentication (docs/STACK.md, "## Auth").
@@ -285,6 +287,10 @@ const betterAuthInstance = betterAuth({
       // never by a signed-in user from the client.
       allowUserToCreateOrganization: false,
       creatorRole: "owner",
+      // The restore operators (`tenant_restore`, middleware/rbac.ts) beside the
+      // built-in roles. Inside better-auth they may do what a member may: what
+      // they see and restore is decided by Restow's own checks.
+      roles: { ...defaultRoles, [ORGANIZATION_RESTORE_ROLE]: memberAc },
       membershipLimit: MEMBERSHIP_LIMIT,
       invitationExpiresIn: INVITATION_TTL_SECONDS,
     }),
