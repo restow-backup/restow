@@ -4,8 +4,8 @@
  * store (never returned, logged or audited), the cached check, the daily
  * check's audit entry, the "update available" alert raised once per version
  * (the bell and the tenants' alert rules), the announcement of an update
- * through a scripted updater, and the updater's journal written to the audit
- * log exactly once.
+ * through a scripted updater, the updater's journal written to the audit
+ * log exactly once, and the "Restart required" notice with its button.
  *
  * The services run on the installation role (BYPASSRLS), as the api process
  * does; tenants and rules are read back on the application role that Row Level
@@ -24,6 +24,8 @@ import {
   providers,
   reportDeliveries,
   reportRules,
+  requestServiceRestart,
+  restartRequests,
   secrets,
   settings,
   tenants,
@@ -33,6 +35,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { ProblemError } from "../../problem.js";
 import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
 import {
+  type RestartableService,
   type ScheduleRequest,
   type StateView,
   idlePublicStatus,
@@ -118,6 +121,9 @@ function idleState(over: Partial<StateView> = {}): StateView {
     events: [],
     capabilities: capabilities(),
     selfUpdate: null,
+    restartableServices: [],
+    restart: null,
+    projectDir: null,
     serverTime: "2026-10-01T09:00:00.000Z",
     ...over,
   };
@@ -129,9 +135,15 @@ class ScriptedUpdater implements UpdaterClient {
   readonly scheduled: ScheduleRequest[] = [];
   cancelled = 0;
   acknowledged = 0;
+  readonly restarted: string[] = [];
 
   async state() {
     return this.view;
+  }
+
+  async restart(service: RestartableService) {
+    this.restarted.push(service);
+    return this.view ?? idleState();
   }
 
   async schedule(request: ScheduleRequest) {
@@ -1351,6 +1363,103 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
       updater.view = idleState();
       await service.syncUpdater();
       expect(await owner.select().from(auditLog).where(gte(auditLog.createdAt, since))).toEqual([]);
+    });
+  });
+
+  describe("restart required", () => {
+    const RESTARTABLE = ["api", "worker", "scheduler"];
+
+    async function restarts(demo = false) {
+      const { RestartService } = await import("./restarts.js");
+      return new RestartService({ db: providerDb, updater, demo });
+    }
+
+    beforeEach(async () => {
+      await owner.delete(restartRequests);
+    });
+
+    it("shows nothing, and asks no updater, while no service needs a restart", async () => {
+      updater.view = null;
+      expect(await (await restarts()).view()).toEqual({
+        requests: [],
+        updater: "unavailable",
+        lastRestart: null,
+        projectDir: null,
+      });
+    });
+
+    it("lists the open requests and what the updater can do about them", async () => {
+      await requestServiceRestart(providerDb, { service: "worker", reason: "test_reason" });
+      const service = await restarts();
+
+      updater.view = null;
+      const without = await service.view();
+      expect(without.requests).toEqual([
+        { service: "worker", reason: "test_reason", requestedAt: expect.any(String) },
+      ]);
+      expect(without).toMatchObject({ updater: "unavailable", projectDir: null });
+
+      // An updater of 0.3.5 answers but knows no restarts: the command remains.
+      updater.view = idleState();
+      expect((await service.view()).updater).toBe("unsupported");
+
+      updater.view = idleState({ restartableServices: RESTARTABLE, projectDir: "/srv/restow" });
+      expect(await service.view()).toMatchObject({ updater: "ready", projectDir: "/srv/restow" });
+
+      updater.view = idleState({
+        restartableServices: RESTARTABLE,
+        restart: {
+          service: "api",
+          status: "running",
+          startedAt: "2026-10-01T09:00:00.000Z",
+          finishedAt: null,
+        },
+      });
+      expect((await service.view()).updater).toBe("busy");
+      updater.view = idleState({ restartableServices: RESTARTABLE, phase: "scheduled" });
+      expect((await service.view()).updater).toBe("busy");
+      expect((await (await restarts(true)).view()).updater).toBe("demo");
+    });
+
+    it("asks the updater to restart exactly that service and audits who asked", async () => {
+      await requestServiceRestart(providerDb, { service: "worker", reason: "test_reason" });
+      updater.view = idleState({ restartableServices: RESTARTABLE });
+      await (await restarts()).restart("worker", actor);
+      expect(updater.restarted).toEqual(["worker"]);
+      const [entry] = await auditRows("update.restart.requested");
+      expect(entry).toMatchObject({
+        actor: actor.email,
+        target: "worker",
+        targetType: "service",
+        details: { service: "worker", reasons: ["test_reason"] },
+      });
+      // The request stays until the worker starts again and clears it itself.
+      expect(await owner.select().from(restartRequests)).toHaveLength(1);
+    });
+
+    it("refuses a service without a request, an unknown one, and a missing or old updater", async () => {
+      const service = await restarts();
+      updater.view = idleState({ restartableServices: RESTARTABLE });
+      const refusal = async (name: string) =>
+        service.restart(name, actor).catch((error: unknown) => error as ProblemError);
+
+      const notRequested = await refusal("worker");
+      expect(notRequested).toBeInstanceOf(ProblemError);
+      expect(notRequested).toMatchObject({ status: 409 });
+      for (const name of ["postgres", "caddy", "updater", "worker;id"]) {
+        expect(await refusal(name), name).toMatchObject({ status: 404 });
+      }
+
+      await requestServiceRestart(providerDb, { service: "api", reason: "test_reason" });
+      updater.view = null;
+      expect(await refusal("api")).toMatchObject({ status: 409 });
+      updater.view = idleState();
+      expect(await refusal("api")).toMatchObject({ status: 409 });
+      expect(await (await restarts(true)).restart("api", actor).catch((e) => e)).toMatchObject({
+        status: 409,
+      });
+      expect(updater.restarted).toEqual([]);
+      expect(await auditRows("update.restart.requested")).toHaveLength(0);
     });
   });
 });

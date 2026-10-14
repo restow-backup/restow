@@ -33,7 +33,12 @@ import {
   recordManifestVersions,
   releaseManifestSnapshot,
 } from "./manifest-versions.js";
-import { reclaimLegacyManifestSpace, runMigrations } from "./migrate.js";
+import {
+  LEGACY_RECLAIM_MIN_BYTES,
+  legacyManifestBytes,
+  reclaimLegacyManifestSpace,
+  runMigrations,
+} from "./migrate.js";
 import { chunkIdsFromDriver } from "./schema/manifest.js";
 import { dropTestDatabase } from "./testing/database.js";
 
@@ -826,16 +831,22 @@ describe.skipIf(!adminUrl)("upgrading a 0.3.4 manifest index", { timeout: SLOW_T
     const totalSnapshotsRows = second.snapshots.reduce((sum, s) => sum + s.entries.length, 0);
     expect(converted).toBeLessThan(totalSnapshotsRows / 3);
 
-    // The next api start truncates the empty old table; not while rows are left.
+    // The api (its start, or its periodic attempt) truncates the empty old table; not while
+    // rows are left. Below the threshold an emptied table is left to autovacuum.
     const ownerPool = new pg.Pool({
       connectionString: urlFor(adminUrl as string, LEGACY_DATABASE),
     });
     try {
+      const before = await legacyManifestBytes(ownerPool);
+      expect(before).toBeGreaterThan(0);
+      expect(before).toBeLessThan(LEGACY_RECLAIM_MIN_BYTES);
+      expect(await reclaimLegacyManifestSpace(ownerPool)).toBe(false);
       expect(await reclaimLegacyManifestSpace(ownerPool, 0)).toBe(true);
       const size = await ownerPool.query<{ bytes: string }>(
         "SELECT pg_relation_size('manifest_objects')::text AS bytes",
       );
       expect(Number(size.rows[0]?.bytes)).toBe(0);
+      expect(await legacyManifestBytes(ownerPool)).toBeLessThan(before as number);
       await insertLegacyRows(
         ownerPool,
         { tenantId: fixture.tenantId, protectedObjectId: first.id, snapshotId: extra },

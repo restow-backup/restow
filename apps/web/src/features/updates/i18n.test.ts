@@ -134,6 +134,7 @@ describe("updates translations", () => {
       "steps.status.pending",
       "dumps.title",
       "edition.title",
+      "restart.services.api",
     ]);
     const untranslated = [...leaves(en)]
       .filter(([key, text]) => german.get(key) === text && !SAME.has(key))

@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import {
+  type RestartableService,
   type ScheduleRequest,
   type StateView,
   UPDATER_AUTH_SCHEME,
@@ -63,6 +64,8 @@ export interface UpdaterClient {
   schedule(request: ScheduleRequest): Promise<StateView>;
   cancel(): Promise<StateView>;
   acknowledge(): Promise<StateView>;
+  /** Ask the updater to restart one application service; it answers before the restart ends. */
+  restart(service: RestartableService): Promise<StateView>;
 }
 
 /** The shared secret, re-read now and then so a restarted updater's new secret is picked up. */
@@ -236,6 +239,9 @@ export function createUpdaterClient(options: UpdaterClientOptions): UpdaterClien
     async acknowledge() {
       return remember(toState(await request("POST", "/v1/acknowledge", {})));
     },
+    async restart(service) {
+      return remember(toState(await request("POST", "/v1/restart", { service })));
+    },
   };
 }
 
@@ -254,6 +260,9 @@ export const disabledUpdaterClient: UpdaterClient = {
     throw new UpdaterUnavailableError("disabled");
   },
   acknowledge: async () => {
+    throw new UpdaterUnavailableError("disabled");
+  },
+  restart: async () => {
     throw new UpdaterUnavailableError("disabled");
   },
 };

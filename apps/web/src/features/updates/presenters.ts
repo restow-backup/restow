@@ -14,7 +14,12 @@ import {
   MAX_SOURCE_URL_LENGTH,
   type MounterUpdateReason,
   RECENT_SIGN_IN_PROBLEM,
+  RESTART_NOT_REQUESTED_PROBLEM,
+  RESTART_SERVICES,
+  RESTART_UNSUPPORTED_PROBLEM,
   type Recovery,
+  type RestartRequestView,
+  type RestartService,
   type RunOutcome,
   type RunView,
   type SelfUpdateReason,
@@ -57,6 +62,8 @@ const PROBLEM_KEYS: Record<string, string> = {
   [UPDATE_NOT_VERIFIABLE_PROBLEM]: "updates:errors.notVerifiable",
   [INVALID_UPDATE_SOURCE_PROBLEM]: "updates:errors.invalidSource",
   [BUILD_SWITCH_REFUSED_PROBLEM]: "updates:errors.switchRefused",
+  [RESTART_NOT_REQUESTED_PROBLEM]: "updates:errors.restartNotRequested",
+  [RESTART_UNSUPPORTED_PROBLEM]: "updates:errors.restartUnsupported",
 };
 
 /** The i18n key (with namespace) that explains a failed updates request. */
@@ -680,4 +687,43 @@ export function maintenanceMessageKey(code: string, switchTo?: BuildSwitchTarget
  */
 export function switchKey(key: string, switchTo: BuildSwitchTarget | null | undefined): string {
   return switchTo ? `${key}Switch` : key;
+}
+
+// --- Restart required ----------------------------------------------------------------------------
+
+/** Where the installer puts an installation; named when the updater does not tell the real place. */
+export const DEFAULT_PROJECT_DIR = "/opt/restow";
+
+/** A directory as one shell word: left as it is when plain, single-quoted otherwise. */
+function shellWord(value: string): string {
+  return /^[A-Za-z0-9_./-]+$/.test(value) ? value : `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+/**
+ * The command that restarts one service by hand, in the installation's directory: the
+ * one the updater reports, else {@link DEFAULT_PROJECT_DIR} (the tab then says to adapt it).
+ */
+export function restartCommand(service: RestartService, projectDir: string | null): string {
+  return `cd ${shellWord(projectDir ?? DEFAULT_PROJECT_DIR)} && docker compose restart ${service}`;
+}
+
+/** The i18n key of a restart reason; the component falls back to the generic text for an unknown one. */
+export function restartReasonKey(reason: string): string {
+  return `restart.reasons.${reason}`;
+}
+
+export interface RestartGroup {
+  service: RestartService;
+  /** The reasons, oldest request first. */
+  reasons: string[];
+}
+
+/** The open requests by service, in the order api, worker, scheduler. */
+export function restartGroups(requests: readonly RestartRequestView[]): RestartGroup[] {
+  return RESTART_SERVICES.flatMap((service) => {
+    const reasons = requests
+      .filter((request) => request.service === service)
+      .map((request) => request.reason);
+    return reasons.length > 0 ? [{ service, reasons }] : [];
+  });
 }

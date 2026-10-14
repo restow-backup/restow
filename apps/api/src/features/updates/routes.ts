@@ -8,7 +8,8 @@ import {
   requireSession,
 } from "../../middleware/session.js";
 import { parseJsonBody } from "../../schemas.js";
-import { updateService } from "./instance.js";
+import { restartService, updateService } from "./instance.js";
+import type { RestartService } from "./restarts.js";
 import {
   pendingLicenseKeyInputSchema,
   scheduleUpdateInputSchema,
@@ -30,6 +31,8 @@ import type { Actor, UpdateService } from "./service.js";
  *   POST   /edition/switch          Community only: switch to the full build of this version
  *   PUT    /edition/license-key     Community only: keep a license key for the full build
  *   DELETE /edition/license-key     ... and remove it again
+ *   GET    /restarts                services that need a restart, and how (restarts.ts)
+ *   POST   /restarts/:service       "Restart now": the updater restarts that one service
  *
  * /api/v1/maintenance — every signed-in user:
  *
@@ -50,7 +53,10 @@ function actorOf(c: Context<SessionEnv>): Actor {
   return { id: user.id, email: user.email, ip: clientIp(c) };
 }
 
-export function buildUpdatesRoutes(service: UpdateService): Hono<SessionEnv> {
+export function buildUpdatesRoutes(
+  service: UpdateService,
+  restarts?: RestartService,
+): Hono<SessionEnv> {
   const routes = new Hono<SessionEnv>();
   routes.use("*", refuseApiKeys, requireProviderAdmin);
 
@@ -92,6 +98,15 @@ export function buildUpdatesRoutes(service: UpdateService): Hono<SessionEnv> {
     c.json(await service.removeLicenseKey(actorOf(c))),
   );
 
+  if (restarts) {
+    routes.get("/restarts", async (c) => c.json(await restarts.view()));
+    // Restarting a service interrupts what it does (the worker's jobs checkpoint and continue
+    // afterwards); it changes no code, so the owner role suffices, without a recent sign-in.
+    routes.post("/restarts/:service", async (c) =>
+      c.json(await restarts.restart(c.req.param("service"), actorOf(c))),
+    );
+  }
+
   return routes;
 }
 
@@ -102,5 +117,5 @@ export function buildMaintenanceRoutes(service: UpdateService): Hono<SessionEnv>
   return routes;
 }
 
-export const updatesRoutes = buildUpdatesRoutes(updateService);
+export const updatesRoutes = buildUpdatesRoutes(updateService, restartService);
 export const maintenanceRoutes = buildMaintenanceRoutes(updateService);

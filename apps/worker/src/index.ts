@@ -71,6 +71,7 @@ import {
 import {
   ServiceHeartbeatReporter,
   assertDatabaseRoles,
+  clearRestartRequests,
   createDb,
   grantQueueAccess,
   heartbeatStore,
@@ -245,6 +246,15 @@ async function main(): Promise<void> {
   const db = createDb(config.databaseUrl);
   const providerDb = createDb(config.databaseProviderUrl);
   const roles = await assertDatabaseRoles({ tenant: db.$client, installation: providerDb.$client });
+  // This process has just started, so the restart requests recorded for its role are
+  // followed (packages/db restart-requests.ts); cleared before it does any work of its own.
+  try {
+    await clearRestartRequests(providerDb, "worker");
+  } catch (error) {
+    logger.warn("the restart requests for the worker could not be cleared", {
+      errorMessage: safeErrorMessage(error),
+    });
+  }
   // Staged uploads and finished exports are temporary: the retention job sweeps them.
   retentionTasks.register(mailFilesCleanupTask);
   // Retention tasks contributed by extensions, e.g. the archive deletion run

@@ -12,7 +12,8 @@
   "toasts": {
     "saved": "Update settings saved.",
     "cancelled": "The announced update was cancelled.",
-    "dismissed": "The update run was cleared from this page."
+    "dismissed": "The update run was cleared from this page.",
+    "restartRequested": "The updater is restarting the {service}."
   },
   "errors": {
     "updaterUnavailable": "The updater is not running. Start it, or update by hand.",
@@ -24,7 +25,9 @@
     "recentSignIn": "Confirm it is you first: changing the update source or the access token and starting an update need a sign-in from the last 10 minutes.",
     "notVerifiable": "This release publishes no image digest, so the updater cannot verify it. Update by hand after checking the release.",
     "invalidSource": "This address cannot be used as the update source. Enter the https address of a GitHub, Forgejo or Gitea repository on the public internet. A server on your own network works only when the operator names its host in the .env file on the server.",
-    "switchRefused": "This installation cannot switch builds here. Switch by hand with the two lines for the .env file."
+    "switchRefused": "This installation cannot switch builds here. Switch by hand with the two lines for the .env file.",
+    "restartNotRequested": "This service no longer needs a restart. The page shows the current state.",
+    "restartUnsupported": "The running updater cannot restart services yet. Recreate it, or run the command on the server."
   },
   "form": {
     "unsaved": "You have unsaved changes.",
@@ -687,6 +690,39 @@
         "confirm": "Remove key"
       },
       "removed": "The stored key is removed."
+    }
+  },
+  "restart": {
+    "title": "Restart required",
+    "description": "A change takes effect only after these services have been restarted. Nothing restarts on its own: restart them when it suits you.",
+    "services": {
+      "api": "API",
+      "worker": "worker",
+      "scheduler": "scheduler"
+    },
+    "needs": "Restart the {service}",
+    "reasonUnknown": "A change takes effect only after a restart.",
+    "reasons": {},
+    "restartNow": "Restart now",
+    "restarting": "The updater is restarting the {service}. This notice disappears once it is up again.",
+    "failed": "The last restart of the {service} failed. Run the command on the server; the updater's log says what went wrong.",
+    "confirmTitle": "Restart the {service} now?",
+    "confirmBody": "The updater runs “docker compose restart {name}” on the server. While the {service} restarts it is briefly unavailable; running backup jobs save a checkpoint and continue afterwards.",
+    "confirm": "Restart now",
+    "keep": "Not now",
+    "command": "Or run this command on the server:",
+    "commandOnly": "Run this command on the server:",
+    "directoryNote": "This assumes the installation is in /opt/restow. Use the directory of your installation instead: the one with its docker-compose.yml and .env.",
+    "availability": {
+      "unavailable": "The updater is not running, so the restart is done on the server.",
+      "unsupported": "The running updater cannot restart services yet. Recreate it with “docker compose --profile updater up -d updater”, or restart by hand.",
+      "busy": "An update or another restart is running. Restart when it has finished.",
+      "demo": "This is a public demo. Nothing is restarted here."
+    },
+    "ownerOnly": "Only the owner role of the provider team can restart a service from here.",
+    "banner": {
+      "text": "Restart required: {services}.",
+      "link": "Show how"
     }
   }
 }

@@ -27,7 +27,12 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { toast } from "@/components/ui/sonner";
 import { DisclaimerDialog } from "@/features/disclaimer/disclaimer-dialog";
 import { LiveChannelProvider } from "@/features/history/live/provider";
-import { MaintenanceBanner, MaintenanceProvider, ShellMaintenanceModal } from "@/features/updates";
+import {
+  MaintenanceBanner,
+  MaintenanceProvider,
+  RestartBanner,
+  ShellMaintenanceModal,
+} from "@/features/updates";
 import { queryKeys, setupStateQueryOptions } from "@/lib/api";
 import { LOGIN_PATH, loginRedirectFor } from "@/lib/entry";
 import { onUnauthorized } from "@/lib/query";
@@ -138,6 +143,8 @@ export function ShellFrame({ children }: { children: React.ReactNode }) {
                   <MaintenanceBanner />
                   <TopBar />
                 </div>
+                {/* A service that needs a restart: provider administrators only, scrolls away. */}
+                <RestartBanner />
                 <ShellMain>{children}</ShellMain>
               </div>
             </CommandPaletteProvider>

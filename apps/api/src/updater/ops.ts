@@ -212,6 +212,11 @@ export interface DockerOps {
   /** `up -d --no-deps` for exactly these services, never building and never pulling. */
   composeUp(services: readonly string[]): Promise<void>;
   composeStart(services: readonly string[]): Promise<void>;
+  /**
+   * `restart` for exactly these services: stop and start the same containers, with each
+   * service's own stop grace period; no recreate, no pull, no build.
+   */
+  composeRestart(services: readonly string[]): Promise<void>;
   servicesState(): Promise<ServiceState[]>;
   /** Last lines of the api's log, redacted. Empty when unavailable. */
   apiLogsTail(lines: number): Promise<string>;

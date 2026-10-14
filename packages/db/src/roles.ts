@@ -421,6 +421,8 @@ export const TABLE_ACCESS: Readonly<Record<string, TableAccess>> = {
   settings: "installation",
   license: "installation",
   service_heartbeats: "installation",
+  // Services that need a manual restart (restart-requests.ts); no tenant data.
+  restart_requests: "installation",
   // Who may do what on the provider side (schema/provider-team.ts): no
   // tenant-scoped code path can widen a provider admin's rights.
   provider_members: "installation",

@@ -419,6 +419,13 @@ export class CliDockerOps implements DockerOps {
     this.expectSuccess(result, "Starting services");
   }
 
+  async composeRestart(services: readonly string[]): Promise<void> {
+    assertServices(services);
+    // No `-t`: Compose then waits each service's stop_grace_period (60 s for the worker).
+    const result = await this.compose(["restart", ...services], { timeoutMs: TIMEOUTS.up });
+    this.expectSuccess(result, "Restarting services");
+  }
+
   async servicesState(): Promise<ServiceState[]> {
     const result = await this.compose(["ps", "-a", "--format", "json"], {
       timeoutMs: TIMEOUTS.quick,

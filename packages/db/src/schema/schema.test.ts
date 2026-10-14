@@ -261,6 +261,21 @@ describe("installation-level tables, identity and verification links", () => {
     expect(heartbeats.checks.map((c) => c.name)).toContain(schema.SERVICE_HEARTBEAT_HOSTNAME_CHECK);
   });
 
+  it("keeps restart requests installation-level, one row per service and reason", () => {
+    const requests = config("restart_requests");
+    expect(requests.columns.some((c) => c.name === "tenant_id")).toBe(false);
+    expect(rlsTenantTables(rlsSql)).not.toContain("restart_requests");
+    expect(indexNamed("restart_requests", "restart_requests_service_reason_uq")?.unique).toBe(true);
+    expect(indexColumns("restart_requests", "restart_requests_service_reason_uq")).toEqual([
+      "service",
+      "reason",
+    ]);
+    for (const name of ["service", "reason", "requested_at"]) {
+      expect(column("restart_requests", name).notNull, name).toBe(true);
+    }
+    expect(requests.checks.map((c) => c.name)).toContain(schema.RESTART_REQUEST_REASON_CHECK);
+  });
+
   it("declares the better-auth rate-limit table with one counter per key", () => {
     expect(column("rate_limit", "key").isUnique).toBe(true);
     expect(column("rate_limit", "count").getSQLType()).toBe("integer");

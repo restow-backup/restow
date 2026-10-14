@@ -8,25 +8,27 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { providerMay } from "@/lib/provider-role";
 import { useSession } from "@/lib/session";
 
-import type { UpdatesView } from "./api";
+import type { RestartsView, UpdatesView } from "./api";
 import { ReleasesCard } from "./components/releases-card";
+import { RestartCard } from "./components/restart-card";
 import { RunCard } from "./components/run-card";
 import { SourceCard } from "./components/source-card";
 import { UpdaterCard } from "./components/updater-card";
 import { VersionCard } from "./components/version-card";
-import { useUpdates } from "./hooks";
+import { useRestarts, useUpdates } from "./hooks";
 import "./i18n";
 import { isMaintenanceActive } from "./presenters";
 
 /**
- * The Updates tab of the settings page: the running version, what the update
- * check found, the release notes, installing an update (or why that is not
+ * The Updates tab of the settings page: a service that needs a restart, the
+ * running version, what the update check found, the release notes, installing an update (or why that is not
  * possible here) and the source settings.
  */
 export function UpdatesSection() {
   const { t } = useTranslation("updates");
   const session = useSession();
   const query = useUpdates();
+  const restarts = useRestarts();
 
   if (query.isPending) {
     return <UpdatesSkeleton />;
@@ -51,6 +53,7 @@ export function UpdatesSection() {
       receivedAt={query.dataUpdatedAt}
       refreshFailed={query.isError}
       canManage={providerMay(session, "owner")}
+      restarts={restarts.data}
     />
   );
 }
@@ -61,6 +64,7 @@ export function UpdatesContent({
   receivedAt,
   canManage,
   refreshFailed = false,
+  restarts,
 }: {
   view: UpdatesView;
   receivedAt: number;
@@ -68,6 +72,8 @@ export function UpdatesContent({
   canManage: boolean;
   /** The last refresh failed; the view shown is the last one that arrived. */
   refreshFailed?: boolean;
+  /** Services that need a restart; the card shows only while there are any. */
+  restarts?: RestartsView;
 }) {
   const { t } = useTranslation("updates");
   // Everything that changes something needs the owner role, and nothing changes in the demo.
@@ -97,6 +103,7 @@ export function UpdatesContent({
         </Alert>
       ) : null}
 
+      {restarts ? <RestartCard restarts={restarts} canChange={canChange} /> : null}
       <VersionCard view={view} canChange={canChange} />
       <UpdaterCard view={view} canChange={canChange} receivedAt={receivedAt} />
       <RunCard view={view} canChange={canChange} />

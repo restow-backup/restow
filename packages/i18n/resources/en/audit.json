@@ -464,6 +464,9 @@
       },
       "build_switch": {
         "scheduled": "Switch to the full build announced"
+      },
+      "restart": {
+        "requested": "Service restart requested"
       }
     },
     "endpoint": {
@@ -598,7 +601,8 @@
     "pve_guest": "Guest (VM or container)",
     "pve_snapshot": "Restore point (VM or container)",
     "pve_job": "Backup job (VMs and containers)",
-    "pve_enrollment_token": "Enrollment token (Proxmox VE)"
+    "pve_enrollment_token": "Enrollment token (Proxmox VE)",
+    "service": "Service"
   },
   "sectionDescription": "The log of this {scope, select, organisation {organisation} other {tenant}}: who did what, when, with the hash chain that proves it was not changed.",
   "export": {

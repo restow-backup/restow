@@ -434,7 +434,44 @@ export const UPDATE_SOURCE_NOT_ALLOWED_PROBLEM = "urn:restow:problem:update-sour
 export const UPDATE_NOT_VERIFIABLE_PROBLEM = "urn:restow:problem:update-not-verifiable";
 export const INVALID_UPDATE_SOURCE_PROBLEM = "urn:restow:problem:invalid-update-source";
 export const BUILD_SWITCH_REFUSED_PROBLEM = "urn:restow:problem:build-switch-refused";
+export const RESTART_NOT_REQUESTED_PROBLEM = "urn:restow:problem:restart-not-requested";
+export const RESTART_UNSUPPORTED_PROBLEM = "urn:restow:problem:restart-unsupported";
 export { RECENT_SIGN_IN_PROBLEM } from "@/lib/recent-sign-in";
+
+// --- Restart required (apps/api/src/features/updates/restarts.ts) -----------------------------
+
+/** The services a restart can be asked for: the three roles of the application image. */
+export const RESTART_SERVICES = ["api", "worker", "scheduler"] as const;
+export type RestartService = (typeof RESTART_SERVICES)[number];
+
+/**
+ * What "Restart now" can do: `ready` (the updater restarts on a click), `busy`
+ * (an update or a restart runs), `unsupported` (an updater that predates
+ * restarts), `unavailable` (no updater answers) or `demo`.
+ */
+export type RestartAvailability = "ready" | "busy" | "unsupported" | "unavailable" | "demo";
+
+export interface RestartRequestView {
+  service: RestartService;
+  /** Translated under `updates:restart.reasons.<reason>`; an unknown one reads as the generic text. */
+  reason: string;
+  requestedAt: string;
+}
+
+export interface ServiceRestartView {
+  service: string;
+  status: "running" | "succeeded" | "failed";
+  startedAt: string;
+  finishedAt: string | null;
+}
+
+export interface RestartsView {
+  requests: RestartRequestView[];
+  updater: RestartAvailability;
+  lastRestart: ServiceRestartView | null;
+  /** The project directory on the host, as the updater knows it; null when unknown. */
+  projectDir: string | null;
+}
 
 // --- Endpoints -----------------------------------------------------------------------------
 
@@ -642,4 +679,17 @@ export function idleMaintenance(now: Date = new Date()): MaintenanceView {
     serverTime: now.toISOString(),
     runningVersion: null,
   };
+}
+
+/** Services that need a restart, and what the updater can do about it (provider admins). */
+export function fetchRestarts(): Promise<RestartsView> {
+  return apiFetch<RestartsView>("/updates/restarts", { tenantId: null });
+}
+
+/** "Restart now": the updater restarts exactly this service (owner role). */
+export function restartService(service: RestartService): Promise<RestartsView> {
+  return apiFetch<RestartsView>(`/updates/restarts/${service}`, {
+    method: "POST",
+    tenantId: null,
+  });
 }
