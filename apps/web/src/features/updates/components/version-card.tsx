@@ -1,4 +1,5 @@
 import {
+  ArrowRight,
   CircleAlert,
   CircleCheck,
   CircleDashed,
@@ -9,6 +10,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { RelativeTime } from "@/components/kit/relative-time";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -85,13 +87,25 @@ export function VersionCard({
             {view.running ?? t("version.runningUnknown")}
           </span>
           <span className="text-sm text-muted-foreground">{t("version.running")}</span>
+          {status.kind === "available" && latest ? (
+            <span className="flex items-baseline gap-x-3" data-slot="available-version">
+              <ArrowRight className="size-5 self-center text-info-text" aria-hidden="true" />
+              <span className="font-mono text-2xl font-semibold tabular-nums text-info-text">
+                {latest.version}
+              </span>
+              <Badge variant="info">{t("version.available")}</Badge>
+            </span>
+          ) : null}
         </div>
         {view.running === null ? (
           <p className="text-sm text-muted-foreground">{t("version.runningUnknownHint")}</p>
         ) : null}
 
         <div
-          className="flex items-start gap-3 rounded-lg border border-border p-4"
+          className={cn(
+            "flex items-start gap-3 rounded-lg border p-4",
+            status.kind === "available" ? "border-info/40 bg-info/10" : "border-border",
+          )}
           aria-live="polite"
           data-slot="check-status"
           data-kind={status.kind}

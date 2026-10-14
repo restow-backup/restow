@@ -112,6 +112,7 @@
     "title": "Version",
     "description": "Die Version, die diese Installation ausführt, und was die letzte Update-Prüfung ergeben hat.",
     "running": "Laufende Version",
+    "available": "verfügbar",
     "runningUnknown": "Unbekannt",
     "runningUnknownHint": "Dieser Build trägt keine Release-Version und lässt sich deshalb nicht mit einem Release vergleichen.",
     "lastChecked": "Zuletzt geprüft",
