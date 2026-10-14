@@ -71,8 +71,16 @@ function problemLabel(
   return label === key ? t("problems.unknown", { code }) : label;
 }
 
-/** Create or change a backup job for VMs and containers. */
-function JobDialog({ job, onClose }: { job: PveJob | null; onClose: () => void }) {
+/** Create or change a backup job for VMs and containers; `onSaved` gets the job as saved. */
+export function JobDialog({
+  job,
+  onClose,
+  onSaved,
+}: {
+  job: PveJob | null;
+  onClose: () => void;
+  onSaved?: (job: PveJob) => void;
+}) {
   const { t } = useTranslation(PVE_NAMESPACE);
   const queryClient = useQueryClient();
   const { tenantId } = useTenantScope();
@@ -89,9 +97,10 @@ function JobDialog({ job, onClose }: { job: PveJob | null; onClose: () => void }
   const [testEnabled, setTestEnabled] = React.useState(job?.settings.restoreTest?.enabled ?? false);
   const mutation = useMutation({
     mutationFn: (input: JobInput) => saveJob(job?.id ?? null, input),
-    onSuccess: () => {
+    onSuccess: (saved) => {
       toast.success(t("jobs.saved"));
       void queryClient.invalidateQueries({ queryKey: pveKeys.all(tenantId) });
+      onSaved?.(saved);
       onClose();
     },
   });

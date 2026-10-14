@@ -207,7 +207,22 @@
     "guestCount": "VMs and containers: {count}",
     "noGuests": "No VMs or containers reported on this node.",
     "running": "Status",
-    "protection": "Backup",
+    "protection": "Protection",
+    "actions": {
+      "selected": "{count} selected",
+      "select": "Select {name}",
+      "selectAll": "Select all VMs and containers of this node",
+      "clear": "Clear selection",
+      "addToJob": "Add to job…",
+      "newJob": "New job…",
+      "jobOf": "Backup job of {name}",
+      "backupNowOf": "Back up {name} now",
+      "withoutJob": "{count, plural, one {# VM or container has} other {# VMs and containers have}} no backup job.",
+      "selectWithoutJob": "Select them",
+      "assigned": "{count, plural, one {# VM or container is} other {# VMs and containers are}} now in the job.",
+      "unassigned": "Removed from its backup job.",
+      "backupQueued": "{count, plural, one {Backup requested} other {# backups requested}}. The node starts them at its next check-in, usually within a minute."
+    },
     "count": {
       "protected": "Protected: {count}",
       "failed": "Failed: {count}",

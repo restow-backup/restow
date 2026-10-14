@@ -207,7 +207,22 @@
     "guestCount": "VMs und Container: {count}",
     "noGuests": "Auf diesem Knoten sind keine VMs oder Container gemeldet.",
     "running": "Status",
-    "protection": "Sicherung",
+    "protection": "Schutz",
+    "actions": {
+      "selected": "{count} ausgewählt",
+      "select": "{name} auswählen",
+      "selectAll": "Alle VMs und Container dieses Knotens auswählen",
+      "clear": "Auswahl aufheben",
+      "addToJob": "Zu Job hinzufügen …",
+      "newJob": "Neuer Job …",
+      "jobOf": "Backup-Job von {name}",
+      "backupNowOf": "{name} jetzt sichern",
+      "withoutJob": "{count, plural, one {# VM oder Container hat} other {# VMs und Container haben}} keinen Backup-Job.",
+      "selectWithoutJob": "Auswählen",
+      "assigned": "{count, plural, one {# VM oder Container ist} other {# VMs und Container sind}} jetzt im Job.",
+      "unassigned": "Aus dem Backup-Job entfernt.",
+      "backupQueued": "{count, plural, one {Sicherung angefordert} other {# Sicherungen angefordert}}. Der Knoten startet sie bei seiner nächsten Meldung, meist innerhalb einer Minute."
+    },
     "count": {
       "protected": "Geschützt: {count}",
       "failed": "Fehlgeschlagen: {count}",
