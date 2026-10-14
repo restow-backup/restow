@@ -98,6 +98,49 @@ index handed back to the file system.
 - Forms reported no error for a missing field inside a list (for example the role of a
   new user in the setup wizard).
 
+### Security
+
+- Database roles (hardening, no known exploit): up to 0.3.4 the application's database
+  role could also read and write the tables outside Row Level Security, among them
+  better-auth's sign-in tables, the installation settings, the license and the job
+  queue. A flaw in tenant-scoped query code could therefore have reached data beyond
+  its tenant. 0.3.5 moves sign-in to a role of its own and leaves the application role
+  only tenant data and adding jobs. Affected: up to 0.3.4. Nothing to do beyond
+  updating; the migration changes the grants of an existing installation.
+
+### Upgrade Notes
+
+New image and one database migration (0033), which only creates a table and drops two
+indexes and takes seconds on any database size. After the start, the worker converts
+the existing backup index in the background, one backup at a time (about 19,000 index
+rows per second in testing, so roughly 15 minutes for 14 million rows); backups,
+browsing and restores keep working meanwhile. When the worker log says
+`manifest index conversion finished`, restart the api once
+(`docker compose restart api`) to give the old table's space back.
+
+- Free space: the conversion writes the new index before the old one is released, and
+  the updater writes a database dump before it updates. On a nearly full disk, free
+  space first (see docs/UPDATING.md).
+- No new required environment variables. `DATABASE_AUTH_URL` is optional.
+- Compose files kept by hand: add `stop_grace_period: 60s` to the `worker` service.
+- Rollback: the migration is not reversible; go back to 0.3.4 only with the database
+  dump taken before the update.
+
+### Known Issues
+
+- The background conversion of the backup index was tested on generated histories, not
+  yet on a production database of 25 GB; how long it takes there is an estimate.
+- The known issues of 0.3.4 still apply.
+
+### Verification
+
+Before the tag, on 2026-10-14, on the release branch (main plus #71 and #72): CI green
+(lint, typecheck, build, Docker images, Go agent, licenses, secret scan, and the unit
+and Postgres suites on Postgres 16 with password authentication). Locally on the
+combined branch: packages/db 171, packages/core 1981, apps/worker 444,
+apps/scheduler 65, apps/api 3250 (1 skipped), apps/web 3820, ee/api 243. The release
+smoke runs in the release pipeline; no Microsoft 365 tenant was used before the tag.
+
 ## [0.3.4] - 2026-10-11
 
 Beta release. Run it alongside your existing backups, not as your only one, until
