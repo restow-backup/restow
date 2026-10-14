@@ -364,14 +364,17 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
                             value={guest.jobId ?? ""}
                             disabled={busy}
                             data-slot="pve-inventory-job"
-                            onChange={(event) =>
-                              event.target.value === NEW_JOB
-                                ? (setSelected(new Set([guest.id])), setCreating(true))
-                                : assign.mutate({
-                                    guestIds: [guest.id],
-                                    jobId: event.target.value || null,
-                                  })
-                            }
+                            onChange={(event) => {
+                              if (event.target.value === NEW_JOB) {
+                                setSelected(new Set([guest.id]));
+                                setCreating(true);
+                              } else {
+                                assign.mutate({
+                                  guestIds: [guest.id],
+                                  jobId: event.target.value || null,
+                                });
+                              }
+                            }}
                           >
                             <option value="">{t("guests.noJob")}</option>
                             {jobs.map((job) => (
