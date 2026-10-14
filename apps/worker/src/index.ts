@@ -30,7 +30,8 @@ import { pathToFileURL } from "node:url";
  *   WORKER_CONCURRENCY           parallel jobs per queue in this process (default 2)
  *   WORKER_TENANT_CONCURRENCY    parallel jobs per tenant in this process (default 2)
  *   WORKER_POLL_SECONDS          pg-boss polling interval (default 2)
- *   WORKER_SHUTDOWN_TIMEOUT_MS   how long shutdown waits for jobs to checkpoint (default 30000)
+ *   WORKER_SHUTDOWN_TIMEOUT_MS   how long shutdown waits for jobs to checkpoint (default 50000;
+ *                                stays below the 60 s the updater and compose allow)
  *   WORKER_CANCEL_POLL_MS        how often a running job checks for cancellation (default 15000)
  *   WORKER_PROGRESS_FLUSH_ITEMS  progress rows are written every N items (default 50)
  *   WORKER_PROGRESS_FLUSH_MS     ... or at least this often (default 2000)
@@ -178,7 +179,7 @@ export function loadConfig(env: Env = process.env): WorkerConfig {
     concurrency: positiveInt(env, "WORKER_CONCURRENCY", 2),
     tenantConcurrency: positiveInt(env, "WORKER_TENANT_CONCURRENCY", 2),
     pollSeconds: positiveInt(env, "WORKER_POLL_SECONDS", 2),
-    shutdownTimeoutMs: positiveInt(env, "WORKER_SHUTDOWN_TIMEOUT_MS", 30_000),
+    shutdownTimeoutMs: positiveInt(env, "WORKER_SHUTDOWN_TIMEOUT_MS", 50_000),
     cancelPollMs: positiveInt(env, "WORKER_CANCEL_POLL_MS", 15_000),
     progressFlushEveryItems: positiveInt(env, "WORKER_PROGRESS_FLUSH_ITEMS", 50),
     progressFlushIntervalMs: positiveInt(env, "WORKER_PROGRESS_FLUSH_MS", 2000),
