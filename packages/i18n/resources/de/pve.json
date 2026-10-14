@@ -64,7 +64,7 @@
     "name": "Name",
     "kind": "Art",
     "node": "Knoten",
-    "size": "Größe",
+    "size": "Disk",
     "job": "Backup-Job",
     "lastBackup": "Letzte Sicherung",
     "state": "Zustand",
@@ -84,7 +84,15 @@
     "never": "Noch nie",
     "queued": "Wartet auf den Knoten",
     "running": "Sicherung läuft",
-    "lastSucceeded": "Letzte Sicherung erfolgreich"
+    "lastSucceeded": "Letzte Sicherung erfolgreich",
+    "sizeHint": "In Proxmox VE eingestellte Disk-Größe: was zugewiesen ist, nicht was belegt ist.",
+    "backup": "Sicherung",
+    "backupContains": "{size} im Backup",
+    "backupAdded": "+{size} neu im letzten Lauf",
+    "backupFirst": "Erste Sicherung am {date}: {size} gespeichert",
+    "backupNone": "Noch keine Sicherung",
+    "incomplete": "Letzte Sicherung unvollständig",
+    "incompleteHint": "{count, plural, one {# Element konnte} other {# Elemente konnten}} nicht gelesen werden; dem Sicherungsstand fehlen sie."
   },
   "jobs": {
     "title": "Backup-Jobs",
@@ -119,7 +127,7 @@
     "restorePoints": "Sicherungsstände",
     "noRestorePoints": "Noch kein Sicherungsstand.",
     "time": "Zeitpunkt",
-    "size": "Größe",
+    "size": "Enthält",
     "changed": "Geänderte Blöcke",
     "mode": "Lesen",
     "verify": "Restore-Prüfung",
@@ -152,7 +160,18 @@
       "reuse": "Nur geänderte Blöcke",
       "new": "Ganzer Datenträger",
       "none": "Ganzer Datenträger"
-    }
+    },
+    "sizeHint": "Alles, was dieser Sicherungsstand wiederherstellt: alle Dateien eines Containers, alle Disks einer VM. Unveränderte Daten werden nur einmal gespeichert.",
+    "added": "Neu in dieser Sicherung",
+    "addedHint": "Was diese Sicherung dem Repository hinzugefügt hat, nach Deduplizierung und Komprimierung unveränderter Daten.",
+    "type": "Art",
+    "backupType": {
+      "first": "Erste Sicherung",
+      "incremental": "Inkrementell",
+      "full_read": "Vollständig gelesen"
+    },
+    "unreadable": "{count, plural, one {# Element} other {# Elemente}} nicht lesbar",
+    "succeededWithGaps": "Mit Lücken erfolgreich"
   },
   "restore": {
     "title": "Als neuen Gast wiederherstellen",
@@ -191,12 +210,14 @@
     "count": {
       "protected": "Geschützt: {count}",
       "failed": "Fehlgeschlagen: {count}",
+      "incomplete": "Unvollständig: {count}",
       "noJob": "Ohne Job: {count}",
       "never": "Noch nicht gesichert: {count}"
     },
     "state": {
       "protected": "Geschützt",
       "failed": "Letzter Lauf fehlgeschlagen",
+      "incomplete": "Letzte Sicherung unvollständig",
       "noJob": "Kein Backup-Job",
       "never": "Noch nicht gesichert",
       "excluded": "Nicht gesichert (Vorlage oder entfernt)"

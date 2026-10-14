@@ -64,7 +64,7 @@
     "name": "Name",
     "kind": "Type",
     "node": "Node",
-    "size": "Size",
+    "size": "Disk",
     "job": "Backup job",
     "lastBackup": "Last backup",
     "state": "State",
@@ -84,7 +84,15 @@
     "never": "Never",
     "queued": "Waiting for the node",
     "running": "Backup running",
-    "lastSucceeded": "Last backup succeeded"
+    "lastSucceeded": "Last backup succeeded",
+    "sizeHint": "Configured disk size in Proxmox VE: what is allocated, not what is in use.",
+    "backup": "Backup",
+    "backupContains": "{size} in the backup",
+    "backupAdded": "+{size} new in the last run",
+    "backupFirst": "First backup on {date}: {size} stored",
+    "backupNone": "No backup yet",
+    "incomplete": "Last backup incomplete",
+    "incompleteHint": "{count, plural, one {# item} other {# items}} could not be read; the restore point misses them."
   },
   "jobs": {
     "title": "Backup jobs",
@@ -119,7 +127,7 @@
     "restorePoints": "Restore points",
     "noRestorePoints": "No restore point yet.",
     "time": "Time",
-    "size": "Size",
+    "size": "Contains",
     "changed": "Changed blocks",
     "mode": "Read",
     "verify": "Restore check",
@@ -152,7 +160,18 @@
       "reuse": "Changed blocks only",
       "new": "Whole disk",
       "none": "Whole disk"
-    }
+    },
+    "sizeHint": "Everything this restore point restores: all files of a container, all disks of a VM. Unchanged data is stored only once.",
+    "added": "New in this backup",
+    "addedHint": "What this backup added to the repository after deduplication and compression of unchanged data.",
+    "type": "Type",
+    "backupType": {
+      "first": "First backup",
+      "incremental": "Incremental",
+      "full_read": "Full read"
+    },
+    "unreadable": "{count, plural, one {# item} other {# items}} not readable",
+    "succeededWithGaps": "Succeeded with gaps"
   },
   "restore": {
     "title": "Restore as a new guest",
@@ -191,12 +210,14 @@
     "count": {
       "protected": "Protected: {count}",
       "failed": "Failed: {count}",
+      "incomplete": "Incomplete: {count}",
       "noJob": "No job: {count}",
       "never": "Not backed up yet: {count}"
     },
     "state": {
       "protected": "Protected",
       "failed": "Last run failed",
+      "incomplete": "Last backup incomplete",
       "noJob": "No backup job",
       "never": "Not backed up yet",
       "excluded": "Not backed up (template or gone)"
