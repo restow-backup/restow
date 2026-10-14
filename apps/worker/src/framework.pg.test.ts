@@ -34,7 +34,7 @@ import {
   itemFailures,
   jobProgress,
   jobs,
-  manifestObjects,
+  manifestEntries,
   packs,
   protectedObjects,
   providers,
@@ -343,7 +343,7 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
     expect((await catalog.chunksOf(kept?.id as string)).length).toBe(new Set(first.chunks).size);
   });
 
-  it("commits snapshots with a manifest_objects mirror, resumes from a checkpointed cursor", async () => {
+  it("commits snapshots with a manifest index mirror, resumes from a checkpointed cursor", async () => {
     const run = tenantRunner(db, fixture.tenantId);
     const jobId = randomUUID();
     await db.insert(jobs).values({
@@ -422,11 +422,20 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
     expect(row.manifestPath).toBe(committed.manifestPath);
     expect(row.itemCount).toBe(2);
     expect(row.sequence).toBe(1);
-    const mirrored = await db
-      .select()
-      .from(manifestObjects)
-      .where(eq(manifestObjects.snapshotId, committed.snapshotId));
-    expect(mirrored.map((m) => [m.kind, m.path, m.parentPath, m.messageId]).sort()).toEqual([
+    const mirrored = (
+      await db.execute<{
+        kind: string;
+        path: string;
+        parent_path: string;
+        message_id: string | null;
+      }>(
+        sql`SELECT * FROM ${manifestEntries({
+          tenantId: fixture.tenantId,
+          snapshots: sql`s.id = ${committed.snapshotId}::uuid`,
+        })} AS m`,
+      )
+    ).rows;
+    expect(mirrored.map((m) => [m.kind, m.path, m.parent_path, m.message_id]).sort()).toEqual([
       ["folder", "Inbox", "", null],
       ["mail", "Inbox/one.eml", "Inbox", "<one@x>"],
     ]);

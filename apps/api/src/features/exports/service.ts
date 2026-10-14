@@ -9,7 +9,6 @@ import {
   jobProgress,
   jobs,
   mailExports,
-  manifestObjects,
   protectedObjects,
   user,
   users,
@@ -26,7 +25,7 @@ import { failureDto } from "../failures/dto.js";
 import { sendJob } from "../jobs/queue.js";
 import type { SelectionEntry } from "../restore/schemas.js";
 import { type ResolvedSelection, requestedKeys, resolveSelection } from "../restore/selection.js";
-import { implicitFolders } from "../restore/service.js";
+import { implicitFolders, selectedEntries } from "../restore/service.js";
 import { type Viewer, isImpersonation, onBehalfOfOwner } from "../snapshots/access.js";
 import { loadSnapshotForViewer } from "../snapshots/service.js";
 import {
@@ -178,27 +177,7 @@ async function resolveSnapshotSelection(
   entries: readonly SelectionEntry[],
 ): Promise<ResolvedSelection> {
   const keys = requestedKeys(entries);
-  const matches: SQL[] = [
-    ...(keys.paths.length > 0 ? [inArray(manifestObjects.path, keys.paths)] : []),
-    ...(keys.itemIds.length > 0 ? [inArray(manifestObjects.itemId, keys.itemIds)] : []),
-  ];
-  const rows =
-    matches.length > 0
-      ? await tx
-          .select({
-            path: manifestObjects.path,
-            kind: manifestObjects.kind,
-            itemId: manifestObjects.itemId,
-          })
-          .from(manifestObjects)
-          .where(
-            and(
-              eq(manifestObjects.tenantId, tenantId),
-              eq(manifestObjects.snapshotId, snapshotId),
-              or(...matches),
-            ),
-          )
-      : [];
+  const rows = await selectedEntries(tx, tenantId, snapshotId, keys);
   const kindByPath = new Map(rows.map((row) => [row.path, row.kind] as const));
   const knownItemIds = new Set(
     rows.map((row) => row.itemId).filter((id): id is string => id !== null),

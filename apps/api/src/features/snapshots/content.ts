@@ -107,7 +107,7 @@ export async function openContentReader(db: DbExecutor, tenantId: string): Promi
   return new ChunkReader({ storage, keys, index: new ReadOnlyChunkIndex(db, tenantId) });
 }
 
-/** The `manifest_objects` fields a chunk read needs. */
+/** The manifest index fields a chunk read needs. */
 export interface ReadableManifestEntry {
   readonly path: string;
   readonly size: number;

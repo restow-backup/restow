@@ -44,6 +44,7 @@ export async function runMigrations(
   try {
     await migrate(drizzle(pool), { migrationsFolder });
     await pool.query(readFileSync(rlsFile, "utf8"));
+    await reclaimLegacyManifestSpace(pool);
     if (options.roles) {
       const client = await pool.connect();
       try {
@@ -54,6 +55,58 @@ export async function runMigrations(
     }
   } finally {
     await pool.end();
+  }
+}
+
+/** Below this, an empty legacy manifest table is not worth a lock. */
+const LEGACY_RECLAIM_MIN_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Give the disk space of the 0.3.4 manifest mirror (`manifest_objects`) back
+ * once the worker has folded all of it into `manifest_versions`
+ * (manifest-versions.ts): the conversion deletes the rows, but Postgres keeps
+ * the pages until a VACUUM truncates them, and only the owner may TRUNCATE.
+ * Runs on every migration (api start); bounded to a few seconds and skipped
+ * whenever the table still has rows, is in use, or the check takes too long,
+ * so a start never waits on it.
+ */
+export async function reclaimLegacyManifestSpace(
+  pool: Pool,
+  minBytes = LEGACY_RECLAIM_MIN_BYTES,
+): Promise<boolean> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '2s'");
+    // A table of deleted rows is scanned page by page until VACUUM has run; never wait long for it.
+    await client.query("SET LOCAL statement_timeout = '5s'");
+    const { rows } = await client.query<{ bytes: string | null }>(
+      "SELECT pg_total_relation_size(to_regclass('public.manifest_objects'))::text AS bytes",
+    );
+    if (
+      rows[0]?.bytes === null ||
+      rows[0]?.bytes === undefined ||
+      Number(rows[0].bytes) < minBytes
+    ) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+    const empty = await client.query<{ empty: boolean }>(
+      "SELECT NOT EXISTS (SELECT 1 FROM manifest_objects) AS empty",
+    );
+    if (empty.rows[0]?.empty !== true) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+    await client.query("TRUNCATE manifest_objects");
+    await client.query("COMMIT");
+    return true;
+  } catch {
+    // Busy or slow: the next start tries again (and autovacuum gets there as well).
+    await client.query("ROLLBACK").catch(() => undefined);
+    return false;
+  } finally {
+    client.release();
   }
 }
 

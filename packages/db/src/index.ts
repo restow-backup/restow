@@ -50,3 +50,6 @@ export * from "./repository-lock.js";
 export * from "./run-samples.js";
 // How the archive is filtered and held by mailbox, journal assignments included (#32).
 export * from "./archive-mailboxes.js";
+
+// The manifest index as versions: mirroring a snapshot, retention, the 0.3.5 conversion, reading.
+export * from "./manifest-versions.js";

@@ -9,7 +9,9 @@
  *
  *   1. the snapshot row flips to `pruned` (invisible to restore and verify),
  *   2. the chunk references its manifest held are released,
- *   3. the mirrored manifest_objects rows and the manifest file are removed.
+ *   3. the manifest index lets go of the snapshot (version rows that covered
+ *      only pruned snapshots are deleted, @restow/db manifest-versions.ts) and
+ *      the manifest file is removed.
  *
  * Chunks themselves are never deleted here; unreferenced chunks are garbage
  * collected by the scrub job (docs/ARCHITECTURE.md, Chunk-Store). The order
@@ -43,9 +45,11 @@ import {
 import {
   backupJobMembers,
   backupJobs,
+  chunkIdsFromDriver,
   legalHolds,
-  manifestObjects,
+  manifestEntries,
   protectedObjects,
+  releaseManifestSnapshot,
   reportableError,
   retentionPolicies,
   safeErrorMessage,
@@ -53,7 +57,7 @@ import {
   sources,
   verifyReports,
 } from "@restow/db";
-import { and, asc, eq, inArray, isNotNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { TenantTxRunner } from "../progress.js";
 import {
   type JobHandler,
@@ -90,7 +94,10 @@ export interface RetentionStore {
   markPruned(snapshotId: string): Promise<boolean>;
   /** Chunk ids from the mirrored index, for when the manifest is unreadable. */
   loadMirroredChunkIds(snapshotId: string): Promise<string[] | null>;
-  /** Remove the mirrored rows; returns how many. */
+  /**
+   * Let the manifest index go of the (already pruned) snapshot: deletes the
+   * version rows no active snapshot needs any more; returns how many.
+   */
   deleteManifestObjects(snapshotId: string): Promise<number>;
 }
 
@@ -262,27 +269,36 @@ export function pgRetentionStore(run: TenantTxRunner, tenantId: string): Retenti
     },
 
     async loadMirroredChunkIds(snapshotId) {
-      const rows = await run((tx) =>
-        tx
-          .select({ chunkRefs: manifestObjects.chunkRefs })
-          .from(manifestObjects)
-          .where(
-            and(eq(manifestObjects.tenantId, tenantId), eq(manifestObjects.snapshotId, snapshotId)),
-          ),
+      const result = await run((tx) =>
+        tx.execute<{ chunk_refs: unknown }>(sql`
+          SELECT m.chunk_refs
+          FROM ${manifestEntries({ tenantId, snapshots: sql`s.id = ${snapshotId}::uuid`, chunks: true })} AS m
+        `),
       );
-      return rows.length === 0 ? null : rows.flatMap((row) => row.chunkRefs ?? []);
+      return result.rows.length === 0
+        ? null
+        : result.rows.flatMap((row) =>
+            row.chunk_refs === null ? [] : chunkIdsFromDriver(row.chunk_refs),
+          );
     },
 
     async deleteManifestObjects(snapshotId) {
-      const rows = await run((tx) =>
-        tx
-          .delete(manifestObjects)
-          .where(
-            and(eq(manifestObjects.tenantId, tenantId), eq(manifestObjects.snapshotId, snapshotId)),
-          )
-          .returning({ id: manifestObjects.id }),
-      );
-      return rows.length;
+      return run(async (tx) => {
+        const [snapshot] = await tx
+          .select({ protectedObjectId: snapshots.protectedObjectId, sequence: snapshots.sequence })
+          .from(snapshots)
+          .where(and(eq(snapshots.tenantId, tenantId), eq(snapshots.id, snapshotId)))
+          .limit(1);
+        if (!snapshot) {
+          return 0;
+        }
+        return releaseManifestSnapshot(tx, {
+          tenantId,
+          protectedObjectId: snapshot.protectedObjectId,
+          snapshotId,
+          sequence: snapshot.sequence,
+        });
+      });
     },
   };
 }

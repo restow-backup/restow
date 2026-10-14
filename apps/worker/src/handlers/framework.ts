@@ -56,14 +56,15 @@ import {
   type Database,
   type FailureRecordJson,
   type Job,
+  type ManifestMirrorEntry,
   type ManifestObjectKind,
-  type NewManifestObjectRow,
   type StorageTarget,
   chunks,
   jobs,
-  manifestObjects,
   packs,
   protectedObjects,
+  recordManifestVersions,
+  releaseManifestSnapshot,
   reportableError,
   secrets,
   snapshots,
@@ -297,19 +298,11 @@ function splitPath(path: string): { name: string; parentPath: string } {
   return { name: trimmed.slice(slash + 1), parentPath: trimmed.slice(0, slash) };
 }
 
-/** The `manifest_objects` row for one manifest entry. */
-export function toManifestObjectRow(
-  tenantId: string,
-  snapshotId: string,
-  protectedObjectId: string,
-  object: ManifestObject,
-): NewManifestObjectRow {
+/** One manifest entry as the manifest index (`manifest_versions`) mirrors it. */
+export function toManifestMirrorEntry(object: ManifestObject): ManifestMirrorEntry {
   const kind = manifestObjectKind(object.type);
   const { name, parentPath } = splitPath(object.path);
   return {
-    tenantId,
-    snapshotId,
-    protectedObjectId,
     kind,
     path: object.path,
     name,
@@ -407,39 +400,42 @@ export class PgSnapshotIndex implements SnapshotIndex {
   }
 
   /**
-   * Mirror the manifest into `manifest_objects` for the restore explorer and
-   * search. Idempotent per snapshot: rows from an earlier attempt are replaced,
-   * so a retried commit never leaves duplicates.
+   * Mirror the manifest into the manifest index for the restore explorer and
+   * search: unchanged objects extend their version, changed and new ones get a
+   * version of their own (@restow/db manifest-versions.ts). Idempotent per
+   * snapshot: what an earlier attempt mirrored is replaced, so a retried
+   * commit never leaves duplicates.
    */
   async recordObjects(snapshotId: string, objects: readonly ManifestObject[]): Promise<void> {
     const record = await this.get(snapshotId);
     if (!record) {
       throw new Error(`snapshot ${snapshotId} does not exist`);
     }
-    await this.run(async (tx) => {
-      await tx
-        .delete(manifestObjects)
-        .where(
-          and(
-            eq(manifestObjects.tenantId, this.tenantId),
-            eq(manifestObjects.snapshotId, snapshotId),
-          ),
-        );
-      for (let i = 0; i < objects.length; i += INSERT_BATCH) {
-        const rows = objects
-          .slice(i, i + INSERT_BATCH)
-          .map((object) =>
-            toManifestObjectRow(this.tenantId, snapshotId, record.protectedObjectId, object),
-          );
-        await tx.insert(manifestObjects).values(rows);
-      }
+    const outcome = await this.run((tx) =>
+      recordManifestVersions(
+        tx,
+        {
+          tenantId: this.tenantId,
+          protectedObjectId: record.protectedObjectId,
+          snapshotId,
+          sequence: record.sequence,
+        },
+        objects.map(toManifestMirrorEntry),
+      ),
+    );
+    this.logger.debug("manifest objects mirrored", {
+      snapshotId,
+      objects: objects.length,
+      unchanged: outcome.unchanged,
+      extended: outcome.extended,
+      newVersions: outcome.inserted,
+      endedVersions: outcome.removed,
     });
-    this.logger.debug("manifest objects mirrored", { snapshotId, objects: objects.length });
   }
 
   async discard(snapshotId: string): Promise<void> {
-    await this.run((tx) =>
-      tx
+    await this.run(async (tx) => {
+      const [removed] = await tx
         .delete(snapshots)
         .where(
           and(
@@ -447,8 +443,21 @@ export class PgSnapshotIndex implements SnapshotIndex {
             eq(snapshots.id, snapshotId),
             isNull(snapshots.manifestPath),
           ),
-        ),
-    );
+        )
+        .returning({
+          protectedObjectId: snapshots.protectedObjectId,
+          sequence: snapshots.sequence,
+        });
+      if (removed) {
+        // What a failed commit had mirrored covers no snapshot any more.
+        await releaseManifestSnapshot(tx, {
+          tenantId: this.tenantId,
+          protectedObjectId: removed.protectedObjectId,
+          snapshotId,
+          sequence: removed.sequence,
+        });
+      }
+    });
   }
 }
 

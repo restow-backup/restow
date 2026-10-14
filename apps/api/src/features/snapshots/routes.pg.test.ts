@@ -33,7 +33,7 @@ import {
   type StorageTargets,
   type TenantKeyring,
 } from "@restow/core";
-import { type Database, chunks, createDb, manifestObjects, packs } from "@restow/db";
+import { type Database, chunks, createDb, packs } from "@restow/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { Hono } from "hono";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -45,6 +45,7 @@ import {
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "./testing/explorer-fixture.js";
+import { insertManifestRows } from "./testing/manifest-rows.js";
 
 const DATABASE = "restow_api_snapshots_routes_test";
 
@@ -187,18 +188,20 @@ describe.skipIf(!testDatabaseAdminUrl)("snapshot routes against Postgres", () =>
     await writer.close();
 
     entryId = randomUUID();
-    await db.insert(manifestObjects).values({
-      id: entryId,
-      tenantId: f.tenantId,
-      snapshotId: f.mailbox.second,
-      protectedObjectId: f.annaMailbox,
-      kind: "mail",
-      path: "mail/Inbox/TwoAttachments.llll.eml",
-      name: "TwoAttachments.llll.eml",
-      parentPath: "mail/Inbox",
-      size: written.size,
-      chunkRefs: written.chunks,
-    });
+    await insertManifestRows(db, [
+      {
+        id: entryId,
+        tenantId: f.tenantId,
+        snapshotId: f.mailbox.second,
+        protectedObjectId: f.annaMailbox,
+        kind: "mail",
+        path: "mail/Inbox/TwoAttachments.llll.eml",
+        name: "TwoAttachments.llll.eml",
+        parentPath: "mail/Inbox",
+        size: written.size,
+        chunkRefs: written.chunks,
+      },
+    ]);
 
     const { snapshotsRoutes } = await import("./routes.js");
     const { errorHandler, notFoundHandler } = await import("../../problem.js");

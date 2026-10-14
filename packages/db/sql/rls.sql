@@ -76,7 +76,10 @@ DECLARE
     'snapshots',
     'packs',
     'chunks',
+    -- The per-snapshot mirror of 0.3.4 and earlier, until the worker has folded it into
+    -- manifest_versions (src/manifest-versions.ts).
     'manifest_objects',
+    'manifest_versions',
     'jobs',
     'job_progress',
     'item_failures',

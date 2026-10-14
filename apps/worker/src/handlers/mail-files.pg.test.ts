@@ -35,7 +35,7 @@ import {
   jobs,
   mailExports,
   mailImports,
-  manifestObjects,
+  manifestEntries,
   protectedObjects,
   providers,
   snapshots,
@@ -44,7 +44,7 @@ import {
   tenants,
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   buildEml,
@@ -142,6 +142,14 @@ describe.skipIf(!adminUrl)("mail file import and export against Postgres", SLOW_
   let root: string;
   let storage: StorageTargets;
   let tenantId: string;
+
+  /** The manifest index rows of one snapshot (manifest_versions, as the explorer reads them). */
+  const entriesOf = async (snapshotId: string) =>
+    (
+      await db.execute<{ kind: string; path: string; metadata: Record<string, unknown> | null }>(
+        sql`SELECT * FROM ${manifestEntries({ tenantId, snapshots: sql`s.id = ${snapshotId}::uuid` })} AS m`,
+      )
+    ).rows;
   let sourceId: string;
   let object: ProtectedObjectRef;
   let keys: Keyring;
@@ -374,10 +382,7 @@ describe.skipIf(!adminUrl)("mail file import and export against Postgres", SLOW_
       .from(snapshots)
       .where(eq(snapshots.protectedObjectId, object.id));
     expect(snapshot?.manifestPath).not.toBeNull();
-    const rows = await db
-      .select()
-      .from(manifestObjects)
-      .where(eq(manifestObjects.snapshotId, snapshot?.id as string));
+    const rows = await entriesOf(snapshot?.id as string);
     const mail = rows.filter((row) => row.kind === "mail");
     expect(mail.map((row) => row.path).sort()).toEqual([
       "mail/Projects/1.eml",
@@ -403,7 +408,13 @@ describe.skipIf(!adminUrl)("mail file import and export against Postgres", SLOW_
     expect(storedHashes.sort()).toEqual(
       sourceMessages.map((raw) => createHash("sha256").update(raw).digest("hex")).sort(),
     );
-    expect(mail[0]?.metadata).toMatchObject({ delimiter: "/", uidValidity: "1" });
+    // The IMAP layout is in the manifest (what a restore reads); the explorer's index leaves
+    // that bookkeeping out (@restow/db MIRROR_OMITTED_METADATA_KEYS).
+    expect(manifest.objects.find((entry) => entry.type === "message")?.metadata).toMatchObject({
+      delimiter: "/",
+      uidValidity: "1",
+    });
+    expect(mail[0]?.metadata).not.toHaveProperty("uidValidity");
 
     // Staging is gone.
     expect((await storage.primary.list(`tenants/${tenantId}/staging/`)).length).toBe(0);
@@ -498,10 +509,7 @@ describe.skipIf(!adminUrl)("mail file import and export against Postgres", SLOW_
       .select()
       .from(snapshots)
       .where(eq(snapshots.protectedObjectId, object.id));
-    const rows = await db
-      .select()
-      .from(manifestObjects)
-      .where(eq(manifestObjects.snapshotId, snapshot?.id as string));
+    const rows = await entriesOf(snapshot?.id as string);
     expect(rows.map((row) => row.path).sort()).toEqual([
       "mail/Empty folder",
       "mail/Inbox",

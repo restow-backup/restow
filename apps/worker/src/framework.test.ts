@@ -34,7 +34,7 @@ import {
   resolveStorageForJob,
   statusAfterFailure,
   storageForQueue,
-  toManifestObjectRow,
+  toManifestMirrorEntry,
 } from "./handlers/framework.js";
 import { createStorageTargets, loadConfig } from "./index.js";
 import { QUEUE_DEFINITIONS, QUEUE_NAMES, pgBossQueueOptions, sendOptionsFor } from "./queues.js";
@@ -749,14 +749,14 @@ describe("resolveStorageForJob", () => {
   });
 });
 
-describe("manifest object rows", () => {
-  it("maps manifest entries onto the manifest_objects columns", () => {
+describe("manifest index entries", () => {
+  it("maps manifest entries onto the manifest index columns", () => {
     expect(manifestObjectKind("message")).toBe("mail");
     expect(manifestObjectKind("mail")).toBe("mail");
     expect(manifestObjectKind("folder")).toBe("folder");
     expect(manifestObjectKind(undefined)).toBe("file");
 
-    const row = toManifestObjectRow(TENANT, JOB, OBJECT, {
+    const row = toManifestMirrorEntry({
       path: "files/Documents/report.docx",
       id: "item-1",
       type: "file",
@@ -766,9 +766,6 @@ describe("manifest object rows", () => {
       chunks: ["aa", "bb"],
     });
     expect(row).toMatchObject({
-      tenantId: TENANT,
-      snapshotId: JOB,
-      protectedObjectId: OBJECT,
       kind: "file",
       name: "report.docx",
       parentPath: "files/Documents",
@@ -778,7 +775,7 @@ describe("manifest object rows", () => {
     });
     expect(row.mtime).toEqual(new Date(1_700_000_000_000));
 
-    const folder = toManifestObjectRow(TENANT, JOB, OBJECT, {
+    const folder = toManifestMirrorEntry({
       path: "Inbox",
       type: "folder",
       size: 0,

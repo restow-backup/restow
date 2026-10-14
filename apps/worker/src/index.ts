@@ -101,6 +101,7 @@ import { handlers } from "./handlers/index.js";
 import { mailFilesCleanupTask } from "./handlers/mail-files-cleanup.js";
 import { retentionTasks } from "./handlers/retention.js";
 import { emitJobWebhook, webhooksHandler } from "./handlers/webhooks.js";
+import { startManifestConversion } from "./manifest-conversion.js";
 import { startPveMaintenance } from "./pve/maintenance.js";
 import { QUEUE_NAMES, pgBossQueueOptions, queuePriority } from "./queues.js";
 import { raiseJobFinished } from "./reporting.js";
@@ -376,6 +377,10 @@ async function main(): Promise<void> {
   // Proxmox VE guests (docs/PVE.md): job planning, retention, verify and restore checks,
   // one pass every five minutes in one worker at a time.
   startPveMaintenance({ db, providerDb, runtime });
+
+  // 0.3.5: fold the per-snapshot manifest mirror of 0.3.4 into versions, in the background
+  // (manifest-conversion.ts); ends by itself once nothing is left.
+  startManifestConversion({ db, providerDb, runtime });
 
   // Nightly seal of every audit chain (own cron queue, one catch-up run now).
   // Every chain, the installation chain included: on the installation pool.

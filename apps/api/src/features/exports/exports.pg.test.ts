@@ -38,7 +38,6 @@ import {
   jobProgress,
   jobs,
   mailExports,
-  manifestObjects,
   member,
   organization,
   protectedObjects,
@@ -62,6 +61,7 @@ import {
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "../snapshots/testing/explorer-fixture.js";
+import { insertManifestRows } from "../snapshots/testing/manifest-rows.js";
 import { createExportSchema } from "./schemas.js";
 
 const DATABASE = "restow_api_exports_test";
@@ -374,7 +374,7 @@ describe.skipIf(!testDatabaseAdminUrl)("mail exports against Postgres", () => {
       snapshotId: importSnapshot,
       protectedObjectId: importObject,
     };
-    await owner.insert(manifestObjects).values([
+    await insertManifestRows(owner, [
       {
         ...importBase,
         kind: "folder",

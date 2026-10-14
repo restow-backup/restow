@@ -27,8 +27,16 @@
  * integration.
  */
 import { randomBytes, randomUUID } from "node:crypto";
+import { sql } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  manifestEntries,
+  objectsReferencingChunks,
+  recordManifestVersions,
+  releaseManifestSnapshot,
+} from "./manifest-versions.js";
 import { runMigrations } from "./migrate.js";
 import { type RoleLogin, assertDatabaseRoles, inspectCurrentRole, roleProblems } from "./roles.js";
 import { dropTestDatabase } from "./testing/database.js";
@@ -353,6 +361,89 @@ describe.skipIf(!adminUrl)("Row Level Security on the application role", () => {
       client.query("DELETE FROM snapshots WHERE id = $1", [snapshot?.id]),
     );
     expect(await reportsOf(contoso)).toEqual([{ snapshot_id: null }]);
+  });
+
+  it("keeps the manifest index (versions and the 0.3.4 rows) inside the tenant", async () => {
+    const [object] = (
+      await owner.query<{ id: string }>(
+        `INSERT INTO protected_objects (tenant_id, source_id, kind, external_id)
+         SELECT tenant_id, id, 'mailbox', 'index@contoso.test' FROM sources WHERE tenant_id = $1
+         RETURNING id`,
+        [contoso],
+      )
+    ).rows;
+    const objectId = object?.id as string;
+    const [snapshot] = (
+      await owner.query<{ id: string }>(
+        `INSERT INTO snapshots (tenant_id, protected_object_id, sequence, manifest_path)
+         VALUES ($1, $2, 1, 'm') RETURNING id`,
+        [contoso, objectId],
+      )
+    ).rows;
+    const snapshotId = snapshot?.id as string;
+    const scope = { tenantId: contoso, protectedObjectId: objectId, snapshotId, sequence: 1 };
+    const pinned = async <T>(
+      tenantId: string,
+      fn: (db: ReturnType<typeof drizzle>) => Promise<T>,
+    ) =>
+      drizzle(app).transaction(async (tx) => {
+        await tx.execute(sql`SELECT set_config('app.tenant_id', ${tenantId}, true)`);
+        return fn(tx as unknown as ReturnType<typeof drizzle>);
+      });
+    // The application role mirrors a snapshot of its own tenant...
+    await pinned(contoso, (tx) =>
+      recordManifestVersions(tx, scope, [
+        {
+          kind: "mail",
+          path: "mail/Inbox/a.eml",
+          name: "a.eml",
+          parentPath: "mail/Inbox",
+          size: 1,
+          mtime: null,
+          itemId: "a",
+          messageId: null,
+          chunkRefs: ["ab".repeat(32)],
+          metadata: { subject: "Secret" },
+        },
+      ]),
+    );
+    const entries = (tenantId: string) =>
+      pinned(tenantId, async (tx) => ({
+        versions: (await tx.execute(sql`SELECT id FROM manifest_versions`)).rows.length,
+        entries: (
+          await tx.execute(
+            sql`SELECT * FROM ${manifestEntries({ tenantId: contoso, snapshots: sql`s.id = ${snapshotId}::uuid` })} AS m`,
+          )
+        ).rows.length,
+        chunks: await objectsReferencingChunks(tx, contoso, ["ab".repeat(32)]),
+      }));
+    expect(await entries(contoso)).toEqual({ versions: 1, entries: 1, chunks: [objectId] });
+    // ...which another tenant neither sees, nor can release, nor write into.
+    expect(await entries(fabrikam)).toEqual({ versions: 0, entries: 0, chunks: [] });
+    expect(await pinned(fabrikam, (tx) => releaseManifestSnapshot(tx, scope))).toBe(0);
+    await expect(
+      pinned(fabrikam, (tx) => recordManifestVersions(tx, { ...scope, sequence: 2 }, [])),
+    ).resolves.toMatchObject({ inserted: 0 });
+    await expect(
+      inTransaction(app, fabrikam, (client) =>
+        client.query(
+          `INSERT INTO manifest_versions (tenant_id, protected_object_id, first_sequence,
+             last_sequence, content_hash, kind, path, name)
+           VALUES ($1, $2, 1, 1, '\\x00', 'mail', 'smuggled', 'smuggled')`,
+          [contoso, objectId],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/);
+    await expect(
+      inTransaction(app, fabrikam, (client) =>
+        client.query(
+          `INSERT INTO manifest_objects (tenant_id, snapshot_id, protected_object_id, kind, path, name)
+           VALUES ($1, $2, $3, 'mail', 'smuggled', 'smuggled')`,
+          [contoso, snapshotId, objectId],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security|foreign key/);
+    expect(await entries(contoso)).toEqual({ versions: 1, entries: 1, chunks: [objectId] });
   });
 
   it("proves another tenant cannot read or set a protected object's per-mailbox secret_ref", async () => {
