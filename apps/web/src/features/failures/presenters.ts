@@ -66,12 +66,17 @@ export function textVariables(failure: Pick<Failure, "params">): Record<string, 
 }
 
 /**
- * The tone of the explanation: a failure Restow is retrying by itself is a
- * warning, one that needs a person is an error.
+ * The tone of the explanation: a run interrupted by its time limit or a restart
+ * that continues from its checkpoint is information, not a problem (#47); a
+ * failure Restow is retrying by itself is a warning, one that needs a person
+ * is an error.
  */
 export function failureTone(
-  failure: Pick<Failure, "transient" | "retry"> | null,
+  failure: (Pick<Failure, "transient" | "retry"> & { code?: string }) | null,
   options: { willRetry: boolean },
-): "warning" | "destructive" {
+): "info" | "warning" | "destructive" {
+  if (failure?.code === "job.interrupted" && options.willRetry) {
+    return "info";
+  }
   return failure?.transient === true && options.willRetry ? "warning" : "destructive";
 }

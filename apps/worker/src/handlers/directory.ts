@@ -148,6 +148,7 @@ export async function graphClientForSource(
   return new FetchGraphClient({
     accessTokenProvider: toTokenCallback(tokens),
     onThrottle: throttled,
+    signal: ctx.signal,
   });
 }
 

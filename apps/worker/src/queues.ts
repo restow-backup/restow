@@ -51,7 +51,9 @@ export interface QueueDefinition {
 /**
  * pg-boss refuses expirations of 24 hours or more. A job that needs longer
  * checkpoints before this deadline (the worker aborts it at 95%) and continues
- * in its retry, so multi-day initial backups still complete.
+ * in its retry, so multi-day initial backups still complete. Such an
+ * interruption does not use up the retry limit as long as the attempt saved a
+ * checkpoint, for up to 21 days after the job first started (continuation.ts).
  */
 export const MAX_EXPIRE_HOURS = 23;
 

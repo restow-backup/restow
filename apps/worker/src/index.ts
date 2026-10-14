@@ -77,6 +77,7 @@ import {
 } from "@restow/db";
 import { PRODUCT_NAME_ENV, configureProductName } from "@restow/i18n";
 import PgBoss from "pg-boss";
+import { grantContinuation } from "./continuation.js";
 import { configureDefaultStorage } from "./default-storage.js";
 import { registerEndpointJobs } from "./endpoints/register.js";
 import { configureEntraApp } from "./entra-app.js";
@@ -298,6 +299,8 @@ async function main(): Promise<void> {
       flushEveryItems: config.progressFlushEveryItems,
       flushIntervalMs: config.progressFlushIntervalMs,
     },
+    // An interrupted job that made progress keeps its attempts (#47).
+    continueInterrupted: (queue, pgBossJobId) => grantContinuation(providerDb, queue, pgBossJobId),
     // job.completed / job.failed for the tenant's webhooks (RMM tickets), and
     // the bell plus notification rules for failed jobs and finished restores.
     onJobFinished: async (tenantId, job) => {
