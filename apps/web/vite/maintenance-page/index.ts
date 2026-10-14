@@ -2,7 +2,8 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 
 import { PRODUCT_NAME_ENV, normalizeProductName } from "@restow/i18n";
-import { type Plugin, transformWithEsbuild } from "vite";
+import { transform } from "esbuild";
+import type { Plugin } from "vite";
 
 import { type PageTexts, STEP_IDS, STEP_STATUSES, STYLES, renderPage } from "./template";
 
@@ -124,10 +125,14 @@ export function loadPageTexts(
   };
 }
 
-/** The script for the browser: client.ts compiled to one ES2019 file that starts itself. */
+/**
+ * The script for the browser: client.ts compiled to one ES2019 file that starts itself.
+ * esbuild directly: Vite 8 builds with Rolldown and only deprecates its esbuild helper.
+ */
 export async function buildScript(root: string): Promise<string> {
   const file = path.join(root, "vite/maintenance-page/client.ts");
-  const result = await transformWithEsbuild(readFileSync(file, "utf8"), file, {
+  const result = await transform(readFileSync(file, "utf8"), {
+    sourcefile: file,
     loader: "ts",
     format: "iife",
     globalName: "MaintenanceClient",

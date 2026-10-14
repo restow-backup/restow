@@ -369,18 +369,17 @@ AVIF-Bildoptimierung (behoben ab 7.2.8), einem reflektierten XSS und einer SSRF 
 Host-Header betroffen; Astro 6 als Alternative ist von der AVIF-Lücke noch betroffen.
 Astro 7 bringt sharp 0.35 mit (Apache-2.0; die vorkompilierten libvips-Binaries stehen
 unter LGPL-3.0-or-later und nur beim Bauen der Site im Einsatz, nicht im Produkt-Image),
-das zwei hohe libvips/libheif-Advisories schließt, und ein eigenes Vite 8; die App bleibt
-auf Vite 6. Astro 7 braucht Node ab 22.12. Typprüfung mit @astrojs/check 0.9 (MIT).
+das zwei hohe libvips/libheif-Advisories schließt, und ein eigenes Vite 8 (seit 0.4.0 auch
+in der App). Astro 7 braucht Node ab 22.12. Typprüfung mit @astrojs/check 0.9 (MIT).
 
 ## Tooling
 
 - Biome (Lint + Format) statt ESLint/Prettier; TypeScript strict.
-- Vitest 3 (MIT, im Workspace-Root; Unit/Integration), Playwright (E2E gegen
-  Compose-Stack). 3.2.7 schließt die kritische Lücke im Vitest-UI (Dateizugriff, behoben
-  ab 3.2.6) und zieht ein gepatchtes Vite 6.4.3. Offen bleibt ein mittleres Advisory
-  (Pfad-Traversal über Redirect-Mocks in `@vitest/mocker`, GHSA-82fw-gwwq-j7x9), behoben
-  erst ab 4.1.11; es betrifft den Testlauf, nicht den Produktivbetrieb. Alternative:
-  Vitest 4.1 oder 5.x, eine größere Migration, die für die kritische Lücke nicht nötig ist.
+- Vitest 5 (MIT, im Workspace-Root; Unit/Integration), Playwright (E2E gegen
+  Compose-Stack). Seit 0.4.0 mit Vite 8 (Rolldown) in der App: die Vendor-Chunks sind
+  Rolldown-`codeSplitting`-Gruppen, ein eigenes Build-Plugin bricht bei zirkulären Chunks
+  ab (Rollup warnte davor, Rolldown nicht), und das Skript der Wartungsseite übersetzt
+  esbuild (MIT) direkt statt über Vites veraltetes `transformWithEsbuild`.
 - happy-dom (MIT), Test-DOM-Umgebung nur für @restow/web, nur per Datei-Pragma
   (`// @vitest-environment happy-dom`): jede andere Web-Suite läuft ohne DOM über
   `renderToStaticMarkup`, das keine Effekte ausführt. `page-context.test.tsx` braucht eine
@@ -454,9 +453,10 @@ jedes per Container-Digest oder Commit-SHA gepinnt.
   Server und eine Datenbank).
 - Dependabot (GitHub-Dienst, `.github/dependabot.yml`): wöchentliche Pull Requests für npm, Go,
   GitHub Actions und Docker, Patch- und Minor-Updates gruppiert (seit 0.2.0; vorher je Update ein
-  Pull Request, nach 0.1.0 waren das 13 auf einmal), bekannte Major-Migrationen (vite, vitest,
-  intl-messageformat, archiver) von Hand; jeder Pull Request läuft durch dieselbe CI, einschließlich
-  der Lizenzprüfung, und wird im Entwicklungsbaum nachgezogen statt gemergt (docs/CI.md).
+  Pull Request, nach 0.1.0 waren das 13 auf einmal), bekannte Major-Migrationen (vite mit
+  @vitejs/plugin-react, vitest, intl-messageformat, archiver) von Hand; jeder Pull Request
+  läuft durch dieselbe CI, einschließlich der Lizenzprüfung, und wird im Entwicklungsbaum
+  nachgezogen statt gemergt (docs/CI.md).
   Alternative: Renovate (mehr Konfiguration, ein weiterer Dienst).
 - Image-Aufbau: Die Laufzeit startet jede Rolle mit `node`; npm, yarn, corepack und pnpm
   (Build-Werkzeuge des Node-Images) sind aus dem Dateisystem entfernt, ebenso die von
