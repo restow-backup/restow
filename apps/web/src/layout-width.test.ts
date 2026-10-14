@@ -28,6 +28,11 @@ const ALLOWED: Record<string, { classes: readonly string[]; reason: string }> = 
     classes: ["max-w-xl"],
     reason: "running text next to a destructive button",
   },
+  "apps/web/src/features/storage/components/target-dialog.tsx": {
+    classes: ["sm:max-w-xl", "sm:max-w-2xl"],
+    reason:
+      "the repository dialog, wider for a server path whose address and command must not scroll sideways",
+  },
   "apps/web/src/features/tenants/invitation-page.tsx": {
     classes: ["max-w-xl"],
     reason: "invitation form, centred like the sign-in page",
