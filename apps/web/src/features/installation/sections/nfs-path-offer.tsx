@@ -165,7 +165,7 @@ function NfsOffer({
       </p>
     );
   } else if (!view.available || !view.state) {
-    body = <UnavailableCard view={view} />;
+    body = <UnavailableCard view={view} wrapCommands />;
   } else if (view.pending && !view.pending.failure) {
     // Another share waits for running jobs; only one may wait at a time.
     body = <PendingCard pending={view.pending} closed={false} />;
@@ -174,7 +174,10 @@ function NfsOffer({
   }
 
   return (
-    <div className="space-y-3 rounded-md border p-3" data-slot="nfs-offer">
+    <div
+      className="min-w-0 space-y-3 rounded-md border p-3 [overflow-wrap:anywhere]"
+      data-slot="nfs-offer"
+    >
       <p className="flex items-start gap-2 text-sm">
         <Network className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
         <span>
@@ -327,7 +330,7 @@ function MountForm({
       {blocked ? (
         <p className="text-sm text-muted-foreground">{t("mounts.storageOffer.blocked")}</p>
       ) : null}
-      {test.data ? <TestOutcome result={test.data} /> : null}
+      {test.data ? <TestOutcome result={test.data} mount={spec} /> : null}
       {test.isError ? <ErrorAlert error={test.error} /> : null}
       {add.isError && !isRecentSignInRequired(add.error) ? <ErrorAlert error={add.error} /> : null}
       <div className="flex flex-wrap gap-2">

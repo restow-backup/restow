@@ -212,6 +212,8 @@ export const MOUNT_FAILURE_CODES = [
   "prepare.compose_file_variable",
   "prepare.docker_unreachable",
   "probe.mount_failed",
+  /** The server answered, but the export path does not exist there (ENOENT). */
+  "probe.export_not_found",
   "probe.not_writable",
   "probe.timeout",
   "probe.failed",

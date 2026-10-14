@@ -317,7 +317,10 @@ passkeys are not offered; `--http-local` is a deprecated name for it),
 
 Running the script again is safe: it finds the installation, never changes
 `.env`, a secret or data, checks the images named in `.env` and makes sure the
-stack runs. It refuses to start when Docker holds data of an earlier
+stack runs. It brings `docker-compose.yml` to the checked file of the release
+named in `.env` (an installation keeps its first file across updates, so an older
+one lacks newer services such as the mounter); a file that differs is kept as
+`docker-compose.yml.bak-<time>`. It refuses to start when Docker holds data of an earlier
 installation without its `.env`. It never updates an installation (see
 [Updating](#updating)) and has no uninstall (see
 [Removing Restow](#removing-restow)).
@@ -400,8 +403,9 @@ step 2.
    cp .env.example .env
    ```
 
-2. **Fill in `.env`.** The comments in the file say how; the sections marked
-   optional can stay empty. At minimum the two images of one build, either the
+2. **Fill in `.env`.** Every variable is explained on
+   [docs.restowbackup.com](https://docs.restowbackup.com); everything below
+   "Optional" can stay empty. At minimum the two images of one build, either the
    full build (`RESTOW_IMAGE=ghcr.io/restow-backup/restow:0.3.5`,
    `RESTOW_WEB_IMAGE=ghcr.io/restow-backup/restow-web:0.3.5`; Business and
    Service Provider stay locked until a license key is installed) or the

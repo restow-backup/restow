@@ -49,6 +49,25 @@ export const DEFAULT_OVERRIDE_FILE = "docker-compose.override.yml";
 const COMPOSE_PROJECT_LABEL = "com.docker.compose.project";
 const COMPOSE_VOLUME_LABEL = "com.docker.compose.volume";
 
+/**
+ * What a failed NFS mount at the start of the probe container means. The kernel (through
+ * Docker's "failed to mount local volume") or mount.nfs reports ENOENT when the server
+ * answered but has no such export path: the most common mistake (a Synology export is
+ * /volume1/<share>, an NFSv4 server may show its exports below a pseudo-root).
+ */
+export function mountErrorCode(message: string): MountFailureCode {
+  if (/timed out/i.test(message)) {
+    return "probe.timeout";
+  }
+  if (
+    /no such file or directory/i.test(message) &&
+    /failed to mount local volume|mount\.nfs|reason given by server/i.test(message)
+  ) {
+    return "probe.export_not_found";
+  }
+  return "probe.mount_failed";
+}
+
 export interface ProbeOutcome {
   ok: boolean;
   code: MountFailureCode | null;
@@ -304,10 +323,7 @@ export class DockerMountOps implements MountOps {
         await engine.startContainer(containerId);
       } catch (error) {
         const message = (error as Error).message;
-        if (/timed out/i.test(message)) {
-          return fail("probe.timeout", message);
-        }
-        return fail("probe.mount_failed", message);
+        return fail(mountErrorCode(message), message);
       }
       const controller = new AbortController();
       let timedOut = false;

@@ -9,12 +9,14 @@ import {
 } from "./mounter-client.js";
 import { pendingMountService } from "./pending.js";
 import {
+  type ComposeFacts,
   MOUNT_PROBLEMS,
   type MountUser,
   MountsService,
   type PendingMount,
   type PendingMountStore,
   liesOn,
+  updateComposeCommand,
 } from "./service.js";
 
 const ACTOR = { id: "u1", email: "owner@example.com", ip: "192.0.2.1" };
@@ -54,7 +56,7 @@ let work = { jobs: 0, endpointRuns: 0 };
 let users: MountUser[] = [];
 let audits: AuditEvent[] = [];
 
-function service(demo = false) {
+function service(demo = false, compose?: ComposeFacts) {
   return new MountsService({
     client,
     activeWork: async () => work,
@@ -62,6 +64,7 @@ function service(demo = false) {
     audit: async (event) => {
       audits.push(event);
     },
+    ...(compose ? { compose: async () => compose, version: "0.3.6" } : {}),
     demo,
   });
 }
@@ -98,10 +101,61 @@ describe("MountsService", () => {
     expect(view).toMatchObject({
       available: false,
       unavailableReason: "unreachable",
-      enableCommand: "docker compose --profile mounts up -d mounter",
+      enableCommand: "cd /opt/restow && docker compose --profile mounts up -d mounter",
+      projectDir: null,
+      updateComposeCommand: null,
       mountRoot: "/mnt/restow",
       state: null,
     });
+  });
+
+  it("starts the command in the project directory when the api knows it", async () => {
+    client.state.mockResolvedValue(null);
+    client.failure.mockReturnValue("no_secret");
+    const view = await service(false, { projectDir: "/srv/restow", mounterService: true }).view();
+    expect(view.enableCommand).toBe(
+      "cd /srv/restow && docker compose --profile mounts up -d mounter",
+    );
+    expect(view.projectDir).toBe("/srv/restow");
+    expect(view.updateComposeCommand).toBeNull();
+  });
+
+  it("asks to run the installer again when the compose file has no mounter service", async () => {
+    client.state.mockResolvedValue(null);
+    client.failure.mockReturnValue("unreachable");
+    const facts = { projectDir: "/opt/restow", mounterService: false };
+    const view = await service(false, facts).view();
+    expect(view.updateComposeCommand).toBe(
+      "curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.3.6/install.sh && sudo bash install.sh",
+    );
+    client.add.mockRejectedValueOnce(new MounterUnavailableError("unreachable"));
+    const problem = await problemOf(service(false, facts).add({ mount: SHARE }, ACTOR));
+    expect(problem.status).toBe(503);
+    expect(problem.detail).toContain("has no mounter service");
+    expect(problem.extensions?.updateComposeCommand).toBe(view.updateComposeCommand);
+  });
+
+  it("names the installer of the running release, and the latest one for an unknown version", () => {
+    expect(updateComposeCommand("/srv/restow", "v0.4.0")).toBe(
+      "curl -fsSLO https://github.com/restow-backup/restow/releases/download/v0.4.0/install.sh && sudo bash install.sh --dir /srv/restow",
+    );
+    expect(updateComposeCommand(null, "dev")).toBe(
+      "curl -fsSLO https://github.com/restow-backup/restow/releases/latest/download/install.sh && sudo bash install.sh",
+    );
+  });
+
+  it("does not ask about the compose project while the mounter answers", async () => {
+    const compose = vi.fn(async () => ({ projectDir: null, mounterService: false }));
+    const view = await new MountsService({
+      client,
+      activeWork: async () => work,
+      usersOf: async () => users,
+      audit: async () => undefined,
+      compose,
+    }).view();
+    expect(view.available).toBe(true);
+    expect(view.updateComposeCommand).toBeNull();
+    expect(compose).not.toHaveBeenCalled();
   });
 
   it("adds a share and audits it with the actor", async () => {
@@ -160,7 +214,9 @@ describe("MountsService", () => {
     let problem = await problemOf(service().add({ mount: SHARE }, ACTOR));
     expect(problem.status).toBe(503);
     expect(problem.type).toBe(MOUNT_PROBLEMS.unavailable);
-    expect(problem.extensions?.command).toBe("docker compose --profile mounts up -d mounter");
+    expect(problem.extensions?.command).toBe(
+      "cd /opt/restow && docker compose --profile mounts up -d mounter",
+    );
     client.add.mockRejectedValueOnce(
       new MounterRejectedError(409, "exists", "A share named nas exists already."),
     );

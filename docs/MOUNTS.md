@@ -256,14 +256,30 @@ not need to change shares.
 ## Troubleshooting
 
 **The section says "The mounter is not running".** Start it with the command shown
-there. If it runs (`docker compose --profile mounts ps mounter`), look at its log
+there; it changes into the installation directory first (`RESTOW_PROJECT_DIR`, or the
+one the opt-in updater reports; else the installer's default `/opt/restow`, and the
+section says so). If it runs (`docker compose --profile mounts ps mounter`), look at its log
 (`docker compose logs mounter`): it refuses to start when it cannot find the project
 directory (set `RESTOW_PROJECT_DIR` in `.env`) or its configuration is invalid.
 
+**`no such service: mounter`.** The installation's `docker-compose.yml` predates the
+mounter (installed before 0.3.0; updates, also through the updater, change only `.env`).
+The section says so when it can tell (the updater reads the compose configuration, or
+the api runs without the mounter's volume) and shows the installer command. Running
+`install.sh` (0.3.6 or newer) again on the installation downloads the `docker-compose.yml`
+of the release in `.env`, checks it against the release's signed `SHA256SUMS`, and, when
+it differs, keeps the old one as `docker-compose.yml.bak-<time>` and replaces it; `.env`
+is not changed. Changes of your own belong in `docker-compose.override.yml`.
+
+**"The export path ... does not exist on ...".** The server answered, but exports no
+such path ("No such file or directory"). List what it exports with `showmount -e
+<server>` and copy the path exactly. On a Synology NAS export paths start with the
+volume (`/volume1/<shared folder>`). With NFSv4 some servers show their exports below a
+pseudo-root, under different paths than NFSv3; try NFS version 3.
+
 **"The share could not be mounted".** The detail line carries Docker's message:
-"access denied by server" (the export does not allow this host), "No such file or
-directory" (wrong export path), "Protocol not supported" (wrong NFS version; try 3 or
-4), "Connection timed out" / "No route to host" (server address or firewall), or
+"access denied by server" (the export does not allow this host), "Protocol not
+supported" (wrong NFS version; try 3 or 4), "Connection timed out" / "No route to host" (server address or firewall), or
 "unknown filesystem type 'nfs'" (the host kernel has no NFS client, see above).
 
 **"Mounted but not writable".** See root squash above. The test writes a file

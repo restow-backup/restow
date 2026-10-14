@@ -1,29 +1,7 @@
-# Restow release stack: runs the published images, builds nothing.
-#
-# The repository's root docker-compose.yml builds Restow from source. This
-# file is for operators: it pulls the two images of a release and starts
-# PostgreSQL, the three Restow roles and the Caddy edge. Every release has two
-# builds; pick one with RESTOW_IMAGE and RESTOW_WEB_IMAGE in .env:
-#   full       ghcr.io/restow-backup/restow and ghcr.io/restow-backup/restow-web:
-#              the Apache-2.0 core plus the Business and Service Provider modules
-#              (Restow Enterprise License), locked until a license key is installed
-#   Community  ghcr.io/restow-backup/restow-community and
-#              ghcr.io/restow-backup/restow-web-community: the Apache-2.0 core only
-# The release pipeline runs its smoke checks (scripts/smoke) against exactly this
-# file, with both builds.
-#
-#   cp env.example .env     # (a repository checkout calls it .env.example) then fill in every empty value
-#   docker compose up -d
-#
-# The version to run is named by RESTOW_IMAGE and RESTOW_WEB_IMAGE in .env. The
-# opt-in updater (profile `updater`, below) rewrites both itself, with no edit by
-# hand; without it, update by changing them and running
-# `docker compose pull && docker compose up -d` (docs/UPDATING.md).
-# No secret is written in this file: every value comes from .env.
+# Restow release stack. Reference for every service and setting: https://docs.restowbackup.com
 
 name: restow
 
-# Shared configuration for the three server roles (same image, same env).
 x-restow-app: &restow-app
   image: ${RESTOW_IMAGE:?set RESTOW_IMAGE in .env (for example ghcr.io/restow-backup/restow:0.3.5 or ghcr.io/restow-backup/restow-community:0.3.5)}
   env_file:
@@ -54,38 +32,16 @@ services:
     <<: *restow-app
     environment:
       ROLE: api
-      # Where the api looks for the opt-in updater (profile `updater`); nothing
-      # answers there unless that profile runs.
       RESTOW_UPDATER_URL: ${RESTOW_UPDATER_URL:-http://updater:8090}
-      # Where the api looks for the opt-in mounter (profile `mounts`, docs/MOUNTS.md).
       RESTOW_MOUNTER_URL: ${RESTOW_MOUNTER_URL:-http://mounter:8091}
     ports:
-      # Loopback only: the Caddy edge reaches the api over the compose network.
       - "127.0.0.1:${RESTOW_API_PORT:-3000}:3000"
-      # The archive journal SMTP receiver (Business and Service Provider), which
-      # only listens when JOURNAL_SMTP_PORT is set in .env. Until then this maps a
-      # closed port on the loopback interface. Exchange Online delivers to port 25
-      # and must reach the receiver directly, not through Caddy: set
-      # JOURNAL_SMTP_PORT=25 and JOURNAL_SMTP_BIND=0.0.0.0 in .env to open it.
-      # The receiver needs a TLS certificate (see the journal volume below).
       - "${JOURNAL_SMTP_BIND:-127.0.0.1}:${JOURNAL_SMTP_PORT:-2525}:${JOURNAL_SMTP_PORT:-2525}"
     volumes:
-      # Default local chunk store (STORAGE_LOCAL_PATH=/data/chunks lives here).
       - restow-data:/data
-      # The server-side import folder: the api lists it, the worker reads it
-      # (https://docs.restowbackup.com/administrators/mail-import-export/). Read-only on
-      # purpose: Restow never writes to or deletes from it.
       - ${RESTOW_IMPORT_DIR:-./import}:/var/lib/restow/import:ro
-      # The journal receiver's TLS certificate chain and private key (PEM). Exchange
-      # Online requires TLS, and the receiver does not start without a certificate.
-      # A directory, not two files, so that a renewal that replaces the files is seen
-      # (the receiver re-reads them every few minutes, no restart needed). Put
-      # fullchain.pem and privkey.pem there and point JOURNAL_TLS_CERT_PATH and
-      # JOURNAL_TLS_KEY_PATH at /etc/restow/journal-tls/<file> in .env (.env.example).
       - ${JOURNAL_TLS_DIR:-./journal-tls}:/etc/restow/journal-tls:ro
-      # The updater's shared secret (empty until the updater profile ran once).
-      - restow-updater-shared:/updater-shared:ro
-      # The mounter's shared secret (empty until the mounts profile ran once).
+      - restow-updater-shared:/updater-shared:ro # keep: updater and mounter secrets
       - restow-mounter-shared:/mounter-shared:ro
     healthcheck:
       test:
@@ -98,14 +54,9 @@ services:
       retries: 5
       start_period: 20s
 
-  # The worker and the scheduler wait for a healthy api: the api applies the
-  # database migrations, and creates the two application database roles they
-  # sign in with, before it answers /healthz.
   worker:
     <<: *restow-app
-    # Time for running jobs to save a checkpoint when the worker stops (an
-    # update, docker compose up -d). Docker's default of 10 s cut the drain off.
-    stop_grace_period: 60s
+    stop_grace_period: 60s # running jobs checkpoint; keep
     environment:
       ROLE: worker
     volumes:
@@ -127,22 +78,14 @@ services:
       api:
         condition: service_healthy
 
-  # Caddy serves the built web interface and terminates TLS (automatic certificates
-  # for RESTOW_APP_DOMAIN, which must resolve to this host with ports 80 and 443
-  # reachable), and proxies /api/* to the api.
   caddy:
     image: ${RESTOW_WEB_IMAGE:?set RESTOW_WEB_IMAGE in .env (for example ghcr.io/restow-backup/restow-web:0.3.5 or ghcr.io/restow-backup/restow-web-community:0.3.5)}
     environment:
       RESTOW_APP_DOMAIN: ${RESTOW_APP_DOMAIN:?set RESTOW_APP_DOMAIN in .env (for example app.example.com)}
       RESTOW_EDGE_HSTS: ${RESTOW_EDGE_HSTS:-}
       RESTOW_EDGE_TRUSTED_PROXIES: ${RESTOW_EDGE_TRUSTED_PROXIES:-}
-      # Where the edge gets its certificate: acme (the default: Let's Encrypt, or Caddy's own
-      # authority for localhost and internal names) or internal (Caddy's own authority, for
-      # an edge behind another reverse proxy). An empty value means acme.
       RESTOW_EDGE_TLS: ${RESTOW_EDGE_TLS:-acme}
     ports:
-      # RESTOW_HTTP_PORT and RESTOW_HTTPS_PORT take a port, or an address and a port
-      # (127.0.0.1:8443) to publish it on that interface only.
       - "${RESTOW_HTTP_PORT:-80}:80"
       - "${RESTOW_HTTPS_PORT:-443}:443"
     volumes:
@@ -152,46 +95,21 @@ services:
       - api
     restart: unless-stopped
 
-  # --- Optional: the updater (profile: updater), OPT-IN ---
-  # Applies an update from the Updates tab (Settings): pulls the new images, dumps the
-  # database, recreates the services and rolls back when the new version does not come up.
-  # WARNING: it mounts the Docker socket, which is root on the host. Nothing runs unless you
-  # start it, once, in this directory: docker compose --profile updater up -d
-  # Read "The opt-in updater" in docs/UPDATING.md first. Nothing has to be set in .env for it.
-  #
-  # Its image: there is no separate updater image. The updater is the application image
-  # (RESTOW_IMAGE, for example ghcr.io/restow-backup/restow:0.3.5) started with ROLE=updater.
-  # RESTOW_UPDATER_IMAGE is optional: while it is empty this service starts the image in
-  # RESTOW_IMAGE, and on that first start the updater writes RESTOW_UPDATER_IMAGE into .env,
-  # pinned by digest to the image it runs. From then on the updater's image no longer follows
-  # RESTOW_IMAGE (which every update rewrites); it changes only when an update from a signed
-  # release succeeded: the updater sets RESTOW_UPDATER_IMAGE to that release's verified image,
-  # by digest, and recreates itself (RESTOW_UPDATER_SELF_UPDATE=false switches that off).
-  #
-  # The project directory is mounted at /project and the updater reads its host path from the
-  # mount. Set RESTOW_PROJECT_DIR (absolute path of this directory, e.g. /opt/restow) only to
-  # mount it at the same path instead (the installer does that).
   updater:
     profiles: ["updater"]
     image: ${RESTOW_UPDATER_IMAGE:-${RESTOW_IMAGE:?set RESTOW_IMAGE in .env}}
     environment:
       ROLE: updater
       RESTOW_UPDATER_PROJECT_DIR: ${RESTOW_PROJECT_DIR:-}
-      # The updater moves itself to every signed release it installed; false keeps it where it is.
       RESTOW_UPDATER_SELF_UPDATE: ${RESTOW_UPDATER_SELF_UPDATE:-true}
       RESTOW_UPDATER_API_URL: http://api:3000
-      # Repositories the updater may build an update from (source mode); empty = none, the
-      # default. Only the operator sets this, in .env (docs/UPDATING.md, "Two modes").
       RESTOW_UPDATER_SOURCE_HOSTS: ${RESTOW_UPDATER_SOURCE_HOSTS:-}
-      # Where image mode pulls the application and the web image from; empty = the release
-      # images of the updater's own build (ghcr.io/restow-backup/restow and restow-web, or
-      # restow-community and restow-web-community). Set them only for a mirror.
       RESTOW_UPDATER_IMAGE_REPOSITORY: ${RESTOW_UPDATER_IMAGE_REPOSITORY:-}
       RESTOW_UPDATER_WEB_IMAGE_REPOSITORY: ${RESTOW_UPDATER_WEB_IMAGE_REPOSITORY:-}
     expose:
       - "8090"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock # root on the host
       - ${RESTOW_PROJECT_DIR:-.}:${RESTOW_PROJECT_DIR:-/project}
       - restow-updater:/state
       - restow-updater-shared:/updater-shared
@@ -209,21 +127,6 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  # --- Optional: the mounter (profile: mounts), OPT-IN ---
-  # Adds NFS shares as backup storage from the web interface (Installation > Mounts): it
-  # writes them into docker-compose.override.yml in this directory as Docker volumes, mounts
-  # them into the api and the worker at /mnt/restow/<name> and recreates those two services.
-  # WARNING: it mounts the Docker socket, which is root on the host. Nothing runs unless you
-  # start it, once, in this directory: docker compose --profile mounts up -d mounter
-  # Read docs/MOUNTS.md first. It does not need the updater, and the updater does not need it.
-  #
-  # Like the updater it is the application image started with ROLE=mounter. While
-  # RESTOW_MOUNTER_IMAGE is empty it starts the image named below, and on that first start it
-  # writes RESTOW_MOUNTER_IMAGE into .env, pinned by digest to the image it runs (a local
-  # build has no digest and is not pinned). It reaches nobody but the api over the internal
-  # network (no published port) and holds none of the application's credentials (no env_file).
-  # The opt-in updater moves RESTOW_MOUNTER_IMAGE to the verified image of every signed update
-  # it installs and recreates the mounter (docs/MOUNTS.md, "Updates").
   mounter:
     profiles: ["mounts"]
     image: ${RESTOW_MOUNTER_IMAGE:-${RESTOW_IMAGE:?set RESTOW_IMAGE in .env}}
@@ -233,7 +136,7 @@ services:
     expose:
       - "8091"
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock # root on the host
       - ${RESTOW_PROJECT_DIR:-.}:${RESTOW_PROJECT_DIR:-/project}
       - restow-mounter:/state
       - restow-mounter-shared:/mounter-shared

@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from "@/components/ui/sonner";
 import { zodResolver } from "@/lib/form";
+import { cn } from "@/lib/utils";
 import {
   type TargetFormValues,
   emptyTargetForm,
@@ -55,6 +56,17 @@ interface TargetDialogProps {
 }
 
 /**
+ * The dialog box: a server path is wider (its NFS offer holds addresses, paths and
+ * commands), and nothing in it scrolls sideways; long values wrap anywhere instead.
+ */
+export function targetDialogClass(kind: EditableKind): string {
+  return cn(
+    "max-h-[calc(100dvh-2rem)] overflow-x-hidden overflow-y-auto [overflow-wrap:anywhere] [&>*]:min-w-0",
+    kind === "local" ? "sm:max-w-2xl" : "sm:max-w-xl",
+  );
+}
+
+/**
  * Add or edit a storage target. Settings can be tested before saving; after
  * saving, the stored target is tested once more so its card reflects what was
  * actually stored.
@@ -69,7 +81,7 @@ export function TargetDialog({
   const { t } = useTranslation("storage");
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-xl">
+      <DialogContent className={targetDialogClass(kind)}>
         <DialogHeader>
           <DialogTitle>{target ? t("form.editTitle") : t(`form.createTitle.${kind}`)}</DialogTitle>
           <DialogDescription>{t(`form.description.${kind}`)}</DialogDescription>
