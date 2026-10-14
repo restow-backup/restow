@@ -68,6 +68,9 @@ before.
   checkpoint is discarded.
 - Archive: header, storage-protection notice, search and results had no space between
   them.
+- After an update, the maintenance page kept saying "Restow was updated, this page reloads
+  now" whenever the application was down later (for example after a reboot with a full
+  disk). After 10 minutes it now says the server is temporarily unavailable.
 - Forms reported no error for a missing field inside a list (for example the role of a
   new user in the setup wizard).
 
