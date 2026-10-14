@@ -99,6 +99,18 @@ Running jobs get 60 seconds to save a checkpoint when the worker stops
 before 0.3.5 does not have that line, so Docker stops the worker after 10
 seconds; copy it from the current `docker-compose.yml`.
 
+Updating to 0.3.5 converts the backup index of Microsoft 365 backups
+(`manifest_objects`) into item versions. The worker does it in the
+background after the start, one backup at a time; backups, browsing and
+restores keep working meanwhile. Once its log says `manifest index conversion
+finished`, restart the api once so it hands the old table's space back to the
+file system:
+
+```sh
+docker compose logs worker | grep "manifest index conversion"
+docker compose restart api
+```
+
 If the updater ever wrote `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE` into `.env`,
 those two lines decide which images the services run. Change them, or remove
 them to go back to building from the source checkout. `RESTOW_UPDATER_IMAGE`

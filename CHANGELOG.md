@@ -18,13 +18,23 @@ you have verified restores against your own data.
 Restow 0.3.5 makes long first backups of large mailboxes finish instead of running out
 of retries, says plainly how big a Proxmox VE guest's backups are and when a container
 backup is incomplete, warns when a machine job leaves out the folders where Linux
-services keep their data, and adds a restore operator role. No database migration.
+services keep their data, and adds a restore operator role. It also stores the backup
+index (which items each backup contains) as item versions instead of a full copy per
+backup, which shrinks the database of large installations by an order of magnitude, and
+gives sign-in a database role of its own. One database migration, run automatically at
+start.
 
 ### Breaking Changes
 
 None. A Compose file you keep yourself should get `stop_grace_period: 60s` on the
 `worker` service (see Changed); without it, Docker stops the worker after 10 seconds as
 before.
+
+The first start after the upgrade converts the existing backup index in the background
+(see Changed). Backups, browsing and restores keep working meanwhile. Once the worker log
+says `manifest index conversion finished`, restart the `api` once
+(`cd /opt/restow && docker compose restart api`): only then is the space of the old
+index handed back to the file system.
 
 ### Added
 
@@ -57,6 +67,16 @@ before.
 - Proxmox VE: "Back up now" and restore say that the node starts the task at its next
   check-in, a second click says a backup is already waiting, and the pages refresh every
   5 seconds while a guest waits for its node or backs up.
+- Backup index: a backup no longer copies every item of a mailbox or OneDrive into the
+  database. Restow keeps one row per version of an item, so an unchanged item costs
+  nothing on later backups. On an installation with 14 million index rows (25 GB), the
+  index needs about 0.5 to 1.5 GB afterwards. The worker converts existing backups one at
+  a time after the upgrade.
+- Database roles: sign-in (sessions, passwords, passkeys, two-factor secrets) runs on a
+  third database role of its own, created and kept up to date by the migration. The
+  application role keeps to tenant data under Row Level Security and may only add jobs
+  to the queue. No `.env` change is needed; `DATABASE_AUTH_URL` is optional for
+  installations that manage their database roles themselves (see SECURITY.md).
 - File restore: the file list has a fixed height and scrolls inside, so the path bar and
   the actions stay in place.
 
@@ -68,6 +88,8 @@ before.
   checkpoint is discarded.
 - Archive: header, storage-protection notice, search and results had no space between
   them.
+- The database of installations with many item backups (Microsoft 365) grew by the full
+  item count with every backup, until the disk ran full.
 - After an update, the maintenance page kept saying "Restow was updated, this page reloads
   now" whenever the application was down later (for example after a reboot with a full
   disk). After 10 minutes it now says the server is temporarily unavailable.
