@@ -11,6 +11,7 @@ import {
   ServiceHeartbeatReporter,
   assertDatabaseRoles,
   createDb,
+  grantQueueAccess,
   heartbeatStore,
   retryConcurrentSetup,
   safeErrorMessage,
@@ -35,7 +36,7 @@ async function main(): Promise<void> {
 
   const db = createDb(config.databaseUrl);
   const providerDb = createDb(config.databaseProviderUrl);
-  await assertDatabaseRoles({ tenant: db.$client, installation: providerDb.$client });
+  const roles = await assertDatabaseRoles({ tenant: db.$client, installation: providerDb.$client });
 
   // pg-boss owns its schema as the installation role (like the worker's instance).
   const boss = new PgBoss({ connectionString: config.databaseProviderUrl });
@@ -45,6 +46,9 @@ async function main(): Promise<void> {
   const onSetupRetry = (info: { attempt: number; code: string | null; delayMs: number }) =>
     logger.info("job queue setup raced with another process, retrying", info);
   await retryConcurrentSetup(() => boss.start(), { onRetry: onSetupRetry });
+  // pg-boss has just created or upgraded its schema: the application role gets
+  // its enqueue-only access to it (again; packages/db roles.ts).
+  await grantQueueAccess(providerDb.$client, roles.tenant.name);
   // Same definitions as the worker (policy, retries, expiry): whichever role
   // starts first creates the queue correctly, updateQueue keeps it current.
   for (const queue of JOB_QUEUES) {
@@ -104,7 +108,8 @@ async function main(): Promise<void> {
   // (docs/ARCHITECTURE.md, Health). Removed again on a graceful shutdown.
   let shuttingDown = false;
   const heartbeat = new ServiceHeartbeatReporter({
-    store: heartbeatStore(db),
+    // Installation-level (packages/db roles.ts): the installation pool.
+    store: heartbeatStore(providerDb),
     role: "scheduler",
     details: () => {
       const leader = election.isLeader();

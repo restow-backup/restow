@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({
   revealRepositoryPassword: vi.fn(),
 }));
 
-vi.mock("../../db.js", () => ({ db: {}, providerDb: {} }));
+vi.mock("../../db.js", () => ({ db: {}, providerDb: {}, authDb: {} }));
 vi.mock("../../middleware/session.js", () => {
   const user = { id: "user-1", email: "admin@contoso.example" };
   return {

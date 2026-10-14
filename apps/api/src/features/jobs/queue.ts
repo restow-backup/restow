@@ -1,7 +1,7 @@
 import { JOB_PRIORITY, type JobPayloads, type JobQueue, singletonKeyFor } from "@restow/core";
 import type { Database } from "@restow/db";
 import PgBoss from "pg-boss";
-import { db } from "../../db.js";
+import { db, providerDb } from "../../db.js";
 import type { Transaction } from "../../lib/tenant-context.js";
 import { pgBossExecutor } from "./pg-boss-tx.js";
 
@@ -9,7 +9,9 @@ import { pgBossExecutor } from "./pg-boss-tx.js";
  * The API's hand on the job queue. It never runs jobs, so the pg-boss
  * instance is never started: `send` and `cancel` are plain statements that
  * go through the executor we give them, which is either the request's
- * tenant-pinned transaction (enqueue) or the shared pool (cancel).
+ * tenant-pinned transaction (enqueue) or the installation pool (cancel). The
+ * application role may only enqueue (packages/db roles.ts `grantQueueAccess`):
+ * it cannot read, change or cancel a queued job, its own tenant's included.
  *
  * Queue policies, priorities and singleton keys are the worker's contract
  * (@restow/core engine/jobs.ts, apps/worker/src/queues.ts); the API only
@@ -76,11 +78,16 @@ export function isMissingQueueSchema(error: unknown): boolean {
   return code === "42P01" || code === "3F000";
 }
 
-/** Cancel a queued pg-boss job so the worker never picks it up. Safe on already-running jobs. */
+/**
+ * Cancel a queued pg-boss job so the worker never picks it up. Safe on
+ * already-running jobs. On the installation pool, which owns the queue: the
+ * caller has already checked, under its tenant's Row Level Security, that
+ * the job is its own.
+ */
 export async function cancelQueuedJob(
   queue: JobQueue,
   pgBossJobId: string,
-  database: Database = db,
+  database: Database = providerDb,
 ): Promise<void> {
   await jobQueue(database).cancel(queue, pgBossJobId);
 }

@@ -179,8 +179,9 @@ interface SetupResultResponse {
   };
 }
 
+/** The installation's settings row (installation-level: the installation pool). */
 async function loadSettings(): Promise<Settings | null> {
-  const rows = await db.select().from(settings).limit(1);
+  const rows = await providerDb.select().from(settings).limit(1);
   return rows[0] ?? null;
 }
 

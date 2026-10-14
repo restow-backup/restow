@@ -164,6 +164,6 @@ auditRoutes.get("/:id", async (c) => {
  */
 export const auditLogRoutes: SessionRouteContribution = {
   path: mountPath,
-  guard: capabilityGuard(db, "audit.log"),
+  guard: capabilityGuard(providerDb, "audit.log"),
   routes: auditRoutes,
 };

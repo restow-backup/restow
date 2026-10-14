@@ -151,7 +151,7 @@ export function consentLandingUrl(origin: string | null, outcome: ConsentResult)
  * a same-origin path instead.
  */
 async function configuredPublicOrigin(): Promise<string | null> {
-  return resolvePublicOrigin(db, null);
+  return resolvePublicOrigin(providerDb, null);
 }
 
 async function hasRestowSession(headers: Headers): Promise<boolean> {
@@ -195,7 +195,7 @@ sourcesRoutes.get("/m365/consent/callback", async (c) => {
 // --- Tenant admin: status, list, create, inline IMAP test ---------------------
 
 sourcesRoutes.get("/entra/status", tenantAdmin, async (c) => {
-  return c.json(await getEntraStatus(db, observedOrigin(c)));
+  return c.json(await getEntraStatus(providerDb, observedOrigin(c)));
 });
 
 sourcesRoutes.post("/imap/test", tenantAdmin, async (c) => {
@@ -234,6 +234,7 @@ sourcesRoutes.post("/:id/consent-link", tenantAdmin, async (c) => {
   const link = await createConsentLink(db, c.get("tenantId"), id, actorOf(c), {
     tenant: body?.tenant,
     observedOrigin: observedOrigin(c),
+    installation: providerDb,
   });
   return c.json(link, 201);
 });

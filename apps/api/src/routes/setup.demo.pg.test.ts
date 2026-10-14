@@ -67,7 +67,11 @@ describe.skipIf(!testDatabaseAdminUrl)("operator notice in demo mode against Pos
   afterAll(async () => {
     vi.unstubAllEnvs();
     const shared = await import("../db.js");
-    await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
+    await Promise.all([
+      shared.db.$client.end(),
+      shared.providerDb.$client.end(),
+      shared.authDb.$client.end(),
+    ]);
     await owner?.$client.end();
     await dropDatabase(testDatabaseAdminUrl as string, DATABASE);
     await roles?.drop(testDatabaseAdminUrl as string);

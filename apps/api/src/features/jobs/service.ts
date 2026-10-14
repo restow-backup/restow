@@ -793,7 +793,7 @@ export async function cancelJob(
   if (pgBossJobId) {
     // Best effort: the row already says cancelled, and the worker checks that
     // before it starts a delivered job.
-    await cancelQueuedJob(dto.queue, pgBossJobId, db).catch(() => undefined);
+    await cancelQueuedJob(dto.queue, pgBossJobId).catch(() => undefined);
   }
   return dto;
 }

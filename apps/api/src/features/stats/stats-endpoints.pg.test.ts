@@ -348,7 +348,11 @@ describe.skipIf(!testDatabaseAdminUrl)("statistics of endpoints against Postgres
 
   afterAll(async () => {
     if (shared) {
-      await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
+      await Promise.all([
+        shared.db.$client.end(),
+        shared.providerDb.$client.end(),
+        shared.authDb.$client.end(),
+      ]);
     }
     await owner?.$client.end();
     await dropDatabase(testDatabaseAdminUrl as string, DATABASE);

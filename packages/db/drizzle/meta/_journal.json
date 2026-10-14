@@ -232,6 +232,13 @@
       "when": 1791543022531,
       "tag": "0032_pve_enrollment_pve_token",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791987569558,
+      "tag": "0033_manifest_versions",
+      "breakpoints": true
     }
   ]
 }

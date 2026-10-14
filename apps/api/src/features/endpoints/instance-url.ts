@@ -1,7 +1,7 @@
 import { settings } from "@restow/db";
 import type { Context } from "hono";
 import { config } from "../../config.js";
-import { db } from "../../db.js";
+import { providerDb } from "../../db.js";
 import { arrivalOrigin } from "../../middleware/browser-request.js";
 import { originOf } from "../../middleware/browser-request.js";
 
@@ -13,7 +13,8 @@ import { originOf } from "../../middleware/browser-request.js";
  * domain.
  */
 export async function instanceUrl(c: Context): Promise<{ url: string; configured: boolean }> {
-  const [row] = await db.select({ publicUrl: settings.publicUrl }).from(settings).limit(1);
+  // Installation-level: read on the installation pool.
+  const [row] = await providerDb.select({ publicUrl: settings.publicUrl }).from(settings).limit(1);
   const configured = originOf(row?.publicUrl) ?? originOf(config.publicUrl);
   if (configured) {
     return { url: configured, configured: true };

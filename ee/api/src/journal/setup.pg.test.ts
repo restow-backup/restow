@@ -158,8 +158,9 @@ describe.skipIf(!testDatabaseAdminUrl)("journal setup against Postgres", () => {
     app.notFound(notFoundHandler);
     app.route(
       JOURNAL_PATH,
+      // The license is installation-level: the gate reads it on the installation pool.
       gateRoutes(
-        appDb,
+        providerDb,
         "archive.journalReceiver",
         buildJournalRoutes({
           db: appDb,
@@ -174,7 +175,11 @@ describe.skipIf(!testDatabaseAdminUrl)("journal setup against Postgres", () => {
 
   afterAll(async () => {
     const shared = await import("../../../../apps/api/src/db.js");
-    await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
+    await Promise.all([
+      shared.db.$client.end(),
+      shared.providerDb.$client.end(),
+      shared.authDb.$client.end(),
+    ]);
     await appDb?.$client.end();
     await providerDb?.$client.end();
     await owner?.$client.end();

@@ -22,6 +22,13 @@ import type { DbExecutor } from "./tenant-context.js";
  *                         limiting a member of the provider team to chosen
  *                         tenants; without it every member has every tenant
  *                         (features/provider-team)
+ *
+ * The gates decide on installation-level state (in the full build the
+ * installed license), which only the installation role may read
+ * (packages/db roles.ts): they are always handed the installation pool,
+ * whichever pool or tenant transaction the caller is working in. A caller
+ * that holds the installation pool itself (injected, as in tests) passes it
+ * as `installation`; otherwise the API's shared one is used.
  */
 export const GATED_FEATURES = [
   "tenants.additional",
@@ -46,10 +53,27 @@ export function featureUnavailable(feature: GatedFeature): ProblemError {
   });
 }
 
+/**
+ * The installation pool the gates read on: the caller's, else the API's
+ * shared one, imported when first needed so that importing this module
+ * (extensions do, early) opens no pool before the environment is read.
+ */
+async function installationPool(installation?: DbExecutor): Promise<DbExecutor> {
+  return installation ?? (await import("../db.js")).providerDb;
+}
+
 /** Whether `feature` is on right now (off without any registered gate). */
-export async function featureEnabled(db: DbExecutor, feature: GatedFeature): Promise<boolean> {
-  for (const gate of featureGates()) {
-    if (await gate.isEnabled(db, feature)) {
+export async function featureEnabled(
+  feature: GatedFeature,
+  installation?: DbExecutor,
+): Promise<boolean> {
+  const gates = featureGates();
+  if (gates.length === 0) {
+    return false;
+  }
+  const pool = await installationPool(installation);
+  for (const gate of gates) {
+    if (await gate.isEnabled(pool, feature)) {
       return true;
     }
   }
@@ -60,23 +84,26 @@ export async function featureEnabled(db: DbExecutor, feature: GatedFeature): Pro
  * Throw the problem for `feature` unless it is on: the first registered
  * gate's own problem when it names one, else the core's 403.
  */
-export async function requireFeature(db: DbExecutor, feature: GatedFeature): Promise<void> {
-  if (await featureEnabled(db, feature)) {
+export async function requireFeature(
+  feature: GatedFeature,
+  installation?: DbExecutor,
+): Promise<void> {
+  if (await featureEnabled(feature, installation)) {
     return;
   }
   for (const gate of featureGates()) {
     if (gate.unavailable) {
-      throw await gate.unavailable(db, feature);
+      throw await gate.unavailable(await installationPool(installation), feature);
     }
   }
   throw featureUnavailable(feature);
 }
 
 /** Every gated function that is on right now, in the order of {@link GATED_FEATURES}. */
-export async function enabledFeatures(db: DbExecutor): Promise<GatedFeature[]> {
+export async function enabledFeatures(installation?: DbExecutor): Promise<GatedFeature[]> {
   const enabled: GatedFeature[] = [];
   for (const feature of GATED_FEATURES) {
-    if (await featureEnabled(db, feature)) {
+    if (await featureEnabled(feature, installation)) {
       enabled.push(feature);
     }
   }

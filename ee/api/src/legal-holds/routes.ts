@@ -1,6 +1,6 @@
 import type { Database } from "@restow/db";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
-import { db } from "../../../../apps/api/src/db.js";
+import { db, providerDb } from "../../../../apps/api/src/db.js";
 import type { SessionRouteContribution } from "../../../../apps/api/src/extensions.js";
 import type { ArchiveActor } from "../../../../apps/api/src/features/archive/service.js";
 import { clientIp } from "../../../../apps/api/src/lib/request.js";
@@ -60,6 +60,6 @@ export const LEGAL_HOLDS_PATH = "/archive/legal-holds";
 
 export const legalHoldRoutes: SessionRouteContribution = {
   path: LEGAL_HOLDS_PATH,
-  guard: capabilityGuard(db, "archive.legalHold"),
+  guard: capabilityGuard(providerDb, "archive.legalHold"),
   routes: buildLegalHoldRoutes({ db, requireAdmin: requireTenant("tenant_admin") }),
 };

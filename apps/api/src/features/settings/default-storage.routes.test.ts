@@ -30,7 +30,7 @@ vi.mock("../../db.js", () => {
           : () => chain(),
     });
   const db = { select: chain };
-  return { db, providerDb: db };
+  return { db, providerDb: db, authDb: db };
 });
 vi.mock("./default-storage.js", () => ({
   getDefaultStorage: mocks.getDefaultStorage,

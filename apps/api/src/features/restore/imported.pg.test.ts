@@ -14,7 +14,6 @@ import {
   type Database,
   auditLog,
   createDb,
-  manifestObjects,
   protectedObjects,
   restoreJobs,
   snapshots,
@@ -30,6 +29,7 @@ import {
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "../snapshots/testing/explorer-fixture.js";
+import { insertManifestRows } from "../snapshots/testing/manifest-rows.js";
 import { createRestoreSchema } from "./schemas.js";
 
 const DATABASE = "restow_api_restore_imported_test";
@@ -132,7 +132,7 @@ describe.skipIf(!testDatabaseAdminUrl)("restoring imported mailboxes against Pos
       snapshotId: importSnapshot,
       protectedObjectId: importObject,
     };
-    await db.insert(manifestObjects).values([
+    await insertManifestRows(db, [
       {
         ...base,
         kind: "folder",
@@ -184,7 +184,11 @@ describe.skipIf(!testDatabaseAdminUrl)("restoring imported mailboxes against Pos
 
   afterAll(async () => {
     const shared = await import("../../db.js");
-    await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
+    await Promise.all([
+      shared.db.$client.end(),
+      shared.providerDb.$client.end(),
+      shared.authDb.$client.end(),
+    ]);
     await db?.$client.end();
     await dropDatabase(testDatabaseAdminUrl as string, DATABASE);
   });

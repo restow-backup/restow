@@ -8,7 +8,7 @@
  * database `restow_api_explorer_test` is recreated there and dropped after).
  * Without it the suite is skipped; docs/TESTING.md lists it under integration.
  */
-import { type Database, auditLog, createDb, manifestObjects } from "@restow/db";
+import { type Database, auditLog, createDb } from "@restow/db";
 import { and, desc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ProblemError } from "../../problem.js";
@@ -30,6 +30,7 @@ import {
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "./testing/explorer-fixture.js";
+import { insertManifestRows } from "./testing/manifest-rows.js";
 
 const DATABASE = "restow_api_explorer_test";
 
@@ -99,12 +100,12 @@ describe.skipIf(!testDatabaseAdminUrl)("explorer queries against Postgres", () =
     });
 
     it("sorts dated mail by its own recorded date, not by mtime, when the two disagree", async () => {
-      // mtime (manifest_objects.mtime) is Exchange's lastModifiedDateTime, which a
+      // mtime (the manifest index mtime) is Exchange's lastModifiedDateTime, which a
       // read-flag or category change bumps independently of when the mail arrived
       // (packages/core/src/backup/exchange/mail.ts); the default sort must follow
       // the mail's own receivedDateTime instead. Uses the IMAP fixture (unused by
       // any other test in this file) so it cannot disturb another test's counts.
-      await db.insert(manifestObjects).values([
+      await insertManifestRows(db, [
         {
           tenantId: f.tenantId,
           snapshotId: f.imap,
@@ -157,7 +158,7 @@ describe.skipIf(!testDatabaseAdminUrl)("explorer queries against Postgres", () =
       // controls; internalDate is the mailbox's own arrival time (IMAP's
       // counterpart of Exchange's receivedDateTime) and must win the sort, or
       // a forged future Date: header could pin a message to the top forever.
-      await db.insert(manifestObjects).values([
+      await insertManifestRows(db, [
         {
           tenantId: f.tenantId,
           snapshotId: f.imap,
@@ -399,22 +400,24 @@ describe.skipIf(!testDatabaseAdminUrl)("explorer queries against Postgres", () =
     });
 
     it("matches the sender and the to/cc recipient addresses, not only the subject", async () => {
-      await db.insert(manifestObjects).values({
-        tenantId: f.tenantId,
-        snapshotId: f.mailbox.second,
-        protectedObjectId: f.annaMailbox,
-        kind: "mail",
-        path: "mail/Inbox/VendorThread.kkkk.eml",
-        name: "VendorThread.kkkk.eml",
-        parentPath: "mail/Inbox",
-        size: 10,
-        metadata: {
-          subject: "Contract renewal",
-          from: "Priya Sharma <priya@vendor.test>",
-          to: "Quinn Miller <quinn@contoso.test>",
-          cc: "Legal Team <legal-notify@contoso.test>",
+      await insertManifestRows(db, [
+        {
+          tenantId: f.tenantId,
+          snapshotId: f.mailbox.second,
+          protectedObjectId: f.annaMailbox,
+          kind: "mail",
+          path: "mail/Inbox/VendorThread.kkkk.eml",
+          name: "VendorThread.kkkk.eml",
+          parentPath: "mail/Inbox",
+          size: 10,
+          metadata: {
+            subject: "Contract renewal",
+            from: "Priya Sharma <priya@vendor.test>",
+            to: "Quinn Miller <quinn@contoso.test>",
+            cc: "Legal Team <legal-notify@contoso.test>",
+          },
         },
-      });
+      ]);
 
       const bySender = await search(db, f.tenantId, reader(f.admin), { q: "priya", limit: 100 });
       expect(bySender.hits.map((hit) => hit.name)).toEqual(["VendorThread.kkkk.eml"]);

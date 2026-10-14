@@ -1,8 +1,9 @@
 /**
  * The service heartbeat against a real schema (docs/ARCHITECTURE.md, Health): the
  * store upserts and removes its row, the status read counts only beats younger
- * than the freshness window on the database clock, and either role of the
- * application and the installation pool can write and read it.
+ * than the freshness window on the database clock, and only the installation
+ * pool can write and read it (it is installation-level, packages/db roles.ts);
+ * the application pool is refused.
  *
  * Runs when RESTOW_TEST_DATABASE_URL points at a Postgres server as a
  * superuser (roles are cluster-wide; the suite creates uniquely named ones and
@@ -19,7 +20,7 @@ import {
 } from "./heartbeat.js";
 import { createDb } from "./index.js";
 import { runMigrations } from "./migrate.js";
-import type { RoleLogin } from "./roles.js";
+import { type RoleLogin, deriveAuthLogin } from "./roles.js";
 import { dropTestDatabase } from "./testing/database.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
@@ -74,6 +75,9 @@ describe.skipIf(!adminUrl)("service heartbeats", () => {
     try {
       await admin.query(`DROP ROLE IF EXISTS ${tenantLogin.name}`);
       await admin.query(`DROP ROLE IF EXISTS ${installationLogin.name}`);
+      await admin.query(
+        `DROP ROLE IF EXISTS ${deriveAuthLogin(tenantLogin, installationLogin).name}`,
+      );
     } finally {
       await admin.end();
     }
@@ -92,25 +96,42 @@ describe.skipIf(!adminUrl)("service heartbeats", () => {
     );
   }
 
+  it("refuses the application pool: the heartbeats are installation-level", async () => {
+    await expect(readServiceStatuses(tenantDb)).rejects.toThrow();
+    await expect(
+      heartbeatStore(tenantDb).upsert({
+        role: "worker",
+        instanceId: `tenant-${suffix}`,
+        version: "0.3.5",
+        hostname: null,
+        startedAt: new Date(),
+        details: {},
+      }),
+    ).rejects.toThrow();
+  });
+
   it("reports a role as ok while its last beat is younger than two minutes", async () => {
     await seed("worker", 5);
     await seed("scheduler", HEARTBEAT_FRESH_MS / 1000 - 10);
-    expect(await readServiceStatuses(tenantDb)).toEqual({ worker: "ok", scheduler: "ok" });
+    expect(await readServiceStatuses(installationDb)).toEqual({ worker: "ok", scheduler: "ok" });
   });
 
   it("reports a role as missing when it never beat or its last beat is older than two minutes", async () => {
-    expect(await readServiceStatuses(tenantDb)).toEqual({
+    expect(await readServiceStatuses(installationDb)).toEqual({
       worker: "missing",
       scheduler: "missing",
     });
     await seed("worker", 5);
     await seed("scheduler", HEARTBEAT_FRESH_MS / 1000 + 10);
-    expect(await readServiceStatuses(tenantDb)).toEqual({ worker: "ok", scheduler: "missing" });
+    expect(await readServiceStatuses(installationDb)).toEqual({
+      worker: "ok",
+      scheduler: "missing",
+    });
   });
 
   it("does not take the api's own beat for a worker or a scheduler", async () => {
     await seed("api", 1);
-    expect(await readServiceStatuses(tenantDb)).toEqual({
+    expect(await readServiceStatuses(installationDb)).toEqual({
       worker: "missing",
       scheduler: "missing",
     });
@@ -119,12 +140,12 @@ describe.skipIf(!adminUrl)("service heartbeats", () => {
   it("counts any instance of a role, so a stale replica does not hide a live one", async () => {
     await seed("scheduler", 600, "scheduler-a");
     await seed("scheduler", 3, "scheduler-b");
-    expect((await readServiceStatuses(tenantDb)).scheduler).toBe("ok");
+    expect((await readServiceStatuses(installationDb)).scheduler).toBe("ok");
   });
 
   it("writes a row with role, instance, version, host, start and state, and refreshes it in place", async () => {
     const beat = new ServiceHeartbeatReporter({
-      store: heartbeatStore(tenantDb),
+      store: heartbeatStore(installationDb),
       role: "worker",
       instanceId: "worker-pg-test",
       version: "0.1.0",
@@ -136,7 +157,7 @@ describe.skipIf(!adminUrl)("service heartbeats", () => {
     await owner.query(
       "UPDATE service_heartbeats SET beat_at = now() - interval '10 minutes' WHERE instance_id = 'worker-pg-test'",
     );
-    expect((await readServiceStatuses(tenantDb)).worker).toBe("missing");
+    expect((await readServiceStatuses(installationDb)).worker).toBe("missing");
 
     await beat.beat();
     const { rows } = await owner.query(
@@ -154,15 +175,15 @@ describe.skipIf(!adminUrl)("service heartbeats", () => {
       fresh: true,
     });
     expect(new Date(rows[0].started_at).toISOString()).toBe("2026-09-30T10:00:00.000Z");
-    expect((await readServiceStatuses(tenantDb)).worker).toBe("ok");
+    expect((await readServiceStatuses(installationDb)).worker).toBe("ok");
 
     await beat.stop();
     const after = await owner.query("SELECT 1 FROM service_heartbeats");
     expect(after.rowCount).toBe(0);
-    expect((await readServiceStatuses(tenantDb)).worker).toBe("missing");
+    expect((await readServiceStatuses(installationDb)).worker).toBe("missing");
   });
 
-  it("works on the installation pool as well and sweeps rows of instances dead for a day", async () => {
+  it("sweeps rows of instances dead for a day", async () => {
     await seed("worker", 2 * 24 * 3600, "worker-gone");
     await seed("worker", 600, "worker-recent");
     const beat = new ServiceHeartbeatReporter({
@@ -184,7 +205,7 @@ describe.skipIf(!adminUrl)("service heartbeats", () => {
 
   it("stores a host name only, never an IP address", async () => {
     const beat = new ServiceHeartbeatReporter({
-      store: heartbeatStore(tenantDb),
+      store: heartbeatStore(installationDb),
       role: "worker",
       hostname: "10.0.0.7",
       details: () => ({ state: "running" }),

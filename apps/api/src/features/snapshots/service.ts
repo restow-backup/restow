@@ -3,13 +3,14 @@ import {
   type ManifestObjectKind,
   type ProtectedObject,
   type Source,
-  manifestObjects,
+  chunkIdsFromDriver,
+  manifestEntries,
   protectedObjects,
   snapshots,
   sources,
   users,
 } from "@restow/db";
-import { type SQL, and, desc, eq, inArray, isNotNull, ne, or, sql } from "drizzle-orm";
+import { type SQL, and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { type AuditEvent, audit } from "../../lib/audit.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
@@ -76,9 +77,11 @@ import {
 
 /**
  * Snapshot browsing for the restore explorer (docs/ARCHITECTURE.md, restore and
- * file explorer section). Everything reads the Postgres mirror of the manifests
- * (`manifest_objects`); the manifest in storage stays the truth for the
- * standalone restore. Every query runs in a tenant-pinned transaction (RLS)
+ * file explorer section). Everything reads the Postgres index of the manifests
+ * through `manifestEntries` (@restow/db manifest-versions.ts: version rows,
+ * plus the 0.3.4 per-snapshot rows not converted yet), which yields exactly
+ * the objects of the selected snapshots; the manifest in storage stays the
+ * truth for the standalone restore. Every query runs in a tenant-pinned transaction (RLS)
  * and is additionally filtered to the viewer's own objects for end users.
  *
  * Reading backup contents (a folder listing, a version history, a search) is
@@ -469,7 +472,7 @@ const MAIL_DATE_METADATA_KEYS = [
  * cast with an error and must not error the whole folder listing), else
  * `mtime`.
  *
- * `mtime` alone is the wrong default for Exchange mail: `manifest_objects.mtime`
+ * `mtime` alone is the wrong default for Exchange mail: `manifest_versions.mtime`
  * is the source's `lastModifiedDateTime` (packages/core/src/backup/exchange/mail.ts
  * `toMillis(entry.lastModifiedDateTime) || toMillis(entry.receivedDateTime)`),
  * which a read-flag or category change bumps independently of when the
@@ -493,6 +496,56 @@ function mailDateExpression(metadata: SQL, mtime: SQL): SQL {
   return sql`COALESCE(${sql.join(candidates, sql`, `)}, ${mtime})`;
 }
 
+/** The entries of the given snapshots (see `manifestEntries`), as a FROM item. */
+function snapshotEntries(tenantId: string, snapshotIds: readonly string[], chunks = false): SQL {
+  const ids = sql.join(
+    snapshotIds.map((id) => sql`${id}::uuid`),
+    sql`, `,
+  );
+  return manifestEntries({ tenantId, snapshots: sql`s.id IN (${ids})`, chunks });
+}
+
+/** An entry as a raw `manifestEntries` row carries it. */
+interface RawEntryRow extends Record<string, unknown> {
+  id: string;
+  snapshot_id: string;
+  snapshot_sequence: number;
+  snapshot_completed_at: Date | string | null;
+  protected_object_id: string;
+  kind: ManifestObjectKind;
+  name: string;
+  path: string;
+  parent_path: string;
+  size: string | number;
+  mtime: Date | string | null;
+  item_id: string | null;
+  message_id: string | null;
+  metadata: Record<string, unknown> | null;
+  deleted: boolean;
+  chunk_refs?: unknown;
+}
+
+function fromRawEntry(row: RawEntryRow): EntryRow {
+  return {
+    id: row.id,
+    kind: row.kind,
+    name: row.name,
+    path: row.path,
+    parentPath: row.parent_path,
+    size: Number(row.size),
+    mtime: toDate(row.mtime),
+    itemId: row.item_id,
+    deleted: row.deleted,
+    metadata: row.metadata,
+  };
+}
+
+function chunkRefsOf(row: RawEntryRow): string[] | null {
+  return row.chunk_refs === null || row.chunk_refs === undefined
+    ? null
+    : chunkIdsFromDriver(row.chunk_refs);
+}
+
 /**
  * The children of one folder as a `listing` CTE: the rows whose parent is the
  * folder, plus one synthetic folder for every child segment that only exists
@@ -503,11 +556,7 @@ function mailDateExpression(metadata: SQL, mtime: SQL): SQL {
  */
 function listingCte(scope: ListingScope): SQL {
   const path = sql`${scope.path}::text`;
-  const filters: SQL[] = [
-    sql`m.tenant_id = ${scope.tenantId}::uuid`,
-    sql`m.snapshot_id = ${scope.snapshotId}::uuid`,
-    sql`(m.metadata ->> ${ATTACHMENT_PARENT_KEY}::text) IS NULL`,
-  ];
+  const filters: SQL[] = [sql`(m.metadata ->> ${ATTACHMENT_PARENT_KEY}::text) IS NULL`];
   if (!scope.includeDeleted) {
     filters.push(sql`m.deleted = false`);
   }
@@ -518,7 +567,7 @@ function listingCte(scope: ListingScope): SQL {
   return sql`
     WITH scope AS (
       SELECT m.id, m.kind, m.name, m.path, m.parent_path, m.size, m.mtime, m.item_id, m.deleted, m.metadata
-      FROM manifest_objects m
+      FROM ${snapshotEntries(scope.tenantId, [scope.snapshotId])} AS m
       WHERE ${sql.join(filters, sql` AND `)}
     ),
     direct AS (
@@ -711,69 +760,47 @@ export async function listVersions(
 ): Promise<VersionsDto> {
   return withTenantTx(db, tenantId, async (tx) => {
     const { object, ownerEmail } = await loadObjectForViewer(tx, tenantId, reader, objectId);
-    const matchesPath = eq(manifestObjects.path, query.path);
     const match = query.itemId
-      ? (or(matchesPath, eq(manifestObjects.itemId, query.itemId)) as SQL)
-      : matchesPath;
-    const rows = await tx
-      .select({
-        object: manifestObjects,
-        snapshotId: snapshots.id,
-        sequence: snapshots.sequence,
-        completedAt: snapshots.completedAt,
-      })
-      .from(manifestObjects)
-      .innerJoin(snapshots, eq(snapshots.id, manifestObjects.snapshotId))
-      .where(
-        and(
-          eq(manifestObjects.tenantId, tenantId),
-          eq(manifestObjects.protectedObjectId, objectId),
-          ne(manifestObjects.kind, "folder"),
-          match,
-          completedSnapshot(),
-        ),
-      )
-      .orderBy(desc(snapshots.sequence))
-      .limit(query.limit);
+      ? sql`(m.path = ${query.path} OR m.item_id = ${query.itemId})`
+      : sql`m.path = ${query.path}`;
+    const completedOfObject = sql`s.protected_object_id = ${objectId}::uuid
+      AND s.status = 'active' AND s.manifest_path IS NOT NULL`;
+    const rows = await tx.execute<RawEntryRow>(sql`
+      SELECT m.* FROM ${manifestEntries({ tenantId, snapshots: completedOfObject, chunks: true })} AS m
+      WHERE m.protected_object_id = ${objectId}::uuid AND m.kind <> 'folder' AND ${match}
+      ORDER BY m.snapshot_sequence DESC
+      LIMIT ${query.limit}
+    `);
 
-    const versionRows: VersionRow[] = rows.map((row) => ({
-      objectId: row.object.id,
-      snapshotId: row.snapshotId,
-      sequence: row.sequence,
-      snapshotAt: iso(row.completedAt),
-      path: row.object.path,
-      name: row.object.name,
-      kind: row.object.kind,
-      size: row.object.size,
-      mtime: iso(row.object.mtime),
-      itemId: row.object.itemId,
-      deleted: row.object.deleted,
-      fingerprint: fingerprintOf(row.object),
-    }));
+    const versionRows: VersionRow[] = rows.rows.map((raw) => {
+      const row = fromRawEntry(raw);
+      return {
+        objectId: row.id,
+        snapshotId: raw.snapshot_id,
+        sequence: Number(raw.snapshot_sequence),
+        snapshotAt: iso(raw.snapshot_completed_at),
+        path: row.path,
+        name: row.name,
+        kind: row.kind,
+        size: row.size,
+        mtime: iso(row.mtime),
+        itemId: row.itemId,
+        deleted: row.deleted,
+        fingerprint: fingerprintOf({ ...row, chunkRefs: chunkRefsOf(raw) }),
+      };
+    });
 
     let stored: StoredVersionDto[] = [];
     if (query.snapshotId) {
       await loadSnapshotForViewer(tx, tenantId, reader, query.snapshotId);
-      const storedRows = await tx
-        .select({
-          path: manifestObjects.path,
-          name: manifestObjects.name,
-          size: manifestObjects.size,
-          mtime: manifestObjects.mtime,
-          metadata: manifestObjects.metadata,
-        })
-        .from(manifestObjects)
-        .where(
-          and(
-            eq(manifestObjects.tenantId, tenantId),
-            eq(manifestObjects.snapshotId, query.snapshotId),
-            eq(manifestObjects.protectedObjectId, objectId),
-            eq(manifestObjects.parentPath, nativeVersionsParent(query.path)),
-          ),
-        )
-        .orderBy(desc(manifestObjects.mtime))
-        .limit(query.limit);
-      stored = storedRows.map(toStoredVersion);
+      const storedRows = await tx.execute<RawEntryRow>(sql`
+        SELECT m.* FROM ${snapshotEntries(tenantId, [query.snapshotId])} AS m
+        WHERE m.protected_object_id = ${objectId}::uuid
+          AND m.parent_path = ${nativeVersionsParent(query.path)}
+        ORDER BY m.mtime DESC
+        LIMIT ${query.limit}
+      `);
+      stored = storedRows.rows.map((raw) => toStoredVersion(fromRawEntry(raw)));
     }
 
     await auditRead(tx, tenantId, reader, {
@@ -828,19 +855,6 @@ async function latestSnapshotIds(
     .groupBy(snapshots.protectedObjectId);
   return rows.map((row) => row.latest).filter((id): id is string => typeof id === "string");
 }
-
-const entryColumns = {
-  id: manifestObjects.id,
-  kind: manifestObjects.kind,
-  name: manifestObjects.name,
-  path: manifestObjects.path,
-  parentPath: manifestObjects.parentPath,
-  size: manifestObjects.size,
-  mtime: manifestObjects.mtime,
-  itemId: manifestObjects.itemId,
-  deleted: manifestObjects.deleted,
-  metadata: manifestObjects.metadata,
-};
 
 /** What a search covers, and how the audit log names it. */
 interface SearchScope {
@@ -900,40 +914,34 @@ async function searchSnapshots(
   }
   const pattern = `%${escapeLike(query.q)}%`;
   const ilike = (expression: SQL) => sql`${expression} ilike ${pattern} escape '\\'`;
-  const metadataField = (key: string) => sql`${manifestObjects.metadata} ->> ${key}::text`;
-  const rows = await tx
-    .select({
-      ...entryColumns,
-      snapshotId: manifestObjects.snapshotId,
-      objectId: manifestObjects.protectedObjectId,
-    })
-    .from(manifestObjects)
-    .where(
-      and(
-        eq(manifestObjects.tenantId, tenantId),
-        inArray(manifestObjects.snapshotId, snapshotIds),
-        sql`${metadataField(ATTACHMENT_PARENT_KEY)} IS NULL`,
-        sql`strpos(${manifestObjects.path}, ${NATIVE_VERSION_MARKER}::text) = 0`,
-        or(
-          ilike(sql`${manifestObjects.name}`),
-          ilike(sql`${manifestObjects.path}`),
+  const metadataField = (key: string) => sql`m.metadata ->> ${key}::text`;
+  const result = await tx.execute<RawEntryRow>(sql`
+    SELECT m.* FROM ${snapshotEntries(tenantId, snapshotIds)} AS m
+    WHERE ${metadataField(ATTACHMENT_PARENT_KEY)} IS NULL
+      AND strpos(m.path, ${NATIVE_VERSION_MARKER}::text) = 0
+      AND (${sql.join(
+        [
+          ilike(sql`m.name`),
+          ilike(sql`m.path`),
           ilike(metadataField("subject")),
           ilike(metadataField("from")),
           ilike(metadataField("sender")),
           ilike(metadataField("to")),
           ilike(metadataField("toRecipients")),
           ilike(metadataField("cc")),
-        ),
-      ),
-    )
-    .orderBy(manifestObjects.path)
-    .limit(query.limit + 1);
+        ],
+        sql` OR `,
+      )})
+    ORDER BY m.path
+    LIMIT ${query.limit + 1}
+  `);
+  const rows = result.rows;
 
   const truncated = rows.length > query.limit;
   const hits: SearchHitDto[] = rows.slice(0, query.limit).map((row) => ({
-    ...toTreeEntry(row),
-    snapshotId: row.snapshotId,
-    objectId: row.objectId,
+    ...toTreeEntry(fromRawEntry(row)),
+    snapshotId: row.snapshot_id,
+    objectId: row.protected_object_id,
   }));
   hits.sort(compareEntries);
   return { query: query.q, hits, searchedSnapshots: snapshotIds.length, truncated };
@@ -978,26 +986,13 @@ async function loadMailEntry(
   snapshotId: string,
   entryId: string,
 ): Promise<MailEntry> {
-  const [row] = await tx
-    .select({
-      id: manifestObjects.id,
-      kind: manifestObjects.kind,
-      path: manifestObjects.path,
-      size: manifestObjects.size,
-      mtime: manifestObjects.mtime,
-      itemId: manifestObjects.itemId,
-      chunkRefs: manifestObjects.chunkRefs,
-      metadata: manifestObjects.metadata,
-    })
-    .from(manifestObjects)
-    .where(
-      and(
-        eq(manifestObjects.tenantId, tenantId),
-        eq(manifestObjects.snapshotId, snapshotId),
-        eq(manifestObjects.id, entryId),
-      ),
-    )
-    .limit(1);
+  const result = await tx.execute<RawEntryRow>(sql`
+    SELECT m.* FROM ${snapshotEntries(tenantId, [snapshotId], true)} AS m
+    WHERE m.id = ${entryId}::uuid
+    LIMIT 1
+  `);
+  const raw = result.rows[0];
+  const row = raw ? { ...fromRawEntry(raw), chunkRefs: chunkRefsOf(raw) } : undefined;
   if (!row || row.kind !== "mail") {
     throw new ProblemError(404, "Mail entry not found");
   }

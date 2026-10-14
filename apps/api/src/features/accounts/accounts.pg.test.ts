@@ -142,7 +142,11 @@ describe.skipIf(!testDatabaseAdminUrl)("accounts against Postgres", () => {
 
   afterAll(async () => {
     const shared = await import("../../db.js");
-    await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
+    await Promise.all([
+      shared.db.$client.end(),
+      shared.providerDb.$client.end(),
+      shared.authDb.$client.end(),
+    ]);
     await owner?.$client.end();
     await dropDatabase(testDatabaseAdminUrl as string, DATABASE);
   }, 30_000);
@@ -186,7 +190,7 @@ describe.skipIf(!testDatabaseAdminUrl)("accounts against Postgres", () => {
       .where(and(eq(member.organizationId, orgAId), eq(member.userId, result.userId)));
     expect(membership?.role).toBe("admin");
 
-    const check = await service.checkSetPasswordToken(db, result.setPasswordToken as string);
+    const check = await service.checkSetPasswordToken(result.setPasswordToken as string);
     expect(check).toEqual({ status: "valid", emailHint: "n********@contoso.example" });
 
     const actions = await auditActionsFor(result.userId);
@@ -196,7 +200,7 @@ describe.skipIf(!testDatabaseAdminUrl)("accounts against Postgres", () => {
     ]);
     await expectNeverLeaked(result.userId, result.setPasswordToken as string);
 
-    const pending = await service.listPendingAccounts(db, tenantA);
+    const pending = await service.listPendingAccounts(tenantA);
     expect(pending.find((row) => row.userId === result.userId)).toMatchObject({
       email: "new.admin@contoso.example",
       role: "tenant_admin",
@@ -219,39 +223,33 @@ describe.skipIf(!testDatabaseAdminUrl)("accounts against Postgres", () => {
     expect(reissued.setPasswordToken).not.toBe(first.setPasswordToken);
 
     // The old link is gone outright (not merely expired).
-    expect(await service.checkSetPasswordToken(db, first.setPasswordToken as string)).toEqual({
+    expect(await service.checkSetPasswordToken(first.setPasswordToken as string)).toEqual({
       status: "invalid",
       emailHint: null,
     });
-    expect(
-      await service.checkSetPasswordToken(db, reissued.setPasswordToken as string),
-    ).toMatchObject({
+    expect(await service.checkSetPasswordToken(reissued.setPasswordToken as string)).toMatchObject({
       status: "valid",
     });
 
     const password = "correct-horse-battery";
     const redeemed = await service.redeemSetPasswordToken(
-      db,
       { token: reissued.setPasswordToken as string, password },
       { ip: "203.0.113.5" },
     );
     expect(redeemed.userId).toBe(first.userId);
 
-    expect(
-      await service.checkSetPasswordToken(db, reissued.setPasswordToken as string),
-    ).toMatchObject({
+    expect(await service.checkSetPasswordToken(reissued.setPasswordToken as string)).toMatchObject({
       status: "used",
     });
 
     await expect(
       service.redeemSetPasswordToken(
-        db,
         { token: reissued.setPasswordToken as string, password: "another-correct-password" },
         { ip: "203.0.113.5" },
       ),
     ).rejects.toMatchObject({ status: 409, type: "urn:restow:problem:account-link-used" });
 
-    const pending = await service.listPendingAccounts(db, tenantA);
+    const pending = await service.listPendingAccounts(tenantA);
     expect(pending.some((row) => row.userId === first.userId)).toBe(false);
 
     const actions = await auditActionsFor(first.userId);
@@ -278,15 +276,14 @@ describe.skipIf(!testDatabaseAdminUrl)("accounts against Postgres", () => {
     const future = new Date(Date.now() + 73 * 60 * 60 * 1000); // past the 72h window
 
     expect(
-      await service.checkSetPasswordToken(db, provisioned.setPasswordToken as string, past),
+      await service.checkSetPasswordToken(provisioned.setPasswordToken as string, past),
     ).toMatchObject({ status: "valid" });
     expect(
-      await service.checkSetPasswordToken(db, provisioned.setPasswordToken as string, future),
+      await service.checkSetPasswordToken(provisioned.setPasswordToken as string, future),
     ).toMatchObject({ status: "expired" });
 
     await expect(
       service.redeemSetPasswordToken(
-        db,
         { token: provisioned.setPasswordToken as string, password: "correct-horse-battery" },
         { ip: "203.0.113.5" },
         future,
@@ -314,7 +311,6 @@ describe.skipIf(!testDatabaseAdminUrl)("accounts against Postgres", () => {
 
     await expect(
       service.redeemSetPasswordToken(
-        db,
         { token: provisioned.setPasswordToken as string, password: "correct-horse-battery-2" },
         { ip: "203.0.113.6" },
       ),
@@ -359,13 +355,12 @@ describe.skipIf(!testDatabaseAdminUrl)("accounts against Postgres", () => {
   });
 
   it("an unknown token is invalid without leaking whether it ever existed", async () => {
-    expect(await service.checkSetPasswordToken(db, "not-a-real-token")).toEqual({
+    expect(await service.checkSetPasswordToken("not-a-real-token")).toEqual({
       status: "invalid",
       emailHint: null,
     });
     await expect(
       service.redeemSetPasswordToken(
-        db,
         { token: "not-a-real-token", password: "correct-horse-battery" },
         { ip: "203.0.113.5" },
       ),
@@ -477,7 +472,6 @@ describe.skipIf(!testDatabaseAdminUrl)("accounts against Postgres", () => {
       "en",
     );
     await service.redeemSetPasswordToken(
-      db,
       { token: first.setPasswordToken as string, password: "this-was-set-once-already" },
       { ip: "203.0.113.71" },
     );
@@ -649,7 +643,7 @@ describe.skipIf(!testDatabaseAdminUrl)("accounts against Postgres", () => {
       .where(and(eq(member.organizationId, orgAId), eq(member.userId, result.userId)));
     expect(membership?.role).toBe("restore");
 
-    const pending = await service.listPendingAccounts(db, tenantA);
+    const pending = await service.listPendingAccounts(tenantA);
     expect(pending.find((row) => row.userId === result.userId)?.role).toBe("tenant_restore");
   });
 
@@ -700,7 +694,6 @@ describe.skipIf(!testDatabaseAdminUrl)("accounts against Postgres", () => {
       "en",
     );
     await service.redeemSetPasswordToken(
-      db,
       { token: provisioned.setPasswordToken as string, password: "already-set-my-own-pw1" },
       { ip: "203.0.113.80" },
     );
@@ -737,7 +730,6 @@ describe.skipIf(!testDatabaseAdminUrl)("accounts against Postgres", () => {
 
     await expect(
       service.redeemSetPasswordToken(
-        db,
         { token, password: "attacker-supplied-password" },
         { ip: "203.0.113.81" },
       ),
@@ -755,7 +747,7 @@ describe.skipIf(!testDatabaseAdminUrl)("accounts against Postgres", () => {
     ).toBe(true);
 
     // The failed write rolled back as a whole: the link stays redeemable.
-    expect(await service.checkSetPasswordToken(db, token)).toMatchObject({ status: "valid" });
+    expect(await service.checkSetPasswordToken(token)).toMatchObject({ status: "valid" });
   });
 
   it("consumes a link atomically: concurrent redeems leave exactly one password set", async () => {
@@ -771,7 +763,7 @@ describe.skipIf(!testDatabaseAdminUrl)("accounts against Postgres", () => {
 
     const attempts = await Promise.allSettled(
       candidates.map((password, index) =>
-        service.redeemSetPasswordToken(db, { token, password }, { ip: `203.0.113.${90 + index}` }),
+        service.redeemSetPasswordToken({ token, password }, { ip: `203.0.113.${90 + index}` }),
       ),
     );
 
@@ -943,7 +935,6 @@ describe.skipIf(!testDatabaseAdminUrl)("accounts against Postgres", () => {
         "en",
       );
       await service.redeemSetPasswordToken(
-        db,
         { token: provisioned.setPasswordToken as string, password },
         { ip: "203.0.113.100" },
       );
@@ -985,6 +976,55 @@ describe.skipIf(!testDatabaseAdminUrl)("accounts against Postgres", () => {
         }),
       );
       expect(foreignProvision.status).toBe(404);
+    });
+
+    it("runs sign-in, 2FA and passkey registration on the auth role, out of the application role's reach", async () => {
+      const email = "passkey.admin@contoso.example";
+      const password = "correct-horse-battery-flow-2";
+      const provisioned = await service.provisionAccount(
+        db,
+        tenantA,
+        { email, role: "tenant_admin" },
+        actor(),
+        "en",
+      );
+      await service.redeemSetPasswordToken(
+        { token: provisioned.setPasswordToken as string, password },
+        { ip: "203.0.113.101" },
+      );
+      const enrolledCookie = await signInAndEnrolTotp(
+        provisioned.userId,
+        email,
+        password,
+        "198.51.100.71",
+      );
+
+      // A fully assured session may register a passkey: the challenge is stored by better-auth.
+      const options = await authModule.auth.handler(
+        new Request(`${PUBLIC_URL}/api/auth/passkey/generate-register-options`, {
+          headers: {
+            cookie: enrolledCookie,
+            origin: PUBLIC_URL,
+            "x-forwarded-for": "198.51.100.71",
+          },
+        }),
+      );
+      expect(options.status).toBe(200);
+      const registration = (await options.json()) as { challenge?: string; user?: unknown };
+      expect(registration.challenge).toBeTruthy();
+
+      // better-auth's pool is the auth role (packages/db roles.ts), derived from the other two logins.
+      const shared = await import("../../db.js");
+      const { rows } = await shared.authDb.$client.query<{ role: string }>(
+        "SELECT current_user AS role",
+      );
+      expect(rows[0]?.role).toMatch(/_auth$/);
+      // The application role reads none of what sign-in wrote, pinned to the tenant or not.
+      for (const table of ["session", "account", "two_factor", "verification", "member"]) {
+        await expect(db.$client.query(`SELECT 1 FROM ${table}`), table).rejects.toThrow(
+          /permission denied/,
+        );
+      }
     });
   });
 });

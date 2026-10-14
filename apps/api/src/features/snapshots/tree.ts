@@ -1,4 +1,4 @@
-import type { ManifestObjectKind, ManifestObjectRow } from "@restow/db";
+import type { ManifestObjectKind, ManifestVersionRow } from "@restow/db";
 
 /**
  * Pure helpers for the snapshot explorer: path handling, the entry DTO the
@@ -284,7 +284,7 @@ export interface TreeEntryDto {
 }
 
 export type EntryRow = Pick<
-  ManifestObjectRow,
+  ManifestVersionRow,
   | "id"
   | "kind"
   | "name"
@@ -417,7 +417,7 @@ export interface VersionDto {
 
 /** Stable fingerprint of an object's content, from the strongest evidence available. */
 export function fingerprintOf(
-  row: Pick<ManifestObjectRow, "size" | "mtime" | "chunkRefs" | "metadata" | "deleted">,
+  row: Pick<ManifestVersionRow, "size" | "mtime" | "chunkRefs" | "metadata" | "deleted">,
 ): string {
   if (row.deleted) {
     return "deleted";
@@ -492,7 +492,7 @@ export interface StoredVersionDto {
   modifiedBy: string | null;
 }
 
-type StoredVersionRow = Pick<ManifestObjectRow, "path" | "name" | "size" | "mtime" | "metadata">;
+type StoredVersionRow = Pick<ManifestVersionRow, "path" | "name" | "size" | "mtime" | "metadata">;
 
 export function toStoredVersion(row: StoredVersionRow): StoredVersionDto {
   const metadata = row.metadata ?? {};

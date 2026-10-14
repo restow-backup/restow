@@ -63,7 +63,7 @@ type HeartbeatDatabase = Pick<
   "insert" | "delete" | "select" | "selectDistinct"
 >;
 
-/** `service_heartbeats` on the given pool (either role may read and write it). */
+/** `service_heartbeats` on the given pool: the installation pool, the only role that has it. */
 export function heartbeatStore(db: HeartbeatDatabase): HeartbeatStore {
   return {
     async upsert(row) {

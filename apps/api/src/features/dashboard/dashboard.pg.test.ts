@@ -549,7 +549,11 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
   afterAll(async () => {
     resetExtensionsForTesting();
     const shared = await import("../../db.js");
-    await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
+    await Promise.all([
+      shared.db.$client.end(),
+      shared.providerDb.$client.end(),
+      shared.authDb.$client.end(),
+    ]);
     await Promise.all([
       owner?.$client.end(),
       appDb?.$client.end(),

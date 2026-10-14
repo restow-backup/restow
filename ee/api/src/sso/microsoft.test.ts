@@ -168,8 +168,13 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  const { db, providerDb } = await import("../../../../apps/api/src/db.js");
-  await Promise.all([db.$client.end(), providerDb.$client.end(), owner?.$client.end()]);
+  const { authDb, db, providerDb } = await import("../../../../apps/api/src/db.js");
+  await Promise.all([
+    db.$client.end(),
+    providerDb.$client.end(),
+    authDb.$client.end(),
+    owner?.$client.end(),
+  ]);
   if (adminUrl) {
     await dropDatabase(adminUrl, DATABASE);
     await roles?.drop(adminUrl);

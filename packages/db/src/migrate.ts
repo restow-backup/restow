@@ -1,7 +1,7 @@
 /**
  * Apply database migrations: the generated Drizzle migrations first, then the
  * per-tenant RLS policies and append-only triggers (sql/rls.sql), then the
- * tenant and installation roles with their grants (./roles.ts).
+ * tenant, installation and auth roles with their grants (./roles.ts).
  *
  * Uses only runtime dependencies (drizzle-orm, pg) so it works inside the
  * production image, where drizzle-kit (a dev dependency) is absent. Idempotent:
@@ -18,6 +18,7 @@ import {
   DatabaseRoleError,
   ROLE_URL_VARIABLE,
   type RoleLogin,
+  authLoginFromEnvironment,
   provisionRoles,
   roleLoginFromUrl,
 } from "./roles.js";
@@ -30,9 +31,10 @@ const rlsFile = fileURLToPath(new URL("../sql/rls.sql", import.meta.url));
 export interface MigrationOptions {
   /**
    * The login roles to create or update after the schema is current. Omitted
-   * by test fixtures that run everything as the owner.
+   * by test fixtures that run everything as the owner. Without `auth` the
+   * auth role's login is derived from the other two (roles.ts `deriveAuthLogin`).
    */
-  roles?: { tenant: RoleLogin; installation: RoleLogin };
+  roles?: { tenant: RoleLogin; installation: RoleLogin; auth?: RoleLogin };
 }
 
 /** Migrate the database `ownerConnectionString` points at, as its owner. */
@@ -44,6 +46,7 @@ export async function runMigrations(
   try {
     await migrate(drizzle(pool), { migrationsFolder });
     await pool.query(readFileSync(rlsFile, "utf8"));
+    await reclaimLegacyManifestSpace(pool);
     if (options.roles) {
       const client = await pool.connect();
       try {
@@ -54,6 +57,58 @@ export async function runMigrations(
     }
   } finally {
     await pool.end();
+  }
+}
+
+/** Below this, an empty legacy manifest table is not worth a lock. */
+const LEGACY_RECLAIM_MIN_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Give the disk space of the 0.3.4 manifest mirror (`manifest_objects`) back
+ * once the worker has folded all of it into `manifest_versions`
+ * (manifest-versions.ts): the conversion deletes the rows, but Postgres keeps
+ * the pages until a VACUUM truncates them, and only the owner may TRUNCATE.
+ * Runs on every migration (api start); bounded to a few seconds and skipped
+ * whenever the table still has rows, is in use, or the check takes too long,
+ * so a start never waits on it.
+ */
+export async function reclaimLegacyManifestSpace(
+  pool: Pool,
+  minBytes = LEGACY_RECLAIM_MIN_BYTES,
+): Promise<boolean> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    await client.query("SET LOCAL lock_timeout = '2s'");
+    // A table of deleted rows is scanned page by page until VACUUM has run; never wait long for it.
+    await client.query("SET LOCAL statement_timeout = '5s'");
+    const { rows } = await client.query<{ bytes: string | null }>(
+      "SELECT pg_total_relation_size(to_regclass('public.manifest_objects'))::text AS bytes",
+    );
+    if (
+      rows[0]?.bytes === null ||
+      rows[0]?.bytes === undefined ||
+      Number(rows[0].bytes) < minBytes
+    ) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+    const empty = await client.query<{ empty: boolean }>(
+      "SELECT NOT EXISTS (SELECT 1 FROM manifest_objects) AS empty",
+    );
+    if (empty.rows[0]?.empty !== true) {
+      await client.query("ROLLBACK");
+      return false;
+    }
+    await client.query("TRUNCATE manifest_objects");
+    await client.query("COMMIT");
+    return true;
+  } catch {
+    // Busy or slow: the next start tries again (and autovacuum gets there as well).
+    await client.query("ROLLBACK").catch(() => undefined);
+    return false;
+  } finally {
+    client.release();
   }
 }
 
@@ -73,8 +128,9 @@ function required(env: Env, name: string): string {
 /**
  * The migration step of the api container: migrate as the owner
  * (DATABASE_MIGRATION_URL), then provision the application role
- * (DATABASE_URL) and the installation role (DATABASE_PROVIDER_URL) with the
- * logins those connection strings carry.
+ * (DATABASE_URL), the installation role (DATABASE_PROVIDER_URL) and the auth
+ * role (DATABASE_AUTH_URL, else derived from the other two) with the logins
+ * those connection strings carry.
  */
 export async function migrateFromEnvironment(env: Env = process.env): Promise<void> {
   const owner = required(env, MIGRATION_URL_VARIABLE);
@@ -86,5 +142,6 @@ export async function migrateFromEnvironment(env: Env = process.env): Promise<vo
     required(env, ROLE_URL_VARIABLE.installation),
     ROLE_URL_VARIABLE.installation,
   );
-  await runMigrations(owner, { roles: { tenant, installation } });
+  const auth = authLoginFromEnvironment(env);
+  await runMigrations(owner, { roles: { tenant, installation, auth } });
 }

@@ -8,6 +8,6 @@ import { featureUnavailable } from "../../../lib/features.js";
  */
 export const featuresOn: KeyTenantDeps["requireFeature"] = async () => {};
 
-export const featuresOff: KeyTenantDeps["requireFeature"] = async (_db, feature) => {
+export const featuresOff: KeyTenantDeps["requireFeature"] = async (feature) => {
   throw featureUnavailable(feature);
 };

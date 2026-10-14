@@ -103,7 +103,11 @@ describe.skipIf(!testDatabaseAdminUrl)(
 
     afterAll(async () => {
       const shared = await import("../db.js");
-      await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
+      await Promise.all([
+        shared.db.$client.end(),
+        shared.providerDb.$client.end(),
+        shared.authDb.$client.end(),
+      ]);
       await owner?.$client.end();
       Reflect.deleteProperty(process.env, "RESTOW_SETUP_TOKEN");
       await dropDatabase(testDatabaseAdminUrl as string, DATABASE);

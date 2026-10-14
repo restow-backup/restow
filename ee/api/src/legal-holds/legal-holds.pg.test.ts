@@ -41,6 +41,7 @@ function testTenantAdmin(userId: string): MiddlewareHandler<TenantEnv> {
 describe.skipIf(!testDatabaseAdminUrl)("legal holds against Postgres", () => {
   let owner: Database;
   let appDb: Database;
+  let providerDb: Database;
   let roles: TestDatabaseRoles | undefined;
   let app: Hono;
   let contoso: string;
@@ -54,6 +55,7 @@ describe.skipIf(!testDatabaseAdminUrl)("legal holds against Postgres", () => {
     process.env.RESTOW_MASTER_KEY = randomBytes(32).toString("base64");
     owner = createDb(url);
     appDb = createDb(roles.appUrl);
+    providerDb = createDb(roles.providerUrl);
 
     const { buildLegalHoldRoutes, LEGAL_HOLDS_PATH } = await import("./routes.js");
     const { gateRoutes } = await import("../license/gate.js");
@@ -73,8 +75,9 @@ describe.skipIf(!testDatabaseAdminUrl)("legal holds against Postgres", () => {
     app.notFound(notFoundHandler);
     app.route(
       LEGAL_HOLDS_PATH,
+      // The license is installation-level: the gate reads it on the installation pool.
       gateRoutes(
-        appDb,
+        providerDb,
         "archive.legalHold",
         buildLegalHoldRoutes({ db: appDb, requireAdmin: testTenantAdmin(adminId) }),
       ),
@@ -83,8 +86,12 @@ describe.skipIf(!testDatabaseAdminUrl)("legal holds against Postgres", () => {
 
   afterAll(async () => {
     const shared = await import("../../../../apps/api/src/db.js");
-    await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
-    await appDb?.$client.end();
+    await Promise.all([
+      shared.db.$client.end(),
+      shared.providerDb.$client.end(),
+      shared.authDb.$client.end(),
+    ]);
+    await Promise.all([appDb?.$client.end(), providerDb?.$client.end()]);
     await owner?.$client.end();
     await dropDatabase(testDatabaseAdminUrl as string, DATABASE);
     if (roles) {

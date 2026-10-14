@@ -94,7 +94,11 @@ describe.skipIf(!testDatabaseAdminUrl)("the operator's own organisation against 
   afterAll(async () => {
     resetExtensionsForTesting();
     const shared = await import("../../db.js");
-    await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
+    await Promise.all([
+      shared.db.$client.end(),
+      shared.providerDb.$client.end(),
+      shared.authDb.$client.end(),
+    ]);
     await owner?.$client.end();
     await db?.$client.end();
     await providerDb?.$client.end();

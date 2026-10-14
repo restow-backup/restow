@@ -187,7 +187,7 @@ export function buildNotificationsRoutes(deps: ReportsRoutesDeps): Hono<TenantEn
     // "All tenants" (Service Provider, `dashboard.allTenants`): the notifications of every tenant
     // the administrator's team role covers, each with its tenant, and their alert deliveries.
     const covered = async (c: { get(key: "providerAccess"): ProviderAccess | null }) => {
-      await requireFeature(installation, "dashboard.allTenants");
+      await requireFeature("dashboard.allTenants", installation);
       const access = c.get("providerAccess");
       return !access || access.allTenants ? null : [...access.tenantIds];
     };

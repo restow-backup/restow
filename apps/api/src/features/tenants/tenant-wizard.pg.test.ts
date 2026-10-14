@@ -90,7 +90,11 @@ describe.skipIf(!testDatabaseAdminUrl)("the tenant wizard against Postgres", () 
     // auth.ts (better-auth's drizzle adapter) holds its own connection on the
     // shared db.ts singletons, bound to the roles this suite provisioned.
     const shared = await import("../../db.js");
-    await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
+    await Promise.all([
+      shared.db.$client.end(),
+      shared.providerDb.$client.end(),
+      shared.authDb.$client.end(),
+    ]);
     await owner?.$client.end();
     await db?.$client.end();
     await providerDb?.$client.end();

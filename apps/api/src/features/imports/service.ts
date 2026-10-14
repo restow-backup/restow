@@ -1370,7 +1370,7 @@ export async function cancelImport(
   });
   if (pgBossJobId) {
     // Best effort: the row already says cancelled, and the worker checks that before it starts a delivered job.
-    await cancelQueuedJob("import", pgBossJobId, db).catch(() => undefined);
+    await cancelQueuedJob("import", pgBossJobId).catch(() => undefined);
   }
   await deleteStagedSegments(db, tenantId, stagedUploads);
   return detail;

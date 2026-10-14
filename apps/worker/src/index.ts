@@ -72,6 +72,7 @@ import {
   ServiceHeartbeatReporter,
   assertDatabaseRoles,
   createDb,
+  grantQueueAccess,
   heartbeatStore,
   retryConcurrentSetup,
   safeErrorMessage,
@@ -101,6 +102,7 @@ import { handlers } from "./handlers/index.js";
 import { mailFilesCleanupTask } from "./handlers/mail-files-cleanup.js";
 import { retentionTasks } from "./handlers/retention.js";
 import { emitJobWebhook, webhooksHandler } from "./handlers/webhooks.js";
+import { startManifestConversion } from "./manifest-conversion.js";
 import { startPveMaintenance } from "./pve/maintenance.js";
 import { QUEUE_NAMES, pgBossQueueOptions, queuePriority } from "./queues.js";
 import { raiseJobFinished } from "./reporting.js";
@@ -242,7 +244,7 @@ async function main(): Promise<void> {
   const registry = new HandlerRegistry([...handlers, ...extensionHandlers()]);
   const db = createDb(config.databaseUrl);
   const providerDb = createDb(config.databaseProviderUrl);
-  await assertDatabaseRoles({ tenant: db.$client, installation: providerDb.$client });
+  const roles = await assertDatabaseRoles({ tenant: db.$client, installation: providerDb.$client });
   // Staged uploads and finished exports are temporary: the retention job sweeps them.
   retentionTasks.register(mailFilesCleanupTask);
   // Retention tasks contributed by extensions, e.g. the archive deletion run
@@ -313,7 +315,8 @@ async function main(): Promise<void> {
   const webhookDispatcher = webhooksHandler.start({ ...runtime, db: providerDb });
 
   // pg-boss owns its schema as the installation role; jobs are enqueued by the
-  // API and the scheduler on the application role, which may insert into it.
+  // API and the scheduler on the application role, which may insert into it
+  // and nothing else (packages/db roles.ts `grantQueueAccess`, below).
   const boss = new PgBoss({ connectionString: config.databaseProviderUrl });
   boss.on("error", (error) => {
     logger.error("pg-boss error", { errorMessage: error.message });
@@ -323,6 +326,9 @@ async function main(): Promise<void> {
   const onSetupRetry = (info: { attempt: number; code: string | null; delayMs: number }) =>
     logger.info("job queue setup raced with another process, retrying", info);
   await retryConcurrentSetup(() => boss.start(), { onRetry: onSetupRetry });
+  // pg-boss has just created or upgraded its schema: the application role gets
+  // its enqueue-only access to it (again).
+  await grantQueueAccess(providerDb.$client, roles.tenant.name);
 
   // Every queue exists with its policy before any producer or worker touches
   // it; updateQueue keeps the settings current across upgrades.
@@ -377,6 +383,10 @@ async function main(): Promise<void> {
   // one pass every five minutes in one worker at a time.
   startPveMaintenance({ db, providerDb, runtime });
 
+  // 0.3.5: fold the per-snapshot manifest mirror of 0.3.4 into versions, in the background
+  // (manifest-conversion.ts); ends by itself once nothing is left.
+  startManifestConversion({ db, providerDb, runtime });
+
   // Nightly seal of every audit chain (own cron queue, one catch-up run now).
   // Every chain, the installation chain included: on the installation pool.
   await registerAuditAnchor(boss, {
@@ -388,7 +398,8 @@ async function main(): Promise<void> {
   // removed again on a graceful shutdown (docs/ARCHITECTURE.md, Health).
   let stopping = false;
   const heartbeat = new ServiceHeartbeatReporter({
-    store: heartbeatStore(db),
+    // Installation-level (packages/db roles.ts): the installation pool.
+    store: heartbeatStore(providerDb),
     role: "worker",
     details: () => ({ state: stopping ? "stopping" : "running", queues: registry.queues() }),
     onError: (error) => {

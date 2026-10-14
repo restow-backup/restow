@@ -68,7 +68,7 @@ import {
   type NewNotification,
   chunks,
   jobs,
-  manifestObjects,
+  objectsReferencingChunks,
   packs,
   snapshots,
   storageMigrations,
@@ -561,23 +561,8 @@ async function objectsUsingPacks(
       .where(and(eq(chunks.tenantId, tenantId), eq(chunks.packId, pack.packId)));
     const objectIds = new Set<string>();
     for (const batch of batches(rows.map((row) => row.storedId))) {
-      const ids = sql.join(
-        batch.map((id) => sql`${id}`),
-        sql`, `,
-      );
-      const referencing = await tx
-        .selectDistinct({ protectedObjectId: manifestObjects.protectedObjectId })
-        .from(manifestObjects)
-        .innerJoin(snapshots, eq(snapshots.id, manifestObjects.snapshotId))
-        .where(
-          and(
-            eq(manifestObjects.tenantId, tenantId),
-            eq(snapshots.status, "active"),
-            sql`${manifestObjects.chunkRefs} ?| ARRAY[${ids}]::text[]`,
-          ),
-        );
-      for (const row of referencing) {
-        objectIds.add(row.protectedObjectId);
+      for (const objectId of await objectsReferencingChunks(tx, tenantId, batch)) {
+        objectIds.add(objectId);
       }
     }
     for (const objectId of objectIds) {

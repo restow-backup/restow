@@ -397,7 +397,7 @@ async function assertWebhook(tx: DbExecutor, tenantId: string, webhookId: string
 
 async function assertScheduledAllowed(db: DbExecutor, trigger: string): Promise<void> {
   if (trigger === "schedule") {
-    await requireFeature(db, "reports.timed");
+    await requireFeature("reports.timed");
   }
 }
 
@@ -442,12 +442,12 @@ export async function reportCatalog(
     ).map((name) => ({ name, ...REPORT_EVENT_INFO[name] })),
     sections: [...REPORT_SECTIONS],
     periods: [...REPORT_PERIOD_DAYS],
-    scheduledAvailable: await featureEnabled(db, "reports.timed"),
+    scheduledAvailable: await featureEnabled("reports.timed"),
   };
 }
 
 export async function listRules(db: Database, tenantId: string): Promise<ReportRuleDto[]> {
-  const scheduledAvailable = await featureEnabled(db, "reports.timed");
+  const scheduledAvailable = await featureEnabled("reports.timed");
   return withTenantTx(db, tenantId, async (tx) => {
     const rows = await tx
       .select()
@@ -532,7 +532,7 @@ export async function updateRule(
   actor: ReportActor,
   now: Date,
 ): Promise<ReportRuleDto> {
-  const scheduledAvailable = await featureEnabled(db, "reports.timed");
+  const scheduledAvailable = await featureEnabled("reports.timed");
   return withTenantTx(db, tenantId, async (tx) => {
     const before = await findRule(tx, tenantId, id);
     let patch = requested;
@@ -680,7 +680,7 @@ export async function testRule(
   actor: ReportActor,
   now: Date,
 ): Promise<{ queued: number }> {
-  const scheduledAvailable = await featureEnabled(db, "reports.timed");
+  const scheduledAvailable = await featureEnabled("reports.timed");
   return withTenantTx(db, tenantId, async (tx) => {
     const rule = await findRule(tx, tenantId, id);
     if (rule.trigger === "schedule" && !scheduledAvailable) {

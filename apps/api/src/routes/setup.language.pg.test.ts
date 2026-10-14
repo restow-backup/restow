@@ -78,7 +78,11 @@ describe.skipIf(!testDatabaseAdminUrl)("setup language and skipped mail against 
 
   afterAll(async () => {
     const shared = await import("../db.js");
-    await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
+    await Promise.all([
+      shared.db.$client.end(),
+      shared.providerDb.$client.end(),
+      shared.authDb.$client.end(),
+    ]);
     await owner?.$client.end();
     Reflect.deleteProperty(process.env, "RESTOW_SETUP_TOKEN");
     await dropDatabase(testDatabaseAdminUrl as string, DATABASE);
@@ -179,12 +183,12 @@ describe.skipIf(!testDatabaseAdminUrl)("setup language and skipped mail against 
   it("says 'no transport' wherever mail would be sent, instead of failing", async () => {
     const shared = await import("../db.js");
     const { createInstallationNotifier } = await import("../features/settings/service.js");
-    expect(await createInstallationNotifier(shared.db)).toBeNull();
+    expect(await createInstallationNotifier(shared.providerDb)).toBeNull();
 
     const { emailProviderInvitation } = await import("../features/accounts/service.js");
     // The owner then copies the link: the invitation exists, only the mail is not sent.
     expect(
-      await emailProviderInvitation(shared.db, {
+      await emailProviderInvitation({
         email: "colleague@example.com",
         token: "not-a-real-token",
         language: "de",

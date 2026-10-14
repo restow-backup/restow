@@ -82,7 +82,12 @@ describe.skipIf(!testDatabaseAdminUrl)("the pause of agent updates against Postg
       process.env.RESTOW_AGENT_DIR = previousDist;
     }
     if (dist) await rm(dist, { recursive: true, force: true });
-    if (shared) await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
+    if (shared)
+      await Promise.all([
+        shared.db.$client.end(),
+        shared.providerDb.$client.end(),
+        shared.authDb.$client.end(),
+      ]);
     await owner?.$client.end();
     if (testDatabaseAdminUrl) {
       await dropDatabase(testDatabaseAdminUrl, DATABASE);

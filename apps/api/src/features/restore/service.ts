@@ -3,12 +3,13 @@ import type { Readable } from "node:stream";
 import {
   type Database,
   type Job,
+  type ManifestObjectKind,
   type ProtectedObject,
   type RestoreJob,
   itemFailures,
   jobProgress,
   jobs,
-  manifestObjects,
+  manifestEntries,
   protectedObjects,
   restoreJobs,
   snapshots,
@@ -190,13 +191,46 @@ export async function implicitFolders(
     SELECT candidate.path
     FROM (VALUES ${candidates}) AS candidate(path)
     WHERE EXISTS (
-      SELECT 1 FROM manifest_objects m
-      WHERE m.tenant_id = ${tenantId}::uuid
-        AND m.snapshot_id = ${snapshotId}::uuid
-        AND (m.parent_path = candidate.path OR left(m.parent_path, length(candidate.path) + 1) = candidate.path || '/')
+      SELECT 1 FROM ${oneSnapshot(tenantId, snapshotId)} AS m
+      WHERE m.parent_path = candidate.path OR left(m.parent_path, length(candidate.path) + 1) = candidate.path || '/'
     )
   `);
   return new Set(result.rows.map((row) => row.path));
+}
+
+/** The manifest index entries of one snapshot (@restow/db `manifestEntries`), as a FROM item. */
+function oneSnapshot(tenantId: string, snapshotId: string): SQL {
+  return manifestEntries({ tenantId, snapshots: sql`s.id = ${snapshotId}::uuid` });
+}
+
+/** The entries of a snapshot a selection names by path or by source item id. */
+export async function selectedEntries(
+  tx: DbExecutor,
+  tenantId: string,
+  snapshotId: string,
+  keys: { paths: readonly string[]; itemIds: readonly string[] },
+): Promise<{ path: string; kind: ManifestObjectKind; itemId: string | null }[]> {
+  const list = (values: readonly string[]) =>
+    sql.join(
+      values.map((value) => sql`${value}::text`),
+      sql`, `,
+    );
+  const matches: SQL[] = [
+    ...(keys.paths.length > 0 ? [sql`m.path IN (${list(keys.paths)})`] : []),
+    ...(keys.itemIds.length > 0 ? [sql`m.item_id IN (${list(keys.itemIds)})`] : []),
+  ];
+  if (matches.length === 0) {
+    return [];
+  }
+  const result = await tx.execute<{
+    path: string;
+    kind: ManifestObjectKind;
+    item_id: string | null;
+  }>(sql`
+    SELECT m.path, m.kind, m.item_id FROM ${oneSnapshot(tenantId, snapshotId)} AS m
+    WHERE ${sql.join(matches, sql` OR `)}
+  `);
+  return result.rows.map((row) => ({ path: row.path, kind: row.kind, itemId: row.item_id }));
 }
 
 /**
@@ -390,27 +424,7 @@ export async function createRestore(
     }
 
     const keys = requestedKeys(input.selection);
-    const matches: SQL[] = [
-      ...(keys.paths.length > 0 ? [inArray(manifestObjects.path, keys.paths)] : []),
-      ...(keys.itemIds.length > 0 ? [inArray(manifestObjects.itemId, keys.itemIds)] : []),
-    ];
-    const rows =
-      matches.length > 0
-        ? await tx
-            .select({
-              path: manifestObjects.path,
-              kind: manifestObjects.kind,
-              itemId: manifestObjects.itemId,
-            })
-            .from(manifestObjects)
-            .where(
-              and(
-                eq(manifestObjects.tenantId, tenantId),
-                eq(manifestObjects.snapshotId, snapshot.id),
-                or(...matches),
-              ),
-            )
-        : [];
+    const rows = await selectedEntries(tx, tenantId, snapshot.id, keys);
     const kindByPath = new Map(rows.map((row) => [row.path, row.kind] as const));
     const knownItemIds = new Set(
       rows.map((row) => row.itemId).filter((id): id is string => id !== null),
@@ -435,13 +449,10 @@ export async function createRestore(
       // selection): cheap, and the demo's own corpus is small and fixed, so
       // it is a real backstop without needing to reimplement the selection's
       // exact path/folder resolution just to size it.
-      const [total] = await tx
-        .select({ bytes: sql<string>`coalesce(sum(${manifestObjects.size}), 0)::text` })
-        .from(manifestObjects)
-        .where(
-          and(eq(manifestObjects.tenantId, tenantId), eq(manifestObjects.snapshotId, snapshot.id)),
-        );
-      demoBytes = Number(total?.bytes ?? "0");
+      const total = await tx.execute<{ bytes: string }>(sql`
+        SELECT coalesce(sum(m.size), 0)::text AS bytes FROM ${oneSnapshot(tenantId, snapshot.id)} AS m
+      `);
+      demoBytes = Number(total.rows[0]?.bytes ?? "0");
       assertDemoRestoreSizeOk(demoBytes);
       assertDemoRestoreBudgetOk(demoBytes, resolved.summary.items);
     }
