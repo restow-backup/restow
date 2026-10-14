@@ -2473,7 +2473,7 @@ print_next_steps() {
   fi
   if [ "$OPT_MOUNTER" = 1 ]; then
     say "      The mounter runs: add file shares under File shares, NFS storage under"
-    say "      Installation > Network shares. Turn it off: cd $OPT_DIR && docker compose --profile mounts stop mounter"
+    say "      Installation > Default repository & network shares. Turn it off: cd $OPT_DIR && docker compose --profile mounts stop mounter"
     if [ "$OPT_UPDATER" = 1 ]; then
       say "      It moves to the verified image of each signed update the updater installs."
     else

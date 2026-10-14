@@ -55,7 +55,7 @@ export function stepLink(step: FailureStep, context: StepContext = {}): StepLink
           }
         : { to: "/file-shares" as LinkProps["to"] };
     case "file_share_runners":
-      return { to: "/installation/mounts" as LinkProps["to"] };
+      return { to: "/installation/default-storage" as LinkProps["to"] };
     default:
       return null;
   }

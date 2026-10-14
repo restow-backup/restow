@@ -15,6 +15,7 @@ import {
 } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { composeFacts } from "../mounts/instance.js";
 import type { FileShareActor } from "./audit.js";
 import {
   browseSnapshot,
@@ -163,12 +164,17 @@ async function readCappedJson(c: Context<TenantEnv>): Promise<unknown> {
   }
 }
 
+/** The host directory of the compose project, for the command that starts the mounter. */
+async function projectDirOfCompose(): Promise<string | null> {
+  return (await composeFacts()).projectDir;
+}
+
 // Installation settings: provider admins (with every tenant), before the `/:id` routes.
 fileSharesRoutes.get(
   "/installation-settings",
   refuseApiKeys,
   requireProviderAdmin as unknown as MiddlewareHandler<TenantEnv>,
-  async (c) => c.json(await getInstallationShareSettings({})),
+  async (c) => c.json(await getInstallationShareSettings({ projectDir: projectDirOfCompose })),
 );
 
 fileSharesRoutes.put(
@@ -177,7 +183,12 @@ fileSharesRoutes.put(
   requireProviderAdmin as unknown as MiddlewareHandler<TenantEnv>,
   async (c) => {
     const input = await parseJsonBody(c.req, installationSettingsSchema);
-    return c.json(await updateInstallationShareSettings(input, contextOf(c)));
+    return c.json(
+      await updateInstallationShareSettings(input, {
+        ...contextOf(c),
+        projectDir: projectDirOfCompose,
+      }),
+    );
   },
 );
 

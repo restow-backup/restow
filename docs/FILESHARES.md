@@ -40,7 +40,7 @@ build follows. Terms: a **file share** (German: Freigabe) is an SMB share or an 
 - **The mounter.** File share backup runs in containers the mounter starts (docs/MOUNTS.md).
   `install.sh` starts it by default for new installations (`--no-mounter` leaves it off). On
   an existing installation the provider owner clicks **Enable network shares** (Installation >
-  Network shares, or the notice on the File shares page) when the opt-in updater runs, or runs
+  Default repository & network shares, or the notice on the File shares page) when the opt-in updater runs, or runs
   `docker compose --profile mounts up -d mounter` in the installation folder. While it is off,
   the File shares pages say so, and scheduled backups of shares wait (`share.mounter_unavailable`).
   The mounter holds the Docker socket: read the security section of docs/MOUNTS.md first.
@@ -65,7 +65,7 @@ build follows. Terms: a **file share** (German: Freigabe) is an SMB share or an 
 - **Private networks.** A file server on a private or loopback address (most are) may be
   added by provider admins at any time. Tenant admins need a provider admin's approval of that
   share (its settings tab) or the installation switch **Tenants may use private networks**
-  (Installation > Network shares > File share runners, provider owner).
+  (Installation > Default repository & network shares > File share runners, provider owner).
 
 ### Adding a share and backing it up
 
@@ -90,7 +90,7 @@ default for new shares and one for all shares of a tenant under File share runne
 share warns (`file_share.storage_quota`), at 100 % new backups are refused (`share.quota_exceeded`);
 restores, retention and checks keep working.
 
-**Runners.** Installation > Network shares > File share runners: how many runs at a time
+**Runners.** Installation > Default repository & network shares > File share runners: how many runs at a time
 (default 2), memory per runner (default 2048 MiB; restic's index grows with the number of
 files, so very large shares need more), the longest run, read concurrency. The mounter caps them (`RESTOW_MOUNTER_MAX_RUNNERS`,
 `RESTOW_MOUNTER_RUNNER_MAX_MEMORY_MIB` in `.env`, passed to the mounter and the worker).
@@ -146,7 +146,7 @@ common ones:
 | `share.files_dropped` | Fewer than half the files of the previous restore point: check the share before retention removes older points. |
 | `share.quota_exceeded` | Raise the budget or tighten retention. |
 | `share.out_of_memory`, `share.timeout` | Raise the runner memory or the longest run under File share runners. |
-| `share.mounter_unavailable`, `share.runner_lost`, `share.runner_failed`, `share.runner_stalled` | The mounter is off, restarting or not ready: Installation > Network shares shows why; `docker compose logs mounter`. |
+| `share.mounter_unavailable`, `share.runner_lost`, `share.runner_failed`, `share.runner_stalled` | The mounter is off, restarting or not ready: Installation > Default repository & network shares shows why; `docker compose logs mounter`. |
 | `share.copy_no_verified_point`, `share.copy_unsafe_target`, `share.copy_empty_source` | Run the restore check of the source; choose a folder (not a share root) in another share; **Copy anyway** when fewer files are intended. |
 | `share.repository_locked`, `share.repository_damaged` | Stale locks of finished runs are cleared by retention and the repository check; a lock that stays, or damage restic reports, is a case for the repository password (share settings) and `restic check` by hand. |
 | SELinux: a test mounts but reads "Permission denied" | Set `RESTOW_MOUNTER_SELINUX_CONTEXT=true` and restart the mounter. |
@@ -602,7 +602,7 @@ on an existing installation keeps that installation's choice.
 `enable: { running: boolean, via: "updater" | "command" | null, command: string, lastAttempt }`.
 
 - With the opt-in updater running, provider owners see **Enable network shares** (Installation >
-  Network shares, and on the File shares page). It calls `POST /api/v1/mounts/enable` (owner only,
+  Default repository & network shares, and on the File shares page). It calls `POST /api/v1/mounts/enable` (owner only,
   recent sign-in, `own()` in `provider-access.ts`; installation audit log `mounter.enable_requested`
   and the outcome). The api forwards it to a new updater route `POST /v1/mounter/enable` with the
   updater's shared secret (`apps/api/src/features/updates/updater-client.ts` [V]).
@@ -1527,7 +1527,7 @@ items are grouped by code into the warning causes above, the way `classifyRunErr
   "File restore" (30).
 - The **File restore** page lists machines and file shares as sources (12.4).
 - **Backup jobs** gets the kinds "File shares" and "File share copies" next to mail and machines.
-- **Installation > Network shares** gets a section **File share runners** (status, limits, 7.4).
+- **Installation > Default repository & network shares** gets a section **File share runners** (status, limits, 7.4).
 
 ### 12.2 Adding a share
 
@@ -2005,7 +2005,7 @@ rows (1). Exit: E2E of 16.5; every route classified; no missing keys.
   connection and password, options, "Allow restore to this share", approval, job and folders,
   budget, copy jobs, repository password, retire and delete); the restore dialog with every
   destination and conflict mode; the notice while the mounter is off (with the command for
-  owners). The runners' installation settings are a card under Installation > Network shares.
+  owners). The runners' installation settings are a card under Installation > Default repository & network shares.
   The file browser of restore points is `features/restore/files/` (`RestorePointBrowser` with a
   `FileSourceAdapter`); the machines' snapshots tab builds its adapter and is unchanged for the
   person and its tests. In `features/backup-jobs`: `share-job-editor.tsx`, `copy-job-editor.tsx`
@@ -2023,7 +2023,7 @@ rows (1). Exit: E2E of 16.5; every route classified; no missing keys.
 
 Deviations from the design above, decided while building:
 
-1. **The runners card lives in Installation > Network shares** (beside the mounter it needs),
+1. **The runners card lives in Installation > Default repository & network shares** (beside the mounter it needs),
    not on a page of its own.
 2. **Share and copy jobs have their own editors** (`share-job-editor.tsx`, `copy-job-editor.tsx`)
    rather than more branches in the mail and machine editor; a share job's folders are edited in

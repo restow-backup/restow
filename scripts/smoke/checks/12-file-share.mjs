@@ -198,7 +198,9 @@ export async function fileShare(ctx, check) {
       });
       const mounts = await api.get("/api/v1/mounts");
       if (!mounts.available) {
-        throw new Error("Installation > Network shares does not see the mounter");
+        throw new Error(
+          "Installation > Default repository & network shares does not see the mounter",
+        );
       }
       return {
         times,

@@ -89,7 +89,7 @@ Known Issues.
   Repositories). The installation's default repository is set in the web
   interface (or the environment); tenants on it stay separated by their own
   prefix and key. NFS shares are mounted from the web
-  interface through the mounter container (Installation › Network shares,
+  interface through the mounter container (Installation › Default repository & network shares,
   [docs/MOUNTS.md](docs/MOUNTS.md)).
 - **Multi-tenant** for IT service providers (Service Provider edition), with a
   REST API (OpenAPI) and webhooks for RMM and PSA tools. The other editions run

@@ -1,6 +1,6 @@
 import { type FileShareSettings, fileShareSettingsOf } from "@restow/core";
 import { settings } from "@restow/db";
-import { db } from "../../db.js";
+import { providerDb } from "../../db.js";
 
 /**
  * The installation's file share settings (docs/FILESHARES.md 7.4) as the api needs them (the
@@ -13,7 +13,7 @@ export async function fileShareSettings(now = Date.now()): Promise<FileShareSett
   if (cached && now - cached.at < TTL_MS) {
     return cached.value;
   }
-  const [row] = await db
+  const [row] = await providerDb
     .select({ fileShareSettings: settings.fileShareSettings })
     .from(settings)
     .limit(1);

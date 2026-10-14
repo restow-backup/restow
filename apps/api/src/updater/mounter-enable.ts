@@ -34,7 +34,7 @@ import type { StatusStore } from "./store.js";
  *      `docker compose --profile mounts up -d --no-deps --no-build --pull missing mounter`.
  *
  * The outcome is kept in the state document (`mounterEnable`) and shown in the
- * Installation > Network shares section. Switching the mounter off stays a command.
+ * Installation > Default repository & network shares section. Switching the mounter off stays a command.
  */
 
 /** How long `POST /v1/mounter/enable` waits for the helper before it answers "running". */

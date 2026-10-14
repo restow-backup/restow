@@ -46,7 +46,7 @@ import { ProblemError } from "../../problem.js";
 import { type FailureDto, causeToFailureDto } from "../failures/dto.js";
 import { pgBossExecutor } from "../jobs/pg-boss-tx.js";
 import { isMissingQueueSchema, jobQueue } from "../jobs/queue.js";
-import { ENABLE_MOUNTER_COMMAND } from "../mounts/service.js";
+import { ENABLE_MOUNTER_COMMAND, enableMounterCommand } from "../mounts/service.js";
 import { FILE_SHARE_TENANT_AUDIT_ACTIONS as A, type FileShareActor, auditShare } from "./audit.js";
 import { FILE_SHARE_PROBLEMS } from "./constants.js";
 import {
@@ -90,6 +90,8 @@ export interface ShareContext {
   resolve?: HostResolver;
   /** Tests: where pg-boss jobs go (default: the queue, in the request's transaction). */
   send?: (queue: string, payload: object, singletonKey: string) => Promise<string | null>;
+  /** The compose project's directory on the host, for the provider's command; null: unknown. */
+  projectDir?: () => Promise<string | null>;
 }
 
 const nowOf = (ctx: Pick<ShareContext, "now">) => ctx.now ?? new Date();
@@ -226,12 +228,12 @@ export interface InstallationShareSettingsDto {
 }
 
 export async function getInstallationShareSettings(
-  ctx: Pick<ShareContext, "runner">,
+  ctx: Pick<ShareContext, "runner" | "projectDir">,
 ): Promise<InstallationShareSettingsDto> {
   return {
     settings: await readInstallationSettings(),
     runner: await runnerState(runnerOf(ctx)),
-    enableCommand: ENABLE_MOUNTER_COMMAND,
+    enableCommand: enableMounterCommand((await ctx.projectDir?.().catch(() => null)) ?? null),
   };
 }
 

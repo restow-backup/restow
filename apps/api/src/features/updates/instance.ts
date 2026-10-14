@@ -5,7 +5,7 @@ import { UpdateService } from "./service.js";
 import { updateState } from "./state-instance.js";
 import { updaterClientFromEnv } from "./updater-client.js";
 
-/** The process-wide updater client (also used by Installation > Network shares). */
+/** The process-wide updater client (also used by Installation > Default repository & network shares). */
 export const updaterClient = updaterClientFromEnv(process.env, config.demo.enabled);
 
 /** The process-wide update service, on the installation pool. */

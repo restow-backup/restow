@@ -117,7 +117,9 @@ describe("stepLink", () => {
       search: { tab: "settings" },
     });
     expect(stepLink({ id: "x", target: "file_share" })?.to).toBe("/file-shares");
-    expect(stepLink({ id: "x", target: "file_share_runners" })?.to).toBe("/installation/mounts");
+    expect(stepLink({ id: "x", target: "file_share_runners" })?.to).toBe(
+      "/installation/default-storage",
+    );
   });
 
   it("links nowhere for a step without a place or one this version does not know", () => {
