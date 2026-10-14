@@ -468,6 +468,7 @@ describe.skipIf(!testDatabaseAdminUrl)(
       // pg-boss creates its schema as the installation role; the application role enqueues into it.
       const boss = new PgBoss({ connectionString: roles.providerUrl });
       await boss.start();
+      await roles.grantQueue();
       // The worker's policy: at most one queued and one active import per imported mailbox.
       await boss.createQueue("import", { name: "import", policy: "stately" });
       await boss.stop({ graceful: false, wait: true });
@@ -552,7 +553,11 @@ describe.skipIf(!testDatabaseAdminUrl)(
 
     afterAll(async () => {
       const shared = await import("../../db.js");
-      await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
+      await Promise.all([
+        shared.db.$client.end(),
+        shared.providerDb.$client.end(),
+        shared.authDb.$client.end(),
+      ]);
       await Promise.all([owner?.$client.end(), appDb?.$client.end()]);
       await dropDatabase(testDatabaseAdminUrl as string, DATABASE);
       await roles?.drop(testDatabaseAdminUrl as string);
@@ -2114,6 +2119,7 @@ describe.skipIf(!testDatabaseAdminUrl)(
         await rejected(() =>
           sourcesService.createConsentLink(appDb, tenantC, importSource, actor, {
             observedOrigin: null,
+            installation: owner,
           }),
         );
         await rejected(() =>

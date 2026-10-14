@@ -29,6 +29,32 @@ through excessive load.
 Please do not access data that is not yours, and stop testing once you have
 shown a problem exists.
 
+## Database isolation
+
+Tenant isolation is enforced by PostgreSQL Row Level Security, on roles that
+cannot bypass it (docs/ARCHITECTURE.md, "Datenbankrollen";
+packages/db/src/roles.ts):
+
+- the **application role** (`DATABASE_URL`) serves every tenant-scoped
+  request inside a transaction pinned to one tenant. It reaches tenant data
+  only: of the sign-in tables nothing but a user's name and e-mail address,
+  no installation table (settings, license, providers, service heartbeats,
+  provider team), and in the job queue it may enqueue a job and nothing else.
+  A flaw in tenant-scoped code therefore cannot read sessions, password
+  hashes, TOTP secrets, passkeys or verification tokens, nor another
+  tenant's queued jobs;
+- the **auth role** (`DATABASE_AUTH_URL`, optional; derived from the other
+  two logins when unset) is the only one besides the installation role that
+  reaches better-auth's tables. better-auth and Restow's sign-in, account and
+  membership code run on it, also under Row Level Security;
+- the **installation role** (`DATABASE_PROVIDER_URL`, BYPASSRLS) is kept for
+  installation-level data, the lookups made before a tenant is known and
+  the cross-tenant background work.
+
+Every table is classified for these roles, and the tests fail on a table
+that is not. The processes refuse to start on pools whose roles could
+bypass Row Level Security.
+
 ## Verifying releases
 
 Every release image is signed with cosign (keyless, by the release workflow of

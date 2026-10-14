@@ -82,8 +82,13 @@ Postgres-Service bereit und setzt die Variable.
 - packages/db: `imports.pg.test.ts` (RLS, Segment-Eindeutigkeit, Kaskaden der Import-Tabellen),
   `rls.pg.test.ts` — RLS auf der echten Anwendungsrolle: ohne Pin keine
   Zeile, mit Pin auf Mandant A keine Zeile von B, kein Schreiben für B, kein Ändern des
-  Audit-Logs; die Installationsrolle sieht alle Mandanten. Diese Suite legt eindeutig
-  benannte Rollen an und löscht sie wieder, braucht daher einen Superuser.
+  Audit-Logs; kein Zugriff auf better-auth-Tabellen (außer Name und E-Mail eines Benutzers),
+  Installationstabellen und Job-Payloads in `pgboss` (nur Einstellen), die Rechte jeder
+  Tabelle wie in `TABLE_ACCESS` (roles.ts), die Auth-Rolle unter RLS, das Entziehen der
+  0.3.4-Rechte beim Update; die Installationsrolle sieht alle Mandanten. Diese Suite legt
+  eindeutig benannte Rollen an und löscht sie wieder, braucht daher einen Superuser.
+  `schema/schema.test.ts` schlägt fehl, wenn eine Tabelle weder unter RLS steht noch in
+  `TABLE_ACCESS` eingeordnet ist.
 
 ## Restore-Beweis in Produktion
 

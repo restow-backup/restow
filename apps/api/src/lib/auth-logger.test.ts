@@ -187,8 +187,8 @@ describe("better-auth on an unreachable database", () => {
   });
 
   afterAll(async () => {
-    const { db, providerDb } = await import("../db.js");
-    await Promise.all([db.$client.end(), providerDb.$client.end()]);
+    const { authDb, db, providerDb } = await import("../db.js");
+    await Promise.all([db.$client.end(), providerDb.$client.end(), authDb.$client.end()]);
     vi.unstubAllEnvs();
   });
 

@@ -27,6 +27,7 @@ vi.mock("../../db.js", () => {
     });
   return {
     db: { select: () => chain(() => mocks.memberships) },
+    authDb: { select: () => chain(() => mocks.memberships) },
     providerDb: { select: () => chain(() => mocks.providerRows) },
   };
 });

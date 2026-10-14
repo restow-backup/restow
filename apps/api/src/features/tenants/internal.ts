@@ -223,7 +223,7 @@ export async function adoptSoleTenantAsInternal(
   db: Database,
   providerDb: Database,
 ): Promise<TenantDto | null> {
-  if (await featureEnabled(db, "tenants.additional")) {
+  if (await featureEnabled("tenants.additional", providerDb)) {
     return null;
   }
   return providerDb.transaction(async (tx) => {

@@ -301,6 +301,7 @@ describe.skipIf(!testDatabaseAdminUrl)("mail exports against Postgres", () => {
     // the API only ever enqueues into it, on the application role.
     const boss = new PgBoss({ connectionString: roles.providerUrl });
     await boss.start();
+    await roles.grantQueue();
     await boss.createQueue("export");
     await boss.stop({ graceful: false, wait: true });
 
@@ -522,7 +523,11 @@ describe.skipIf(!testDatabaseAdminUrl)("mail exports against Postgres", () => {
 
   afterAll(async () => {
     const shared = await import("../../db.js");
-    await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
+    await Promise.all([
+      shared.db.$client.end(),
+      shared.providerDb.$client.end(),
+      shared.authDb.$client.end(),
+    ]);
     await appDb?.$client.end();
     await owner?.$client.end();
     await dropDatabase(testDatabaseAdminUrl as string, DATABASE);

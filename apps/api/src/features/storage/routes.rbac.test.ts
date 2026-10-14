@@ -24,7 +24,7 @@ vi.mock("../../db.js", () => {
     {},
     { get: (_target, property) => (state.db as Record<PropertyKey, unknown>)[property] },
   );
-  return { db: pool, providerDb: pool };
+  return { db: pool, providerDb: pool, authDb: pool };
 });
 
 const { storageRoutes } = await import("./routes.js");

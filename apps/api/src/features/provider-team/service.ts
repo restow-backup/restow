@@ -91,8 +91,8 @@ export interface InvitationResult {
 export interface TeamDeps {
   /** The installation pool: the team tables, users, sessions. */
   providerDb: Database;
-  /** The application pool, for set-password links (better-auth's own tables). */
-  db: Database;
+  /** The auth pool, for set-password links (better-auth's own tables). */
+  authDb: Database;
 }
 
 function problem(
@@ -208,7 +208,7 @@ async function assertScopeAllowed(
   ) {
     return;
   }
-  await requireFeature(providerDb, "providerTeam.tenantScope");
+  await requireFeature("providerTeam.tenantScope", providerDb);
 }
 
 async function assertTenantsExist(providerDb: Database, tenantIds: string[]): Promise<void> {
@@ -252,7 +252,7 @@ async function toDto(
     role,
     allTenants,
     tenantIds: allTenants ? [] : [...(scopes.get(row.id) ?? [])].sort(),
-    status: await statusOf(deps.db, row.id),
+    status: await statusOf(deps.authDb, row.id),
     isYou: row.id === currentUserId,
     addedAt: (row.addedAt ?? row.createdAt).toISOString(),
   };
@@ -313,8 +313,8 @@ async function sendInvitation(
   email: string,
   language: SupportedLanguage,
 ): Promise<{ token: string | null; expiresAt: Date; mailOutcome: MailOutcome }> {
-  const { token, expiresAt } = await issueProviderInvitationLink(deps.db, userId);
-  const mailOutcome = await emailProviderInvitation(deps.db, { email, token, language });
+  const { token, expiresAt } = await issueProviderInvitationLink(deps.authDb, userId);
+  const mailOutcome = await emailProviderInvitation({ email, token, language });
   return { token: revealSetPasswordToken(mailOutcome, token), expiresAt, mailOutcome };
 }
 
@@ -600,7 +600,7 @@ export async function resetAccess(
     return { ...issued, email: target.email };
   });
 
-  const mailOutcome = await emailProviderInvitation(deps.db, {
+  const mailOutcome = await emailProviderInvitation({
     email: link.email,
     token: link.token,
     language,

@@ -1,6 +1,9 @@
 /**
  * Schema invariants that do not need a database:
  *   - every tenant-scoped table is covered by an RLS policy in sql/rls.sql,
+ *   - every other table is classified for the database roles (roles.ts
+ *     `TABLE_ACCESS`: better-auth, installation-level), so a new table cannot
+ *     ship with the application role's default grants by oversight,
  *   - the append-only tables keep their mutation guards,
  *   - the committed Drizzle migration snapshot matches the TypeScript schema
  *     (i.e. nobody changed the schema without regenerating a migration),
@@ -14,6 +17,8 @@ import { fileURLToPath } from "node:url";
 import { is } from "drizzle-orm";
 import { PgTable, getTableConfig, isPgEnum } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
+import { TABLE_ACCESS, tablesWithAccess } from "../roles.js";
+import * as authSchema from "./auth.js";
 import * as schema from "./index.js";
 
 const packageRoot = fileURLToPath(new URL("../../", import.meta.url));
@@ -57,6 +62,49 @@ describe("row level security coverage", () => {
     for (const table of ["audit_log", "audit_anchor", "archive_items", "archive_anchor"]) {
       expect(tableNames).toContain(table);
       expect(rlsSql).toMatch(new RegExp(`CREATE TRIGGER ${table}_append_only`));
+    }
+  });
+});
+
+describe("database role classification", () => {
+  const listed = rlsTenantTables(rlsSql);
+  const authTables = (Object.values(authSchema) as unknown[])
+    .filter((value): value is PgTable => is(value, PgTable))
+    .map((table) => getTableConfig(table).name);
+
+  it("classifies every table: under Row Level Security or in roles.ts TABLE_ACCESS", () => {
+    const unclassified = tableNames.filter(
+      (name) => !listed.includes(name) && TABLE_ACCESS[name] === undefined,
+    );
+    expect(unclassified, "add the table to sql/rls.sql or to TABLE_ACCESS in roles.ts").toEqual([]);
+  });
+
+  it("keeps tenant data out of the auth and installation-only classes, except the provider team", () => {
+    for (const name of tenantScoped) {
+      const access = TABLE_ACCESS[name];
+      if (access !== undefined) {
+        // Carries tenant_id but is the installation role's alone; its policy is a second line.
+        expect([name, access]).toEqual(["provider_member_tenants", "installation"]);
+      }
+    }
+    expect(TABLE_ACCESS.tenants).toBe("tenant");
+  });
+
+  it("names only tables that exist", () => {
+    expect(Object.keys(TABLE_ACCESS).filter((name) => !tableNames.includes(name))).toEqual([]);
+  });
+
+  it("gives exactly better-auth's tables to the auth role", () => {
+    expect(authTables.length).toBeGreaterThan(0);
+    expect([...tablesWithAccess("auth")].sort()).toEqual([...authTables].sort());
+  });
+
+  it("leaves no table without a tenant_id to the application role's default grants", () => {
+    const plain = tableNames.filter(
+      (name) => !tenantScoped.includes(name) && TABLE_ACCESS[name] !== "tenant",
+    );
+    for (const name of plain) {
+      expect(["auth", "installation"], name).toContain(TABLE_ACCESS[name]);
     }
   });
 });
@@ -166,18 +214,7 @@ describe("reference conventions", () => {
   });
 
   it("gives every Restow table a uuid primary key and timestamptz created_at", () => {
-    const authTables = new Set([
-      "user",
-      "session",
-      "account",
-      "verification",
-      "passkey",
-      "organization",
-      "member",
-      "invitation",
-      "two_factor",
-      "rate_limit",
-    ]);
+    const authTables = new Set(tablesWithAccess("auth"));
     for (const table of tableConfigs.filter((t) => !authTables.has(t.name))) {
       const id = table.columns.find((c) => c.name === "id");
       expect(id?.primary, `${table.name}.id`).toBe(true);

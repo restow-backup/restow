@@ -19,6 +19,7 @@ import {
 } from "@restow/db";
 import { and, asc, count, desc, eq, max, ne, sql } from "drizzle-orm";
 import { auth } from "../../auth.js";
+import { authDb } from "../../db.js";
 import { AUDIT_ACTIONS, audit } from "../../lib/audit.js";
 import { authCall } from "../../lib/auth-errors.js";
 import { featureEnabled, requireFeature } from "../../lib/features.js";
@@ -308,8 +309,8 @@ export async function getTenant(db: Database, id: string): Promise<TenantDetailD
     throw notFound();
   }
   const [members, pending, extra] = await Promise.all([
-    row.organizationId ? countMembers(db, row.organizationId) : Promise.resolve(0),
-    row.organizationId ? countPendingInvitations(db, row.organizationId) : Promise.resolve(0),
+    row.organizationId ? countMembers(row.organizationId) : Promise.resolve(0),
+    row.organizationId ? countPendingInvitations(row.organizationId) : Promise.resolve(0),
     withTenantTx(db, id, async (tx) => {
       const [latest] = await tx
         .select({ version: max(tenantKeys.keyVersion) })
@@ -339,16 +340,17 @@ export async function getTenant(db: Database, id: string): Promise<TenantDetailD
   };
 }
 
-async function countMembers(db: Database, organizationId: string): Promise<number> {
-  const [row] = await db
+/** better-auth's tables are read on the auth pool (packages/db roles.ts). */
+async function countMembers(organizationId: string): Promise<number> {
+  const [row] = await authDb
     .select({ value: count() })
     .from(member)
     .where(eq(member.organizationId, organizationId));
   return row?.value ?? 0;
 }
 
-async function countPendingInvitations(db: Database, organizationId: string): Promise<number> {
-  const [row] = await db
+async function countPendingInvitations(organizationId: string): Promise<number> {
+  const [row] = await authDb
     .select({ value: count() })
     .from(invitation)
     .where(and(eq(invitation.organizationId, organizationId), eq(invitation.status, "pending")));
@@ -401,8 +403,9 @@ async function customerNumberTaken(
   return row !== undefined;
 }
 
-async function providerId(db: Database): Promise<string> {
-  const [row] = await db.select({ id: providers.id }).from(providers).limit(1);
+/** The installation's provider row (installation-level, so on the installation pool). */
+async function providerId(providerDb: Database): Promise<string> {
+  const [row] = await providerDb.select({ id: providers.id }).from(providers).limit(1);
   if (!row) {
     throw new ProblemError(409, "Setup required", {
       type: "urn:restow:problem:setup-required",
@@ -451,10 +454,10 @@ export async function createTenant(
   // (the setup wizard creates the own organisation this way); a further one,
   // the own organisation included, needs `tenants.additional`.
   if (await hasTenant(providerDb)) {
-    await requireFeature(db, "tenants.additional");
+    await requireFeature("tenants.additional", providerDb);
   }
-  const scheduledAllowed = await featureEnabled(db, "reports.timed");
-  const provider = await providerId(db);
+  const scheduledAllowed = await featureEnabled("reports.timed", providerDb);
+  const provider = await providerId(providerDb);
   if (await slugTaken(providerDb, input.slug)) {
     throw new ProblemError(409, "Slug already in use", {
       type: "urn:restow:problem:slug-taken",
@@ -478,7 +481,7 @@ export async function createTenant(
     }),
   );
   // better-auth makes the creator an owner; provider admins are not members.
-  await db
+  await authDb
     .delete(member)
     .where(and(eq(member.organizationId, org.id), eq(member.userId, actor.id)));
 
@@ -577,7 +580,7 @@ export async function createTenant(
     });
     return toDto(created);
   } catch (error) {
-    await db.delete(organization).where(eq(organization.id, org.id));
+    await authDb.delete(organization).where(eq(organization.id, org.id));
     throw error;
   }
 }
@@ -693,7 +696,7 @@ export async function replaceTenantNotificationRecipients(
   recipients: ReplaceNotificationRecipientsInput,
   actor: Actor,
 ): Promise<NotificationRecipientDto[]> {
-  const scheduledAllowed = await featureEnabled(db, "reports.timed");
+  const scheduledAllowed = await featureEnabled("reports.timed");
   const rows = await withTenantTx(db, id, async (tx) => {
     const [current] = await tx
       .select({
@@ -816,7 +819,7 @@ export async function updateTenant(
     return row;
   });
   if (patch.name !== undefined && updated.organizationId) {
-    await db
+    await authDb
       .update(organization)
       .set({ name: patch.name })
       .where(eq(organization.id, updated.organizationId));
@@ -859,18 +862,18 @@ export async function deleteTenant(db: Database, id: string, actor: Actor): Prom
   });
   if (marked.organizationId) {
     // Cascades to member and invitation; tenants.organization_id becomes null.
-    await db.delete(organization).where(eq(organization.id, marked.organizationId));
+    await authDb.delete(organization).where(eq(organization.id, marked.organizationId));
   }
   return { ...toDto(marked), organizationId: null };
 }
 
-/** Members and pending invitations of a tenant's organization. */
-export async function listMembers(db: Database, tenant: Tenant): Promise<MembersDto> {
+/** Members and pending invitations of a tenant's organization (better-auth, on the auth pool). */
+export async function listMembers(tenant: Tenant): Promise<MembersDto> {
   if (!tenant.organizationId) {
     return { members: [], invitations: [] };
   }
   const [members, invitations] = await Promise.all([
-    db
+    authDb
       .select({
         userId: member.userId,
         name: user.name,
@@ -882,7 +885,7 @@ export async function listMembers(db: Database, tenant: Tenant): Promise<Members
       .innerJoin(user, eq(user.id, member.userId))
       .where(eq(member.organizationId, tenant.organizationId))
       .orderBy(asc(user.email)),
-    db
+    authDb
       .select()
       .from(invitation)
       .where(
@@ -943,21 +946,24 @@ export async function addMember(
   const email = input.email.toLowerCase();
   const memberRole = membershipRoleFromTenantRole(input.role);
 
-  const [existing] = await db
+  const [existing] = await authDb
     .select({ id: user.id })
     .from(user)
     .where(eq(user.email, email))
     .limit(1);
   if (existing) {
-    if (!actor.isProviderAdmin && (await belongsToOtherTenant(db, existing.id, organizationId))) {
+    if (
+      !actor.isProviderAdmin &&
+      (await belongsToOtherTenant(authDb, existing.id, organizationId))
+    ) {
       throw crossTenantTargetProblem();
     }
-    const wasPending = !(await hasSignInMethod(db, existing.id));
+    const wasPending = !(await hasSignInMethod(authDb, existing.id));
     await authCall(() =>
       auth.api.addMember({ body: { userId: existing.id, organizationId, role: memberRole } }),
     );
     if (wasPending) {
-      await invalidatePreviousLinks(db, existing.id);
+      await invalidatePreviousLinks(authDb, existing.id);
     }
     await audit(db, {
       tenantId: tenant.id,
@@ -973,7 +979,7 @@ export async function addMember(
     return { status: "member", userId: existing.id, email, role: input.role };
   }
 
-  const [pending] = await db
+  const [pending] = await authDb
     .select({ id: invitation.id })
     .from(invitation)
     .where(
@@ -993,7 +999,7 @@ export async function addMember(
 
   const id = randomUUID();
   const expiresAt = new Date(Date.now() + INVITATION_TTL_MS);
-  await db.insert(invitation).values({
+  await authDb.insert(invitation).values({
     id,
     organizationId,
     email,
@@ -1031,7 +1037,7 @@ export async function updateMemberRole(
   actor: Actor,
 ): Promise<MemberDto> {
   const organizationId = requireOrganization(tenant);
-  const [row] = await db
+  const [row] = await authDb
     .update(member)
     .set({ role: membershipRoleFromTenantRole(role) })
     .where(and(eq(member.organizationId, organizationId), eq(member.userId, userId)))
@@ -1039,7 +1045,7 @@ export async function updateMemberRole(
   if (!row) {
     throw new ProblemError(404, "Member not found");
   }
-  const [account] = await db
+  const [account] = await authDb
     .select({ name: user.name, email: user.email })
     .from(user)
     .where(eq(user.id, userId))
@@ -1073,7 +1079,7 @@ export async function removeMember(
   actor: Actor,
 ): Promise<void> {
   const organizationId = requireOrganization(tenant);
-  const removed = await db
+  const removed = await authDb
     .delete(member)
     .where(and(eq(member.organizationId, organizationId), eq(member.userId, userId)))
     .returning({ id: member.id });
@@ -1099,7 +1105,7 @@ export async function cancelInvitation(
   actor: Actor,
 ): Promise<void> {
   const organizationId = requireOrganization(tenant);
-  const updated = await db
+  const updated = await authDb
     .update(invitation)
     .set({ status: "canceled" })
     .where(

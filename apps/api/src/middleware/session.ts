@@ -11,7 +11,7 @@ import type { Context, MiddlewareHandler } from "hono";
 import { routePath } from "hono/route";
 import { type AuthSession, type SessionUser, auth } from "../auth.js";
 import { config } from "../config.js";
-import { db, providerDb } from "../db.js";
+import { authDb, providerDb } from "../db.js";
 import { isApiKeyAuthorization } from "../features/apikeys/tokens.js";
 import { isDemoAccountEmail } from "../lib/demo.js";
 import {
@@ -97,8 +97,9 @@ interface SessionSink {
   set(key: "memberships", value: Membership[]): void;
 }
 
+/** The person's tenant memberships (better-auth's `member`, on the auth pool). */
 async function loadMemberships(userId: string): Promise<Membership[]> {
-  return db
+  return authDb
     .select({ organizationId: member.organizationId, role: member.role })
     .from(member)
     .where(eq(member.userId, userId));
@@ -246,7 +247,7 @@ function applySession(c: SessionSink, state: SessionVariables): void {
  * (the Vite dev server), these are how the browser's origin is recognized.
  */
 async function configuredPublicOrigins(): Promise<string[]> {
-  const [row] = await db.select({ publicUrl: settings.publicUrl }).from(settings).limit(1);
+  const [row] = await providerDb.select({ publicUrl: settings.publicUrl }).from(settings).limit(1);
   return [config.publicUrl, row?.publicUrl]
     .map(originOf)
     .filter((origin): origin is string => origin !== null);

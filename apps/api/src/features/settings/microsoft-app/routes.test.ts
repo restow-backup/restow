@@ -29,7 +29,7 @@ vi.mock("../../../db.js", () => {
           : () => chain(),
     });
   const db = { select: chain };
-  return { db, providerDb: db };
+  return { db, providerDb: db, authDb: db };
 });
 vi.mock("./service.js", () => ({
   getMicrosoftApp: mocks.getMicrosoftApp,

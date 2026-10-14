@@ -86,7 +86,11 @@ describe.skipIf(!testDatabaseAdminUrl)("summary reports (Business) against Postg
     const { resetExtensionsForTesting } = await import("../../../../apps/api/src/extensions.js");
     resetExtensionsForTesting();
     const shared = await import("../../../../apps/api/src/db.js");
-    await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
+    await Promise.all([
+      shared.db.$client.end(),
+      shared.providerDb.$client.end(),
+      shared.authDb.$client.end(),
+    ]);
     await Promise.all([appDb?.$client.end(), providerDb?.$client.end(), owner?.$client.end()]);
     await dropDatabase(testDatabaseAdminUrl as string, DATABASE);
     if (roles) await roles.drop(testDatabaseAdminUrl as string);

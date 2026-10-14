@@ -7,7 +7,7 @@ import { admin, organization, twoFactor } from "better-auth/plugins";
 import { defaultRoles, memberAc } from "better-auth/plugins/organization/access";
 import { eq } from "drizzle-orm";
 import { config } from "./config.js";
-import { db, providerDb } from "./db.js";
+import { authDb, db, providerDb } from "./db.js";
 import { authPlugins } from "./extensions.js";
 import { audit } from "./lib/audit.js";
 import { sessionAssurancePlugin } from "./lib/auth-hooks.js";
@@ -47,7 +47,10 @@ import { ORGANIZATION_RESTORE_ROLE } from "./middleware/rbac.js";
  *
  * better-auth owns its own tables (user, session, account, passkey, organization,
  * member, invitation, two_factor, verification, rate_limit). They are generated with the
- * better-auth CLI and migrated against the same database as the Restow schema.
+ * better-auth CLI and migrated against the same database as the Restow schema,
+ * and reached through the auth pool (db.ts `authDb`), whose role the
+ * application role is not: a flaw in tenant-scoped code cannot read a session
+ * or a second factor.
  *
  * Over HTTP only the endpoints the web client uses are reachable; membership,
  * user and impersonation management run through the audited Restow endpoints
@@ -174,7 +177,10 @@ const betterAuthInstance = betterAuth({
   baseURL: config.publicUrl,
   basePath: "/api/auth",
   secret: config.betterAuthSecret,
-  database: drizzleAdapter(db, { provider: "pg" }),
+  // Its own role (db.ts `authDb`): the only one besides the installation role
+  // that reaches sessions, password hashes, TOTP secrets and passkeys
+  // (packages/db roles.ts).
+  database: drizzleAdapter(authDb, { provider: "pg" }),
   // A failed query's error carries its bound parameters (session tokens,
   // verification values); this logger writes the driver error instead.
   logger: authLogger,
@@ -256,11 +262,14 @@ const betterAuthInstance = betterAuth({
     resetPasswordTokenExpiresIn: PASSWORD_RESET_TOKEN_TTL_SECONDS,
     revokeSessionsOnPasswordReset: true,
     sendResetPassword: async ({ user: person, token }, request) => {
-      void sendPasswordResetMail(db, {
-        userId: person.id,
-        token,
-        language: languageOfRequest(request),
-      });
+      void sendPasswordResetMail(
+        { auth: authDb, installation: providerDb },
+        {
+          userId: person.id,
+          token,
+          language: languageOfRequest(request),
+        },
+      );
     },
     onPasswordReset: async ({ user: person }, request) => {
       await auditPasswordEvent(

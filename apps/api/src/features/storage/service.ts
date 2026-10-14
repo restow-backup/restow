@@ -1343,7 +1343,7 @@ export async function cancelMigration(
   });
   if (pgBossCancel) {
     // Best effort: the row already says cancelled either way.
-    await cancelQueuedJob("storage_migration", pgBossCancel, db).catch(() => undefined);
+    await cancelQueuedJob("storage_migration", pgBossCancel).catch(() => undefined);
   }
   return toMigrationDto(migration, "destination", null);
 }

@@ -13,7 +13,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runMigrations } from "./migrate.js";
-import type { RoleLogin } from "./roles.js";
+import { type RoleLogin, deriveAuthLogin } from "./roles.js";
 import { dropTestDatabase } from "./testing/database.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
@@ -146,6 +146,9 @@ describe.skipIf(!adminUrl)("backup jobs against Postgres", () => {
     try {
       await admin.query(`DROP ROLE IF EXISTS ${tenantLogin.name}`);
       await admin.query(`DROP ROLE IF EXISTS ${installationLogin.name}`);
+      await admin.query(
+        `DROP ROLE IF EXISTS ${deriveAuthLogin(tenantLogin, installationLogin).name}`,
+      );
     } finally {
       await admin.end();
     }

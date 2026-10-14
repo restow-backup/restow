@@ -37,7 +37,7 @@ export const journalReceiverService: BackgroundService = {
       setJournalReceiverState({ phase: "port_not_configured" });
       return null;
     }
-    if (!(await hasCapability(db, "archive.journalReceiver"))) {
+    if (!(await hasCapability(providerDb, "archive.journalReceiver"))) {
       setJournalReceiverState({ phase: "edition_not_licensed" });
       console.log(
         "[journal] JOURNAL_SMTP_PORT is set, but the installation's edition does not include the archive journal receiver (Business/Service Provider); not starting the listener.",

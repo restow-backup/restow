@@ -22,7 +22,7 @@ import { ProblemError } from "../../problem.js";
 export interface KeyTenantDeps {
   db: Database;
   /** The core's feature gate (lib/features.ts `requireFeature`). */
-  requireFeature: (db: Database, feature: GatedFeature) => Promise<void>;
+  requireFeature: (feature: GatedFeature) => Promise<void>;
 }
 
 /** The tenant a key acts on, as loaded for the handlers. */
@@ -107,7 +107,7 @@ export function assertTenantUsable(
 
 /** Provider keys work only while `apiKeys.provider` is on; switching it off retires them. */
 export async function assertProviderKeys(deps: KeyTenantDeps): Promise<void> {
-  await deps.requireFeature(deps.db, "apiKeys.provider");
+  await deps.requireFeature("apiKeys.provider");
 }
 
 /**

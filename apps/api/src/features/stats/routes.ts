@@ -60,7 +60,7 @@ export const requireStatsScope: MiddlewareHandler<StatsEnv> = async (c, next) =>
             "The statistics of all tenants cover every tenant; your role in the provider team is limited to some.",
         });
       }
-      await requireFeature(providerDb, "stats.allTenants");
+      await requireFeature("stats.allTenants", providerDb);
       c.set("statsScope", { kind: "provider" });
       await next();
     });

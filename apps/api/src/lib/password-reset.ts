@@ -127,17 +127,22 @@ const throttle = new ResetMailThrottle();
 export type ResetMailOutcome = "sent" | "skipped" | "failed";
 
 /** The installation's public URL: the one saved in the web interface, else the environment's. */
-async function publicBase(db: Database): Promise<string | null> {
-  const [row] = await db.select({ publicUrl: settings.publicUrl }).from(settings).limit(1);
+async function publicBase(installation: Database): Promise<string | null> {
+  const [row] = await installation
+    .select({ publicUrl: settings.publicUrl })
+    .from(settings)
+    .limit(1);
   return effectivePublicUrl(row?.publicUrl);
 }
 
 /**
  * Send the reset link to `userId`, when everything above allows it. Never
- * throws: the caller has already answered the request.
+ * throws: the caller has already answered the request. The person and their
+ * password are read on the auth pool, the public URL and the mail transport
+ * (installation-level) on the installation pool.
  */
 export async function sendPasswordResetMail(
-  db: Database,
+  pools: { auth: Database; installation: Database },
   input: { userId: string; token: string; language: SupportedLanguage },
   now: number = Date.now(),
 ): Promise<ResetMailOutcome> {
@@ -145,7 +150,7 @@ export async function sendPasswordResetMail(
     if (config.demo.enabled) {
       return "skipped";
     }
-    const [person] = await db
+    const [person] = await pools.auth
       .select({
         email: user.email,
         banned: user.banned,
@@ -157,7 +162,7 @@ export async function sendPasswordResetMail(
     if (!person) {
       return "skipped";
     }
-    const [credential] = await db
+    const [credential] = await pools.auth
       .select({ id: account.id })
       .from(account)
       .where(and(eq(account.userId, input.userId), eq(account.providerId, "credential")))
@@ -165,14 +170,14 @@ export async function sendPasswordResetMail(
     if (!mayResetByMail({ ...person, hasPassword: credential !== undefined })) {
       return "skipped";
     }
-    const base = await publicBase(db);
+    const base = await publicBase(pools.installation);
     if (!base) {
       return "skipped";
     }
     if (!throttle.allow(input.userId, now)) {
       return "skipped";
     }
-    const notifier = await createInstallationNotifier(db);
+    const notifier = await createInstallationNotifier(pools.installation);
     if (!notifier) {
       return "skipped";
     }

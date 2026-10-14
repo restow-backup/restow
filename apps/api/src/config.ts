@@ -89,6 +89,11 @@ export interface Config {
    * tenant is known and for installation-level data (packages/db/sql/rls.sql).
    */
   databaseProviderUrl: string;
+  /**
+   * The auth role (`DATABASE_AUTH_URL`, optional): better-auth and the account
+   * code. Unset, db.ts derives it from the two above (packages/db roles.ts).
+   */
+  databaseAuthUrl?: string;
   betterAuthSecret: string;
   /**
    * `RESTOW_SETUP_TOKEN`: the one-time setup token the wizard asks for
@@ -294,6 +299,7 @@ export function loadConfig(env: Env = process.env): Config {
     operatingMode: toOperatingMode(str(env, "RESTOW_MODE")),
     databaseUrl: str(env, "DATABASE_URL") ?? "",
     databaseProviderUrl: str(env, "DATABASE_PROVIDER_URL") ?? "",
+    databaseAuthUrl: str(env, "DATABASE_AUTH_URL")?.trim() || undefined,
     betterAuthSecret: str(env, "BETTER_AUTH_SECRET") ?? "",
     setupToken: str(env, "RESTOW_SETUP_TOKEN")?.trim() || undefined,
     masterKey: str(env, "RESTOW_MASTER_KEY"),

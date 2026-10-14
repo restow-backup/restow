@@ -244,7 +244,11 @@ describe.skipIf(!testDatabaseAdminUrl)("snapshot routes against Postgres", () =>
 
   afterAll(async () => {
     const shared = await import("../../db.js");
-    await Promise.all([shared.db.$client.end(), shared.providerDb.$client.end()]);
+    await Promise.all([
+      shared.db.$client.end(),
+      shared.providerDb.$client.end(),
+      shared.authDb.$client.end(),
+    ]);
     await db?.$client.end();
     await dropDatabase(testDatabaseAdminUrl as string, DATABASE);
     await rm(storageDir, { recursive: true, force: true });

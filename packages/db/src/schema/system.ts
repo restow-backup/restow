@@ -208,7 +208,8 @@ export const SERVICE_HEARTBEAT_HOSTNAME_CHECK = "service_heartbeats_hostname_not
  * upserts its row (by `instance_id`) on a fixed interval and removes it on a
  * graceful shutdown, so `/readyz` and the system health view can tell a
  * stalled queue from an absent worker. Installation-level, no tenant data and
- * therefore no Row Level Security; both application roles read and write it.
+ * therefore no Row Level Security; the installation role alone reads and
+ * writes it (packages/db roles.ts `TABLE_ACCESS`).
  *
  * `hostname` identifies the machine or container for the operator. It is never
  * an IP address: the check constraint refuses IPv4 and IPv6 literals, so a

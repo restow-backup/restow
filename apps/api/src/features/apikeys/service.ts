@@ -252,7 +252,7 @@ export async function listProviderKeys(
 ): Promise<ProviderKeysDto> {
   return {
     items: await listKeys(db, { kind: "provider" }, now),
-    available: await featureEnabled(db, "apiKeys.provider"),
+    available: await featureEnabled("apiKeys.provider"),
   };
 }
 
@@ -264,7 +264,7 @@ export async function createKey(
   now: Date = new Date(),
 ): Promise<CreatedApiKeyDto> {
   if (scope.kind === "provider") {
-    await requireFeature(db, "apiKeys.provider");
+    await requireFeature("apiKeys.provider");
   }
   return inScope(db, scope, async (tx) => {
     if ((await activeKeyCount(tx, scope, now)) >= MAX_ACTIVE_KEYS) {

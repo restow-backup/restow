@@ -81,7 +81,7 @@ export const JOURNAL_PATH = "/archive/journal";
 
 export const journalRoutes: SessionRouteContribution = {
   path: JOURNAL_PATH,
-  guard: capabilityGuard(db, "archive.journalReceiver"),
+  guard: capabilityGuard(providerDb, "archive.journalReceiver"),
   routes: buildJournalRoutes({
     db,
     providerDb,

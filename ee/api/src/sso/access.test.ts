@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({ licensed: false, experimental: true }));
 
-vi.mock("../../../../apps/api/src/db.js", () => ({ db: {} }));
+vi.mock("../../../../apps/api/src/db.js", () => ({ db: {}, providerDb: {} }));
 vi.mock("../../../../apps/api/src/config.js", () => ({
   config: {
     entra: {

@@ -1,7 +1,7 @@
 /**
  * Apply database migrations: the generated Drizzle migrations first, then the
  * per-tenant RLS policies and append-only triggers (sql/rls.sql), then the
- * tenant and installation roles with their grants (./roles.ts).
+ * tenant, installation and auth roles with their grants (./roles.ts).
  *
  * Uses only runtime dependencies (drizzle-orm, pg) so it works inside the
  * production image, where drizzle-kit (a dev dependency) is absent. Idempotent:
@@ -18,6 +18,7 @@ import {
   DatabaseRoleError,
   ROLE_URL_VARIABLE,
   type RoleLogin,
+  authLoginFromEnvironment,
   provisionRoles,
   roleLoginFromUrl,
 } from "./roles.js";
@@ -30,9 +31,10 @@ const rlsFile = fileURLToPath(new URL("../sql/rls.sql", import.meta.url));
 export interface MigrationOptions {
   /**
    * The login roles to create or update after the schema is current. Omitted
-   * by test fixtures that run everything as the owner.
+   * by test fixtures that run everything as the owner. Without `auth` the
+   * auth role's login is derived from the other two (roles.ts `deriveAuthLogin`).
    */
-  roles?: { tenant: RoleLogin; installation: RoleLogin };
+  roles?: { tenant: RoleLogin; installation: RoleLogin; auth?: RoleLogin };
 }
 
 /** Migrate the database `ownerConnectionString` points at, as its owner. */
@@ -126,8 +128,9 @@ function required(env: Env, name: string): string {
 /**
  * The migration step of the api container: migrate as the owner
  * (DATABASE_MIGRATION_URL), then provision the application role
- * (DATABASE_URL) and the installation role (DATABASE_PROVIDER_URL) with the
- * logins those connection strings carry.
+ * (DATABASE_URL), the installation role (DATABASE_PROVIDER_URL) and the auth
+ * role (DATABASE_AUTH_URL, else derived from the other two) with the logins
+ * those connection strings carry.
  */
 export async function migrateFromEnvironment(env: Env = process.env): Promise<void> {
   const owner = required(env, MIGRATION_URL_VARIABLE);
@@ -139,5 +142,6 @@ export async function migrateFromEnvironment(env: Env = process.env): Promise<vo
     required(env, ROLE_URL_VARIABLE.installation),
     ROLE_URL_VARIABLE.installation,
   );
-  await runMigrations(owner, { roles: { tenant, installation } });
+  const auth = authLoginFromEnvironment(env);
+  await runMigrations(owner, { roles: { tenant, installation, auth } });
 }

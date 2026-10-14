@@ -426,11 +426,8 @@ function toIso(value: Date | null): string | null {
  * are recorded in the installation audit chain (no tenant), which only the
  * installation pool reads.
  */
-export async function loadMailFacts(
-  db: Database,
-  providerDb: Database,
-): Promise<SetupFacts["mail"]> {
-  const [row] = await db
+export async function loadMailFacts(providerDb: Database): Promise<SetupFacts["mail"]> {
+  const [row] = await providerDb
     .select({ transport: settings.mailTransport, notNeeded: settings.mailNotNeeded })
     .from(settings)
     .limit(1);

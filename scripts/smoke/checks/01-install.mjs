@@ -26,7 +26,8 @@ import {
 } from "../lib/restow.mjs";
 import { APP_IMAGE, Stack, WEB_IMAGE } from "../lib/stack.mjs";
 
-const ROLES = ["restow_app", "restow_provider"];
+// The auth role is derived from the application role (packages/db roles.ts `deriveAuthLogin`).
+const ROLES = ["restow_app", "restow_provider", "restow_app_auth"];
 
 /** The licenses label of each build's images (Dockerfile). */
 export const EXPECTED_LICENSES = {

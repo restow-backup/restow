@@ -1,5 +1,5 @@
 import { config } from "../../../../apps/api/src/config.js";
-import { db } from "../../../../apps/api/src/db.js";
+import { providerDb } from "../../../../apps/api/src/db.js";
 import type { AuthRouteGuard, SignInProvider } from "../../../../apps/api/src/extensions.js";
 import { notFoundHandler } from "../../../../apps/api/src/problem.js";
 import { hasCapability } from "../license/gate.js";
@@ -18,7 +18,7 @@ import { MICROSOFT_SIGN_IN_PATHS, microsoftSignInConfigured } from "./config.js"
 export const microsoftSignInGuard: AuthRouteGuard = {
   paths: MICROSOFT_SIGN_IN_PATHS,
   handler: async (c, next) => {
-    if (!config.entra.ssoExperimental || !(await hasCapability(db, "auth.microsoftSso"))) {
+    if (!config.entra.ssoExperimental || !(await hasCapability(providerDb, "auth.microsoftSso"))) {
       return notFoundHandler(c);
     }
     await next();
@@ -31,7 +31,7 @@ export const microsoftSignInProvider: SignInProvider = {
   async available(settings) {
     return (
       microsoftSignInConfigured(config.entra, settings) &&
-      (await hasCapability(db, "auth.microsoftSso"))
+      (await hasCapability(providerDb, "auth.microsoftSso"))
     );
   },
 };
