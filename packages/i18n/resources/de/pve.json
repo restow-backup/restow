@@ -73,7 +73,8 @@
     "ct": "Container",
     "noJob": "Kein Backup-Job",
     "backupNow": "Jetzt sichern",
-    "backupQueued": "Die Sicherung wurde an den Knoten übergeben.",
+    "backupQueued": "Sicherung angefordert. Der Knoten startet sie bei seiner nächsten Meldung, meist innerhalb einer Minute.",
+    "backupAlreadyQueued": "Für diesen Gast wartet bereits eine Sicherung auf den Knoten.",
     "open": "Öffnen",
     "template": "Vorlage (nicht sicherbar)",
     "privileged": "Privilegiert",
@@ -181,7 +182,7 @@
     "vmid": "Neue ID (leer: nächste freie)",
     "start": "Nach der Wiederherstellung starten",
     "submit": "Wiederherstellen",
-    "queued": "Die Wiederherstellung wurde an den Knoten übergeben.",
+    "queued": "Wiederherstellung angefordert. Der Knoten startet sie bei seiner nächsten Meldung, meist innerhalb einer Minute.",
     "privileged": "Privilegierte Container kann Proxmox VE aus einer Backup-Schnittstelle nicht wiederherstellen."
   },
   "readiness": {

@@ -238,7 +238,12 @@ export function SnapshotsTab({
                 }}
               />
             </CardHeader>
-            <CardContent className="p-0">
+            {/* A fixed height: the list scrolls inside, so the path bar and the actions
+                below stay where they are from folder to folder (#60). */}
+            <CardContent
+              className="h-96 overflow-y-auto overscroll-contain p-0 xl:h-[max(24rem,calc(100dvh-26rem))]"
+              data-slot="browser-list"
+            >
               <BrowserBody
                 loading={browse.isPending}
                 error={browse.isError && !browse.isFetchNextPageError ? browse.error : null}

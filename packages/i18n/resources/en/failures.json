@@ -359,7 +359,7 @@
     "job": {
       "interrupted": {
         "title": "The run was interrupted",
-        "why": "{reason, select, shutdown {The worker was stopped or restarted while the run was in progress.} expired {The run reached its time limit.} other {The run was interrupted before it finished.}} {appName} continues from the last checkpoint, nothing that was already saved is lost."
+        "why": "{reason, select, shutdown {The worker was stopped or restarted while the run was in progress.} expired {The run reached its time limit.} other {The run was interrupted before it finished.}} While the run has attempts left, {appName} continues from the last checkpoint and keeps what was already saved. After the last attempt the run ends as failed, and the next run starts over."
       }
     },
     "unknown": {

@@ -174,6 +174,19 @@ export const pveKeys = {
   guest: (tenantId: string | null, id: string) => ["pve", tenantId, "guest", id] as const,
 };
 
+/** How often the overview refreshes: often while a guest waits for its node or backs up (#51). */
+export const OVERVIEW_REFRESH_MS = 30_000;
+export const ACTIVE_REFRESH_MS = 5_000;
+
+export function overviewRefreshMs(data: PveOverview | undefined): number {
+  return data?.guests.some((guest) => guest.activity) ? ACTIVE_REFRESH_MS : OVERVIEW_REFRESH_MS;
+}
+
+/** How often a guest page refreshes: often while one of its runs is still going. */
+export function guestRefreshMs(data: PveGuestDetail | undefined): number {
+  return data?.runs.some((run) => run.status === "running") ? ACTIVE_REFRESH_MS : 15_000;
+}
+
 export const fetchOverview = () => apiFetch<PveOverview>("/pve");
 export const fetchGuest = (id: string) =>
   apiFetch<PveGuestDetail>(`/pve/guests/${encodeURIComponent(id)}`);
@@ -188,10 +201,13 @@ export const revokeNode = (id: string) =>
     body: {},
   });
 export const backupNow = (id: string, verifyRead = false) =>
-  apiFetch<{ taskId: string }>(`/pve/guests/${encodeURIComponent(id)}/backup`, {
-    method: "POST",
-    body: { verifyRead },
-  });
+  apiFetch<{ taskId: string; alreadyQueued?: boolean }>(
+    `/pve/guests/${encodeURIComponent(id)}/backup`,
+    {
+      method: "POST",
+      body: { verifyRead },
+    },
+  );
 export const assignJob = (guestId: string, jobId: string | null) =>
   apiFetch<void>(`/pve/guests/${encodeURIComponent(guestId)}/job`, {
     method: "PUT",

@@ -94,6 +94,11 @@ docker compose pull
 docker compose up -d
 ```
 
+Running jobs get 60 seconds to save a checkpoint when the worker stops
+(`stop_grace_period: 60s` on the `worker` service). A Compose file from
+before 0.3.5 does not have that line, so Docker stops the worker after 10
+seconds; copy it from the current `docker-compose.yml`.
+
 If the updater ever wrote `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE` into `.env`,
 those two lines decide which images the services run. Change them, or remove
 them to go back to building from the source checkout. `RESTOW_UPDATER_IMAGE`
@@ -550,7 +555,12 @@ everyone sees a full-screen notice with the steps and the progress.
 3. **Database backup.** `pg_dump -Fc` of the database into the updater's
    volume, checked for readability; the last three are kept (plus the one a
    run that needs attention depends on, so never fewer than you need).
-4. **Stop worker and scheduler.** Jobs in the queue resume after the restart.
+4. **Stop worker and scheduler.** Running jobs get up to 60 seconds to save a
+   checkpoint and stop. Queued jobs, and interrupted ones that saved a
+   checkpoint, continue after the restart from where they stopped; such an
+   interruption does not use up one of the job's retries. Machine and Proxmox
+   VE backups that run on the agents are not stopped, but may fail if the
+   server is unreachable for longer than the agent retries.
 5. **Start the new version.** The api is recreated with the new image and
    applies its database migrations as it starts.
 6. **Health check.** Waits until the api reports ready and the new version

@@ -19,12 +19,10 @@ import { useTenantScope } from "@/features/endpoints/hooks";
 import { canAccess, useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
-import { type PveGuest, type PveNode, fetchOverview, pveKeys } from "./api.js";
+import { type PveGuest, type PveNode, fetchOverview, overviewRefreshMs, pveKeys } from "./api.js";
 import { BackupSizeCell } from "./backup-size.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { PVE_ROLES, guestTo, pveTo } from "./paths.js";
-
-const REFRESH_MS = 30_000;
 
 /** Where a guest stands with its backups, worst first. */
 export type GuestProtection =
@@ -229,7 +227,7 @@ export function PveInventorySection() {
     queryKey: pveKeys.overview(tenantId),
     queryFn: fetchOverview,
     enabled: enabled && allowed,
-    refetchInterval: REFRESH_MS,
+    refetchInterval: (query) => overviewRefreshMs(query.state.data),
   });
   if (!allowed || !overview.data) {
     return null;
