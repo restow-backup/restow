@@ -8,6 +8,99 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [0.3.6] - 2026-10-15
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.3.6 lets you protect Proxmox VE guests straight from the inventory, gives the
+disk space of the old backup index back without an api restart, shows a notice with a
+button when a service needs a restart, and updates the compose file of older
+installations when the installer runs again. One database migration.
+
+### Breaking Changes
+
+None. `docker-compose.yml` and `.env.example` of the release now carry almost no comments;
+the reference moved to https://docs.restowbackup.com. Nothing in them changed otherwise.
+
+### Added
+
+- Inventory › Proxmox VE: every VM and container has its backup job as a choice (an
+  existing job, none, or a new one) and Back up now. Guests can be ticked one by one, all
+  of a node, or all without a job in one click, and then added to a job or backed up
+  together; New job opens the job dialog and puts the selection into the new job.
+- Installation › Updates: a "Restart required" notice when a service needs a restart, with
+  the reason, a Restart now button (through the updater; api, worker or scheduler only,
+  never while an update runs, and only after a confirmation) and the command to copy, in
+  the installation's directory. Provider admins see a notice on every page. Nothing
+  restarts without a click.
+- Running `install.sh` again on an existing installation updates `docker-compose.yml` to
+  the release in `.env` (checked against the signed SHA256SUMS) and keeps the previous
+  file as `docker-compose.yml.bak-<timestamp>`. `.env` stays as it is.
+
+### Changed
+
+- After the 0.3.5 conversion of the backup index has finished, the api gives the old
+  table's disk space back by itself within about 15 minutes; the api restart is no longer
+  needed.
+- Installation › Updates: an available update stands next to the running version, in the
+  same size and highlighted, instead of only in the status line.
+- Mounts: when the mounter is not running, the command starts with the installation's
+  directory; a compose file from before the mounter is named as such, with the installer
+  command that updates it.
+- Repositories › Add a server path: the dialog is wider and no longer scrolls sideways.
+- The inventory's protection column is called Protection (it shared the heading Backup with
+  the size column).
+- `docker-compose.yml` and `.env.example` keep only the comments a reader must not miss.
+- Dependencies: patch and minor updates (among them better-auth 1.7.8, drizzle-orm 0.45.4,
+  hono 4.13.13, pg 8.23.1, nodemailer 10.1.1, radix-ui 1.8.1, vite 6.4.4) and the pinned
+  GitHub Actions setup-node, upload-artifact and download-artifact.
+
+### Fixed
+
+- Mounting an NFS export that does not exist on the server ended with a bare "no such file
+  or directory". The message now names the export path and how to find the right one
+  (`showmount -e`, Synology paths start with `/volume1/`, NFSv3).
+
+### Security
+
+None.
+
+### Upgrade Notes
+
+New image and one database migration (0034, a small table for restart notices), which runs
+in seconds. No new required environment variables.
+
+- The Restart now button needs the updater of 0.3.6. An updater from before 0.3.6 shows the
+  command instead until it runs the 0.3.6 image.
+- Installations from before 0.3.0 whose compose file lacks the `mounter` service: run the
+  0.3.6 installer again to update it (see docs/MOUNTS.md).
+- Still converting the 0.3.5 backup index: nothing to do; the space comes back by itself
+  once the conversion has finished. On a production installation with 14 million index
+  rows the conversion ran at about 6,000 rows per second after a slow first minutes.
+- Rollback: the migration is not reversible; go back to 0.3.5 only with the database dump
+  taken before the update.
+
+### Known Issues
+
+- No part of Restow records a restart request yet; the notice and the button are in place
+  for updates that need them.
+- The Docker error text for a missing NFS export was taken from Docker's documentation, not
+  from a real failed mount.
+- The known issues of 0.3.5 still apply.
+
+### Verification
+
+Before the tag, on the release branch (main plus the five 0.3.6 branches): lint and
+typecheck of all workspaces, the server installer tests (642), the CI and smoke tooling
+tests (208), and the full unit and Postgres suites on Postgres 16: packages/db 177,
+packages/i18n 259, packages/core 1981, apps/scheduler 65, apps/api 3279 (1 skipped),
+apps/web 3839, apps/worker 444, ee/api 243, ee/licensing 59, ee/web 176, ee/worker 5,
+packages/cli 34, the demo seed 208; 114 Postgres test files, none skipped. The release
+smoke runs in the release pipeline; no Microsoft 365 tenant was used before the tag.
+
 ## [0.3.5] - 2026-10-14
 
 Beta release. Run it alongside your existing backups, not as your only one, until
