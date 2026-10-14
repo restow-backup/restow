@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { EmptyState, ErrorState, RestoreTimeline, StatusBadge } from "@/components/kit";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { MissingDataFoldersNotice } from "@/features/backup-jobs/components/missing-data-folders";
 import { SnapshotVerificationBadge } from "@/features/verify/components/snapshot-verification-badge";
 
 import { toast } from "@/components/ui/sonner";
@@ -227,6 +228,9 @@ export function SnapshotsTab({
                 {t("browser.title", { id: snapshot.shortId })}
               </CardTitle>
               <CardDescription>{t("browser.auditNote")}</CardDescription>
+              {detail.os === "linux" ? (
+                <MissingDataFoldersNotice paths={snapshot.paths} context="restorePoint" />
+              ) : null}
               <PathBar
                 path={path}
                 onNavigate={(next) => {

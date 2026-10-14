@@ -113,3 +113,27 @@ export function pathsProblem(paths: readonly string[]): PathsProblem | null {
   }
   return null;
 }
+
+/**
+ * Where Linux applications keep their data: software and its files under /opt
+ * and /usr/local, databases under /var/lib (PostgreSQL, MySQL; Docker's own
+ * folders there are excluded by default), dumps under /var/backups, web roots and service data under
+ * /srv and /var/www, and the home folders. The server profile's default folders
+ * beyond /etc (packages/core/src/endpoints/config.ts); a job without them backs
+ * up little more than the configuration of a server or LXC container.
+ */
+export const LINUX_DATA_FOLDERS = [
+  "/home",
+  "/root",
+  "/srv",
+  "/var/www",
+  "/opt",
+  "/usr/local",
+  "/var/lib",
+  "/var/backups",
+] as const;
+
+/** The Linux data folders `paths` does not cover, in the order of {@link LINUX_DATA_FOLDERS}. */
+export function uncoveredDataFolders(paths: readonly string[]): string[] {
+  return LINUX_DATA_FOLDERS.filter((folder) => !isCovered(paths, folder));
+}
