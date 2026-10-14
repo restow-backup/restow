@@ -488,6 +488,11 @@ describe("command lines", () => {
     expect(runner.specs).toEqual([]);
   });
 
+  it("restarts a service in place, with the service's own stop grace period", async () => {
+    await ops.composeRestart(["worker"]);
+    expect(runner.argvs).toEqual([["docker", "compose", "-p", "restow", "restart", "worker"]]);
+  });
+
   it("stops, starts and brings services up without dependencies, builds or pulls", async () => {
     await ops.composeStop(["worker", "scheduler"], 60);
     await ops.composeUp(["api"]);
@@ -669,8 +674,10 @@ describe("no shell, no injection", () => {
       await expect(ops.composeUp([value])).rejects.toBeInstanceOf(OpsError);
       await expect(ops.composeStop([value], 1)).rejects.toBeInstanceOf(OpsError);
       await expect(ops.composeStart([value])).rejects.toBeInstanceOf(OpsError);
+      await expect(ops.composeRestart([value])).rejects.toBeInstanceOf(OpsError);
     }
     await expect(ops.composeUp([])).rejects.toBeInstanceOf(OpsError);
+    await expect(ops.composeRestart([])).rejects.toBeInstanceOf(OpsError);
     expect(runner.specs).toEqual([]);
   });
 

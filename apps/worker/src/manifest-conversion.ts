@@ -14,9 +14,11 @@
  * simply continues on the next start.
  *
  * The space of the deleted rows goes back to the file system when the old
- * table is empty: the api's migration step truncates it on its next start
- * (@restow/db migrate.ts `reclaimLegacyManifestSpace`), and a VACUUM, which
- * autovacuum runs by itself, truncates the empty pages as well.
+ * table is empty: the running api truncates it within a quarter of an hour,
+ * as its owner (apps/api lib/legacy-manifest-reclaim.ts, which runs
+ * @restow/db migrate.ts `reclaimLegacyManifestSpace`, as does the migration
+ * step at every api start), and a VACUUM, which autovacuum runs by itself,
+ * truncates the empty pages as well.
  *
  * One worker at a time (a session advisory lock on the installation pool);
  * a tick lists the snapshots that still have old rows on the installation

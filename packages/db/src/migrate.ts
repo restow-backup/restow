@@ -61,16 +61,37 @@ export async function runMigrations(
 }
 
 /** Below this, an empty legacy manifest table is not worth a lock. */
-const LEGACY_RECLAIM_MIN_BYTES = 8 * 1024 * 1024;
+export const LEGACY_RECLAIM_MIN_BYTES = 8 * 1024 * 1024;
+
+/** Anything that runs a query: a pool, a client, or the installation pool of a process. */
+interface SizeQueryable {
+  query<R extends Record<string, unknown>>(text: string): Promise<{ rows: R[] }>;
+}
+
+/**
+ * The size on disk of the 0.3.4 manifest mirror (`manifest_objects`, indexes
+ * included), or null when the table does not exist. Needs no privilege on the
+ * table, so the installation pool can ask it; cheap at any size (it reads the
+ * file sizes, not the rows).
+ */
+export async function legacyManifestBytes(db: SizeQueryable): Promise<number | null> {
+  const { rows } = await db.query<{ bytes: string | null }>(
+    "SELECT pg_total_relation_size(to_regclass('public.manifest_objects'))::text AS bytes",
+  );
+  const bytes = rows[0]?.bytes;
+  return bytes === null || bytes === undefined ? null : Number(bytes);
+}
 
 /**
  * Give the disk space of the 0.3.4 manifest mirror (`manifest_objects`) back
  * once the worker has folded all of it into `manifest_versions`
  * (manifest-versions.ts): the conversion deletes the rows, but Postgres keeps
  * the pages until a VACUUM truncates them, and only the owner may TRUNCATE.
- * Runs on every migration (api start); bounded to a few seconds and skipped
- * whenever the table still has rows, is in use, or the check takes too long,
- * so a start never waits on it.
+ * Runs on every migration (api start), and the running api tries it again now
+ * and then until the space is back (apps/api lib/legacy-manifest-reclaim.ts),
+ * so the conversion finishing needs no restart. Bounded to a few seconds and
+ * skipped whenever the table still has rows, is in use, or the check takes too
+ * long, so a start never waits on it.
  */
 export async function reclaimLegacyManifestSpace(
   pool: Pool,
@@ -82,14 +103,8 @@ export async function reclaimLegacyManifestSpace(
     await client.query("SET LOCAL lock_timeout = '2s'");
     // A table of deleted rows is scanned page by page until VACUUM has run; never wait long for it.
     await client.query("SET LOCAL statement_timeout = '5s'");
-    const { rows } = await client.query<{ bytes: string | null }>(
-      "SELECT pg_total_relation_size(to_regclass('public.manifest_objects'))::text AS bytes",
-    );
-    if (
-      rows[0]?.bytes === null ||
-      rows[0]?.bytes === undefined ||
-      Number(rows[0].bytes) < minBytes
-    ) {
+    const bytes = await legacyManifestBytes(client);
+    if (bytes === null || bytes < minBytes) {
       await client.query("ROLLBACK");
       return false;
     }
@@ -104,7 +119,7 @@ export async function reclaimLegacyManifestSpace(
     await client.query("COMMIT");
     return true;
   } catch {
-    // Busy or slow: the next start tries again (and autovacuum gets there as well).
+    // Busy or slow: the next attempt tries again (and autovacuum gets there as well).
     await client.query("ROLLBACK").catch(() => undefined);
     return false;
   } finally {

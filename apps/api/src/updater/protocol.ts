@@ -431,6 +431,38 @@ export const selfUpdateViewSchema = z.object({
 });
 export type SelfUpdateView = z.infer<typeof selfUpdateViewSchema>;
 
+/**
+ * The services the updater restarts when an administrator asks it to
+ * (`POST /v1/restart`, docs/UPDATING.md "Restart required"): the three roles
+ * of the application image, nothing else. Never the database, the edge, the
+ * updater or the mounter, and never a name taken from a request.
+ */
+export const RESTARTABLE_SERVICES = ["api", "worker", "scheduler"] as const;
+export type RestartableService = (typeof RESTARTABLE_SERVICES)[number];
+
+/** `POST /v1/restart`: restart exactly one service of {@link RESTARTABLE_SERVICES}. */
+export const restartRequestSchema = z.object({ service: z.enum(RESTARTABLE_SERVICES) }).strict();
+export type RestartRequest = z.infer<typeof restartRequestSchema>;
+
+/**
+ * The last restart the updater was asked for, since it started.
+ *
+ *   running    `docker compose restart <service>` is running
+ *   succeeded  the command finished; the service started again
+ *   failed     the command failed (details only in the updater's log)
+ */
+export const RESTART_STATUSES = ["running", "succeeded", "failed"] as const;
+export type RestartStatus = (typeof RESTART_STATUSES)[number];
+
+export const serviceRestartSchema = z.object({
+  // A string, not the enum: an api reading a newer updater must not fail on a service it does not know.
+  service: z.string().max(64),
+  status: z.enum(RESTART_STATUSES),
+  startedAt: iso,
+  finishedAt: iso.nullable().default(null),
+});
+export type ServiceRestart = z.infer<typeof serviceRestartSchema>;
+
 /** `GET /v1/state` (authenticated): everything the api needs. */
 export const stateViewSchema = z.object({
   updaterVersion: z.string().nullable(),
@@ -441,6 +473,15 @@ export const stateViewSchema = z.object({
   capabilities: capabilitiesSchema,
   /** null: an updater that predates its self-update (0.2.0), which never updates itself. */
   selfUpdate: selfUpdateViewSchema.nullable().default(null),
+  /** The services `POST /v1/restart` accepts; empty for an updater that predates it (0.3.5). */
+  restartableServices: z.array(z.string().max(64)).max(20).default([]),
+  /** The last restart asked for since the updater started; null when there was none. */
+  restart: serviceRestartSchema.nullable().default(null),
+  /**
+   * The project directory on the host (`docker compose` runs there), for the commands the
+   * Updates tab shows; null when unknown or for an updater that predates it.
+   */
+  projectDir: z.string().max(500).nullable().default(null),
   serverTime: iso,
 });
 export type StateView = z.infer<typeof stateViewSchema>;
@@ -679,7 +720,7 @@ export type UpdateMessageCode = (typeof UPDATE_MESSAGE_CODES)[number];
  *   invalid_request  the body is not a valid request (422)
  *   not_newer      the target version is not newer than the running one (422)
  *   source_not_allowed  `source` mode for a repository the operator did not allow (409)
- *   busy           a run is scheduled or running (409)
+ *   busy           a run is scheduled or running, or a restart is running (409)
  *   blocked        `capabilities.ready` is false (409, `blockers` lists why)
  *   running        cancel refused, the run already started (409)
  *   not_scheduled  cancel refused, nothing is scheduled (409)

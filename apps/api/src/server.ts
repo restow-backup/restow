@@ -130,6 +130,24 @@ try {
   );
 }
 
+// Restart requests for the api (packages/db restart-requests.ts) were recorded before this
+// process started, so it already runs with what they asked for: they are followed now. A
+// failure never keeps the api from starting; the notice stays until the next start clears it.
+try {
+  const { clearRestartRequests } = await import("@restow/db");
+  const { providerDb: restartProviderDb } = await import("./db.js");
+  await clearRestartRequests(restartProviderDb, "api");
+} catch (error) {
+  console.warn(
+    JSON.stringify({
+      level: "warn",
+      component: "restarts",
+      message: "the restart requests for the api could not be cleared",
+      reason: error instanceof Error ? error.name : "unknown error",
+    }),
+  );
+}
+
 const server = serve({ fetch: app.fetch, port: config.port }, (info) => {
   console.log(
     `${config.productName} API (${config.nodeEnv}) listening on http://localhost:${info.port}`,
@@ -174,6 +192,24 @@ const coreServices = [
   }),
   // The daily update check (only when switched on) and the sync with the opt-in updater.
   { name: "updates", start: async () => updateService.start() },
+  // The old manifest table's disk space, once the worker's conversion emptied it
+  // (lib/legacy-manifest-reclaim.ts): no api restart needed for it.
+  {
+    name: "legacy-manifest-reclaim",
+    start: async () => {
+      const { legacyReclaimFromEnvironment, startLegacyManifestReclaim } = await import(
+        "./lib/legacy-manifest-reclaim.js"
+      );
+      const deps = legacyReclaimFromEnvironment(
+        reportsProviderDb.$client,
+        (level, message, fields) =>
+          (level === "warn" ? console.warn : console.log)(
+            JSON.stringify({ level, component: "manifest", message, ...fields }),
+          ),
+      );
+      return deps ? { close: startLegacyManifestReclaim(deps) } : null;
+    },
+  },
   // A network share whose add waits until no job runs (features/mounts/pending.ts).
   pendingMountService(mountsService, {
     log: (level, message, fields) =>

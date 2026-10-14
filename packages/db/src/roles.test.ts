@@ -181,7 +181,13 @@ describe("TABLE_ACCESS", () => {
     for (const table of ["session", "account", "two_factor", "passkey", "verification"]) {
       expect(TABLE_ACCESS[table], table).toBe("auth");
     }
-    for (const table of ["settings", "license", "providers", "service_heartbeats"]) {
+    for (const table of [
+      "settings",
+      "license",
+      "providers",
+      "service_heartbeats",
+      "restart_requests",
+    ]) {
       expect(TABLE_ACCESS[table], table).toBe("installation");
     }
   });

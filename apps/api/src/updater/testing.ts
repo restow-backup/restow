@@ -465,6 +465,17 @@ export class FakeDockerOps implements DockerOps {
     }
   }
 
+  async composeRestart(services: readonly string[]): Promise<void> {
+    this.hit("composeRestart", services.join(","));
+    for (const name of services) {
+      const container = this.containers.get(name);
+      if (container) {
+        container.state = "running";
+        container.exitCode = null;
+      }
+    }
+  }
+
   async servicesState(): Promise<ServiceState[]> {
     this.hit("servicesState");
     return [...this.containers.entries()].map(([service, container]) => ({

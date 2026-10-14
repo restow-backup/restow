@@ -12,7 +12,8 @@
   "toasts": {
     "saved": "Update-Einstellungen gespeichert.",
     "cancelled": "Das angekündigte Update wurde abgebrochen.",
-    "dismissed": "Der Update-Lauf wurde von dieser Seite entfernt."
+    "dismissed": "Der Update-Lauf wurde von dieser Seite entfernt.",
+    "restartRequested": "Der Updater startet den Dienst {service} neu."
   },
   "errors": {
     "updaterUnavailable": "Der Updater läuft nicht. Starten Sie ihn oder aktualisieren Sie von Hand.",
@@ -24,7 +25,9 @@
     "recentSignIn": "Bestätigen Sie zuerst, dass Sie es sind: Das Ändern der Update-Quelle oder des Zugriffstokens und das Starten eines Updates erfordern eine Anmeldung aus den letzten 10 Minuten.",
     "notVerifiable": "Dieses Release veröffentlicht keinen Image-Digest, daher kann der Updater es nicht prüfen. Aktualisieren Sie von Hand, nachdem Sie das Release geprüft haben.",
     "invalidSource": "Diese Adresse lässt sich nicht als Update-Quelle verwenden. Geben Sie die https-Adresse eines GitHub-, Forgejo- oder Gitea-Repositorys im öffentlichen Internet ein. Ein Server im eigenen Netz funktioniert nur, wenn der Betreiber seinen Host in der .env-Datei auf dem Server einträgt.",
-    "switchRefused": "Diese Installation kann hier nicht den Build wechseln. Wechseln Sie von Hand mit den zwei Zeilen für die .env-Datei."
+    "switchRefused": "Diese Installation kann hier nicht den Build wechseln. Wechseln Sie von Hand mit den zwei Zeilen für die .env-Datei.",
+    "restartNotRequested": "Dieser Dienst muss nicht mehr neu gestartet werden. Die Seite zeigt den aktuellen Stand.",
+    "restartUnsupported": "Der laufende Updater kann noch keine Dienste neu starten. Erstellen Sie ihn neu, oder führen Sie den Befehl auf dem Server aus."
   },
   "form": {
     "unsaved": "Es gibt ungespeicherte Änderungen.",
@@ -686,6 +689,39 @@
         "confirm": "Schlüssel entfernen"
       },
       "removed": "Der hinterlegte Schlüssel ist entfernt."
+    }
+  },
+  "restart": {
+    "title": "Neustart erforderlich",
+    "description": "Eine Änderung wirkt erst, wenn diese Dienste neu gestartet wurden. Nichts startet von selbst neu: Starten Sie sie neu, wenn es Ihnen passt.",
+    "services": {
+      "api": "API",
+      "worker": "Worker",
+      "scheduler": "Scheduler"
+    },
+    "needs": "Dienst {service} neu starten",
+    "reasonUnknown": "Eine Änderung wirkt erst nach einem Neustart.",
+    "reasons": {},
+    "restartNow": "Jetzt neu starten",
+    "restarting": "Der Updater startet den Dienst {service} neu. Dieser Hinweis verschwindet, sobald der Dienst wieder läuft.",
+    "failed": "Der letzte Neustart des Dienstes {service} ist fehlgeschlagen. Führen Sie den Befehl auf dem Server aus; das Protokoll des Updaters nennt den Grund.",
+    "confirmTitle": "Dienst {service} jetzt neu starten?",
+    "confirmBody": "Der Updater führt auf dem Server „docker compose restart {name}“ aus. Während des Neustarts ist der Dienst {service} kurz nicht erreichbar; laufende Sicherungsjobs speichern einen Zwischenstand und laufen danach weiter.",
+    "confirm": "Jetzt neu starten",
+    "keep": "Nicht jetzt",
+    "command": "Oder führen Sie diesen Befehl auf dem Server aus:",
+    "commandOnly": "Führen Sie diesen Befehl auf dem Server aus:",
+    "directoryNote": "Der Befehl geht davon aus, dass die Installation in /opt/restow liegt. Verwenden Sie stattdessen das Verzeichnis Ihrer Installation: das mit ihrer docker-compose.yml und .env.",
+    "availability": {
+      "unavailable": "Der Updater läuft nicht, daher erfolgt der Neustart auf dem Server.",
+      "unsupported": "Der laufende Updater kann noch keine Dienste neu starten. Erstellen Sie ihn mit „docker compose --profile updater up -d updater“ neu, oder starten Sie von Hand neu.",
+      "busy": "Ein Update oder ein anderer Neustart läuft. Starten Sie neu, wenn er abgeschlossen ist.",
+      "demo": "Das ist eine öffentliche Demo. Hier wird nichts neu gestartet."
+    },
+    "ownerOnly": "Einen Dienst von hier aus neu starten darf nur die Rolle Inhaber im Provider-Team.",
+    "banner": {
+      "text": "Neustart erforderlich: {services}.",
+      "link": "Anleitung anzeigen"
     }
   }
 }

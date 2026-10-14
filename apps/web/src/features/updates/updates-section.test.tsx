@@ -1237,7 +1237,16 @@ describe("an announced or running update", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        requests.push(`${init?.method ?? "GET"} ${new URL(String(input), "http://x").pathname}`);
+        const path = new URL(String(input), "http://x").pathname;
+        requests.push(`${init?.method ?? "GET"} ${path}`);
+        if (path.endsWith("/updates/restarts")) {
+          return json({
+            requests: [],
+            updater: "unavailable",
+            lastRestart: null,
+            projectDir: null,
+          });
+        }
         return json(init?.method === "DELETE" ? cancelled : view);
       }),
     );

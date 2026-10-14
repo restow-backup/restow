@@ -65,6 +65,7 @@ describe("authentication", () => {
     ["POST", "/v1/schedule"],
     ["POST", "/v1/cancel"],
     ["POST", "/v1/acknowledge"],
+    ["POST", "/v1/restart"],
   ])("%s %s needs the bearer secret", async (method, path) => {
     const attempts: Record<string, string>[] = [
       {},

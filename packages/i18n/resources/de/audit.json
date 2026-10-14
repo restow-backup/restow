@@ -464,6 +464,9 @@
       },
       "build_switch": {
         "scheduled": "Wechsel auf den vollen Build angekündigt"
+      },
+      "restart": {
+        "requested": "Neustart eines Dienstes angefordert"
       }
     },
     "endpoint": {
@@ -598,7 +601,8 @@
     "pve_guest": "Gast (VM oder Container)",
     "pve_snapshot": "Sicherungsstand (VM oder Container)",
     "pve_job": "Backup-Job (VMs und Container)",
-    "pve_enrollment_token": "Enrollment-Token (Proxmox VE)"
+    "pve_enrollment_token": "Enrollment-Token (Proxmox VE)",
+    "service": "Dienst"
   },
   "sectionDescription": "{scope, select, organisation {Das Protokoll dieser Organisation} other {Das Protokoll dieses Mandanten}}: wer wann was getan hat, mit der Hash-Kette, die beweist, dass nichts verändert wurde.",
   "export": {

@@ -32,6 +32,9 @@ export * from "./roles.js";
 // Process liveness: heartbeat writer and the status /readyz reports.
 export * from "./heartbeat.js";
 
+// Services that need a manual restart, and why (the Updates tab shows them).
+export * from "./restart-requests.js";
+
 // Reporting a failed query without its SQL text and bound parameters.
 export { reportableError, safeErrorMessage, withoutQueryText } from "./errors.js";
 export {

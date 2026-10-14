@@ -10,6 +10,7 @@
 import {
   ServiceHeartbeatReporter,
   assertDatabaseRoles,
+  clearRestartRequests,
   createDb,
   grantQueueAccess,
   heartbeatStore,
@@ -37,6 +38,15 @@ async function main(): Promise<void> {
   const db = createDb(config.databaseUrl);
   const providerDb = createDb(config.databaseProviderUrl);
   const roles = await assertDatabaseRoles({ tenant: db.$client, installation: providerDb.$client });
+  // This process has just started, so the restart requests recorded for its role are
+  // followed (packages/db restart-requests.ts); cleared before it does any work of its own.
+  try {
+    await clearRestartRequests(providerDb, "scheduler");
+  } catch (error) {
+    logger.warn("the restart requests for the scheduler could not be cleared", {
+      err: safeErrorMessage(error),
+    });
+  }
 
   // pg-boss owns its schema as the installation role (like the worker's instance).
   const boss = new PgBoss({ connectionString: config.databaseProviderUrl });

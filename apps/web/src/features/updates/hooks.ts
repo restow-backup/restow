@@ -1,15 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
+  type RestartService,
+  type RestartsView,
   type ScheduleUpdateInput,
   type UpdateSettingsInput,
   type UpdatesView,
   cancelMaintenance,
   checkForUpdates,
   dismissRun,
+  fetchRestarts,
   fetchUpdates,
   patchUpdateSettings,
   removePendingLicenseKey,
+  restartService,
   scheduleUpdate,
   storePendingLicenseKey,
   switchToFullBuild,
@@ -25,6 +29,8 @@ export const updatesKeys = {
   view: ["updates", "view"] as const,
   /** The maintenance state every signed-in user polls (maintenance/use-maintenance.tsx). */
   maintenance: ["updates", "maintenance"] as const,
+  /** Services that need a restart (the notice for provider admins and the Updates tab). */
+  restarts: ["updates", "restarts"] as const,
 };
 
 /** While a maintenance is announced or running the tab follows it closely. */
@@ -107,4 +113,51 @@ export function useCancelMaintenance() {
 export function useDismissRun() {
   const write = useViewWriter();
   return useMutation({ mutationFn: dismissRun, onSuccess: write });
+}
+
+/** How often the open restart requests are read again: rarely, closely while a restart takes effect. */
+export const RESTARTS_IDLE_REFRESH_MS = 60_000;
+export const RESTARTS_QUIET_REFRESH_MS = 5 * 60_000;
+export const RESTARTS_ACTIVE_REFRESH_MS = 5_000;
+
+/** After a restart finished, the restarted service clears its notice when it is up; watch that long. */
+const SETTLE_MS = 3 * 60_000;
+
+export function restartsRefetchInterval(
+  view: RestartsView | undefined,
+  nowMs: number = Date.now(),
+): number | false {
+  if (!view) {
+    return false;
+  }
+  if (view.requests.length === 0) {
+    // Any process may ask for a restart at any time; nobody waits for it to the second.
+    return RESTARTS_QUIET_REFRESH_MS;
+  }
+  const last = view.lastRestart;
+  const settling =
+    last !== null &&
+    last.status !== "failed" &&
+    view.requests.some((request) => request.service === last.service) &&
+    (last.finishedAt === null || nowMs - Date.parse(last.finishedAt) < SETTLE_MS);
+  return settling ? RESTARTS_ACTIVE_REFRESH_MS : RESTARTS_IDLE_REFRESH_MS;
+}
+
+/** The open restart requests; only for provider admins (`enabled`), whom the API answers. */
+export function useRestarts(enabled = true) {
+  return useQuery({
+    queryKey: updatesKeys.restarts,
+    queryFn: fetchRestarts,
+    enabled,
+    staleTime: 15_000,
+    refetchInterval: (query) => restartsRefetchInterval(query.state.data),
+  });
+}
+
+export function useRestartService() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (service: RestartService) => restartService(service),
+    onSuccess: (view) => queryClient.setQueryData(updatesKeys.restarts, view),
+  });
 }

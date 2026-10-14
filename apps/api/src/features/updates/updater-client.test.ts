@@ -29,6 +29,9 @@ function state(overrides: Partial<StateView> = {}): StateView {
       checkedAt: "2026-10-01T09:00:00.000Z",
     },
     selfUpdate: null,
+    restartableServices: [],
+    restart: null,
+    projectDir: null,
     serverTime: "2026-10-01T09:00:00.000Z",
     ...overrides,
   };
@@ -162,6 +165,39 @@ describe("the updater client", () => {
     expect(url).toBe("http://updater:8090/v1/schedule");
     expect(init.method).toBe("POST");
     expect(JSON.parse(init.body as string)).toEqual(request);
+  });
+
+  it("posts a restart with the service name only", async () => {
+    const fetcher = vi.fn(async () =>
+      reply(
+        state({
+          restartableServices: ["api", "worker", "scheduler"],
+          restart: {
+            service: "worker",
+            status: "running",
+            startedAt: "2026-10-01T09:00:00.000Z",
+            finishedAt: null,
+          },
+        }),
+        202,
+      ),
+    );
+    const result = await client(fetcher as unknown as typeof fetch).restart("worker");
+    expect(result.restart?.status).toBe("running");
+    const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("http://updater:8090/v1/restart");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body as string)).toEqual({ service: "worker" });
+    await expect(
+      updaterClientFromEnv({ RESTOW_UPDATER_URL: "" }).restart("api"),
+    ).rejects.toBeInstanceOf(UpdaterUnavailableError);
+  });
+
+  it("reads the state of an updater that predates restarts", async () => {
+    const { restartableServices, restart, projectDir, ...old } = state();
+    const fetcher = vi.fn(async () => reply(old));
+    const result = await client(fetcher as unknown as typeof fetch).state();
+    expect(result).toMatchObject({ restartableServices: [], restart: null, projectDir: null });
   });
 
   it("is switched off by an empty URL and in the demo", async () => {
