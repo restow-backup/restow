@@ -8,6 +8,69 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [0.3.5] - 2026-10-14
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.3.5 makes long first backups of large mailboxes finish instead of running out
+of retries, says plainly how big a Proxmox VE guest's backups are and when a container
+backup is incomplete, warns when a machine job leaves out the folders where Linux
+services keep their data, and adds a restore operator role. No database migration.
+
+### Breaking Changes
+
+None. A Compose file you keep yourself should get `stop_grace_period: 60s` on the
+`worker` service (see Changed); without it, Docker stops the worker after 10 seconds as
+before.
+
+### Added
+
+- A **restore operator** role per tenant: sees and restores every backup of the tenant,
+  without administering it (jobs, storage, users). Creating a user or an invitation now
+  always needs a role to be chosen; there is no preselected one any more.
+- Proxmox VE › VMs & containers and the inventory: a **Backup** column with what the
+  newest restore point contains and what its run added ("9.4 GB in the backup, +2.5 MB
+  new"), with the first backup on hover. The former "Size" column is now called "Disk".
+- Proxmox VE guest page: restore points show their type (first backup, incremental, full
+  read), what they contain and what they added. A container backup that restic could not
+  read completely shows as "Last backup incomplete" / "Succeeded with gaps" with the
+  number of unreadable items, and counts as "Incomplete" in the inventory.
+- Machine jobs and File restore (Linux): a notice names the usual data folders (`/opt`,
+  `/srv`, `/var/lib`, `/home`, …) that the job's paths leave out, with a button to add
+  them.
+
+### Changed
+
+- Installation: "Default repository" and "Network shares" are one page again. Old links
+  to the network shares open it.
+- A backup that is interrupted by its time limit (23 hours) or by a worker restart, after
+  it saved a checkpoint, continues without using up one of its retries, for up to 21
+  days after it first started. The run view shows such an interruption as information,
+  not as an error.
+- Microsoft 365: a Graph request that gets no answer within 5 minutes is retried, instead
+  of hanging until the job's time limit. Requests and throttling waits end with the job.
+- The worker gets 60 seconds to save checkpoints when it stops (`stop_grace_period` in
+  the Compose files, drain time 50 seconds, `WORKER_SHUTDOWN_TIMEOUT_MS`).
+- Proxmox VE: "Back up now" and restore say that the node starts the task at its next
+  check-in, a second click says a backup is already waiting, and the pages refresh every
+  5 seconds while a guest waits for its node or backs up.
+- File restore: the file list has a fixed height and scrolls inside, so the path bar and
+  the actions stay in place.
+
+### Fixed
+
+- A first backup of a large mailbox that needed several days ended as failed after five
+  interruptions, and the next run started over.
+- "The run was interrupted" said nothing was lost also after the last attempt, when the
+  checkpoint is discarded.
+- Archive: header, storage-protection notice, search and results had no space between
+  them.
+- Forms reported no error for a missing field inside a list (for example the role of a
+  new user in the setup wizard).
+
 ## [0.3.4] - 2026-10-11
 
 Beta release. Run it alongside your existing backups, not as your only one, until
