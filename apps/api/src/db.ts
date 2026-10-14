@@ -33,10 +33,25 @@ import { config } from "./config.js";
  * API keys, provider secrets, the installation audit chain) and the
  * uniqueness checks that span tenants. Anything else belongs on `db`.
  */
-export const db: Database = createDb(config.databaseUrl);
+/**
+ * Where a pool without a connection string goes: a port nothing listens on,
+ * so its queries fail at once. An empty string would make node-postgres fall
+ * back to libpq's defaults (localhost:5432, the OS user, no password); a
+ * server there that asks for a password keeps that half-done login for its
+ * whole authentication_timeout, and every DROP DATABASE on it waits that
+ * long. The api refuses to start without its URLs (config.ts); this only
+ * reaches code that imports the module without them, such as a test.
+ */
+const UNCONFIGURED_URL = "postgres://unconfigured@127.0.0.1:1/unconfigured";
+
+function pool(url: string): Database {
+  return createDb(url || UNCONFIGURED_URL);
+}
+
+export const db: Database = pool(config.databaseUrl);
 
 /** The installation pool; see the module comment for what may use it. */
-export const providerDb: Database = createDb(config.databaseProviderUrl);
+export const providerDb: Database = pool(config.databaseProviderUrl);
 
 /** Why the auth pool's connection string could not be built, if it could not. */
 let authUrlProblem: unknown = null;
@@ -56,7 +71,7 @@ function authUrl(): string {
 }
 
 /** The auth pool; see the module comment for what may use it. */
-export const authDb: Database = createDb(authUrl());
+export const authDb: Database = pool(authUrl());
 
 /**
  * Refuse to serve on pools that defeat tenant isolation: the application and

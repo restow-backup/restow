@@ -141,16 +141,6 @@ jobs:
           scripts/smoke/run.test.mjs
           scripts/smoke/lib/*.test.mjs
 
-      - name: Shorten the Postgres login timeout
-        # A backend still in authentication does not answer the barrier that
-        # DROP DATABASE waits for, so one login a test client left half-done
-        # holds every suite's teardown on the server for authentication_timeout
-        # (60 s by default, longer than a teardown hook may take).
-        run: >-
-          psql "$RESTOW_TEST_DATABASE_URL"
-          -c "ALTER SYSTEM SET authentication_timeout = '10s'"
-          -c "SELECT pg_reload_conf()"
-
       - name: Test
         # Root script builds the library packages first (consumers resolve their
         # runtime entry from dist), then runs every workspace's vitest suite,

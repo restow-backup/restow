@@ -1235,13 +1235,16 @@ async function insertRetiredInstallationDefault(tx: DbExecutor, tenantId: string
  * because nothing told it otherwise. This action notices that and finishes
  * the row to match, so the card stops reading "Migrating" forever and, for a
  * `move`, the operator can try again with a fresh job for the same
- * destination.
+ * destination. *
+ * The queued job is withdrawn on `queueDb`, the installation pool unless a
+ * caller (a test with a database of its own) names another.
  */
 export async function cancelMigration(
   db: Database,
   tenantId: string,
   destinationTargetId: string,
   actor: Actor,
+  queueDb?: Database,
 ): Promise<StorageMigrationDto> {
   const { migration, pgBossCancel } = await withTenantTx(db, tenantId, async (tx) => {
     const [migration] = await tx
@@ -1343,7 +1346,7 @@ export async function cancelMigration(
   });
   if (pgBossCancel) {
     // Best effort: the row already says cancelled either way.
-    await cancelQueuedJob("storage_migration", pgBossCancel).catch(() => undefined);
+    await cancelQueuedJob("storage_migration", pgBossCancel, queueDb).catch(() => undefined);
   }
   return toMigrationDto(migration, "destination", null);
 }
