@@ -527,7 +527,13 @@
       "allTaken": "Ein anderer Job umfasst bereits alle Objekte, die in keinem Job sind.",
       "selected": "Nur die Objekte, die ich auswähle",
       "allBody": "Der Job umfasst jedes aktive Postfach, jedes OneDrive und jedes IMAP-Konto, das in keinem anderen Job ist, auch später hinzukommende.",
-      "overridesKept": "{count, plural, one {# Objekt behält seine Abweichungen.} other {# Objekte behalten ihre Abweichungen.}}"
+      "overridesKept": "{count, plural, one {# Objekt behält seine Abweichungen.} other {# Objekte behalten ihre Abweichungen.}}",
+      "proxmox": {
+        "title": "Proxmox-VE-VMs und -Container stehen nicht in dieser Liste",
+        "body": "Diese Liste enthält Server und Clients mit dem {appName}-Agent. VMs und Container auf Proxmox VE sichern Proxmox-VE-Jobs: Legen Sie einen unter VMs & Container an, oder wählen Sie Gäste im Inventar und nutzen Sie „Zu Job hinzufügen“ oder „Neuer Job“. Ein Proxmox-Host selbst erscheint hier erst, wenn der Agent auf ihm installiert ist.",
+        "openGuests": "VMs & Container öffnen",
+        "openInventory": "Proxmox-Gäste im Inventar"
+      }
     },
     "schedule": {
       "title": "Zeitplan",
