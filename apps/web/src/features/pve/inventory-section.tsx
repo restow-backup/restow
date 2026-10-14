@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { ChevronRight, Container } from "lucide-react";
 import * as React from "react";
@@ -6,7 +6,10 @@ import { useTranslation } from "react-i18next";
 
 import { RelativeTime } from "@/components/kit";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { toast } from "@/components/ui/sonner";
 import {
   Table,
   TableBody,
@@ -19,10 +22,20 @@ import { useTenantScope } from "@/features/endpoints/hooks";
 import { canAccess, useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
-import { type PveGuest, type PveNode, fetchOverview, overviewRefreshMs, pveKeys } from "./api.js";
+import {
+  type PveGuest,
+  type PveJob,
+  type PveNode,
+  assignJob,
+  backupNow,
+  fetchOverview,
+  overviewRefreshMs,
+  pveKeys,
+} from "./api.js";
 import { BackupSizeCell } from "./backup-size.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { PVE_ROLES, guestTo, pveTo } from "./paths.js";
+import { JobDialog } from "./pve-page.js";
 
 /** Where a guest stands with its backups, worst first. */
 export type GuestProtection =
@@ -99,13 +112,93 @@ export function groupByNode(nodes: PveNode[], guests: PveGuest[]): NodeGroup[] {
   return sorted;
 }
 
-function NodeRow({ group }: { group: NodeGroup }) {
+/** A guest the selection may hold: present, and not a VM template (PVE cannot back those up). */
+function selectable(guest: PveGuest): boolean {
+  return guestProtection(guest) !== "excluded";
+}
+
+const NEW_JOB = "__new__";
+
+function useInventoryActions() {
+  const { t } = useTranslation(PVE_NAMESPACE);
+  const queryClient = useQueryClient();
+  const { tenantId } = useTenantScope();
+  const refresh = () => void queryClient.invalidateQueries({ queryKey: pveKeys.all(tenantId) });
+  const assign = useMutation({
+    mutationFn: async ({ guestIds, jobId }: { guestIds: string[]; jobId: string | null }) => {
+      for (const guestId of guestIds) {
+        await assignJob(guestId, jobId);
+      }
+      return guestIds.length;
+    },
+    onSuccess: (count, { jobId }) => {
+      toast.success(
+        jobId ? t("inventory.actions.assigned", { count }) : t("inventory.actions.unassigned"),
+      );
+      refresh();
+    },
+    onError: refresh,
+  });
+  const backup = useMutation({
+    mutationFn: async (guestIds: string[]) => {
+      let queued = 0;
+      for (const guestId of guestIds) {
+        const result = await backupNow(guestId);
+        if (!result.alreadyQueued) {
+          queued += 1;
+        }
+      }
+      return { queued, total: guestIds.length };
+    },
+    onSuccess: ({ queued, total }) => {
+      if (queued === 0) {
+        toast.info(t("guests.backupAlreadyQueued"));
+      } else {
+        toast.success(t("inventory.actions.backupQueued", { count: queued, total }));
+      }
+      refresh();
+    },
+    onError: refresh,
+  });
+  return { assign, backup };
+}
+
+function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
   const { t } = useTranslation(PVE_NAMESPACE);
   const [open, setOpen] = React.useState(false);
+  const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
+  const [creating, setCreating] = React.useState(false);
+  const { assign, backup } = useInventoryActions();
   const counts = { protected: 0, failed: 0, incomplete: 0, noJob: 0, never: 0, excluded: 0 };
   for (const guest of group.guests) {
     counts[guestProtection(guest)] += 1;
   }
+  const eligible = group.guests.filter(selectable);
+  // A guest that left (or became a template) since it was ticked drops out of the selection.
+  const chosen = eligible.filter((guest) => selected.has(guest.id)).map((guest) => guest.id);
+  const allChosen = eligible.length > 0 && chosen.length === eligible.length;
+  const busy = assign.isPending || backup.isPending;
+  const withoutJob = eligible.filter((guest) => !guest.jobId).map((guest) => guest.id);
+  const toggle = (id: string, on: boolean) =>
+    setSelected((current) => {
+      const next = new Set(current);
+      if (on) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  const addToJob = (value: string) => {
+    if (value === NEW_JOB) {
+      setCreating(true);
+    } else if (value) {
+      assign.mutate(
+        { guestIds: chosen, jobId: value },
+        { onSuccess: () => setSelected(new Set()) },
+      );
+    }
+  };
   const contentId = `pve-node-${group.key}`;
   return (
     <Collapsible
@@ -145,70 +238,219 @@ function NodeRow({ group }: { group: NodeGroup }) {
         {group.guests.length === 0 ? (
           <p className="px-3 py-2.5 text-sm text-muted-foreground">{t("inventory.noGuests")}</p>
         ) : (
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead className="w-20">{t("guests.vmid")}</TableHead>
-                <TableHead>{t("guests.name")}</TableHead>
-                <TableHead>{t("inventory.running")}</TableHead>
-                <TableHead>{t("guests.job")}</TableHead>
-                <TableHead>{t("guests.backup")}</TableHead>
-                <TableHead>{t("inventory.protection")}</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {group.guests.map((guest) => {
-                const protection = guestProtection(guest);
-                return (
-                  <TableRow key={guest.id} data-slot="pve-inventory-guest">
-                    <TableCell className="tabular-nums">{guest.vmid}</TableCell>
-                    <TableCell className="min-w-0">
-                      <Link {...guestTo(guest.id)} className="font-medium hover:underline">
-                        {guest.name ?? `${guest.kind === "vm" ? "VM" : "CT"} ${guest.vmid}`}
-                      </Link>
-                      <span className="ml-2 text-muted-foreground">
-                        {t(`guests.${guest.kind}`)}
-                      </span>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {guest.status ? t(`inventory.status.${guest.status}`, guest.status) : "–"}
-                    </TableCell>
-                    <TableCell>{guest.jobName ?? t("guests.noJob")}</TableCell>
-                    <TableCell>
-                      <BackupSizeCell guest={guest} />
-                    </TableCell>
-                    <TableCell>
-                      <span className="flex flex-wrap items-center gap-2">
-                        <Badge
-                          variant={PROTECTION_BADGE[protection]}
-                          title={
-                            protection === "failed" ? (guest.lastRunError ?? undefined) : undefined
-                          }
-                        >
-                          {t(`inventory.state.${protection}`)}
-                        </Badge>
-                        {guest.lastSuccessAt ? (
-                          <span className="text-xs text-muted-foreground">
-                            <RelativeTime value={guest.lastSuccessAt} />
-                          </span>
+          <>
+            {chosen.length > 0 ? (
+              <div
+                className="flex flex-wrap items-center gap-2 border-b border-border bg-muted/40 px-3 py-2 text-sm"
+                data-slot="pve-inventory-selection"
+              >
+                <span className="font-medium">
+                  {t("inventory.actions.selected", { count: chosen.length })}
+                </span>
+                <select
+                  className="h-8 rounded-md border bg-background px-2 text-sm"
+                  aria-label={t("inventory.actions.addToJob")}
+                  value=""
+                  disabled={busy}
+                  onChange={(event) => addToJob(event.target.value)}
+                  data-slot="pve-inventory-add-to-job"
+                >
+                  <option value="">{t("inventory.actions.addToJob")}</option>
+                  {jobs.map((job) => (
+                    <option key={job.id} value={job.id}>
+                      {job.name}
+                    </option>
+                  ))}
+                  <option value={NEW_JOB}>{t("inventory.actions.newJob")}</option>
+                </select>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => backup.mutate(chosen)}
+                >
+                  {t("guests.backupNow")}
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setSelected(new Set())}
+                >
+                  {t("inventory.actions.clear")}
+                </Button>
+              </div>
+            ) : withoutJob.length > 0 ? (
+              <div
+                className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2 text-sm"
+                data-slot="pve-inventory-unprotected"
+              >
+                <span className="text-muted-foreground">
+                  {t("inventory.actions.withoutJob", { count: withoutJob.length })}
+                </span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setSelected(new Set(withoutJob))}
+                >
+                  {t("inventory.actions.selectWithoutJob")}
+                </Button>
+              </div>
+            ) : null}
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10">
+                    <Checkbox
+                      aria-label={t("inventory.actions.selectAll")}
+                      checked={allChosen ? true : chosen.length > 0 ? "indeterminate" : false}
+                      disabled={eligible.length === 0}
+                      onCheckedChange={(value) =>
+                        setSelected(
+                          value === true ? new Set(eligible.map((guest) => guest.id)) : new Set(),
+                        )
+                      }
+                    />
+                  </TableHead>
+                  <TableHead className="w-20">{t("guests.vmid")}</TableHead>
+                  <TableHead>{t("guests.name")}</TableHead>
+                  <TableHead>{t("inventory.running")}</TableHead>
+                  <TableHead>{t("guests.job")}</TableHead>
+                  <TableHead>{t("guests.backup")}</TableHead>
+                  <TableHead>{t("inventory.protection")}</TableHead>
+                  <TableHead>
+                    <span className="sr-only">{t("guests.actions")}</span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {group.guests.map((guest) => {
+                  const protection = guestProtection(guest);
+                  const canBackUp = protection !== "excluded";
+                  const label = guest.name ?? `${guest.kind === "vm" ? "VM" : "CT"} ${guest.vmid}`;
+                  return (
+                    <TableRow
+                      key={guest.id}
+                      data-slot="pve-inventory-guest"
+                      data-state={selected.has(guest.id) ? "selected" : undefined}
+                    >
+                      <TableCell>
+                        <Checkbox
+                          aria-label={t("inventory.actions.select", { name: label })}
+                          checked={selected.has(guest.id)}
+                          disabled={!canBackUp}
+                          onCheckedChange={(value) => toggle(guest.id, value === true)}
+                        />
+                      </TableCell>
+                      <TableCell className="tabular-nums">{guest.vmid}</TableCell>
+                      <TableCell className="min-w-0">
+                        <Link {...guestTo(guest.id)} className="font-medium hover:underline">
+                          {label}
+                        </Link>
+                        <span className="ml-2 text-muted-foreground">
+                          {t(`guests.${guest.kind}`)}
+                        </span>
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">
+                        {guest.status ? t(`inventory.status.${guest.status}`, guest.status) : "–"}
+                      </TableCell>
+                      <TableCell>
+                        {canBackUp ? (
+                          <select
+                            className="h-8 max-w-48 rounded-md border bg-background px-2 text-sm"
+                            aria-label={t("inventory.actions.jobOf", { name: label })}
+                            value={guest.jobId ?? ""}
+                            disabled={busy}
+                            data-slot="pve-inventory-job"
+                            onChange={(event) =>
+                              event.target.value === NEW_JOB
+                                ? (setSelected(new Set([guest.id])), setCreating(true))
+                                : assign.mutate({
+                                    guestIds: [guest.id],
+                                    jobId: event.target.value || null,
+                                  })
+                            }
+                          >
+                            <option value="">{t("guests.noJob")}</option>
+                            {jobs.map((job) => (
+                              <option key={job.id} value={job.id}>
+                                {job.name}
+                              </option>
+                            ))}
+                            <option value={NEW_JOB}>{t("inventory.actions.newJob")}</option>
+                          </select>
+                        ) : (
+                          (guest.jobName ?? t("guests.noJob"))
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <BackupSizeCell guest={guest} />
+                      </TableCell>
+                      <TableCell>
+                        <span className="flex flex-wrap items-center gap-2">
+                          <Badge
+                            variant={PROTECTION_BADGE[protection]}
+                            title={
+                              protection === "failed"
+                                ? (guest.lastRunError ?? undefined)
+                                : undefined
+                            }
+                          >
+                            {t(`inventory.state.${protection}`)}
+                          </Badge>
+                          {guest.lastSuccessAt ? (
+                            <span className="text-xs text-muted-foreground">
+                              <RelativeTime value={guest.lastSuccessAt} />
+                            </span>
+                          ) : null}
+                        </span>
+                        {protection === "failed" && guest.lastRunError ? (
+                          <p
+                            className="mt-1 max-w-prose text-xs break-words text-destructive-text"
+                            data-slot="pve-inventory-error"
+                          >
+                            {guest.lastRunError}
+                          </p>
                         ) : null}
-                      </span>
-                      {protection === "failed" && guest.lastRunError ? (
-                        <p
-                          className="mt-1 max-w-prose text-xs break-words text-destructive-text"
-                          data-slot="pve-inventory-error"
-                        >
-                          {guest.lastRunError}
-                        </p>
-                      ) : null}
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-            </TableBody>
-          </Table>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        {canBackUp ? (
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            disabled={busy}
+                            aria-label={t("inventory.actions.backupNowOf", { name: label })}
+                            onClick={() => backup.mutate([guest.id])}
+                          >
+                            {t("guests.backupNow")}
+                          </Button>
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </>
         )}
       </CollapsibleContent>
+      {creating ? (
+        <JobDialog
+          job={null}
+          onClose={() => setCreating(false)}
+          onSaved={(job) =>
+            chosen.length > 0
+              ? assign.mutate(
+                  { guestIds: chosen, jobId: job.id },
+                  { onSuccess: () => setSelected(new Set()) },
+                )
+              : undefined
+          }
+        />
+      ) : null}
     </Collapsible>
   );
 }
@@ -250,7 +492,7 @@ export function PveInventorySection() {
       </div>
       <div className="space-y-2">
         {groups.map((group) => (
-          <NodeRow key={group.key} group={group} />
+          <NodeRow key={group.key} group={group} jobs={overview.data.jobs} />
         ))}
       </div>
     </section>
