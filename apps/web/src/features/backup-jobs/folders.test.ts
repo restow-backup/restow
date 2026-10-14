@@ -12,6 +12,7 @@ import {
   pathsProblem,
   removeFolder,
   toggleFolder,
+  uncoveredDataFolders,
 } from "./folders.js";
 
 describe("path rules, the same as the API's", () => {
@@ -85,5 +86,48 @@ describe("folders cover what is below them", () => {
     expect(baseName("/var/www/")).toBe("www");
     expect(baseName("C:\\Users\\anna")).toBe("anna");
     expect(baseName("/")).toBe("/");
+  });
+});
+
+describe("uncoveredDataFolders (#59)", () => {
+  it("names the data folders a client-style job leaves out", () => {
+    expect(uncoveredDataFolders(["/etc", "/home", "/root", "/srv", "/var/www"])).toEqual([
+      "/opt",
+      "/usr/local",
+      "/var/lib",
+      "/var/backups",
+    ]);
+  });
+
+  it("is empty for the server defaults, a covering parent or the root", () => {
+    const server = [
+      "/etc",
+      "/home",
+      "/root",
+      "/srv",
+      "/var/www",
+      "/opt",
+      "/usr/local",
+      "/var/lib",
+      "/var/backups",
+    ];
+    expect(uncoveredDataFolders(server)).toEqual([]);
+    expect(uncoveredDataFolders(["/"])).toEqual([]);
+    expect(uncoveredDataFolders(["/home", "/root", "/srv", "/var", "/opt", "/usr"])).toEqual([]);
+  });
+
+  it("does not count a subfolder as the whole folder", () => {
+    expect(
+      uncoveredDataFolders([
+        "/opt/paperless",
+        "/home",
+        "/root",
+        "/srv",
+        "/var/www",
+        "/usr/local",
+        "/var/lib",
+        "/var/backups",
+      ]),
+    ).toEqual(["/opt"]);
   });
 });
