@@ -142,6 +142,7 @@ services:
 
   worker:
     <<: *restow-app
+    stop_grace_period: 60s
     environment:
       ROLE: worker
       RESTOW_DEMO: "true"

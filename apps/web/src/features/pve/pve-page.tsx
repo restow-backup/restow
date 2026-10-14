@@ -42,6 +42,7 @@ import {
   backupNow,
   deleteJob,
   fetchOverview,
+  overviewRefreshMs,
   pveKeys,
   revokeNode,
   saveJob,
@@ -51,15 +52,13 @@ import { ConnectDialog } from "./connect-dialog.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { guestTo } from "./paths.js";
 
-const REFRESH_MS = 30_000;
-
 function useOverview() {
   const { tenantId, enabled } = useTenantScope();
   return useQuery({
     queryKey: pveKeys.overview(tenantId),
     queryFn: fetchOverview,
     enabled,
-    refetchInterval: REFRESH_MS,
+    refetchInterval: (query) => overviewRefreshMs(query.state.data),
   });
 }
 
@@ -297,8 +296,12 @@ export function PvePage() {
   const [deleting, setDeleting] = React.useState<PveJob | null>(null);
   const backup = useMutation({
     mutationFn: (id: string) => backupNow(id),
-    onSuccess: () => {
-      toast.success(t("guests.backupQueued"));
+    onSuccess: (result) => {
+      if (result.alreadyQueued) {
+        toast.info(t("guests.backupAlreadyQueued"));
+      } else {
+        toast.success(t("guests.backupQueued"));
+      }
       refresh();
     },
   });

@@ -103,6 +103,9 @@ services:
   # sign in with, before it answers /healthz.
   worker:
     <<: *restow-app
+    # Time for running jobs to save a checkpoint when the worker stops (an
+    # update, docker compose up -d). Docker's default of 10 s cut the drain off.
+    stop_grace_period: 60s
     environment:
       ROLE: worker
     volumes:

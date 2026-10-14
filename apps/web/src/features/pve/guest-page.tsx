@@ -33,6 +33,7 @@ import {
   type PveGuestDetail,
   type PveRestorePoint,
   fetchGuest,
+  guestRefreshMs,
   pveKeys,
   restoreSnapshot,
   verifySnapshot,
@@ -198,7 +199,7 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
     queryKey: pveKeys.guest(tenantId, guestId),
     queryFn: () => fetchGuest(guestId),
     enabled,
-    refetchInterval: 15_000,
+    refetchInterval: (query) => guestRefreshMs(query.state.data),
   });
   const [restoring, setRestoring] = React.useState<PveRestorePoint | null>(null);
   const verify = useMutation({
