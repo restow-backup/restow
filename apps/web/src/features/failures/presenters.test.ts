@@ -87,6 +87,13 @@ describe("failureTone", () => {
     expect(failureTone({ transient: true, retry: null }, { willRetry: false })).toBe("destructive");
     expect(failureTone({ transient: false, retry: null }, { willRetry: true })).toBe("destructive");
     expect(failureTone(null, { willRetry: true })).toBe("destructive");
+    // An interrupted run that continues from its checkpoint is no problem (#47).
+    expect(
+      failureTone({ code: "job.interrupted", transient: true, retry: null }, { willRetry: true }),
+    ).toBe("info");
+    expect(
+      failureTone({ code: "job.interrupted", transient: true, retry: null }, { willRetry: false }),
+    ).toBe("destructive");
   });
 });
 

@@ -74,6 +74,7 @@ import {
 } from "@restow/db";
 import { and, asc, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import type PgBoss from "pg-boss";
+import { type RetryBudget, mayContinueForFree } from "../continuation.js";
 import { isSourceScopedCause, jobFailureRecord, retryStateOf } from "../failure.js";
 import { createProgressReporter } from "../progress.js";
 import type { TenantTx, TenantTxRunner } from "../progress.js";
@@ -470,6 +471,31 @@ export class PgCursorStore implements CursorStore {
 
   async clear(): Promise<void> {
     await this.run((tx) => tx.update(jobs).set({ cursor: null }).where(eq(jobs.id, this.jobId)));
+  }
+}
+
+/** A cursor store that remembers whether the attempt saved a checkpoint (progress worth continuing). */
+export class CheckpointTrackingCursorStore implements CursorStore {
+  private saves = 0;
+
+  constructor(private readonly inner: CursorStore) {}
+
+  /** Whether this attempt saved at least one checkpoint. */
+  get checkpointed(): boolean {
+    return this.saves > 0;
+  }
+
+  load(): Promise<Cursor | null> {
+    return this.inner.load();
+  }
+
+  async save(cursor: Cursor): Promise<void> {
+    await this.inner.save(cursor);
+    this.saves += 1;
+  }
+
+  clear(): Promise<void> {
+    return this.inner.clear();
   }
 }
 
@@ -1479,6 +1505,14 @@ async function finishJob(
   return row ?? null;
 }
 
+/** When the job first started (kept across retries by {@link markJobActive}). */
+async function firstStartedAt(run: TenantTxRunner, jobId: string): Promise<Date | null> {
+  const [row] = await run((tx) =>
+    tx.select({ startedAt: jobs.startedAt }).from(jobs).where(eq(jobs.id, jobId)).limit(1),
+  );
+  return row?.startedAt ?? null;
+}
+
 async function currentStatus(run: TenantTxRunner, jobId: string): Promise<JobStatus | null> {
   const [row] = await run((tx) =>
     tx.select({ status: jobs.status }).from(jobs).where(eq(jobs.id, jobId)).limit(1),
@@ -1519,6 +1553,15 @@ export interface WorkerRuntime {
    * A failing hook is logged and never changes the job's outcome.
    */
   readonly onJobFinished?: (tenantId: string, job: FinishedJob) => Promise<unknown>;
+  /**
+   * Give an interrupted job that made progress its attempt back before it is
+   * failed (continuation.ts, #47); null when pg-boss no longer has it active.
+   * Without it every interruption counts as an attempt.
+   */
+  readonly continueInterrupted?: (
+    queue: QueueName,
+    pgBossJobId: string,
+  ) => Promise<RetryBudget | null>;
 }
 
 // A failed query's own message carries the SQL and the bound parameters; logs
@@ -1570,6 +1613,7 @@ export async function runJob(
   let cancelPoll: ReturnType<typeof setInterval> | null = null;
   let expiryTimer: ReturnType<typeof setTimeout> | null = null;
   let reporter: ReturnType<typeof createProgressReporter>["reporter"] | null = null;
+  const cursorStore = new CheckpointTrackingCursorStore(new PgCursorStore(run, payload.jobId));
 
   const expiryDelay = expiryAbortDelayMs(job.expireInSeconds);
   if (expiryDelay !== null) {
@@ -1757,7 +1801,7 @@ export async function runJob(
       chunkIndex: new PgChunkIndex(run, payload.tenantId),
       snapshots: new PgSnapshotIndex(run, payload.tenantId, logger),
       progress: progress.reporter,
-      cursor: new PgCursorStore(run, payload.jobId),
+      cursor: cursorStore,
       logger,
       signal: controller.signal,
       now: runtime.now,
@@ -1798,13 +1842,33 @@ export async function runJob(
       logger.error("job rejected", errorFields(error));
       return;
     }
-    const status = statusAfterFailure(job.retryCount, job.retryLimit);
+    // An interruption after progress gives its attempt back (#47): long first
+    // backups continue until they finish instead of running out of retries.
+    let budget: RetryBudget = { retryCount: job.retryCount, retryLimit: job.retryLimit };
+    if (runtime.continueInterrupted) {
+      const continues = mayContinueForFree({
+        reason,
+        checkpointed: cursorStore.checkpointed,
+        startedAt: await firstStartedAt(run, payload.jobId).catch(() => null),
+        now: failedAt,
+      });
+      if (continues) {
+        try {
+          budget = (await runtime.continueInterrupted(queue, job.id)) ?? budget;
+        } catch (grantError) {
+          logger.warn("could not give the interrupted job its attempt back", {
+            ...errorFields(grantError),
+          });
+        }
+      }
+    }
+    const status = statusAfterFailure(budget.retryCount, budget.retryLimit);
     const failure = jobFailureRecord({
       error,
       now: failedAt,
       step: snapshot?.phase ?? null,
       abortReason: reason ?? null,
-      retry: status === "queued" ? retryStateOf(job, failedAt) : null,
+      retry: status === "queued" ? retryStateOf({ ...job, ...budget }, failedAt) : null,
       queue,
     });
     await finish(status, errorMessageOf(error), failure);

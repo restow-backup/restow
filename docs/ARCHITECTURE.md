@@ -215,6 +215,12 @@ diese Schlüssel zuerst und öffnet damit das Manifest.
   reservieren Kapazität; 429 verkleinert das Budget, Erfolg vergrößert es (AIMD).
 - Wiederaufnahme: Job speichert Cursor (Ordner, Delta-Token, letzte Item-ID); Neustart
   setzt fort, nichts wird doppelt geladen.
+  Eine Unterbrechung durch das Zeitlimit (95 % der 23-Stunden-Frist von pg-boss) oder einen
+  Neustart verbraucht keinen der Wiederholungsversuche, solange der Versuch einen Checkpoint
+  gespeichert hat, bis 21 Tage nach dem ersten Start (`apps/worker/src/continuation.ts`, #47):
+  eine mehrtägige Erstsicherung eines großen Postfachs läuft bis zum Ende. Graph-Anfragen
+  ohne Antwort brechen nach 5 Minuten ab und werden wiederholt; Anfragen und
+  Throttling-Wartezeiten enden mit dem Job (Abbruch, Zeitlimit, Neustart).
 - Fehlgeschlagene Elemente bleiben als `item_failures` sichtbar mit Grund und werden
   beim nächsten Lauf erneut versucht; nach 3 Läufen in Folge schreibt der Worker eine Warnung ins
   Log (`item.failure.repeated`). Je Lauf bleiben die ersten 200 als Zeilen, alle zählt

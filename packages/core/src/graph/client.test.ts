@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { JobAbortedError } from "../engine/chunkstore.js";
 import {
   FetchGraphClient,
+  GraphResponseTimeoutError,
   MAX_BATCH_SIZE,
   chunkIntoBatches,
   computeBackoffMs,
@@ -241,5 +243,91 @@ describe("requests", () => {
     expect((error as GraphError).code).toBe("SyncStateNotFound");
     expect((error as GraphError).headers.location).toBe("https://x/new");
     expect((error as GraphError).message).not.toContain("token");
+  });
+});
+
+describe("hanging requests and aborted jobs (#47)", () => {
+  /** A fetch that never answers until its signal aborts it, then succeeds on the next call. */
+  function hangingOnce() {
+    let calls = 0;
+    const fetchImpl = ((_url: string, init: RequestInit) => {
+      calls += 1;
+      if (calls === 1) {
+        return new Promise((_, reject) => {
+          init.signal?.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
+        });
+      }
+      return Promise.resolve(
+        new Response(JSON.stringify({ ok: true }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    }) as unknown as typeof fetch;
+    return { fetchImpl, calls: () => calls };
+  }
+
+  it("retries a request Graph does not answer in time, like a 504", async () => {
+    const hanging = hangingOnce();
+    const client = new FetchGraphClient({
+      accessTokenProvider: async () => "token",
+      fetchImpl: hanging.fetchImpl,
+      sleep: async () => {},
+      random: () => 0,
+      responseTimeoutMs: 20,
+    });
+    const res = await client.request<{ ok: boolean }>({ method: "GET", url: "/me" });
+    expect(res.status).toBe(200);
+    expect(hanging.calls()).toBe(2);
+  });
+
+  it("gives up with a timeout error that is classified like undici's, without the query string", async () => {
+    const fetchImpl = ((_url: string, init: RequestInit) =>
+      new Promise((_, reject) => {
+        init.signal?.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+      })) as unknown as typeof fetch;
+    const client = new FetchGraphClient({
+      accessTokenProvider: async () => "token",
+      fetchImpl,
+      sleep: async () => {},
+      maxRetries: 1,
+      responseTimeoutMs: 10,
+    });
+    const error = await client
+      .request({ method: "GET", url: "/me/drive/items/1/content?token=secret" })
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(GraphResponseTimeoutError);
+    expect((error as { code: string }).code).toBe("UND_ERR_HEADERS_TIMEOUT");
+    expect((error as Error).message).not.toContain("secret");
+  });
+
+  it("stops a hanging request and a throttling wait when the job is aborted", async () => {
+    const job = new AbortController();
+    const hanging = hangingOnce();
+    const client = new FetchGraphClient({
+      accessTokenProvider: async () => "token",
+      fetchImpl: hanging.fetchImpl,
+      signal: job.signal,
+      responseTimeoutMs: 60_000,
+    });
+    const pending = client.request({ method: "GET", url: "/me" });
+    job.abort("expired");
+    await expect(pending).rejects.toBeInstanceOf(JobAbortedError);
+
+    const throttled = new AbortController();
+    const waiting = new FetchGraphClient({
+      accessTokenProvider: async () => "token",
+      fetchImpl: (async () =>
+        new Response("", {
+          status: 429,
+          headers: { "retry-after": "3600" },
+        })) as unknown as typeof fetch,
+      signal: throttled.signal,
+    });
+    const slow = waiting.request({ method: "GET", url: "/me" });
+    setTimeout(() => throttled.abort("shutdown"), 10);
+    await expect(slow).rejects.toBeInstanceOf(JobAbortedError);
   });
 });
