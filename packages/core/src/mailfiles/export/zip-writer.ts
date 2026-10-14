@@ -11,7 +11,7 @@
  */
 import { createHash } from "node:crypto";
 import { Readable } from "node:stream";
-import archiver from "archiver";
+import { type Archiver, ZipArchive } from "archiver";
 import { describeExportError, isFatalExportError, statusOfError } from "./errors.js";
 import {
   EXPORT_MANIFEST_NAME,
@@ -85,7 +85,7 @@ export interface ZipBuilderOptions {
 
 /** Appends entries to a ZIP one by one and reports when each is completely written. */
 export class ZipBuilder {
-  readonly archive: archiver.Archiver;
+  readonly archive: Archiver;
   private appended = 0;
   private processed = 0;
   private finished = false;
@@ -95,7 +95,7 @@ export class ZipBuilder {
     private readonly scope: ExportScope,
     options: ZipBuilderOptions = {},
   ) {
-    this.archive = archiver("zip", {
+    this.archive = new ZipArchive({
       zlib: { level: options.level ?? 6 },
       ...(options.comment !== undefined ? { comment: options.comment } : {}),
       ...(options.forceZip64 ? { forceZip64: true } : {}),

@@ -388,7 +388,9 @@ in der App). Astro 7 braucht Node ab 22.12. Typprüfung mit @astrojs/check 0.9 (
   ausschließlich `renderToStaticMarkup` verworfen, weil es Effekte gar nicht ausführen
   kann und den Unmount-Vertrag daher nicht beweisen könnte.
 - tsx (MIT) als Dev-Runner (`watch`) für API, Worker, Scheduler und CLI; im Image läuft
-  kompiliertes JavaScript. commander (MIT) für die Standalone-CLI `restow-restore`.
+  kompiliertes JavaScript. commander (MIT) für die Standalone-CLI `restow-restore`;
+  commander 15 braucht Node ab 22.12 (`engines` im Workspace-Root, die Images laufen auf
+  22.22).
 - Testcontainers für Postgres in CI; Garage (OSS, S3-kompatibel) für Speichertests.
 - Dependabot (siehe unten), GitHub Actions: lint, typecheck, test, build image, Trivy-Scan.
 - Conventional Commits, DCO-Signoff Pflicht, dazu die CLA vor dem ersten externen Pull Request
@@ -454,7 +456,7 @@ jedes per Container-Digest oder Commit-SHA gepinnt.
 - Dependabot (GitHub-Dienst, `.github/dependabot.yml`): wöchentliche Pull Requests für npm, Go,
   GitHub Actions und Docker, Patch- und Minor-Updates gruppiert (seit 0.2.0; vorher je Update ein
   Pull Request, nach 0.1.0 waren das 13 auf einmal), bekannte Major-Migrationen (vite mit
-  @vitejs/plugin-react, vitest, intl-messageformat, archiver) von Hand; jeder Pull Request
+  @vitejs/plugin-react, vitest, intl-messageformat) von Hand; jeder Pull Request
   läuft durch dieselbe CI, einschließlich der Lizenzprüfung, und wird im Entwicklungsbaum
   nachgezogen statt gemergt (docs/CI.md).
   Alternative: Renovate (mehr Konfiguration, ein weiterer Dienst).

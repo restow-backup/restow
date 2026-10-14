@@ -56,8 +56,7 @@ updates:
         update-types: ["version-update:semver-major"]
       # Major migrations done by hand, each as its own change (docs/STACK.md):
       # vite with @vitejs/plugin-react (chunking config, bundle smoke in a browser), vitest
-      # (config and mock semantics), intl-messageformat (peer range of i18next-icu), archiver
-      # (API without default export).
+      # (config and mock semantics), intl-messageformat (peer range of i18next-icu).
       - dependency-name: "vite"
         update-types: ["version-update:semver-major"]
       - dependency-name: "@vitejs/plugin-react"
@@ -67,10 +66,6 @@ updates:
       - dependency-name: "@vitest/*"
         update-types: ["version-update:semver-major"]
       - dependency-name: "intl-messageformat"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "archiver"
-        update-types: ["version-update:semver-major"]
-      - dependency-name: "@types/archiver"
         update-types: ["version-update:semver-major"]
 
   # The endpoint agent (standard library only today, so this stays quiet until a

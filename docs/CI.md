@@ -57,8 +57,8 @@ updates arrive grouped, with a low limit of open pull requests: better-auth with
 passkey plugin, the TanStack packages, then development and production dependencies;
 all actions in one group, all images in one group. Major versions of Node and
 PostgreSQL (and of `@types/node`) are ignored: they are decisions, not updates. Known
-major migrations (vite with @vitejs/plugin-react, vitest, intl-messageformat, archiver)
-are ignored too and done by hand, one at a time. The demo's Dovecot image has its own
+major migrations (vite with @vitejs/plugin-react, vitest, intl-messageformat) are
+ignored too and done by hand, one at a time. The demo's Dovecot image has its own
 entry that never moves the Alpine base automatically: its `dovecot.conf` is Dovecot 2.3
 syntax, so the base moves by hand together with a config check and a demo rebuild.
 
