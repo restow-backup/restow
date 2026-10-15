@@ -36,6 +36,8 @@ const OTHERWISE_PROTECTED: Readonly<Record<string, string>> = {
   "POST /agent/pve/v1/runs/:runId/finish": "HTTP Basic with the PVE node's secret",
   "POST /agent/pve/v1/runs/:runId/incremental": "HTTP Basic with the PVE node's secret",
   "POST /agent/pve/v1/runs/:runId/log": "HTTP Basic with the PVE node's secret",
+  "POST /agent/pve/v1/runs/:runId/progress":
+    "HTTP Basic with the PVE node's secret or the run's restic credential, throttled",
   "POST /agent/pve/v1/runs/:runId/restic": "HTTP Basic with the PVE node's secret",
   "POST /agent/pve/v1/snapshots/:snapshotId/restic": "HTTP Basic with the PVE node's secret",
   "POST /agent/pve/v1/tasks/:taskId/result": "HTTP Basic with the PVE node's secret",
