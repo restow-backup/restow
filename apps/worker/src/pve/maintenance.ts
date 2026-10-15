@@ -41,10 +41,12 @@ import {
 } from "@restow/core";
 import {
   type Database,
+  EndpointRepositoryBusyError,
   type PveGuest,
   type PveJob,
   type PveSnapshot,
   pveEnrollmentTokens,
+  pveGuestRepositoryLockKey,
   pveGuests,
   pveJobs,
   pveNodes,
@@ -54,6 +56,7 @@ import {
   pveTasks,
   secrets,
   tenants,
+  withEndpointRepositoryLock,
 } from "@restow/db";
 import { and, desc, eq, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { appendAuditEntry } from "../audit.js";
@@ -72,6 +75,31 @@ export interface PveDeps {
     WorkerRuntime,
     "keyrings" | "storage" | "logger" | "now" | "shutdownSignal"
   >;
+  /** How long retention and the check wait for the API's reads of a container repository. */
+  readonly repositoryLockWaitMs?: number;
+}
+
+/** How long the work on a container repository waits for the file restore's reads (#62). */
+export const GUEST_REPOSITORY_LOCK_WAIT_MS = 60_000;
+
+/**
+ * Run `work` with a container repository to itself (@restow/db
+ * `pveGuestRepositoryLockKey`): restic forget and prune, and the check, never
+ * overlap the file restore's reads in the API (browse, ZIP downloads), which
+ * share the lock. Throws `EndpointRepositoryBusyError` when the reads go on
+ * for longer than the wait.
+ */
+function withGuestRepository<T>(deps: PveDeps, guestId: string, work: () => Promise<T>) {
+  return withEndpointRepositoryLock(
+    deps.db.$client,
+    pveGuestRepositoryLockKey(guestId),
+    {
+      mode: "exclusive",
+      waitMs: deps.repositoryLockWaitMs ?? GUEST_REPOSITORY_LOCK_WAIT_MS,
+      pollMs: 1000,
+    },
+    work,
+  );
 }
 
 export const PVE_PASS_INTERVAL_MS = 5 * 60 * 1000;
@@ -375,10 +403,12 @@ async function forgetResticSnapshots(deps: PveDeps, guest: PveGuest, ids: string
   if (!access) {
     return;
   }
-  await withRepository(access, async (session) => {
-    await resticForget(session, ids);
-    await resticPrune(session);
-  });
+  await withGuestRepository(deps, guest.id, () =>
+    withRepository(access, async (session) => {
+      await resticForget(session, ids);
+      await resticPrune(session);
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -407,8 +437,14 @@ export async function verifySnapshot(
       return result;
     }
     try {
-      await withRepository(access, (session) => resticCheck(session, "5%"));
+      await withGuestRepository(deps, snap.guestId, () =>
+        withRepository(access, (session) => resticCheck(session, "5%")),
+      );
     } catch (error) {
+      // Someone reads the repository (file restore): checked on a later pass, not failed.
+      if (error instanceof EndpointRepositoryBusyError) {
+        throw error;
+      }
       result.errors.push(error instanceof Error ? error.message.slice(0, 500) : String(error));
     }
     return result;
@@ -465,7 +501,18 @@ export async function verifyDue(deps: PveDeps, now: Date): Promise<number> {
     if (!snap) {
       continue;
     }
-    const verify = await verifySnapshot(deps, snap);
+    let verify: Awaited<ReturnType<typeof verifySnapshot>>;
+    try {
+      verify = await verifySnapshot(deps, snap);
+    } catch (error) {
+      if (error instanceof EndpointRepositoryBusyError) {
+        deps.runtime.logger.info("pve verify: the container repository is being read, later", {
+          guestId: guest.id,
+        });
+        continue;
+      }
+      throw error;
+    }
     await withTenantTx(deps.db, guest.tenantId, async (tx) => {
       await tx.update(pveSnapshots).set({ verify }).where(eq(pveSnapshots.id, snap.id));
       await tx.update(pveGuests).set({ lastVerifyAt: now }).where(eq(pveGuests.id, guest.id));
