@@ -58,7 +58,11 @@ const OWNER_EMAIL = "owner@example.com";
 const PASSWORD = "correct-horse-battery-1";
 const SETUP_TOKEN = "7QKMZ-RT4VX-9HBNP-2WCAE";
 
-const at = (day: number, hour = 12) => new Date(Date.UTC(2026, 9, day, hour));
+// Day 15 at noon is the moment the tests run: the states depend on the real clock (a job is
+// overdue a day past its period), so fixed calendar dates would turn them over by themselves.
+const NOW = Date.now();
+const at = (day: number, hour = 12) =>
+  new Date(NOW + (day - 15) * 24 * 3_600_000 + (hour - 12) * 3_600_000);
 const INTERVAL = { kind: "interval" as const, intervalMinutes: 240, timeZone: "UTC" };
 
 function one<T>(rows: readonly T[]): T {
