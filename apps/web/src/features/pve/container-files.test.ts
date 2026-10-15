@@ -55,5 +55,20 @@ describe("container file restore (#62)", () => {
   it("names a container by its PVE name, else by its VMID", () => {
     expect(containerName({ vmid: 300, name: "paperless" })).toBe("paperless");
     expect(containerName({ vmid: 300, name: null })).toBe("CT 300");
+    expect(containerName({ vmid: 100, name: null, kind: "vm" })).toBe("VM 100");
+  });
+
+  it("lists a VM's restore points once the server reads their disks (browsable)", () => {
+    const points = containerPoints(
+      {
+        snapshots: [
+          point({ id: "vm1", kind: "vm", browsable: true, contents: null }),
+          // An older server: a VM's point is not browsable.
+          point({ id: "vm0", kind: "vm" }),
+        ],
+      },
+      (time) => time,
+    );
+    expect(points.map((p) => p.id)).toEqual(["vm1"]);
   });
 });

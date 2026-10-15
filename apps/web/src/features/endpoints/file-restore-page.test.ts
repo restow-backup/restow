@@ -48,7 +48,7 @@ describe("Proxmox VE guests in file restore (#62)", () => {
     }) as PveGuest;
   const last = { at: "2026-10-14T22:00:00.000Z", contains: 1, added: 1, unreadable: 0 };
 
-  it("offers the containers with a restore point and counts the VMs with one", () => {
+  it("offers the containers and the VMs with a restore point", () => {
     const result = restorableGuests({
       clusters: [],
       jobs: [],
@@ -63,8 +63,8 @@ describe("Proxmox VE guests in file restore (#62)", () => {
       ],
     });
     expect(result.containers.map((g) => g.id)).toEqual(["a", "old", "b"]);
-    expect(result.vms).toBe(1);
-    expect(restorableGuests(undefined)).toEqual({ containers: [], vms: 0 });
+    expect(result.vms.map((g) => g.id)).toEqual(["vm"]);
+    expect(restorableGuests(undefined)).toEqual({ containers: [], vms: [] });
   });
 
   it("finds a container by name or VMID", () => {
@@ -73,6 +73,7 @@ describe("Proxmox VE guests in file restore (#62)", () => {
     expect(containerMatches(ct, "412")).toBe(true);
     expect(containerMatches(ct, "ct 412")).toBe(true);
     expect(containerMatches(ct, "db")).toBe(false);
+    expect(containerMatches(guest({ kind: "vm", vmid: 100, name: "web" }), "vm 100")).toBe(true);
   });
 });
 

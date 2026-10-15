@@ -366,12 +366,15 @@ export const deleteJob = (id: string) =>
 /** Entries one page of a container folder holds; "Load more" fetches the next page. */
 export const FILES_PAGE = 1000;
 
-/** One page of a folder of a container restore point (audited by the server). */
+/**
+ * One page of a folder of a container or VM restore point (audited by the server). At `/` of a
+ * VM, `unreadable` names the file systems of its disks the server cannot read, with the reason.
+ */
 export function fetchContainerFiles(
   snapshotId: string,
   path: string,
   cursor?: string | null,
-): Promise<BrowseResult> {
+): Promise<BrowseResult & { unreadable?: { name: string; reason: string }[] }> {
   const search = new URLSearchParams({ path, limit: String(FILES_PAGE) });
   if (cursor) {
     search.set("cursor", cursor);

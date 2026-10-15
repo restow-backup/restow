@@ -51,9 +51,46 @@ export function containerPoints(
     }));
 }
 
-/** The name a container goes by: its name in PVE, else "CT <vmid>". */
-export function containerName(guest: { vmid: number; name: string | null }): string {
-  return guest.name ?? `CT ${guest.vmid}`;
+/** The name a guest goes by: its name in PVE, else "CT <vmid>" or "VM <vmid>". */
+export function containerName(guest: {
+  vmid: number;
+  name: string | null;
+  kind?: "vm" | "ct";
+}): string {
+  return guest.name ?? `${guest.kind === "vm" ? "VM" : "CT"} ${guest.vmid}`;
+}
+
+/**
+ * At the top of a VM restore point: what the folders are (one per file system of its disks),
+ * and which file systems the server cannot read. The root listing is the browser's own query.
+ */
+function VmVolumes({ pointId }: { pointId: string }) {
+  const format = useEndpointFormat();
+  const { t } = format;
+  const { tenantId, enabled } = useTenantScope();
+  const root = useInfiniteQuery({
+    queryKey: pveKeys.files(tenantId, pointId, "/"),
+    queryFn: ({ pageParam }) => fetchContainerFiles(pointId, "/", pageParam),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor,
+    enabled,
+    retry: false,
+    staleTime: 10 * 60_000,
+  });
+  const unreadable = root.data?.pages[0]?.unreadable ?? [];
+  return (
+    <div className="space-y-1 text-xs text-muted-foreground" data-slot="vm-volumes">
+      <p>{t("vmFiles.volumes")}</p>
+      {unreadable.length > 0 ? (
+        <p data-slot="vm-unreadable">
+          {t("vmFiles.unreadable")}{" "}
+          {unreadable
+            .map((v) => t("vmFiles.unreadableItem", { name: v.name, reason: v.reason }))
+            .join("; ")}
+        </p>
+      ) : null}
+    </div>
+  );
 }
 
 function ContainerPointDetails({ point }: { point: ContainerPoint }) {
@@ -76,12 +113,19 @@ function ContainerPointDetails({ point }: { point: ContainerPoint }) {
 const renderPoint = (point: ContainerPoint) => <ContainerPointDetails point={point} />;
 
 /**
- * The restore points of a Proxmox VE container and a browser for the files in one of them (#62):
- * the same timeline, folder list and ZIP download as for a machine (features/restore/files). The
- * server reads the container's restic repository; every folder and download is audited. Files are
- * only downloaded: a container is put back as a whole under VMs & containers.
+ * The restore points of a Proxmox VE container or VM and a browser for the files in one of them
+ * (#62): the same timeline, folder list and ZIP download as for a machine
+ * (features/restore/files). The server reads a container's restic repository, a VM's disks with
+ * its sandboxed file system reader; every folder and download is audited. Files are only
+ * downloaded: a guest is put back as a whole under VMs & containers.
  */
-export function ContainerRestorePoints({ guestId }: { guestId: string }) {
+export function ContainerRestorePoints({
+  guestId,
+  kind = "ct",
+}: {
+  guestId: string;
+  kind?: "vm" | "ct";
+}) {
   const format = useEndpointFormat();
   const { t } = format;
   const { tenantId, enabled } = useTenantScope();
@@ -92,6 +136,8 @@ export function ContainerRestorePoints({ guestId }: { guestId: string }) {
     retry: false,
   });
   const name = guest.data ? containerName(guest.data.guest) : "";
+  const vm = (guest.data?.guest.kind ?? kind) === "vm";
+  const texts = vm ? "vmFiles" : "containerFiles";
 
   const adapter: FileSourceAdapter<ContainerPoint> = {
     // Method syntax: the adapter's use* members are hooks, called at the browser's top level.
@@ -128,27 +174,31 @@ export function ContainerRestorePoints({ guestId }: { guestId: string }) {
     canRestore: false,
     note: (
       <>
-        {t("containerFiles.downloadOnly")}{" "}
+        {t(`${texts}.downloadOnly`)}{" "}
         <Link
           {...guestTo(guestId)}
           className="font-medium text-foreground underline underline-offset-2"
         >
-          {t("containerFiles.openGuest")}
+          {t(`${texts}.openGuest`)}
         </Link>
       </>
     ),
     timelineLabel: t("containerFiles.timelineLabel", { name }),
     emptyTitle: t("containerFiles.emptyTitle"),
-    emptyDescription: t("containerFiles.emptyDescription"),
+    emptyDescription: t(`${texts}.emptyDescription`),
     renderDetails: renderPoint,
-    // The whole root file system is backed up: what it holds, and no hint about a job's folders.
-    renderBrowserExtra: (point, openPath) => (
-      <RestorePointContents
-        paths={point.contents}
-        onOpen={openPath}
-        labelOf={(path) => (path === "/" ? t("browser.contents.wholeContainer") : path)}
-      />
-    ),
+    // A container: its whole root file system, and no hint about a job's folders. A VM: its file
+    // systems, and those the server cannot read.
+    renderBrowserExtra: (point, openPath) =>
+      vm ? (
+        <VmVolumes pointId={point.id} />
+      ) : (
+        <RestorePointContents
+          paths={point.contents}
+          onOpen={openPath}
+          labelOf={(path) => (path === "/" ? t("browser.contents.wholeContainer") : path)}
+        />
+      ),
     errorKey: endpointErrorKey,
     isRetryable: isRetryableProblem,
   };
@@ -157,8 +207,8 @@ export function ContainerRestorePoints({ guestId }: { guestId: string }) {
     const missing = guest.error instanceof ApiError && guest.error.status === 404;
     return (
       <ErrorState
-        title={missing ? t("containerFiles.notFound") : t("containerFiles.loadError")}
-        description={missing ? t("containerFiles.notFoundDescription") : undefined}
+        title={missing ? t(`${texts}.notFound`) : t(`${texts}.loadError`)}
+        description={missing ? t(`${texts}.notFoundDescription`) : undefined}
         error={guest.error}
         onRetry={missing ? undefined : () => void guest.refetch()}
         retrying={guest.isFetching}

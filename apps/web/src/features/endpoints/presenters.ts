@@ -839,6 +839,8 @@ const PROBLEM_KEYS: Readonly<Record<string, string>> = {
   // The file restore of Proxmox VE containers (apps/api features/pve/files.ts, #62).
   "urn:restow:problem:pve-files-not-a-container": "endpoints:errors.containerNotBrowsable",
   "urn:restow:problem:pve-files-no-repository": "endpoints:errors.containerNoRepository",
+  // The file restore of VMs: the sandboxed reader could not read the file system.
+  "urn:restow:problem:pve-vm-files-unreadable": "endpoints:errors.vmFilesUnreadable",
   [RECENT_SIGN_IN_PROBLEM]: "endpoints:errors.recentSignIn",
 };
 

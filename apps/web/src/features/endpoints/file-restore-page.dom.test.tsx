@@ -210,19 +210,18 @@ describe("FileRestorePage", () => {
       ]),
     );
     await open();
-    expect(page.text()).toContain("Machines and containers");
+    expect(page.text()).toContain("Machines, VMs and containers");
     expect(page.text()).toContain("Proxmox VE containers");
     const row = page.byText("[data-slot='container-list'] button", "paperless");
     expect(row.textContent).toContain("CT 300 on pve1");
     expect(page.byText("[data-slot='container-list'] button", "CT 301")).toBeTruthy();
     expect(page.maybeByText("[data-slot='container-list'] button", "new")).toBeNull();
     expect(page.maybeByText("[data-slot='container-list'] button", "web")).toBeNull();
-    // VMs are restored as a whole: a note says where.
-    const note = document.querySelector("[data-slot='vm-note']");
-    expect(note?.textContent).toContain("1 VM is restored as a whole, not file by file.");
-    expect(note?.querySelector("a")?.getAttribute("href")).toBe("/virtualization");
+    // VMs have a group of their own: their disks' files are browsed the same way.
+    const vm = page.byText("[data-slot='vm-list'] button", "web");
+    expect(vm.textContent).toContain("VM 100 on pve1");
     // With containers there, the one machine is not chosen on its own.
-    expect(page.text()).toContain("Choose a machine or container");
+    expect(page.text()).toContain("Choose a machine, VM or container");
 
     await page.click(row);
     expect(navigate).toHaveBeenCalledWith({
@@ -239,12 +238,12 @@ describe("FileRestorePage", () => {
     await open();
     const search = page.container.querySelector<HTMLInputElement>("input[type='search']");
     if (!search) throw new Error("no search");
-    expect(search.placeholder).toBe("Search machines and containers");
+    expect(search.placeholder).toBe("Search machines, VMs and containers");
     await page.type(search, "410");
     expect(page.maybeByText("[data-slot='container-list'] button", "paperless")).toBeNull();
     expect(page.byText("[data-slot='container-list'] button", "dns")).toBeTruthy();
     await page.type(search, "nothing like it");
-    expect(page.text()).toContain("No machine or container matches the search.");
+    expect(page.text()).toContain("No machine, VM or container matches the search.");
   });
 
   it("shows a container's restore points, what they contain, and offers the ZIP only", async () => {
