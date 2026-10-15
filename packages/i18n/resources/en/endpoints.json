@@ -664,7 +664,14 @@
     "loadMore": "Load more",
     "loadingMore": "Loading more entries",
     "loadMoreError": "More entries could not be loaded.",
-    "loadMoreRetry": "Try again"
+    "loadMoreRetry": "Try again",
+    "contents": {
+      "label": "This restore point contains:",
+      "open": "Open {path}",
+      "jobHint": "Missing a folder? Only the folders of the machine's backup job are backed up.",
+      "editJob": "Edit the job",
+      "noJobHint": "Missing a folder? Only the folders of a backup job are backed up, and this machine is in none at the moment."
+    }
   },
   "restore": {
     "title": "Restore to the machine",

@@ -594,4 +594,36 @@ describe("SnapshotsTab", () => {
     expect(downloadButton().disabled).toBe(false);
     expect(page.text()).toContain("files cannot be restored onto it");
   });
+
+  it("says what the restore point contains and why a folder may be missing (#59)", async () => {
+    fetchSnapshots.mockResolvedValue([
+      snapshot(FULL_ID, "2026-09-29T22:00:00.000Z", { paths: ["/etc", "/home"] }),
+    ]);
+    await open({ os: "linux", job: { id: "job-1", name: "Servers" } });
+    await pickNewest();
+    const contents = document.querySelector("[data-slot='restore-point-contents']");
+    expect(contents?.textContent).toContain("This restore point contains:/etc,/home");
+    const hint = document.querySelector("[data-slot='restore-point-contents-hint']");
+    expect(hint?.textContent).toBe(
+      "Missing a folder? Only the folders of the machine's backup job are backed up. Edit the job",
+    );
+    expect(hint?.querySelector("a")?.getAttribute("href")).toBe("/jobs/definitions/job-1");
+    // A path opens its folder.
+    await page.click(page.byText("[data-slot='restore-point-contents'] button", "/home"));
+    expect(fetchBrowse).toHaveBeenLastCalledWith(ENDPOINT_ID, FULL_ID, "/home", null);
+  });
+
+  it("says so when the machine is in no job, and opens no Windows path", async () => {
+    fetchSnapshots.mockResolvedValue([
+      snapshot(FULL_ID, "2026-09-29T22:00:00.000Z", { paths: ["C:\\Users"] }),
+    ]);
+    await open({ os: "windows", job: null });
+    await pickNewest();
+    const contents = document.querySelector("[data-slot='restore-point-contents']");
+    expect(contents?.textContent).toContain("C:\\Users");
+    expect(contents?.querySelector("button")).toBeNull();
+    expect(document.querySelector("[data-slot='restore-point-contents-hint']")?.textContent).toBe(
+      "Missing a folder? Only the folders of a backup job are backed up, and this machine is in none at the moment.",
+    );
+  });
 });

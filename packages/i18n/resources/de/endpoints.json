@@ -664,7 +664,14 @@
     "loadMore": "Mehr laden",
     "loadingMore": "Weitere Einträge werden geladen",
     "loadMoreError": "Weitere Einträge konnten nicht geladen werden.",
-    "loadMoreRetry": "Erneut versuchen"
+    "loadMoreRetry": "Erneut versuchen",
+    "contents": {
+      "label": "Dieser Sicherungsstand enthält:",
+      "open": "{path} öffnen",
+      "jobHint": "Fehlt ein Ordner? Gesichert werden nur die Ordner aus dem Backup-Job des Rechners.",
+      "editJob": "Job bearbeiten",
+      "noJobHint": "Fehlt ein Ordner? Gesichert werden nur die Ordner eines Backup-Jobs, und dieser Rechner ist derzeit in keinem."
+    }
   },
   "restore": {
     "title": "Auf den Rechner wiederherstellen",
