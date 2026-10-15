@@ -20,7 +20,7 @@ How this document marks evidence:
 
 Note on sources: the egress proxy of this research session blocked every `*.proxmox.com` host
 (pve.proxmox.com, git.proxmox.com, lists/lore, forum, bugzilla), as well as qemu.readthedocs.io and
-helpcenter.veeam.com. I therefore read the canonical code from the GitHub mirrors, which hold the
+a vendor help center. I therefore read the canonical code from the GitHub mirrors, which hold the
 same git history as git.proxmox.com. Release-note wording (for example, whether Proxmox ever called
 the API a "technology preview") could not be checked against pve.proxmox.com and is marked as such.
 
@@ -260,7 +260,7 @@ provider storage, `backup-start` runs after `backup_init()` has set the target n
   **These are the reference to port from**: the DirectoryExample covers `nbd` and `file-handle`, bitmaps,
   `directory` CT and both restore mechanisms [S/I].
 - **Bareos** discussed integrating via `new_backup_provider()` on pve-devel (2025-04) [S].
-- **Veeam** ("Veeam Plug-in for Proxmox VE") uses worker VMs in its own architecture [S]. Whether it
+- At least one commercial plug-in for Proxmox VE uses worker VMs in its own architecture [S]. Whether it
   uses the provider API: unverified. Vinchin and Storware advertise "agentless" PVE backup via the PVE
   API [S]. I found no open-source production provider to reuse.
 
@@ -889,8 +889,7 @@ pve-devel mailing list (seen through search results only; host blocked here):
 
 Release and press (search snippets): <https://www.proxmox.com/en/about/press-releases/proxmox-virtual-environment-8-4>,
 <https://www.storagereview.com/news/proxmox-ve-8-4-arrives-with-new-tools-for-live-migration-and-backup-integration>.
-Third parties (snippets): Veeam <https://helpcenter.veeam.com/docs/vbproxmoxve/userguide/infrastructure_components.html>,
-overview <https://devopscube.com/proxmox-backup-software/>.
+Third parties (snippets): overview <https://devopscube.com/proxmox-backup-software/>.
 
 QEMU NBD dirty-bitmap metadata context: <https://qemu.readthedocs.io/en/master/interop/nbd.html> (blocked here;
 semantics taken from the qemu-server code comment). NBD protocol: <https://github.com/NetworkBlockDevice/nbd/blob/master/doc/proto.md>.

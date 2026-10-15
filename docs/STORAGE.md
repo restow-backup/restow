@@ -320,8 +320,8 @@ delay of a directory (Restow's own promise, not the storage's).
 processes, and none of the options at hand holds against the people it would be sold
 against: `chattr +i` needs `CAP_LINUX_IMMUTABLE`, which root on the host, and any process
 that reaches the Docker socket (the mounter has it), can use to lift it again, so an
-attacker on the Restow server lifts it as easily as Restow sets it. A "hardened
-repository" in the Veeam sense needs a separate machine that Restow cannot log in to. For a
+attacker on the Restow server lifts it as easily as Restow sets it. A truly hardened
+repository needs a separate machine that Restow cannot log in to. For a
 directory Restow therefore offers only the **deletion delay** (`delayed_deletion`):
 Restow's own code refuses to delete or overwrite a locked file (the classes above) until
 N days after it was written, following the history of the setting, so a period lowered
