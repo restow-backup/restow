@@ -17,6 +17,8 @@ export interface PveNode {
   problems: string[];
   pluginLoaded: boolean | null;
   restoresAllowed: boolean | null;
+  /** What the node runs beyond backups and restores ("boot_test"); missing on older servers. */
+  capabilities?: string[];
 }
 
 export interface PveCluster {
@@ -129,6 +131,8 @@ export interface PveJob {
     mode?: "snapshot" | "suspend" | "stop";
     retention?: { keepDaily: number; keepWeekly: number; keepMonthly: number };
     restoreTest?: { enabled: boolean; targetStorage?: string };
+    /** Boot tests of the job's guests; off when missing. */
+    bootTest?: PveBootTestSettings;
   };
   enabled: boolean;
   nextRunAt: string | null;
@@ -140,6 +144,43 @@ export interface PveJob {
   /** The scheduled round while it goes; null otherwise (0.4.0 on). */
   round?: PveJobRound | null;
 }
+
+export type PveBootTestSchedule = "off" | "weekly" | "after_backup";
+
+export interface PveBootTestSettings {
+  schedule: PveBootTestSchedule;
+  maxMemoryMiB?: number;
+  timeoutSeconds?: number;
+}
+
+/**
+ * A boot test of a restore point (docs/PVE.md, "Boot test"): green only when the restored VM's
+ * QEMU guest agent answered (a container: its init runs), yellow when the VM only started, red
+ * when the restore, the start or the boot failed; skipped and error say why it did not run.
+ */
+export type PveBootTestOutcome = "green" | "yellow" | "red" | "skipped" | "error";
+
+export interface PveBootTest {
+  outcome: PveBootTestOutcome;
+  reason: string;
+  message: string;
+  checkedAt: string;
+  durationMs: number;
+  bootSeconds: number | null;
+  guestAgent: boolean;
+  tempVmid: number | null;
+  storage: string | null;
+  cleanedUp: boolean;
+}
+
+/** Why a guest's restore points cannot be boot-tested; null: they can. */
+export type PveBootTestBlocker =
+  | "no_node"
+  | "node_unsupported"
+  | "restores_off"
+  | "privileged"
+  | "template"
+  | null;
 
 export interface PveOverview {
   clusters: PveCluster[];
@@ -181,11 +222,13 @@ export interface PveRestorePoint {
     bitmapMode: string;
   }[];
   verify: { checkedAt: string; blocks: number; mismatched: number; errors: string[] } | null;
+  /** The newest rated boot test of the restore point; missing on older servers. */
+  bootTest?: PveBootTest | null;
 }
 
 export interface PveRun {
   id: string;
-  kind: "backup" | "restore" | "restore_test" | "verify";
+  kind: "backup" | "restore" | "restore_test" | "verify" | "boot_test";
   origin: "restow" | "pve";
   status: "running" | "succeeded" | "failed";
   archiveName: string | null;
@@ -197,6 +240,8 @@ export interface PveRun {
     /** The first items restic could not read (nodes from 0.4.0 on). */
     unreadablePaths?: string[];
     consistency?: string | null;
+    /** The outcome of a boot test run. */
+    bootTest?: PveBootTest;
   } | null;
   /** How far the run is while it runs; missing on servers before 0.4.0. */
   progress?: PveRunProgress | null;
@@ -209,6 +254,12 @@ export interface PveGuestDetail {
   runs: PveRun[];
   /** What a follow-up backup added on average; missing on servers before 0.3.7. */
   followUp?: PveFollowUpAverage | null;
+  /** Whether the guest's node can boot-test, the job's schedule, the last test; missing on older servers. */
+  bootTest?: {
+    blocker: PveBootTestBlocker;
+    schedule: PveBootTestSchedule;
+    lastBootTestAt: string | null;
+  };
 }
 
 /** A one-time enrollment token and the one command that connects a node with it. */
@@ -295,6 +346,11 @@ export const verifySnapshot = (id: string) =>
     method: "POST",
     body: {},
   });
+export const requestBootTest = (id: string) =>
+  apiFetch<{ taskId: string; alreadyQueued: boolean }>(
+    `/pve/snapshots/${encodeURIComponent(id)}/boot-test`,
+    { method: "POST", body: {} },
+  );
 export const saveJob = (id: string | null, input: JobInput) =>
   id
     ? apiFetch<PveJob>(`/pve/jobs/${encodeURIComponent(id)}`, {

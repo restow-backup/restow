@@ -130,6 +130,12 @@
     "modeStop": "Stoppen",
     "restoreTest": "Monatliche Restore-Prüfung (stellt einen Gast im Pool restow-restore wieder her und löscht ihn danach)",
     "restoreTestStorage": "Speicher für die Restore-Prüfung",
+    "bootTest": "Startprüfung",
+    "bootTestHint": "Weist nach, dass ein Sicherungsstand startet: Der Knoten stellt ihn als temporären Gast ohne Netzwerkverbindung wieder her, startet ihn, wartet auf den QEMU Guest Agent und löscht den Gast danach wieder. Braucht Arbeitsspeicher und Platz auf dem Knoten.",
+    "bootTestOff": "Aus",
+    "bootTestWeekly": "Wöchentlich (neuester Sicherungsstand)",
+    "bootTestAfterBackup": "Nach jeder Sicherung",
+    "bootTestMemory": "Nur Gäste mit höchstens so viel Arbeitsspeicher starten (MiB)",
     "save": "Speichern",
     "delete": "Löschen",
     "deleteTitle": "Backup-Job {name} löschen?",
@@ -173,7 +179,8 @@
       "backup": "Sicherung",
       "restore": "Wiederherstellung",
       "restore_test": "Restore-Prüfung",
-      "verify": "Restore-Prüfung"
+      "verify": "Restore-Prüfung",
+      "boot_test": "Startprüfung"
     },
     "origin": {
       "restow": "von {appName} angestoßen",
@@ -199,7 +206,38 @@
     "diskAllocated": "Disk: {size} zugewiesen",
     "unreadablePaths": "Nicht gelesen: {paths}",
     "unreadableMore": "und {count} weitere",
-    "browseFiles": "Dateien durchsuchen"
+    "browseFiles": "Dateien durchsuchen",
+    "bootTest": "Startprüfung",
+    "bootTestNow": "Jetzt Start prüfen",
+    "bootTestQueued": "Startprüfung angefordert. Der Knoten beginnt sie bei seiner nächsten Meldung, sobald er Platz dafür hat.",
+    "bootTestAlready": "Eine Startprüfung dieses Sicherungsstands wartet bereits.",
+    "bootTestNone": "Nicht geprüft",
+    "bootTestOutcome": {
+      "green": "Gestartet",
+      "yellow": "Gestartet, keine Antwort",
+      "red": "Nicht gestartet",
+      "skipped": "Übersprungen",
+      "error": "Nicht durchgeführt"
+    },
+    "bootTestDetail": {
+      "green": "Der QEMU Guest Agent des wiederhergestellten Gasts hat nach {seconds} s geantwortet.",
+      "greenContainer": "Der Init-Prozess des wiederhergestellten Containers läuft.",
+      "yellow": "Die wiederhergestellte VM ist gestartet und lief weiter, aber ihr QEMU Guest Agent hat nicht geantwortet. Installieren Sie den Guest Agent in der VM, um den Start nachzuweisen.",
+      "red": "Der Sicherungsstand ist nicht gestartet: {message}"
+    },
+    "bootTestSchedule": {
+      "off": "Startprüfungen: im Backup-Job aus",
+      "weekly": "Startprüfungen: wöchentlich",
+      "after_backup": "Startprüfungen: nach jeder Sicherung"
+    },
+    "bootTestLast": "Letzte Startprüfung:",
+    "bootTestBlocked": {
+      "no_node": "Keine Startprüfung möglich: restow-pve ist auf dem Knoten des Gasts nicht installiert.",
+      "node_unsupported": "Keine Startprüfung möglich: restow-pve auf dem Knoten des Gasts führt keine Startprüfungen aus (aktualisieren Sie es, oder sie sind dort ausgeschaltet).",
+      "restores_off": "Keine Startprüfung möglich: Wiederherstellungen sind auf dem Knoten des Gasts ausgeschaltet.",
+      "privileged": "Keine Startprüfung möglich: Proxmox VE kann privilegierte Container nicht über eine Backup-Schnittstelle wiederherstellen.",
+      "template": "Keine Startprüfung für VM-Vorlagen."
+    }
   },
   "restore": {
     "title": "Als neuen Gast wiederherstellen",
@@ -224,7 +262,10 @@
       "red": "Die Restore-Prüfung des neuesten Sicherungsstands ist fehlgeschlagen: Blöcke stimmten nicht überein oder ließen sich nicht lesen.",
       "unverified": "Ein Sicherungsstand ist vorhanden, wurde aber noch nicht geprüft.",
       "noBackup": "Nichts zu prüfen, bis die erste Sicherung abgeschlossen ist.",
-      "noBackupOverdue": "Keine Sicherung innerhalb von 24 Stunden, nachdem der Gast in einen Backup-Job kam."
+      "noBackupOverdue": "Keine Sicherung innerhalb von 24 Stunden, nachdem der Gast in einen Backup-Job kam.",
+      "bootGreen": "Der neueste Sicherungsstand ist in seiner Startprüfung gestartet: Der Guest Agent hat geantwortet.",
+      "bootYellow": "Der neueste Sicherungsstand ist in seiner Startprüfung gestartet, aber sein Guest Agent hat nicht geantwortet: Es ist nicht nachgewiesen, dass das System funktioniert.",
+      "bootRed": "Der neueste Sicherungsstand ist in seiner Startprüfung nicht gestartet."
     }
   },
   "inventory": {

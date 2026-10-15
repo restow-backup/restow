@@ -38,10 +38,12 @@ import {
   type PveRestorePoint,
   type PveRun,
   pveKeys,
+  requestBootTest,
   restoreSnapshot,
   verifySnapshot,
 } from "./api.js";
 import { BackupProgress } from "./backup-progress.js";
+import { BootTestBadge, BootTestFacts, bootTestVariant } from "./boot-test.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { pveTo } from "./paths.js";
 
@@ -139,19 +141,30 @@ function RestoreDialog({
 
 /**
  * Green only for proof: a restore or a restore check that completed. A
- * backup that completed is neutral, running work is informational.
+ * backup that completed is neutral, running work is informational. A boot
+ * test is green only when the restored guest answered (its outcome decides).
  */
-function runTone(run: {
-  kind: string;
-  status: string;
-}): "success" | "outline" | "destructive" | "info" {
-  if (run.status === "failed") {
-    return "destructive";
-  }
+function runTone(
+  run: Pick<PveRun, "kind" | "status" | "stats">,
+): "success" | "outline" | "destructive" | "info" | "warning" | "muted" {
   if (run.status === "running") {
     return "info";
   }
+  if (run.kind === "boot_test" && run.stats?.bootTest) {
+    return bootTestVariant(run.stats.bootTest.outcome);
+  }
+  if (run.status === "failed") {
+    return "destructive";
+  }
   return run.kind === "backup" ? "outline" : "success";
+}
+
+/** The label of a run's status; a finished boot test says how it ended. */
+function runStatusKey(run: Pick<PveRun, "kind" | "status" | "stats">): string {
+  if (run.status !== "running" && run.kind === "boot_test" && run.stats?.bootTest) {
+    return `guest.bootTestOutcome.${run.stats.bootTest.outcome}`;
+  }
+  return `guest.${run.status}`;
 }
 
 function VerifyBadge({ point }: { point: PveRestorePoint }) {
@@ -221,7 +234,7 @@ function RunStatus({ run, name }: { run: PveRun; name: string }) {
   }
   return (
     <div className="space-y-1.5">
-      <Badge variant={runTone(run)}>{t(`guest.${run.status}`)}</Badge>
+      <Badge variant={runTone(run)}>{t(runStatusKey(run))}</Badge>
       {run.status === "running" && run.kind === "backup" ? (
         <BackupProgress progress={run.progress} name={name} />
       ) : null}
@@ -283,6 +296,14 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
       void queryClient.invalidateQueries({ queryKey: pveKeys.all(tenantId) });
     },
   });
+  const bootTest = useMutation({
+    mutationFn: (id: string) => requestBootTest(id),
+    onSuccess: (result) => {
+      toast.success(t(result.alreadyQueued ? "guest.bootTestAlready" : "guest.bootTestQueued"));
+      void queryClient.invalidateQueries({ queryKey: pveKeys.all(tenantId) });
+    },
+    onError: (error) => toast.error((error as Error).message),
+  });
   const data = detail.data;
   const title = data ? `${data.guest.name ?? data.guest.vmid} (${data.guest.vmid})` : "";
   return (
@@ -322,6 +343,7 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
           {t("guest.restorePoints")}
         </h2>
         {data?.followUp ? <FollowUpNote followUp={data.followUp} /> : null}
+        {data?.bootTest ? <BootTestFacts facts={data.bootTest} /> : null}
         {data && data.snapshots.length === 0 ? (
           <p className="text-sm text-muted-foreground">{t("guest.noRestorePoints")}</p>
         ) : (
@@ -333,6 +355,7 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
                 <TableHead title={t("guest.sizeHint")}>{t("guest.size")}</TableHead>
                 <TableHead title={t("guest.addedHint")}>{t("guest.added")}</TableHead>
                 <TableHead>{t("guest.verify")}</TableHead>
+                {data?.bootTest ? <TableHead>{t("guest.bootTest")}</TableHead> : null}
                 <TableHead />
               </TableRow>
             </TableHeader>
@@ -359,6 +382,11 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
                   <TableCell>
                     <VerifyBadge point={p} />
                   </TableCell>
+                  {data?.bootTest ? (
+                    <TableCell>
+                      <BootTestBadge test={p.bootTest} kind={p.kind} />
+                    </TableCell>
+                  ) : null}
                   <TableCell className="space-x-1 text-right">
                     {data && (p.browsable ?? p.kind === "ct") ? (
                       // A container's files, one by one (#62): File restore with it chosen.
@@ -377,6 +405,17 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
                     >
                       {t("guest.verifyNow")}
                     </Button>
+                    {data?.bootTest && data.bootTest.blocker === null ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        disabled={bootTest.isPending}
+                        onClick={() => bootTest.mutate(p.id)}
+                      >
+                        {t("guest.bootTestNow")}
+                      </Button>
+                    ) : null}
                     <Button
                       type="button"
                       size="sm"

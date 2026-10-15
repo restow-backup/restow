@@ -212,6 +212,10 @@ export interface GuestReadinessRow {
   latestSnapshotId: string | null;
   /** In an enabled backup job; false: nothing backs it up any more. */
   inJob: boolean;
+  /** What decided the rating: the read-back of blocks or the boot test; missing on older servers. */
+  basis?: "verify" | "boot_test" | null;
+  /** The newest rated boot test of the newest restore point; missing on older servers. */
+  bootTest?: { outcome: string; reason: string; checkedAt: string } | null;
 }
 
 /**

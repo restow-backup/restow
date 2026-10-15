@@ -15,16 +15,25 @@ import { guestTo } from "./paths.js";
 /**
  * A VM or container of Proxmox VE as a row of the recovery readiness table (features/verify),
  * next to the mailboxes and the machines: the same six columns (object, readiness, last check,
- * result, latest backup, actions), rated by the restore check of its newest restore point.
+ * result, latest backup, actions), rated by the restore check and the boot test of its newest
+ * restore point.
  */
 
 /** The translation key (namespace `pve`) of the result line of a guest. */
-export function guestResultKey(row: Pick<GuestReadinessRow, "state" | "overdue">): string {
+export function guestResultKey(
+  row: Pick<GuestReadinessRow, "state" | "overdue" | "basis">,
+): string {
   if (row.state === "no_backup") {
     return row.overdue ? "readiness.result.noBackupOverdue" : "readiness.result.noBackup";
   }
-  // A restore point is rated green or red by its check; yellow does not occur for guests.
-  return row.state === "yellow" ? "readiness.result.green" : `readiness.result.${row.state}`;
+  // The boot test decided: green only when the guest agent answered, yellow when it only started.
+  if (row.basis === "boot_test") {
+    if (row.state === "green") return "readiness.result.bootGreen";
+    if (row.state === "yellow") return "readiness.result.bootYellow";
+    if (row.state === "red") return "readiness.result.bootRed";
+  }
+  // The read-back rates green or red; yellow comes only from a boot test.
+  return row.state === "yellow" ? "readiness.result.bootYellow" : `readiness.result.${row.state}`;
 }
 
 export function GuestReadinessRowView({ row }: { row: GuestReadinessRow }) {

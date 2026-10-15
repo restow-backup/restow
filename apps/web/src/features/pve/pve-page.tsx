@@ -44,6 +44,7 @@ import {
   fetchOverview,
   type JobInput,
   overviewRefreshMs,
+  type PveBootTestSchedule,
   type PveGuest,
   type PveJob,
   type PveNode,
@@ -56,6 +57,9 @@ import { BackupSizeCell } from "./backup-size.js";
 import { ConnectDialog } from "./connect-dialog.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { guestTo } from "./paths.js";
+
+/** The memory limit a job's boot tests start with (MiB), as the server's default. */
+const DEFAULT_BOOT_TEST_MEMORY_MIB = 8192;
 
 function useOverview() {
   const { tenantId, enabled } = useTenantScope();
@@ -116,6 +120,12 @@ export function JobDialog({
     job?.settings.restoreTest?.targetStorage ?? "",
   );
   const [testEnabled, setTestEnabled] = React.useState(job?.settings.restoreTest?.enabled ?? false);
+  const [bootSchedule, setBootSchedule] = React.useState<PveBootTestSchedule>(
+    job?.settings.bootTest?.schedule ?? "off",
+  );
+  const [bootMemory, setBootMemory] = React.useState(
+    job?.settings.bootTest?.maxMemoryMiB ?? DEFAULT_BOOT_TEST_MEMORY_MIB,
+  );
   // Templates and guests that are gone cannot be backed up; they are not offered.
   const offered = (guests ?? []).filter(
     (guest) => guest.present && !(guest.kind === "vm" && guest.template),
@@ -160,6 +170,11 @@ export function JobDialog({
           testEnabled && testStorage
             ? { enabled: true, targetStorage: testStorage }
             : { enabled: false },
+        bootTest: {
+          ...job?.settings.bootTest,
+          schedule: bootSchedule,
+          maxMemoryMiB: Math.max(256, Math.round(bootMemory) || DEFAULT_BOOT_TEST_MEMORY_MIB),
+        },
       },
     });
   };
@@ -229,6 +244,33 @@ export function JobDialog({
                 id="pve-job-test-storage"
                 value={testStorage}
                 onChange={(e) => setTestStorage(e.target.value)}
+              />
+            </div>
+          ) : null}
+          <div className="space-y-1" data-slot="pve-job-boot-test">
+            <Label htmlFor="pve-job-boot-test">{t("jobs.bootTest")}</Label>
+            <select
+              id="pve-job-boot-test"
+              className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+              value={bootSchedule}
+              onChange={(e) => setBootSchedule(e.target.value as PveBootTestSchedule)}
+            >
+              <option value="off">{t("jobs.bootTestOff")}</option>
+              <option value="weekly">{t("jobs.bootTestWeekly")}</option>
+              <option value="after_backup">{t("jobs.bootTestAfterBackup")}</option>
+            </select>
+            <p className="text-xs text-muted-foreground">{t("jobs.bootTestHint")}</p>
+          </div>
+          {bootSchedule !== "off" ? (
+            <div className="space-y-1">
+              <Label htmlFor="pve-job-boot-memory">{t("jobs.bootTestMemory")}</Label>
+              <Input
+                id="pve-job-boot-memory"
+                type="number"
+                min={256}
+                step={256}
+                value={bootMemory}
+                onChange={(e) => setBootMemory(Number(e.target.value))}
               />
             </div>
           ) : null}
