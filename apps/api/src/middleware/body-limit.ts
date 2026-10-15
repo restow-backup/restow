@@ -83,6 +83,12 @@ export const BODY_LIMIT_RULES: readonly BodyLimitRule[] = [
     path: new RegExp(`^/api/v1/endpoints/${SEGMENT}/downloads$`),
     limit: MAX_DOWNLOAD_BODY_BYTES,
   },
+  // ... and of a container restore point (#62), the same limit.
+  {
+    method: "POST",
+    path: new RegExp(`^/api/v1/pve/snapshots/${SEGMENT}/downloads$`),
+    limit: MAX_DOWNLOAD_BODY_BYTES,
+  },
   {
     method: "POST",
     path: new RegExp(`^/agent/v1/runs/${SEGMENT}/finish$`),

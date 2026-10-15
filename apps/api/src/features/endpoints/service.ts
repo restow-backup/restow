@@ -1343,11 +1343,11 @@ export async function listSnapshots(
 /** Where a browse cursor points: after the last entry of the previous page. */
 const browseCursorSchema = z.object({ g: z.enum(["0", "1"]), n: z.string().min(1).max(4096) });
 
-function browseCursorFor(entry: { type: string; name: string }): string {
+export function browseCursorFor(entry: { type: string; name: string }): string {
   return encodeCursor({ g: entry.type === "dir" ? "0" : "1", n: entry.name });
 }
 
-function decodeBrowseCursor(raw: string | undefined): DirectoryPosition | null {
+export function decodeBrowseCursor(raw: string | undefined): DirectoryPosition | null {
   try {
     const cursor = decodeCursor(browseCursorSchema, raw);
     return cursor ? { folder: cursor.g === "0", name: cursor.n } : null;

@@ -29,6 +29,7 @@ import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { isSafeOrigin } from "../endpoints/distribution.js";
 import { auditPve, PVE_AUDIT_ACTIONS, type PveActor } from "./audit.js";
+import { containerBackupPaths } from "./files.js";
 import { NODE_ONLINE_MS } from "./node-service.js";
 
 /**
@@ -649,6 +650,10 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         unreadable: unreadableItems(s.stats),
         consistency: typeof s.stats.consistency === "string" ? s.stats.consistency : null,
         stats: s.stats,
+        // What a container restore point holds, as paths in the container (#59, #62).
+        contents: s.kind === "ct" ? containerBackupPaths(s.guestConfig) : null,
+        // Whether its files can be browsed and downloaded (#62).
+        browsable: s.kind === "ct" && s.resticSnapshotId !== null,
         disks: s.disks.map((d) => ({
           device: d.device,
           size: d.size,

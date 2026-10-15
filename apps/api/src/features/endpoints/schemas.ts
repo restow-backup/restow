@@ -323,7 +323,7 @@ export const listRunsQuerySchema = z.object({
 });
 
 const snapshotId = snapshotIdSchema;
-const snapshotPath = z
+export const snapshotPath = z
   .string()
   .min(1)
   .max(4096)

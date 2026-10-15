@@ -16,6 +16,9 @@ export const PVE_AUDIT_ACTIONS = {
   jobChanged: "pve.job.changed",
   snapshotCommitted: "pve.snapshot.committed",
   snapshotPruned: "pve.snapshot.pruned",
+  // File restore of containers (#62): every folder page read and every ZIP started.
+  filesBrowsed: "pve.snapshot.browsed",
+  filesDownloaded: "pve.snapshot.downloaded",
   denied: "pve.node.denied",
 } as const;
 

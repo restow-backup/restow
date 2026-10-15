@@ -459,6 +459,10 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/pve/guests/:id/backup": operate(),
   "POST /api/v1/pve/snapshots/:id/verify": operate(),
   "POST /api/v1/pve/snapshots/:id/restore": operate(),
+  // A container's backed-up files (#62): reading them needs a technician, as for machines.
+  "GET /api/v1/pve/snapshots/:id/files": operate(),
+  "POST /api/v1/pve/snapshots/:id/downloads": operate(),
+  "GET /api/v1/pve/snapshots/:id/downloads/:downloadId": operate(),
   // --- File shares (docs/FILESHARES.md 9.1) -----------------------------------------
   // Reading that shares exist and how they stand is for every provider admin; testing a share,
   // listing its live folders, backing up, restoring and reading backed-up content (browse,
