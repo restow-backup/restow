@@ -103,7 +103,11 @@ function ProviderKpiTiles({ kpis, loading }: { kpis: ProviderKpis | null; loadin
     stored: {
       icon: HardDrive,
       value: kpis ? formatBytes(kpis.physicalBytes, language) : "",
-      hint: t("provider.kpis.storedHint"),
+      hint: kpis
+        ? `${t("provider.kpis.storedHint")} ${t("provider.kpis.immutableHint", {
+            count: kpis.tenantsWithImmutableBackups ?? 0,
+          })}`
+        : t("provider.kpis.storedHint"),
     },
   };
   const missing = kpis?.unavailableTenants ?? 0;

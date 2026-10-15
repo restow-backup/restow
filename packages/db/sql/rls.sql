@@ -91,6 +91,7 @@ DECLARE
     'verify_reports',
     'schedules',
     'storage_targets',
+    'immutability_deferred_deletions',
     'storage_migrations',
     'audit_log',
     'audit_anchor',

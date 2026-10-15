@@ -105,6 +105,13 @@ export interface StorageWidget {
     source: "tenant" | "installation_default";
     status: "ok" | "error" | "unverified" | "misconfigured";
   };
+  /** Immutable backups on the tenant's repositories (absent from an older api). */
+  immutability?: {
+    objectLock: number;
+    deletionDelay: number;
+    primary: "object_lock" | "deletion_delay" | "none";
+    warnings: number;
+  };
 }
 
 export interface RecentJob {
@@ -395,7 +402,8 @@ export type ProviderAlertKind =
   | "file_share_backup_failed"
   | "file_shares_without_job"
   | "needs_attention"
-  | "nothing_protected";
+  | "nothing_protected"
+  | "immutability_warning";
 
 export interface ProviderAlert {
   tenantId: string;
@@ -432,6 +440,8 @@ export interface ProviderKpis {
   failuresPrevious24h: number;
   mailboxes: number;
   physicalBytes: number;
+  /** Customers with at least one repository under S3 Object Lock. */
+  tenantsWithImmutableBackups?: number;
 }
 
 export interface ProviderView {

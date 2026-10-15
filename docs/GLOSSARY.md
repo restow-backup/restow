@@ -40,6 +40,8 @@ literally (use `{appName}`).
 | An administrator's verdict that a finding was harmless | false alarm | Fehlalarm | Fehlalarm bestätigen, ignorieren |
 | The newest restore point without findings | last clean restore point | letzter unauffälliger Sicherungsstand | letzter sauberer Stand, letzte gute Sicherung |
 | A VM or container of Proxmox VE | guest (VM, container) | Gast (VM, Container) | Instanz, Maschine, CT |
+| Backups the storage itself refuses to delete or change before a date (S3 Object Lock, docs/STORAGE.md) | immutable backups (immutability) | unveränderbare Backups (Unveränderbarkeit) | WORM-Backups, Immutable, unlöschbar |
+| Restow itself not deleting backup files of a directory before a period has passed; no immutability | deletion delay | Löschverzögerung | Sperre, Unveränderbarkeit (for a directory) |
 | A Proxmox VE server with the node helper | node | Knoten | Host, Hypervisor (for a node) |
 
 Repository: maintainer decision 2026-10-10, replacing "storage location" /

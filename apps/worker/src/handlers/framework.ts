@@ -38,6 +38,7 @@ import {
   type NewSnapshotRecord,
   type PackRecord,
   type ProtectedObjectRef,
+  parseImmutabilitySettings,
   redactSensitiveText,
   type S3CredentialsSecret,
   S3StorageBackend,
@@ -49,6 +50,7 @@ import {
   sealedAad,
   secretAad,
   type TenantKeyring,
+  withImmutability,
   withReadOnlyFallback,
   wrappedKeyKey,
 } from "@restow/core";
@@ -893,8 +895,22 @@ function parseS3Credentials(raw: string, secretId: string): S3CredentialsSecret 
   };
 }
 
-/** Build the backend for one `storage_targets` row. */
+/**
+ * Build the backend for one `storage_targets` row, with the row's immutable-
+ * backup setting applied (docs/STORAGE.md, "Immutable backups").
+ */
 export async function storageBackendFor(
+  target: StorageTarget,
+  secretReader: SecretReader,
+): Promise<StorageBackend> {
+  return withImmutability(
+    await plainStorageBackendFor(target, secretReader),
+    parseImmutabilitySettings(target.immutability),
+    { targetId: target.id },
+  );
+}
+
+async function plainStorageBackendFor(
   target: StorageTarget,
   secretReader: SecretReader,
 ): Promise<StorageBackend> {

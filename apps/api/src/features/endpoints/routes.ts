@@ -1,9 +1,13 @@
 import { Readable } from "node:stream";
+import { endpointPrefix } from "@restow/core";
+import { endpoints } from "@restow/db";
+import { and, eq } from "drizzle-orm";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { db } from "../../db.js";
 import { providerRoleSatisfies } from "../../lib/provider-access.js";
 import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
+import { withTenantTx } from "../../lib/tenant-context.js";
 import {
   assertProviderRoute,
   authenticate,
@@ -14,6 +18,7 @@ import {
 } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { resticRestorePointImmutability } from "../storage/immutability.js";
 import type { EndpointActor } from "./audit.js";
 import { instanceUrl } from "./instance-url.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
@@ -30,6 +35,7 @@ import {
   listTokensQuerySchema,
   MAX_DOWNLOAD_BODY_BYTES,
   runParamSchema,
+  snapshotImmutabilityParamSchema,
   tokenIdParamSchema,
   updateEndpointSchema,
 } from "./schemas.js";
@@ -246,6 +252,23 @@ endpointsRoutes.get("/:id/runs/:runId", admin, async (c) => {
 endpointsRoutes.get("/:id/snapshots", admin, async (c) => {
   const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
   return c.json(await listSnapshots(db, c.get("tenantId"), id));
+});
+
+/** Whether a restore point is immutable, as the storage reports it for its snapshot file. */
+endpointsRoutes.get("/:id/snapshots/:snapshotId/immutability", admin, async (c) => {
+  const { id, snapshotId } = parseOrProblem(snapshotImmutabilityParamSchema, c.req.param());
+  const tenantId = c.get("tenantId");
+  const [row] = await withTenantTx(db, tenantId, (tx) =>
+    tx
+      .select({ id: endpoints.id })
+      .from(endpoints)
+      .where(and(eq(endpoints.tenantId, tenantId), eq(endpoints.id, id)))
+      .limit(1),
+  );
+  if (!row) {
+    throw new ProblemError(404, "Endpoint not found");
+  }
+  return c.json(await resticRestorePointImmutability(db, tenantId, endpointPrefix(id), snapshotId));
 });
 
 endpointsRoutes.get("/:id/browse", admin, async (c) => {

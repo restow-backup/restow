@@ -179,7 +179,7 @@ async function settleSuperseded(
     ...retired,
     ...(gc.status === "completed" ? gc.superseded : []),
   ];
-  const keepAll: SupersededRelease = { released: 0, releasedBytes: 0, pending };
+  const keepAll: SupersededRelease = { released: 0, releasedBytes: 0, pending, deferredByLock: 0 };
   if (pending.length === 0 || !options.gc) {
     return keepAll;
   }

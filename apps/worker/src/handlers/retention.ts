@@ -35,8 +35,10 @@ import {
   type LegalHoldScope,
   type Logger,
   loadManifest,
+  lockedErrorOf,
   parseSnapshotPolicy,
   planRetentionRun,
+  protectionOnTargets,
   type RetentionJobPayload,
   type RetentionPolicyRow,
   type SnapshotCandidate,
@@ -65,6 +67,7 @@ import {
   tenantRunner,
   type WorkerJobContext,
 } from "./framework.js";
+import { recordDeferredDeletion } from "./immutability.js";
 
 const RELEASE_BATCH = 1000;
 
@@ -355,7 +358,21 @@ export async function pruneSnapshot(
   }
   const manifestObjectsDeleted = await store.deleteManifestObjects(snapshot.id);
   for (const target of [ctx.storage.primary, ...ctx.storage.copies]) {
-    await target.delete(manifestPath);
+    try {
+      await target.delete(manifestPath);
+    } catch (error) {
+      const locked = lockedErrorOf(error);
+      if (!locked) {
+        throw error;
+      }
+      // Checked before pruning; a target that locks it longer (or a lock set meanwhile)
+      // keeps the file. It is recorded and removed by hand or left to the storage.
+      logger.warn("manifest still locked on a target; left in place", {
+        snapshotId: snapshot.id,
+        retainUntil: locked.retainUntil?.toISOString() ?? null,
+      });
+      await recordDeferredDeletion(ctx.db, ctx.tenantId, target, manifestPath, locked.retainUntil);
+    }
   }
   logger.info("snapshot pruned", {
     snapshotId: snapshot.id,
@@ -403,6 +420,8 @@ export class RetentionTaskRegistry {
 }
 
 export interface SnapshotRetentionSummary {
+  /** Expired restore points left alone because a target still locks their manifest. */
+  readonly deferredByLock: number;
   readonly policies: number;
   readonly objects: number;
   readonly candidates: number;
@@ -438,6 +457,7 @@ export function createSnapshotRetentionTask(
         held: 0,
         bytesLogical: 0,
         chunkReferencesReleased: 0,
+        deferredByLock: 0,
         dryRun: options.dryRun,
       } satisfies SnapshotRetentionSummary;
       if (tenantPolicies.length === 0) {
@@ -470,6 +490,17 @@ export function createSnapshotRetentionTask(
           continue;
         }
         try {
+          // Immutable backups (docs/STORAGE.md): a restore point whose manifest a target still
+          // locks stays, visible and restorable, until a later run after the lock ran out.
+          const locked = await protectionOnTargets(
+            [ctx.storage.primary, ...ctx.storage.copies],
+            store.manifestPathOf(snapshot.id),
+          );
+          if (locked) {
+            summary.deferredByLock++;
+            ctx.progress.advance(1, 0);
+            continue;
+          }
           const outcome = await pruneSnapshot(ctx, store, snapshot, logger);
           if (outcome) {
             summary.pruned++;
@@ -484,6 +515,11 @@ export function createSnapshotRetentionTask(
             classifyFailure(reportableError(error)),
           );
         }
+      }
+      if (summary.deferredByLock > 0) {
+        logger.info("expired restore points kept while their storage still locks them", {
+          restorePoints: summary.deferredByLock,
+        });
       }
       return { ...summary };
     },

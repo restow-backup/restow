@@ -11,8 +11,23 @@ import { Readable } from "node:stream";
 /** Options for a write. `retainUntil` requests WORM/object-lock retention where supported. */
 export interface PutOptions {
   contentType?: string;
-  /** Retain-until date for object lock (archive/WORM targets). */
+  /** Retain-until date for object lock (archive/WORM targets, immutable backups). */
   retainUntil?: Date;
+  /** Object Lock mode for `retainUntil`; the backend's own default when omitted. */
+  lockMode?: ObjectLockMode;
+}
+
+/** S3 Object Lock retention modes (docs/STORAGE.md, "Immutable backups"). */
+export type ObjectLockMode = "GOVERNANCE" | "COMPLIANCE";
+
+/** What the storage itself says about an object's retention (S3 HeadObject). */
+export interface ObjectRetention {
+  /** Null when the object carries no retention. */
+  readonly mode: ObjectLockMode | null;
+  /** Null when the object carries no retention. */
+  readonly retainUntil: Date | null;
+  readonly lastModified: Date | null;
+  readonly size: number;
 }
 
 /** Result of a {@link StorageBackend.head} probe. */
@@ -49,6 +64,24 @@ export interface StorageBackend {
    * walks). {@link listWithSizes} falls back to `list` plus `head`.
    */
   listWithSizes?(prefix: string): Promise<{ key: string; size: number }[]>;
+  /**
+   * Optional (S3): the retention the storage enforces on `key`'s current
+   * version, or null when the object does not exist. Needs
+   * `s3:GetObjectRetention`; without it the storage answers without retention.
+   */
+  retention?(key: string): Promise<ObjectRetention | null>;
+  /**
+   * Optional (S3): set `key`'s retention to `until` (PutObjectRetention). The
+   * storage refuses to shorten a COMPLIANCE retention, and a GOVERNANCE one
+   * without the bypass permission Restow never uses.
+   */
+  setRetention?(key: string, until: Date, mode: ObjectLockMode): Promise<void>;
+  /**
+   * Optional (S3): remove every version and delete marker of `key` for good,
+   * after checking that none is still under retention. Throws
+   * `ObjectLockedError` (storage/immutability.ts) and deletes nothing when one is.
+   */
+  deleteAllVersions?(key: string, now: Date): Promise<void>;
 }
 
 /**
@@ -138,4 +171,44 @@ export async function listWithSizes(
   });
   await Promise.all(workers);
   return result.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+}
+
+/**
+ * A deletion (or, on a hardened directory, an overwrite) refused because the
+ * object is still under retention: S3 Object Lock, or the deletion delay of a
+ * local repository (storage/immutability.ts). Callers that clean up (garbage
+ * collection, retention, restic prune) skip the object and try again later;
+ * it is never an error of the backup itself.
+ */
+export class ObjectLockedError extends Error {
+  constructor(
+    readonly key: string,
+    /** When the retention ends, when known. */
+    readonly retainUntil: Date | null,
+    readonly reason: "object_lock" | "deletion_delay" = "object_lock",
+  ) {
+    super(
+      `${key} is ${reason === "object_lock" ? "under Object Lock retention" : "protected by the deletion delay"}${
+        retainUntil ? ` until ${retainUntil.toISOString()}` : ""
+      }`,
+    );
+    this.name = "ObjectLockedError";
+  }
+}
+
+/** The {@link ObjectLockedError} `error` is or was caused by, else null. */
+export function lockedErrorOf(error: unknown): ObjectLockedError | null {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current; depth++) {
+    if (current instanceof ObjectLockedError) {
+      return current;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return null;
+}
+
+/** Whether `error` (or its cause) is an {@link ObjectLockedError}. */
+export function isObjectLocked(error: unknown): boolean {
+  return lockedErrorOf(error) !== null;
 }

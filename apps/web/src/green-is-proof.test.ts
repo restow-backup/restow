@@ -58,6 +58,8 @@ const ALLOWED: Readonly<Record<string, string>> = {
     "a restore point whose restore check passed; a restore or restore check of a guest that completed",
   "./features/pve/boot-test.tsx":
     "a boot test whose restored guest answered (its QEMU guest agent, or a container's init)",
+  "./features/storage/components/restore-point-immutability.tsx":
+    "a restore point whose COMPLIANCE lock the storage itself confirmed (HeadObject retention): nobody can delete it before then",
   "./features/archive/chain-check.tsx":
     "an archive check that passed: links, daily anchors and the content sample it read",
   // -- a restore that completed: the data is back

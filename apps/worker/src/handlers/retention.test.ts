@@ -1,8 +1,10 @@
 import { Readable } from "node:stream";
 import {
+  changeImmutability,
   createMemoryJobContext,
   generateDek,
   type HeadResult,
+  ImmutableStorageBackend,
   Keyring,
   MANIFEST_VERSION,
   MemoryChunkIndex,
@@ -332,6 +334,45 @@ describe("retention handler", () => {
       dryRun: false,
     });
     expect(ctx.progress.snapshot()).toMatchObject({ total: 2, done: 2, failed: 0, phase: "prune" });
+  });
+
+  it("leaves an expired restore point alone while a target still locks its manifest", async () => {
+    // The file times of this storage are "now": a deletion delay of 30 days locks them all.
+    class DatedStorage extends MemoryStorage {
+      override async head(key: string): Promise<HeadResult | null> {
+        const value = this.objects.get(key);
+        return value ? { size: value.length, lastModified: NOW } : null;
+      }
+    }
+    const raw = new DatedStorage();
+    const primary = new ImmutableStorageBackend(raw, {
+      settings: changeImmutability(
+        null,
+        { mode: "delayed_deletion", days: 30 },
+        new Date(NOW.getTime() - 400 * 86_400_000),
+      ),
+      now: () => NOW,
+    });
+    const ctx = workerContext(raw);
+    const locked = { ...ctx, storage: { primary, copies: [] } };
+    const { store, pruned } = fakeStore({
+      policies: [policy30],
+      holds: { tenantWide: false, protectedObjectIds: new Set() },
+      snapshots,
+      mirrored: new Map([
+        ["a1", ["aa"]],
+        ["a2", ["bb"]],
+        ["b1", ["cc"]],
+      ]),
+    });
+    await raw.put(store.manifestPathOf("a1"), Buffer.from("manifest"));
+    const handler = createRetentionHandler(
+      new RetentionTaskRegistry([createSnapshotRetentionTask(() => store)]),
+    );
+    const outcome = await handler.run(locked, { jobId: JOB, tenantId: TENANT });
+    expect(pruned.sort()).toEqual(["a2", "b1"]);
+    expect(outcome?.summary?.snapshots).toMatchObject({ pruned: 2, deferredByLock: 1 });
+    expect(raw.objects.has(store.manifestPathOf("a1"))).toBe(true);
   });
 
   it("never removes the only verified restore point of an object, even under an aggressive custom policy", async () => {

@@ -507,6 +507,7 @@ describe.skipIf(!adminUrl)("garbage collection against Postgres", SLOW_UNDER_LOA
     expect(busy.superseded).toEqual({
       released: 0,
       releasedBytes: 0,
+      deferredByLock: 0,
       pending: collected.superseded.pending,
     });
     expect((await packFiles(tenant)).filter((path) => superseded.includes(path))).toEqual(

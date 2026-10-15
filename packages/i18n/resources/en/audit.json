@@ -384,6 +384,8 @@
         "cancelled": "Storage migration cancelled"
       },
       "target": {
+        "immutability_changed": "Repository immutability changed",
+        "immutability_verified": "Repository immutability verified with the storage",
         "created": "Repository added",
         "deleted": "Repository removed",
         "probed": "Repository probed",

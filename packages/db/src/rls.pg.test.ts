@@ -759,14 +759,43 @@ describe.skipIf(!adminUrl)("Row Level Security on the application role", () => {
       ),
     );
 
+    await inTransaction(app, contoso, (client) =>
+      client.query(
+        `INSERT INTO immutability_deferred_deletions (tenant_id, target_id, key, retain_until)
+         VALUES ($1, $2, 'endpoints/e1/data/ab/abcd', now() + interval '3 days')`,
+        [contoso, contosoTarget],
+      ),
+    );
+    // A row naming another tenant's id is refused by the policy's WITH CHECK.
+    await expect(
+      inTransaction(app, contoso, (client) =>
+        client.query(
+          `INSERT INTO immutability_deferred_deletions (tenant_id, target_id, key)
+           VALUES ($1, $2, 'endpoints/e2/data/ab/abcd')`,
+          [fabrikam, fabrikamTarget],
+        ),
+      ),
+    ).rejects.toThrow(/row-level security/);
+
     const seenBy = (tenantId: string) =>
       inTransaction(app, tenantId, async (client) => ({
         contacts: (await client.query("SELECT id FROM tenant_contacts")).rowCount,
         recipients: (await client.query("SELECT id FROM tenant_notification_recipients")).rowCount,
         migrations: (await client.query("SELECT id FROM storage_migrations")).rowCount,
+        deferred: (await client.query("SELECT id FROM immutability_deferred_deletions")).rowCount,
       }));
-    expect(await seenBy(contoso)).toEqual({ contacts: 1, recipients: 1, migrations: 1 });
-    expect(await seenBy(fabrikam)).toEqual({ contacts: 1, recipients: 0, migrations: 1 });
+    expect(await seenBy(contoso)).toEqual({
+      contacts: 1,
+      recipients: 1,
+      migrations: 1,
+      deferred: 1,
+    });
+    expect(await seenBy(fabrikam)).toEqual({
+      contacts: 1,
+      recipients: 0,
+      migrations: 1,
+      deferred: 0,
+    });
 
     // A second primary contact, or a second unfinished migration, for the same
     // tenant collides with the partial unique index.

@@ -104,6 +104,7 @@ import {
   type WorkerRuntime,
   withTenantTx,
 } from "./handlers/framework.js";
+import { immutabilityTask } from "./handlers/immutability.js";
 import { handlers } from "./handlers/index.js";
 import { mailFilesCleanupTask } from "./handlers/mail-files-cleanup.js";
 import { retentionTasks } from "./handlers/retention.js";
@@ -266,6 +267,8 @@ async function main(): Promise<void> {
   }
   // Staged uploads and finished exports are temporary: the retention job sweeps them.
   retentionTasks.register(mailFilesCleanupTask);
+  // Immutable backups: renewing Object Lock of data still in use, and verifying it.
+  retentionTasks.register(immutabilityTask);
   // Retention tasks contributed by extensions, e.g. the archive deletion run
   // (ee/worker), which gets the installation pool: only the installation
   // role may delete from `archive_items` (packages/db/src/roles.ts).

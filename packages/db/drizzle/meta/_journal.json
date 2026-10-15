@@ -330,6 +330,13 @@
       "when": 1792101774981,
       "tag": "0046_sharepoint_sites",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1792102441301,
+      "tag": "0047_immutable_backups",
+      "breakpoints": true
     }
   ]
 }

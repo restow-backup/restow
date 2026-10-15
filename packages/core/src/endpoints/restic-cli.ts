@@ -236,6 +236,12 @@ export interface RepositoryAccess {
   readonly repositoryKey: string;
   readonly binary?: string;
   readonly cacheBase?: string;
+  /**
+   * Told about every deletion the storage refused because the object is still
+   * locked (docs/STORAGE.md, "Immutable backups"), e.g. so retention can count
+   * it and the renewal leave it to run out.
+   */
+  readonly onDeletionDeferred?: (key: string, retainUntil: Date | null) => void | Promise<void>;
 }
 
 /** Storage prefix of an endpoint's repository. */
@@ -258,6 +264,7 @@ export async function openRepository(access: RepositoryAccess): Promise<OpenRepo
   const listener: LoopbackRepository = await serveMaintenanceRepository(
     access.storage,
     access.prefix,
+    access.onDeletionDeferred ? { onDeletionDeferred: access.onDeletionDeferred } : {},
   );
   return {
     session: {

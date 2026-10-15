@@ -8,6 +8,7 @@ import {
   validateStorageLocation,
 } from "@restow/core";
 import type { StorageMigration, StorageTarget } from "@restow/db";
+import { type ImmutabilityDto, toImmutabilityDto } from "./immutability-dto.js";
 import { canManageKind } from "./rules.js";
 
 /**
@@ -67,6 +68,8 @@ export interface StorageTargetDto {
    * or already finished. Null when this target was never part of one.
    */
   migration: StorageMigrationDto | null;
+  /** Immutable backups on this repository (docs/STORAGE.md). */
+  immutability: ImmutabilityDto;
   createdAt: string;
   updatedAt: string;
 }
@@ -225,8 +228,9 @@ function rawString(config: unknown, key: string): string {
 
 export function toTargetDto(
   row: StorageTarget,
-  viewer: { readonly isProviderAdmin: boolean },
+  viewer: { readonly isProviderAdmin: boolean; readonly isProviderOwner?: boolean },
   migration: StorageMigrationDto | null = null,
+  deferredDeletions = 0,
 ): StorageTargetDto {
   const records = recordsOf(row);
   const location = locationOf(row);
@@ -262,6 +266,7 @@ export function toTargetDto(
         : (records.objectLockDetection ?? null),
     canManage: canManageKind(row.kind, viewer.isProviderAdmin),
     migration,
+    immutability: toImmutabilityDto(row, deferredDeletions, viewer),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

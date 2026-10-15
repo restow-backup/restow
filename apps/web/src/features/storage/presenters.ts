@@ -300,6 +300,12 @@ const PROBLEM_KEYS: Record<string, string> = {
   "active-endpoints": "storage:errors.activeEndpoints",
   "installation-default-readonly": "storage:errors.installationDefaultReadonly",
   "queue-not-ready": "storage:errors.queueNotReady",
+  "immutability-object-lock-unavailable": "storage:errors.immutabilityObjectLockUnavailable",
+  "immutability-lowering-forbidden": "storage:errors.immutabilityLoweringForbidden",
+  "immutability-mode-not-available": "storage:errors.immutabilityModeNotAvailable",
+  "immutability-local-requires-provider": "storage:errors.localRequiresProviderAdmin",
+  "immutability-not-writable": "storage:errors.immutabilityNotWritable",
+  "immutability-not-object-lock": "storage:errors.immutabilityNotObjectLock",
 };
 
 /** The fully qualified i18n key for a failed call: storage problems first, else the common mapping. */

@@ -203,6 +203,12 @@
     "empty": {
       "title": "Noch nichts gespeichert",
       "description": "Der Chunk-Speicher füllt sich mit der ersten Sicherung."
+    },
+    "immutability": {
+      "objectLock": "{count, plural, one {Unveränderbar: # Repository mit Object Lock} other {Unveränderbar: # Repositories mit Object Lock}}",
+      "deletionDelay": "{count, plural, one {Löschverzögerung auf # Repository (nicht unveränderbar)} other {Löschverzögerung auf # Repositories (nicht unveränderbar)}}",
+      "none": "Keine unveränderbaren Backups",
+      "warning": "{count, plural, one {Unveränderbarkeit: # Repository braucht Aufmerksamkeit} other {Unveränderbarkeit: # Repositories brauchen Aufmerksamkeit}}"
     }
   },
   "mailboxUsage": {
@@ -400,7 +406,8 @@
       "mailboxes": "Geschützte Postfächer",
       "stored": "Gespeichert",
       "storedHint": "Nach Deduplizierung, über alle Mandanten.",
-      "incomplete": "{count, plural, one {Ohne # Mandanten, dessen Zahlen nicht gelesen werden konnten.} other {Ohne # Mandanten, deren Zahlen nicht gelesen werden konnten.}}"
+      "incomplete": "{count, plural, one {Ohne # Mandanten, dessen Zahlen nicht gelesen werden konnten.} other {Ohne # Mandanten, deren Zahlen nicht gelesen werden konnten.}}",
+      "immutableHint": "{count, plural, =0 {Kein Mandant mit unveränderbaren Backups.} one {# Mandant mit unveränderbaren Backups.} other {# Mandanten mit unveränderbaren Backups.}}"
     },
     "matrix": {
       "title": "Mandanten nach Handlungsbedarf",
@@ -458,7 +465,8 @@
         "file_share_backup_failed": "{count, plural, one {Die letzte Sicherung von # Freigabe ist fehlgeschlagen.} other {Die letzte Sicherung von # Freigaben ist fehlgeschlagen.}}",
         "file_shares_without_job": "{count, plural, one {# Freigabe ist in keinem Backup-Job und wird nicht gesichert.} other {# Freigaben sind in keinem Backup-Job und werden nicht gesichert.}}",
         "needs_attention": "{count, plural, one {# Objekt braucht Aufmerksamkeit (Lücken oder überfällige Restore-Prüfung).} other {# Objekte brauchen Aufmerksamkeit (Lücken oder überfällige Restore-Prüfung).}}",
-        "nothing_protected": "Der Mandant schützt noch nichts."
+        "nothing_protected": "Der Mandant schützt noch nichts.",
+        "immutability_warning": "{count, plural, one {Unveränderbarkeit ist eingestellt, aber # Repository hat Objekte ohne Sperre oder eine Verlängerung im Rückstand.} other {Unveränderbarkeit ist eingestellt, aber # Repositories haben Objekte ohne Sperre oder eine Verlängerung im Rückstand.}}"
       },
       "empty": {
         "title": "Keine Hinweise",

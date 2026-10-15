@@ -1,3 +1,4 @@
+import { MAX_IMMUTABILITY_DAYS, MIN_IMMUTABILITY_DAYS } from "@restow/core";
 import { z } from "zod";
 
 /**
@@ -143,3 +144,19 @@ export type ProbeStorageInput = z.infer<typeof probeStorageSchema>;
 
 export const targetIdParamSchema = z.object({ id: z.string().uuid() });
 export const migrationIdParamSchema = z.object({ id: z.string().uuid() });
+
+/**
+ * PUT /targets/:id/immutability: `mode` null switches it off. S3 takes
+ * `compliance` or `governance`, a directory only `delayed_deletion` (checked
+ * in the service, which knows the kind).
+ */
+export const setImmutabilitySchema = z
+  .object({
+    mode: z.enum(["compliance", "governance", "delayed_deletion"]).nullable(),
+    days: z.number().int().min(MIN_IMMUTABILITY_DAYS).max(MAX_IMMUTABILITY_DAYS).optional(),
+  })
+  .strict()
+  .refine((value) => value.mode === null || value.days !== undefined, {
+    message: "days is required when immutability is on",
+    path: ["days"],
+  });

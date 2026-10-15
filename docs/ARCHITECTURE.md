@@ -191,9 +191,16 @@ eines Mandanten über alle Objekte.
 - Backends: lokaler Speicher im App-Container (Docker-Volume) als Standard ohne
   Zusatzdienst, S3-kompatibel (AWS SDK v3, Pfadstil und virtuelle Hosts) und weiteres
   gemountetes Dateisystem (NFS). Object Lock (Retention-Datum) für die Archiv-Datensätze auf
-  S3-Zielen mit Object Lock; die Packs mit dem Nachrichteninhalt und die Sicherungsdaten tragen
-  in 0.1.0 keine Retention (ARCHIVE.md, "Speicherung"). Auf lokalem Speicher, NFS gibt es
-  keine Hardware-Unveränderbarkeit. Mehrere Ziele je Mandant (Primär plus Kopie) und der Wechsel des Primärziels
+  S3-Zielen mit Object Lock (ARCHIVE.md, "Speicherung"). Unveränderbare Backups je Ziel
+  (`storage_targets.immutability`, STORAGE.md "Immutable backups"): auf S3 mit Object Lock
+  erhalten Packs, fertige Manifeste, Schlüssel und die restic-Objekte (außer `locks/` und
+  `index/`) beim Schreiben eine Retention von Zeitraum plus 7 Tagen Puffer
+  (`ImmutableStorageBackend`, packages/core/src/storage/immutability.ts); der tägliche
+  Aufbewahrungslauf verlängert sie für alles noch Verwendete, sobald die letzte Verlängerung
+  6 Tage alt ist, und prüft eine Stichprobe per HeadObject. Löschen löscht alle Versionen und
+  verweigert gesperrte (`ObjectLockedError`); Retention, GC und restic prune stellen solche
+  Löschungen zurück. Auf lokalem Speicher, NFS gibt es keine Hardware-Unveränderbarkeit, nur
+  eine Löschverzögerung, die Restow selbst einhält (kein Schutz gegen Zugriff auf den Server). Mehrere Ziele je Mandant (Primär plus Kopie) und der Wechsel des Primärziels
   (Speicherziel hinzufügen, Migration mit oder ohne Kopie der Altbestände, Umschalten):
   docs/STORAGE.md.
 - Garbage Collection: Referenzzählung in Postgres, Chunks ohne Referenz nach Ablauf

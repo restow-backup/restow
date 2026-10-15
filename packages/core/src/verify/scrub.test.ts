@@ -333,6 +333,7 @@ describe("scrub garbage collection", () => {
     expect(later.superseded).toEqual({
       released: superseded.length,
       releasedBytes: report.superseded.pending.reduce((sum, pack) => sum + pack.size, 0),
+      deferredByLock: 0,
       pending: [],
     });
     expect((await packKeys(fixture)).sort()).toEqual(await catalogPaths(fixture));
@@ -449,6 +450,7 @@ describe("scrub garbage collection", () => {
     expect(early.superseded).toEqual({
       released: 0,
       releasedBytes: 0,
+      deferredByLock: 0,
       pending: report.superseded.pending,
     });
     expect(early.orphans?.removed).toBe(0);
@@ -467,6 +469,7 @@ describe("scrub garbage collection", () => {
       expect(busy.superseded).toEqual({
         released: 0,
         releasedBytes: 0,
+        deferredByLock: 0,
         pending: report.superseded.pending,
       });
       previous = busy;
@@ -497,7 +500,12 @@ describe("scrub garbage collection", () => {
       gc: null,
       previouslySuperseded: pending,
     });
-    expect(disabled.superseded).toEqual({ released: 0, releasedBytes: 0, pending });
+    expect(disabled.superseded).toEqual({
+      released: 0,
+      releasedBytes: 0,
+      pending,
+      deferredByLock: 0,
+    });
 
     const released = await nextScrub(fixture, disabled, 1);
     expect(released.superseded.released).toBe(report.superseded.pending.length);
@@ -684,7 +692,12 @@ describe("scrub garbage collection", () => {
     await fixture.primary.put(`${prefix}cd/orphan-new`, Buffer.from("being written"));
 
     const report = await scrub(fixture);
-    expect(report.orphans).toEqual({ removed: 1, bytes: 9, kept: 1 });
+    expect(report.orphans).toEqual({
+      removed: 1,
+      bytes: 9,
+      kept: 1,
+      deferredByLock: 0,
+    });
     expect(await fixture.primary.head(`${prefix}ab/orphan-old`)).toBeNull();
     expect(await fixture.primary.head(`${prefix}cd/orphan-new`)).not.toBeNull();
   });

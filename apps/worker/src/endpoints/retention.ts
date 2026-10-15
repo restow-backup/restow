@@ -38,11 +38,13 @@ import {
   resticSnapshots,
   resticUnlock,
   type SnapshotFlag,
+  splitLockedSnapshots,
   withRepository,
 } from "@restow/core";
 import { type Endpoint, endpointRuns, endpointSnapshotFlags, endpoints, tenants } from "@restow/db";
 import { and, eq, isNotNull, isNull, notInArray } from "drizzle-orm";
 import { withTenantTx } from "../handlers/framework.js";
+import { recordDeferredDeletion } from "../handlers/immutability.js";
 import { raiseEvents } from "../reporting.js";
 import {
   type EndpointJobDeps,
@@ -213,7 +215,14 @@ async function retain(
   try {
     const removedLocks = await clearLocksBeforeMaintenance(deps, tenantId, endpointId, access, now);
     const timeZone = await tenantTimeZone(deps, tenantId);
-    const result = await withRepository(access, async (session) => {
+    // A deletion the storage refuses because of Object Lock or the deletion delay is recorded,
+    // so the renewal lets it run out (docs/STORAGE.md, "Immutable backups").
+    const lockedAccess: RepositoryAccess = {
+      ...access,
+      onDeletionDeferred: (key, retainUntil) =>
+        recordDeferredDeletion(deps.db, tenantId, access.storage, key, retainUntil),
+    };
+    const result = await withRepository(lockedAccess, async (session) => {
       // Locks restic itself calls stale (by their content) go as well.
       await resticUnlock(session).catch(() => undefined);
       const stored = await listRepositoryObjects(access.storage, access.prefix, "snapshots");
@@ -236,12 +245,19 @@ async function retain(
       if (listing !== null) {
         throw listing;
       }
-      const decision = applyRetentionPolicy(audit.dated, policy, timeZone);
+      const policyDecision = applyRetentionPolicy(audit.dated, policy, timeZone);
+      // Snapshots the storage still locks stay until a later run (restic cannot remove them).
+      const split = await splitLockedSnapshots(
+        access.storage,
+        access.prefix,
+        policyDecision.remove,
+      );
+      const decision = { ...policyDecision, remove: split.remove };
       if (decision.remove.length > 0) {
         await resticForget(session, decision.remove, { signal });
         await resticPrune(session, { signal });
       }
-      return { audit, decision, total: stored.length };
+      return { audit, decision, total: stored.length, deferredByLock: split.locked.length };
     });
     await recordMaintenanceUnlocked(deps, tenantId, endpointId);
     const repositoryBytes = await measureRepositoryBytes(access.storage, access.prefix);
@@ -262,6 +278,7 @@ async function retain(
           futureSnapshots: result.audit.flags.filter((flag) => flag.reasons.includes("future_time"))
             .length,
           removedLocks,
+          deferredByLock: result.deferredByLock,
         },
       },
       now,

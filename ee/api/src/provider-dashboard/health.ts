@@ -40,6 +40,9 @@ export interface TenantHealthFacts {
   failures24h: number;
   failuresPrevious24h: number;
   storageError: boolean;
+  /** Repositories with S3 Object Lock, and those with a warning (absent: none). */
+  immutableRepositories?: number;
+  immutabilityWarnings?: number;
   /** The tenant's servers and clients (GET /status `endpoints`); absent, the tenant has none. */
   machines?: Pick<
     EndpointCountsDto,
@@ -116,6 +119,8 @@ export function tenantRow(
       fileSharesFailed: null,
       physicalBytes: null,
       storageError: null,
+      immutableRepositories: null,
+      immutabilityWarnings: null,
     };
   }
   const { summary } = facts;
@@ -155,6 +160,8 @@ export function tenantRow(
     fileSharesFailed: shares?.failedLastBackup ?? 0,
     physicalBytes: summary.storage.physicalBytes,
     storageError: facts.storageError,
+    immutableRepositories: facts.immutableRepositories ?? 0,
+    immutabilityWarnings: facts.immutabilityWarnings ?? 0,
   };
 }
 
@@ -213,6 +220,10 @@ export function alertsFor(row: ProviderTenantRowDto, now: Date): ProviderAlertDt
   }
   if (row.fileSharesWithoutJob > 0) {
     alerts.push(alert("file_shares_without_job", "warning", row.fileSharesWithoutJob));
+  }
+  if (row.immutabilityWarnings > 0) {
+    // Immutability is configured, but an object was found without lock or the renewal fell behind.
+    alerts.push(alert("immutability_warning", "warning", row.immutabilityWarnings));
   }
   if (row.needsAttention > 0) {
     // Proven restorable with gaps, or a rating that is overdue: not "secured and checked".
@@ -293,5 +304,8 @@ export function providerKpis(rows: readonly ProviderTenantRowDto[]): ProviderKpi
     failuresPrevious24h: sum((row) => row.failuresPrevious24h),
     mailboxes: rows.reduce((total, row) => total + row.mailboxes, 0),
     physicalBytes: sum((row) => row.physicalBytes),
+    tenantsWithImmutableBackups: customers.filter(
+      (row) => row.loaded && row.immutableRepositories > 0,
+    ).length,
   };
 }

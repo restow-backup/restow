@@ -63,6 +63,7 @@ export * from "./secret-seal.js";
 export * from "./storage/backend.js";
 export * from "./storage/copy.js";
 export * from "./storage/factory.js";
+export * from "./storage/immutability.js";
 export * from "./storage/installation-default.js";
 export * from "./storage/local.js";
 export * from "./storage/s3.js";
