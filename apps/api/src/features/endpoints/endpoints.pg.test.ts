@@ -46,7 +46,7 @@ import {
   webhookDeliveries,
   webhooks,
 } from "@restow/db";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
@@ -666,6 +666,47 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
       const agent = (await endpointRow(who.endpointId))?.settings.agent;
       expect(agent?.hooks).toBe("off");
       expect(agent).not.toHaveProperty("dataFolders");
+    });
+
+    it("writes the agent's facts only when they changed, or an hour after it last did", async () => {
+      const who = await enrolled("server");
+      const beat = {
+        agentVersion: "0.4.0",
+        osVersion: "",
+        state: "idle",
+        hooks: "off",
+        machine: { virtualization: "vm", technology: "kvm", desktop: false },
+      };
+      expect((await agentRequest(who, "/heartbeat", { body: beat })).status).toBe(200);
+      const first = await endpointRow(who.endpointId);
+      const reportedAt = first?.settings.agent?.reportedAt;
+      expect(reportedAt).toBeDefined();
+      await new Promise((resolve) => setTimeout(resolve, 5));
+
+      // The same facts again: the machine is seen, its settings stay as they are.
+      expect((await agentRequest(who, "/heartbeat", { body: beat })).status).toBe(200);
+      const same = await endpointRow(who.endpointId);
+      expect(same?.settings).toEqual(first?.settings);
+      expect(same?.lastSeenAt?.getTime()).toBeGreaterThan(first?.lastSeenAt?.getTime() ?? 0);
+
+      // Changed facts are written at once.
+      const changed = { ...beat, hooks: "scripts", hookScripts: ["10-db.sh"] };
+      expect((await agentRequest(who, "/heartbeat", { body: changed })).status).toBe(200);
+      const agent = (await endpointRow(who.endpointId))?.settings.agent;
+      expect(agent).toMatchObject({ hooks: "scripts", hookScripts: ["10-db.sh"] });
+      expect(agent?.reportedAt).not.toBe(reportedAt);
+
+      // Unchanged facts written more than an hour ago are written again.
+      const old = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+      await fixture.db
+        .update(endpoints)
+        .set({
+          settings: sql`jsonb_set(${endpoints.settings}, '{agent,reportedAt}', to_jsonb(${old}::text))`,
+        })
+        .where(eq(endpoints.id, who.endpointId));
+      expect((await agentRequest(who, "/heartbeat", { body: changed })).status).toBe(200);
+      const refreshed = (await endpointRow(who.endpointId))?.settings.agent?.reportedAt ?? "";
+      expect(refreshed > old).toBe(true);
     });
 
     it("tells an agent with an old configuration to fetch the new one", async () => {

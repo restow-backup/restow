@@ -42,7 +42,7 @@ import {
   endpointTasks,
   tenants,
 } from "@restow/db";
-import { and, asc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, lt, or, type SQL, sql } from "drizzle-orm";
 import { db, providerDb } from "../../db.js";
 import { loadTenantDek, storeSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
@@ -423,6 +423,25 @@ export function agentFactsOf(
   };
 }
 
+/** How long unchanged facts are kept before a heartbeat writes them again (for `reportedAt`). */
+export const AGENT_FACTS_REFRESH_MS = 60 * 60 * 1000;
+
+/**
+ * `settings` with the agent's facts in `settings.agent`, written only when they changed
+ * (`reportedAt` aside) or were last written {@link AGENT_FACTS_REFRESH_MS} ago: otherwise the
+ * column keeps its value, so a heartbeat every minute does not rewrite the machine's settings.
+ */
+function settingsWithFacts(facts: EndpointAgentFacts, now: Date): SQL {
+  const json = JSON.stringify(facts);
+  const staleBefore = new Date(now.getTime() - AGENT_FACTS_REFRESH_MS).toISOString();
+  const stored = sql`${endpoints.settings}->'agent'`;
+  return sql`CASE
+    WHEN (${stored}) - 'reportedAt' IS DISTINCT FROM ${json}::jsonb - 'reportedAt'
+      OR coalesce((${stored}->>'reportedAt') < ${staleBefore}, true)
+    THEN jsonb_set(${endpoints.settings}, '{agent}', ${json}::jsonb)
+    ELSE ${endpoints.settings} END`;
+}
+
 /** Record a heartbeat and hand out what is waiting for the agent. */
 export async function heartbeat(
   agent: AgentContext,
@@ -443,11 +462,7 @@ export async function heartbeat(
         lastSeenAt: now,
         ...(agent.profile === "server" ? { staleAlertedAt: null } : {}),
         // Only the agent's own facts change; the settings an admin made stay as they are.
-        ...(facts
-          ? {
-              settings: sql`jsonb_set(${endpoints.settings}, '{agent}', ${JSON.stringify(facts)}::jsonb)`,
-            }
-          : {}),
+        ...(facts ? { settings: settingsWithFacts(facts, now) } : {}),
       })
       .where(and(eq(endpoints.id, agent.endpointId), eq(endpoints.tenantId, agent.tenantId)))
       .returning();
