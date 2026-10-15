@@ -9,9 +9,12 @@
  *   the dirty 4 MiB blocks are read), 3. restore of both restore points as raw
  *   images through the NBD restore server, compared bit for bit with the
  *   image at backup time, 4. a container backup with restic over a
- *   directory and its restore into a temporary folder, compared file by file.
+ *   directory and its restore into a temporary folder, compared file by file,
+ *   5. a VM whose disk holds a GPT with FAT and ext4 (the guest file system
+ *   test image of @restow/core), backed up through the real node and browsed
+ *   and downloaded file by file on the server (the sandboxed reader).
  *
- * Not part of CI (it needs Go, qemu-utils and restic):
+ * Not part of CI (it needs Go, qemu-utils and restic; `pnpm build:libs` first):
  *
  *   go build -o /tmp/restow-pve ./agent/cmd/restow-pve
  *   RESTOW_TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:5432/postgres \
@@ -23,9 +26,11 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promis
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
+import { gunzipSync } from "node:zlib";
 import { serve } from "@hono/node-server";
 import { sql } from "drizzle-orm";
 import { Hono } from "hono";
+import { readZip } from "../../../../../../packages/core/src/restore/testing/zip-reader.js";
 import { startFixture } from "../../endpoints/testing/fixture.js";
 
 const BIN = process.env.RESTOW_PVE_BIN ?? "";
@@ -375,6 +380,115 @@ async function main(): Promise<void> {
       "container restore equals the source (excludes applied)",
     );
     await provider(root, "restore-container-cleanup", { volname: ctVol });
+
+    // ---- 5. files of a VM restore point, read on the server ----
+    const fsImage = join(work, "fs.qcow2");
+    const fsRaw = join(work, "fs.raw");
+    await writeFile(
+      fsRaw,
+      gunzipSync(
+        await readFile(
+          new URL(
+            "../../../../../../packages/core/src/pve/guestfs/testdata/gpt-efi-ext4.img.gz",
+            import.meta.url,
+          ),
+        ),
+      ),
+    );
+    sh("qemu-img", ["convert", "-q", "-f", "raw", "-O", "qcow2", fsRaw, fsImage]);
+    sh("qemu-img", ["bitmap", "--add", "-g", "4194304", fsImage, "snapshot-access:restow"]);
+    const fsSize = (await readFile(fsRaw)).length;
+    const fsTime = 1_790_200_000;
+    await provider(root, "job-init", { startTime: fsTime });
+    const fsInit = await provider(root, "backup-init", {
+      vmid: 102,
+      vmtype: "qemu",
+      startTime: fsTime,
+    });
+    await provider(root, "backup-vm-query-incremental", {
+      vmid: 102,
+      volumes: { "drive-scsi0": { size: fsSize } },
+    });
+    const fsNbd = spawn("qemu-nbd", [
+      "-k",
+      sock,
+      "-f",
+      "qcow2",
+      "-B",
+      "snapshot-access:restow",
+      "-x",
+      "drive-scsi0",
+      "--persistent",
+      fsImage,
+    ]);
+    children.push(fsNbd);
+    await waitForSocket(sock);
+    await provider(root, "backup-vm", {
+      vmid: 102,
+      guestConfig: "scsi0: local-lvm:vm-102-disk-0,size=48M\n",
+      volumes: {
+        "drive-scsi0": {
+          size: fsSize,
+          bitmapMode: "new",
+          nbdPath: sock,
+          bitmapName: "snapshot-access:restow",
+        },
+      },
+      info: { firewallConfig: null },
+    });
+    fsNbd.kill();
+    await new Promise((r) => fsNbd.once("exit", r));
+    await provider(root, "backup-cleanup", { vmid: 102, vmtype: "qemu", success: true, info: {} });
+    await provider(root, "job-cleanup", {});
+    const fsPoint = await fixture.db.execute<{ id: string }>(
+      sql`SELECT id FROM pve_snapshots WHERE archive_name = ${fsInit.archiveName}`,
+    );
+    const pointId = fsPoint.rows[0]?.id ?? "";
+    const files = await import("../files.js");
+    const admin = { label: "e2e", userId: fixture.adminId, ip: null };
+    const top = await files.browseContainerFiles(
+      shared.db,
+      fixture.tenantId,
+      pointId,
+      { path: "/", limit: 100 },
+      admin,
+    );
+    check(
+      top.entries.map((e) => e.name).join(",") === "scsi0-p1,scsi0-p2",
+      "the VM restore point shows its EFI and ext4 file systems",
+    );
+    const etc = await files.browseContainerFiles(
+      shared.db,
+      fixture.tenantId,
+      pointId,
+      { path: "/scsi0-p2/etc", limit: 100 },
+      admin,
+    );
+    check(
+      etc.entries.some((e) => e.name === "hostname" && e.size === 6),
+      "a folder of the VM's ext4 is listed with sizes",
+    );
+    const prepared = await files.prepareContainerDownload(
+      shared.db,
+      fixture.tenantId,
+      pointId,
+      { paths: ["/scsi0-p2/home/anna"] },
+      admin,
+    );
+    const zip = await files.openContainerDownload(
+      shared.db,
+      fixture.tenantId,
+      pointId,
+      prepared.id,
+      admin,
+    );
+    const parts: Buffer[] = [];
+    for await (const part of zip.stream) parts.push(part as Buffer);
+    const unzipped = readZip(Buffer.concat(parts));
+    check(
+      unzipped.find((e) => e.name === "anna/notes.txt")?.data.toString() === "Hello Anna\n",
+      "a folder of the VM comes back as a ZIP",
+    );
 
     const listing = await provider(root, "list-volumes", { vmid: 101 });
     check(
