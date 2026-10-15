@@ -232,6 +232,10 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "PUT /api/v1/settings/default-storage": own(),
   "DELETE /api/v1/settings/default-storage": own(),
   "POST /api/v1/settings/default-storage/test": configure(PROVIDER),
+  // The thresholds of the ransomware detection (docs/RANSOMWARE.md): reading for every provider
+  // admin, changing them decides what every tenant is alerted about, so it is the owner's.
+  "GET /api/v1/settings/ransomware": view(PROVIDER),
+  "PUT /api/v1/settings/ransomware": own(),
 
   // --- Updates -------------------------------------------------------------------
   // Reading is for every provider admin; everything that changes something (the source, a
@@ -325,6 +329,13 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/warnings/:kind/:id": view(),
   "POST /api/v1/warnings/acknowledge": operate(),
   "DELETE /api/v1/warnings/:kind/:id/acknowledgement": operate(),
+
+  // --- Ransomware detection: judged restore points and false alarms ----------------
+  // Calling a finding a false alarm is triage of the daily work, like acknowledging a warning.
+  "GET /api/v1/suspicions": view(),
+  "GET /api/v1/suspicions/open": view(),
+  "POST /api/v1/suspicions/:id/false-alarm": operate(),
+  "DELETE /api/v1/suspicions/:id/false-alarm": operate(),
 
   // --- Jobs, schedules, verification --------------------------------------------
   "GET /api/v1/jobs": view(),

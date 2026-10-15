@@ -77,6 +77,8 @@ import { mountPath as statsMountPath } from "./features/stats/meta.js";
 import { statsRoutes } from "./features/stats/routes.js";
 import { mountPath as storageMountPath } from "./features/storage/meta.js";
 import { storageRoutes } from "./features/storage/routes.js";
+import { mountPath as suspicionMountPath } from "./features/suspicion/meta.js";
+import { suspicionRoutes } from "./features/suspicion/routes.js";
 import { mountPath as tenantJobsMountPath } from "./features/tenant-jobs/meta.js";
 import { tenantJobsRoutes } from "./features/tenant-jobs/routes.js";
 import { mountPath as tenantsMountPath } from "./features/tenants/meta.js";
@@ -229,6 +231,7 @@ export function buildApp() {
   app.route(`${API_V1}${backupJobsMountPath}`, backupJobsRoutes);
   app.route(`${API_V1}${historyMountPath}`, historyRoutes);
   app.route(`${API_V1}${warningsMountPath}`, warningsRoutes);
+  app.route(`${API_V1}${suspicionMountPath}`, suspicionRoutes);
   app.route(`${API_V1}${liveMountPath}`, liveRoutes);
   app.route(`${API_V1}${snapshotsMountPath}`, snapshotsRoutes);
   app.route(`${API_V1}${restoreMountPath}`, restoreRoutes);

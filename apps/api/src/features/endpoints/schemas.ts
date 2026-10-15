@@ -209,6 +209,10 @@ export const finishRunSchema = z.object({
     .max(768 * 1024)
     .default(""),
   restoreTest: restoreTestSchema.optional().catch(undefined),
+  // What the backup changed against the previous snapshot (agents from 0.4.1 on): the activity
+  // report of the ransomware signals (docs/RANSOMWARE.md), checked and bounded where it is used
+  // (@restow/core parseActivityReport). An older agent sends none; a malformed one is dropped.
+  activity: z.unknown().optional(),
 });
 
 export const runIdParamSchema = z.object({ runId: uuid });
