@@ -224,6 +224,33 @@ describe("a mail run", () => {
     expect(run.throughput).toEqual({ processedBps: 5000, transferredBps: 250 });
   });
 
+  it("counts a first backup over all its attempts, with time left only when the size is known (#47)", () => {
+    const payload = {
+      jobId: JOB,
+      runtime: { phase: "mail", firstBackup: { itemsBefore: 4_000, itemsTotal: 12_000 } },
+    };
+    // This attempt: 8_000 left at start, 50 done so far, 120 s at its own rate.
+    const mailbox = mail({ payload }, { total: 8_000, done: 50, etaSeconds: 120 });
+    expect(mailbox.firstBackup).toEqual({ itemsDone: 4_050, itemsTotal: 12_000, etaSeconds: 120 });
+    // The bar shows the whole first backup, not this attempt.
+    expect(mailbox.progress?.percent).toBe(34);
+    // Calendar and contacts read after the mail raise the total beyond Graph's mail count.
+    expect(mail({ payload }, { total: 8_010, done: 8_005 }).firstBackup?.itemsTotal).toBe(12_010);
+    // A OneDrive says no total up front: no "of", no time left from a growing count.
+    const drive = mail(
+      { payload: { runtime: { firstBackup: { itemsBefore: 300, itemsTotal: null } } } },
+      { total: 900, done: 200, etaSeconds: 30 },
+    );
+    expect(drive.firstBackup).toEqual({ itemsDone: 500, itemsTotal: null, etaSeconds: null });
+    expect(drive.progress).toMatchObject({ percent: null, etaSeconds: null });
+    // Not a first backup, or not running: nothing.
+    expect(mail().firstBackup).toBeNull();
+    expect(mail({ payload, status: "queued" }).firstBackup).toBeNull();
+    expect(
+      mail({ payload: { runtime: { firstBackup: { itemsBefore: "many" } } } }).firstBackup,
+    ).toBeNull();
+  });
+
   it("has no percentage while it does not know its size, and no speed when it is over", () => {
     expect(mail({}, { total: 0, done: 4 }).progress?.percent).toBeNull();
     const finished = mail({ status: "completed", completedAt: AT }, { total: 10, done: 10 }, [

@@ -47,6 +47,7 @@ import {
   endpointDownloads,
   endpointReports,
   endpointRepositoryLocks,
+  endpointRuns,
   endpoints,
 } from "@restow/db";
 import { and, eq } from "drizzle-orm";
@@ -488,6 +489,34 @@ describe.skipIf(!canRun)("endpoint backup with the real restic binary", () => {
   });
 
   describe("browsing and downloading", () => {
+    it("says what a restore point added, from the run that made it", async () => {
+      const before = await service.listSnapshots(shared.db, fixture.tenantId, agent.endpointId);
+      const id = before.items[0]?.id ?? "";
+      // Without a run's figure only restic's own summary (0.17+) can say it.
+      const access = await maintenanceAccess();
+      const fromRestic = (await withRepository(access, (session) => resticSnapshots(session)))[0];
+      expect(before.items[0]?.dataAdded).toBe(fromRestic?.dataAdded ?? null);
+      const [run] = await fixture.db
+        .insert(endpointRuns)
+        .values({
+          tenantId: fixture.tenantId,
+          endpointId: agent.endpointId,
+          kind: "backup",
+          status: "succeeded",
+          startedAt: new Date(),
+          finishedAt: new Date(),
+          snapshotId: id,
+          stats: { dataAdded: 4321, totalBytesProcessed: 9000 },
+        })
+        .returning();
+      try {
+        const after = await service.listSnapshots(shared.db, fixture.tenantId, agent.endpointId);
+        expect(after.items[0]?.dataAdded).toBe(4321);
+      } finally {
+        await fixture.db.delete(endpointRuns).where(eq(endpointRuns.id, run?.id ?? ""));
+      }
+    }, 60_000);
+
     it("browses a folder of a snapshot and audits it", async () => {
       const snapshots = await service.listSnapshots(shared.db, fixture.tenantId, agent.endpointId);
       expect(snapshots.items).toHaveLength(1);

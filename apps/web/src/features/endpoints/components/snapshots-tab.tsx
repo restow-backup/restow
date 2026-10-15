@@ -24,8 +24,12 @@ export function newestFirst(snapshots: readonly EndpointSnapshot[]): EndpointSna
   return [...snapshots].sort((a, b) => Date.parse(b.time) - Date.parse(a.time));
 }
 
-/** What a machine's restore point shows below its time on the timeline. */
-function SnapshotDetails({ snapshot }: { snapshot: EndpointSnapshot }) {
+/**
+ * What a machine's restore point shows below its time on the timeline: its files,
+ * what it contains and what it added to the repository (#58, the same wording as
+ * a Proxmox VE guest's).
+ */
+export function SnapshotDetails({ snapshot }: { snapshot: EndpointSnapshot }) {
   const format = useEndpointFormat();
   const { t } = format;
   return (
@@ -36,7 +40,14 @@ function SnapshotDetails({ snapshot }: { snapshot: EndpointSnapshot }) {
           <span>{t("snapshots.files", { count: snapshot.totalFilesProcessed })}</span>
         ) : null}
         {snapshot.totalBytesProcessed !== null ? (
-          <span>{format.bytes(snapshot.totalBytesProcessed)}</span>
+          <span className="tabular-nums" title={t("snapshots.containsHint")}>
+            {t("snapshots.contains", { size: format.bytes(snapshot.totalBytesProcessed) })}
+          </span>
+        ) : null}
+        {snapshot.dataAdded !== null && snapshot.dataAdded !== undefined ? (
+          <span className="tabular-nums" title={t("snapshots.addedHint")}>
+            {t("snapshots.added", { size: format.bytes(snapshot.dataAdded) })}
+          </span>
         ) : null}
       </span>
       {snapshot.paths.length > 0 ? (

@@ -566,7 +566,10 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       unreadable: 0,
     });
     expect(guest?.attention).not.toContain("last_backup_incomplete");
+    // One follow-up backup so far: the average is what it added.
+    expect(guest?.backups.followUp).toEqual({ added: PVE_BLOCK_SIZE, points: 1 });
     const detail = await service.guestDetail(shared.db, fixture.tenantId, guestId);
+    expect(detail.followUp).toEqual({ added: PVE_BLOCK_SIZE, points: 1 });
     expect(detail.snapshots.map((p) => [p.backupType, p.added])).toEqual([
       ["incremental", PVE_BLOCK_SIZE],
       ["first", data1.length],

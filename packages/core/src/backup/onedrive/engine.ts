@@ -211,6 +211,14 @@ export class OneDriveBackupEngine<Db = unknown> implements BackupEngine<Db> {
       resumed,
       resumedDeletions: resumed ? readCheckpointDeletions(writer.state, driveId) : [],
     });
+    if (!previous) {
+      // A first backup (#47). Graph says how many items a drive holds only by
+      // enumerating it, so the total stays open; earlier attempts' items count as done.
+      ctx.progress.firstBackup?.({
+        itemsBefore: resumed ? writer.objectCount : 0,
+        itemsTotal: null,
+      });
+    }
     return run.execute();
   }
 }

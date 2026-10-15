@@ -51,6 +51,15 @@ export interface RunProgress {
   updatedAt: string | null;
 }
 
+/** A running first backup over all its attempts (#47). */
+export interface RunFirstBackup {
+  itemsDone: number;
+  /** Null when the source gives no total up front (a OneDrive); then there is no estimate either. */
+  itemsTotal: number | null;
+  /** Seconds left at the rate this attempt observed: an estimate. */
+  etaSeconds: number | null;
+}
+
 export interface RunAttempt {
   number: number;
   of: number;
@@ -77,6 +86,8 @@ export interface Run {
   finishedAt: string | null;
   updatedAt: string;
   progress: RunProgress | null;
+  /** A running first backup of a mailbox or OneDrive; null otherwise, missing on servers before 0.3.7. */
+  firstBackup?: RunFirstBackup | null;
   throughput: { processedBps: number; transferredBps: number } | null;
   samples: SamplePoint[] | null;
   phase: JobPhase | null;

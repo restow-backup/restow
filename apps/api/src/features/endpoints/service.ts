@@ -1301,6 +1301,29 @@ export async function listSnapshots(
       );
     return new Map<string, SnapshotFlagReason[]>(rows.map((row) => [row.snapshotId, row.reasons]));
   });
+  // What each backup added to the repository, as its run reported it; restic only
+  // keeps a summary in the snapshot from 0.17 on, so the run's figure comes first.
+  const added = await withTenantTx(database, tenantId, async (tx) => {
+    const rows = await tx
+      .select({ snapshotId: endpointRuns.snapshotId, stats: endpointRuns.stats })
+      .from(endpointRuns)
+      .where(
+        and(
+          eq(endpointRuns.tenantId, tenantId),
+          eq(endpointRuns.endpointId, id),
+          eq(endpointRuns.kind, "backup"),
+          isNotNull(endpointRuns.snapshotId),
+        ),
+      );
+    const bySnapshot = new Map<string, number>();
+    for (const row of rows) {
+      const value = row.stats?.dataAdded;
+      if (typeof value === "number" && Number.isFinite(value)) {
+        bySnapshot.set(row.snapshotId as string, value);
+      }
+    }
+    return bySnapshot;
+  });
   return {
     items: snapshots.map((snapshot) => ({
       id: snapshot.id,
@@ -1311,6 +1334,7 @@ export async function listSnapshots(
       filesNew: snapshot.filesNew,
       totalFilesProcessed: snapshot.totalFilesProcessed,
       totalBytesProcessed: snapshot.totalBytesProcessed,
+      dataAdded: added.get(snapshot.id) ?? snapshot.dataAdded,
       verification: ratings.get(snapshot.id) ?? { state: "unverified", checkedAt: null },
       flags: flags.get(snapshot.id) ?? [],
     })),

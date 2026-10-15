@@ -266,6 +266,57 @@ Die Zuordnung steht in `archive_item_mailboxes` (nur hinzufügen, nie ändern, w
   einfaches Rate-Limit je Absender-IP (im Arbeitsspeicher der API) und das Größenlimit (`JOURNAL_MAX_SIZE_MB`, Standard 150 MB;
   größere Reports werden abgewiesen).
 
+### Journaling und Postfach-Sicherung
+
+Journaling ersetzt die Sicherung der Postfächer nicht, und die Sicherung ersetzt das
+Journaling nicht. Beide laufen unabhängig: Das Archiv ändert keinen Sicherungslauf, lässt
+keinen aus und dedupliziert keinen; gemeinsam ist nur der Chunk-Store des Mandanten.
+
+Journaling erfasst, was Exchange Online beim Transport sieht, und zwar in dem Moment, in dem
+die Mail durch den Transport geht:
+
+- ein- und ausgehende Mail, intern und extern, BCC-Empfänger über den Umschlag, sofern die
+  Journalregel diese Nachrichten erfasst (Nachrichtentyp "Alle Nachrichten" für alle
+  Absender und Empfänger, Abschnitt "Microsoft 365"). Eine Regel nur für externe Mail
+  ("Extern") oder nur für bestimmte Benutzer erfasst interne Mail bzw. die übrigen
+  Postfächer nicht;
+- den Stand beim Versand: Was ein Nutzer danach ändert, verschiebt oder löscht, ändert die
+  Kopie im Archiv nicht.
+
+Journaling erfasst nicht:
+
+- Kalender, Kontakte, Aufgaben und Notizen, auch keine Termin-Antworten als
+  Postfachobjekte (eine Einladung, die als Mail transportiert wird, liegt als Mail im Archiv);
+- Entwürfe und alles, was nie versendet wurde;
+- die Ordnerstruktur, den Ordner einer Mail, Gelesen- und Kennzeichnungsstatus, Kategorien
+  und spätere Verschiebungen;
+- spätere Änderungen und Löschungen: Das Archiv zeigt den Stand beim Transport, nicht den
+  aktuellen Stand des Postfachs, und kann ein Postfach nicht in einen früheren Zustand
+  zurückversetzen (Wiederherstellung in die ursprünglichen Ordner);
+- Mail, die vor der Aktivierung des Journalings im Postfach lag (Altbestand, Abschnitt
+  "Grenzen");
+- Mail, die nicht durch den Exchange-Online-Transport geht: von außen direkt ins Postfach
+  importiert (PST-Import, Migration, Graph oder IMAP), oder die der Transport abweist bzw. in
+  die Quarantäne legt, bevor die Journalregel greift;
+- Reports, die Restow nicht erreichen (Connector, Firewall, Zertifikat): Exchange Online
+  schickt sie an das Postfach für nicht zustellbare Journalberichte, nicht ins Archiv.
+
+Die Postfach-Sicherung (docs/MICROSOFT.md) erfasst Mail, Kalender und Kontakte mit
+Ordnern und Status zum Zeitpunkt des Laufs und stellt sie wieder her. Sie sieht nicht, was
+zwischen zwei Läufen eintrifft und wieder gelöscht wird, und ist nicht unveränderbar:
+Sicherungspunkte laufen nach ihrer Aufbewahrungsrichtlinie ab.
+
+Wann was:
+
+- **Wiederherstellen können** (gelöschte Mail, ganze Ordner, Kalender, ein Postfach nach
+  einem Fehler oder Angriff): Postfach-Sicherung. Sie ist immer nötig.
+- **Nachweisen können** (GoBD, Aufbewahrungsfristen, Legal Hold, vollständige Mail vor jeder
+  Änderung durch Nutzer): Journaling ins Archiv, zusätzlich zur Sicherung.
+- Ist das Journaling für einen Mandanten aktiv, ist neue Mail ab ihrem Eingang im Archiv
+  erfasst. Eine seltenere Sicherung (zum Beispiel alle 8 Stunden oder täglich statt
+  stündlich) verkleinert dann nur das Fenster, in dem Kalender, Ordner und Status verloren
+  gehen können, nicht die Erfassung der Mail. Restow stellt die Häufigkeit nicht selbst um.
+
 ## Speicherung
 
 - Archivobjekte gehen in den Chunk-Store wie Backup-Objekte, zusätzlich ein versiegelter
@@ -363,7 +414,7 @@ steht, ist nicht umgesetzt.
   (`JOURNAL_TLS_CERT_PATH`, `JOURNAL_TLS_KEY_PATH`); ohne gültiges Zertifikat öffnet er den Port
   nicht. STARTTLS ist Pflicht: Eine Sitzung ohne STARTTLS wird bei `MAIL FROM` mit 530 abgewiesen.
   Unbekannte Empfänger werden bei RCPT TO abgelehnt (550), bei Speicher- oder
-  Datenbankfehlern antwortet er 451, damit Exchange Online es erneut versucht. Die
+  Datenbankfehlern antwortet er 451, damit Exchange Online es erneut versucht.
   Die Lizenzfähigkeit liest er nur beim Start der API. Nicht umgesetzt: die Prüfung des Absenders (SPF,
   Microsoft-Adressbereiche).
 - **Speicherung.** Originale byte-genau und verschlüsselt im Chunk-Store, je Objekt ein
@@ -385,8 +436,10 @@ steht, ist nicht umgesetzt.
   Provider, `ee/worker/src/archive-retention/`, im bestehenden `retention`-Job) löscht nur
   abgelaufene Objekte ohne Legal Hold und schreibt jede Löschung ins Audit-Log.
 - **Legal Hold** (Business und Service Provider, `ee/api/src/legal-holds/`): mandantenweit
-  oder je Postfach, nicht je Suchergebnis. Ein Hold je Postfach schützt nur Objekte, die einem
-  Postfach zugeordnet sind (Datei-Import); Journal-Objekte schützt nur ein mandantenweiter Hold.
+  oder je Postfach, nicht je Suchergebnis. Ein Hold je Postfach schützt die Objekte, die dem
+  Postfach gehören: aus dem Datei-Import und, ab 0.3.0, die ihm zugeordneten Journal-Reports
+  (`archive_item_mailboxes`). Journal-Reports ohne Zuordnung (vor 0.3.0 eingegangen oder ohne
+  geschütztes Postfach im Umschlag) schützt nur ein mandantenweiter Hold.
 - **Export.** Mails aus Archiv, Sicherung und importiertem Postfach als EML in einem ZIP
   (`MANIFEST.csv`, `SHA256SUMS`) oder als MBOX (docs/IMPORT.md).
 - **Nachweisbericht.** Nur als API (JSON, `GET /api/v1/archive/report`), kein PDF, keine

@@ -301,6 +301,8 @@ export interface BackupRunOptions {
   /** Delta links of folders completed by an interrupted attempt of this run. */
   readonly deltaTokens: Record<string, string>;
   readonly full: boolean;
+  /** The mailbox has no completed snapshot yet (also on a later attempt of that first backup). */
+  readonly firstBackup?: boolean;
   readonly checkpoints: CheckpointPolicy;
 }
 
@@ -320,6 +322,7 @@ export class BackupRun {
   readonly progress: ExchangeProgress;
   readonly deltaTokens: Record<string, string>;
   readonly full: boolean;
+  readonly firstBackup: boolean;
   readonly logger: Logger;
   readonly reporter: ProgressReporter;
   readonly counters: RunCounters = {
@@ -341,6 +344,11 @@ export class BackupRun {
   private itemsSinceCheckpoint = 0;
   private bytesSinceCheckpoint = 0;
   private expected = 0;
+  /**
+   * The mail items to expect were counted up front from the folder totals (a first
+   * backup, {@link announceFirstBackup}); the folders then do not add their own.
+   */
+  mailTotalKnown = false;
 
   constructor(options: BackupRunOptions) {
     this.ctx = options.ctx;
@@ -352,6 +360,7 @@ export class BackupRun {
     this.progress = options.progress;
     this.deltaTokens = options.deltaTokens;
     this.full = options.full;
+    this.firstBackup = options.firstBackup === true;
     this.checkpoints = options.checkpoints;
     this.logger = options.ctx.logger.child({
       component: "exchange-backup",

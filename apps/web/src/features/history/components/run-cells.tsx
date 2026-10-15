@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import type { TFunction } from "i18next";
 import { useTranslation } from "react-i18next";
 
 import { RelativeTime } from "@/components/kit";
@@ -6,9 +7,9 @@ import { CauseLine } from "@/features/failures";
 import { formatBytes, formatInteger } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
-import type { Run } from "../api";
+import type { Run, RunFirstBackup } from "../api";
 import { useSecondClock } from "../live/clock";
-import { barPercent, runDurationSeconds, withRun } from "../presenters";
+import { barPercent, estimateParts, runDurationSeconds, withRun } from "../presenters";
 import { formatClock } from "../samples";
 import { Sparkline } from "./sparkline";
 
@@ -42,6 +43,27 @@ export function RunBar({
   );
 }
 
+/** "First backup: 4,050 of 12,000 items", or "… items so far" without a total (#47). */
+export function firstBackupItemsText(
+  first: RunFirstBackup,
+  t: TFunction<"history">,
+  language: string,
+): string {
+  const done = formatInteger(first.itemsDone, language);
+  return first.itemsTotal !== null
+    ? t("firstBackup.items", { done, total: formatInteger(first.itemsTotal, language) })
+    : t("firstBackup.itemsOpen", { done });
+}
+
+/** "about 3 h 15 min left (estimate)"; null without a total or before a rate. */
+export function firstBackupEtaText(first: RunFirstBackup, t: TFunction<"history">): string | null {
+  if (first.itemsTotal === null || first.etaSeconds === null) {
+    return null;
+  }
+  const { key, values } = estimateParts(first.etaSeconds);
+  return t("firstBackup.eta", { time: t(key, values) });
+}
+
 /**
  * What a running run is doing, for a row: the bar, the sparkline with the speed and the time left;
  * for a run that is not running a line of what it did.
@@ -58,15 +80,18 @@ export function RunProgressCell({ run }: { run: Run }) {
   if (!progress) {
     return <span className="text-xs text-muted-foreground">–</span>;
   }
+  const first = run.state === "running" ? (run.firstBackup ?? null) : null;
   const parts = [
-    progress.itemsTotal !== null
-      ? t("row.items", {
-          done: formatInteger(progress.itemsDone, language),
-          total: formatInteger(progress.itemsTotal, language),
-        })
-      : progress.itemsDone > 0
-        ? t("row.itemsOpen", { done: formatInteger(progress.itemsDone, language) })
-        : null,
+    first
+      ? firstBackupItemsText(first, t, language)
+      : progress.itemsTotal !== null
+        ? t("row.items", {
+            done: formatInteger(progress.itemsDone, language),
+            total: formatInteger(progress.itemsTotal, language),
+          })
+        : progress.itemsDone > 0
+          ? t("row.itemsOpen", { done: formatInteger(progress.itemsDone, language) })
+          : null,
     progress.bytesProcessed > 0 ? formatBytes(progress.bytesProcessed, language) : null,
   ].filter((part): part is string => part !== null);
 
@@ -98,7 +123,9 @@ export function RunProgressCell({ run }: { run: Run }) {
             {rate(run.throughput.processedBps)}
           </span>
         ) : null}
-        {progress.etaSeconds != null ? (
+        {first ? (
+          <FirstBackupEta first={first} />
+        ) : progress.etaSeconds != null ? (
           <span className="tabular-nums">
             {t("row.remaining", { time: formatClock(progress.etaSeconds) })}
           </span>
@@ -106,6 +133,17 @@ export function RunProgressCell({ run }: { run: Run }) {
       </div>
     </div>
   );
+}
+
+/** A first backup's time left as an estimate, with how it was estimated on hover; nothing without one. */
+export function FirstBackupEta({ first }: { first: RunFirstBackup }) {
+  const { t } = useTranslation("history");
+  const text = firstBackupEtaText(first, t);
+  return text ? (
+    <span className="tabular-nums" title={t("firstBackup.etaHint")} data-slot="first-backup-eta">
+      {text}
+    </span>
+  ) : null;
 }
 
 /** How long a run took; a running one counts on, once a second, without asking anybody. */

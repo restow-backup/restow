@@ -304,6 +304,8 @@ export interface ResticSnapshot {
   filesNew: number | null;
   totalBytesProcessed: number | null;
   totalFilesProcessed: number | null;
+  /** What the backup added to the repository after deduplication (restic 0.17+ summary). */
+  dataAdded: number | null;
 }
 
 interface SnapshotJson {
@@ -317,6 +319,7 @@ interface SnapshotJson {
     files_new?: unknown;
     total_bytes_processed?: unknown;
     total_files_processed?: unknown;
+    data_added?: unknown;
   };
 }
 
@@ -372,6 +375,7 @@ export async function resticSnapshots(
       filesNew: asNumber(row.summary?.files_new),
       totalBytesProcessed: asNumber(row.summary?.total_bytes_processed),
       totalFilesProcessed: asNumber(row.summary?.total_files_processed),
+      dataAdded: asNumber(row.summary?.data_added),
     }))
     .sort((a, b) => (a.time < b.time ? 1 : a.time > b.time ? -1 : 0));
 }

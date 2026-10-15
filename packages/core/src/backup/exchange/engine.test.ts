@@ -14,7 +14,7 @@ import {
 } from "../../engine/memory.js";
 import { sealManifest } from "../../engine/sealed-manifest.js";
 import { loadManifest } from "../../engine/snapshot.js";
-import type { JobContext, ProtectedObjectRef } from "../../engine/types.js";
+import type { FirstBackupProgress, JobContext, ProtectedObjectRef } from "../../engine/types.js";
 import { isGraphError } from "../../graph/errors.js";
 import {
   type FakeGraph,
@@ -905,6 +905,47 @@ describe("ExchangeBackupEngine", () => {
         expect(chunkIndex.chunks.get(hex)?.refcount).toBe(1);
       }
     }
+  });
+
+  /** What the engine said about a first backup through this context's reporter. */
+  function firstBackupsOf(ctx: JobContext): FirstBackupProgress[] {
+    const seen: FirstBackupProgress[] = [];
+    ctx.progress.firstBackup = (info) => seen.push(info);
+    return seen;
+  }
+
+  it("counts a first backup up front from the folder totals, also on the attempt that resumes it (#47)", async () => {
+    const controller = new AbortController();
+    box.intercept = (call) => {
+      if (call.url.includes(`/mailFolders/${F.sent}/messages/delta`)) {
+        controller.abort();
+      }
+      return undefined;
+    };
+    const firstCtx = newContext({ signal: controller.signal });
+    const first = firstBackupsOf(firstCtx);
+    await expect(engine.run(firstCtx, mailbox, {})).rejects.toBeInstanceOf(JobAbortedError);
+    expect(first).toEqual([{ itemsBefore: 0, itemsTotal: MESSAGE_COUNT }]);
+    // The whole mail total is known before the first message is stored.
+    const beforeAnyMessage = must(sink.updates.find((u) => u.snapshot.total > 0)).snapshot;
+    expect(beforeAnyMessage.total).toBe(MESSAGE_COUNT);
+
+    box.intercept = undefined;
+    const ctx = newContext({ jobId: "job-1" });
+    const second = firstBackupsOf(ctx);
+    await engine.run(ctx, mailbox, {});
+    // The Inbox's three messages are stored; this attempt counts only what is left,
+    // plus the events and contacts it reads without a total.
+    expect(second).toEqual([{ itemsBefore: 3, itemsTotal: MESSAGE_COUNT }]);
+    const last = must(sink.last).snapshot;
+    expect(last.total).toBe(MESSAGE_COUNT - 3 + EVENT_COUNT + CONTACT_COUNT);
+    expect(last.done).toBe(last.total);
+
+    // The next run is not a first backup any more.
+    const third = newContext({ jobId: "job-2" });
+    const later = firstBackupsOf(third);
+    await engine.run(third, mailbox, {});
+    expect(later).toEqual([]);
   });
 
   it("resumes inside a folder without fetching the messages it already stored", async () => {

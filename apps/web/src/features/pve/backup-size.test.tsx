@@ -7,6 +7,7 @@ import { i18n } from "@/i18n";
 import "./i18n";
 import type { PveGuest, PveGuestBackupSizes } from "./api";
 import { BackupSizeCell } from "./backup-size";
+import { FollowUpNote } from "./guest-page";
 import { guestProtection } from "./inventory-section";
 import { GuestState } from "./pve-page";
 
@@ -71,6 +72,17 @@ describe("BackupSizeCell", () => {
     );
   });
 
+  it("names in the tooltip what a follow-up backup adds on average", () => {
+    const out = html(
+      <BackupSizeCell guest={guest({ ...sizes(), followUp: { added: 180 * MiB, points: 7 } })} />,
+    );
+    expect(out).toContain("Average per follow-up backup: +180 MB (last 7 backups)");
+    // Without a follow-up backup there is no average, not a "+0 B".
+    expect(html(<BackupSizeCell guest={guest({ ...sizes(), followUp: null })} />)).not.toContain(
+      "Average per follow-up",
+    );
+  });
+
   it("leaves out the added line when the restore point did not record it", () => {
     const out = html(
       <BackupSizeCell
@@ -89,5 +101,13 @@ describe("an incomplete container backup", () => {
     expect(state).not.toContain("Last backup succeeded");
     expect(guestProtection(g)).toBe("incomplete");
     expect(guestProtection(guest(sizes()))).toBe("protected");
+  });
+});
+
+describe("the guest page", () => {
+  it("says what a follow-up backup adds on average and over how many backups", () => {
+    expect(html(<FollowUpNote followUp={{ added: 2.5 * MiB, points: 1 }} />)).toContain(
+      "A follow-up backup adds +2.5 MB on average (last 1 backup).",
+    );
   });
 });

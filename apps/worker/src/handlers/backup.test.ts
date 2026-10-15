@@ -409,6 +409,30 @@ describe("runtime state", () => {
     expect(sink.failures).toEqual([{ itemRef: "item-1", reason: "410 Gone" }]);
   });
 
+  it("persists what a first backup knows about its size and clears it on finish (#47)", async () => {
+    const persisted: BackupRuntimeState[] = [];
+    const recorder = new PhaseRecorder(
+      new ProgressTracker({ sink: new MemoryProgressSink(), flushIntervalMs: 0 }),
+      async (state) => {
+        persisted.push(state);
+      },
+      new RecordingLogger(),
+      () => new Date(0),
+    );
+    recorder.phase("mail");
+    recorder.firstBackup({ itemsBefore: 250, itemsTotal: 12_000 });
+    recorder.phase("calendar");
+    await recorder.finish();
+
+    expect(persisted[1]).toMatchObject({
+      phase: "mail",
+      firstBackup: { itemsBefore: 250, itemsTotal: 12_000 },
+    });
+    // A later phase keeps it; the finished run has none.
+    expect(persisted[2]?.firstBackup).toEqual({ itemsBefore: 250, itemsTotal: 12_000 });
+    expect(persisted[3]).toEqual(IDLE_RUNTIME_STATE);
+  });
+
   it("forwards the processed bytes and the transferred packs", async () => {
     const inner = new ProgressTracker({ sink: new MemoryProgressSink(), flushIntervalMs: 0 });
     const recorder = new PhaseRecorder(

@@ -4,6 +4,7 @@ import type { Run, RunEvent } from "./api";
 import {
   barPercent,
   checkView,
+  estimateParts,
   eventView,
   historySearchOf,
   isMailSubject,
@@ -196,5 +197,24 @@ describe("the address", () => {
     expect(withRun({ type: "backup", run: "old" }, ID)).toEqual({ type: "backup", run: ID });
     expect(withRun({ type: "backup", run: ID }, null)).toEqual({ type: "backup" });
     expect(withRun({}, null)).toEqual({});
+  });
+});
+
+describe("estimateParts", () => {
+  const said = (seconds: number) => {
+    const { key, values } = estimateParts(seconds);
+    return [key.replace("firstBackup.estimate.", ""), values];
+  };
+
+  it("is the coarser the further out, so an estimate does not pose as exact (#47)", () => {
+    expect(said(42)).toEqual(["underMinute", { days: 0, hours: 0, minutes: 0 }]);
+    expect(said(7 * 60 + 20)).toEqual(["minutes", { days: 0, hours: 0, minutes: 7 }]);
+    expect(said(23 * 60)).toEqual(["minutes", { days: 0, hours: 0, minutes: 25 }]);
+    // 58 minutes is about an hour, not "60 min".
+    expect(said(58 * 60)).toEqual(["hours", { days: 0, hours: 1, minutes: 0 }]);
+    expect(said(3 * 3600 + 11 * 60)).toEqual(["hoursMinutes", { days: 0, hours: 3, minutes: 15 }]);
+    expect(said(13.4 * 3600)).toEqual(["hours", { days: 0, hours: 13, minutes: 0 }]);
+    expect(said(53 * 3600)).toEqual(["days", { days: 2, hours: 5, minutes: 0 }]);
+    expect(said(Number.NaN)).toEqual(["underMinute", { days: 0, hours: 0, minutes: 0 }]);
   });
 });

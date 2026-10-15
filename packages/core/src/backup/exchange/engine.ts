@@ -125,6 +125,8 @@ export class ExchangeBackupEngine<Db = unknown> implements BackupEngine<Db> {
     });
     const resumed =
       cursor.checkpoint !== undefined && cursor.checkpoint.snapshotId === writer.snapshotId;
+    // No completed snapshot yet: this is the mailbox's first backup, also on a later attempt.
+    const firstBackup = (await ctx.snapshots.latestCompleted(protectedObject.id)) === null;
 
     const run = new BackupRun({
       ctx,
@@ -132,6 +134,7 @@ export class ExchangeBackupEngine<Db = unknown> implements BackupEngine<Db> {
       userId: protectedObject.externalId,
       writer,
       full,
+      firstBackup,
       state: await this.initialState(writer, resumed, full),
       progress: resumed
         ? cursor.progress

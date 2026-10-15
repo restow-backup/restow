@@ -231,9 +231,17 @@ Three numbers describe a guest and its backups, and they mean different things:
   stores (nearly) everything, later ones only what changed.
 
 VMs & containers and the inventory show the newest restore point ("9.4 GB in
-the backup, +2.5 MB new in the last run") and, on hover, the first backup. A
-guest's page lists every restore point as first backup, incremental, or (VM)
-full read, with what it contains and what it added.
+the backup, +2.5 MB new in the last run") and, on hover, the first backup and
+what a follow-up backup adds on average. The average covers the newest 10 kept
+restore points after the first backup that recorded what they added; with no
+such point there is no average. A guest's page states the same average above
+its restore points and lists every restore point as first backup, incremental,
+or (VM) full read, with what it contains and what it added.
+
+A machine's (endpoint agent's) restore points use the same words: what the
+point contains (restic's `total_bytes_processed`) and what it added (`data_added`,
+as the agent reported it for the run, else restic's own snapshot summary from
+restic 0.17 on). Points without either figure show neither.
 
 ## Restore
 

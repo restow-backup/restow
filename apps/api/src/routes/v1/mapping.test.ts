@@ -67,6 +67,7 @@ function job(overrides: Partial<JobDto> = {}): JobDto {
       waits: 2,
       totalWaitMs: 8000,
     },
+    firstBackup: null,
     cancellable: true,
     retryable: false,
     checkIncomplete: false,

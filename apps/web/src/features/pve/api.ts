@@ -65,9 +65,17 @@ export interface PveBackupSize {
   unreadable: number;
 }
 
+/** What a follow-up backup added on average, over the newest `points` restore points after the first. */
+export interface PveFollowUpAverage {
+  added: number;
+  points: number;
+}
+
 export interface PveGuestBackupSizes {
   first: PveBackupSize | null;
   last: PveBackupSize | null;
+  /** Null without a follow-up backup that recorded it; missing on servers before 0.3.7. */
+  followUp?: PveFollowUpAverage | null;
 }
 
 export interface PveJobSchedule {
@@ -142,6 +150,8 @@ export interface PveGuestDetail {
   cluster: { id: string; name: string; storageId: string } | null;
   snapshots: PveRestorePoint[];
   runs: PveRun[];
+  /** What a follow-up backup added on average; missing on servers before 0.3.7. */
+  followUp?: PveFollowUpAverage | null;
 }
 
 /** A one-time enrollment token and the one command that connects a node with it. */

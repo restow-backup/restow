@@ -23,6 +23,7 @@ import {
   waveProgress,
 } from "../presenters";
 import { formatClock } from "../samples";
+import { firstBackupEtaText, firstBackupItemsText } from "./run-cells";
 import { RestoreCheckChip, RunStateBadge, SubjectIcon, useRunTitle } from "./run-parts";
 import { ThroughputCharts } from "./throughput-charts";
 
@@ -193,16 +194,19 @@ function ProgressSection({ run, detail }: { run: Run; detail: RunDetail | undefi
       ? t("view.progress.discovering")
       : t("view.progress.percent", { percent })
     : t(`state.${view.key}`);
+  const first = running ? (run.firstBackup ?? null) : null;
   const detailText = wave
     ? t(`view.wave.${run.kind === "backup" ? waveNoun : "generic"}`, wave)
-    : progress && progress.itemsTotal !== null
-      ? t("view.progress.items", {
-          done: formatInteger(progress.itemsDone, language),
-          total: formatInteger(progress.itemsTotal, language),
-        })
-      : progress && progress.itemsDone > 0
-        ? t("view.progress.itemsOpen", { done: formatInteger(progress.itemsDone, language) })
-        : null;
+    : first
+      ? firstBackupItemsText(first, t, language)
+      : progress && progress.itemsTotal !== null
+        ? t("view.progress.items", {
+            done: formatInteger(progress.itemsDone, language),
+            total: formatInteger(progress.itemsTotal, language),
+          })
+        : progress && progress.itemsDone > 0
+          ? t("view.progress.itemsOpen", { done: formatInteger(progress.itemsDone, language) })
+          : null;
 
   return (
     <section aria-label={t("view.progress.label")} className="space-y-2" data-section="progress">
@@ -283,6 +287,7 @@ function StatsSection({
   const language = i18n.resolvedLanguage ?? i18n.language;
   const running = run.state === "running";
   const progress = run.progress;
+  const first = running ? (run.firstBackup ?? null) : null;
   const seconds = runDurationSeconds(run, now);
   const processed = progress?.bytesProcessed ?? 0;
   const transferred = progress?.bytesTransferred ?? 0;
@@ -316,7 +321,16 @@ function StatsSection({
               {running ? rate(run.throughput?.processedBps ?? 0) : rate(average ?? 0)}
             </Row>
           ) : null}
-          {running ? (
+          {running && first ? (
+            <Row label={t("view.stats.remaining")} term="remaining">
+              <span
+                className="font-sans"
+                title={t(first.itemsTotal === null ? "firstBackup.noEta" : "firstBackup.etaHint")}
+              >
+                {firstBackupEtaText(first, t) ?? "–"}
+              </span>
+            </Row>
+          ) : running ? (
             <Row label={t("view.stats.remaining")} term="remaining">
               {progress?.etaSeconds != null
                 ? t("view.stats.about", { time: formatClock(progress.etaSeconds) })

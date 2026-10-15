@@ -125,10 +125,46 @@ function backupSize(row: SnapshotSizeRow): BackupSize {
   };
 }
 
-/** The first backup a guest ever had (also when retention removed it since) and its newest restore point. */
+/** How many of the newest follow-up backups the average covers. */
+export const FOLLOW_UP_POINTS = 10;
+
+/** What a follow-up backup adds on average, over how many restore points. */
+export interface FollowUpAverage {
+  added: number;
+  points: number;
+}
+
+/**
+ * The average a follow-up backup added, over the newest {@link FOLLOW_UP_POINTS}
+ * restore points after the first backup (newest first, or in any order: the
+ * highest sequences count). Points that did not record what they added are left
+ * out; null when no follow-up point recorded it.
+ */
+export function followUpAverage(
+  points: readonly { sequence: number; added: number | null }[],
+  firstSequence: number | null,
+  limit = FOLLOW_UP_POINTS,
+): FollowUpAverage | null {
+  const recent = points
+    .filter((p) => firstSequence !== null && p.sequence > firstSequence)
+    .sort((a, b) => b.sequence - a.sequence)
+    .slice(0, limit)
+    .flatMap((p) => (p.added === null ? [] : [p.added]));
+  if (recent.length === 0) {
+    return null;
+  }
+  const total = recent.reduce((sum, value) => sum + value, 0);
+  return { added: Math.round(total / recent.length), points: recent.length };
+}
+
+/**
+ * The first backup a guest ever had (also when retention removed it since), its
+ * newest restore point, and what its follow-up backups added on average.
+ */
 export interface GuestBackupSizes {
   first: BackupSize | null;
   last: BackupSize | null;
+  followUp?: FollowUpAverage | null;
 }
 
 function guestDto(
@@ -240,14 +276,45 @@ export async function overview(database: Database, tenantId: string, now: Date =
     const lasts = await tx.execute<SnapshotSizeRow>(sql`
       SELECT DISTINCT ON (guest_id) guest_id, kind, backup_at, byte_size, stats
         FROM pve_snapshots WHERE status = 'active' ORDER BY guest_id, sequence DESC`);
+    // The newest kept follow-up points per guest (after the first backup ever), for the
+    // average a follow-up backup adds.
+    const followUps = await tx.execute<{
+      guest_id: string;
+      kind: string;
+      sequence: number;
+      first_sequence: number;
+      stats: PveRunStats | null;
+    }>(sql`
+      SELECT guest_id, kind, sequence, first_sequence, stats FROM (
+        SELECT guest_id, kind, sequence, first_sequence, stats,
+               row_number() OVER (PARTITION BY guest_id ORDER BY sequence DESC) AS rn
+          FROM (SELECT guest_id, kind, sequence, status, stats,
+                       min(sequence) OVER (PARTITION BY guest_id) AS first_sequence
+                  FROM pve_snapshots) all_points
+         WHERE status = 'active' AND sequence > first_sequence) follow_ups
+       WHERE rn <= ${FOLLOW_UP_POINTS}`);
     const sizes = new Map<string, GuestBackupSizes>();
     for (const row of firsts.rows) {
-      sizes.set(row.guest_id, { first: backupSize(row), last: null });
+      sizes.set(row.guest_id, { first: backupSize(row), last: null, followUp: null });
     }
     for (const row of lasts.rows) {
-      const entry = sizes.get(row.guest_id) ?? { first: null, last: null };
+      const entry = sizes.get(row.guest_id) ?? { first: null, last: null, followUp: null };
       entry.last = backupSize(row);
       sizes.set(row.guest_id, entry);
+    }
+    const followUpRows = new Map<string, { sequence: number; added: number | null }[]>();
+    const firstSequences = new Map<string, number>();
+    for (const row of followUps.rows) {
+      const list = followUpRows.get(row.guest_id) ?? [];
+      list.push({ sequence: Number(row.sequence), added: addedBytes(row.kind, row.stats) });
+      followUpRows.set(row.guest_id, list);
+      firstSequences.set(row.guest_id, Number(row.first_sequence));
+    }
+    for (const [guestId, points] of followUpRows) {
+      const entry = sizes.get(guestId);
+      if (entry) {
+        entry.followUp = followUpAverage(points, firstSequences.get(guestId) ?? null);
+      }
     }
     const jobMap = new Map(jobs.map((j) => [j.id, j]));
     return {
@@ -411,6 +478,10 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
       .limit(1);
     return {
       guest: guestDto(guest, new Map(jobs.map((j) => [j.id, j])), undefined),
+      followUp: followUpAverage(
+        snapshots.map((s) => ({ sequence: s.sequence, added: addedBytes(s.kind, s.stats) })),
+        firstSequence,
+      ),
       cluster: cluster
         ? { id: cluster.id, name: cluster.name, storageId: cluster.storageId }
         : null,
