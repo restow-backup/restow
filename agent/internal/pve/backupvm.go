@@ -37,6 +37,10 @@ type DiskPlan struct {
 	// Base are the block hashes of the restore point the server builds on
 	// (nil: none, every block must be reported).
 	Base *HashList
+	// Progress, when set, hears after every block how many bytes were read
+	// of how many to read (the dirty blocks for "reuse", else the disk) and
+	// how many were queued for upload.
+	Progress func(read, toRead, uploaded uint64)
 }
 
 // DiskResult is what one disk backup did.
@@ -149,6 +153,18 @@ func BackupDisk(ctx context.Context, src BlockSource, sink BlockSink, runID stri
 		return res, err
 	}
 	canTrim := src.CanTrim()
+	var toRead uint64
+	for i, r := range read {
+		if r {
+			toRead += uint64(BlockLen(plan.Size, uint32(i)))
+		}
+	}
+	report := func() {
+		if plan.Progress != nil {
+			plan.Progress(res.ReadBytes, toRead, res.UploadedBytes)
+		}
+	}
+	report()
 
 	type pending struct {
 		blocks []FrameBlock
@@ -215,6 +231,7 @@ func BackupDisk(ctx context.Context, src BlockSource, sink BlockSink, runID stri
 			break
 		}
 		res.ReadBytes += uint64(n)
+		report()
 		if IsZero(p) {
 			if hashes.Flags[i]&FlagZero != 0 {
 				res.HashSkipped++

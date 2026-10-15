@@ -222,6 +222,8 @@ type jobState struct {
 	SnapshotID  string                       `json:"snapshotId,omitempty"`
 	Committed   bool                         `json:"committed"`
 	RunDir      string                       `json:"runDir,omitempty"`
+	// ProgressInterval is how often the server wants progress (0: never).
+	ProgressInterval int `json:"progressInterval,omitempty"`
 }
 
 func (p *Provider) loadJob(storeid string, vmid int) (*jobState, error) {
@@ -281,7 +283,7 @@ func (p *Provider) backupInit(ctx context.Context, req ProviderRequest) (any, er
 		return nil, fmt.Errorf("open the backup run on the Restow server: %w", err)
 	}
 	if err := p.saveJob(&jobState{RunID: run.RunID, GuestID: run.GuestID, ArchiveName: name, Kind: kind,
-		VMID: req.VMID, StoreID: req.StoreID}); err != nil {
+		VMID: req.VMID, StoreID: req.StoreID, ProgressInterval: run.ProgressIntervalSeconds}); err != nil {
 		return nil, err
 	}
 	p.logf("info", "Restow run %s, archive %s", run.RunID, name)
@@ -412,9 +414,31 @@ func (p *Provider) backupVM(ctx context.Context, req ProviderRequest) (any, erro
 	limit := NewRateLimiter(req.Info.BandwidthLimit)
 	var devices []CommitDevice
 	results := map[string]*HashList{}
-	for _, name := range names {
+	reporter := StartProgress(ctx, intervalSeconds(job.ProgressInterval), func(ctx context.Context, pr Progress) error {
+		return p.server.ReportProgress(ctx, job.RunID, pr)
+	})
+	defer reporter.Stop()
+	// The disks done so far, and what the disks still to come will read: a
+	// whole disk unless its bitmap is reused (then only its dirty blocks,
+	// known when it starts).
+	var doneRead, doneTotal, doneUploaded uint64
+	ahead := func(from int) uint64 {
+		var n uint64
+		for _, rest := range names[from:] {
+			if v := req.Volumes[rest]; v.BitmapMode != "reuse" {
+				n += v.Size
+			}
+		}
+		return n
+	}
+	for i, name := range names {
 		v := req.Volumes[name]
 		plan := DiskPlan{Device: name, Size: v.Size, BitmapMode: v.BitmapMode, BitmapName: v.BitmapName}
+		rest := ahead(i + 1)
+		plan.Progress = func(read, toRead, uploaded uint64) {
+			reporter.Set(Progress{BytesDone: doneRead + read, BytesTotal: uint64Ptr(doneTotal + toRead + rest),
+				BytesUploaded: uint64Ptr(doneUploaded + uploaded)})
+		}
 		if b, ok := job.Bases[name]; ok && b.BaseSnapshotID != "" {
 			if h, err := p.baseHashes(ctx, req.VMID, b); err == nil {
 				plan.Base = h
@@ -442,7 +466,11 @@ func (p *Provider) backupVM(ctx context.Context, req ProviderRequest) (any, erro
 		}
 		devices = append(devices, res.CommitDevice)
 		results[name] = res.Hashes
+		doneRead += res.ReadBytes
+		doneTotal += res.ReadBytes
+		doneUploaded += res.UploadedBytes
 	}
+	reporter.Stop()
 	// The commit id is stored before the commit is sent: a retry after a
 	// lost answer asks for the same commit, which the server answers with
 	// the snapshot it already made.

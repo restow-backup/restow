@@ -209,6 +209,10 @@ type fakeRestow struct {
 	blocks      int
 	finished    []string
 	commitCalls int
+	// progressInterval is what POST /runs asks for (0: an older server).
+	progressInterval int
+	progress         []Progress
+	logs             []string
 }
 
 func (f *fakeRestow) handler(t *testing.T) http.Handler {
@@ -218,7 +222,20 @@ func (f *fakeRestow) handler(t *testing.T) http.Handler {
 		p := strings.TrimPrefix(r.URL.Path, APIPath)
 		switch {
 		case p == "/runs" && r.Method == "POST":
-			_ = json.NewEncoder(w).Encode(OpenRunResponse{RunID: "run-1", GuestID: "g"})
+			_ = json.NewEncoder(w).Encode(OpenRunResponse{RunID: "run-1", GuestID: "g", ProgressIntervalSeconds: f.progressInterval})
+		case strings.HasSuffix(p, "/progress"):
+			if f.progressInterval == 0 {
+				t.Errorf("a server that asked for no progress got a report")
+			}
+			var in Progress
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			f.progress = append(f.progress, in)
+			w.WriteHeader(204)
+		case strings.HasSuffix(p, "/log"):
+			var in struct{ Log string }
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			f.logs = append(f.logs, in.Log)
+			w.WriteHeader(204)
 		case strings.HasSuffix(p, "/incremental"):
 			var in struct{ Devices []DeviceSize }
 			_ = json.NewDecoder(r.Body).Decode(&in)

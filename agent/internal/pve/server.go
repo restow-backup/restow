@@ -386,6 +386,9 @@ type OpenRunResponse struct {
 	RunID   string `json:"runId"`
 	GuestID string `json:"guestId"`
 	Origin  string `json:"origin"`
+	// ProgressIntervalSeconds asks for progress reports (servers from 0.4.0
+	// on); 0 from an older server, which then gets none.
+	ProgressIntervalSeconds int `json:"progressIntervalSeconds"`
 }
 
 // OpenRun opens a backup run (job_init/backup_init time).
@@ -468,6 +471,8 @@ type CommitRequest struct {
 	ConsistencyRemark string         `json:"consistency,omitempty"`
 	// ResticUnreadable counts the items a container backup could not read.
 	ResticUnreadable int `json:"resticUnreadable,omitempty"`
+	// ResticUnreadablePaths names the first of them (an older server ignores it).
+	ResticUnreadablePaths []string `json:"resticUnreadablePaths,omitempty"`
 }
 
 // CommitResponse is the answer of a commit.
@@ -496,6 +501,17 @@ func (s *Server) FinishRun(ctx context.Context, runID, status, message string, s
 		map[string]any{"status": status, "error": message, "stats": stats}, nil, true)
 }
 
+// ReportProgress sends how far a running backup is. One attempt with a short
+// timeout: progress is best effort and never holds a backup up.
+func (s *Server) ReportProgress(ctx context.Context, runID string, p Progress) error {
+	body, err := json.Marshal(p)
+	if err != nil {
+		return err
+	}
+	return s.do(ctx, request{method: http.MethodPost, path: "/runs/" + url.PathEscape(runID) + "/progress",
+		body: body, timeout: progressTimeout})
+}
+
 // RunLog attaches the PVE task log (its tail) to a run.
 func (s *Server) RunLog(ctx context.Context, runID, log string) error {
 	return s.json(ctx, http.MethodPost, "/runs/"+url.PathEscape(runID)+"/log", map[string]string{"log": log}, nil, true)
@@ -508,6 +524,10 @@ type ResticAccess struct {
 	Password           string `json:"password"`
 	RepositoryPassword string `json:"repositoryPassword"`
 	ExpiresAt          string `json:"expiresAt"`
+	// ProgressURL is where a container backup reports its progress with this
+	// credential (backup runs, servers from 0.4.0 on; empty otherwise).
+	ProgressURL             string `json:"progressUrl,omitempty"`
+	ProgressIntervalSeconds int    `json:"progressIntervalSeconds,omitempty"`
 }
 
 // RunRestic fetches the per-run restic credential of a container backup.
