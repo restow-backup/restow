@@ -286,6 +286,18 @@ describe.skipIf(!testDatabaseAdminUrl)("recommended jobs against Postgres", () =
     ).toHaveLength(0);
   });
 
+  it("narrows everything to the kinds a list's notice is about", async () => {
+    const preview = await json<RecommendedPlanDto>(
+      await call("GET", "/recommended?everything=1&kinds=endpoint"),
+      200,
+    );
+    expect(preview.items.map((item) => item.key)).toEqual([
+      "endpoint:linux:server",
+      "endpoint:windows:client",
+    ]);
+    expect((await call("GET", "/recommended?everything=1&kinds=tapes")).status).toBe(422);
+  });
+
   it("names what it skips when asked for objects that are in a job or cannot be backed up", async () => {
     const preview = await json<RecommendedPlanDto>(
       await call(

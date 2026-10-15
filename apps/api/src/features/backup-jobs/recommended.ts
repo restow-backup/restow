@@ -68,6 +68,15 @@ export interface RecommendedScope {
   guestIds: readonly string[];
   /** Everything without a job: mail objects, machines and guests ("Protect everything"). */
   everything: boolean;
+  /** With `everything`: only these kinds (a list's notice protects its own kind); empty = all. */
+  kinds?: readonly RecommendedKind[];
+}
+
+/** Whether `everything` covers a kind. */
+function allOf(scope: RecommendedScope, kind: RecommendedKind): boolean {
+  return (
+    scope.everything && (!scope.kinds || scope.kinds.length === 0 || scope.kinds.includes(kind))
+  );
 }
 
 export interface RecommendedMember {
@@ -169,7 +178,7 @@ async function plan(
   const primary = await loadPrimaryTarget(tx, tenantId);
 
   // --- Mail -------------------------------------------------------------------
-  if (scope.mail || scope.everything) {
+  if (scope.mail || allOf(scope, "mail")) {
     const mailJobs = await tx
       .select({ id: backupJobs.id, name: backupJobs.name, scopeMode: backupJobs.scopeMode })
       .from(backupJobs)
@@ -226,7 +235,7 @@ async function plan(
     .from(backupJobMembers)
     .where(and(eq(backupJobMembers.tenantId, tenantId), isNotNull(backupJobMembers.endpointId)));
   const inJob = new Set(memberRows.map((row) => row.endpointId as string));
-  const wantedMachines = scope.everything
+  const wantedMachines = allOf(scope, "endpoint")
     ? await tx
         .select()
         .from(endpoints)
@@ -255,7 +264,7 @@ async function plan(
     }
     if (inJob.has(machine.id)) {
       // "Everything" means everything without a job: a machine in a job is not news.
-      if (!scope.everything) {
+      if (!allOf(scope, "endpoint")) {
         skipped.push({ kind: "endpoint", id: machine.id, name, reason: "in_job" });
       }
       continue;
@@ -309,9 +318,9 @@ async function plan(
   }
 
   // --- VMs and containers ---------------------------------------------------------
-  if (scope.everything || scope.guestIds.length > 0) {
+  if (allOf(scope, "pve") || scope.guestIds.length > 0) {
     const jobs = await tx.select().from(pveJobs).where(eq(pveJobs.tenantId, tenantId));
-    const guests = scope.everything
+    const guests = allOf(scope, "pve")
       ? await tx.select().from(pveGuests).where(eq(pveGuests.tenantId, tenantId))
       : await tx
           .select()
@@ -325,13 +334,14 @@ async function plan(
     for (const guest of guests) {
       const name = guest.name?.trim() || `${guest.kind === "vm" ? "VM" : "CT"} ${guest.vmid}`;
       if (!pveGuestBackable(guest)) {
-        if (!scope.everything)
+        if (!allOf(scope, "pve"))
           skipped.push({ kind: "pve", id: guest.id, name, reason: "unavailable" });
         continue;
       }
       // In a job of its own (also a paused one: that is a decision), or in an enabled job over all guests.
       if (guest.jobId !== null || pveJobOfGuest(guest, jobs)) {
-        if (!scope.everything) skipped.push({ kind: "pve", id: guest.id, name, reason: "in_job" });
+        if (!allOf(scope, "pve"))
+          skipped.push({ kind: "pve", id: guest.id, name, reason: "in_job" });
         continue;
       }
       chosen.push({ id: guest.id, name });
@@ -533,6 +543,7 @@ export async function applyRecommendedJobs(
         targetType: "tenant",
         details: {
           everything: scope.everything,
+          ...(scope.kinds && scope.kinds.length > 0 ? { kinds: scope.kinds } : {}),
           jobs: items,
           skipped: skipped.length,
         },

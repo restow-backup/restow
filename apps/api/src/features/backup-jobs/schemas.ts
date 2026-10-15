@@ -277,6 +277,11 @@ export const recommendedScopeSchema = z
     endpointIds: z.array(uuid).max(5000).default([]),
     guestIds: z.array(uuid).max(5000).default([]),
     everything: z.boolean().default(false),
+    /** With `everything`: only these kinds; empty or absent = all. */
+    kinds: z
+      .array(z.enum(["mail", "endpoint", "pve"]))
+      .max(3)
+      .default([]),
   })
   .refine(
     (scope) =>
@@ -293,6 +298,10 @@ export const recommendedQuerySchema = z
     endpointIds: idListQuery,
     guestIds: idListQuery,
     everything: flagQuery,
+    kinds: z
+      .string()
+      .optional()
+      .transform((value) => (value ? value.split(",").map((part) => part.trim()) : [])),
   })
   .pipe(recommendedScopeSchema);
 
