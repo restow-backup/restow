@@ -53,9 +53,9 @@ the storage form"). Every target has a role:
 The Repositories section of a tenant's page (`/tenants/<tenant>/storage`, also opened by the menu entry Repositories; the earlier address `/repositories` leads there) lists every target with its role,
 health (the result of its last test), and — for S3 targets — whether the bucket
 enforces Object Lock (WORM), which matters for the GoBD archive layer
-(`docs/ARCHIVE.md`). In 0.1.0 Object Lock covers only the archive's item records, not
-the packs that hold the message content, and backup data carries no Object Lock
-retention; local and NFS targets are shown as having no hardware WORM.
+(`docs/ARCHIVE.md`). Whether the backup data itself is locked is a setting of each
+repository ("Immutable backups" below); local and NFS targets are shown as having no
+hardware WORM, and offer only a deletion delay enforced by Restow itself.
 
 ## Installation default
 
@@ -210,6 +210,149 @@ tenants share:
 The daily retention run removes what is left of failed or cancelled exports and every
 staging or export area that no database row knows any more. Do not keep files of your
 own under these prefixes.
+
+## Immutable backups
+
+Backup data that someone who controls Restow cannot delete or alter before a date: an
+attacker on the Restow server, someone holding Restow's storage access key, a stolen
+administrator account, or a retention policy shortened on purpose. Each repository (storage
+target) has its own immutability setting; it is off until an administrator turns it on.
+
+### What exists to protect (research)
+
+- **Kinds of storage.** A target is an S3-compatible bucket (`s3`) or a directory (`local`:
+  the Docker volume, or an NFS share mounted by the mounter at `/mnt/restow/<name>`). The
+  installation default is one of the two, configured in the environment or under
+  Installation; `STORAGE_COPY_LOCAL_PATH` is a directory. A tenant writes to its primary and
+  every copy (`writeToAllTargets`, `packages/core/src/engine/chunkstore.ts`); the weekly
+  scrub mirrors older data onto copies (`storage/copy.ts`); a `previous` target is read only.
+- **Chunk store (Microsoft 365, IMAP, PVE disks).** Packs are written once under a new id
+  (`tenants/<t>/packs/<xx>/<id>`) and never rewritten; a committed manifest
+  (`manifests/<snapshot>.json.zst`) is written once; the checkpoint (`.partial`) is
+  rewritten during a backup and deleted after it; wrapped keys (`keys/<version>`) are
+  written once. Deduplication means a new restore point references packs of any age.
+- **How data is deleted.** Retention (`retention` queue, daily) marks a restore point
+  pruned, releases its chunk references and deletes its manifest on every target
+  (`apps/worker/src/handlers/retention.ts`). Space comes back in the weekly scrub: garbage
+  collection copies the surviving chunks of a pack into a new pack, swaps the catalog, keeps
+  the old file for a day (`superseded`) and then deletes it; unrecorded pack files older than
+  a day are swept (`verify/gc.ts`). Staging, exports, downloads and abandoned checkpoints
+  are cleaned up as they expire.
+- **restic repositories (endpoints, file shares, PVE containers).** They live under
+  `endpoints/<id>/`, `file-shares/<id>/` and `pve-guests/<id>/` of the primary and are
+  served by Restow's own restic REST layer (`endpoints/restic-rest.ts`) on top of the same
+  storage backends. Agents and runners hold append-only credentials (they write new
+  objects and their own lock files, nothing else). The server's retention decides which
+  snapshots go and runs `restic forget <ids>` and `restic prune` through a loopback
+  listener with full access (`endpoints/loopback.ts`); prune deletes packs and rewrites
+  index files.
+- **S3 Object Lock** needs versioning: a write is a new version, a DeleteObject without a
+  version id only adds a delete marker, and a locked version cannot be removed before its
+  retain-until date (COMPLIANCE: by nobody; GOVERNANCE: only with
+  `s3:BypassGovernanceRetention`). Until now Restow locked only the archive's item records.
+
+### Design
+
+**What is locked.** By key (`lockClassOf`, `packages/core/src/storage/immutability.ts`):
+packs, committed manifests and wrapped keys of the chunk store; the `data/`, `snapshots/`,
+`keys/` and `config` objects of every restic repository, and the repository password file
+next to it. Not locked: checkpoints, staging, exports, downloads, probes, restic `locks/`
+(restic writes and removes them on every run) and restic `index/` files: every prune
+rewrites the index and restic stops a prune for good when it cannot remove an old index
+file (tested with restic 0.19.1). Index files only list what the packs hold; `restic
+repair index` rebuilds them from the locked packs. Archive records keep their own
+retention (`docs/ARCHIVE.md`).
+
+**S3 with Object Lock (`compliance` or `governance`, N days).** Turning it on asks the
+bucket for its Object Lock configuration and refuses a bucket without it (Object Lock can
+only be enabled when a bucket is created). From then on every locked object is written with
+`ObjectLockMode` and `ObjectLockRetainUntilDate = now + N + 7 days` (and Content-MD5,
+which a write with lock parameters needs). A multipart upload gets the retention again
+after it completes, since not every S3-compatible service applies it from
+CreateMultipartUpload. Restow never sends the governance bypass header.
+
+**Renewal (the "retention extension" of deduplicated data).** Locks run for N days plus a
+renewal buffer of 7 days. The worker's daily retention job renews every object still in
+use once the last complete renewal of the target is 6 days old: it sets the retention of
+every catalogued pack and every wrapped key of the tenant, and of every locked object of
+its restic repositories, to `now + N + 7 days`. Between two renewals every object in use
+is therefore locked for at least N days beyond "now", so a restore point made now (and the
+old packs it reuses) is covered for its whole period. Objects whose deletion was already
+refused because of the lock (see below) are left out of the renewal so they can run out.
+A renewal costs one PutObjectRetention per object every 6 days. When the renewal falls
+behind by more than the buffer the repository page warns: data reused by new restore
+points may then be locked for less than N days.
+
+**Deleting under a lock.** On an immutable S3 target Restow deletes an object by deleting
+every one of its versions (a delete marker alone frees nothing and only hides the object),
+after checking each version's retention; while one is locked it deletes nothing and gets
+`ObjectLockedError`. The callers treat that as "not yet", never as a failure:
+
+- retention leaves a restore point whose manifest is still locked on any target untouched
+  (it stays visible and restorable) and counts it as deferred; for restic repositories it
+  leaves snapshots whose snapshot file is locked out of `restic forget`;
+- garbage collection re-packs as before, but keeps a superseded or orphaned pack file the
+  target still locks on its list and deletes it in a later scrub; space therefore comes
+  back only after the lock ends (up to N + 7 days later);
+- restic prune gets 403 for a locked pack, reports it as a warning and carries on; the
+  pack is unreferenced from then on and the next prune after the lock ends removes it.
+
+Every refused deletion is recorded per repository (`immutability_deferred_deletions`) and
+counted on the repository page ("deletions deferred by lock").
+
+**Verification.** The daily retention job (and "Verify now" on the repository page) asks
+the storage for the retention of a sample of recently written objects that are still in use
+(HeadObject, which needs `s3:GetObjectRetention`): each must be locked beyond now, in
+COMPLIANCE when COMPLIANCE is set. An object written without lock (a worker that had not
+seen the setting yet, a storage that ignored the headers) or in a weaker mode is shown as a
+warning on the repository page and the dashboard.
+
+**Restore points.** The restore point list asks the storage for the retention of the
+restore point's manifest (restic: its snapshot file). "Immutable until <date>" is green
+only when the storage itself reported a COMPLIANCE retention beyond now; GOVERNANCE is
+shown neutral (an account with the bypass permission can lift it), and so is the deletion
+delay of a directory (Restow's own promise, not the storage's).
+
+**Directories: deletion delay, not immutability.** A file system cannot refuse Restow's own
+processes, and none of the options at hand holds against the people it would be sold
+against: `chattr +i` needs `CAP_LINUX_IMMUTABLE`, which root on the host, and any process
+that reaches the Docker socket (the mounter has it), can use to lift it again, so an
+attacker on the Restow server lifts it as easily as Restow sets it. A "hardened
+repository" in the Veeam sense needs a separate machine that Restow cannot log in to. For a
+directory Restow therefore offers only the **deletion delay** (`delayed_deletion`):
+Restow's own code refuses to delete or overwrite a locked file (the classes above) until
+N days after it was written, following the history of the setting, so a period lowered
+later never shortens what was written before. It protects against misuse of Restow (a
+stolen administrator account, a retention policy shortened to delete restore points)
+and the interface says plainly that it is not immutability: someone with access to the
+server or the share can still delete the files. For real immutability on premises use an
+S3 service with Object Lock on a separate machine (Ceph RGW, or another S3 server that
+implements Object Lock) as the repository or as a copy, or a NAS whose snapshots the Restow
+host cannot delete (Restow cannot verify the latter and does not show it as immutable).
+
+**Changing the setting.** Raising (more days, from off to on, GOVERNANCE to COMPLIANCE) is
+open to whoever may configure the repository. Lowering it (fewer days, a weaker mode,
+off) is for the provider owner with a sign-in from the last ten minutes only, and it
+applies only to what is written from then on: S3 keeps every retention already set, and
+the deletion delay follows the stored history. Every change is written to the tenant's
+audit log (`storage.target.immutability_changed`, old and new setting, whether it lowered
+the protection), as is every verification. The setting takes effect in the api at once and
+in a worker within its storage cache time (a few minutes); objects written in between are
+what the verification finds.
+
+**What it does not protect against.** Someone who controls Restow can stop writing new
+locks and stop the renewal: what was locked stays locked until its date (at least N days
+after the last renewal before the attack), new backups after that are not protected. A
+GOVERNANCE lock is lifted by any account with `s3:BypassGovernanceRetention`: give
+Restow's key an IAM policy without it (and without `s3:PutBucketObjectLockConfiguration`
+and `s3:PutBucketVersioning`), or use COMPLIANCE. Someone with Restow's key can still hide
+objects behind delete markers or write garbage versions on top; the locked versions stay
+and are restored by removing the newer versions or markers (`aws s3api
+list-object-versions` / `delete-object --version-id`), after which `restow-restore` reads
+the bucket as usual. The master key is not in the bucket; keep a copy of it (or the
+exported tenant keys) away from the server, or locked data cannot be opened. Restic index
+files are not locked (see above). The installation default storage cannot be made
+immutable in this release: give the tenant a repository of its own (or an immutable copy).
 
 ## Replacing the primary
 
