@@ -674,8 +674,11 @@ of files the walk dominates on high-latency links. Two mitigations are part of P
 - **ACL reuse by change time.** On SMB, a file's change time (`ChangeTime`, exposed as `ctime` by
   the cifs client [K]) moves when its security descriptor changes [K for NTFS; I for Samba and NAS
   file systems]. The walk keeps the previous sidecar's descriptor of a path whose `ctime` and size
-  did not change instead of asking the server again. The previous sidecar is read at the start with
-  `restic dump <parent> /.restow/acls.jsonl.gz`. A share setting **Read all permissions every run**
+  did not change instead of asking the server again. The previous sidecar is streamed at the start
+  from `restic dump <parent> /.restow/acls.jsonl.gz` into a compact index (a path hash, the change
+  time, size, attributes and a shared descriptor: about 50 to 100 bytes per entry). Above a third of
+  the runner's memory limit at 100 bytes per entry (`RESTOW_SHARE_REUSE_MAX_ENTRIES` overrides it)
+  the run reads all permissions instead. A share setting **Read all permissions every run**
   turns the reuse off; every 30th run reads them all anyway (the dispatcher sets the session's
   `rereadPermissions` for it; the runner keeps no counter).
 - **Permissions off per share** for shares where nobody needs them (a scanner inbox).

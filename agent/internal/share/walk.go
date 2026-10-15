@@ -19,15 +19,6 @@ import (
 // directory readers run in parallel; a folder's own entry is always written
 // before anything below it, so the sidecar is in top-down order.
 
-// PreviousEntry is what the previous sidecar recorded for a path (ACL reuse).
-type PreviousEntry struct {
-	CTime      int64
-	Size       int64
-	Descriptor *Descriptor
-	Attrs      *uint32
-	Created    *uint64
-}
-
 // WalkOptions configure one walk.
 type WalkOptions struct {
 	// Root is the share root (/share). Paths in the sidecar are relative to it.
@@ -42,7 +33,7 @@ type WalkOptions struct {
 	Capture *Capturer
 	Sidecar *SidecarWriter
 	// Previous enables the ACL reuse (SMB only, 4.3).
-	Previous    map[string]PreviousEntry
+	Previous    *Previous
 	SkipOffline bool
 	Readers     int
 	// SampleBefore: only files modified before this are sample candidates.
@@ -321,7 +312,7 @@ func (s *walkState) capture(rel string, isDir bool, fi os.FileInfo) (Captured, e
 		}
 	}
 	if s.o.Sidecar != nil {
-		if prev, ok := s.o.Previous[rel]; ok && fi != nil && ctime != 0 && prev.CTime == ctime && prev.Size == size {
+		if prev, ok := s.o.Previous.Lookup(rel); ok && fi != nil && ctime != 0 && prev.CTime == ctime && prev.Size == size {
 			captured := Captured{Descriptor: prev.Descriptor, Attrs: prev.Attrs, Created: prev.Created}
 			s.mu.Lock()
 			s.res.Reused++
@@ -349,18 +340,4 @@ func (s *walkState) capture(rel string, isDir bool, fi os.FileInfo) (Captured, e
 	}
 	return captured, s.o.Sidecar.Entry(SidecarEntry{Path: rel, Descriptor: captured.Descriptor, Attrs: captured.Attrs,
 		Created: captured.Created, CTime: ctime, Size: size})
-}
-
-// LoadPrevious reads a previous sidecar into the reuse map. Only entries
-// with a change time can be reused.
-func LoadPrevious(read func(func(SidecarRecord) error) (SidecarResult, error)) (map[string]PreviousEntry, error) {
-	out := map[string]PreviousEntry{}
-	_, err := read(func(r SidecarRecord) error {
-		if r.Entry != nil && r.Entry.CTime != 0 {
-			out[r.Entry.Path] = PreviousEntry{CTime: r.Entry.CTime, Size: r.Entry.Size,
-				Descriptor: r.Entry.Descriptor, Attrs: r.Entry.Attrs, Created: r.Entry.Created}
-		}
-		return nil
-	})
-	return out, err
 }

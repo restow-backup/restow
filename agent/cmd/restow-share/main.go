@@ -22,6 +22,7 @@ import (
 	"os"
 	"os/signal"
 	"regexp"
+	"strconv"
 	"syscall"
 
 	"github.com/restow-backup/restow/agent/internal/buildinfo"
@@ -100,6 +101,9 @@ func runWith(d deps, args []string, getenv func(string) string, stdout, stderr i
 		cfg := d.cfg
 		if v := getenv("GOMEMLIMIT"); v != "" {
 			cfg.GoMemLimit = v
+		}
+		if n, err := strconv.Atoi(getenv("RESTOW_SHARE_REUSE_MAX_ENTRIES")); err == nil && n > 0 {
+			cfg.ReuseMaxEntries = n
 		}
 		cfg.Stdout, cfg.Stderr = stdout, stderr
 		ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)

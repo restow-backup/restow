@@ -1,7 +1,6 @@
 package share
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -193,9 +192,9 @@ func (j *job) backup(ctx context.Context) Outcome {
 			j.rep.Item(Item{Path: "", Code: ItemACLUnreadable, Message: err.Error(), Phase: PhasePrepare})
 		}
 	}
-	var previous map[string]PreviousEntry
+	var previous *Previous
 	if protocol == ProtocolSMB && mode != ACLModeNone && !b.RereadPermissions && b.ParentSnapshotID != "" {
-		previous = j.previousSidecar(ctx, b.ParentSnapshotID)
+		previous = j.previousSidecar(ctx, b.ParentSnapshotID, previousFiles)
 	}
 
 	// The walk writes the sidecar.
@@ -399,19 +398,50 @@ func writeLines(dir, name string, lines []string) (string, error) {
 	return p, os.WriteFile(p, []byte(strings.Join(lines, "\n")+"\n"), 0o600)
 }
 
-// previousSidecar reads the parent snapshot's sidecar for the ACL reuse; any
-// problem only costs the reuse.
-func (j *job) previousSidecar(ctx context.Context, parent string) map[string]PreviousEntry {
-	var buf bytes.Buffer
-	if err := j.dump(ctx, parent, j.metaSnapshotPath(SidecarFile), &buf); err != nil {
-		j.log.Printf("the previous permissions could not be read (%v); reading all of them", err)
+// previousSidecar streams the parent snapshot's sidecar into the index of the
+// ACL reuse; any problem only costs the reuse. Above cfg.ReuseMaxEntries
+// entries (by default a third of the memory limit) all permissions are read
+// again instead.
+func (j *job) previousSidecar(ctx context.Context, parent string, previousFiles int64) *Previous {
+	maxEntries := j.cfg.ReuseMaxEntries
+	if maxEntries <= 0 {
+		maxEntries = reuseMaxEntries()
+	}
+	if previousFiles > int64(maxEntries) {
+		j.log.Printf("the previous restore point has %d files, more than the %d the permission reuse may hold; reading all permissions",
+			previousFiles, maxEntries)
 		return nil
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	r, w := io.Pipe()
+	dumped := make(chan error, 1)
+	go func() {
+		err := j.dump(ctx, parent, j.metaSnapshotPath(SidecarFile), w)
+		w.CloseWithError(err)
+		dumped <- err
+	}()
 	prev, err := LoadPrevious(func(fn func(SidecarRecord) error) (SidecarResult, error) {
-		return ReadSidecar(&buf, fn)
-	})
-	if err != nil {
+		return ReadSidecar(r, fn)
+	}, maxEntries)
+	// Stop restic when the reading ended early, then wait for it: a sidecar
+	// cut short by a failed dump must not count as complete.
+	if err == nil {
+		_, _ = io.Copy(io.Discard, r)
+	}
+	r.CloseWithError(errors.New("the previous permissions were read"))
+	cancel()
+	dumpErr := <-dumped
+	switch {
+	case errors.Is(err, ErrTooManyPrevious):
+		j.log.Printf("the previous restore point has more than %d entries, more than the permission reuse may hold; reading all permissions",
+			maxEntries)
+		return nil
+	case err != nil:
 		j.log.Printf("the previous permissions could not be read (%v); reading all of them", err)
+		return nil
+	case dumpErr != nil:
+		j.log.Printf("the previous permissions could not be read (%v); reading all of them", dumpErr)
 		return nil
 	}
 	return prev

@@ -316,7 +316,8 @@ func decodeDescriptor(b json.RawMessage) (Descriptor, error) {
 }
 
 // ReadSidecar reads a gzip'ed sidecar and calls fn for every entry and error
-// line, in order. Unknown line types and fields are ignored; a header with a
+// line, in order. Entries with the same descriptor share one *Descriptor,
+// which callers must not modify. Unknown line types and fields are ignored; a header with a
 // higher version returns ErrSidecarNewer before any record. A missing trailer
 // is not an error (result.Trailer is nil): the caller applies what there is
 // and says so. A truncated gzip stream likewise ends the records without an
@@ -330,7 +331,8 @@ func ReadSidecar(r io.Reader, fn func(SidecarRecord) error) (SidecarResult, erro
 	defer gz.Close()
 	sc := bufio.NewScanner(gz)
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024)
-	descriptors := map[string]Descriptor{}
+	// Entries with the same descriptor share one *Descriptor (callers only read it).
+	descriptors := map[string]*Descriptor{}
 	first := true
 	for sc.Scan() {
 		var l rawLine
@@ -360,7 +362,7 @@ func ReadSidecar(r io.Reader, fn func(SidecarRecord) error) (SidecarResult, erro
 		case "d":
 			d, err := decodeDescriptor(l.B)
 			if err == nil {
-				descriptors[l.ID] = d
+				descriptors[l.ID] = &d
 			}
 		case "e":
 			p, err := decodePath(l.P, l.PB)
@@ -369,9 +371,7 @@ func ReadSidecar(r io.Reader, fn func(SidecarRecord) error) (SidecarResult, erro
 			}
 			e := &SidecarEntry{Path: p, Attrs: l.A}
 			if l.D != "" {
-				if d, ok := descriptors[l.D]; ok {
-					e.Descriptor = &d
-				}
+				e.Descriptor = descriptors[l.D]
 			}
 			if l.C != "" {
 				if c, err := strconv.ParseUint(l.C, 10, 64); err == nil {

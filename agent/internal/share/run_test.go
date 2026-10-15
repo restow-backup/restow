@@ -310,6 +310,22 @@ func TestEndToEndWithRestic(t *testing.T) {
 		t.Fatalf("permissions %+v", perm)
 	}
 	second := api.finish.SnapshotID
+	// Above the reuse limit all permissions are read again: the previous restore point says so
+	// (4 files, limit 3), or its sidecar does while it streams (8 entries with the folders, limit 5).
+	for limit, reason := range map[int]string{3: "more than the 3 the permission reuse may hold", 5: "more than 5 entries"} {
+		cfg := env.cfg
+		cfg.ReuseMaxEntries = limit
+		api, client := startAPI(t, backupSession(repo, b, ProtocolSMB))
+		if code := Run(context.Background(), cfg, client); code != ExitOK {
+			t.Fatalf("backup with reuse limit %d exit %d: %+v\n%s", limit, code, api.finish, env.stderr)
+		}
+		if perm := api.finish.Stats["permissions"].(map[string]any); perm["reused"].(float64) != 0 {
+			t.Fatalf("reuse limit %d: permissions %+v", limit, perm)
+		}
+		if !strings.Contains(env.stderr.String(), reason) {
+			t.Fatalf("reuse limit %d: no reason in the log\n%s", limit, env.stderr)
+		}
+	}
 	// Compared with its parent for the ransomware signals: nothing on the share changed, and the
 	// runner's own files (sidecar, manifest) do not count.
 	act, ok := api.finish.Stats["activity"].(map[string]any)
