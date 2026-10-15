@@ -418,6 +418,16 @@
   "facts": {
     "title": "Dieser Rechner",
     "profile": "Typ",
+    "profileDetected": "Als Client hinzugefügt. Der Rechner läuft {reason, select, container {in einem Container} other {in einer virtuellen Maschine ohne Desktop}} und hat deshalb das Profil Server: Seine Standardordner umfassen auch die Ordner, in denen Anwendungen ihre Daten ablegen.",
+    "machine": "Läuft als",
+    "virtualization": {
+      "container": "Container",
+      "containerOf": "Container ({technology})",
+      "vm": "Virtuelle Maschine",
+      "vmOf": "Virtuelle Maschine ({technology})",
+      "none": "Physischer Rechner",
+      "desktop": "mit Desktop"
+    },
     "system": "System",
     "osVersion": "Betriebssystem-Version",
     "agentVersion": "Agent-Version",

@@ -123,6 +123,8 @@ function detail(over: Partial<EndpointDetail> = {}): EndpointDetail {
     },
     configVersion: 4,
     agentConfigVersion: 3,
+    dataFolders: null,
+    machine: { facts: null, profileDetection: null },
     settings: {
       retention: { keepDaily: 30, keepWeekly: 12, keepMonthly: 12 },
       staleAfterHours: 2,
@@ -330,6 +332,41 @@ describe("EndpointDetailPage", () => {
     expect(repository).toContain("42");
     expect(repository).toContain("30 daily, 12 weekly and 12 monthly");
     expect(repository).toContain("the agent can add backups but never delete them");
+  });
+
+  it("says what the machine is, why it is a server, and which data folders its job leaves out (#59)", async () => {
+    fetchEndpoint.mockResolvedValue(
+      detail({
+        job: { id: "22222222-2222-4222-8222-222222222222", name: "Paperless" },
+        dataFolders: {
+          folders: ["/opt", "/srv"],
+          missing: ["/opt"],
+          reportedAt: "2026-10-01T10:00:00.000Z",
+          ownFolders: false,
+        },
+        machine: {
+          facts: { virtualization: "container", technology: "lxc", desktop: false },
+          profileDetection: { requested: "client", reason: "container", technology: "lxc" },
+        },
+      }),
+    );
+    await open();
+    const facts = document.querySelector('[data-slot="endpoint-facts"]')?.textContent ?? "";
+    expect(facts).toContain("Container (lxc)");
+    expect(facts).toContain(
+      "Added as a client. It runs in a container, so it has the server profile",
+    );
+    const notice = document.querySelector('[data-slot="machine-data-folders"]')?.textContent ?? "";
+    expect(notice).toContain("the job Paperless does not back up: /opt.");
+    expect(notice).toContain("Open job");
+    // Who may not change jobs is not offered to add the folder.
+    expect(notice).not.toContain("Add this folder to the job");
+  });
+
+  it("says nothing about data folders an older agent does not report", async () => {
+    await open();
+    expect(document.querySelector('[data-slot="machine-data-folders"]')).toBeNull();
+    expect(document.querySelector('[data-slot="profile-detected"]')).toBeNull();
   });
 
   it("shows the storage use against the machine's and the tenant's budget", async () => {
