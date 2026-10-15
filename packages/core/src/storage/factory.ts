@@ -630,7 +630,9 @@ export async function openStorageTarget(
   }
   const opened = openStorageLocation(validation.location, { ...options, credentials });
   const settings = parseImmutabilitySettings(record.immutability);
-  return settings ? { ...opened, backend: withImmutability(opened.backend, settings) } : opened;
+  return settings
+    ? { ...opened, backend: withImmutability(opened.backend, settings, { targetId: record.id }) }
+    : opened;
 }
 
 // ---------------------------------------------------------------------------

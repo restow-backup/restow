@@ -24,6 +24,7 @@ import {
   renewalDue,
   renewalOverdue,
   renewRetention,
+  splitLockedSnapshots,
   spreadSample,
   verifyImmutability,
 } from "./immutability.js";
@@ -363,6 +364,19 @@ describe("Object Lock on S3 (strict in-memory bucket)", () => {
     expect((await backend.protection("tenants/x/manifests/none.json.zst")).exists).toBe(false);
   });
 
+  it("tells retention which restic snapshots are still locked", async () => {
+    const backend = locked("compliance", 1);
+    await backend.put("endpoints/e1/snapshots/aaaa", Buffer.from("a"));
+    await raw.put("endpoints/e1/snapshots/bbbb", Buffer.from("b"));
+    const split = await splitLockedSnapshots(backend, "endpoints/e1/", ["aaaa", "bbbb"]);
+    expect(split.remove).toEqual(["bbbb"]);
+    expect(split.locked.map((entry) => entry.id)).toEqual(["aaaa"]);
+    expect(await splitLockedSnapshots(raw, "endpoints/e1/", ["aaaa"])).toEqual({
+      remove: ["aaaa"],
+      locked: [],
+    });
+  });
+
   it("is applied by openStorageTarget from the row's setting", async () => {
     const record = {
       id: "t1",
@@ -377,6 +391,7 @@ describe("Object Lock on S3 (strict in-memory bucket)", () => {
       { s3Client: bucket.asClient() },
     );
     expect(immutableBackendOf(opened.backend)?.settings.days).toBe(14);
+    expect(immutableBackendOf(opened.backend)?.targetId).toBe("t1");
     const plain = await openStorageTarget(
       { ...record, immutability: null },
       { get: async () => null },

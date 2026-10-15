@@ -281,6 +281,8 @@ export interface ObjectProtection {
 export interface ImmutableStorageOptions {
   readonly settings: ImmutabilitySettings;
   readonly now?: () => Date;
+  /** The `storage_targets` row this backend opens, so deferred deletions can name it. */
+  readonly targetId?: string;
 }
 
 /**
@@ -289,6 +291,7 @@ export interface ImmutableStorageOptions {
  */
 export class ImmutableStorageBackend implements StorageBackend {
   readonly settings: ImmutabilitySettings;
+  readonly targetId: string | null;
   private readonly now: () => Date;
 
   constructor(
@@ -296,6 +299,7 @@ export class ImmutableStorageBackend implements StorageBackend {
     options: ImmutableStorageOptions,
   ) {
     this.settings = options.settings;
+    this.targetId = options.targetId ?? null;
     this.now = options.now ?? (() => new Date());
   }
 
@@ -438,12 +442,12 @@ export function immutableBackendOf(backend: StorageBackend): ImmutableStorageBac
 export function withImmutability(
   backend: StorageBackend,
   settings: ImmutabilitySettings | null,
-  now?: () => Date,
+  options: { readonly now?: () => Date; readonly targetId?: string } = {},
 ): StorageBackend {
   if (!settings || (settings.mode === null && settings.history.length === 0)) {
     return backend;
   }
-  return new ImmutableStorageBackend(backend, { settings, ...(now ? { now } : {}) });
+  return new ImmutableStorageBackend(backend, { settings, ...options });
 }
 
 // ---------------------------------------------------------------------------
@@ -645,4 +649,32 @@ export async function protectionOnTargets(
     }
   }
   return best;
+}
+
+/**
+ * Split restic snapshot ids into those retention may forget and those whose
+ * snapshot file the repository's storage still locks. restic itself cannot
+ * remove a locked snapshot (its forget ends with a warning, exit code 3), so
+ * retention leaves them out and tries again on a later run.
+ */
+export async function splitLockedSnapshots(
+  storage: StorageBackend,
+  prefix: string,
+  ids: readonly string[],
+): Promise<{ remove: string[]; locked: { id: string; until: Date }[] }> {
+  const immutable = immutableBackendOf(storage);
+  if (!immutable) {
+    return { remove: [...ids], locked: [] };
+  }
+  const remove: string[] = [];
+  const locked: { id: string; until: Date }[] = [];
+  for (const id of ids) {
+    const protection = await immutable.protection(`${prefix}snapshots/${id}`);
+    if (protection.until) {
+      locked.push({ id, until: protection.until });
+    } else {
+      remove.push(id);
+    }
+  }
+  return { remove, locked };
 }
