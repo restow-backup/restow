@@ -97,6 +97,10 @@ export const tenants = pgTable(
     // enrols later) installs a new agent release while this is set. A machine can still be paused
     // on its own (`endpoints.settings.autoUpdatePaused`, an override that outlives a resume here).
     agentUpdatesPaused: boolean("agent_updates_paused").notNull().default(false),
+    // The bell's column in the notification matrix: the events (packages/core reports/catalog.ts)
+    // the tenant's bell shows. Null until an administrator chooses, which means every event but
+    // the routine ones (`DEFAULT_BELL_EVENTS`), what the bell showed before it had a column.
+    bellEvents: text("bell_events").array(),
     ...timestamps(),
   },
   (t) => [
@@ -166,10 +170,12 @@ export const tenantContacts = pgTable(
 );
 
 /**
- * Who receives operational notification e-mails for a tenant (job failures,
- * the weekly report, a readiness turning red, license/update reminders),
- * independent of who has a login. Each flag opts that recipient into one kind
- * of notification; a recipient with every flag false is kept but silent.
+ * Who receives operational notification e-mails for a tenant, independent of who has a login.
+ * `events` is the recipient's column in the notification matrix: the catalog events it is mailed
+ * about (packages/core reports/catalog.ts), plus `report.weekly` for the weekly report. A
+ * recipient with no events is kept but silent. The rules that send carry the recipients'
+ * addresses (apps/api features/reports/defaults.ts); a rule never mails a recipient an event its
+ * column has off.
  */
 export const tenantNotificationRecipients = pgTable(
   "tenant_notification_recipients",
@@ -180,10 +186,7 @@ export const tenantNotificationRecipients = pgTable(
       .references(() => tenants.id, { onDelete: "cascade" }),
     email: text("email").notNull(),
     name: text("name"),
-    notifyJobFailures: boolean("notify_job_failures").notNull().default(false),
-    notifyWeeklyReport: boolean("notify_weekly_report").notNull().default(false),
-    notifyReadinessRed: boolean("notify_readiness_red").notNull().default(false),
-    notifyLicenseUpdates: boolean("notify_license_updates").notNull().default(false),
+    events: text("events").array().notNull().default(sql`'{}'::text[]`),
     ...timestamps(),
   },
   (t) => [

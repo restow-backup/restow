@@ -37,12 +37,19 @@ import {
   hasSignInMethod,
   invalidatePreviousLinks,
 } from "../accounts/service.js";
-import { syncRecipientRules } from "../reports/defaults.js";
+import {
+  categoriesOfEvents,
+  eventsOfCategories,
+  keepInstallationEvents,
+  normalizeRecipientEvents,
+  syncRecipientRules,
+} from "../reports/defaults.js";
 import { internalFirstByName } from "./order.js";
 import type {
   AddMemberInput,
   CreateTenantInput,
   NotificationCategory,
+  NotificationRecipientInput,
   ReplaceNotificationRecipientsInput,
   ReplaceTenantContactsInput,
   UpdateTenantCustomerInput,
@@ -181,6 +188,9 @@ export interface NotificationRecipientDto {
   id: string;
   email: string;
   name: string | null;
+  /** The recipient's column of the notification matrix: catalog events and `report.weekly`. */
+  events: string[];
+  /** The categories whose events `events` holds completely, for clients from before the matrix. */
   categories: NotificationCategory[];
 }
 
@@ -254,28 +264,22 @@ function toContactDto(row: TenantContact): TenantContactDto {
   };
 }
 
-/** The four notification flag columns as the category list the wizard edits. */
-function categoriesFromRow(row: TenantNotificationRecipient): NotificationCategory[] {
-  const categories: NotificationCategory[] = [];
-  if (row.notifyJobFailures) categories.push("jobFailures");
-  if (row.notifyWeeklyReport) categories.push("weeklyReport");
-  if (row.notifyReadinessRed) categories.push("readinessRed");
-  if (row.notifyLicenseUpdates) categories.push("licenseUpdates");
-  return categories;
-}
-
-function flagsFromCategories(categories: readonly NotificationCategory[]) {
-  const set = new Set(categories);
-  return {
-    notifyJobFailures: set.has("jobFailures"),
-    notifyWeeklyReport: set.has("weeklyReport"),
-    notifyReadinessRed: set.has("readinessRed"),
-    notifyLicenseUpdates: set.has("licenseUpdates"),
-  };
+/** The events a recipient input stands for: its own list, else the categories it chose. */
+function eventsOfInput(recipient: NotificationRecipientInput): string[] {
+  return recipient.events !== undefined
+    ? normalizeRecipientEvents(recipient.events)
+    : eventsOfCategories(recipient.categories);
 }
 
 function toRecipientDto(row: TenantNotificationRecipient): NotificationRecipientDto {
-  return { id: row.id, email: row.email, name: row.name, categories: categoriesFromRow(row) };
+  const events = normalizeRecipientEvents(row.events);
+  return {
+    id: row.id,
+    email: row.email,
+    name: row.name,
+    events,
+    categories: categoriesOfEvents(events),
+  };
 }
 
 export function notFound(): ProblemError {
@@ -527,16 +531,23 @@ export async function createTenant(
               .values(input.contacts.map((contact) => ({ tenantId: id, ...contact })))
               .returning({ id: tenantContacts.id })
           : [];
+      const newRecipients = (input.notificationRecipients ?? []).map((recipient) => ({
+        email: recipient.email,
+        name: recipient.name ?? null,
+        events: actor.isProviderAdmin
+          ? eventsOfInput(recipient)
+          : keepInstallationEvents(eventsOfInput(recipient), []),
+      }));
       const insertedRecipients =
-        input.notificationRecipients && input.notificationRecipients.length > 0
+        newRecipients.length > 0
           ? await tx
               .insert(tenantNotificationRecipients)
               .values(
-                input.notificationRecipients.map((recipient) => ({
+                newRecipients.map((recipient) => ({
                   tenantId: id,
                   email: recipient.email,
-                  name: recipient.name ?? null,
-                  ...flagsFromCategories(recipient.categories),
+                  name: recipient.name,
+                  events: recipient.events,
                 })),
               )
               .returning({ id: tenantNotificationRecipients.id })
@@ -545,7 +556,7 @@ export async function createTenant(
       // the weekly report only while time-triggered reports are on (`reports.timed`).
       const ruleChange = await syncRecipientRules(tx, {
         tenantId: id,
-        recipients: input.notificationRecipients ?? [],
+        recipients: newRecipients,
         previous: [],
         language: input.customer?.language ?? null,
         timeZone: input.customer?.timeZone ?? null,
@@ -718,22 +729,32 @@ export async function replaceTenantNotificationRecipients(
         .select()
         .from(tenantNotificationRecipients)
         .where(eq(tenantNotificationRecipients.tenantId, id))
-    ).map((row) => ({ email: row.email, categories: categoriesFromRow(row) }));
+    ).map((row) => ({ email: row.email, events: normalizeRecipientEvents(row.events) }));
+    const previousEvents = new Map(
+      previous.map((recipient) => [recipient.email.trim().toLowerCase(), recipient.events]),
+    );
+    const next = recipients.map((recipient) => {
+      const events = eventsOfInput(recipient);
+      return {
+        email: recipient.email,
+        name: recipient.name ?? null,
+        // Installation events (an update is available) are the provider's to choose.
+        events: actor.isProviderAdmin
+          ? events
+          : keepInstallationEvents(
+              events,
+              previousEvents.get(recipient.email.trim().toLowerCase()),
+            ),
+      };
+    });
     await tx
       .delete(tenantNotificationRecipients)
       .where(eq(tenantNotificationRecipients.tenantId, id));
     const inserted =
-      recipients.length > 0
+      next.length > 0
         ? await tx
             .insert(tenantNotificationRecipients)
-            .values(
-              recipients.map((recipient) => ({
-                tenantId: id,
-                email: recipient.email,
-                name: recipient.name ?? null,
-                ...flagsFromCategories(recipient.categories),
-              })),
-            )
+            .values(next.map((recipient) => ({ tenantId: id, ...recipient })))
             .returning()
         : [];
     const perCategory: Record<NotificationCategory, number> = {
@@ -742,15 +763,15 @@ export async function replaceTenantNotificationRecipients(
       readinessRed: 0,
       licenseUpdates: 0,
     };
-    for (const recipient of recipients) {
-      for (const category of recipient.categories) {
+    for (const recipient of next) {
+      for (const category of categoriesOfEvents(recipient.events)) {
         perCategory[category] += 1;
       }
     }
     // The rules are what sends: they follow the recipients in the same transaction.
     const ruleChange = await syncRecipientRules(tx, {
       tenantId: id,
-      recipients,
+      recipients: next,
       previous,
       language: current.language,
       timeZone: current.timeZone,

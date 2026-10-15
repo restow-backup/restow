@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { rulesFromRecipients } from "./defaults.js";
+import {
+  categoriesOfEvents,
+  eventsOfCategories,
+  keepInstallationEvents,
+  rulesFromRecipients,
+} from "./defaults.js";
 
 const base = {
   tenantId: "t1",
@@ -16,9 +21,15 @@ describe("rulesFromRecipients", () => {
     const rules = rulesFromRecipients({
       ...base,
       recipients: [
-        { email: "IT@kanzlei.test", categories: ["jobFailures", "weeklyReport", "readinessRed"] },
-        { email: "it@kanzlei.test", categories: ["jobFailures"] },
-        { email: "chef@kanzlei.test", categories: ["jobFailures", "licenseUpdates"] },
+        {
+          email: "IT@kanzlei.test",
+          events: eventsOfCategories(["jobFailures", "weeklyReport", "readinessRed"]),
+        },
+        { email: "it@kanzlei.test", events: eventsOfCategories(["jobFailures"]) },
+        {
+          email: "chef@kanzlei.test",
+          events: eventsOfCategories(["jobFailures", "licenseUpdates"]),
+        },
       ],
     });
     expect(rules.map((rule) => [rule.name, rule.trigger, rule.emailRecipients])).toEqual([
@@ -35,7 +46,9 @@ describe("rulesFromRecipients", () => {
       rulesFromRecipients({
         ...base,
         scheduledAllowed: false,
-        recipients: [{ email: "a@x.test", categories: ["weeklyReport", "licenseUpdates"] }],
+        recipients: [
+          { email: "a@x.test", events: eventsOfCategories(["weeklyReport", "licenseUpdates"]) },
+        ],
       }),
     ).toEqual([]);
   });
@@ -45,8 +58,55 @@ describe("rulesFromRecipients", () => {
       ...base,
       language: null,
       timeZone: null,
-      recipients: [{ email: "a@x.test", categories: ["weeklyReport"] }],
+      recipients: [{ email: "a@x.test", events: ["report.weekly"] }],
     });
     expect(rule).toMatchObject({ name: "Weekly report", timezone: "UTC" });
   });
 });
+
+describe("recipient events", () => {
+  it("adds one rule per severity for the events the fixed rules do not cover", () => {
+    const rules = rulesFromRecipients({
+      ...base,
+      language: "en",
+      recipients: [
+        { email: "a@x.test", events: ["backup.failed", "endpoint.suspicious_snapshot"] },
+        { email: "b@x.test", events: ["backup.overdue", "backup.succeeded", "restore.completed"] },
+      ],
+    });
+    expect(
+      rules.map((rule) => [rule.recipientCategory, rule.events, rule.emailRecipients]),
+    ).toEqual([
+      ["jobFailures", RULE_FAILURES, ["a@x.test"]],
+      ["errors", ["endpoint.suspicious_snapshot"], ["a@x.test"]],
+      ["warnings", ["backup.overdue"], ["b@x.test"]],
+      ["notices", ["backup.succeeded", "restore.completed"], ["b@x.test"]],
+    ]);
+    expect(rules.map((rule) => rule.name)).toEqual([
+      "Failed runs",
+      "Other errors",
+      "Warnings",
+      "Notices",
+    ]);
+  });
+
+  it("translates categories both ways", () => {
+    expect(eventsOfCategories(["readinessRed", "weeklyReport"])).toEqual([
+      "verify.red",
+      "scrub.corrupt",
+      "report.weekly",
+    ]);
+    expect(categoriesOfEvents(["verify.red", "scrub.corrupt", "backup.failed"])).toEqual([
+      "readinessRed",
+    ]);
+  });
+
+  it("keeps the installation events for a save by a tenant administrator", () => {
+    expect(
+      keepInstallationEvents(["update.available", "verify.red"], ["update.available"]),
+    ).toEqual(["verify.red", "update.available"]);
+    expect(keepInstallationEvents(["update.available"], undefined)).toEqual([]);
+  });
+});
+
+const RULE_FAILURES = ["backup.failed", "restore.failed", "archive.failed", "directory.failed"];

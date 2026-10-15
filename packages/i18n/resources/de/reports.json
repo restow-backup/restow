@@ -598,7 +598,10 @@
   "defaultRules": {
     "jobFailures": "Fehlgeschlagene Läufe",
     "readinessRed": "Wiederherstellbarkeit gefährdet",
-    "weeklyReport": "Wochenbericht"
+    "weeklyReport": "Wochenbericht",
+    "errors": "Weitere Fehler",
+    "warnings": "Warnungen",
+    "notices": "Hinweise"
   },
   "history": {
     "title": "Benachrichtigungen",

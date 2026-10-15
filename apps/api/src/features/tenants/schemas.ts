@@ -1,4 +1,6 @@
+import { REPORT_EVENTS } from "@restow/core";
 import { z } from "zod";
+import { isRecipientEntry } from "../reports/defaults.js";
 
 /** Request schemas for the tenants feature (same style as apps/api/src/schemas.ts). */
 
@@ -110,10 +112,19 @@ export const notificationCategorySchema = z.enum([
 ]);
 export type NotificationCategory = z.infer<typeof notificationCategorySchema>;
 
+/**
+ * A recipient: its column of the notification matrix as `events` (catalog events and
+ * `report.weekly`), or, as before the matrix, `categories` (shortcuts for sets of events; ignored
+ * when `events` is given).
+ */
 export const notificationRecipientInputSchema = z.object({
   email: z.string().trim().min(1).max(320).email(),
   name: z.string().trim().min(1).max(200).optional(),
   categories: z.array(notificationCategorySchema).max(4).default([]),
+  events: z
+    .array(z.string().refine(isRecipientEntry, { message: "Unknown event." }))
+    .max(REPORT_EVENTS.length + 1)
+    .optional(),
 });
 export type NotificationRecipientInput = z.infer<typeof notificationRecipientInputSchema>;
 

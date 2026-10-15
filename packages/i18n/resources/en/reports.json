@@ -598,7 +598,10 @@
   "defaultRules": {
     "jobFailures": "Failed runs",
     "readinessRed": "Recoverability at risk",
-    "weeklyReport": "Weekly report"
+    "weeklyReport": "Weekly report",
+    "errors": "Other errors",
+    "warnings": "Warnings",
+    "notices": "Notices"
   },
   "history": {
     "title": "Notifications",

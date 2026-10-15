@@ -33,8 +33,12 @@ export const webhookFormatEnum = pgEnum("webhook_format", ["restow", "discord", 
 /**
  * Outbound webhook subscription per tenant. Payloads of the `restow` format are signed with HMAC-SHA-256
  * using the secret behind `secretRef` (stored encrypted, never here). `events`
- * lists the subscribed event names (e.g. "backup.completed", "restore.failed");
- * an empty list subscribes to nothing.
+ * is the webhook's column in the notification matrix: the catalog events it gets
+ * (e.g. "backup.failed", "backup.succeeded"; packages/core reports/catalog.ts), from
+ * alert rules and from the webhook stream alike, plus the stream events it subscribed
+ * to ("job.failed", "job.completed", "verify.completed"). A stream delivery goes out
+ * when both its stream event and the catalog event it is about are listed. An empty
+ * list gets nothing.
  */
 export const webhooks = pgTable(
   "webhooks",

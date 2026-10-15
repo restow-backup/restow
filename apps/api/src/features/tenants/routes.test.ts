@@ -327,13 +327,14 @@ describe("customer data, contacts and notification recipients", () => {
           id: "recipient-1",
           email: "ops@contoso.example",
           name: null,
-          notifyJobFailures: true,
-          notifyWeeklyReport: false,
-          notifyReadinessRed: false,
-          notifyLicenseUpdates: false,
+          events: ["backup.failed", "restore.failed", "archive.failed", "directory.failed"],
         },
       ],
-      // The rules follow: failed jobs get a rule, readiness has none and needs none.
+      // The rules follow: failed jobs get a rule, readiness and the three severity rules have
+      // none and need none.
+      [],
+      [],
+      [],
       [],
       [],
       [],
@@ -347,7 +348,13 @@ describe("customer data, contacts and notification recipients", () => {
     );
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([
-      { id: "recipient-1", email: "ops@contoso.example", name: null, categories: ["jobFailures"] },
+      {
+        id: "recipient-1",
+        email: "ops@contoso.example",
+        name: null,
+        events: ["backup.failed", "restore.failed", "archive.failed", "directory.failed"],
+        categories: ["jobFailures"],
+      },
     ]);
     expect(script.pending()).toBe(0);
   });
@@ -367,13 +374,14 @@ describe("customer data, contacts and notification recipients", () => {
           id: "recipient-1",
           email: "ops@contoso.example",
           name: null,
-          notifyJobFailures: false,
-          notifyWeeklyReport: false,
-          notifyReadinessRed: true,
-          notifyLicenseUpdates: false,
+          events: ["verify.red", "scrub.corrupt"],
         },
       ],
-      // The rules follow: failed jobs have no recipient, readiness gets a rule.
+      // The rules follow: failed jobs have no recipient, readiness gets a rule, the three
+      // severity rules are not needed.
+      [],
+      [],
+      [],
       [],
       [],
       [],

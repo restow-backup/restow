@@ -1801,3 +1801,216 @@ describe.skipIf(!adminUrl)(
     }, 60_000);
   },
 );
+
+describe.skipIf(!adminUrl)(
+  "upgrading to the notification matrix: every channel keeps what it gets (0038)",
+  () => {
+    const base = adminUrl as string;
+    const database = `restow_db_migrate_matrix_${suffix}`;
+    const owner: RoleLogin = {
+      name: `restow_mig_matrix_${suffix}`,
+      password: randomBytes(18).toString("base64url"),
+    };
+    const ids = {
+      provider: randomUUID(),
+      tenant: randomUUID(),
+      other: randomUUID(),
+      streamHook: randomUUID(),
+      ruleOnlyHook: randomUUID(),
+      chatHook: randomUUID(),
+      otherHook: randomUUID(),
+    };
+    let folder = "";
+
+    beforeAll(async () => {
+      folder = migrationsFolderUpTo("0037_backup_job_file_shares");
+      const admin = new pg.Pool({ connectionString: base });
+      try {
+        await admin.query(
+          `CREATE ROLE ${owner.name} LOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE PASSWORD '${owner.password}'`,
+        );
+        await admin.query(`CREATE DATABASE ${database} OWNER ${owner.name}`);
+      } finally {
+        await admin.end();
+      }
+    });
+
+    afterAll(async () => {
+      if (folder) rmSync(folder, { recursive: true, force: true });
+      await dropTestDatabase(base, database);
+      const admin = new pg.Pool({ connectionString: base });
+      try {
+        await admin.query(`DROP ROLE IF EXISTS ${owner.name}`);
+      } finally {
+        await admin.end();
+      }
+    });
+
+    it("turns the recipient flags and the rules into columns, for an owner bound by RLS", async () => {
+      const url = urlFor(base, database, owner);
+      await applyReleasedSchema(url, folder, null);
+      const pool = new pg.Pool({ connectionString: url });
+      try {
+        await pool.query("INSERT INTO providers (id, name) VALUES ($1, 'p')", [ids.provider]);
+        for (const [tenantId, slug] of [
+          [ids.tenant, "contoso"],
+          [ids.other, "fabrikam"],
+        ] as const) {
+          await asTenant(pool, tenantId, (client) =>
+            client.query(
+              "INSERT INTO tenants (id, provider_id, name, slug) VALUES ($1, $2, $3, $3)",
+              [tenantId, ids.provider, slug],
+            ),
+          );
+        }
+        await asTenant(pool, ids.tenant, async (client) => {
+          const recipient = (email: string, flags: [boolean, boolean, boolean, boolean]) =>
+            client.query(
+              `INSERT INTO tenant_notification_recipients
+                 (tenant_id, email, notify_job_failures, notify_weekly_report,
+                  notify_readiness_red, notify_license_updates)
+               VALUES ($1, $2, $3, $4, $5, $6)`,
+              [ids.tenant, email, ...flags],
+            );
+          await recipient("all@contoso.test", [true, true, true, false]);
+          await recipient("Failures@Contoso.test", [true, false, false, false]);
+          await recipient("licence@contoso.test", [false, false, false, true]);
+          await recipient("byhand@contoso.test", [false, false, false, false]);
+          const hook = (id: string, events: string[], format = "restow") =>
+            client.query(
+              "INSERT INTO webhooks (id, tenant_id, url, events, format) VALUES ($1, $2, 'https://h.test', $3, $4)",
+              [id, ids.tenant, events, format],
+            );
+          await hook(ids.streamHook, ["job.failed", "job.completed", "verify.completed"]);
+          await hook(ids.ruleOnlyHook, []);
+          await hook(ids.chatHook, ["job.failed"], "discord");
+          // The managed rule an administrator widened, and a rule made by hand.
+          await client.query(
+            `INSERT INTO report_rules (tenant_id, name, trigger, events, email_recipients, recipient_category)
+             VALUES ($1, 'Failed runs', 'event', ARRAY['backup.failed', 'restore.failed', 'archive.failed', 'directory.failed', 'backup.overdue'],
+                     ARRAY['all@contoso.test', 'failures@contoso.test'], 'jobFailures')`,
+            [ids.tenant],
+          );
+          await client.query(
+            `INSERT INTO report_rules (tenant_id, name, trigger, events, email_recipients, webhook_id)
+             VALUES ($1, 'Yellow', 'event', ARRAY['verify.yellow', 'backup.failed'],
+                     ARRAY[' ByHand@contoso.test', 'adhoc@elsewhere.test'], $2)`,
+            [ids.tenant, ids.ruleOnlyHook],
+          );
+          // A schedule rule is no event: its sections never become events.
+          await client.query(
+            `INSERT INTO report_rules (tenant_id, name, trigger, cron, sections, email_recipients, webhook_id)
+             VALUES ($1, 'Weekly', 'schedule', '0 7 * * 1', ARRAY['backups'], ARRAY['byhand@contoso.test'], $2)`,
+            [ids.tenant, ids.chatHook],
+          );
+        });
+        await asTenant(pool, ids.other, async (client) => {
+          await client.query(
+            "INSERT INTO webhooks (id, tenant_id, url, events) VALUES ($1, $2, 'https://o.test', ARRAY['verify.completed'])",
+            [ids.otherHook, ids.other],
+          );
+          // The same address in another tenant's rule reaches nobody of the first tenant.
+          await client.query(
+            `INSERT INTO report_rules (tenant_id, name, trigger, events, email_recipients)
+             VALUES ($1, 'Other', 'event', ARRAY['scrub.repaired'], ARRAY['all@contoso.test'])`,
+            [ids.other],
+          );
+        });
+
+        await runMigrations(url);
+
+        await asTenant(pool, ids.tenant, async (client) => {
+          const recipients = await client.query<{ email: string; events: string[] }>(
+            'SELECT email, events FROM tenant_notification_recipients ORDER BY lower(email) COLLATE "C"',
+          );
+          expect(recipients.rows).toEqual([
+            {
+              email: "all@contoso.test",
+              events: [
+                "archive.failed",
+                "backup.failed",
+                "backup.overdue",
+                "directory.failed",
+                "report.weekly",
+                "restore.failed",
+                "scrub.corrupt",
+                "verify.red",
+              ],
+            },
+            { email: "byhand@contoso.test", events: ["backup.failed", "verify.yellow"] },
+            {
+              email: "Failures@Contoso.test",
+              events: [
+                "archive.failed",
+                "backup.failed",
+                "backup.overdue",
+                "directory.failed",
+                "restore.failed",
+              ],
+            },
+            { email: "licence@contoso.test", events: [] },
+          ]);
+          const columns = await client.query(
+            `SELECT column_name FROM information_schema.columns
+             WHERE table_name = 'tenant_notification_recipients' AND column_name LIKE 'notify_%'`,
+          );
+          expect(columns.rows).toEqual([]);
+
+          const hooks = await client.query<{ id: string; events: string[] }>(
+            "SELECT id, events FROM webhooks",
+          );
+          const eventsOf = (id: string) => hooks.rows.find((row) => row.id === id)?.events;
+          expect(eventsOf(ids.streamHook)).toEqual([
+            "archive.failed",
+            "backup.failed",
+            "backup.succeeded",
+            "directory.failed",
+            "job.completed",
+            "job.failed",
+            "restore.completed",
+            "restore.failed",
+            "verify.completed",
+          ]);
+          // Only rules sent to it: their events, and no stream subscription it did not have.
+          expect(eventsOf(ids.ruleOnlyHook)).toEqual(["backup.failed", "verify.yellow"]);
+          expect(eventsOf(ids.chatHook)).toEqual([
+            "archive.failed",
+            "backup.failed",
+            "directory.failed",
+            "job.failed",
+            "restore.failed",
+          ]);
+          const bell = await client.query("SELECT bell_events FROM tenants WHERE id = $1", [
+            ids.tenant,
+          ]);
+          expect(bell.rows).toEqual([{ bell_events: null }]);
+        });
+        await asTenant(pool, ids.other, async (client) => {
+          const hooks = await client.query("SELECT events FROM webhooks");
+          expect(hooks.rows).toEqual([{ events: ["verify.completed"] }]);
+        });
+
+        const forced = await pool.query<{ relname: string; forced: boolean }>(
+          `SELECT relname, relforcerowsecurity AS forced FROM pg_class
+           WHERE relname IN ('tenant_notification_recipients', 'webhooks', 'report_rules')
+           ORDER BY relname`,
+        );
+        expect(forced.rows.every((row) => row.forced)).toBe(true);
+      } finally {
+        await pool.end();
+      }
+    }, 60_000);
+
+    it("changes nothing on a second run of the migration step", async () => {
+      const url = urlFor(base, database, owner);
+      const pool = new pg.Pool({ connectionString: url });
+      try {
+        const before = await appliedMigrations(pool);
+        await runMigrations(url);
+        expect(await appliedMigrations(pool)).toBe(before);
+      } finally {
+        await pool.end();
+      }
+    }, 60_000);
+  },
+);
