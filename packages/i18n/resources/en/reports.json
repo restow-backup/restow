@@ -392,6 +392,10 @@
       "recovered": "Restorable again",
       "completed": "Restore check finished"
     },
+    "boot_test": {
+      "failed": "Boot test failed",
+      "unproven": "Boot test without proof"
+    },
     "scrub": {
       "corrupt": "Storage damage found",
       "repaired": "Storage damage repaired"
@@ -434,6 +438,10 @@
       "yellow": "The check passed with warnings.",
       "recovered": "A mailbox, OneDrive, IMAP account, server or client that was red or yellow is green again.",
       "completed": "A restore check finished, whatever its rating. Every check, so best for a channel that wants to see each one."
+    },
+    "boot_test": {
+      "failed": "A Proxmox VE restore point did not boot: restoring it to a temporary guest, starting it or its boot failed.",
+      "unproven": "A VM restored from a Proxmox VE restore point started and kept running, but its QEMU Guest Agent never answered, so nothing proves the system inside works."
     },
     "scrub": {
       "corrupt": "The storage check found damaged or missing pack files.",
@@ -556,6 +564,10 @@
       "yellow": "Restore check needs attention: {object}",
       "recovered": "Restorable again: {object}",
       "completed": "Restore check finished: {object}"
+    },
+    "boot_test": {
+      "failed": "Boot test failed: {object}",
+      "unproven": "Boot test without proof: {object}"
     },
     "scrub": {
       "corrupt": "Storage damage found",
