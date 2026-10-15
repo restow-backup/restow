@@ -20,6 +20,35 @@ function alert(details: Record<string, unknown>, language: "en" | "de" = "en") {
 }
 
 describe("renderAlert", () => {
+  it("names the disk and what is left on it for the low disk space warning", () => {
+    const disk = (language: "en" | "de") =>
+      renderAlert({
+        language,
+        tenantName: "Contoso",
+        ruleName: "Disks",
+        payload: {
+          event: "installation.disk_low",
+          occurredAt: "2026-09-29T10:00:00.000Z",
+          details: {
+            disk: "database",
+            location: "restow_pgdata",
+            freeBytes: 4 * 1024 ** 3,
+            totalBytes: 38 * 1024 ** 3,
+            objectName: "restow_pgdata",
+          },
+        },
+      });
+    const english = disk("en");
+    expect(english.subject).toBe("[Contoso] Low disk space: restow_pgdata");
+    expect(english.text).toContain("Disk: Under the database");
+    expect(english.text).toContain("Free: 4.0 GiB");
+    expect(english.text).toContain("Size: 38.0 GiB");
+    const german = disk("de");
+    expect(german.subject).toBe("[Contoso] Wenig Speicherplatz: restow_pgdata");
+    expect(german.text).toContain("Datenträger: Unter der Datenbank");
+    expect(german.text).toContain("Frei: 4,0 GiB");
+  });
+
   it("calls a red rating for a backup that is too old what it is, not a failed restore check", () => {
     const red = (redReason: string, language: "en" | "de" = "en") =>
       renderAlert({

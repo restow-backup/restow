@@ -30,9 +30,46 @@ function status(overrides: Partial<PageStatus> = {}): PageStatus {
     ],
     progress: 30,
     failureCode: null,
+    moving: null,
     ...overrides,
   };
 }
+
+describe("a move of the database", () => {
+  it("is read from the status and said instead of an unavailable application", () => {
+    const parsed = parseStatus({
+      phase: "idle",
+      databaseMove: {
+        id: "m-1",
+        status: "running",
+        step: "copy",
+        progress: 37.4,
+        finishedAt: null,
+      },
+    });
+    expect(parsed?.moving).toEqual({ progress: 37 });
+    expect(modeOf(parsed)).toBe("moving");
+    expect(
+      parseStatus({ phase: "idle", databaseMove: { status: "succeeded", progress: 100 } })?.moving,
+    ).toBeNull();
+    // An update that runs is what the page names.
+    expect(
+      modeOf(parseStatus({ phase: "running", databaseMove: { status: "running", progress: 5 } })),
+    ).toBe("updating");
+  });
+
+  it("keeps the page from reloading while it runs", () => {
+    expect(
+      shouldReload({
+        status: status({ phase: "idle", moving: { progress: 50 } }),
+        ready: true,
+        now: 1_000_000,
+        lastReloadAt: null,
+        guarded: true,
+      }),
+    ).toBe(false);
+  });
+});
 
 describe("parseStatus", () => {
   it("reads the public status the edge serves", () => {
@@ -64,6 +101,7 @@ describe("parseStatus", () => {
       ],
       progress: 42,
       failureCode: null,
+      moving: null,
     });
   });
 
@@ -97,6 +135,7 @@ describe("parseStatus", () => {
       steps: [{ id: "stop", status: "failed" }],
       progress: 100,
       failureCode: null,
+      moving: null,
     });
     expect(parseStatus({ phase: "idle", progress: -3 })?.progress).toBe(0);
     expect(parseStatus({ phase: "idle", progress: Number.NaN })?.progress).toBe(0);

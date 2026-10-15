@@ -252,6 +252,16 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "DELETE /api/v1/updates/edition/license-key": own(),
   "GET /api/v1/updates/restarts": view(PROVIDER),
   "POST /api/v1/updates/restarts/:service": own(),
+  // Installation > Database (docs/DATABASE.md): reading for every provider admin; checking a
+  // directory, moving the database, removing an old copy and the pre-update dumps (a dump is
+  // the whole database: the most sensitive export there is) for the owner.
+  "GET /api/v1/updates/database": view(PROVIDER),
+  "POST /api/v1/updates/database/check": own(),
+  "POST /api/v1/updates/database/move": own(),
+  "DELETE /api/v1/updates/database/old-copies/:id": own(),
+  "POST /api/v1/updates/dumps/:file/download": own(),
+  "GET /api/v1/updates/dumps/:file": own(),
+  "DELETE /api/v1/updates/dumps/:file": own(),
   // The maintenance state is for everyone who is signed in.
   "GET /api/v1/maintenance": view(NONE),
 

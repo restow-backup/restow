@@ -567,7 +567,8 @@ is announced. Cancelling is possible until the update starts. At the start,
 everyone sees a full-screen notice with the steps and the progress.
 
 1. **Prepare.** Checks that Docker answers, the Compose file is there, `.env`
-   is writable, there is free space, the target is newer than the running
+   is writable, there is room for the update ([Disk space](#disk-space)), the
+   database is not being moved ([docs/DATABASE.md](DATABASE.md)), the target is newer than the running
    version, that the Compose file takes the image of api, worker,
    scheduler and web edge from `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE` (so a
    mixed-version installation cannot result), and that it does not take the
@@ -668,6 +669,31 @@ An update by hand (`docker compose pull && docker compose up -d`) does none of
 the waiting: the worker gets its 60 seconds, and everything above about stopped
 runs applies.
 
+### Disk space
+
+An update writes a full database dump into the updater's volume, pulls two new
+images and lets the new api run its migrations. On a nearly full disk the dump
+alone could fill it and stop PostgreSQL in the middle of the update, so the
+updater adds up what the update needs before it starts and refuses it when that
+is not free (blocker `disk_space`, with the numbers):
+
+| Part       | Estimate |
+| ---------- | -------- |
+| Dump       | the newest dump plus a quarter; before the first one, the size of the tables without their indexes (an upper bound) |
+| Images     | the size of the images that run now (2 GiB when it cannot be read) |
+| Migrations | a tenth of the database, at least 1 GiB |
+| Margin     | `RESTOW_UPDATER_MIN_FREE_MB` (default 1024 MB) |
+
+Dump and images must fit where Docker keeps its data (the updater's volume and
+the image store live there by default); the migrations' room is counted there
+too, unless the database lives on another disk, where it must be free instead.
+Installation › Database shows the estimate, the disks and how to move the
+database to another disk ([docs/DATABASE.md](DATABASE.md)). The kept dumps are
+listed in the Updates tab with their size; the provider owner can download or
+delete one there (recent sign-in, written to the audit log). A dump holds the
+whole database, the encrypted secrets included: keep a downloaded one as
+carefully as the master key.
+
 ### When something goes wrong
 
 The updater never guesses. It ends a failed run in exactly one of three states:
@@ -695,7 +721,7 @@ For *needs attention*, restore the dump taken before the update (the tab shows
 the exact file name and the previous image references):
 
 ```sh
-# copy the dump out of the updater's volume
+# copy the dump out of the updater's volume (or download it in the Updates tab)
 docker compose --profile updater cp updater:/state/dumps/<file> ./<file>
 # stop the application and restore
 docker compose stop api worker scheduler
@@ -720,7 +746,7 @@ updater only (`ROLE=updater`):
 | `RESTOW_UPDATER_WEB_IMAGE_REPOSITORY`    | `ghcr.io/restow-backup/restow-web` (Community build: `ghcr.io/restow-backup/restow-web-community`) | Web image repository for `image` mode. Passed from `.env`.    |
 | `RESTOW_IMAGE_VARIANT`                   | set by the image (`full` or `community`) | The build the updater belongs to; picks the two defaults above and the targets of `source` mode. Never set it yourself: an unknown value stops the updater. |
 | `RESTOW_UPDATER_HEALTH_TIMEOUT_SECONDS`  | `600`                            | How long to wait for the new api (migrations can take a while). |
-| `RESTOW_UPDATER_MIN_FREE_MB`             | `1024`                           | Free space required in the updater's volume.                  |
+| `RESTOW_UPDATER_MIN_FREE_MB`             | `1024`                           | Margin on top of what an update needs ([Disk space](#disk-space)). |
 | `RESTOW_UPDATER_CLI_IMAGE`               | `docker:27-cli@sha256:851f91d2…` | Image used to run `docker` and `docker compose` (see below); must carry a digest. |
 | `RESTOW_UPDATER_COSIGN_IMAGE`            | `ghcr.io/sigstore/cosign/cosign:v3.1.3@sha256:9e5c2f2e…` | The cosign image that verifies signatures; must carry a digest. |
 | `RESTOW_UPDATER_VERIFY_SIGNATURES`       | `true`                           | `false` skips the signature check (test installations, unsigned mirrors); digests stay required. Set it in a Compose override only. It also stops the updater from updating itself. |

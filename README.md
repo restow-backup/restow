@@ -496,8 +496,10 @@ sudo docker compose --profile updater down
 This stops and removes the containers. The database, the local chunk store,
 Caddy's certificates and the updater's database dumps stay in their Docker
 volumes (`restow_pgdata`, `restow_restow-data`, `restow_caddy-data`, ...), and
-`.env` stays in place. Only when you are sure that no backup in them is still
-needed:
+`.env` stays in place. A database that was moved to another disk
+([docs/DATABASE.md](docs/DATABASE.md)) is in the directory `RESTOW_POSTGRES_DATA`
+in `.env` names, not in a volume; remove it there. Only when you are sure that no
+backup in them is still needed:
 
 ```sh
 sudo docker compose --profile updater down --volumes   # deletes the database and the local chunk store

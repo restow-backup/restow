@@ -19,7 +19,11 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       POSTGRES_DB: ${POSTGRES_DB:-restow}
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - type: ${RESTOW_POSTGRES_DATA_TYPE:-volume} # keep: the database location (docs/DATABASE.md)
+        source: ${RESTOW_POSTGRES_DATA:-pgdata}
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-restow} -d ${POSTGRES_DB:-restow}"]
       interval: 10s

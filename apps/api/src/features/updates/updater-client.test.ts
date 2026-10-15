@@ -3,6 +3,7 @@ import type { StateView } from "../../updater/protocol.js";
 import {
   bearerOf,
   createUpdaterClient,
+  disabledUpdaterClient,
   secretMatches,
   UpdaterRejectedError,
   UpdaterUnavailableError,
@@ -28,6 +29,7 @@ function state(overrides: Partial<StateView> = {}): StateView {
       signatureChecks: true,
       projectDir: "/srv/restow",
       mounterService: true,
+      updateSpace: null,
       checkedAt: "2026-10-01T09:00:00.000Z",
     },
     selfUpdate: null,
@@ -35,6 +37,7 @@ function state(overrides: Partial<StateView> = {}): StateView {
     restartableServices: [],
     restart: null,
     projectDir: null,
+    database: null,
     serverTime: "2026-10-01T09:00:00.000Z",
     ...overrides,
   };
@@ -232,6 +235,90 @@ describe("the updater client", () => {
     expect(updaterClientFromEnv({}).enabled).toBe(true);
     await expect(
       updaterClientFromEnv({ RESTOW_UPDATER_URL: "" }).schedule({} as never),
+    ).rejects.toBeInstanceOf(UpdaterUnavailableError);
+  });
+});
+
+describe("the database routes of the updater client", () => {
+  const requestedBy = { userId: "u1", label: "owner@example.com", ip: null };
+
+  it("checks and moves with the directory and the requester", async () => {
+    const check = {
+      ok: true,
+      problems: [],
+      targetDir: "/mnt/x",
+      filesystem: "xfs",
+      freeBytes: 1,
+      totalBytes: 2,
+      dataBytes: 1,
+      requiredBytes: 1,
+      checkedAt: "2026-10-01T09:00:00.000Z",
+    };
+    const fetcher = vi.fn(async (url: string) =>
+      url.endsWith("/check") ? reply(check) : reply(state(), 202),
+    );
+    const subject = client(fetcher as unknown as typeof fetch);
+    expect(await subject.checkDatabaseLocation({ targetDir: "/mnt/x", requestedBy })).toEqual(
+      check,
+    );
+    await subject.moveDatabase({ targetDir: "/mnt/x", requestedBy });
+    const calls = fetcher.mock.calls as unknown as [string, RequestInit][];
+    expect(calls.map(([url, init]) => `${init.method} ${url}`)).toEqual([
+      "POST http://updater:8090/v1/database/check",
+      "POST http://updater:8090/v1/database/move",
+    ]);
+    expect(JSON.parse(calls[1]?.[1].body as string)).toEqual({ targetDir: "/mnt/x", requestedBy });
+  });
+
+  it("passes a refusal on with its problems", async () => {
+    const fetcher = vi.fn(async () =>
+      reply(
+        { code: "blocked", message: "no", problems: [{ code: "same_filesystem", detail: null }] },
+        409,
+      ),
+    );
+    const error = await client(fetcher as unknown as typeof fetch)
+      .moveDatabase({ targetDir: "/mnt/x", requestedBy })
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(UpdaterRejectedError);
+    expect((error as UpdaterRejectedError).code).toBe("blocked");
+  });
+
+  it("hands a dump's response through without reading it", async () => {
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("PGDMP"));
+        controller.close();
+      },
+    });
+    const upstream = new Response(body, { status: 200 });
+    const fetcher = vi.fn(async () => upstream);
+    const response = await client(fetcher as unknown as typeof fetch).downloadDump(
+      "restow-20260930-100000-0.3.6-to-0.4.0.dump",
+    );
+    expect(response).toBe(upstream);
+    expect(response?.bodyUsed).toBe(false);
+    const [url] = fetcher.mock.calls[0] as unknown as [string];
+    expect(url).toBe("http://updater:8090/v1/dumps/restow-20260930-100000-0.3.6-to-0.4.0.dump");
+  });
+
+  it("answers null for a missing dump and refuses with the updater's code otherwise", async () => {
+    const missing = vi.fn(async () => reply({ code: "not_found", message: "no" }, 404));
+    expect(await client(missing as unknown as typeof fetch).downloadDump("x.dump")).toBeNull();
+    const busy = vi.fn(async () => reply({ code: "busy", message: "no" }, 409));
+    await expect(
+      client(busy as unknown as typeof fetch).deleteDump("x.dump"),
+    ).rejects.toMatchObject({
+      code: "busy",
+    });
+  });
+
+  it("is switched off with the client", async () => {
+    await expect(disabledUpdaterClient.downloadDump("x")).rejects.toBeInstanceOf(
+      UpdaterUnavailableError,
+    );
+    await expect(
+      disabledUpdaterClient.moveDatabase({ targetDir: "/mnt/x", requestedBy }),
     ).rejects.toBeInstanceOf(UpdaterUnavailableError);
   });
 });

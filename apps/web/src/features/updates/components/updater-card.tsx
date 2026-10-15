@@ -105,7 +105,7 @@ export function UpdaterCard({
           </Alert>
         ) : null}
         {state === "ready" || state === "blocked" || state === "busy" ? (
-          <DumpsList dumps={view.updater.dumps} />
+          <DumpsList dumps={view.updater.dumps} canChange={canChange} busy={state === "busy"} />
         ) : null}
       </CardContent>
     </Card>

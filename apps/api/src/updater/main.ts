@@ -4,6 +4,8 @@ import { serve } from "@hono/node-server";
 import { HttpApiClient } from "./api-client.js";
 import { loadOrCreateSecret } from "./auth.js";
 import { ConfigError, loadConfig, resolveProjectLocation } from "./config.js";
+import { DatabaseMover } from "./database.js";
+import { CliDatabaseOps } from "./database-ops.js";
 import { DumpStore } from "./dumps.js";
 import { UpdateEngine } from "./engine.js";
 import { EngineClient } from "./engine-api.js";
@@ -23,6 +25,7 @@ import { type OwnImage, pinOwnImage, SelfUpdater } from "./self-update.js";
 import { buildServer } from "./server.js";
 import { ArchiveSourceProvider } from "./source.js";
 import { formatAllowEntry } from "./source-policy.js";
+import { UpdateSpaceProbe } from "./space.js";
 import { StatusStore } from "./store.js";
 
 /**
@@ -144,6 +147,25 @@ async function main(): Promise<void> {
     postgres: async () => postgresSettings(await envFile.read()),
     selfInspect,
   });
+  const databaseOps = new CliDatabaseOps({
+    runner,
+    redactor,
+    projectName,
+    composeFile: config.composeFile,
+    postgres: async () => postgresSettings(await envFile.read()),
+  });
+  // What the next update needs on disk (space.ts): the preflight refuses one that does not fit.
+  const space = new UpdateSpaceProbe({
+    ops,
+    database: databaseOps,
+    dumps,
+    envFile,
+    clock: systemClock,
+    stateDir: config.stateDir,
+    minFreeMb: config.minFreeMb,
+  });
+  // The database location (database.ts): created below, after the engine it must not overlap.
+  let mover: DatabaseMover | null = null;
   const api = new HttpApiClient({ apiUrl: config.apiUrl, secret, redactor });
   const source = new ArchiveSourceProvider({
     stateDir: config.stateDir,
@@ -163,6 +185,11 @@ async function main(): Promise<void> {
     webImageRepository: config.webImageRepository,
     sourceAllowlist: config.sourceAllowlist.map(formatAllowEntry),
     verifySignatures: config.verifySignatures,
+    space,
+    otherActivity: () =>
+      mover?.active()
+        ? "The database is being moved, or an old copy of it is being removed."
+        : null,
   });
   const launcher = new EngineSelfRecreateLauncher({
     engine: engineClient,
@@ -237,7 +264,7 @@ async function main(): Promise<void> {
     ops,
     updateActive: () => {
       const { phase } = engine.view();
-      return phase === "scheduled" || phase === "running";
+      return phase === "scheduled" || phase === "running" || mover?.active() === true;
     },
     clock: systemClock,
     logger,
@@ -256,6 +283,37 @@ async function main(): Promise<void> {
   });
   await mounterEnabler.reconcile();
 
+  // Moving the database to another disk (docs/DATABASE.md), never next to an update, a
+  // restart, a start of the mounter or the updater replacing itself.
+  mover = new DatabaseMover({
+    ops,
+    database: databaseOps,
+    api,
+    envFile,
+    store,
+    clock: systemClock,
+    logger,
+    redactor,
+    healthTimeoutSeconds: config.healthTimeoutSeconds,
+    otherActivity: () => {
+      const { phase } = engine.view();
+      if (phase === "scheduled" || phase === "running") {
+        return `An update is ${phase}; move the database after it.`;
+      }
+      if (restarter.view()?.status === "running") {
+        return "A service is being restarted.";
+      }
+      if (store.state.mounterEnable?.status === "running") {
+        return "The mounter is being started.";
+      }
+      if (store.state.selfUpdate?.status === "pending") {
+        return "The updater is replacing itself.";
+      }
+      return null;
+    },
+  });
+  await mover.init();
+
   const app = buildServer({
     engine,
     preflight,
@@ -268,6 +326,8 @@ async function main(): Promise<void> {
     restarter,
     projectDir: hostDir,
     mounterEnable: mounterEnabler,
+    database: mover,
+    dumps,
   });
   const server = serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
     logger.info(
@@ -283,6 +343,7 @@ async function main(): Promise<void> {
     stopping = true;
     logger.info(`Received ${signal}; shutting down.`);
     server.close();
+    mover?.shutdown();
     engine
       .shutdown()
       .catch((error: Error) => logger.error(`Shutdown failed: ${error.message}`))

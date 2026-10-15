@@ -304,6 +304,21 @@ assert_eq "conflict-data" "$(existing_verdict 0 "restow_pgdata " "" /opt/restow)
 assert_eq "conflict-data" "$(existing_verdict 0 "" "/opt/restow " /opt/restow)" "containers without .env"
 assert_eq "conflict-dir" "$(existing_verdict 1 "" "/srv/restow " /opt/restow)" "installation elsewhere"
 
+# A database moved to another disk (docs/DATABASE.md): never start from a compose file that
+# does not read RESTOW_POSTGRES_DATA.
+dbdir="$TMP_ROOT/database-location"
+mkdir -p "$dbdir"
+printf 'services:\n  postgres:\n    volumes:\n      - pgdata:/var/lib/postgresql/data\n' >"$dbdir/old.yml"
+cp "$REPO/deploy/release/docker-compose.yml" "$dbdir/release.yml"
+printf 'POSTGRES_PASSWORD=x\nRESTOW_POSTGRES_DATA=\n' >"$dbdir/.env"
+assert_status 0 "no database location: any compose file" bash -c ". '$HERE/install.sh'; OPT_DIR='$dbdir'; assert_database_location '$dbdir/old.yml'"
+printf 'POSTGRES_PASSWORD=x\nRESTOW_POSTGRES_DATA_TYPE=bind\nRESTOW_POSTGRES_DATA=/mnt/volume-1/db/restow-postgres-20261015-101500\n' >"$dbdir/.env"
+assert_status 0 "moved database: the release file reads it" bash -c ". '$HERE/install.sh'; OPT_DIR='$dbdir'; assert_database_location '$dbdir/release.yml'"
+assert_status 8 "moved database: an old compose file is refused" bash -c ". '$HERE/install.sh'; OPT_DIR='$dbdir'; assert_database_location '$dbdir/old.yml'"
+assert_status 8 "moved database: a missing compose file is refused" bash -c ". '$HERE/install.sh'; OPT_DIR='$dbdir'; assert_database_location '$dbdir/none.yml'"
+assert_contains "RESTOW_POSTGRES_DATA:-pgdata" "$(cat "$REPO/deploy/release/docker-compose.yml")" "the release file takes the location from .env"
+assert_contains "create_host_path: false" "$(cat "$REPO/deploy/release/docker-compose.yml")" "a missing data directory stops PostgreSQL"
+
 assert_eq "restow restow-web" "$(image_names full)" "full build images"
 assert_eq "restow-community restow-web-community" "$(image_names community)" "Community build images"
 assert_eq "ghcr.io/restow-backup/restow" "$(image_repository ghcr.io/restow-backup/restow:0.1.0)" "image_repository"

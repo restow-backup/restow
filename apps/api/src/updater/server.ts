@@ -1,5 +1,12 @@
+import { createReadStream } from "node:fs";
+import * as fs from "node:fs/promises";
+import { Readable } from "node:stream";
 import { type Context, Hono } from "hono";
+import { z } from "zod";
 import { isAuthorized } from "./auth.js";
+import { type DatabaseMover, MoveRefusedError } from "./database.js";
+import { moveRequestSchema } from "./database-protocol.js";
+import { type DumpStore, isDumpFileName } from "./dumps.js";
 import { EngineError, type UpdateEngine } from "./engine.js";
 import type { Logger } from "./logger.js";
 import {
@@ -33,6 +40,11 @@ import { RestartRefusedError, type ServiceRestarter } from "./restart.js";
  *   POST /v1/mounter/enable  start the mounter (mounter-enable.ts); answers when the helper
  *                            finished (200) or after a minute with the start still running (202)
  *   POST /v1/restart         restart one application service: { service: "api" | "worker" | "scheduler" }
+ *   POST /v1/database/check  check a directory for the database (database.ts): { targetDir, requestedBy }
+ *   POST /v1/database/move   move the database there (202; the move runs in the background)
+ *   POST /v1/database/old-copies/:id/remove   remove an old copy a move left: { requestedBy }
+ *   GET  /v1/dumps/:file     download a pre-update dump (streamed)
+ *   DELETE /v1/dumps/:file   delete a pre-update dump
  *
  * Everything under /v1 needs `Authorization: Bearer <shared secret>`. Errors are
  * `{ "code": "...", "message": "..." }`; nothing in a response carries the secret.
@@ -58,7 +70,21 @@ export interface ServerDeps {
   restarter?: ServiceRestarter;
   /** The project directory on the host, for the commands the Updates tab shows. */
   projectDir?: string | null;
+  /** The database location (database.ts); without it the routes are not found. */
+  database?: DatabaseMover;
+  /** The pre-update dumps, for download and deletion; without it the routes are not found. */
+  dumps?: DumpStore;
 }
+
+const actorBodySchema = z
+  .object({
+    requestedBy: z.object({
+      userId: z.string().nullable(),
+      label: z.string(),
+      ip: z.string().nullable(),
+    }),
+  })
+  .strict();
 
 const STATUS_OF: Record<UpdaterErrorCode, 401 | 404 | 409 | 422 | 500> = {
   unauthorized: 401,
@@ -109,6 +135,7 @@ export function buildServer(deps: ServerDeps): Hono {
       restartableServices: [...(deps.restarter?.services ?? [])],
       restart: deps.restarter?.view() ?? null,
       projectDir: deps.projectDir ?? null,
+      database: deps.database ? await deps.database.view(refresh) : null,
       serverTime: deps.clock.now().toISOString(),
     };
   };
@@ -117,7 +144,9 @@ export function buildServer(deps: ServerDeps): Hono {
 
   app.get("/public/status", (c) => {
     const view = deps.engine.view();
-    return c.json(publicStatusOf(view.run, view.phase, deps.clock.now()));
+    return c.json(
+      publicStatusOf(view.run, view.phase, deps.clock.now(), deps.database?.publicMove() ?? null),
+    );
   });
 
   app.use("/v1/*", async (c, next) => {
@@ -259,6 +288,135 @@ export function buildServer(deps: ServerDeps): Hono {
     ]);
     clearTimeout(timer);
     return c.json(await stateView(false), finished ? 200 : 202);
+  });
+
+  // -- The database location (database.ts, docs/DATABASE.md) -------------------
+
+  const moveRefused = (error: MoveRefusedError) =>
+    fail(error.code, error.message, error.problems.length > 0 ? { problems: error.problems } : {});
+
+  app.post("/v1/database/check", async (c) => {
+    const mover = deps.database;
+    if (!mover) {
+      return fail("not_found", "This updater cannot move the database.");
+    }
+    const body = await readJson(c);
+    if (body instanceof Response) {
+      return body;
+    }
+    const parsed = moveRequestSchema.safeParse(body.json);
+    if (!parsed.success) {
+      return invalid(parsed.error.issues);
+    }
+    return c.json(await mover.check(parsed.data.targetDir));
+  });
+
+  app.post("/v1/database/move", async (c) => {
+    const mover = deps.database;
+    if (!mover) {
+      return fail("not_found", "This updater cannot move the database.");
+    }
+    const body = await readJson(c);
+    if (body instanceof Response) {
+      return body;
+    }
+    const parsed = moveRequestSchema.safeParse(body.json);
+    if (!parsed.success) {
+      return invalid(parsed.error.issues);
+    }
+    try {
+      await mover.start(parsed.data);
+    } catch (error) {
+      if (error instanceof MoveRefusedError) {
+        return moveRefused(error);
+      }
+      throw error;
+    }
+    return c.json(await stateView(false), 202);
+  });
+
+  app.post("/v1/database/old-copies/:id/remove", async (c) => {
+    const mover = deps.database;
+    if (!mover) {
+      return fail("not_found", "This updater cannot move the database.");
+    }
+    const body = await readJson(c);
+    if (body instanceof Response) {
+      return body;
+    }
+    const parsed = actorBodySchema.safeParse(body.json);
+    if (!parsed.success) {
+      return invalid(parsed.error.issues);
+    }
+    try {
+      await mover.removeOldCopy(c.req.param("id"), parsed.data.requestedBy);
+    } catch (error) {
+      if (error instanceof MoveRefusedError) {
+        return moveRefused(error);
+      }
+      throw error;
+    }
+    return c.json(await stateView(false), 202);
+  });
+
+  // -- Pre-update dumps -------------------------------------------------------
+
+  /** The dump a `needs_attention` run still refers to: the operator restores from it. */
+  const protectedDump = (): string | null =>
+    deps.engine.view().history[0]?.recovery?.dumpFile ?? null;
+
+  app.get("/v1/dumps/:file", async (c) => {
+    const dumps = deps.dumps;
+    const name = c.req.param("file");
+    if (!dumps || !isDumpFileName(name)) {
+      return fail("not_found", "There is no such dump.");
+    }
+    const file = dumps.pathOf(name);
+    let size: number;
+    try {
+      const stat = await fs.stat(file);
+      if (!stat.isFile()) {
+        return fail("not_found", "There is no such dump.");
+      }
+      size = stat.size;
+    } catch {
+      return fail("not_found", "There is no such dump.");
+    }
+    const stream = Readable.toWeb(createReadStream(file)) as ReadableStream<Uint8Array>;
+    return new Response(stream, {
+      status: 200,
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "Content-Length": String(size),
+        "Content-Disposition": `attachment; filename="${name}"`,
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  });
+
+  app.delete("/v1/dumps/:file", async (c) => {
+    const dumps = deps.dumps;
+    const name = c.req.param("file");
+    if (!dumps || !isDumpFileName(name)) {
+      return fail("not_found", "There is no such dump.");
+    }
+    const { phase } = deps.engine.view();
+    if (phase === "scheduled" || phase === "running") {
+      return fail("busy", "An update is announced or running; delete dumps after it.");
+    }
+    if (protectedDump() === name) {
+      return fail(
+        "blocked",
+        "The last update needs this dump to restore the database (it ended needing attention).",
+      );
+    }
+    if (!(await dumps.remove(name))) {
+      return fail("not_found", "There is no such dump.");
+    }
+    deps.preflight.invalidate();
+    deps.logger.info(`The dump ${name} was deleted, as an administrator asked.`);
+    return c.json(await stateView(false));
   });
 
   app.notFound(() => fail("not_found", "There is nothing at this path."));

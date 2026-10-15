@@ -82,7 +82,8 @@
       "not_newer": "The chosen version is not newer than the running one.",
       "compose_unsupported": "This version of Docker Compose is not supported.",
       "updater_image_unpinned": "The updater takes its own image from the image lines it rewrites during an update. Give it its own pinned image and recreate it; the steps are under Installation, Updates.",
-      "switch_refused": "The switch to the full build was refused: only a Community installation switches, to the full build of its own version."
+      "switch_refused": "The switch to the full build was refused: only a Community installation switches, to the full build of its own version.",
+      "database_move": "The database was being moved when the update was to start. Nothing was changed."
     },
     "fetch": {
       "pull_failed": "The new image could not be downloaded.",
@@ -303,9 +304,10 @@
       "compose_missing": "The updater cannot find docker-compose.yml in the project folder. Use the docker-compose.yml of this release, or set RESTOW_PROJECT_DIR in the .env file to the absolute path of the folder that holds it, then recreate the updater.",
       "project_dir_mismatch": "The project folder the updater sees does not match the folder this installation runs from. Set RESTOW_PROJECT_DIR in the .env file to the absolute path of the folder that holds docker-compose.yml, then restart the updater.",
       "env_unwritable": "The updater cannot write the .env file. It has to write the new image reference there.",
-      "disk_space": "There is not enough free disk space for a download and the database backup.",
+      "disk_space": "There is not enough free disk space for the update: the database backup, the new images and room for the migrations. The numbers are below; Installation › Database shows the disks and how to move the database to another one.",
       "docker_cli_missing": "The updater cannot find the Docker command line tool it needs to run Compose.",
       "updater_image_unpinned": "The updater takes its own image from RESTOW_IMAGE, the line it rewrites during an update, and could not pin it by itself. Set RESTOW_UPDATER_IMAGE in the .env file to the application image (the same image as RESTOW_IMAGE; there is no separate updater image), or use the docker-compose.yml of this release, then recreate the updater.",
+      "database_move": "The database is being moved to another disk, or an old copy of it is being removed. Update after that has finished.",
       "unknown": "The updater reported a problem this version does not know."
     },
     "ready": {
@@ -453,7 +455,17 @@
     "empty": "No backup yet. The first one is taken before the first update.",
     "file": "File",
     "size": "Size",
-    "created": "Created"
+    "created": "Created",
+    "actions": "Actions",
+    "download": "Download {file}",
+    "delete": "Delete {file}",
+    "downloadTitle": "Download this database backup?",
+    "downloadDescription": "{file} ({size}) holds the whole database: every tenant's catalogue and settings, and the stored secrets in their encrypted form. Keep it as carefully as the master key. The download is recorded in the audit log.",
+    "downloadAction": "Download",
+    "deleteTitle": "Delete this database backup?",
+    "deleteDescription": "{file} is deleted from the server. It cannot be restored afterwards. The deletion is recorded in the audit log.",
+    "deleteAction": "Delete",
+    "protected": "This backup is needed to repair the last update, which ended needing attention. It is kept."
   },
   "run": {
     "title": "Last update",
@@ -668,12 +680,14 @@
       "updatingVersion": "{product} is being updated to version {version}",
       "succeeded": "{product} was updated",
       "succeededVersion": "{product} was updated to version {version}",
-      "failed": "The update of {product} did not complete"
+      "failed": "The update of {product} did not complete",
+      "moving": "The database of {product} is being moved"
     },
     "lead": {
       "refresh": "This page refreshes automatically.",
       "scheduled": "The update starts soon. This page refreshes automatically.",
-      "succeeded": "The new version is running. This page reloads now."
+      "succeeded": "The new version is running. This page reloads now.",
+      "moving": "{product} is stopped while its database moves to another disk. It comes back by itself; this page refreshes automatically."
     },
     "failure": {
       "unchanged": "The update could not start. Nothing was changed; the previous version is still running.",

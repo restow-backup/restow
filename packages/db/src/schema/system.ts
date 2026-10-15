@@ -155,6 +155,25 @@ export type FileShareInstallationSettings = {
 };
 
 /**
+ * The low disk space warning (docs/DATABASE.md, "Disk space"): per watched disk
+ * (`database`: the file system under PostgreSQL's data, `repository`: the one under
+ * the installation's local default repository), whether it was last seen low and
+ * when that was reported. A warning is raised once when a disk becomes low, not on
+ * every check, and again only after it recovered in between.
+ */
+export type DiskAlertEntry = {
+  low: boolean;
+  /** When the disk was first seen low in this episode; null while it is not low. */
+  since: string | null;
+  /** When the warning for this episode went out; null when none did. */
+  notifiedAt: string | null;
+  /** Free and total bytes at the last check. */
+  freeBytes?: number;
+  totalBytes?: number;
+};
+export type DiskAlertState = Partial<Record<"database" | "repository", DiskAlertEntry>>;
+
+/**
  * Single-row installation configuration written by the setup wizard in one
  * transaction together with the first provider admin. `setupCompletedAt` is the
  * one-way lock of the public wizard: once set it is never cleared, whatever
@@ -210,6 +229,8 @@ export const settings = pgTable(
       .$type<FileShareInstallationSettings>()
       .notNull()
       .default({}),
+    // The low disk space warning per watched disk (see DiskAlertState); `{}` before the first check.
+    diskAlerts: jsonb("disk_alerts").$type<DiskAlertState>().notNull().default({}),
     ...timestamps(),
   },
   (t) => [uniqueIndex("settings_singleton_uq").on(t.singleton)],

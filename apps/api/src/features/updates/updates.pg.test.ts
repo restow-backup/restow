@@ -110,6 +110,7 @@ function capabilities(over: Partial<StateView["capabilities"]> = {}): StateView[
     signatureChecks: true,
     projectDir: "/srv/restow",
     mounterService: true,
+    updateSpace: null,
     checkedAt: "2026-10-01T09:00:00.000Z",
     ...over,
   };
@@ -128,6 +129,7 @@ function idleState(over: Partial<StateView> = {}): StateView {
     restartableServices: [],
     restart: null,
     projectDir: null,
+    database: null,
     serverTime: "2026-10-01T09:00:00.000Z",
     ...over,
   };
@@ -203,6 +205,27 @@ class ScriptedUpdater implements UpdaterClient {
     this.acknowledged += 1;
     this.view = idleState();
     return this.view;
+  }
+
+  // The database location has its own tests (database.pg.test.ts).
+  async checkDatabaseLocation(): Promise<never> {
+    throw new Error("not scripted");
+  }
+
+  async moveDatabase(): Promise<never> {
+    throw new Error("not scripted");
+  }
+
+  async removeOldDatabaseCopy(): Promise<never> {
+    throw new Error("not scripted");
+  }
+
+  async downloadDump(): Promise<never> {
+    throw new Error("not scripted");
+  }
+
+  async deleteDump(): Promise<never> {
+    throw new Error("not scripted");
   }
 }
 
@@ -1188,6 +1211,7 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
       // Nothing an outsider should not learn: no requester, no images, no log.
       expect(Object.keys(view).sort()).toEqual(
         [
+          "databaseMove",
           "failureCode",
           "finishedAt",
           "fromVersion",

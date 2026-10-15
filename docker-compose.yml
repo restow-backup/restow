@@ -39,7 +39,16 @@ services:
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # The data directory: the named volume pgdata, or a directory on the host after the
+      # database was moved to another disk (Installation > Database, docs/DATABASE.md). Both
+      # variables are written into .env by the opt-in updater; leave them alone otherwise.
+      # create_host_path: false makes a missing directory (a disk that is not mounted) stop
+      # PostgreSQL instead of starting it on an empty directory.
+      - type: ${RESTOW_POSTGRES_DATA_TYPE:-volume}
+        source: ${RESTOW_POSTGRES_DATA:-pgdata}
+        target: /var/lib/postgresql/data
+        bind:
+          create_host_path: false
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-restow} -d ${POSTGRES_DB:-restow}"]
       interval: 10s

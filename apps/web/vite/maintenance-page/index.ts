@@ -97,11 +97,13 @@ export function loadPageTexts(
         succeeded: text("maintenancePage.heading.succeeded"),
         succeededVersion: text("maintenancePage.heading.succeededVersion"),
         failed: text("maintenancePage.heading.failed"),
+        moving: text("maintenancePage.heading.moving"),
       },
       lead: {
         refresh: text("maintenancePage.lead.refresh"),
         scheduled: text("maintenancePage.lead.scheduled"),
         succeeded: text("maintenancePage.lead.succeeded"),
+        moving: text("maintenancePage.lead.moving"),
       },
       failure: {
         unchanged: text("maintenancePage.failure.unchanged"),

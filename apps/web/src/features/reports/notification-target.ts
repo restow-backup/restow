@@ -38,6 +38,12 @@ export function notificationTarget(
       ? { to: installationSectionPath("updates"), tenantId: null }
       : null;
   }
+  // A move of the database and a disk running low: Installation > Database.
+  if (item.event.startsWith("database.") || item.event === "installation.disk_low") {
+    return viewer.isProviderAdmin
+      ? { to: installationSectionPath("database"), tenantId: null }
+      : null;
+  }
   if (!viewer.canManage) {
     return null;
   }

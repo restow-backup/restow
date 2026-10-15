@@ -102,7 +102,7 @@ export const EVENT_GROUPS: Record<
     "file_share.storage_quota",
   ],
   // About the installation, not a tenant's data: only provider administrators may pick these.
-  system: ["update.available"],
+  system: ["update.available", "installation.disk_low"],
 };
 
 /** The event groups a person may put into a rule (installation events are the provider's). */

@@ -1,9 +1,10 @@
-import { AppWindow, Download, HardDrive, Info, Layers, Mail, Server } from "lucide-react";
+import { AppWindow, Database, Download, HardDrive, Info, Layers, Mail, Server } from "lucide-react";
 
 import { AboutSection } from "@/features/settings/sections/about-section";
 import { UpdatesSection } from "@/features/updates/updates-section";
 import { extensionInstallationSections, type InstallationSectionSpec } from "@/lib/extensions";
 
+import { DatabaseSection } from "./sections/database-section";
 import { EditionSection } from "./sections/edition-section";
 import { MicrosoftAppSection } from "./sections/microsoft-app-section";
 import { RepositorySection } from "./sections/repository-section";
@@ -18,7 +19,7 @@ import { MailSectionPage, ServerSectionPage } from "./sections/settings-sections
  *
  *   10 Server   20 Notification mail   30 Microsoft multi-tenant app
  *   40 Journal receiving (Business)    50 Default repository & network shares
- *   60 Provider API (Service Provider) 70 Updates
+ *   55 Database                        60 Provider API (Service Provider) 70 Updates
  *   80 License (extension) or Edition  90 About
  *
  * Edition (core) is the Community build's place for what the License section is in the
@@ -64,6 +65,15 @@ export const CORE_INSTALLATION_SECTIONS: readonly InstallationSectionSpec[] = [
     icon: HardDrive,
     order: 50,
     component: RepositorySection,
+  },
+  {
+    // Where the database keeps its data, the disks, moving it (docs/DATABASE.md).
+    id: "database",
+    labelKey: "installation:sections.database",
+    descriptionKey: "installation:descriptions.database",
+    icon: Database,
+    order: 55,
+    component: DatabaseSection,
   },
   {
     id: "updates",

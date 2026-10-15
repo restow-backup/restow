@@ -138,6 +138,24 @@ export class DumpStore {
     return deleted;
   }
 
+  /**
+   * Delete one dump on an administrator's request (Updates > Database dumps). Resolves
+   * false when there is no such dump; names that are not ours are refused by `pathOf`.
+   */
+  async remove(name: string): Promise<boolean> {
+    const file = this.pathOf(name);
+    try {
+      const stat = await fs.stat(file);
+      if (!stat.isFile()) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+    await fs.rm(file, { force: true });
+    return true;
+  }
+
   /** Remove a dump that was not completed. */
   async discard(name: string): Promise<void> {
     await fs.rm(this.pathOf(name), { force: true });

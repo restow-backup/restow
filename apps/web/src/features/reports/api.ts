@@ -27,6 +27,7 @@ export const REPORT_EVENTS = [
   "file_share.storage_quota",
   "file_share.repository_locked",
   "update.available",
+  "installation.disk_low",
 ] as const;
 export type ReportEvent = (typeof REPORT_EVENTS)[number];
 

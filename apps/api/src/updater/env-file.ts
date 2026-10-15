@@ -220,11 +220,15 @@ function appendLine(lines: EnvLine[], text: string): void {
  * Set variables. An existing assignment (the last one, when there are several) is
  * replaced in place; a missing one is appended. Everything else stays untouched.
  */
-export function setKeys(text: string, assignments: Readonly<Record<string, string>>): string {
+export function setKeys(
+  text: string,
+  assignments: Readonly<Record<string, string>>,
+  assertValue: (key: string, value: string) => void = assertSafeEnvValue,
+): string {
   const lines = parseEnvLines(text);
   for (const [key, value] of Object.entries(assignments)) {
     assertKnownKey(key);
-    assertSafeEnvValue(key, value);
+    assertValue(key, value);
     const index = lastAssignmentIndex(lines, key);
     const previous = index === -1 ? null : (lines[index] as EnvLine).text;
     const prefix = previous && /^\s*export\s+/.test(previous) ? "export " : "";
@@ -263,6 +267,32 @@ export function restoreKeys(text: string, captured: CapturedEnv): string {
     }
   }
   return renderEnvLines(lines);
+}
+
+/**
+ * The database location (docs/DATABASE.md, database.ts): the two lines the compose files
+ * read for the postgres data directory. Written only by
+ * {@link EnvFile.applyDatabaseLocation}, with `bind` and a plain absolute path.
+ */
+export const DATABASE_LOCATION_KEYS: readonly string[] = [
+  "RESTOW_POSTGRES_DATA_TYPE",
+  "RESTOW_POSTGRES_DATA",
+];
+
+const DATA_DIRECTORY = /^\/[A-Za-z0-9._+@-]+(?:\/[A-Za-z0-9._+@-]+)*$/;
+
+/** A value of the database location: `bind`, or a plain absolute path (nothing Compose interpolates). */
+export function assertDatabaseLocationValue(key: string, value: string): void {
+  const valid =
+    key === "RESTOW_POSTGRES_DATA_TYPE"
+      ? value === "bind"
+      : key === "RESTOW_POSTGRES_DATA" &&
+        value.length <= 300 &&
+        DATA_DIRECTORY.test(value) &&
+        !value.split("/").includes("..");
+  if (!valid) {
+    throw new EnvFileError(`The value for ${key} is not a database location.`, "invalid_value");
+  }
 }
 
 const POSTGRES_NAME = /^[A-Za-z0-9_][A-Za-z0-9_.-]{0,62}$/;
@@ -374,6 +404,29 @@ export class EnvFile {
   /** Put RESTOW_UPDATER_IMAGE back as {@link pinUpdaterImage} found it. */
   async restoreUpdaterImage(before: CapturedKey): Promise<void> {
     await this.replace(restoreKeys(await this.read(), { [UPDATER_IMAGE_KEY]: before }));
+  }
+
+  /** Point the postgres data directory at `directory` on the host (database.ts). */
+  async applyDatabaseLocation(directory: string): Promise<void> {
+    await this.replace(
+      setKeys(
+        await this.read(),
+        { RESTOW_POSTGRES_DATA_TYPE: "bind", RESTOW_POSTGRES_DATA: directory },
+        assertDatabaseLocationValue,
+      ),
+    );
+  }
+
+  /** Put the database location lines back exactly as {@link capture} found them. */
+  async restoreDatabaseLocation(captured: CapturedEnv): Promise<void> {
+    const foreign = Object.keys(captured).filter((key) => !DATABASE_LOCATION_KEYS.includes(key));
+    if (foreign.length > 0) {
+      throw new EnvFileError(
+        `Only the database location lines are restored here, not ${foreign.join(", ")}.`,
+        "invalid_setting",
+      );
+    }
+    await this.replace(restoreKeys(await this.read(), captured));
   }
 
   /** Atomic replace (temporary file, fsync, rename), keeping mode and owner. */

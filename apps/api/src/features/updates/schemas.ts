@@ -74,6 +74,14 @@ export const scheduleUpdateInputSchema = z
 export type ScheduleUpdateInput = z.infer<typeof scheduleUpdateInputSchema>;
 
 /** POST /edition/switch: move a Community installation to the full build of its version. */
+/** Installation > Database: the directory on the host the database moves to (database.ts). */
+export const databaseDirectoryInputSchema = z
+  .object({
+    targetDir: z.string().trim().min(1).max(200),
+  })
+  .strict();
+export type DatabaseDirectoryInput = z.infer<typeof databaseDirectoryInputSchema>;
+
 export const switchBuildInputSchema = z
   .object({
     /** Seconds until the switch starts; one of `leadTimes`. */

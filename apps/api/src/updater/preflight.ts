@@ -1,9 +1,11 @@
+import type { UpdateSpace } from "./database-protocol.js";
 import type { DumpStore } from "./dumps.js";
 import type { EnvFile } from "./env-file.js";
 import { EnvFileError } from "./env-file.js";
 import type { Clock, DockerOps } from "./ops.js";
 import type { Blocker, Capabilities } from "./protocol.js";
 import type { Redactor } from "./redact.js";
+import { describeShortfall } from "./space.js";
 
 /**
  * Can an update start right now? The answer is what the api shows in the Updates
@@ -54,6 +56,13 @@ export interface PreflightOptions {
   sourceAllowlist?: readonly string[];
   /** The updater verifies release signatures (default); false when the operator switched that off. */
   verifySignatures?: boolean;
+  /**
+   * What the next update needs on disk (space.ts). Absent: only `minFreeMb` must be free in
+   * the state directory, as before the estimate existed.
+   */
+  space?: { estimate(refresh: boolean): Promise<UpdateSpace> };
+  /** Another operation that rules an update out while it runs (a database move): why, or null. */
+  otherActivity?: () => string | null;
 }
 
 export interface CheckOptions {
@@ -131,13 +140,32 @@ export class Preflight {
       }
     }
 
-    try {
-      const free = await ops.freeBytes(stateDir);
-      if (free < minFreeMb * 1024 * 1024) {
-        add("disk_space", `${Math.floor(free / (1024 * 1024))} MB free, ${minFreeMb} MB required`);
+    let updateSpace: UpdateSpace | null = null;
+    if (this.options.space) {
+      // The dump, the new images and the migrations must fit (space.ts), not just a fixed minimum.
+      updateSpace = await this.options.space.estimate(options.deep === true).catch(() => null);
+    }
+    if (updateSpace) {
+      if (!updateSpace.enough) {
+        add("disk_space", describeShortfall(updateSpace));
       }
-    } catch (error) {
-      add("disk_space", `Free space could not be determined: ${messageOf(error)}`);
+    } else {
+      try {
+        const free = await ops.freeBytes(stateDir);
+        if (free < minFreeMb * 1024 * 1024) {
+          add(
+            "disk_space",
+            `${Math.floor(free / (1024 * 1024))} MB free, ${minFreeMb} MB required`,
+          );
+        }
+      } catch (error) {
+        add("disk_space", `Free space could not be determined: ${messageOf(error)}`);
+      }
+    }
+
+    const activity = this.options.otherActivity?.() ?? null;
+    if (activity) {
+      add("database_move", activity);
     }
 
     let runnerReady = false;
@@ -192,6 +220,7 @@ export class Preflight {
       signatureChecks: this.options.verifySignatures !== false,
       projectDir,
       mounterService: this.mounterService,
+      updateSpace,
       checkedAt: clock.now().toISOString(),
     };
   }

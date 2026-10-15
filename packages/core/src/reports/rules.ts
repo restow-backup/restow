@@ -135,6 +135,10 @@ export function subjectKeyOf(event: ReportEvent, details: Record<string, unknown
   if (event === "update.available" && typeof details.version === "string") {
     return `update:${details.version}`;
   }
+  // A disk warning is about that disk (the database's or the repository's).
+  if (event === "installation.disk_low" && typeof details.disk === "string") {
+    return `disk:${details.disk}`;
+  }
   // An alert about a VM or container of Proxmox VE is about that guest.
   const guest = details.pveGuestId;
   if (typeof guest === "string" && guest.length > 0) {

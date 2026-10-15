@@ -148,11 +148,17 @@ describe("subjectKeyOf", () => {
     expect(subjectKeyOf("update.available", { version: "0.3.0" })).toBe("update:0.3.0");
     expect(subjectKeyOf("update.available", {})).toBe("event:update.available");
   });
+
+  it("makes every disk its own subject for the disk warning", () => {
+    expect(subjectKeyOf("installation.disk_low", { disk: "database" })).toBe("disk:database");
+    expect(subjectKeyOf("installation.disk_low", { disk: "repository" })).toBe("disk:repository");
+  });
 });
 
 describe("installation events", () => {
   it("are events about the installation, not a tenant's data, and only those", () => {
-    expect(INSTALLATION_REPORT_EVENTS).toEqual(["update.available"]);
+    expect(INSTALLATION_REPORT_EVENTS).toEqual(["update.available", "installation.disk_low"]);
+    expect(isInstallationReportEvent("installation.disk_low")).toBe(true);
     expect(isInstallationReportEvent("update.available")).toBe(true);
     expect(isInstallationReportEvent("backup.failed")).toBe(false);
     for (const event of INSTALLATION_REPORT_EVENTS) {

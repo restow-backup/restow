@@ -170,6 +170,6 @@ describe("event groups", () => {
     expect(eventGroupsFor(true)).toContain("system");
     expect(eventGroupsFor(false)).not.toContain("system");
     expect(eventGroupsFor(false)).toEqual(["jobs", "recoverability", "storage"]);
-    expect(EVENT_GROUPS.system).toEqual(["update.available"]);
+    expect(EVENT_GROUPS.system).toEqual(["update.available", "installation.disk_low"]);
   });
 });

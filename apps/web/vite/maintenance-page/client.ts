@@ -57,6 +57,8 @@ export interface PageStatus {
   steps: { id: StepId; status: StepStatus }[];
   progress: number;
   failureCode: string | null;
+  /** A move of the database runs (the updater's `databaseMove`); its progress in percent. */
+  moving: { progress: number } | null;
 }
 
 function oneOf<T extends string>(values: readonly T[], value: unknown): T | null {
@@ -77,6 +79,7 @@ const IDLE_STATUS: PageStatus = {
   steps: [],
   progress: 0,
   failureCode: null,
+  moving: null,
 };
 
 /** The run finished more than {@link SUCCESS_SHOWN_MS} ago, by the updater's own clock. */
@@ -109,8 +112,18 @@ export function parseStatus(payload: unknown): PageStatus | null {
   }
   const progress =
     typeof raw.progress === "number" && Number.isFinite(raw.progress) ? raw.progress : 0;
+  const move = raw.databaseMove as Record<string, unknown> | null | undefined;
+  const moving =
+    move && typeof move === "object" && move.status === "running"
+      ? {
+          progress:
+            typeof move.progress === "number" && Number.isFinite(move.progress)
+              ? Math.max(0, Math.min(100, Math.round(move.progress)))
+              : 0,
+        }
+      : null;
   if (phase === "succeeded" && successIsOld(raw.finishedAt, raw.serverTime)) {
-    return { ...IDLE_STATUS, steps: [] };
+    return { ...IDLE_STATUS, steps: [], moving };
   }
   return {
     phase,
@@ -120,13 +133,20 @@ export function parseStatus(payload: unknown): PageStatus | null {
     steps,
     progress: Math.max(0, Math.min(100, Math.round(progress))),
     failureCode: text(raw.failureCode),
+    moving,
   };
 }
 
-/** What the page says: nothing known, announced, running, finished well, or finished badly. */
-export type Mode = "unavailable" | "scheduled" | "updating" | "succeeded" | "failed";
+/**
+ * What the page says: nothing known, announced, running, finished well, finished badly, or
+ * the database is being moved (Installation > Database), which stops the application too.
+ */
+export type Mode = "unavailable" | "scheduled" | "updating" | "succeeded" | "failed" | "moving";
 
 export function modeOf(status: PageStatus | null): Mode {
+  if (status?.moving && status.phase !== "running" && status.phase !== "scheduled") {
+    return "moving";
+  }
   switch (status ? status.phase : "idle") {
     case "scheduled":
       return "scheduled";
@@ -163,7 +183,7 @@ export function shouldReload(input: ReloadInput): boolean {
     return false;
   }
   const phase = input.status ? input.status.phase : null;
-  if (phase === "scheduled" || phase === "running") {
+  if (phase === "scheduled" || phase === "running" || input.status?.moving) {
     return false;
   }
   if (phase === "succeeded" && input.guarded) {
@@ -379,7 +399,9 @@ export function render(env: Environment, status: PageStatus | null, ready: boole
           ? withVersion("heading-succeeded")
           : mode === "failed"
             ? label("heading-failed")
-            : label("heading-unavailable");
+            : mode === "moving"
+              ? label("heading-moving")
+              : label("heading-unavailable");
   setText(doc.getElementById("heading"), heading);
   if (doc.title !== heading) {
     doc.title = heading;
@@ -390,7 +412,9 @@ export function render(env: Environment, status: PageStatus | null, ready: boole
       ? label("lead-succeeded")
       : mode === "scheduled"
         ? label("lead-scheduled")
-        : label("lead-refresh");
+        : mode === "moving"
+          ? label("lead-moving")
+          : label("lead-refresh");
   setText(doc.getElementById("lead"), mode === "failed" ? "" : lead);
 
   // The steps and the progress belong to a run that started.
@@ -401,9 +425,15 @@ export function render(env: Environment, status: PageStatus | null, ready: boole
     steps.hidden = !showRun;
   }
   if (progress) {
-    progress.hidden = !(mode === "updating" || mode === "succeeded");
+    progress.hidden = !(mode === "updating" || mode === "succeeded" || mode === "moving");
     if (status) {
-      progress.setAttribute("value", String(mode === "succeeded" ? 100 : status.progress));
+      const value =
+        mode === "succeeded"
+          ? 100
+          : mode === "moving"
+            ? (status.moving?.progress ?? 0)
+            : status.progress;
+      progress.setAttribute("value", String(value));
     }
   }
   const states = stepStatuses(status);

@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { z } from "zod";
+import { moveRecordSchema, oldCopyRemovalSchema, oldCopySchema } from "./database-protocol.js";
 import type { Logger } from "./logger.js";
 import {
   type JournalEvent,
@@ -71,6 +72,38 @@ export function emptyRunContext(): RunContext {
   };
 }
 
+/**
+ * What a move of the database (database.ts) needs to go back after a failure or an
+ * updater restart: each flag is written before the side effect it names, so the way
+ * back undoes exactly what may have happened, and nothing else.
+ */
+export const moveContextSchema = z.object({
+  /** The postgres image id the helper containers run. */
+  image: z.string(),
+  /** Owner of the data directory (the copy keeps it; the check runs PostgreSQL as it). */
+  owner: z.object({ uid: z.number().int(), gid: z.number().int() }),
+  /** Applied migrations before the move; the copy and the moved database must show the same. */
+  baselineMigrations: z.number().int().nonnegative(),
+  /** The database location lines of `.env` before the switch. */
+  previousEnv: z.record(capturedKeySchema).nullable().default(null),
+  appStopped: z.boolean().default(false),
+  databaseStopped: z.boolean().default(false),
+  copyStarted: z.boolean().default(false),
+  envSwitched: z.boolean().default(false),
+  quarantineStarted: z.boolean().default(false),
+  newDatabaseStarted: z.boolean().default(false),
+  rollingBack: z.boolean().default(false),
+});
+export type MoveContext = z.infer<typeof moveContextSchema>;
+
+export const databaseStateSchema = z.object({
+  move: moveRecordSchema.nullable().default(null),
+  context: moveContextSchema.nullable().default(null),
+  oldCopies: z.array(oldCopySchema).max(20).default([]),
+  removal: oldCopyRemovalSchema.nullable().default(null),
+});
+export type DatabaseState = z.infer<typeof databaseStateSchema>;
+
 export const stateFileSchema = z
   .object({
     schemaVersion: z.literal(STATE_SCHEMA_VERSION),
@@ -84,6 +117,8 @@ export const stateFileSchema = z
     selfUpdate: selfUpdateRecordSchema.nullable().default(null),
     /** The last start of the mounter from the web interface (mounter-enable.ts). */
     mounterEnable: mounterEnableRecordSchema.nullable().default(null),
+    /** The database location: the current or last move, old copies (database.ts). */
+    database: databaseStateSchema.nullable().default(null),
   })
   .superRefine((state, ctx) => {
     if (state.phase !== "idle" && state.run === null) {
@@ -103,6 +138,7 @@ export function initialState(): StateFile {
     eventCounter: 0,
     selfUpdate: null,
     mounterEnable: null,
+    database: null,
   };
 }
 
