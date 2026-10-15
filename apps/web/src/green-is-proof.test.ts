@@ -64,6 +64,7 @@ const ALLOWED: Readonly<Record<string, string>> = {
   // -- not a tone: the status of a data fetch
   "./features/tenants/hooks.ts": "the status of a query",
   "./features/tenants/components/installation-panel.tsx": "the status of a query",
+  "./features/history/live/activity-badges.ts": "the status of a query",
 };
 
 const files = Object.entries(sources);
