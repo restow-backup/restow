@@ -10,6 +10,18 @@
  *               a node that sends them); a VM: the bytes it uploaded (changed blocks)
  *   m365        the items a mailbox, OneDrive or IMAP backup wrote and the bytes it stored; a
  *               OneDrive backup's activity report
+ *
+ * The compression and deduplication of the new data (docs/RANSOMWARE.md, "Compression and
+ * deduplication"), as far as the source reports them:
+ *
+ *   restic (machines, file shares, containers)
+ *               compression  data_added_packed / data_added (agent and nodes 0.4.x on; every
+ *                            file share runner)
+ *               dedup        data_added / total_bytes_processed
+ *   chunk store (VMs, mailboxes, OneDrive, SharePoint, IMAP)
+ *               compression  the deflate estimate over a sample of every new chunk (the store
+ *                            itself does not compress)
+ *               dedup        new chunk bytes / bytes chunked
  */
 import { parseActivityReport, type RunMetrics } from "@restow/core";
 
@@ -30,6 +42,33 @@ function record(value: unknown): Record<string, unknown> {
     : {};
 }
 
+/** stored / raw, or null when either is unknown or nothing was added. */
+function quotient(part: unknown, whole: unknown): number | null {
+  const p = num(part);
+  const w = num(whole);
+  return p === null || w === null || w <= 0 ? null : Math.round((p / w) * 10_000) / 10_000;
+}
+
+type DataShape = Pick<RunMetrics, "newBytes" | "compressionRatio" | "dedupRatio">;
+
+/** A restic summary: compression packed / added, deduplication added / processed. */
+function resticShape(added: unknown, packed: unknown, processed: unknown): DataShape {
+  return {
+    newBytes: num(added),
+    compressionRatio: quotient(packed, added),
+    dedupRatio: quotient(added, processed),
+  };
+}
+
+/** The chunk writer's statistics (@restow/core `ChunkDataStats`). */
+function chunkShape(bytesIn: unknown, bytesNew: unknown, sampled: unknown, compressed: unknown) {
+  return {
+    newBytes: num(bytesNew),
+    compressionRatio: quotient(compressed, sampled),
+    dedupRatio: quotient(bytesNew, bytesIn),
+  } satisfies DataShape;
+}
+
 /** A machine's backup run (`endpoint_runs.stats`). */
 export function endpointRunMetrics(stats: unknown): RunMetrics {
   const s = record(stats);
@@ -38,6 +77,7 @@ export function endpointRunMetrics(stats: unknown): RunMetrics {
     itemsTotal: num(s.totalFilesProcessed),
     bytesAdded: num(s.dataAdded),
     activity: parseActivityReport(s.activity),
+    ...resticShape(s.dataAdded, s.dataAddedPacked, s.totalBytesProcessed),
   };
 }
 
@@ -49,6 +89,7 @@ export function fileShareRunMetrics(stats: unknown): RunMetrics {
     itemsTotal: num(s.files) ?? num(s.totalFilesProcessed),
     bytesAdded: num(s.dataAdded),
     activity: parseActivityReport(s.activity),
+    ...resticShape(s.dataAdded, s.dataAddedPacked, s.totalBytesProcessed),
   };
 }
 
@@ -61,18 +102,32 @@ export function pveRunMetrics(kind: string, stats: unknown): RunMetrics {
       itemsTotal: num(s.resticFilesTotal),
       bytesAdded: num(s.resticBytesAdded),
       activity: parseActivityReport(s.activity),
+      ...resticShape(s.resticBytesAdded, s.resticBytesAddedPacked, s.resticTotalBytes),
     };
   }
-  return { itemsChanged: null, itemsTotal: null, bytesAdded: num(s.uploadedBytes), activity: null };
+  return {
+    itemsChanged: null,
+    itemsTotal: null,
+    bytesAdded: num(s.uploadedBytes),
+    activity: null,
+    ...chunkShape(
+      s.chunkBytesIn,
+      s.chunkBytesNew,
+      s.chunkBytesSampled,
+      s.chunkBytesSampledCompressed,
+    ),
+  };
 }
 
 /** A mailbox, OneDrive or IMAP backup job (`jobs.payload.result`). */
 export function m365RunMetrics(result: unknown): RunMetrics {
   const r = record(result);
+  const c = record(r.chunkStats);
   return {
     itemsChanged: num(r.objectsWritten),
     itemsTotal: num(r.objectsTotal),
     bytesAdded: num(r.bytes),
     activity: parseActivityReport(r.activity),
+    ...chunkShape(c.bytesIn, c.bytesNew, c.bytesSampled, c.bytesSampledCompressed),
   };
 }

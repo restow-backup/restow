@@ -30,6 +30,7 @@ import {
   legalHolds,
   protectedObjects,
   providers,
+  restorePointSuspicions,
   retentionPolicies,
   snapshots,
   sources,
@@ -37,6 +38,7 @@ import {
   verifyReports,
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
+import { and, eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import type { WorkerJobContext } from "./framework.js";
 import { pgRetentionStore, retentionTasks } from "./retention.js";
@@ -234,6 +236,47 @@ describe.skipIf(!adminUrl)("pgRetentionStore against Postgres", () => {
       expect(summary.candidates).toBe(1);
       expect(summary.bytesLogical).toBe(2000);
       expect(summary.held).toBe(1);
+
+      // A suspicious restore point of mailboxA nobody resolved holds its retention too: a real
+      // (not dry) run prunes nothing of it, while mailboxB's legal hold stays what it was.
+      const [suspicion] = await db
+        .insert(restorePointSuspicions)
+        .values({
+          tenantId,
+          objectKind: "m365",
+          objectId: mailboxA?.id as string,
+          runId: randomUUID(),
+          restorePointId: rows[2]?.id as string,
+          restorePointAt: daysAgo(1),
+          verdict: "suspicious",
+          findings: [{ code: "change_rate_items", value: 9000, threshold: 1500 }],
+          signals: { changeRate: "fired" },
+          metrics: { itemsChanged: 9000, itemsTotal: 9000, bytesAdded: 1 },
+          signaturesVersion: "test",
+        })
+        .returning();
+      const held = (await task.run(ctx, { dryRun: false })) as {
+        candidates: number;
+        pruned: number;
+        heldOnSuspicion: number;
+      };
+      expect(held).toMatchObject({ candidates: 0, pruned: 0, heldOnSuspicion: 1 });
+      const active = await db
+        .select({ id: snapshots.id })
+        .from(snapshots)
+        .where(and(eq(snapshots.tenantId, tenantId), eq(snapshots.status, "active")));
+      expect(active).toHaveLength(5);
+
+      // Released by an administrator: the due restore point is a candidate again.
+      await db
+        .update(restorePointSuspicions)
+        .set({ holdReleasedAt: NOW, holdReleasedBy: "admin@contoso.example" })
+        .where(eq(restorePointSuspicions.id, suspicion?.id as string));
+      const resumed = (await task.run(ctx, { dryRun: true })) as {
+        candidates: number;
+        heldOnSuspicion: number;
+      };
+      expect(resumed).toMatchObject({ candidates: 1, heldOnSuspicion: 0 });
     } finally {
       await db.$client.end();
     }

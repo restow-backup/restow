@@ -14,6 +14,7 @@ import {
   BLOCK_FLAG_PRESENT,
   buildPveManifest,
   ChunkWriter,
+  collectGarbage,
   EnvKeyProvider,
   encodeBlockMap,
   generateDek,
@@ -45,6 +46,7 @@ import {
   pveSnapshots,
   pveTasks,
   type RoleLogin,
+  restorePointSuspicions,
   secrets,
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
@@ -56,6 +58,7 @@ import {
   TenantCache,
   tenantRunner,
 } from "../handlers/framework.js";
+import { PgPackCatalog } from "../handlers/scrub.js";
 import { dropTestDatabase } from "../testing/database.js";
 import {
   applyRetention,
@@ -68,6 +71,7 @@ import {
   purgeDownloads,
   pvePass,
   verifyDue,
+  verifySnapshot,
 } from "./maintenance.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
@@ -184,7 +188,9 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     blocks: Buffer[],
     backupAt: Date,
     tamper = false,
+    forGuest?: { id: string; vmid: number },
   ): Promise<string> {
+    const target = forGuest ?? { id: guestId, vmid: 101 };
     const keys = await deps.runtime.keyrings.get(tenantId);
     const index = new PgChunkIndex(tenantRunner(appDb, tenantId), tenantId);
     const writer = new ChunkWriter({ tenantId, storage, keys, index });
@@ -210,15 +216,15 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     const manifest = buildPveManifest({
       tenantId,
       snapshotId,
-      guestId,
+      guestId: target.id,
       createdAt: backupAt,
       sequence,
       state: {
         kind: "pve-vm",
         clusterId,
-        vmid: 101,
+        vmid: target.vmid,
         node: "pve1",
-        archiveName: `vm/101/${backupAt.toISOString()}`,
+        archiveName: `vm/${target.vmid}/${backupAt.toISOString()}`,
         storageId: "restow",
       },
       config: { chunks: conf.chunks, size: conf.size, sha256: conf.sha256 },
@@ -241,10 +247,10 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
       id: snapshotId,
       tenantId,
       clusterId,
-      guestId,
+      guestId: target.id,
       sequence,
       kind: "vm",
-      archiveName: `vm/101/${backupAt.toISOString().replace(/\.\d{3}Z$/, "Z")}`,
+      archiveName: `vm/${target.vmid}/${backupAt.toISOString().replace(/\.\d{3}Z$/, "Z")}`,
       storageId: "restow",
       manifestPath: path,
       disks: [
@@ -265,7 +271,7 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     await owner
       .update(pveGuests)
       .set({ lastSnapshotId: snapshotId })
-      .where(eq(pveGuests.id, guestId));
+      .where(eq(pveGuests.id, target.id));
     return snapshotId;
   }
 
@@ -571,4 +577,83 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     expect(await purgeDownloads(deps, clock)).toBe(1);
     expect(await owner.select().from(pveDownloads)).toHaveLength(1);
   }, 60_000);
+  it("keeps every restore point of a guest held on suspicion, and garbage collection keeps their chunks", async () => {
+    const [job] = await owner.select().from(pveJobs);
+    const [held] = await owner
+      .insert(pveGuests)
+      .values({ tenantId, clusterId, vmid: 102, kind: "vm", node: "pve1", jobId: job?.id ?? null })
+      .returning();
+    const vm = { id: held?.id ?? "", vmid: 102 };
+    // Three restore points; the job keeps two daily ones, so the oldest is due.
+    const oldest = await commit(
+      1,
+      [blockOf(20), blockOf(21)],
+      new Date(clock.getTime() - 3 * DAY),
+      false,
+      vm,
+    );
+    await commit(2, [blockOf(20), blockOf(22)], new Date(clock.getTime() - 2 * DAY), false, vm);
+    await commit(3, [blockOf(20), blockOf(23)], new Date(clock.getTime() - DAY), false, vm);
+    const [suspicion] = await owner
+      .insert(restorePointSuspicions)
+      .values({
+        tenantId,
+        objectKind: "pve_guest",
+        objectId: vm.id,
+        runId: randomUUID(),
+        restorePointId: randomUUID(),
+        restorePointAt: new Date(clock.getTime() - DAY),
+        verdict: "suspicious",
+        findings: [{ code: "incompressible_data", value: 0.99, threshold: 0.95 }],
+        signals: { compressibility: "fired" },
+        metrics: { itemsChanged: null, itemsTotal: null, bytesAdded: 1 },
+        signaturesVersion: "test",
+      })
+      .returning();
+    const activeOf = async () =>
+      (await owner.select().from(pveSnapshots).where(eq(pveSnapshots.guestId, vm.id)))
+        .filter((snap) => snap.status === "active")
+        .map((snap) => snap.id);
+
+    // Held: nothing of it goes, and no reference of it is released.
+    await applyRetention(deps, clock);
+    expect(await activeOf()).toHaveLength(3);
+
+    // Garbage collection runs over the shared chunk store (it drops what the other guest's
+    // retention released) and never touches a chunk the held restore points reference.
+    const run = tenantRunner(appDb, tenantId);
+    const keys = await deps.runtime.keyrings.get(tenantId);
+    const gc = await collectGarbage(
+      {
+        tenantId,
+        storage,
+        keys,
+        catalog: new PgPackCatalog(run, tenantId),
+        logger: noopLogger,
+        signal: new AbortController().signal,
+        now: () => new Date(Date.now() + DAY),
+      },
+      {
+        cutoff: new Date(Date.now() + DAY),
+        keep: new Set(),
+        minDeadFraction: 0,
+        supersededGraceMs: 0,
+      },
+    );
+    expect(gc.chunksDropped).toBeGreaterThan(0);
+    const [oldestRow] = await owner.select().from(pveSnapshots).where(eq(pveSnapshots.id, oldest));
+    const readBack = await verifySnapshot(deps, oldestRow as never, () => 0);
+    expect(readBack).toMatchObject({ mismatched: 0, errors: [] });
+    expect(readBack.blocks).toBeGreaterThan(0);
+
+    // Released: retention resumes and the oldest restore point goes.
+    await owner
+      .update(restorePointSuspicions)
+      .set({ holdReleasedAt: clock, holdReleasedBy: "admin@contoso.example" })
+      .where(eq(restorePointSuspicions.id, suspicion?.id ?? ""));
+    await applyRetention(deps, clock);
+    const left = await activeOf();
+    expect(left).toHaveLength(2);
+    expect(left).not.toContain(oldest);
+  });
 });

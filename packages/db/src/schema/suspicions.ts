@@ -26,6 +26,7 @@ export type SuspicionFindingJson = {
   value: number;
   threshold: number;
   baseline?: number;
+  bytes?: number;
   share?: number;
   examples?: string[];
 };
@@ -35,6 +36,12 @@ export type SuspicionMetricsJson = {
   itemsChanged: number | null;
   itemsTotal: number | null;
   bytesAdded: number | null;
+  /** The raw new data the ratios were measured on (judgements from 0.4.x on). */
+  newBytes?: number | null;
+  /** Stored / raw of the new data; near 1.0: it does not compress. */
+  compressionRatio?: number | null;
+  /** New / processed; near 1.0: nothing deduplicated. */
+  dedupRatio?: number | null;
 };
 
 /**
@@ -49,6 +56,13 @@ export type SuspicionMetricsJson = {
  * `backup.suspicious`; later ones of the same episode stay quiet. An administrator who calls a
  * finding a false alarm sets `false_alarm_*` (audited): the restore point then counts as clean,
  * feeds the object's baseline, and ends the episode.
+ *
+ * While an object has a suspicious restore point that is neither a false alarm nor released
+ * (`hold_released_at`), retention keeps every restore point of that object (docs/RANSOMWARE.md,
+ * "Retention hold"). An administrator ends the hold by calling the findings a false alarm or by
+ * releasing it (`hold_released_*`, audited); a later clean restore point does not end it.
+ * `hold_reminded_at` marks when an unresolved hold was last announced again
+ * (`backup.suspicious_hold`).
  *
  * Tenant-scoped (RLS, sql/rls.sql); object and run ids carry no foreign key because they point
  * into four tables, so the rows of a deleted object are removed with its tenant or left as
@@ -80,6 +94,13 @@ export const restorePointSuspicions = pgTable(
     // The label stays when the account is deleted.
     falseAlarmBy: text("false_alarm_by"),
     falseAlarmNote: text("false_alarm_note"),
+    holdReleasedAt: timestamp("hold_released_at", { withTimezone: true }),
+    holdReleasedByUserId: text("hold_released_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    holdReleasedBy: text("hold_released_by"),
+    holdReleaseNote: text("hold_release_note"),
+    holdRemindedAt: timestamp("hold_reminded_at", { withTimezone: true }),
     ...timestamps(),
   },
   (t) => [
@@ -99,6 +120,10 @@ export const restorePointSuspicions = pgTable(
     check(
       "restore_point_suspicions_note_ck",
       sql`${t.falseAlarmNote} IS NULL OR char_length(${t.falseAlarmNote}) <= 1000`,
+    ),
+    check(
+      "restore_point_suspicions_hold_note_ck",
+      sql`${t.holdReleaseNote} IS NULL OR char_length(${t.holdReleaseNote}) <= 1000`,
     ),
   ],
 );

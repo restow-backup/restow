@@ -14,8 +14,13 @@
  * none) raises `backup.suspicious` in the same transaction: bell, rules, e-mail and webhooks.
  * The ones that follow it in the same episode are marked, not announced again.
  *
- * Nothing runs while the installation switched the detection off; runs from that time are not
- * judged later either (only the last three days are looked at).
+ * Nothing is judged while the installation switched the detection off; runs from that time are
+ * not judged later either (only the last three days are looked at).
+ *
+ * A suspicious restore point holds the object's retention until an administrator resolves it
+ * (./holds.ts). The alert says so; a hold still open after `retentionHold.reminderDays` (14) is
+ * announced again (`backup.suspicious_hold`), and every that many days after, whether or not the
+ * detection is on.
  */
 import {
   evaluateSuspicion,
@@ -33,7 +38,9 @@ import {
   protectedObjects,
   pveGuests,
   restorePointSuspicions,
+  SUSPICION_HOLDS_SQL,
   settings as settingsTable,
+  suspicionHolds,
 } from "@restow/db";
 import { and, desc, eq, lt, type SQL, sql } from "drizzle-orm";
 import { endpointName } from "../endpoints/monitor.js";
@@ -146,6 +153,36 @@ function dateOf(value: Date | string): Date {
   return value instanceof Date ? value : new Date(value);
 }
 
+/**
+ * The objects of `kind` among `objectIds` with a finished backup since `since` that has no
+ * judgement yet: their newest restore points may be suspicious, and the pass decides within
+ * minutes. Retention waits for it (./holds.ts).
+ */
+export async function unjudgedObjects(
+  tx: Pick<Database, "execute">,
+  tenantId: string,
+  kind: SuspicionObjectKind,
+  objectIds: readonly string[],
+  since: Date,
+): Promise<Set<string>> {
+  const source = SOURCES.find((candidate) => candidate.kind === kind);
+  if (!source || objectIds.length === 0) {
+    return new Set();
+  }
+  const result = await tx.execute<{ object_id: string }>(sql`
+    SELECT DISTINCT ${source.object} AS object_id
+    FROM ${source.from}
+    LEFT JOIN restore_point_suspicions s ON s.object_kind = ${source.kind} AND s.run_id = ${source.run}
+    WHERE ${source.eligible} AND r.tenant_id = ${tenantId}::uuid
+      AND ${source.object} IN (${sql.join(
+        objectIds.map((id) => sql`${id}::uuid`),
+        sql`, `,
+      )})
+      AND ${source.time} >= ${since} AND s.id IS NULL
+  `);
+  return new Set(result.rows.map((row) => row.object_id));
+}
+
 /** The runs of the last {@link SUSPICION_WINDOW_MS} that were not judged yet, oldest first. */
 async function candidatesOf(db: Database, source: KindSource, since: Date): Promise<RunRow[]> {
   const result = await db.execute<RunRow>(
@@ -188,21 +225,25 @@ async function describeObject(
   tx: TenantTx,
   kind: SuspicionObjectKind,
   objectId: string,
-): Promise<{ name: string; ref: Record<string, string> }> {
+): Promise<{ name: string; ref: Record<string, string>; exists: boolean }> {
   switch (kind) {
     case "endpoint": {
       const [row] = await tx
         .select({ displayName: endpoints.displayName, hostname: endpoints.hostname })
         .from(endpoints)
         .where(eq(endpoints.id, objectId));
-      return { name: row ? endpointName(row) : objectId, ref: { endpointId: objectId } };
+      return {
+        name: row ? endpointName(row) : objectId,
+        ref: { endpointId: objectId },
+        exists: Boolean(row),
+      };
     }
     case "file_share": {
       const [row] = await tx
         .select({ name: fileShares.name })
         .from(fileShares)
         .where(eq(fileShares.id, objectId));
-      return { name: row?.name ?? objectId, ref: { fileShareId: objectId } };
+      return { name: row?.name ?? objectId, ref: { fileShareId: objectId }, exists: Boolean(row) };
     }
     case "pve_guest": {
       const [row] = await tx
@@ -210,7 +251,7 @@ async function describeObject(
         .from(pveGuests)
         .where(eq(pveGuests.id, objectId));
       const name = row ? (row.name ?? `${row.kind === "ct" ? "CT" : "VM"} ${row.vmid}`) : objectId;
-      return { name, ref: { pveGuestId: objectId } };
+      return { name, ref: { pveGuestId: objectId }, exists: Boolean(row) };
     }
     case "m365": {
       const [row] = await tx
@@ -220,9 +261,14 @@ async function describeObject(
       return {
         name: row?.name ?? row?.externalId ?? objectId,
         ref: { protectedObjectId: objectId },
+        exists: Boolean(row),
       };
     }
   }
+}
+
+function percent(ratio: number): string {
+  return `${Math.round(ratio * 1000) / 10} %`;
 }
 
 /** One finding in English, for the notification's message and the log. */
@@ -244,6 +290,10 @@ export function describeFinding(finding: SuspicionFinding): string {
       return `${finding.value} files named like a ransom note${examples}`;
     case "high_entropy":
       return `${finding.value} sampled files look encrypted${examples}`;
+    case "incompressible_data":
+      return `${finding.bytes ?? 0} bytes of new data do not compress (${percent(finding.value)} of their size), usually ${percent(finding.baseline ?? 0)}`;
+    case "dedup_collapse":
+      return `${percent(finding.value)} of the data read was new (nothing deduplicated), usually ${percent(finding.baseline ?? 0)}`;
   }
 }
 
@@ -251,6 +301,111 @@ export interface SuspicionPassSummary {
   judged: number;
   suspicious: number;
   alerts: number;
+  /** Unresolved retention holds announced again (`backup.suspicious_hold`). */
+  reminders: number;
+}
+
+const DAY_MS = 24 * HOUR_MS;
+/** Holds one pass announces again at most; the next pass takes the rest. */
+const REMINDER_BATCH = 200;
+
+/**
+ * Announce every retention hold that is unresolved for `retentionHold.reminderDays` again, and
+ * every that many days after (`backup.suspicious_hold`): a hold must never go on silently.
+ */
+export async function remindRetentionHolds(
+  deps: SuspicionDeps,
+  settings: RansomwareSettings,
+  now: Date,
+): Promise<number> {
+  if (!settings.retentionHold.enabled) {
+    return 0;
+  }
+  const days = settings.retentionHold.reminderDays;
+  const dueBefore = new Date(now.getTime() - days * DAY_MS);
+  const due = await deps.providerDb.execute<{
+    tenant_id: string;
+    object_kind: SuspicionObjectKind;
+    object_id: string;
+  }>(sql`
+    SELECT tenant_id, object_kind, object_id
+    FROM restore_point_suspicions
+    WHERE ${SUSPICION_HOLDS_SQL}
+    GROUP BY tenant_id, object_kind, object_id
+    HAVING min(created_at) <= ${dueBefore}
+      AND (max(hold_reminded_at) IS NULL OR max(hold_reminded_at) <= ${dueBefore})
+    LIMIT ${REMINDER_BATCH}
+  `);
+  let reminded = 0;
+  for (const row of due.rows) {
+    if (deps.runtime.shutdownSignal.aborted) {
+      break;
+    }
+    const sent = await withTenantTx(deps.db, row.tenant_id, async (tx) => {
+      const hold = (
+        await suspicionHolds(tx, {
+          tenantId: row.tenant_id,
+          kind: row.object_kind,
+          objectIds: [row.object_id],
+        })
+      ).get(row.object_id);
+      // Resolved or reminded by another pass meanwhile.
+      if (
+        !hold ||
+        hold.heldAt > dueBefore ||
+        (hold.remindedAt !== null && hold.remindedAt > dueBefore)
+      ) {
+        return false;
+      }
+      const object = await describeObject(tx, row.object_kind, row.object_id);
+      const remindedNow = () =>
+        tx
+          .update(restorePointSuspicions)
+          .set({ holdRemindedAt: now })
+          .where(
+            and(
+              eq(restorePointSuspicions.tenantId, row.tenant_id),
+              eq(restorePointSuspicions.objectKind, row.object_kind),
+              eq(restorePointSuspicions.objectId, row.object_id),
+              SUSPICION_HOLDS_SQL,
+            ),
+          );
+      if (!object.exists) {
+        // The object was deleted with its backups: nothing is held any more, nobody to remind.
+        await remindedNow();
+        return false;
+      }
+      const heldDays = Math.floor((now.getTime() - hold.heldAt.getTime()) / DAY_MS);
+      await raiseEvents(
+        tx,
+        [
+          {
+            tenantId: row.tenant_id,
+            level: "warning",
+            event: "backup.suspicious_hold",
+            message: `Retention of ${object.name} has been paused for ${heldDays} days: ${hold.restorePoints} suspicious restore point(s) since ${hold.since.toISOString()} are not resolved. No restore point of it is deleted and its storage keeps growing. Check the system, then mark the finding as a false alarm or release the hold.`,
+            details: {
+              ...object.ref,
+              objectKind: row.object_kind,
+              objectId: row.object_id,
+              objectName: object.name,
+              heldSince: hold.since.toISOString(),
+              heldAt: hold.heldAt.toISOString(),
+              heldDays,
+              restorePoints: hold.restorePoints,
+            },
+          },
+        ],
+        now,
+      );
+      await remindedNow();
+      return true;
+    });
+    if (sent) {
+      reminded++;
+    }
+  }
+  return reminded;
 }
 
 /** Judge one run, unless another pass was first; raise the alert when it opens an episode. */
@@ -271,6 +426,7 @@ async function judge(
       .select({
         verdict: restorePointSuspicions.verdict,
         falseAlarmAt: restorePointSuspicions.falseAlarmAt,
+        holdReleasedAt: restorePointSuspicions.holdReleasedAt,
       })
       .from(restorePointSuspicions)
       .where(
@@ -299,6 +455,9 @@ async function judge(
           itemsChanged: current.itemsChanged,
           itemsTotal: current.itemsTotal,
           bytesAdded: current.bytesAdded,
+          newBytes: current.newBytes ?? null,
+          compressionRatio: current.compressionRatio ?? null,
+          dedupRatio: current.dedupRatio ?? null,
         },
         signaturesVersion: result.signaturesVersion,
       })
@@ -314,7 +473,13 @@ async function judge(
     summary.suspicious++;
     const opens = opensSuspicionEpisode(
       result.verdict,
-      previous ? { verdict: previous.verdict, falseAlarm: previous.falseAlarmAt !== null } : null,
+      previous
+        ? {
+            verdict: previous.verdict,
+            falseAlarm: previous.falseAlarmAt !== null,
+            released: previous.holdReleasedAt !== null,
+          }
+        : null,
     );
     if (!opens) {
       return;
@@ -327,7 +492,7 @@ async function judge(
           tenantId: row.tenant_id,
           level: "error",
           event: "backup.suspicious",
-          message: `The restore point of ${object.name} from ${at.toISOString()} shows signs of ransomware: ${result.findings.map(describeFinding).join("; ")}. Check the system before restoring; the newest restore point without findings is marked in the restore views.`,
+          message: `The restore point of ${object.name} from ${at.toISOString()} shows signs of ransomware: ${result.findings.map(describeFinding).join("; ")}. Check the system before restoring; the newest restore point without findings is marked in the restore views.${settings.retentionHold.enabled ? " Retention of this object is paused: no restore point of it is deleted until an administrator marks the finding as a false alarm or releases the hold." : ""}`,
           details: {
             ...object.ref,
             objectKind: source.kind,
@@ -339,6 +504,7 @@ async function judge(
             suspicionId: inserted.id,
             findings: result.findings,
             signaturesVersion: result.signaturesVersion,
+            retentionHeld: settings.retentionHold.enabled,
           },
         },
       ],
@@ -363,12 +529,20 @@ export async function loadRansomwareSettings(providerDb: Database): Promise<Rans
 
 /** One pass over every kind. */
 export async function suspicionPass(deps: SuspicionDeps): Promise<SuspicionPassSummary> {
-  const summary: SuspicionPassSummary = { judged: 0, suspicious: 0, alerts: 0 };
+  const summary: SuspicionPassSummary = { judged: 0, suspicious: 0, alerts: 0, reminders: 0 };
   const settings = await loadRansomwareSettings(deps.providerDb);
+  const now = deps.runtime.now();
+  // Holds stay until an administrator resolves them, even with the detection switched off.
+  try {
+    summary.reminders = await remindRetentionHolds(deps, settings, now);
+  } catch (error) {
+    deps.runtime.logger.warn("unresolved retention holds could not be announced again", {
+      errorMessage: error instanceof Error ? error.message.slice(0, 300) : String(error),
+    });
+  }
   if (!settings.enabled) {
     return summary;
   }
-  const now = deps.runtime.now();
   const since = new Date(now.getTime() - SUSPICION_WINDOW_MS);
   for (const source of SOURCES) {
     const rows = await candidatesOf(deps.providerDb, source, since);
@@ -410,7 +584,7 @@ export function startSuspicionScan(
       }
       try {
         const summary = await suspicionPass(deps);
-        if (summary.judged > 0) {
+        if (summary.judged > 0 || summary.reminders > 0) {
           deps.runtime.logger.info("ransomware judgement pass", { ...summary });
         }
       } finally {

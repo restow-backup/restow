@@ -176,6 +176,8 @@ export const finishRunSchema = z.object({
       filesChanged: z.number().optional(),
       filesUnmodified: z.number().optional(),
       dataAdded: z.number().optional(),
+      // What restic stored for the new data, compressed (agent 0.4.x and newer).
+      dataAddedPacked: z.number().optional(),
       totalFilesProcessed: z.number().optional(),
       totalBytesProcessed: z.number().optional(),
     })

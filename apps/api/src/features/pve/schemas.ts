@@ -172,6 +172,9 @@ export const commitSchema = z.object({
   resticFilesNew: z.number().int().min(0).optional().catch(undefined),
   resticFilesChanged: z.number().int().min(0).optional().catch(undefined),
   resticFilesTotal: z.number().int().min(0).optional().catch(undefined),
+  // What restic stored for the new data, compressed (nodes from 0.4.x on), for the compression
+  // signal; an older node sends none.
+  resticBytesAddedPacked: z.number().int().min(0).optional().catch(undefined),
   activity: z.unknown().optional(),
   resticTotalBytes: z.number().int().min(0).optional(),
   resticRoot: z.string().max(4096).optional(),

@@ -7,13 +7,15 @@ import {
   fetchOpenSuspicions,
   fetchRansomwareSettings,
   markFalseAlarm,
+  markHoldFalseAlarm,
   type RansomwareSettings,
+  releaseRetentionHold,
   revokeFalseAlarm,
   type SuspicionTarget,
   saveRansomwareSettings,
   suspicionKeys,
 } from "./api";
-import { mayMarkFalseAlarm, mayReadSuspicions } from "./presenters";
+import { mayMarkFalseAlarm, mayReadSuspicions, mayReleaseHold } from "./presenters";
 
 /** The active tenant, whether the judgements may be read, and whether a false alarm may be marked. */
 export function useSuspicionScope() {
@@ -25,6 +27,7 @@ export function useSuspicionScope() {
       session.activeTenant !== null &&
       mayReadSuspicions(session),
     canMarkFalseAlarm: mayMarkFalseAlarm(session),
+    canReleaseHold: mayReleaseHold(session),
   };
 }
 
@@ -76,6 +79,24 @@ export function useRevokeFalseAlarm() {
   const refresh = useRefresh();
   return useMutation({
     mutationFn: (id: string) => revokeFalseAlarm(id),
+    onSettled: refresh,
+  });
+}
+
+export function useReleaseRetentionHold() {
+  const refresh = useRefresh();
+  return useMutation({
+    mutationFn: ({ target, note }: { target: SuspicionTarget; note: string | null }) =>
+      releaseRetentionHold(target, note),
+    onSettled: refresh,
+  });
+}
+
+export function useMarkHoldFalseAlarm() {
+  const refresh = useRefresh();
+  return useMutation({
+    mutationFn: ({ target, note }: { target: SuspicionTarget; note: string | null }) =>
+      markHoldFalseAlarm(target, note),
     onSettled: refresh,
   });
 }

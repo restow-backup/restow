@@ -11,6 +11,7 @@
  * Needs RESTOW_TEST_DATABASE_URL (a superuser); skipped otherwise.
  */
 import { spawnSync } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import {
@@ -34,6 +35,7 @@ import {
   fileShares,
   type NewFileShareRun,
   notifications,
+  restorePointSuspicions,
   settings,
   webhookDeliveries,
   webhooks,
@@ -791,6 +793,88 @@ describe.skipIf(!adminUrl)("file share jobs of the worker against Postgres", () 
       ]);
       expect(await withRepository(access, (session) => resticSnapshots(session))).toHaveLength(2);
       expect((await share(s.id)).lastRetentionAt).not.toBeNull();
+    }, 120_000);
+
+    it("removes nothing while the share is held on suspicion, and resumes after the release", async () => {
+      const s = await addShare(fixture, tenant);
+      await addShareJob(fixture, tenant, [s.id], {
+        settings: { retention: { keepDaily: 1, keepWeekly: 0, keepMonthly: 0 } },
+      });
+      const ready = await ensureShareRepository(fixture.deps, s);
+      const access = await shareRepositoryAccess(fixture.deps, ready);
+      const folder = join(fixture.work, `held-${s.id}`);
+      await mkdir(folder, { recursive: true });
+      const ids: string[] = [];
+      for (const content of ["clean", "encrypted"]) {
+        await writeFile(join(folder, "a.txt"), content);
+        ids.push(
+          await withRepository(access, async (session) => {
+            const before = new Set((await resticSnapshots(session)).map((snap) => snap.id));
+            await runRestic(session, ["backup", "--host", "restow-share", folder]);
+            const all = await resticSnapshots(session);
+            return all.find((snap) => !before.has(snap.id))?.id as string;
+          }),
+        );
+      }
+      await fixture.owner.insert(fileShareSnapshots).values([
+        {
+          tenantId: tenant,
+          fileShareId: s.id,
+          sequence: 1,
+          resticSnapshotId: ids[0] as string,
+          snapshotTime: new Date(Date.now() - 2 * 24 * 60 * MINUTE),
+          files: 1,
+        },
+        {
+          tenantId: tenant,
+          fileShareId: s.id,
+          sequence: 2,
+          resticSnapshotId: ids[1] as string,
+          snapshotTime: new Date(Date.now() - 24 * 60 * MINUTE),
+          files: 1,
+        },
+      ]);
+      const [suspicion] = await fixture.owner
+        .insert(restorePointSuspicions)
+        .values({
+          tenantId: tenant,
+          objectKind: "file_share",
+          objectId: s.id,
+          runId: randomUUID(),
+          restorePointId: randomUUID(),
+          restorePointAt: new Date(Date.now() - 24 * 60 * MINUTE),
+          verdict: "suspicious",
+          findings: [{ code: "high_entropy", value: 8, threshold: 3 }],
+          signals: { entropy: "fired" },
+          metrics: { itemsChanged: 1, itemsTotal: 1, bytesAdded: 1 },
+          signaturesVersion: "test",
+        })
+        .returning();
+      const statuses = async () =>
+        (
+          await fixture.owner
+            .select({ sequence: fileShareSnapshots.sequence, status: fileShareSnapshots.status })
+            .from(fileShareSnapshots)
+            .where(eq(fileShareSnapshots.fileShareId, s.id))
+        ).sort((a, b) => a.sequence - b.sequence);
+      fixture.clock.now = new Date();
+      await shareRetention(fixture.deps, { tenantId: tenant, fileShareId: s.id });
+      expect(await statuses()).toEqual([
+        { sequence: 1, status: "active" },
+        { sequence: 2, status: "active" },
+      ]);
+      expect(await withRepository(access, (session) => resticSnapshots(session))).toHaveLength(2);
+
+      await fixture.owner
+        .update(restorePointSuspicions)
+        .set({ holdReleasedAt: new Date(), holdReleasedBy: "admin@contoso.example" })
+        .where(eq(restorePointSuspicions.id, suspicion?.id ?? ""));
+      await shareRetention(fixture.deps, { tenantId: tenant, fileShareId: s.id });
+      expect(await statuses()).toEqual([
+        { sequence: 1, status: "pruned" },
+        { sequence: 2, status: "active" },
+      ]);
+      expect(await withRepository(access, (session) => resticSnapshots(session))).toHaveLength(1);
     }, 120_000);
   });
 });

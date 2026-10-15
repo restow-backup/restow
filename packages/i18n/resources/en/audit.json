@@ -625,7 +625,8 @@
     },
     "suspicion": {
       "false_alarm": "Suspicious restore point marked as a false alarm",
-      "false_alarm_revoked": "False alarm of a restore point taken back"
+      "false_alarm_revoked": "False alarm of a restore point taken back",
+      "hold_released": "Retention hold of an object released"
     }
   },
   "targetTypes": {

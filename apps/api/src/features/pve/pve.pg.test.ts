@@ -464,6 +464,15 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
     );
     const [row] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, run.runId));
     expect(row?.status).toBe("succeeded");
+    // The chunk writer's numbers of every frame are summed for the compression and deduplication
+    // signals, next to what the node reported at the commit.
+    const stats = row?.stats as Record<string, number>;
+    expect(stats.uploadedBytes).toBe(data1.length);
+    expect(stats.chunkBytesIn).toBeGreaterThanOrEqual(data1.length);
+    expect(stats.chunkBytesNew).toBeGreaterThan(0);
+    expect(stats.chunkBytesNew).toBeLessThanOrEqual(stats.chunkBytesIn);
+    expect(stats.chunkBytesSampled).toBeGreaterThan(0);
+    expect(stats.chunkBytesSampledCompressed).toBeGreaterThan(0);
     const staged = await fixture.db
       .select()
       .from(pveRunBlocks)

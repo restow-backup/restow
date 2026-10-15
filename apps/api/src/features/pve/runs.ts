@@ -5,6 +5,7 @@ import {
   blockLength,
   buildBlockMap,
   buildPveManifest,
+  type ChunkWriterStats,
   decodeFrame,
   encodeBlockMap,
   encodeHashList,
@@ -41,7 +42,7 @@ import {
   pveSnapshots,
   pveTasks,
 } from "@restow/db";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, type SQL, sql } from "drizzle-orm";
 import { db } from "../../db.js";
 import { loadTenantDek, readSecret, storeSecret } from "../../lib/secrets.js";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
@@ -320,7 +321,15 @@ export async function putBlocks(
   }
   await writer.close();
   await store.index.addReferences(staged.flatMap((s) => s.chunks));
+  const chunkStats = writer.stats;
   const replaced = await withTenantTx(db, node.tenantId, async (tx) => {
+    // What the frame added to the chunk store, summed over the run for the compression and
+    // deduplication signals (docs/RANSOMWARE.md). A frame sent again counts twice; the ratios
+    // barely move.
+    await tx
+      .update(pveRuns)
+      .set({ stats: addRunChunkStats(chunkStats) })
+      .where(eq(pveRuns.id, run.id));
     const old = await tx
       .select({
         device: pveRunBlocks.device,
@@ -363,6 +372,13 @@ export async function putBlocks(
   return { accepted: blocks.length };
 }
 
+/** The run's `stats` with a frame's chunk writer statistics added (one atomic UPDATE). */
+function addRunChunkStats(stats: ChunkWriterStats): SQL {
+  const add = (key: string, value: number) =>
+    sql`jsonb_build_object(${key}::text, COALESCE((${pveRuns.stats}->>${key}::text)::numeric, 0) + ${value})`;
+  return sql`${pveRuns.stats} || ${add("chunkBytesIn", stats.bytesIn)} || ${add("chunkBytesNew", stats.bytesNew)} || ${add("chunkBytesSampled", stats.bytesSampled)} || ${add("chunkBytesSampledCompressed", stats.bytesSampledCompressed)}`;
+}
+
 /** Release what a run staged (its block references) and drop the rows. */
 export async function releaseStaging(tenantId: string, runId: string): Promise<void> {
   const rows = await withTenantTx(db, tenantId, (tx) =>
@@ -401,6 +417,7 @@ export interface CommitInput {
   firewallConfig: string | null;
   resticSnapshotId?: string;
   resticBytesAdded?: number;
+  resticBytesAddedPacked?: number;
   resticFilesNew?: number;
   resticFilesChanged?: number;
   resticFilesTotal?: number;
@@ -421,10 +438,17 @@ export function containerActivityStats(input: {
   resticFilesNew?: number;
   resticFilesChanged?: number;
   resticFilesTotal?: number;
+  resticBytesAddedPacked?: number;
+  resticTotalBytes?: number;
   activity?: unknown;
 }): Record<string, unknown> {
   const report = parseActivityReport(input.activity);
   return {
+    // Compression (packed / added) and deduplication (added / processed) of the new data.
+    ...(input.resticBytesAddedPacked !== undefined
+      ? { resticBytesAddedPacked: input.resticBytesAddedPacked }
+      : {}),
+    ...(input.resticTotalBytes !== undefined ? { resticTotalBytes: input.resticTotalBytes } : {}),
     ...(input.resticFilesNew !== undefined ? { resticFilesNew: input.resticFilesNew } : {}),
     ...(input.resticFilesChanged !== undefined
       ? { resticFilesChanged: input.resticFilesChanged }

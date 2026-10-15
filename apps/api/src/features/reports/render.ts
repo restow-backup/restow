@@ -96,10 +96,19 @@ export function suspicionFindingLines(
     const raw = entry as Record<string, unknown>;
     const code = typeof raw.code === "string" ? raw.code : "";
     const number = (value: unknown) => (typeof value === "number" ? value : 0);
+    const percent = (value: unknown) =>
+      new Intl.NumberFormat(language === "de" ? "de-DE" : "en-GB", {
+        style: "percent",
+        maximumFractionDigits: 1,
+      }).format(number(value));
+    // Compression and deduplication findings carry ratios (0 to about 1), shown as percent.
+    const ratio = code === "incompressible_data" || code === "dedup_collapse";
     const amount = (value: unknown) =>
       code === "change_rate_bytes"
         ? formatBytes(number(value), language)
-        : formatCount(number(value), language);
+        : ratio
+          ? percent(value)
+          : formatCount(number(value), language);
     const examples = Array.isArray(raw.examples)
       ? raw.examples
           .filter((example): example is string => typeof example === "string")
@@ -112,10 +121,8 @@ export function suspicionFindingLines(
         value: amount(raw.value),
         baseline: amount(raw.baseline),
         threshold: amount(raw.threshold),
-        share: new Intl.NumberFormat(language === "de" ? "de-DE" : "en-GB", {
-          style: "percent",
-          maximumFractionDigits: 1,
-        }).format(number(raw.share)),
+        share: percent(raw.share),
+        bytes: formatBytes(number(raw.bytes), language),
         examples,
       }),
     );
@@ -224,6 +231,18 @@ export function renderAlert(input: AlertInput): RenderedMessage {
       i18n.exists(key) ? t(key, values) : t("suspicion:findings.unknown", values),
     );
     if (lines.length > 0) rows.push([t("reports:mail.findings"), lines.join("; ")]);
+    if (details.retentionHeld === true) {
+      rows.push([t("reports:mail.retention"), t("reports:mail.retentionPaused")]);
+    }
+  }
+  if (event === "backup.suspicious_hold") {
+    // How long retention has been paused, and for how many suspicious restore points.
+    const since = formatWhen(text(details.heldSince), input.language);
+    if (since) rows.push([t("reports:mail.heldSince"), `${since} UTC`]);
+    if (typeof details.restorePoints === "number") {
+      rows.push([t("reports:mail.heldRestorePoints"), String(details.restorePoints)]);
+    }
+    rows.push([t("reports:mail.retention"), t("reports:mail.retentionPaused")]);
   }
   // A failed job says why and what to do, in the recipient's language; the raw message follows.
   const failure = alertFailure(details.failure);

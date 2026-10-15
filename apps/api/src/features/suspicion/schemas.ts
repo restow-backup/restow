@@ -20,6 +20,13 @@ export const falseAlarmSchema = z.object({
   note: z.string().trim().max(MAX_FALSE_ALARM_NOTE_LENGTH).nullish(),
 });
 
+/** Releasing an object's retention hold, or calling all its held findings a false alarm. */
+export const holdActionSchema = z.object({
+  kind: z.enum(SUSPICION_OBJECT_KINDS),
+  objectId: z.string().uuid(),
+  note: z.string().trim().max(MAX_FALSE_ALARM_NOTE_LENGTH).nullish(),
+});
+
 function inRange(key: RansomwareSettingKey, integer = false) {
   const [min, max] = RANSOMWARE_SETTING_RANGES[key];
   const number = z.number().min(min).max(max);
@@ -75,6 +82,25 @@ export const ransomwareSettingsSchema = z
         minSamples: inRange("entropy.minSamples", true),
         highBits: inRange("entropy.highBits"),
         minHighShare: inRange("entropy.minHighShare"),
+      })
+      .strict()
+      .optional(),
+    compressibility: z
+      .object({
+        enabled: z.boolean().optional(),
+        minBytes: inRange("compressibility.minBytes", true),
+        madFactor: inRange("compressibility.madFactor"),
+        compressionMinRatio: inRange("compressibility.compressionMinRatio"),
+        compressionMinRise: inRange("compressibility.compressionMinRise"),
+        dedupMinRatio: inRange("compressibility.dedupMinRatio"),
+        dedupMinRise: inRange("compressibility.dedupMinRise"),
+      })
+      .strict()
+      .optional(),
+    retentionHold: z
+      .object({
+        enabled: z.boolean().optional(),
+        reminderDays: inRange("retentionHold.reminderDays", true),
       })
       .strict()
       .optional(),

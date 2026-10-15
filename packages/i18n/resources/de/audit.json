@@ -625,7 +625,8 @@
     },
     "suspicion": {
       "false_alarm": "Verdächtiger Sicherungsstand als Fehlalarm markiert",
-      "false_alarm_revoked": "Fehlalarm eines Sicherungsstands zurückgenommen"
+      "false_alarm_revoked": "Fehlalarm eines Sicherungsstands zurückgenommen",
+      "hold_released": "Angehaltene Aufbewahrung eines Objekts freigegeben"
     }
   },
   "targetTypes": {

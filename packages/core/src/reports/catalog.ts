@@ -12,6 +12,7 @@ export const REPORT_EVENTS = [
   "backup.overdue",
   "backup.succeeded",
   "backup.suspicious",
+  "backup.suspicious_hold",
   "restore.failed",
   "restore.completed",
   "archive.failed",
@@ -71,6 +72,9 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   // the object's baseline, mass deletions or extension renames, known ransomware extensions or
   // ransom notes, sampled files that look encrypted. Once per object and episode.
   "backup.suspicious": { group: "recoverability", level: "error" },
+  // Retention of an object with a suspicious restore point is still paused after
+  // `retentionHold.reminderDays` (14), and every that many days after: nobody resolved it.
+  "backup.suspicious_hold": { group: "recoverability", level: "warning" },
   "restore.failed": { group: "jobs", level: "error", webhookEvent: "job.failed" },
   "restore.completed": { group: "jobs", level: "info", webhookEvent: "job.completed" },
   "archive.failed": { group: "jobs", level: "error", webhookEvent: "job.failed" },

@@ -506,16 +506,19 @@ type CommitDevice struct {
 
 // CommitRequest is POST /runs/:id/commit.
 type CommitRequest struct {
-	CommitID          string         `json:"commitId"`
-	Devices           []CommitDevice `json:"devices,omitempty"`
-	GuestConfig       string         `json:"guestConfig"`
-	FirewallConfig    *string        `json:"firewallConfig"`
-	ResticSnapshotID  string         `json:"resticSnapshotId,omitempty"`
-	ResticBytesAdded  uint64         `json:"resticBytesAdded,omitempty"`
-	ResticTotalBytes  uint64         `json:"resticTotalBytes,omitempty"`
-	ResticRoot        string         `json:"resticRoot,omitempty"`
-	PVEVersion        string         `json:"pveVersion,omitempty"`
-	ConsistencyRemark string         `json:"consistency,omitempty"`
+	CommitID         string         `json:"commitId"`
+	Devices          []CommitDevice `json:"devices,omitempty"`
+	GuestConfig      string         `json:"guestConfig"`
+	FirewallConfig   *string        `json:"firewallConfig"`
+	ResticSnapshotID string         `json:"resticSnapshotId,omitempty"`
+	ResticBytesAdded uint64         `json:"resticBytesAdded,omitempty"`
+	// ResticBytesAddedPacked is what restic stored for the new data,
+	// compressed: the server's compression signal (an older server ignores it).
+	ResticBytesAddedPacked uint64 `json:"resticBytesAddedPacked,omitempty"`
+	ResticTotalBytes       uint64 `json:"resticTotalBytes,omitempty"`
+	ResticRoot             string `json:"resticRoot,omitempty"`
+	PVEVersion             string `json:"pveVersion,omitempty"`
+	ConsistencyRemark      string `json:"consistency,omitempty"`
 	// ResticUnreadable counts the items a container backup could not read.
 	ResticUnreadable int `json:"resticUnreadable,omitempty"`
 	// ResticUnreadablePaths names the first of them (an older server ignores it).

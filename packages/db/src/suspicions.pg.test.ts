@@ -6,10 +6,13 @@
  * Runs when RESTOW_TEST_DATABASE_URL points at a Postgres server as a superuser; skipped otherwise.
  */
 import { randomBytes, randomUUID } from "node:crypto";
+import { sql } from "drizzle-orm";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createDb } from "./index.js";
 import { runMigrations } from "./migrate.js";
 import type { RoleLogin } from "./roles.js";
+import { suspicionHolds } from "./suspicion-holds.js";
 import { dropTestDatabase } from "./testing/database.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
@@ -205,5 +208,53 @@ describe.skipIf(!adminUrl)("restore point suspicions against Postgres", () => {
       "SELECT column_default AS value FROM information_schema.columns WHERE table_name = 'settings' AND column_name = 'ransomware_detection'",
     );
     expect(String(rows[0]?.value)).toContain("'{}'::jsonb");
+  });
+  it("holds an object's retention while a finding is neither a false alarm nor released", async () => {
+    const machine = randomUUID();
+    const other = randomUUID();
+    const add = (tenantId: string, objectId: string, hoursAgo: number, verdict = "suspicious") =>
+      inTenant(app, tenantId, (client) =>
+        client.query<{ id: string }>(
+          `INSERT INTO restore_point_suspicions
+             (tenant_id, object_kind, object_id, run_id, restore_point_id, restore_point_at, verdict,
+              metrics, signatures_version)
+           VALUES ($1, 'endpoint', $2, $3, 'x', now() - make_interval(hours => $4), $5, '{}'::jsonb, 'v')
+           RETURNING id`,
+          [tenantId, objectId, randomUUID(), hoursAgo, verdict],
+        ),
+      ).then((result) => result.rows[0]?.id as string);
+    const first = await add(contoso, machine, 48);
+    await add(contoso, machine, 24);
+    await add(contoso, machine, 12, "none");
+    const falseAlarm = await add(contoso, other, 6);
+    await add(fabrikam, machine, 3);
+    await owner.query("UPDATE restore_point_suspicions SET false_alarm_at = now() WHERE id = $1", [
+      falseAlarm,
+    ]);
+    const db = createDb(urlFor(adminUrl as string, DATABASE, tenantLogin));
+    try {
+      const holds = () =>
+        db.transaction(async (tx) => {
+          await tx.execute(sql`SELECT set_config('app.tenant_id', ${contoso}, true)`);
+          return suspicionHolds(tx, {
+            tenantId: contoso,
+            kind: "endpoint",
+            objectIds: [machine, other],
+          });
+        });
+      const held = await holds();
+      // A clean restore point after the findings does not end the hold; a false alarm does.
+      expect([...held.keys()]).toEqual([machine]);
+      expect(held.get(machine)).toMatchObject({ objectKind: "endpoint", restorePoints: 2 });
+      expect(held.get(machine)?.since.getTime()).toBeLessThan(Date.now() - 47 * 60 * 60 * 1000);
+      await owner.query(
+        "UPDATE restore_point_suspicions SET hold_released_at = now() WHERE object_id = $1",
+        [machine],
+      );
+      expect((await holds()).size).toBe(0);
+      expect(first).toBeTruthy();
+    } finally {
+      await db.$client.end();
+    }
   });
 });

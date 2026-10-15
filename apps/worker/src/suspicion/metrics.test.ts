@@ -34,13 +34,24 @@ describe("the numbers of a run, per kind", () => {
       itemsTotal: null,
       bytesAdded: null,
       activity: null,
+      newBytes: null,
+      compressionRatio: null,
+      dedupRatio: null,
     });
     expect(endpointRunMetrics({ filesNew: 4 }).itemsChanged).toBe(4);
   });
 
   it("reads a file share runner's statistics", () => {
     expect(fileShareRunMetrics({ files: 300, filesNew: 2, filesChanged: 1, dataAdded: 7 })).toEqual(
-      { itemsChanged: 3, itemsTotal: 300, bytesAdded: 7, activity: null },
+      {
+        itemsChanged: 3,
+        itemsTotal: 300,
+        bytesAdded: 7,
+        activity: null,
+        newBytes: 7,
+        compressionRatio: null,
+        dedupRatio: null,
+      },
     );
   });
 
@@ -50,6 +61,9 @@ describe("the numbers of a run, per kind", () => {
       itemsTotal: null,
       bytesAdded: 99,
       activity: null,
+      newBytes: 99,
+      compressionRatio: null,
+      dedupRatio: null,
     });
     expect(
       pveRunMetrics("ct", { resticFilesNew: 1, resticFilesChanged: 2, resticFilesTotal: 50 }),
@@ -59,13 +73,72 @@ describe("the numbers of a run, per kind", () => {
       itemsTotal: null,
       bytesAdded: 4096,
       activity: null,
+      newBytes: null,
+      compressionRatio: null,
+      dedupRatio: null,
     });
   });
 
   it("reads a mailbox or OneDrive backup's result", () => {
     expect(
       m365RunMetrics({ snapshotId: "s", objectsWritten: 12, objectsTotal: 400, bytes: 100 }),
-    ).toEqual({ itemsChanged: 12, itemsTotal: 400, bytesAdded: 100, activity: null });
+    ).toEqual({
+      itemsChanged: 12,
+      itemsTotal: 400,
+      bytesAdded: 100,
+      activity: null,
+      newBytes: null,
+      compressionRatio: null,
+      dedupRatio: null,
+    });
+  });
+});
+
+describe("compression and deduplication of the new data, per source", () => {
+  it("reads restic's packed and processed bytes (machines, file shares, containers)", () => {
+    const summary = { dataAdded: 1000, dataAddedPacked: 400, totalBytesProcessed: 10_000 };
+    expect(endpointRunMetrics(summary)).toMatchObject({
+      newBytes: 1000,
+      compressionRatio: 0.4,
+      dedupRatio: 0.1,
+    });
+    expect(fileShareRunMetrics(summary)).toMatchObject({ compressionRatio: 0.4, dedupRatio: 0.1 });
+    expect(
+      pveRunMetrics("ct", {
+        resticBytesAdded: 2000,
+        resticBytesAddedPacked: 1990,
+        resticTotalBytes: 4000,
+      }),
+    ).toMatchObject({ newBytes: 2000, compressionRatio: 0.995, dedupRatio: 0.5 });
+  });
+
+  it("reads the chunk store's statistics (VMs, mailboxes, OneDrive, SharePoint)", () => {
+    expect(
+      pveRunMetrics("vm", {
+        uploadedBytes: 8000,
+        chunkBytesIn: 8000,
+        chunkBytesNew: 2000,
+        chunkBytesSampled: 1000,
+        chunkBytesSampledCompressed: 300,
+      }),
+    ).toMatchObject({ bytesAdded: 8000, newBytes: 2000, compressionRatio: 0.3, dedupRatio: 0.25 });
+    expect(
+      m365RunMetrics({
+        bytes: 500,
+        chunkStats: {
+          bytesIn: 1000,
+          bytesNew: 500,
+          bytesSampled: 500,
+          bytesSampledCompressed: 499,
+        },
+      }),
+    ).toMatchObject({ newBytes: 500, compressionRatio: 0.998, dedupRatio: 0.5 });
+  });
+
+  it("has no ratio when nothing was added or processed", () => {
+    expect(
+      endpointRunMetrics({ dataAdded: 0, dataAddedPacked: 0, totalBytesProcessed: 0 }),
+    ).toMatchObject({ compressionRatio: null, dedupRatio: null });
   });
 });
 
@@ -85,5 +158,17 @@ describe("a finding in the notification's words", () => {
     expect(
       describeFinding({ code: "change_rate_items", value: 9000, threshold: 1500, baseline: 300 }),
     ).toBe("9000 new or changed files, usually about 300");
+    expect(
+      describeFinding({
+        code: "incompressible_data",
+        value: 0.998,
+        threshold: 0.95,
+        baseline: 0.45,
+        bytes: 4 * 1024 ** 3,
+      }),
+    ).toBe("4294967296 bytes of new data do not compress (99.8 % of their size), usually 45 %");
+    expect(
+      describeFinding({ code: "dedup_collapse", value: 0.99, threshold: 0.8, baseline: 0.4 }),
+    ).toBe("99 % of the data read was new (nothing deduplicated), usually 40 %");
   });
 });

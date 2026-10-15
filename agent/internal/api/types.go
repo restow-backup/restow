@@ -245,10 +245,13 @@ type Progress struct {
 
 // Stats are the counters of a finished backup.
 type Stats struct {
-	FilesNew            uint64 `json:"filesNew"`
-	FilesChanged        uint64 `json:"filesChanged"`
-	FilesUnmodified     uint64 `json:"filesUnmodified"`
-	DataAdded           uint64 `json:"dataAdded"`
+	FilesNew        uint64 `json:"filesNew"`
+	FilesChanged    uint64 `json:"filesChanged"`
+	FilesUnmodified uint64 `json:"filesUnmodified"`
+	DataAdded       uint64 `json:"dataAdded"`
+	// DataAddedPacked is what restic stored for the new data, compressed: the
+	// server's compression signal (an older server ignores it).
+	DataAddedPacked     uint64 `json:"dataAddedPacked,omitempty"`
 	TotalFilesProcessed uint64 `json:"totalFilesProcessed"`
 	TotalBytesProcessed uint64 `json:"totalBytesProcessed"`
 }

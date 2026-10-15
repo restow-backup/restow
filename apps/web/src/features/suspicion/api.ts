@@ -11,7 +11,14 @@ import { apiFetch } from "@/lib/api";
 export type SuspicionObjectKind = "endpoint" | "file_share" | "pve_guest" | "m365";
 
 export type SignalState = "clear" | "fired" | "learning" | "unavailable" | "off";
-export const SIGNALS = ["changeRate", "deletions", "renames", "names", "entropy"] as const;
+export const SIGNALS = [
+  "changeRate",
+  "deletions",
+  "renames",
+  "names",
+  "entropy",
+  "compressibility",
+] as const;
 export type Signal = (typeof SIGNALS)[number];
 
 export interface SuspicionFinding {
@@ -19,6 +26,8 @@ export interface SuspicionFinding {
   value: number;
   threshold: number;
   baseline?: number;
+  /** The new data a compression or deduplication ratio was measured on. */
+  bytes?: number;
   share?: number;
   examples?: string[];
 }
@@ -38,7 +47,22 @@ export interface Suspicion {
   signaturesVersion: string;
   alerted: boolean;
   falseAlarm: { at: string; by: string | null; note: string | null } | null;
+  /** Suspicious, no false alarm, not released: it holds the object's retention. */
+  holds?: boolean;
+  holdReleased?: { at: string; by: string | null; note: string | null } | null;
   judgedAt: string;
+}
+
+/** Retention of an object paused by a suspicious restore point nobody resolved. */
+export interface RetentionHold {
+  /** The oldest suspicious restore point that holds. */
+  since: string;
+  heldAt: string;
+  restorePoints: number;
+  remindedAt: string | null;
+  reminderDays: number;
+  /** What the repository takes now (machines and file shares); null elsewhere. */
+  storageBytes: number | null;
 }
 
 export interface ObjectSuspicions {
@@ -47,6 +71,8 @@ export interface ObjectSuspicions {
   open: boolean;
   openSince: string | null;
   lastClean: { restorePointId: string; restorePointAt: string } | null;
+  /** Absent from a server before 0.4.x. */
+  hold?: RetentionHold | null;
   restorePoints: Suspicion[];
 }
 
@@ -80,6 +106,16 @@ export interface RansomwareSettings {
   renames: { enabled: boolean; minFiles: number; minShare: number };
   names: { enabled: boolean; minExtensionFiles: number; minNoteCopies: number };
   entropy: { enabled: boolean; minSamples: number; highBits: number; minHighShare: number };
+  compressibility: {
+    enabled: boolean;
+    minBytes: number;
+    madFactor: number;
+    compressionMinRatio: number;
+    compressionMinRise: number;
+    dedupMinRatio: number;
+    dedupMinRise: number;
+  };
+  retentionHold: { enabled: boolean; reminderDays: number };
 }
 
 export interface RansomwareSettingsView {
@@ -115,6 +151,28 @@ export function markFalseAlarm(id: string, note: string | null): Promise<Suspici
 
 export function revokeFalseAlarm(id: string): Promise<Suspicion> {
   return apiFetch(`/suspicions/${encodeURIComponent(id)}/false-alarm`, { method: "DELETE" });
+}
+
+/** Release an object's retention hold (a recent sign-in; administrators). */
+export function releaseRetentionHold(
+  target: SuspicionTarget,
+  note: string | null,
+): Promise<ObjectSuspicions> {
+  return apiFetch("/suspicions/hold/release", {
+    method: "POST",
+    body: { kind: target.kind, objectId: target.objectId, note },
+  });
+}
+
+/** Call every finding that holds the object's retention a false alarm. */
+export function markHoldFalseAlarm(
+  target: SuspicionTarget,
+  note: string | null,
+): Promise<ObjectSuspicions> {
+  return apiFetch("/suspicions/hold/false-alarm", {
+    method: "POST",
+    body: { kind: target.kind, objectId: target.objectId, note },
+  });
 }
 
 export function fetchRansomwareSettings(): Promise<RansomwareSettingsView> {

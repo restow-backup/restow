@@ -34,6 +34,7 @@ import {
 } from "@restow/db";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { suspicionPass } from "../suspicion/scan.js";
 import { shareCatalog } from "./catalog.js";
 import { dispatchPass } from "./dispatch.js";
 import { processFinish } from "./finish.js";
@@ -351,6 +352,8 @@ describe.skipIf(!canRun)("file share backup end to end with restow-share and res
     expect(of("Thumbs.db")).toEqual([]);
     expect(versions.some((v) => v.path.includes("acls.jsonl"))).toBe(false);
 
+    // Retention waits for the ransomware judgement of fresh backups: the pass judges them first.
+    expect((await suspicionPass(fixture.deps)).judged).toBeGreaterThan(0);
     await shareRetention(fixture.deps, { tenantId: fixture.contoso, fileShareId: share.id });
     const after = await fixture.owner
       .select()

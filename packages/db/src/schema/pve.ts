@@ -334,6 +334,18 @@ export type PveRunStats = {
   zeroBlocks?: number;
   hashSkipped?: number;
   resticBytesAdded?: number;
+  /** Container backups: what restic stored for the new data, compressed (nodes from 0.4.x on). */
+  resticBytesAddedPacked?: number;
+  /** Container backups: the bytes restic read (`total_bytes_processed`). */
+  resticTotalBytes?: number;
+  /**
+   * VM backups: summed over the run's block frames, the bytes the server's chunk writer chunked,
+   * stored as new, and the compressibility sample (docs/RANSOMWARE.md).
+   */
+  chunkBytesIn?: number;
+  chunkBytesNew?: number;
+  chunkBytesSampled?: number;
+  chunkBytesSampledCompressed?: number;
   /** Container backups: items restic could not read; the restore point misses them. */
   resticUnreadable?: number;
   /** The first of those items (nodes from 0.4 on). */

@@ -336,6 +336,10 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/suspicions/open": view(),
   "POST /api/v1/suspicions/:id/false-alarm": operate(),
   "DELETE /api/v1/suspicions/:id/false-alarm": operate(),
+  // Releasing a retention hold lets retention delete restore points of a possibly attacked
+  // object: administrators and up (and a recent sign-in, features/suspicion/routes.ts).
+  "POST /api/v1/suspicions/hold/release": configure(),
+  "POST /api/v1/suspicions/hold/false-alarm": operate(),
 
   // --- Jobs, schedules, verification --------------------------------------------
   "GET /api/v1/jobs": view(),

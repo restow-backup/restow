@@ -32,6 +32,7 @@ import {
   judgementsById,
   LastCleanHint,
   ObjectSuspicionBadge,
+  RetentionHoldNotice,
   SuspicionBadge,
   useObjectSuspicions,
 } from "@/features/suspicion";
@@ -356,6 +357,7 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
         <RefreshButton onRefresh={() => void detail.refetch()} fetching={detail.isFetching} />
       </PageHeader>
       <ObjectSuspicionBadge target={suspicionTarget} />
+      <RetentionHoldNotice target={suspicionTarget} objectName={title} />
       <LastCleanHint
         points={timeline}
         judgements={judgements}

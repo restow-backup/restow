@@ -13,6 +13,11 @@
  *      only pruned snapshots are deleted, @restow/db manifest-versions.ts) and
  *      the manifest file is removed.
  *
+ * An object held on suspicion (a suspicious restore point nobody resolved, or
+ * a backup not judged yet; ../suspicion/holds.ts, docs/RANSOMWARE.md
+ * "Retention hold") keeps every snapshot, so every chunk they reference keeps
+ * its reference; the other objects' snapshots expire as usual.
+ *
  * Chunks themselves are never deleted here; unreferenced chunks are garbage
  * collected by the scrub job (docs/ARCHITECTURE.md, Chunk-Store). The order
  * above is crash-safe in the conservative direction: an interrupted run can
@@ -62,6 +67,13 @@ import {
 import { and, asc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import type { TenantTxRunner } from "../progress.js";
 import {
+  configuredRetentionHoldMode,
+  loadRetentionHolds,
+  NO_RETENTION_HOLDS,
+  type RetentionHolds,
+  retentionHeld,
+} from "../suspicion/holds.js";
+import {
   type JobHandler,
   type JobOutcome,
   tenantRunner,
@@ -85,6 +97,11 @@ export interface RetentionStore {
    */
   loadJobRetention?(): Promise<JobRetentionAssignment[]>;
   loadLegalHolds(): Promise<LegalHoldScope>;
+  /**
+   * The objects among `protectedObjectIds` held on suspicion (../suspicion/holds.ts). Omitted by
+   * stores that know no judgements: nothing is held then.
+   */
+  loadSuspicionHolds?(protectedObjectIds: readonly string[], now: Date): Promise<RetentionHolds>;
   /** Completed, active restore points of the tenant. */
   loadCompletedSnapshots(): Promise<SnapshotCandidate[]>;
   /**
@@ -186,6 +203,19 @@ export function pgRetentionStore(run: TenantTxRunner, tenantId: string): Retenti
         }
       }
       return { tenantWide, protectedObjectIds: ids };
+    },
+
+    async loadSuspicionHolds(protectedObjectIds, now) {
+      const mode = await configuredRetentionHoldMode();
+      return run((tx) =>
+        loadRetentionHolds(tx, {
+          tenantId,
+          kind: "m365",
+          objectIds: protectedObjectIds,
+          now,
+          mode,
+        }),
+      );
     },
 
     async loadCompletedSnapshots() {
@@ -427,6 +457,8 @@ export interface SnapshotRetentionSummary {
   readonly candidates: number;
   readonly pruned: number;
   readonly held: number;
+  /** Restore points retention would have removed but kept: their object is held on suspicion. */
+  readonly heldOnSuspicion: number;
   readonly bytesLogical: number;
   readonly chunkReferencesReleased: number;
   readonly dryRun: boolean;
@@ -455,6 +487,7 @@ export function createSnapshotRetentionTask(
         candidates: 0,
         pruned: 0,
         held: 0,
+        heldOnSuspicion: 0,
         bytesLogical: 0,
         chunkReferencesReleased: 0,
         deferredByLock: 0,
@@ -468,8 +501,27 @@ export function createSnapshotRetentionTask(
       const holds = await store.loadLegalHolds();
       const history = await store.loadCompletedSnapshots();
       const plan = planRetentionRun(history, policies, holds, ctx.now());
+      const suspicion = store.loadSuspicionHolds
+        ? await store.loadSuspicionHolds(
+            [...new Set(plan.expired.map((snapshot) => snapshot.protectedObjectId))],
+            ctx.now(),
+          )
+        : NO_RETENTION_HOLDS;
+      const expired = plan.expired.filter(
+        (snapshot) => !retentionHeld(suspicion, snapshot.protectedObjectId),
+      );
+      summary.heldOnSuspicion = plan.expired.length - expired.length;
+      if (summary.heldOnSuspicion > 0) {
+        logger.info(
+          "suspicion holds snapshot retention for objects with suspicious restore points",
+          {
+            restorePoints: summary.heldOnSuspicion,
+            objects: suspicion.held.size + suspicion.pending.size,
+          },
+        );
+      }
       summary.objects = plan.objectsEvaluated;
-      summary.candidates = plan.expired.length;
+      summary.candidates = expired.length;
       summary.held = plan.held.length;
       if (plan.held.length > 0) {
         logger.info("legal hold suspends snapshot retention for held restore points", {
@@ -477,10 +529,10 @@ export function createSnapshotRetentionTask(
         });
       }
 
-      ctx.progress.total(plan.expired.length);
+      ctx.progress.total(expired.length);
       ctx.progress.phase(options.dryRun ? "evaluate" : "prune");
 
-      for (const snapshot of plan.expired) {
+      for (const snapshot of expired) {
         if (ctx.signal.aborted) {
           break;
         }

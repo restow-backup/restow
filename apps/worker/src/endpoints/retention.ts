@@ -15,6 +15,11 @@
  * they, and snapshots dated in the future, are flagged and announced once
  * (`endpoint.suspicious_snapshot`).
  *
+ * While the endpoint has an unresolved suspicious restore point, or a backup
+ * the ransomware judgement has not seen yet, nothing is forgotten
+ * (suspicion/holds.ts, docs/RANSOMWARE.md "Retention hold"); the run still
+ * audits the snapshots and measures the repository.
+ *
  * The policy is the endpoint's own: daily, weekly and monthly snapshots to
  * keep, 30 / 12 / 12 unless an admin changed them, counted in the tenant's
  * time zone. The run also measures the bytes the repository takes (the
@@ -46,6 +51,12 @@ import { and, eq, isNotNull, isNull, notInArray } from "drizzle-orm";
 import { withTenantTx } from "../handlers/framework.js";
 import { recordDeferredDeletion } from "../handlers/immutability.js";
 import { raiseEvents } from "../reporting.js";
+import {
+  loadRetentionHolds,
+  retentionHeld,
+  retentionHoldMode,
+  retentionHoldSummary,
+} from "../suspicion/holds.js";
 import {
   type EndpointJobDeps,
   openEndpointRepository,
@@ -215,6 +226,16 @@ async function retain(
   try {
     const removedLocks = await clearLocksBeforeMaintenance(deps, tenantId, endpointId, access, now);
     const timeZone = await tenantTimeZone(deps, tenantId);
+    const mode = await retentionHoldMode(deps.providerDb);
+    const holds = await withTenantTx(deps.db, tenantId, (tx) =>
+      loadRetentionHolds(tx, {
+        tenantId,
+        kind: "endpoint",
+        objectIds: [endpointId],
+        now,
+        mode,
+      }),
+    );
     // A deletion the storage refuses because of Object Lock or the deletion delay is recorded,
     // so the renewal lets it run out (docs/STORAGE.md, "Immutable backups").
     const lockedAccess: RepositoryAccess = {
@@ -245,19 +266,25 @@ async function retain(
       if (listing !== null) {
         throw listing;
       }
-      const policyDecision = applyRetentionPolicy(audit.dated, policy, timeZone);
+      const planned = applyRetentionPolicy(audit.dated, policy, timeZone);
+      // Held on suspicion: every snapshot stays (and with it every pack it references).
+      const held = retentionHeld(holds, endpointId);
       // Snapshots the storage still locks stay until a later run (restic cannot remove them).
-      const split = await splitLockedSnapshots(
-        access.storage,
-        access.prefix,
-        policyDecision.remove,
-      );
-      const decision = { ...policyDecision, remove: split.remove };
+      const split = held
+        ? { remove: [] as string[], locked: [] as { id: string; until: Date }[] }
+        : await splitLockedSnapshots(access.storage, access.prefix, planned.remove);
+      const decision = { ...planned, remove: split.remove };
       if (decision.remove.length > 0) {
         await resticForget(session, decision.remove, { signal });
         await resticPrune(session, { signal });
       }
-      return { audit, decision, total: stored.length, deferredByLock: split.locked.length };
+      return {
+        audit,
+        decision,
+        heldBack: planned.remove.length,
+        total: stored.length,
+        deferredByLock: split.locked.length,
+      };
     });
     await recordMaintenanceUnlocked(deps, tenantId, endpointId);
     const repositoryBytes = await measureRepositoryBytes(access.storage, access.prefix);
@@ -279,6 +306,9 @@ async function retain(
             .length,
           removedLocks,
           deferredByLock: result.deferredByLock,
+          ...(retentionHeld(holds, endpointId)
+            ? { ...retentionHoldSummary(holds, endpointId), heldBackSnapshots: result.heldBack }
+            : {}),
         },
       },
       now,

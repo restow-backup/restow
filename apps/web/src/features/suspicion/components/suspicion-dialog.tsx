@@ -121,6 +121,15 @@ export function SuspicionDialog({
               {judgement.falseAlarm.note ? ` (${judgement.falseAlarm.note})` : null}
             </p>
           ) : null}
+          {judgement.holdReleased ? (
+            <p className="text-sm text-muted-foreground" data-slot="hold-released-mark">
+              {t("hold.releasedBy", {
+                who: judgement.holdReleased.by ?? "?",
+                time: formatDateTime(judgement.holdReleased.at, i18n.language) ?? "",
+              })}
+              {judgement.holdReleased.note ? ` (${judgement.holdReleased.note})` : null}
+            </p>
+          ) : null}
           <section className="space-y-2">
             <h3 className="text-sm font-medium">{t("details.signals")}</h3>
             <ul className="space-y-1 text-sm">

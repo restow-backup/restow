@@ -45,6 +45,7 @@ import {
   type BackupJobPayload,
   type BackupResult,
   buildCause,
+  type ChunkDataStats,
   ClientCredentialsTokenProvider,
   ExchangeBackupEngine,
   encryptChunk,
@@ -353,6 +354,11 @@ export interface StoredBackupResult {
   readonly completedAt: string;
   /** What the run changed, for the ransomware judgement (apps/worker suspicion); OneDrive only. */
   readonly activity?: ActivityReport;
+  /**
+   * The chunk writer's bytes chunked, new and the compressibility sample, for the compression and
+   * deduplication signals (apps/worker suspicion); results from before 0.4.x have none.
+   */
+  readonly chunkStats?: ChunkDataStats;
 }
 
 export function toStoredBackupResult(input: {
@@ -376,6 +382,7 @@ export function toStoredBackupResult(input: {
     throttleWaitMs: input.throttle.totalWaitMs,
     completedAt: input.completedAt.toISOString(),
     ...(result.activity ? { activity: result.activity } : {}),
+    ...(result.chunkStats ? { chunkStats: result.chunkStats } : {}),
   };
 }
 
