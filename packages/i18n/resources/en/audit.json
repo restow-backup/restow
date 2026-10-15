@@ -325,6 +325,9 @@
       "updated": "Settings changed",
       "ransomware": {
         "updated": "Thresholds of the ransomware detection changed"
+      },
+      "agent_policy": {
+        "updated": "Agent policy of the installation changed"
       }
     },
     "setup": {
@@ -422,6 +425,9 @@
       "internal": {
         "marked": "Tenant marked as the own organisation",
         "unmarked": "Own organisation mark removed"
+      },
+      "agent_policy": {
+        "updated": "Agent policy of the tenant changed"
       }
     },
     "verify": {

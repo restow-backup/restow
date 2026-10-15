@@ -6,7 +6,14 @@ import { toast } from "@/components/ui/sonner";
 import { useLiveOpen } from "@/features/history/live/provider";
 import { formatBytes, formatDateTime, formatInteger } from "@/lib/format";
 import { useSession } from "@/lib/session";
-
+import {
+  type AgentPolicySettings,
+  agentPolicyKeys,
+  fetchGlobalAgentPolicy,
+  fetchTenantAgentPolicy,
+  saveGlobalAgentPolicy,
+  saveTenantAgentPolicy,
+} from "./agent-policy.js";
 import {
   type CreateTaskInput,
   type CreateTokenInput,
@@ -346,6 +353,52 @@ export function useResumeMachineUpdates() {
     mutationFn: (endpointId: string) => resumeMachineUpdates(endpointId),
     onSuccess: (result) => {
       queryClient.setQueryData(endpointKeys.agentUpdates(tenantId), result);
+      void queryClient.invalidateQueries({ queryKey: endpointKeys.all(tenantId) });
+    },
+  });
+}
+
+// --- Agent policies (docs/AGENT.md, "Richtlinien") ------------------------------------
+
+/** The installation's agent policy (provider admins). */
+export function useGlobalAgentPolicy(options: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: agentPolicyKeys.global,
+    queryFn: fetchGlobalAgentPolicy,
+    enabled: options.enabled ?? true,
+  });
+}
+
+export function useSaveGlobalAgentPolicy() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (input: Parameters<typeof saveGlobalAgentPolicy>[0]) =>
+      saveGlobalAgentPolicy(input),
+    onSuccess: (view) => {
+      queryClient.setQueryData(agentPolicyKeys.global, view);
+      // Every tenant's view and machines may have changed.
+      void queryClient.invalidateQueries({ queryKey: ["tenant"] });
+    },
+  });
+}
+
+/** The active tenant's agent policy with what it inherits. */
+export function useTenantAgentPolicy() {
+  const { tenantId, enabled } = useTenantScope();
+  return useQuery({
+    queryKey: agentPolicyKeys.tenant(tenantId),
+    queryFn: fetchTenantAgentPolicy,
+    enabled,
+  });
+}
+
+export function useSaveTenantAgentPolicy() {
+  const queryClient = useQueryClient();
+  const { tenantId } = useTenantScope();
+  return useMutation({
+    mutationFn: (settings: AgentPolicySettings) => saveTenantAgentPolicy(settings),
+    onSuccess: (view) => {
+      queryClient.setQueryData(agentPolicyKeys.tenant(tenantId), view);
       void queryClient.invalidateQueries({ queryKey: endpointKeys.all(tenantId) });
     },
   });

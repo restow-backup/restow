@@ -982,7 +982,9 @@
     "assigneeUnknown": "Die Person steht nicht (mehr) im Verzeichnis dieses Mandanten. Wählen Sie eine Person aus der Liste.",
     "containerNotBrowsable": "Dieser Sicherungsstand lässt sich nicht dateiweise durchsuchen.",
     "containerNoRepository": "Die Sicherungen dieses Containers sind auf dem Server nicht verfügbar.",
-    "vmFilesUnreadable": "Das Dateisystem dieses Sicherungsstands konnte auf dem Server nicht gelesen werden. Stellen Sie die ganze VM unter VMs & Container wieder her."
+    "vmFilesUnreadable": "Das Dateisystem dieses Sicherungsstands konnte auf dem Server nicht gelesen werden. Stellen Sie die ganze VM unter VMs & Container wieder her.",
+    "agentPolicyInvalid": "Eine Einstellung der Richtlinie lässt sich so nicht speichern. Prüfen Sie die Werte.",
+    "agentPolicyLocked": "Die Installation hat diese Einstellung der Richtlinie gesperrt; sie lässt sich hier nicht ändern."
   },
   "readinessSection": {
     "overdue": "Überfällig",
@@ -1107,5 +1109,93 @@
     "unreadable": "In diesem Sicherungsstand nicht lesbar:",
     "unreadableItem": "{name}: {reason}",
     "volumes": "Jeder Ordner auf oberster Ebene ist ein Dateisystem der Festplatten der VM (scsi0-p2: Festplatte scsi0, Partition 2; vg0-root: logisches Volume root der Volume-Gruppe vg0)."
+  },
+  "policy": {
+    "applies": "Gilt:",
+    "locked": "Gesperrt",
+    "lockedNote": "Die Installation hat diese Einstellung gesperrt: Kein Mandant und kein Backup-Job kann sie ändern.",
+    "lock": "Für alle Mandanten und Backup-Jobs sperren",
+    "own": {
+      "global": "Für die Installation festlegen (sonst gilt der Standard)",
+      "tenant": "Für diesen Mandanten festlegen (sonst gilt der Wert der Installation)",
+      "job": "Für diesen Job festlegen (sonst gilt der Wert des Mandanten)"
+    },
+    "source": {
+      "default": "Standard",
+      "global": "Installation",
+      "tenant": "Mandant",
+      "job": "Backup-Job"
+    },
+    "backupWindow": {
+      "title": "Sicherungsfenster",
+      "description": "Wann geplante Sicherungen beginnen dürfen, auch nachgeholte und Wiederholungen. Eine Sicherung, die am Ende des Fensters noch läuft, läuft weiter. „Jetzt sichern“ beachtet das Fenster nicht.",
+      "always": "Immer",
+      "onlyIn": "Nur in einem Sicherungsfenster",
+      "days": "Beginnt am",
+      "from": "Von",
+      "to": "Bis",
+      "zone": "Zeiten in {zone}, der Zeitzone des Zeitplans des Jobs.",
+      "zoneOfSchedule": "Zeiten in der Zeitzone des Zeitplans des jeweiligen Rechners.",
+      "rules": "Ein Ende, das nicht nach dem Beginn liegt, ist am Folgetag; zweimal dieselbe Zeit ist der ganze Tag. Die Sommerzeit folgt der Uhr an der Wand.",
+      "wholeDay": "{days}, ganztägig",
+      "nextDay": "{days}, {from} bis {to} am Folgetag",
+      "sameDay": "{days}, {from} bis {to}"
+    },
+    "catchUp": {
+      "title": "Verpasste Sicherungen nachholen",
+      "description": "Verpasst ist eine Sicherung, wenn der Rechner zu ihrer Zeit aus war oder schlief. Eine Sicherung, die bei eingeschaltetem Rechner warten musste (Server nicht erreichbar, ein Update von {appName}), ist nie verpasst: Sie beginnt, sobald sie kann.",
+      "off": "Aus: auf die nächste reguläre Sicherung warten",
+      "enabled": "Verpasste Sicherungen nachholen",
+      "when": "Wann",
+      "modes": {
+        "asap": "Sobald der Rechner wieder an ist",
+        "next_window": "Im nächsten Sicherungsfenster"
+      },
+      "withMaxAge": "{mode}, wenn höchstens {count, plural, one {# Stunde} other {# Stunden}} verpasst",
+      "maxAge": "Nur, wenn höchstens so viele Stunden verpasst",
+      "maxAgeHint": "Leer: jedes Alter. 1 bis {max} Stunden; eine ältere verpasste Sicherung wartet auf die nächste reguläre.",
+      "anyAge": "Jedes Alter"
+    },
+    "bandwidthKbps": {
+      "title": "Upload-Limit",
+      "description": "Das Limit eines Backup-Jobs, der kein eigenes setzt (kbit/s).",
+      "label": "Upload-Limit (kbit/s)",
+      "hint": "Leer: unbegrenzt.",
+      "unlimited": "Unbegrenzt",
+      "value": "{kbps} kbit/s"
+    },
+    "onlyOnAcPower": {
+      "title": "Nur am Netzteil",
+      "description": "Geplante Sicherungen von Laptops warten auf das Netzteil. Ein Rechner, bei dem das selbst eingestellt ist, behält es.",
+      "on": "Nur am Netzteil",
+      "off": "Auch im Akkubetrieb"
+    },
+    "retries": {
+      "title": "Automatische Wiederholungen",
+      "description": "Wie oft eine fehlgeschlagene Sicherung erneut versucht wird (nach 5, 15 und 30 Minuten, dann stündlich), bevor die nächste reguläre Sicherung kommt.",
+      "label": "Wiederholungen",
+      "hint": "0 bis {max}.",
+      "value": "{count, plural, one {# Wiederholung} other {# Wiederholungen}}"
+    },
+    "problems": {
+      "days": "Wählen Sie mindestens einen Tag.",
+      "time": "Geben Sie die Zeiten als HH:MM ein.",
+      "maxAge": "Geben Sie ganze Stunden von 1 bis 720 ein oder lassen Sie das Feld leer.",
+      "bandwidth": "Geben Sie eine ganze Zahl in kbit/s ein oder lassen Sie das Feld für unbegrenzt leer.",
+      "retries": "Geben Sie eine ganze Zahl von 0 bis 10 ein."
+    },
+    "loadError": "Die Richtlinie der Agenten konnte nicht geladen werden.",
+    "save": "Richtlinie speichern",
+    "discard": "Änderungen verwerfen",
+    "saved": "{count, plural, =0 {Richtlinie gespeichert. Kein Rechner brauchte eine neue Konfiguration.} one {Richtlinie gespeichert. # Rechner bekommt seine neue Konfiguration.} other {Richtlinie gespeichert. # Rechner bekommen ihre neue Konfiguration.}}",
+    "tenant": {
+      "title": "Richtlinie der Agenten",
+      "description": "Wann und wie die Agenten der Server und Clients dieses Mandanten sichern. Was Sie hier nicht festlegen, kommt von der Installation; ein Backup-Job kann für seine Rechner eigene Werte setzen, außer die Installation hat sie gesperrt. Agenten ab 0.4.0 beachten Sicherungsfenster, Nachholen und Wiederholungen."
+    },
+    "global": {
+      "title": "Richtlinie der Agenten",
+      "description": "Wann und wie die Agenten der Server und Clients sichern, in jedem Mandanten. Mandanten und Backup-Jobs können eigene Werte setzen, außer was Sie hier sperren. Ohne festgelegte Werte verhalten sich die Agenten wie bisher. Agenten ab 0.4.0 beachten Sicherungsfenster, Nachholen und Wiederholungen.",
+      "readOnly": "Administratoren des Anbieters mit allen Mandanten ändern die Richtlinie; Sie können sie lesen."
+    }
   }
 }

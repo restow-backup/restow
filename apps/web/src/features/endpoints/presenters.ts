@@ -836,6 +836,8 @@ const PROBLEM_KEYS: Readonly<Record<string, string>> = {
   "urn:restow:problem:endpoint-invalid-bandwidth-windows":
     "endpoints:errors.invalidBandwidthWindows",
   "urn:restow:problem:endpoint-assignee-unknown": "endpoints:errors.assigneeUnknown",
+  "urn:restow:problem:agent-policy-invalid": "endpoints:errors.agentPolicyInvalid",
+  "urn:restow:problem:agent-policy-locked": "endpoints:errors.agentPolicyLocked",
   // The file restore of Proxmox VE containers (apps/api features/pve/files.ts, #62).
   "urn:restow:problem:pve-files-not-a-container": "endpoints:errors.containerNotBrowsable",
   "urn:restow:problem:pve-files-no-repository": "endpoints:errors.containerNoRepository",

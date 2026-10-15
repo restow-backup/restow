@@ -221,6 +221,8 @@ export interface SettingsDraft {
   keepDaily: string;
   keepWeekly: string;
   keepMonthly: string;
+  /** The job's level of the agent policy (machine jobs; never part of a member's overrides). */
+  policy: NonNullable<JobEndpointSettings["policy"]>;
 }
 
 const FALLBACK_RETENTION: JobRetention = { keepDaily: 30, keepWeekly: 12, keepMonthly: 12 };
@@ -245,6 +247,7 @@ export function settingsDraftOf(
     keepDaily: String(own.keepDaily),
     keepWeekly: String(own.keepWeekly),
     keepMonthly: String(own.keepMonthly),
+    policy: { ...(s.policy ?? {}) },
   };
 }
 
@@ -420,6 +423,8 @@ export function settingsOfDraft(draft: SettingsDraft): JobEndpointSettings {
       ? { bandwidthWindows: windowsOfDrafts(draft.bandwidthWindows) }
       : {}),
     ...(draft.retentionOwn ? { retention: retentionOf(draft) } : {}),
+    // A job that sets nothing of the policy stores none.
+    ...(Object.keys(draft.policy).length > 0 ? { policy: draft.policy } : {}),
   };
 }
 
@@ -673,8 +678,13 @@ function stableSettingsKey(settings: JobEndpointSettings): string {
     bandwidthKbps,
     bandwidthWindows,
     retention,
+    policy,
   } = settings;
   return JSON.stringify({
+    policy:
+      policy && Object.keys(policy).length > 0
+        ? Object.fromEntries(Object.entries(policy).sort(([a], [b]) => (a < b ? -1 : 1)))
+        : null,
     paths: paths ?? null,
     excludes: excludes ?? null,
     larger: excludeLargerThanGib ?? null,

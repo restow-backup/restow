@@ -18,7 +18,8 @@
     "edition": "Edition",
     "about": "Über",
     "database": "Datenbank",
-    "ransomware": "Ransomware-Erkennung"
+    "ransomware": "Ransomware-Erkennung",
+    "agentPolicy": "Richtlinie der Agenten"
   },
   "descriptions": {
     "server": "Wie Browser diesen Server erreichen und ob Passkeys angeboten werden. Gilt für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
@@ -33,7 +34,8 @@
     "edition": "Welcher Build läuft und der Wechsel auf den vollen Build.",
     "about": "Version, Quellcode und Lizenzen dieser Installation.",
     "database": "Wo die Datenbank ihre Daten ablegt, der freie Platz ihres Datenträgers und des Repositorys, und das Verschieben auf einen anderen Datenträger.",
-    "ransomware": "Wie Sicherungsstände auf Anzeichen von Ransomware geprüft werden, und die Schwellenwerte jedes Signals, für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}."
+    "ransomware": "Wie Sicherungsstände auf Anzeichen von Ransomware geprüft werden, und die Schwellenwerte jedes Signals, für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
+    "agentPolicy": "Sicherungsfenster, verpasste Sicherungen, Bandbreite, Netzteil und Wiederholungen der Server und Clients, und was Mandanten ändern dürfen."
   },
   "access": {
     "owner": "Sie können diese Einstellungen ansehen. Zum Ändern brauchen Sie die Rolle Inhaber im Provider-Team.",

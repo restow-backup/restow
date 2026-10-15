@@ -126,6 +126,7 @@ describe("who opens the installation page", () => {
       "Default repository & network shares",
       "Database",
       "Ransomware detection",
+      "Agent policy",
       "Updates",
       "Edition",
       "About",

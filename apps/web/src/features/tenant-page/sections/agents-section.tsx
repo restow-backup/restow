@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { AgentPolicyCard } from "@/features/endpoints/components/agent-policy-card";
 import { AgentUpdatesCard } from "@/features/endpoints/components/agent-updates-card";
 import { EnrollDialog } from "@/features/endpoints/components/enroll-dialog";
 import { PendingTokens } from "@/features/endpoints/components/pending-tokens";
@@ -13,11 +14,14 @@ import { inventoryTo } from "@/features/endpoints/paths";
 import type { TenantSectionProps } from "@/lib/extensions";
 import { useSession } from "@/lib/session";
 
+import { useTenantWriteBlock } from "../access";
+
 /**
  * Agents: how machines get an agent and what the tenant decides about its
  * updates. The install command and the enrolment are the ones of the Inventory
  * page (a one-time command per machine, valid for a day), the pause of
- * automatic updates is one setting of the tenant. The machines themselves, with
+ * automatic updates is one setting of the tenant, the agent policy (backup window, catching up
+ * missed backups, bandwidth, AC power, retries) another. The machines themselves, with
  * their status and readiness, stay in the daily work: Servers & endpoints,
  * Inventory.
  */
@@ -25,6 +29,7 @@ export function AgentsSection(_props: TenantSectionProps) {
   const { t } = useTranslation("tenantpage");
   const { isProviderAdmin } = useSession();
   const [enrolling, setEnrolling] = React.useState<EndpointProfile | null>(null);
+  const block = useTenantWriteBlock();
 
   return (
     <div className="space-y-6">
@@ -55,6 +60,8 @@ export function AgentsSection(_props: TenantSectionProps) {
       <PendingTokens />
 
       <AgentUpdatesCard />
+
+      <AgentPolicyCard readOnly={block !== null} />
 
       <EnrollDialog
         open={enrolling !== null}
