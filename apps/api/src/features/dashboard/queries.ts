@@ -35,9 +35,11 @@ import { notImported, snapshotNotImported } from "../../lib/imported-objects.js"
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { DEFAULT_STORAGE_AUDIT_ACTIONS } from "../settings/default-storage.js";
 import { SETTINGS_AUDIT_ACTIONS } from "../settings/service.js";
+import { toImmutabilityDto } from "../storage/immutability-dto.js";
 import { STORAGE_AUDIT_ACTIONS } from "../storage/service.js";
 import type {
   BackupDayDto,
+  ImmutabilityOverview,
   ObjectKindCounts,
   RetentionWidget,
   StorageTargetHealth,
@@ -182,6 +184,7 @@ async function shareSetupFacts(tx: Transaction, tenantId: string): Promise<Setup
 export interface TenantFacts {
   kinds: ObjectKindCounts;
   storage: StorageTargetHealth;
+  immutability: ImmutabilityOverview;
   setup: Omit<SetupFacts, "storage" | "mail">;
   retention: {
     rows: RetentionPolicyRow[];
@@ -237,6 +240,54 @@ export async function loadInstallationDefaultTest(
     .orderBy(desc(auditLog.createdAt))
     .limit(1);
   return row ? { ok: row.ok === "true", at: row.at } : null;
+}
+
+/** The immutability of the tenant's repositories, for the dashboard and the provider view. */
+export async function immutabilityOverview(
+  tx: Transaction,
+  tenantId: string,
+  now: Date,
+): Promise<ImmutabilityOverview> {
+  const rows = await tx
+    .select({
+      kind: storageTargets.kind,
+      role: storageTargets.role,
+      immutability: storageTargets.immutability,
+      immutabilityState: storageTargets.immutabilityState,
+    })
+    .from(storageTargets)
+    .where(
+      and(eq(storageTargets.tenantId, tenantId), inArray(storageTargets.role, ["primary", "copy"])),
+    );
+  const overview: ImmutabilityOverview = {
+    objectLock: 0,
+    deletionDelay: 0,
+    primary: "none",
+    warnings: 0,
+  };
+  for (const row of rows) {
+    const dto = toImmutabilityDto(row, 0, {}, now);
+    if (!dto.mode) {
+      continue;
+    }
+    const kind = dto.kind;
+    if (kind === "object_lock") {
+      overview.objectLock++;
+    } else {
+      overview.deletionDelay++;
+    }
+    if (row.role === "primary") {
+      overview.primary = kind;
+    }
+    const verification = dto.verification;
+    if (
+      dto.renewalOverdue ||
+      (verification && verification.unlocked + verification.weakerMode > 0)
+    ) {
+      overview.warnings++;
+    }
+  }
+  return overview;
 }
 
 async function storageHealth(
@@ -429,6 +480,7 @@ export async function loadTenantFacts(
     return {
       kinds,
       storage: await storageHealth(tx, tenantId, env, installationTest, defaultConfigured),
+      immutability: await immutabilityOverview(tx, tenantId, new Date()),
       setup: {
         sources: {
           active: sourceCount("active"),
@@ -714,6 +766,9 @@ export interface TenantHealthExtras {
   failuresPrevious24h: number;
   /** The tenant's own primary target fails its probe. */
   storageError: boolean;
+  /** Repositories with S3 Object Lock, and those of them with a warning. */
+  immutableRepositories: number;
+  immutabilityWarnings: number;
 }
 
 /** Failed jobs in the last two 24-hour windows and whether the primary target fails its probe. */
@@ -791,6 +846,7 @@ export async function loadTenantHealthExtras(
       .from(storageTargets)
       .where(and(eq(storageTargets.tenantId, tenantId), eq(storageTargets.role, "primary")))
       .limit(1);
+    const immutability = await immutabilityOverview(tx, tenantId, now);
     return {
       failures24h:
         (failed?.last ?? 0) + machineLast + (guestRuns?.last ?? 0) + (shareRuns?.last ?? 0),
@@ -801,6 +857,8 @@ export async function loadTenantHealthExtras(
         (guestRuns?.previous ?? 0) +
         (shareRuns?.previous ?? 0),
       storageError: target?.status === "error",
+      immutableRepositories: immutability.objectLock,
+      immutabilityWarnings: immutability.warnings,
     };
   });
 }

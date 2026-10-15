@@ -135,6 +135,8 @@ describe("tenant matrix rows", () => {
       fileSharesFailed: null,
       physicalBytes: null,
       storageError: null,
+      immutableRepositories: null,
+      immutabilityWarnings: null,
     });
   });
 
@@ -303,6 +305,18 @@ describe("provider alerts", () => {
     ]);
   });
 
+  it("warns when immutability is configured but an object was found without lock", () => {
+    const alerts = alertsFor(
+      row("Contoso", { immutableRepositories: 1, immutabilityWarnings: 1 }),
+      NOW,
+    );
+    expect(alerts).toEqual([
+      expect.objectContaining({ kind: "immutability_warning", severity: "warning", count: 1 }),
+    ]);
+    const kpis = providerKpis([row("Contoso", { immutableRepositories: 2 }), row("Fabrikam")]);
+    expect(kpis.tenantsWithImmutableBackups).toBe(1);
+  });
+
   it("judges a stale backup by the tenant's schedules", () => {
     const fourDays = new Date(NOW.getTime() - 96 * 3_600_000).toISOString();
     expect(alertsFor(row("Weekly", { lastBackupAt: fourDays, staleAfterHours: 336 }), NOW)).toEqual(
@@ -363,6 +377,7 @@ describe("provider figures", () => {
       failuresPrevious24h: 4,
       mailboxes: 6,
       physicalBytes: 1600,
+      tenantsWithImmutableBackups: 0,
     });
   });
 

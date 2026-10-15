@@ -121,10 +121,25 @@ export interface StorageTargetHealth {
   status: "ok" | "error" | "unverified" | "misconfigured";
 }
 
+/**
+ * Immutable backups on the tenant's repositories (docs/STORAGE.md): how many
+ * repositories lock their backups with S3 Object Lock, how many only delay
+ * deletion (a directory; not immutable), and how many of those show a warning
+ * (an object found without lock, or a renewal that fell behind).
+ */
+export interface ImmutabilityOverview {
+  objectLock: number;
+  deletionDelay: number;
+  /** How the primary protects new backups; `none` also for the installation default. */
+  primary: "object_lock" | "deletion_delay" | "none";
+  warnings: number;
+}
+
 export interface StorageWidget {
   logicalBytes: number;
   physicalBytes: number;
   target: StorageTargetHealth;
+  immutability: ImmutabilityOverview;
 }
 
 export interface RecentJobDto {
@@ -429,6 +444,10 @@ export interface LoadedTenantRowDto extends ProviderTenantRowBase {
   fileSharesFailed: number;
   physicalBytes: number;
   storageError: boolean;
+  /** Repositories of the tenant with S3 Object Lock on (immutable backups). */
+  immutableRepositories: number;
+  /** Of those, the ones with a warning (an object without lock, a renewal behind). */
+  immutabilityWarnings: number;
 }
 
 /**
@@ -459,6 +478,8 @@ export interface UnavailableTenantRowDto extends ProviderTenantRowBase {
   fileSharesFailed: null;
   physicalBytes: null;
   storageError: null;
+  immutableRepositories: null;
+  immutabilityWarnings: null;
 }
 
 export type ProviderTenantRowDto = LoadedTenantRowDto | UnavailableTenantRowDto;
@@ -480,6 +501,7 @@ export const PROVIDER_ALERT_KINDS = [
   "file_shares_without_job",
   "needs_attention",
   "nothing_protected",
+  "immutability_warning",
 ] as const;
 export type ProviderAlertKind = (typeof PROVIDER_ALERT_KINDS)[number];
 
@@ -529,6 +551,8 @@ export interface ProviderKpisDto {
   /** Protected mailboxes across all tenants. */
   mailboxes: number;
   physicalBytes: number;
+  /** Customers with at least one repository under S3 Object Lock (immutable backups). */
+  tenantsWithImmutableBackups: number;
 }
 
 export interface ProviderViewDto {

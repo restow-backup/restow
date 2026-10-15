@@ -427,6 +427,7 @@ function buildWidgets(
           logicalBytes: value(summary).storage.logicalBytes,
           physicalBytes: value(summary).storage.physicalBytes,
           target: value(facts).storage,
+          immutability: value(facts).immutability,
         }));
         break;
       case "mailboxUsage":

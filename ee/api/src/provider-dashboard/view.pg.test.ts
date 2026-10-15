@@ -456,6 +456,7 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
         failuresPrevious24h: 1,
         mailboxes: 4,
         physicalBytes: 1500,
+        tenantsWithImmutableBackups: 0,
       });
       const alerts = view.alerts.map((alert) => `${alert.tenantName}:${alert.kind}`);
       expect(alerts).toEqual(
