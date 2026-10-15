@@ -612,7 +612,10 @@ alle Schritte erledigt oder nicht nötig, verschwindet „Start" aus dem Menü.
   - `graph`: Microsoft 365, Graph `sendMail` als App (Client Credentials), Absenderpostfach im
     Tenant, Anwendungsberechtigung `Mail.Send`. Entweder eine eigene Single-Tenant-App für
     Benachrichtigungen (Schlüssel oder Zertifikat versiegelt als `mail_graph_app`, auf das
-    Absenderpostfach beschränkbar) oder die App der Sicherung. Kein SMTP-Ausgang nötig.
+    Absenderpostfach beschränkbar) oder die App der Sicherung. Kein SMTP-Ausgang nötig. Hat
+    der Tenant des Absenders der App der Sicherung nicht zugestimmt (AADSTS700016), lautet
+    der Grund `graph_backup_app_not_consented`, mit dem Link zur Administratorzustimmung für
+    diesen Tenant (docs/MICROSOFT.md, „Benachrichtigungs-Mail").
   - `google`: Google Workspace, Gmail-API als Dienstkonto mit domainweiter Delegierung nur
     für `gmail.send` (Schlüssel versiegelt als `mail_google_key`).
   Der Wizard bietet SMTP und, nur wenn sie schon nutzbar ist, die App der Sicherung; die

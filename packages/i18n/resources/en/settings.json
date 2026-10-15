@@ -188,6 +188,7 @@
       "success": "Handed over for {recipient} in {duration}. Check the inbox, including the spam folder.",
       "failed": "The test message could not be sent",
       "detail": "Response of the mail system",
+      "adminConsentLink": "Open the admin consent for the backup app in this tenant",
       "reasons": {
         "timeout": "No answer within 20 seconds. Check host, port and firewall.",
         "transport_error": "The mail system refused the connection or the message.",
@@ -199,6 +200,7 @@
         "graph_tenant_missing": "No Entra tenant is set for the sender mailbox.",
         "graph_tenant_not_found": "Microsoft does not know this tenant. Check the directory ID.",
         "graph_app_not_found": "This application ID does not exist in the tenant, or the app is disabled. Check the application ID and directory ID.",
+        "graph_backup_app_not_consented": "The backup app registration is not set up in the sender mailbox's tenant: it has no admin consent there. Recommended: register an own app in that tenant with only the application permission Mail.Send and choose “Own app registration for notifications”. Alternatively, a Global Administrator of that tenant grants admin consent for the backup app; this also grants the backup app all its backup permissions there, and Mail.Send then applies to every mailbox of that tenant.",
         "graph_secret_invalid": "Microsoft rejected the client secret. Most common cause: the Secret ID was entered instead of the Value column.",
         "graph_secret_expired": "The client secret has expired. Create a new one in Entra and enter it here.",
         "graph_certificate_invalid": "Microsoft rejected the certificate. Check that exactly this certificate is uploaded in the app registration.",

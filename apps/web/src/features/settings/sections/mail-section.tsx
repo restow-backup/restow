@@ -1,4 +1,4 @@
-import { CircleCheck, Info, Send, Trash2, TriangleAlert } from "lucide-react";
+import { CircleCheck, ExternalLink, Info, Send, Trash2, TriangleAlert } from "lucide-react";
 import * as React from "react";
 import { type UseFormReturn, useForm, useWatch } from "react-hook-form";
 import { useTranslation } from "react-i18next";
@@ -302,7 +302,8 @@ function MailTestCard({ mailForm }: { mailForm: UseFormReturn<MailFormValues> })
   );
 }
 
-function MailTestOutcome({ result }: { result: MailTestResult }) {
+/** The outcome of a test send: the reason explained, the admin-consent link when there is one. */
+export function MailTestOutcome({ result }: { result: MailTestResult }) {
   const { t, i18n } = useTranslation("settings");
   if (result.ok || !result.failure) {
     return (
@@ -324,6 +325,18 @@ function MailTestOutcome({ result }: { result: MailTestResult }) {
       <AlertTitle>{t("mail.test.failed")}</AlertTitle>
       <AlertDescription className="space-y-2">
         <p>{t(mailTestFailureKey(result.failure.reason))}</p>
+        {result.failure.adminConsentUrl ? (
+          <a
+            href={result.failure.adminConsentUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 font-medium underline underline-offset-4"
+            data-slot="admin-consent-link"
+          >
+            <ExternalLink className="size-3.5 shrink-0" aria-hidden="true" />
+            {t("mail.test.adminConsentLink")}
+          </a>
+        ) : null}
         {result.failure.detail ? (
           <div className="space-y-1">
             <p className="text-xs text-muted-foreground">{t("mail.test.detail")}</p>

@@ -188,6 +188,7 @@
       "success": "Für {recipient} in {duration} übergeben. Prüfen Sie den Posteingang und auch den Spam-Ordner.",
       "failed": "Die Testnachricht konnte nicht verschickt werden",
       "detail": "Antwort des Mailsystems",
+      "adminConsentLink": "Administratorzustimmung für die App der Sicherung in diesem Tenant öffnen",
       "reasons": {
         "timeout": "Keine Antwort innerhalb von 20 Sekunden. Prüfen Sie Host, Port und Firewall.",
         "transport_error": "Das Mailsystem hat die Verbindung oder die Nachricht abgelehnt.",
@@ -199,6 +200,7 @@
         "graph_tenant_missing": "Für das Absenderpostfach ist kein Entra-Tenant gesetzt.",
         "graph_tenant_not_found": "Microsoft kennt diesen Tenant nicht. Prüfen Sie die Verzeichnis-ID.",
         "graph_app_not_found": "Die Anwendungs-ID gibt es in diesem Tenant nicht, oder die App ist deaktiviert. Prüfen Sie Anwendungs-ID und Verzeichnis-ID.",
+        "graph_backup_app_not_consented": "Die App-Registrierung der Sicherung ist im Tenant des Absenderpostfachs nicht eingerichtet: Ihr fehlt dort die Administratorzustimmung. Empfohlen: Registrieren Sie in diesem Tenant eine eigene App nur mit der Anwendungsberechtigung Mail.Send und wählen Sie „Eigene App-Registrierung für Benachrichtigungen“. Alternativ erteilt ein globaler Administrator dieses Tenants der App der Sicherung die Administratorzustimmung; damit erhält sie dort auch alle ihre Berechtigungen für die Sicherung, und Mail.Send gilt dann für jedes Postfach dieses Tenants.",
         "graph_secret_invalid": "Microsoft hat den geheimen Clientschlüssel abgelehnt. Häufigste Ursache: die Geheime ID statt der Spalte Wert eingetragen.",
         "graph_secret_expired": "Der geheime Clientschlüssel ist abgelaufen. Legen Sie in Entra einen neuen an und tragen Sie ihn hier ein.",
         "graph_certificate_invalid": "Microsoft hat das Zertifikat abgelehnt. Prüfen Sie, ob genau dieses Zertifikat in der App-Registrierung hochgeladen ist.",

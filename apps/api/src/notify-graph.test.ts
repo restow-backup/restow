@@ -1,6 +1,11 @@
 import type { AppCredentials } from "@restow/core";
 import { describe, expect, it } from "vitest";
-import { GraphNotifier, graphSendFailureReason, graphTokenFailureReason } from "./notify-graph.js";
+import {
+  backupAppConsentUrl,
+  GraphNotifier,
+  graphSendFailureReason,
+  graphTokenFailureReason,
+} from "./notify-graph.js";
 
 const TENANT = "11111111-2222-3333-4444-555555555555";
 const APP: AppCredentials = {
@@ -34,11 +39,15 @@ function fakeFetch(answers: { token?: () => Response; send?: () => Response }) {
   return { fetchImpl, calls };
 }
 
-function notifier(fetchImpl: typeof fetch, overrides: Partial<{ tenantId: string | null }> = {}) {
+function notifier(
+  fetchImpl: typeof fetch,
+  overrides: Partial<{ tenantId: string | null; appKind: "backup" | "own" }> = {},
+) {
   return new GraphNotifier({
     sender: "alerts@contoso.com",
     tenantId: overrides.tenantId === undefined ? TENANT : overrides.tenantId,
     app: APP,
+    appKind: overrides.appKind ?? "own",
     fetchImpl,
   });
 }
@@ -71,6 +80,40 @@ describe("graphTokenFailureReason", () => {
     for (const [message, reason] of cases) {
       expect(graphTokenFailureReason(message)).toBe(reason);
     }
+  });
+
+  it("says the backup app lacks consent in the tenant, not that its ID is wrong", () => {
+    const message =
+      "AADSTS700016: Application with identifier 'x' was not found in the directory 'Fabrikam'.";
+    expect(graphTokenFailureReason(message, "unauthorized_client", "backup")).toBe(
+      "graph_backup_app_not_consented",
+    );
+    expect(graphTokenFailureReason(message, "unauthorized_client", "own")).toBe(
+      "graph_app_not_found",
+    );
+    // A disabled app is not a missing consent.
+    expect(
+      graphTokenFailureReason("AADSTS7000112: Application is disabled.", undefined, "backup"),
+    ).toBe("graph_app_not_found");
+    expect(
+      graphTokenFailureReason("AADSTS7000215: Invalid client secret.", undefined, "backup"),
+    ).toBe("graph_secret_invalid");
+  });
+});
+
+describe("backupAppConsentUrl", () => {
+  it("links the admin consent of the backup app in the sender's tenant", () => {
+    expect(backupAppConsentUrl(TENANT, APP)).toBe(
+      `https://login.microsoftonline.com/${TENANT}/adminconsent?client_id=${APP.clientId}`,
+    );
+    expect(
+      backupAppConsentUrl("fabrikam.onmicrosoft.com", {
+        ...APP,
+        authorityHost: "https://login.microsoftonline.us/",
+      }),
+    ).toBe(
+      `https://login.microsoftonline.us/fabrikam.onmicrosoft.com/adminconsent?client_id=${APP.clientId}`,
+    );
   });
 });
 
@@ -130,6 +173,23 @@ describe("GraphNotifier", () => {
     expect(calls).toHaveLength(1);
   });
 
+  it("explains an unknown app by which registration sends", async () => {
+    const answer = tokenError(
+      "unauthorized_client",
+      "AADSTS700016: Application with identifier 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee' was not found in the directory 'Fabrikam'.",
+      400,
+    );
+    const backup = await notifier(fakeFetch({ token: answer }).fetchImpl, {
+      appKind: "backup",
+    }).sendTest("admin@contoso.com", "en");
+    expect(backup).toMatchObject({ ok: false, reason: "graph_backup_app_not_consented" });
+    const own = await notifier(fakeFetch({ token: answer }).fetchImpl).sendTest(
+      "admin@contoso.com",
+      "en",
+    );
+    expect(own).toMatchObject({ ok: false, reason: "graph_app_not_found" });
+  });
+
   it("explains a missing Mail.Send permission or an access policy", async () => {
     const { fetchImpl } = fakeFetch({
       send: () =>
@@ -165,6 +225,7 @@ describe("GraphNotifier", () => {
       sender: "alerts@contoso.com",
       tenantId: TENANT,
       app: null,
+      appKind: "backup",
       fetchImpl,
     }).sendTest("a@contoso.com", "en");
     expect(noApp.reason).toBe("graph_app_missing");

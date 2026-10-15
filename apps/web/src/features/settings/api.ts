@@ -141,6 +141,7 @@ export const MAIL_TEST_FAILURE_REASONS = [
   "graph_tenant_missing",
   "graph_tenant_not_found",
   "graph_app_not_found",
+  "graph_backup_app_not_consented",
   "graph_secret_invalid",
   "graph_secret_expired",
   "graph_certificate_invalid",
@@ -163,7 +164,15 @@ export interface MailTestResult {
   transport: MailTransport;
   recipient: string;
   durationMs: number;
-  failure: { reason: MailTestFailureReason; detail: string | null } | null;
+  /**
+   * `adminConsentUrl`: with `graph_backup_app_not_consented`, the backup app's admin-consent link
+   * for the sender's tenant.
+   */
+  failure: {
+    reason: MailTestFailureReason;
+    detail: string | null;
+    adminConsentUrl?: string;
+  } | null;
 }
 
 export type ReachabilityStatus =

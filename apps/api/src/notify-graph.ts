@@ -2,6 +2,7 @@ import {
   type AppCredentials,
   appCredentialsFingerprint,
   ClientCredentialsTokenProvider,
+  DEFAULT_AUTHORITY_HOST,
   FetchGraphClient,
   TokenAcquisitionError,
 } from "@restow/core";
@@ -26,8 +27,12 @@ import {
  * Failures are mapped onto reasons the UI can explain: the token endpoint's
  * AADSTS codes (wrong secret, expired secret, unknown app or tenant, rejected
  * certificate) and Graph's answers (403 without Mail.Send or outside an access
- * policy, 404 for an unknown sender).
+ * policy, 404 for an unknown sender). The backup app unknown in the sender's
+ * tenant has its own reason: it exists, the tenant never consented to it.
  */
+
+/** Which app registration sends: the backup app or the notification mail's own. */
+export type GraphMailApp = "backup" | "own";
 
 export interface GraphNotifierOptions {
   /** The sender mailbox (UPN or primary SMTP address). */
@@ -36,13 +41,23 @@ export interface GraphNotifierOptions {
   tenantId: string | null;
   /** The app registration to authenticate as; null when none is usable. */
   app: AppCredentials | null;
+  /** Whether `app` is the backup app registration or the notification mail's own. */
+  appKind: GraphMailApp;
   /** For tests: replaces `fetch` for the token request and Graph. */
   fetchImpl?: typeof fetch;
   now?: () => number;
 }
 
-/** Map an AADSTS code (or the token endpoint's error text) onto a reason. */
-export function graphTokenFailureReason(message: string, code?: string): MailFailureReason {
+/**
+ * Map an AADSTS code (or the token endpoint's error text) onto a reason. AADSTS700016 for the
+ * backup app means the sender's tenant never gave it admin consent (the multi-tenant app has no
+ * service principal there), not a wrong application ID.
+ */
+export function graphTokenFailureReason(
+  message: string,
+  code?: string,
+  app: GraphMailApp = "own",
+): MailFailureReason {
   const aadsts = /AADSTS(\d+)/.exec(message)?.[1];
   switch (aadsts) {
     case "7000215":
@@ -55,6 +70,7 @@ export function graphTokenFailureReason(message: string, code?: string): MailFai
     case "7000274":
       return "graph_certificate_invalid";
     case "700016":
+      return app === "backup" ? "graph_backup_app_not_consented" : "graph_app_not_found";
     case "7000112":
       return "graph_app_not_found";
     case "90002":
@@ -68,6 +84,17 @@ export function graphTokenFailureReason(message: string, code?: string): MailFai
     return "graph_tenant_not_found";
   }
   return "graph_token_failed";
+}
+
+/**
+ * The admin-consent link of the backup app for the sender's tenant (the tenant of the token
+ * request): a Global Administrator of that tenant opens it to consent.
+ */
+export function backupAppConsentUrl(tenantId: string, app: AppCredentials): string {
+  const authority = (app.authorityHost ?? DEFAULT_AUTHORITY_HOST).replace(/\/+$/, "");
+  const url = new URL(`${authority}/${encodeURIComponent(tenantId)}/adminconsent`);
+  url.searchParams.set("client_id", app.clientId);
+  return url.toString();
 }
 
 interface GraphErrorBody {
@@ -152,12 +179,14 @@ class GraphTokenFailure extends Error {
 export class GraphNotifier implements Notifier {
   private readonly sender: string;
   private readonly tenantId: string | null;
+  private readonly appKind: GraphMailApp;
   private readonly provider: ClientCredentialsTokenProvider | null;
   private readonly graph: FetchGraphClient;
 
   constructor(options: GraphNotifierOptions) {
     this.sender = options.sender;
     this.tenantId = options.tenantId;
+    this.appKind = options.appKind;
     const { app, tenantId } = options;
     this.provider =
       app && tenantId
@@ -192,7 +221,7 @@ export class GraphNotifier implements Notifier {
     } catch (error) {
       const message = errorMessage(error);
       const code = error instanceof TokenAcquisitionError ? error.code : undefined;
-      throw new GraphTokenFailure(graphTokenFailureReason(message, code), message);
+      throw new GraphTokenFailure(graphTokenFailureReason(message, code, this.appKind), message);
     }
   }
 

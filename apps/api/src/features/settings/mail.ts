@@ -4,6 +4,7 @@ import type { Config } from "../../config.js";
 import { type Notifier, notifierForTransport, type TransportSpec } from "../../notify.js";
 import type { MailFailureReason } from "../../notify-core.js";
 import type { GoogleServiceAccountKey } from "../../notify-google.js";
+import { backupAppConsentUrl } from "../../notify-graph.js";
 import type { StoredSmtpConfig } from "./logic.js";
 import type { GraphMailAppOption } from "./schemas.js";
 
@@ -65,6 +66,7 @@ export function transportSpec(base: Config, mail: ResolvedMailTransport): Transp
         tenantId:
           mail.tenantId ?? (mail.app === "backup" ? (base.graphMailTenantId ?? null) : null),
         app: mail.credentials,
+        appKind: mail.app,
       };
     case "google":
       return { transport: "google", sender: mail.sender, key: mail.key };
@@ -79,8 +81,16 @@ export interface MailTestResult {
   transport: ResolvedMailTransport["transport"];
   recipient: string;
   durationMs: number;
-  /** Null on success. `detail` is the transport's own (technical) message, if any. */
-  failure: { reason: MailTestFailureReason; detail: string | null } | null;
+  /**
+   * Null on success. `detail` is the transport's own (technical) message, if any.
+   * `adminConsentUrl`: with `graph_backup_app_not_consented`, the backup app's admin-consent
+   * link for the sender's tenant.
+   */
+  failure: {
+    reason: MailTestFailureReason;
+    detail: string | null;
+    adminConsentUrl?: string;
+  } | null;
 }
 
 /** A misconfigured transport should fail fast, not keep the admin waiting two minutes. */
@@ -201,12 +211,24 @@ export async function runMailTest(
     if (outcome === TIMED_OUT) {
       return finish({ reason: "timeout", detail: null });
     }
-    return outcome.ok
-      ? finish(null)
-      : finish({
-          reason: outcome.reason ?? "transport_error",
-          detail: sanitizeDetail(outcome.error, secrets),
-        });
+    if (outcome.ok) {
+      return finish(null);
+    }
+    const reason = outcome.reason ?? "transport_error";
+    const detail = sanitizeDetail(outcome.error, secrets);
+    if (
+      reason === "graph_backup_app_not_consented" &&
+      spec.transport === "graph" &&
+      spec.tenantId &&
+      spec.app
+    ) {
+      return finish({
+        reason,
+        detail,
+        adminConsentUrl: backupAppConsentUrl(spec.tenantId, spec.app),
+      });
+    }
+    return finish({ reason, detail });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     return finish({ reason: "transport_error", detail: sanitizeDetail(message, secrets) });

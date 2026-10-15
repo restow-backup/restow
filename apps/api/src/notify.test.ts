@@ -213,7 +213,13 @@ describe("smtpFailureReason", () => {
 
 describe("notifierForTransport", () => {
   const google = { transport: "google" as const, sender: "a@example.com", key: null };
-  const graph = { transport: "graph" as const, sender: "a@contoso.com", tenantId: null, app: null };
+  const graph = {
+    transport: "graph" as const,
+    sender: "a@contoso.com",
+    tenantId: null,
+    app: null,
+    appKind: "own" as const,
+  };
   const smtp = { transport: "smtp" as const, smtp: base };
 
   it("builds the transport's notifier", () => {

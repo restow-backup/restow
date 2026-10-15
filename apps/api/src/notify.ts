@@ -12,7 +12,7 @@ import {
   testNotification,
 } from "./notify-core.js";
 import { GoogleNotifier, type GoogleServiceAccountKey } from "./notify-google.js";
-import { GraphNotifier } from "./notify-graph.js";
+import { type GraphMailApp, GraphNotifier } from "./notify-graph.js";
 
 export {
   MAIL_FAILURE_REASONS,
@@ -163,6 +163,8 @@ export type TransportSpec =
       tenantId: string | null;
       /** The app registration to authenticate as; null when none is usable. */
       app: AppCredentials | null;
+      /** Whether `app` is the backup app registration or the notification mail's own. */
+      appKind: GraphMailApp;
     }
   | { transport: "google"; sender: string; key: GoogleServiceAccountKey | null };
 
@@ -179,7 +181,12 @@ export function notifierForTransport(spec: TransportSpec, options: { demo: boole
     case "smtp":
       return new SmtpNotifier(spec.smtp);
     case "graph":
-      return new GraphNotifier({ sender: spec.sender, tenantId: spec.tenantId, app: spec.app });
+      return new GraphNotifier({
+        sender: spec.sender,
+        tenantId: spec.tenantId,
+        app: spec.app,
+        appKind: spec.appKind,
+      });
     case "google":
       return new GoogleNotifier({ sender: spec.sender, key: spec.key });
   }
@@ -198,6 +205,7 @@ export function createNotifier(config: Config, graphApp: AppCredentials | null =
           sender: config.graphMailSender ?? "",
           tenantId: config.graphMailTenantId ?? null,
           app: graphApp,
+          appKind: "backup",
         }
       : { transport: "smtp", smtp: config.smtp };
   return notifierForTransport(spec, { demo: config.demo.enabled });

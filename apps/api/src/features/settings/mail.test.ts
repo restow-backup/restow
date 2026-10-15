@@ -264,7 +264,35 @@ describe("runMailTest", () => {
       sender: "restow@contoso.com",
       tenantId: "11111111-2222-3333-4444-555555555555",
       app: graphApp,
+      appKind: "own",
     });
+  });
+
+  it("links the backup app's admin consent for the sender's tenant when it is missing there", async () => {
+    const { seen, notifierFor } = fixtureNotifier(async () => ({
+      ok: false,
+      reason: "graph_backup_app_not_consented",
+      error: "AADSTS700016: Application with identifier 'fixture-client-id' was not found.",
+    }));
+    const result = await runMailTest(
+      { ...graph, tenantId: "fabrikam.onmicrosoft.com" },
+      "ops@example.com",
+      "en",
+      { base, notifierFor },
+    );
+    expect(seen.spec).toMatchObject({ appKind: "backup", tenantId: "fabrikam.onmicrosoft.com" });
+    expect(result.failure).toEqual({
+      reason: "graph_backup_app_not_consented",
+      detail: "AADSTS700016: Application with identifier 'fixture-client-id' was not found.",
+      adminConsentUrl:
+        "https://login.microsoftonline.com/fabrikam.onmicrosoft.com/adminconsent?client_id=fixture-client-id",
+    });
+
+    // The environment's tenant when the settings name none.
+    const fromEnv = await runMailTest(graph, "ops@example.com", "en", { base, notifierFor });
+    expect(fromEnv.failure?.adminConsentUrl).toBe(
+      "https://login.microsoftonline.com/env-tenant.onmicrosoft.com/adminconsent?client_id=fixture-client-id",
+    );
   });
 
   it("sends nothing in demo mode", async () => {

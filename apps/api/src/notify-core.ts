@@ -33,6 +33,7 @@ export const MAIL_FAILURE_REASONS = [
   "graph_tenant_missing",
   "graph_tenant_not_found",
   "graph_app_not_found",
+  "graph_backup_app_not_consented",
   "graph_secret_invalid",
   "graph_secret_expired",
   "graph_certificate_invalid",

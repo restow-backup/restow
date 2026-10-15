@@ -244,7 +244,14 @@ Sprache des Betreibers erklärt. Die technische Antwort steht nur darunter als D
 Eine eigene Single-Tenant-App nur für Benachrichtigungen, getrennt von der Multi-Tenant-App
 der Sicherung. Die App der Sicherung bleibt als Auswahl („App-Registrierung der Sicherung
 verwenden"), wenn sie eingerichtet ist; sie braucht dann zusätzlich Mail.Send für alle
-Postfächer ihres Tenants.
+Postfächer ihres Tenants. Liegt das Absenderpostfach in einem Tenant, der der App der
+Sicherung nie zugestimmt hat, antwortet Entra mit AADSTS700016; der Test meldet dann
+`graph_backup_app_not_consented` statt `graph_app_not_found` und nennt beide Wege: eine eigene
+App nur mit `Mail.Send` in diesem Tenant (empfohlen) oder die Administratorzustimmung für die
+App der Sicherung dort, mit dem Link
+`https://login.microsoftonline.com/<Tenant>/adminconsent?client_id=<Anwendungs-ID>` (Tenant
+der Token-Anfrage). Diese Zustimmung erteilt der App der Sicherung in dem Tenant auch alle
+ihre Sicherungsberechtigungen, und `Mail.Send` gilt dort für jedes Postfach.
 
 1. Microsoft Entra Admin Center → Identität → Anwendungen → App-Registrierungen → Neue
    Registrierung. Unterstützte Kontotypen: „Nur Konten in diesem Organisationsverzeichnis".
@@ -293,7 +300,8 @@ Fehlerbilder und ihre Gründe (`notify-graph.ts`):
 | AADSTS7000215 | `graph_secret_invalid` | Falscher Schlüssel, meist die Geheime ID statt des Werts |
 | AADSTS7000222 | `graph_secret_expired` | Schlüssel abgelaufen |
 | AADSTS700027/700024 | `graph_certificate_invalid` | Zertifikat nicht (dieses) in der App hinterlegt |
-| AADSTS700016/7000112 | `graph_app_not_found` | Anwendungs-ID nicht im Tenant oder App deaktiviert |
+| AADSTS700016 (eigene App)/7000112 | `graph_app_not_found` | Anwendungs-ID nicht im Tenant oder App deaktiviert |
+| AADSTS700016 mit der App der Sicherung | `graph_backup_app_not_consented` | Der Tenant des Absenders hat der App der Sicherung nicht zugestimmt; der Test liefert den Link zur Administratorzustimmung mit |
 | AADSTS90002/900023 | `graph_tenant_not_found` | Verzeichnis-ID falsch |
 | Graph 403 | `graph_send_denied` | Mail.Send oder Admin-Consent fehlt, oder RBAC/Access Policy schließt den Absender aus |
 | Graph 404, `ErrorInvalidUser`, `MailboxNotEnabledForRESTAPI` | `graph_sender_not_found` | Absender existiert nicht oder hat kein Exchange-Online-Postfach |
