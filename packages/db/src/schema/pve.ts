@@ -167,12 +167,15 @@ export const pveJobs = pgTable(
     schedule: jsonb("schedule").$type<PveJobSchedule>(),
     settings: jsonb("settings").$type<PveJobSettings>().notNull().default({}),
     enabled: boolean("enabled").notNull().default(true),
+    /** The job Restow recommended and made with one click (#52); at most one per tenant. */
+    recommended: boolean("recommended").notNull().default(false),
     nextRunAt: timestamp("next_run_at", { withTimezone: true }),
     lastRunAt: timestamp("last_run_at", { withTimezone: true }),
     createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
     ...timestamps(),
   },
   (t) => [
+    uniqueIndex("pve_jobs_tenant_recommended_uq").on(t.tenantId).where(sql`${t.recommended}`),
     uniqueIndex("pve_jobs_tenant_name_uq").on(t.tenantId, sql`lower(${t.name})`),
     uniqueIndex("pve_jobs_tenant_all_uq").on(t.tenantId).where(sql`${t.scopeAll}`),
     index("pve_jobs_due_idx").on(t.enabled, t.nextRunAt),

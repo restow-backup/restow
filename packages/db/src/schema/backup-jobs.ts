@@ -177,6 +177,13 @@ export const backupJobs = pgTable(
      */
     archive: boolean("archive").notNull().default(false),
     origin: text("origin").$type<BackupJobOrigin>().notNull().default("user"),
+    /**
+     * The job Restow recommended and made with one click (#52): `mail`, or `endpoint:<os>:<profile>`
+     * for the machines of one system and profile. One per tenant and key (the partial unique index),
+     * so a second click adds to that job instead of making another. Null for every job an
+     * administrator set up in the editor; it stays when the job is edited afterwards.
+     */
+    recommended: text("recommended"),
     // A copy job's two shares (docs/FILESHARES.md 7.2); null for every other kind.
     sourceFileShareId: uuid("source_file_share_id").references(() => fileShares.id, {
       onDelete: "cascade",
@@ -199,6 +206,9 @@ export const backupJobs = pgTable(
     uniqueIndex("backup_jobs_tenant_kind_all_uq")
       .on(t.tenantId, t.kind)
       .where(sql`${t.scopeMode} = 'all'`),
+    uniqueIndex("backup_jobs_tenant_recommended_uq")
+      .on(t.tenantId, t.recommended)
+      .where(sql`${t.recommended} IS NOT NULL`),
     // A copy job has both shares, every other job neither. `kind::text`: the migration that adds
     // this check runs in the transaction that may have just added the enum value 'copy', and a new
     // enum value cannot be used as such before that transaction commits (0036, 0037).
