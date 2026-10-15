@@ -359,7 +359,7 @@
     "job": {
       "interrupted": {
         "title": "Der Lauf wurde unterbrochen",
-        "why": "{reason, select, shutdown {Der Worker wurde gestoppt oder neu gestartet, während der Lauf aktiv war.} expired {Der Lauf hat seine Zeitgrenze erreicht.} other {Der Lauf wurde unterbrochen, bevor er fertig war.}} Solange der Lauf noch Versuche hat, macht {appName} vom letzten Kontrollpunkt weiter und behält, was schon gesichert ist. Nach dem letzten Versuch endet der Lauf als fehlgeschlagen, und der nächste Lauf beginnt von vorn."
+        "why": "{reason, select, shutdown {Der Worker wurde gestoppt oder neu gestartet, während der Lauf aktiv war.} update {Der Lauf wurde sauber angehalten, damit ein Update von {appName} installiert werden konnte.} expired {Der Lauf hat seine Zeitgrenze erreicht.} other {Der Lauf wurde unterbrochen, bevor er fertig war.}} {final, select, yes {Das war sein letzter Versuch, deshalb endete der Lauf als fehlgeschlagen: Sein Kontrollpunkt wurde verworfen, und der nächste Lauf beginnt von vorn. Sicherungen früherer Läufe sind davon nicht betroffen.} other {{appName} macht vom letzten Kontrollpunkt weiter und behält, was schon gesichert ist. Ein Halt durch ein Update oder einen Neustart verbraucht keinen der Versuche des Laufs.}}"
       }
     },
     "unknown": {

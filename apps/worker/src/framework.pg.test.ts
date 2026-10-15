@@ -955,6 +955,7 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
     });
 
     it("gives an interrupted job that checkpointed its attempt back, so its last attempt is not its end (#47)", async () => {
+      // A shutdown is not the job's doing (#46).
       const handler = (checkpoint: boolean) =>
         handlerFor(async (ctx) => {
           if (checkpoint) {
@@ -981,18 +982,20 @@ describe.skipIf(!adminUrl)("framework against Postgres", () => {
       ).rejects.toBeInstanceOf(JobAbortedError);
       expect(granted).toEqual([last.id]);
       expect((await jobRow(jobId)).status).toBe("queued");
-      // Without a checkpoint in the attempt it counts as usual and ends there.
+      // A shutdown gives the attempt back without a checkpoint as well (#46).
       shutdown = new AbortController();
-      const other = randomUUID();
+      const stopped = randomUUID();
+      const stoppedJob = pgBossJob({ jobId: stopped, tenantId: fixture.tenantId }, 3, 3);
       await expect(
         runJob(
           runtime({ shutdownSignal: shutdown.signal, continueInterrupted }),
           handler(false),
-          pgBossJob({ jobId: other, tenantId: fixture.tenantId }, 3, 3),
+          stoppedJob,
         ),
       ).rejects.toBeInstanceOf(JobAbortedError);
-      expect(granted).toHaveLength(1);
-      expect((await jobRow(other)).status).toBe("failed");
+      expect(granted).toEqual([last.id, stoppedJob.id]);
+      expect((await jobRow(stopped)).status).toBe("queued");
+      // Its own time limit needs a checkpoint to earn the attempt back (continuation.test.ts).
     });
 
     it("never gives back the attempt of a job that failed with an error", async () => {

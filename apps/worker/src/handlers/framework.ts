@@ -1365,20 +1365,30 @@ export function parseJobPayload<Q extends QueueName>(queue: Q, data: unknown): J
 // ---------------------------------------------------------------------------
 
 /**
- * Why a job's abort signal fired: the process is shutting down, the API
- * cancelled it, or the pg-boss expiration is about to hit. Shutdown and expiry
- * both mean "checkpoint now, continue in the retry".
+ * Why a job's abort signal fired: the process is shutting down, an update
+ * drains the worker (#46: new starts paused, running jobs stop cleanly), the
+ * API cancelled it, or the pg-boss expiration is about to hit. Shutdown,
+ * update and expiry all mean "checkpoint now, continue in the retry".
  */
-export type AbortReason = "shutdown" | "cancelled" | "expired";
+export type AbortReason = "shutdown" | "update" | "cancelled" | "expired";
 
 export function abortReasonOf(signal: AbortSignal): AbortReason | null {
   if (!signal.aborted) {
     return null;
   }
-  if (signal.reason === "cancelled" || signal.reason === "expired") {
+  if (signal.reason === "cancelled" || signal.reason === "expired" || signal.reason === "update") {
     return signal.reason;
   }
   return "shutdown";
+}
+
+/**
+ * An update's drain (#46, job-pause.ts): while it is on, every running job is
+ * asked to checkpoint and stop (abort reason `update`). `subscribe` calls the
+ * listener at once when the drain is already on.
+ */
+export interface UpdateDrain {
+  subscribe(listener: () => void): () => void;
 }
 
 /** Abort this fraction into the pg-boss expiration so the handler returns before pg-boss fails it. */
@@ -1563,6 +1573,11 @@ export interface WorkerRuntime {
    */
   readonly onJobFinished?: (tenantId: string, job: FinishedJob) => Promise<unknown>;
   /**
+   * Running jobs checkpoint and stop while an update drains the worker (#46);
+   * without it only a shutdown stops them.
+   */
+  readonly updateDrain?: UpdateDrain;
+  /**
    * Give an interrupted job that made progress its attempt back before it is
    * failed (continuation.ts, #47); null when pg-boss no longer has it active.
    * Without it every interruption counts as an attempt.
@@ -1619,6 +1634,11 @@ export async function runJob(
   const controller = new AbortController();
   const onShutdown = () => controller.abort("shutdown");
   runtime.shutdownSignal.addEventListener("abort", onShutdown, { once: true });
+  const stopDrainWatch = runtime.updateDrain?.subscribe(() => {
+    if (!controller.signal.aborted) {
+      controller.abort("update");
+    }
+  });
   let cancelPoll: ReturnType<typeof setInterval> | null = null;
   let expiryTimer: ReturnType<typeof setTimeout> | null = null;
   let reporter: ReturnType<typeof createProgressReporter>["reporter"] | null = null;
@@ -1852,7 +1872,8 @@ export async function runJob(
       return;
     }
     // An interruption after progress gives its attempt back (#47): long first
-    // backups continue until they finish instead of running out of retries.
+    // backups continue until they finish instead of running out of retries. A
+    // shutdown or an update's drain gives it back even without progress (#46).
     let budget: RetryBudget = { retryCount: job.retryCount, retryLimit: job.retryLimit };
     if (runtime.continueInterrupted) {
       const continues = mayContinueForFree({
@@ -1884,7 +1905,7 @@ export async function runJob(
     if (isSourceScopedCause(failure)) {
       await markSourceFailure(failure, errorMessageOf(error));
     }
-    if (reason === "shutdown" || reason === "expired") {
+    if (reason === "shutdown" || reason === "update" || reason === "expired") {
       logger.warn("job interrupted, continuing in the retry", {
         reason,
         status,
@@ -1902,6 +1923,7 @@ export async function runJob(
       clearTimeout(expiryTimer);
     }
     runtime.shutdownSignal.removeEventListener("abort", onShutdown);
+    stopDrainWatch?.();
     release();
   }
 }

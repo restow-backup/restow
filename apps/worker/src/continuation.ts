@@ -13,6 +13,12 @@ import { sql } from "drizzle-orm";
  * saved a checkpoint gives its attempt back, for at most
  * {@link MAX_CONTINUATION_DAYS} after the job first started. Attempts that end
  * in a real error, or make no progress, still count.
+ *
+ * A stop by a shutdown (a restart, an update) or by an update's drain is not
+ * the job's doing at all (#46): it gives the attempt back even when the job
+ * had not saved a checkpoint yet, within the same days. Otherwise a job on
+ * its last attempt ended as failed, its checkpoint discarded, only because
+ * someone installed an update while it ran.
  */
 
 /** How long after its first start a job may keep continuing for free. */
@@ -24,20 +30,25 @@ export interface RetryBudget {
 }
 
 /**
- * Whether an interruption may continue for free: interrupted (time limit or
- * shutdown, never an error or a cancel), a checkpoint saved during the attempt,
- * and still within {@link MAX_CONTINUATION_DAYS} of the job's first start.
+ * Whether an interruption may continue for free: interrupted (time limit,
+ * shutdown or an update's drain, never an error or a cancel), a checkpoint
+ * saved during the attempt (not needed for a shutdown or an update), and still
+ * within {@link MAX_CONTINUATION_DAYS} of the job's first start.
  */
 export function mayContinueForFree(input: {
-  readonly reason: "expired" | "shutdown" | "cancelled" | null;
+  readonly reason: "expired" | "shutdown" | "update" | "cancelled" | null;
   readonly checkpointed: boolean;
   readonly startedAt: Date | null;
   readonly now: Date;
 }): boolean {
-  if (input.reason !== "expired" && input.reason !== "shutdown") {
+  if (input.reason !== "expired" && input.reason !== "shutdown" && input.reason !== "update") {
     return false;
   }
-  if (!input.checkpointed || !input.startedAt) {
+  // The time limit is the job's own: only progress earns the attempt back.
+  if (input.reason === "expired" && !input.checkpointed) {
+    return false;
+  }
+  if (!input.startedAt) {
     return false;
   }
   const ageMs = input.now.getTime() - input.startedAt.getTime();

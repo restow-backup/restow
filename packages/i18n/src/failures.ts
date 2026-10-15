@@ -21,6 +21,8 @@ export const FAILURE_TEXT_PARAMS = {
   port: 0,
   path: "",
   reason: "other",
+  // `yes` on the last attempt of an interrupted run (job.interrupted): no checkpoint survives it.
+  final: "no",
   role: "other",
   side: "other",
   graphCode: "",

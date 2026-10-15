@@ -7,10 +7,19 @@ describe("mayContinueForFree", () => {
   const started = new Date("2026-10-10T12:00:00Z");
 
   it("continues an interruption (time limit or shutdown) that saved a checkpoint", () => {
-    for (const reason of ["expired", "shutdown"] as const) {
+    for (const reason of ["expired", "shutdown", "update"] as const) {
       expect(mayContinueForFree({ reason, checkpointed: true, startedAt: started, now })).toBe(
         true,
       );
+    }
+  });
+
+  it("continues a shutdown or an update's drain without a checkpoint (#46)", () => {
+    for (const reason of ["shutdown", "update"] as const) {
+      expect(mayContinueForFree({ reason, checkpointed: false, startedAt: started, now })).toBe(
+        true,
+      );
+      expect(mayContinueForFree({ reason, checkpointed: false, startedAt: null, now })).toBe(false);
     }
   });
 
@@ -38,6 +47,9 @@ describe("mayContinueForFree", () => {
     ).toBe(true);
     expect(
       mayContinueForFree({ reason: "expired", checkpointed: true, startedAt: past, now }),
+    ).toBe(false);
+    expect(
+      mayContinueForFree({ reason: "shutdown", checkpointed: false, startedAt: past, now }),
     ).toBe(false);
   });
 });
