@@ -34,6 +34,7 @@ import { browseCursorFor, decodeBrowseCursor } from "../endpoints/service.js";
 import { auditPve, PVE_AUDIT_ACTIONS, type PveActor } from "./audit.js";
 import { guestRepositoryPrefix } from "./runs.js";
 import type { CreateFilesDownloadInput, FilesQuery } from "./schemas.js";
+import { browseVmFiles, openVmDownload, prepareVmDownload } from "./vm-files.js";
 
 /**
  * File restore of Proxmox VE containers (#62, docs/PVE.md "File restore"):
@@ -56,8 +57,9 @@ import type { CreateFilesDownloadInput, FilesQuery } from "./schemas.js";
  * worker's retention or check (`pveGuestRepositoryLockKey`), and goes through
  * the same per-tenant gate as the endpoint reads. A running backup holds only
  * restic's shared lock, so files can be browsed while the container backs up.
- * Every page browsed and every download started is audited. VMs are not
- * browsable (block images; they are restored as a whole guest).
+ * Every page browsed and every download started is audited. A VM restore
+ * point goes to vm-files.ts: its disks' file systems are read by a sandboxed
+ * user-space reader, never mounted.
  */
 
 export const PVE_FILE_PROBLEMS = {
@@ -154,8 +156,7 @@ async function loadContainerPoint(
   if (row.snapshot.kind !== "ct" || !row.snapshot.resticSnapshotId) {
     throw new ProblemError(409, "Not a container restore point", {
       type: PVE_FILE_PROBLEMS.notAContainer,
-      detail:
-        "Only container restore points can be browsed file by file. A VM is restored as a whole.",
+      detail: "This restore point cannot be browsed file by file.",
     });
   }
   return {
@@ -247,8 +248,28 @@ function guestLabel(guest: PveGuest): { vmid: number; name: string | null } {
   return { vmid: guest.vmid, name: guest.name };
 }
 
+/** The restore point when it is a VM's (its files are read by vm-files.ts), else null. */
+async function vmPointOf(database: Database, tenantId: string, id: string) {
+  const [row] = await withTenantTx(database, tenantId, (tx) =>
+    tx
+      .select({ snapshot: pveSnapshots, guest: pveGuests })
+      .from(pveSnapshots)
+      .innerJoin(pveGuests, eq(pveGuests.id, pveSnapshots.guestId))
+      .where(
+        and(
+          eq(pveSnapshots.tenantId, tenantId),
+          eq(pveSnapshots.id, id),
+          eq(pveSnapshots.status, "active"),
+          eq(pveSnapshots.kind, "vm"),
+        ),
+      )
+      .limit(1),
+  );
+  return row ?? null;
+}
+
 /**
- * One page of a folder of a container restore point: folders first, then by
+ * One page of a folder of a container or VM restore point: folders first, then by
  * name, `nextCursor` for the next page. Every page read is audited.
  */
 export async function browseContainerFiles(
@@ -259,6 +280,10 @@ export async function browseContainerFiles(
   actor: PveActor,
   signal?: AbortSignal,
 ): Promise<BrowseDto> {
+  const vm = await vmPointOf(database, tenantId, id);
+  if (vm) {
+    return browseVmFiles(database, tenantId, vm, query, actor, signal);
+  }
   const after = decodeBrowseCursor(query.cursor);
   const { snapshot, guest, open } = await openFor(database, tenantId, id);
   const listing = await resticGate.run(tenantId, async () => {
@@ -323,6 +348,19 @@ export async function prepareContainerDownload(
   signal?: AbortSignal,
   now: Date = new Date(),
 ): Promise<PreparedDownloadDto> {
+  const vm = await vmPointOf(database, tenantId, id);
+  if (vm) {
+    return prepareVmDownload(
+      database,
+      tenantId,
+      vm,
+      input,
+      actor,
+      { ttlMs: DOWNLOAD_TTL_MS, keepMs: DOWNLOAD_KEEP_MS },
+      signal,
+      now,
+    );
+  }
   const { snapshot, open } = await openFor(database, tenantId, id);
   const release = resticGate.acquire(tenantId);
   let repository: OpenRepository | null = null;
@@ -399,6 +437,10 @@ export async function openContainerDownload(
   signal?: AbortSignal,
   now: Date = new Date(),
 ): Promise<ContainerDownload> {
+  const vm = await vmPointOf(database, tenantId, id);
+  if (vm) {
+    return openVmDownload(database, tenantId, vm, downloadId, actor, signal, now);
+  }
   const { snapshot, guest, open } = await openFor(database, tenantId, id);
   // A busy server, or a repository under maintenance, refuses here, before the download is spent.
   const release = resticGate.acquire(tenantId);

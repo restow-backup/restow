@@ -32,6 +32,7 @@ import { auditPve, PVE_AUDIT_ACTIONS, type PveActor } from "./audit.js";
 import { guestBootTestFacts } from "./boot-tests.js";
 import { containerBackupPaths } from "./files.js";
 import { NODE_ONLINE_MS } from "./node-service.js";
+import { browsableDisks } from "./vm-files.js";
 
 /**
  * The session side of the Proxmox VE feature (docs/PVE.md): clusters, nodes
@@ -656,8 +657,9 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         stats: s.stats,
         // What a container restore point holds, as paths in the container (#59, #62).
         contents: s.kind === "ct" ? containerBackupPaths(s.guestConfig) : null,
-        // Whether its files can be browsed and downloaded (#62).
-        browsable: s.kind === "ct" && s.resticSnapshotId !== null,
+        // Whether its files can be browsed and downloaded: a container's restic snapshot (#62),
+        // a VM's disks through the sandboxed file system reader (vm-files.ts).
+        browsable: s.kind === "ct" ? s.resticSnapshotId !== null : browsableDisks(s).length > 0,
         disks: s.disks.map((d) => ({
           device: d.device,
           size: d.size,
