@@ -245,7 +245,9 @@ export async function fileShare(ctx, check) {
           `smbcacls --numeric //127.0.0.1/data '${ACL_FILE}' -U '${credentials}'`,
         );
         if (!hasAclEntry(acl, ACL_SID)) {
-          throw new Error(`the explicit ACL entry did not stick: ${acl.trim()}`);
+          throw new Error(
+            `the explicit ACL entry did not stick: ${acl.trim().replace(/\r?\n/gu, " | ")}`,
+          );
         }
         const sums = await sumsIn(stack, DATA);
         const difference = compareHashes(hashesOf(corpus), sums);
@@ -504,7 +506,7 @@ export async function fileShare(ctx, check) {
         );
         if (!hasAclEntry(acl, ACL_SID)) {
           throw new Error(
-            `the restored ${ACL_FILE} lacks the ACL entry of ${ACL_SID}: ${acl.trim()}`,
+            `the restored ${ACL_FILE} lacks the ACL entry of ${ACL_SID}: ${acl.trim().replace(/\r?\n/gu, " | ")}`,
           );
         }
         await onSamba(stack, `rm -rf '${DATA}/${folder}'`);
