@@ -28,6 +28,7 @@ import {
   deleteOnAllTargets,
   loadManifest,
   mapChunkIds,
+  protectionOnTargets,
   pveDisksOf,
   pveGuestBackable,
   pveNextRunAt,
@@ -439,6 +440,10 @@ export async function applyRetention(deps: PveDeps, now: Date): Promise<number> 
     for (const id of decision.remove) {
       const snap = result.snaps.find((s) => s.id === id) as PveSnapshot;
       try {
+        // A restore point the storage still locks stays until a later run (docs/STORAGE.md).
+        if (await pveSnapshotLocked(deps, guest, snap)) {
+          continue;
+        }
         await pruneSnapshot(deps, snap, now);
         pruned++;
         if (snap.resticSnapshotId) {
@@ -461,6 +466,22 @@ export async function applyRetention(deps: PveDeps, now: Date): Promise<number> 
     }
   }
   return pruned;
+}
+
+/** Whether a target still locks the restore point's manifest or restic snapshot file. */
+async function pveSnapshotLocked(deps: PveDeps, guest: PveGuest, snap: PveSnapshot) {
+  const storage = await deps.runtime.storage.get(guest.tenantId);
+  const targets = [storage.primary, ...storage.copies];
+  const keys = [
+    ...(snap.manifestPath ? [snap.manifestPath] : []),
+    ...(snap.resticSnapshotId ? [`pve-guests/${guest.id}/snapshots/${snap.resticSnapshotId}`] : []),
+  ];
+  for (const key of keys) {
+    if (await protectionOnTargets(targets, key)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 async function repositoryAccess(deps: PveDeps, guest: PveGuest) {

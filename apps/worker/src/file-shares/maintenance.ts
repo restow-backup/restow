@@ -37,6 +37,7 @@ import {
   resticUnlock,
   restoreTestSamples,
   SHARE_NO_SAMPLES,
+  splitLockedSnapshots,
   withRepository,
 } from "@restow/core";
 import {
@@ -291,7 +292,9 @@ async function retain(
       const newestWithFiles = [...recorded]
         .filter((snap) => snap.files > 0)
         .sort((a, b) => b.sequence - a.sequence)[0];
-      const remove = decision.remove.filter((id) => id !== newestWithFiles?.resticSnapshotId);
+      const wanted = decision.remove.filter((id) => id !== newestWithFiles?.resticSnapshotId);
+      // Snapshots the storage still locks stay until a later run (docs/STORAGE.md).
+      const { remove } = await splitLockedSnapshots(access.storage, access.prefix, wanted);
       if (remove.length > 0) {
         await resticForget(session, remove, { signal });
         await resticPrune(session, { signal });

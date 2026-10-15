@@ -102,7 +102,7 @@ export type StorageTargetImmutabilityPeriod = {
 export type StorageTargetImmutability = {
   mode: "compliance" | "governance" | "delayed_deletion" | null;
   days: number;
-  history: StorageTargetImmutabilityPeriod[];
+  history: readonly StorageTargetImmutabilityPeriod[];
 };
 
 /**
