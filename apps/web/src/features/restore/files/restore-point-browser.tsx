@@ -18,6 +18,7 @@ import {
 import {
   judgementsById,
   LastCleanHint,
+  RetentionHoldNotice,
   SelectedPointNote,
   SuspicionBadge,
   useObjectSuspicions,
@@ -142,6 +143,12 @@ export function RestorePointBrowser<P extends RestorePointView>({
 
   return (
     <div className="space-y-4">
+      {adapter.suspicion ? (
+        <RetentionHoldNotice
+          target={adapter.suspicion.target}
+          objectName={adapter.suspicion.objectName}
+        />
+      ) : null}
       <LastCleanHint points={list} judgements={judgements} onPick={pick} />
       <div className={`grid items-start gap-4 ${SNAPSHOTS_GRID}`}>
         <Card className="gap-0 overflow-hidden py-0" data-slot="snapshots-card">

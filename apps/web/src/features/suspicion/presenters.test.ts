@@ -7,6 +7,7 @@ import {
   lastCleanOf,
   mayMarkFalseAlarm,
   mayReadSuspicions,
+  mayReleaseHold,
 } from "./presenters";
 
 function judged(restorePointId: string, active: boolean): Suspicion {
@@ -77,10 +78,39 @@ describe("a finding in words", () => {
       "findings.unknown",
     );
   });
+
+  it("shows compression and deduplication ratios as percent with the amount of new data", () => {
+    const message = findingMessage(
+      {
+        code: "incompressible_data",
+        value: 0.998,
+        threshold: 0.95,
+        baseline: 0.45,
+        bytes: 4 * 1024 ** 3,
+      },
+      "en",
+    );
+    expect(message.key).toBe("findings.incompressible_data");
+    expect(message.values).toMatchObject({ value: "99.8%", threshold: "95%", baseline: "45%" });
+    expect(message.values.bytes).toMatch(/4(\.\d)? GB/);
+  });
 });
 
 describe("who may", () => {
   const base = { providerRole: null, providerAllTenants: false } as const;
+  it("release a retention hold: tenant administrators and provider administrators and up", () => {
+    expect(mayReleaseHold({ ...base, role: "tenant_admin", isProviderAdmin: false })).toBe(true);
+    expect(mayReleaseHold({ ...base, role: "tenant_user", isProviderAdmin: false })).toBe(false);
+    const provider = (providerRole: "technician" | "administrator") => ({
+      role: "provider_admin" as const,
+      isProviderAdmin: true,
+      providerRole,
+      providerAllTenants: true,
+    });
+    expect(mayReleaseHold(provider("technician"))).toBe(false);
+    expect(mayReleaseHold(provider("administrator"))).toBe(true);
+  });
+
   it("read: tenant administrators and provider admins", () => {
     expect(mayReadSuspicions({ ...base, role: "tenant_admin", isProviderAdmin: false })).toBe(true);
     expect(mayReadSuspicions({ ...base, role: "tenant_user", isProviderAdmin: false })).toBe(false);

@@ -17,7 +17,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ObjectSuspicionBadge } from "@/features/suspicion";
+import { ObjectSuspicionBadge, RetentionHoldNotice } from "@/features/suspicion";
 import { ApiError } from "@/lib/api";
 
 import type { EndpointDetail } from "./api.js";
@@ -216,6 +216,11 @@ export function EndpointDetailPage({
           </AlertDescription>
         </Alert>
       ) : null}
+
+      <RetentionHoldNotice
+        target={{ kind: "endpoint", objectId: detail.id }}
+        objectName={endpointName(detail)}
+      />
 
       <AttentionArea detail={detail} />
 

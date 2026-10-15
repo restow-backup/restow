@@ -5,13 +5,14 @@ import type { SuspicionTarget } from "../api";
 import { useObjectSuspicions } from "../hooks";
 import { judgementsById, type PointRef } from "../presenters";
 import { LastCleanHint, SelectedPointNote } from "./last-clean-hint";
+import { RetentionHoldNotice } from "./retention-hold-notice";
 import { SuspicionBadge } from "./suspicion-badge";
 
 /**
  * The ransomware marks of a restore view that has a timeline of its own (the explorer of a
- * mailbox or OneDrive): the hint at the last clean restore point while the newest one is
- * suspicious, and the badge and note of the chosen restore point when it is. Nothing while
- * there is nothing to say.
+ * mailbox or OneDrive): the paused retention while a suspicious restore point holds it, the hint
+ * at the last clean restore point while the newest one is suspicious, and the badge and note of
+ * the chosen restore point when it is. Nothing while there is nothing to say.
  */
 export function RestorePointSuspicion<P extends PointRef>({
   target,
@@ -37,6 +38,7 @@ export function RestorePointSuspicion<P extends PointRef>({
   }
   return (
     <div className="space-y-2" data-slot="restore-point-suspicion">
+      <RetentionHoldNotice target={target} objectName={objectName} />
       <LastCleanHint points={points} judgements={judgements} onPick={onPick} />
       {selected && judgement?.verdict === "suspicious" ? (
         <div className="flex flex-wrap items-center gap-2">

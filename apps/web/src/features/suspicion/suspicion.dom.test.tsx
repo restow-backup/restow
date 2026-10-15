@@ -71,13 +71,19 @@ function judgement(over: Partial<Suspicion> = {}): Suspicion {
   };
 }
 
-function routes(list: Suspicion[], onFalseAlarm?: (body: unknown) => void) {
+function routes(
+  list: Suspicion[],
+  onFalseAlarm?: (body: unknown) => void,
+  hold: ObjectSuspicions["hold"] = null,
+  onRelease?: (body: unknown) => void,
+) {
   const view: ObjectSuspicions = {
     objectKind: "file_share",
     objectId: SHARE_ID,
     open: list[0]?.active ?? false,
     openSince: list[0]?.active ? (list[0]?.restorePointAt ?? null) : null,
     lastClean: null,
+    hold,
     restorePoints: list,
   };
   return {
@@ -95,6 +101,10 @@ function routes(list: Suspicion[], onFalseAlarm?: (body: unknown) => void) {
     [`POST /suspicions/${judgement().id}/false-alarm`]: async (request: { body?: unknown }) => {
       onFalseAlarm?.(request.body);
       return json({ ...judgement(), active: false });
+    },
+    "POST /suspicions/hold/release": async (request: { body?: unknown }) => {
+      onRelease?.(request.body);
+      return json({ ...view, hold: null });
     },
   };
 }
@@ -162,5 +172,50 @@ describe("signs of ransomware in a restore view", () => {
     await click(buttonByText(dialog, "Mark as false alarm"));
     await flush(3);
     expect(sent).toEqual({ note: "Planned move" });
+  });
+  it("says that retention is paused, since when, and releases the hold with a note", async () => {
+    let released: unknown = null;
+    rendered = await render(
+      <ShareRestorePoints share={shareFixture()} onShowRuns={() => undefined} />,
+      {
+        routes: routes(
+          [judgement()],
+          undefined,
+          {
+            since: iso(-600),
+            heldAt: iso(-590),
+            restorePoints: 2,
+            remindedAt: null,
+            reminderDays: 14,
+            storageBytes: 5 * 1024 ** 3,
+          },
+          (body) => {
+            released = body;
+          },
+        ),
+      },
+    );
+    await flush(4);
+    const notice = slot("retention-hold") as HTMLElement;
+    expect(notice.textContent).toContain("Retention paused: suspicious restore point since");
+    expect(notice.textContent).toContain("2 suspicious restore points hold it.");
+    expect(notice.textContent).toContain("The repository takes 5");
+    expect(notice.textContent).toContain("every 14 days");
+    expect(notice.textContent).toContain("storage quotas and their warnings still apply");
+    // A warning, never green: a paused retention is nothing to be proud of.
+    expect(notice.querySelector('[data-tone="success"]')).toBeNull();
+
+    await click(buttonByText(notice, "Release hold"));
+    await flush(2);
+    const dialog = slot("retention-hold-dialog") as HTMLElement;
+    expect(dialog.textContent).toContain("suspicious restore points included");
+    const note = dialog.querySelector("textarea") as HTMLTextAreaElement;
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set;
+    setter?.call(note, "Reinstalled");
+    note.dispatchEvent(new Event("input", { bubbles: true }));
+    await flush(1);
+    await click(buttonByText(dialog, "Release hold"));
+    await flush(3);
+    expect(released).toEqual({ kind: "file_share", objectId: SHARE_ID, note: "Reinstalled" });
   });
 });

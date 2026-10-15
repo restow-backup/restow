@@ -17,8 +17,16 @@ import type { RansomwareSettings } from "../api";
 import { useRansomwareSettings, useSaveRansomwareSettings } from "../hooks";
 
 const GIB = 1024 ** 3;
+const MIB = 1024 ** 2;
 
-type Group = "changeRate" | "deletions" | "renames" | "names" | "entropy";
+type Group =
+  | "changeRate"
+  | "deletions"
+  | "renames"
+  | "names"
+  | "entropy"
+  | "compressibility"
+  | "retentionHold";
 
 /** One number of the form: where it lives, how it is shown (percent, GiB) and its label. */
 interface Field {
@@ -30,7 +38,14 @@ interface Field {
   step?: number;
 }
 
-const GROUPS: readonly { group: Group; title: string; hint?: string; fields: Field[] }[] = [
+const GROUPS: readonly {
+  group: Group;
+  title: string;
+  hint?: string;
+  /** The label of the group's switch (default: "Check"). */
+  switchLabel?: string;
+  fields: Field[];
+}[] = [
   {
     group: "changeRate",
     title: "settings.changeRate",
@@ -81,6 +96,51 @@ const GROUPS: readonly { group: Group; title: string; hint?: string; fields: Fie
       { group: "entropy", key: "minHighShare", label: "settings.minHighShare", scale: 100 },
     ],
   },
+  {
+    group: "compressibility",
+    title: "settings.compressibility",
+    hint: "settings.compressibilityHint",
+    fields: [
+      {
+        group: "compressibility",
+        key: "minBytes",
+        label: "settings.compressibilityMinBytesMib",
+        scale: 1 / MIB,
+      },
+      {
+        group: "compressibility",
+        key: "madFactor",
+        label: "settings.compressibilityMadFactor",
+        step: 0.5,
+      },
+      {
+        group: "compressibility",
+        key: "compressionMinRatio",
+        label: "settings.compressionMinRatio",
+        scale: 100,
+      },
+      {
+        group: "compressibility",
+        key: "compressionMinRise",
+        label: "settings.compressionMinRise",
+        scale: 100,
+      },
+      {
+        group: "compressibility",
+        key: "dedupMinRatio",
+        label: "settings.dedupMinRatio",
+        scale: 100,
+      },
+      { group: "compressibility", key: "dedupMinRise", label: "settings.dedupMinRise", scale: 100 },
+    ],
+  },
+  {
+    group: "retentionHold",
+    title: "settings.retentionHold",
+    hint: "settings.retentionHoldHint",
+    switchLabel: "settings.retentionHoldEnabled",
+    fields: [{ group: "retentionHold", key: "reminderDays", label: "settings.reminderDays" }],
+  },
 ];
 
 function read(settings: RansomwareSettings, field: Field): number {
@@ -102,6 +162,7 @@ const WHOLE = new Set([
   "minExtensionFiles",
   "minNoteCopies",
   "minSamples",
+  "reminderDays",
 ]);
 
 function write(settings: RansomwareSettings, field: Field, shown: number): RansomwareSettings {
@@ -228,7 +289,9 @@ export function RansomwareSection() {
                   setDraft({ ...draft, [entry.group]: { ...draft[entry.group], enabled } })
                 }
               />
-              <Label htmlFor={`${id}-${entry.group}-enabled`}>{t("settings.signalEnabled")}</Label>
+              <Label htmlFor={`${id}-${entry.group}-enabled`}>
+                {t(entry.switchLabel ?? "settings.signalEnabled")}
+              </Label>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">{entry.fields.map(numberField)}</div>
           </CardContent>

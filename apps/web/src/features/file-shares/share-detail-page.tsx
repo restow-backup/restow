@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ObjectSuspicionBadge } from "@/features/suspicion";
+import { ObjectSuspicionBadge, RetentionHoldNotice } from "@/features/suspicion";
 import { ApiError } from "@/lib/api";
 
 import { OverviewTab } from "./components/overview-tab.js";
@@ -133,6 +133,11 @@ export function ShareDetailPage({ shareId, tab, onTabChange }: ShareDetailPagePr
           <StatusBadge tone="info">{t("detail.restoreAllowed")}</StatusBadge>
         ) : null}
       </div>
+
+      <RetentionHoldNotice
+        target={{ kind: "file_share", objectId: share.id }}
+        objectName={share.name}
+      />
 
       <Tabs value={tab} onValueChange={(next) => onTabChange(next as ShareTab)}>
         <TabsList aria-label={t("detail.tabs.label")}>

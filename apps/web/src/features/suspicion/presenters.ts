@@ -25,6 +25,17 @@ export function mayMarkFalseAlarm(session: AccessSession): boolean {
   return session.role === "tenant_admin";
 }
 
+/**
+ * Whether the viewer may release a retention hold: a tenant's administrator, or a provider admin
+ * whose team role reaches administrator (the API also asks for a recent sign-in).
+ */
+export function mayReleaseHold(session: AccessSession): boolean {
+  if (session.isProviderAdmin) {
+    return providerMay(session, "administrator");
+  }
+  return session.role === "tenant_admin";
+}
+
 /** A restore point as the hint needs it. */
 export interface PointRef {
   id: string;
@@ -70,11 +81,17 @@ export function findingMessage(
     "known_extensions",
     "ransom_notes",
     "high_entropy",
+    "incompressible_data",
+    "dedup_collapse",
   ];
+  // Compression and deduplication findings carry ratios (0 to about 1), shown as percent.
+  const ratio = finding.code === "incompressible_data" || finding.code === "dedup_collapse";
   const amount = (value: number | undefined) =>
     finding.code === "change_rate_bytes"
       ? formatBytes(value ?? 0, language)
-      : formatInteger(value ?? 0, language);
+      : ratio
+        ? formatPercent(value ?? 0, language, 1)
+        : formatInteger(value ?? 0, language);
   return {
     key: known.includes(finding.code) ? `findings.${finding.code}` : "findings.unknown",
     values: {
@@ -82,6 +99,7 @@ export function findingMessage(
       baseline: amount(finding.baseline),
       threshold: amount(finding.threshold),
       share: formatPercent(finding.share ?? 0, language, 1),
+      ...(ratio ? { bytes: formatBytes(finding.bytes ?? 0, language) } : {}),
       examples: (finding.examples ?? []).slice(0, 3).join(", "),
     },
   };
