@@ -86,6 +86,10 @@ async function send(res: ServerResponse, response: Response): Promise<void> {
 export async function serveMaintenanceRepository(
   storage: StorageBackend,
   prefix: string,
+  options: {
+    /** A deletion the storage refused because the object is still locked (restic-rest.ts). */
+    readonly onDeletionDeferred?: (key: string, retainUntil: Date | null) => void | Promise<void>;
+  } = {},
 ): Promise<LoopbackRepository> {
   const password = randomBytes(32).toString("base64url");
   let served = 0;
@@ -110,6 +114,12 @@ export async function serveMaintenanceRepository(
           principal: "maintenance",
           path: url.pathname,
           query: url.searchParams,
+          ...(options.onDeletionDeferred
+            ? {
+                onDeletionDeferred: (event) =>
+                  options.onDeletionDeferred?.(event.key, event.retainUntil),
+              }
+            : {}),
         });
         await send(res, response);
       } catch {

@@ -37,7 +37,12 @@
  */
 import { createHash } from "node:crypto";
 import { Readable, Transform, type TransformCallback } from "node:stream";
-import { listWithSizes, readRange, type StorageBackend } from "../storage/backend.js";
+import {
+  listWithSizes,
+  lockedErrorOf,
+  readRange,
+  type StorageBackend,
+} from "../storage/backend.js";
 import {
   actionOf,
   authorizeResticAction,
@@ -84,6 +89,18 @@ export interface ResticRestOptions {
     action: ResticAction;
     resource: ResticResource;
     bytes: number;
+  }) => void | Promise<void>;
+  /**
+   * Called for a deletion the storage refused because the object is still
+   * under retention (Object Lock, or a directory's deletion delay; docs/
+   * STORAGE.md, "Immutable backups"). The client gets 403, which restic
+   * treats as final for that file and reports as a warning; the next prune
+   * tries again.
+   */
+  onDeletionDeferred?: (event: {
+    resource: ResticResource;
+    key: string;
+    retainUntil: Date | null;
   }) => void | Promise<void>;
   /** Called for every request the authorization matrix refused. */
   onDenied?: (event: { action: ResticAction; resource: ResticResource; reason: string }) => void;
@@ -424,8 +441,21 @@ export async function handleResticRequest(
         ? new Response(null, { status: 200 })
         : text(400, "missing create=true");
     }
+    let deferred = 0;
     for (const key of await storage.list(prefix)) {
-      await storage.delete(key);
+      try {
+        await storage.delete(key);
+      } catch (error) {
+        const locked = lockedErrorOf(error);
+        if (!locked) {
+          throw error;
+        }
+        deferred++;
+        await options.onDeletionDeferred?.({ resource, key, retainUntil: locked.retainUntil });
+      }
+    }
+    if (deferred > 0) {
+      return text(403, `forbidden: ${deferred} objects are still locked`);
     }
     await options.onAllowed?.({ action, resource, bytes: 0 });
     return new Response(null, { status: 200 });
@@ -512,7 +542,16 @@ export async function handleResticRequest(
       if (head === null) {
         return text(404, "not found");
       }
-      await storage.delete(key);
+      try {
+        await storage.delete(key);
+      } catch (error) {
+        const locked = lockedErrorOf(error);
+        if (!locked) {
+          throw error;
+        }
+        await options.onDeletionDeferred?.({ resource, key, retainUntil: locked.retainUntil });
+        return text(403, "forbidden: object locked");
+      }
       if (agentLock !== null) {
         await options.locks?.removed(agentLock);
       }
