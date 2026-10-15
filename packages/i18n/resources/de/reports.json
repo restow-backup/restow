@@ -373,7 +373,8 @@
   "events": {
     "backup": {
       "failed": "Sicherung fehlgeschlagen",
-      "overdue": "Sicherung überfällig"
+      "overdue": "Sicherung überfällig",
+      "succeeded": "Sicherung erfolgreich"
     },
     "restore": {
       "failed": "Wiederherstellung fehlgeschlagen",
@@ -388,7 +389,8 @@
     "verify": {
       "red": "Restore-Prüfung nicht bestanden",
       "yellow": "Restore-Prüfung mit Hinweisen",
-      "recovered": "Wieder wiederherstellbar"
+      "recovered": "Wieder wiederherstellbar",
+      "completed": "Restore-Prüfung abgeschlossen"
     },
     "scrub": {
       "corrupt": "Speicherschaden gefunden",
@@ -411,7 +413,8 @@
   "eventHints": {
     "backup": {
       "failed": "Ein Sicherungslauf eines Postfachs, OneDrives, IMAP-Kontos, Servers oder Clients wurde nicht abgeschlossen.",
-      "overdue": "Ein Postfach, OneDrive, IMAP-Konto, Rechner oder Gast (VM oder Container) hatte länger keine erfolgreiche Sicherung, als seine Backup-Jobs vorsehen (doppelter längster Abstand der Zeitpläne, ohne Zeitplan zwei Tage), oder länger als die eigene Frist der Regel. Einmal je Objekt, bis wieder eine Sicherung gelingt."
+      "overdue": "Ein Postfach, OneDrive, IMAP-Konto, Rechner oder Gast (VM oder Container) hatte länger keine erfolgreiche Sicherung, als seine Backup-Jobs vorsehen (doppelter längster Abstand der Zeitpläne, ohne Zeitplan zwei Tage), oder länger als die eigene Frist der Regel. Einmal je Objekt, bis wieder eine Sicherung gelingt.",
+      "succeeded": "Ein Sicherungslauf eines Postfachs, OneDrives, IMAP-Kontos oder einer Dateifreigabe ist abgeschlossen. Jeder Lauf, also eher für einen Kanal, der jeden sehen soll."
     },
     "restore": {
       "failed": "Eine Wiederherstellung oder ein Download, auch eines Servers oder Clients, konnte nicht abgeschlossen werden.",
@@ -426,7 +429,8 @@
     "verify": {
       "red": "Eine Wiederherstellung wäre nicht vollständig: Die neueste Sicherung eines Postfachs, OneDrives, IMAP-Kontos, Servers oder Clients hat ihre Restore-Prüfung nicht bestanden.",
       "yellow": "Die Prüfung ist mit Hinweisen bestanden.",
-      "recovered": "Ein Postfach, OneDrive, IMAP-Konto, Server oder Client, das rot oder gelb war, ist wieder grün."
+      "recovered": "Ein Postfach, OneDrive, IMAP-Konto, Server oder Client, das rot oder gelb war, ist wieder grün.",
+      "completed": "Eine Restore-Prüfung ist abgeschlossen, gleich mit welcher Bewertung. Jede Prüfung, also eher für einen Kanal, der jede sehen soll."
     },
     "scrub": {
       "corrupt": "Die Speicherprüfung hat beschädigte oder fehlende Pack-Dateien gefunden.",
@@ -521,7 +525,8 @@
   "bellEvents": {
     "backup": {
       "failed": "Sicherung fehlgeschlagen: {object}",
-      "overdue": "Keine erfolgreiche Sicherung {days, plural, one {seit über # Tag} other {seit über # Tagen}}: {object}"
+      "overdue": "Keine erfolgreiche Sicherung {days, plural, one {seit über # Tag} other {seit über # Tagen}}: {object}",
+      "succeeded": "Sicherung erfolgreich: {object}"
     },
     "restore": {
       "failed": "Wiederherstellung fehlgeschlagen: {object}",
@@ -537,7 +542,8 @@
       "red": "Restore-Prüfung nicht bestanden: {object}",
       "redOutdated": "Sicherung zu alt: {object}",
       "yellow": "Restore-Prüfung mit Hinweisen: {object}",
-      "recovered": "Wieder wiederherstellbar: {object}"
+      "recovered": "Wieder wiederherstellbar: {object}",
+      "completed": "Restore-Prüfung abgeschlossen: {object}"
     },
     "scrub": {
       "corrupt": "Speicherschaden gefunden",
