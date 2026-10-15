@@ -371,6 +371,53 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
       expect(used?.usedByEndpointId).toBe(body.endpointId);
     }, 30_000);
 
+    it("gives a client in a container or a VM without a desktop the server profile (#59)", async () => {
+      const lxc = { virtualization: "container", technology: "lxc", desktop: false };
+      const created = await token("client");
+      const response = await enrollWith(created.token, {
+        agentVersion: "0.4.0",
+        hooks: "off",
+        machine: lxc,
+        dataFolders: ["/opt", "/var/lib/postgresql"],
+      });
+      expect(response.status).toBe(201);
+      const body = (await response.json()) as Enrolled;
+      expect(body.config).toMatchObject({ profile: "server" });
+      const row = await endpointRow(body.endpointId);
+      expect(row?.profile).toBe("server");
+      // The server profile's folders, for the job editor to start from.
+      expect(row?.config.paths).toContain("/opt");
+      expect(row?.settings.profileDetection).toEqual({
+        requested: "client",
+        reason: "container",
+        technology: "lxc",
+      });
+      expect(row?.settings.agent).toMatchObject({
+        hooks: "off",
+        machine: lxc,
+        dataFolders: ["/opt", "/var/lib/postgresql"],
+      });
+      const [entry] = await fixture.db
+        .select()
+        .from(auditLog)
+        .where(and(eq(auditLog.action, "endpoint.enrolled"), eq(auditLog.target, body.endpointId)));
+      expect(entry?.details).toMatchObject({
+        profile: "server",
+        requestedProfile: "client",
+        profileReason: "container",
+      });
+
+      // A VM with a desktop stays a client, and so does a machine whose agent says nothing.
+      const desktop = await enrolled("client", fixture.tenantId, "linux", {
+        machine: { virtualization: "vm", technology: "kvm", desktop: true },
+      });
+      expect((await endpointRow(desktop.endpointId))?.profile).toBe("client");
+      const older = await enrolled("client");
+      const olderRow = await endpointRow(older.endpointId);
+      expect(olderRow?.profile).toBe("client");
+      expect(olderRow?.settings.profileDetection).toBeUndefined();
+    }, 30_000);
+
     it("uses a token exactly once", async () => {
       const created = await token("client", "darwin");
       const first = await enrollWith(created.token, { os: "darwin", arch: "arm64" });
@@ -596,6 +643,30 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
         .where(eq(endpointTasks.id, created.task.id));
       expect(task?.status).toBe("delivered");
     }, 30_000);
+
+    it("keeps the machine and the data folders the heartbeat reports, and forgets them with an older agent (#59)", async () => {
+      const who = await enrolled("server");
+      const beat = { agentVersion: "0.4.0", osVersion: "", state: "idle", hooks: "off" };
+      const first = await agentRequest(who, "/heartbeat", {
+        body: {
+          ...beat,
+          machine: { virtualization: "vm", technology: "kvm", desktop: false },
+          dataFolders: ["/opt", "/home", "/var/lib/mysql"],
+        },
+      });
+      expect(first.status).toBe(200);
+      expect((await endpointRow(who.endpointId))?.settings.agent).toMatchObject({
+        machine: { virtualization: "vm", technology: "kvm", desktop: false },
+        dataFolders: ["/opt", "/var/lib/mysql"],
+      });
+      const older = await agentRequest(who, "/heartbeat", {
+        body: { ...beat, agentVersion: "0.3.0" },
+      });
+      expect(older.status).toBe(200);
+      const agent = (await endpointRow(who.endpointId))?.settings.agent;
+      expect(agent?.hooks).toBe("off");
+      expect(agent).not.toHaveProperty("dataFolders");
+    });
 
     it("tells an agent with an old configuration to fetch the new one", async () => {
       const who = await enrolled("server", fixture.tenantId, "linux", { hooks: "any" });

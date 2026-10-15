@@ -531,15 +531,47 @@ describe("request schemas", () => {
     });
     expect(parsed.hooks).toBe("scripts");
     expect(parsed.hookScripts).toEqual(["db-dump", "fsfreeze.sh"]);
-    expect(agentFactsOf(parsed, new Date("2026-10-01T10:00:00Z"))).toEqual({
+    expect(agentFactsOf(parsed, new Date("2026-10-01T10:00:00Z"), "linux")).toEqual({
       hooks: "scripts",
       hookScripts: ["db-dump", "fsfreeze.sh"],
       reportedAt: "2026-10-01T10:00:00.000Z",
     });
-    expect(agentFactsOf(heartbeatSchema.parse(beat), new Date())).toBeNull();
+    expect(agentFactsOf(heartbeatSchema.parse(beat), new Date(), "linux")).toBeNull();
     expect(
-      agentFactsOf(heartbeatSchema.parse({ ...beat, hooks: "any" }), new Date()),
+      agentFactsOf(heartbeatSchema.parse({ ...beat, hooks: "any" }), new Date(), "linux"),
     ).not.toHaveProperty("hookScripts");
+  });
+
+  it("reads the machine and its data folders an agent of 0.4.0 reports (#59)", () => {
+    const beat = { agentVersion: "0.4.0", osVersion: "", state: "idle", hooks: "off" };
+    const parsed = heartbeatSchema.parse({
+      ...beat,
+      machine: { virtualization: "container", technology: "lxc; rm", desktop: false },
+      dataFolders: ["/opt", "/root/.ssh", "/var/lib/docker/volumes"],
+    });
+    expect(agentFactsOf(parsed, new Date("2026-10-01T10:00:00Z"), "linux")).toEqual({
+      hooks: "off",
+      machine: { virtualization: "container", technology: "lxcrm", desktop: false },
+      dataFolders: ["/opt", "/var/lib/docker/volumes"],
+      reportedAt: "2026-10-01T10:00:00.000Z",
+    });
+    // An earlier agent sends neither; a report that does not fit is dropped, not refused.
+    const older = agentFactsOf(heartbeatSchema.parse(beat), new Date(), "linux");
+    expect(older).not.toHaveProperty("machine");
+    expect(older).not.toHaveProperty("dataFolders");
+    const odd = heartbeatSchema.parse({
+      ...beat,
+      machine: { virtualization: "zone" },
+      dataFolders: "/opt",
+    });
+    expect(odd.machine).toBeUndefined();
+    expect(odd.dataFolders).toBeUndefined();
+    expect(heartbeatSchema.parse({ ...beat, dataFolders: null }).dataFolders).toBeUndefined();
+    // Checked, nothing found: an empty list, not "not reported".
+    expect(
+      agentFactsOf(heartbeatSchema.parse({ ...beat, dataFolders: [] }), new Date(), "linux")
+        ?.dataFolders,
+    ).toEqual([]);
   });
 
   it("reads what the Go agent sends: numeric or empty config versions, samples without size", () => {

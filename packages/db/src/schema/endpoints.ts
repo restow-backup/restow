@@ -171,6 +171,17 @@ export type EndpointSettings = {
   autoUpdatePaused?: boolean;
   /** What the agent reports about the machine; written by the server from enrollment and heartbeat only. */
   agent?: EndpointAgentFacts;
+  /**
+   * The machine was enrolled with a client token but got the server profile, because its agent
+   * reported a container or a virtual machine without a desktop (release 0.4.0, #59). Written once
+   * at enrollment.
+   */
+  profileDetection?: {
+    requested: "server" | "client";
+    reason: "container" | "vm";
+    /** What it runs in as the agent named it (`lxc`, `kvm`); empty when unknown. */
+    technology: string;
+  };
 };
 
 /** The machine's local hook policy (set by root on the machine, never by the server). */
@@ -183,6 +194,22 @@ export type EndpointAgentFacts = {
   hookScripts?: string[];
   /** When the agent last reported these facts (ISO 8601). */
   reportedAt?: string;
+  /** Container, virtual machine, desktop (agent 0.4.0 and later). */
+  machine?: EndpointMachineFacts;
+  /**
+   * The folders of a fixed list where applications keep their data that exist on the machine with
+   * files in them (@restow/core `DATA_FOLDER_CANDIDATES`; agent 0.4.0 and later, #59). Absent:
+   * the agent does not report them.
+   */
+  dataFolders?: string[];
+};
+
+/** How the agent sees the machine it runs on. */
+export type EndpointMachineFacts = {
+  virtualization: "container" | "vm" | "none";
+  /** `lxc`, `docker`, `kvm`, `vmware`, ...; empty when unknown. */
+  technology: string;
+  desktop: boolean;
 };
 
 /** A machine with an agent enrolled. */
