@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
+import { vi } from "vitest";
 
 import { i18n } from "@/i18n";
 import { type SessionContextValue, StaticSessionProvider } from "@/lib/session";
@@ -238,6 +239,43 @@ export async function flush(times = 3): Promise<void> {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
   }
+}
+
+/**
+ * Wait until `find` returns something: settle pending work inside `act` a few
+ * milliseconds at a time (on the fake clock when the test fakes timers) and
+ * give up after `timeoutMs` of such steps. A fixed number of flushes is not
+ * enough when queries settle late on a busy machine.
+ */
+export async function waitFor<T>(
+  find: () => T | null | undefined | false,
+  { timeoutMs = 2000, what = "condition" }: { timeoutMs?: number; what?: string } = {},
+): Promise<T> {
+  const step = 5;
+  for (let waited = 0; ; waited += step) {
+    const found = find();
+    if (found) {
+      return found;
+    }
+    if (waited >= timeoutMs) {
+      throw new Error(`waitFor: ${what} not met after ${timeoutMs} ms`);
+    }
+    await act(async () => {
+      if (vi.isFakeTimers()) {
+        await vi.advanceTimersByTimeAsync(step);
+      } else {
+        await new Promise((resolve) => setTimeout(resolve, step));
+      }
+    });
+  }
+}
+
+/** `waitFor` an element, e.g. a button of a dialog that renders after a query settles. */
+export function waitForElement<E extends Element>(
+  find: () => E | null | undefined,
+  options: { timeoutMs?: number; what?: string } = {},
+): Promise<E> {
+  return waitFor(find, { what: "element", ...options });
 }
 
 export async function click(element: Element | null | undefined): Promise<void> {

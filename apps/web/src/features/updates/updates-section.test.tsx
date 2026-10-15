@@ -27,12 +27,15 @@ import {
   mount,
   NOW,
   problem,
+  type RecordedRequest,
   releaseFixture,
   routedFetch,
   runFixture,
   sessionAs,
   type as typeInto,
   updatesFixture,
+  waitFor,
+  waitForElement,
 } from "./testing";
 import { UpdatesContent, UpdatesSection } from "./updates-section";
 
@@ -254,7 +257,8 @@ describe("the version card", () => {
       await mounted?.unmount();
       mounted = null;
     }
-  });
+    // One mount per failure code: about a second, but more than five on a busy machine.
+  }, 20_000);
 
   it("names the time a rate limit is lifted, and shows the technical hint", () => {
     const retryAt = iso(1800);
@@ -993,6 +997,31 @@ describe("installing an update", () => {
     return updatesFixture({ latest: newest, releases: [newest, older] });
   };
 
+  /** Open the install dialog once the page has loaded, and wait until the runs in progress are read. */
+  const openInstallDialog = async (): Promise<HTMLElement> => {
+    await click(
+      await waitForElement(() => buttonByText(document.body, "Install update"), {
+        what: "the Install update button",
+      }),
+    );
+    const confirm = dialog() as HTMLElement;
+    expect(confirm).not.toBeNull();
+    await waitForElement(
+      () => confirm.querySelector('[data-slot="install-runs"]:not([aria-busy="true"])'),
+      { what: "the runs in progress" },
+    );
+    return confirm;
+  };
+
+  const posted = (requests: RecordedRequest[]) =>
+    waitFor(
+      () =>
+        requests.find(
+          (request) => request.method === "POST" && request.path === "/updates/maintenance",
+        ),
+      { what: "POST /updates/maintenance" },
+    );
+
   it("asks which version and when, with what happens, and posts the choice", async () => {
     const view = twoReleases();
     const busy = updatesFixture({
@@ -1014,11 +1043,8 @@ describe("installing an update", () => {
     vi.stubGlobal("fetch", mock);
     mounted = mount(<UpdatesSection />);
     const invalidate = vi.spyOn(mounted.queryClient, "invalidateQueries");
-    await flush(5);
 
-    await click(buttonByText(document.body, "Install update"));
-    const confirm = dialog() as HTMLElement;
-    expect(confirm).not.toBeNull();
+    const confirm = await openInstallDialog();
     const content = text(confirm);
     expect(content).toContain("Install an update");
     // What will happen.
@@ -1028,7 +1054,6 @@ describe("installing an update", () => {
     expect(content).toContain("Everyone who is signed in sees a countdown");
     expect(content).toContain("The release image is downloaded from the registry");
     // Nothing runs: no choice, but new runs pause until the update is over (#46).
-    await flush(3);
     expect(text(confirm)).toContain("No run is in progress or waiting right now.");
     expect(text(confirm)).toContain("no new run starts");
     expect(confirm.querySelector('input[name="update-runs"]')).toBeNull();
@@ -1054,13 +1079,10 @@ describe("installing an update", () => {
     await click(confirm.querySelector('input[name="update-version"][value="0.1.1"]'));
     await click(confirm.querySelector('input[name="update-lead"][value="3600"]'));
     await click(buttonByText(confirm, "Announce update"));
-    await flush(5);
 
-    const post = requests.find(
-      (request) => request.method === "POST" && request.path === "/updates/maintenance",
-    );
-    expect(post?.body).toEqual({ version: "0.1.1", leadSeconds: 3600, jobs: "wait" });
-    expect(dialog()).toBeNull();
+    const post = await posted(requests);
+    expect(post.body).toEqual({ version: "0.1.1", leadSeconds: 3600, jobs: "wait" });
+    await waitFor(() => dialog() === null, { what: "the dialog to close" });
     // The busy state shows at once, and the shell is told to re-read.
     expect(slot("updater-busy")?.dataset.phase).toBe("scheduled");
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["updates", "maintenance"] });
@@ -1076,20 +1098,12 @@ describe("installing an update", () => {
     });
     vi.stubGlobal("fetch", mock);
     mounted = mount(<UpdatesSection />);
-    await flush(5);
 
-    await click(buttonByText(document.body, "Install update"));
-    const confirm = dialog() as HTMLElement;
-    await flush(3);
+    const confirm = await openInstallDialog();
     await click(confirm.querySelector('input[name="update-lead"][value="0"]'));
     expect(buttonByText(confirm, "Start update now")).not.toBeNull();
     await click(buttonByText(confirm, "Start update now"));
-    await flush(5);
-    expect(
-      requests.find(
-        (request) => request.method === "POST" && request.path === "/updates/maintenance",
-      )?.body,
-    ).toEqual({
+    expect((await posted(requests)).body).toEqual({
       version: "0.2.0",
       leadSeconds: 0,
       jobs: "wait",
@@ -1112,11 +1126,8 @@ describe("installing an update", () => {
     });
     vi.stubGlobal("fetch", mock);
     mounted = mount(<UpdatesSection />);
-    await flush(5);
 
-    await click(buttonByText(document.body, "Install update"));
-    const confirm = dialog() as HTMLElement;
-    await flush(3);
+    const confirm = await openInstallDialog();
     const list = confirm.querySelector('[data-slot="install-runs-list"]') as HTMLElement;
     expect([...list.querySelectorAll("li")].map((item) => item.dataset.group)).toEqual([
       "mail",
@@ -1139,12 +1150,11 @@ describe("installing an update", () => {
     await click(confirm.querySelector('input[name="update-runs"][value="wait"]'));
     expect(text(confirm)).toContain("after two hours at the latest");
     await click(buttonByText(confirm, "Announce after the runs"));
-    await flush(5);
-    expect(
-      requests.find(
-        (request) => request.method === "POST" && request.path === "/updates/maintenance",
-      )?.body,
-    ).toEqual({ version: "0.2.0", leadSeconds: 300, jobs: "wait" });
+    expect((await posted(requests)).body).toEqual({
+      version: "0.2.0",
+      leadSeconds: 300,
+      jobs: "wait",
+    });
   });
 
   it("does not wait when asked not to, and offers the choice when nothing could be counted", async () => {
@@ -1157,21 +1167,17 @@ describe("installing an update", () => {
     });
     vi.stubGlobal("fetch", mock);
     mounted = mount(<UpdatesSection />);
-    await flush(5);
 
-    await click(buttonByText(document.body, "Install update"));
-    const confirm = dialog() as HTMLElement;
-    await flush(5);
+    const confirm = await openInstallDialog();
     expect(text(confirm)).toContain("What is running could not be counted");
     await click(confirm.querySelector('input[name="update-runs"][value="interrupt"]'));
     expect(text(confirm)).toContain("Everyone who is signed in sees a countdown");
     await click(buttonByText(confirm, "Announce update"));
-    await flush(5);
-    expect(
-      requests.find(
-        (request) => request.method === "POST" && request.path === "/updates/maintenance",
-      )?.body,
-    ).toEqual({ version: "0.2.0", leadSeconds: 300, jobs: "interrupt" });
+    expect((await posted(requests)).body).toEqual({
+      version: "0.2.0",
+      leadSeconds: 300,
+      jobs: "interrupt",
+    });
   });
 
   it("shows an update that waits for runs, and starts it on request (#46)", async () => {
@@ -1217,10 +1223,10 @@ describe("installing an update", () => {
   it("explains a build from source, and warns about a pre-release", async () => {
     const release = releaseFixture({ prerelease: true, version: "0.3.0-rc.1", tag: "v0.3.0-rc.1" });
     const view = updatesFixture({ mode: "source", latest: release, releases: [release] });
+    const { mock } = routedFetch({ "GET /updates/jobs": () => json(activityFixture()) });
+    vi.stubGlobal("fetch", mock);
     mounted = mount(<UpdatesContent view={view} receivedAt={NOW} canManage />);
-    await flush();
-    await click(buttonByText(document.body, "Install update"));
-    const content = text(dialog() as HTMLElement);
+    const content = text(await openInstallDialog());
     expect(content).toContain("built on this server from the repository at tag v0.3.0-rc.1");
     expect(content).toContain("This is a pre-release");
   });
@@ -1256,10 +1262,10 @@ describe("installing an update", () => {
   it("does not offer to install a release without an image digest", async () => {
     const release = releaseFixture({ digests: {} });
     const view = updatesFixture({ latest: release, releases: [release] });
+    const { mock } = routedFetch({ "GET /updates/jobs": () => json(activityFixture()) });
+    vi.stubGlobal("fetch", mock);
     mounted = mount(<UpdatesContent view={view} receivedAt={NOW} canManage />);
-    await flush();
-    await click(buttonByText(document.body, "Install update"));
-    const content = dialog() as HTMLElement;
+    const content = await openInstallDialog();
     expect(text(content)).toContain("publishes no image digest");
     expect((buttonByText(content, "Announce update") as HTMLButtonElement).disabled).toBe(true);
   });
@@ -1268,23 +1274,26 @@ describe("installing an update", () => {
     const view = twoReleases();
     const { mock } = routedFetch({
       "GET /updates": () => json(view),
+      "GET /updates/jobs": () => json(activityFixture()),
       "POST /updates/maintenance": () => problem("urn:restow:problem:update-busy", 409),
     });
     vi.stubGlobal("fetch", mock);
     mounted = mount(<UpdatesSection />);
-    await flush(5);
 
-    await click(buttonByText(document.body, "Install update"));
-    await click(buttonByText(dialog() as HTMLElement, "Announce update"));
-    await flush(5);
+    await click(buttonByText(await openInstallDialog(), "Announce update"));
+    const cause = "An update is already announced or running.";
+    await waitFor(() => text(dialog() ?? document.createElement("div")).includes(cause), {
+      what: cause,
+    });
     expect(dialog()).not.toBeNull();
-    expect(text(dialog() as HTMLElement)).toContain("An update is already announced or running.");
+    expect(text(dialog() as HTMLElement)).toContain(cause);
   });
 
   it("asks to confirm it is you before an update is announced from an older session", async () => {
     const view = twoReleases();
     const { mock, requests } = routedFetch({
       "GET /updates": () => json(view),
+      "GET /updates/jobs": () => json(activityFixture()),
       "POST /updates/maintenance": () =>
         problem("urn:restow:problem:recent-sign-in-required", 403, { maxAgeSeconds: 600 }),
       "GET /setup/state": () =>
@@ -1292,13 +1301,12 @@ describe("installing an update", () => {
     });
     vi.stubGlobal("fetch", mock);
     mounted = mount(<UpdatesSection />);
-    await flush(5);
-    await click(buttonByText(document.body, "Install update"));
-    await click(buttonByText(dialog() as HTMLElement, "Announce update"));
-    await flush(5);
+    await click(buttonByText(await openInstallDialog(), "Announce update"));
+    const confirm = await waitForElement(() => slot("confirm-identity"), {
+      what: "the confirm-identity dialog",
+    });
     expect(requests.filter((request) => request.method === "POST")).toHaveLength(1);
     expect(text(dialog() as HTMLElement)).toContain("Confirm it is you first");
-    const confirm = slot("confirm-identity") as HTMLElement;
     expect(confirm).not.toBeNull();
     expect(text(confirm)).toContain("Confirm it is you");
   });
@@ -1317,20 +1325,22 @@ describe("installing an update", () => {
       const view = twoReleases();
       const { mock } = routedFetch({
         "GET /updates": () => json(view),
+        "GET /updates/jobs": () => json(activityFixture()),
         "POST /updates/maintenance": () => problem(type, 409),
       });
       vi.stubGlobal("fetch", mock);
       mounted = mount(<UpdatesSection />);
-      await flush(5);
-      await click(buttonByText(document.body, "Install update"));
-      await click(buttonByText(dialog() as HTMLElement, "Announce update"));
-      await flush(5);
+      await click(buttonByText(await openInstallDialog(), "Announce update"));
+      await waitFor(() => text(dialog() ?? document.createElement("div")).includes(expected), {
+        what: type,
+      });
       expect(text(dialog() as HTMLElement), type).toContain(expected);
       await mounted.unmount();
       mounted = null;
       document.body.innerHTML = "";
     }
-  });
+    // Seven mounts of the whole section: well under a second, but more than five on a busy machine.
+  }, 20_000);
 });
 
 describe("an announced or running update", () => {
