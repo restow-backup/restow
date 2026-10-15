@@ -37,6 +37,7 @@ import type {
 import { objectLabel } from "@/features/restore/explorer/entry-icon";
 import { useSnapshotLabel } from "@/features/restore/explorer/restore-point-label";
 import { useEntryLabel } from "@/features/restore/explorer/use-entry-label";
+import { accountOptionLabel } from "@/features/restore/lib/accounts";
 import {
   type RestoreErrorDisplay,
   type RestoreFormContext,
@@ -315,7 +316,7 @@ function RestoreForm({
           <datalist id="restore-account-suggestions">
             {(targets.data ?? []).map((account) => (
               <option key={account.id} value={account.externalId}>
-                {account.displayName ?? account.externalId}
+                {accountOptionLabel(account)}
               </option>
             ))}
           </datalist>

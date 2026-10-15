@@ -595,7 +595,13 @@
       "allTaken": "Another job already covers all objects that are in no job.",
       "selected": "Only the objects I choose",
       "allBody": "The job covers every active mailbox, OneDrive and IMAP account that is in no other job, including ones that are added later.",
-      "overridesKept": "{count, plural, one {# object keeps its overrides.} other {# objects keep their overrides.}}"
+      "overridesKept": "{count, plural, one {# object keeps its overrides.} other {# objects keep their overrides.}}",
+      "proxmox": {
+        "title": "Proxmox VE VMs and containers are not listed here",
+        "body": "This list holds servers and clients with the {appName} agent. VMs and containers on Proxmox VE are backed up by Proxmox VE jobs: create one under VMs & containers, or select guests in the inventory and choose “Add to job” or “New job”. A Proxmox host itself appears here only once the agent is installed on it.",
+        "openGuests": "Open VMs & containers",
+        "openInventory": "Proxmox guests in the inventory"
+      }
     },
     "schedule": {
       "title": "Schedule",

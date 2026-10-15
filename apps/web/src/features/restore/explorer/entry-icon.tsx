@@ -11,6 +11,7 @@ import {
 import { useTranslation } from "react-i18next";
 
 import type { EntryKind, ObjectKind } from "@/features/restore/api";
+import { type NameableObject, protectedObjectName } from "@/lib/protected-object";
 import { cn } from "@/lib/utils";
 
 const ENTRY_ICONS = {
@@ -62,12 +63,8 @@ export function ObjectIcon({ kind, className }: { kind: ObjectKind; className?: 
  * else its external id — in that order, because `externalId` is only ever a
  * human-meaningful address for an IMAP account; for a mailbox or OneDrive it
  * is Entra's own opaque object id or driveId, which "never show raw ids"
- * rules out whenever a better fallback exists.
+ * rules out whenever a better fallback exists (see `lib/protected-object.ts`).
  */
-export function objectLabel(object: {
-  displayName: string | null;
-  externalId: string;
-  ownerEmail?: string | null;
-}): string {
-  return object.displayName?.trim() || object.ownerEmail?.trim() || object.externalId;
+export function objectLabel(object: NameableObject): string {
+  return protectedObjectName(object);
 }

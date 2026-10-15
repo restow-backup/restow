@@ -1,6 +1,7 @@
 import { Link } from "@tanstack/react-router";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
+  CircleSlash,
   FolderOpen,
   FolderSearch,
   Info,
@@ -17,12 +18,14 @@ import {
   DataTable,
   DataTableFacetedFilter,
   DataTableSearch,
+  EmptyState,
   RelativeTime,
   type RowAction,
   StatusBadge,
   matchesAnyOf,
   rowActionsColumn,
 } from "@/components/kit";
+import { Button } from "@/components/ui/button";
 import { useJobsAccess } from "@/features/backup-jobs/components/access-note";
 import { useJobActions } from "@/features/backup-jobs/components/job-actions";
 import { newJobTo } from "@/features/backup-jobs/paths";
@@ -40,6 +43,7 @@ import {
   endpointName,
   isWithoutBackup,
   lastBackupOf,
+  splitRevoked,
 } from "../presenters.js";
 import { AddToJobDialog, type JobCandidate } from "./add-to-job-dialog.js";
 import { AssignDialog, type AssignTarget, useAssignAccess } from "./assign-dialog.js";
@@ -102,7 +106,7 @@ function timeValue(value: string | null): number {
   return Number.isNaN(parsed) ? 0 : parsed;
 }
 
-/** A revoked machine stays in the list, greyed out. */
+/** A revoked machine, shown on request ("Show revoked machines"), is greyed out. */
 function Dimmed({ revoked, children }: { revoked: boolean; children: React.ReactNode }) {
   return <div className={cn("min-w-0", revoked && "opacity-60")}>{children}</div>;
 }
@@ -164,6 +168,10 @@ function AssigneeCell({ endpoint }: { endpoint: EndpointSummary }) {
  * restore its files, assign it to a person; administrators of jobs also create a job
  * for a machine without backup or add it to one. They can select machines and make a
  * new job from the selection, or add the selection to a job.
+ *
+ * Revoked machines are left out until "Show revoked machines (N)" is pressed (#65):
+ * revoking stops a machine's backups but deletes nothing, so they would otherwise
+ * stay in the list for good.
  */
 export function EndpointsTable({
   area,
@@ -186,6 +194,9 @@ export function EndpointsTable({
   const jobActions = useJobActions();
   const runJobNow = jobActions.runNow;
   const runningJobs = jobActions.running;
+  const [showRevoked, setShowRevoked] = React.useState(false);
+  const { active, revoked } = splitRevoked(items ?? []);
+  const rows = items === undefined ? undefined : showRevoked ? items : active;
 
   const columns = React.useMemo<ColumnDef<EndpointSummary>[]>(() => {
     const list: ColumnDef<EndpointSummary>[] = [
@@ -551,21 +562,35 @@ export function EndpointsTable({
     runningJobs,
   ]);
 
-  const present = new Set((items ?? []).map((endpoint) => endpoint.readiness.state));
+  const present = new Set((rows ?? []).map((endpoint) => endpoint.readiness.state));
   const readinessOptions = READINESS_ORDER.filter((state) => present.has(state)).map((state) => ({
     value: state,
     label: t(`readiness.state.${state}`),
   }));
-  const profilesPresent = new Set((items ?? []).map((endpoint) => endpoint.profile));
+  const profilesPresent = new Set((rows ?? []).map((endpoint) => endpoint.profile));
   const profileOptions = (["server", "client"] as const)
     .filter((profile) => profilesPresent.has(profile))
     .map((profile) => ({ value: profile, label: t(`profile.${profile}`) }));
-  const jobValues = new Set((items ?? []).map(jobFilterValue));
+  const jobValues = new Set((rows ?? []).map(jobFilterValue));
   const jobOptions = JOB_FILTER_ORDER.filter((value) => jobValues.has(value)).map((value) => ({
     value,
     label: t(`list.jobFilter.${value}`),
   }));
-  const assigneeOptions = assigneeFilterOptions(items ?? [], t("list.assignedNobody"));
+  const assigneeOptions = assigneeFilterOptions(rows ?? [], t("list.assignedNobody"));
+  const revokedToggle =
+    revoked.length > 0 ? (
+      <Button
+        type="button"
+        size="sm"
+        variant={showRevoked ? "secondary" : "outline"}
+        aria-pressed={showRevoked}
+        data-slot="show-revoked"
+        onClick={() => setShowRevoked((value) => !value)}
+      >
+        <CircleSlash aria-hidden="true" />
+        {t("list.showRevoked", { count: revoked.length })}
+      </Button>
+    ) : null;
 
   return (
     <>
@@ -573,14 +598,27 @@ export function EndpointsTable({
         id={`endpoints-${area}`}
         label={t(`areas.${area}.title`)}
         columns={columns}
-        data={items}
+        data={rows}
         getRowId={(endpoint) => endpoint.id}
         loading={loading}
         fetching={fetching}
         error={error}
         onRetry={onRetry}
         errorTitle={t("list.errors.load")}
-        empty={empty}
+        empty={
+          // Every machine is revoked and hidden: say so instead of "no machine yet".
+          revoked.length > 0 && !showRevoked ? (
+            <EmptyState
+              variant="plain"
+              icon={CircleSlash}
+              title={t("list.onlyRevoked.title")}
+              description={t("list.onlyRevoked.description")}
+              actions={revokedToggle}
+            />
+          ) : (
+            empty
+          )
+        }
         pinnedColumns={PINNED}
         // Selecting machines serves the job actions: a new job from them, or an existing one.
         selectable={canManageJobs}
@@ -621,6 +659,7 @@ export function EndpointsTable({
                 column={table.getColumn("assignedTo")}
               />
             ) : null}
+            {revokedToggle}
           </>
         )}
       />

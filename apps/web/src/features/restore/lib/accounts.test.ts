@@ -2,7 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import type { SnapshotObject } from "@/features/restore/api";
 
-import { accountAddress, accountKeywords, matchesAccountType, sortAccounts } from "./accounts";
+import {
+  accountAddress,
+  accountKeywords,
+  accountOptionLabel,
+  matchesAccountType,
+  sortAccounts,
+} from "./accounts";
 
 function object(patch: Partial<SnapshotObject>): SnapshotObject {
   return {
@@ -90,5 +96,19 @@ describe("accountAddress", () => {
     expect(
       accountAddress(object({ ownerEmail: "Anna@Example.com", displayName: "anna@example.com" })),
     ).toBeNull();
+  });
+});
+
+describe("accountOptionLabel (#55)", () => {
+  it("names a target account with its owner's address, never its Entra id", () => {
+    const account = {
+      id: "t",
+      kind: "mailbox" as const,
+      externalId: "6f1c2b9e-1d2a-4c3b-9e8f-0a1b2c3d4e5f",
+      displayName: "Anna Berger",
+      ownerEmail: "anna@example.com",
+    };
+    expect(accountOptionLabel(account)).toBe("Anna Berger · anna@example.com");
+    expect(accountOptionLabel({ ...account, displayName: null })).toBe("anna@example.com");
   });
 });

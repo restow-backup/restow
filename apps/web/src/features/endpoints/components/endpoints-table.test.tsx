@@ -279,12 +279,13 @@ describe("EndpointsTable", () => {
     expect(html).toMatch(/border-dashed[^>]*>.*?Assigned to<\/button>/);
   });
 
-  it("greys a revoked machine out and says it is revoked", () => {
+  it("hides a revoked machine until revoked machines are shown (#65)", () => {
     const html = table([
       endpoint({ status: "revoked", revokedAt: "2026-09-29T00:00:00.000Z", connection: "online" }),
     ]);
-    expect(html).toContain("Revoked");
-    expect(html).toContain("opacity-60");
+    expect(html).toContain("Show revoked machines (1)");
+    expect(html).toContain("Only revoked machines");
+    expect(html).not.toContain("opacity-60");
     expect(html).not.toContain(">Online<");
   });
 

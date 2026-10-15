@@ -1,5 +1,6 @@
-import type { ObjectKind, SnapshotObject } from "@/features/restore/api";
+import type { ObjectKind, RestoreTargetAccount, SnapshotObject } from "@/features/restore/api";
 import { objectLabel } from "@/features/restore/explorer/entry-icon";
+import { protectedObjectAddress, protectedObjectName } from "@/lib/protected-object";
 
 /**
  * The account list's type filter (a {@link ObjectKind}, or "all"). Kept
@@ -38,9 +39,16 @@ export function accountKeywords(object: SnapshotObject): string[] {
 export function accountAddress(
   object: Pick<SnapshotObject, "kind" | "displayName" | "externalId" | "ownerEmail">,
 ): string | null {
-  const address = object.ownerEmail?.trim() || (object.kind === "imap" ? object.externalId : null);
-  if (!address) {
-    return null;
-  }
-  return address.toLowerCase() === objectLabel(object).toLowerCase() ? null : address;
+  return protectedObjectAddress(object);
+}
+
+/**
+ * The label of a suggested target account: its name with its owner's
+ * address, so two people of the same name stay apart. The option's value
+ * stays the external id the restore is sent with.
+ */
+export function accountOptionLabel(account: RestoreTargetAccount): string {
+  const name = protectedObjectName(account);
+  const address = protectedObjectAddress(account);
+  return address ? `${name} · ${address}` : name;
 }

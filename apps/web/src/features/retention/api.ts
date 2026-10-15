@@ -1,4 +1,5 @@
 import { apiFetch } from "@/lib/api";
+import { protectedObjectAddress, protectedObjectName } from "@/lib/protected-object";
 
 /**
  * Typed client for /api/v1/retention (apps/api/src/features/retention). The
@@ -142,6 +143,7 @@ interface DirectoryObject {
   kind: ObjectKind;
   displayName: string | null;
   email: string | null;
+  upn?: string | null;
   externalId: string;
 }
 
@@ -162,9 +164,10 @@ export async function searchScopeCandidates(search: string): Promise<ScopeCandid
   const page = await apiFetch<{ items: DirectoryObject[] }>(
     `/directory/objects?${params.toString()}`,
   );
-  return page.items.map((object) => {
-    const detail = object.email ?? object.externalId;
-    const name = object.displayName?.trim() || detail;
-    return { id: object.id, kind: object.kind, name, detail: name === detail ? null : detail };
-  });
+  return page.items.map((object) => ({
+    id: object.id,
+    kind: object.kind,
+    name: protectedObjectName(object),
+    detail: protectedObjectAddress(object),
+  }));
 }

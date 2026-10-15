@@ -176,6 +176,18 @@ describe("lists", () => {
     );
   });
 
+  it("names a mailbox by its owner, not by its Entra object id (#55)", () => {
+    const entraId = "6f1c2b9e-1d2a-4c3b-9e8f-0a1b2c3d4e5f";
+    expect(
+      objectLabel({
+        kind: "mailbox",
+        displayName: null,
+        externalId: entraId,
+        ownerEmail: "alice@example.org",
+      }),
+    ).toBe("alice@example.org");
+  });
+
   it("matches filters on queue and status", () => {
     expect(matchesFilters(job(), { queue: null, status: null })).toBe(true);
     expect(matchesFilters(job(), { queue: "backup", status: "active" })).toBe(true);
@@ -226,6 +238,12 @@ describe("backup targets", () => {
     expect(matchesTargetSearch(target(), "ALICE")).toBe(true);
     expect(matchesTargetSearch(target(), "contoso")).toBe(true);
     expect(matchesTargetSearch(target(), "bob")).toBe(false);
+    expect(
+      matchesTargetSearch(
+        target({ externalId: "b!drive", displayName: null, ownerEmail: "bob@contoso.example" }),
+        "bob@",
+      ),
+    ).toBe(true);
   });
 
   it("shows the newest job of an object and ignores older or foreign ones", () => {

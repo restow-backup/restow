@@ -60,6 +60,8 @@ export interface JobObjectDto {
   displayName: string | null;
   externalId: string;
   status: "active" | "excluded" | "orphaned";
+  /** The linked user's email or UPN; null for IMAP and unlinked objects. */
+  ownerEmail: string | null;
 }
 
 export interface JobDto {
@@ -214,6 +216,8 @@ export interface BackupTargetDto {
   displayName: string | null;
   externalId: string;
   status: "active" | "excluded" | "orphaned";
+  /** The linked user's email or UPN; null for IMAP and unlinked objects. */
+  ownerEmail: string | null;
   source: { id: string; name: string; kind: "m365" | "imap"; status: string };
   /** Why "Backup now" is unavailable, or null when it may run. */
   blocked: BackupBlockedReason | null;

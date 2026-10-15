@@ -38,6 +38,7 @@ import { jobDetailTo } from "@/features/jobs/paths";
 import { isLive, matchesTargetSearch, objectLabel } from "@/features/jobs/presenters";
 import { type JobFormat, useJobFormat } from "@/features/jobs/use-format";
 import { useLiveBackupTargets, useNow } from "@/features/jobs/use-jobs";
+import { protectedObjectAddress } from "@/lib/protected-object";
 
 const ALL_KINDS = "all";
 
@@ -192,17 +193,19 @@ function TargetRow({
   const job = target.lastJob;
   const snapshot = target.lastSnapshot;
   const excluded = target.blocked === "excluded" || target.blocked === "orphaned";
+  const address = protectedObjectAddress(target);
 
   return (
     <TableRow className={excluded ? "text-muted-foreground" : undefined}>
       <TableCell pin={PIN_FIRST} className="max-w-72 pl-4 align-top">
         <div className="flex min-w-0 items-start gap-2">
           <ObjectKindIcon kind={target.kind} className="mt-0.5 text-muted-foreground" />
-          <div className="min-w-0 space-y-0.5">
+          <div
+            className="min-w-0 space-y-0.5"
+            title={t("objects.technicalId", { id: target.externalId })}
+          >
             <p className="truncate font-medium">{objectLabel(target)}</p>
-            {target.displayName && target.displayName !== target.externalId ? (
-              <p className="truncate text-xs text-muted-foreground">{target.externalId}</p>
-            ) : null}
+            {address ? <p className="truncate text-xs text-muted-foreground">{address}</p> : null}
             <div className="flex flex-wrap gap-1">
               <Badge variant="outline">{format.kind(target.kind)}</Badge>
               {target.blocked ? (

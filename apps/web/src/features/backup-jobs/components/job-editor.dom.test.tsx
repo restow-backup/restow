@@ -368,6 +368,19 @@ describe("taking objects from another job", () => {
 });
 
 describe("a machine job", () => {
+  it("says next to the machines where Proxmox VE VMs and containers are backed up (#53)", async () => {
+    await open("/jobs?type=endpoint&new=1", ENDPOINT_ROUTES);
+    const hint = slot("proxmox-hint");
+    expect(textOf(hint)).toContain("Proxmox VE VMs and containers are not listed here");
+    const hrefs = [...(hint?.querySelectorAll("a") ?? [])].map((link) => link.getAttribute("href"));
+    expect(hrefs).toEqual(["/virtualization", "/inventory#pve-inventory-title"]);
+  });
+
+  it("gives no Proxmox hint in a mail job", async () => {
+    await open("/jobs?type=mail&new=1", MAIL_ROUTES);
+    expect(slot("proxmox-hint")).toBeNull();
+  });
+
   it("shows folders, exclusions, bandwidth and retention, with the commands behind Advanced", async () => {
     await open("/jobs?type=endpoint&new=1", ENDPOINT_ROUTES);
     for (const title of ["Folders", "Exclusions", "Bandwidth", "Retention", "Repository"]) {

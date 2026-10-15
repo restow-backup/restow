@@ -168,6 +168,11 @@
         "title": "Noch keine Clients",
         "description": "Fügen Sie einen Laptop oder Desktop hinzu: {appName} erzeugt einen einmaligen Befehl, der den Backup-Agenten installiert. Gesichert wird der Client, sobald Sie ihn einem Backup-Job hinzufügen."
       }
+    },
+    "showRevoked": "Gesperrte Rechner anzeigen ({count})",
+    "onlyRevoked": {
+      "title": "Nur gesperrte Rechner",
+      "description": "Alle Rechner hier sind gesperrt und werden nicht mehr gesichert; ihre Sicherungen bleiben wiederherstellbar."
     }
   },
   "noJob": {
@@ -899,8 +904,8 @@
     }
   },
   "danger": {
-    "title": "Rechner entfernen",
-    "description": "Vorhandene Sicherungen bleiben in beiden Fällen wiederherstellbar.",
+    "title": "Sicherung dieses Rechners beenden",
+    "description": "Keine der beiden Aktionen löscht den Rechner oder seine Sicherungen. Der Rechner bleibt als gesperrt im Inventar (ausgeblendet, bis Sie gesperrte Rechner einblenden), und vorhandene Sicherungen bleiben wiederherstellbar.",
     "uninstall": {
       "title": "Agent deinstallieren",
       "description": "Der Rechner entfernt den Agent bei seinem nächsten Kontakt selbst und wird dabei gesperrt. Nutzen Sie das, wenn der Rechner nicht mehr gesichert werden soll.",
@@ -1038,7 +1043,8 @@
       "action": "Zum Inventar"
     },
     "sources": "Rechner",
-    "noMachines": "Noch kein Rechner."
+    "noMachines": "Noch kein Rechner.",
+    "revokedMachines": "Gesperrte Rechner"
   },
   "proxmox": {
     "label": "Proxmox VE"

@@ -258,6 +258,8 @@ export interface RestoreTargetAccount {
   kind: ObjectKind;
   externalId: string;
   displayName: string | null;
+  /** The linked user's email or UPN (#55); older servers omit it. */
+  ownerEmail?: string | null;
 }
 
 export interface RestoreProgress {

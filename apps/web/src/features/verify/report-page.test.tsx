@@ -207,6 +207,31 @@ function render(data: ReportDetail): string {
   );
 }
 
+describe("ReportPage object line (#55)", () => {
+  const DRIVE_ID = "b!f1lGwdLjf06QXdLirTM3UGc1qQJ";
+
+  function onedrive(email: string | null): ReportDetail {
+    const base = report(true);
+    return {
+      ...base,
+      object: { ...base.object, kind: "onedrive", displayName: null, externalId: DRIVE_ID, email },
+    };
+  }
+
+  it("names a OneDrive by its owner and keeps the drive id in the tooltip only", () => {
+    const html = render(onedrive("anna@contoso.test"));
+    expect(html).toContain("OneDrive · anna@contoso.test");
+    expect(html).toContain(`title="Technical id: ${DRIVE_ID}"`);
+    expect(html.split(DRIVE_ID)).toHaveLength(2);
+  });
+
+  it("names the kind alone when nothing but the drive id is known", () => {
+    const html = render(onedrive(null));
+    expect(html.split(DRIVE_ID)).toHaveLength(2);
+    expect(html).not.toContain("OneDrive · ");
+  });
+});
+
 describe("ReportPage failure explanations", () => {
   it("explains every finding, red before yellow, with why, steps and the docs link", () => {
     const html = render(report(true));

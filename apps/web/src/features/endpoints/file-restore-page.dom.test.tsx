@@ -121,6 +121,25 @@ describe("FileRestorePage", () => {
     });
   });
 
+  it("lists revoked machines apart, and only while they have a backup (#65)", async () => {
+    fetchEndpoints.mockResolvedValue([
+      machine(),
+      machine({
+        id: "m-3",
+        hostname: "paperless",
+        status: "revoked",
+        lastBackupAt: "2026-09-30T09:03:00.000Z",
+      }),
+      machine({ id: "m-4", hostname: "old-laptop", status: "revoked", lastBackupAt: null }),
+    ]);
+    await open();
+    expect(page.maybeByText("[data-slot='machine-list'] button", "paperless")).toBeNull();
+    const revoked = page.byText("[data-slot='revoked-machine-list'] button", "paperless");
+    expect(revoked.textContent).toContain("Revoked");
+    expect(page.text()).toContain("Revoked machines");
+    expect(page.text()).not.toContain("old-laptop");
+  });
+
   it("points to the inventory when the tenant has no machine", async () => {
     fetchEndpoints.mockResolvedValue([]);
     await open();

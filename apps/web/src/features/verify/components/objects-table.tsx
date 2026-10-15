@@ -30,6 +30,7 @@ import { verifyReportTo } from "@/features/verify/paths";
 import {
   type ReadinessRow,
   objectAddress,
+  objectLabel,
   objectName,
   readinessRows,
   reasonMessage,
@@ -56,15 +57,6 @@ import type { VerifyFormat } from "@/features/verify/use-verify";
  * its width and truncates with a tooltip instead of wrapping or stretching
  * the row.
  */
-
-/** The object's primary label: its name, or a translated kind when even that is unknown. */
-function objectLabel(object: VerifyObject, t: VerifyFormat["t"]): string {
-  const name = objectName(object);
-  // The only way `objectName` still returns the raw external id is a
-  // mailbox/OneDrive without a linked address: never show that GUID-like
-  // value as the label, name it by its kind instead.
-  return name === object.externalId && object.kind !== "imap" ? t(`kind.${object.kind}`) : name;
-}
 
 function ObjectCell({ object, format }: { object: VerifyObject; format: VerifyFormat }) {
   const { t } = format;

@@ -728,7 +728,7 @@ describe("EndpointDetailPage", () => {
     await open("settings");
     expect(page.text()).toContain("Folders to back up");
     expect(page.text()).toContain("Restore without Restow");
-    expect(page.text()).toContain("Remove this machine");
+    expect(page.text()).toContain("Stop backing up this machine");
   });
 
   it("says when the machine does not exist, without a retry", async () => {

@@ -12,6 +12,7 @@ import type {
   SnapshotState,
 } from "@/features/jobs/api";
 import type { ServerEvent } from "@/features/jobs/sse";
+import { type NameableObject, protectedObjectName } from "@/lib/protected-object";
 
 /**
  * Pure presentation logic for jobs: status tones, progress ratios, durations,
@@ -253,9 +254,9 @@ export function isWaitingForThrottle(run: ThrottledRun, now: number): boolean {
   return run.status === "active" && throttleRemainingMs(run.throttle, now) > 0;
 }
 
-/** The label of the object a job works on. */
-export function objectLabel(object: { displayName: string | null; externalId: string }): string {
-  return object.displayName?.trim() || object.externalId;
+/** The label of the object a job works on: its name, else its owner's address. */
+export function objectLabel(object: NameableObject): string {
+  return protectedObjectName(object);
 }
 
 export function matchesFilters(job: Pick<Job, "queue" | "status">, filters: JobFilters): boolean {
@@ -286,16 +287,19 @@ export function replaceJobInPages(pages: readonly JobPage[], job: Job): JobPage[
 
 /** Case-insensitive match of a protected object on name, address and source. */
 export function matchesTargetSearch(
-  target: Pick<BackupTarget, "displayName" | "externalId" | "source">,
+  target: Pick<BackupTarget, "displayName" | "externalId" | "ownerEmail" | "source">,
   query: string,
 ): boolean {
   const needle = query.trim().toLowerCase();
   if (needle.length === 0) {
     return true;
   }
-  return [target.displayName ?? "", target.externalId, target.source.name].some((value) =>
-    value.toLowerCase().includes(needle),
-  );
+  return [
+    target.displayName ?? "",
+    target.ownerEmail ?? "",
+    target.externalId,
+    target.source.name,
+  ].some((value) => value.toLowerCase().includes(needle));
 }
 
 function parseJson<T>(data: string): T | null {

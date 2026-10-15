@@ -87,6 +87,7 @@ import { ExclusionsField } from "./exclusions-field.js";
 import { type BrowsableMachine, FoldersField } from "./folders-field.js";
 import { MemberPicker } from "./member-picker.js";
 import { MissingDataFoldersNotice } from "./missing-data-folders.js";
+import { ProxmoxGuestsHint } from "./proxmox-hint.js";
 import {
   BandwidthField,
   EndpointScheduleFields,
@@ -628,6 +629,8 @@ function EditorForm({
                   {t("editor.scope.allBody")}
                 </p>
               )}
+              {/* Proxmox VE guests have jobs of their own; say where, right by the machine list. */}
+              {kind === "endpoint" ? <ProxmoxGuestsHint /> : null}
             </EditorSection>
 
             {kind === "mail" ? (

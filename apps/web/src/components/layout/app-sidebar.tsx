@@ -2,6 +2,7 @@ import { Link, type LinkProps } from "@tanstack/react-router";
 import { ArrowUpCircle, Lock } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { CollapsibleNavSection } from "@/components/layout/collapsible-nav-section";
 import { useShellEntry } from "@/components/layout/shell-entry";
 import { SoonBadge, SoonSuffix } from "@/components/layout/soon-badge";
 import { TenantSwitcher } from "@/components/tenant-switcher";
@@ -61,7 +62,8 @@ function EntryBadge({ useBadge }: { useBadge: () => NavBadge | null }) {
  * ones marked "Soon"; under "All tenants" the entries that only exist per tenant
  * are dimmed, lib/scope.ts), and a footer with "Start" (the setup checklist, until
  * it is done), what extensions add there (`shell.sidebarFooter`) and the running
- * version. Account security lives in
+ * version. The pinned installation section folds away to its header, remembered
+ * per browser (collapsible-nav-section.tsx). Account security lives in
  * the user menu. It collapses to an icon rail (labels move into tooltips),
  * becomes a sheet below 768 px and toggles with Ctrl/Cmd+B; the state is
  * remembered per browser by the sidebar primitive.
@@ -70,7 +72,9 @@ export function AppSidebar() {
   const { t } = useTranslation();
   const session = useSession();
   const { role, version } = session;
-  const { isMobile, setOpenMobile } = useSidebar();
+  const { isMobile, setOpenMobile, state } = useSidebar();
+  // The icon-only rail shows every entry; a closed section would hide them.
+  const iconRail = state === "collapsed" && !isMobile;
   const items = useNavItems();
   const entry = useShellEntry();
   const allTenants = sessionScope(session) === "all";
@@ -85,110 +89,126 @@ export function AppSidebar() {
     }
   };
 
-  // One section of the navigation. The installation section is rendered apart, pinned below
-  // the scrolling sections: what it holds applies to the whole installation, everything above
-  // it to the organisation that is active.
-  const renderGroup = (group: (typeof groups)[number]) => (
-    <SidebarGroup key={group.id}>
-      <SidebarGroupLabel>{t(navGroupLabelKey(group.id, session))}</SidebarGroupLabel>
-      {group.id === "installation" ? (
-        <p className="px-2 pb-1 text-[0.6875rem] leading-snug text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden">
-          {t("nav.installationHint")}
-        </p>
-      ) : null}
-      <SidebarGroupContent>
-        <SidebarMenu>
-          {group.items.map((item) => {
-            const Icon = item.icon;
-            const label = t(item.labelKey);
-            const active = entry?.item.id === item.id;
-            if (item.locked && item.lock) {
-              // A locked entry leads where its lock says (never a
-              // placeholder page, never a popup) and names the reason.
-              const tooltip = `${label} — ${t(item.lock.hintKey)}`;
-              return (
-                <SidebarMenuItem key={item.id}>
-                  <SidebarMenuButton
-                    asChild
-                    tooltip={tooltip}
-                    className="text-sidebar-foreground/50 hover:text-sidebar-foreground/50"
-                  >
-                    <Link
-                      to={item.lock.to as LinkProps["to"]}
-                      search={item.lock.search as never}
-                      aria-disabled="true"
-                      data-locked="true"
-                      onClick={closeOnMobile}
-                    >
-                      <Icon aria-hidden="true" />
-                      <span>{label}</span>
-                      <Lock aria-hidden="true" className="ml-auto size-3.5 shrink-0" />
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              );
-            }
-            const stage = item.stage ? t(`nav.stage.${item.stage}`) : null;
-            const soon = item.soon ? t("nav.soon.badge") : null;
-            // Under "All tenants" an entry that needs a tenant stays reachable (it asks for
-            // one), but is dimmed and says why.
-            const dimmed = allTenants && isTenantOnlyNavItem(item.id);
-            const dimmedHint = dimmed ? t("nav.scope.dimmedHint") : null;
-            const note = stage ?? soon;
+  // The entries of one section of the navigation.
+  const renderEntries = (group: (typeof groups)[number]) => (
+    <SidebarGroupContent>
+      <SidebarMenu>
+        {group.items.map((item) => {
+          const Icon = item.icon;
+          const label = t(item.labelKey);
+          const active = entry?.item.id === item.id;
+          if (item.locked && item.lock) {
+            // A locked entry leads where its lock says (never a
+            // placeholder page, never a popup) and names the reason.
+            const tooltip = `${label} — ${t(item.lock.hintKey)}`;
             return (
               <SidebarMenuItem key={item.id}>
                 <SidebarMenuButton
                   asChild
-                  isActive={active}
-                  tooltip={
-                    dimmedHint ? `${label} — ${dimmedHint}` : note ? `${label} (${note})` : label
-                  }
-                  className={
-                    dimmed
-                      ? "text-sidebar-foreground/50 hover:text-sidebar-foreground/70"
-                      : undefined
-                  }
+                  tooltip={tooltip}
+                  className="text-sidebar-foreground/50 hover:text-sidebar-foreground/50"
                 >
                   <Link
-                    // Feature paths are registered at runtime, so the
-                    // static route typing cannot know them.
-                    to={item.path as LinkProps["to"]}
-                    search={(item.search ?? {}) as never}
-                    // Our own notion of "active" (shell-entry.ts) decides; the router's,
-                    // which also sets aria-current, is held to exact matches so that
-                    // Settings stays unmarked on Settings › About (License).
-                    activeOptions={EXACT_MATCH}
-                    aria-current={active ? "page" : undefined}
-                    data-soon={item.soon ? "true" : undefined}
-                    data-scope-dimmed={dimmed ? "true" : undefined}
-                    title={dimmedHint ?? undefined}
+                    to={item.lock.to as LinkProps["to"]}
+                    search={item.lock.search as never}
+                    aria-disabled="true"
+                    data-locked="true"
                     onClick={closeOnMobile}
                   >
                     <Icon aria-hidden="true" />
-                    <span>
-                      {label}
-                      {/* "Jobs, coming soon" for assistive technology. */}
-                      {item.soon ? <SoonSuffix /> : null}
-                      {dimmedHint ? <span className="sr-only">{`, ${dimmedHint}`}</span> : null}
-                    </span>
-                    {item.soon ? (
-                      <SoonBadge className="ml-auto group-data-[collapsible=icon]:hidden" />
-                    ) : null}
-                    {item.useBadge && !dimmed ? <EntryBadge useBadge={item.useBadge} /> : null}
-                    {stage ? (
-                      <span className="ml-auto rounded border border-sidebar-border px-1 text-[0.625rem] leading-4 font-medium text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden">
-                        {stage}
-                      </span>
-                    ) : null}
+                    <span>{label}</span>
+                    <Lock aria-hidden="true" className="ml-auto size-3.5 shrink-0" />
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             );
-          })}
-        </SidebarMenu>
-      </SidebarGroupContent>
+          }
+          const stage = item.stage ? t(`nav.stage.${item.stage}`) : null;
+          const soon = item.soon ? t("nav.soon.badge") : null;
+          // Under "All tenants" an entry that needs a tenant stays reachable (it asks for
+          // one), but is dimmed and says why.
+          const dimmed = allTenants && isTenantOnlyNavItem(item.id);
+          const dimmedHint = dimmed ? t("nav.scope.dimmedHint") : null;
+          const note = stage ?? soon;
+          return (
+            <SidebarMenuItem key={item.id}>
+              <SidebarMenuButton
+                asChild
+                isActive={active}
+                tooltip={
+                  dimmedHint ? `${label} — ${dimmedHint}` : note ? `${label} (${note})` : label
+                }
+                className={
+                  dimmed ? "text-sidebar-foreground/50 hover:text-sidebar-foreground/70" : undefined
+                }
+              >
+                <Link
+                  // Feature paths are registered at runtime, so the
+                  // static route typing cannot know them.
+                  to={item.path as LinkProps["to"]}
+                  search={(item.search ?? {}) as never}
+                  // Our own notion of "active" (shell-entry.ts) decides; the router's,
+                  // which also sets aria-current, is held to exact matches so that
+                  // Settings stays unmarked on Settings › About (License).
+                  activeOptions={EXACT_MATCH}
+                  aria-current={active ? "page" : undefined}
+                  data-soon={item.soon ? "true" : undefined}
+                  data-scope-dimmed={dimmed ? "true" : undefined}
+                  title={dimmedHint ?? undefined}
+                  onClick={closeOnMobile}
+                >
+                  <Icon aria-hidden="true" />
+                  <span>
+                    {label}
+                    {/* "Jobs, coming soon" for assistive technology. */}
+                    {item.soon ? <SoonSuffix /> : null}
+                    {dimmedHint ? <span className="sr-only">{`, ${dimmedHint}`}</span> : null}
+                  </span>
+                  {item.soon ? (
+                    <SoonBadge className="ml-auto group-data-[collapsible=icon]:hidden" />
+                  ) : null}
+                  {item.useBadge && !dimmed ? <EntryBadge useBadge={item.useBadge} /> : null}
+                  {stage ? (
+                    <span className="ml-auto rounded border border-sidebar-border px-1 text-[0.625rem] leading-4 font-medium text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden">
+                      {stage}
+                    </span>
+                  ) : null}
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          );
+        })}
+      </SidebarMenu>
+    </SidebarGroupContent>
+  );
+
+  const renderGroup = (group: (typeof groups)[number]) => (
+    <SidebarGroup key={group.id}>
+      <SidebarGroupLabel>{t(navGroupLabelKey(group.id, session))}</SidebarGroupLabel>
+      {renderEntries(group)}
     </SidebarGroup>
   );
+
+  // The installation section is rendered apart, pinned below the scrolling sections: what it
+  // holds applies to the whole installation, everything above it to the organisation that is
+  // active. It folds away to its header (#56) and opens by itself when the current page is in it.
+  const renderInstallationGroup = (group: (typeof groups)[number]) => {
+    const activeId = group.items.find((item) => item.id === entry?.item.id)?.id ?? null;
+    return (
+      <CollapsibleNavSection
+        key={group.id}
+        id={group.id}
+        label={t(navGroupLabelKey(group.id, session))}
+        activeId={activeId}
+        forceOpen={iconRail}
+      >
+        <p className="px-2 pb-1 text-[0.6875rem] leading-snug text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden">
+          {t("nav.installationHint")}
+        </p>
+        {renderEntries(group)}
+      </CollapsibleNavSection>
+    );
+  };
 
   return (
     <Sidebar collapsible="icon">
@@ -218,7 +238,7 @@ export function AppSidebar() {
           data-slot="installation-nav"
           className="shrink-0 border-t border-sidebar-border bg-sidebar-accent/40"
         >
-          {installationGroups.map(renderGroup)}
+          {installationGroups.map(renderInstallationGroup)}
         </nav>
       ) : null}
 

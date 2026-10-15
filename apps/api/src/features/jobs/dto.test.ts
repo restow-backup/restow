@@ -26,6 +26,7 @@ const mailbox: JobObjectDto = {
   displayName: "Alice",
   externalId: "alice@contoso.example",
   status: "active",
+  ownerEmail: null,
 };
 
 function jobRow(overrides: Partial<Job> = {}): Job {
