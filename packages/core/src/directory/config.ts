@@ -112,6 +112,7 @@ export function readProtection(config: unknown): ProtectionConfig {
     groupName: groupId !== null && group.id === groupId ? group.name : null,
     exclude: scope.exclude,
     includeSharedMailboxes: protection.includeSharedMailboxes,
+    sites: protection.sites,
   });
   return { rules, overrides: normalizeOverrides(protection.overrides) };
 }
@@ -143,6 +144,7 @@ function withProtection(
     scope,
     protection: {
       includeSharedMailboxes: rules.includeSharedMailboxes,
+      sites: rules.sites,
       group:
         rules.groupId !== null && rules.groupName !== null
           ? { id: rules.groupId, name: rules.groupName }

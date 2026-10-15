@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_PROTECTION_RULES,
   evaluateProtection,
+  evaluateSiteProtection,
   isSharedOrBlocked,
   matchesExclusion,
   normalizeOverrides,
@@ -49,6 +50,7 @@ describe("normalizeRules", () => {
       groupName: "Backup users",
       exclude: ["Bob@contoso.example", "svc@contoso.example"],
       includeSharedMailboxes: false,
+      sites: "all",
     });
   });
 
@@ -77,6 +79,7 @@ describe("normalizeRules", () => {
       groupName: null,
       exclude: ["scanner@contoso.example"],
       includeSharedMailboxes: false,
+      sites: "all",
     });
   });
 
@@ -217,5 +220,25 @@ describe("evaluateProtection", () => {
       status: "excluded",
       reason: "override_exclude",
     });
+  });
+});
+
+describe("evaluateSiteProtection", () => {
+  it("follows the override first, then the sites mode", () => {
+    expect(evaluateSiteProtection({ sites: "all" }, null)).toEqual({
+      status: "active",
+      reason: "rule_all",
+    });
+    expect(evaluateSiteProtection({ sites: "selected" }, null)).toEqual({
+      status: "excluded",
+      reason: "not_selected",
+    });
+    expect(evaluateSiteProtection({ sites: "selected" }, "include").status).toBe("active");
+    expect(evaluateSiteProtection({ sites: "all" }, "exclude").status).toBe("excluded");
+  });
+
+  it("reads an unknown sites mode as all", () => {
+    expect(normalizeRules({ sites: "bogus" }).sites).toBe("all");
+    expect(normalizeRules({ sites: "selected" }).sites).toBe("selected");
   });
 });
