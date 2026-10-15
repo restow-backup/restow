@@ -77,6 +77,9 @@ export function InstallDialog({
   const activity = useJobActivity(open);
   // Without counts (they could not be read) the choice is offered all the same.
   const runsInProgress = activity.data ? activity.data.running > 0 : activity.isError;
+  // The choice about runs in progress is only offered once they were read (or could not
+  // be): before that, a quick confirmation would send "wait" for runs nobody saw.
+  const runsSettled = !activity.isPending;
   const waits = runsInProgress && jobMode !== "interrupt";
 
   // Every opening starts from the newest version and the default lead time.
@@ -114,7 +117,7 @@ export function InstallDialog({
   };
 
   const confirm = () => {
-    if (schedule.isPending || selectedVersion === "" || unverifiable) {
+    if (schedule.isPending || !runsSettled || selectedVersion === "" || unverifiable) {
       return;
     }
     // With nothing in progress the update need not wait; new runs still pause until it is over.
@@ -259,7 +262,7 @@ export function InstallDialog({
             type="button"
             onClick={confirm}
             loading={schedule.isPending}
-            disabled={unverifiable}
+            disabled={unverifiable || !runsSettled}
           >
             {waits
               ? t("install.confirmAfterRuns")

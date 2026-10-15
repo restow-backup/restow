@@ -1174,6 +1174,48 @@ describe("installing an update", () => {
     ).toEqual({ version: "0.2.0", leadSeconds: 300, jobs: "interrupt" });
   });
 
+  it("cannot be confirmed before the runs in progress were read", async () => {
+    const view = twoReleases();
+    let answerJobs: (response: Response) => void = () => undefined;
+    const jobs = new Promise<Response>((resolve) => {
+      answerJobs = resolve;
+    });
+    const { mock, requests } = routedFetch({
+      "GET /updates": () => json(view),
+      "GET /updates/jobs": () => jobs,
+      "POST /updates/maintenance": () => json(view),
+      "GET /maintenance": () => json(maintenanceFixture()),
+    });
+    vi.stubGlobal("fetch", mock);
+    mounted = mount(<UpdatesSection />);
+    await flush(5);
+
+    await click(buttonByText(document.body, "Install update"));
+    const confirm = dialog() as HTMLElement;
+    await flush(3);
+    // Still reading: the button cannot be used, and a click sends nothing.
+    expect(text(confirm)).toContain("Counting the runs in progress");
+    const announce = buttonByText(confirm, "Announce update") as HTMLButtonElement;
+    expect(announce.disabled).toBe(true);
+    await click(announce);
+    await flush(3);
+    expect(requests.some((request) => request.method === "POST")).toBe(false);
+
+    // Once the runs are known, the choice is offered and the button works.
+    answerJobs(json(activityFixture({ mail: { running: 1, queued: 0 } })));
+    await flush(5);
+    expect(confirm.querySelector('input[name="update-runs"]')).not.toBeNull();
+    const after = buttonByText(confirm, "Announce after the runs") as HTMLButtonElement;
+    expect(after.disabled).toBe(false);
+    await click(after);
+    await flush(5);
+    expect(
+      requests.find(
+        (request) => request.method === "POST" && request.path === "/updates/maintenance",
+      )?.body,
+    ).toEqual({ version: "0.2.0", leadSeconds: 300, jobs: "drain" });
+  });
+
   it("shows an update that waits for runs, and starts it on request (#46)", async () => {
     const view = updatesFixture({
       updater: { ...updatesFixture().updater, state: "busy" },
@@ -1268,6 +1310,7 @@ describe("installing an update", () => {
     const view = twoReleases();
     const { mock } = routedFetch({
       "GET /updates": () => json(view),
+      "GET /updates/jobs": () => json(activityFixture()),
       "POST /updates/maintenance": () => problem("urn:restow:problem:update-busy", 409),
     });
     vi.stubGlobal("fetch", mock);
@@ -1275,6 +1318,7 @@ describe("installing an update", () => {
     await flush(5);
 
     await click(buttonByText(document.body, "Install update"));
+    await flush(3);
     await click(buttonByText(dialog() as HTMLElement, "Announce update"));
     await flush(5);
     expect(dialog()).not.toBeNull();
@@ -1285,6 +1329,7 @@ describe("installing an update", () => {
     const view = twoReleases();
     const { mock, requests } = routedFetch({
       "GET /updates": () => json(view),
+      "GET /updates/jobs": () => json(activityFixture()),
       "POST /updates/maintenance": () =>
         problem("urn:restow:problem:recent-sign-in-required", 403, { maxAgeSeconds: 600 }),
       "GET /setup/state": () =>
@@ -1294,6 +1339,7 @@ describe("installing an update", () => {
     mounted = mount(<UpdatesSection />);
     await flush(5);
     await click(buttonByText(document.body, "Install update"));
+    await flush(3);
     await click(buttonByText(dialog() as HTMLElement, "Announce update"));
     await flush(5);
     expect(requests.filter((request) => request.method === "POST")).toHaveLength(1);
@@ -1317,12 +1363,14 @@ describe("installing an update", () => {
       const view = twoReleases();
       const { mock } = routedFetch({
         "GET /updates": () => json(view),
+        "GET /updates/jobs": () => json(activityFixture()),
         "POST /updates/maintenance": () => problem(type, 409),
       });
       vi.stubGlobal("fetch", mock);
       mounted = mount(<UpdatesSection />);
       await flush(5);
       await click(buttonByText(document.body, "Install update"));
+      await flush(3);
       await click(buttonByText(dialog() as HTMLElement, "Announce update"));
       await flush(5);
       expect(text(dialog() as HTMLElement), type).toContain(expected);
