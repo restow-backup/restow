@@ -368,6 +368,7 @@
     "title": "Find a file",
     "description": "Searches the names of all files in all restore points of this file share.",
     "placeholder": "File or folder name",
+    "minLength": "Enter at least {count} characters of the name.",
     "run": "Search",
     "none": "Nothing found.",
     "deleted": "Deleted",

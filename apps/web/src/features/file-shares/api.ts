@@ -417,7 +417,8 @@ export const LIMITS = {
   name: 120,
   /** Paths in one download or restore. */
   selectionPaths: 1000,
-  searchMin: 2,
+  /** The shortest search term (the catalog's name index needs three characters). */
+  searchMin: 3,
   quotaGibMax: 1024 * 1024,
 } as const;
 

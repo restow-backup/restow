@@ -260,8 +260,14 @@ export const browseQuerySchema = z.object({
   cursor: z.string().max(8192).optional(),
 });
 
+/**
+ * The shortest name part the catalog search takes: the trigram index of the names (migration
+ * 0035) finds nothing shorter, so a shorter term would read every name of the share.
+ */
+export const SEARCH_MIN_LENGTH = 3;
+
 export const searchQuerySchema = z.object({
-  q: z.string().trim().min(2).max(200),
+  q: z.string().trim().min(SEARCH_MIN_LENGTH).max(200),
   snapshot: uuid.optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
 });

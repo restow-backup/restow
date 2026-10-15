@@ -368,6 +368,7 @@
     "title": "Datei finden",
     "description": "Durchsucht die Namen aller Dateien in allen Sicherungsständen dieser Freigabe.",
     "placeholder": "Datei- oder Ordnername",
+    "minLength": "Geben Sie mindestens {count} Zeichen des Namens ein.",
     "run": "Suchen",
     "none": "Nichts gefunden.",
     "deleted": "Gelöscht",

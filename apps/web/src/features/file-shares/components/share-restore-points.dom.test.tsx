@@ -155,6 +155,57 @@ describe("the restore points of a share", () => {
   });
 });
 
+describe("the search of a share", () => {
+  it("searches from three characters on and says so, in both languages", async () => {
+    let searched = 0;
+    const routes = {
+      [`GET ${BASE}/snapshots`]: () => json({ items: [snapshotFixture()] }),
+      [`GET ${BASE}/search`]: () => {
+        searched++;
+        return json({ items: [], truncated: false });
+      },
+    };
+    rendered = await render(
+      <ShareRestorePoints share={shareFixture()} onShowRuns={() => undefined} />,
+      { routes },
+    );
+    const input = document.querySelector<HTMLInputElement>('[data-slot="share-search"] input');
+    const run = () => buttonByText(slot("share-search") as HTMLElement, "Search");
+    const hint = () => slot("search-hint");
+    expect(hint()?.textContent).toBe("Enter at least 3 characters of the name.");
+    expect(input?.getAttribute("aria-describedby")).toBe(hint()?.id);
+    // Only for screen readers until something is typed.
+    expect(hint()?.className).toBe("sr-only");
+
+    await type(input, " ab ");
+    expect(run()?.disabled).toBe(true);
+    expect(hint()?.className).not.toBe("sr-only");
+
+    await type(input, "abc");
+    expect(run()?.disabled).toBe(false);
+    expect(hint()?.className).toBe("sr-only");
+    await click(run());
+    await flush(3);
+    expect(searched).toBe(1);
+
+    await rendered.mounted.unmount();
+    rendered = null;
+    document.body.innerHTML = "";
+    await i18n.changeLanguage("de");
+    try {
+      rendered = await render(
+        <ShareRestorePoints share={shareFixture()} onShowRuns={() => undefined} />,
+        { routes },
+      );
+      expect(slot("search-hint")?.textContent).toBe(
+        "Geben Sie mindestens 3 Zeichen des Namens ein.",
+      );
+    } finally {
+      await i18n.changeLanguage("en");
+    }
+  });
+});
+
 describe("the restore dialog", () => {
   async function openDialog(share: FileShareDetail, onDownload = vi.fn()) {
     rendered = await render(

@@ -274,7 +274,7 @@ describe.skipIf(!canRun)("reading file share backups with restic", () => {
       shared.db,
       fixture.tenantId,
       shareId,
-      { q: "q3", limit: 20 },
+      { q: "q3.", limit: 20 },
       actor(),
     );
     expect(found.items).toEqual([
