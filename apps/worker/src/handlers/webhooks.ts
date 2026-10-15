@@ -35,14 +35,16 @@
  * followed. Logs name the target host only: some receivers carry their token
  * in the URL.
  *
- * The event list, envelope layout and retry budget mirror
- * apps/api/src/lib/webhooks.ts; keep both in step.
+ * The events come from the catalog in packages/core (reports/catalog.ts); the
+ * envelope layout and retry budget mirror apps/api/src/lib/webhooks.ts; keep
+ * both in step.
  */
 import { createHmac, randomUUID } from "node:crypto";
 import { lookup as dnsLookup, type LookupAddress } from "node:dns";
 import http from "node:http";
 import https from "node:https";
 import { isIP, type LookupFunction } from "node:net";
+import { WEBHOOK_EVENTS, type WebhookEvent, webhookEventRow } from "@restow/core";
 import {
   type Database,
   type Job,
@@ -76,10 +78,8 @@ type Logger = WorkerRuntime["logger"];
 // Contract (mirrors apps/api/src/lib/webhooks.ts)
 // ---------------------------------------------------------------------------
 
-/** Only events something raises; see the API's list. */
-export const WEBHOOK_EVENTS = ["job.failed", "job.completed", "verify.completed"] as const;
-
-export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
+/** The stream's events, derived from the catalog (packages/core reports/catalog.ts). */
+export { WEBHOOK_EVENTS, type WebhookEvent };
 
 export const WEBHOOK_PAYLOAD_VERSION = 1;
 
@@ -116,8 +116,11 @@ export interface EmittedWebhookEvent {
 }
 
 /**
- * Queue `event` for every active webhook of the tenant that subscribed to it.
- * Runs in its own tenant-pinned transaction; nothing is sent here.
+ * Queue `event` for every active webhook of the tenant that subscribed to it
+ * and whose column in the notification matrix has the catalog event the
+ * delivery is about on (webhookEventRow: unticking "Backup succeeded" stops
+ * job.completed for backups, restores still come). Runs in its own
+ * tenant-pinned transaction; nothing is sent here.
  */
 export async function emitWebhookEvent(
   db: Database,
@@ -132,6 +135,7 @@ export async function emitWebhookEvent(
     tenantId: input.tenantId,
     data: input.data,
   };
+  const row = webhookEventRow(input.event, input.data);
   return withTenantTx(db, input.tenantId, async (tx) => {
     const subscribed = await tx
       .select({ id: webhooks.id })
@@ -141,6 +145,7 @@ export async function emitWebhookEvent(
           eq(webhooks.tenantId, input.tenantId),
           eq(webhooks.active, true),
           sql`${input.event} = ANY(${webhooks.events})`,
+          sql`${row} = ANY(${webhooks.events})`,
         ),
       );
     if (subscribed.length === 0) {

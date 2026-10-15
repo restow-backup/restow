@@ -21,6 +21,7 @@ import {
   resticBinary,
   resticSnapshots,
   runRestic,
+  webhookSubscriptionUpdate,
   withRepository,
 } from "@restow/core";
 import {
@@ -611,7 +612,7 @@ describe.skipIf(!adminUrl)("file share jobs of the worker against Postgres", () 
       await fixture.owner.insert(webhooks).values({
         tenantId: tenant,
         url: "https://hooks.example.test/x",
-        events: ["job.failed", "job.completed"],
+        events: webhookSubscriptionUpdate([], ["job.failed", "job.completed"]),
       });
       const queued = await insertRun({
         fileShareId: s.id,

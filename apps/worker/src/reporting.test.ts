@@ -55,4 +55,20 @@ describe("jobFinishedNotification", () => {
     );
     expect(done?.details).toMatchObject({ failure: null });
   });
+
+  it("raises backup.succeeded for a backup that worked, nothing for other finished queues", () => {
+    const backup = jobFinishedNotification(
+      TENANT,
+      { ...failedJob(null), status: "completed", queue: "backup" as const },
+      "Alice",
+    );
+    expect(backup).toMatchObject({ event: "backup.succeeded", level: "info" });
+    expect(
+      jobFinishedNotification(
+        TENANT,
+        { ...failedJob(null), status: "completed", queue: "scrub" as const },
+        "Alice",
+      ),
+    ).toBeNull();
+  });
 });

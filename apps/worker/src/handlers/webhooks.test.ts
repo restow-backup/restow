@@ -9,6 +9,7 @@
 import { createHmac, randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
+import { webhookColumnUpdate, webhookSubscriptionUpdate } from "@restow/core";
 import {
   createDb,
   type Database,
@@ -20,7 +21,7 @@ import {
   webhooks,
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { dropTestDatabase, ignoreTerminatedConnection } from "../testing/database.js";
 import {
@@ -1103,11 +1104,21 @@ describe.skipIf(!adminUrl)("webhook deliveries against Postgres", () => {
         {
           tenantId,
           url: "https://a.example/hook",
-          events: ["job.failed", "job.completed"],
+          // Stored as the webhook API stores a subscription: the stream events and theirs.
+          events: webhookSubscriptionUpdate([], ["job.failed", "job.completed"]),
           secretRef: secret?.id ?? null,
         },
-        { tenantId, url: "https://b.example/hook", events: ["verify.completed"] },
-        { tenantId, url: "https://c.example/hook", events: ["job.failed"], active: false },
+        {
+          tenantId,
+          url: "https://b.example/hook",
+          events: webhookSubscriptionUpdate([], ["verify.completed"]),
+        },
+        {
+          tenantId,
+          url: "https://c.example/hook",
+          events: webhookSubscriptionUpdate([], ["job.failed"]),
+          active: false,
+        },
       ])
       .returning();
     subscribed = rows[0]?.id ?? "";
@@ -1156,6 +1167,52 @@ describe.skipIf(!adminUrl)("webhook deliveries against Postgres", () => {
       data: {},
     });
     expect(none.deliveryIds).toEqual([]);
+  });
+
+  it("sends a stream event only while the webhook's column has its catalog event on", async () => {
+    const [chat] = await db
+      .insert(webhooks)
+      .values({
+        tenantId,
+        url: "https://discord.example/hook",
+        format: "discord",
+        events: webhookSubscriptionUpdate([], ["job.failed", "job.completed"]),
+      })
+      .returning();
+    const job = (queue: "backup" | "restore", status: "completed" | "failed") => ({
+      id: randomUUID(),
+      queue,
+      status,
+      protectedObjectId: null,
+      startedAt: NOW,
+      completedAt: NOW,
+      errorMessage: status === "failed" ? "boom" : null,
+    });
+    const reached = async (queue: "backup" | "restore", status: "completed" | "failed") => {
+      const emitted = await emitJobWebhook(db, tenantId, job(queue, status));
+      const rows = await db
+        .select({ webhookId: webhookDeliveries.webhookId })
+        .from(webhookDeliveries)
+        .where(inArray(webhookDeliveries.id, emitted?.deliveryIds ?? []));
+      return rows.some((row) => row.webhookId === chat?.id);
+    };
+    try {
+      expect(await reached("backup", "completed")).toBe(true);
+      // "Backup succeeded" unticked in the matrix: the posts stop, failures and restores still come.
+      await db
+        .update(webhooks)
+        .set({
+          events: webhookColumnUpdate(chat?.events ?? [], ["backup.failed", "restore.completed"]),
+        })
+        .where(eq(webhooks.id, chat?.id ?? ""));
+      expect(await reached("backup", "completed")).toBe(false);
+      expect(await reached("backup", "failed")).toBe(true);
+      expect(await reached("restore", "completed")).toBe(true);
+      // Restore failures are off too: job.failed of a restore stays away, of a backup arrives.
+      expect(await reached("restore", "failed")).toBe(false);
+    } finally {
+      await db.delete(webhooks).where(eq(webhooks.id, chat?.id ?? ""));
+    }
   });
 
   it("claims each due delivery once, leases it, records and prunes", async () => {
