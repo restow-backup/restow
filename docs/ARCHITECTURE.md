@@ -412,6 +412,27 @@ Die Job-Definitionen (`/api/v1/backup-jobs`) sind Session-API und nicht Teil der
 Webhooks je Mandant (Ereignis,
 HMAC-Signatur). Jeder lesende Zugriff auf Nutzer-/Backupdaten ist auditiert.
 
+Der Ereignisstrom der Webhooks kennt `job.failed`, `job.completed` und `verify.completed`; die
+Namen sind öffentlicher Vertrag und bleiben. Die Liste ist nicht mehr dreifach definiert, sie
+leitet sich aus dem Ereigniskatalog ab (`packages/core/src/reports/catalog.ts`: jedes
+Katalogereignis nennt in `webhookEvent` das Stromereignis, das es trägt; API und Worker nehmen
+`WEBHOOK_EVENTS` von dort, die Weboberfläche aus ihrem Spiegel des Katalogs). `backup.succeeded`
+ist der Katalogname dessen, was der Strom `job.completed` nennt (ein Alias, keine Umbenennung):
+Ein Webhook, der `job.completed` abonniert hat, bekommt es weiter mit unveränderter Nutzlast.
+Welche Zeile der Benachrichtigungsmatrix eine Stromzustellung betrifft, liest `webhookEventRow`
+aus der Warteschlange des Laufs (`data.job.queue`): eine Wiederherstellung (auch einer
+Dateifreigabe oder eines Rechners) ist `restore.completed`/`restore.failed`, Archiv- und
+Verzeichnisabgleich sind `archive.failed`/`directory.failed`, jeder andere Lauf zählt als
+Sicherung (`backup.succeeded`/`backup.failed`); `verify.completed` ist `verify.completed`.
+`webhooks.events` hält beides: die abonnierten Stromereignisse und die Spalte des Webhooks in der
+Matrix (Katalogereignisse). Eine Stromzustellung geht nur hinaus, wenn beide gesetzt sind
+(`emitWebhookEvent` in `apps/api/src/lib/webhooks.ts` und `apps/worker/src/handlers/webhooks.ts`).
+Die Webhook-API spricht weiter Stromereignisse: `events` beim Anlegen und Ändern sind die
+abonnierten Stromereignisse, ein neu abonniertes schaltet seine Katalogereignisse ein, ein
+abbestelltes beendet nur den Strom; ohne `events` beginnt ein neuer Webhook mit den Vorgaben seines
+Formats (Chat: Fehler und Warnungen, `restow`: alles). Die Session-API liefert die Spalte
+zusätzlich als `notifyEvents`.
+
 Jeder Webhook hat ein Format (`webhooks.format`, Migration 0026, seit 0.3.0; Vertrag 1.3.0,
 additiv). `restow` (Standard, alle bestehenden Webhooks) ist der signierte JSON-Umschlag mit
 `X-Restow-Signature`, `X-Restow-Event`, `X-Restow-Delivery` und `X-Restow-Attempt`. `discord`,
@@ -445,9 +466,11 @@ Regeln je Mandant in `report_rules`, zwei Auslöser:
   Benachrichtigung (`notifications`, die Glocke) und legt in derselben Transaktion für
   jede aktive Ereignisregel des Mandanten, die das Ereignis nennt, Zustellungen in
   `report_deliveries` an (`apps/worker/src/reporting.ts`). Ereignisse (Katalog in
-  `packages/core/src/reports/catalog.ts`): `backup.failed`, `restore.failed`,
+  `packages/core/src/reports/catalog.ts`, jedes mit Gruppe und Schwere `error`, `warning` oder
+  `info`): `backup.failed`, `backup.succeeded`, `restore.failed`,
   `restore.completed`, `archive.failed`, `directory.failed`, `verify.red`,
-  `verify.yellow`, `verify.recovered`, `scrub.corrupt`, `scrub.repaired`, dazu für Server und
+  `verify.yellow`, `verify.recovered`, `verify.completed`, `scrub.corrupt`, `scrub.repaired`,
+  dazu für Server und
   Clients `endpoint.stale`, `endpoint.suspicious_snapshot`, `endpoint.storage_quota` und
   `endpoint.repository_locked` (docs/AGENT.md, "Alarme"). Drosselung je
   Regel und Gegenstand (Objekt, Rechner, Gast, sonst Auftragstyp) über `throttle_minutes`.
@@ -479,9 +502,52 @@ Webhook-Dispatcher des Workers. Fehlschläge werden nach 1, 5, 15 und 60 Minuten
 dann aufgegeben. Im Demo-Modus sendet der Dienst nichts (NoopNotifier). Regeländerungen und
 Testsendungen stehen im Audit-Log (`report.rule.*`, `report.test_sent`).
 
-Die Empfänger-Flags des Mandanten-Assistenten (`tenant_notification_recipients`) wurden mit
-Migration 0010 zu Regeln; der Assistent legt seitdem direkt Regeln an
-(`apps/api/src/features/reports/defaults.ts`). Die Tabelle bleibt unverändert bestehen.
+### Benachrichtigungsmatrix: welcher Kanal welches Ereignis bekommt
+
+Seit 0.4.0 (Migration `0038_notification_matrix`) speichert jeder Kanal selbst, welche Ereignisse er
+bekommt; die Seite Integrationen › Benachrichtigungen zeigt das je Mandant als Matrix
+(`GET`/`PUT /api/v1/reports/matrix`, `apps/api/src/features/reports/matrix.ts`, Oberfläche
+`apps/web/src/features/integrations/notifications/`). Zeilen sind die Ereignisse des Katalogs,
+gruppiert (Läufe, Wiederherstellbarkeit, Speicher, Installation) und nach Schwere markiert;
+Spalten sind die Glocke, jeder Webhook und jeder Benachrichtigungsempfänger; je Spalte gibt es die
+Schnellwahl „Nur Fehler", „Fehler und Warnungen", „Alle". Die Spalten:
+
+- Webhook: `webhooks.events` (Katalogereignisse neben den abonnierten Stromereignissen, siehe API).
+  Ein Häkchen an einem Ereignis, das der Strom trägt, abonniert auch dessen Stromereignis; ein
+  Stromereignis bleibt abonniert, solange eines seiner Ereignisse an ist (`webhookColumnUpdate`).
+- Empfänger: `tenant_notification_recipients.events` ersetzt die vier Flags (Katalogereignisse und
+  `report.weekly` für den Wochenbericht). Die Kategorien des Assistenten und der Mandantenseite sind
+  Abkürzungen für Ereignismengen.
+- Glocke: `tenants.bell_events`; null heißt Vorgabe (`DEFAULT_BELL_EVENTS`: alles außer den
+  Routineereignissen `backup.succeeded` und `verify.completed`). Die Glocke blendet beim Lesen aus,
+  was ihre Spalte abgewählt hat; die Zeilen bleiben (Überfälligkeits- und Speicherprüfung lesen
+  einige zurück). Routineereignisse schreibt der Worker nur, wenn die Glocke sie will.
+
+Regeln behalten Drosselung, Zeitpläne und Frist; sie senden aber kein Ereignis an einen Kanal,
+dessen Spalte es abgewählt hat. Geprüft wird dort, wo Ereignisse zu Zustellungen werden:
+`plannedDeliveries` (`packages/core/src/reports/rules.ts`, mit den Spalten aus
+`apps/worker/src/reporting.ts` bzw. `apps/api/src/features/reports/channels.ts`), die
+Update-Meldung (`apps/api/src/features/updates/notify.ts`) und beim Senden noch einmal der
+Dispatcher (eine inzwischen abgewählte Zustellung wird `skipped`, Grund `channel_off`; Tests und
+Berichte nie). Eine Adresse, die nur in einer Regel steht und kein Empfänger des Mandanten ist,
+hat keine Spalte und folgt allein der Regel. Installationsweite Ereignisse (`update.available`)
+sind Zeilen nur für Provider-Admins; speichert ein Mandanten-Admin, bleiben sie, wie sie waren.
+
+Die Empfänger senden über Regeln mit `recipient_category` (`apps/api/src/features/reports/defaults.ts`):
+`jobFailures` und `readinessRed` (die Regeln der Migration 0010, mit ihren Ereignissen) tragen jeden
+Empfänger, der eines ihrer Ereignisse will; `weeklyReport` trägt `report.weekly`; jedes weitere
+gewünschte Ereignis landet in einer Regel je Schwere (`errors`, `warnings`, `notices`; Letztere ohne
+Drosselung), damit eine Erfolgsmeldung nie einen Fehler zum selben Postfach drosselt. Die
+Ereignisse dieser drei Regeln folgen den Empfängern.
+
+Vorgaben: Ein neuer Chat-Webhook (Discord, Slack, Teams) bekommt Fehler und Warnungen, ein neuer
+signierter JSON-Webhook wie bisher alles. Bestehende Kanäle bekommen mit dem Update genau das, was
+sie vorher bekamen: Die Migration übersetzt die Empfänger-Flags in die Ereignisse ihrer Regeln
+(„Lizenz- und Update-Hinweise" hatten nie ein Ereignis und entfallen) und nimmt jedes Ereignis auf,
+das eine Regel an die Adresse schickt; ein Webhook bekommt die Katalogereignisse seiner
+Stromabonnements und jedes Ereignis, das eine Regel an ihn schickt, ohne dass ein Webhook, an den nur
+Regeln senden, dadurch den Strom abonniert. Speichern der Matrix steht im Audit-Log
+(`report.matrix_updated`, mit Kanal-IDs und Anzahlen, nie Adressen).
 
 ## Setup und Betriebsmodi
 
