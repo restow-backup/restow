@@ -268,6 +268,34 @@ export interface JobCandidate {
   job: { id: string; name: string } | null;
 }
 
+/** What the agent says the machine is (agent 0.4.0 and later). */
+export interface MachineFacts {
+  virtualization: "container" | "vm" | "none";
+  /** `lxc`, `docker`, `kvm`, `vmware`, ...; empty when unknown. */
+  technology: string;
+  desktop: boolean;
+}
+
+/** Why enrollment gave a machine added as a client the server profile (#59). */
+export interface ProfileDetection {
+  requested: "server" | "client";
+  reason: "container" | "vm";
+  technology: string;
+}
+
+/** A machine of a job editor with the data folders its agent found (#59). */
+export interface MachineFolders {
+  endpointId: string;
+  name: string;
+  os: string;
+  profile: "server" | "client";
+  /** Data folders of the fixed list with files in them; null: the agent does not report them (before 0.4.0). */
+  folders: string[] | null;
+  reportedAt: string | null;
+  machine: MachineFacts | null;
+  profileDetection: ProfileDetection | null;
+}
+
 export interface JobCandidates {
   items: JobCandidate[];
   /** All that match, which may be more than `items`. */
@@ -461,6 +489,8 @@ export const backupJobKeys = {
     ["tenant", tenantId, "backup-jobs", "candidates", kind, search, limit] as const,
   recommended: (tenantId: TenantKey, scope: string) =>
     ["tenant", tenantId, "backup-jobs", "recommended", scope] as const,
+  machineFolders: (tenantId: TenantKey, endpointIds: readonly string[]) =>
+    ["tenant", tenantId, "backup-jobs", "machine-folders", ...endpointIds] as const,
 };
 
 // --- Requests --------------------------------------------------------------------------------
@@ -502,6 +532,23 @@ export function fetchJobCandidates(
   return apiFetch<JobCandidates>(
     `${BASE}/candidates${queryString({ kind, q: search.trim() || undefined, limit })}`,
   );
+}
+
+/** The data folders the machines' agents found, and their profiles (#59). */
+export function fetchMachineFolders(
+  endpointIds: readonly string[],
+): Promise<{ items: MachineFolders[] }> {
+  return apiFetch<{ items: MachineFolders[] }>(
+    `${BASE}/machine-folders${queryString({ endpointIds: endpointIds.join(",") })}`,
+  );
+}
+
+/** Adds data folders an agent found to a machine job (the server narrows an exclusion in the way). */
+export function addDataFolders(jobId: string, folders: readonly string[]): Promise<BackupJob> {
+  return apiFetch<BackupJob>(`${BASE}/${id(jobId)}/folders`, {
+    method: "POST",
+    body: { folders },
+  });
 }
 
 export function createBackupJob(input: CreateBackupJobInput): Promise<BackupJob> {

@@ -59,6 +59,8 @@ const VALUES = {
   path: "/etc",
   index: 1,
   kind: "server",
+  reason: "container",
+  technology: "lxc",
   value: "x",
   done: "1",
   total: "2",

@@ -25,6 +25,7 @@ import (
 	"github.com/restow-backup/restow/agent/internal/restic"
 	"github.com/restow-backup/restow/agent/internal/state"
 	"github.com/restow-backup/restow/agent/internal/status"
+	"github.com/restow-backup/restow/agent/internal/sysinfo"
 	"github.com/restow-backup/restow/agent/internal/testutil/fakeserver"
 )
 
@@ -126,6 +127,8 @@ type harness struct {
 	src     string // directory with real files to back up
 	extra   []string
 	powerFn func() power.Status
+	// machine replaces sysinfo.DetectMachine (default: a fixed LXC container).
+	machine func() sysinfo.Machine
 	uninst  func(ctx context.Context) error
 	exe     string
 	// hooksMode is the machine's hook policy in the enrollment (default off).
@@ -167,6 +170,15 @@ func newHarness(t *testing.T) *harness {
 	return h
 }
 
+func (h *harness) machineFn() func() sysinfo.Machine {
+	if h.machine != nil {
+		return h.machine
+	}
+	return func() sysinfo.Machine {
+		return sysinfo.Machine{Virtualization: sysinfo.VirtContainer, Technology: "lxc", DataFolders: []string{"/opt"}}
+	}
+}
+
 func (h *harness) env(kv ...string) { h.extra = append(h.extra, kv...) }
 
 func (h *harness) build() {
@@ -203,6 +215,7 @@ func (h *harness) build() {
 	h.agent = New(Deps{
 		Layout: h.layout, State: st, Server: client, Restic: runner, Status: store, Logger: logging.Discard(),
 		Power: h.powerFn, BinDir: h.binDir, UpdateKey: h.updateKey, Uninstall: h.uninst,
+		Machine: h.machineFn(),
 	}, Options{
 		HeartbeatInterval: 40 * time.Millisecond, HeartbeatRetryBase: 30 * time.Millisecond, HeartbeatJitter: time.Nanosecond, Tick: 15 * time.Millisecond,
 		ConfigRefresh: time.Hour, ProgressInterval: 20 * time.Millisecond, SampleTimeout: 30 * time.Second,

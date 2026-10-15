@@ -45,7 +45,7 @@ import {
   type JobScopeMode,
   LIMITS,
 } from "../api.js";
-import { addFolder } from "../folders.js";
+import { withDataFolder } from "../folders.js";
 import {
   checkJobDraft,
   createInputOf,
@@ -67,6 +67,7 @@ import {
   useJobCandidates,
   useJobDefaults,
   useJobMembers,
+  useMachineFolders,
   useReplaceJobMembers,
   useUpdateBackupJob,
 } from "../hooks.js";
@@ -87,6 +88,7 @@ import { ExclusionsField } from "./exclusions-field.js";
 import { type BrowsableMachine, FoldersField } from "./folders-field.js";
 import { MemberPicker } from "./member-picker.js";
 import { MissingDataFoldersNotice } from "./missing-data-folders.js";
+import { ProfileNote } from "./profile-note.js";
 import { ProxmoxGuestsHint } from "./proxmox-hint.js";
 import {
   BandwidthField,
@@ -468,6 +470,27 @@ function EditorForm({
           .slice(0, 100)
           .map((item) => ({ id: item.targetId, name: item.name }));
 
+  // What the agents of the job's machines found (#59): the machines chosen, else those an "all"
+  // job covers now. Machines with folders or exclusions of their own keep to those.
+  const machineIds =
+    scopeMachines.length > 0
+      ? scopeMachines.map((machine) => machine.id)
+      : members
+          .filter((member) => member.kind === "server" || member.kind === "client")
+          .map((member) => member.targetId);
+  const machineFolders = useMachineFolders(machineIds, kind === "endpoint");
+  const ownFolders = new Set(
+    draft.selected
+      .filter(
+        (member) =>
+          member.overrides?.paths !== undefined || member.overrides?.excludes !== undefined,
+      )
+      .map((member) => member.id),
+  );
+  const folderReports = (machineFolders.data?.items ?? [])
+    .filter((machine) => !ownFolders.has(machine.endpointId))
+    .map((machine) => ({ name: machine.name, folders: machine.folders }));
+
   const settingsProblems = shown.settings ?? {};
   const settingsText = (field: keyof typeof settingsProblems) =>
     problemText(settingsProblems[field]);
@@ -834,16 +857,19 @@ function EditorForm({
                     machines={machines}
                     error={settingsText("paths") ?? at("paths")}
                   />
+                  <ProfileNote machines={machineFolders.data?.items ?? []} />
                   {linuxFolders(draft.settings.paths, defaults.basis?.os) ? (
                     <MissingDataFoldersNotice
                       paths={draft.settings.paths}
+                      excludes={draft.settings.excludes}
+                      reports={folderReports}
                       onAdd={(missing) =>
-                        editSettings({
-                          paths: missing.reduce(
-                            (paths, folder) => addFolder(paths, folder),
-                            draft.settings.paths,
-                          ),
-                        })
+                        editSettings(
+                          missing.reduce(withDataFolder, {
+                            paths: draft.settings.paths,
+                            excludes: draft.settings.excludes,
+                          }),
+                        )
                       }
                     />
                   ) : null}

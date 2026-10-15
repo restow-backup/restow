@@ -19,6 +19,7 @@ import {
   waitingTasks,
 } from "../presenters.js";
 import { AssignmentField } from "./assign-dialog.js";
+import { EndpointDataFoldersNotice } from "./data-folders-notice.js";
 import { Fact, Facts } from "./facts.js";
 import { ReportsCard } from "./reports-card.js";
 import { RunsCard } from "./runs-card.js";
@@ -141,6 +142,21 @@ export function RecentTasksCard({
   );
 }
 
+/** "Container (lxc)", "Virtual machine (kvm)", "Physical machine", as the agent reported it (#59). */
+export function machineLabel(
+  facts: NonNullable<EndpointDetail["machine"]["facts"]>,
+  t: EndpointFormat["t"],
+): string {
+  const kind = facts.virtualization;
+  const base =
+    kind === "none"
+      ? t("facts.virtualization.none")
+      : facts.technology && facts.technology !== "vm-other"
+        ? t(`facts.virtualization.${kind}Of`, { technology: facts.technology })
+        : t(`facts.virtualization.${kind}`);
+  return facts.desktop ? `${base}, ${t("facts.virtualization.desktop")}` : base;
+}
+
 function FactsCard({ detail }: { detail: EndpointDetail }) {
   const format = useEndpointFormat();
   const { t } = format;
@@ -154,7 +170,17 @@ function FactsCard({ detail }: { detail: EndpointDetail }) {
       </CardHeader>
       <CardContent>
         <Facts>
-          <Fact label={t("facts.profile")}>{t(`profile.${detail.profile}`)}</Fact>
+          <Fact label={t("facts.profile")}>
+            <span className="block">{t(`profile.${detail.profile}`)}</span>
+            {detail.machine?.profileDetection ? (
+              <span className="block text-xs text-muted-foreground" data-slot="profile-detected">
+                {t("facts.profileDetected", { reason: detail.machine.profileDetection.reason })}
+              </span>
+            ) : null}
+          </Fact>
+          {detail.machine?.facts ? (
+            <Fact label={t("facts.machine")}>{machineLabel(detail.machine.facts, t)}</Fact>
+          ) : null}
           <Fact label={t("facts.system")}>
             <OsLabel os={detail.os} arch={detail.arch} />
           </Fact>
@@ -359,6 +385,7 @@ export function OverviewTab({
   return (
     <div className="grid items-start gap-4 lg:grid-cols-3">
       <WithoutBackupNotice endpoint={detail} className="lg:col-span-3" />
+      <EndpointDataFoldersNotice detail={detail} className="lg:col-span-3" />
       <div className="min-w-0 space-y-4 lg:col-span-2">
         <PendingTasksCard tasks={detail.tasks} />
         <RunsCard

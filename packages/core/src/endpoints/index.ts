@@ -1,4 +1,5 @@
 export * from "./config.js";
+export * from "./data-folders.js";
 export * from "./loopback.js";
 export * from "./queues.js";
 export * from "./quota.js";

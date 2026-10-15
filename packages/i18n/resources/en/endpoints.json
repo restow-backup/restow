@@ -418,6 +418,16 @@
   "facts": {
     "title": "This machine",
     "profile": "Type",
+    "profileDetected": "Added as a client. It runs {reason, select, container {in a container} other {in a virtual machine without a desktop}}, so it has the server profile: its default folders include where applications keep their data.",
+    "machine": "Runs as",
+    "virtualization": {
+      "container": "Container",
+      "containerOf": "Container ({technology})",
+      "vm": "Virtual machine",
+      "vmOf": "Virtual machine ({technology})",
+      "none": "Physical machine",
+      "desktop": "with a desktop"
+    },
     "system": "System",
     "osVersion": "Operating system version",
     "agentVersion": "Agent version",

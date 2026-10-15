@@ -15,6 +15,7 @@ import (
 
 	"github.com/restow-backup/restow/agent/internal/api"
 	"github.com/restow-backup/restow/agent/internal/buildinfo"
+	"github.com/restow-backup/restow/agent/internal/core"
 	"github.com/restow-backup/restow/agent/internal/hooks"
 	"github.com/restow-backup/restow/agent/internal/paths"
 	"github.com/restow-backup/restow/agent/internal/redact"
@@ -150,9 +151,13 @@ func cmdEnroll(args []string, stdout, stderr io.Writer) int {
 	defer cancel()
 	ectx, ecancel := context.WithTimeout(ctx, 3*time.Minute)
 	defer ecancel()
+	// What the machine is decides the profile when it was added as a client
+	// but runs services (a container, a VM without a desktop).
+	machine, dataFolders := core.MachineFactsOf(sysinfo.DetectMachine())
 	resp, err := api.Enroll(ectx, baseURL, *insecure, api.EnrollRequest{
 		Token: token, Hostname: hostname, OS: sysinfo.OS(), Arch: sysinfo.Arch(),
 		AgentVersion: buildinfo.Version, OSVersion: sysinfo.OSVersion(), Hooks: hooksMode,
+		Machine: machine, DataFolders: dataFolders,
 	})
 	if err != nil {
 		var ae *api.APIError

@@ -51,6 +51,7 @@ import type {
   BackupJobMembersDto,
   JobCandidatesDto,
   JobDefaultsDto,
+  MachineFoldersDto,
   RunBackupJobResult,
 } from "./dto.js";
 
@@ -1723,6 +1724,132 @@ describe.skipIf(!testDatabaseAdminUrl)("backup jobs against Postgres", () => {
         kind: "interval",
         intervalMinutes: 60,
         timeZone: ZONE,
+      });
+    });
+  });
+
+  describe("data folders the agent found (#59)", () => {
+    it("lists them per machine, says what the job leaves out and adds them on request", async () => {
+      const make = async (hostname: string, dataFolders: string[] | undefined) => {
+        const [row] = await owner
+          .insert(endpoints)
+          .values({
+            tenantId: contoso,
+            hostname,
+            os: "linux",
+            arch: "amd64",
+            profile: "server",
+            secretHash: randomUUID(),
+            config: enrolledEndpointConfig("linux", "server", { timeZone: ZONE }),
+            settings: {
+              agent: {
+                hooks: "off",
+                reportedAt: "2026-10-01T10:00:00.000Z",
+                ...(dataFolders ? { dataFolders } : {}),
+              },
+              profileDetection: { requested: "client", reason: "container", technology: "lxc" },
+            },
+          })
+          .returning();
+        return row?.id ?? "";
+      };
+      const paperless = await make("paperless", ["/opt", "/var/lib/docker/volumes"]);
+      const older = await make("older", undefined);
+      const job = await json<BackupJobDto>(
+        await call("POST", "", {
+          body: machineJob("Paperless", [paperless, older], {
+            settings: {
+              paths: ["/etc", "/home", "/root", "/srv", "/var/www"],
+              excludes: ["/var/lib/docker", "*.tmp"],
+            },
+          }),
+        }),
+        201,
+      );
+
+      const listed = await json<{ items: MachineFoldersDto[] }>(
+        await call("GET", `/machine-folders?endpointIds=${paperless},${older}`),
+        200,
+      );
+      const byName = new Map(listed.items.map((item) => [item.name, item]));
+      expect(byName.get("paperless")).toMatchObject({
+        endpointId: paperless,
+        os: "linux",
+        profile: "server",
+        folders: ["/opt", "/var/lib/docker/volumes"],
+        profileDetection: { requested: "client", reason: "container" },
+      });
+      // An agent before 0.4.0 reports nothing: no folders, no guess.
+      expect(byName.get("older")?.folders).toBeNull();
+      expect(
+        (await call("GET", `/machine-folders?endpointIds=${paperless}`, { tenant: fabrikam }))
+          .status,
+      ).toBe(200);
+      expect(
+        (
+          await json<{ items: unknown[] }>(
+            await call("GET", `/machine-folders?endpointIds=${paperless}`, { tenant: fabrikam }),
+            200,
+          )
+        ).items,
+      ).toEqual([]);
+
+      const service = await import("../endpoints/service.js");
+      const detail = await service.getEndpoint(appDb, contoso, paperless, "https://restow.test");
+      expect(detail.dataFolders).toEqual({
+        folders: ["/opt", "/var/lib/docker/volumes"],
+        missing: ["/opt", "/var/lib/docker/volumes"],
+        reportedAt: "2026-10-01T10:00:00.000Z",
+        ownFolders: false,
+      });
+      expect(detail.machine.profileDetection).toMatchObject({ reason: "container" });
+      expect(
+        (await service.getEndpoint(appDb, contoso, older, "https://restow.test")).dataFolders,
+      ).toBeNull();
+
+      // Only folders of the list, only by who may change the job.
+      const unknown = await problem(
+        await call("POST", `/${job.id}/folders`, { body: { folders: ["/etc/shadow"] } }),
+        422,
+      );
+      expect(unknown.issues?.[0]?.path).toEqual(["folders", "0"]);
+      expect(
+        (
+          await call("POST", `/${job.id}/folders`, {
+            role: "tenant_user",
+            body: { folders: ["/opt"] },
+          })
+        ).status,
+      ).toBe(403);
+
+      const changed = await json<BackupJobDto>(
+        await call("POST", `/${job.id}/folders`, {
+          body: { folders: ["/opt", "/var/lib/docker/volumes"] },
+        }),
+        200,
+      );
+      expect(changed.settings).toMatchObject({
+        paths: ["/etc", "/home", "/root", "/srv", "/var/www", "/opt", "/var/lib/docker/volumes"],
+        excludes: ["/var/lib/docker/*", "!/var/lib/docker/volumes", "*.tmp"],
+      });
+      // Both machines get the folders; the one that has no /opt skips it when it backs up.
+      expect((await machine(older))?.config.paths).toContain("/opt");
+      const after = await service.getEndpoint(appDb, contoso, paperless, "https://restow.test");
+      expect(after.dataFolders?.missing).toEqual([]);
+      const [entry] = await audits("backup_job.updated", job.id);
+      expect(entry).toBeDefined();
+
+      // A machine with folders of its own in the job is not reached by the job's folders.
+      await json(
+        await call("PATCH", `/${job.id}/members/${paperless}`, {
+          body: { overrides: { paths: ["/etc"] } },
+        }),
+        200,
+      );
+      const own = await service.getEndpoint(appDb, contoso, paperless, "https://restow.test");
+      expect(own.dataFolders).toMatchObject({
+        ownFolders: true,
+        missing: ["/opt", "/var/lib/docker/volumes"],
       });
     });
   });

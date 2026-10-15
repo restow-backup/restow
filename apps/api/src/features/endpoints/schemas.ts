@@ -50,6 +50,34 @@ export const hookPolicySchema = z.enum(["off", "scripts", "any"]);
 /** A script name in the hooks folder of a machine (scripts policy): a plain file name. */
 export const HOOK_SCRIPT_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
+/**
+ * What the agent says about the machine (agent 0.4.0 and later, #59): container or virtual
+ * machine, a desktop. Absent from an earlier agent; anything that does not fit is dropped rather
+ * than refused, so the enrollment or heartbeat still counts.
+ */
+export const machineFactsSchema = z
+  .object({
+    virtualization: z.enum(["container", "vm", "none"]),
+    technology: z
+      .string()
+      .max(64)
+      .transform((value) => value.replace(/[^a-z0-9_-]/gi, "").slice(0, 32)),
+    desktop: z.boolean(),
+  })
+  .optional()
+  .catch(undefined);
+
+/**
+ * The data folders an agent found (agent 0.4.0 and later): names only; the service keeps those of
+ * the fixed list (@restow/core `cleanDataFolderReport`). Null or absent: not reported.
+ */
+export const dataFoldersSchema = z
+  .array(z.string().max(256))
+  .max(50)
+  .nullish()
+  .catch(undefined)
+  .transform((value) => value ?? undefined);
+
 export const enrollSchema = z.object({
   token: shortText(200),
   hostname: shortText(253),
@@ -59,6 +87,8 @@ export const enrollSchema = z.object({
   osVersion: z.string().trim().max(200).default(""),
   // An unknown value is read as "off": the agent decides, the server only shows it.
   hooks: hookPolicySchema.optional().catch("off"),
+  machine: machineFactsSchema,
+  dataFolders: dataFoldersSchema,
 });
 
 export const heartbeatSchema = z.object({
@@ -80,6 +110,8 @@ export const heartbeatSchema = z.object({
     .optional()
     .catch(undefined)
     .transform((names) => names?.filter((name) => HOOK_SCRIPT_NAME.test(name)).slice(0, 50)),
+  machine: machineFactsSchema,
+  dataFolders: dataFoldersSchema,
 });
 
 export const startRunSchema = z.object({

@@ -3,10 +3,12 @@ import {
   type AgentConfigResponse,
   agentFacingConfig,
   bandwidthTimeZone,
+  cleanDataFolderReport,
   DEFAULT_SCHEDULE_TIMEZONE,
   effectiveBandwidthKbps,
   endpointPasswordKey,
   enrolledEndpointConfig,
+  enrollmentProfile,
   enrollmentTokenState,
   failureOfRun,
   generateAgentSecret,
@@ -27,6 +29,7 @@ import {
 } from "@restow/core";
 import {
   type Endpoint,
+  type EndpointAgentFacts,
   type EndpointConfig,
   type EndpointRun,
   endpointEnrollmentTokens,
@@ -234,9 +237,13 @@ export async function enrollEndpoint(
         detail: "The tenant of this enrollment token is currently suspended.",
       });
     }
+    // A machine added as a client that runs services (a container, a VM without a desktop) gets
+    // the server profile: its defaults include where applications keep their data (#59).
+    const { profile, reason } = enrollmentProfile(claimed.profile, os, input.machine);
+    const facts = agentFactsOf(input, now, os);
     // No schedule until an admin puts the machine into a backup job (docs/AGENT.md, "Jobs"); the
     // profile's folders stay in the configuration for the job editor to start from.
-    const config = enrolledEndpointConfig(os, claimed.profile, {
+    const config = enrolledEndpointConfig(os, profile, {
       timeZone: tenant.timeZone ?? DEFAULT_SCHEDULE_TIMEZONE,
     });
     const stored = await storeSecret(db, {
@@ -253,7 +260,7 @@ export async function enrollEndpoint(
         displayName: claimed.displayName,
         os,
         arch: input.arch,
-        profile: claimed.profile,
+        profile,
         agentVersion: input.agentVersion,
         osVersion: input.osVersion,
         secretHash: secret.hash,
@@ -261,7 +268,16 @@ export async function enrollEndpoint(
         config,
         configVersion: 1,
         settings: {
-          ...(input.hooks ? { agent: { hooks: input.hooks, reportedAt: now.toISOString() } } : {}),
+          ...(facts ? { agent: facts } : {}),
+          ...(reason
+            ? {
+                profileDetection: {
+                  requested: claimed.profile,
+                  reason,
+                  technology: input.machine?.technology ?? "",
+                },
+              }
+            : {}),
         },
         lastSeenAt: now,
       });
@@ -296,7 +312,8 @@ export async function enrollEndpoint(
         hostname: input.hostname,
         os,
         arch: input.arch,
-        profile: claimed.profile,
+        profile,
+        ...(reason ? { requestedProfile: claimed.profile, profileReason: reason } : {}),
         agentVersion: input.agentVersion,
         osVersion: input.osVersion,
         tokenId: claimed.id,
@@ -382,16 +399,24 @@ function toAgentTask(row: {
 }
 
 /**
- * What an agent reports about the machine, merged into `settings.agent`; null
- * for an agent that reports nothing (an earlier pre-release agent).
+ * What an agent reports about the machine, written to `settings.agent`; null
+ * for an agent that reports nothing (an earlier pre-release agent). The data
+ * folders are kept as far as they are on the list of the machine's system.
  */
-export function agentFactsOf(input: Pick<HeartbeatInput, "hooks" | "hookScripts">, now: Date) {
-  if (!input.hooks) {
+export function agentFactsOf(
+  input: Pick<HeartbeatInput, "hooks" | "hookScripts" | "machine" | "dataFolders">,
+  now: Date,
+  os: string,
+): EndpointAgentFacts | null {
+  const dataFolders = cleanDataFolderReport(os, input.dataFolders);
+  if (!input.hooks && !input.machine && dataFolders === null) {
     return null;
   }
   return {
-    hooks: input.hooks,
+    ...(input.hooks ? { hooks: input.hooks } : {}),
     ...(input.hooks === "scripts" ? { hookScripts: input.hookScripts ?? [] } : {}),
+    ...(input.machine ? { machine: input.machine } : {}),
+    ...(dataFolders !== null ? { dataFolders } : {}),
     reportedAt: now.toISOString(),
   };
 }
@@ -404,7 +429,7 @@ export async function heartbeat(
 ): Promise<{ tasks: AgentTask[] }> {
   return withTenantTx(db, agent.tenantId, async (tx) => {
     const nextRunAt = input.nextRunAt ? new Date(input.nextRunAt) : null;
-    const facts = agentFactsOf(input, now);
+    const facts = agentFactsOf(input, now, agent.os);
     const [endpoint] = await tx
       .update(endpoints)
       .set({

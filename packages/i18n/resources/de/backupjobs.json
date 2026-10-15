@@ -666,7 +666,20 @@
       "title": "Ordner",
       "description": "Die Ordner, die jeder Rechner dieses Jobs sichert.",
       "basis": "Die Ordner sind die Vorgaben für {systems}.",
-      "basisMixed": "Die Auswahl mischt Systeme ({systems}): Die Ordner vereinen die Vorgaben aller. Prüfen Sie, ob jeder Ordner zu den Rechnern passt."
+      "basisMixed": "Die Auswahl mischt Systeme ({systems}): Die Ordner vereinen die Vorgaben aller. Prüfen Sie, ob jeder Ordner zu den Rechnern passt.",
+      "profile": {
+        "label": {
+          "client": "Client:",
+          "server": "Server:"
+        },
+        "labelMachines": {
+          "client": "Client ({machines}):",
+          "server": "Server ({machines}):"
+        },
+        "client": "Die Standardordner sind nur die Benutzerordner und die Konfiguration (/etc, /home, /root, /srv, /var/www).",
+        "server": "Die Standardordner umfassen auch die Ordner, in denen Anwendungen ihre Daten ablegen (/opt, /usr/local, /var/lib, /var/backups).",
+        "detected": "{count, plural, one {{machines} wurde als Client hinzugefügt und läuft in einem Container oder einer virtuellen Maschine ohne Desktop: Der Rechner hat das Profil Server.} other {{machines} wurden als Clients hinzugefügt und laufen in einem Container oder einer virtuellen Maschine ohne Desktop: Diese Rechner haben das Profil Server.}}"
+      }
     },
     "exclusions": {
       "title": "Ausschlüsse",
@@ -1050,7 +1063,26 @@
       "title": "Dieser Sicherungsstand enthält nicht alle Datenordner",
       "description": "Gesichert werden nur die Ordner aus dem Backup-Job des Rechners, und diese waren nicht dabei: {folders}. Fügen Sie sie dem Job hinzu, damit sie ab dem nächsten Lauf gesichert werden."
     },
-    "add": "{count, plural, one {Diesen Ordner hinzufügen} other {Diese # Ordner hinzufügen}}"
+    "add": "{count, plural, one {Diesen Ordner hinzufügen} other {Diese # Ordner hinzufügen}}",
+    "reported": {
+      "title": "Ordner mit Daten auf den Rechnern werden nicht gesichert",
+      "description": "Die Agents haben diese Ordner mit Daten auf den Rechnern des Jobs gefunden, und der Job sichert sie nicht. Fügen Sie sie hinzu, damit sie ab dem nächsten Lauf gesichert werden.",
+      "on": "auf {machines}",
+      "addOne": "Hinzufügen",
+      "addOneLabel": "{folder} zum Job hinzufügen",
+      "skip": "Ein Rechner, der einen dieser Ordner nicht hat, überspringt ihn, ohne Fehler."
+    },
+    "docker": "Für die Docker-Volumes wird der Ausschluss von /var/lib/docker eingeschränkt: Images und Container bleiben draußen, die Volumes werden gesichert.",
+    "machine": {
+      "title": "Ordner mit Daten auf diesem Rechner werden nicht gesichert",
+      "description": "Der Agent hat Ordner mit Daten gefunden, die der Job {job} nicht sichert: {folders}.",
+      "add": "{count, plural, one {Diesen Ordner zum Job hinzufügen} other {Diese # Ordner zum Job hinzufügen}}",
+      "others": "Die anderen Rechner des Jobs bekommen die Ordner ebenfalls; ein Rechner, der sie nicht hat, überspringt sie, ohne Fehler.",
+      "ownFolders": "Dieser Rechner hat im Job eigene Ordner. Ändern Sie diese im Job, in den Einstellungen des Rechners.",
+      "openJob": "Job öffnen",
+      "added": "{count, plural, one {Der Ordner wurde zum Job {job} hinzugefügt.} other {Die Ordner wurden zum Job {job} hinzugefügt.}}",
+      "failed": "Die Ordner konnten nicht zum Job hinzugefügt werden."
+    }
   },
   "allTenants": {
     "description": "Die Jobs aller Mandanten auf einen Blick: welche es gibt, was gerade läuft, wie die neuesten Sicherungen ausgingen und wann der nächste Lauf geplant ist. Öffnen Sie einen Mandanten, um seine Jobs hier zu sehen; wechseln Sie zu ihm, um sie zu ändern.",

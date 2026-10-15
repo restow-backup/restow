@@ -1,5 +1,10 @@
 import type { JobSchedule } from "@restow/core";
-import type { BackupJobMemberOverrides, BackupJobSettings } from "@restow/db";
+import type {
+  BackupJobMemberOverrides,
+  BackupJobSettings,
+  EndpointMachineFacts,
+  EndpointSettings,
+} from "@restow/db";
 
 /**
  * What the backup jobs feature answers (docs/ARCHITECTURE.md, "Jobs"). The shapes are the
@@ -215,6 +220,21 @@ export interface JobCandidateDto {
   status: string;
   /** The job it belongs to already (an object or machine has at most one). */
   job: { id: string; name: string } | null;
+}
+
+/** A machine of a job editor with the data folders its agent found (#59). */
+export interface MachineFoldersDto {
+  endpointId: string;
+  name: string;
+  os: string;
+  profile: "server" | "client";
+  /** Data folders of the fixed list with files in them; null: the agent does not report them. */
+  folders: string[] | null;
+  reportedAt: string | null;
+  /** Container, VM, desktop; null: the agent does not say. */
+  machine: EndpointMachineFacts | null;
+  /** Set when enrollment chose the server profile over the token's client profile. */
+  profileDetection: NonNullable<EndpointSettings["profileDetection"]> | null;
 }
 
 export interface JobCandidatesDto {

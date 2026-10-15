@@ -102,6 +102,22 @@ type EnrollRequest struct {
 	OSVersion    string `json:"osVersion"`
 	// Hooks is the machine's hook policy (off, scripts, any).
 	Hooks string `json:"hooks"`
+	// Machine and DataFolders (agent 0.4.0): see MachineFacts. A server of
+	// an earlier release ignores both.
+	Machine     *MachineFacts `json:"machine,omitempty"`
+	DataFolders []string      `json:"dataFolders"`
+}
+
+// MachineFacts say what the machine is (agent 0.4.0 and later). The server
+// gives a Linux machine enrolled as a client the server profile when it runs
+// in a container, or in a virtual machine without a desktop.
+type MachineFacts struct {
+	// Virtualization is container, vm or none.
+	Virtualization string `json:"virtualization"`
+	// Technology names it (lxc, docker, kvm, vmware, ...); empty when unknown.
+	Technology string `json:"technology"`
+	// Desktop: a graphical session is installed.
+	Desktop bool `json:"desktop"`
 }
 
 // Repository is the restic repository the endpoint writes to.
@@ -164,6 +180,12 @@ type HeartbeatRequest struct {
 	// names the scripts in /etc/restow-agent/hooks.d for the scripts mode.
 	Hooks       string   `json:"hooks"`
 	HookScripts []string `json:"hookScripts,omitempty"`
+	// Machine and DataFolders (agent 0.4.0): what the machine is, and which
+	// folders of a fixed list where applications keep their data exist with
+	// files in them (names only). null: not checked (macOS). A server of an
+	// earlier release ignores both.
+	Machine     *MachineFacts `json:"machine,omitempty"`
+	DataFolders []string      `json:"dataFolders"`
 }
 
 // Task is a command from the server, delivered in the heartbeat answer.

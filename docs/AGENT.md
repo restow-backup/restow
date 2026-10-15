@@ -104,8 +104,17 @@ Endpunkt (Linux/macOS)                       Restow-Instanz
    (siehe "Hooks"). Deinstallation: `sudo /opt/restow-agent/bin/restow-agent uninstall` oder
    das Skript mit `--uninstall`; beides zeigt der Assistent an und entfernt auch die
    Lizenzhinweise.
-4. `POST /agent/v1/enroll` mit `{ token, hostname, os, arch, agentVersion, osVersion, hooks }`
-   antwortet `{ endpointId, agentSecret, repository: { url, password }, config, restic }`.
+4. `POST /agent/v1/enroll` mit `{ token, hostname, os, arch, agentVersion, osVersion, hooks,
+   machine?, dataFolders? }` antwortet `{ endpointId, agentSecret, repository: { url, password },
+   config, restic }`. `machine` und `dataFolders` (Agent ab 0.4.0) stehen unter "Rechner und
+   Datenordner"; ein Server früherer Version ignoriert sie.
+   - Profil: Das Token bestimmt es. Ausnahme (0.4.0, #59): Ein Linux-Rechner mit einem
+     Client-Token, dessen Agent einen Container oder eine virtuelle Maschine ohne Desktop meldet,
+     bekommt das Profil `server`, denn er betreibt Dienste, und deren Daten liegen in `/opt`,
+     `/usr/local` und `/var/lib`. Der Grund steht in `endpoints.settings.profileDetection`
+     (`requested`, `reason`: `container`/`vm`, `technology`), im Audit (`requestedProfile`,
+     `profileReason`) und auf der Detailseite des Rechners. Ohne `machine` (älterer Agent)
+     entscheidet das Token wie bisher.
    - `agentSecret`: 32 zufällige Bytes, base64url, Präfix `rsea_`, **nur als SHA-256
      gespeichert**.
    - `repository.url`: `rest:https://<instanz>/agent/restic/<endpointId>/`. restic
@@ -138,7 +147,8 @@ Assistent fragt für das Token, auf das er wartet, alle Zustände ab, weil ein e
 gültiges mehr ist. Die Oberfläche zeigt die gültigen Befehle und schaltet die übrigen auf Wunsch zu.
 
 Audit-Ereignisse rund um das Enrollment: `endpoint.token.created`, `endpoint.token.revoked`,
-`endpoint.enrolled` (Hostname, OS, Architektur, Profil, Token-ID; nie ein Secret).
+`endpoint.enrolled` (Hostname, OS, Architektur, Profil, Token-ID, bei erkanntem Profil auch
+`requestedProfile` und `profileReason`; nie ein Secret).
 
 ## Agent-API `/agent/v1`
 
@@ -150,11 +160,50 @@ Alle Antworten sind JSON, Fehler `application/problem+json` wie im Rest der API.
 | --- | --- |
 | `POST /enroll` | Token gegen Zugangsdaten tauschen (siehe oben). |
 | `GET /config` | `{ profile, schedule, paths, excludes, hooks, bandwidthKbps, onlyOnAcPower, useVss, configVersion }`, bei einem Rechner in einem Job mit Größenlimit zusätzlich `excludeLargerThanBytes` (siehe "Jobs"; ein Agent, der das Feld nicht kennt, ignoriert es). `schedule.kind` ist `interval`, `daily`, `on_connect` oder (seit 0.2.1) `none`; bei `none` sind `paths` leer und `hooks` `{}` (siehe "Rechner ohne Job"). `bandwidthKbps` ist das Limit, das **im Moment der Anfrage** gilt (aktives Zeitfenster des Jobs, sonst der Standard, `null` = unbegrenzt); die Zeitfenster selbst bekommt der Agent nie. `Cache-Control: no-store`. |
-| `POST /heartbeat` | `{ agentVersion, osVersion, state: idle/running, nextRunAt, configVersion, hooks, hookScripts? }` ergibt `{ tasks }`. Alle 5 Minuten (Jitter +-60 s) und sofort beim Start. `hooks` ist die Hook-Regel des Rechners (`off`, `scripts`, `any`), `hookScripts` die Skripte in `/etc/restow-agent/hooks.d` (Regel `scripts`, höchstens 50). |
+| `POST /heartbeat` | `{ agentVersion, osVersion, state: idle/running, nextRunAt, configVersion, hooks, hookScripts?, machine?, dataFolders? }` ergibt `{ tasks }`. Alle 5 Minuten (Jitter +-60 s) und sofort beim Start. `hooks` ist die Hook-Regel des Rechners (`off`, `scripts`, `any`), `hookScripts` die Skripte in `/etc/restow-agent/hooks.d` (Regel `scripts`, höchstens 50). `machine` und `dataFolders` (Agent ab 0.4.0) siehe "Rechner und Datenordner". |
 | `POST /runs` | `{ kind: backup/restore/verify_sample, taskId?, startedAt }` ergibt `{ runId }`. |
 | `POST /runs/:id/progress` | `{ filesDone, bytesDone, totalFiles?, totalBytes?, currentPath? }`, alle 5 s (Agent ab 0.2.0; 0.1.x: alle 10 s). Das Limit der Agent-API (600 Aufrufe je Endpunkt und 10 Minuten, gleitendes Fenster) lässt das zu: Mit Heartbeat, Konfiguration und Start und Ende des Laufs sind es etwa 125 Aufrufe in 10 Minuten. Der Verlauf (`run_samples`) behält Punkte, die mindestens 1,5 s auseinanderliegen. |
 | `POST /runs/:id/finish` | `{ status: succeeded/partial/failed, finishedAt, snapshotId?, stats?, sample?, errors, logTail, restoreTest? }`. `restoreTest` nur bei `verify_sample`: `{ files: [{ path, sha256? \| missing: true \| error }], restic?: { exitCode, fatal, errors: [{ item, message }] } }` (siehe "Restore-Test"). Wiederholung für einen beendeten Lauf antwortet gleich und ändert nichts. |
 | `GET /update` | `{ version, url, sha256 }` oder `null`: neuere **signierte** Agent-Version auf dieser Instanz; `null` auch, solange der Mandant Agent-Updates pausiert hat. |
+
+### Rechner und Datenordner
+
+Ab 0.4.0 sagt der Agent mit Enrollment und Heartbeat, was der Rechner ist und welche Ordner mit
+Daten er hat (#59; `agent/internal/sysinfo/machine.go`, `packages/core/src/endpoints/data-folders.ts`).
+Beides sind optionale Felder: Ein Server früherer Version ignoriert sie, ein Agent früherer Version
+sendet sie nicht, und dann zeigt die Oberfläche dazu nichts an.
+
+- `machine: { virtualization: container | vm | none, technology, desktop }`. Container erkennt der
+  Agent an `/run/systemd/container`, `container=` in der Umgebung von PID 1, `/.dockerenv` und
+  `/run/.containerenv`; virtuelle Maschinen an Hersteller und Produkt der DMI-Tabelle
+  (`/sys/class/dmi/id`), `/sys/hypervisor/type` und dem CPU-Flag `hypervisor`. `desktop` heißt: Es
+  gibt eine Sitzungsdatei in `/usr/share/xsessions` oder `/usr/share/wayland-sessions`. Nur
+  Dateien, kein Programmaufruf.
+- `dataFolders`: welche Ordner einer festen Liste es gibt und mindestens eine Datei enthalten
+  (innerhalb von vier Ebenen, höchstens 2000 Einträge je Ordner, ohne symbolischen Links zu
+  folgen; Dockers `metadata.db` und leere Ordner zählen nicht). Nur die Namen, nie Dateinamen
+  oder Größen. Der Agent sieht stündlich neu nach. Die Liste (nur Linux): `/opt`, `/usr/local`,
+  `/srv`, `/var/www`, `/var/lib/docker/volumes`, `/var/lib/containers/storage/volumes`,
+  `/var/lib/postgresql`, `/var/lib/pgsql`, `/var/lib/mysql`, `/var/lib/mongodb`. Bewusst nicht:
+  `/var/lib` als Ganzes und `/var/backups` (Paketverwaltung auf jedem System), `/home` und `/root`
+  (in jedem Profil), macOS (die Daten liegen unter `/Users`, das beide Profile sichern) und Windows
+  (noch nicht unterstützt; eine Vermutung über Datenlaufwerke würde vor bewusst Weggelassenem
+  warnen). Der Server behält nur Namen dieser Liste (`endpoints.settings.agent`, keine Migration).
+- Ein Ordner gilt als gesichert, wenn ein Ordner des Jobs ihn enthält und kein Ausschluss ihn oder
+  einen Ordner auf dem Weg zu ihm trifft (restic-Regeln: der letzte passende Ausschluss entscheidet,
+  `!` nimmt zurück). Der Standardausschluss `/var/lib/docker` lässt deshalb auch die Docker-Volumes
+  weg.
+- Job-Editor: Er zeigt die Profile der Rechner ("Client: nur Benutzerordner und Konfiguration",
+  "Server: auch die Ordner der Anwendungen") und nennt jeden fehlenden Datenordner mit den Rechnern,
+  die ihn haben, zum Hinzufügen einzeln oder alle (`GET /api/v1/backup-jobs/machine-folders`).
+- Detailseite eines Rechners in einem Job: dieselbe Warnung für diesen Rechner mit "Zum Job
+  hinzufügen" (`POST /api/v1/backup-jobs/:id/folders`, nur Ordner der Liste, eine gewöhnliche
+  Änderung des Jobs mit Audit). Hat der Rechner im Job eigene Ordner, verweist sie auf den Job.
+- Hinzufügen nimmt den Ordner in die Pfade auf und schränkt einen Ausschluss eines Elternordners
+  ein: Aus `/var/lib/docker` werden `/var/lib/docker/*` und `!/var/lib/docker/volumes` (restic ab
+  0.16 kennt `!`). Die anderen Rechner des Jobs bekommen den Ordner ebenfalls; wer ihn nicht hat,
+  überspringt ihn: Der Agent sichert die vorhandenen Pfade und schreibt zu einem fehlenden nur eine
+  Warnung ins Protokoll des Laufs, der Lauf bleibt erfolgreich.
 
 Standardkonfiguration (`packages/core/src/endpoints/config.ts`):
 
@@ -169,7 +218,9 @@ Standardkonfiguration (`packages/core/src/endpoints/config.ts`):
 - Fehlt einem Linux-Job einer dieser Datenordner (`/home /root /srv /var/www /opt /usr/local
   /var/lib /var/backups`), etwa weil er mit den Client-Pfaden angelegt wurde, sagt der
   Job-Editor das und bietet an, sie hinzuzufügen; der Datei-Restore sagt es zu einem
-  Sicherungsstand ohne sie (#59).
+  Sicherungsstand ohne sie (#59). Melden die Agents der Rechner ihre Datenordner (ab 0.4.0),
+  nennt der Job-Editor stattdessen genau die Ordner, die es auf den Rechnern gibt (siehe
+  "Rechner und Datenordner").
 - Ausschlüsse je System: Caches, Temp, Papierkorb, `node_modules`, `*.tmp`, der restic-Cache;
   unter Linux außerdem `/var/lib/docker`, `/var/lib/containerd` und `/var/lib/apt/lists`
   (Images und Paketlisten werden neu geladen, nicht wiederhergestellt). Datenbanken unter

@@ -1,3 +1,4 @@
+import type { MachineFacts, ProfileDetection } from "@/features/backup-jobs/api";
 import type { BandwidthWindow } from "@/features/backup-jobs/bandwidth-windows";
 import type { Failure } from "@/features/failures";
 import { apiFetch } from "@/lib/api";
@@ -263,8 +264,27 @@ export interface EndpointProblem {
   failure: Failure;
 }
 
+/** The data folders the agent found (agent 0.4.0 and later, #59) and which of them the job leaves out. */
+export interface EndpointDataFolders {
+  folders: string[];
+  /** Those the job's folders and exclusions (as they apply to this machine) do not back up. */
+  missing: string[];
+  reportedAt: string | null;
+  /** The machine has folders or exclusions of its own in the job: adding to the job does not reach it. */
+  ownFolders: boolean;
+}
+
+/** What the agent says the machine is, and why it got the server profile when it was added as a client. */
+export interface EndpointMachine {
+  facts: MachineFacts | null;
+  profileDetection: ProfileDetection | null;
+}
+
 export interface EndpointDetail extends EndpointSummary {
   config: EndpointConfig;
+  /** null when the agent does not report data folders (before 0.4.0, macOS). */
+  dataFolders: EndpointDataFolders | null;
+  machine: EndpointMachine;
   configVersion: number;
   /** The configuration version the agent runs; differs from `configVersion` until it fetched the change. */
   agentConfigVersion: number | null;

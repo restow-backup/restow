@@ -104,6 +104,8 @@ function detail(over: Partial<EndpointDetail> = {}): EndpointDetail {
     },
     configVersion: 3,
     agentConfigVersion: 3,
+    dataFolders: null,
+    machine: { facts: null, profileDetection: null },
     settings: {
       retention: { keepDaily: 30, keepWeekly: 12, keepMonthly: 12 },
       staleAfterHours: 2,
