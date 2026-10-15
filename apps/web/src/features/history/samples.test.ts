@@ -7,6 +7,8 @@ import {
   chartSeries,
   formatClock,
   indexAtFraction,
+  MAX_KEPT_SAMPLES,
+  mergeSamples,
   moveCrosshair,
   nearestStep,
   niceMax,
@@ -25,6 +27,34 @@ import {
 } from "./samples";
 
 const points = (...rows: [number, number, number][]): SamplePoint[] => rows;
+
+describe("mergeSamples", () => {
+  it("lets newer measurements replace what they cover and keeps everything older", () => {
+    const older = points([0, 0, 0], [2000, 1, 1], [4000, 2, 2], [6000, 3, 3]);
+    const newer = points([4000, 2, 2], [6000, 3, 3], [8000, 4, 4]);
+    expect(mergeSamples(older, newer)).toEqual(
+      points([0, 0, 0], [2000, 1, 1], [4000, 2, 2], [6000, 3, 3], [8000, 4, 4]),
+    );
+  });
+
+  it("takes one side when the other has nothing", () => {
+    const some = points([0, 0, 0], [2000, 1, 1]);
+    expect(mergeSamples(null, some)).toEqual(some);
+    expect(mergeSamples(some, null)).toEqual(some);
+    expect(mergeSamples(some, [])).toEqual(some);
+    expect(mergeSamples(null, null)).toBeNull();
+  });
+
+  it("keeps the newest measurements only, up to a bound", () => {
+    const many = Array.from(
+      { length: MAX_KEPT_SAMPLES + 50 },
+      (_, index): SamplePoint => [index * 1000, index, index],
+    );
+    const merged = mergeSamples(many.slice(0, -10), many.slice(-10));
+    expect(merged).toHaveLength(MAX_KEPT_SAMPLES);
+    expect(merged?.at(-1)).toEqual(many.at(-1));
+  });
+});
 
 describe("rateSteps", () => {
   it("turns cumulative counters into the speed of every step", () => {

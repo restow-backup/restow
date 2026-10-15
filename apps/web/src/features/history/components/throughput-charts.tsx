@@ -5,6 +5,7 @@ import { formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 import type { SamplePoint } from "../api";
+import { useLiveAxis } from "../live/motion";
 import {
   boxFor,
   CHART_BOX,
@@ -13,7 +14,9 @@ import {
   type ChartScale,
   type CrosshairMove,
   chartSeries,
+  chartSteps,
   formatClock,
+  liveWindow,
   moveCrosshair,
   nearestStep,
   pathOf,
@@ -40,6 +43,11 @@ import {
  * group carries a text summary as its accessible name. A running run shows its last five
  * minutes; a finished one all of it.
  *
+ * A running run's charts move with time, not with each measurement: the time axis slides on to
+ * now between two measurements (live/motion.ts), the newest value is held as a dashed line from
+ * its measurement up to now, and a new value eases in over 400 ms instead of jumping. With reduced
+ * motion nothing eases and the axis moves once a second.
+ *
  * The transfer is drawn as an average over {@link TRANSFER_AVERAGE_MS}: data reaches the
  * repository in packs, so its raw speed is a square wave. The chart says so under its title, the
  * tooltip and the end label show the same averaged value, and so does the text summary ("average
@@ -63,6 +71,8 @@ interface ChartData {
   steps: RateStep[];
   scale: ChartScale;
   unit: ReturnType<typeof unitFor>;
+  /** A running chart holds its newest value up to the end of the axis (now). */
+  held: boolean;
 }
 
 function chartOf(
@@ -71,10 +81,40 @@ function chartOf(
   from: number,
   to: number,
   box: ChartBox,
+  held: boolean,
 ): ChartData {
-  const peak = Math.max(0, ...steps.map((step) => step[key]));
-  const scale = scaleOf(from, to, peak, box);
-  return { key, steps, scale, unit: unitFor(scale.max) };
+  // A step left of the axis (cut by the plot's edge) does not set the scale.
+  const peak = Math.max(0, ...steps.filter((step) => step.at >= from).map((step) => step[key]));
+  const lastValue = steps[steps.length - 1]?.[key] ?? 0;
+  const scale = scaleOf(from, to, held ? Math.max(peak, lastValue) : peak, box);
+  return { key, steps, scale, unit: unitFor(scale.max), held };
+}
+
+const lerp = (from: number, to: number, share: number) => from + (to - from) * share;
+
+/**
+ * The newest step as it is drawn: on its way from the value drawn before it to its own while it
+ * arrives (`arrived` below 1), itself after that.
+ */
+function useEasedStep(step: RateStep | null, arrived: number): RateStep | null {
+  const current = React.useRef<RateStep | null>(step);
+  const from = React.useRef<RateStep | null>(null);
+  const shown = React.useRef<RateStep | null>(step);
+  if (step?.at !== current.current?.at) {
+    from.current = shown.current;
+    current.current = step;
+  }
+  const start = from.current;
+  const eased =
+    step && start && arrived < 1
+      ? {
+          at: step.at,
+          processed: lerp(start.processed, step.processed, arrived),
+          transferred: lerp(start.transferred, step.transferred, arrived),
+        }
+      : step;
+  shown.current = eased;
+  return eased;
 }
 
 export function ThroughputCharts({
@@ -109,18 +149,34 @@ export function ThroughputCharts({
   }, []);
   const box = React.useMemo(() => boxFor(width), [width]);
 
-  const { steps, from, to } = React.useMemo(
-    () => chartSeries(points, running ? CHART_WINDOW_MS : null),
+  // Every step of the history, computed when a measurement arrives, not on every frame.
+  const allSteps = React.useMemo(() => chartSteps(points), [points]);
+  const lastAt = points[points.length - 1]?.[0] ?? 0;
+  const axis = useLiveAxis(lastAt, running);
+  const newest = useEasedStep(allSteps[allSteps.length - 1] ?? null, axis.arrived);
+  const finished = React.useMemo(
+    () => (running ? null : chartSeries(points, null)),
     [points, running],
   );
+  const { steps, from, to } = React.useMemo(() => {
+    if (finished) {
+      return finished;
+    }
+    const end = Math.max(axis.now, lastAt);
+    const shown = liveWindow(allSteps, end, CHART_WINDOW_MS);
+    if (newest && shown.length > 0) {
+      shown[shown.length - 1] = newest;
+    }
+    return { steps: shown, from: end - CHART_WINDOW_MS, to: end };
+  }, [finished, allSteps, axis.now, lastAt, newest]);
   const averageSeconds = Math.round(TRANSFER_AVERAGE_MS / 1000);
 
   const charts = React.useMemo(() => {
-    const processed = chartOf(steps, "processed", from, to, box);
+    const processed = chartOf(steps, "processed", from, to, box, running);
     return showTransferred
-      ? [processed, chartOf(steps, "transferred", from, to, box)]
+      ? [processed, chartOf(steps, "transferred", from, to, box, running)]
       : [processed];
-  }, [steps, from, to, showTransferred, box]);
+  }, [steps, from, to, showTransferred, box, running]);
 
   // New measurements move under a held crosshair; one past the end falls back to the newest.
   const index = active === null ? null : Math.min(active, steps.length - 1);
@@ -278,10 +334,12 @@ function Chart({
   /** Draws the shared time axis under this chart; null for the others. */
   timeLabel: ((at: number) => string) | null;
 }) {
-  const { scale, steps, key } = chart;
+  const { scale, steps, key, held } = chart;
   const { box } = scale;
+  const clipId = React.useId();
   const path = pathOf(steps, key, scale);
   const plotHeight = box.height - box.top - box.bottom;
+  const plotRight = box.width - box.right;
   const step = active === null ? null : (steps[active] ?? null);
   const lastValue = steps[steps.length - 1]?.[key] ?? 0;
   const grid = Array.from({ length: GRID_STEPS + 1 }, (_, i) => (scale.max * i) / GRID_STEPS);
@@ -349,17 +407,48 @@ function Chart({
           : null}
         {path.last ? (
           <>
-            <polygon points={path.area} fill="var(--chart-info)" fillOpacity={0.1} />
-            <polyline
-              points={path.line}
-              fill="none"
-              stroke="var(--chart-info)"
-              strokeWidth={2}
-              strokeLinejoin="round"
-              strokeLinecap="round"
-            />
+            <defs>
+              <clipPath id={clipId}>
+                <rect x={box.left} y={0} width={plotRight - box.left} height={box.height} />
+              </clipPath>
+            </defs>
+            {/* A running chart slides: what leaves the axis on the left is cut at the plot's edge. */}
+            <g clipPath={held ? `url(#${clipId})` : undefined}>
+              <polygon
+                points={
+                  held
+                    ? `${path.area.slice(0, path.area.lastIndexOf(" "))} ${plotRight},${path.last.y} ${plotRight},${scale.y(0)}`
+                    : path.area
+                }
+                fill="var(--chart-info)"
+                fillOpacity={0.1}
+              />
+              <polyline
+                points={path.line}
+                fill="none"
+                stroke="var(--chart-info)"
+                strokeWidth={2}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+              />
+              {held ? (
+                // The newest value, held from its measurement up to now: no newer one yet.
+                <line
+                  data-slot="held-line"
+                  x1={path.last.x}
+                  x2={plotRight}
+                  y1={path.last.y}
+                  y2={path.last.y}
+                  stroke="var(--chart-info)"
+                  strokeWidth={2}
+                  strokeDasharray="2 4"
+                  strokeLinecap="round"
+                  opacity={0.6}
+                />
+              ) : null}
+            </g>
             <circle
-              cx={path.last.x}
+              cx={held ? plotRight : path.last.x}
               cy={path.last.y}
               r={4}
               fill="var(--chart-info)"
@@ -367,7 +456,7 @@ function Chart({
               strokeWidth={2}
             />
             <text
-              x={path.last.x + 9}
+              x={(held ? plotRight : path.last.x) + 9}
               y={path.last.y + 4}
               className="fill-foreground font-mono text-[11px] font-medium"
             >
@@ -398,6 +487,7 @@ function Chart({
           </>
         ) : null}
         <rect
+          data-slot="chart-hit"
           x={box.left}
           y={box.top}
           width={box.width - box.left - box.right}

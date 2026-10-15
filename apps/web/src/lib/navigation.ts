@@ -139,6 +139,32 @@ export interface NavItem {
 export interface NavBadge {
   count: number;
   label: string;
+  /**
+   * Work going on behind the entry (backups that run or wait): the sidebar shows a spinner with
+   * the count instead of a plain number, a dot on the icon of the collapsed rail, and leads to
+   * the running items. `count` is then the running ones, `label` says both ("2 backups running,
+   * 1 waiting").
+   */
+  activity?: NavActivity;
+}
+
+/** What runs behind a menu entry (`NavBadge.activity`). */
+export interface NavActivity {
+  running: number;
+  queued: number;
+  /** The running items, the one started first first: what the entry's tooltip lists and opens. */
+  items: readonly NavActivityItem[];
+}
+
+export interface NavActivityItem {
+  id: string;
+  /** What runs: the job, with the account or machine. */
+  label: string;
+  /** 0 to 100; null while unknown. */
+  percent: number | null;
+  /** Where a click on it leads: the page that opens the running run. */
+  to: string;
+  search?: Readonly<Record<string, string>>;
 }
 
 /** A nav item as shown, with whether its lock holds it closed. */

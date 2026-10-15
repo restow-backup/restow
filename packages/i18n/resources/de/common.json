@@ -70,6 +70,14 @@
       "organisationSettings": "Ihre Organisation",
       "resources": "Kapazitätsplanung"
     },
+    "activity": {
+      "running": "{count, plural, one {# Sicherung läuft} other {# Sicherungen laufen}}",
+      "queued": "{count} wartet",
+      "open": "Laufende Sicherung öffnen: {name}",
+      "show": "{summary}. Laufende Sicherungen anzeigen",
+      "title": "Läuft gerade",
+      "percent": "{percent} %"
+    },
     "breadcrumb": "Navigationspfad",
     "notifications": "Benachrichtigungen",
     "pagination": "Seitennavigation",

@@ -1,4 +1,5 @@
 import { X } from "lucide-react";
+import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState } from "@/components/error-state";
@@ -15,8 +16,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError } from "@/lib/api";
 import { formatDateTime } from "@/lib/format";
 
+import type { Run } from "../api";
 import { mergeRun, useRunDetail, useRunDrawer } from "../hooks";
 import { useLiveRun } from "../live/provider";
+import { barPercent } from "../presenters";
 import { RunActions } from "./run-actions";
 import { RunStateBadge, SubjectIcon, useRunTitle } from "./run-parts";
 import { RunView } from "./run-view";
@@ -47,6 +50,7 @@ export function RunDrawer({ runId, onClose, onSwitch }: RunDrawerProps) {
   const live = useLiveRun(runId);
   const run = mergeRun(detail.data, live);
   const missing = detail.error instanceof ApiError && detail.error.status === 404 && !live;
+  useRunTabTitle(run ?? null, run ? title(run) : "");
 
   const scope = run
     ? [
@@ -130,6 +134,38 @@ export function RunDrawer({ runId, onClose, onSwitch }: RunDrawerProps) {
       </SheetContent>
     </Sheet>
   );
+}
+
+/**
+ * While the drawer shows a running run, the browser tab says how far it is ("78 % · Backup ·
+ * anna@contoso.example · Restow"), so a run can be followed from another tab. The page's own
+ * title comes back when the run ends or the drawer closes.
+ */
+function useRunTabTitle(run: Run | null, name: string) {
+  // The product's name lives in the common namespace.
+  const { t: tc } = useTranslation();
+  const percent = run?.state === "running" ? barPercent(run) : null;
+  const text = percent === null ? null : `${Math.round(percent)} % · ${name} · ${tc("app.name")}`;
+  const previous = React.useRef<string | null>(null);
+  React.useEffect(() => {
+    if (text === null || typeof document === "undefined") {
+      return;
+    }
+    previous.current ??= document.title;
+    document.title = text;
+  }, [text]);
+  const shown = text !== null;
+  React.useEffect(() => {
+    if (!shown) {
+      return;
+    }
+    return () => {
+      if (previous.current !== null) {
+        document.title = previous.current;
+        previous.current = null;
+      }
+    };
+  }, [shown]);
 }
 
 /** The drawer of the page it sits on, driven by `?run=` in the address. Put it once on a page. */

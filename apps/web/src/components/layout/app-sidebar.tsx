@@ -1,5 +1,7 @@
 import { Link, type LinkProps } from "@tanstack/react-router";
-import { ArrowUpCircle, Lock } from "lucide-react";
+import { cn } from "cn";
+import { ArrowUpCircle, Clock, Loader2, Lock } from "lucide-react";
+import type * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { CollapsibleNavSection } from "@/components/layout/collapsible-nav-section";
@@ -7,6 +9,13 @@ import { useShellEntry } from "@/components/layout/shell-entry";
 import { SoonBadge, SoonSuffix } from "@/components/layout/soon-badge";
 import { TenantSwitcher } from "@/components/tenant-switcher";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Sidebar,
   SidebarContent,
@@ -22,34 +31,213 @@ import {
   SidebarSeparator,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { BrandName, RestowMark } from "@/components/wordmark";
 import { CommunityEditionBadge } from "@/features/installation/edition-link";
 import { StartEntry } from "@/features/start";
 import { ExtensionSlot } from "@/lib/extensions";
-import { groupNavItems, type NavBadge, navGroupLabelKey } from "@/lib/navigation";
+import {
+  groupNavItems,
+  type NavActivity,
+  type NavActivityItem,
+  type NavBadge,
+  navGroupLabelKey,
+} from "@/lib/navigation";
 import { isTenantOnlyNavItem } from "@/lib/scope";
 import { canAccess, type RunningVersion, sessionScope, useSession } from "@/lib/session";
 import { useNavItems } from "@/lib/use-nav-items";
 
 const EXACT_MATCH = { exact: true, includeSearch: true } as const;
 
+/** Calls an entry's badge hook: a component of its own, so the hook always has its place. */
+function WithBadge({
+  useBadge,
+  children,
+}: {
+  useBadge: () => NavBadge | null;
+  children: (badge: NavBadge | null) => React.ReactNode;
+}) {
+  return <>{children(useBadge())}</>;
+}
+
 /** The count an entry shows next to its label (`NavItem.useBadge`); nothing while it has none. */
-function EntryBadge({ useBadge }: { useBadge: () => NavBadge | null }) {
-  const badge = useBadge();
+function EntryBadge({ badge }: { badge: NavBadge | null }) {
   if (!badge || badge.count <= 0) {
     return null;
   }
   return (
+    <span
+      aria-hidden="true"
+      data-slot="nav-badge"
+      className="ml-auto rounded-md bg-sidebar-accent px-1.5 text-[0.6875rem] leading-5 font-medium tabular-nums text-sidebar-accent-foreground group-data-[collapsible=icon]:hidden"
+    >
+      {badge.count > 99 ? "99+" : badge.count}
+    </span>
+  );
+}
+
+/**
+ * The collapsed rail has no room for a count: a dot on the icon says that something runs (Lapis,
+ * pulsing where motion is allowed) or only waits (muted).
+ */
+function ActivityDot({ activity }: { activity: NavActivity }) {
+  const running = activity.running > 0;
+  return (
+    <span
+      aria-hidden="true"
+      data-slot="nav-activity-dot"
+      data-running={running || undefined}
+      className={cn(
+        "pointer-events-none absolute top-1 right-1 hidden size-2 rounded-full ring-2 ring-sidebar group-data-[collapsible=icon]:block",
+        running ? "bg-info motion-safe:animate-pulse" : "bg-sidebar-foreground/50",
+      )}
+    />
+  );
+}
+
+function ActivityItemText({ item }: { item: NavActivityItem }) {
+  const { t } = useTranslation();
+  return (
     <>
-      <span
-        aria-hidden="true"
-        data-slot="nav-badge"
-        className="ml-auto rounded-md bg-sidebar-accent px-1.5 text-[0.6875rem] leading-5 font-medium tabular-nums text-sidebar-accent-foreground group-data-[collapsible=icon]:hidden"
-      >
-        {badge.count > 99 ? "99+" : badge.count}
-      </span>
-      <span className="sr-only">{`, ${badge.label}`}</span>
+      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      {item.percent !== null ? (
+        <span className="shrink-0 font-mono tabular-nums opacity-70">
+          {t("nav.activity.percent", { percent: item.percent })}
+        </span>
+      ) : null}
     </>
+  );
+}
+
+/**
+ * The work behind an entry, beside its label: a spinner with the number of backups that run
+ * ("⟳ 2"; a still dot with reduced motion), and those that wait, muted ("+1", or a clock alone
+ * when nothing runs). The tooltip says it in words and lists what runs; a click opens the running
+ * backup, or a menu of them when several run. Lapis, never green: running is not proof of
+ * anything. Hidden on the collapsed rail, which shows {@link ActivityDot} instead.
+ */
+function ActivityControl({
+  activity,
+  summary,
+  onNavigate,
+}: {
+  activity: NavActivity;
+  summary: string;
+  onNavigate: () => void;
+}) {
+  const { t } = useTranslation();
+  const running = activity.running > 0;
+  const face = (
+    <>
+      {running ? (
+        <>
+          <Loader2
+            aria-hidden="true"
+            className="size-3 motion-safe:animate-spin motion-reduce:hidden"
+          />
+          <span
+            aria-hidden="true"
+            className="hidden size-1.5 rounded-full bg-info motion-reduce:inline-block"
+          />
+          <span>{activity.running}</span>
+          {activity.queued > 0 ? (
+            <span className="font-normal text-sidebar-foreground/60">{`+${activity.queued}`}</span>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <Clock aria-hidden="true" className="size-3" />
+          <span>{activity.queued}</span>
+        </>
+      )}
+    </>
+  );
+  const className = cn(
+    "absolute top-1.5 right-1 inline-flex h-5 items-center gap-1 rounded-md px-1.5 text-[0.6875rem] font-medium tabular-nums ring-sidebar-ring outline-hidden hover:bg-sidebar-hover focus-visible:ring-2 group-data-[collapsible=icon]:hidden",
+    running ? "text-info-text" : "text-sidebar-foreground/60",
+  );
+  const tooltip = (
+    <TooltipContent side="right" className="max-w-72">
+      <p className="font-medium">{summary}</p>
+      {activity.items.length > 0 ? (
+        <ul className="mt-1 space-y-0.5">
+          {activity.items.map((item) => (
+            <li key={item.id} className="flex gap-2">
+              <ActivityItemText item={item} />
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </TooltipContent>
+  );
+  const [single] = activity.items;
+  if (activity.items.length === 1 && single) {
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Link
+            to={single.to as LinkProps["to"]}
+            search={(single.search ?? {}) as never}
+            aria-label={`${summary}. ${t("nav.activity.open", { name: single.label })}`}
+            data-slot="nav-activity"
+            className={className}
+            onClick={onNavigate}
+          >
+            {face}
+          </Link>
+        </TooltipTrigger>
+        {tooltip}
+      </Tooltip>
+    );
+  }
+  if (activity.items.length === 0) {
+    // Nothing to open (only waiting): the entry's own label already says it to a screen reader.
+    return (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span aria-hidden="true" data-slot="nav-activity" className={className}>
+            {face}
+          </span>
+        </TooltipTrigger>
+        {tooltip}
+      </Tooltip>
+    );
+  }
+  return (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger
+            aria-label={t("nav.activity.show", { summary })}
+            data-slot="nav-activity"
+            className={className}
+          >
+            {face}
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        {tooltip}
+      </Tooltip>
+      <DropdownMenuContent side="right" align="start" className="w-72">
+        <DropdownMenuLabel>{t("nav.activity.title")}</DropdownMenuLabel>
+        {activity.items.map((item) => (
+          <DropdownMenuItem key={item.id} asChild>
+            <Link
+              to={item.to as LinkProps["to"]}
+              search={(item.search ?? {}) as never}
+              onClick={onNavigate}
+              className="flex gap-2"
+            >
+              <ActivityItemText item={item} />
+            </Link>
+          </DropdownMenuItem>
+        ))}
+        {activity.queued > 0 ? (
+          <DropdownMenuLabel className="font-normal text-muted-foreground">
+            {t("nav.activity.queued", { count: activity.queued })}
+          </DropdownMenuLabel>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
@@ -130,52 +318,79 @@ export function AppSidebar() {
           const dimmed = allTenants && isTenantOnlyNavItem(item.id);
           const dimmedHint = dimmed ? t("nav.scope.dimmedHint") : null;
           const note = stage ?? soon;
-          return (
-            <SidebarMenuItem key={item.id}>
-              <SidebarMenuButton
-                asChild
-                isActive={active}
-                tooltip={
-                  dimmedHint ? `${label} — ${dimmedHint}` : note ? `${label} (${note})` : label
-                }
-                className={
-                  dimmed ? "text-sidebar-foreground/50 hover:text-sidebar-foreground/70" : undefined
-                }
-              >
-                <Link
-                  // Feature paths are registered at runtime, so the
-                  // static route typing cannot know them.
-                  to={item.path as LinkProps["to"]}
-                  search={(item.search ?? {}) as never}
-                  // Our own notion of "active" (shell-entry.ts) decides; the router's,
-                  // which also sets aria-current, is held to exact matches so that
-                  // Settings stays unmarked on Settings › About (License).
-                  activeOptions={EXACT_MATCH}
-                  aria-current={active ? "page" : undefined}
-                  data-soon={item.soon ? "true" : undefined}
-                  data-scope-dimmed={dimmed ? "true" : undefined}
-                  title={dimmedHint ?? undefined}
-                  onClick={closeOnMobile}
+          const renderEntry = (badge: NavBadge | null) => {
+            const activity = badge?.activity ?? null;
+            const base = dimmedHint
+              ? `${label} — ${dimmedHint}`
+              : note
+                ? `${label} (${note})`
+                : label;
+            return (
+              <SidebarMenuItem key={item.id}>
+                <SidebarMenuButton
+                  asChild
+                  isActive={active}
+                  // The collapsed rail's tooltip says what runs, too.
+                  tooltip={activity && badge ? `${base} — ${badge.label}` : base}
+                  className={cn(
+                    dimmed && "text-sidebar-foreground/50 hover:text-sidebar-foreground/70",
+                    // Room for the activity beside the label, which is a control of its own.
+                    activity && "pr-14",
+                  )}
                 >
-                  <Icon aria-hidden="true" />
-                  <span>
-                    {label}
-                    {/* "Jobs, coming soon" for assistive technology. */}
-                    {item.soon ? <SoonSuffix /> : null}
-                    {dimmedHint ? <span className="sr-only">{`, ${dimmedHint}`}</span> : null}
-                  </span>
-                  {item.soon ? (
-                    <SoonBadge className="ml-auto group-data-[collapsible=icon]:hidden" />
-                  ) : null}
-                  {item.useBadge && !dimmed ? <EntryBadge useBadge={item.useBadge} /> : null}
-                  {stage ? (
-                    <span className="ml-auto rounded border border-sidebar-border px-1 text-[0.625rem] leading-4 font-medium text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden">
-                      {stage}
+                  <Link
+                    // Feature paths are registered at runtime, so the
+                    // static route typing cannot know them.
+                    to={item.path as LinkProps["to"]}
+                    search={(item.search ?? {}) as never}
+                    // Our own notion of "active" (shell-entry.ts) decides; the router's,
+                    // which also sets aria-current, is held to exact matches so that
+                    // Settings stays unmarked on Settings › About (License).
+                    activeOptions={EXACT_MATCH}
+                    aria-current={active ? "page" : undefined}
+                    data-soon={item.soon ? "true" : undefined}
+                    data-scope-dimmed={dimmed ? "true" : undefined}
+                    title={dimmedHint ?? undefined}
+                    onClick={closeOnMobile}
+                  >
+                    <Icon aria-hidden="true" />
+                    <span>
+                      {label}
+                      {/* "Jobs, coming soon" for assistive technology. */}
+                      {item.soon ? <SoonSuffix /> : null}
+                      {dimmedHint ? <span className="sr-only">{`, ${dimmedHint}`}</span> : null}
+                      {/* "Jobs, 2 backups running": the count is only drawn. */}
+                      {badge && (activity || badge.count > 0) ? (
+                        <span className="sr-only">{`, ${badge.label}`}</span>
+                      ) : null}
                     </span>
-                  ) : null}
-                </Link>
-              </SidebarMenuButton>
-            </SidebarMenuItem>
+                    {item.soon ? (
+                      <SoonBadge className="ml-auto group-data-[collapsible=icon]:hidden" />
+                    ) : null}
+                    {activity ? <ActivityDot activity={activity} /> : <EntryBadge badge={badge} />}
+                    {stage ? (
+                      <span className="ml-auto rounded border border-sidebar-border px-1 text-[0.625rem] leading-4 font-medium text-sidebar-foreground/70 group-data-[collapsible=icon]:hidden">
+                        {stage}
+                      </span>
+                    ) : null}
+                  </Link>
+                </SidebarMenuButton>
+                {activity && badge ? (
+                  <ActivityControl
+                    activity={activity}
+                    summary={badge.label}
+                    onNavigate={closeOnMobile}
+                  />
+                ) : null}
+              </SidebarMenuItem>
+            );
+          };
+          return item.useBadge && !dimmed ? (
+            <WithBadge key={item.id} useBadge={item.useBadge}>
+              {renderEntry}
+            </WithBadge>
+          ) : (
+            renderEntry(null)
           );
         })}
       </SidebarMenu>

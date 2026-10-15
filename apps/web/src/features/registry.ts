@@ -7,6 +7,7 @@ import * as endpoints from "@/features/endpoints";
 import * as mailExports from "@/features/exports";
 import * as fileShares from "@/features/file-shares";
 import * as history from "@/features/history";
+import { usePveActivity } from "@/features/history/live/activity-badges";
 import * as mailImports from "@/features/imports";
 import * as installation from "@/features/installation";
 import * as integrations from "@/features/integrations";
@@ -133,9 +134,23 @@ const NAV_PLACEMENT: Readonly<Record<string, Placement>> = {
   resources: { group: "installation", order: 50 },
 };
 
+/**
+ * Counts an entry shows that its own feature does not bring: the backups of Proxmox VE guests
+ * that run or wait, on "VMs & containers" (features/history/live/activity-badges.ts reads them
+ * from the overview of the PVE page).
+ */
+const NAV_BADGES: Readonly<Record<string, NavItem["useBadge"]>> = {
+  virtualization: usePveActivity,
+};
+
 function placed(item: NavItem): NavItem {
   const placement = NAV_PLACEMENT[item.id];
-  return placement ? { ...item, ...placement } : item;
+  const useBadge = item.useBadge ?? NAV_BADGES[item.id];
+  return {
+    ...item,
+    ...(placement ?? {}),
+    ...(useBadge ? { useBadge } : {}),
+  };
 }
 
 /**

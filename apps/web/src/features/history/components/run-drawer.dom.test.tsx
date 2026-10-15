@@ -128,12 +128,19 @@ describe("the run drawer opened by an address", () => {
       id: RUN_IDS.mailRunning,
       firstBackup: { itemsDone: 4_050, itemsTotal: 12_000, etaSeconds: 11_460 },
     });
-    await open(RUN_IDS.mailRunning, {
-      [`GET /history/${RUN_IDS.mailRunning}`]: () => json(detail(first, { batch: null })),
-    });
-    expect(section("progress")?.textContent).toContain("First backup: 4,050 of 12,000 items");
-    const remaining = section("stats")?.querySelector('[data-term="remaining"]');
-    expect(remaining?.textContent).toBe("about 3 h 15 min left (estimate)");
+    // The moment of the run's last report: the time left counts down from there.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(Date.parse(iso(60))));
+    try {
+      await open(RUN_IDS.mailRunning, {
+        [`GET /history/${RUN_IDS.mailRunning}`]: () => json(detail(first, { batch: null })),
+      });
+      expect(section("progress")?.textContent).toContain("First backup: 4,050 of 12,000 items");
+      const remaining = section("stats")?.querySelector('[data-term="remaining"]');
+      expect(remaining?.textContent).toBe("about 3 h 15 min left (estimate)");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("says which attempt a retried restore check is, in the header", async () => {
@@ -161,6 +168,26 @@ describe("the run drawer opened by an address", () => {
     expect(dialog()?.textContent).toContain("Attempt 3 of 6");
     // Nothing of the restore check's result is known yet: a dash, not an empty cell.
     expect(section("stats")?.textContent).toContain("Restore check–");
+  });
+
+  it("names the running run's progress in the browser tab, and gives the tab its title back on close", async () => {
+    document.title = "History · Contoso · Restow";
+    await open(RUN_IDS.mailRunning);
+    expect(document.title).toBe("40 % · Backup · anna@contoso.example · Restow");
+    await act(async () => {
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+      );
+      await Promise.resolve();
+    });
+    await flush(4);
+    expect(document.title).not.toContain("40 %");
+  });
+
+  it("leaves the tab's title alone for a run that is over", async () => {
+    document.title = "History · Contoso · Restow";
+    await open(RUN_IDS.mailDone);
+    expect(document.title).not.toContain("%");
   });
 
   it("opens with the focus inside, and closes on Escape, taking only the run out of the address", async () => {
@@ -286,6 +313,10 @@ describe("the drawer is live", () => {
       await Promise.resolve();
     });
     await flush(2);
+    // The numbers count up to the new values rather than jumping there.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    });
     expect(section("progress")?.textContent).toContain("61 %");
     expect(section("stats")?.textContent).toContain("610 MB");
     expect(page.requests.filter((request) => request.path.startsWith("/history/")).length).toBe(
@@ -319,6 +350,71 @@ describe("the drawer is live", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe("whether the run still reports", () => {
+  async function at(seconds: number) {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+    vi.setSystemTime(new Date(Date.parse(iso(60)) + seconds * 1000));
+    await open(RUN_IDS.mailRunning);
+  }
+  const liveness = () => section("progress")?.querySelector('[data-slot="run-liveness"]');
+  const remaining = () => section("stats")?.querySelector('[data-term="remaining"]')?.textContent;
+
+  it("says when the run last reported, and counts the time left down in between", async () => {
+    try {
+      await at(3);
+      expect(liveness()?.textContent).toBe("Last update 3 s ago");
+      expect(liveness()?.getAttribute("data-liveness")).toBe("reporting");
+      // The report said 90 s left, three seconds ago.
+      expect(remaining()).toBe("about 1:27");
+      await act(async () => {
+        vi.advanceTimersByTime(5000);
+      });
+      expect(liveness()?.textContent).toBe("Last update 8 s ago");
+      expect(remaining()).toBe("about 1:22");
+      // Quiet for long: it says for how long, and the dot stands still.
+      await act(async () => {
+        vi.advanceTimersByTime(72_000);
+      });
+      expect(liveness()?.textContent).toBe("No update for 1:20");
+      expect(liveness()?.getAttribute("data-liveness")).toBe("quiet");
+      expect(liveness()?.querySelector('[class*="animate-ping"]')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("says that Microsoft Graph makes the run wait", async () => {
+    try {
+      const throttled = detail(
+        run({
+          throttle: {
+            status: 429,
+            waitMs: 120_000,
+            retryAfterMs: 120_000,
+            until: iso(160),
+            waits: 1,
+            totalWaitMs: 120_000,
+          },
+        }),
+      );
+      vi.useFakeTimers({ toFake: ["setInterval", "clearInterval", "Date"] });
+      vi.setSystemTime(new Date(Date.parse(iso(60)) + 40_000));
+      opened = await openHistory(`/host?run=${RUN_IDS.mailRunning}`, {
+        routes: routes({ [`GET /history/${RUN_IDS.mailRunning}`]: () => json(throttled) }),
+      });
+      await flush(6);
+      expect(liveness()?.textContent).toBe("Waiting for Microsoft Graph, continues in 1:00");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("shows no such line for a run that is over", async () => {
+    await open(RUN_IDS.mailDone);
+    expect(liveness()).toBeFalsy();
   });
 });
 

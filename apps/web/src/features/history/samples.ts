@@ -10,6 +10,30 @@ import type { SamplePoint } from "./api";
 /** How much of a running run the drawer's charts show. */
 export const CHART_WINDOW_MS = 5 * 60_000;
 
+/** The most measurements the browser keeps of one run (the server keeps 300, older ones thinned). */
+export const MAX_KEPT_SAMPLES = 600;
+
+/**
+ * The history of a run after newer measurements arrived. The live channel carries only the newest
+ * forty of a run, the run's detail all of them: the newer ones replace what they cover, everything
+ * older stays, so the drawer's charts keep their five minutes between two reads of the detail
+ * instead of shrinking to what one event carries. The newest {@link MAX_KEPT_SAMPLES} are kept.
+ */
+export function mergeSamples(
+  older: readonly SamplePoint[] | null | undefined,
+  newer: readonly SamplePoint[] | null | undefined,
+): SamplePoint[] | null {
+  if (!newer || newer.length === 0) {
+    return older ? [...older] : newer ? [] : null;
+  }
+  if (!older || older.length === 0) {
+    return [...newer];
+  }
+  const from = (newer[0] as SamplePoint)[0];
+  const merged = [...older.filter((point) => point[0] < from), ...newer];
+  return merged.length > MAX_KEPT_SAMPLES ? merged.slice(-MAX_KEPT_SAMPLES) : merged;
+}
+
 export type SeriesKey = "processed" | "transferred";
 
 /** The rate over one step between two neighbouring measurements. */
@@ -141,12 +165,36 @@ export function chartSeries(points: readonly SamplePoint[], windowMs: number | n
   const windowed = windowOf(points, windowMs);
   const from = windowed[0]?.[0] ?? 0;
   const to = Math.max(from + 1, windowed[windowed.length - 1]?.[0] ?? from + 1);
+  const steps = chartSteps(points).filter((step) => step.at > from);
+  return { steps, from, to };
+}
+
+/**
+ * Every step of a history as the charts draw it: the processing as measured, the transfer averaged
+ * over {@link TRANSFER_AVERAGE_MS} on the whole history.
+ */
+export function chartSteps(points: readonly SamplePoint[]): RateStep[] {
   const raw = rateSteps(points);
   const smooth = smoothedRateSteps(points);
-  const steps = raw.flatMap((step, index): RateStep[] =>
-    step.at > from ? [{ ...step, transferred: (smooth[index] as RateStep).transferred }] : [],
-  );
-  return { steps, from, to };
+  return raw.map((step, index) => ({
+    ...step,
+    transferred: (smooth[index] as RateStep).transferred,
+  }));
+}
+
+/**
+ * The steps a running chart draws when its time axis ends at `to` (now): those of the last
+ * `windowMs`, and the one before them, which the plot's left edge cuts, so the line slides out
+ * of the plot instead of losing its first segment at once. A run that sent nothing for the whole
+ * window keeps its newest step, out of sight left of the plot, for the held line to start from.
+ */
+export function liveWindow(steps: readonly RateStep[], to: number, windowMs: number): RateStep[] {
+  const from = to - windowMs;
+  const first = steps.findIndex((step) => step.at > from);
+  if (first === -1) {
+    return steps.slice(-1);
+  }
+  return steps.slice(Math.max(0, first - 1));
 }
 
 /**

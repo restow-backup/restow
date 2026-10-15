@@ -13,10 +13,13 @@ import { cn } from "@/lib/utils";
 
 import type { Run, RunDetail, RunEvent, RunObject } from "../api";
 import { useSecondClock } from "../live/clock";
+import { useTweened } from "../live/motion";
 import {
   barPercent,
   eventView,
   isMailSubject,
+  livenessOf,
+  remainingSeconds,
   runDurationSeconds,
   savingsPercent,
   stateView,
@@ -30,8 +33,9 @@ import { ThroughputCharts } from "./throughput-charts";
 /**
  * What a run looks like, drawer and page alike: its progress, three columns of numbers
  * (summary, data, result), the throughput as two small charts, then the objects of its wave and
- * its timeline. A run that is going is live: the numbers come from the channel, the clock under
- * the duration ticks here, and nothing asks the server. The parts only the server can derive
+ * its timeline. A run that is going is live: the numbers come from the channel and count up to a
+ * new value instead of jumping to it, the duration and the time left tick here every second, a
+ * line says when the run last reported (and why it may be quiet), and nothing asks the server. The parts only the server can derive
  * (objects, timeline, restore check) come with the detail and wait behind skeletons.
  */
 
@@ -70,7 +74,7 @@ export function RunView({
     <div className={cn("space-y-5", className)} data-slot="run-view" data-state={run.state}>
       <FailureSection run={run} detail={detail} />
       {itemsOnPage ? null : <FailedItemsSection run={run} detail={detail} />}
-      <ProgressSection run={run} detail={detail} />
+      <ProgressSection run={run} detail={detail} now={now} />
       <StatsSection run={run} detail={detail} now={now} />
       <ChartsSection run={run} loading={loading && !run.samples} detail={detail} />
       {error && !detail ? (
@@ -177,13 +181,24 @@ function FailedItemsSection({ run, detail }: { run: Run; detail: RunDetail | und
 
 // --- Progress -------------------------------------------------------------------------------------
 
-function ProgressSection({ run, detail }: { run: Run; detail: RunDetail | undefined }) {
+function ProgressSection({
+  run,
+  detail,
+  now,
+}: {
+  run: Run;
+  detail: RunDetail | undefined;
+  now: number;
+}) {
   const { t, i18n } = useTranslation("history");
   const { t: tb } = useTranslation("backup");
   const language = i18n.resolvedLanguage ?? i18n.language;
   const view = stateView(run);
-  const percent = barPercent(run);
   const running = run.state === "running";
+  const measured = barPercent(run);
+  // A new percent counts up to its value; the bar's own transition moves it as long.
+  const counted = useTweened(measured ?? 0, running && measured !== null);
+  const percent = measured === null ? null : running ? Math.round(counted) : measured;
   const indeterminate = percent === null && running;
   const wave = waveProgress(detail?.batch ?? null);
   const progress = run.progress;
@@ -237,6 +252,7 @@ function ProgressSection({ run, detail }: { run: Run; detail: RunDetail | undefi
           style={indeterminate ? undefined : { width: `${percent ?? 0}%` }}
         />
       </div>
+      {running ? <Liveness run={run} now={now} /> : null}
       {running && progress?.currentPath ? (
         <p
           className="truncate font-mono text-xs text-muted-foreground"
@@ -251,6 +267,49 @@ function ProgressSection({ run, detail }: { run: Run; detail: RunDetail | undefi
         </p>
       ) : null}
     </section>
+  );
+}
+
+/**
+ * Whether the run is still reporting: a pulsing dot and "Last update 3 s ago", counted here every
+ * second. A run that has been quiet for {@link QUIET_AFTER_MS} says why, where it knows: Microsoft
+ * Graph made it wait (the throttle it reports), otherwise only how long it has been quiet. Not a
+ * live region: a screen reader hears the run's state, not every second.
+ */
+function Liveness({ run, now }: { run: Run; now: number }) {
+  const { t } = useTranslation("history");
+  const liveness = livenessOf(run, now);
+  if (!liveness) {
+    return null;
+  }
+  const quiet = liveness.kind !== "reporting";
+  const text =
+    liveness.kind === "throttled"
+      ? t("view.liveness.throttled", { time: formatClock(liveness.waitSeconds) })
+      : liveness.kind === "quiet"
+        ? t("view.liveness.quiet", { time: formatClock(liveness.silentSeconds) })
+        : liveness.silentSeconds < 2
+          ? t("view.liveness.justNow")
+          : t("view.liveness.updated", { seconds: liveness.silentSeconds });
+  return (
+    <p
+      className="flex items-center gap-2 text-xs text-muted-foreground"
+      data-slot="run-liveness"
+      data-liveness={liveness.kind}
+    >
+      <span aria-hidden="true" className="relative flex size-2 shrink-0">
+        {quiet ? null : (
+          <span className="absolute inline-flex size-full rounded-full bg-info opacity-60 motion-safe:animate-ping" />
+        )}
+        <span
+          className={cn(
+            "relative inline-flex size-2 rounded-full",
+            quiet ? "bg-muted-foreground/60" : "bg-info",
+          )}
+        />
+      </span>
+      <span className="tabular-nums">{text}</span>
+    </p>
   );
 }
 
@@ -290,9 +349,14 @@ function StatsSection({
   const progress = run.progress;
   const first = running ? (run.firstBackup ?? null) : null;
   const seconds = runDurationSeconds(run, now);
-  const processed = progress?.bytesProcessed ?? 0;
-  const transferred = progress?.bytesTransferred ?? 0;
-  const savings = savingsPercent(processed, transferred);
+  // The counters count up to a new measurement; a finished run shows its own numbers at once.
+  const processed = useTweened(progress?.bytesProcessed ?? 0, running);
+  const transferred = useTweened(progress?.bytesTransferred ?? 0, running);
+  const speed = useTweened(run.throughput?.processedBps ?? 0, running);
+  // The time left goes down every second between two measurements, not only when one arrives.
+  const eta = first ? first.etaSeconds : (progress?.etaSeconds ?? null);
+  const remaining = running ? remainingSeconds(eta, run, now) : null;
+  const savings = savingsPercent(progress?.bytesProcessed ?? 0, progress?.bytesTransferred ?? 0);
   const rate = (value: number) => t("units.perSecond", { value: formatBytes(value, language) });
   // A finished run's speed is what it read over the time it took.
   const average = !running && seconds && seconds > 0 && processed > 0 ? processed / seconds : null;
@@ -319,7 +383,7 @@ function StatsSection({
           </Row>
           {showSpeed ? (
             <Row label={t(running ? "view.stats.speed" : "view.stats.averageSpeed")} term="speed">
-              {running ? rate(run.throughput?.processedBps ?? 0) : rate(average ?? 0)}
+              {running ? rate(speed) : rate(average ?? 0)}
             </Row>
           ) : null}
           {running && first ? (
@@ -328,14 +392,12 @@ function StatsSection({
                 className="font-sans"
                 title={t(first.itemsTotal === null ? "firstBackup.noEta" : "firstBackup.etaHint")}
               >
-                {firstBackupEtaText(first, t) ?? "–"}
+                {firstBackupEtaText({ ...first, etaSeconds: remaining }, t) ?? "–"}
               </span>
             </Row>
           ) : running ? (
             <Row label={t("view.stats.remaining")} term="remaining">
-              {progress?.etaSeconds != null
-                ? t("view.stats.about", { time: formatClock(progress.etaSeconds) })
-                : "–"}
+              {remaining !== null ? t("view.stats.about", { time: formatClock(remaining) }) : "–"}
             </Row>
           ) : (
             <Row label={t("view.stats.ended")} term="ended">

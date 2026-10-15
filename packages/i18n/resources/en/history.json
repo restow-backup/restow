@@ -153,6 +153,12 @@
       "reading": "Reading {path}",
       "phase": "Step: {phase}"
     },
+    "liveness": {
+      "justNow": "Last update just now",
+      "updated": "Last update {seconds} s ago",
+      "quiet": "No update for {time}",
+      "throttled": "Waiting for Microsoft Graph, continues in {time}"
+    },
     "wave": {
       "mailbox": "{done} of {total} mailboxes backed up",
       "onedrive": "{done} of {total} OneDrives backed up",

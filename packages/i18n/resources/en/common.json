@@ -70,6 +70,14 @@
       "organisationSettings": "Your organisation",
       "resources": "Capacity planning"
     },
+    "activity": {
+      "running": "{count, plural, one {# backup running} other {# backups running}}",
+      "queued": "{count} waiting",
+      "open": "Open the running backup: {name}",
+      "show": "{summary}. Show the running backups",
+      "title": "Running now",
+      "percent": "{percent} %"
+    },
     "breadcrumb": "Breadcrumb",
     "notifications": "Notifications",
     "pagination": "Pagination",
