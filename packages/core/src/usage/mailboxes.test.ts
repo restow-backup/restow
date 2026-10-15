@@ -37,6 +37,16 @@ describe("countProtectedMailboxes", () => {
     ).toBe(2);
   });
 
+  it("never counts SharePoint sites", () => {
+    expect(
+      countProtectedMailboxes([
+        object("mailbox", "anna"),
+        object("site", null),
+        object("site", null),
+      ]),
+    ).toBe(1);
+  });
+
   it("ignores excluded and orphaned objects", () => {
     expect(
       countProtectedMailboxes([

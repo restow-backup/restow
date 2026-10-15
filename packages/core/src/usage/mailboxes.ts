@@ -9,11 +9,15 @@
  * time; only a OneDrive whose owner has no actively protected mailbox counts
  * once, on its own. Excluded and orphaned objects do not count: they are no
  * longer protected, and their backups stay restorable regardless.
+ *
+ * SharePoint sites never count. Like the OneDrive, a site is covered by the
+ * users who work in it (the per-user model Microsoft 365 backup products
+ * use); counting sites as mailboxes would bill one team site like a person.
  */
 
 /** The fields of a protected object the counting rule looks at. */
 export interface MailboxCountable {
-  kind: "mailbox" | "onedrive" | "imap";
+  kind: "mailbox" | "onedrive" | "imap" | "site";
   status: "active" | "excluded" | "orphaned";
   /** Directory user the object belongs to; null for IMAP accounts and unmatched objects. */
   userId: string | null;
@@ -32,6 +36,9 @@ export function countProtectedMailboxes(objects: Iterable<MailboxCountable>): nu
   );
   return active.filter(
     (object) =>
-      object.kind !== "onedrive" || object.userId === null || !ownersWithMailbox.has(object.userId),
+      object.kind !== "site" &&
+      (object.kind !== "onedrive" ||
+        object.userId === null ||
+        !ownersWithMailbox.has(object.userId)),
   ).length;
 }
