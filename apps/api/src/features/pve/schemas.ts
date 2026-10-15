@@ -119,6 +119,9 @@ export const incrementalSchema = z.object({
     .max(64),
 });
 
+/** How many unreadable items a container restore point names. */
+export const UNREADABLE_PATHS_KEPT = 20;
+
 export const commitSchema = z.object({
   commitId: uuid,
   devices: z
@@ -161,6 +164,23 @@ export const commitSchema = z.object({
     .max(1024 * 1024)
     .transform((s) => s.slice(0, 2000))
     .optional(),
+  /** The first items restic could not read (restow-pve 0.4 and newer), kept for the run. */
+  resticUnreadablePaths: z
+    .array(z.string().max(4096))
+    .max(1000)
+    .transform((paths) => paths.slice(0, UNREADABLE_PATHS_KEPT))
+    .optional(),
+});
+
+/**
+ * POST /runs/:runId/progress: how far a running backup is (#51). Bytes read
+ * so far, the total to read once known, and what was uploaded (a VM's changed
+ * blocks; a container leaves it out).
+ */
+export const progressSchema = z.object({
+  bytesDone: z.number().int().min(0),
+  bytesTotal: z.number().int().min(0).nullish(),
+  bytesUploaded: z.number().int().min(0).nullish(),
 });
 
 export const finishSchema = z.object({

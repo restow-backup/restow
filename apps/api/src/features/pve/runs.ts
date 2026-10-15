@@ -30,6 +30,7 @@ import {
 } from "@restow/core";
 import {
   type PveRun,
+  type PveRunProgress,
   type PveSnapshot,
   type PveSnapshotDisk,
   type PveTask,
@@ -70,6 +71,11 @@ export function guestRepositoryPrefix(guestId: string): string {
 }
 export const PVE_REPOSITORY_SECRET_KIND = "pve_ct_repository";
 const RESTIC_TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+/**
+ * How often a node reports the progress of a backup (#51). The open run tells
+ * the node, so an older server (no such field) gets no reports at all.
+ */
+export const PROGRESS_INTERVAL_SECONDS = 5;
 const LOCATE_BATCH = 1000;
 
 function problem(
@@ -115,7 +121,12 @@ export async function openRun(
     startedAt: string;
   },
   now: Date = new Date(),
-): Promise<{ runId: string; guestId: string; origin: "restow" | "pve" }> {
+): Promise<{
+  runId: string;
+  guestId: string;
+  origin: "restow" | "pve";
+  progressIntervalSeconds: number;
+}> {
   const archiveName = checkArchiveName(input.archiveName, input.vmid, input.kind);
   const guest = await guestForBackup(node, input.vmid, input.kind);
   if (guest.kind !== input.kind) {
@@ -159,7 +170,12 @@ export async function openRun(
     if (!run) {
       throw new Error("run insert returned no row");
     }
-    return { runId: run.id, guestId: guest.id, origin: run.origin };
+    return {
+      runId: run.id,
+      guestId: guest.id,
+      origin: run.origin,
+      progressIntervalSeconds: PROGRESS_INTERVAL_SECONDS,
+    };
   });
 }
 
@@ -387,6 +403,7 @@ export interface CommitInput {
   resticRoot?: string;
   pveVersion?: string;
   resticUnreadable?: number;
+  resticUnreadablePaths?: string[];
   consistency?: string;
 }
 
@@ -648,7 +665,13 @@ async function commitOnce(node: NodeContext, run: PveRun, input: CommitInput, no
       ...(kind === "ct" ? { resticBytesAdded: input.resticBytesAdded ?? 0 } : {}),
       // An incomplete container snapshot (restic exit 3) says what it misses.
       ...(kind === "ct" && input.resticUnreadable
-        ? { resticUnreadable: input.resticUnreadable, consistency: input.consistency ?? null }
+        ? {
+            resticUnreadable: input.resticUnreadable,
+            consistency: input.consistency ?? null,
+            ...(input.resticUnreadablePaths?.length
+              ? { unreadablePaths: input.resticUnreadablePaths }
+              : {}),
+          }
         : {}),
     };
     await withTenantTx(db, node.tenantId, async (tx) => {
@@ -712,6 +735,102 @@ async function commitOnce(node: NodeContext, run: PveRun, input: CommitInput, no
     alreadyCommitted: false,
     hashesDigests: Object.fromEntries(disks.map((d) => [d.device, d.hashesDigest])),
   };
+}
+
+// ---------------------------------------------------------------------------
+// Progress
+// ---------------------------------------------------------------------------
+
+/** Reports closer together than this are dropped, whatever the node sends. */
+export const PROGRESS_MIN_GAP_MS = 2_000;
+const lastProgressAt = new Map<string, number>();
+
+export interface ProgressInput {
+  bytesDone: number;
+  bytesTotal?: number | null | undefined;
+  bytesUploaded?: number | null | undefined;
+}
+
+/**
+ * The progress a report makes of the previous one: the throughput is what was
+ * read between the two reports, smoothed with the previous figure so a single
+ * slow interval does not make the number jump.
+ */
+export function nextProgress(
+  previous: PveRunProgress | null,
+  input: ProgressInput,
+  now: Date,
+): PveRunProgress {
+  let bytesPerSecond: number | null = previous?.bytesPerSecond ?? null;
+  if (previous) {
+    const seconds = (now.getTime() - Date.parse(previous.at)) / 1000;
+    const delta = input.bytesDone - previous.bytesDone;
+    if (Number.isFinite(seconds) && seconds > 0 && delta >= 0) {
+      const current = delta / seconds;
+      bytesPerSecond = Math.round(
+        previous.bytesPerSecond === null ? current : (previous.bytesPerSecond + current) / 2,
+      );
+    }
+  }
+  const total = input.bytesTotal ?? null;
+  return {
+    bytesDone: input.bytesDone,
+    // A total below what was read is an estimate that fell short: unknown, not over 100 %.
+    bytesTotal: total !== null && total > 0 && total >= input.bytesDone ? total : null,
+    bytesUploaded: input.bytesUploaded ?? null,
+    bytesPerSecond,
+    at: now.toISOString(),
+  };
+}
+
+/**
+ * Keep how far a running backup is. Reports closer than
+ * {@link PROGRESS_MIN_GAP_MS} are taken but not written, so a node cannot
+ * turn progress into a write load. `clusterId` scopes a node's report to its
+ * cluster; a container backup's run credential names the run itself.
+ */
+export async function reportProgress(
+  tenantId: string,
+  clusterId: string | null,
+  runId: string,
+  input: ProgressInput,
+  now: Date = new Date(),
+): Promise<{ stored: boolean }> {
+  const last = lastProgressAt.get(runId);
+  if (last !== undefined && now.getTime() - last < PROGRESS_MIN_GAP_MS) {
+    return { stored: false };
+  }
+  lastProgressAt.set(runId, now.getTime());
+  if (lastProgressAt.size > 10_000) {
+    lastProgressAt.clear();
+  }
+  return withTenantTx(db, tenantId, async (tx) => {
+    const [run] = await tx
+      .select({
+        id: pveRuns.id,
+        kind: pveRuns.kind,
+        status: pveRuns.status,
+        progress: pveRuns.progress,
+      })
+      .from(pveRuns)
+      .where(
+        clusterId
+          ? and(eq(pveRuns.id, runId), eq(pveRuns.clusterId, clusterId))
+          : eq(pveRuns.id, runId),
+      )
+      .limit(1);
+    if (!run) {
+      throw problem(404, "Run not found", "No run with this id in this node's cluster.");
+    }
+    if (run.kind !== "backup" || run.status !== "running") {
+      throw problem(409, "Run closed", "This run has ended; it takes no progress.");
+    }
+    await tx
+      .update(pveRuns)
+      .set({ progress: nextProgress(run.progress, input, now) })
+      .where(eq(pveRuns.id, run.id));
+    return { stored: true };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -885,12 +1004,18 @@ export function resticUrl(instanceUrl: string, guestId: string): string {
   return `${instanceUrl.replace(/\/$/, "")}/agent/pve/restic/${guestId}/`;
 }
 
+/** Where a container backup reports its progress, with the run's own credential. */
+export function progressUrl(instanceUrl: string, runId: string): string {
+  return `${instanceUrl.replace(/\/$/, "")}/agent/pve/v1/runs/${runId}/progress`;
+}
+
 async function issueResticCredential(
   tenantId: string,
   runId: string,
   guestId: string,
   instanceUrl: string,
   now: Date,
+  backup = false,
 ) {
   const password = await ensureRepository(tenantId, guestId);
   const token = generateAgentSecret();
@@ -907,6 +1032,13 @@ async function issueResticCredential(
     password: token.value,
     repositoryPassword: password,
     expiresAt: expiresAt.toISOString(),
+    // Backups only; an older server sends neither, and the node then reports nothing.
+    ...(backup
+      ? {
+          progressUrl: progressUrl(instanceUrl, runId),
+          progressIntervalSeconds: PROGRESS_INTERVAL_SECONDS,
+        }
+      : {}),
   };
 }
 
@@ -919,7 +1051,7 @@ export async function runRestic(
 ) {
   const run = await withTenantTx(db, node.tenantId, (tx) => loadRun(tx, node, runId));
   requireOpenBackup(run);
-  return issueResticCredential(node.tenantId, run.id, run.guestId, instanceUrl, now);
+  return issueResticCredential(node.tenantId, run.id, run.guestId, instanceUrl, now, true);
 }
 
 // ---------------------------------------------------------------------------

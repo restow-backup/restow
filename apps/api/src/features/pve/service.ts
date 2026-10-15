@@ -12,6 +12,7 @@ import {
   type PveJobSchedule,
   type PveJobSettings,
   type PveNode,
+  type PveRunProgress,
   type PveRunStats,
   pveClusters,
   pveEnrollmentTokens,
@@ -80,6 +81,15 @@ export function bitmapState(
 
 /** What is happening with a guest's backup right now: handed to its node, or running. */
 export type GuestActivity = "queued" | "running" | null;
+
+/**
+ * Since when a guest waits for its node (the oldest open task) or its backup
+ * runs, and how far the running backup is, when its node reports it (#51).
+ */
+export interface GuestActivityDetail {
+  since: string | null;
+  progress: PveRunProgress | null;
+}
 
 /**
  * What a restore point added to the repository: a container's new data after
@@ -173,6 +183,7 @@ function guestDto(
   lastRun: { status: string; error: string | null } | undefined,
   activity: GuestActivity = null,
   sizes: GuestBackupSizes = { first: null, last: null },
+  detail: GuestActivityDetail = { since: null, progress: null },
 ) {
   const attention: string[] = [];
   if (g.template && g.kind === "vm") {
@@ -216,6 +227,8 @@ function guestDto(
     lastRunStatus: lastRun?.status ?? null,
     lastRunError: lastRun?.error ?? null,
     activity,
+    activitySince: detail.since,
+    progress: activity === "running" ? detail.progress : null,
     bitmapState: bitmapState(g),
     backups: sizes,
     attention,
@@ -257,16 +270,32 @@ export async function overview(database: Database, tenantId: string, now: Date =
     const runByGuest = new Map(
       lastRuns.rows.map((r) => [r.guest_id, { status: r.status, error: r.error_message }]),
     );
-    const running = await tx.execute<{ guest_id: string }>(sql`
-      SELECT DISTINCT guest_id FROM pve_runs WHERE kind = 'backup' AND status = 'running'`);
-    const queued = await tx.execute<{ guest_id: string }>(sql`
-      SELECT DISTINCT guest_id FROM pve_tasks
-       WHERE kind = 'backup' AND status IN ('pending', 'delivered') AND guest_id IS NOT NULL`);
+    const running = await tx.execute<{
+      guest_id: string;
+      started_at: Date | string;
+      progress: PveRunProgress | null;
+    }>(sql`
+      SELECT DISTINCT ON (guest_id) guest_id, started_at, progress FROM pve_runs
+       WHERE kind = 'backup' AND status = 'running' ORDER BY guest_id, started_at DESC`);
+    const queued = await tx.execute<{ guest_id: string; since: Date | string }>(sql`
+      SELECT guest_id, min(created_at) AS since FROM pve_tasks
+       WHERE kind = 'backup' AND status IN ('pending', 'delivered') AND guest_id IS NOT NULL
+       GROUP BY guest_id`);
     const activity = new Map<string, GuestActivity>(
       queued.rows.map((r) => [r.guest_id, "queued" as const]),
     );
+    const activityDetail = new Map<string, GuestActivityDetail>(
+      queued.rows.map((r) => [
+        r.guest_id,
+        { since: new Date(r.since).toISOString(), progress: null },
+      ]),
+    );
     for (const r of running.rows) {
       activity.set(r.guest_id, "running");
+      activityDetail.set(r.guest_id, {
+        since: new Date(r.started_at).toISOString(),
+        progress: r.progress ?? null,
+      });
     }
     // The first backup ever (pruned ones included: it is the full one) and the newest
     // restore point, per guest.
@@ -325,7 +354,14 @@ export async function overview(database: Database, tenantId: string, now: Date =
         nodes: nodes.filter((n) => n.clusterId === c.id).map((n) => nodeDto(n, now)),
       })),
       guests: guests.map((g) =>
-        guestDto(g, jobMap, runByGuest.get(g.id), activity.get(g.id) ?? null, sizes.get(g.id)),
+        guestDto(
+          g,
+          jobMap,
+          runByGuest.get(g.id),
+          activity.get(g.id) ?? null,
+          sizes.get(g.id),
+          activityDetail.get(g.id),
+        ),
       ),
       jobs: jobs.map(jobDto),
       restorePool: RESTORE_POOL,
@@ -519,6 +555,7 @@ export async function guestDetail(database: Database, tenantId: string, id: stri
         startedAt: r.startedAt.toISOString(),
         finishedAt: r.finishedAt?.toISOString() ?? null,
         stats: r.stats,
+        progress: r.status === "running" ? (r.progress ?? null) : null,
         error: r.errorMessage,
         logTail: r.logTail,
       })),

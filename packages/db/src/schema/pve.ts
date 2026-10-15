@@ -276,6 +276,8 @@ export type PveRunStats = {
   resticBytesAdded?: number;
   /** Container backups: items restic could not read; the restore point misses them. */
   resticUnreadable?: number;
+  /** The first of those items (nodes from 0.4 on). */
+  unreadablePaths?: string[];
   consistency?: string | null;
   [key: string]: unknown;
 };
