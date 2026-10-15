@@ -43,10 +43,12 @@ import {
   overviewRefreshMs,
   type PveGuest,
   type PveJob,
+  type PveNode,
   pveKeys,
   revokeNode,
   saveJob,
 } from "./api.js";
+import { activityHint, BackupProgress } from "./backup-progress.js";
 import { BackupSizeCell } from "./backup-size.js";
 import { ConnectDialog } from "./connect-dialog.js";
 import { PVE_NAMESPACE } from "./i18n.js";
@@ -201,8 +203,10 @@ export function JobDialog({
   );
 }
 
-export function GuestState({ guest }: { guest: PveGuest }) {
-  const { t } = useTranslation(PVE_NAMESPACE);
+export function GuestState({ guest, node }: { guest: PveGuest; node?: PveNode | null }) {
+  const { t, i18n } = useTranslation(PVE_NAMESPACE);
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  const hint = activityHint(t, language, guest, node);
   const badges: React.ReactNode[] = [];
   if (guest.template && guest.kind === "vm") {
     badges.push(
@@ -227,13 +231,19 @@ export function GuestState({ guest }: { guest: PveGuest }) {
   }
   if (guest.activity === "running") {
     badges.push(
-      <Badge key="run" variant="info" data-slot="pve-guest-activity">
+      <Badge key="run" variant="info" data-slot="pve-guest-activity" title={hint}>
         {t("guests.running")}
       </Badge>,
     );
   } else if (guest.activity === "queued") {
     badges.push(
-      <Badge key="q" variant="muted" data-slot="pve-guest-activity">
+      // Amber when its node is disconnected: then nothing starts until it reports again.
+      <Badge
+        key="q"
+        variant={node && !node.online ? "warning" : "muted"}
+        data-slot="pve-guest-activity"
+        title={hint}
+      >
         {t("guests.queued")}
       </Badge>,
     );
@@ -323,6 +333,8 @@ export function PvePage() {
   const nodes = (data?.clusters ?? []).flatMap((c) =>
     c.nodes.map((n) => ({ ...n, cluster: c.name })),
   );
+  const nodeOf = (g: PveGuest): PveNode | null =>
+    data?.clusters.find((c) => c.id === g.clusterId)?.nodes.find((n) => n.name === g.node) ?? null;
 
   return (
     <div className="space-y-6">
@@ -485,8 +497,10 @@ export function PvePage() {
                   </TableCell>
                   <TableCell>{t(`guests.${g.kind}`)}</TableCell>
                   <TableCell>{g.node ?? ""}</TableCell>
-                  <TableCell title={t("guests.sizeHint")}>
-                    {g.diskBytes > 0 ? formatBytes(g.diskBytes, language) : ""}
+                  <TableCell title={t("guests.sizeHint")} className="tabular-nums">
+                    {g.diskBytes > 0
+                      ? t("guests.diskAllocated", { size: formatBytes(g.diskBytes, language) })
+                      : ""}
                   </TableCell>
                   <TableCell>
                     <BackupSizeCell guest={g} />
@@ -511,8 +525,15 @@ export function PvePage() {
                   <TableCell>
                     <RelativeTime value={g.lastBackupAt} fallback={t("guests.never")} />
                   </TableCell>
-                  <TableCell>
-                    <GuestState guest={g} />
+                  <TableCell className="space-y-1.5">
+                    <GuestState guest={g} node={nodeOf(g)} />
+                    {g.activity === "running" ? (
+                      <BackupProgress
+                        progress={g.progress}
+                        name={g.name ?? String(g.vmid)}
+                        to={guestTo(g.id)}
+                      />
+                    ) : null}
                   </TableCell>
                   <TableCell>
                     <Button

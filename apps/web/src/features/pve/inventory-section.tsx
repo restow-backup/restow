@@ -32,6 +32,7 @@ import {
   type PveNode,
   pveKeys,
 } from "./api.js";
+import { activityHint, BackupProgress } from "./backup-progress.js";
 import { BackupSizeCell } from "./backup-size.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { guestTo, PVE_ROLES, pveTo } from "./paths.js";
@@ -164,7 +165,8 @@ function useInventoryActions() {
 }
 
 function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
-  const { t } = useTranslation(PVE_NAMESPACE);
+  const { t, i18n } = useTranslation(PVE_NAMESPACE);
+  const language = i18n.resolvedLanguage ?? i18n.language;
   const [open, setOpen] = React.useState(false);
   const [selected, setSelected] = React.useState<ReadonlySet<string>>(new Set());
   const [creating, setCreating] = React.useState(false);
@@ -409,6 +411,23 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
                             </span>
                           ) : null}
                         </span>
+                        {guest.activity === "queued" ? (
+                          <Badge
+                            className="mt-1"
+                            variant={group.node && !group.node.online ? "warning" : "muted"}
+                            title={activityHint(t, language, guest, group.node)}
+                            data-slot="pve-inventory-activity"
+                          >
+                            {t("guests.queued")}
+                          </Badge>
+                        ) : guest.activity === "running" ? (
+                          <BackupProgress
+                            className="mt-1.5"
+                            progress={guest.progress}
+                            name={label}
+                            to={guestTo(guest.id)}
+                          />
+                        ) : null}
                         {protection === "failed" && guest.lastRunError ? (
                           <p
                             className="mt-1 max-w-prose text-xs break-words text-destructive-text"

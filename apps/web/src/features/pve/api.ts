@@ -47,10 +47,27 @@ export interface PveGuest {
   lastRunError: string | null;
   /** What is happening now: the backup was handed to the node, or runs; null otherwise (and on older servers). */
   activity?: "queued" | "running" | null;
+  /** Since when the guest waits for its node or its backup runs; missing on servers before 0.4.0. */
+  activitySince?: string | null;
+  /** How far the running backup is; null before the node's first report and for nodes before 0.4.0. */
+  progress?: PveRunProgress | null;
   bitmapState: "incremental" | "full_read" | null;
   /** The first backup ever and the newest restore point; missing on servers before 0.3.5. */
   backups?: PveGuestBackupSizes;
   attention: string[];
+}
+
+/**
+ * How far a running backup is, as its node reported last (#51): bytes read of
+ * the total to read (null while unknown), bytes uploaded (VMs) and the read
+ * throughput between the last two reports.
+ */
+export interface PveRunProgress {
+  bytesDone: number;
+  bytesTotal: number | null;
+  bytesUploaded: number | null;
+  bytesPerSecond: number | null;
+  at: string;
 }
 
 /**
@@ -122,6 +139,8 @@ export interface PveRestorePoint {
   /** Items a container backup could not read (0 when complete). */
   unreadable?: number;
   consistency?: string | null;
+  /** The first unreadable items, when the node named them (0.4.0 on). */
+  stats?: { unreadablePaths?: string[] } | null;
   disks: {
     device: string;
     size: number;
@@ -142,7 +161,14 @@ export interface PveRun {
   startedAt: string;
   finishedAt: string | null;
   error: string | null;
-  stats?: { resticUnreadable?: number; consistency?: string | null } | null;
+  stats?: {
+    resticUnreadable?: number;
+    /** The first items restic could not read (nodes from 0.4.0 on). */
+    unreadablePaths?: string[];
+    consistency?: string | null;
+  } | null;
+  /** How far the run is while it runs; missing on servers before 0.4.0. */
+  progress?: PveRunProgress | null;
 }
 
 export interface PveGuestDetail {
