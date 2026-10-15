@@ -76,7 +76,8 @@
       "action": "Create a job",
       "show": "Show",
       "share": "{count, plural, one {# file share is in no job and is not backed up.} other {# file shares are in no job and are not backed up.}}",
-      "copy": "{count, plural, one {# copy is not set up.} other {# copies are not set up.}}"
+      "copy": "{count, plural, one {# copy is not set up.} other {# copies are not set up.}}",
+      "pve": "{count, plural, one {# VM or container is in no job and is not backed up.} other {# VMs and containers are in no job and are not backed up.}}"
     },
     "empty": {
       "title": {
@@ -1050,5 +1051,40 @@
       "description": "Only the folders of the machine's backup job are backed up, and these were not among them: {folders}. Add them to the job to back them up from the next run on."
     },
     "add": "{count, plural, one {Add this folder} other {Add these # folders}}"
+  },
+  "recommended": {
+    "button": "Create recommended job",
+    "everything": "Protect everything without a job",
+    "description": "This is what the click does. Afterwards you can change the jobs like any other.",
+    "loading": "Working out the recommended jobs…",
+    "loadError": "The recommendation could not be loaded.",
+    "applyError": "The recommended jobs could not be set up. Nothing was changed.",
+    "nothing": "Nothing to do: everything here has a backup job.",
+    "create": "New job: {name}",
+    "add": "Add to {name}",
+    "kind": {
+      "mail": "Mail & SaaS",
+      "endpoint": "Servers & clients",
+      "pve": "Proxmox VE"
+    },
+    "scope": {
+      "mail": "All protected objects, new ones included ({count} without a job now)",
+      "endpoint": "{count, plural, one {# machine} other {# machines}}: {names}",
+      "pve": "{count, plural, one {# VM or container} other {# VMs and containers}}: {names}"
+    },
+    "more": "and {count} more",
+    "schedule": "Backup: {schedule}",
+    "verify": "Restore check: {schedule}",
+    "verifyPve": "Restore check: weekly, a sample of the newest restore point is read back",
+    "mode": "Snapshot mode, incremental: after the first backup only changed blocks are read",
+    "retention": "Keeps {daily} daily, {weekly} weekly and {monthly} monthly restore points",
+    "retentionPolicy": "Retention: {policy}",
+    "retentionDefault": "Retention: the tenant's default",
+    "paths": "Folders: {paths}",
+    "repository": "Repository: {repository}",
+    "skipped": "Left out: {count, plural, one {# object is in a job already or cannot be backed up.} other {# objects are in a job already or cannot be backed up.}}",
+    "cancel": "Cancel",
+    "done": "{count, plural, one {Recommended job set up: {names}} other {Recommended jobs set up: {names}}}",
+    "doneNothing": "Nothing changed: everything has a job already."
   }
 }

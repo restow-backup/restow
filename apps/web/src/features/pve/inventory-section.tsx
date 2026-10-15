@@ -18,6 +18,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { RecommendedJobButton } from "@/features/backup-jobs/components/recommended-job";
 import { useTenantScope } from "@/features/endpoints/hooks";
 import { canAccess, useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -299,6 +300,7 @@ function NodeRow({ group, jobs }: { group: NodeGroup; jobs: PveJob[] }) {
                 >
                   {t("inventory.actions.selectWithoutJob")}
                 </Button>
+                <RecommendedJobButton scope={{ guestIds: withoutJob }} />
               </div>
             ) : null}
             <Table>

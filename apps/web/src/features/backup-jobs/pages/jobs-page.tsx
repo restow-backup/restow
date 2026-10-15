@@ -37,6 +37,7 @@ import { useJobActions } from "../components/job-actions.js";
 import { JobsTable } from "../components/jobs-table.js";
 import { KindEditor } from "../components/kind-editor.js";
 import { type PveListRow, pveListRows } from "../components/pve-rows.js";
+import { RecommendedJobButton } from "../components/recommended-job.js";
 import { useBackupJobs } from "../hooks.js";
 
 /**
@@ -106,6 +107,10 @@ export function JobsPage({
     () => (withPve ? pveListRows(pveData, (guest) => t("list.pve.manual", { guest })) : []),
     [withPve, pveData, t],
   );
+  // VMs and containers in no job (the overview's "no_job": templates and gone guests are not news).
+  const pveWithoutJob = (pveData?.guests ?? []).filter((guest) =>
+    guest.attention.includes("no_job"),
+  ).length;
   const [pveEditing, setPveEditing] = React.useState<PveJob | "new" | null>(null);
   const [pveDeleting, setPveDeleting] = React.useState<PveJob | null>(null);
   const refreshPve = () => void queryClient.invalidateQueries({ queryKey: pveKeys.all(tenantId) });
@@ -151,7 +156,14 @@ export function JobsPage({
           <ShieldOff aria-hidden="true" />
           <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <span>{t(`list.uncovered.${kind}`, { count: uncovered })}</span>
-            <span className="flex shrink-0 gap-2">
+            <span className="flex shrink-0 flex-wrap gap-2">
+              {kind === "mail" || kind === "endpoint" ? (
+                <RecommendedJobButton
+                  scope={
+                    kind === "mail" ? { mail: true } : { everything: true, kinds: ["endpoint"] }
+                  }
+                />
+              ) : null}
               <Button variant="outline" size="sm" asChild data-action="show-uncovered">
                 <Link {...uncoveredLink(kind, "none")}>{t("list.uncovered.show")}</Link>
               </Button>
@@ -166,6 +178,22 @@ export function JobsPage({
                   {t("list.uncovered.action")}
                 </Button>
               </DisabledReason>
+            </span>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {withPve && pveWithoutJob > 0 ? (
+        <Alert variant="warning" data-slot="pve-uncovered-notice">
+          <ShieldOff aria-hidden="true" />
+          <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span>{t("list.uncovered.pve", { count: pveWithoutJob })}</span>
+            <span className="flex shrink-0 flex-wrap gap-2">
+              <RecommendedJobButton scope={{ everything: true, kinds: ["pve"] }} />
+              <Button variant="outline" size="sm" asChild>
+                <Link to={inventoryTo()} hash="pve-inventory-title">
+                  {t("list.uncovered.show")}
+                </Link>
+              </Button>
             </span>
           </AlertDescription>
         </Alert>

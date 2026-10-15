@@ -459,6 +459,8 @@ export const backupJobKeys = {
     ["tenant", tenantId, "backup-jobs", "defaults", kind, ...endpointIds] as const,
   candidates: (tenantId: TenantKey, kind: JobKind, search: string, limit: number) =>
     ["tenant", tenantId, "backup-jobs", "candidates", kind, search, limit] as const,
+  recommended: (tenantId: TenantKey, scope: string) =>
+    ["tenant", tenantId, "backup-jobs", "recommended", scope] as const,
 };
 
 // --- Requests --------------------------------------------------------------------------------
@@ -561,4 +563,92 @@ export function runBackupJob(
 
 export function fetchJobRuns(jobId: string, limit = 30): Promise<JobRuns> {
   return apiFetch<JobRuns>(`${BASE}/${id(jobId)}/runs${queryString({ limit })}`);
+}
+
+// --- Recommended jobs (#52) ----------------------------------------------------------------
+
+/** What "Create recommended job" covers: the mail job, machines, guests, or everything without a job. */
+export interface RecommendedScope {
+  mail?: boolean;
+  endpointIds?: readonly string[];
+  guestIds?: readonly string[];
+  everything?: boolean;
+  /** With `everything`: only these kinds (the notice of one list); absent = all. */
+  kinds?: readonly RecommendedKind[];
+}
+
+export type RecommendedKind = "mail" | "endpoint" | "pve";
+
+/** One job the click makes, or adds to (apps/api backup-jobs/recommended.ts). */
+export interface RecommendedJobPlan {
+  kind: RecommendedKind;
+  key: string;
+  action: "create" | "add";
+  jobId: string | null;
+  name: string;
+  os: string | null;
+  profile: "server" | "client" | null;
+  schedule: JobSchedule;
+  verifySchedule: JobSchedule | null;
+  retention: JobRetention | null;
+  retentionPolicy: string | null;
+  repository: Repository | null;
+  mode: "snapshot" | "suspend" | "stop" | null;
+  paths: string[];
+  members: { id: string; name: string }[];
+  memberCount: number;
+}
+
+export interface RecommendedSkip {
+  kind: RecommendedKind;
+  id: string;
+  name: string | null;
+  reason: "in_job" | "unavailable" | "covered";
+}
+
+export interface RecommendedPlan {
+  items: RecommendedJobPlan[];
+  skipped: RecommendedSkip[];
+}
+
+export interface RecommendedApplied {
+  items: {
+    kind: RecommendedKind;
+    key: string;
+    jobId: string;
+    name: string;
+    created: boolean;
+    added: number;
+  }[];
+  skipped: RecommendedSkip[];
+}
+
+function recommendedBody(scope: RecommendedScope) {
+  return {
+    mail: scope.mail === true,
+    endpointIds: [...(scope.endpointIds ?? [])],
+    guestIds: [...(scope.guestIds ?? [])],
+    everything: scope.everything === true,
+    kinds: [...(scope.kinds ?? [])],
+  };
+}
+
+export function fetchRecommendedPlan(scope: RecommendedScope): Promise<RecommendedPlan> {
+  const body = recommendedBody(scope);
+  return apiFetch<RecommendedPlan>(
+    `${BASE}/recommended${queryString({
+      mail: body.mail ? 1 : undefined,
+      endpointIds: body.endpointIds.join(","),
+      guestIds: body.guestIds.join(","),
+      everything: body.everything ? 1 : undefined,
+      kinds: body.kinds.join(","),
+    })}`,
+  );
+}
+
+export function applyRecommendedJobs(scope: RecommendedScope): Promise<RecommendedApplied> {
+  return apiFetch<RecommendedApplied>(`${BASE}/recommended`, {
+    method: "POST",
+    body: recommendedBody(scope),
+  });
 }

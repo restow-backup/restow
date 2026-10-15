@@ -287,6 +287,84 @@ describe("the list of mail jobs", () => {
     expect(opened.where().search.select).toBeUndefined();
   });
 
+  it("creates the recommended mail job after showing what it does (#52)", async () => {
+    const plan = {
+      items: [
+        {
+          kind: "mail",
+          key: "mail",
+          action: "create",
+          jobId: null,
+          name: "Mail backup",
+          os: null,
+          profile: null,
+          schedule: { kind: "interval", intervalMinutes: 480, timeZone: "Europe/Berlin" },
+          verifySchedule: { kind: "cron", cron: "0 3 * * 0", timeZone: "Europe/Berlin" },
+          retention: null,
+          retentionPolicy: "Ten years",
+          repository: {
+            id: null,
+            name: null,
+            kind: "installation_default",
+            role: null,
+            status: null,
+            objectLock: null,
+          },
+          mode: null,
+          paths: [],
+          members: [],
+          memberCount: 7,
+        },
+      ],
+      skipped: [],
+    };
+    opened = await openJobs(
+      "/jobs?type=mail",
+      mailRoutes({
+        routes: {
+          "GET /backup-jobs": () => json(list([RUNNING], { mail: 7, endpoint: 0 })),
+          "GET /backup-jobs/recommended": () => json(plan),
+          "POST /backup-jobs/recommended": () =>
+            json({
+              items: [
+                {
+                  kind: "mail",
+                  key: "mail",
+                  jobId: "j-new",
+                  name: "Mail backup",
+                  created: true,
+                  added: 0,
+                },
+              ],
+              skipped: [],
+            }),
+        },
+      }),
+    );
+    await flush(5);
+    const notice = slot("uncovered-notice");
+    await click(buttonByText(notice as HTMLElement, "Create recommended job"));
+    await flush(5);
+    const dialog = slot("recommended-dialog");
+    expect(dialog?.textContent).toContain("New job: Mail backup");
+    expect(dialog?.textContent).toContain(
+      "All protected objects, new ones included (7 without a job now)",
+    );
+    expect(dialog?.textContent).toContain("Backup: Every 8 hours");
+    expect(dialog?.textContent).toContain("Retention: Ten years");
+    expect(opened.requests.some((request) => request.method === "POST")).toBe(false);
+    await click(dialog?.querySelector('[data-action="confirm-recommended"]'));
+    await flush(5);
+    const posted = opened.requests.filter(
+      (request) => request.method === "POST" && request.path === "/backup-jobs/recommended",
+    );
+    expect(posted.map((request) => request.body)).toEqual([
+      { mail: true, endpointIds: [], guestIds: [], everything: false, kinds: [] },
+    ]);
+    // Done: the dialog closes (the toast names the job).
+    expect(slot("recommended-dialog")).toBeNull();
+  });
+
   it("says nothing about uncovered objects of the other kind", async () => {
     opened = await openJobs(
       "/jobs?type=mail",

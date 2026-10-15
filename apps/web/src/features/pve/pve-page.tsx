@@ -32,6 +32,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { RecommendedJobButton } from "@/features/backup-jobs/components/recommended-job";
 import { useTenantScope } from "@/features/endpoints/hooks";
 import { inventoryTo } from "@/features/endpoints/paths";
 import { formatBytes, formatDateTime } from "@/lib/format";
@@ -440,6 +441,9 @@ export function PvePage() {
   const nodes = (data?.clusters ?? []).flatMap((c) =>
     c.nodes.map((n) => ({ ...n, cluster: c.name })),
   );
+  const withoutJob = (data?.guests ?? [])
+    .filter((guest) => guest.attention.includes("no_job"))
+    .map((guest) => guest.id);
   const nodeOf = (g: PveGuest): PveNode | null =>
     data?.clusters.find((c) => c.id === g.clusterId)?.nodes.find((n) => n.name === g.node) ?? null;
 
@@ -573,9 +577,18 @@ export function PvePage() {
       </section>
 
       <section className="space-y-2" aria-labelledby="pve-guests">
-        <h2 id="pve-guests" className="text-lg font-semibold">
-          {t("guests.title")}
-        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 id="pve-guests" className="text-lg font-semibold">
+            {t("guests.title")}
+          </h2>
+          {/* Guests in no job: the recommended Proxmox VE job protects them with one click (#52). */}
+          {withoutJob.length > 0 ? (
+            <span className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              {t("inventory.actions.withoutJob", { count: withoutJob.length })}
+              <RecommendedJobButton scope={{ guestIds: withoutJob }} />
+            </span>
+          ) : null}
+        </div>
         {(data?.guests ?? []).length === 0 ? (
           <EmptyState icon={Container} title={t("guests.empty")} />
         ) : (

@@ -49,6 +49,7 @@ import {
 } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { type JobsAccess, useJobsAccess } from "@/features/backup-jobs/components/access-note";
+import { RecommendedJobButton } from "@/features/backup-jobs/components/recommended-job";
 import { jobDefinitionTo, linkProps, newJobTo } from "@/features/backup-jobs/paths";
 import { AddToJobDialog } from "@/features/endpoints/components/add-to-job-dialog";
 import { explorerAt } from "@/features/restore/navigation";
@@ -1109,6 +1110,10 @@ function ObjectFilters({
             <SelectItem value="none">{t("objects.filters.jobNone")}</SelectItem>
           </SelectContent>
         </Select>
+        {/* Objects in no job: the recommended mail job over all objects protects them (#52). */}
+        {search.job === "none" ? (
+          <RecommendedJobButton scope={{ mail: true }} className="col-span-2 sm:col-span-1" />
+        ) : null}
         <Select
           value={search.shared === undefined ? ALL : String(search.shared)}
           onValueChange={(value) =>
