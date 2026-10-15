@@ -241,8 +241,11 @@ diese Schlüssel zuerst und öffnet damit das Manifest.
   Quellen als eine Form (`RunDto`, `apps/api/src/features/history`), die Job-Definitionen mit letztem und nächstem Lauf
   und den Verbindungszustand der Maschinen. Der Server fragt alle 2 s die Datenbank und sendet nur Änderungen
   (Ereignisse `snapshot`, `run`, `definition`, `machine`, `gone`; alle 15 s ein Kommentar als Keep-alive). Der Client
-  schreibt sie in den React-Query-Cache (`apps/web/src/features/history/live`), pausiert im Hintergrund-Tab und pollt
-  weiter, solange der Kanal nicht steht. `/api/v1/jobs/events` bleibt unverändert. Der Verlauf (`/api/v1/history`,
+  schreibt sie in den React-Query-Cache (`apps/web/src/features/history/live`), hält den Kanal auch im
+  Hintergrund-Tab offen und schließt ihn erst nach 10 Minuten dort oder sofort, wenn der Browser den Tab einfriert
+  (Page Lifecycle `freeze`); zurück im Vordergrund liest er nur nach, was der neue Snapshot nicht abdeckt. Solange der
+  Kanal nicht steht, pollen die Seiten weiter. Die Einträge „Jobs“ der Seitenleiste zählen laufende und wartende
+  Backups aus demselben Kanal (ohne eigenen Request; ohne Kanal aus der Job-Liste). `/api/v1/jobs/events` bleibt unverändert. Der Verlauf (`/api/v1/history`,
   `/history/:id`) ist ein Lesemodell über `jobs` und `endpoint_runs`, ohne eigene Tabelle.
 - Throttling-Budget je Source: Token-Bucket in Postgres (je Tenant-App), Worker
   reservieren Kapazität; 429 verkleinert das Budget, Erfolg vergrößert es (AIMD).
