@@ -46,9 +46,10 @@ export * from "./repository-lock.js";
 export * from "./restart-requests.js";
 // The database roles and the startup check of the pools.
 export * from "./roles.js";
-
 // The throughput history of runs (sparklines and the run drawer's charts).
 export * from "./run-samples.js";
 // Re-export the full schema (tables, enums, and inferred row types).
 export * from "./schema/index.js";
+// The retention hold on suspicion: objects with a suspicious restore point nobody resolved.
+export * from "./suspicion-holds.js";
 export { schema };
