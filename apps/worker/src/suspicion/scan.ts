@@ -225,21 +225,25 @@ async function describeObject(
   tx: TenantTx,
   kind: SuspicionObjectKind,
   objectId: string,
-): Promise<{ name: string; ref: Record<string, string> }> {
+): Promise<{ name: string; ref: Record<string, string>; exists: boolean }> {
   switch (kind) {
     case "endpoint": {
       const [row] = await tx
         .select({ displayName: endpoints.displayName, hostname: endpoints.hostname })
         .from(endpoints)
         .where(eq(endpoints.id, objectId));
-      return { name: row ? endpointName(row) : objectId, ref: { endpointId: objectId } };
+      return {
+        name: row ? endpointName(row) : objectId,
+        ref: { endpointId: objectId },
+        exists: Boolean(row),
+      };
     }
     case "file_share": {
       const [row] = await tx
         .select({ name: fileShares.name })
         .from(fileShares)
         .where(eq(fileShares.id, objectId));
-      return { name: row?.name ?? objectId, ref: { fileShareId: objectId } };
+      return { name: row?.name ?? objectId, ref: { fileShareId: objectId }, exists: Boolean(row) };
     }
     case "pve_guest": {
       const [row] = await tx
@@ -247,7 +251,7 @@ async function describeObject(
         .from(pveGuests)
         .where(eq(pveGuests.id, objectId));
       const name = row ? (row.name ?? `${row.kind === "ct" ? "CT" : "VM"} ${row.vmid}`) : objectId;
-      return { name, ref: { pveGuestId: objectId } };
+      return { name, ref: { pveGuestId: objectId }, exists: Boolean(row) };
     }
     case "m365": {
       const [row] = await tx
@@ -257,6 +261,7 @@ async function describeObject(
       return {
         name: row?.name ?? row?.externalId ?? objectId,
         ref: { protectedObjectId: objectId },
+        exists: Boolean(row),
       };
     }
   }
@@ -353,6 +358,23 @@ export async function remindRetentionHolds(
         return false;
       }
       const object = await describeObject(tx, row.object_kind, row.object_id);
+      const remindedNow = () =>
+        tx
+          .update(restorePointSuspicions)
+          .set({ holdRemindedAt: now })
+          .where(
+            and(
+              eq(restorePointSuspicions.tenantId, row.tenant_id),
+              eq(restorePointSuspicions.objectKind, row.object_kind),
+              eq(restorePointSuspicions.objectId, row.object_id),
+              SUSPICION_HOLDS_SQL,
+            ),
+          );
+      if (!object.exists) {
+        // The object was deleted with its backups: nothing is held any more, nobody to remind.
+        await remindedNow();
+        return false;
+      }
       const heldDays = Math.floor((now.getTime() - hold.heldAt.getTime()) / DAY_MS);
       await raiseEvents(
         tx,
@@ -376,17 +398,7 @@ export async function remindRetentionHolds(
         ],
         now,
       );
-      await tx
-        .update(restorePointSuspicions)
-        .set({ holdRemindedAt: now })
-        .where(
-          and(
-            eq(restorePointSuspicions.tenantId, row.tenant_id),
-            eq(restorePointSuspicions.objectKind, row.object_kind),
-            eq(restorePointSuspicions.objectId, row.object_id),
-            SUSPICION_HOLDS_SQL,
-          ),
-        );
+      await remindedNow();
       return true;
     });
     if (sent) {

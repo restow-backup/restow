@@ -442,6 +442,23 @@ describe.skipIf(!adminUrl)("judging restore points against Postgres", () => {
     await suspicionPass(deps);
     expect(await reminders()).toHaveLength(2);
 
+    // The judgements of an object that was deleted remind nobody.
+    await q(
+      `INSERT INTO restore_point_suspicions (tenant_id, object_kind, object_id, run_id, restore_point_id,
+         restore_point_at, verdict, metrics, signatures_version, created_at)
+       VALUES ($1, 'file_share', $2, $3, 'gone', $4, 'suspicious', '{}'::jsonb, 'v', $4)`,
+      [tenantId, randomUUID(), randomUUID(), ago(20 * DAY)],
+    );
+    const quiet = await q<{ count: string }>(
+      "SELECT count(*) FROM notifications WHERE event = 'backup.suspicious_hold'",
+    );
+    await suspicionPass(deps);
+    expect(
+      await q<{ count: string }>(
+        "SELECT count(*) FROM notifications WHERE event = 'backup.suspicious_hold'",
+      ),
+    ).toEqual(quiet);
+
     // An administrator releases the hold: no reminder any more, and the next finding is news
     // although the restore point before it is still marked suspicious.
     await q(
