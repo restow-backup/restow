@@ -1,10 +1,10 @@
-import { Building2, ChevronRight, Shield } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { PageHeader } from "@/components/kit";
+import { TenantIdentity } from "@/components/layout/all-tenants-list";
 import { useSwitchTenant } from "@/components/tenant-switcher";
-import { orderTenants, tenantSublineOf } from "@/components/tenant-switcher-model";
-import { Badge } from "@/components/ui/badge";
+import { orderTenants } from "@/components/tenant-switcher-model";
 import { Card } from "@/components/ui/card";
 import { hasFeature, useSession } from "@/lib/session";
 import { canEnterTenant } from "@/lib/tenant";
@@ -31,8 +31,6 @@ export function ChooseTenantPage({ title }: { title: string }) {
         <ul aria-label={t("chooseTenant.list")} className="divide-y">
           {tenants.map((tenant) => {
             const enterable = canEnterTenant(tenant.status, session.isProviderAdmin);
-            const subline = tenantSublineOf(tenant, organisationMode);
-            const Mark = tenant.kind === "internal" ? Shield : Building2;
             return (
               <li key={tenant.id}>
                 <button
@@ -46,32 +44,7 @@ export function ChooseTenantPage({ title }: { title: string }) {
                     "disabled:pointer-events-none disabled:opacity-50",
                   )}
                 >
-                  <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground [&>svg]:size-4">
-                    <Mark aria-hidden="true" />
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{tenant.name}</span>
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {subline.kind === "number" ? (
-                        <>
-                          <span className="sr-only">{`${t("tenant.customerNumber")} `}</span>
-                          <span className="font-mono">{subline.number}</span>
-                        </>
-                      ) : subline.kind === "internal" ? (
-                        t("tenant.internal")
-                      ) : subline.kind === "organisation" ? (
-                        t("tenant.organisation")
-                      ) : (
-                        t("tenant.label")
-                      )}
-                    </span>
-                  </span>
-                  {tenant.kind === "internal" && !organisationMode ? (
-                    <Badge variant="info">{t("tenant.internal")}</Badge>
-                  ) : null}
-                  {tenant.status === "active" ? null : (
-                    <Badge variant="warning">{t(`tenant.status.${tenant.status}`)}</Badge>
-                  )}
+                  <TenantIdentity tenant={tenant} organisationMode={organisationMode} />
                   <ChevronRight
                     aria-hidden="true"
                     className="size-4 shrink-0 text-muted-foreground"

@@ -246,5 +246,9 @@
     "title": "Choose a tenant",
     "description": "This page works on one tenant at a time. Choose a tenant and it continues here with that tenant.",
     "list": "Tenants"
+  },
+  "allTenantsList": {
+    "switch": "Switch to tenant",
+    "switchTo": "Switch to {name} and open this page there"
   }
 }
