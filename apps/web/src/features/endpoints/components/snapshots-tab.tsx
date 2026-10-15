@@ -9,6 +9,7 @@ import {
   SNAPSHOTS_GRID,
 } from "@/features/restore/files/restore-point-browser";
 import { RestorePointContents } from "@/features/restore/files/restore-point-contents";
+import { RestorePointImmutabilityBadge } from "@/features/storage/components/restore-point-immutability";
 import { SnapshotVerificationBadge } from "@/features/verify/components/snapshot-verification-badge";
 
 import { type EndpointDetail, type EndpointSnapshot, endpointDownloadUrl, LIMITS } from "../api.js";
@@ -33,7 +34,14 @@ export function newestFirst(snapshots: readonly EndpointSnapshot[]): EndpointSna
  * what it contains and what it added to the repository (#58, the same wording as
  * a Proxmox VE guest's).
  */
-export function SnapshotDetails({ snapshot }: { snapshot: EndpointSnapshot }) {
+export function SnapshotDetails({
+  snapshot,
+  endpointId,
+}: {
+  snapshot: EndpointSnapshot;
+  /** Set: the restore point's immutability is asked of its storage and shown. */
+  endpointId?: string;
+}) {
   const format = useEndpointFormat();
   const { t } = format;
   return (
@@ -72,6 +80,9 @@ export function SnapshotDetails({ snapshot }: { snapshot: EndpointSnapshot }) {
           focusable={false}
         />
       </span>
+      {endpointId ? (
+        <RestorePointImmutabilityBadge snapshotId={snapshot.id} endpointId={endpointId} />
+      ) : null}
       {snapshot.flags.length > 0 ? (
         <span className="flex flex-wrap items-center gap-1.5" data-slot="snapshot-flags">
           {snapshot.flags.map((flag) => (
@@ -85,8 +96,6 @@ export function SnapshotDetails({ snapshot }: { snapshot: EndpointSnapshot }) {
     </>
   );
 }
-
-const renderSnapshot = (snapshot: EndpointSnapshot) => <SnapshotDetails snapshot={snapshot} />;
 
 /**
  * Why a folder may be missing from a machine's restore point (#59): only the folders of its
@@ -146,7 +155,7 @@ export function SnapshotsTab({
     timelineLabel: t("snapshots.timelineLabel", { name: endpointName(detail) }),
     emptyTitle: t("snapshots.empty.title"),
     emptyDescription: t("snapshots.empty.description"),
-    renderDetails: renderSnapshot,
+    renderDetails: (snapshot) => <SnapshotDetails snapshot={snapshot} endpointId={detail.id} />,
     // What the restore point holds, and why a folder may be missing (#59). A Windows path
     // (C:\Users) is not a folder of restic's tree, so only Linux and macOS paths open.
     renderBrowserExtra: (snapshot, openPath) => (

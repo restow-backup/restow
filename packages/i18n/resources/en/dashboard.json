@@ -202,6 +202,12 @@
     "empty": {
       "title": "Nothing stored yet",
       "description": "The chunk store fills with the first backup."
+    },
+    "immutability": {
+      "objectLock": "{count, plural, one {Immutable: # repository with Object Lock} other {Immutable: # repositories with Object Lock}}",
+      "deletionDelay": "{count, plural, one {Deletion delay on # repository (not immutable)} other {Deletion delay on # repositories (not immutable)}}",
+      "none": "No immutable backups",
+      "warning": "{count, plural, one {Immutability: # repository needs attention} other {Immutability: # repositories need attention}}"
     }
   },
   "mailboxUsage": {
@@ -398,7 +404,8 @@
       "mailboxes": "Protected mailboxes",
       "stored": "Stored",
       "storedHint": "After deduplication, across all tenants.",
-      "incomplete": "{count, plural, one {Without # tenant whose figures could not be read.} other {Without # tenants whose figures could not be read.}}"
+      "incomplete": "{count, plural, one {Without # tenant whose figures could not be read.} other {Without # tenants whose figures could not be read.}}",
+      "immutableHint": "{count, plural, =0 {No tenant with immutable backups.} one {# tenant with immutable backups.} other {# tenants with immutable backups.}}"
     },
     "matrix": {
       "title": "Tenants by need for action",
@@ -456,7 +463,8 @@
         "file_share_backup_failed": "{count, plural, one {The last backup of # file share failed.} other {The last backup of # file shares failed.}}",
         "file_shares_without_job": "{count, plural, one {# file share is in no backup job and is not backed up.} other {# file shares are in no backup job and are not backed up.}}",
         "needs_attention": "{count, plural, one {# object needs attention (gaps or an overdue restore check).} other {# objects need attention (gaps or an overdue restore check).}}",
-        "nothing_protected": "The tenant protects nothing yet."
+        "nothing_protected": "The tenant protects nothing yet.",
+        "immutability_warning": "{count, plural, one {Immutability is set, but # repository has objects without lock or a renewal that fell behind.} other {Immutability is set, but # repositories have objects without lock or a renewal that fell behind.}}"
       },
       "empty": {
         "title": "No alerts",

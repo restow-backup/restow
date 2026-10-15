@@ -86,6 +86,7 @@ import {
   useSnapshots,
   useTree,
 } from "@/features/restore/use-restore-data";
+import { RestorePointImmutabilityBadge } from "@/features/storage/components/restore-point-immutability";
 import { formatInteger } from "@/lib/format";
 import { useSession } from "@/lib/session";
 
@@ -555,6 +556,8 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
         failed={restorePoints.isError}
         value={snapshotId}
         onChange={(id) => setSearch(withSnapshot(search, id))}
+        // Whether the chosen restore point is immutable, as its storage reports it.
+        aside={<RestorePointImmutabilityBadge snapshotId={snapshotId} />}
       />
 
       <RestoreDialog

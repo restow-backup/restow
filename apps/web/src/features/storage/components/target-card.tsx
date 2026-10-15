@@ -34,6 +34,7 @@ import {
 } from "../presenters";
 import type { StorageTargetDto } from "../types";
 import { useIsTestingTarget, useTestTarget } from "../use-storage";
+import { ImmutabilitySection } from "./immutability-section";
 import { MigrationLine } from "./migration-line";
 import { ObjectLockLine } from "./object-lock-line";
 import { ProbeResult } from "./probe-result";
@@ -118,6 +119,7 @@ export function TargetCard({
           )
         ) : null}
         <ObjectLockLine kind={target.kind} capability={target.objectLock} />
+        <ImmutabilitySection target={target} />
         {!target.canManage ? (
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
             <ShieldCheck aria-hidden="true" className="size-3.5" />

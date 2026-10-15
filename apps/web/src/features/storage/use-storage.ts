@@ -7,20 +7,25 @@ import {
   checkCompleteness,
   createTarget,
   deleteTarget,
+  fetchEndpointRestorePointImmutability,
+  fetchRestorePointImmutability,
   fetchTargets,
   fetchUsage,
   probeSettings,
   promoteTarget,
   retryMigration,
+  setImmutability,
   storageKeys,
   testInstallationDefault,
   testTarget,
   updateTarget,
+  verifyImmutability,
 } from "./api";
 import { removeTarget, upsertTarget } from "./cache";
 import type {
   CreateTargetInput,
   ProbeInput,
+  SetImmutabilityInput,
   StorageTargetDto,
   StorageTargetList,
   UpdateTargetInput,
@@ -191,5 +196,49 @@ export function useRetryMigration(targetId: string) {
   return useMutation({
     mutationFn: () => retryMigration(targetId),
     onSuccess: () => invalidate(),
+  });
+}
+
+/** Change a repository's immutability; the list is reloaded so every card shows the new state. */
+export function useSetImmutability() {
+  const queryClient = useQueryClient();
+  const { tenantId } = useStorageScope();
+  return useMutation({
+    mutationFn: ({ targetId, input }: { targetId: string; input: SetImmutabilityInput }) =>
+      setImmutability(targetId, input),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: storageKeys.targets(tenantId) }),
+  });
+}
+
+/** "Verify now": the storage is asked about a sample; the list is reloaded with the result. */
+export function useVerifyImmutability() {
+  const queryClient = useQueryClient();
+  const { tenantId } = useStorageScope();
+  return useMutation({
+    mutationFn: (targetId: string) => verifyImmutability(targetId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: storageKeys.targets(tenantId) }),
+  });
+}
+
+/**
+ * A restore point's protection as its storage reports it. `endpointId` set: a
+ * machine's restic snapshot; else a restore point of the chunk store.
+ */
+export function useRestorePointImmutability(snapshotId: string | null, endpointId?: string) {
+  const { status, activeTenant } = useSession();
+  const tenantId = activeTenant?.id ?? null;
+  return useQuery({
+    queryKey: storageKeys.restorePoint(
+      tenantId,
+      endpointId ? `endpoint:${endpointId}` : "snapshot",
+      snapshotId ?? "",
+    ),
+    queryFn: () =>
+      endpointId
+        ? fetchEndpointRestorePointImmutability(endpointId, snapshotId as string)
+        : fetchRestorePointImmutability(snapshotId as string),
+    enabled: status === "authenticated" && tenantId !== null && snapshotId !== null,
+    staleTime: 5 * 60_000,
+    retry: false,
   });
 }

@@ -108,8 +108,73 @@ export interface StorageTargetDto {
   canManage: boolean;
   /** The storage migration this target is (or was) part of, as source or destination. */
   migration: StorageMigrationDto | null;
+  /** Immutable backups on this repository (docs/STORAGE.md, "Immutable backups"). */
+  immutability?: ImmutabilityDto;
   createdAt: string;
   updatedAt: string;
+}
+
+/**
+ * `compliance` / `governance`: S3 Object Lock, enforced by the storage;
+ * `delayed_deletion`: a directory's deletion delay, enforced by Restow only.
+ */
+export type ImmutabilityMode = "compliance" | "governance" | "delayed_deletion";
+
+export interface ImmutabilityVerification {
+  checkedAt: string;
+  sampled: number;
+  locked: number;
+  unlocked: number;
+  weakerMode: number;
+  missing: number;
+  errors: number;
+  problems: { key: string; state: string; until: string | null; detail?: string }[];
+}
+
+export interface ImmutabilityDto {
+  mode: ImmutabilityMode | null;
+  days: number;
+  kind: "object_lock" | "deletion_delay";
+  since: string | null;
+  renewalBufferDays: number;
+  renewedAt: string | null;
+  renewalOverdue: boolean;
+  renewal: {
+    at: string;
+    extended: number;
+    alreadyLonger: number;
+    missing: number;
+    failed: number;
+    complete: boolean;
+  } | null;
+  verification: ImmutabilityVerification | null;
+  deferredDeletions: number;
+  history: { since: string; days: number; mode: ImmutabilityMode | null }[];
+  canLower: boolean;
+}
+
+export interface SetImmutabilityInput {
+  mode: ImmutabilityMode | null;
+  days?: number;
+}
+
+export interface SetImmutabilityResult {
+  immutability?: ImmutabilityDto;
+  objectLock: ObjectLockCapability | null;
+}
+
+/** A restore point's protection as its storage reports it (GET .../immutability). */
+export interface RestorePointImmutability {
+  state: "immutable" | "governance" | "delayed" | "none";
+  until: string | null;
+  targets: {
+    targetId: string | null;
+    source: "object_lock" | "deletion_delay";
+    mode: "GOVERNANCE" | "COMPLIANCE" | null;
+    until: string | null;
+    exists: boolean;
+  }[];
+  checkedAt: string;
 }
 
 export interface StorageMigrationDto {

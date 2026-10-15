@@ -1,4 +1,5 @@
 import { Layers } from "lucide-react";
+import type * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { type ListedSnapshot, RESTORE_POINT_LIMIT } from "@/features/restore/api";
@@ -13,6 +14,8 @@ interface RestorePointBarProps {
   failed: boolean;
   value: string | null;
   onChange: (restorePointId: string) => void;
+  /** What the explorer shows about the chosen restore point at the end of the row (its immutability). */
+  aside?: React.ReactNode;
 }
 
 /**
@@ -27,6 +30,7 @@ export function RestorePointBar({
   failed,
   value,
   onChange,
+  aside,
 }: RestorePointBarProps) {
   const { t } = useTranslation("restore");
   const unavailable = !loading && (failed || (restorePoints?.length ?? 0) === 0);
@@ -63,6 +67,9 @@ export function RestorePointBar({
           onChange={onChange}
         />
       )}
+      {!unavailable && value && aside ? (
+        <span className="mt-1 hidden shrink-0 md:inline-flex">{aside}</span>
+      ) : null}
       {!unavailable && (restorePoints?.length ?? 0) >= RESTORE_POINT_LIMIT ? (
         // Older restore points exist beyond what was loaded: say so instead of hiding them.
         <p

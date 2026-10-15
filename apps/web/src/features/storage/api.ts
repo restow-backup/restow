@@ -3,9 +3,13 @@ import type {
   CompletenessResult,
   CreateTargetInput,
   DefaultTestResult,
+  ImmutabilityDto,
   ProbeInput,
   ProbeOutcome,
   PromoteResult,
+  RestorePointImmutability,
+  SetImmutabilityInput,
+  SetImmutabilityResult,
   StorageMigrationDto,
   StorageTargetDto,
   StorageTargetList,
@@ -24,6 +28,8 @@ export const storageKeys = {
   all: (tenantId: string | null) => ["tenant", tenantId, "storage"] as const,
   targets: (tenantId: string | null) => ["tenant", tenantId, "storage", "targets"] as const,
   usage: (tenantId: string | null) => ["tenant", tenantId, "storage", "usage"] as const,
+  restorePoint: (tenantId: string | null, kind: string, id: string) =>
+    ["tenant", tenantId, "storage", "restore-point", kind, id] as const,
 };
 
 function targetPath(targetId: string, action?: string): string {
@@ -86,4 +92,41 @@ export function cancelMigration(targetId: string): Promise<StorageMigrationDto> 
 /** Re-queue a failed "move" replacing the primary with `targetId`, with a fresh job. */
 export function retryMigration(targetId: string): Promise<StorageMigrationDto> {
   return apiFetch<StorageMigrationDto>(targetPath(targetId, "migration/retry"), { method: "POST" });
+}
+
+/** Turn immutable backups on, change or switch them off (lowering asks for a recent sign-in). */
+export function setImmutability(
+  targetId: string,
+  input: SetImmutabilityInput,
+): Promise<SetImmutabilityResult> {
+  return apiFetch<SetImmutabilityResult>(targetPath(targetId, "immutability"), {
+    method: "PUT",
+    body: input,
+  });
+}
+
+/** Ask the storage for the retention of a sample of new objects. */
+export function verifyImmutability(targetId: string): Promise<ImmutabilityDto> {
+  return apiFetch<ImmutabilityDto>(targetPath(targetId, "immutability/verify"), {
+    method: "POST",
+  });
+}
+
+/** A mail, OneDrive or VM restore point's protection, as the storage reports it. */
+export function fetchRestorePointImmutability(
+  snapshotId: string,
+): Promise<RestorePointImmutability> {
+  return apiFetch<RestorePointImmutability>(
+    `/snapshots/${encodeURIComponent(snapshotId)}/immutability`,
+  );
+}
+
+/** A machine's restore point (restic snapshot) protection, as the storage reports it. */
+export function fetchEndpointRestorePointImmutability(
+  endpointId: string,
+  snapshotId: string,
+): Promise<RestorePointImmutability> {
+  return apiFetch<RestorePointImmutability>(
+    `/endpoints/${encodeURIComponent(endpointId)}/snapshots/${encodeURIComponent(snapshotId)}/immutability`,
+  );
 }

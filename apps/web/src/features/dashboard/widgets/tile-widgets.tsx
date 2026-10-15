@@ -257,6 +257,41 @@ function StorageTargetBadge({ target }: { target: StorageData["target"] }) {
   }
 }
 
+/**
+ * Immutable backups in one line: Object Lock repositories (enforced by the
+ * storage), a directory's deletion delay (said not to be immutability), a
+ * warning when one was found without lock. Neutral, never green: the setting
+ * is a promise; the restore point's own badge shows the storage's proof.
+ */
+function ImmutabilityLine({ immutability }: { immutability: StorageData["immutability"] }) {
+  const { t } = useTranslation("dashboard");
+  if (!immutability) {
+    return null;
+  }
+  if (immutability.warnings > 0) {
+    return (
+      <StatusBadge tone="warning" icon>
+        {t("storage.immutability.warning", { count: immutability.warnings })}
+      </StatusBadge>
+    );
+  }
+  if (immutability.objectLock > 0) {
+    return (
+      <span data-slot="immutability">
+        {t("storage.immutability.objectLock", { count: immutability.objectLock })}
+      </span>
+    );
+  }
+  if (immutability.deletionDelay > 0) {
+    return (
+      <span data-slot="immutability">
+        {t("storage.immutability.deletionDelay", { count: immutability.deletionDelay })}
+      </span>
+    );
+  }
+  return <span data-slot="immutability">{t("storage.immutability.none")}</span>;
+}
+
 /** Bytes in the chunk store after deduplication, and whether the target answers. */
 export function StorageWidget({
   canAdminister,
@@ -299,6 +334,7 @@ export function StorageWidget({
                   : null}
               </span>
               <StorageTargetBadge target={data.target} />
+              <ImmutabilityLine immutability={data.immutability} />
             </span>
           }
           link={
