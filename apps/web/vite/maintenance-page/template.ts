@@ -38,10 +38,11 @@ export interface PageTexts {
       | "updatingVersion"
       | "succeeded"
       | "succeededVersion"
-      | "failed",
+      | "failed"
+      | "moving",
       string
     >;
-    lead: Record<"refresh" | "scheduled" | "succeeded", string>;
+    lead: Record<"refresh" | "scheduled" | "succeeded" | "moving", string>;
     failure: Record<"unchanged" | "rolledBack" | "needsAttention" | "generic", string>;
     reason: string;
     restarting: string;
@@ -100,9 +101,11 @@ export function textAttributes(texts: PageTexts): string[] {
     ["heading-succeeded", fill(page.heading.succeeded)],
     ["heading-succeeded-version", fill(page.heading.succeededVersion)],
     ["heading-failed", fill(page.heading.failed)],
+    ["heading-moving", fill(page.heading.moving)],
     ["lead-refresh", fill(page.lead.refresh)],
     ["lead-scheduled", fill(page.lead.scheduled)],
     ["lead-succeeded", fill(page.lead.succeeded)],
+    ["lead-moving", fill(page.lead.moving)],
     ["failure-unchanged", fill(page.failure.unchanged)],
     ["failure-rolled-back", fill(page.failure.rolledBack)],
     ["failure-needs-attention", fill(page.failure.needsAttention)],

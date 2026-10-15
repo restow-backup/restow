@@ -46,6 +46,7 @@ export const FAILURE_CODES = [
   "prepare.switch_refused",
   "prepare.compose_unsupported",
   "prepare.updater_image_unpinned",
+  "prepare.database_move",
   "fetch.pull_failed",
   "fetch.digest_missing",
   "fetch.signature_invalid",
@@ -72,6 +73,7 @@ export const BLOCKER_CODES = [
   "disk_space",
   "docker_cli_missing",
   "updater_image_unpinned",
+  "database_move",
 ] as const;
 export type BlockerCode = (typeof BLOCKER_CODES)[number];
 
@@ -218,6 +220,14 @@ export interface PublicStatus {
   progress: number;
   message: UpdateMessage | null;
   failureCode: FailureCode | null;
+  /** A move of the database (Installation > Database); absent from an older updater. */
+  databaseMove?: {
+    id: string;
+    status: "running" | "succeeded" | "rolled_back" | "needs_attention";
+    step: string | null;
+    progress: number;
+    finishedAt: string | null;
+  } | null;
   serverTime: string;
 }
 
@@ -474,6 +484,22 @@ export interface RestartsView {
 }
 
 // --- Endpoints -----------------------------------------------------------------------------
+
+/** A one-time link to download a pre-update dump (needs a recent sign-in). */
+export function requestDumpDownload(file: string): Promise<{ url: string; expiresAt: string }> {
+  return apiFetch<{ url: string; expiresAt: string }>(
+    `/updates/dumps/${encodeURIComponent(file)}/download`,
+    { method: "POST", tenantId: null },
+  );
+}
+
+/** Delete a pre-update dump (needs a recent sign-in); answers with the Updates tab. */
+export function deleteDump(file: string): Promise<UpdatesView> {
+  return apiFetch<UpdatesView>(`/updates/dumps/${encodeURIComponent(file)}`, {
+    method: "DELETE",
+    tenantId: null,
+  });
+}
 
 export function fetchUpdates(): Promise<UpdatesView> {
   return apiFetch<UpdatesView>("/updates", { tenantId: null });

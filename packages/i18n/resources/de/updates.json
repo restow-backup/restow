@@ -80,7 +80,8 @@
       "not_newer": "Die gewählte Version ist nicht neuer als die laufende.",
       "compose_unsupported": "Diese Version von Docker Compose wird nicht unterstützt.",
       "updater_image_unpinned": "Der Updater bezieht sein eigenes Image aus den Image-Zeilen, die er bei einem Update umschreibt. Geben Sie ihm ein eigenes, festes Image und erstellen Sie ihn neu; die Schritte stehen unter Installation, Updates.",
-      "switch_refused": "Der Wechsel auf den vollen Build wurde abgelehnt: Nur eine Community-Installation wechselt, und zwar auf den vollen Build ihrer eigenen Version."
+      "switch_refused": "Der Wechsel auf den vollen Build wurde abgelehnt: Nur eine Community-Installation wechselt, und zwar auf den vollen Build ihrer eigenen Version.",
+      "database_move": "Als das Update starten sollte, wurde gerade die Datenbank verschoben. Es wurde nichts geändert."
     },
     "fetch": {
       "pull_failed": "Das neue Image konnte nicht heruntergeladen werden.",
@@ -301,9 +302,10 @@
       "compose_missing": "Der Updater findet die docker-compose.yml im Projektordner nicht. Verwenden Sie die docker-compose.yml dieses Releases oder setzen Sie RESTOW_PROJECT_DIR in der .env-Datei auf den absoluten Pfad des Ordners, in dem sie liegt, und erstellen Sie den Updater neu.",
       "project_dir_mismatch": "Der Projektordner, den der Updater sieht, stimmt nicht mit dem Ordner überein, aus dem diese Installation läuft. Setzen Sie RESTOW_PROJECT_DIR in der .env-Datei auf den absoluten Pfad des Ordners mit der docker-compose.yml und starten Sie den Updater neu.",
       "env_unwritable": "Der Updater kann die .env-Datei nicht schreiben. Er muss dort die neue Image-Referenz eintragen.",
-      "disk_space": "Es ist nicht genug freier Speicherplatz für einen Download und die Datenbanksicherung vorhanden.",
+      "disk_space": "Für das Update ist nicht genug freier Speicherplatz vorhanden: für die Datenbanksicherung, die neuen Images und die Migrationen. Die Zahlen stehen darunter; Installation › Datenbank zeigt die Datenträger und wie Sie die Datenbank auf einen anderen verschieben.",
       "docker_cli_missing": "Der Updater findet das Docker-Kommandozeilenwerkzeug nicht, das er für Compose braucht.",
       "updater_image_unpinned": "Der Updater bezieht sein eigenes Image aus RESTOW_IMAGE, der Zeile, die er bei einem Update umschreibt, und konnte es nicht selbst festhalten. Setzen Sie RESTOW_UPDATER_IMAGE in der .env-Datei auf das Image der Anwendung (dasselbe Image wie RESTOW_IMAGE; ein eigenes Updater-Image gibt es nicht) oder verwenden Sie die docker-compose.yml dieses Releases und erstellen Sie den Updater neu.",
+      "database_move": "Die Datenbank wird gerade auf einen anderen Datenträger verschoben oder eine alte Kopie entfernt. Aktualisieren Sie danach.",
       "unknown": "Der Updater meldet ein Problem, das diese Version nicht kennt."
     },
     "ready": {
@@ -409,7 +411,17 @@
     "empty": "Noch keine Sicherung. Die erste entsteht vor dem ersten Update.",
     "file": "Datei",
     "size": "Größe",
-    "created": "Erstellt"
+    "created": "Erstellt",
+    "actions": "Aktionen",
+    "download": "{file} herunterladen",
+    "delete": "{file} löschen",
+    "downloadTitle": "Diese Datenbanksicherung herunterladen?",
+    "downloadDescription": "{file} ({size}) enthält die gesamte Datenbank: Katalog und Einstellungen aller Mandanten sowie die gespeicherten Geheimnisse in verschlüsselter Form. Bewahren Sie sie so sorgfältig auf wie den Hauptschlüssel. Der Download wird im Audit-Log festgehalten.",
+    "downloadAction": "Herunterladen",
+    "deleteTitle": "Diese Datenbanksicherung löschen?",
+    "deleteDescription": "{file} wird vom Server gelöscht und lässt sich danach nicht wiederherstellen. Das Löschen wird im Audit-Log festgehalten.",
+    "deleteAction": "Löschen",
+    "protected": "Diese Sicherung wird gebraucht, um das letzte Update zu reparieren, das Aufmerksamkeit braucht. Sie bleibt erhalten."
   },
   "run": {
     "title": "Letztes Update",
@@ -623,12 +635,14 @@
       "updatingVersion": "{product} wird auf Version {version} aktualisiert",
       "succeeded": "{product} wurde aktualisiert",
       "succeededVersion": "{product} wurde auf Version {version} aktualisiert",
-      "failed": "Das Update von {product} wurde nicht abgeschlossen"
+      "failed": "Das Update von {product} wurde nicht abgeschlossen",
+      "moving": "Die Datenbank von {product} wird verschoben"
     },
     "lead": {
       "refresh": "Diese Seite aktualisiert sich automatisch.",
       "scheduled": "Das Update beginnt bald. Diese Seite aktualisiert sich automatisch.",
-      "succeeded": "Die neue Version läuft. Diese Seite lädt jetzt neu."
+      "succeeded": "Die neue Version läuft. Diese Seite lädt jetzt neu.",
+      "moving": "{product} ist angehalten, während die Datenbank auf einen anderen Datenträger verschoben wird. Es startet von selbst wieder; diese Seite aktualisiert sich automatisch."
     },
     "failure": {
       "unchanged": "Das Update konnte nicht starten. Es wurde nichts geändert; die vorherige Version läuft weiter.",
