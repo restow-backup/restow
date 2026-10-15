@@ -702,6 +702,8 @@ export function shareRun(input: ShareRunInput): RunDto {
       currentPath: progress?.currentPath || null,
       updatedAt: progress?.at ?? null,
     },
+    // First-backup progress is a mailbox and OneDrive view (#47); a share has none.
+    firstBackup: null,
     throughput,
     samples: samplesOf(samples, input.sampleCount ?? LIST_SAMPLE_COUNT),
     phase: null,
