@@ -92,6 +92,7 @@ import {
   SITE_ROLES,
   uniqueSegments,
 } from "./layout.js";
+import { PreviousSiteObjects, WriterFolders } from "./site-objects.js";
 import {
   checkpointDriveState,
   currentDriveCursor,
@@ -328,11 +329,17 @@ class SiteBackupRun {
   private readonly libraries: LibraryInfo[] = [];
   private readonly lists: ListInfo[] = [];
   private readonly previousObjects: ManifestObject[];
+  /** The previous objects by folder and by list, built once. */
+  private readonly previous: PreviousSiteObjects;
+  /** The writer's paths by library and list folder. */
+  private readonly folders: WriterFolders;
   /** A drive run threw: it checkpointed on its way out already. */
   private driveRunFailed = false;
 
   constructor(private readonly input: SiteRunInput) {
     this.previousObjects = input.previous?.objects ?? [];
+    this.previous = new PreviousSiteObjects(this.previousObjects);
+    this.folders = new WriterFolders(input.writer);
     for (const library of input.resume?.done ?? []) {
       this.done.set(library.driveId, library);
     }
@@ -411,7 +418,7 @@ class SiteBackupRun {
     const previousLibrary =
       this.input.previousState?.libraries.find((library) => library.driveId === drive.id) ?? null;
     const previousObjects = previousLibrary
-      ? objectsBelow(this.previousObjects, libraryPath(previousLibrary.folder))
+      ? this.previous.below(libraryPath(previousLibrary.folder))
       : null;
     const driveCursor = currentDriveCursor(resume, drive.id, folder);
     const plan = planRun({
@@ -515,7 +522,7 @@ class SiteBackupRun {
   private librarySink(driveId: string, folder: string): DriveObjectSink {
     const prefix = libraryPath(folder);
     return {
-      list: () => objectsBelow(this.input.writer.listObjects(), prefix),
+      list: () => this.folders.below(prefix),
       replace: (objects) => this.replaceBelow(prefix, objects),
       checkpoint: async (cursor, deleted) => {
         await this.checkpoint({
@@ -553,7 +560,7 @@ class SiteBackupRun {
       }),
       chunks: [],
     });
-    const previousItems = this.previousListItems(list.id);
+    const previousItems = this.previous.listItems(list.id);
     const objects: ManifestObject[] = [];
     let items = 0;
     try {
@@ -582,10 +589,7 @@ class SiteBackupRun {
       }
       this.recordFailure(prefix, error);
       // Keep the items the last backup had; they are what a restore can still offer.
-      const schema = this.previousObjects.find(
-        (object) =>
-          object.type === SITE_OBJECT_TYPES.listSchema && object.metadata?.listId === list.id,
-      );
+      const schema = this.previous.listSchema(list.id);
       if (schema) {
         objects.length = 0;
         objects.push({ ...schema, path: listSchemaPath(folder) });
@@ -627,21 +631,6 @@ class SiteBackupRun {
       webUrl: list.webUrl ?? null,
       items,
     };
-  }
-
-  /** The previous snapshot's items of a list, by list item id (wherever the list lay then). */
-  private previousListItems(listId: string): Map<string, ManifestObject> {
-    const items = new Map<string, ManifestObject>();
-    for (const object of this.previousObjects) {
-      if (
-        object.type === SITE_OBJECT_TYPES.listItem &&
-        object.metadata?.listId === listId &&
-        object.metadata.listItemId !== undefined
-      ) {
-        items.set(object.metadata.listItemId, object);
-      }
-    }
-    return items;
   }
 
   private async listItemObject(
@@ -716,17 +705,7 @@ class SiteBackupRun {
 
   /** Make the writer hold exactly `objects` (relative paths) below `prefix`. */
   private replaceBelow(prefix: string, objects: readonly ManifestObject[]): void {
-    const { writer } = this.input;
-    const wanted = new Map(prefixObjects(objects, prefix).map((object) => [object.path, object]));
-    const head = `${prefix}/`;
-    for (const existing of writer.listObjects()) {
-      if (existing.path.startsWith(head) && !wanted.has(existing.path)) {
-        writer.remove(existing.path);
-      }
-    }
-    for (const object of wanted.values()) {
-      writer.add(object);
-    }
+    this.folders.replace(prefix, prefixObjects(objects, prefix));
   }
 
   /** Drop library or list folders of an earlier attempt the site no longer has. */
@@ -736,6 +715,7 @@ class SiteBackupRun {
       const [top, folder] = object.path.split("/");
       if (top === area && folder !== undefined && !folders.has(folder)) {
         writer.remove(object.path);
+        this.folders.forget(`${top}/${folder}`);
       }
     }
   }
