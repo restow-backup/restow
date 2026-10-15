@@ -77,6 +77,8 @@ import { mountPath as statsMountPath } from "./features/stats/meta.js";
 import { statsRoutes } from "./features/stats/routes.js";
 import { mountPath as storageMountPath } from "./features/storage/meta.js";
 import { storageRoutes } from "./features/storage/routes.js";
+import { mountPath as tenantJobsMountPath } from "./features/tenant-jobs/meta.js";
+import { tenantJobsRoutes } from "./features/tenant-jobs/routes.js";
 import { mountPath as tenantsMountPath } from "./features/tenants/meta.js";
 import { tenantsRoutes } from "./features/tenants/routes.js";
 import { INTERNAL_MOUNT_PATH, internalRoutes, isUpdater } from "./features/updates/internal.js";
@@ -239,6 +241,7 @@ export function buildApp() {
   app.route(`${API_V1}${apikeysMountPath}`, apikeysRoutes);
   app.route(`${API_V1}${webhooksMountPath}`, webhooksRoutes);
   app.route(`${API_V1}${usageMountPath}`, usageRoutes);
+  app.route(`${API_V1}${tenantJobsMountPath}`, tenantJobsRoutes);
   app.route(`${API_V1}${settingsMountPath}`, settingsRoutes);
   app.route(`${API_V1}${endpointsMountPath}`, endpointsRoutes);
   app.route(`${API_V1}${updatesMountPath}`, updatesRoutes);
