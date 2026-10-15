@@ -85,6 +85,53 @@ export type StorageTargetConfig =
   | S3StorageTargetConfig
   | InstallationDefaultStorageTargetConfig;
 
+/** One period of a target's immutability history (packages/core storage/immutability.ts). */
+export type StorageTargetImmutabilityPeriod = {
+  /** ISO 8601: from then on, new objects got `days` (0 = off). */
+  since: string;
+  days: number;
+  mode: "compliance" | "governance" | "delayed_deletion" | null;
+};
+
+/**
+ * A target's immutable-backup setting (docs/STORAGE.md, "Immutable backups"):
+ * `compliance`/`governance` = S3 Object Lock, `delayed_deletion` = the
+ * deletion delay of a directory; the history keeps every earlier setting so a
+ * lowered one never applies to what was written before.
+ */
+export type StorageTargetImmutability = {
+  mode: "compliance" | "governance" | "delayed_deletion" | null;
+  days: number;
+  history: StorageTargetImmutabilityPeriod[];
+};
+
+/**
+ * What the worker last found out about a target's immutability: the last
+ * complete renewal, the last verification sample, refused deletions.
+ */
+export type StorageTargetImmutabilityState = {
+  /** Start of the last complete renewal pass (ISO 8601). */
+  renewedAt?: string | null;
+  renewal?: {
+    at: string;
+    extended: number;
+    alreadyLonger: number;
+    missing: number;
+    failed: number;
+    complete: boolean;
+  } | null;
+  verification?: {
+    checkedAt: string;
+    sampled: number;
+    locked: number;
+    unlocked: number;
+    weakerMode: number;
+    missing: number;
+    errors: number;
+    problems: { key: string; state: string; until: string | null; detail?: string }[];
+  } | null;
+};
+
 /**
  * Where a tenant's chunk store lives. Each tenant has exactly one `primary`
  * target and any number of `copy` targets (docs/ARCHITECTURE.md: primary plus
@@ -108,6 +155,9 @@ export const storageTargets = pgTable(
     errorMessage: text("error_message"),
     checkedAt: timestamp("checked_at", { withTimezone: true }),
     bytesUsed: bigint("bytes_used", { mode: "number" }).notNull().default(0),
+    // Immutable backups (docs/STORAGE.md); null = never set.
+    immutability: jsonb("immutability").$type<StorageTargetImmutability>(),
+    immutabilityState: jsonb("immutability_state").$type<StorageTargetImmutabilityState>(),
     ...timestamps(),
   },
   (t) => [
@@ -213,6 +263,36 @@ export const storageMigrations = pgTable(
   ],
 );
 
+/**
+ * A deletion a target refused because the object is still locked (S3 Object
+ * Lock, or a directory's deletion delay): a restic prune that met a locked
+ * pack, a garbage-collected pack file, a restore point retention left alone.
+ * The renewal leaves these keys out so the lock can run out; a row goes when
+ * the object is gone. Shown as "deletions deferred by lock".
+ */
+export const immutabilityDeferredDeletions = pgTable(
+  "immutability_deferred_deletions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    targetId: uuid("target_id")
+      .notNull()
+      .references(() => storageTargets.id, { onDelete: "cascade" }),
+    key: text("key").notNull(),
+    retainUntil: timestamp("retain_until", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(1),
+    // created_at: the first refusal; updated_at: the latest one.
+    ...timestamps(),
+  },
+  (t) => [
+    uniqueIndex("immutability_deferred_target_key_uq").on(t.targetId, t.key),
+    index("immutability_deferred_tenant_idx").on(t.tenantId),
+  ],
+);
+
+export type ImmutabilityDeferredDeletion = typeof immutabilityDeferredDeletions.$inferSelect;
 export type StorageTarget = typeof storageTargets.$inferSelect;
 export type NewStorageTarget = typeof storageTargets.$inferInsert;
 export type StorageTargetKind = (typeof storageTargetKindEnum.enumValues)[number];
