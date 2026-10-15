@@ -385,8 +385,22 @@ function mergeDefinition<T extends BackupJob>(job: T, live: BackupJobLive): T {
   };
 }
 
+/** The backup jobs as the channel last described them, by id. */
+export type LiveDefinitions = Record<string, BackupJobLive>;
+
+function rememberDefinitions(
+  context: LiveContext,
+  update: (current: LiveDefinitions) => LiveDefinitions,
+): void {
+  context.client.setQueryData<LiveDefinitions>(
+    historyKeys.liveDefinitions(context.tenantId),
+    (current) => update(current ?? {}),
+  );
+}
+
 export function applyDefinition(context: LiveContext, live: BackupJobLive): void {
   const { client, tenantId, refetch, known } = context;
+  rememberDefinitions(context, (current) => ({ ...current, [live.id]: live }));
   const isNew = !known.definitions.has(live.id);
   known.definitions.add(live.id);
   let stale = isNew;
@@ -429,6 +443,10 @@ export function applyGone(context: LiveContext, kind: "definition" | "machine", 
   const { client, tenantId, refetch, known } = context;
   if (kind === "definition") {
     known.definitions.delete(id);
+    rememberDefinitions(context, (current) => {
+      const { [id]: _gone, ...rest } = current;
+      return rest;
+    });
     client.setQueriesData<BackupJobList>({ queryKey: backupJobKeys.lists(tenantId) }, (list) =>
       list ? { ...list, items: list.items.filter((job) => job.id !== id) } : list,
     );
@@ -497,6 +515,9 @@ export function applySnapshot(context: LiveContext, snapshot: LiveSnapshot): voi
     applyRunToViews(context, run);
   }
   known.definitions = new Set(snapshot.definitions.map((job) => job.id));
+  rememberDefinitions(context, () =>
+    Object.fromEntries(snapshot.definitions.map((job) => [job.id, job])),
+  );
   known.machines = new Set(snapshot.machines.map((machine) => machine.id));
   for (const definition of snapshot.definitions) {
     applyDefinitionQuietly(context, definition);

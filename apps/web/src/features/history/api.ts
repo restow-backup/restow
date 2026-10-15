@@ -261,6 +261,9 @@ export const historyKeys = {
     ["tenant", tenantId, "history", "detail", runId] as const,
   /** Every run the live channel follows, keyed by id: what rows and the drawer read. */
   live: (tenantId: TenantKey) => ["tenant", tenantId, "history", "live"] as const,
+  /** Every backup job as the live channel last described it, keyed by id (the sidebar's counts). */
+  liveDefinitions: (tenantId: TenantKey) =>
+    ["tenant", tenantId, "history", "live-definitions"] as const,
 };
 
 // --- Requests ---------------------------------------------------------------------------------
