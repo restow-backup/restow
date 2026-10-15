@@ -15,6 +15,7 @@
   "kind": {
     "mailbox": "Postfach",
     "onedrive": "OneDrive",
+    "site": "SharePoint-Website",
     "imap": "IMAP-Konto"
   },
   "status": {
@@ -258,7 +259,9 @@
       "group_unresolved": "Die Schutzgruppe konnte nicht gelesen werden ({status}). Ihre Mitglieder bleiben ausgeschlossen, bis das wieder gelingt.",
       "mailbox_probe_failed": "Das Postfach von {user} konnte nicht geprüft werden ({status}); entschieden hat die Adresse.",
       "drive_probe_failed": "Das OneDrive von {user} konnte nicht geprüft werden ({status}); es bleibt unverändert.",
-      "user_fetch_failed": "Der Nutzer {user} konnte nicht gelesen werden ({status}); der nächste Abgleich holt ihn nach."
+      "user_fetch_failed": "Der Nutzer {user} konnte nicht gelesen werden ({status}); der nächste Abgleich holt ihn nach.",
+      "sites_permission": "SharePoint-Websites werden weder gefunden noch gesichert: Der Tenant hat der App der Sicherung Sites.Read.All oder Sites.ReadWrite.All nicht erteilt ({status}). Mail und OneDrive sind nicht betroffen. Führen Sie die Administratorzustimmung für diesen Tenant erneut aus, sobald die App-Registrierung die Berechtigung enthält.",
+      "sites_unavailable": "SharePoint-Websites konnten nicht aufgelistet werden ({status}); die bisher bekannten Websites bleiben unverändert."
     },
     "result": {
       "queued": "Verzeichnisabgleich eingereiht.",
@@ -291,7 +294,7 @@
       "manual": "Manuelle Liste"
     },
     "counts": "{active} geschützt, {excluded} ausgeschlossen, {orphaned} verwaist",
-    "m365Kinds": "{mailbox, plural, one {# Postfach} other {# Postfächer}}, {onedrive, plural, one {# OneDrive} other {# OneDrives}}",
+    "m365Kinds": "{mailbox, plural, one {# Postfach} other {# Postfächer}}, {onedrive, plural, one {# OneDrive} other {# OneDrives}}{site, plural, =0 {} one {, # SharePoint-Website} other {, # SharePoint-Websites}}",
     "imapKinds": "{count, plural, one {# Konto} other {# Konten}}",
     "consentHint": "Erteilen Sie unter Quellen den Admin-Consent für diesen Tenant, bevor der erste Abgleich laufen kann.",
     "disabledHint": "Die Quelle ist pausiert. Setzen Sie sie unter Quellen fort, um wieder abzugleichen.",
@@ -317,6 +320,11 @@
     "title": "Schutzregeln",
     "description": "Welche Postfächer und OneDrives von {source} {appName} schützt. Beim Speichern wird ein Abgleich eingereiht, der die Regeln anwendet.",
     "precedence": "Einzelentscheidungen an einzelnen Objekten haben Vorrang vor diesen Regeln.",
+    "sites": {
+      "label": "Alle SharePoint-Websites schützen",
+      "allHint": "Jede SharePoint-Website des Tenants wird gesichert, auch die Websites von Microsoft-365-Gruppen und Teams. Einzelne Websites schließen Sie in der Liste der geschützten Objekte aus.",
+      "selectedHint": "Eine SharePoint-Website wird nur gesichert, wenn Sie sie in der Liste der geschützten Objekte einschließen."
+    },
     "selectedHint": "Wählen Sie im Reiter Objekte, was geschützt werden soll: Markieren Sie die gewünschten Postfächer oder OneDrives und wählen Sie \"Einschließen\", dort oder als Sammelaktion. Ein Wechsel des Schutzumfangs löscht nie eine Sicherung: Ein Objekt, das den Schutzumfang verlässt, wird nur nicht mehr neu gesichert und behält seine vorhandenen Sicherungsstände.",
     "mode": {
       "label": "Schutzumfang",

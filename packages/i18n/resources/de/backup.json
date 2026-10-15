@@ -42,6 +42,7 @@
   "kind": {
     "mailbox": "Postfach",
     "onedrive": "OneDrive",
+    "site": "SharePoint-Website",
     "imap": "IMAP-Konto"
   },
   "phase": {

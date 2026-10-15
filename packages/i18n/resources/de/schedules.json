@@ -29,6 +29,7 @@
   "objectKinds": {
     "mailbox": "Postfach",
     "onedrive": "OneDrive",
+    "site": "SharePoint-Website",
     "imap": "IMAP-Konto"
   },
   "scope": {
@@ -37,6 +38,7 @@
     "withheld": {
       "mailbox": "Ein Postfach (nicht Ihres)",
       "onedrive": "Ein OneDrive (nicht Ihres)",
+      "site": "Eine SharePoint-Website",
       "imap": "Ein IMAP-Konto (nicht Ihres)"
     }
   },

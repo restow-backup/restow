@@ -311,13 +311,22 @@
       "unexpected": "Also granted, not used by {appName}: {list}",
       "complete": "All required permissions are granted.",
       "incomplete": "{count, plural, one {# required permission is missing.} other {# required permissions are missing.}}",
-      "optionalMissing": "Optional permissions only unlock extras such as notifications via Graph.",
+      "optionalMissing": "Optional permissions only unlock extras such as notifications via Graph or SharePoint sites.",
+      "sharepointMissing": {
+        "title": "SharePoint sites are not backed up",
+        "description": "The backup app has no permission for SharePoint in this tenant, so {appName} cannot find or back up its sites. Mail and OneDrive are not affected. Add Sites.ReadWrite.All to the app registration (application permission) and run the admin consent for this tenant again."
+      },
+      "sharepointReadOnly": {
+        "title": "SharePoint sites can be backed up, not restored into",
+        "description": "Only Sites.Read.All was granted: sites are backed up, but restoring files or list items into a site fails. Grant Sites.ReadWrite.All and run the admin consent again."
+      },
       "purpose": {
         "mail": "Mail backup and restore",
         "mailboxSettings": "Time zone and regional settings",
         "calendar": "Calendar backup and restore",
         "contacts": "Contacts backup and restore",
         "onedrive": "OneDrive backup and restore",
+        "sharepoint": "SharePoint sites: backup (Sites.Read.All is enough) and restore (optional)",
         "users": "Directory sync and mailbox list",
         "groups": "Group-based protection scope",
         "directory": "Deleted users and role checks",

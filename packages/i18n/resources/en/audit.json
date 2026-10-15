@@ -632,6 +632,7 @@
     "manifest_object": "Backed-up item",
     "member": "Member",
     "onedrive": "OneDrive",
+    "site": "SharePoint site",
     "protected_object": "Protected object",
     "restore_job": "Restore",
     "retention_policy": "Retention policy",

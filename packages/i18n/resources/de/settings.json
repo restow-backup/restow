@@ -423,7 +423,7 @@
         "consentHint": "Das stimmt im eigenen Verzeichnis zu. Die Mandanten stimmen über den Link zu, den {appName} je Microsoft-365-Quelle erzeugt.",
         "pitfallTitle": "Mail.ReadWrite, nicht Mail.Read",
         "pitfall": "Der häufigste Fehler: Mit Mail.Read läuft das Backup, aber jede Wiederherstellung scheitert mit 403. Dasselbe gilt für Calendars.ReadWrite und Contacts.ReadWrite.",
-        "sites": "Sites.ReadWrite.All wird bewusst nicht angefragt: SharePoint ist nicht Teil dieser Version, und es würde den Consent unnötig ausweiten.",
+        "sites": "Sites.ReadWrite.All für SharePoint-Online-Websites: Erkennung und Sicherung brauchen Lesezugriff, die Wiederherstellung in eine Website Schreibzugriff. Die Berechtigung ist optional: Ohne sie sichert {appName} weiterhin Mail und OneDrive. Tenants, die vorher zugestimmt haben, müssen die Administratorzustimmung erneut ausführen, um sie zu erteilen.",
         "mailSend": "Mail.Send nur, wenn Benachrichtigungen über Microsoft Graph statt SMTP versendet werden."
       },
       "credentials": {

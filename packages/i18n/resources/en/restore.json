@@ -15,7 +15,9 @@
     "areas": {
       "mail": "Mail",
       "calendar": "Calendar",
-      "contacts": "Contacts"
+      "contacts": "Contacts",
+      "libraries": "Libraries",
+      "lists": "Lists"
     },
     "deleted": "Deleted in source",
     "deletedShort": "Deleted",
@@ -34,6 +36,7 @@
       "types": {
         "mailbox": "Mailboxes",
         "onedrive": "OneDrives",
+        "site": "SharePoint sites",
         "imap": "IMAP accounts"
       },
       "empty": "No matching account",
@@ -57,6 +60,7 @@
       "kinds": {
         "mailbox": "Mailbox",
         "onedrive": "OneDrive",
+        "site": "SharePoint site",
         "imap": "IMAP account"
       }
     },
@@ -235,6 +239,7 @@
       "accountHint": {
         "mailbox": "The address of the target mailbox in the same Microsoft 365 tenant.",
         "onedrive": "The user (UPN) or drive id of the target OneDrive; add :/Folder to restore into a subfolder.",
+        "site": "The library to restore into, from a backed-up site of the same Microsoft 365 tenant; add :/Folder to restore into a subfolder.",
         "imap": "The login of an IMAP account of this tenant."
       }
     },
@@ -243,6 +248,9 @@
       "rename": "Keep both",
       "renameDescriptionMail": "Nothing existing is touched: everything is restored into the new folder “{folder}”.",
       "renameDescriptionFiles": "Nothing existing is touched: a file that already exists is restored under a new name.",
+      "renameDescriptionSite": "Nothing existing is touched: a file that already exists is restored under a new name, and list items are added as new items.",
+      "replace": "Overwrite",
+      "replaceDescriptionSite": "A file that already exists is overwritten (SharePoint keeps it as an earlier version), and a list item that still exists gets its backed-up values back.",
       "skip": "Skip existing",
       "skipDescription": "Items that are still there stay as they are; only missing items are restored."
     },

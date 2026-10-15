@@ -152,6 +152,7 @@
     "types": {
       "mail": "Exchange mailboxes",
       "onedrive": "OneDrive",
+      "sharepoint": "SharePoint sites",
       "imap": "IMAP mailboxes",
       "archive": "Archive",
       "machines": "Servers and clients",
@@ -358,6 +359,7 @@
     "kinds": {
       "mailbox": "Mailbox",
       "onedrive": "OneDrive",
+      "site": "SharePoint site",
       "imap": "IMAP account"
     },
     "status": {

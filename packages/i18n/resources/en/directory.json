@@ -15,6 +15,7 @@
   "kind": {
     "mailbox": "Mailbox",
     "onedrive": "OneDrive",
+    "site": "SharePoint site",
     "imap": "IMAP account"
   },
   "status": {
@@ -258,7 +259,9 @@
       "group_unresolved": "The protection group could not be read ({status}). Its members are excluded until it resolves.",
       "mailbox_probe_failed": "Mailbox of {user} could not be checked ({status}); its address decided.",
       "drive_probe_failed": "OneDrive of {user} could not be checked ({status}); left unchanged.",
-      "user_fetch_failed": "User {user} could not be read ({status}); the next sync picks it up."
+      "user_fetch_failed": "User {user} could not be read ({status}); the next sync picks it up.",
+      "sites_permission": "SharePoint sites are not found or backed up: the tenant has not granted the backup app Sites.Read.All or Sites.ReadWrite.All ({status}). Mail and OneDrive are not affected. Run the admin consent for this tenant again once the app registration lists the permission.",
+      "sites_unavailable": "SharePoint sites could not be listed ({status}); the sites known so far stay as they are."
     },
     "result": {
       "queued": "Directory sync queued.",
@@ -291,7 +294,7 @@
       "manual": "Manual list"
     },
     "counts": "{active} protected, {excluded} excluded, {orphaned} orphaned",
-    "m365Kinds": "{mailbox, plural, one {# mailbox} other {# mailboxes}}, {onedrive, plural, one {# OneDrive} other {# OneDrives}}",
+    "m365Kinds": "{mailbox, plural, one {# mailbox} other {# mailboxes}}, {onedrive, plural, one {# OneDrive} other {# OneDrives}}{site, plural, =0 {} one {, # SharePoint site} other {, # SharePoint sites}}",
     "imapKinds": "{count, plural, one {# account} other {# accounts}}",
     "consentHint": "Grant admin consent for this tenant under Sources before the first sync.",
     "disabledHint": "The source is paused. Resume it under Sources to sync again.",
@@ -317,6 +320,11 @@
     "title": "Protection rules",
     "description": "Which mailboxes and OneDrives of {source} {appName} protects. Saving queues a sync that applies the rules.",
     "precedence": "Individual decisions on single objects beat these rules.",
+    "sites": {
+      "label": "Protect all SharePoint sites",
+      "allHint": "Every SharePoint site of the tenant is backed up, including the sites of Microsoft 365 groups and Teams. Exclude single sites in the list of protected objects.",
+      "selectedHint": "No SharePoint site is backed up unless you include it in the list of protected objects."
+    },
     "selectedHint": "Choose what to protect from the Objects tab: select the mailboxes or OneDrives you want and use \"Include\", there or as a bulk action. Switching scope never deletes a backup: an object that leaves the scope simply stops being backed up and keeps its existing snapshots.",
     "mode": {
       "label": "Scope",

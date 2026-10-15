@@ -105,6 +105,7 @@
       "kinds": {
         "mailbox": "{count, plural, one {# Postfach} other {# Postfächer}}",
         "onedrive": "{count, plural, one {# OneDrive} other {# OneDrives}}",
+        "site": "{count, plural, one {# SharePoint-Website} other {# SharePoint-Websites}}",
         "imap": "{count, plural, one {# IMAP-Konto} other {# IMAP-Konten}}"
       }
     },

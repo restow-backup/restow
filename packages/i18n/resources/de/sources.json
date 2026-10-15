@@ -311,13 +311,22 @@
       "unexpected": "Zusätzlich erteilt, von {appName} nicht genutzt: {list}",
       "complete": "Alle Pflichtberechtigungen sind erteilt.",
       "incomplete": "{count, plural, one {# Pflichtberechtigung fehlt.} other {# Pflichtberechtigungen fehlen.}}",
-      "optionalMissing": "Optionale Berechtigungen schalten nur Zusätze frei, etwa Benachrichtigungen über Graph.",
+      "optionalMissing": "Optionale Berechtigungen schalten nur Zusätze frei, etwa Benachrichtigungen über Graph oder SharePoint-Websites.",
+      "sharepointMissing": {
+        "title": "SharePoint-Websites werden nicht gesichert",
+        "description": "Die App der Sicherung hat in diesem Tenant keine Berechtigung für SharePoint, daher kann {appName} dessen Websites weder finden noch sichern. Mail und OneDrive sind nicht betroffen. Fügen Sie der App-Registrierung Sites.ReadWrite.All hinzu (Anwendungsberechtigung) und führen Sie die Administratorzustimmung für diesen Tenant erneut aus."
+      },
+      "sharepointReadOnly": {
+        "title": "SharePoint-Websites werden gesichert, aber nicht wiederhergestellt",
+        "description": "Es wurde nur Sites.Read.All erteilt: Websites werden gesichert, aber die Wiederherstellung von Dateien oder Listenelementen in eine Website schlägt fehl. Erteilen Sie Sites.ReadWrite.All und führen Sie die Administratorzustimmung erneut aus."
+      },
       "purpose": {
         "mail": "Mail sichern und wiederherstellen",
         "mailboxSettings": "Zeitzone und Regionaleinstellungen",
         "calendar": "Kalender sichern und wiederherstellen",
         "contacts": "Kontakte sichern und wiederherstellen",
         "onedrive": "OneDrive sichern und wiederherstellen",
+        "sharepoint": "SharePoint-Websites: Sicherung (Sites.Read.All genügt) und Wiederherstellung (optional)",
         "users": "Verzeichnis-Sync und Postfachliste",
         "groups": "Schutzumfang über Gruppen",
         "directory": "Gelöschte Nutzer und Rollenprüfung",
