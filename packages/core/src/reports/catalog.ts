@@ -23,6 +23,8 @@ export const REPORT_EVENTS = [
   "endpoint.suspicious_snapshot",
   "endpoint.storage_quota",
   "endpoint.repository_locked",
+  "file_share.storage_quota",
+  "file_share.repository_locked",
   "update.available",
 ] as const;
 
@@ -59,6 +61,11 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   "endpoint.storage_quota": { group: "storage", level: "warning" },
   // Retention and checks of an endpoint's repository kept finding it locked.
   "endpoint.repository_locked": { group: "jobs", level: "warning" },
+  // A file share's repository (or all of a tenant's shares) reached 80 % of its storage budget,
+  // or the budget is used up and new backups are refused (docs/FILESHARES.md 7.4).
+  "file_share.storage_quota": { group: "storage", level: "warning" },
+  // Retention and checks of a file share's repository kept finding it locked.
+  "file_share.repository_locked": { group: "jobs", level: "warning" },
   "update.available": { group: "system", level: "info" },
 };
 

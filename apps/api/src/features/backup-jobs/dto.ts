@@ -1,4 +1,5 @@
-import type { JobEndpointSettings, JobMemberOverrides, JobSchedule } from "@restow/core";
+import type { JobSchedule } from "@restow/core";
+import type { BackupJobMemberOverrides, BackupJobSettings } from "@restow/db";
 
 /**
  * What the backup jobs feature answers (docs/ARCHITECTURE.md, "Jobs"). The shapes are the
@@ -6,7 +7,12 @@ import type { JobEndpointSettings, JobMemberOverrides, JobSchedule } from "@rest
  * ISO 8601 in UTC. Pure mapping lives here, the queries in service.ts.
  */
 
-export type JobKindName = "mail" | "endpoint";
+export type JobKindName = "mail" | "endpoint" | "share" | "copy";
+
+/** A job's settings as the API shows them: the fields of its kind (docs/FILESHARES.md 7.5). */
+export type JobSettingsDto = BackupJobSettings;
+/** A member's overrides (mail: schedules; machines and shares: settings, shares: include folders). */
+export type JobMemberOverridesDto = BackupJobMemberOverrides;
 export type JobScopeMode = "all" | "selected";
 export type JobOrigin = "user" | "migration";
 
@@ -117,9 +123,24 @@ export interface BackupJobDto {
   nextRunAt: string | null;
   restoreCheck: JobRestoreCheckDto;
   state: JobState;
-  settings: JobEndpointSettings;
+  settings: JobSettingsDto;
+  /**
+   * Copy jobs (docs/FILESHARES.md 4.10): the two shares, the restore point copied last and the
+   * mirror confirmation. "Not a backup: no versions on the target". Null for every other kind.
+   */
+  copy: CopyJobInfoDto | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface CopyJobInfoDto {
+  source: { id: string; name: string; retired: boolean };
+  target: { id: string; name: string; retired: boolean; allowRestore: boolean };
+  mode: "overwrite" | "mirror";
+  targetFolder: string;
+  mirrorConfirmedAt: string | null;
+  /** The restore point the last successful run copied (file_share_snapshots.id) and when. */
+  lastCopied: { snapshotId: string | null; at: string | null } | null;
 }
 
 export interface BackupJobListDto {
@@ -128,15 +149,15 @@ export interface BackupJobListDto {
    * What no job covers: active mail objects, and machines that are in no job (they keep the
    * configuration they have; the page offers to put them into one).
    */
-  uncovered: { mail: number; endpoint: number };
+  uncovered: { mail: number; endpoint: number; share: number; copy: number };
   /**
    * What is in a job but still not backed up on a schedule: the job is paused or runs by hand
    * only (and the member has no schedule of its own).
    */
-  unscheduled: { mail: number; endpoint: number };
+  unscheduled: { mail: number; endpoint: number; share: number; copy: number };
 }
 
-export type MemberKind = "mailbox" | "onedrive" | "imap" | "server" | "client";
+export type MemberKind = "mailbox" | "onedrive" | "imap" | "server" | "client" | "smb" | "nfs";
 export type MemberRestoreState = "green" | "yellow" | "red" | "unverified" | "no_backup";
 
 export interface BackupJobMemberDto {
@@ -153,12 +174,12 @@ export interface BackupJobMemberDto {
   covered: boolean;
   /** False for an object an "all" job covers without a member row. */
   explicit: boolean;
-  overrides: JobMemberOverrides;
+  overrides: JobMemberOverridesDto;
   /** What it does: the job's values with its overrides on top. */
   effective: {
     schedule: JobSchedule | null;
     verifySchedule: JobSchedule | null;
-    settings: JobEndpointSettings;
+    settings: JobSettingsDto;
   };
   lastBackup: {
     /** When the newest backup finished; a queued backup does not change it. */
@@ -214,7 +235,7 @@ export interface JobDefaultsDto {
    * Machine jobs: the folders and exclusions a new job starts with, those of a Linux server unless
    * `basis` names the machines' systems (then the union of their defaults); `{}` for mail jobs.
    */
-  settings: JobEndpointSettings;
+  settings: JobSettingsDto;
   /**
    * Machine jobs started from chosen machines: their operating systems and profiles, which the
    * folders and the schedule follow (all clients: back up on connect). Null otherwise.
@@ -229,8 +250,11 @@ export interface JobDefaultsDto {
 
 export interface JobRunDto {
   id: string;
-  /** `mail`: a job of the queue (backup, verify); `endpoint`: a run an agent reported. */
-  source: "mail" | "endpoint";
+  /**
+   * `mail`: a job of the queue (backup, verify); `endpoint`: a run an agent reported;
+   * `file_share`: a backup or restore run of a share (a copy run is a restore run).
+   */
+  source: "mail" | "endpoint" | "file_share";
   /** Mail: the queue; machines: backup, restore or verify_sample. */
   type: string;
   status: string;
@@ -258,6 +282,7 @@ export interface RunBackupJobResult {
       | "source_pending"
       | "source_disabled"
       | "revoked"
+      | "retired"
       | "not_in_job";
   }[];
 }

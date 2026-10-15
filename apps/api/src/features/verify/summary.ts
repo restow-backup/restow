@@ -67,6 +67,11 @@ export interface RatedObject {
    * in no backup job is counted in `guestsWithoutJob`, not with the machines.
    */
   readonly guest?: boolean;
+  /**
+   * A file share (features/file-shares/protection.ts): rated like any object, but one in no
+   * backup job is counted in `sharesWithoutJob`, not with the machines.
+   */
+  readonly share?: boolean;
 }
 
 export interface ReadinessSummaryDto {
@@ -84,6 +89,11 @@ export interface ReadinessSummaryDto {
    * them up any more. Like `withoutJob`, any of them keeps the tenant from green.
    */
   guestsWithoutJob: number;
+  /**
+   * File shares in no backup job that keep a restore point: rated by it, but nothing backs them
+   * up any more. Like `withoutJob`, any of them keeps the tenant from green.
+   */
+  sharesWithoutJob: number;
   /** Worst state across all objects; null when the tenant protects nothing yet. */
   overall: Readiness | null;
   /** Newest rating date across all objects. */
@@ -122,10 +132,14 @@ export function summarize(objects: readonly RatedObject[], running: number): Rea
     unverified: countOf("unverified"),
     noBackup: countOf("no_backup"),
     overdue: objects.filter((object) => object.overdue).length,
-    withoutJob: objects.filter((object) => object.withoutJob === true && object.guest !== true)
-      .length,
+    withoutJob: objects.filter(
+      (object) => object.withoutJob === true && object.guest !== true && object.share !== true,
+    ).length,
     guestsWithoutJob: objects.filter(
       (object) => object.withoutJob === true && object.guest === true,
+    ).length,
+    sharesWithoutJob: objects.filter(
+      (object) => object.withoutJob === true && object.share === true,
     ).length,
     overall: overallReadiness(objects),
     lastCheckedAt: newest?.toISOString() ?? null,

@@ -274,9 +274,15 @@ export function buildChatMessage(
     case "job.completed": {
       const job = record(data.job);
       const endpoint = record(data.endpoint);
+      // A file share run names its share (docs/FILESHARES.md 14).
+      const fileShare = record(data.fileShare);
       const failed = envelope.event === "job.failed";
       const target =
-        str(endpoint.displayName) ?? str(endpoint.hostname) ?? context.objectName ?? tenant;
+        str(endpoint.displayName) ??
+        str(endpoint.hostname) ??
+        str(fileShare.name) ??
+        context.objectName ??
+        tenant;
       const label = jobLabel(t, exists, str(job.queue));
       const fields: ChatField[] = [
         tenantField,
@@ -304,7 +310,13 @@ export function buildChatMessage(
         text: error,
         fields,
         timestamp: str(job.completedAt) ?? base.timestamp,
-        link: link(jobId ? `/history/${seg(jobId)}` : null),
+        link: link(
+          str(fileShare.id)
+            ? `/file-shares/${seg(str(fileShare.id) as string)}`
+            : jobId
+              ? `/history/${seg(jobId)}`
+              : null,
+        ),
       };
     }
 
@@ -371,6 +383,7 @@ export function buildChatMessage(
       const jobId = str(details.jobId);
       const endpointId = str(details.endpointId);
       const guestId = str(details.pveGuestId);
+      const shareId = str(details.fileShareId);
       const reportEvent = str(data.event) ?? "";
       return {
         ...base,
@@ -387,7 +400,9 @@ export function buildChatMessage(
               ? `/inventory/${seg(endpointId)}`
               : guestId
                 ? `/virtualization/${seg(guestId)}`
-                : "/alerts",
+                : shareId
+                  ? `/file-shares/${seg(shareId)}`
+                  : "/alerts",
         ),
       };
     }

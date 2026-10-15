@@ -8,6 +8,7 @@ import type {
   ObjectState,
   Reason,
   RunVerifyResult,
+  ShareReadinessRow,
   SnapshotVerification,
   StorageState,
   VerificationState,
@@ -166,21 +167,24 @@ export function sortByUrgency(items: readonly ObjectReadiness[]): ObjectReadines
 export type ReadinessRow =
   | { type: "object"; id: string; item: ObjectReadiness }
   | { type: "endpoint"; id: string; endpoint: EndpointReadinessRow }
-  | { type: "guest"; id: string; guest: GuestReadinessRow };
+  | { type: "guest"; id: string; guest: GuestReadinessRow }
+  | { type: "share"; id: string; share: ShareReadinessRow };
 
 /**
- * The rows of the table: the mail objects, the machines, then the VMs and containers of
- * Proxmox VE (the order is settled by `sortRowsByUrgency`).
+ * The rows of the table: the mail objects, the machines, the VMs and containers of Proxmox VE,
+ * then the file shares (the order is settled by `sortRowsByUrgency`).
  */
 export function readinessRows(
   objects: readonly ObjectReadiness[],
   endpoints: readonly EndpointReadinessRow[] = [],
   guests: readonly GuestReadinessRow[] = [],
+  shares: readonly ShareReadinessRow[] = [],
 ): ReadinessRow[] {
   return [
     ...objects.map((item): ReadinessRow => ({ type: "object", id: item.object.id, item })),
     ...endpoints.map((endpoint): ReadinessRow => ({ type: "endpoint", id: endpoint.id, endpoint })),
     ...guests.map((guest): ReadinessRow => ({ type: "guest", id: guest.id, guest })),
+    ...shares.map((share): ReadinessRow => ({ type: "share", id: share.id, share })),
   ];
 }
 
@@ -193,6 +197,8 @@ export function rowRating(row: ReadinessRow): Pick<ObjectReadiness, "state" | "o
       return row.endpoint;
     case "guest":
       return row.guest;
+    case "share":
+      return row.share;
   }
 }
 
@@ -210,6 +216,8 @@ export function rowName(row: ReadinessRow): string {
       return row.endpoint.displayName?.trim() || row.endpoint.hostname;
     case "guest":
       return guestRowName(row.guest);
+    case "share":
+      return row.share.name;
   }
 }
 

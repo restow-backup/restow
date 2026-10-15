@@ -39,6 +39,12 @@ const OTHERWISE_PROTECTED: Readonly<Record<string, string>> = {
   "POST /agent/pve/v1/runs/:runId/restic": "HTTP Basic with the PVE node's secret",
   "POST /agent/pve/v1/snapshots/:snapshotId/restic": "HTTP Basic with the PVE node's secret",
   "POST /agent/pve/v1/tasks/:taskId/result": "HTTP Basic with the PVE node's secret",
+  "POST /internal/file-shares/v1/progress":
+    "HTTP Basic with the run's own credential, internal only",
+  "POST /internal/file-shares/v1/items": "HTTP Basic with the run's own credential, internal only",
+  "POST /internal/file-shares/v1/samples":
+    "HTTP Basic with the run's own credential, internal only",
+  "POST /internal/file-shares/v1/finish": "HTTP Basic with the run's own credential, internal only",
 };
 
 const SAFE = /^(GET|HEAD|OPTIONS) /;

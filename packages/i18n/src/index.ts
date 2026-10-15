@@ -15,6 +15,7 @@ import directoryDe from "../resources/de/directory.json" with { type: "json" };
 import endpointsDe from "../resources/de/endpoints.json" with { type: "json" };
 import exportsDe from "../resources/de/exports.json" with { type: "json" };
 import failuresDe from "../resources/de/failures.json" with { type: "json" };
+import filesharesDe from "../resources/de/fileshares.json" with { type: "json" };
 import historyDe from "../resources/de/history.json" with { type: "json" };
 import importsDe from "../resources/de/imports.json" with { type: "json" };
 import installationDe from "../resources/de/installation.json" with { type: "json" };
@@ -50,6 +51,7 @@ import directoryEn from "../resources/en/directory.json" with { type: "json" };
 import endpointsEn from "../resources/en/endpoints.json" with { type: "json" };
 import exportsEn from "../resources/en/exports.json" with { type: "json" };
 import failuresEn from "../resources/en/failures.json" with { type: "json" };
+import filesharesEn from "../resources/en/fileshares.json" with { type: "json" };
 import historyEn from "../resources/en/history.json" with { type: "json" };
 import importsEn from "../resources/en/imports.json" with { type: "json" };
 import installationEn from "../resources/en/installation.json" with { type: "json" };
@@ -106,6 +108,7 @@ export const namespaces = [
   "retention",
   "endpoints",
   "pve",
+  "fileshares",
   "imports",
   "exports",
   "storage",
@@ -162,6 +165,7 @@ export const resources = {
     retention: retentionDe,
     endpoints: endpointsDe,
     pve: pveDe,
+    fileshares: filesharesDe,
     imports: importsDe,
     exports: exportsDe,
     storage: storageDe,
@@ -198,6 +202,7 @@ export const resources = {
     retention: retentionEn,
     endpoints: endpointsEn,
     pve: pveEn,
+    fileshares: filesharesEn,
     imports: importsEn,
     exports: exportsEn,
     storage: storageEn,

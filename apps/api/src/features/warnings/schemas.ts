@@ -4,7 +4,7 @@ import { MAX_BULK_TARGETS } from "./service.js";
 
 /** Request schemas of the warnings feature. */
 
-export const targetKindSchema = z.enum(["object", "machine"]);
+export const targetKindSchema = z.enum(["object", "machine", "share"]);
 
 export const targetParamSchema = z.object({
   kind: targetKindSchema,

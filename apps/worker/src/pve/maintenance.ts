@@ -364,7 +364,7 @@ async function repositoryAccess(deps: PveDeps, guest: PveGuest) {
     storage: storage.primary,
     prefix: `pve-guests/${guest.id}/`,
     repositoryPassword: password,
-    endpointId: guest.id,
+    repositoryKey: guest.id,
     binary: resticBinary(),
     cacheBase: resticCacheBase(),
   };

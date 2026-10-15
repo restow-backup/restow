@@ -47,5 +47,6 @@ export * from "./endpoints.js";
 export * from "./backup-jobs.js";
 export * from "./run-samples.js";
 export * from "./pve.js";
+export * from "./file-shares.js";
 export * from "./warnings.js";
 export * from "./system.js";

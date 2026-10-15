@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { bigint, check, jsonb, pgTable, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { timestamps } from "./_shared.js";
 import { endpointRuns } from "./endpoints.js";
+import { fileShareRuns } from "./file-shares.js";
 import { jobs } from "./jobs.js";
 import { tenants } from "./tenants.js";
 
@@ -15,9 +16,9 @@ export type RunSamplePoint = readonly [at: number, processed: number, transferre
 /**
  * The throughput history of one run, for the sparkline in a row and the two charts of the run
  * drawer: at most `MAX_RUN_SAMPLES` points per run, older ones compacted (../run-samples.ts).
- * Written while the run reports progress: by the worker for a mail run (`job_id`) and by the
- * API for a run an agent reports (`endpoint_run_id`); kept after the run ended. A run has at
- * most one row. `baseline_bytes` is, for an agent run, the size of the repository when the run
+ * Written while the run reports progress: by the worker for a mail run (`job_id`), by the
+ * API for a run an agent reports (`endpoint_run_id`) and for a file share run its runner reports
+ * (`file_share_run_id`); kept after the run ended. A run has at most one row. `baseline_bytes` is, for an agent run, the size of the repository when the run
  * started: the bytes the repository grew since are what the machine transferred.
  */
 export const runSamples = pgTable(
@@ -31,6 +32,9 @@ export const runSamples = pgTable(
     endpointRunId: uuid("endpoint_run_id").references(() => endpointRuns.id, {
       onDelete: "cascade",
     }),
+    fileShareRunId: uuid("file_share_run_id").references(() => fileShareRuns.id, {
+      onDelete: "cascade",
+    }),
     points: jsonb("points").$type<RunSamplePoint[]>().notNull().default([]),
     baselineBytes: bigint("baseline_bytes", { mode: "number" }),
     ...timestamps(),
@@ -40,9 +44,12 @@ export const runSamples = pgTable(
     uniqueIndex("run_samples_endpoint_run_uq")
       .on(t.endpointRunId)
       .where(sql`${t.endpointRunId} IS NOT NULL`),
+    uniqueIndex("run_samples_file_share_run_uq")
+      .on(t.fileShareRunId)
+      .where(sql`${t.fileShareRunId} IS NOT NULL`),
     check(
       "run_samples_one_run_ck",
-      sql`(${t.jobId} IS NOT NULL) <> (${t.endpointRunId} IS NOT NULL)`,
+      sql`num_nonnulls(${t.jobId}, ${t.endpointRunId}, ${t.fileShareRunId}) = 1`,
     ),
   ],
 );

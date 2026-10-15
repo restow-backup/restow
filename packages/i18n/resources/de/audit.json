@@ -157,7 +157,9 @@
     "endpoint": "Server und Clients",
     "backup_job": "Backup-Jobs",
     "mount": "Netzlaufwerke",
+    "mounter": "Mounter",
     "pve": "Proxmox VE",
+    "file_share": "Freigaben",
     "warning": "Warnungen"
   },
   "events": {
@@ -525,6 +527,11 @@
       "remove_requested": "Netzlaufwerk entfernt",
       "tested": "Netzlaufwerk getestet"
     },
+    "mounter": {
+      "enable_requested": "Start des Mounters angefordert",
+      "enabled": "Mounter gestartet",
+      "enable_failed": "Mounter konnte nicht gestartet werden"
+    },
     "pve": {
       "token": {
         "created": "Enrollment-Token für Proxmox VE erstellt"
@@ -550,6 +557,32 @@
         "committed": "Sicherungsstand des Gasts gespeichert",
         "pruned": "Sicherungsstand des Gasts entfernt (Aufbewahrung)"
       }
+    },
+    "file_share": {
+      "repository": {
+        "denied": "Unerlaubter Zugriff eines Freigabe-Runners abgelehnt"
+      },
+      "purged": "Sicherungen der Freigabe gelöscht",
+      "created": "Freigabe hinzugefügt",
+      "updated": "Freigabe geändert",
+      "password_changed": "Passwort der Freigabe geändert",
+      "tested": "Verbindung zur Freigabe getestet",
+      "retired": "Freigabe nicht mehr geschützt (Sicherungen bleiben)",
+      "reactivated": "Freigabe wieder geschützt",
+      "purge_requested": "Löschen der Sicherungen der Freigabe angefordert",
+      "backup_requested": "Sicherung der Freigabe angefordert",
+      "restore_requested": "Wiederherstellung aus der Freigabe angefordert",
+      "restore_test_requested": "Restore-Prüfung der Freigabe angefordert",
+      "run_cancel_requested": "Lauf der Freigabe abgebrochen",
+      "quota_changed": "Speicherbudget der Freigabe geändert",
+      "download_created": "Download gesicherter Dateien vorbereitet",
+      "downloaded": "Gesicherte Dateien der Freigabe heruntergeladen",
+      "browsed": "Gesicherte Dateien der Freigabe durchsucht",
+      "searched": "Gesicherte Dateien der Freigabe gesucht",
+      "repository_password_shown": "Repository-Passwort der Freigabe angezeigt",
+      "private_network_approved": "Freigabe in einem privaten Netz genehmigt",
+      "private_network_withdrawn": "Genehmigung für ein privates Netz zurückgezogen",
+      "settings_changed": "Freigabe-Einstellungen der Installation geändert"
     },
     "warning": {
       "acknowledged": "Warnung bestätigt",
@@ -597,8 +630,10 @@
     "endpoint_enrollment_token": "Enrollment-Token",
     "backup_job": "Backup-Job",
     "mount": "Netzlaufwerk",
+    "mounter": "Mounter",
     "pve_node": "Knoten (Proxmox VE)",
     "pve_guest": "Gast (VM oder Container)",
+    "file_share": "Freigabe",
     "pve_snapshot": "Sicherungsstand (VM oder Container)",
     "pve_job": "Backup-Job (VMs und Container)",
     "pve_enrollment_token": "Enrollment-Token (Proxmox VE)",

@@ -1,13 +1,13 @@
 import type { LinkProps } from "@tanstack/react-router";
 
-import { JOB_KINDS, type JobKind } from "./api.js";
+import { ALL_JOB_KINDS, type JobKind } from "./api.js";
 
 /**
  * Addresses of the backup jobs (the job definitions, release 0.2.0). Feature
  * routes are registered at runtime, so the static route typing cannot know
  * them (same approach as the other features).
  *
- *   /jobs?type=mail|endpoint              the jobs of one kind (menu: Jobs under Mail & SaaS and
+ *   /jobs?type=mail|endpoint|share|copy   the jobs of one kind (menu: Jobs under Mail & SaaS and
  *                                         under Servers & endpoints). Without a valid type the
  *                                         address is the old one of the run list and leads to History.
  *   /jobs?type=…&new=1[&select=a,b,c]     the same list with the job editor open on a new job. `select`
@@ -26,7 +26,7 @@ export const JOB_DEFINITIONS_PATH = "/jobs/definitions";
 export const JOB_DEFINITION_PATTERN = `${JOB_DEFINITIONS_PATH}/$jobId`;
 
 export function isJobKind(value: unknown): value is JobKind {
-  return typeof value === "string" && (JOB_KINDS as readonly string[]).includes(value);
+  return typeof value === "string" && (ALL_JOB_KINDS as readonly string[]).includes(value);
 }
 
 export const JOB_TABS = ["overview", "scope", "settings", "runs"] as const;
@@ -62,14 +62,25 @@ export interface JobsListSearch {
   create: boolean;
   /** Objects or machines the new job starts with. */
   select: string[];
+  /**
+   * A new copy job started from a restore ("Repeat on a schedule", docs/FILESHARES.md 12.4): its
+   * source and target share and the target folder.
+   */
+  copy: { source: string | null; target: string | null; folder: string | null };
 }
 
-/** Reads `?type=`, `?new=` and `?select=` of the list address. */
+function oneId(value: unknown): string | null {
+  return typeof value === "string" && ID_TOKEN.test(value) ? value : null;
+}
+
+/** Reads `?type=`, `?new=`, `?select=` and a copy job's `?source=&target=&folder=`. */
 export function parseJobsSearch(search: Record<string, unknown>): JobsListSearch {
+  const folder = typeof search.folder === "string" ? search.folder.slice(0, 1024) : null;
   return {
     type: isJobKind(search.type) ? search.type : null,
     create: isTruthy(search.new),
     select: parseSelectedIds(search.select),
+    copy: { source: oneId(search.source), target: oneId(search.target), folder },
   };
 }
 

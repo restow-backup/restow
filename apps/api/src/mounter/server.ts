@@ -14,6 +14,8 @@ import {
   removeMountRequestSchema,
   testMountRequestSchema,
 } from "./protocol.js";
+import { type RunnerEngine, RunnerError } from "./runner-engine.js";
+import { isUuid, runnerExecRequestSchema, runnerRunRequestSchema } from "./runner-protocol.js";
 
 /**
  * The mounter's HTTP API (JSON, internal Docker network only):
@@ -25,6 +27,18 @@ import {
  *   POST   /v1/mounts          add a share: { mount, requestedBy } -> 202 and the state
  *   DELETE /v1/mounts/:name    remove a share: { requestedBy } -> 202 and the state
  *   POST   /v1/test            test settings ({ mount }) or a share ({ name }) -> the result
+ *
+ * File share runners (docs/FILESHARES.md 3.1, runner-engine.ts):
+ *
+ *   POST   /v1/runner/exec             test or list a share (synchronous) -> { ok, code, detail, output }
+ *   POST   /v1/runner/runs             start a backup or restore run -> 202 { runId, startedAt }
+ *   GET    /v1/runner/runs             the runs the mounter knows (no spec, no token)
+ *   GET    /v1/runner/runs/:runId      one of them, with the redacted stderr tail once it exited
+ *   DELETE /v1/runner/runs/:runId      stop it and clean up (idempotent)
+ *   DELETE /v1/runner/caches/:shareId  remove a share's restic cache volume
+ *
+ * Runner requests carry a share password and a run token: they are never logged and
+ * never written to the operation history, and every text they cause is redacted.
  *
  * Everything under /v1 needs `Authorization: Bearer <shared secret>`. Errors are
  * `{ "code": "...", "message": "..." }`; nothing in a response carries the secret.
@@ -39,6 +53,8 @@ export interface MounterServerDeps {
   version: string | null;
   logger: Logger;
   redactor: Redactor;
+  /** File share runners; absent: the routes answer 404. */
+  runner?: RunnerEngine;
 }
 
 const STATUS_OF: Record<MounterErrorCode, 401 | 404 | 409 | 422 | 500> = {
@@ -80,6 +96,7 @@ export function buildMounterServer(deps: MounterServerDeps): Hono {
     operation: deps.engine.current(),
     history: deps.engine.history(),
     capabilities: await deps.engine.capabilities(refresh),
+    ...(deps.runner ? { runner: await deps.runner.capabilities(refresh) } : {}),
     serverTime: deps.clock.now().toISOString(),
   });
 
@@ -177,6 +194,87 @@ export function buildMounterServer(deps: MounterServerDeps): Hono {
     } catch (error) {
       return engineFailure(error);
     }
+  });
+
+  const runnerFailure = (error: unknown): Response => {
+    if (error instanceof RunnerError) {
+      return new Response(
+        JSON.stringify({ code: error.code, message: deps.redactor.oneLine(error.message, 600) }),
+        {
+          status: error.status,
+          headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
+        },
+      );
+    }
+    throw error;
+  };
+
+  app.post("/v1/runner/exec", async (c) => {
+    if (!deps.runner) {
+      return fail("not_found", "This mounter has no runner.");
+    }
+    const parsed = await body(c.req.raw, runnerExecRequestSchema);
+    if ("response" in parsed) {
+      return parsed.response;
+    }
+    try {
+      return c.json(await deps.runner.exec(parsed.data));
+    } catch (error) {
+      return runnerFailure(error);
+    }
+  });
+
+  app.post("/v1/runner/runs", async (c) => {
+    if (!deps.runner) {
+      return fail("not_found", "This mounter has no runner.");
+    }
+    const parsed = await body(c.req.raw, runnerRunRequestSchema);
+    if ("response" in parsed) {
+      return parsed.response;
+    }
+    try {
+      return c.json(await deps.runner.start(parsed.data), 202);
+    } catch (error) {
+      return runnerFailure(error);
+    }
+  });
+
+  app.get("/v1/runner/runs", (c) => {
+    if (!deps.runner) {
+      return fail("not_found", "This mounter has no runner.");
+    }
+    return c.json(deps.runner.list());
+  });
+
+  app.get("/v1/runner/runs/:runId", (c) => {
+    const runId = c.req.param("runId");
+    const run = deps.runner && isUuid(runId) ? deps.runner.get(runId) : null;
+    if (!run) {
+      return fail("not_found", "There is no such run.");
+    }
+    return c.json(run);
+  });
+
+  app.delete("/v1/runner/runs/:runId", async (c) => {
+    const runId = c.req.param("runId");
+    if (!deps.runner || !isUuid(runId)) {
+      return fail("not_found", "There is no such run.");
+    }
+    await deps.runner.stop(runId);
+    return c.json({ runId, run: deps.runner.get(runId) }, 202);
+  });
+
+  app.delete("/v1/runner/caches/:shareId", async (c) => {
+    const shareId = c.req.param("shareId");
+    if (!deps.runner || !isUuid(shareId)) {
+      return fail("not_found", "There is no such share.");
+    }
+    try {
+      await deps.runner.removeCache(shareId);
+    } catch (error) {
+      return runnerFailure(error);
+    }
+    return c.body(null, 204);
   });
 
   app.notFound(() => fail("not_found", "There is nothing at this path."));

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * The Restow release smoke: its eleven checks ("The release smoke" in
+ * The Restow release smoke: its twelve checks ("The release smoke" in
  * docs/CI.md), against the release compose file (deploy/release) and the images
  * under test, written to smoke-report.md. The same script runs on a workstation and in CI (the
  * release-smoke job of .github/workflows/release.yml).
@@ -28,6 +28,7 @@ import { storageTargets } from "./checks/08-storage.mjs";
 import { scans } from "./checks/09-scans.mjs";
 import { endpoint } from "./checks/10-endpoint.mjs";
 import { importExport } from "./checks/11-import-export.mjs";
+import { fileShare } from "./checks/12-file-share.mjs";
 import { run } from "./lib/exec.mjs";
 import { createLicenseSigner } from "./lib/license.mjs";
 import { CheckRun, RESULT, Report, Skip, StepFailure, formatDuration } from "./lib/report.mjs";
@@ -260,6 +261,13 @@ const CHECKS = [
     requires: "api",
   },
   {
+    id: "12",
+    name: "File share backup against Samba: back up, browse, ZIP, restore with permissions, copy job",
+    fn: fileShare,
+    needs: ["1", "3"],
+    requires: "api",
+  },
+  {
     id: "4",
     name: "Microsoft 365 backup and restore against the dev tenant",
     fn: m365,
@@ -269,7 +277,7 @@ const CHECKS = [
   { id: "9", name: "Image scan (Trivy) and dependency audit (pnpm audit)", fn: scans, needs: [] },
 ];
 
-const STACK_CHECKS = new Set(["1", "2", "3", "4", "5", "6", "7", "8", "10", "11"]);
+const STACK_CHECKS = new Set(["1", "2", "3", "4", "5", "6", "7", "8", "10", "11", "12"]);
 
 /** Which checks run: the selection, widened by what they need, minus what is skipped. */
 export function selectChecks(all, { only, skip }) {
@@ -429,7 +437,17 @@ async function prepareImages(ctx) {
 async function saveLogs(ctx) {
   const directory = join(ctx.options.logsDir);
   mkdirSync(directory, { recursive: true });
-  for (const service of ["postgres", "api", "worker", "scheduler", "caddy", "dovecot", "garage"]) {
+  for (const service of [
+    "postgres",
+    "api",
+    "worker",
+    "scheduler",
+    "caddy",
+    "dovecot",
+    "garage",
+    "mounter",
+    "samba",
+  ]) {
     try {
       writeFileSync(join(directory, `${service}.log`), await ctx.stack.logs(service, 5000));
     } catch {

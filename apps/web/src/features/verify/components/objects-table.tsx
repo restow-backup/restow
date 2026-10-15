@@ -15,11 +15,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { EndpointReadinessRowView } from "@/features/endpoints/components/readiness-row";
+import { ShareReadinessRowView } from "@/features/file-shares/components/readiness-row";
 import { GuestReadinessRowView } from "@/features/pve/readiness-row";
 import type {
   EndpointReadinessRow,
   GuestReadinessRow,
   ObjectReadiness,
+  ShareReadinessRow,
   VerifyObject,
 } from "@/features/verify/api";
 import { StateChips, countsOfSummary } from "@/features/verify/components/state-chips";
@@ -236,6 +238,7 @@ export function ObjectsTable({
   items,
   endpoints = [],
   guests = [],
+  shares = [],
   format,
   startingObjectId,
   nextBackupAt,
@@ -248,6 +251,8 @@ export function ObjectsTable({
   endpoints?: readonly EndpointReadinessRow[];
   /** VMs and containers of Proxmox VE; rated and listed like the machines. */
   guests?: readonly GuestReadinessRow[];
+  /** File shares; rated and listed like the guests. */
+  shares?: readonly ShareReadinessRow[];
   format: VerifyFormat;
   startingObjectId: string | null;
   /** The tenant's next scheduled backup run, shown while an object waits for its first one. */
@@ -259,8 +264,8 @@ export function ObjectsTable({
 }) {
   const { t } = format;
   const rows = React.useMemo(
-    () => readinessRows(items, endpoints, guests),
-    [items, endpoints, guests],
+    () => readinessRows(items, endpoints, guests, shares),
+    [items, endpoints, guests, shares],
   );
   const counts = React.useMemo(() => stateCounts(rows), [rows]);
   const visible = React.useMemo(() => {
@@ -306,6 +311,8 @@ export function ObjectsTable({
                   <EndpointReadinessRowView key={`endpoint-${row.id}`} row={row.endpoint} />
                 ) : row.type === "guest" ? (
                   <GuestReadinessRowView key={`guest-${row.id}`} row={row.guest} />
+                ) : row.type === "share" ? (
+                  <ShareReadinessRowView key={`share-${row.id}`} row={row.share} />
                 ) : (
                   <ObjectRow
                     key={`object-${row.id}`}

@@ -64,9 +64,17 @@ export interface UpdaterClient {
   schedule(request: ScheduleRequest): Promise<StateView>;
   cancel(): Promise<StateView>;
   acknowledge(): Promise<StateView>;
+  /**
+   * Start the mounter (`POST /v1/mounter/enable`, docs/FILESHARES.md 3.9). The updater
+   * answers once its helper finished, or after a minute with the start still running.
+   */
+  enableMounter(): Promise<StateView>;
   /** Ask the updater to restart one application service; it answers before the restart ends. */
   restart(service: RestartableService): Promise<StateView>;
 }
+
+/** How long the api waits for `POST /v1/mounter/enable` (the updater waits up to a minute). */
+export const ENABLE_MOUNTER_TIMEOUT_MS = 90_000;
 
 /** The shared secret, re-read now and then so a restarted updater's new secret is picked up. */
 export class SecretReader {
@@ -132,7 +140,12 @@ export function createUpdaterClient(options: UpdaterClientOptions): UpdaterClien
     null;
   let inFlight: Promise<StateView | null> | null = null;
 
-  async function request(method: string, path: string, body?: unknown): Promise<unknown> {
+  async function request(
+    method: string,
+    path: string,
+    body?: unknown,
+    requestTimeoutMs: number = timeoutMs,
+  ): Promise<unknown> {
     if (!base) {
       throw new UpdaterUnavailableError("disabled");
     }
@@ -149,7 +162,7 @@ export function createUpdaterClient(options: UpdaterClientOptions): UpdaterClien
           ...(body === undefined ? {} : { "content-type": "application/json" }),
         },
         body: body === undefined ? undefined : JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: AbortSignal.timeout(requestTimeoutMs),
         redirect: "error",
       });
     } catch (error) {
@@ -239,6 +252,11 @@ export function createUpdaterClient(options: UpdaterClientOptions): UpdaterClien
     async acknowledge() {
       return remember(toState(await request("POST", "/v1/acknowledge", {})));
     },
+    async enableMounter() {
+      return remember(
+        toState(await request("POST", "/v1/mounter/enable", {}, ENABLE_MOUNTER_TIMEOUT_MS)),
+      );
+    },
     async restart(service) {
       return remember(toState(await request("POST", "/v1/restart", { service })));
     },
@@ -260,6 +278,9 @@ export const disabledUpdaterClient: UpdaterClient = {
     throw new UpdaterUnavailableError("disabled");
   },
   acknowledge: async () => {
+    throw new UpdaterUnavailableError("disabled");
+  },
+  enableMounter: async () => {
     throw new UpdaterUnavailableError("disabled");
   },
   restart: async () => {

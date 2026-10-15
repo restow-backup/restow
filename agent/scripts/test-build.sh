@@ -153,6 +153,14 @@ build restic --targets "linux-arm64 darwin-arm64" || rc=$?
 expect_layout restic "linux-arm64 darwin-arm64" "restow-agent restic THIRD_PARTY_NOTICES.txt"
 ok "the default build lists restow-agent, restic and the notices for every target"
 
+# 3a. The file share runner: built for the linux targets into dist/server/,
+# never part of an agent download (no SHA256SUMS lists it).
+[ -s "$work/restic/server/linux-arm64/restow-share" ] || fail "server/linux-arm64/restow-share was not built"
+[ ! -e "$work/restic/server/darwin-arm64" ] || fail "restow-share must be built for linux only"
+[ ! -e "$work/restic/linux-arm64/restow-share" ] || fail "restow-share must not be in the agent download folder"
+! grep -q restow-share "$work/restic/SHA256SUMS" || fail "SHA256SUMS must not list restow-share"
+ok "restow-share is built for linux into dist/server and listed in no SHA256SUMS"
+
 # 3b. With the PVE storage plugin shim: linux-amd64 also carries restow-pve
 # and the plugin files with its license, the other targets do not.
 mkdir -p "$work/pve-plugin"

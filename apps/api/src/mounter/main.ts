@@ -14,6 +14,7 @@ import { type OwnImage, pinOwnImage } from "../updater/self-update.js";
 import { MounterConfigError, loadMounterConfig } from "./config.js";
 import { MountEngine } from "./engine.js";
 import { DockerMountOps } from "./ops.js";
+import { FileRunnerRunStore, RunnerEngine } from "./runner-engine.js";
 import { buildMounterServer } from "./server.js";
 import { FileOperationStore } from "./store.js";
 
@@ -126,6 +127,26 @@ async function main(): Promise<void> {
   });
   await engine.init();
 
+  // File share runners (docs/FILESHARES.md 3): adopt what still runs, remove the rest.
+  const runners = new RunnerEngine({
+    docker: engineClient,
+    config: {
+      maxRunners: config.runner.maxRunners,
+      apiUrl: config.runner.apiUrl,
+      networkKey: config.runner.networkKey,
+      execTimeoutMs: config.runner.execTimeoutSeconds * 1000,
+      maxMemoryMiB: config.runner.maxMemoryMiB,
+      selinux: config.runner.selinux,
+    },
+    projectName,
+    store: new FileRunnerRunStore(config.stateDir),
+    clock: systemClock,
+    logger,
+    redactor,
+  });
+  await runners.init();
+  runners.startSweeping();
+
   const app = buildMounterServer({
     engine,
     secret,
@@ -133,6 +154,7 @@ async function main(): Promise<void> {
     version: config.version,
     logger,
     redactor,
+    runner: runners,
   });
   const server = serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
     logger.info(
@@ -150,6 +172,9 @@ async function main(): Promise<void> {
     server.close();
     if (engine.isBusy) {
       logger.warn("An operation is running; it is recorded as interrupted on the next start.");
+    }
+    if (runners.running > 0) {
+      logger.info(`${runners.running} file share run(s) keep running; the next start adopts them.`);
     }
     process.exit(0);
   };

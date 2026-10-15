@@ -127,6 +127,34 @@ export type StoredUpdateCheck = {
 };
 
 /**
+ * The installation's settings of file share backup (docs/FILESHARES.md 7.4). Every field is
+ * optional; a missing one takes its documented default (@restow/core `fileShareSettingsOf`),
+ * and the mounter's own caps win over larger values.
+ */
+export type FileShareInstallationSettings = {
+  /** Concurrent runner containers, 1 .. RESTOW_MOUNTER_MAX_RUNNERS (default 2). */
+  maxConcurrentRunners?: number;
+  /** Memory limit of a runner container in MiB (default 2048). */
+  runnerMemoryMiB?: number;
+  /** GOMEMLIMIT as a share of `runnerMemoryMiB`, 50 .. 90 percent (default 80). */
+  goMemLimitPercent?: number;
+  /** The longest a run may take, 1 .. 336 hours (default 72). */
+  maxRunHours?: number;
+  /** restic's read concurrency when a job sets none, 1 .. 16 (default 4). */
+  defaultReadConcurrency?: number;
+  /** Tenant admins may add shares on loopback and private addresses (default false). */
+  tenantsMayUsePrivateNetworks?: boolean;
+  /** What a new share gets as its budget in GiB; 0 = none (default). */
+  defaultShareQuotaGib?: number;
+  /** The budget of all shares of a tenant together in GiB; 0 = none (default). */
+  tenantShareQuotaGib?: number;
+  /** Per tenant: its own budget of all its shares in GiB, overriding `tenantShareQuotaGib`. */
+  tenantShareQuotaGibByTenant?: Record<string, number>;
+  /** Search and version history (8.5). */
+  catalog?: { enabled?: boolean; maxEntriesPerShare?: number };
+};
+
+/**
  * Single-row installation configuration written by the setup wizard in one
  * transaction together with the first provider admin. `setupCompletedAt` is the
  * one-way lock of the public wizard: once set it is never cleared, whatever
@@ -177,6 +205,11 @@ export const settings = pgTable(
     updateNotifiedVersion: text("update_notified_version"),
     // The last updater journal entry written to the audit log (ids sort chronologically).
     updateAuditCursor: text("update_audit_cursor"),
+    // File share backup (docs/FILESHARES.md 7.4); `{}` takes every default.
+    fileShareSettings: jsonb("file_share_settings")
+      .$type<FileShareInstallationSettings>()
+      .notNull()
+      .default({}),
     ...timestamps(),
   },
   (t) => [uniqueIndex("settings_singleton_uq").on(t.singleton)],

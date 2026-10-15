@@ -29,6 +29,11 @@ export class FakeEngineApi {
   readonly created = new Map<string, unknown>();
   readonly removed: string[] = [];
   readonly killed: string[] = [];
+  readonly stopped: string[] = [];
+  /** Full answers of the container listing (`listContainers`); null: `labelled` as ids only. */
+  summaries: unknown[] | null = null;
+  /** Networks that exist. */
+  networks = new Set<string>();
   socketPath = "";
   private server: http.Server | null = null;
   private dir = "";
@@ -112,14 +117,19 @@ export class FakeEngineApi {
       return;
     }
     if (method === "GET" && route === "/containers/json") {
-      this.json(
-        response,
-        200,
-        this.labelled.map((Id) => ({ Id })),
-      );
+      this.json(response, 200, this.summaries ?? this.labelled.map((Id) => ({ Id })));
       return;
     }
-    const containerMatch = /^\/containers\/([^/]+)\/(json|start|wait|logs|kill)$/.exec(route);
+    if (method === "GET" && route.startsWith("/networks/")) {
+      const name = decodeURIComponent(route.slice("/networks/".length));
+      if (this.networks.has(name)) {
+        this.json(response, 200, { Name: name });
+      } else {
+        this.json(response, 404, { message: `network ${name} not found` });
+      }
+      return;
+    }
+    const containerMatch = /^\/containers\/([^/]+)\/(json|start|wait|logs|kill|stop)$/.exec(route);
     if (method === "GET" && containerMatch?.[2] === "json") {
       const id = decodeURIComponent(containerMatch[1] as string);
       if (this.self && (id === "self-host" || id === (this.self as { Id: string }).Id)) {
@@ -188,6 +198,11 @@ export class FakeEngineApi {
           } else {
             this.json(response, 200, { StatusCode: spec?.exitCode ?? 0 });
           }
+          return;
+        case "POST stop":
+          this.stopped.push(id);
+          this.waiters.get(id)?.();
+          response.writeHead(204).end();
           return;
         case "POST kill":
           this.killed.push(id);

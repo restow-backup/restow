@@ -1,6 +1,7 @@
 import { type Database, jobProgress, jobs, protectedObjects, snapshots } from "@restow/db";
 import { and, count, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { z } from "zod";
+import { loadShareCounts } from "../../features/file-shares/protection.js";
 import { loadGuestCounts } from "../../features/pve/protection.js";
 import { readinessOverview } from "../../features/verify/service.js";
 import { loadMailWarnings, warningCounts } from "../../features/warnings/state.js";
@@ -106,6 +107,28 @@ export const guestCountsSchema = component(
   }),
 );
 
+export const shareCountsSchema = component(
+  "FileShareCounts",
+  z.object({
+    total: z.number().int().describe("File shares (SMB, NFS) that are not retired."),
+    protected: z.number().int().describe("File shares in an enabled backup job."),
+    withoutJob: z
+      .number()
+      .int()
+      .describe("File shares in no enabled backup job: nothing backs them up."),
+    failedLastBackup: z
+      .number()
+      .int()
+      .describe("Protected file shares whose newest finished backup run failed."),
+    warnings: z
+      .number()
+      .int()
+      .describe("File shares whose newest backup ended with warnings nobody acknowledged."),
+    lastSuccessAt: timestampSchema.nullable().describe("Newest successful file share backup."),
+    restorePoints: z.number().int().describe("Restore points kept for the tenant's file shares."),
+  }),
+);
+
 export const statusSchema = component(
   "Status",
   tenantSummarySchema.extend({
@@ -122,6 +145,9 @@ export const statusSchema = component(
     ),
     guests: guestCountsSchema.describe(
       "VMs and containers of Proxmox VE (docs/PVE.md); the ones in a backup job also count in `readiness` and `recoveryReadiness`.",
+    ),
+    fileShares: shareCountsSchema.describe(
+      "File shares (SMB, NFS; docs/FILESHARES.md); the ones in a backup job also count in `readiness` and `recoveryReadiness`.",
     ),
   }),
 );
@@ -276,6 +302,7 @@ export function registerStatusRoutes(api: IntegrationApi, deps: V1Deps): void {
         version: deps.version.current(),
         endpoints: await loadEndpointCounts(db, tenant.id, now),
         guests: (await loadGuestCounts(db, tenant.id, now)).counts,
+        fileShares: (await loadShareCounts(db, tenant.id, now)).counts,
       };
     },
   );

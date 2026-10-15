@@ -49,8 +49,12 @@ export function TenantJobsCard() {
   const unscheduled = query.data?.unscheduled ?? { mail: 0, endpoint: 0 };
   // In no job, or in a job that does not run on a schedule: neither is backed up on its own.
   const notices = JOB_KINDS.flatMap((kind) => [
-    ...(uncovered[kind] > 0 ? [{ kind, key: "uncovered", count: uncovered[kind] }] : []),
-    ...(unscheduled[kind] > 0 ? [{ kind, key: "unscheduled", count: unscheduled[kind] }] : []),
+    ...((uncovered[kind] ?? 0) > 0
+      ? [{ kind, key: "uncovered", count: uncovered[kind] ?? 0 }]
+      : []),
+    ...((unscheduled[kind] ?? 0) > 0
+      ? [{ kind, key: "unscheduled", count: unscheduled[kind] ?? 0 }]
+      : []),
   ]);
   // The tenant page already says why a role that may only look sees closed controls.
   const sentence = access.block === "demo";
@@ -160,7 +164,7 @@ export function TenantJobsCard() {
                     <TableCell className="whitespace-nowrap">
                       {t(`tenant.kinds.${job.kind}`)}
                     </TableCell>
-                    <TableCell>{describeScope(job.scope, job.kind, t)}</TableCell>
+                    <TableCell>{describeScope(job.scope, job.kind, t, job.copy)}</TableCell>
                     <TableCell>
                       {describeJobSchedule(job.schedule, { t, tSchedules, language })}
                     </TableCell>

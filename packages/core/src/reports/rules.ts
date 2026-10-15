@@ -116,6 +116,11 @@ export function subjectKeyOf(event: ReportEvent, details: Record<string, unknown
   if (typeof guest === "string" && guest.length > 0) {
     return `guest:${guest}`;
   }
+  // An alert about a file share is about that share.
+  const share = details.fileShareId;
+  if (typeof share === "string" && share.length > 0) {
+    return `file_share:${share}`;
+  }
   // An alert about an endpoint (server or client) is about that machine.
   const endpoint = details.endpointId;
   if (typeof endpoint === "string" && endpoint.length > 0) {

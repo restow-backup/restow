@@ -809,7 +809,7 @@ Versionsinformationen. Rechte: der Reiter ist für Provider-Admins; Lesen für j
 ändert (Einstellungen, Prüfung auslösen, Wartung ankündigen, abbrechen, Ergebnis bestätigen), nur
 `owner`.
 
-## Netzlaufwerke: der Mounter (opt-in)
+## Netzlaufwerke und Freigaben: der Mounter
 
 Ein weiterer eigener Prozess im selben Image (`ROLE=mounter`, Compose-Profil `mounts`, Code in
 `apps/api/src/mounter`), unabhängig vom Updater; Betriebsdoku in `docs/MOUNTS.md`. Er bindet
@@ -837,6 +837,24 @@ NFS-Freigaben als Docker-Volumes des `local`-Treibers in `api` und `worker` unte
   laufen, und das Entfernen einer Freigabe, die ein Speicherziel oder der Standardspeicher nutzt.
 - Nur NFS. Das Protokollfeld (`protocol`) lässt Platz für ein weiteres Protokoll (SMB) über
   denselben Container.
+- Freigaben-Backup (SMB und NFS als Quelle, Design in `docs/FILESHARES.md`): eine zweite
+  Operationsfamilie desselben Mounters, der "Runner". Je Lauf ein temporäres Volume (Zugangsdaten
+  nur in dessen Optionen) und ein kurzlebiger Container mit `restow-share` (Go, `agent/`), ohne
+  Override-Datei und ohne Neustart von `api` oder `worker`; restic schreibt über
+  `/internal/file-shares/restic/*` der API (nur internes Netz `runners`) in ein Repository je
+  Freigabe unter `file-shares/<id>/`. Speicherziele bleiben NFS-only.
+- Einschalten: `install.sh` startet das Profil `mounts` für neue Installationen standardmäßig
+  (`--no-mounter`/`--without-mounter` lässt es aus; bei einem erneuten Lauf bleibt die Wahl der
+  Installation). Bestehende Installationen: **Netzlaufwerke einschalten** in der Oberfläche
+  (Inhaber, frische Anmeldung, `POST /api/v1/mounts/enable`), die API leitet an den Updater
+  weiter (`POST /v1/mounter/enable`, `updater/mounter-enable.ts`), der die Compose-Datei prüft,
+  `RESTOW_MOUNTER_IMAGE` nur mit seinem eigenen signaturgeprüften Image schreibt und mit seinem
+  Hilfscontainer `docker compose --profile mounts up -d --no-deps --no-build --pull missing
+  mounter` ausführt; ohne Updater zeigt die Seite den Befehl. Ausschalten bleibt ein Befehl.
+- Freigaben in den Übersichten (`features/file-shares/protection.ts`, eine Regel für alle):
+  Status, Startseite, Wiederherstellbarkeit (eine Zeile je Freigabe), Warnungen (Zielart
+  `share`), Verlauf (dritte Quelle `file_share_runs` in der Keyset-Union), Statistik
+  (`stats/share-facts.ts`, `share-timeline.ts`) und Provider-Ansicht.
 
 ## Erweiterungsschnittstelle und `ee/`
 

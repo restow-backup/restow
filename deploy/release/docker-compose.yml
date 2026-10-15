@@ -43,6 +43,9 @@ services:
       - ${JOURNAL_TLS_DIR:-./journal-tls}:/etc/restow/journal-tls:ro
       - restow-updater-shared:/updater-shared:ro # keep: updater and mounter secrets
       - restow-mounter-shared:/mounter-shared:ro
+    networks:
+      - default
+      - runners
     healthcheck:
       test:
         - CMD
@@ -59,9 +62,13 @@ services:
     stop_grace_period: 60s # running jobs checkpoint; keep
     environment:
       ROLE: worker
+      RESTOW_MOUNTER_URL: ${RESTOW_MOUNTER_URL:-http://mounter:8091}
+      RESTOW_MOUNTER_MAX_RUNNERS: ${RESTOW_MOUNTER_MAX_RUNNERS:-8}
+      RESTOW_MOUNTER_RUNNER_MAX_MEMORY_MIB: ${RESTOW_MOUNTER_RUNNER_MAX_MEMORY_MIB:-16384}
     volumes:
       - restow-data:/data
       - ${RESTOW_IMPORT_DIR:-./import}:/var/lib/restow/import:ro
+      - restow-mounter-shared:/mounter-shared:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -133,6 +140,8 @@ services:
     environment:
       ROLE: mounter
       RESTOW_MOUNTER_PROJECT_DIR: ${RESTOW_PROJECT_DIR:-}
+      RESTOW_MOUNTER_MAX_RUNNERS: ${RESTOW_MOUNTER_MAX_RUNNERS:-8}
+      RESTOW_MOUNTER_RUNNER_MAX_MEMORY_MIB: ${RESTOW_MOUNTER_RUNNER_MAX_MEMORY_MIB:-16384}
     expose:
       - "8091"
     volumes:
@@ -163,3 +172,7 @@ volumes:
   restow-updater-shared:
   restow-mounter:
   restow-mounter-shared:
+
+networks:
+  runners:
+    internal: true # file share runners: api only (docs/FILESHARES.md)

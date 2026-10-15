@@ -130,6 +130,9 @@ describe("tenant matrix rows", () => {
       guests: null,
       guestsWithoutJob: null,
       guestsFailed: null,
+      fileShares: null,
+      fileSharesWithoutJob: null,
+      fileSharesFailed: null,
       physicalBytes: null,
       storageError: null,
     });
@@ -202,6 +205,59 @@ describe("VMs and containers of Proxmox VE in the matrix", () => {
       guestsWithoutJob: 3,
     });
     expect(alertsFor(unprotected, NOW).map((alert) => alert.kind)).toEqual(["guests_without_job"]);
+  });
+});
+
+describe("file shares in the matrix", () => {
+  it("counts the shares: in a job, in none, failed, and their newest backup", () => {
+    const result = tenantRow(
+      tenant("Contoso"),
+      {
+        summary: summary(),
+        ...HEALTHY,
+        fileShares: {
+          protected: 3,
+          withoutJob: 1,
+          failedLastBackup: 2,
+          lastSuccessAt: "2026-09-23T11:45:00.000Z",
+        },
+      },
+      { mailboxes: 3, cap: null },
+    );
+    expect(result).toMatchObject({
+      fileShares: 3,
+      fileSharesWithoutJob: 1,
+      fileSharesFailed: 2,
+      lastBackupAt: "2026-09-23T11:45:00.000Z",
+    });
+    expect(
+      alertsFor(result, NOW).map((alert) => [alert.kind, alert.severity, alert.count]),
+    ).toEqual([
+      ["file_share_backup_failed", "destructive", 2],
+      ["file_shares_without_job", "warning", 1],
+    ]);
+  });
+
+  it("does not call a tenant that only backs up shares one that protects nothing", () => {
+    const onlyShares = row("Office", {
+      protectedObjects: 0,
+      machines: 0,
+      guests: 0,
+      fileShares: 1,
+    });
+    expect(alertsFor(onlyShares, NOW)).toEqual([]);
+    const unprotected = row("Office", {
+      protectedObjects: 0,
+      machines: 0,
+      guests: 0,
+      fileShares: 0,
+      fileSharesWithoutJob: 2,
+    });
+    expect(alertsFor(unprotected, NOW).map((alert) => alert.kind)).toEqual([
+      "file_shares_without_job",
+    ]);
+    const nothing = row("Office", { protectedObjects: 0, machines: 0, guests: 0, fileShares: 0 });
+    expect(alertsFor(nothing, NOW).map((alert) => alert.kind)).toEqual(["nothing_protected"]);
   });
 });
 

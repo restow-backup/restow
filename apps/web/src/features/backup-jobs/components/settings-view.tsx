@@ -136,13 +136,27 @@ export function SettingsView({
           </Facts>
         </Section>
 
-        <Section title={t("settings.repositoryAndRetention")}>
-          <Facts>
-            <Fact label={t("settings.facts.repository")}>{repositoryLabel(job.repository, t)}</Fact>
-            <Fact label={t("settings.facts.retention")}>{retentionLabel(job, t)}</Fact>
-          </Facts>
-          <p className="mt-3 text-xs text-muted-foreground">{t("editor.repository.sentence")}</p>
-        </Section>
+        {job.kind === "copy" ? (
+          <CopySettings job={job} />
+        ) : (
+          <Section title={t("settings.repositoryAndRetention")}>
+            <Facts>
+              <Fact label={t("settings.facts.repository")}>
+                {job.kind === "share"
+                  ? t("settings.shareRepository")
+                  : repositoryLabel(job.repository, t)}
+              </Fact>
+              <Fact label={t("settings.facts.retention")}>{retentionLabel(job, t)}</Fact>
+            </Facts>
+            {job.kind === "share" ? null : (
+              <p className="mt-3 text-xs text-muted-foreground">
+                {t("editor.repository.sentence")}
+              </p>
+            )}
+          </Section>
+        )}
+
+        {job.kind === "share" ? <ShareSettings job={job} /> : null}
 
         {job.kind === "endpoint" ? (
           <>
@@ -238,5 +252,98 @@ export function SettingsView({
         ) : null}
       </div>
     </div>
+  );
+}
+
+function List({ items }: { items: readonly string[] }) {
+  return (
+    <ul className="flex flex-wrap gap-1.5">
+      {items.map((item) => (
+        <li key={item} className="rounded-md border bg-muted/40 px-2 py-0.5">
+          <Mono>{item}</Mono>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** What a file share job leaves out and how it reads (docs/FILESHARES.md 7.5). */
+function ShareSettings({ job }: { job: BackupJob }) {
+  const { t } = useTranslation("backupjobs");
+  const settings = job.settings;
+  const none = <span className="text-muted-foreground">{t("settings.none")}</span>;
+  const types = settings.fileTypes?.exclude ?? [];
+  return (
+    <>
+      <Section title={t("settings.exclusions")}>
+        <Facts>
+          <Fact label={t("shareEditor.exclusions.preset")}>
+            {settings.presets?.systemFiles === false ? t("settings.off") : t("settings.on")}
+          </Fact>
+          <Fact label={t("settings.facts.fileTypes")}>
+            {types.length > 0 ? <List items={types.map((ext) => `.${ext}`)} /> : none}
+          </Fact>
+          <Fact label={t("settings.facts.ownPatterns")}>
+            {(settings.excludes ?? []).length > 0 ? <List items={settings.excludes ?? []} /> : none}
+          </Fact>
+          <Fact label={t("settings.facts.larger")}>
+            {typeof settings.excludeLargerThanGib === "number" ? (
+              t("settings.largerValue", { size: settings.excludeLargerThanGib })
+            ) : (
+              <span className="text-muted-foreground">{t("settings.noLimit")}</span>
+            )}
+          </Fact>
+        </Facts>
+      </Section>
+      <Section title={t("shareEditor.transfer.title")}>
+        <Facts>
+          <Fact label={t("settings.facts.bandwidth")}>
+            {typeof settings.bandwidthKbps === "number" ? (
+              t("settings.bandwidthValue", { kbps: settings.bandwidthKbps })
+            ) : (
+              <span className="text-muted-foreground">{t("settings.unlimited")}</span>
+            )}
+          </Fact>
+          <Fact label={t("shareEditor.transfer.concurrency")}>
+            {typeof settings.readConcurrency === "number"
+              ? String(settings.readConcurrency)
+              : t("settings.automatic")}
+          </Fact>
+          <Fact label={t("shareEditor.exclusions.offline")}>
+            {settings.skipOffline === false ? t("settings.on") : t("settings.off")}
+          </Fact>
+        </Facts>
+      </Section>
+    </>
+  );
+}
+
+/** Where a copy job writes and how (docs/FILESHARES.md 4.10, 12.6). */
+function CopySettings({ job }: { job: BackupJob }) {
+  const { t } = useTranslation("backupjobs");
+  const settings = job.settings;
+  const mode = job.copy?.mode ?? settings.mode ?? "overwrite";
+  return (
+    <Section title={t("copyEditor.where.title")}>
+      <Facts>
+        <Fact label={t("copyEditor.where.source")}>{job.copy?.source.name ?? "-"}</Fact>
+        <Fact label={t("copyEditor.where.target")}>{job.copy?.target.name ?? "-"}</Fact>
+        <Fact label={t("copyEditor.where.folder")}>
+          <Mono>/{job.copy?.targetFolder ?? settings.targetFolder ?? ""}</Mono>
+        </Fact>
+        <Fact label={t("copyEditor.mode.title")}>{t(`copyEditor.mode.${mode}.label`)}</Fact>
+        <Fact label={t("copyEditor.permissions")}>
+          {settings.restorePermissions === true ? t("settings.on") : t("settings.off")}
+        </Fact>
+        <Fact label={t("copyEditor.verify")}>
+          {settings.verify === true
+            ? t("settings.on")
+            : settings.verify === false
+              ? t("settings.off")
+              : t("settings.automatic")}
+        </Fact>
+      </Facts>
+      <p className="mt-3 text-xs text-muted-foreground">{t("copyEditor.latestOnly")}</p>
+    </Section>
   );
 }

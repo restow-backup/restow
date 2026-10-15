@@ -17,6 +17,11 @@
 #                                     ../integrations/pve/plugin; only when that
 #                                     folder exists or RESTOW_PVE_PLUGIN_DIR
 #                                     names one, see docs/PVE.md)
+#   dist/server/linux-<arch>/restow-share
+#                                    (the file share runner, docs/FILESHARES.md;
+#                                     linux targets only; it runs inside the
+#                                     Restow image and is not an agent download,
+#                                     so it is in no SHA256SUMS)
 #   dist/<os>-<arch>/SHA256SUMS      (the files of one target)
 #   dist/SHA256SUMS                  (all files, paths relative to dist/; the
 #                                     release signature covers this file)
@@ -52,7 +57,7 @@ while [ $# -gt 0 ]; do
     --out) OUT="${2:?--out needs a value}"; shift 2 ;;
     --targets) TARGETS="${2:?--targets needs a value}"; shift 2 ;;
     --no-restic) WITH_RESTIC=0; shift ;;
-    -h | --help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,29p' "$0"; exit 0 ;;
     *) die "unknown option $1" ;;
   esac
 done
@@ -139,6 +144,11 @@ for target in $TARGETS; do
   fi
   cp "$AGENT_DIR/$NOTICES" "$dir/$NOTICES"
   chmod 0644 "$dir/$NOTICES"
+  if [ "$os" = linux ]; then
+    mkdir -p "$OUT/server/$target"
+    CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -buildvcs=false \
+      -ldflags "$LDFLAGS" -o "$OUT/server/$target/restow-share" ./cmd/restow-share
+  fi
   if [ "$target" = linux-amd64 ] && [ -n "$PVE_PLUGIN_DIR" ]; then
     CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -buildvcs=false \
       -ldflags "$LDFLAGS" -o "$dir/restow-pve" ./cmd/restow-pve

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { CauseLine, FailureExplanation, useCauseTitle } from "@/features/failures";
+import { fileShareTo, linkTo } from "@/features/file-shares/paths";
 import { jobDetailTo } from "@/features/jobs/paths";
 import { formatDateTime, formatInteger, formatRelative } from "@/lib/format";
 
@@ -64,6 +65,16 @@ export function WarningDetailBody({ detail }: { detail: WarningDetail }) {
         <p className="text-sm">{t(`explain.${detail.state}`, { when, count })}</p>
         {detail.newCauses.length > 0 && detail.acknowledgement ? (
           <NewCauses codes={detail.newCauses} />
+        ) : null}
+        {detail.target.kind === "share" ? (
+          <Link
+            {...linkTo(fileShareTo(detail.target.id, "runs"))}
+            className="inline-flex items-center gap-1 text-xs font-medium underline-offset-4 hover:underline"
+            data-action="open-share"
+          >
+            {t("actions.openShare")}
+            <ArrowRight className="size-3" aria-hidden="true" />
+          </Link>
         ) : null}
       </div>
       <AcknowledgementPanel detail={detail} />

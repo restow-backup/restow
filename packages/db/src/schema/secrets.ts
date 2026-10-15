@@ -35,6 +35,10 @@ export type SecretKind =
   // {id, secret}; deleted once the node enrolled or the enrollment token ended).
   | "pve_ct_repository"
   | "pve_api_token"
+  // File shares (tenant level, docs/FILESHARES.md 10.3): the SMB account's password and the
+  // restic repository password of a share.
+  | "file_share_password"
+  | "file_share_repository"
   | (string & {});
 
 /**

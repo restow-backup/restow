@@ -29,23 +29,198 @@
  * folders (`keys/` in particular, where restic would try to read it as a key
  * and fail): restic ignores it, and the restic endpoint of the API cannot
  * address it, so an agent can neither read nor replace it.
+ *
+ * The same document guards the repository of a file share (docs/FILESHARES.md 5.4): format
+ * `restow-file-share-repository-password-v1`, field `fileShareId`, at
+ * `file-shares/<share id>/restow-repository-password.json`, additional data
+ * `restow.file-share-repository:<tenant id>:<share id>`. Both are the generic document below
+ * with their own {@link RepositoryPasswordKind}.
  */
 import { type Dek, decryptChunk, encryptChunk } from "../crypto.js";
 import { sealedAad } from "../engine/keyring.js";
 import type { StorageBackend } from "../storage/backend.js";
 import { endpointPrefix } from "./restic-cli.js";
 
+/** What tells the sealed password documents of two kinds of repository apart. */
+export interface RepositoryPasswordKind {
+  /** The `format` field. */
+  readonly format: string;
+  /** The field that names the repository's owner (`endpointId`, `fileShareId`). */
+  readonly idField: string;
+  /** The first part of the additional data. */
+  readonly aadLabel: string;
+  /** The repository's storage prefix. */
+  prefix(id: string): string;
+}
+
 export const ENDPOINT_PASSWORD_FORMAT = "restow-endpoint-repository-password-v1";
 export const ENDPOINT_PASSWORD_FILE = "restow-repository-password.json";
+export const FILE_SHARE_PASSWORD_FORMAT = "restow-file-share-repository-password-v1";
+
+export const ENDPOINT_PASSWORD_KIND: RepositoryPasswordKind = {
+  format: ENDPOINT_PASSWORD_FORMAT,
+  idField: "endpointId",
+  aadLabel: "restow.endpoint-repository",
+  prefix: endpointPrefix,
+};
+
+export const FILE_SHARE_PASSWORD_KIND: RepositoryPasswordKind = {
+  format: FILE_SHARE_PASSWORD_FORMAT,
+  idField: "fileShareId",
+  aadLabel: "restow.file-share-repository",
+  prefix: (id) => `file-shares/${id}/`,
+};
+
+/** Storage key of a repository's sealed password. */
+export function repositoryPasswordKey(kind: RepositoryPasswordKind, id: string): string {
+  return `${kind.prefix(id)}${ENDPOINT_PASSWORD_FILE}`;
+}
+
+/** The additional data that binds a sealed password to its tenant and repository owner. */
+export function repositoryPasswordAad(
+  kind: RepositoryPasswordKind,
+  tenantId: string,
+  id: string,
+): Buffer {
+  return Buffer.from(`${kind.aadLabel}:${tenantId}:${id}`, "utf8");
+}
+
+/** The document that holds the sealed password, as bytes to store. */
+export function sealRepositoryPassword(
+  kind: RepositoryPasswordKind,
+  input: { tenantId: string; id: string; password: string; dek: Dek },
+): Buffer {
+  const sealed = encryptChunk(
+    input.dek,
+    Buffer.from(input.password, "utf8"),
+    repositoryPasswordAad(kind, input.tenantId, input.id),
+  );
+  const document = {
+    format: kind.format,
+    tenantId: input.tenantId,
+    [kind.idField]: input.id,
+    sealed: sealed.toString("base64"),
+  };
+  return Buffer.from(`${JSON.stringify(document, null, 2)}\n`, "utf8");
+}
+
+export interface RepositoryPasswordDocument {
+  readonly tenantId: string;
+  readonly id: string;
+  readonly sealed: Buffer;
+}
+
+const ID = /^[A-Za-z0-9._-]{1,128}$/;
+
+/** Read a document without opening it (the tenant id says which keys open it). */
+export function readRepositoryPasswordDocument(
+  kind: RepositoryPasswordKind,
+  bytes: Buffer,
+): RepositoryPasswordDocument {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(bytes.toString("utf8"));
+  } catch {
+    throw new Error("the sealed repository password is not a JSON document");
+  }
+  const document = parsed as Record<string, unknown> | null;
+  const id = document?.[kind.idField];
+  if (
+    !document ||
+    document.format !== kind.format ||
+    typeof document.tenantId !== "string" ||
+    !ID.test(document.tenantId) ||
+    typeof id !== "string" ||
+    !ID.test(id) ||
+    typeof document.sealed !== "string"
+  ) {
+    throw new Error(`the sealed repository password is not a ${kind.format} document`);
+  }
+  return { tenantId: document.tenantId, id, sealed: Buffer.from(document.sealed, "base64") };
+}
+
+/**
+ * Open a sealed password. `decrypt` opens a sealed blob with whatever keys the caller holds; the
+ * blob must be bound to the tenant and owner the document names, and to `expectedId` when given.
+ */
+export function openRepositoryPassword(
+  kind: RepositoryPasswordKind,
+  bytes: Buffer,
+  decrypt: (sealed: Buffer) => Buffer,
+  expectedId?: string,
+): { tenantId: string; id: string; password: string } {
+  const document = readRepositoryPasswordDocument(kind, bytes);
+  if (expectedId !== undefined && document.id !== expectedId) {
+    const owner = kind.idField === "endpointId" ? "endpoint" : "file share";
+    throw new Error(
+      `the sealed repository password belongs to ${owner} ${document.id}, not ${expectedId}`,
+    );
+  }
+  const plaintext = decrypt(document.sealed);
+  if (
+    !sealedAad(document.sealed).equals(repositoryPasswordAad(kind, document.tenantId, document.id))
+  ) {
+    const owner = kind.idField === "endpointId" ? "endpoint" : "file share";
+    throw new Error(`the sealed repository password is bound to another tenant or ${owner}`);
+  }
+  return { tenantId: document.tenantId, id: document.id, password: plaintext.toString("utf8") };
+}
+
+/**
+ * Make sure the storage holds the sealed password of a repository: write it when it is missing,
+ * damaged, sealed for something else or holds another password. Idempotent; an intact document
+ * is left as it is.
+ */
+export async function ensureRepositoryPasswordFile(
+  kind: RepositoryPasswordKind,
+  storage: StorageBackend,
+  input: {
+    tenantId: string;
+    id: string;
+    password: string;
+    keys: { readonly current: Dek; open(sealed: Buffer): Buffer };
+  },
+): Promise<"written" | "unchanged"> {
+  const key = repositoryPasswordKey(kind, input.id);
+  if (await storage.head(key)) {
+    try {
+      const opened = openRepositoryPassword(
+        kind,
+        await storage.get(key),
+        (sealed) => input.keys.open(sealed),
+        input.id,
+      );
+      if (opened.tenantId === input.tenantId && opened.password === input.password) {
+        return "unchanged";
+      }
+    } catch {
+      // Damaged or foreign: written anew below.
+    }
+  }
+  await storage.put(
+    key,
+    sealRepositoryPassword(kind, {
+      tenantId: input.tenantId,
+      id: input.id,
+      password: input.password,
+      dek: input.keys.current,
+    }),
+  );
+  return "written";
+}
+
+// ---------------------------------------------------------------------------
+// Endpoints (the original API, unchanged)
+// ---------------------------------------------------------------------------
 
 /** Storage key of an endpoint's sealed repository password. */
 export function endpointPasswordKey(endpointId: string): string {
-  return `${endpointPrefix(endpointId)}${ENDPOINT_PASSWORD_FILE}`;
+  return repositoryPasswordKey(ENDPOINT_PASSWORD_KIND, endpointId);
 }
 
 /** The additional data that binds a sealed password to its tenant and endpoint. */
 export function endpointPasswordAad(tenantId: string, endpointId: string): Buffer {
-  return Buffer.from(`restow.endpoint-repository:${tenantId}:${endpointId}`, "utf8");
+  return repositoryPasswordAad(ENDPOINT_PASSWORD_KIND, tenantId, endpointId);
 }
 
 /** The document that holds the sealed password, as bytes to store. */
@@ -55,18 +230,12 @@ export function sealEndpointPassword(input: {
   password: string;
   dek: Dek;
 }): Buffer {
-  const sealed = encryptChunk(
-    input.dek,
-    Buffer.from(input.password, "utf8"),
-    endpointPasswordAad(input.tenantId, input.endpointId),
-  );
-  const document = {
-    format: ENDPOINT_PASSWORD_FORMAT,
+  return sealRepositoryPassword(ENDPOINT_PASSWORD_KIND, {
     tenantId: input.tenantId,
-    endpointId: input.endpointId,
-    sealed: sealed.toString("base64"),
-  };
-  return Buffer.from(`${JSON.stringify(document, null, 2)}\n`, "utf8");
+    id: input.endpointId,
+    password: input.password,
+    dek: input.dek,
+  });
 }
 
 export interface EndpointPasswordDocument {
@@ -75,33 +244,10 @@ export interface EndpointPasswordDocument {
   readonly sealed: Buffer;
 }
 
-const ID = /^[A-Za-z0-9._-]{1,128}$/;
-
 /** Read the document without opening it (the tenant id says which keys open it). */
 export function readEndpointPasswordDocument(bytes: Buffer): EndpointPasswordDocument {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(bytes.toString("utf8"));
-  } catch {
-    throw new Error("the sealed repository password is not a JSON document");
-  }
-  const document = parsed as Record<string, unknown> | null;
-  if (
-    !document ||
-    document.format !== ENDPOINT_PASSWORD_FORMAT ||
-    typeof document.tenantId !== "string" ||
-    !ID.test(document.tenantId) ||
-    typeof document.endpointId !== "string" ||
-    !ID.test(document.endpointId) ||
-    typeof document.sealed !== "string"
-  ) {
-    throw new Error(`the sealed repository password is not a ${ENDPOINT_PASSWORD_FORMAT} document`);
-  }
-  return {
-    tenantId: document.tenantId,
-    endpointId: document.endpointId,
-    sealed: Buffer.from(document.sealed, "base64"),
-  };
+  const document = readRepositoryPasswordDocument(ENDPOINT_PASSWORD_KIND, bytes);
+  return { tenantId: document.tenantId, endpointId: document.id, sealed: document.sealed };
 }
 
 /**
@@ -115,23 +261,8 @@ export function openEndpointPassword(
   decrypt: (sealed: Buffer) => Buffer,
   expectedEndpointId?: string,
 ): { tenantId: string; endpointId: string; password: string } {
-  const document = readEndpointPasswordDocument(bytes);
-  if (expectedEndpointId !== undefined && document.endpointId !== expectedEndpointId) {
-    throw new Error(
-      `the sealed repository password belongs to endpoint ${document.endpointId}, not ${expectedEndpointId}`,
-    );
-  }
-  const plaintext = decrypt(document.sealed);
-  if (
-    !sealedAad(document.sealed).equals(endpointPasswordAad(document.tenantId, document.endpointId))
-  ) {
-    throw new Error("the sealed repository password is bound to another tenant or endpoint");
-  }
-  return {
-    tenantId: document.tenantId,
-    endpointId: document.endpointId,
-    password: plaintext.toString("utf8"),
-  };
+  const opened = openRepositoryPassword(ENDPOINT_PASSWORD_KIND, bytes, decrypt, expectedEndpointId);
+  return { tenantId: opened.tenantId, endpointId: opened.id, password: opened.password };
 }
 
 /**
@@ -139,7 +270,7 @@ export function openEndpointPassword(
  * when it is missing, damaged, sealed for something else or holds another
  * password. Idempotent; an intact document is left as it is.
  */
-export async function ensureEndpointPasswordFile(
+export function ensureEndpointPasswordFile(
   storage: StorageBackend,
   input: {
     tenantId: string;
@@ -148,31 +279,12 @@ export async function ensureEndpointPasswordFile(
     keys: { readonly current: Dek; open(sealed: Buffer): Buffer };
   },
 ): Promise<"written" | "unchanged"> {
-  const key = endpointPasswordKey(input.endpointId);
-  if (await storage.head(key)) {
-    try {
-      const opened = openEndpointPassword(
-        await storage.get(key),
-        (sealed) => input.keys.open(sealed),
-        input.endpointId,
-      );
-      if (opened.tenantId === input.tenantId && opened.password === input.password) {
-        return "unchanged";
-      }
-    } catch {
-      // Damaged or foreign: written anew below.
-    }
-  }
-  await storage.put(
-    key,
-    sealEndpointPassword({
-      tenantId: input.tenantId,
-      endpointId: input.endpointId,
-      password: input.password,
-      dek: input.keys.current,
-    }),
-  );
-  return "written";
+  return ensureRepositoryPasswordFile(ENDPOINT_PASSWORD_KIND, storage, {
+    tenantId: input.tenantId,
+    id: input.endpointId,
+    password: input.password,
+    keys: input.keys,
+  });
 }
 
 /** Open a blob with a single data key (the API holds the tenant's current key only). */

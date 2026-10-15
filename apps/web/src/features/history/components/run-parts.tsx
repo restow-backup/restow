@@ -4,6 +4,7 @@ import {
   Laptop,
   type LucideIcon,
   Mail,
+  Network,
   Server,
   ShieldAlert,
   ShieldCheck,
@@ -49,6 +50,7 @@ const SUBJECT_ICON: Readonly<Record<SubjectKind, LucideIcon>> = {
   imap: Inbox,
   server: Server,
   client: Laptop,
+  file_share: Network,
 };
 
 export function SubjectIcon({ kind, className }: { kind: SubjectKind; className?: string }) {
@@ -98,8 +100,10 @@ export function RestoreCheckChip({
 export function useRunTitle() {
   const { t } = useTranslation("history");
   return (run: Pick<Run, "kind" | "type" | "subject">): string => {
+    // Maintenance runs, and the copy runs of file shares, are named by their type.
     const kind =
-      run.kind === "maintenance" && t(`type.${run.type}`, { defaultValue: "" })
+      (run.kind === "maintenance" || run.type === "copy") &&
+      t(`type.${run.type}`, { defaultValue: "" })
         ? t(`type.${run.type}`)
         : t(`kind.${run.kind}`);
     return run.subject ? t("runTitle", { kind, subject: run.subject.name }) : kind;

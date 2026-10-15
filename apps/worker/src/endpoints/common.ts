@@ -109,7 +109,7 @@ export async function openEndpointRepository(
       storage: targets.primary,
       prefix: endpointPrefix(endpointId),
       repositoryPassword: password,
-      endpointId,
+      repositoryKey: endpointId,
       binary: resticBinary(),
       cacheBase: resticCacheBase(),
     },

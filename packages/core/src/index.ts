@@ -62,6 +62,7 @@ export * from "./endpoints/index.js";
 
 // Proxmox VE guests: block maps of VM disks, restore point manifests (docs/PROXMOX.md)
 export * from "./pve/index.js";
+export * from "./file-shares/index.js";
 
 // Failure explanations: classified causes, redaction, what to do
 export * from "./failures/index.js";

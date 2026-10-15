@@ -150,6 +150,7 @@ RUN --mount=type=cache,id=go-mod,target=/go/pkg/mod \
       chmod 0755 ./*/restow-agent ./*/restic; \
       if [ -f ./linux-amd64/restow-pve ]; then chmod 0755 ./linux-amd64/restow-pve; fi; \
       cp -R . /out/; \
+      rm -rf /out/server; \
       cp /src/agent/install/*.sh /src/agent/release-signing.pub /install/; \
     elif [ -f /src/agent/build.sh ]; then \
       cd /src/agent; \
@@ -161,6 +162,16 @@ RUN --mount=type=cache,id=go-mod,target=/go/pkg/mod \
       cp install/*.sh release-signing.pub /install/; \
     else \
       echo "restow: no agent/ in the build context, the image ships without agent binaries" >&2; \
+    fi; \
+    if [ -f /src/agent/cmd/restow-share/main.go ] && [ ! -d /out/server ]; then \
+      cd /src/agent; \
+      version="${RESTOW_VERSION#v}"; version="${version:-0.0.0-dev}"; \
+      for arch in amd64 arm64; do \
+        mkdir -p "/out/server/linux-${arch}"; \
+        CGO_ENABLED=0 GOOS=linux GOARCH="${arch}" go build -trimpath -buildvcs=false \
+          -ldflags "-s -w -X github.com/restow-backup/restow/agent/internal/buildinfo.Version=${version}" \
+          -o "/out/server/linux-${arch}/restow-share" ./cmd/restow-share; \
+      done; \
     fi
 
 ########################################
@@ -173,7 +184,10 @@ RUN --mount=type=cache,id=go-mod,target=/go/pkg/mod \
 # RESTIC_VERSION in the version folder, and the install scripts with the release
 # signing public key in /srv/agent/install. Assembled here as
 # a rootfs tree and copied into the runtime image in one step. The server's
-# restic is a link to the copy for the image's own architecture.
+# restic is a link to the copy for the image's own architecture. The file share
+# runner (restow-share, docs/FILESHARES.md) goes to /usr/local/bin for the
+# image's architecture only: the mounter starts it in a runner container from
+# this image; it is not an agent download.
 FROM --platform=$BUILDPLATFORM alpine:3.24 AS agent-dist
 ARG RESTOW_VERSION=
 ARG TARGETARCH
@@ -186,6 +200,7 @@ RUN set -eu; \
     for dir in /agent/*/; do \
       [ -d "$dir" ] || continue; \
       target="$(basename "$dir")"; \
+      [ "$target" != server ] || continue; \
       mkdir -p "${root}/${version}/${target}"; \
       cp "$dir"restow-agent "$dir"restic "$dir"THIRD_PARTY_NOTICES.txt "$dir"SHA256SUMS "${root}/${version}/${target}/"; \
       for extra in restow-pve RestowPlugin.pm RestowProvider.pm RestowPlugin.LICENSE.txt; do \
@@ -199,6 +214,9 @@ RUN set -eu; \
     cp /install/release-signing.pub "${root}/install/" 2>/dev/null || true; \
     if [ -f "${root}/${version}/linux-${TARGETARCH}/restic" ]; then \
       ln -s "/srv/agent/${version}/linux-${TARGETARCH}/restic" /rootfs/usr/local/bin/restic; \
+    fi; \
+    if [ -f "/agent/server/linux-${TARGETARCH}/restow-share" ]; then \
+      install -m 0755 "/agent/server/linux-${TARGETARCH}/restow-share" /rootfs/usr/local/bin/restow-share; \
     fi; \
     find /rootfs \( -type f -o -type l \) | sort
 

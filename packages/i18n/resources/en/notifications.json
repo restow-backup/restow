@@ -22,6 +22,9 @@
       "endpoint_backup": "Machine backup",
       "endpoint_restore": "Machine restore",
       "endpoint_verify_sample": "Machine restore check",
+      "file-share-backup": "File share backup",
+      "file-share-restore": "File share restore",
+      "file-share-copy": "File share copy",
       "other": "Run"
     },
     "verify": {

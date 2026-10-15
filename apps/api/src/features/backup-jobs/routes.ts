@@ -71,6 +71,8 @@ export interface BackupJobsRoutesDeps {
   requireAdmin: MiddlewareHandler<TenantEnv>;
   /** Injectable clock (tests pin it). */
   now?: () => Date;
+  /** File share copy jobs: the mounter and the name resolution (tests replace them). */
+  fileShares?: JobContext["fileShares"];
 }
 
 function actorOf(c: Context<TenantEnv>): JobActor {
@@ -99,6 +101,7 @@ export function buildBackupJobsRoutes(deps: BackupJobsRoutesDeps): Hono<TenantEn
   const contextOf = (c: Context<TenantEnv>): JobContext => ({
     now: now(),
     confirmHookChange: () => assertRecentSignIn(c.get("auth").session),
+    ...(deps.fileShares ? { fileShares: deps.fileShares } : {}),
   });
   const optionsOf = (c: Context<TenantEnv>) => ({ revealHooks: mayConfigure(c) });
 

@@ -5,6 +5,8 @@
 #   dovecot  a test IMAP server (the public demo's image, plain IMAP on the
 #            internal network) that holds the synthetic mailboxes
 #   garage   an S3-compatible object store for the S3 storage-target check
+#   samba    an SMB 3 file server with NT ACLs (scripts/smoke/samba) for the file share
+#            check 12; started by that check only, next to the mounter
 #   api/worker/scheduler  a bind-mounted directory that stands in for an NFS
 #            share, and the test-only settings from the generated .env
 #
@@ -43,3 +45,22 @@ services:
     ports:
       - "127.0.0.1:${SMOKE_S3_PORT:?}:3900"
     restart: "no"
+
+  samba:
+    build:
+      context: ${SMOKE_REPO_ROOT:?}/scripts/smoke/samba
+    image: restow-smoke/samba:local
+    environment:
+      SMOKE_SMB_PASSWORD: ${SMOKE_SMB_PASSWORD:?}
+    volumes:
+      # A named volume: ext4 or overlay on the Docker host keeps the user.* xattrs (the ACLs).
+      - samba-data:/srv/samba
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "445"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    restart: "no"
+
+volumes:
+  samba-data:

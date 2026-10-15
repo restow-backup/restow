@@ -41,6 +41,7 @@ const service = {
   remove: vi.fn(),
   cancelPending: vi.fn(),
   test: vi.fn(),
+  enable: vi.fn(),
 };
 
 function app() {
@@ -95,6 +96,7 @@ const ROUTES: [string, string, unknown?][] = [
   ["DELETE", "/api/v1/mounts/nas"],
   ["DELETE", "/api/v1/mounts/nas?pending=1"],
   ["POST", "/api/v1/mounts/test", { name: "nas" }],
+  ["POST", "/api/v1/mounts/enable"],
 ];
 
 const READ = new Set(["GET /api/v1/mounts", "GET /api/v1/mounts/paths"]);
@@ -169,12 +171,35 @@ describe("what needs a recent sign-in", () => {
     for (const [method, path, body] of [
       ["POST", "/api/v1/mounts", { mount: SHARE }],
       ["DELETE", "/api/v1/mounts/nas", undefined],
+      ["POST", "/api/v1/mounts/enable", undefined],
     ] as const) {
       const response = await call(method, path, { body });
       expect(response.status, path).toBe(403);
       expect(response.body.type).toBe("urn:restow:problem:recent-sign-in-required");
     }
     expect(service.add).not.toHaveBeenCalled();
+    expect(service.remove).not.toHaveBeenCalled();
+    expect(service.enable).not.toHaveBeenCalled();
+  });
+
+  it("enabling the mounter passes the acting owner to the service", async () => {
+    signedIn("admin");
+    expect((await call("POST", "/api/v1/mounts/enable")).status).toBe(200);
+    expect(service.enable).toHaveBeenCalledWith({
+      id: "admin-id",
+      email: "admin@provider.test",
+      ip: null,
+    });
+  });
+
+  it("withdrawing a waiting add needs no fresh sign-in", async () => {
+    signedIn("admin", { signedInSecondsAgo: 8 * 60 * 60 });
+    expect((await call("DELETE", "/api/v1/mounts/nas?pending=1")).status).toBe(200);
+    expect(service.cancelPending).toHaveBeenCalledWith("nas", {
+      id: "admin-id",
+      email: "admin@provider.test",
+      ip: null,
+    });
     expect(service.remove).not.toHaveBeenCalled();
   });
 

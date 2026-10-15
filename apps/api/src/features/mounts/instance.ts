@@ -123,4 +123,5 @@ export const mountsService = new MountsService({
   compose: () => composeFacts(),
   version: process.env.RESTOW_VERSION?.trim() || null,
   demo: config.demo.enabled,
+  updater: updaterClient,
 });

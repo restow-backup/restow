@@ -19,12 +19,27 @@ export function guestsOf(data: ObjectsData): NonNullable<ObjectsData["guests"]> 
   return data.guests ?? { protected: 0, withoutJob: 0, failedLastBackup: 0, restorePoints: 0 };
 }
 
+/** The file shares of the tile; zeros from a server that does not count them yet. */
+export function sharesOf(data: ObjectsData): NonNullable<ObjectsData["fileShares"]> {
+  return (
+    data.fileShares ?? {
+      protected: 0,
+      withoutJob: 0,
+      failedLastBackup: 0,
+      warnings: 0,
+      restorePoints: 0,
+    }
+  );
+}
+
 /**
  * "No errors in the latest runs" only when there were runs to judge: nothing failed, nothing left
- * items behind, everything protected has a backup and no machine or guest is left without a job.
+ * items behind, everything protected has a backup and no machine, guest or share is left
+ * without a job.
  */
 export function protectedHealthy(data: ObjectsData): boolean {
   const guests = guestsOf(data);
+  const shares = sharesOf(data);
   return (
     data.failed === 0 &&
     data.withItemFailures === 0 &&
@@ -32,22 +47,28 @@ export function protectedHealthy(data: ObjectsData): boolean {
     data.machines.withoutJob === 0 &&
     guests.failedLastBackup === 0 &&
     guests.withoutJob === 0 &&
+    shares.failedLastBackup === 0 &&
+    shares.withoutJob === 0 &&
+    shares.warnings === 0 &&
     data.noBackup === 0
   );
 }
 
 /**
- * Whether the tenant has nothing to show: no protected object, and no machine and no guest,
- * in a job or not. Only then does the tile say "nothing protected yet".
+ * Whether the tenant has nothing to show: no protected object, and no machine, no guest and no
+ * file share, in a job or not. Only then does the tile say "nothing protected yet".
  */
 export function nothingProtected(data: ObjectsData): boolean {
   const guests = guestsOf(data);
+  const shares = sharesOf(data);
   return (
     data.active +
       data.machines.protected +
       data.machines.withoutJob +
       guests.protected +
-      guests.withoutJob ===
+      guests.withoutJob +
+      shares.protected +
+      shares.withoutJob ===
     0
   );
 }
@@ -96,13 +117,18 @@ export function ProtectedObjectsWidget({
     >
       {(data) => {
         const guests = guestsOf(data);
-        const failed = data.failed + data.machines.failedLastBackup + guests.failedLastBackup;
+        const shares = sharesOf(data);
+        const failed =
+          data.failed +
+          data.machines.failedLastBackup +
+          guests.failedLastBackup +
+          shares.failedLastBackup;
         return (
           <KpiTile
             label={t("protectedObjects.title")}
             icon={ShieldCheck}
             value={formatInteger(
-              data.active + data.machines.protected + guests.protected,
+              data.active + data.machines.protected + guests.protected + shares.protected,
               language,
             )}
             hint={
@@ -115,6 +141,11 @@ export function ProtectedObjectsWidget({
                 {guests.protected > 0 ? (
                   <span className="w-full text-xs text-muted-foreground" data-line="guests">
                     {t("protectedObjects.withGuests", { count: guests.protected })}
+                  </span>
+                ) : null}
+                {shares.protected > 0 ? (
+                  <span className="w-full text-xs text-muted-foreground" data-line="shares">
+                    {t("protectedObjects.withShares", { count: shares.protected })}
                   </span>
                 ) : null}
                 {protectedHealthy(data) ? (
@@ -140,6 +171,16 @@ export function ProtectedObjectsWidget({
                     {t("protectedObjects.guestsWithoutJob", { count: guests.withoutJob })}
                   </StatusBadge>
                 ) : null}
+                {shares.withoutJob > 0 ? (
+                  <StatusBadge tone="warning">
+                    {t("protectedObjects.sharesWithoutJob", { count: shares.withoutJob })}
+                  </StatusBadge>
+                ) : null}
+                {shares.warnings > 0 ? (
+                  <StatusBadge tone="warning">
+                    {t("protectedObjects.sharesWithWarnings", { count: shares.warnings })}
+                  </StatusBadge>
+                ) : null}
                 {data.withItemFailures > 0 ? (
                   <StatusBadge tone="warning">
                     {t("protectedObjects.withItemFailures", { count: data.withItemFailures })}
@@ -161,7 +202,9 @@ export function ProtectedObjectsWidget({
               canAdminister ? (
                 <span className="flex flex-wrap gap-x-3">
                   {/* A warning badge always leads to its reasons (features/warnings). */}
-                  {data.withItemFailures > 0 || (data.acknowledgedWarnings ?? 0) > 0 ? (
+                  {data.withItemFailures > 0 ||
+                  (data.acknowledgedWarnings ?? 0) > 0 ||
+                  shares.warnings > 0 ? (
                     <LinkButton to={to(PATHS.warnings)} variant="link" size="xs" className="px-0">
                       {t("protectedObjects.warningsLink")}
                     </LinkButton>

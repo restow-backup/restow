@@ -6,7 +6,8 @@ import { type RunSamplePoint, runSamples } from "./schema/run-samples.js";
  * The throughput history of a run (`run_samples`): which points are kept, how old ones are
  * thinned, how a rate follows from two neighbours, and the one write that appends a point.
  * The pure parts come first so the compaction is tested without a database; `recordRunSample`
- * is the shared write of the worker (mail runs) and the API (runs an agent reports).
+ * is the shared write of the worker (mail runs) and the API (runs an agent or a file share
+ * runner reports).
  *
  * A point holds cumulative counters, never rates. Dropping the point between two others
  * therefore changes how finely time is resolved, not how many bytes were counted, and the
@@ -144,15 +145,24 @@ export interface RunSampleTarget {
   jobId?: string;
   /** A run an agent reported: the `endpoint_runs` row. */
   endpointRunId?: string;
+  /** A file share run its runner reports: the `file_share_runs` row. */
+  fileShareRunId?: string;
 }
 
 function ofRun(target: RunSampleTarget) {
-  return target.jobId !== undefined
-    ? and(eq(runSamples.tenantId, target.tenantId), eq(runSamples.jobId, target.jobId))
-    : and(
-        eq(runSamples.tenantId, target.tenantId),
-        eq(runSamples.endpointRunId, target.endpointRunId as string),
-      );
+  if (target.jobId !== undefined) {
+    return and(eq(runSamples.tenantId, target.tenantId), eq(runSamples.jobId, target.jobId));
+  }
+  if (target.fileShareRunId !== undefined) {
+    return and(
+      eq(runSamples.tenantId, target.tenantId),
+      eq(runSamples.fileShareRunId, target.fileShareRunId),
+    );
+  }
+  return and(
+    eq(runSamples.tenantId, target.tenantId),
+    eq(runSamples.endpointRunId, target.endpointRunId as string),
+  );
 }
 
 /**
@@ -180,6 +190,7 @@ export async function recordRunSample(
         tenantId: target.tenantId,
         jobId: target.jobId ?? null,
         endpointRunId: target.endpointRunId ?? null,
+        fileShareRunId: target.fileShareRunId ?? null,
         points,
         baselineBytes: options.baselineBytes ?? null,
       })

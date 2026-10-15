@@ -35,6 +35,55 @@ const RECORD_SETTLE_MS = 5 * 60 * 1000;
 export const LOCKED_ALERT_ATTEMPTS = 6;
 export const LOCKED_ALERT_MIN_MS = 12 * 60 * 60 * 1000;
 
+/** The records of the lock files the client side of a repository wrote (agent, runner). */
+export interface ClientLockRecords {
+  /** The recorded locks and when each was recorded. */
+  list(): Promise<{ name: string; createdAt: Date }[]>;
+  /** Whether a run of the client is in progress (its locks are then left alone). */
+  active(): Promise<boolean>;
+  /** Forget the records of these locks. */
+  forget(names: readonly string[]): Promise<void>;
+}
+
+/**
+ * Remove the lock files that would hold maintenance up for no reason: stale ones, and every lock
+ * the client wrote when no run of it is in progress (@restow/core `locksToRemove`); forget the
+ * records of client locks that are gone. Shared by endpoints and file shares
+ * (docs/FILESHARES.md 8.4). Returns the names of the lock files removed.
+ */
+export async function clearClientLocks(
+  access: Pick<RepositoryAccess, "storage" | "prefix">,
+  records: ClientLockRecords,
+  now: Date,
+): Promise<{ removed: string[]; clientActive: boolean }> {
+  const rows = await records.list();
+  const clientActive = await records.active();
+  const clientLocks = new Set(rows.map((row) => row.name));
+  // A record younger than this may belong to a lock whose upload is still on its way.
+  const settled = new Set(
+    rows
+      .filter((row) => now.getTime() - row.createdAt.getTime() > RECORD_SETTLE_MS)
+      .map((row) => row.name),
+  );
+  const present = await listLockFiles(access.storage, access.prefix);
+  const removed = locksToRemove(present, {
+    agentLocks: clientLocks,
+    agentActive: clientActive,
+    now,
+  });
+  await removeLockFiles(access.storage, access.prefix, removed);
+  const stillThere = new Set(
+    present.map((lock) => lock.name).filter((name) => !removed.includes(name)),
+  );
+  const forget = [...clientLocks].filter(
+    (name) => removed.includes(name) || (!stillThere.has(name) && settled.has(name)),
+  );
+  if (forget.length > 0) {
+    await records.forget(forget);
+  }
+  return { removed, clientActive };
+}
+
 /**
  * Remove the lock files that would hold maintenance up for no reason (see the
  * module comment) and forget the records of agent locks that are gone.
@@ -47,57 +96,50 @@ export async function clearLocksBeforeMaintenance(
   access: Pick<RepositoryAccess, "storage" | "prefix">,
   now: Date,
 ): Promise<number> {
-  const { agentLocks, settled, agentActive } = await withTenantTx(deps.db, tenantId, async (tx) => {
-    const rows = await tx
-      .select({
-        name: endpointRepositoryLocks.name,
-        createdAt: endpointRepositoryLocks.createdAt,
-      })
-      .from(endpointRepositoryLocks)
-      .where(eq(endpointRepositoryLocks.endpointId, endpointId));
-    const [running] = await tx
-      .select({ id: endpointRuns.id })
-      .from(endpointRuns)
-      .where(and(eq(endpointRuns.endpointId, endpointId), eq(endpointRuns.status, "running")))
-      .limit(1);
-    return {
-      agentLocks: new Set(rows.map((row) => row.name)),
-      // A record younger than this may belong to a lock whose upload is still on its way.
-      settled: new Set(
-        rows
-          .filter((row) => now.getTime() - row.createdAt.getTime() > RECORD_SETTLE_MS)
-          .map((row) => row.name),
-      ),
-      agentActive: running !== undefined,
-    };
-  });
-  const present = await listLockFiles(access.storage, access.prefix);
-  const removed = locksToRemove(present, { agentLocks, agentActive, now });
-  await removeLockFiles(access.storage, access.prefix, removed);
-  const stillThere = new Set(
-    present.map((lock) => lock.name).filter((name) => !removed.includes(name)),
-  );
-  const forget = [...agentLocks].filter(
-    (name) => removed.includes(name) || (!stillThere.has(name) && settled.has(name)),
-  );
-  if (forget.length > 0) {
-    await withTenantTx(deps.db, tenantId, (tx) =>
-      tx
-        .delete(endpointRepositoryLocks)
-        .where(
-          and(
-            eq(endpointRepositoryLocks.endpointId, endpointId),
-            inArray(endpointRepositoryLocks.name, forget),
-          ),
+  const { removed, clientActive } = await clearClientLocks(
+    access,
+    {
+      list: () =>
+        withTenantTx(deps.db, tenantId, (tx) =>
+          tx
+            .select({
+              name: endpointRepositoryLocks.name,
+              createdAt: endpointRepositoryLocks.createdAt,
+            })
+            .from(endpointRepositoryLocks)
+            .where(eq(endpointRepositoryLocks.endpointId, endpointId)),
         ),
-    );
-  }
+      active: async () => {
+        const [running] = await withTenantTx(deps.db, tenantId, (tx) =>
+          tx
+            .select({ id: endpointRuns.id })
+            .from(endpointRuns)
+            .where(and(eq(endpointRuns.endpointId, endpointId), eq(endpointRuns.status, "running")))
+            .limit(1),
+        );
+        return running !== undefined;
+      },
+      forget: async (names) => {
+        await withTenantTx(deps.db, tenantId, (tx) =>
+          tx
+            .delete(endpointRepositoryLocks)
+            .where(
+              and(
+                eq(endpointRepositoryLocks.endpointId, endpointId),
+                inArray(endpointRepositoryLocks.name, [...names]),
+              ),
+            ),
+        );
+      },
+    },
+    now,
+  );
   if (removed.length > 0) {
     deps.runtime.logger.info("removed repository locks before maintenance", {
       tenantId,
       endpointId,
       locks: removed.length,
-      agentActive,
+      agentActive: clientActive,
     });
   }
   return removed.length;

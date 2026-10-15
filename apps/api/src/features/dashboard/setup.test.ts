@@ -50,6 +50,28 @@ describe("setup checklist", () => {
     });
   });
 
+  it("can be finished by a tenant that protects only file shares", () => {
+    const sharesOnly: SetupFacts = {
+      ...FRESH,
+      storage: { source: "tenant", status: "ok" },
+      shares: { active: 1, backedUp: 1, enabledJobs: 1, checks: 1, greenChecks: 1 },
+    };
+    expect(buildSetupChecklist(sharesOnly, "tenant_admin")).toMatchObject({
+      complete: true,
+      done: 7,
+    });
+    const job: SetupFacts = {
+      ...FRESH,
+      shares: { active: 0, backedUp: 0, enabledJobs: 1, checks: 0, greenChecks: 0 },
+    };
+    expect(stateOf(job, "schedules")?.state).toBe("open");
+    const red: SetupFacts = {
+      ...FRESH,
+      shares: { active: 1, backedUp: 1, enabledJobs: 1, checks: 2, greenChecks: 0 },
+    };
+    expect(stateOf(red, "firstVerification")).toEqual({ state: "attention", reason: "not_green" });
+  });
+
   it("does not count a machine job without a machine, and flags a failed machine check", () => {
     const facts: SetupFacts = {
       ...FRESH,

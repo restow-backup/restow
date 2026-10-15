@@ -20,18 +20,19 @@ export const RUN_CATEGORIES = [
 ] as const;
 export type RunCategory = (typeof RUN_CATEGORIES)[number];
 
-export type RunSource = "mail" | "endpoint";
+/** `file_share`: a backup, restore or copy run of a file share (docs/FILESHARES.md 13). */
+export type RunSource = "mail" | "endpoint" | "file_share";
 
 /** `succeeded` is a run that completed; the restore check says whether the backup is restorable. */
 export type RunState = "queued" | "running" | "succeeded" | "partial" | "failed" | "cancelled";
 
-export type SubjectKind = "mailbox" | "onedrive" | "imap" | "server" | "client";
+export type SubjectKind = "mailbox" | "onedrive" | "imap" | "server" | "client" | "file_share";
 
 export interface RunSubject {
   kind: SubjectKind;
   id: string;
   name: string;
-  /** The address of a mailbox, the operating system of a machine. */
+  /** The address of a mailbox, the operating system of a machine, the location of a file share. */
   detail: string | null;
 }
 
@@ -193,7 +194,7 @@ export const HISTORY_PAGE_SIZE = 50;
 
 export interface BackupJobLive {
   id: string;
-  kind: "mail" | "endpoint";
+  kind: "mail" | "endpoint" | "share" | "copy";
   enabled: boolean;
   state: JobState;
   scope: { count: number; byKind: Record<string, number>; overrides: number };

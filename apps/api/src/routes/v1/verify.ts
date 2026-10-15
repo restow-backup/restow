@@ -96,7 +96,7 @@ export const readinessSummarySchema = component(
       .number()
       .int()
       .describe(
-        "Objects that take part in the rating: protected objects, servers and clients, and VMs and containers of Proxmox VE in a backup job.",
+        "Objects that take part in the rating: protected objects, servers and clients, VMs and containers of Proxmox VE and file shares in a backup job.",
       ),
     green: z.number().int(),
     yellow: z.number().int(),
@@ -118,6 +118,12 @@ export const readinessSummarySchema = component(
       .int()
       .describe(
         "VMs and containers of Proxmox VE in no backup job that keep a restore point: rated by it, but nothing backs them up. Any of them makes `overall` at least yellow.",
+      ),
+    sharesWithoutJob: z
+      .number()
+      .int()
+      .describe(
+        "File shares in no backup job that keep a restore point: rated by it, but nothing backs them up. Any of them makes `overall` at least yellow.",
       ),
     overall: readinessSchema
       .nullable()

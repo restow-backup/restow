@@ -124,7 +124,7 @@ export async function repositoryAccess(
     storage,
     prefix,
     repositoryPassword: password,
-    endpointId: endpoint.id,
+    repositoryKey: endpoint.id,
     binary: resticBinary(),
     cacheBase: resticCacheBase(),
   };

@@ -8,6 +8,7 @@ import {
   type RunStatus,
   endpointKeys,
 } from "@/features/endpoints/api";
+import { fileShareKeys } from "@/features/file-shares/api";
 import { type BackupTarget, type Job, jobKeys } from "@/features/jobs/api";
 import { withLatestJob } from "@/features/jobs/presenters";
 import type { ServerEvent } from "@/features/jobs/sse";
@@ -304,6 +305,10 @@ function applyEnd(context: LiveContext, run: Run): void {
   refetch(jobKeys.objects(tenantId));
   if (run.source === "endpoint") {
     refetch(endpointKeys.all(tenantId));
+  }
+  if (run.source === "file_share") {
+    // The share's page reads its standing, its runs and its restore points.
+    refetch(fileShareKeys.all(tenantId));
   }
 }
 

@@ -15,12 +15,33 @@ import {
 
 describe("the list address", () => {
   it("reads the kind, the editor and the preselection", () => {
-    expect(parseJobsSearch({ type: "mail" })).toEqual({ type: "mail", create: false, select: [] });
+    const noCopy = { source: null, target: null, folder: null };
+    expect(parseJobsSearch({ type: "mail" })).toEqual({
+      type: "mail",
+      create: false,
+      select: [],
+      copy: noCopy,
+    });
     expect(parseJobsSearch({ type: "endpoint", new: 1, select: "a,b" })).toEqual({
       type: "endpoint",
       create: true,
       select: ["a", "b"],
+      copy: noCopy,
     });
+  });
+
+  it("reads the kinds of file shares and what a new copy job starts with", () => {
+    const source = "11111111-1111-4111-8111-111111111111";
+    const target = "22222222-2222-4222-8222-222222222222";
+    expect(parseJobsSearch({ type: "share" }).type).toBe("share");
+    expect(
+      parseJobsSearch({ type: "copy", new: 1, source, target, folder: "Projects/2026" }),
+    ).toMatchObject({
+      type: "copy",
+      create: true,
+      copy: { source, target, folder: "Projects/2026" },
+    });
+    expect(parseJobsSearch({ type: "copy", source: "not an id" }).copy.source).toBeNull();
   });
 
   it("takes the editor flag the way the router parses it: a number, a string or a boolean", () => {

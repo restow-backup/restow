@@ -1,11 +1,12 @@
 import type { TFunction } from "i18next";
-import { Cloud, Inbox, Laptop, type LucideIcon, Mail, Server } from "lucide-react";
+import { Cloud, Inbox, Laptop, type LucideIcon, Mail, Network, Server } from "lucide-react";
 
 import type { StatusTone } from "@/components/kit";
 import { describeCadence } from "@/features/schedules/presenters";
 
 import type {
   BackupJob,
+  CopyJobInfo,
   JobKind,
   JobMember,
   JobRestoreCheck,
@@ -34,12 +35,16 @@ export const MEMBER_KIND_ICON: Readonly<Record<MemberKind, LucideIcon>> = {
   imap: Inbox,
   server: Server,
   client: Laptop,
+  smb: Network,
+  nfs: Network,
 };
 
 /** The kinds of object or machine a job of this kind holds, in the order a summary lists them. */
 export const MEMBER_KINDS_OF: Readonly<Record<JobKind, readonly MemberKind[]>> = {
   mail: ["mailbox", "onedrive", "imap"],
   endpoint: ["server", "client"],
+  share: ["smb", "nfs"],
+  copy: [],
 };
 
 // --- Schedule --------------------------------------------------------------------------------
@@ -88,7 +93,15 @@ export function describeScope(
   scope: Pick<JobScope, "count" | "byKind">,
   kind: JobKind,
   t: TFunction,
+  copy?: Pick<CopyJobInfo, "source" | "target" | "targetFolder"> | null,
 ): string {
+  if (kind === "copy" && copy) {
+    return t("scope.copyRoute", {
+      source: copy.source.name,
+      target: copy.target.name,
+      folder: copy.targetFolder ? `/${copy.targetFolder}` : "/",
+    });
+  }
   if (scope.count === 0) {
     return t("scope.nothing");
   }
@@ -289,6 +302,9 @@ export function retentionLabel(job: Pick<BackupJob, "kind" | "retention">, t: TF
         ? job.retention.policyName
         : t("retention.tenantDefaultNamed", { name: job.retention.policyName })
       : t("retention.tenantDefault");
+  }
+  if (job.kind === "copy") {
+    return t("retention.copy");
   }
   const keep = job.retention.keep;
   return keep ? t("retention.keep", { ...keep }) : t("retention.machineOwn");

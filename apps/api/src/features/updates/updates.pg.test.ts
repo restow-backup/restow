@@ -121,6 +121,7 @@ function idleState(over: Partial<StateView> = {}): StateView {
     events: [],
     capabilities: capabilities(),
     selfUpdate: null,
+    mounterEnable: null,
     restartableServices: [],
     restart: null,
     projectDir: null,
@@ -135,10 +136,16 @@ class ScriptedUpdater implements UpdaterClient {
   readonly scheduled: ScheduleRequest[] = [];
   cancelled = 0;
   acknowledged = 0;
+  enabledMounter = 0;
   readonly restarted: string[] = [];
 
   async state() {
     return this.view;
+  }
+
+  async enableMounter() {
+    this.enabledMounter += 1;
+    return this.view as StateView;
   }
 
   async restart(service: RestartableService) {

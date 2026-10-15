@@ -9,6 +9,7 @@ import {
   UPDATER_PHASES,
   type UpdaterPhase,
   journalEventSchema,
+  mounterEnableRecordSchema,
   releaseRefSchema,
   runSchema,
   runSummarySchema,
@@ -81,6 +82,8 @@ export const stateFileSchema = z
     eventCounter: z.number().int().nonnegative(),
     /** The updater's last update of itself (self-update.ts); null when there never was one. */
     selfUpdate: selfUpdateRecordSchema.nullable().default(null),
+    /** The last start of the mounter from the web interface (mounter-enable.ts). */
+    mounterEnable: mounterEnableRecordSchema.nullable().default(null),
   })
   .superRefine((state, ctx) => {
     if (state.phase !== "idle" && state.run === null) {
@@ -99,6 +102,7 @@ export function initialState(): StateFile {
     events: [],
     eventCounter: 0,
     selfUpdate: null,
+    mounterEnable: null,
   };
 }
 

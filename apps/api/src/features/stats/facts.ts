@@ -3,6 +3,7 @@ import type { ReasonCount } from "./causes.js";
 import type { TenantRefDto } from "./dto.js";
 import type { EndpointFacts } from "./endpoint-facts.js";
 import type { GuestFacts } from "./guest-facts.js";
+import type { ShareFacts } from "./share-facts.js";
 
 /**
  * What the statistics read from one tenant's tables (collect.ts), before
@@ -125,6 +126,12 @@ export interface TenantFacts {
    * tenant has none.
    */
   readonly guests?: GuestFacts;
+  /**
+   * File shares (share-facts.ts): counted like the guests, in the readiness series, the
+   * protected-objects figures and the backup outcomes, and besides in the restores and the
+   * volume. Absent, the tenant has none.
+   */
+  readonly fileShares?: ShareFacts;
   /**
    * The largest newest backups of protected objects at the end of the
    * period, biggest first.

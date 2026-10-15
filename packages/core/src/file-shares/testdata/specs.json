@@ -1,0 +1,258 @@
+{
+  "comment": "Shared test vectors of the file share runner protocol (docs/FILESHARES.md 3.2): apps/api/src/mounter/runner-protocol.test.ts and packages/core/src/file-shares/validate.test.ts both check them; runner-ops.test.ts checks the option strings.",
+  "shareNames": {
+    "valid": ["Data", "Scans 2026", "Buchhaltung$", "a", "Ünïcode-Freigabe", "x.y"],
+    "invalid": [
+      "",
+      ".",
+      "..",
+      "a/b",
+      "a\\b",
+      "a:b",
+      "a*b",
+      "a?b",
+      "a\"b",
+      "a<b",
+      "a>b",
+      "a|b",
+      "a\u0001b",
+      " lead",
+      "trail ",
+      "123456789012345678901234567890123456789012345678901234567890123456789012345678901"
+    ]
+  },
+  "subfolders": {
+    "valid": ["", "Finance", "Finance/2026", "with space/and Ümlaut"],
+    "invalid": ["/abs", "trail/", "a//b", "../up", "a/../b", "a/./b", "back\\slash", "ctl\u0007"]
+  },
+  "usernames": {
+    "valid": ["backup", "svc.backup@corp.example", "Backup Operator"],
+    "invalid": ["", "DOMAIN\\user", "a,b", "a=b", "a/b", "tab\tuser"]
+  },
+  "domains": {
+    "valid": ["CORP", "corp.example.com", "a"],
+    "invalid": ["", "-corp", "corp domain", "corp,x", "corp_x"]
+  },
+  "passwords": {
+    "valid": [
+      "p",
+      "comma,inside",
+      "double,,comma",
+      "$dollar",
+      "%percent",
+      "e=mc2",
+      "\"quoted\"",
+      "'single'",
+      "with space",
+      "back\\slash",
+      "Ünïcödé-密码",
+      "ends,",
+      ",starts"
+    ],
+    "invalid": ["", "tab\there", "new\nline", "del\u007f", "x,ro", "rw,y", "a,nosuid,b"]
+  },
+  "addresses": {
+    "valid": ["10.0.0.5", "203.0.113.7", "2001:db8::1", "fd00::5"],
+    "invalid": ["fs1.corp.example", "[2001:db8::1]", "fe80::1%eth0", "10.0.0", ""]
+  },
+  "specs": {
+    "valid": [
+      {
+        "protocol": "smb",
+        "server": "fs1.corp.example",
+        "address": "10.0.0.5",
+        "share": "Data",
+        "subfolder": "",
+        "username": "backup",
+        "password": "pa,ss=w$rd",
+        "domain": "CORP",
+        "smbVersion": "3.1.1",
+        "seal": true
+      },
+      {
+        "protocol": "smb",
+        "server": "10.0.0.5",
+        "address": "10.0.0.5",
+        "share": "Scans 2026",
+        "subfolder": "Inbox/2026",
+        "username": "scanner@corp.example",
+        "password": "x",
+        "domain": null,
+        "smbVersion": "2.1",
+        "seal": false
+      },
+      {
+        "protocol": "nfs",
+        "server": "nas.local",
+        "address": "192.168.1.20",
+        "export": "/volume1/data",
+        "subfolder": "",
+        "nfsVersion": "4.1"
+      },
+      {
+        "protocol": "nfs",
+        "server": "2001:db8::10",
+        "address": "2001:db8::10",
+        "export": "/",
+        "subfolder": "home",
+        "nfsVersion": "3"
+      }
+    ],
+    "invalid": [
+      {
+        "why": "SMB 1.0",
+        "spec": {
+          "protocol": "smb",
+          "server": "fs1",
+          "address": "10.0.0.5",
+          "share": "Data",
+          "subfolder": "",
+          "username": "u",
+          "password": "p",
+          "domain": null,
+          "smbVersion": "1.0",
+          "seal": false
+        }
+      },
+      {
+        "why": "SMB 2.0",
+        "spec": {
+          "protocol": "smb",
+          "server": "fs1",
+          "address": "10.0.0.5",
+          "share": "Data",
+          "subfolder": "",
+          "username": "u",
+          "password": "p",
+          "domain": null,
+          "smbVersion": "2.0",
+          "seal": false
+        }
+      },
+      {
+        "why": "seal with 2.1",
+        "spec": {
+          "protocol": "smb",
+          "server": "fs1",
+          "address": "10.0.0.5",
+          "share": "Data",
+          "subfolder": "",
+          "username": "u",
+          "password": "p",
+          "domain": null,
+          "smbVersion": "2.1",
+          "seal": true
+        }
+      },
+      {
+        "why": "host name as address",
+        "spec": {
+          "protocol": "smb",
+          "server": "fs1",
+          "address": "fs1",
+          "share": "Data",
+          "subfolder": "",
+          "username": "u",
+          "password": "p",
+          "domain": null,
+          "smbVersion": "3.0",
+          "seal": false
+        }
+      },
+      {
+        "why": "server with an option",
+        "spec": {
+          "protocol": "smb",
+          "server": "fs1,sec=krb5",
+          "address": "10.0.0.5",
+          "share": "Data",
+          "subfolder": "",
+          "username": "u",
+          "password": "p",
+          "domain": null,
+          "smbVersion": "3.0",
+          "seal": false
+        }
+      },
+      {
+        "why": "an option string",
+        "spec": {
+          "protocol": "smb",
+          "server": "fs1",
+          "address": "10.0.0.5",
+          "share": "Data",
+          "subfolder": "",
+          "username": "u",
+          "password": "p",
+          "domain": null,
+          "smbVersion": "3.0",
+          "seal": false,
+          "options": "sec=ntlm"
+        }
+      },
+      {
+        "why": "export with a comma",
+        "spec": {
+          "protocol": "nfs",
+          "server": "nas",
+          "address": "10.0.0.6",
+          "export": "/a,b",
+          "subfolder": "",
+          "nfsVersion": "4.1"
+        }
+      },
+      {
+        "why": "subfolder traversal",
+        "spec": {
+          "protocol": "nfs",
+          "server": "nas",
+          "address": "10.0.0.6",
+          "export": "/a",
+          "subfolder": "../etc",
+          "nfsVersion": "4.1"
+        }
+      },
+      {
+        "why": "unknown nfs version",
+        "spec": {
+          "protocol": "nfs",
+          "server": "nas",
+          "address": "10.0.0.6",
+          "export": "/a",
+          "subfolder": "",
+          "nfsVersion": "2"
+        }
+      }
+    ]
+  },
+  "options": [
+    {
+      "spec": 0,
+      "access": "ro",
+      "type": "cifs",
+      "device": "//fs1.corp.example/Data",
+      "o": "addr=10.0.0.5,vers=3.1.1,sec=ntlmssp,username=backup,password=pa,,ss=w$rd,domain=CORP,seal,ro,soft,echo_interval=30,actimeo=1,nodfs,noperm,backupuid=0,uid=0,gid=0,file_mode=0644,dir_mode=0755,nobrl,nostrictsync"
+    },
+    {
+      "spec": 1,
+      "access": "rw",
+      "type": "cifs",
+      "device": "//10.0.0.5/Scans 2026/Inbox/2026",
+      "o": "addr=10.0.0.5,vers=2.1,sec=ntlmssp,username=scanner@corp.example,password=x,rw,soft,echo_interval=30,actimeo=1,nodfs,noperm,backupuid=0,uid=0,gid=0,file_mode=0644,dir_mode=0755,nobrl,nostrictsync"
+    },
+    {
+      "spec": 2,
+      "access": "ro",
+      "type": "nfs",
+      "device": ":/volume1/data",
+      "o": "addr=192.168.1.20,vers=4.1,ro,soft,timeo=600,retrans=3,noatime"
+    },
+    {
+      "spec": 3,
+      "access": "rw",
+      "type": "nfs",
+      "device": ":/home",
+      "o": "addr=2001:db8::10,vers=3,rw,soft,timeo=600,retrans=3,noatime,nolock"
+    }
+  ]
+}

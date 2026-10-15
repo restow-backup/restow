@@ -58,7 +58,29 @@ export interface CreateContainerBody {
     AutoRemove?: boolean;
     SecurityOpt?: string[];
     Privileged?: boolean;
+    /** The mounter's runner containers (docs/FILESHARES.md 3.4). */
+    CapDrop?: string[];
+    CapAdd?: string[];
+    ReadonlyRootfs?: boolean;
+    Tmpfs?: Record<string, string>;
+    /** Bytes. */
+    Memory?: number;
+    MemorySwap?: number;
+    PidsLimit?: number;
+    LogConfig?: { Type: string; Config: Record<string, string> };
   };
+}
+
+/** One entry of `GET /containers/json`. */
+export interface ContainerSummary {
+  Id: string;
+  Labels: Record<string, string>;
+  /** `created`, `running`, `exited`, ... */
+  State: string;
+  /** The id of the image (`sha256:...`). */
+  ImageID: string;
+  /** Unix seconds. */
+  Created: number;
 }
 
 export interface CreateVolumeBody {
@@ -471,6 +493,43 @@ export class EngineClient {
       Name: volume.Name,
       Labels: volume.Labels ?? {},
     }));
+  }
+
+  /** Containers (running or not) that carry every one of these labels (`key` or `key=value`). */
+  async listContainers(labels: readonly string[]): Promise<ContainerSummary[]> {
+    const response = await this.request("GET", "/containers/json", {
+      query: { all: "1", filters: JSON.stringify({ label: labels }) },
+    });
+    return this.json<Partial<ContainerSummary>[]>(response, "Listing containers").map((entry) => ({
+      Id: entry.Id ?? "",
+      Labels: entry.Labels ?? {},
+      State: entry.State ?? "",
+      ImageID: entry.ImageID ?? "",
+      Created: entry.Created ?? 0,
+    }));
+  }
+
+  /** Stop a container: SIGTERM, then SIGKILL after `timeoutSeconds`. A missing or stopped one counts as stopped. */
+  async stopContainer(id: string, timeoutSeconds: number): Promise<void> {
+    const response = await this.request("POST", `/containers/${id}/stop`, {
+      query: { t: String(timeoutSeconds) },
+      timeoutMs: (timeoutSeconds + 30) * 1000,
+    });
+    if (response.status !== 204 && response.status !== 304 && response.status !== 404) {
+      throw this.failure(response, "Stopping a container");
+    }
+  }
+
+  /** Whether a network of this name exists. */
+  async networkExists(name: string): Promise<boolean> {
+    const response = await this.request("GET", `/networks/${encodeURIComponent(name)}`);
+    if (response.status === 404) {
+      return false;
+    }
+    if (response.status !== 200) {
+      throw this.failure(response, "Inspecting a network");
+    }
+    return true;
   }
 
   /** Ids of all containers (running or not) that carry a label. */

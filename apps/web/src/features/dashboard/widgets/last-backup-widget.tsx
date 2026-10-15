@@ -6,6 +6,7 @@ import {
   type LucideIcon,
   Mail,
   MailOpen,
+  Network,
   Server,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -19,7 +20,7 @@ import { WidgetCard, type WidgetStateProps } from "../components/widget-frame.js
 import { PATHS, to } from "../paths.js";
 import { isStale, staleBound } from "../presenters.js";
 
-type BackupType = "mail" | "onedrive" | "imap" | "machines" | "guests" | "archive";
+type BackupType = "mail" | "onedrive" | "imap" | "machines" | "guests" | "fileShares" | "archive";
 
 const TYPE_ICON: Readonly<Record<BackupType, LucideIcon>> = {
   mail: Mail,
@@ -27,6 +28,7 @@ const TYPE_ICON: Readonly<Record<BackupType, LucideIcon>> = {
   imap: MailOpen,
   machines: Server,
   guests: Container,
+  fileShares: Network,
   archive: Archive,
 };
 
@@ -77,6 +79,13 @@ export function backupTypeRows(data: LastBackupData): TypeRow[] {
       at: data.guests?.lastSuccessAt ?? null,
       protectedCount: (data.guests?.protected ?? 0) + (data.guests?.withoutJob ?? 0),
       staleAfterHours: data.staleAfterHours.guests ?? data.staleAfterHours.machines,
+    },
+    // File shares (SMB, NFS); a share in no job still shows the row, like a machine.
+    {
+      type: "fileShares",
+      at: data.fileShares?.lastSuccessAt ?? null,
+      protectedCount: (data.fileShares?.protected ?? 0) + (data.fileShares?.withoutJob ?? 0),
+      staleAfterHours: data.staleAfterHours.fileShares ?? data.staleAfterHours.machines,
     },
   ];
   const used = rows.filter((row) => (row.protectedCount ?? 0) > 0 || row.at !== null);

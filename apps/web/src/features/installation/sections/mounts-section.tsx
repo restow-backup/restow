@@ -41,12 +41,14 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
+import { FileShareRunnersCard } from "@/features/file-shares/components/runners-card";
 import { CommandBlock } from "@/features/updates/components/command-block";
 import { ProgressBar } from "@/features/updates/progress-bar";
 import { formatRelative } from "@/lib/format";
 import { isRecentSignInRequired } from "@/lib/recent-sign-in";
 
 import { AccessNote, ReadOnlyGroup, useInstallationAccess } from "../access";
+import { EnableMounterButton, canEnableThroughUpdater } from "./enable-mounter";
 import {
   type MOUNT_STEPS,
   type MountOperation,
@@ -141,6 +143,8 @@ export function MountsContent({ view }: { view: MountsView }) {
           />
         </>
       )}
+      {/* File share runners (docs/FILESHARES.md 7.4): the mounter runs them, so they are here. */}
+      <FileShareRunnersCard />
     </div>
   );
 }
@@ -160,6 +164,11 @@ export function UnavailableCard({
 }) {
   const { t } = useTranslation("installation");
   const { t: tu } = useTranslation("updates");
+  const access = useInstallationAccess();
+  // "Enable network shares" through the opt-in updater (docs/FILESHARES.md 3.9), for the owner;
+  // not while the compose file lacks the mounter (the installer has to update it first).
+  const button =
+    access.change === null && !view.updateComposeCommand && canEnableThroughUpdater(view);
   if (view.demo) {
     return (
       <Alert variant="info" data-slot="mounts-demo">
@@ -175,6 +184,8 @@ export function UnavailableCard({
         <CardDescription>{t("mounts.unavailable.description")}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
+        {button ? <EnableMounterButton view={view} mayEnable /> : null}
+        {button ? <p className="text-sm">{t("mounts.enable.orCommand")}</p> : null}
         {view.updateComposeCommand ? (
           <Alert variant="warning" data-slot="mounts-compose-outdated">
             <TriangleAlert />

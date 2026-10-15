@@ -138,6 +138,11 @@
       "title": "{count, plural, one {# guest in no backup job} other {# guests in no backup job}}",
       "description": "These VMs and containers are no longer backed up. Their existing restore points keep their rating; new ones are only made once you add the guest to a backup job.",
       "action": "Open VMs & containers"
+    },
+    "sharesWithoutJob": {
+      "title": "{count, plural, one {# file share in no backup job} other {# file shares in no backup job}}",
+      "description": "These file shares are no longer backed up. Their existing restore points keep their rating; new ones are only made once you add the share to a backup job.",
+      "action": "Open file shares"
     }
   },
   "lastBackup": {
@@ -150,7 +155,8 @@
       "imap": "IMAP mailboxes",
       "archive": "Archive",
       "machines": "Servers and clients",
-      "guests": "VMs and containers"
+      "guests": "VMs and containers",
+      "fileShares": "File shares"
     },
     "empty": {
       "title": "No backups yet",
@@ -178,7 +184,10 @@
     "withGuests": "{count, plural, one {including # VM or container} other {including # VMs and containers}}",
     "noBackup": "{count, plural, one {# without a backup} other {# without a backup}}",
     "withoutJob": "{count, plural, one {# machine in no backup job} other {# machines in no backup job}}",
-    "guestsWithoutJob": "{count, plural, one {# guest in no backup job} other {# guests in no backup job}}"
+    "guestsWithoutJob": "{count, plural, one {# guest in no backup job} other {# guests in no backup job}}",
+    "withShares": "{count, plural, one {including # file share} other {including # file shares}}",
+    "sharesWithoutJob": "{count, plural, one {# file share in no backup job} other {# file shares in no backup job}}",
+    "sharesWithWarnings": "{count, plural, one {# file share with warnings} other {# file shares with warnings}}"
   },
   "storage": {
     "title": "Stored",
@@ -425,6 +434,8 @@
         "machines_without_job": "{count, plural, one {# machine is in no backup job and is not backed up.} other {# machines are in no backup job and are not backed up.}}",
         "guest_backup_failed": "{count, plural, one {The last backup of # guest (VM or container) failed.} other {The last backup of # guests (VMs or containers) failed.}}",
         "guests_without_job": "{count, plural, one {# guest (VM or container) is in no backup job and is not backed up.} other {# guests (VMs or containers) are in no backup job and are not backed up.}}",
+        "file_share_backup_failed": "{count, plural, one {The last backup of # file share failed.} other {The last backup of # file shares failed.}}",
+        "file_shares_without_job": "{count, plural, one {# file share is in no backup job and is not backed up.} other {# file shares are in no backup job and are not backed up.}}",
         "needs_attention": "{count, plural, one {# object needs attention (gaps or an overdue restore check).} other {# objects need attention (gaps or an overdue restore check).}}",
         "nothing_protected": "The tenant protects nothing yet."
       },

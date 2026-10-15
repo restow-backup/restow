@@ -157,6 +157,16 @@ export function spawnRestic(
   return { child, done };
 }
 
+/** The error of a restic run that ended badly (for callers that spawn restic themselves). */
+export function resticErrorOf(
+  args: readonly string[],
+  exitCode: number | null,
+  stderr: string,
+  signal: NodeJS.Signals | null = null,
+): ResticError {
+  return failure(args, exitCode, stderr, signal);
+}
+
 function failure(
   args: readonly string[],
   exitCode: number | null,
@@ -212,12 +222,18 @@ export async function runRestic(
 // Sessions
 // ---------------------------------------------------------------------------
 
+/**
+ * A restic repository the server opens for its own work: where it lives (a storage prefix such as
+ * `endpoints/<endpoint id>/`, `pve-guests/<guest id>/` or `file-shares/<share id>/`), its
+ * password, and the key of its local restic cache folder (one per repository).
+ */
 export interface RepositoryAccess {
   readonly storage: StorageBackend;
-  /** `endpoints/<endpoint id>/` */
+  /** The repository's storage prefix, with a trailing slash. */
   readonly prefix: string;
   readonly repositoryPassword: string;
-  readonly endpointId: string;
+  /** Names the repository's cache folder below `cacheBase` (the endpoint id for a machine). */
+  readonly repositoryKey: string;
   readonly binary?: string;
   readonly cacheBase?: string;
 }
@@ -249,7 +265,7 @@ export async function openRepository(access: RepositoryAccess): Promise<OpenRepo
       username: listener.username,
       password: listener.password,
       repositoryPassword: access.repositoryPassword,
-      cacheDir: join(access.cacheBase ?? resticCacheBase(), access.endpointId),
+      cacheDir: join(access.cacheBase ?? resticCacheBase(), access.repositoryKey),
       binary: access.binary,
     },
     close: () => listener.close(),

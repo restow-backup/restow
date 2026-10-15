@@ -8,6 +8,7 @@ import {
   Pause,
   Pencil,
   Play,
+  Repeat,
   Trash2,
 } from "lucide-react";
 import * as React from "react";
@@ -32,9 +33,10 @@ import { ApiError } from "@/lib/api";
 import type { JobKind, JobMember } from "../api.js";
 import { JobsAccessNote, closedProps, useJobsAccess } from "../components/access-note.js";
 import { AddMembersSheet } from "../components/add-members-sheet.js";
+import { CopyScope } from "../components/copy-scope.js";
 import { useJobActions } from "../components/job-actions.js";
 import { JobStateBadge, RestoreCheckBadge } from "../components/job-cells.js";
-import { JobEditor } from "../components/job-editor.js";
+import { KindEditor } from "../components/kind-editor.js";
 import { MembersTable } from "../components/members-table.js";
 import { OverridesSheet } from "../components/overrides-sheet.js";
 import { OverviewTab } from "../components/overview-tab.js";
@@ -90,6 +92,7 @@ export function JobDetailPage({
   const [adding, setAdding] = React.useState(false);
   const [overrides, setOverrides] = React.useState<JobMember | null>(null);
   const [removing, setRemoving] = React.useState<JobMember | null>(null);
+  const [forcing, setForcing] = React.useState(false);
   const actions = useJobActions({ onDeleted: (deleted) => onDeleted(deleted.kind) });
   const runMember = useRunBackupJob();
   const remove = useRemoveJobMember(jobId);
@@ -156,6 +159,8 @@ export function JobDetailPage({
 
   const change = switchAction(job);
   const allMode = job.scopeMode === "all";
+  // A file share job's folders and shares are chosen in its editor, with a live browser of each share.
+  const sharesInEditor = job.kind === "share";
 
   const runOne = (member: JobMember) =>
     runMember.mutate(
@@ -180,7 +185,7 @@ export function JobDetailPage({
       <PageHeader
         icon={ListChecks}
         title={job.name}
-        description={describeScope(job.scope, job.kind, t)}
+        description={describeScope(job.scope, job.kind, t, job.copy)}
         actions={back}
       >
         <RefreshButton
@@ -228,6 +233,18 @@ export function JobDetailPage({
           name={job.name}
           describedBy={access.closed ? access.noteId : undefined}
           actions={[
+            ...(job.kind === "copy"
+              ? [
+                  {
+                    id: "copy-anyway",
+                    label: t("copyEditor.anyway.action"),
+                    icon: Repeat,
+                    disabled: access.closed,
+                    describedBy: access.closed ? access.noteId : undefined,
+                    onSelect: () => setForcing(true),
+                  },
+                ]
+              : []),
             {
               id: "delete",
               label: t("actions.delete"),
@@ -273,47 +290,52 @@ export function JobDetailPage({
         </TabsContent>
 
         <TabsContent value="scope" className="space-y-4 pt-2">
-          {allMode ? (
+          {job.kind === "copy" ? <CopyScope job={job} /> : null}
+          {job.kind !== "copy" && allMode ? (
             <Alert variant="info" data-slot="all-note">
               <ListChecks aria-hidden="true" />
               <AlertDescription>{t("scope.allBody")}</AlertDescription>
             </Alert>
           ) : null}
-          <MembersTable
-            job={job}
-            items={members.data?.items}
-            loading={members.isPending && members.fetchStatus !== "idle"}
-            fetching={members.isFetching}
-            error={members.error}
-            onRetry={() => void members.refetch()}
-            access={access}
-            canChangeScope={!allMode}
-            onAdd={() => setAdding(true)}
-            onEditOverrides={setOverrides}
-            onRun={runOne}
-            onRemove={setRemoving}
-            empty={
-              <EmptyState
-                icon={ListChecks}
-                title={t(`scope.empty.title.${job.kind}`)}
-                description={t(`scope.empty.description.${job.kind}`)}
-                variant="plain"
-                actions={
-                  allMode ? null : (
-                    <Button
-                      variant="outline"
-                      disabled={access.closed}
-                      onClick={() => setAdding(true)}
-                      {...closedProps(access)}
-                    >
-                      <ListPlus aria-hidden="true" />
-                      {t("scope.actions.add")}
-                    </Button>
-                  )
-                }
-              />
-            }
-          />
+          {job.kind === "copy" ? null : (
+            <MembersTable
+              job={job}
+              items={members.data?.items}
+              loading={members.isPending && members.fetchStatus !== "idle"}
+              fetching={members.isFetching}
+              error={members.error}
+              onRetry={() => void members.refetch()}
+              access={access}
+              canChangeScope={!allMode}
+              onAdd={() => (sharesInEditor ? setEditing(true) : setAdding(true))}
+              onEditOverrides={(member) =>
+                sharesInEditor ? setEditing(true) : setOverrides(member)
+              }
+              onRun={runOne}
+              onRemove={setRemoving}
+              empty={
+                <EmptyState
+                  icon={ListChecks}
+                  title={t(`scope.empty.title.${job.kind}`)}
+                  description={t(`scope.empty.description.${job.kind}`)}
+                  variant="plain"
+                  actions={
+                    allMode ? null : (
+                      <Button
+                        variant="outline"
+                        disabled={access.closed}
+                        onClick={() => (sharesInEditor ? setEditing(true) : setAdding(true))}
+                        {...closedProps(access)}
+                      >
+                        <ListPlus aria-hidden="true" />
+                        {t("scope.actions.add")}
+                      </Button>
+                    )
+                  }
+                />
+              }
+            />
+          )}
         </TabsContent>
 
         <TabsContent value="settings" className="pt-2">
@@ -332,7 +354,7 @@ export function JobDetailPage({
         </TabsContent>
       </Tabs>
 
-      <JobEditor
+      <KindEditor
         open={editing}
         onOpenChange={setEditing}
         kind={job.kind}
@@ -371,6 +393,18 @@ export function JobDetailPage({
           await remove.mutateAsync(removing.targetId);
           toast.success(t("toasts.removed", { name: removing.name }));
           setRemoving(null);
+        }}
+      />
+      <ConfirmDialog
+        open={forcing}
+        onOpenChange={setForcing}
+        title={t("copyEditor.anyway.title", { name: job.name })}
+        description={<p>{t("copyEditor.anyway.description")}</p>}
+        confirmLabel={t("copyEditor.anyway.confirm")}
+        destructive
+        onConfirm={() => {
+          actions.runNow(job, undefined, { force: true });
+          setForcing(false);
         }}
       />
       {actions.dialogs}

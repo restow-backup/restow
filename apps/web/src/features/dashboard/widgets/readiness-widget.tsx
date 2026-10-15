@@ -6,6 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import { inventoryTo } from "@/features/endpoints/paths";
+import { fileSharesTo } from "@/features/file-shares/paths";
 import { pveTo } from "@/features/pve/paths";
 import { verifyLink } from "@/features/verify/search";
 import type { ReadinessWidget as ReadinessData } from "../api.js";
@@ -112,6 +113,22 @@ function ReadinessBody({ data, canAdminister }: { data: ReadinessData; canAdmini
             {canAdminister ? (
               <LinkButton {...pveTo()} size="xs" className="mt-1">
                 {t("readiness.guestsWithoutJob.action")}
+              </LinkButton>
+            ) : null}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {(data.sharesWithoutJob ?? 0) > 0 ? (
+        <Alert variant="warning" data-flag="shares-without-job">
+          <TriangleAlert />
+          <AlertTitle>
+            {t("readiness.sharesWithoutJob.title", { count: data.sharesWithoutJob ?? 0 })}
+          </AlertTitle>
+          <AlertDescription className="gap-2">
+            <p>{t("readiness.sharesWithoutJob.description")}</p>
+            {canAdminister ? (
+              <LinkButton {...fileSharesTo()} size="xs" className="mt-1">
+                {t("readiness.sharesWithoutJob.action")}
               </LinkButton>
             ) : null}
           </AlertDescription>

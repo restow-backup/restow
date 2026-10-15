@@ -399,6 +399,10 @@
       "storage_quota": "Speicherbudget von Servern und Clients",
       "repository_locked": "Sicherungsdaten eines Servers oder Clients bleiben gesperrt"
     },
+    "file_share": {
+      "storage_quota": "Speicherbudget der Freigaben",
+      "repository_locked": "Sicherungsdaten einer Freigabe bleiben gesperrt"
+    },
     "update": {
       "available": "Update verfügbar"
     }
@@ -432,6 +436,10 @@
       "suspicious_snapshot": "Ein Snapshot ist aufgetaucht, den kein Sicherungslauf gemeldet hat, oder einer, der in der Zukunft datiert ist. Die Aufbewahrung behält ihn; der Rechner könnte kompromittiert sein.",
       "storage_quota": "Die Sicherungsdaten eines Rechners oder alle eines Mandanten zusammen haben 90 Prozent des Speicherbudgets erreicht, oder Sicherungen wurden abgelehnt, weil es ausgeschöpft ist.",
       "repository_locked": "Aufbewahrung und Prüfungen fanden die Sicherungsdaten eines Rechners länger als zwölf Stunden gesperrt vor."
+    },
+    "file_share": {
+      "storage_quota": "Die Sicherungsdaten einer Freigabe oder aller Freigaben eines Mandanten zusammen haben 80 Prozent des Speicherbudgets erreicht, oder neue Sicherungen werden abgelehnt, weil es aufgebraucht ist.",
+      "repository_locked": "Aufbewahrung und Prüfungen fanden die Sicherungsdaten einer Freigabe länger als zwölf Stunden gesperrt vor."
     },
     "update": {
       "available": "Eine neuere Version der Software ist verfügbar. Wird einmal je Version für die gesamte Installation ausgelöst und kann daher nur von Provider-Administratoren gewählt werden."
@@ -537,6 +545,10 @@
     "endpoint": {
       "stale": "Meldet sich nicht: {object}",
       "suspicious_snapshot": "Verdächtiger Snapshot: {object}",
+      "storage_quota": "Speicherbudget: {object}",
+      "repository_locked": "Sicherungsdaten gesperrt: {object}"
+    },
+    "file_share": {
       "storage_quota": "Speicherbudget: {object}",
       "repository_locked": "Sicherungsdaten gesperrt: {object}"
     },

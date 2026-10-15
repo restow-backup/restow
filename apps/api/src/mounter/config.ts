@@ -24,6 +24,15 @@ export interface MounterConfig {
   healthTimeoutSeconds: number;
   probeTimeoutSeconds: number;
   version: string | null;
+  /** File share runners (docs/FILESHARES.md 3.8). */
+  runner: {
+    maxRunners: number;
+    apiUrl: string;
+    networkKey: string;
+    execTimeoutSeconds: number;
+    maxMemoryMiB: number;
+    selinux: boolean;
+  };
 }
 
 export class MounterConfigError extends Error {
@@ -37,6 +46,10 @@ type Env = Readonly<Record<string, string | undefined>>;
 
 const PROJECT_NAME = /^[a-z0-9][a-z0-9_-]{0,62}$/;
 const IMAGE_REFERENCE = /^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,199}$/;
+/** A compose network key. */
+const NETWORK_KEY = /^[a-z0-9][a-z0-9_.-]{0,62}$/;
+/** http(s)://host[:port] on the internal network, no credentials, no path beyond `/`. */
+const API_URL = /^https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?\/?$/;
 
 function text(env: Env, name: string): string | undefined {
   const value = env[name]?.trim();
@@ -130,6 +143,36 @@ export function loadMounterConfig(env: Env): MounterConfig {
     problems,
   );
 
+  const maxRunners = integer(env, "RESTOW_MOUNTER_MAX_RUNNERS", 8, 1, 64, problems);
+  const runnerApiUrl = text(env, "RESTOW_MOUNTER_RUNNER_API_URL") ?? "http://api:3000";
+  if (!API_URL.test(runnerApiUrl)) {
+    problems.push("RESTOW_MOUNTER_RUNNER_API_URL must be http(s)://host[:port]");
+  }
+  const networkKey = text(env, "RESTOW_MOUNTER_RUNNER_NETWORK") ?? "runners";
+  if (!NETWORK_KEY.test(networkKey)) {
+    problems.push("RESTOW_MOUNTER_RUNNER_NETWORK must be a compose network name");
+  }
+  const execTimeoutSeconds = integer(
+    env,
+    "RESTOW_MOUNTER_RUNNER_EXEC_TIMEOUT_SECONDS",
+    60,
+    5,
+    600,
+    problems,
+  );
+  const maxMemoryMiB = integer(
+    env,
+    "RESTOW_MOUNTER_RUNNER_MAX_MEMORY_MIB",
+    16384,
+    512,
+    1_048_576,
+    problems,
+  );
+  const selinuxRaw = (text(env, "RESTOW_MOUNTER_SELINUX_CONTEXT") ?? "false").toLowerCase();
+  if (!["true", "false", "1", "0", "yes", "no"].includes(selinuxRaw)) {
+    problems.push("RESTOW_MOUNTER_SELINUX_CONTEXT must be true or false");
+  }
+
   if (problems.length > 0) {
     throw new MounterConfigError(problems);
   }
@@ -144,5 +187,13 @@ export function loadMounterConfig(env: Env): MounterConfig {
     healthTimeoutSeconds,
     probeTimeoutSeconds,
     version: text(env, "RESTOW_VERSION") ?? null,
+    runner: {
+      maxRunners,
+      apiUrl: runnerApiUrl.replace(/\/+$/, ""),
+      networkKey,
+      execTimeoutSeconds,
+      maxMemoryMiB,
+      selinux: ["true", "1", "yes"].includes(selinuxRaw),
+    },
   };
 }

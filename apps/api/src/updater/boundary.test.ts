@@ -61,6 +61,7 @@ describe("updater boundary", () => {
       "store.ts",
       "protocol.ts",
       "runner-helper.ts",
+      "mounter-enable.ts",
     ]) {
       expect(names).toContain(expected);
     }

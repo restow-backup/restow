@@ -8,9 +8,16 @@ import { apiFetch } from "@/lib/api";
  * failures/warnings.ts).
  */
 
-export type WarningTargetKind = "object" | "machine";
+/** `share`: a file share whose backup ended with warnings (docs/FILESHARES.md 13). */
+export type WarningTargetKind = "object" | "machine" | "share";
 export type WarningState = "none" | "failed" | "open" | "acknowledged";
-export type WarningSubjectKind = "mailbox" | "onedrive" | "imap" | "server" | "client";
+export type WarningSubjectKind =
+  | "mailbox"
+  | "onedrive"
+  | "imap"
+  | "server"
+  | "client"
+  | "file_share";
 export type RunOutcome = "queued" | "running" | "succeeded" | "partial" | "failed" | "cancelled";
 
 export interface WarningTarget {

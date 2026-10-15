@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  ENDPOINT_QUOTA_THRESHOLDS,
   GIB,
   endpointBudgetBytes,
   endpointQuotaLimits,
+  quotaCleared,
   quotaLevelOf,
   quotaRatio,
   remainingQuotaBytes,
@@ -88,5 +90,16 @@ describe("the storage budget of endpoint repositories", () => {
     expect(quotaLevelOf(0, 0)).toBe("exceeded");
     expect(quotaRatio(25, 100)).toBe(0.25);
     expect(quotaRatio(25, null)).toBeNull();
+  });
+});
+
+describe("thresholds as parameters", () => {
+  it("keep the machines' 90/80 and take another pair", () => {
+    expect(ENDPOINT_QUOTA_THRESHOLDS).toEqual({ near: 0.9, clear: 0.8 });
+    expect(quotaLevelOf(85, 100, { near: 0.8, clear: 0.7 })).toBe("near");
+    expect(quotaLevelOf(85, 100)).toBe("ok");
+    expect(quotaCleared(79, 100)).toBe(true);
+    expect(quotaCleared(79, 100, { near: 0.8, clear: 0.7 })).toBe(false);
+    expect(quotaCleared(5, null)).toBe(true);
   });
 });

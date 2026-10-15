@@ -61,6 +61,8 @@ export class Stack {
     this.garageImage = options.garageImage;
     this.licensePublicKey = options.licensePublicKey ?? null;
     this.imapPassword = hex(12);
+    // The SMB account of the Samba server of check 12 (scripts/smoke/samba).
+    this.smbPassword = hex(12);
     this.postgresPassword = hex(16);
     this.appPassword = hex(16);
     this.providerPassword = hex(16);
@@ -141,6 +143,7 @@ export class Stack {
       SMOKE_IMAP_MAILBOXES: MAILBOXES.join(","),
       SMOKE_IMAP_PASSWORD: this.imapPassword,
       SMOKE_IMAP_PORT: this.ports.imap,
+      SMOKE_SMB_PASSWORD: this.smbPassword,
       SMOKE_S3_PORT: this.ports.s3,
       SMOKE_GARAGE_CONFIG: join(this.dir, "garage.toml"),
     };
@@ -230,10 +233,11 @@ export class Stack {
   }
 
   async down() {
-    return this.compose(["down", "--volumes", "--remove-orphans", "--timeout", "10"], {
-      allowFailure: true,
-      timeoutMs: 180_000,
-    });
+    // `--profile mounts`: the mounter check 12 starts is part of the project too.
+    return this.compose(
+      ["--profile", "mounts", "down", "--volumes", "--remove-orphans", "--timeout", "10"],
+      { allowFailure: true, timeoutMs: 180_000 },
+    );
   }
 
   async exec(service, command, options = {}) {

@@ -52,11 +52,13 @@ export interface LastBackupWidget {
   machines: { protected: number; withoutJob: number; lastSuccessAt: string | null };
   /** VMs and containers of Proxmox VE: in an enabled job, in none, and their newest good backup. */
   guests: { protected: number; withoutJob: number; lastSuccessAt: string | null };
+  /** File shares (SMB, NFS): in an enabled job, in none, and their newest good backup. */
+  fileShares: { protected: number; withoutJob: number; lastSuccessAt: string | null };
   /**
    * After how many hours without a successful backup a type reads as overdue, from the
    * schedules of the tenant's enabled jobs (twice the longest planned gap, two days without any).
    */
-  staleAfterHours: { mail: number; machines: number; guests: number };
+  staleAfterHours: { mail: number; machines: number; guests: number; fileShares: number };
 }
 
 /**
@@ -75,7 +77,18 @@ export type ProtectedObjectsWidget = TenantSummaryDto["objects"] & {
     failedLastBackup: number;
     restorePoints: number;
   };
-  /** Protected objects, machines and guests without any backup yet (no run can have been fine). */
+  /**
+   * File shares: in an enabled job (protected), in none, with a failed newest backup, with
+   * warnings nobody acknowledged, and the restore points kept for them.
+   */
+  fileShares: {
+    protected: number;
+    withoutJob: number;
+    failedLastBackup: number;
+    warnings: number;
+    restorePoints: number;
+  };
+  /** Protected objects, machines, guests and shares without any backup yet (no run can have been fine). */
   noBackup: number;
 };
 
@@ -94,6 +107,8 @@ export interface ReadinessWidget {
   withoutJob: number;
   /** VMs and containers in no backup job that keep a restore point; they keep `overall` from green too. */
   guestsWithoutJob: number;
+  /** File shares in no backup job that keep a restore point; they keep `overall` from green too. */
+  sharesWithoutJob: number;
   running: number;
   lastCheckedAt: string | null;
 }
@@ -336,15 +351,15 @@ export interface LoadedTenantRowDto extends ProviderTenantRowBase {
   unverified: number;
   noBackup: number;
   /**
-   * Jobs of any kind, and backups and restores of servers and clients and of VMs and containers,
-   * that failed in the last 24 hours.
+   * Jobs of any kind, and backups and restores of servers and clients, of VMs and containers and
+   * of file shares, that failed in the last 24 hours.
    */
   failures24h: number;
   /** The same count for the 24 hours before, for the trend. */
   failuresPrevious24h: number;
   /**
    * Newest successful backup of any type (mail, OneDrive, IMAP, servers and clients, VMs and
-   * containers); null when there is none.
+   * containers, file shares); null when there is none.
    */
   lastBackupAt: string | null;
   /** After how many hours without a successful backup the tenant reads as stale (by its jobs' schedules). */
@@ -361,6 +376,12 @@ export interface LoadedTenantRowDto extends ProviderTenantRowBase {
   guestsWithoutJob: number;
   /** Protected VMs and containers whose newest backup run failed. */
   guestsFailed: number;
+  /** File shares in an enabled backup job. */
+  fileShares: number;
+  /** File shares in no enabled backup job: nothing backs them up. */
+  fileSharesWithoutJob: number;
+  /** Protected file shares whose newest backup run failed. */
+  fileSharesFailed: number;
   physicalBytes: number;
   storageError: boolean;
 }
@@ -388,6 +409,9 @@ export interface UnavailableTenantRowDto extends ProviderTenantRowBase {
   guests: null;
   guestsWithoutJob: null;
   guestsFailed: null;
+  fileShares: null;
+  fileSharesWithoutJob: null;
+  fileSharesFailed: null;
   physicalBytes: null;
   storageError: null;
 }
@@ -407,6 +431,8 @@ export const PROVIDER_ALERT_KINDS = [
   "machines_without_job",
   "guest_backup_failed",
   "guests_without_job",
+  "file_share_backup_failed",
+  "file_shares_without_job",
   "needs_attention",
   "nothing_protected",
 ] as const;

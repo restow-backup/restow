@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -91,6 +92,9 @@ type execSpec struct {
 	// "error"), which restic 0.19 writes to stderr, not stdout. They also stay
 	// in the stderr tail. Calls to it and to OnStdoutLine never overlap.
 	OnStderrError func(line []byte)
+	// RawStdout, when set, receives restic's stdout unchanged instead of
+	// OnStdoutLine (restic dump).
+	RawStdout io.Writer
 }
 
 type execResult struct {
@@ -135,11 +139,16 @@ func (r *Runner) exec(ctx context.Context, spec execSpec) (*execResult, error) {
 		defer handlerMu.Unlock()
 		fn(line)
 	}
-	cmd.Stdout = newLineWriter(func(line []byte) {
+	stdoutLines := newLineWriter(func(line []byte) {
 		if spec.OnStdoutLine != nil {
 			handle(spec.OnStdoutLine, line)
 		}
 	})
+	if spec.RawStdout != nil {
+		cmd.Stdout = spec.RawStdout
+	} else {
+		cmd.Stdout = stdoutLines
+	}
 	cmd.Stderr = newLineWriter(func(line []byte) {
 		text := strings.TrimSpace(strings.ReplaceAll(string(line), "\r", ""))
 		if len(text) > stderrLineCap {
@@ -178,7 +187,7 @@ func (r *Runner) exec(ctx context.Context, spec execSpec) (*execResult, error) {
 	// Wait copies the output through the writers above and, with WaitDelay
 	// set, does not hang if a grandchild keeps the pipes open.
 	waitErr := cmd.Wait()
-	cmd.Stdout.(*lineWriter).flush()
+	stdoutLines.flush()
 	cmd.Stderr.(*lineWriter).flush()
 	if cmd.ProcessState != nil {
 		res.ExitCode = cmd.ProcessState.ExitCode()

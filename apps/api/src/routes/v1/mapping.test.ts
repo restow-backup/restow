@@ -283,6 +283,7 @@ describe("verification report", () => {
       overdue: 0,
       withoutJob: 0,
       guestsWithoutJob: 0,
+      sharesWithoutJob: 0,
       overall: "green",
       lastCheckedAt: NOW.toISOString(),
       running: 0,
@@ -290,6 +291,7 @@ describe("verification report", () => {
     objects: ids.map(objectEntry),
     endpoints: [],
     guests: [],
+    shares: [],
     storage: { state: "ok", latest: null, lastFullAt: null, running: null, lastFailure: null },
     schedules: { backup: null, verify: null, scrub: null },
   };

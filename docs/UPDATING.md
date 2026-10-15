@@ -23,8 +23,8 @@ An installation made with the install script (`install.sh`, README.md) lives in
 `/opt/restow` unless you chose another `--dir`; run the commands below there. The
 script itself never updates: run again, it only checks the images named in `.env`
 and makes sure the stack runs. It sets `RESTOW_PROJECT_DIR`; with `--with-updater`
-it also starts the updater, which needs nothing else in `.env`, and with
-`--with-mounter` the opt-in mounter for NFS network shares (docs/MOUNTS.md), which
+it also starts the updater, which needs nothing else in `.env`, and by default (unless
+`--no-mounter`) the mounter for file shares and NFS network shares (docs/MOUNTS.md), which
 the updater then keeps on the installed release.
 
 ## Before every update

@@ -108,6 +108,13 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   "GET /readyz",
   // Guarded by the updater's shared secret, not by a session (features/updates/internal.ts).
   "GET /internal/updater/source-token",
+  // File share runners (docs/FILESHARES.md 5.2): the runner authenticates with its run's own
+  // credential (HTTP Basic), on the internal network only (features/file-shares/runner-routes.ts).
+  "GET /internal/file-shares/v1/session",
+  "POST /internal/file-shares/v1/progress",
+  "POST /internal/file-shares/v1/items",
+  "POST /internal/file-shares/v1/samples",
+  "POST /internal/file-shares/v1/finish",
   "GET /api/v1/setup/state",
   "POST /api/v1/setup",
   "POST /api/v1/setup/token",
@@ -252,6 +259,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/mounts": own(),
   "DELETE /api/v1/mounts/:name": own(),
   "POST /api/v1/mounts/test": own(),
+  "POST /api/v1/mounts/enable": own(),
 
   // --- API keys -----------------------------------------------------------------
   "GET /api/v1/api-keys": view(),
@@ -444,6 +452,43 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/pve/guests/:id/backup": operate(),
   "POST /api/v1/pve/snapshots/:id/verify": operate(),
   "POST /api/v1/pve/snapshots/:id/restore": operate(),
+  // --- File shares (docs/FILESHARES.md 9.1) -----------------------------------------
+  // Reading that shares exist and how they stand is for every provider admin; testing a share,
+  // listing its live folders, backing up, restoring and reading backed-up content (browse,
+  // search, versions, downloads) needs a technician; adding and changing them, retiring and
+  // deleting their backups is configuration work. The budget and the private-network approval
+  // are set by provider administrators only (the handlers refuse tenant admins); the
+  // installation settings span every tenant ("Tenants may use private networks": owner only,
+  // checked in the handler).
+  "GET /api/v1/file-shares": view(),
+  "POST /api/v1/file-shares": configure(),
+  "GET /api/v1/file-shares/settings": view(),
+  "GET /api/v1/file-shares/restore-targets": operate(),
+  "POST /api/v1/file-shares/test": configure(),
+  "GET /api/v1/file-shares/installation-settings": view(PROVIDER),
+  "PUT /api/v1/file-shares/installation-settings": configure(PROVIDER),
+  "GET /api/v1/file-shares/:id": view(),
+  "PATCH /api/v1/file-shares/:id": configure(),
+  "DELETE /api/v1/file-shares/:id": configure(),
+  "POST /api/v1/file-shares/:id/test": operate(),
+  "GET /api/v1/file-shares/:id/source": operate(),
+  "POST /api/v1/file-shares/:id/backup": operate(),
+  "POST /api/v1/file-shares/:id/retire": configure(),
+  "POST /api/v1/file-shares/:id/reactivate": configure(),
+  "GET /api/v1/file-shares/:id/runs": view(),
+  "GET /api/v1/file-shares/:id/runs/:runId": view(),
+  "POST /api/v1/file-shares/:id/runs/:runId/cancel": operate(),
+  "GET /api/v1/file-shares/:id/snapshots": view(),
+  "GET /api/v1/file-shares/:id/browse": operate(),
+  "GET /api/v1/file-shares/:id/search": operate(),
+  "GET /api/v1/file-shares/:id/versions": operate(),
+  "POST /api/v1/file-shares/:id/downloads": operate(),
+  "GET /api/v1/file-shares/:id/downloads/:downloadId": operate(),
+  "POST /api/v1/file-shares/:id/restores": operate(),
+  "POST /api/v1/file-shares/:id/verify": operate(),
+  "PUT /api/v1/file-shares/:id/quota": configure(),
+  "POST /api/v1/file-shares/:id/repository-password": configure(),
+  "PUT /api/v1/file-shares/:id/private-network-approval": configure(),
   "GET /api/v1/endpoints": view(),
   // The tenant's setting for automatic agent updates, and lifting a machine's own pause.
   "GET /api/v1/endpoints/agent-updates": view(),

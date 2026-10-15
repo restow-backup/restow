@@ -32,8 +32,10 @@ export interface LastBackupWidget {
    * (absent from an older server).
    */
   guests?: { protected: number; withoutJob: number; lastSuccessAt: string | null };
+  /** File shares: in an enabled job, in none, their newest good backup (absent from an older server). */
+  fileShares?: { protected: number; withoutJob: number; lastSuccessAt: string | null };
   /** Hours without a successful backup after which a type reads as overdue (from its jobs' schedules). */
-  staleAfterHours: { mail: number; machines: number; guests?: number };
+  staleAfterHours: { mail: number; machines: number; guests?: number; fileShares?: number };
 }
 
 export interface ProtectedObjectsWidget {
@@ -59,7 +61,18 @@ export interface ProtectedObjectsWidget {
     failedLastBackup: number;
     restorePoints: number;
   };
-  /** Protected objects, machines and guests without any backup yet. */
+  /**
+   * File shares: in an enabled job, in none, with a failed newest backup, with warnings nobody
+   * acknowledged, and their restore points (absent from an older server).
+   */
+  fileShares?: {
+    protected: number;
+    withoutJob: number;
+    failedLastBackup: number;
+    warnings: number;
+    restorePoints: number;
+  };
+  /** Protected objects, machines, guests and shares without any backup yet. */
   noBackup: number;
 }
 
@@ -76,6 +89,8 @@ export interface ReadinessWidget {
   withoutJob: number;
   /** VMs and containers in no backup job that keep a restore point (absent from an older server). */
   guestsWithoutJob?: number;
+  /** File shares in no backup job that keep a restore point (absent from an older server). */
+  sharesWithoutJob?: number;
   running: number;
   lastCheckedAt: string | null;
 }
@@ -291,6 +306,10 @@ export interface LoadedTenantRow extends ProviderTenantRowBase {
   guests?: number;
   guestsWithoutJob?: number;
   guestsFailed?: number;
+  /** File shares in an enabled job, in none, and with a failed newest backup (absent from an older server). */
+  fileShares?: number;
+  fileSharesWithoutJob?: number;
+  fileSharesFailed?: number;
   physicalBytes: number;
   storageError: boolean;
 }
@@ -315,6 +334,9 @@ export interface UnavailableTenantRow extends ProviderTenantRowBase {
   guests?: null;
   guestsWithoutJob?: null;
   guestsFailed?: null;
+  fileShares?: null;
+  fileSharesWithoutJob?: null;
+  fileSharesFailed?: null;
   physicalBytes: null;
   storageError: null;
 }
@@ -334,6 +356,8 @@ export type ProviderAlertKind =
   | "machines_without_job"
   | "guest_backup_failed"
   | "guests_without_job"
+  | "file_share_backup_failed"
+  | "file_shares_without_job"
   | "needs_attention"
   | "nothing_protected";
 
