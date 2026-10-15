@@ -233,6 +233,27 @@ export const runBackupJobSchema = z.object({
 });
 export type RunBackupJobInput = z.infer<typeof runBackupJobSchema>;
 
+/** `GET /machine-folders`: the machines of a job editor, comma-separated. */
+export const machineFoldersQuerySchema = z.object({
+  endpointIds: z
+    .string()
+    .optional()
+    .transform((value) =>
+      value
+        ? value
+            .split(",")
+            .map((part) => part.trim())
+            .filter(Boolean)
+        : [],
+    )
+    .pipe(z.array(uuid).max(500)),
+});
+
+/** `POST /:id/folders`: data folders an agent reported, to add to the job. */
+export const addDataFoldersSchema = z.object({
+  folders: z.array(z.string().trim().min(1).max(256)).min(1).max(20),
+});
+
 export const listBackupJobsQuerySchema = z.object({ kind: jobKindSchema.optional() });
 export const defaultsQuerySchema = z.object({
   kind: jobKindSchema,

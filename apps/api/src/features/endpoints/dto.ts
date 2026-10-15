@@ -20,6 +20,7 @@ import type {
   Endpoint,
   EndpointConfig,
   EndpointHookPolicy,
+  EndpointMachineFacts,
   EndpointReport,
   EndpointRetention,
   EndpointRun,
@@ -196,8 +197,33 @@ export interface EndpointProblemDto {
   failure: FailureDto;
 }
 
+/**
+ * The data folders the agent found on the machine (agent 0.4.0 and later, #59) and which of them
+ * its backup job leaves out.
+ */
+export interface DataFoldersDto {
+  /** Folders of the fixed list that exist on the machine with files in them. */
+  folders: string[];
+  /** Those the job's folders and exclusions (as they apply to this machine) do not back up; empty in no job. */
+  missing: string[];
+  reportedAt: string | null;
+  /** The machine has folders or exclusions of its own in the job: adding to the job does not reach it. */
+  ownFolders: boolean;
+}
+
+/** What the agent says the machine is, and why it got the server profile when it was added as a client. */
+export interface MachineDto {
+  /** null: the agent does not say (before 0.4.0). */
+  facts: EndpointMachineFacts | null;
+  /** Set when enrollment chose the server profile over the token's client profile. */
+  profileDetection: NonNullable<EndpointSettings["profileDetection"]> | null;
+}
+
 export interface EndpointDetailDto extends EndpointSummaryDto {
   config: EndpointConfig;
+  /** null when the agent does not report data folders. */
+  dataFolders: DataFoldersDto | null;
+  machine: MachineDto;
   configVersion: number;
   /** The configuration version the agent runs; differs from `configVersion` until it fetched the change. */
   agentConfigVersion: number | null;

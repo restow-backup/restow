@@ -52,6 +52,7 @@ import { isMissingQueueSchema, jobQueue } from "../jobs/queue.js";
 import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS, type EndpointActor } from "./audit.js";
 import { bandwidthWindowsProblem } from "./bandwidth.js";
 import { installCommands } from "./commands.js";
+import { dataFoldersOf, machineOf } from "./data-folders.js";
 import { isSafeOrigin } from "./distribution.js";
 import {
   type BrowseDto,
@@ -366,6 +367,7 @@ export async function getEndpoint(
     const readiness = await loadEndpointReadiness(tx, tenantId, [id], now);
     const rated = await loadRatedTests(tx, tenantId, runs, recentTasks);
     const jobsOf = await jobsOfEndpoints(tx, tenantId, [id]);
+    const membership = await jobWithOverridesOf(tx, tenantId, id);
     const assignees = await loadAssignees(tx, tenantId, [endpoint.assignedUserId]);
     const summary = toSummary(
       endpoint,
@@ -400,6 +402,8 @@ export async function getEndpoint(
       config: options.revealHooks ? endpoint.config : { ...endpoint.config, hooks: {} },
       configVersion: endpoint.configVersion,
       agentConfigVersion: endpoint.agentConfigVersion,
+      dataFolders: dataFoldersOf(endpoint, membership),
+      machine: machineOf(endpoint),
       settings: effectiveSettings(endpoint.settings),
       problems: problemsOf(endpoint, runs[0] ?? null, readinessOf(readiness, id), now),
       runs: runs.map((run) => toRunSummary(run, rated)),

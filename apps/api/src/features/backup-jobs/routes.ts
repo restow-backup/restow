@@ -6,14 +6,17 @@ import { clientIp } from "../../lib/request.js";
 import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { mayConfigure } from "../endpoints/routes.js";
+import { addDataFoldersToJob, listMachineFolders } from "./data-folders.js";
 import { applyRecommendedJobs, previewRecommendedJobs } from "./recommended.js";
 import {
+  addDataFoldersSchema,
   addMembersSchema,
   candidatesQuerySchema,
   createBackupJobSchema,
   defaultsQuerySchema,
   jobParamSchema,
   listBackupJobsQuerySchema,
+  machineFoldersQuerySchema,
   memberParamSchema,
   recommendedQuerySchema,
   recommendedScopeSchema,
@@ -49,6 +52,8 @@ import type { JobActor, JobContext } from "./service-types.js";
  *   GET    /                         the tenant's jobs with scope, schedule, last and next run, restore checks
  *   GET    /defaults?kind=           the recommended schedule, repository and choices of a new job
  *   GET    /candidates?kind=&q=      objects or machines a job can take, with the job each is in
+ *   GET    /machine-folders?endpointIds=
+ *                                     the data folders the machines' agents found, and their profiles (#59)
  *   GET    /recommended?mail=&endpointIds=&guestIds=&everything=
  *                                     what "Create recommended job" would make or add to (#52)
  *   POST   /recommended              make the recommended jobs or add to them (idempotent)
@@ -56,6 +61,7 @@ import type { JobActor, JobContext } from "./service-types.js";
  *   GET    /:id                      one job
  *   PATCH  /:id                      name, schedule, restore check, retention, settings, on/off
  *   DELETE /:id                      delete (the objects stop being backed up on a schedule)
+ *   POST   /:id/folders              add data folders an agent found to a machine job (#59)
  *   GET    /:id/members              the scope, with each member's overrides and state
  *   PUT    /:id/members              replace the scope
  *   POST   /:id/members              add members
@@ -139,6 +145,11 @@ export function buildBackupJobsRoutes(deps: BackupJobsRoutesDeps): Hono<TenantEn
     return c.json(await listCandidates(deps.db, c.get("tenantId"), query));
   });
 
+  routes.get("/machine-folders", admin, async (c) => {
+    const query = parseOrProblem(machineFoldersQuerySchema, c.req.query());
+    return c.json(await listMachineFolders(deps.db, c.get("tenantId"), query.endpointIds));
+  });
+
   routes.post("/", admin, async (c) => {
     const input = await parseJsonBody(c.req, createBackupJobSchema);
     return c.json(
@@ -179,6 +190,22 @@ export function buildBackupJobsRoutes(deps: BackupJobsRoutesDeps): Hono<TenantEn
     const { id } = parseOrProblem(jobParamSchema, c.req.param());
     await deleteBackupJob(deps.db, c.get("tenantId"), id, actorOf(c), now());
     return c.body(null, 204);
+  });
+
+  routes.post("/:id/folders", admin, async (c) => {
+    const { id } = parseOrProblem(jobParamSchema, c.req.param());
+    const input = await parseJsonBody(c.req, addDataFoldersSchema);
+    return c.json(
+      await addDataFoldersToJob(
+        deps.db,
+        c.get("tenantId"),
+        id,
+        input.folders,
+        actorOf(c),
+        contextOf(c),
+        optionsOf(c),
+      ),
+    );
   });
 
   routes.get("/:id/members", admin, async (c) => {
