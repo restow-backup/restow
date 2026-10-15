@@ -15,16 +15,19 @@ export type WidgetResult<T> = { state: "ok"; data: T } | { state: "error" };
 export type Readiness = "green" | "yellow" | "red";
 export type TenantStatus = "active" | "suspended" | "deleting";
 export type JobStatus = "queued" | "active" | "completed" | "failed" | "cancelled";
-export type ObjectKind = "mailbox" | "onedrive" | "imap";
+export type ObjectKind = "mailbox" | "onedrive" | "imap" | "site";
 
 export interface LastBackupWidget {
   lastSuccess: {
     mail: string | null;
     onedrive: string | null;
     imap: string | null;
+    /** SharePoint sites (absent from an older server). */
+    sharepoint?: string | null;
     archive: string | null;
   };
-  protectedKinds: Record<ObjectKind, number>;
+  /** `site` is absent from an older server. */
+  protectedKinds: Record<Exclude<ObjectKind, "site">, number> & { site?: number };
   /** Servers and clients: how many a backup job protects, how many are in none, their newest good backup. */
   machines: { protected: number; withoutJob: number; lastSuccessAt: string | null };
   /**

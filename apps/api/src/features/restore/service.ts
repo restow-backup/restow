@@ -240,6 +240,105 @@ export async function selectedEntries(
  * credentials, which only a known account of the tenant has. Mailbox and
  * drive targets are resolved by Graph within the object's own M365 tenant.
  */
+/** A library of a site as a restore target: the drive id plus where it lives. */
+interface LibraryTarget {
+  readonly protectedObjectId: string;
+  readonly siteName: string | null;
+  readonly library: string;
+  readonly driveId: string;
+}
+
+/**
+ * The libraries of the given sites, as their newest restore point records them
+ * (the `Libraries/<library>` folders and their drive ids). A library added
+ * since then shows up after the next backup.
+ */
+export async function siteLibraries(
+  tx: DbExecutor,
+  tenantId: string,
+  sites: readonly { id: string; displayName: string | null }[],
+): Promise<LibraryTarget[]> {
+  if (sites.length === 0) {
+    return [];
+  }
+  const ids = sql.join(
+    sites.map((site) => sql`${site.id}::uuid`),
+    sql`, `,
+  );
+  const latest = sql`s.id IN (
+    SELECT DISTINCT ON (latest.protected_object_id) latest.id FROM snapshots latest
+    WHERE latest.tenant_id = ${tenantId}::uuid AND latest.protected_object_id IN (${ids})
+      AND latest.status = 'active' AND latest.manifest_path IS NOT NULL
+    ORDER BY latest.protected_object_id, latest.sequence DESC
+  )`;
+  const result = await tx.execute<{
+    protected_object_id: string;
+    name: string;
+    drive_id: string | null;
+  }>(sql`
+    SELECT m.protected_object_id, m.name, m.metadata->>'driveId' AS drive_id
+    FROM ${manifestEntries({ tenantId, snapshots: latest })} AS m
+    WHERE m.parent_path = 'Libraries' AND m.kind = 'folder'
+    ORDER BY lower(m.name)
+  `);
+  const names = new Map(sites.map((site) => [site.id, site.displayName]));
+  return result.rows.flatMap((row) =>
+    row.drive_id
+      ? [
+          {
+            protectedObjectId: row.protected_object_id,
+            siteName: names.get(row.protected_object_id) ?? null,
+            library: row.name,
+            driveId: row.drive_id,
+          },
+        ]
+      : [],
+  );
+}
+
+/** The active sites of a site's source (itself included): where its files may go. */
+async function sitesOfSource(
+  tx: DbExecutor,
+  tenantId: string,
+  object: Pick<ProtectedObject, "sourceId">,
+): Promise<{ id: string; displayName: string | null }[]> {
+  return tx
+    .select({ id: protectedObjects.id, displayName: protectedObjects.displayName })
+    .from(protectedObjects)
+    .where(
+      and(
+        eq(protectedObjects.tenantId, tenantId),
+        eq(protectedObjects.sourceId, object.sourceId),
+        eq(protectedObjects.kind, "site"),
+        eq(protectedObjects.status, "active"),
+      ),
+    );
+}
+
+/**
+ * A SharePoint restore into another library must name a library of a site of
+ * the same Microsoft 365 source (`<drive id>` or `<drive id>:/<folder>`), as the
+ * newest backups record them: Graph writes within the site's own tenant.
+ */
+async function assertLibraryTargetKnown(
+  tx: DbExecutor,
+  tenantId: string,
+  object: Pick<ProtectedObject, "sourceId">,
+  accountId: string,
+): Promise<void> {
+  const separator = accountId.indexOf(":/");
+  const driveId = (separator === -1 ? accountId : accountId.slice(0, separator)).trim();
+  const libraries = await siteLibraries(tx, tenantId, await sitesOfSource(tx, tenantId, object));
+  if (!libraries.some((library) => library.driveId === driveId)) {
+    throw new ProblemError(422, "Unknown target library", {
+      type: "urn:restow:problem:restore-target-unknown",
+      detail:
+        "SharePoint restores can only go into a library of a site of the same Microsoft 365 source that has been backed up.",
+      extensions: { accountId },
+    });
+  }
+}
+
 async function assertImapTargetKnown(
   tx: DbExecutor,
   tenantId: string,
@@ -375,7 +474,7 @@ export async function createRestore(
     // a later release. The restore_mode database enum keeps the value for
     // history. Mode has no effect on a "download" target, so it is exempt
     // (isReplaceModeAllowedFor).
-    if (!isReplaceModeAllowedFor(input.mode, input.target.type)) {
+    if (!isReplaceModeAllowedFor(input.mode, input.target.type, object.kind)) {
       throw new ProblemError(422, "Replace not allowed for this target", {
         type: "urn:restow:problem:restore-replace-not-allowed",
         detail:
@@ -414,9 +513,15 @@ export async function createRestore(
       importedTarget = await importedTargetKind(tx, tenantId, input.target.accountId);
     } else if (input.target.type === "other" && object.kind === "imap") {
       await assertImapTargetKnown(tx, tenantId, input.target.accountId);
+    } else if (input.target.type === "other" && object.kind === "site") {
+      await assertLibraryTargetKnown(tx, tenantId, object, input.target.accountId);
     }
 
-    const impersonated = isImpersonation(actor, { externalId: object.externalId, ownerEmail });
+    const impersonated = isImpersonation(actor, {
+      externalId: object.externalId,
+      ownerEmail,
+      kind: object.kind,
+    });
     if (impersonated && !input.reason) {
       throw new ProblemError(422, "Reason required", {
         type: "urn:restow:problem:restore-reason-required",
@@ -566,6 +671,21 @@ export async function listTargets(
 ): Promise<RestoreTargetDto[]> {
   return withTenantTx(db, tenantId, async (tx) => {
     const { object } = await loadObjectForViewer(tx, tenantId, viewer, objectId);
+    if (object.kind === "site") {
+      // A site's files go into a library: every library of the source's sites, its own included.
+      const libraries = await siteLibraries(
+        tx,
+        tenantId,
+        await sitesOfSource(tx, tenantId, object),
+      );
+      return libraries.map((library) => ({
+        id: `${library.protectedObjectId}:${library.driveId}`,
+        kind: "site" as const,
+        externalId: library.driveId,
+        displayName: `${library.siteName ?? ""} › ${library.library}`.trim(),
+        ownerEmail: null,
+      }));
+    }
     const imported = await isImportedObject(tx, object);
     return tx
       .select({

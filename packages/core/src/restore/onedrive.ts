@@ -264,6 +264,13 @@ interface SessionOptions {
   readonly reader: ChunkReader;
   readonly ledger: RestoreLedger;
   readonly logger: Logger;
+  /**
+   * The path an object of the snapshot is written to below `basePath`; the
+   * snapshot path itself when absent (a OneDrive). A SharePoint library drops
+   * its `Libraries/<library>` folder here, while the ledger keeps reporting
+   * the snapshot path.
+   */
+  readonly targetPathOf?: (snapshotPath: string) => string;
 }
 
 /** The bytes of an object as a stream that feeds `digest` on the way through. */
@@ -286,6 +293,10 @@ export class OneDriveRestoreSession {
 
   constructor(private readonly o: SessionOptions) {}
 
+  private targetPath(snapshotPath: string): string {
+    return this.o.targetPathOf ? this.o.targetPathOf(snapshotPath) : snapshotPath;
+  }
+
   private async ensureFolder(segments: readonly string[]): Promise<string> {
     return ensureDriveFolderPath(this.o.client, this.o.driveId, [...this.o.basePath, ...segments], {
       cache: this.folderCache,
@@ -295,7 +306,7 @@ export class OneDriveRestoreSession {
   async restoreFolder(folder: ManifestObject): Promise<void> {
     throwIfAborted(this.o.ctx);
     try {
-      const id = await this.ensureFolder(pathSegments(folder.path));
+      const id = await this.ensureFolder(pathSegments(this.targetPath(folder.path)));
       const packageType = folder.metadata?.packageType;
       this.o.ledger.restored(folder, {
         targetRef: id,
@@ -320,7 +331,7 @@ export class OneDriveRestoreSession {
     const isVersion = objectTypeOf(object) === "version";
     try {
       const filePath = isVersion ? versionFactsOf(object).filePath : object.path;
-      const segments = pathSegments(filePath);
+      const segments = pathSegments(this.targetPath(filePath));
       const name = segments.pop();
       if (name === undefined) {
         throw new Error("the file has an empty path");

@@ -24,7 +24,7 @@ export const DEFAULT_NEW_KIND: OfferedKind = "scrub";
 export const OBJECT_SCOPED_KINDS: readonly ScheduleKind[] = ["backup", "verify"];
 
 export type JobStatus = "queued" | "active" | "completed" | "failed" | "cancelled";
-export type ObjectKind = "mailbox" | "onedrive" | "imap";
+export type ObjectKind = "mailbox" | "onedrive" | "imap" | "site";
 
 /**
  * The one object a schedule is narrowed to. Tenant users see another

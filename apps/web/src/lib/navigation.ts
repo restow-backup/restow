@@ -194,7 +194,18 @@ const GROUP_BY_KEYWORD: readonly [NavGroupId, readonly string[]][] = [
   ["endpoints", ["endpoint", "inventory", "machine", "agent", "file-restore"]],
   [
     "mail",
-    ["mail", "restore", "archive", "journal", "hold", "export", "onedrive", "mailbox", "imap"],
+    [
+      "mail",
+      "restore",
+      "archive",
+      "journal",
+      "hold",
+      "export",
+      "onedrive",
+      "sharepoint",
+      "mailbox",
+      "imap",
+    ],
   ],
   ["tenants", ["tenant", "organisation", "setup", "member", "repositor", "integration"]],
   [

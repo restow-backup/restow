@@ -24,7 +24,7 @@ import { iso } from "./dto.js";
 
 export interface ObjectInfo {
   id: string;
-  kind: "mailbox" | "onedrive" | "imap";
+  kind: "mailbox" | "onedrive" | "imap" | "site";
   status: "active" | "excluded" | "orphaned";
   displayName: string | null;
   externalId: string;

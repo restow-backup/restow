@@ -22,6 +22,7 @@ export const OWN_APP_PERMISSIONS: readonly OwnAppPermission[] = [
   { permission: "Directory.Read.All", required: true, purpose: "directory" },
   { permission: "Organization.Read.All", required: true, purpose: "organization" },
   { permission: "Mail.Send", required: false, purpose: "notifications" },
+  { permission: "Sites.ReadWrite.All", required: false, purpose: "sharepoint" },
 ];
 
 /** The token failure hints the API reports (packages/core/src/entra/verify.ts). */

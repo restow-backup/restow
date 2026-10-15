@@ -87,4 +87,13 @@ describe("RulesSheet", () => {
     expect(html).toContain("Nobody is protected until an admin explicitly includes");
     expect(html).toContain("Choose what to protect from the Objects tab");
   });
+
+  it("shows the SharePoint sites switch in every mode, with the hint of the saved choice", () => {
+    const all = render(sourceWith(ALL_RULES));
+    expect(all).toContain("Protect all SharePoint sites");
+    expect(all).toContain("Every SharePoint site of the tenant is backed up");
+    const selected = render(sourceWith({ ...ALL_RULES, mode: "selected", sites: "selected" }));
+    expect(selected).toContain("Protect all SharePoint sites");
+    expect(selected).toContain("No SharePoint site is backed up unless you include it");
+  });
 });

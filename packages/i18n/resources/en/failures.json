@@ -97,6 +97,10 @@
         "title": "This user has no OneDrive that {appName} can reach",
         "why": "Microsoft reports that the OneDrive of this user does not exist. Usual reasons: the user has no licence that includes OneDrive, or OneDrive was never provisioned because the user never opened it."
       },
+      "site_unavailable": {
+        "title": "This SharePoint site no longer exists",
+        "why": "Microsoft reports that the SharePoint site does not exist any more: it was deleted, or its address changed. Backups that already exist stay restorable. The next directory sync marks the site as orphaned."
+      },
       "throttled": {
         "title": "Microsoft is slowing {appName} down (throttling)",
         "why": "Microsoft limits how many requests an app may send to a tenant or a mailbox and answered \"too many requests\"{has_retryAfterSeconds, select, yes { and asked {appName} to wait {retryAfterSeconds, plural, one {# second} other {# seconds}}} other {}}. This is normal for large backups and not an error on your side. {appName} waits as asked, adds some delay of its own and does not hammer Microsoft."

@@ -20,6 +20,7 @@ export type GraphResource =
   | "calendar"
   | "contacts"
   | "onedrive"
+  | "sharepoint"
   | "users"
   | "groups"
   | "directory"
@@ -42,6 +43,8 @@ const RESOURCE_TABLE: readonly (readonly [RegExp, GraphResourceInfo])[] = [
     { resource: "calendar", permission: "Calendars.ReadWrite" },
   ],
   [/\/contactfolders|\/contacts\b/i, { resource: "contacts", permission: "Contacts.ReadWrite" }],
+  // A site's own endpoints (lists, items, its drives listing); its libraries' content is /drives.
+  [/^\/sites\b/i, { resource: "sharepoint", permission: "Sites.Read.All" }],
   [/\/drives?\b|\/items\/|\/root\b/i, { resource: "onedrive", permission: "Files.ReadWrite.All" }],
   [/\/mailboxsettings/i, { resource: "mail", permission: "MailboxSettings.Read" }],
   [/\/groups\b/i, { resource: "groups", permission: "Group.Read.All" }],
@@ -212,7 +215,13 @@ function cause(
 /** Classify a failed Graph call. */
 export function classifyGraphError(error: GraphError): FailureCause {
   const technical = graphTechnical(error);
-  const { resource, permission } = graphResourceOf(error.url);
+  const info = graphResourceOf(error.url);
+  const { resource } = info;
+  // Reading a site needs Sites.Read.All, writing list items back Sites.ReadWrite.All.
+  const permission =
+    resource === "sharepoint" && error.method.toUpperCase() !== "GET"
+      ? "Sites.ReadWrite.All"
+      : info.permission;
   const base: FailureParams = { httpStatus: error.status, resource };
   if (error.code) {
     base.graphCode = redactSensitiveText(error.code, 120);

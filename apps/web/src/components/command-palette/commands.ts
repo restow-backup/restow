@@ -2,6 +2,7 @@ import type { SupportedLanguage } from "@restow/i18n";
 import {
   Building2,
   Fingerprint,
+  Globe,
   HardDrive,
   Inbox,
   Languages,
@@ -292,7 +293,7 @@ export const OBJECTS_NAV_COMMAND_ID = "nav:protected-objects";
 /** A protected object as the palette needs it (a row of the protected-objects API). */
 export interface PaletteObject {
   id: string;
-  kind: "mailbox" | "onedrive" | "imap";
+  kind: "mailbox" | "onedrive" | "imap" | "site";
   displayName: string | null;
   email: string | null;
   externalId: string;
@@ -302,6 +303,7 @@ export interface PaletteObject {
 const OBJECT_ICONS: Readonly<Record<PaletteObject["kind"], LucideIcon>> = {
   mailbox: Inbox,
   onedrive: HardDrive,
+  site: Globe,
   imap: Server,
 };
 

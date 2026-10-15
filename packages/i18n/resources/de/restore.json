@@ -15,7 +15,9 @@
     "areas": {
       "mail": "E-Mail",
       "calendar": "Kalender",
-      "contacts": "Kontakte"
+      "contacts": "Kontakte",
+      "libraries": "Bibliotheken",
+      "lists": "Listen"
     },
     "deleted": "In der Quelle gelöscht",
     "deletedShort": "Gelöscht",
@@ -34,6 +36,7 @@
       "types": {
         "mailbox": "Postfächer",
         "onedrive": "OneDrives",
+        "site": "SharePoint-Websites",
         "imap": "IMAP-Konten"
       },
       "empty": "Kein passendes Konto",
@@ -57,6 +60,7 @@
       "kinds": {
         "mailbox": "Postfach",
         "onedrive": "OneDrive",
+        "site": "SharePoint-Website",
         "imap": "IMAP-Konto"
       }
     },
@@ -235,6 +239,7 @@
       "accountHint": {
         "mailbox": "Die Adresse des Zielpostfachs im selben Microsoft-365-Mandanten.",
         "onedrive": "Der Benutzer (UPN) oder die Laufwerks-ID des Ziel-OneDrive; mit :/Ordner stellen Sie in einen Unterordner wieder her.",
+        "site": "Die Bibliothek, in die wiederhergestellt wird, aus einer gesicherten Website desselben Microsoft-365-Tenants; mit :/Ordner stellen Sie in einen Unterordner wieder her.",
         "imap": "Die Anmeldung eines IMAP-Kontos dieses Mandanten."
       }
     },
@@ -243,6 +248,9 @@
       "rename": "Beide behalten",
       "renameDescriptionMail": "Vorhandenes bleibt unberührt: Alles wird in den neuen Ordner „{folder}“ wiederhergestellt.",
       "renameDescriptionFiles": "Vorhandenes bleibt unberührt: Eine bereits vorhandene Datei wird unter einem neuen Namen wiederhergestellt.",
+      "renameDescriptionSite": "Vorhandenes bleibt unberührt: Eine bereits vorhandene Datei wird unter einem neuen Namen wiederhergestellt, Listenelemente werden als neue Elemente hinzugefügt.",
+      "replace": "Überschreiben",
+      "replaceDescriptionSite": "Eine bereits vorhandene Datei wird überschrieben (SharePoint behält sie als frühere Version), und ein noch vorhandenes Listenelement erhält seine gesicherten Werte zurück.",
       "skip": "Vorhandene überspringen",
       "skipDescription": "Noch vorhandene Elemente bleiben, wie sie sind; nur fehlende werden wiederhergestellt."
     },

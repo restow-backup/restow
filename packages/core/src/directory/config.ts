@@ -52,6 +52,11 @@ export interface DirectoryLastRun {
   readonly error: string | null;
   /** The classified cause behind `error` (why, what to do); absent in runs stored before it existed. */
   readonly failure?: FailureRecord | null;
+  /**
+   * SharePoint sites the run listed; null when they could not be listed (see the
+   * `sites_unavailable` warning), absent in runs stored before sites existed.
+   */
+  readonly sitesDiscovered?: number | null;
 }
 
 export interface DirectoryState {
@@ -112,6 +117,7 @@ export function readProtection(config: unknown): ProtectionConfig {
     groupName: groupId !== null && group.id === groupId ? group.name : null,
     exclude: scope.exclude,
     includeSharedMailboxes: protection.includeSharedMailboxes,
+    sites: protection.sites,
   });
   return { rules, overrides: normalizeOverrides(protection.overrides) };
 }
@@ -143,6 +149,7 @@ function withProtection(
     scope,
     protection: {
       includeSharedMailboxes: rules.includeSharedMailboxes,
+      sites: rules.sites,
       group:
         rules.groupId !== null && rules.groupName !== null
           ? { id: rules.groupId, name: rules.groupName }
@@ -206,6 +213,10 @@ function asLastRun(value: unknown): DirectoryLastRun | null {
     warningCount: typeof record.warningCount === "number" ? record.warningCount : warnings.length,
     error: asString(record.error),
     failure: parseFailureRecord(record.failure),
+    sitesDiscovered:
+      typeof record.sitesDiscovered === "number" || record.sitesDiscovered === null
+        ? record.sitesDiscovered
+        : undefined,
   };
 }
 

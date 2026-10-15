@@ -214,7 +214,15 @@ export interface BackupJobList {
   unscheduled?: { mail: number; endpoint: number; share?: number; copy?: number };
 }
 
-export type MemberKind = "mailbox" | "onedrive" | "imap" | "server" | "client" | "smb" | "nfs";
+export type MemberKind =
+  | "mailbox"
+  | "onedrive"
+  | "imap"
+  | "site"
+  | "server"
+  | "client"
+  | "smb"
+  | "nfs";
 export type MemberRestoreState = "green" | "yellow" | "red" | "unverified" | "no_backup";
 export type MemberOutcome = "succeeded" | "partial" | "failed" | "running" | "queued";
 

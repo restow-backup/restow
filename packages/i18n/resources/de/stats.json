@@ -304,6 +304,7 @@
   "objectKinds": {
     "mailbox": "Postfach",
     "onedrive": "OneDrive",
+    "site": "SharePoint-Website",
     "imap": "IMAP-Postfach",
     "unknown": "Unbekannt"
   },

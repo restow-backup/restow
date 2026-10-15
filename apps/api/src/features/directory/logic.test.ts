@@ -4,6 +4,7 @@ import {
   decideOverride,
   fullSyncPending,
   isNotSelected,
+  modeForKind,
   rulesFromInput,
 } from "./logic.js";
 import { accountsRequestSchema, objectsQuerySchema, rulesSchema } from "./schemas.js";
@@ -22,6 +23,7 @@ describe("rulesFromInput", () => {
       groupName: "Backup",
       exclude: ["A@x.y"],
       includeSharedMailboxes: true,
+      sites: "all",
     });
   });
 
@@ -123,5 +125,15 @@ describe("request schemas", () => {
       false,
     );
     expect(accountsRequestSchema.safeParse({ accounts: [] }).success).toBe(false);
+  });
+});
+
+describe("modeForKind", () => {
+  it("decides a SharePoint site's default by the sites mode, everything else by the users' mode", () => {
+    const rules = { mode: "all" as const, sites: "selected" as const };
+    expect(modeForKind("site", rules)).toBe("selected");
+    expect(modeForKind("mailbox", rules)).toBe("all");
+    expect(isNotSelected("m365", modeForKind("site", rules), "excluded", null)).toBe(true);
+    expect(isNotSelected("m365", modeForKind("onedrive", rules), "excluded", null)).toBe(false);
   });
 });

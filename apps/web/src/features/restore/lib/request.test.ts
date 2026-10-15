@@ -130,10 +130,36 @@ describe("modes and options", () => {
     expect(usesRestoreFolder("mailbox", { ...state, target: "download" })).toBe(false);
   });
 
-  it("never offers 'replace', for any kind of account", () => {
+  it("never offers 'replace' for an account, only for a SharePoint site", () => {
     expect(restoreModesFor("mailbox")).toEqual(["rename", "skip"]);
     expect(restoreModesFor("imap")).toEqual(["rename", "skip"]);
     expect(restoreModesFor("onedrive")).toEqual(["rename", "skip"]);
+    expect(restoreModesFor("site")).toEqual(["rename", "replace", "skip"]);
+  });
+
+  it("restores a site's files under new names, never into a restore folder", () => {
+    const state = {
+      target: "original" as const,
+      accountId: "",
+      mode: "rename" as const,
+      reason: "",
+    };
+    expect(usesRestoreFolder("site", state)).toBe(false);
+    expect(
+      buildRestoreRequest({
+        snapshotId: "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+        objectKind: "site",
+        objectLabel: "Sales",
+        scope: { kind: "everything" },
+        context: { canRestoreElsewhere: true, reasonRequired: false, originalAvailable: true },
+        state: { ...state, target: "other", accountId: " b!lib:/Restored ", mode: "replace" },
+        restoreFolderName: "unused",
+        now: new Date(2026, 8, 23, 14, 5),
+      }),
+    ).toMatchObject({
+      target: { type: "other", accountId: "b!lib:/Restored" },
+      mode: "replace",
+    });
   });
 
   it("formats stamps and archive names safely", () => {

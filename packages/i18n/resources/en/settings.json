@@ -423,7 +423,7 @@
         "consentHint": "This consents in your own directory. Tenants consent through the link {appName} creates for each Microsoft 365 source.",
         "pitfallTitle": "Mail.ReadWrite, not Mail.Read",
         "pitfall": "The most common mistake: with Mail.Read the backup runs, but every restore fails with 403. The same applies to Calendars.ReadWrite and Contacts.ReadWrite.",
-        "sites": "Sites.ReadWrite.All is deliberately not requested: SharePoint is not part of this version, and it would widen the consent needlessly.",
+        "sites": "Sites.ReadWrite.All for SharePoint Online sites: discovery and backup need read access, restoring into a site needs write access. It is optional: without it {appName} keeps backing up mail and OneDrive. Tenants that consented before must run the admin consent again to grant it.",
         "mailSend": "Mail.Send only when notifications are sent through Microsoft Graph instead of SMTP."
       },
       "credentials": {

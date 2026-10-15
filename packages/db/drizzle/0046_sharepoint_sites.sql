@@ -1,0 +1,1 @@
+ALTER TYPE "public"."protected_object_kind" ADD VALUE 'site';

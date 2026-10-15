@@ -175,7 +175,7 @@ export interface TenantRefDto {
 export interface LargestObjectDto {
   id: string;
   name: string;
-  kind: "mailbox" | "onedrive" | "imap";
+  kind: "mailbox" | "onedrive" | "imap" | "site";
   logicalBytes: number;
   lastBackupAt: string;
   /** Recovery readiness of the object at the end of the period (verify's object state). */

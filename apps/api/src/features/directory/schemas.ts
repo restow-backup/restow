@@ -6,7 +6,7 @@ export const sourceParamSchema = z.object({ sourceId: z.string().uuid() });
 export const objectParamSchema = z.object({ id: z.string().uuid() });
 export const userParamSchema = z.object({ userId: z.string().uuid() });
 
-export const objectKindSchema = z.enum(["mailbox", "onedrive", "imap"]);
+export const objectKindSchema = z.enum(["mailbox", "onedrive", "imap", "site"]);
 /** The object's stored status (the `protected_objects.status` column). */
 export const objectStatusSchema = z.enum(["active", "excluded", "orphaned"]);
 /**
@@ -84,6 +84,8 @@ export const rulesSchema = z
     groupName: z.string().trim().max(256).nullable().optional(),
     exclude: z.array(identitySchema).max(5000).default([]),
     includeSharedMailboxes: z.boolean().default(true),
+    /** SharePoint sites: every site of the tenant, or only the included ones. */
+    sites: z.enum(["all", "selected"]).default("all"),
   })
   .refine((rules) => rules.mode !== "group" || (rules.groupId ?? "").length > 0, {
     message: "Group mode needs a group.",

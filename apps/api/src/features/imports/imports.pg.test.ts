@@ -2251,6 +2251,7 @@ describe.skipIf(!testDatabaseAdminUrl)(
           mail: null,
           onedrive: null,
           imap: null,
+          sharepoint: null,
           archive: null,
         });
         expect(summary.storage.logicalBytes).toBe(0);
@@ -2268,7 +2269,7 @@ describe.skipIf(!testDatabaseAdminUrl)(
           { STORAGE_TARGET: "local", STORAGE_LOCAL_PATH: "/x" },
           null,
         );
-        expect(facts.kinds).toEqual({ mailbox: 0, onedrive: 0, imap: 0 });
+        expect(facts.kinds).toEqual({ mailbox: 0, onedrive: 0, imap: 0, site: 0 });
         expect(facts.setup).toMatchObject({
           sources: { active: 0, error: 0, pending: 0 },
           activeObjects: 0,

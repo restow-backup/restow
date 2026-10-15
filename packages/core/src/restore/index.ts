@@ -59,3 +59,5 @@ export {
   resolveRestoreSource,
   selectObjects,
 } from "./selection.js";
+export type { SharePointRestoreEngineOptions } from "./sharepoint.js";
+export { SharePointRestoreEngine, SiteRestoreTargetError } from "./sharepoint.js";

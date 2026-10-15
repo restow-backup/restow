@@ -227,6 +227,7 @@
     "objectKinds": {
       "mailbox": "Mailbox",
       "onedrive": "OneDrive",
+      "site": "SharePoint site",
       "imap": "IMAP account"
     },
     "switchTo": "Switch to {name}",

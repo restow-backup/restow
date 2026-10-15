@@ -26,6 +26,14 @@
  */
 export type ProtectionMode = "all" | "group" | "selected";
 
+/**
+ * Which SharePoint sites are protected: every site of the tenant (default),
+ * or (`selected`) only those an admin included. Sites belong to no user, so
+ * the group rule, the exclusion list and the shared-mailbox switch do not
+ * apply to them; overrides do.
+ */
+export type SiteProtectionMode = "all" | "selected";
+
 /** An admin's explicit decision for one protected object, beating the rules. */
 export type ProtectionOverride = "include" | "exclude";
 
@@ -47,6 +55,8 @@ export interface ProtectionRules {
    * mailbox is exactly what an admin expects a backup to cover.
    */
   readonly includeSharedMailboxes: boolean;
+  /** SharePoint sites: all of the tenant's, or only the included ones. */
+  readonly sites: SiteProtectionMode;
 }
 
 /** Overrides keyed by the protected object's external id. */
@@ -59,6 +69,7 @@ export interface ProtectionRulesRecord {
   readonly groupName?: unknown;
   readonly exclude?: unknown;
   readonly includeSharedMailboxes?: unknown;
+  readonly sites?: unknown;
 }
 
 /** Plain, serialisable form of {@link ProtectionRules} (API bodies, jsonb). */
@@ -68,6 +79,7 @@ export interface ProtectionRulesDto {
   groupName: string | null;
   exclude: string[];
   includeSharedMailboxes: boolean;
+  sites: SiteProtectionMode;
 }
 
 export const DEFAULT_PROTECTION_RULES: ProtectionRules = {
@@ -76,6 +88,7 @@ export const DEFAULT_PROTECTION_RULES: ProtectionRules = {
   groupName: null,
   exclude: [],
   includeSharedMailboxes: true,
+  sites: "all",
 };
 
 /** Lower-case and trim an identity for comparison; empty input becomes null. */
@@ -129,6 +142,7 @@ export function normalizeRules(record: ProtectionRulesRecord | null | undefined)
     exclude,
     includeSharedMailboxes:
       typeof record.includeSharedMailboxes === "boolean" ? record.includeSharedMailboxes : true,
+    sites: record.sites === "selected" ? "selected" : "all",
   };
 }
 
@@ -154,6 +168,7 @@ export function rulesToRecord(rules: ProtectionRules): ProtectionRulesDto {
     groupName: rules.groupName,
     exclude: [...rules.exclude],
     includeSharedMailboxes: rules.includeSharedMailboxes,
+    sites: rules.sites,
   };
 }
 
@@ -269,6 +284,22 @@ export function evaluateProtection(input: EvaluateProtectionInput): ProtectionDe
       : { status: "excluded", reason: "not_in_group" };
   }
   return { status: "active", reason: "rule_all" };
+}
+
+/** Decide whether one SharePoint site is in scope: its override, else the sites mode. */
+export function evaluateSiteProtection(
+  rules: Pick<ProtectionRules, "sites">,
+  override: ProtectionOverride | null | undefined,
+): ProtectionDecision {
+  if (override === "include") {
+    return { status: "active", reason: "override_include" };
+  }
+  if (override === "exclude") {
+    return { status: "excluded", reason: "override_exclude" };
+  }
+  return rules.sites === "selected"
+    ? { status: "excluded", reason: "not_selected" }
+    : { status: "active", reason: "rule_all" };
 }
 
 /** Status an override puts an object in right away (orphaned objects stay orphaned). */

@@ -51,6 +51,13 @@ import {
   toDirectoryUser,
   type UserProbe,
 } from "./plan.js";
+import {
+  type DiscoveredSite,
+  discoverSites,
+  type KnownSite,
+  planSites,
+  type SitePlan,
+} from "./sites.js";
 
 /** Delta stream key of a source's user directory. */
 export const USERS_DELTA_KEY = "directory:users";
@@ -73,6 +80,8 @@ export interface DirectorySnapshot {
   readonly protection: ProtectionConfig;
   /** Opaque version of `protection`; see {@link DirectoryRepository.commit}. */
   readonly version: string;
+  /** The source's SharePoint sites (kind `site`); planned apart from the users' objects. */
+  readonly knownSites?: readonly KnownSite[];
 }
 
 /** Everything one run writes, in one transaction. */
@@ -81,6 +90,8 @@ export interface DirectoryCommit {
   readonly deltaLink: string;
   /** Start of this run when it enumerated the whole directory, else null. */
   readonly fullSyncAt: string | null;
+  /** SharePoint sites to write; absent when the run did not discover sites. */
+  readonly sites?: SitePlan;
 }
 
 /** The rules or overrides changed after the snapshot was loaded. */
@@ -116,6 +127,8 @@ interface GraphFailure {
 /** Problems a run reports without failing; shown next to the sync state. */
 export type SyncWarning =
   | (GraphFailure & { readonly kind: "group_unresolved"; readonly groupId: string })
+  /** The tenant's SharePoint sites could not be listed (mostly: no `Sites.Read.All` consent). */
+  | (GraphFailure & { readonly kind: "sites_unavailable" })
   | (GraphFailure & {
       readonly kind: "mailbox_probe_failed" | "drive_probe_failed" | "user_fetch_failed";
       readonly userId: string;
@@ -126,7 +139,7 @@ export type SyncWarning =
 /** An object this run made active that was not active before (new, or re-included). */
 export interface NewlyActiveObject {
   readonly externalId: string;
-  readonly kind: DirectoryObjectKind;
+  readonly kind: DirectoryObjectKind | "site";
 }
 
 export interface DirectorySyncResult {
@@ -144,6 +157,8 @@ export interface DirectorySyncResult {
    * tenant's backup schedule.
    */
   readonly newlyActive: readonly NewlyActiveObject[];
+  /** SharePoint sites the run listed; null when it did not discover sites or could not. */
+  readonly sitesDiscovered: number | null;
 }
 
 export interface DirectorySyncOptions {
@@ -151,6 +166,11 @@ export interface DirectorySyncOptions {
   readonly repository: DirectoryRepository;
   /** Ignore the stored delta link and enumerate the whole directory. */
   readonly full?: boolean;
+  /**
+   * Also list the tenant's SharePoint sites and plan them as `site` objects
+   * (./sites.ts). Off unless the host asks for it.
+   */
+  readonly sites?: boolean;
   readonly logger?: Logger;
   readonly progress?: ProgressReporter;
   readonly signal?: AbortSignal;
@@ -184,13 +204,22 @@ function isOk(status: number): boolean {
 function newlyActiveObjects(
   known: readonly KnownObject[],
   plan: DirectoryPlan,
+  knownSites: readonly KnownSite[] = [],
+  sites: SitePlan | undefined = undefined,
 ): NewlyActiveObject[] {
   const priorStatus = new Map(known.map((object) => [object.externalId, object.status]));
-  return plan.objects
+  const objects = plan.objects
     .filter(
       (object) => object.status === "active" && priorStatus.get(object.externalId) !== "active",
     )
-    .map((object) => ({ externalId: object.externalId, kind: object.kind }));
+    .map((object): NewlyActiveObject => ({ externalId: object.externalId, kind: object.kind }));
+  const priorSite = new Map(knownSites.map((site) => [site.externalId, site.status]));
+  for (const site of sites?.sites ?? []) {
+    if (site.status === "active" && priorSite.get(site.externalId) !== "active") {
+      objects.push({ externalId: site.externalId, kind: "site" });
+    }
+  }
+  return objects;
 }
 
 // ---------------------------------------------------------------------------
@@ -413,7 +442,7 @@ export async function syncDirectory(options: DirectorySyncOptions): Promise<Dire
       status: warning.status,
       code: warning.code ?? undefined,
     });
-    if (warning.kind !== "group_unresolved") {
+    if (warning.kind !== "group_unresolved" && warning.kind !== "sites_unavailable") {
       progress?.fail(warning.user ?? warning.userId, `${warning.kind}: ${warning.message}`);
     }
   };
@@ -455,8 +484,20 @@ export async function syncDirectory(options: DirectorySyncOptions): Promise<Dire
   progress?.phase("probe");
   const probes = await probeUsers(options.client, users, warn, signal);
 
+  let discovered: readonly DiscoveredSite[] | null = null;
+  if (options.sites === true) {
+    progress?.phase("sites");
+    const discovery = await discoverSites(options.client);
+    if (discovery.ok) {
+      discovered = discovery.sites;
+    } else {
+      warn({ kind: "sites_unavailable", ...discovery.failure });
+    }
+  }
+
   const resolveGroup = groupResolver(options.client, warn);
   let plan: DirectoryPlan | null = null;
+  let sitePlan: SitePlan | undefined;
   for (let attempt = 1; plan === null; attempt += 1) {
     throwIfAborted(signal);
     const { rules, overrides } = snapshot.protection;
@@ -475,6 +516,16 @@ export async function syncDirectory(options: DirectorySyncOptions): Promise<Dire
       groupMemberIds,
     });
 
+    const siteCandidate =
+      options.sites === true
+        ? planSites({
+            sites: discovered,
+            known: snapshot.knownSites ?? [],
+            rules,
+            overrides,
+          })
+        : undefined;
+
     throwIfAborted(signal);
     progress?.phase("persist");
     try {
@@ -483,10 +534,12 @@ export async function syncDirectory(options: DirectorySyncOptions): Promise<Dire
           plan: candidate,
           deltaLink: delta.deltaLink,
           fullSyncAt: delta.mode === "incremental" ? null : startedAt,
+          ...(siteCandidate ? { sites: siteCandidate } : {}),
         },
         snapshot.version,
       );
       plan = candidate;
+      sitePlan = siteCandidate;
     } catch (error) {
       if (!(error instanceof DirectoryConflictError) || attempt >= MAX_COMMIT_ATTEMPTS) {
         throw error;
@@ -501,6 +554,7 @@ export async function syncDirectory(options: DirectorySyncOptions): Promise<Dire
     mode: delta.mode,
     pages: delta.pages,
     ...plan.counts,
+    sites: sitePlan?.discovered ?? undefined,
     warnings: warnings.length,
   });
   return {
@@ -510,7 +564,8 @@ export async function syncDirectory(options: DirectorySyncOptions): Promise<Dire
     counts: plan.counts,
     warnings,
     pages: delta.pages,
-    newlyActive: newlyActiveObjects(snapshot.known, plan),
+    newlyActive: newlyActiveObjects(snapshot.known, plan, snapshot.knownSites, sitePlan),
+    sitesDiscovered: sitePlan?.discovered ?? null,
   };
 }
 
@@ -522,6 +577,7 @@ export async function syncDirectory(options: DirectorySyncOptions): Promise<Dire
 export class MemoryDirectoryRepository implements DirectoryRepository {
   readonly users = new Map<string, DirectoryUserRecord>();
   readonly objects = new Map<string, KnownObject>();
+  readonly sites = new Map<string, KnownSite>();
   readonly commits: DirectoryCommit[] = [];
   deltaLink: string | null = null;
   lastFullSyncAt: string | null = null;
@@ -545,6 +601,7 @@ export class MemoryDirectoryRepository implements DirectoryRepository {
       sharedOrBlockedIds: new Set(this.sharedOrBlockedIds),
       protection: this.protection,
       version: this.version(),
+      knownSites: [...this.sites.values()],
     };
   }
 
@@ -576,6 +633,20 @@ export class MemoryDirectoryRepository implements DirectoryRepository {
       const existing = this.objects.get(externalId);
       if (existing) {
         this.objects.set(externalId, { ...existing, status: "orphaned" });
+      }
+    }
+    for (const site of commit.sites?.sites ?? []) {
+      this.sites.set(site.externalId, {
+        externalId: site.externalId,
+        status: site.status,
+        origin: "directory_sync",
+        displayName: site.displayName,
+      });
+    }
+    for (const externalId of commit.sites?.orphanExternalIds ?? []) {
+      const existing = this.sites.get(externalId);
+      if (existing) {
+        this.sites.set(externalId, { ...existing, status: "orphaned" });
       }
     }
     this.deltaLink = commit.deltaLink;

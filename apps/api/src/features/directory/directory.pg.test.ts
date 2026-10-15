@@ -303,6 +303,52 @@ describe.skipIf(!testDatabaseAdminUrl)("directory service against Postgres", () 
     });
   });
 
+  describe("SharePoint sites", () => {
+    it("reads an excluded site as not selected only under the sites mode, mailboxes by their own", async () => {
+      const { sourceId, objectIds } = await m365Source("Sites-Mode", 1);
+      const [site] = await db
+        .insert(protectedObjects)
+        .values({
+          tenantId,
+          sourceId,
+          kind: "site",
+          origin: "directory_sync",
+          status: "excluded",
+          externalId: "host,1,1",
+          displayName: "Sales",
+        })
+        .returning();
+      await db
+        .update(protectedObjects)
+        .set({ status: "excluded" })
+        .where(eq(protectedObjects.id, objectIds[0] as string));
+
+      const rules = await service.updateRules(
+        db,
+        tenantId,
+        sourceId,
+        rulesSchema.parse({ mode: "all", sites: "selected" }),
+        actor(),
+      );
+      expect(rules.rules).toMatchObject({ mode: "all", sites: "selected" });
+
+      const query = { sourceId, page: 1, pageSize: 50, sort: "name", order: "asc" } as const;
+      const page = await service.listObjects(db, tenantId, query);
+      const byId = new Map(page.items.map((item) => [item.id, item]));
+      // The site follows the sites mode (selected); the mailbox the users' mode (all).
+      expect(byId.get(site?.id as string)).toMatchObject({ kind: "site", notSelected: true });
+      expect(byId.get(objectIds[0] as string)).toMatchObject({ notSelected: false });
+
+      const notSelected = await service.listObjects(db, tenantId, {
+        ...query,
+        status: "not_selected",
+      });
+      expect(notSelected.items.map((item) => item.id)).toEqual([site?.id]);
+      const sites = await service.listObjects(db, tenantId, { ...query, kind: "site" });
+      expect(sites.items.map((item) => item.id)).toEqual([site?.id]);
+    });
+  });
+
   describe("`selected` protection mode", () => {
     it("protects only explicitly included objects; the rest read as not selected, not excluded", async () => {
       const { sourceId, objectIds } = await m365Source("Selected-Mode", 4);

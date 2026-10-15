@@ -3,6 +3,7 @@ import {
   type ProtectionMode,
   type ProtectionOverride,
   type ProtectionRules,
+  type SiteProtectionMode,
   statusForOverride,
 } from "@restow/core";
 import type { ProtectionOverrideInput, RulesInput } from "./schemas.js";
@@ -21,6 +22,7 @@ export function rulesFromInput(input: RulesInput): ProtectionRules {
     groupName: input.groupName ?? null,
     exclude: input.exclude,
     includeSharedMailboxes: input.includeSharedMailboxes,
+    sites: input.sites,
   });
 }
 
@@ -87,11 +89,22 @@ export function containsPattern(text: string): string {
  */
 export function isNotSelected(
   sourceKind: SourceKind,
-  mode: ProtectionMode,
+  mode: ProtectionMode | SiteProtectionMode,
   status: ObjectStatus,
   override: ProtectionOverride | null,
 ): boolean {
   return (
     sourceKind === "m365" && mode === "selected" && status === "excluded" && override !== "exclude"
   );
+}
+
+/**
+ * The mode that decides an object's default: SharePoint sites follow the sites
+ * mode of the rules, mailboxes and OneDrives the users' mode.
+ */
+export function modeForKind(
+  kind: string,
+  rules: { readonly mode: ProtectionMode; readonly sites: SiteProtectionMode },
+): ProtectionMode | SiteProtectionMode {
+  return kind === "site" ? rules.sites : rules.mode;
 }

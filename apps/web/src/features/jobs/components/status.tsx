@@ -1,4 +1,4 @@
-import { Cloud, Inbox, Loader2, Mail, RotateCcw, TriangleAlert } from "lucide-react";
+import { Cloud, Globe, Inbox, Loader2, Mail, RotateCcw, TriangleAlert } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Badge, badgeVariants } from "@/components/ui/badge";
@@ -91,7 +91,7 @@ export function ReadinessBadge({ verify }: { verify: VerifySummary | null }) {
   );
 }
 
-const KIND_ICON = { mailbox: Mail, onedrive: Cloud, imap: Inbox } as const;
+const KIND_ICON = { mailbox: Mail, onedrive: Cloud, imap: Inbox, site: Globe } as const;
 
 export function ObjectKindIcon({ kind, className }: { kind: ObjectKind; className?: string }) {
   const Icon = KIND_ICON[kind];

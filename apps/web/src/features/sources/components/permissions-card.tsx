@@ -2,6 +2,7 @@ import {
   CircleCheck,
   CircleMinus,
   CircleX,
+  Info,
   KeyRound,
   ListChecks,
   ShieldAlert,
@@ -26,6 +27,9 @@ import { formatDateTime, formatRelative } from "@/lib/format";
 import { describeSourceProblem, sourceErrorKey } from "../presenters";
 import type { ConnectionVerification, PermissionCheck, SourceDto } from "../types";
 import { ToneLine } from "./status";
+
+/** The application permission SharePoint restores need (Sites.Read.All suffices for backup). */
+const SHAREPOINT_PERMISSION = "Sites.ReadWrite.All";
 
 interface PermissionsCardProps {
   source: SourceDto;
@@ -146,6 +150,8 @@ function VerificationDetails({
 
   const permissions = verification.permissions;
   const missingRequired = permissions.missing.length;
+  // SharePoint is optional: its gap is explained on its own, never as the mail pitfall.
+  const sharepoint = permissions.checks.find((check) => check.permission === SHAREPOINT_PERMISSION);
 
   return (
     <div className="space-y-5">
@@ -153,18 +159,36 @@ function VerificationDetails({
         {t("m365.token.ok", { tenant: entraTenantId })}
       </ToneLine>
 
-      {permissions.readOnlyInstead.map((entry) => (
-        <Alert key={entry.expected} variant="destructive">
-          <ShieldAlert />
-          <AlertTitle>{t("m365.permissions.pitfall.title")}</AlertTitle>
+      {permissions.readOnlyInstead
+        .filter((entry) => entry.expected !== SHAREPOINT_PERMISSION)
+        .map((entry) => (
+          <Alert key={entry.expected} variant="destructive">
+            <ShieldAlert />
+            <AlertTitle>{t("m365.permissions.pitfall.title")}</AlertTitle>
+            <AlertDescription>
+              {t("m365.permissions.pitfall.description", {
+                granted: entry.granted,
+                expected: entry.expected,
+              })}
+            </AlertDescription>
+          </Alert>
+        ))}
+
+      {sharepoint && sharepoint.state !== "granted" ? (
+        <Alert>
+          <Info />
+          <AlertTitle>
+            {sharepoint.state === "read_only"
+              ? t("m365.permissions.sharepointReadOnly.title")
+              : t("m365.permissions.sharepointMissing.title")}
+          </AlertTitle>
           <AlertDescription>
-            {t("m365.permissions.pitfall.description", {
-              granted: entry.granted,
-              expected: entry.expected,
-            })}
+            {sharepoint.state === "read_only"
+              ? t("m365.permissions.sharepointReadOnly.description")
+              : t("m365.permissions.sharepointMissing.description")}
           </AlertDescription>
         </Alert>
-      ))}
+      ) : null}
 
       {permissions.complete ? (
         <ToneLine tone="ok" className="font-medium">

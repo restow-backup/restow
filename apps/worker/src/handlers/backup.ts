@@ -65,6 +65,7 @@ import {
   type ProtectedObjectKind,
   type ProtectedObjectRef,
   parseSourceAppSecret,
+  SharePointBackupEngine,
   type StorageTargets,
   singletonKeyFor,
   type TenantKeyring,
@@ -111,6 +112,7 @@ const SOURCE_KIND_OF: Record<ProtectedObjectKind, Source["kind"]> = {
   mailbox: "m365",
   onedrive: "m365",
   imap: "imap",
+  site: "m365",
 };
 
 // ---------------------------------------------------------------------------
@@ -907,7 +909,11 @@ export interface DefaultEngineOptions {
   readonly tokens?: TokenProviderCache;
 }
 
-/** The engines this build ships: Exchange mailboxes, OneDrive and IMAP accounts. */
+/**
+ * The engines this build ships: Exchange mailboxes, OneDrive, IMAP accounts and
+ * SharePoint sites. Sites use the same lazily built, throttled Graph client as
+ * OneDrive, so Retry-After and the per-tenant limits apply to them alike.
+ */
 export function createDefaultBackupEngines(
   options: DefaultEngineOptions = {},
 ): BackupEngineRegistry {
@@ -921,6 +927,10 @@ export function createDefaultBackupEngines(
     [
       "onedrive",
       (deps) => new OneDriveBackupEngine<Database>({ graph: lazyGraphClient(deps, settings) }),
+    ],
+    [
+      "site",
+      (deps) => new SharePointBackupEngine<Database>({ graph: lazyGraphClient(deps, settings) }),
     ],
     [
       "imap",

@@ -30,6 +30,8 @@ export function seesAllObjects(viewer: Pick<Viewer, "role">): boolean {
 export interface OwnedObject {
   externalId: string;
   ownerEmail: string | null;
+  /** The protected object's kind, where the caller has it (a site belongs to no person). */
+  kind?: string;
 }
 
 /** True when the object belongs to the viewer's own identity. */
@@ -58,6 +60,11 @@ export function canAccessObject(viewer: Viewer, object: OwnedObject): boolean {
  * as such.
  */
 export function isImpersonation(viewer: Viewer, object: OwnedObject): boolean {
+  // A SharePoint site is a shared resource, nobody's personal data: restoring it
+  // acts for no one (only restore operators and admins see sites at all).
+  if (object.kind === "site") {
+    return false;
+  }
   return !isOwnObject(viewer, object);
 }
 

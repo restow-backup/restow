@@ -457,6 +457,8 @@ export interface StatusSummary {
     mail: string | null;
     onedrive: string | null;
     imap: string | null;
+    /** SharePoint sites; absent from an older server. */
+    sharepoint?: string | null;
     archive: string | null;
   };
   protectedObjects: number;
@@ -554,6 +556,7 @@ export function normalizeStatus(payload: unknown): StatusSummary {
       mail: asNullableString(lastSuccess.mail),
       onedrive: asNullableString(lastSuccess.onedrive),
       imap: asNullableString(lastSuccess.imap),
+      sharepoint: asNullableString(lastSuccess.sharepoint),
       archive: asNullableString(lastSuccess.archive),
     },
     protectedObjects: asNumber(raw.protectedObjects ?? objects.active),

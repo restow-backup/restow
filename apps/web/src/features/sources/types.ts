@@ -17,6 +17,7 @@ export type PermissionPurpose =
   | "calendar"
   | "contacts"
   | "onedrive"
+  | "sharepoint"
   | "users"
   | "groups"
   | "directory"

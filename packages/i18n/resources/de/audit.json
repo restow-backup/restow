@@ -643,6 +643,7 @@
     "manifest_object": "Gesichertes Objekt",
     "member": "Mitglied",
     "onedrive": "OneDrive",
+    "site": "SharePoint-Website",
     "protected_object": "Geschütztes Objekt",
     "restore_job": "Wiederherstellung",
     "retention_policy": "Aufbewahrungsrichtlinie",

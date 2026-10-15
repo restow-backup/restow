@@ -17,6 +17,7 @@ export type PermissionPurpose =
   | "calendar"
   | "contacts"
   | "onedrive"
+  | "sharepoint"
   | "users"
   | "groups"
   | "directory"
@@ -90,6 +91,21 @@ export const GRAPH_APPLICATION_PERMISSIONS: readonly PermissionRequirement[] = [
     weakerVariants: [],
   },
   { permission: "Mail.Send", required: false, purpose: "notifications", weakerVariants: [] },
+  {
+    // SharePoint Online sites (0.4.x). Optional so that tenants which consented
+    // before keep working for mail and OneDrive; with Sites.Read.All alone the
+    // sites are backed up, but restoring into them fails (the read-only pitfall).
+    permission: "Sites.ReadWrite.All",
+    required: false,
+    purpose: "sharepoint",
+    weakerVariants: ["Sites.Read.All"],
+  },
+];
+
+/** The permission that lets Restow discover and back up SharePoint sites at all. */
+export const SHAREPOINT_BACKUP_PERMISSIONS: readonly string[] = [
+  "Sites.Read.All",
+  "Sites.ReadWrite.All",
 ];
 
 /** How a permission is granted on the app registration. */
@@ -107,8 +123,8 @@ export interface AppRegistrationPermission {
  * Everything the backup app registration lists under "API permissions",
  * Microsoft Graph: the application permissions above, then the delegated
  * OpenID scopes that only let the consenting admin confirm who they are after
- * the consent (no data access). `Sites.ReadWrite.All` is deliberately absent
- * (SharePoint is not part of v1).
+ * the consent (no data access). `Sites.ReadWrite.All` (SharePoint) is listed as
+ * optional: a tenant without it keeps its mail and OneDrive backups.
  */
 export const APP_REGISTRATION_PERMISSIONS: readonly AppRegistrationPermission[] = [
   ...GRAPH_APPLICATION_PERMISSIONS.map((entry) => ({

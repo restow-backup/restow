@@ -54,6 +54,8 @@ describe("graph resources", () => {
       ["/users/a@b.de/contactFolders", "contacts", "Contacts.ReadWrite"],
       ["/users/a@b.de/drive/root/delta", "onedrive", "Files.ReadWrite.All"],
       ["/drives/b!x/items/01ABC", "onedrive", "Files.ReadWrite.All"],
+      ["/sites/getAllSites", "sharepoint", "Sites.Read.All"],
+      ["/sites/host,1,2/lists/l1/items", "sharepoint", "Sites.Read.All"],
       ["/users/delta?$select=id", "users", "User.Read.All"],
       ["/users/a@b.de", "users", "User.Read.All"],
       ["/groups/123/transitiveMembers", "groups", "Group.Read.All"],

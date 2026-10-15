@@ -172,7 +172,11 @@ function Counts({ source }: { source: DirectorySource }) {
     <div className="space-y-0.5 text-sm">
       <p>
         {source.kind === "m365"
-          ? t("sources.m365Kinds", { mailbox: counts.mailbox, onedrive: counts.onedrive })
+          ? t("sources.m365Kinds", {
+              mailbox: counts.mailbox,
+              onedrive: counts.onedrive,
+              site: counts.site ?? 0,
+            })
           : t("sources.imapKinds", { count: counts.imap })}
       </p>
       <p className="text-muted-foreground">
@@ -416,10 +420,17 @@ function Warnings({ warnings, total }: { warnings: readonly SyncWarning[]; total
               <li key={index}>
                 {warning.kind === "group_unresolved"
                   ? t("sync.warnings.group_unresolved", { status: warning.status })
-                  : t(`sync.warnings.${warning.kind}`, {
-                      user: warning.user ?? warning.userId,
-                      status: warning.status,
-                    })}
+                  : warning.kind === "sites_unavailable"
+                    ? t(
+                        warning.status === 401 || warning.status === 403
+                          ? "sync.warnings.sites_permission"
+                          : "sync.warnings.sites_unavailable",
+                        { status: warning.status },
+                      )
+                    : t(`sync.warnings.${warning.kind}`, {
+                        user: warning.user ?? warning.userId,
+                        status: warning.status,
+                      })}
               </li>
             ))}
           </ul>

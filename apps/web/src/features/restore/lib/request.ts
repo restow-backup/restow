@@ -102,11 +102,18 @@ export function modeApplies(target: RestoreTargetType): boolean {
 
 /**
  * Which collision modes a restore may offer: keep both or skip what exists. A
- * restore never overwrites an existing item; replacing OneDrive files (the
- * existing file becoming an earlier version) is planned for a later release.
+ * restore never overwrites an existing item, except into a SharePoint site,
+ * where overwriting a file (SharePoint keeps the old one as a version) or a
+ * list item's fields is an explicit choice. Replacing OneDrive files is
+ * planned for a later release.
  */
-export function restoreModesFor(_kind: ObjectKind): readonly RestoreMode[] {
-  return ["rename", "skip"] as const;
+export function restoreModesFor(kind: ObjectKind): readonly RestoreMode[] {
+  return kind === "site" ? (["rename", "replace", "skip"] as const) : (["rename", "skip"] as const);
+}
+
+/** Objects whose restore writes files (renamed copies), never into a restore folder. */
+function restoresFiles(kind: ObjectKind): boolean {
+  return kind === "onedrive" || kind === "site";
 }
 
 /**
@@ -114,7 +121,7 @@ export function restoreModesFor(_kind: ObjectKind): readonly RestoreMode[] {
  * folder (packages/core restore/common.ts); OneDrive renames files instead.
  */
 export function usesRestoreFolder(kind: ObjectKind, state: RestoreFormState): boolean {
-  return modeApplies(state.target) && state.mode === "rename" && kind !== "onedrive";
+  return modeApplies(state.target) && state.mode === "rename" && !restoresFiles(kind);
 }
 
 /**

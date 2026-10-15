@@ -203,12 +203,13 @@ async function resolveSnapshotSource(
     input.snapshotId,
   );
 
-  // Snapshot exports are mail only (EML/MBOX/MSG); a OneDrive is restored as a download.
-  if (object.kind === "onedrive") {
+  // Snapshot exports are mail only (EML/MBOX/MSG); a OneDrive or a SharePoint site is
+  // restored as a download.
+  if (object.kind === "onedrive" || object.kind === "site") {
     throw new ProblemError(422, "Not a mail object", {
       type: "urn:restow:problem:export-not-mail",
       detail:
-        "Only mailboxes and IMAP accounts can be exported as mail files. Restore a OneDrive as a download instead.",
+        "Only mailboxes and IMAP accounts can be exported as mail files. Restore a OneDrive or a SharePoint site as a download instead.",
       extensions: { objectKind: object.kind },
     });
   }

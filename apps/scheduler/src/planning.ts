@@ -38,7 +38,7 @@ export interface TenantTargets {
   readonly protectedObjects: readonly {
     readonly id: string;
     readonly sourceId: string;
-    readonly kind: "mailbox" | "onedrive" | "imap";
+    readonly kind: "mailbox" | "onedrive" | "imap" | "site";
     readonly status: "active" | "excluded" | "orphaned";
   }[];
   readonly sources: readonly {
@@ -182,17 +182,20 @@ export function expandSchedule(
         );
     case "archive": {
       if (schedule.protectedObjectId !== null) {
-        return objects
-          .filter((object) => object.kind !== "onedrive")
-          .map((object) => {
-            const source = usableSources.get(object.sourceId);
-            const capture = source?.kind === "imap" ? "imap_sync" : "graph_sync";
-            return planned(
-              "archive",
-              { ...base, jobId: newJobId(), protectedObjectId: object.id, capture },
-              object.id,
-            );
-          });
+        return (
+          objects
+            // Only mailboxes are archived: a OneDrive or a SharePoint site has no mail.
+            .filter((object) => object.kind === "mailbox" || object.kind === "imap")
+            .map((object) => {
+              const source = usableSources.get(object.sourceId);
+              const capture = source?.kind === "imap" ? "imap_sync" : "graph_sync";
+              return planned(
+                "archive",
+                { ...base, jobId: newJobId(), protectedObjectId: object.id, capture },
+                object.id,
+              );
+            })
+        );
       }
       return [...usableSources.values()].map((source) =>
         planned(

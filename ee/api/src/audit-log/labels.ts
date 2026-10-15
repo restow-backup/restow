@@ -34,6 +34,7 @@ export const LABELLED_TARGET_TYPES = [
   "mailbox",
   "onedrive",
   "imap",
+  "site",
   "snapshot",
   "restore_job",
   "export_job",
@@ -46,7 +47,7 @@ export const LABELLED_TARGET_TYPES = [
 type LabelledType = (typeof LABELLED_TARGET_TYPES)[number];
 
 /** The target types whose id is the id of a protected object. */
-const PROTECTED_OBJECT_TYPES = ["protected_object", "mailbox", "onedrive", "imap"] as const;
+const PROTECTED_OBJECT_TYPES = ["protected_object", "mailbox", "onedrive", "imap", "site"] as const;
 
 export interface TargetRef {
   target: string | null;

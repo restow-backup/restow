@@ -35,6 +35,7 @@
   "kind": {
     "mailbox": "Mailbox",
     "onedrive": "OneDrive",
+    "site": "SharePoint site",
     "imap": "IMAP account",
     "server": "Server",
     "client": "Client",

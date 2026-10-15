@@ -3,6 +3,7 @@ import {
   Cloud,
   Container,
   DatabaseBackup,
+  Globe,
   type LucideIcon,
   Mail,
   MailOpen,
@@ -20,11 +21,20 @@ import { WidgetCard, type WidgetStateProps } from "../components/widget-frame.js
 import { PATHS, to } from "../paths.js";
 import { isStale, staleBound } from "../presenters.js";
 
-type BackupType = "mail" | "onedrive" | "imap" | "machines" | "guests" | "fileShares" | "archive";
+type BackupType =
+  | "mail"
+  | "onedrive"
+  | "sharepoint"
+  | "imap"
+  | "machines"
+  | "guests"
+  | "fileShares"
+  | "archive";
 
 const TYPE_ICON: Readonly<Record<BackupType, LucideIcon>> = {
   mail: Mail,
   onedrive: Cloud,
+  sharepoint: Globe,
   imap: MailOpen,
   machines: Server,
   guests: Container,
@@ -58,6 +68,12 @@ export function backupTypeRows(data: LastBackupData): TypeRow[] {
       type: "onedrive",
       at: data.lastSuccess.onedrive,
       protectedCount: data.protectedKinds.onedrive,
+      staleAfterHours: mail,
+    },
+    {
+      type: "sharepoint",
+      at: data.lastSuccess.sharepoint ?? null,
+      protectedCount: data.protectedKinds.site ?? 0,
       staleAfterHours: mail,
     },
     {

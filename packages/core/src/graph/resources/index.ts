@@ -8,5 +8,6 @@ export * from "./common.js";
 export * from "./contacts.js";
 export * from "./drive.js";
 export * from "./mail.js";
+export * from "./sites.js";
 export * from "./upload-session.js";
 export * from "./users.js";

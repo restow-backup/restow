@@ -8,7 +8,7 @@ import type { JobThrottle } from "@/features/jobs/api";
 
 export type SourceKind = "m365" | "imap";
 export type SourceStatus = "pending" | "active" | "error" | "disabled";
-export type ObjectKind = "mailbox" | "onedrive" | "imap";
+export type ObjectKind = "mailbox" | "onedrive" | "imap" | "site";
 export type ObjectStatus = "active" | "excluded" | "orphaned";
 /**
  * `status` as a filter: `not_selected` is not a stored status but a derived
@@ -38,6 +38,8 @@ export interface ProtectionRules {
   groupName: string | null;
   exclude: string[];
   includeSharedMailboxes: boolean;
+  /** SharePoint sites: every site of the tenant, or only the included ones (absent from an older server). */
+  sites?: "all" | "selected";
 }
 
 export interface PlanCounts {
@@ -58,6 +60,8 @@ interface GraphFailure {
 
 export type SyncWarning =
   | (GraphFailure & { kind: "group_unresolved"; groupId: string })
+  /** SharePoint sites could not be listed (mostly: no Sites.Read.All consent in the tenant). */
+  | (GraphFailure & { kind: "sites_unavailable" })
   | (GraphFailure & {
       kind: "mailbox_probe_failed" | "drive_probe_failed" | "user_fetch_failed";
       userId: string;
@@ -85,6 +89,8 @@ export interface ObjectCounts {
   mailbox: number;
   onedrive: number;
   imap: number;
+  /** SharePoint sites (absent from an older server). */
+  site?: number;
 }
 
 export interface PendingSync {

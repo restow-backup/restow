@@ -281,6 +281,48 @@ function replaceObjects(writer: SnapshotWriter, objects: readonly ManifestObject
   }
 }
 
+/**
+ * Where a drive run keeps its objects and checkpoints. A OneDrive is the whole
+ * snapshot ({@link writerSink}); a SharePoint library is one folder of a site's
+ * snapshot, next to the site's other libraries and lists (backup/sharepoint).
+ * Paths the run sees are always relative to the drive root.
+ */
+export interface DriveObjectSink {
+  /** This drive's objects the snapshot holds so far (a resumed checkpoint). */
+  list(): ManifestObject[];
+  /** Make the snapshot hold exactly `objects` for this drive. */
+  replace(objects: readonly ManifestObject[]): void;
+  /** Make the run so far durable: the drive's cursor and the deletions not yet cascaded. */
+  checkpoint(cursor: Omit<OneDriveCursor, "snapshot">, deleted: readonly string[]): Promise<void>;
+}
+
+/** The sink of a OneDrive backup: the drive is the whole snapshot. */
+export function writerSink(writer: SnapshotWriter, driveId: string): DriveObjectSink {
+  return {
+    list: () => writer.listObjects(),
+    replace: (objects) => replaceObjects(writer, objects),
+    async checkpoint(cursor, deleted) {
+      writer.setState(checkpointState(driveId, deleted) as unknown as Record<string, unknown>);
+      await writer.checkpoint(cursor);
+    },
+  };
+}
+
+/** What one drive's walk produced, before anything is committed. */
+export interface DriveRunOutcome {
+  readonly state: OneDriveManifestState;
+  readonly failures: readonly ItemFailureRecord[];
+  /** Objects new or changed against the previous snapshot. */
+  readonly changed: number;
+  readonly removed: number;
+  /** Objects the drive holds now. */
+  readonly objects: number;
+  readonly downloaded: number;
+  readonly reused: number;
+  /** What the run changed against the previous snapshot, for the ransomware signals. */
+  readonly activity?: ActivityReport;
+}
+
 export interface RunSettings {
   readonly includeVersions: boolean;
   readonly checkpointEveryItems: number;
@@ -300,8 +342,8 @@ export interface RunInput {
   readonly client: GraphClient;
   readonly driveId: string;
   readonly writer: SnapshotWriter;
-  /** The last committed snapshot of this drive, if any. */
-  readonly previous: SnapshotManifest | null;
+  /** The last committed snapshot of this drive (its objects, paths relative to the drive), if any. */
+  readonly previous: Pick<SnapshotManifest, "objects"> | null;
   readonly plan: RunPlan;
   readonly settings: RunSettings;
   readonly logger: Logger;
@@ -309,6 +351,8 @@ export interface RunInput {
   readonly resumed: boolean;
   /** Deletions the checkpoint had seen but not yet cascaded. */
   readonly resumedDeletions: readonly string[];
+  /** Where the objects go; the whole snapshot when absent (OneDrive). */
+  readonly sink?: DriveObjectSink;
 }
 
 export class DriveBackupRun {
@@ -319,6 +363,7 @@ export class DriveBackupRun {
   private readonly plan: RunPlan;
   private readonly settings: RunSettings;
   private readonly logger: Logger;
+  private readonly sink: DriveObjectSink;
   private readonly tree: DriveTree;
   private readonly previousById = new Map<string, ManifestObject>();
   private readonly pool = new ContentPool();
@@ -356,6 +401,7 @@ export class DriveBackupRun {
     this.deltaLink = input.plan.deltaLink;
     this.retryOverflow = input.plan.retryOverflow;
     this.lastCheckpointAt = this.now();
+    this.sink = input.sink ?? writerSink(input.writer, input.driveId);
 
     for (const object of input.previous?.objects ?? []) {
       if (object.id !== undefined) {
@@ -369,7 +415,7 @@ export class DriveBackupRun {
   private initialTree(input: RunInput): DriveTree {
     const rootId = input.plan.rootId;
     if (input.resumed) {
-      return DriveTree.fromObjects(input.writer.listObjects(), {
+      return DriveTree.fromObjects(this.sink.list(), {
         rootId,
         deleted: input.resumedDeletions,
       });
@@ -383,7 +429,17 @@ export class DriveBackupRun {
     return new DriveTree(rootId);
   }
 
+  /** Walk the drive and commit it as the whole snapshot (OneDrive). */
   async execute(): Promise<BackupResult> {
+    return this.commit(await this.collect());
+  }
+
+  /**
+   * Walk the drive and leave its final objects in the sink without committing:
+   * a SharePoint site collects each library this way into one snapshot. A
+   * failure leaves a checkpoint behind (see {@link checkpointOnTheWayOut}).
+   */
+  async collect(): Promise<DriveRunOutcome> {
     let outcome: DriveWalkOutcome;
     try {
       await this.retryPending();
@@ -401,7 +457,7 @@ export class DriveBackupRun {
       await this.checkpointOnTheWayOut(error);
       throw error;
     }
-    return this.commit(outcome);
+    return this.finish(outcome);
   }
 
   private finishedWalk(): DriveWalkOutcome {
@@ -514,10 +570,11 @@ export class DriveBackupRun {
     this.logger.info("restarted the enumeration from scratch", { droppedObjects: dropped.length });
   }
 
-  private async commit(outcome: DriveWalkOutcome): Promise<BackupResult> {
+  /** The drive's final objects into the sink, and the state the next run continues from. */
+  private finish(outcome: DriveWalkOutcome): DriveRunOutcome {
     const tree = this.tree.materialize({ cascadeDeletions: true });
     this.reportCollisions(tree.collisions);
-    replaceObjects(this.writer, tree.objects);
+    this.sink.replace(tree.objects);
     const changes = compareWithPrevious(this.previousById, tree.objects);
     // A first backup has nothing to compare with: every file would be "new".
     const activity =
@@ -536,6 +593,20 @@ export class DriveBackupRun {
       versions: this.settings.includeVersions,
       completedAt: this.now(),
     };
+    return {
+      state,
+      failures: this.failures,
+      changed: changes.changed,
+      removed: changes.removed,
+      objects: tree.objects.length,
+      downloaded: this.downloaded,
+      reused: this.reused,
+      ...(activity ? { activity } : {}),
+    };
+  }
+
+  private async commit(outcome: DriveRunOutcome): Promise<BackupResult> {
+    const { state, changed, removed, activity } = outcome;
     this.writer.setState(state as unknown as Record<string, unknown>);
     this.ctx.progress.phase(ONEDRIVE_PHASES.commit);
     const committed = await this.writer.commit();
@@ -545,10 +616,10 @@ export class DriveBackupRun {
     this.logger.info("onedrive backup completed", {
       snapshotId: committed.snapshotId,
       sequence: committed.sequence,
-      mode: outcome.mode,
+      mode: state.mode,
       objectsTotal: committed.itemCount,
-      objectsChanged: changes.changed,
-      objectsRemoved: changes.removed,
+      objectsChanged: changed,
+      objectsRemoved: removed,
       downloaded: this.downloaded,
       reused: this.reused,
       vanished: this.vanished,
@@ -560,7 +631,7 @@ export class DriveBackupRun {
     return {
       snapshotId: committed.snapshotId,
       sequence: committed.sequence,
-      objectsWritten: changes.changed,
+      objectsWritten: changed,
       objectsTotal: committed.itemCount,
       bytes,
       failures: this.failures,
@@ -891,11 +962,8 @@ export class DriveBackupRun {
 
   private async checkpoint(): Promise<void> {
     const tree = this.tree.materialize({ cascadeDeletions: false });
-    replaceObjects(this.writer, tree.objects);
-    this.writer.setState(
-      checkpointState(this.driveId, this.tree.deletedIds()) as unknown as Record<string, unknown>,
-    );
-    await this.writer.checkpoint(this.cursor());
+    this.sink.replace(tree.objects);
+    await this.sink.checkpoint(this.cursor(), this.tree.deletedIds());
     this.itemsSinceCheckpoint = 0;
     this.bytesSinceCheckpoint = 0;
     this.lastCheckpointAt = this.now();

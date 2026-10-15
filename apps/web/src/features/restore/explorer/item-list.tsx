@@ -107,9 +107,11 @@ export function ItemList({
   const label = useEntryLabel(objectKind);
   const location = useLocationLabel(objectKind);
   const headerState = listSelectionState(selection, entries);
-  // OneDrive lists files by name; a mailbox or IMAP account lists mail by subject.
+  // OneDrive and SharePoint list files by name; a mailbox or IMAP account lists mail by subject.
   const nameColumnKey =
-    objectKind === "onedrive" ? "explorer.columns.name" : "explorer.columns.subject";
+    objectKind === "onedrive" || objectKind === "site"
+      ? "explorer.columns.name"
+      : "explorer.columns.subject";
   const activeRowRef = React.useRef<HTMLTableRowElement>(null);
 
   // Up/Down move the reading pane through the *items* of this folder, never

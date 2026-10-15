@@ -14,6 +14,7 @@
   "kind": {
     "mailbox": "Postfach",
     "onedrive": "OneDrive",
+    "site": "SharePoint-Website",
     "imap": "IMAP-Postfach"
   },
   "checkKind": {

@@ -13,6 +13,7 @@ export type WarningSubjectKind =
   | "mailbox"
   | "onedrive"
   | "imap"
+  | "site"
   | "server"
   | "client"
   | "file_share";

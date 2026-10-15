@@ -42,6 +42,7 @@ export interface ObjectKindCounts {
   mailbox: number;
   onedrive: number;
   imap: number;
+  site: number;
 }
 
 export interface LastBackupWidget {
@@ -131,7 +132,7 @@ export interface RecentJobDto {
   id: string;
   queue: string;
   status: "queued" | "active" | "completed" | "failed" | "cancelled";
-  object: { kind: "mailbox" | "onedrive" | "imap"; displayName: string | null } | null;
+  object: { kind: "mailbox" | "onedrive" | "imap" | "site"; displayName: string | null } | null;
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;

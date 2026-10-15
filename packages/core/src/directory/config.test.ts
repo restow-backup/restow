@@ -35,6 +35,7 @@ describe("protection in sources.config", () => {
       scope: { mode: "group", groupId: "grp-1", exclude: ["svc@x.y"] },
       protection: {
         includeSharedMailboxes: false,
+        sites: "all",
         group: { id: "grp-1", name: "Backup users" },
         overrides: {},
       },
@@ -47,7 +48,7 @@ describe("protection in sources.config", () => {
     const config = writeRules({}, rules);
     expect(config).toEqual({
       scope: { mode: "selected", exclude: ["stale@x.y"] },
-      protection: { includeSharedMailboxes: true, group: null, overrides: {} },
+      protection: { includeSharedMailboxes: true, sites: "all", group: null, overrides: {} },
     });
     expect(readProtection(config).rules).toEqual(rules);
   });

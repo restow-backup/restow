@@ -182,7 +182,8 @@ export class FakeDrive {
     return { status: 201, json: this.toJson(item) };
   }
 
-  private routes(): FixtureRoute[] {
+  /** The routes behind {@link graph}, for tests that combine this drive with other fakes. */
+  routes(): FixtureRoute[] {
     const path = (pattern: RegExp) => (url: URL) => pattern.test(decodeURIComponent(url.pathname));
     return [
       {

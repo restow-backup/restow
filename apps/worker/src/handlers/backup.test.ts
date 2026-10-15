@@ -18,6 +18,7 @@ import {
   OneDriveBackupEngine,
   ProgressTracker,
   type ProtectedObjectRef,
+  SharePointBackupEngine,
   type StorageBackend,
   type StorageTargets,
   type StoredEntraAppRow,
@@ -301,7 +302,7 @@ describe("engine registry and selection", () => {
 
   it("ships an engine for every protected-object kind", () => {
     const registry = createDefaultBackupEngines({ env: {} });
-    expect(registry.kinds().sort()).toEqual(["imap", "mailbox", "onedrive"]);
+    expect(registry.kinds().sort()).toEqual(["imap", "mailbox", "onedrive", "site"]);
     const ctx = workerContext(storage());
     expect(registry.get("mailbox")?.(depsFor(ctx, m365Source()))).toBeInstanceOf(
       ExchangeBackupEngine,
@@ -310,6 +311,9 @@ describe("engine registry and selection", () => {
       OneDriveBackupEngine,
     );
     expect(registry.get("imap")?.(depsFor(ctx, imapSource()))).toBeInstanceOf(ImapBackupEngine);
+    expect(registry.get("site")?.(depsFor(ctx, m365Source()))).toBeInstanceOf(
+      SharePointBackupEngine,
+    );
   });
 });
 

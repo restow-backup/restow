@@ -30,6 +30,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { ExportDialog, type ExportDialogRequest } from "@/features/exports/export-dialog";
 import { ExportMenuItems } from "@/features/exports/export-menu-items";
 import type {
+  ObjectKind,
   SnapshotObject,
   StoredVersion,
   TreeEntry,
@@ -127,6 +128,11 @@ const PANEL_LAYOUT_PREFIX = "restow.restore.explorer.panels";
  * and restore or download. Everything that identifies the view lives in the
  * URL.
  */
+/** Mail files can be exported from mailboxes and IMAP accounts; drives and sites restore as a download. */
+function exportsMail(kind: ObjectKind): boolean {
+  return kind !== "onedrive" && kind !== "site";
+}
+
 export function ExplorerPage() {
   usePageWidth("full");
   const { t } = useTranslation("restore");
@@ -284,7 +290,7 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
   };
   // Mail export: a selection, the folder being browsed (`folderOnly`), or everything.
   const exportScope = (scopeSelection: Selection | null) => {
-    if (!object || !restorePoint || object.kind === "onedrive") {
+    if (!object || !restorePoint || !exportsMail(object.kind)) {
       return;
     }
     setExportDialog({
@@ -443,7 +449,7 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
               target: "download",
             })
           }
-          onExport={object.kind === "onedrive" ? undefined : exportFrom}
+          onExport={exportsMail(object.kind) ? exportFrom : undefined}
         />
       ) : null}
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -568,7 +574,7 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
           onClear={() => setSelection(EMPTY_SELECTION)}
           onRestore={() => restoreScope(selection, "original")}
           onDownload={() => restoreScope(selection, "download")}
-          onExport={object?.kind === "onedrive" ? undefined : () => exportScope(selection)}
+          onExport={object && exportsMail(object.kind) ? () => exportScope(selection) : undefined}
         />
       ) : null}
 

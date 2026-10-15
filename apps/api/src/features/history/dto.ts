@@ -44,7 +44,14 @@ export type RunSource = "mail" | "endpoint" | "file_share";
 /** `succeeded` is a run that completed; whether the backup is restorable is the restore check's word. */
 export type RunState = "queued" | "running" | "succeeded" | "partial" | "failed" | "cancelled";
 
-export type SubjectKind = "mailbox" | "onedrive" | "imap" | "server" | "client" | "file_share";
+export type SubjectKind =
+  | "mailbox"
+  | "onedrive"
+  | "imap"
+  | "site"
+  | "server"
+  | "client"
+  | "file_share";
 
 /** The object or machine a run works on. */
 export interface RunSubjectDto {

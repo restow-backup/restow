@@ -38,15 +38,28 @@ export function displayName(entry: NamedEntry): string {
 export const MAILBOX_AREAS = ["mail", "calendar", "contacts"] as const;
 export type MailboxArea = (typeof MAILBOX_AREAS)[number];
 
-/** The mailbox area a root folder stands for, so its label can be translated. */
+/**
+ * The areas at the root of a SharePoint site snapshot (packages/core
+ * backup/sharepoint/layout.ts): its document libraries and its lists.
+ */
+const SITE_AREAS: Readonly<Record<string, SiteArea>> = {
+  Libraries: "libraries",
+  Lists: "lists",
+};
+export type SiteArea = "libraries" | "lists";
+
+/** The mailbox or site area a root folder stands for, so its label can be translated. */
 export function areaOf(
   entry: Pick<NamedEntry, "kind" | "path">,
   objectKind: ObjectKind,
-): MailboxArea | null {
+): MailboxArea | SiteArea | null {
   if (objectKind === "onedrive" || entry.kind !== "folder" || parentPathOf(entry.path) !== "") {
     return null;
   }
   const name = baseNameOf(entry.path);
+  if (objectKind === "site") {
+    return SITE_AREAS[name] ?? null;
+  }
   return (MAILBOX_AREAS as readonly string[]).includes(name) ? (name as MailboxArea) : null;
 }
 

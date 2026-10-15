@@ -31,6 +31,7 @@
   "subject": {
     "mailbox": "Postfach",
     "onedrive": "OneDrive",
+    "site": "SharePoint-Website",
     "imap": "IMAP-Konto",
     "server": "Server",
     "client": "Client",
@@ -162,6 +163,7 @@
     "wave": {
       "mailbox": "{done} von {total} Postfächern gesichert",
       "onedrive": "{done} von {total} OneDrives gesichert",
+      "site": "{done} von {total} SharePoint-Websites gesichert",
       "imap": "{done} von {total} IMAP-Konten gesichert",
       "server": "{done} von {total} Servern gesichert",
       "client": "{done} von {total} Clients gesichert",

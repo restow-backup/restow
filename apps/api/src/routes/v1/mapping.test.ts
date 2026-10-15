@@ -363,6 +363,7 @@ describe("status summary", () => {
       mail: "2026-09-22T01:00:00.000Z",
       onedrive: null,
       imap: "2026-09-21T03:00:00.000Z",
+      sharepoint: null,
       archive: null,
     });
   });

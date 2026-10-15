@@ -17,7 +17,7 @@ Systeme Flores bzw. beim jeweiligen Service Provider). Beide werden **einmal** a
 und für alle Mandanten wiederverwendet:
 
 1. **Backup-App** (Anwendungsberechtigungen, Client Credentials, Multi-Tenant). Sie
-   sichert und restauriert Postfächer und OneDrives. Kunden erteilen ihr Admin-Consent
+   sichert und restauriert Postfächer, OneDrives und SharePoint-Websites. Kunden erteilen ihr Admin-Consent
    per Link; danach holt Restow je Kunden-Tenant ein App-Token. Kein Nutzer ist an
    diesem Fluss beteiligt. → In der Weboberfläche unter **Installation → Microsoft-Multi-Tenant-App**
    (verschlüsselt gespeichert) oder alternativ per `.env`: `ENTRA_CLIENT_ID`,
@@ -82,6 +82,7 @@ Anwendungsberechtigungen** exakt diese Rechte setzen. Alle sind vom Typ *Applica
 | `Group.Read.All` | Schutzregel „Gruppe" auflösen. | ja |
 | `Directory.Read.All` | Verzeichnis-Sync, gelöschte Nutzer, Rollenprüfung. | ja |
 | `Organization.Read.All` | Tenant-Name, Lizenzen (Anzeige, Schätzungen). | ja |
+| `Sites.ReadWrite.All` | **Optional.** SharePoint-Websites erkennen, sichern (dafür genügt `Sites.Read.All`) und wiederherstellen. Ohne sie bleiben Mail und OneDrive unverändert. | optional |
 | `Mail.Send` | **Optional.** Nur wenn Benachrichtigungen über Graph statt SMTP laufen (Setup-Wizard, Transport `graph`). Sendet als konfiguriertes Absenderpostfach über `/users/{id}/sendMail`; per Application Access Policy auf dieses eine Postfach beschränkbar. | optional |
 
 Hinweise:
@@ -90,9 +91,18 @@ Hinweise:
   Nur-Lesen, Backup läuft, Restore scheitert mit 403. Restow prüft beim Verbinden alle
   Rechte und zeigt fehlende an (siehe `docs/MICROSOFT.md`, „Dinge, die immer wieder
   schiefgehen").
-- **`Sites.ReadWrite.All` bewusst nicht in v1.** Es kommt erst mit SharePoint
-  (`docs/MICROSOFT.md`, ROADMAP „Danach"). Jetzt nicht anfragen — es weitet den
-  Consent unnötig aus.
+- **`Sites.ReadWrite.All` für SharePoint Online.** Optional: ohne sie sichert Restow
+  weiterhin Mail und OneDrive, findet und sichert aber keine SharePoint-Websites. Für
+  Erkennung und Sicherung genügt `Sites.Read.All`; die Wiederherstellung in eine Website
+  (Dateien, Listenelemente) braucht `Sites.ReadWrite.All`. Wer nur `Sites.Read.All`
+  erteilt, sieht in der Berechtigungsprüfung „gesichert, aber nicht wiederhergestellt"
+  (`docs/MICROSOFT.md`, „SharePoint Online").
+- **Bestehende Kunden-Tenants müssen neu zustimmen.** Eine nachträglich in der
+  App-Registrierung eingetragene Berechtigung gilt in einem Kunden-Tenant erst nach
+  erneuter Administratorzustimmung: Mandantenseite › Verbindungen › Quelle →
+  Consent-Link erneut öffnen (Teil 4), danach „Berechtigungen prüfen". Bis dahin meldet
+  die Verzeichnissynchronisierung „SharePoint-Websites werden weder gefunden noch
+  gesichert", alles andere läuft unverändert weiter.
 - **`Mail.Send` nur wenn wirklich gewählt.** Sie erlaubt Versand als jedes Postfach im
   Kunden-Tenant. Wer SMTP für Benachrichtigungen nutzt, lässt sie weg. Wer sie nimmt,
   begrenzt sie beim Kunden mit `New-ApplicationAccessPolicy` auf das Absenderpostfach.
@@ -223,7 +233,7 @@ Consent-Link; die Zugangsdaten gehören dem Kunden.
    dieselben Berechtigungen wie in Teil 2 hinzufügen, also die ReadWrite-Varianten (`Mail.ReadWrite`,
    `Calendars.ReadWrite`, `Contacts.ReadWrite`, `Files.ReadWrite.All`) plus `MailboxSettings.Read`,
    `User.Read.All`, `Group.Read.All`, `Directory.Read.All`, `Organization.Read.All` und optional
-   `Mail.Send`. Danach *Administratorzustimmung für … erteilen*. Die Oberfläche zeigt dieselbe Liste
+   `Mail.Send` sowie `Sites.ReadWrite.All` (SharePoint). Danach *Administratorzustimmung für … erteilen*. Die Oberfläche zeigt dieselbe Liste
    zum Kopieren.
 3. Unter *Zertifikate & Geheimnisse* ein Clientgeheimnis (den **Wert**, nicht die Geheimnis-ID) oder ein
    Zertifikat anlegen. Das Ablaufdatum notieren und rechtzeitig ein neues eintragen.
@@ -322,7 +332,7 @@ Journaling liefert die Kopie **vor** Zustellung inklusive Envelope-/BCC-Empfäng
 ## Checkliste
 
 - [ ] Backup-App (Multi-Tenant) registriert, Client-ID unter **Installation → Microsoft-Multi-Tenant-App** eingetragen (oder in `ENTRA_CLIENT_ID`; die Umgebung hat Vorrang).
-- [ ] Neun Pflicht-Anwendungsberechtigungen gesetzt; `Mail.Send` nur bei Graph-Versand.
+- [ ] Neun Pflicht-Anwendungsberechtigungen gesetzt; `Mail.Send` nur bei Graph-Versand; `Sites.ReadWrite.All` für SharePoint (bestehende Kunden-Tenants danach neu zustimmen lassen).
 - [ ] Delegierte Scopes `openid` und `profile` in der Backup-App eingetragen (bestätigende Anmeldung).
 - [ ] Zertifikat **oder** Secret (≤ 24 Monate) unter **Installation → Microsoft-Multi-Tenant-App** hinterlegt (verschlüsselt gespeichert) bzw. per `ENTRA_CLIENT_CERT_PATH` / `ENTRA_CLIENT_SECRET`; „Verbindung testen“ zeigt alle Pflichtrechte als erteilt.
 - [ ] Admin-Consent-Rückweg als Web-Redirect in der Backup-App eingetragen.

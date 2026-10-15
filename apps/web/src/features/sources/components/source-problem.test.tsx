@@ -319,4 +319,60 @@ describe("PermissionsCard", () => {
     expect(html).toContain("The tenant has not consented to the backup app");
     expect(html).toContain('data-variant="destructive"');
   });
+
+  const verifiedWith = (sites: "missing" | "read_only"): SourceDto =>
+    source({
+      status: "active",
+      m365: {
+        ...(source().m365 as NonNullable<SourceDto["m365"]>),
+        verification: {
+          checkedAt: "2026-09-22T10:06:00.000Z",
+          tokenAcquired: true,
+          tokenError: null,
+          permissions: {
+            checks: [
+              {
+                permission: "Mail.ReadWrite",
+                required: true,
+                purpose: "mail",
+                state: "granted",
+                grantedInstead: null,
+              },
+              {
+                permission: "Sites.ReadWrite.All",
+                required: false,
+                purpose: "sharepoint",
+                state: sites,
+                grantedInstead: sites === "read_only" ? "Sites.Read.All" : null,
+              },
+            ],
+            granted: ["Mail.ReadWrite"],
+            missing: [],
+            readOnlyInstead:
+              sites === "read_only"
+                ? [{ expected: "Sites.ReadWrite.All", granted: "Sites.Read.All" }]
+                : [],
+            unexpected: [],
+            complete: true,
+          },
+          testCall: null,
+          ok: true,
+        },
+      },
+    });
+
+  it("says SharePoint is not backed up without the permission, and that mail is not affected", () => {
+    const html = permissionsCard(verifiedWith("missing"));
+    expect(html).toContain("SharePoint sites are not backed up");
+    expect(html).toContain("Mail and OneDrive are not affected");
+    expect(html).toContain("run the admin consent for this tenant again");
+    expect(html).toContain("All required permissions are granted.");
+    expect(html).not.toContain('data-variant="destructive"');
+  });
+
+  it("says a read-only SharePoint grant backs up but cannot restore, not as the mail pitfall", () => {
+    const html = permissionsCard(verifiedWith("read_only"));
+    expect(html).toContain("SharePoint sites can be backed up, not restored into");
+    expect(html).not.toContain("Read-only instead of read-write");
+  });
 });

@@ -46,12 +46,14 @@ import {
   type GraphClient,
   JobAbortedError,
   type KnownObject,
+  type KnownSite,
   type Logger,
   type NewlyActiveObject,
   type PlannedObject,
   protectionVersion,
   readDirectoryState,
   readProtection,
+  type SitePlan,
   selectFirstBackupTargets,
   syncDirectory,
   type ThrottleInfo,
@@ -211,8 +213,18 @@ export class PgDirectoryRepository implements DirectoryRepository {
             ne(protectedObjects.kind, "imap"),
           ),
         );
+      // Sites belong to no user: they are planned apart (core directory/sites.ts),
+      // and must never reach the users' plan, which orphans objects without an owner.
+      const knownSites: KnownSite[] = rows
+        .filter((row) => row.kind === "site")
+        .map((row) => ({
+          externalId: row.externalId,
+          status: row.status,
+          origin: row.origin,
+          displayName: row.displayName,
+        }));
       const known: KnownObject[] = rows.flatMap((row) =>
-        row.kind === "imap"
+        row.kind === "imap" || row.kind === "site"
           ? []
           : [
               {
@@ -235,6 +247,7 @@ export class PgDirectoryRepository implements DirectoryRepository {
         sharedOrBlockedIds: new Set(state.sharedOrBlockedIds),
         protection: readProtection(source.config),
         version: protectionVersion(source.config),
+        knownSites,
       };
     });
   }
@@ -249,6 +262,10 @@ export class PgDirectoryRepository implements DirectoryRepository {
       const userIds = await this.upsertUsers(tx, commit.plan);
       await this.writeObjects(tx, commit.plan.objects, userIds);
       await this.orphanObjects(tx, commit.plan.orphanExternalIds);
+      if (commit.sites) {
+        await this.writeSites(tx, commit.sites);
+        await this.orphanObjects(tx, commit.sites.orphanExternalIds);
+      }
       const state = readDirectoryState(source.config);
       await tx
         .update(sources)
@@ -370,7 +387,9 @@ export class PgDirectoryRepository implements DirectoryRepository {
   /** Insert or update created/updated objects; re-scoped ones only change status. */
   private async writeObjects(
     tx: TenantTx,
-    objects: readonly PlannedObject[],
+    objects: readonly (Omit<PlannedObject, "kind"> & {
+      readonly kind: PlannedObject["kind"] | "site";
+    })[],
     userIds: ReadonlyMap<string, string>,
   ): Promise<void> {
     const upserts = objects.filter((object) => object.change !== "rescoped");
@@ -436,6 +455,23 @@ export class PgDirectoryRepository implements DirectoryRepository {
           );
       }
     }
+  }
+
+  /** Insert or update the sites of a run; re-scoped ones only change status. */
+  private async writeSites(tx: TenantTx, plan: SitePlan): Promise<void> {
+    await this.writeObjects(
+      tx,
+      plan.sites.map((site) => ({
+        kind: "site" as const,
+        externalId: site.externalId,
+        ownerId: "",
+        displayName: site.displayName,
+        status: site.status,
+        reason: site.reason,
+        change: site.change,
+      })),
+      new Map(),
+    );
   }
 
   private async orphanObjects(tx: TenantTx, externalIds: readonly string[]): Promise<void> {
@@ -508,6 +544,7 @@ function successRun(result: DirectorySyncResult, finishedAt: Date): DirectoryLas
     counts: result.counts,
     ...capWarnings(result.warnings),
     error: null,
+    sitesDiscovered: result.sitesDiscovered,
   };
 }
 
@@ -813,6 +850,9 @@ export async function runDirectoryJob(
       client,
       repository: new PgDirectoryRepository(run, ctx.tenantId, source.id, logger),
       full: reason !== null,
+      // SharePoint sites are listed on every run; without Sites.Read.All this
+      // is a warning on the source, never a failed sync.
+      sites: true,
       logger,
       progress: recorder,
       signal: ctx.signal,

@@ -35,6 +35,9 @@ export const lastSuccessSchema = component(
         .describe("Newest restorable Exchange mailbox backup without failed items."),
       onedrive: timestampSchema.nullable(),
       imap: timestampSchema.nullable(),
+      sharepoint: timestampSchema
+        .nullable()
+        .describe("Newest restorable SharePoint site backup without failed items."),
       archive: timestampSchema.nullable().describe("Newest message captured into the archive."),
     })
     .describe(
@@ -153,7 +156,7 @@ export const statusSchema = component(
 );
 export type StatusDto = z.infer<typeof statusSchema>;
 
-type ObjectKind = "mailbox" | "onedrive" | "imap";
+type ObjectKind = "mailbox" | "onedrive" | "imap" | "site";
 type ObjectStatus = "active" | "excluded" | "orphaned";
 
 /** Counts per status, including the statuses nothing has. */
@@ -169,7 +172,13 @@ export function lastSuccessOf(
   archive: string | null,
 ) {
   const of = (kind: ObjectKind) => toIso(rows.find((row) => row.kind === kind)?.at);
-  return { mail: of("mailbox"), onedrive: of("onedrive"), imap: of("imap"), archive };
+  return {
+    mail: of("mailbox"),
+    onedrive: of("onedrive"),
+    imap: of("imap"),
+    sharepoint: of("site"),
+    archive,
+  };
 }
 
 /**

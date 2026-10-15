@@ -136,6 +136,7 @@
     "objectKind": {
       "mailbox": "Mailbox",
       "onedrive": "OneDrive",
+      "site": "SharePoint site",
       "imap": "IMAP mailbox"
     },
     "state": {
