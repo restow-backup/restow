@@ -50,8 +50,16 @@ type Server struct {
 	http   *http.Client
 	// Attempts is the number of tries of an idempotent call (default 5).
 	Attempts int
-	sleep    func(context.Context, time.Duration) error
+	// OutageWindow is how long a call of a running backup (blocks, commit, finish) keeps
+	// trying while the server is down or restarting, for example during an update of
+	// Restow with its database migrations (default 5 minutes). Other calls stop after
+	// Attempts.
+	OutageWindow time.Duration
+	sleep        func(context.Context, time.Duration) error
 }
+
+// DefaultOutageWindow is how long the calls of a running backup ride out a server restart.
+const DefaultOutageWindow = 5 * time.Minute
 
 // NewServer creates a client. nodeID and secret are empty before enrollment.
 func NewServer(rawURL, nodeID, secret string, allowInsecure bool) (*Server, error) {
@@ -59,7 +67,8 @@ func NewServer(rawURL, nodeID, secret string, allowInsecure bool) (*Server, erro
 	if err != nil {
 		return nil, err
 	}
-	return &Server{base: base, nodeID: nodeID, secret: secret, http: api.NewHTTPClient(allowInsecure), Attempts: 5, sleep: sleepCtx}, nil
+	return &Server{base: base, nodeID: nodeID, secret: secret, http: api.NewHTTPClient(allowInsecure), Attempts: 5,
+		OutageWindow: DefaultOutageWindow, sleep: sleepCtx}, nil
 }
 
 // WithHTTPClient replaces the HTTP client (tests).
@@ -88,9 +97,12 @@ type request struct {
 	// raw receives the body of a non-JSON answer.
 	raw        *[]byte
 	idempotent bool
-	noAuth     bool
-	timeout    time.Duration
-	maxBytes   int64
+	// outage: the call belongs to a running backup and rides out a server restart
+	// (OutageWindow) instead of failing the backup after a few attempts.
+	outage   bool
+	noAuth   bool
+	timeout  time.Duration
+	maxBytes int64
 }
 
 func (s *Server) do(ctx context.Context, r request) error {
@@ -99,21 +111,44 @@ func (s *Server) do(ctx context.Context, r request) error {
 		attempts = max(1, s.Attempts)
 	}
 	var last error
-	for attempt := 1; attempt <= attempts; attempt++ {
+	// Time spent waiting between tries, counted from the delays themselves.
+	var waited time.Duration
+	for attempt := 1; ; attempt++ {
 		err := s.once(ctx, r)
 		if err == nil {
 			return nil
 		}
 		last = err
-		if ctx.Err() != nil || attempt == attempts || !retryable(err) {
+		if ctx.Err() != nil || !retryable(err) {
 			return err
 		}
-		delay := time.Duration(rand.Int64N(int64(time.Second) << min(attempt, 5)))
+		var delay time.Duration
+		switch {
+		case attempt < attempts:
+			delay = time.Duration(rand.Int64N(int64(time.Second) << min(attempt, 5)))
+		case r.idempotent && r.outage && serverDown(err) && waited < s.OutageWindow:
+			// The server is restarting (an update applies its migrations): keep trying,
+			// 15 to 30 seconds apart, until the window is used up.
+			delay = 15*time.Second + time.Duration(rand.Int64N(int64(15*time.Second)))
+		default:
+			return err
+		}
+		waited += delay
 		if err := s.sleep(ctx, delay); err != nil {
 			return last
 		}
 	}
-	return last
+}
+
+// serverDown reports whether err means the server is not there right now (a network
+// failure, or the proxy in front of it answering that it is unavailable), as opposed to
+// an answer of the server itself.
+func serverDown(err error) bool {
+	var se *ServerError
+	if errors.As(err, &se) {
+		return se.Status == 502 || se.Status == 503 || se.Status == 504
+	}
+	return !errors.Is(err, context.Canceled)
 }
 
 func retryable(err error) bool {
@@ -200,14 +235,17 @@ func (s *Server) once(ctx context.Context, r request) error {
 }
 
 func (s *Server) json(ctx context.Context, method, path string, in, out any, idempotent bool) error {
-	var body []byte
+	return s.jsonRequest(ctx, request{method: method, path: path, out: out, idempotent: idempotent}, in)
+}
+
+func (s *Server) jsonRequest(ctx context.Context, r request, in any) error {
 	if in != nil {
 		var err error
-		if body, err = json.Marshal(in); err != nil {
+		if r.body, err = json.Marshal(in); err != nil {
 			return err
 		}
 	}
-	return s.do(ctx, request{method: method, path: path, body: body, out: out, idempotent: idempotent})
+	return s.do(ctx, r)
 }
 
 // --- Enrollment and service --------------------------------------------------
@@ -255,6 +293,10 @@ type HeartbeatRequest struct {
 	State           string   `json:"state"`
 	Problems        []string `json:"problems"`
 	RestoresAllowed bool     `json:"restoresAllowed"`
+	// ActiveRuns are the backup runs this node works on (its open job files). The server
+	// closes a running backup run of the node that is not listed instead of waiting 48
+	// hours for its end (servers from 0.4.0; older ones ignore it). Never null.
+	ActiveRuns []string `json:"activeRuns"`
 }
 
 // Task is a job the server queued for this node.
@@ -422,14 +464,15 @@ func (s *Server) QueryIncremental(ctx context.Context, runID string, devices []D
 	var out struct {
 		Devices []IncrementalDevice `json:"devices"`
 	}
-	return out.Devices, s.json(ctx, http.MethodPost, "/runs/"+url.PathEscape(runID)+"/incremental",
-		map[string]any{"devices": devices}, &out, true)
+	return out.Devices, s.jsonRequest(ctx, request{method: http.MethodPost,
+		path: "/runs/" + url.PathEscape(runID) + "/incremental", out: &out, idempotent: true, outage: true},
+		map[string]any{"devices": devices})
 }
 
 // BaseHashes fetches the block hashes of a disk of a restore point.
 func (s *Server) BaseHashes(ctx context.Context, snapshotID, device string) (*HashList, error) {
 	var raw []byte
-	err := s.do(ctx, request{method: http.MethodGet, raw: &raw, idempotent: true, maxBytes: 1 << 30,
+	err := s.do(ctx, request{method: http.MethodGet, raw: &raw, idempotent: true, outage: true, maxBytes: 1 << 30,
 		timeout: 10 * time.Minute,
 		path:    "/snapshots/" + url.PathEscape(snapshotID) + "/disks/" + url.PathEscape(device) + "/hashes"})
 	if err != nil {
@@ -442,7 +485,7 @@ func (s *Server) BaseHashes(ctx context.Context, snapshotID, device string) (*Ha
 // replaced in the run's staging area).
 func (s *Server) PutBlocks(ctx context.Context, runID string, frame []byte) error {
 	return s.do(ctx, request{method: http.MethodPut, path: "/runs/" + url.PathEscape(runID) + "/blocks",
-		body: frame, contentType: "application/octet-stream", idempotent: true, timeout: 10 * time.Minute})
+		body: frame, contentType: "application/octet-stream", idempotent: true, outage: true, timeout: 10 * time.Minute})
 }
 
 // CommitDevice describes one disk of a VM commit.
@@ -491,14 +534,15 @@ func (s *Server) Commit(ctx context.Context, runID string, in CommitRequest) (*C
 	}
 	var out CommitResponse
 	err = s.do(ctx, request{method: http.MethodPost, path: "/runs/" + url.PathEscape(runID) + "/commit",
-		body: body, out: &out, idempotent: true, timeout: 30 * time.Minute})
+		body: body, out: &out, idempotent: true, outage: true, timeout: 30 * time.Minute})
 	return &out, err
 }
 
 // FinishRun reports the end of a run.
 func (s *Server) FinishRun(ctx context.Context, runID, status, message string, stats map[string]any) error {
-	return s.json(ctx, http.MethodPost, "/runs/"+url.PathEscape(runID)+"/finish",
-		map[string]any{"status": status, "error": message, "stats": stats}, nil, true)
+	return s.jsonRequest(ctx, request{method: http.MethodPost, path: "/runs/" + url.PathEscape(runID) + "/finish",
+		idempotent: true, outage: true},
+		map[string]any{"status": status, "error": message, "stats": stats})
 }
 
 // ReportProgress sends how far a running backup is. One attempt with a short
