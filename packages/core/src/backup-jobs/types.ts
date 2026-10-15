@@ -2,6 +2,7 @@
 // are written here as well as next to the columns they live in (packages/db schema/backup-jobs.ts);
 // the two are structurally identical and the API assigns one to the other without a cast.
 
+import type { JobAgentPolicy } from "../endpoints/agent-policy.js";
 import type { BandwidthWindow } from "./bandwidth.js";
 
 /**
@@ -44,6 +45,11 @@ export interface JobEndpointSettings {
    */
   bandwidthWindows?: BandwidthWindow[];
   retention?: JobRetention;
+  /**
+   * The job's level of the agent policy (endpoints/agent-policy.ts); a key left out inherits.
+   * Not overridable per member.
+   */
+  policy?: JobAgentPolicy;
 }
 
 /** What one member does differently from the job; a field set here replaces the job's value. */

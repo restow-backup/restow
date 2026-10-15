@@ -13,6 +13,7 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 import { timestamps } from "./_shared.js";
+import type { GlobalAgentPolicyRecord } from "./backup-jobs.js";
 
 /** Editions of the installed license (data model only: the license module
  *  under ee/licensing reads and writes it; the core apps never do). */
@@ -237,6 +238,10 @@ export const settings = pgTable(
       .$type<Record<string, unknown>>()
       .notNull()
       .default({}),
+    // The installation's agent policy for servers and clients (docs/AGENT.md, "Richtlinien"): its
+    // settings and the ones it locks for every tenant and job. `{}` sets nothing, which is what the
+    // agents did before policies existed (@restow/core endpoints/agent-policy.ts).
+    agentPolicy: jsonb("agent_policy").$type<GlobalAgentPolicyRecord>().notNull().default({}),
     ...timestamps(),
   },
   (t) => [uniqueIndex("settings_singleton_uq").on(t.singleton)],
