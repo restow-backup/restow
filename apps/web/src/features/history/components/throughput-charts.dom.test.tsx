@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   enableActEnvironment,
@@ -32,6 +32,8 @@ afterEach(async () => {
   await mounted?.unmount();
   mounted = null;
   document.body.innerHTML = "";
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 const group = () => document.querySelector<HTMLElement>('[data-slot="throughput-charts"]');
@@ -198,7 +200,9 @@ describe("the throughput charts", () => {
 
   it("follows the pointer: the step nearest the pointer in time, in both charts", async () => {
     await show();
-    const hit = document.querySelector<SVGRectElement>('[data-chart="processed"] rect');
+    const hit = document.querySelector<SVGRectElement>(
+      '[data-chart="processed"] [data-slot="chart-hit"]',
+    );
     // A box 700 units wide drawn 700 px wide, so a pointer position is a position in the plot.
     Object.defineProperty(hit, "getBoundingClientRect", {
       value: () => ({
@@ -249,5 +253,103 @@ describe("the throughput charts", () => {
     // Fewer steps than before: the crosshair falls back to the newest one.
     await mounted?.render(<ThroughputCharts points={samples(4)} running={false} showTransferred />);
     expect(crosshairs()).toHaveLength(2);
+  });
+
+  describe("while the run is going", () => {
+    const FAKE = [
+      "setTimeout",
+      "clearTimeout",
+      "requestAnimationFrame",
+      "cancelAnimationFrame",
+      "Date",
+    ] as const;
+    const endLabel = (key: string) =>
+      [...document.querySelectorAll(`[data-chart="${key}"] svg text`)]
+        .map((node) => node.textContent ?? "")
+        .filter((text) => text.endsWith("/s"))
+        .at(-1);
+    const lineEnd = () => {
+      const pairs = (
+        document.querySelector('[data-chart="processed"] polyline')?.getAttribute("points") ?? ""
+      ).split(" ");
+      return Number(pairs.at(-1)?.split(",")[0]);
+    };
+    const tick = (ms: number) =>
+      act(async () => {
+        vi.advanceTimersByTime(ms);
+        await Promise.resolve();
+      });
+
+    /** One more measurement, read twice as fast as the steady ones before it. */
+    const withFaster = (points: readonly (readonly [number, number, number])[]) => {
+      const [at, processed] = points.at(-1) ?? [0, 0, 0];
+      return [...points, [at + 2000, processed + 16_000_000, 0] as const];
+    };
+
+    function reducedMotion(reduce: boolean) {
+      vi.stubGlobal("matchMedia", (query: string) => ({
+        matches: reduce && query.includes("reduce"),
+        media: query,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      }));
+    }
+
+    it("slides the time axis on to now between two measurements and holds the newest value up to it", async () => {
+      reducedMotion(false);
+      const points = samples(40);
+      vi.useFakeTimers({ toFake: [...FAKE], now: points.at(-1)?.[0] ?? 0 });
+      mounted = mount(<ThroughputCharts points={points} running showTransferred />);
+      await tick(0);
+      const held = document.querySelectorAll('[data-slot="held-line"]');
+      expect(held).toHaveLength(2);
+      const before = lineEnd();
+      // Ten seconds without a measurement: the newest one moves to the left, the held line grows.
+      await tick(10_000);
+      const after = lineEnd();
+      expect(after).toBeLessThan(before - 10);
+      const line = document.querySelector('[data-chart="processed"] [data-slot="held-line"]');
+      expect(Number(line?.getAttribute("x1"))).toBeCloseTo(after, 0);
+      expect(Number(line?.getAttribute("x2"))).toBe(700 - 84);
+    });
+
+    it("eases a new value in instead of jumping to it", async () => {
+      reducedMotion(false);
+      const points = samples(40);
+      vi.useFakeTimers({ toFake: [...FAKE], now: points.at(-1)?.[0] ?? 0 });
+      mounted = mount(<ThroughputCharts points={points} running showTransferred />);
+      await tick(0);
+      expect(endLabel("processed")).toBe("3.81 MB/s");
+      // The newest step reads twice as fast.
+      const faster = withFaster(points);
+      vi.setSystemTime((points.at(-1)?.[0] ?? 0) + 2000);
+      await mounted?.render(
+        <ThroughputCharts points={faster as never} running showTransferred={false} />,
+      );
+      await tick(100);
+      const midway = endLabel("processed") ?? "";
+      expect(midway).not.toBe("3.81 MB/s");
+      expect(midway).not.toBe("7.63 MB/s");
+      await tick(600);
+      expect(endLabel("processed")).toBe("7.63 MB/s");
+    });
+
+    it("does not ease with reduced motion", async () => {
+      reducedMotion(true);
+      const points = samples(40);
+      vi.useFakeTimers({ toFake: [...FAKE], now: points.at(-1)?.[0] ?? 0 });
+      mounted = mount(<ThroughputCharts points={points} running showTransferred />);
+      await tick(0);
+      const faster = withFaster(points);
+      await mounted?.render(
+        <ThroughputCharts points={faster as never} running showTransferred={false} />,
+      );
+      expect(endLabel("processed")).toBe("7.63 MB/s");
+    });
+
+    it("draws no held line for a finished run", async () => {
+      await show({ running: false });
+      expect(document.querySelectorAll('[data-slot="held-line"]')).toHaveLength(0);
+    });
   });
 });

@@ -165,12 +165,36 @@ export function chartSeries(points: readonly SamplePoint[], windowMs: number | n
   const windowed = windowOf(points, windowMs);
   const from = windowed[0]?.[0] ?? 0;
   const to = Math.max(from + 1, windowed[windowed.length - 1]?.[0] ?? from + 1);
+  const steps = chartSteps(points).filter((step) => step.at > from);
+  return { steps, from, to };
+}
+
+/**
+ * Every step of a history as the charts draw it: the processing as measured, the transfer averaged
+ * over {@link TRANSFER_AVERAGE_MS} on the whole history.
+ */
+export function chartSteps(points: readonly SamplePoint[]): RateStep[] {
   const raw = rateSteps(points);
   const smooth = smoothedRateSteps(points);
-  const steps = raw.flatMap((step, index): RateStep[] =>
-    step.at > from ? [{ ...step, transferred: (smooth[index] as RateStep).transferred }] : [],
-  );
-  return { steps, from, to };
+  return raw.map((step, index) => ({
+    ...step,
+    transferred: (smooth[index] as RateStep).transferred,
+  }));
+}
+
+/**
+ * The steps a running chart draws when its time axis ends at `to` (now): those of the last
+ * `windowMs`, and the one before them, which the plot's left edge cuts, so the line slides out
+ * of the plot instead of losing its first segment at once. A run that sent nothing for the whole
+ * window keeps its newest step, out of sight left of the plot, for the held line to start from.
+ */
+export function liveWindow(steps: readonly RateStep[], to: number, windowMs: number): RateStep[] {
+  const from = to - windowMs;
+  const first = steps.findIndex((step) => step.at > from);
+  if (first === -1) {
+    return steps.slice(-1);
+  }
+  return steps.slice(Math.max(0, first - 1));
 }
 
 /**
