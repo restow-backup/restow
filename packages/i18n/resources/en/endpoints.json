@@ -1075,6 +1075,7 @@
     "noMatchWithContainers": "No machine, VM or container matches the search.",
     "containers": "Proxmox VE containers",
     "vms": "Proxmox VE VMs",
+    "preview": "Preview",
     "containerLine": "CT {vmid} on {node}",
     "containerLineNoNode": "CT {vmid}",
     "vmLine": "VM {vmid} on {node}",
@@ -1106,6 +1107,7 @@
     "openGuest": "Open the VM",
     "unreadable": "Not readable on this restore point:",
     "unreadableItem": "{name}: {reason}",
-    "volumes": "Each folder at the top is a file system of the VM's disks (scsi0-p2: disk scsi0, partition 2; vg0-root: logical volume root of the volume group vg0)."
+    "volumes": "Each folder at the top is a file system of the VM's disks (scsi0-p2: disk scsi0, partition 2; vg0-root: logical volume root of the volume group vg0).",
+    "preview": "Preview: reading files from VM disks is new. Before you rely on a restored file, compare an important one with the original."
   }
 }

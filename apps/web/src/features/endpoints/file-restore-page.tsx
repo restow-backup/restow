@@ -352,6 +352,11 @@ function MachinePicker({
           <PickerGroup
             icon={Monitor}
             title={t("fileRestore.vms")}
+            badge={
+              <StatusBadge tone="info" data-slot="vm-preview">
+                {t("fileRestore.preview")}
+              </StatusBadge>
+            }
             pending={false}
             hidden={false}
             slot="vm-list"
@@ -421,6 +426,7 @@ function ContainerRow({
 function PickerGroup({
   icon: Icon,
   title,
+  badge,
   pending,
   hidden,
   slot,
@@ -428,6 +434,8 @@ function PickerGroup({
 }: {
   icon: typeof Server;
   title: string;
+  /** Shown after the title, e.g. that the group is a preview. */
+  badge?: React.ReactNode;
   pending: boolean;
   hidden: boolean;
   slot: string;
@@ -445,6 +453,7 @@ function PickerGroup({
       >
         <Icon className="size-3.5" aria-hidden="true" />
         {title}
+        {badge}
       </h3>
       {pending ? (
         <div className="space-y-2 p-4" aria-busy="true">

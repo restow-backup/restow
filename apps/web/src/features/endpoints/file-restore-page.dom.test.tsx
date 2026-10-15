@@ -220,6 +220,10 @@ describe("FileRestorePage", () => {
     // VMs have a group of their own: their disks' files are browsed the same way.
     const vm = page.byText("[data-slot='vm-list'] button", "web");
     expect(vm.textContent).toContain("VM 100 on pve1");
+    // Reading files from VM disks is new, and the group says so.
+    const preview = page.container.querySelector("[data-slot='vm-preview']");
+    expect(preview?.textContent).toBe("Preview");
+    expect(preview?.closest("h3")?.textContent).toContain("Proxmox VE VMs");
     // With containers there, the one machine is not chosen on its own.
     expect(page.text()).toContain("Choose a machine, VM or container");
 

@@ -1075,6 +1075,7 @@
     "noMatchWithContainers": "Kein Rechner, keine VM und kein Container passt zur Suche.",
     "containers": "Proxmox-VE-Container",
     "vms": "Proxmox-VE-VMs",
+    "preview": "Vorschau",
     "containerLine": "CT {vmid} auf {node}",
     "containerLineNoNode": "CT {vmid}",
     "vmLine": "VM {vmid} auf {node}",
@@ -1106,6 +1107,7 @@
     "openGuest": "VM öffnen",
     "unreadable": "In diesem Sicherungsstand nicht lesbar:",
     "unreadableItem": "{name}: {reason}",
-    "volumes": "Jeder Ordner auf oberster Ebene ist ein Dateisystem der Festplatten der VM (scsi0-p2: Festplatte scsi0, Partition 2; vg0-root: logisches Volume root der Volume-Gruppe vg0)."
+    "volumes": "Jeder Ordner auf oberster Ebene ist ein Dateisystem der Festplatten der VM (scsi0-p2: Festplatte scsi0, Partition 2; vg0-root: logisches Volume root der Volume-Gruppe vg0).",
+    "preview": "Vorschau: Das Lesen von Dateien aus VM-Datenträgern ist neu. Vergleichen Sie eine wichtige wiederhergestellte Datei mit dem Original, bevor Sie sich darauf verlassen."
   }
 }
