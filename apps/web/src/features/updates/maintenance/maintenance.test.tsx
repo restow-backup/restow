@@ -337,6 +337,22 @@ describe("the banner", () => {
     expect(banner()).toBeNull();
   });
 
+  it("says why no run starts while an update waits for the runs in progress (#46)", async () => {
+    startFakeTime();
+    const { deps } = sources(() =>
+      maintenanceFixture({
+        serverTime: new Date().toISOString(),
+        jobPause: { phase: "draining", version: "0.2.0", deadlineAt: iso(3600) },
+      }),
+    );
+    shell(deps);
+    await tick(10);
+    expect(banner()?.dataset.variant).toBe("waiting");
+    expect(banner()?.textContent).toContain("An update to version 0.2.0 is being prepared");
+    expect(banner()?.querySelector("a")?.getAttribute("href")).toBe("/installation/updates");
+    expect(modal()).toBeNull();
+  });
+
   it("shows nothing when nothing is announced", async () => {
     startFakeTime();
     const { deps } = sources(() => maintenanceFixture({ serverTime: new Date().toISOString() }));

@@ -1,8 +1,9 @@
 import { Link } from "@tanstack/react-router";
-import { Loader2, TriangleAlert, Wrench } from "lucide-react";
+import { Hourglass, Loader2, TriangleAlert, Wrench } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
+import { formatDateTime } from "@/lib/format";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
@@ -34,8 +35,49 @@ export function MaintenanceBanner() {
     case "attention":
       return <AttentionBanner />;
     default:
-      return null;
+      // An update waits for the runs in progress before it is announced (#46).
+      return snapshot?.view.jobPause?.phase === "draining" ? (
+        <WaitingBanner isProviderAdmin={isProviderAdmin} />
+      ) : null;
   }
+}
+
+/**
+ * New runs do not start while an update waits for the runs in progress (#46): everyone
+ * learns why, and until when at the latest. It goes once the update is announced (the
+ * countdown takes over) or cancelled.
+ */
+function WaitingBanner({ isProviderAdmin }: { isProviderAdmin: boolean }) {
+  const { t, i18n } = useTranslation("updates");
+  const { snapshot } = useMaintenanceState();
+  const pause = snapshot?.view.jobPause;
+  const link = updatesTabLink();
+  if (!pause) {
+    return null;
+  }
+  const language = i18n.resolvedLanguage ?? i18n.language;
+  return (
+    <div data-slot="maintenance-banner" data-variant="waiting">
+      <div className={cn(BAR_CLASS, "flex-wrap border-info/30 bg-info/10")}>
+        <Hourglass className="mt-0.5 size-4 shrink-0 text-info-text sm:mt-0" aria-hidden="true" />
+        <p className="min-w-0 flex-1 [overflow-wrap:anywhere]">
+          {t("maintenance.banner.waiting", {
+            version: pause.version,
+            time: formatDateTime(pause.deadlineAt, language) ?? "",
+          })}
+        </p>
+        {isProviderAdmin ? (
+          <Link
+            to={link.to}
+            search={link.search}
+            className="font-medium underline underline-offset-2"
+          >
+            {t("maintenance.openSettings")}
+          </Link>
+        ) : null}
+      </div>
+    </div>
+  );
 }
 
 const BAR_CLASS =

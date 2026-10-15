@@ -135,6 +135,7 @@ describe("updates translations", () => {
       "dumps.title",
       "edition.title",
       "restart.services.api",
+      "install.runs.groups.pve",
     ]);
     const untranslated = [...leaves(en)]
       .filter(([key, text]) => german.get(key) === text && !SAME.has(key))

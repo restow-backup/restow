@@ -4,6 +4,7 @@ import {
   cancelMaintenance,
   checkForUpdates,
   dismissRun,
+  fetchJobActivity,
   fetchRestarts,
   fetchUpdates,
   patchUpdateSettings,
@@ -13,6 +14,7 @@ import {
   restartService,
   type ScheduleUpdateInput,
   scheduleUpdate,
+  startUpdateNow,
   storePendingLicenseKey,
   switchToFullBuild,
   type UpdateSettingsInput,
@@ -31,14 +33,22 @@ export const updatesKeys = {
   maintenance: ["updates", "maintenance"] as const,
   /** Services that need a restart (the notice for provider admins and the Updates tab). */
   restarts: ["updates", "restarts"] as const,
+  /** What runs and waits right now (the install dialog, #46). */
+  jobs: ["updates", "jobs"] as const,
 };
 
 /** While a maintenance is announced or running the tab follows it closely. */
 export const ACTIVE_REFRESH_MS = 3_000;
 
+/** While an update waits for runs in progress the tab follows the counts. */
+export const WAITING_REFRESH_MS = 10_000;
+
 /** How often the tab refetches, given what it last saw; `false` while nothing is going on. */
 export function updatesRefetchInterval(view: UpdatesView | undefined): number | false {
-  return view && isMaintenanceActive(view.maintenance.phase) ? ACTIVE_REFRESH_MS : false;
+  if (view && isMaintenanceActive(view.maintenance.phase)) {
+    return ACTIVE_REFRESH_MS;
+  }
+  return view?.jobPause?.phase === "draining" ? WAITING_REFRESH_MS : false;
 }
 
 export function useUpdates() {
@@ -103,6 +113,23 @@ export function useStorePendingLicenseKey() {
 export function useRemovePendingLicenseKey() {
   const write = useViewWriter();
   return useMutation({ mutationFn: removePendingLicenseKey, onSuccess: write });
+}
+
+/** What runs and waits right now; read while the install dialog is open. */
+export function useJobActivity(enabled: boolean) {
+  return useQuery({
+    queryKey: updatesKeys.jobs,
+    queryFn: fetchJobActivity,
+    enabled,
+    staleTime: 0,
+    refetchInterval: enabled ? WAITING_REFRESH_MS : false,
+  });
+}
+
+/** An update that waits for runs in progress: announce it now. */
+export function useStartUpdateNow() {
+  const write = useViewWriter();
+  return useMutation({ mutationFn: startUpdateNow, onSuccess: write });
 }
 
 export function useCancelMaintenance() {

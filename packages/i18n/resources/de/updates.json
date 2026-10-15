@@ -13,7 +13,8 @@
     "saved": "Update-Einstellungen gespeichert.",
     "cancelled": "Das angekündigte Update wurde abgebrochen.",
     "dismissed": "Der Update-Lauf wurde von dieser Seite entfernt.",
-    "restartRequested": "Der Updater startet den Dienst {service} neu."
+    "restartRequested": "Der Updater startet den Dienst {service} neu.",
+    "announced": "Das Update ist angekündigt."
   },
   "errors": {
     "updaterUnavailable": "Der Updater läuft nicht. Starten Sie ihn oder aktualisieren Sie von Hand.",
@@ -27,7 +28,8 @@
     "invalidSource": "Diese Adresse lässt sich nicht als Update-Quelle verwenden. Geben Sie die https-Adresse eines GitHub-, Forgejo- oder Gitea-Repositorys im öffentlichen Internet ein. Ein Server im eigenen Netz funktioniert nur, wenn der Betreiber seinen Host in der .env-Datei auf dem Server einträgt.",
     "switchRefused": "Diese Installation kann hier nicht den Build wechseln. Wechseln Sie von Hand mit den zwei Zeilen für die .env-Datei.",
     "restartNotRequested": "Dieser Dienst muss nicht mehr neu gestartet werden. Die Seite zeigt den aktuellen Stand.",
-    "restartUnsupported": "Der laufende Updater kann noch keine Dienste neu starten. Erstellen Sie ihn neu, oder führen Sie den Befehl auf dem Server aus."
+    "restartUnsupported": "Der laufende Updater kann noch keine Dienste neu starten. Erstellen Sie ihn neu, oder führen Sie den Befehl auf dem Server aus.",
+    "notWaiting": "Es wartet kein Update mehr. Die Seite zeigt den aktuellen Stand."
   },
   "form": {
     "unsaved": "Es gibt ungespeicherte Änderungen.",
@@ -369,6 +371,18 @@
     "signaturesOff": {
       "title": "Der Updater prüft keine Signaturen",
       "body": "Die Signaturprüfung ist abgeschaltet (RESTOW_UPDATER_VERIFY_SIGNATURES=false). Installiert wird, was unter dem veröffentlichten Digest im konfigurierten Repository liegt. Nur für Testinstallationen: auf einer Produktivinstallation wieder einschalten."
+    },
+    "waiting": {
+      "title": "Das Update auf Version {version} wartet, bis fertig ist, was gerade läuft",
+      "body": "Kein neuer Lauf startet. Das Update wird mit seinem Countdown angekündigt, sobald nichts mehr läuft, spätestens am {time}.",
+      "draining": "Läufe für Microsoft 365 und E-Mail werden gerade sauber angehalten; sie machen nach dem Update weiter.",
+      "running": "{group}: {count, plural, one {# läuft} other {# laufen}}",
+      "startNow": "Jetzt starten",
+      "startNowTitle": "Update jetzt ankündigen?",
+      "startNowBody": "Das Update wird sofort mit seinem Countdown angekündigt. Was bei seinem Start noch läuft, wird angehalten und macht danach weiter; eine Sicherung auf einem Server, Client oder Proxmox-VE-Knoten kann fehlschlagen.",
+      "startNowConfirm": "Jetzt ankündigen",
+      "keepWaiting": "Weiter warten",
+      "cancelBody": "Das Update wird nicht angekündigt, und neue Läufe starten wieder. Sie können es später installieren."
     }
   },
   "manual": {
@@ -400,7 +414,37 @@
       "rollback": "Startet die neue Version nicht, wird automatisch die vorherige Version wiederhergestellt.",
       "countdown": "Alle angemeldeten Personen sehen einen Countdown und, solange das Update läuft, einen Hinweis.",
       "modeImage": "Das Release-Image wird aus der Registry heruntergeladen.",
-      "modeSource": "Das Release wird auf diesem Server aus dem Repository am Tag {tag} gebaut. Das dauert länger als ein Download."
+      "modeSource": "Das Release wird auf diesem Server aus dem Repository am Tag {tag} gebaut. Das dauert länger als ein Download.",
+      "countdownAfterRuns": "Der Countdown beginnt, sobald fertig ist, was gerade läuft. Bis dahin können Sie das Update auf dieser Seite abbrechen oder sofort starten."
+    },
+    "confirmAfterRuns": "Nach den Läufen ankündigen",
+    "runs": {
+      "title": "Was gerade läuft",
+      "checking": "Laufende und wartende Läufe werden gezählt.",
+      "failed": "Was gerade läuft, konnte nicht gezählt werden. Wählen Sie trotzdem, was mit laufenden Läufen geschehen soll.",
+      "none": "Gerade läuft kein Lauf, und keiner wartet.",
+      "count": "{running, plural, one {# läuft} other {# laufen}}, {queued, plural, one {# wartet} other {# warten}}",
+      "groups": {
+        "mail": "Microsoft 365 und E-Mail",
+        "machines": "Server und Clients",
+        "pve": "Proxmox VE",
+        "fileShares": "Freigaben"
+      },
+      "modes": {
+        "wait": {
+          "title": "Warten, bis sie fertig sind",
+          "description": "Das Update wird angekündigt, sobald fertig ist, was gerade läuft, spätestens nach zwei Stunden."
+        },
+        "drain": {
+          "title": "Sauber anhalten",
+          "description": "Läufe für Microsoft 365 und E-Mail speichern einen Kontrollpunkt, halten jetzt an und machen nach dem Update weiter, ohne einen Versuch zu verbrauchen. Auf Läufe von Servern, Clients, Proxmox-VE-Knoten und Freigaben wird gewartet, höchstens 30 Minuten."
+        },
+        "interrupt": {
+          "title": "Nicht warten",
+          "description": "Das Update startet wie geplant. Was dann noch läuft, wird angehalten, speichert einen Kontrollpunkt, wo das geht, und macht danach weiter. Eine Sicherung auf einem Server, Client oder Proxmox-VE-Knoten kann fehlschlagen, wenn das Update länger dauert, als der Agent auf den Server wartet."
+        }
+      },
+      "pause": "Ab jetzt startet kein neuer Lauf, bis das Update vorbei ist. Zeitpläne, die in dieser Zeit fällig werden, laufen danach."
     }
   },
   "dumps": {
@@ -488,7 +532,8 @@
       "attention": "Das letzte Update erfordert Ihr Eingreifen. Ein Administrator muss die Installation wiederherstellen.",
       "scheduledSwitch": "Wartung in {time}: {product} wechselt auf den vollen Build ({version}). Speichern Sie Ihre Arbeit.",
       "startingSwitch": "Die Wartung beginnt: {product} wechselt auf den vollen Build ({version}).",
-      "runningSwitch": "Wartung läuft: {product} wechselt auf den vollen Build ({version})."
+      "runningSwitch": "Wartung läuft: {product} wechselt auf den vollen Build ({version}).",
+      "waiting": "Ein Update auf Version {version} wird vorbereitet. Bis es vorbei ist, startet kein neuer Lauf; was gerade läuft, wird zuerst fertig, spätestens am {time}."
     },
     "announce": {
       "start": "Wartung angekündigt: {product} wird in {time} auf Version {version} aktualisiert.",
