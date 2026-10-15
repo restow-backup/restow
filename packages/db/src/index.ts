@@ -36,6 +36,8 @@ export { reportableError, safeErrorMessage, withoutQueryText } from "./errors.js
 export * from "./heartbeat.js";
 // Installation-level secrets (read on the installation pool).
 export * from "./installation-secrets.js";
+// New job starts paused for an update (#46): what the scheduler, the worker and the PVE heartbeat ask.
+export * from "./job-start-pause.js";
 // The manifest index as versions: mirroring a snapshot, retention, the 0.3.5 conversion, reading.
 export * from "./manifest-versions.js";
 // The lock that keeps the server's own work on one endpoint repository from overlapping.

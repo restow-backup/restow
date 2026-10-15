@@ -228,6 +228,7 @@ describe.skipIf(!adminUrl)("Row Level Security on the application role", () => {
       "providers",
       "service_heartbeats",
       "restart_requests",
+      "job_start_pause",
       "provider_members",
       "provider_member_tenants",
     ]) {

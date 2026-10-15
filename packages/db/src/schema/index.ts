@@ -33,6 +33,7 @@ export * from "./backup-jobs.js";
 export * from "./endpoints.js";
 export * from "./file-shares.js";
 export * from "./imports.js";
+export * from "./job-start-pause.js";
 export * from "./jobs.js";
 export * from "./manifest.js";
 export * from "./notifications.js";
