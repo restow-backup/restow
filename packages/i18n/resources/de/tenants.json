@@ -402,7 +402,8 @@
           "graphTenantMissing": "Für Graph sendMail ist kein Microsoft-365-Mandant eingerichtet.",
           "transportError": "Die Testmail konnte nicht gesendet werden: {detail}"
         }
-      }
+      },
+      "moreEvents": "{count, plural, one {# weiteres Ereignis unter Integrationen › Benachrichtigungen gewählt.} other {# weitere Ereignisse unter Integrationen › Benachrichtigungen gewählt.}}"
     },
     "admins": {
       "title": "Einzuladende Administratoren",

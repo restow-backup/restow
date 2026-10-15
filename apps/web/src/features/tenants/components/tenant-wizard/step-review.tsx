@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 import { OFFERED_NOTIFICATION_CATEGORIES, type TenantWizardValues } from "../../forms";
+import { categoryChosen } from "../../types";
 
 interface StepProps {
   form: UseFormReturn<TenantWizardValues>;
@@ -86,13 +87,13 @@ export function ReviewStep({ form }: StepProps) {
               // biome-ignore lint/suspicious/noArrayIndexKey: rows have no stable id before creation.
               <li key={index} className="flex flex-wrap items-center gap-2 text-sm">
                 <span className="font-medium">{recipient.email}</span>
-                {recipient.categories.length === 0 ? (
+                {recipient.events.length === 0 ? (
                   <span className="text-muted-foreground">
                     {t("wizard.notifications.noCategories")}
                   </span>
                 ) : (
                   OFFERED_NOTIFICATION_CATEGORIES.filter((category) =>
-                    recipient.categories.includes(category),
+                    categoryChosen(recipient.events, category),
                   ).map((category) => (
                     <Badge key={category} variant="outline">
                       {t(`wizard.notifications.categories.${category}`)}

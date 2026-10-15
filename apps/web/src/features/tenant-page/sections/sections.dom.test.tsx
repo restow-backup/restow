@@ -77,7 +77,14 @@ function detail(over: Record<string, unknown> = {}) {
     },
     contacts: [],
     notificationRecipients: [
-      { id: "n-1", email: "ops@example.test", name: "Ops", categories: ["jobFailures"] },
+      {
+        id: "n-1",
+        email: "ops@example.test",
+        name: "Ops",
+        // A warning chosen in the notification matrix: the category boxes leave it alone.
+        events: [...JOB_FAILURES, "backup.overdue"],
+        categories: ["jobFailures"],
+      },
     ],
     ...over,
   };
@@ -225,6 +232,8 @@ describe("Master data", () => {
   });
 });
 
+const JOB_FAILURES = ["backup.failed", "restore.failed", "archive.failed", "directory.failed"];
+
 describe("Notifications", () => {
   it("sends the changed recipients, which is what changes who is mailed", async () => {
     const saved: unknown[] = [];
@@ -240,6 +249,7 @@ describe("Notifications", () => {
             id: "n-1",
             email: "ops@example.test",
             name: "Ops",
+            events: [...JOB_FAILURES, "backup.overdue", "verify.red", "scrub.corrupt"],
             categories: ["jobFailures", "readinessRed"],
           },
         ]);
@@ -269,8 +279,18 @@ describe("Notifications", () => {
     await click(save());
     await flush(5);
 
+    // The category is a shortcut: it adds its events, the matrix's own choice stays.
     expect(saved).toEqual([
-      [{ email: "ops@example.test", name: "Ops", categories: ["jobFailures", "readinessRed"] }],
+      [
+        {
+          email: "ops@example.test",
+          name: "Ops",
+          events: [...JOB_FAILURES, "backup.overdue", "verify.red", "scrub.corrupt"],
+        },
+      ],
     ]);
+    expect(slot("notification-recipients")?.textContent).toContain(
+      "1 more event chosen under Integrations › Notifications.",
+    );
   });
 });

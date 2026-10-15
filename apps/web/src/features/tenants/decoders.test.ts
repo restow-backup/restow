@@ -108,13 +108,28 @@ describe("decodeTenantDetail", () => {
       ],
       notificationRecipients: [
         { id: "r1", email: "ops@b.co", name: null, categories: ["jobFailures", "bogus"] },
+        {
+          id: "r2",
+          email: "dev@b.co",
+          name: null,
+          events: ["verify.yellow", 7],
+          categories: [],
+        },
       ],
     });
     expect(detail.customer).toMatchObject({ customerNumber: "K-1", countryCode: "DE" });
     expect(detail.contacts).toHaveLength(1);
     expect(detail.contacts[0]).toMatchObject({ id: "c1", name: "Alice", isPrimary: true });
     expect(detail.notificationRecipients).toEqual([
-      { id: "r1", email: "ops@b.co", name: null, categories: ["jobFailures"] },
+      {
+        id: "r1",
+        email: "ops@b.co",
+        name: null,
+        // From a server before the matrix: the categories stand for their events.
+        events: ["backup.failed", "restore.failed", "archive.failed", "directory.failed"],
+        categories: ["jobFailures"],
+      },
+      { id: "r2", email: "dev@b.co", name: null, events: ["verify.yellow"], categories: [] },
     ]);
   });
 

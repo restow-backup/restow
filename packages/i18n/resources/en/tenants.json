@@ -402,7 +402,8 @@
           "graphTenantMissing": "No Microsoft 365 tenant is configured for Graph sendMail.",
           "transportError": "The test mail could not be sent: {detail}"
         }
-      }
+      },
+      "moreEvents": "{count, plural, one {# more event chosen under Integrations › Notifications.} other {# more events chosen under Integrations › Notifications.}}"
     },
     "admins": {
       "title": "Administrators to invite",

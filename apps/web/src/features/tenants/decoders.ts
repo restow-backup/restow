@@ -3,6 +3,7 @@ import { isTenantRole, type TenantKind, type TenantRole, unwrapList } from "@/li
 import { tenantRoleFromMemberRole } from "./presenters";
 import {
   type AddMemberResult,
+  eventsOfCategories,
   type Invitation,
   type InvitationDetails,
   type Member,
@@ -124,14 +125,20 @@ function decodeContact(payload: unknown): TenantContact {
 
 function decodeRecipient(payload: unknown): NotificationRecipient {
   const raw = asObject(payload);
-  const categories = Array.isArray(raw.categories) ? raw.categories : [];
+  const rawCategories = Array.isArray(raw.categories) ? raw.categories : [];
+  const categories = rawCategories.filter((category): category is NotificationCategory =>
+    NOTIFICATION_CATEGORIES.includes(category as NotificationCategory),
+  );
+  // A server from before the matrix sends the categories alone: they stand for their events.
+  const events = Array.isArray(raw.events)
+    ? raw.events.filter((event): event is string => typeof event === "string")
+    : eventsOfCategories(categories);
   return {
     id: asString(raw.id),
     email: asString(raw.email),
     name: asNullableString(raw.name),
-    categories: categories.filter((category): category is NotificationCategory =>
-      NOTIFICATION_CATEGORIES.includes(category as NotificationCategory),
-    ),
+    events,
+    categories,
   };
 }
 

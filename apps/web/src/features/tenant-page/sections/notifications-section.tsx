@@ -23,18 +23,19 @@ import {
 } from "@/features/tenants/forms";
 import { useReplaceTenantNotificationRecipients, useTenantDetail } from "@/features/tenants/hooks";
 import { genericError } from "@/features/tenants/presenters";
-import type { TenantDetail } from "@/features/tenants/types";
+import { type TenantDetail, WEEKLY_REPORT_ENTRY } from "@/features/tenants/types";
 import type { TenantSectionProps } from "@/lib/extensions";
 import { zodResolver } from "@/lib/form";
 import { useSession } from "@/lib/session";
 
 /**
  * Notifications: who is told what about this tenant. The recipients (people
- * and the categories each one wants) come first and are what sends: every
- * category is carried by a rule of the tenant, and saving the recipients brings
- * the rules' addresses up to date. Below them the rules themselves, for what
- * goes beyond the categories (other events, a webhook, a report on a schedule).
- * The list of alerts that were sent stays in the daily work (Alerts).
+ * and what each one wants) come first and are what sends: the categories are
+ * shortcuts for sets of events, each recipient's events can be chosen one by
+ * one in the notification matrix (Integrations › Notifications), and saving the
+ * recipients brings the rules that carry them up to date. Below them the rules
+ * themselves, for what goes beyond (a webhook, a report on a schedule). The
+ * list of alerts that were sent stays in the daily work (Alerts).
  */
 export function NotificationsSection({ tenant }: TenantSectionProps) {
   const { t } = useTranslation("tenantpage");
@@ -69,7 +70,7 @@ export function NotificationsSection({ tenant }: TenantSectionProps) {
 
 function recipientsKey(tenant: TenantDetail): string {
   return tenant.notificationRecipients
-    .map((recipient) => `${recipient.id}:${recipient.categories.join(",")}`)
+    .map((recipient) => `${recipient.id}:${recipient.events.join(",")}`)
     .join("|");
 }
 
@@ -88,7 +89,7 @@ function RecipientsCard({ tenant }: { tenant: TenantDetail }) {
       notificationRecipients: tenant.notificationRecipients.map((recipient) => ({
         email: recipient.email,
         name: recipient.name ?? "",
-        categories: recipient.categories,
+        events: recipient.events,
       })),
     },
   });
@@ -96,7 +97,7 @@ function RecipientsCard({ tenant }: { tenant: TenantDetail }) {
   const chosen = form.watch("notificationRecipients");
   const weeklyWithoutReports =
     catalog.data?.scheduledAvailable === false &&
-    chosen.some((recipient) => recipient.categories.includes("weeklyReport"));
+    chosen.some((recipient) => recipient.events.includes(WEEKLY_REPORT_ENTRY));
 
   async function onSave() {
     setError(null);
@@ -108,7 +109,7 @@ function RecipientsCard({ tenant }: { tenant: TenantDetail }) {
         form.getValues("notificationRecipients").map((recipient) => ({
           email: recipient.email.trim(),
           name: undefinedIfBlank(recipient.name),
-          categories: recipient.categories,
+          events: recipient.events,
         })),
       );
       toast.success(tt("customerPanel.recipientsSaved"));

@@ -191,7 +191,9 @@ describe("toCreateTenantInput", () => {
       customerNumber: "  ",
       vatId: " DE123456789 ",
       contacts: [{ ...emptyContact(true), name: " Alice ", role: "", email: "", phone: "" }],
-      notificationRecipients: [{ email: " ops@contoso.example ", name: "", categories: [] }],
+      notificationRecipients: [
+        { email: " ops@contoso.example ", name: "", events: ["verify.red", "report.weekly"] },
+      ],
     };
     const input = toCreateTenantInput(values);
     expect(input.name).toBe("Contoso GmbH");
@@ -201,7 +203,7 @@ describe("toCreateTenantInput", () => {
       { name: "Alice", role: undefined, email: undefined, phone: undefined, isPrimary: true },
     ]);
     expect(input.notificationRecipients).toEqual([
-      { email: "ops@contoso.example", name: undefined, categories: [] },
+      { email: "ops@contoso.example", name: undefined, events: ["verify.red", "report.weekly"] },
     ]);
   });
 });
