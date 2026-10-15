@@ -7,6 +7,12 @@
  * numbers join the object's baseline, and the next finding opens a new episode (and alert).
  * Taking a false alarm back makes the finding count again. Both are audited in the tenant's
  * chain; changing the thresholds is audited in the installation's.
+ *
+ * Retention hold (docs/RANSOMWARE.md, "Retention hold"): while an object has a suspicious restore
+ * point that is neither a false alarm nor released, the worker's retention deletes none of its
+ * restore points. An administrator ends it by calling the held findings a false alarm, or by
+ * releasing the hold (a recent sign-in, audited `suspicion.hold_released`): the findings stay,
+ * retention resumes, and the next finding opens a new episode and hold.
  */
 import {
   DEFAULT_RANSOMWARE_SETTINGS,
@@ -18,11 +24,15 @@ import {
 } from "@restow/core";
 import {
   type Database,
+  endpoints,
+  fileShares,
   type RestorePointSuspicion,
   restorePointSuspicions,
+  SUSPICION_HOLDS_SQL,
   settings,
+  suspicionHolds,
 } from "@restow/db";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
@@ -31,6 +41,7 @@ import type { RansomwareSettingsInput } from "./schemas.js";
 export const SUSPICION_AUDIT_ACTIONS = {
   falseAlarm: "suspicion.false_alarm",
   falseAlarmRevoked: "suspicion.false_alarm_revoked",
+  holdReleased: "suspicion.hold_released",
 } as const;
 
 export const RANSOMWARE_SETTINGS_AUDIT_ACTIONS = {
@@ -61,7 +72,32 @@ export interface SuspicionDto {
   signaturesVersion: string;
   alerted: boolean;
   falseAlarm: { at: string; by: string | null; note: string | null } | null;
+  /** Suspicious, no false alarm, its hold not released: it holds the object's retention. */
+  holds: boolean;
+  /** An administrator released the retention hold this restore point was part of. */
+  holdReleased: { at: string; by: string | null; note: string | null } | null;
   judgedAt: string;
+}
+
+/** An object's open retention hold. */
+export interface RetentionHoldDto {
+  /** The oldest suspicious restore point that holds. */
+  since: string;
+  /** When the hold began (the first of them was judged). */
+  heldAt: string;
+  restorePoints: number;
+  /** When the hold was last announced again (`backup.suspicious_hold`). */
+  remindedAt: string | null;
+  /** After how many days an unresolved hold is announced again. */
+  reminderDays: number;
+  /** What the object's repository takes now (machines and file shares); null when unknown. */
+  storageBytes: number | null;
+}
+
+/** What the installation's settings say about the hold (`retentionHold`). */
+export interface RetentionHoldSettings {
+  enabled: boolean;
+  reminderDays: number;
 }
 
 export interface ObjectSuspicionsDto {
@@ -73,6 +109,8 @@ export interface ObjectSuspicionsDto {
   openSince: string | null;
   /** The newest judged restore point that counts as clean. */
   lastClean: { restorePointId: string; restorePointAt: string } | null;
+  /** Retention of the object is paused; null when it is not (or the hold is switched off). */
+  hold: RetentionHoldDto | null;
   restorePoints: SuspicionDto[];
 }
 
@@ -108,6 +146,14 @@ export function suspicionDto(row: RestorePointSuspicion): SuspicionDto {
     falseAlarm: row.falseAlarmAt
       ? { at: row.falseAlarmAt.toISOString(), by: row.falseAlarmBy, note: row.falseAlarmNote }
       : null,
+    holds: isActive(row) && row.holdReleasedAt === null,
+    holdReleased: row.holdReleasedAt
+      ? {
+          at: row.holdReleasedAt.toISOString(),
+          by: row.holdReleasedBy,
+          note: row.holdReleaseNote,
+        }
+      : null,
     judgedAt: row.createdAt.toISOString(),
   };
 }
@@ -134,12 +180,66 @@ export function episodeOf(
   };
 }
 
-/** The judgements of one object's restore points, newest first, and its episode. */
+/** What the object's repository takes, where Restow measures it per object. */
+async function storageOf(
+  tx: DbExecutor,
+  kind: SuspicionObjectKind,
+  objectId: string,
+): Promise<number | null> {
+  if (kind === "endpoint") {
+    const [row] = await tx
+      .select({ bytes: endpoints.repositoryBytes })
+      .from(endpoints)
+      .where(eq(endpoints.id, objectId));
+    return row?.bytes ?? null;
+  }
+  if (kind === "file_share") {
+    const [row] = await tx
+      .select({ bytes: fileShares.repositoryBytes })
+      .from(fileShares)
+      .where(eq(fileShares.id, objectId));
+    return row?.bytes ?? null;
+  }
+  return null;
+}
+
+/** The object's open retention hold, or null. */
+async function holdOf(
+  tx: DbExecutor,
+  tenantId: string,
+  kind: SuspicionObjectKind,
+  objectId: string,
+  settings: RetentionHoldSettings,
+): Promise<RetentionHoldDto | null> {
+  if (!settings.enabled) {
+    return null;
+  }
+  const hold = (await suspicionHolds(tx, { tenantId, kind, objectIds: [objectId] })).get(objectId);
+  if (!hold) {
+    return null;
+  }
+  return {
+    since: hold.since.toISOString(),
+    heldAt: hold.heldAt.toISOString(),
+    restorePoints: hold.restorePoints,
+    remindedAt: hold.remindedAt?.toISOString() ?? null,
+    reminderDays: settings.reminderDays,
+    storageBytes: await storageOf(tx, kind, objectId),
+  };
+}
+
+/** The hold settings of the installation (read on the installation pool). */
+export async function retentionHoldSettings(db: DbExecutor): Promise<RetentionHoldSettings> {
+  return (await getRansomwareSettings(db)).settings.retentionHold;
+}
+
+/** The judgements of one object's restore points, newest first, its episode and its hold. */
 export async function listObjectSuspicions(
   db: Database,
   tenantId: string,
   kind: SuspicionObjectKind,
   objectId: string,
+  holdSettings: RetentionHoldSettings = DEFAULT_RANSOMWARE_SETTINGS.retentionHold,
 ): Promise<ObjectSuspicionsDto> {
   return withTenantTx(db, tenantId, async (tx) => {
     const rows = await tx
@@ -158,9 +258,121 @@ export async function listObjectSuspicions(
       objectKind: kind,
       objectId,
       ...episodeOf(rows),
+      hold: await holdOf(tx, tenantId, kind, objectId, holdSettings),
       restorePoints: rows.map(suspicionDto),
     };
   });
+}
+
+/** The rows of an object's open hold, locked for the change. */
+async function heldRows(
+  tx: DbExecutor,
+  tenantId: string,
+  kind: SuspicionObjectKind,
+  objectId: string,
+): Promise<RestorePointSuspicion[]> {
+  return tx
+    .select()
+    .from(restorePointSuspicions)
+    .where(
+      and(
+        eq(restorePointSuspicions.tenantId, tenantId),
+        eq(restorePointSuspicions.objectKind, kind),
+        eq(restorePointSuspicions.objectId, objectId),
+        SUSPICION_HOLDS_SQL,
+      ),
+    )
+    .orderBy(asc(restorePointSuspicions.restorePointAt))
+    .for("update");
+}
+
+const NO_HOLD = () =>
+  new ProblemError(409, "No retention hold", {
+    detail: "Retention of this object is not paused.",
+  });
+
+/**
+ * Release an object's retention hold: retention resumes with its next run. The findings stay (the
+ * restore points remain marked suspicious and out of the baseline); the next finding opens a new
+ * episode and a new hold. Audited with every restore point it released. 409 without a hold.
+ */
+export async function releaseRetentionHold(
+  db: Database,
+  tenantId: string,
+  kind: SuspicionObjectKind,
+  objectId: string,
+  note: string | null,
+  actor: SuspicionActor,
+  now: Date = new Date(),
+  holdSettings: RetentionHoldSettings = DEFAULT_RANSOMWARE_SETTINGS.retentionHold,
+): Promise<ObjectSuspicionsDto> {
+  await withTenantTx(db, tenantId, async (tx) => {
+    const rows = await heldRows(tx, tenantId, kind, objectId);
+    if (rows.length === 0) {
+      throw NO_HOLD();
+    }
+    const text = note && note.length > 0 ? note : null;
+    await tx
+      .update(restorePointSuspicions)
+      .set({
+        holdReleasedAt: now,
+        holdReleasedByUserId: actor.userId,
+        holdReleasedBy: actor.label,
+        holdReleaseNote: text,
+      })
+      .where(
+        inArray(
+          restorePointSuspicions.id,
+          rows.map((row) => row.id),
+        ),
+      );
+    await audit(tx, {
+      tenantId,
+      actorUserId: actor.userId,
+      actor: actor.label,
+      action: SUSPICION_AUDIT_ACTIONS.holdReleased,
+      target: objectId,
+      targetType: kind,
+      ip: actor.ip,
+      details: {
+        objectKind: kind,
+        objectId,
+        heldSince: rows[0]?.restorePointAt.toISOString() ?? null,
+        heldAt: rows
+          .reduce((first, row) => (row.createdAt < first ? row.createdAt : first), now)
+          .toISOString(),
+        restorePoints: rows.map((row) => row.restorePointId),
+        note: text,
+      },
+    });
+  });
+  return listObjectSuspicions(db, tenantId, kind, objectId, holdSettings);
+}
+
+/**
+ * Call every finding that holds the object's retention a false alarm at once (the hold banner's
+ * "Mark as false alarm"): each is audited like a single false alarm, and the hold ends.
+ */
+export async function markHoldFalseAlarm(
+  db: Database,
+  tenantId: string,
+  kind: SuspicionObjectKind,
+  objectId: string,
+  note: string | null,
+  actor: SuspicionActor,
+  now: Date = new Date(),
+  holdSettings: RetentionHoldSettings = DEFAULT_RANSOMWARE_SETTINGS.retentionHold,
+): Promise<ObjectSuspicionsDto> {
+  const ids = await withTenantTx(db, tenantId, async (tx) =>
+    (await heldRows(tx, tenantId, kind, objectId)).map((row) => row.id),
+  );
+  if (ids.length === 0) {
+    throw NO_HOLD();
+  }
+  for (const id of ids) {
+    await markFalseAlarm(db, tenantId, id, note, actor, now);
+  }
+  return listObjectSuspicions(db, tenantId, kind, objectId, holdSettings);
 }
 
 /** The tenant's objects whose newest judged restore point is suspicious (an open episode). */

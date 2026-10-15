@@ -62,6 +62,9 @@ describe.skipIf(!testDatabaseAdminUrl)("ransomware judgements against Postgres",
     return async (c, next) => {
       c.set("tenantId", c.req.header("x-restow-tenant") ?? "");
       c.set("user", { id: adminId, email: "admin@contoso.example" } as unknown as SessionUser);
+      // A session opened just now with a passkey, or (x-test-stale) one opened an hour ago.
+      const opened = c.req.header("x-test-stale") ? new Date(Date.now() - HOUR) : new Date();
+      c.set("auth", { session: { createdAt: opened, authMethod: "passkey" } } as never);
       await next();
     };
   }
@@ -143,12 +146,16 @@ describe.skipIf(!testDatabaseAdminUrl)("ransomware judgements against Postgres",
     await roles?.drop(testDatabaseAdminUrl as string);
   });
 
-  function call(path: string, options: { tenant?: string; method?: string; body?: unknown } = {}) {
+  function call(
+    path: string,
+    options: { tenant?: string; method?: string; body?: unknown; stale?: boolean } = {},
+  ) {
     return app.request(path, {
       method: options.method ?? "GET",
       headers: {
         "x-restow-tenant": options.tenant ?? contoso,
         ...(options.body ? { "content-type": "application/json" } : {}),
+        ...(options.stale ? { "x-test-stale": "1" } : {}),
       },
       body: options.body ? JSON.stringify(options.body) : undefined,
     });
@@ -268,6 +275,76 @@ describe.skipIf(!testDatabaseAdminUrl)("ransomware judgements against Postgres",
       .from(auditLog)
       .where(eq(auditLog.action, SUSPICION_AUDIT_ACTIONS.falseAlarmRevoked));
     expect(revoked).toHaveLength(1);
+  });
+
+  it("pauses retention while a finding is unresolved; a release needs a recent sign-in and is audited", async () => {
+    // After the last test, "still" is suspicious again and "attack" a false alarm.
+    const held = await objectList();
+    expect(held.hold).toMatchObject({
+      since: ago(24).toISOString(),
+      restorePoints: 1,
+      remindedAt: null,
+      reminderDays: 14,
+      storageBytes: null,
+    });
+    expect(held.restorePoints.map((point) => point.holds)).toEqual([true, false, false, false]);
+
+    const body = { kind: "endpoint", objectId: machine, note: "Machine reinstalled, checked" };
+    const stale = await call("/suspicions/hold/release", { method: "POST", body, stale: true });
+    expect(stale.status).toBe(403);
+    expect(((await stale.json()) as { type: string }).type).toBe(
+      "urn:restow:problem:recent-sign-in-required",
+    );
+    expect((await objectList()).hold).not.toBeNull();
+
+    const released = await json<ObjectSuspicionsDto>(
+      await call("/suspicions/hold/release", { method: "POST", body }),
+    );
+    expect(released.hold).toBeNull();
+    // The finding stays: the restore point is still marked, only its hold is released.
+    expect(released.open).toBe(true);
+    expect(released.restorePoints[0]).toMatchObject({
+      active: true,
+      holds: false,
+      holdReleased: { by: "admin@contoso.example", note: "Machine reinstalled, checked" },
+    });
+    const log = await owner
+      .select()
+      .from(auditLog)
+      .where(eq(auditLog.action, SUSPICION_AUDIT_ACTIONS.holdReleased));
+    expect(log).toHaveLength(1);
+    expect(log[0]).toMatchObject({ tenantId: contoso, target: machine, targetType: "endpoint" });
+    expect(log[0]?.details).toMatchObject({
+      objectKind: "endpoint",
+      heldSince: ago(24).toISOString(),
+      restorePoints: ["still-snapshot"],
+      note: "Machine reinstalled, checked",
+    });
+    expect((await call("/suspicions/hold/release", { method: "POST", body })).status).toBe(409);
+
+    // A new finding holds again; calling the hold's findings a false alarm ends it as well.
+    await judged("again", 2, "suspicious");
+    expect((await objectList()).hold?.restorePoints).toBe(1);
+    const cleared = await json<ObjectSuspicionsDto>(
+      await call("/suspicions/hold/false-alarm", {
+        method: "POST",
+        body: { kind: "endpoint", objectId: machine, note: null },
+      }),
+    );
+    expect(cleared.hold).toBeNull();
+    expect(cleared.restorePoints[0]).toMatchObject({
+      restorePointId: "again-snapshot",
+      active: false,
+    });
+    // An object without a hold has nothing to release.
+    expect(
+      (
+        await call("/suspicions/hold/release", {
+          method: "POST",
+          body: { kind: "endpoint", objectId: randomUUID() },
+        })
+      ).status,
+    ).toBe(409);
   });
 
   it("keeps the installation's thresholds: defaults, a change, audited, back to the defaults", async () => {

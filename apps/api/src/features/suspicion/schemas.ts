@@ -20,6 +20,13 @@ export const falseAlarmSchema = z.object({
   note: z.string().trim().max(MAX_FALSE_ALARM_NOTE_LENGTH).nullish(),
 });
 
+/** Releasing an object's retention hold, or calling all its held findings a false alarm. */
+export const holdActionSchema = z.object({
+  kind: z.enum(SUSPICION_OBJECT_KINDS),
+  objectId: z.string().uuid(),
+  note: z.string().trim().max(MAX_FALSE_ALARM_NOTE_LENGTH).nullish(),
+});
+
 function inRange(key: RansomwareSettingKey, integer = false) {
   const [min, max] = RANSOMWARE_SETTING_RANGES[key];
   const number = z.number().min(min).max(max);
