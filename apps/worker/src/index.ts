@@ -112,6 +112,7 @@ import { JobPauseGate } from "./job-pause.js";
 import { startManifestConversion } from "./manifest-conversion.js";
 import { startPveMaintenance } from "./pve/maintenance.js";
 import { pgBossQueueOptions, QUEUE_NAMES, queuePriority } from "./queues.js";
+import { startJobReconciler } from "./reconcile.js";
 import { raiseJobFinished } from "./reporting.js";
 
 type Env = Record<string, string | undefined>;
@@ -241,6 +242,7 @@ function createKeyProvider(config: WorkerConfig): KeyProvider {
 }
 
 async function main(): Promise<void> {
+  const startedAt = new Date();
   const config = loadConfig();
   // Branding: `{appName}` in the chat messages of webhooks names the product like the api does.
   configureProductName(process.env[PRODUCT_NAME_ENV]);
@@ -454,6 +456,11 @@ async function main(): Promise<void> {
   });
   await heartbeat.start();
   jobPause.start();
+  // Jobs a killed worker left active go back to their queue (reconcile.ts, #46).
+  const stopReconciler = startJobReconciler(providerDb, {
+    selfStartedAt: startedAt,
+    logger: logger.child({ component: "reconcile" }),
+  });
 
   const stop = async (signal: NodeJS.Signals): Promise<void> => {
     if (stopping) {
@@ -465,6 +472,7 @@ async function main(): Promise<void> {
     // (up to the timeout) before failing whatever is still active for retry.
     shutdown.abort("shutdown");
     jobPause.stop();
+    stopReconciler();
     try {
       await heartbeat.beat();
       await boss.stop({ graceful: true, wait: true, timeout: config.shutdownTimeoutMs });

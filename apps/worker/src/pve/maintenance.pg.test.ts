@@ -415,7 +415,10 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     const justOpened = await open(minutesAgo(5));
 
     // A helper before 0.4.0 sends no list: nothing is closed early.
-    await owner.update(pveNodes).set({ facts: { state: "idle" } }).where(eq(pveNodes.id, nodeId));
+    await owner
+      .update(pveNodes)
+      .set({ facts: { state: "idle" } })
+      .where(eq(pveNodes.id, nodeId));
     expect(await closeRunsNodesDropped(deps, clock)).toBe(0);
 
     // A list from an hour ago says nothing about now.
