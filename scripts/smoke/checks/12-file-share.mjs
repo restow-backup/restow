@@ -273,6 +273,13 @@ export async function fileShare(ctx, check) {
         }
         await stack.compose(["cp", `${local}/.`, `samba:${DATA}/`]);
         await onSamba(stack, `chown -R smoke:smoke ${DATA} ${COPY}`);
+        // The restore check reads back samples, and a backup takes only files unchanged for an
+        // hour as samples (docs/FILESHARES.md, finalize); the corpus is two hours old.
+        const twoHoursAgo = new Date(Date.now() - 2 * 3600_000)
+          .toISOString()
+          .slice(0, 19)
+          .replace("T", " ");
+        await onSamba(stack, `TZ=UTC find ${DATA} -type f -exec touch -d '${twoHoursAgo}' {} +`);
         const credentials = `smoke%${stack.smbPassword}`;
         const userSid = userSidOf(await onSamba(stack, "pdbedit -L -v -u smoke"));
         if (!userSid) throw new Error("pdbedit names no SID for the account");
