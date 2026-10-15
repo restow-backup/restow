@@ -355,6 +355,10 @@
     "restore": "Restore",
     "timelineLabel": "Restore points of {name}",
     "downloadFailed": "The download could not be prepared",
+    "noSamples": {
+      "label": "No samples yet",
+      "description": "No samples to check yet: every file changed within the hour before the backup. The next backup takes samples from files that stay unchanged."
+    },
     "empty": {
       "title": "No restore points yet",
       "description": "Once the first backup has run, its restore points are listed here."

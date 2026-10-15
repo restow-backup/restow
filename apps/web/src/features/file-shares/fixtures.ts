@@ -162,7 +162,7 @@ export function snapshotFixture(over: Partial<ShareSnapshot> = {}): ShareSnapsho
       descriptors: 14,
       errors: 0,
     },
-    verification: { state: "green", checkedAt: iso(-500) },
+    verification: { state: "green", checkedAt: iso(-500), reason: null },
     cataloged: true,
     ...over,
   };

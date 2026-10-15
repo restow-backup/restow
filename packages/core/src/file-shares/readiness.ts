@@ -33,6 +33,13 @@ export interface ShareReadinessInput {
 
 export const SHARE_VERIFY_OVERDUE_DAYS = ENDPOINT_VERIFY_OVERDUE_DAYS;
 
+/**
+ * `summary.reason` of a restore check that found no samples to read back: every file changed
+ * within the hour before the backup. Rated yellow; it never makes a restore point verified for a
+ * copy job.
+ */
+export const SHARE_NO_SAMPLES = "no_samples";
+
 export function shareReadiness(input: ShareReadinessInput): ShareReadinessResult {
   return endpointReadiness({
     latestSnapshotId: input.latestResticSnapshotId,

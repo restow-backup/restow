@@ -110,6 +110,49 @@ describe("the restore points of a share", () => {
     expect(slot("share-restore-dialog")).not.toBeNull();
     expect(text()).toContain("/readme.txt");
   });
+
+  it("says why a restore check had nothing to read back, in both languages", async () => {
+    const noSamples = snapshotFixture({
+      verification: { state: "yellow", checkedAt: iso(-500), reason: "no_samples" },
+    });
+    const routes = {
+      [`GET ${BASE}/snapshots`]: () => json({ items: [noSamples, snapshotFixture({ id: "b" })] }),
+      [`GET ${BASE}/search`]: () => json({ items: [], truncated: false }),
+    };
+    rendered = await render(
+      <ShareRestorePoints share={shareFixture()} onShowRuns={() => undefined} />,
+      { routes },
+    );
+    const [first, second] = [...document.querySelectorAll('[data-slot="snapshot-list"] li')];
+    expect(first?.querySelector('[data-verification="no_samples"]')?.textContent).toBe(
+      "No samples yet",
+    );
+    expect(first?.querySelector('[data-slot="no-samples"]')?.textContent).toBe(
+      "No samples to check yet: every file changed within the hour before the backup. The next backup takes samples from files that stay unchanged.",
+    );
+    // Not the "passed with warnings" of a check that read files back.
+    expect(first?.textContent).not.toContain("Sample passed");
+    expect(second?.querySelector('[data-slot="no-samples"]')).toBeNull();
+    await rendered.mounted.unmount();
+    rendered = null;
+    document.body.innerHTML = "";
+
+    await i18n.changeLanguage("de");
+    try {
+      rendered = await render(
+        <ShareRestorePoints share={shareFixture()} onShowRuns={() => undefined} />,
+        { routes },
+      );
+      expect(slot("no-samples")?.textContent).toBe(
+        "Noch keine Stichprobe zum Prüfen: Jede Datei wurde in der Stunde vor der Sicherung geändert. Die nächste Sicherung nimmt Stichproben aus Dateien, die unverändert bleiben.",
+      );
+      expect(document.querySelector('[data-verification="no_samples"]')?.textContent).toBe(
+        "Noch keine Stichprobe",
+      );
+    } finally {
+      await i18n.changeLanguage("en");
+    }
+  });
 });
 
 describe("the restore dialog", () => {

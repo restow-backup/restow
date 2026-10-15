@@ -43,7 +43,7 @@ import { alertOverdueBackups } from "../overdue.js";
 import { shareRepositoryAccess } from "./common.js";
 import { dispatchPass, ensureShareRepository } from "./dispatch.js";
 import { endRun, processFinish } from "./finish.js";
-import { shareRetention } from "./maintenance.js";
+import { shareRetention, shareVerify } from "./maintenance.js";
 import { fileShareMonitor } from "./monitor.js";
 import { queueShareBackup, queueShareCopy, SKIPPED_NOTE } from "./queue.js";
 import {
@@ -412,6 +412,16 @@ describe.skipIf(!adminUrl)("file share jobs of the worker against Postgres", () 
           readiness: "red",
           snapshotId: two.resticSnapshotId,
         },
+        // A later check without samples read nothing back: still no proof for a copy.
+        {
+          tenantId: tenant,
+          fileShareId: source.id,
+          kind: "restore_test",
+          readiness: "yellow",
+          snapshotId: two.resticSnapshotId,
+          summary: { reason: "no_samples", files: 0 },
+          checkedAt: new Date(Date.now() + MINUTE),
+        },
       ]);
       const second = await copyRun();
       expect((await dispatchPass(fixture.deps)).started).toBe(1);
@@ -698,6 +708,36 @@ describe.skipIf(!adminUrl)("file share jobs of the worker against Postgres", () 
         (e) => e.details?.fileShareId === s.id,
       );
       expect(raised).toHaveLength(1);
+    });
+  });
+
+  describe("the restore check", () => {
+    it("rates a restore point without samples yellow with the reason, without alerting", async () => {
+      const s = await readyShare();
+      const point = await snapshot(s.id, 1, 5);
+      await fixture.owner
+        .update(fileShares)
+        .set({ lastSnapshotId: point.id })
+        .where(eq(fileShares.id, s.id));
+      const now = new Date("2026-10-12T10:00:00Z");
+      fixture.clock.now = now;
+      await shareVerify(fixture.deps, { tenantId: tenant, fileShareId: s.id });
+      const reports = await fixture.owner
+        .select()
+        .from(fileShareReports)
+        .where(eq(fileShareReports.fileShareId, s.id));
+      expect(reports).toHaveLength(1);
+      expect(reports[0]).toMatchObject({
+        kind: "restore_test",
+        snapshotId: point.resticSnapshotId,
+        readiness: "yellow",
+        summary: { reason: "no_samples", files: 0 },
+        alertedAt: null,
+      });
+      expect(reports[0]?.checkedAt.getTime()).toBe(now.getTime());
+      expect((await share(s.id)).lastRestoreTestAt?.getTime()).toBe(now.getTime());
+      const raised = [...(await events("verify.red")), ...(await events("verify.recovered"))];
+      expect(raised.filter((e) => e.details?.fileShareId === s.id)).toEqual([]);
     });
   });
 

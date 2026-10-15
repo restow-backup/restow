@@ -1299,7 +1299,12 @@ large share is ordinary.
   restore point (`packages/core/src/endpoints/restore-test.ts` [V]), same green/red rules; readiness
   through a thin `packages/core/src/file-shares/readiness.ts` over `endpointReadiness` [V]
   (green, yellow, red, unverified, no backup; overdue after 8 days as `ENDPOINT_VERIFY_OVERDUE_DAYS`
-  [V]).
+  [V]). A restore point without samples (every file changed within the hour before the run, see
+  `finalize`) has nothing to read back: the check records a yellow report with
+  `summary.reason = "no_samples"` and `files: 0`, sets `last_restore_test_at` and raises no event,
+  so the restore point does not stay unverified. The restore points list shows the reason next to
+  the rating; a copy job does not count such a restore point as verified (4.10). The next backup
+  takes samples from the files that stay unchanged.
 - Locked-repository counting and the alert as for endpoints (docs/AGENT.md "Sperren" [V]).
 
 ### 8.5 Catalog (`file-share-catalog`)

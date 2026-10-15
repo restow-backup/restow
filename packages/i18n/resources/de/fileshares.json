@@ -355,6 +355,10 @@
     "restore": "Wiederherstellen",
     "timelineLabel": "Sicherungsstände von {name}",
     "downloadFailed": "Der Download konnte nicht vorbereitet werden",
+    "noSamples": {
+      "label": "Noch keine Stichprobe",
+      "description": "Noch keine Stichprobe zum Prüfen: Jede Datei wurde in der Stunde vor der Sicherung geändert. Die nächste Sicherung nimmt Stichproben aus Dateien, die unverändert bleiben."
+    },
     "empty": {
       "title": "Noch keine Sicherungsstände",
       "description": "Sobald die erste Sicherung gelaufen ist, erscheinen ihre Sicherungsstände hier."

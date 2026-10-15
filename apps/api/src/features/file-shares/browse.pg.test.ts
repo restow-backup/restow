@@ -185,7 +185,7 @@ describe.skipIf(!canRun)("reading file share backups with restic", () => {
       id: snapshotId,
       sequence: 1,
       files: 3,
-      verification: { state: "green" },
+      verification: { state: "green", reason: null },
       permissions: { xattr: "system.cifs_ntsd" },
     });
   });

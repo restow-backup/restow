@@ -152,7 +152,12 @@ export interface ShareSnapshotDto {
   bytesAdded: number;
   includes: string[];
   permissions: FileShareSnapshot["permissions"];
-  verification: { state: "green" | "yellow" | "red" | "unverified"; checkedAt: string | null };
+  verification: {
+    state: "green" | "yellow" | "red" | "unverified";
+    checkedAt: string | null;
+    /** Why the check rated as it did without reading anything back; null otherwise. */
+    reason: "no_samples" | null;
+  };
   cataloged: boolean;
 }
 

@@ -11,6 +11,7 @@ import {
   resticCacheBase,
   resticListDirectory,
   SelectionError,
+  SHARE_NO_SAMPLES,
   SHARE_SNAPSHOT_ROOT,
   streamSnapshotZip,
 } from "@restow/core";
@@ -192,6 +193,7 @@ export async function listSnapshots(
         snapshotId: fileShareReports.snapshotId,
         readiness: fileShareReports.readiness,
         checkedAt: fileShareReports.checkedAt,
+        summary: fileShareReports.summary,
       })
       .from(fileShareReports)
       .where(
@@ -206,14 +208,22 @@ export async function listSnapshots(
     for (const report of reports) {
       const key = report.snapshotId as string;
       if (!newest.has(key) && report.readiness) {
-        newest.set(key, { state: report.readiness, checkedAt: report.checkedAt.toISOString() });
+        newest.set(key, {
+          state: report.readiness,
+          checkedAt: report.checkedAt.toISOString(),
+          reason: report.summary.reason === SHARE_NO_SAMPLES ? SHARE_NO_SAMPLES : null,
+        });
       }
     }
     return {
       items: rows.map((row) =>
         shareSnapshotDto(
           row,
-          newest.get(row.resticSnapshotId) ?? { state: "unverified", checkedAt: null },
+          newest.get(row.resticSnapshotId) ?? {
+            state: "unverified",
+            checkedAt: null,
+            reason: null,
+          },
         ),
       ),
     };

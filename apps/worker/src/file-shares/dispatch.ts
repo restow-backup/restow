@@ -36,6 +36,7 @@ import {
   type RunnerRunRequest,
   RunnerUnavailableError,
   resticInit,
+  SHARE_NO_SAMPLES,
   type ShareSpec,
   sealSecret,
   shareBudgetBytes,
@@ -434,7 +435,12 @@ async function planCopy(
       })
       .from(fileShareReports)
       .where(
-        and(eq(fileShareReports.fileShareId, source.id), eq(fileShareReports.kind, "restore_test")),
+        and(
+          eq(fileShareReports.fileShareId, source.id),
+          eq(fileShareReports.kind, "restore_test"),
+          // A restore check without samples read nothing back: no proof for a copy.
+          sql`${fileShareReports.summary}->>'reason' IS DISTINCT FROM ${SHARE_NO_SAMPLES}`,
+        ),
       );
     // The restore point the job's last successful run copied.
     const [last] = run.backupJobId

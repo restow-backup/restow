@@ -306,7 +306,12 @@ export interface ShareSnapshot {
     descriptors: number;
     errors: number;
   } | null;
-  verification: { state: "green" | "yellow" | "red" | "unverified"; checkedAt: string | null };
+  verification: {
+    state: "green" | "yellow" | "red" | "unverified";
+    checkedAt: string | null;
+    /** `no_samples`: the check found nothing to read back (yellow); null otherwise. */
+    reason: "no_samples" | null;
+  };
   cataloged: boolean;
 }
 

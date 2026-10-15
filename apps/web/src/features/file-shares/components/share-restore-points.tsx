@@ -1,6 +1,7 @@
-import { History, Search, ShieldCheck } from "lucide-react";
+import { History, Search, ShieldAlert, ShieldCheck } from "lucide-react";
 import * as React from "react";
 
+import { StatusBadge } from "@/components/kit";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -53,11 +54,22 @@ function PointDetails({ point, format }: { point: ShareSnapshot; format: ShareFo
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
       >
-        <SnapshotVerificationBadge
-          verification={{ ...point.verification, reportId: null }}
-          focusable={false}
-        />
+        {point.verification.reason === "no_samples" ? (
+          <StatusBadge tone="warning" icon={ShieldAlert} data-verification="no_samples">
+            {t("points.noSamples.label")}
+          </StatusBadge>
+        ) : (
+          <SnapshotVerificationBadge
+            verification={{ ...point.verification, reportId: null }}
+            focusable={false}
+          />
+        )}
       </span>
+      {point.verification.reason === "no_samples" ? (
+        <span className="text-xs text-muted-foreground" data-slot="no-samples">
+          {t("points.noSamples.description")}
+        </span>
+      ) : null}
     </>
   );
 }

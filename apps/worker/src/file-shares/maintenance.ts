@@ -11,7 +11,8 @@
  *               whatever the rules say; a retired share keeps everything until it is purged
  *   check       `restic check` of one twentieth of the data, rotating weekly
  *   verify      the restore check of the newest restore point: its samples read back and
- *               hashed (@restow/core `restoreTestSamples`), green only when all match
+ *               hashed (@restow/core `restoreTestSamples`), green only when all match; yellow
+ *               with the reason `no_samples` when the backup took none
  *
  * Stale locks go first, as for endpoints; a repository that stays locked is counted and, after
  * six attempts over twelve hours, announced once (`file_share.repository_locked`).
@@ -35,6 +36,7 @@ import {
   resticSnapshots,
   resticUnlock,
   restoreTestSamples,
+  SHARE_NO_SAMPLES,
   withRepository,
 } from "@restow/core";
 import {
@@ -474,7 +476,27 @@ export async function shareVerify(
       ),
   );
   if (samples.length === 0) {
+    // Every file changed within the hour before the run (finalize takes no samples of those):
+    // nothing to read back. Rated yellow with the reason, so the restore point does not stay
+    // unverified; no events, it is no finding about the repository.
+    const now = deps.runtime.now();
+    await withTenantTx(deps.db, share.tenantId, async (tx) => {
+      await tx.insert(fileShareReports).values({
+        tenantId: share.tenantId,
+        fileShareId: share.id,
+        kind: "restore_test",
+        snapshotId: resticId,
+        readiness: "yellow",
+        summary: { reason: SHARE_NO_SAMPLES, files: 0, matched: 0, mismatched: [] },
+        checkedAt: now,
+      });
+      await tx
+        .update(fileShares)
+        .set({ lastRestoreTestAt: now })
+        .where(eq(fileShares.id, share.id));
+    });
     deps.runtime.logger.info("no samples to check", {
+      tenantId: share.tenantId,
       fileShareId: share.id,
       snapshotId: resticId,
     });
