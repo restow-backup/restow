@@ -115,7 +115,14 @@ type Deps struct {
 	// Uninstall removes the agent from this machine (service, files). It is
 	// called for the uninstall task and may terminate the process.
 	Uninstall func(ctx context.Context) error
+	// Machine looks at the machine (virtualization, desktop, data folders)
+	// for the heartbeat; nil selects sysinfo.DetectMachine.
+	Machine func() sysinfo.Machine
 }
+
+// machineRefresh is how long the facts of the machine are reused before the
+// agent looks again (a folder that gets data shows up within this time).
+const machineRefresh = time.Hour
 
 const (
 	triggerSchedule = "schedule"
@@ -160,6 +167,8 @@ type Agent struct {
 	cancelJob context.CancelFunc
 	resticVer string
 	osVersion string
+	machine   *sysinfo.Machine
+	machineAt time.Time
 	uninstall bool
 	restart   bool
 	logSeen   map[string]time.Time
@@ -185,6 +194,9 @@ func New(d Deps, o Options) *Agent {
 	}
 	if d.Logger == nil {
 		d.Logger = slog.Default()
+	}
+	if d.Machine == nil {
+		d.Machine = sysinfo.DetectMachine
 	}
 	return &Agent{
 		d: d, o: o, log: d.Logger,
@@ -408,6 +420,7 @@ func (a *Agent) doHeartbeat(ctx context.Context) {
 	if mode == hooks.ModeScripts {
 		req.HookScripts = hooks.ListScripts(dir)
 	}
+	req.Machine, req.DataFolders = a.machineFacts()
 	if st := a.d.Status.Snapshot(); !st.NextRunAt.IsZero() {
 		t := st.NextRunAt
 		req.NextRunAt = &t
@@ -442,6 +455,21 @@ func (a *Agent) doHeartbeat(ctx context.Context) {
 		a.log.Info("delivered run reports that were waiting in the outbox", "count", n)
 	}
 	a.dispatchTasks(ctx, resp.Tasks)
+}
+
+// machineFacts returns what the heartbeat says about the machine, looking
+// again once machineRefresh has passed. Only called from the loop goroutine.
+func (a *Agent) machineFacts() (*api.MachineFacts, []string) {
+	if now := a.now(); a.machine == nil || now.Sub(a.machineAt) >= machineRefresh {
+		m := a.d.Machine()
+		a.machine, a.machineAt = &m, now
+	}
+	return MachineFactsOf(*a.machine)
+}
+
+// MachineFactsOf turns the facts of the machine into their wire form.
+func MachineFactsOf(m sysinfo.Machine) (*api.MachineFacts, []string) {
+	return &api.MachineFacts{Virtualization: m.Virtualization, Technology: m.Technology, Desktop: m.Desktop}, m.DataFolders
 }
 
 // hooksPolicy returns the machine's hook mode and hooks folder. The mode is
