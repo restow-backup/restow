@@ -108,10 +108,23 @@ async function finishedRun(api, tenantId, shareId, runId, { timeoutMs = 300_000 
   );
 }
 
-/** Back up now and wait for the run; returns it. */
+/**
+ * Back up now and wait for the run; returns it. A successful backup has ended once the runner
+ * reported it, but its restore point is recorded a moment later by the worker (the run's
+ * `snapshotId`), so this waits for that too.
+ */
 async function backUp(api, tenantId, shareId) {
   const queued = await api.post(`${base(shareId)}/backup`, {}, { tenantId });
-  return finishedRun(api, tenantId, shareId, queued.run.id);
+  const ended = await finishedRun(api, tenantId, shareId, queued.run.id);
+  if (!["succeeded", "warning"].includes(ended.status) || ended.snapshotId) return ended;
+  return waitFor(
+    `the restore point of run ${ended.id.slice(0, 8)}`,
+    async () => {
+      const current = await api.get(`${base(shareId)}/runs/${ended.id}?limit=200`, { tenantId });
+      return current.snapshotId || current.status === "failed" ? current : null;
+    },
+    { timeoutMs: 120_000, intervalMs: 1000 },
+  );
 }
 
 function describeRun(current) {
@@ -120,8 +133,8 @@ function describeRun(current) {
 }
 
 /** Restore check now, and wait until the newest restore point has a rating that is not red. */
-async function checkNewest(api, tenantId, shareId) {
-  await api.post(`${base(shareId)}/verify`, {}, { tenantId });
+async function checkNewest(stack, api, tenantId, shareId) {
+  const requested = await api.post(`${base(shareId)}/verify`, {}, { tenantId });
   return waitFor(
     "the restore check of the newest restore point",
     async () => {
@@ -133,7 +146,38 @@ async function checkNewest(api, tenantId, shareId) {
       return newest && ["green", "yellow"].includes(newest.verification.state) ? newest : null;
     },
     { timeoutMs: 240_000, intervalMs: 3000 },
+  ).catch(async (error) => {
+    const diagnosis = await verifyDiagnosis(stack, shareId, requested).catch(
+      (failure) => `no diagnosis: ${failure.message}`,
+    );
+    throw new Error(`${error.message}; ${diagnosis}`);
+  });
+}
+
+/** What the database and the worker say about a restore check that never ended. */
+async function verifyDiagnosis(stack, shareId, requested) {
+  if (!/^[0-9a-f-]{36}$/u.test(shareId)) return "no diagnosis: unexpected share id";
+  const samples = await stack.sql(
+    `select count(*) from file_share_samples where file_share_id = '${shareId}'`,
   );
+  const reports = await stack.sql(
+    `select count(*) from file_share_reports where file_share_id = '${shareId}' and kind = 'restore_test'`,
+  );
+  const jobs = await stack.sql(
+    `select state || ' retries=' || retry_count || ' ' || coalesce(left(output::text, 300), '') from pgboss.job where name = 'file-share-verify' order by created_on desc limit 3`,
+  );
+  const log = (await stack.logs("worker", 400))
+    .split(/\r?\n/u)
+    .filter((line) => /verify|restore check|sample|file.share/iu.test(line))
+    .slice(-8)
+    .join(" | ");
+  return [
+    `verify request ${JSON.stringify(requested)}`,
+    `samples ${samples}`,
+    `restore check reports ${reports}`,
+    `verify jobs [${jobs.replace(/\n/gu, "; ")}]`,
+    `worker: ${log || "nothing about it"}`,
+  ].join("; ");
 }
 
 /** The newest run of a copy job (a restore run of the source share that names the job). */
@@ -441,7 +485,7 @@ export async function fileShare(ctx, check) {
     });
 
     await check.step("the restore check of the restore point", async () => {
-      const point = await checkNewest(api, tenantId, share.id);
+      const point = await checkNewest(stack, api, tenantId, share.id);
       return `restore point ${point.sequence}: ${point.verification.state}`;
     });
 
@@ -582,7 +626,7 @@ export async function fileShare(ctx, check) {
           `printf 'outside\\n' > '${COPY}/outside.txt' && chown smoke:smoke '${COPY}/outside.txt'`,
         );
         // The newest restore point must be verified before a copy takes it.
-        await checkNewest(api, tenantId, share.id);
+        await checkNewest(stack, api, tenantId, share.id);
         const job = await api.post(
           "/api/v1/backup-jobs",
           {
@@ -618,7 +662,7 @@ export async function fileShare(ctx, check) {
         if (!["succeeded", "warning"].includes(backup.status)) {
           throw new Error(`the third backup ended ${describeRun(backup)}`);
         }
-        await checkNewest(api, tenantId, share.id);
+        await checkNewest(stack, api, tenantId, share.id);
         await api.post(`/api/v1/backup-jobs/${job.id}/run`, {}, { tenantId });
         const secondCopy = await newestCopyRun(api, tenantId, share.id, job.id, firstCopy.id);
         if (!["succeeded", "warning"].includes(secondCopy.status)) {
