@@ -519,7 +519,8 @@
         "changed": "Scope of a backup job changed"
       },
       "run_requested": "Backup job run requested",
-      "migrated": "Schedules and machine configurations turned into backup jobs"
+      "migrated": "Schedules and machine configurations turned into backup jobs",
+      "recommended_applied": "Recommended backup jobs set up"
     },
     "mount": {
       "add_requested": "Network share added",
