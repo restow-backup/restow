@@ -191,6 +191,21 @@ describe("expandSchedule", () => {
     expect(
       expandSchedule(schedule({ kind: "archive", protectedObjectId: "od-1" }), targets, newJobId),
     ).toEqual([]);
+    // Neither do SharePoint sites.
+    const withSite: TenantTargets = {
+      ...targets,
+      protectedObjects: [
+        ...targets.protectedObjects,
+        { id: "site-1", sourceId: "src-m365", kind: "site", status: "active" },
+      ],
+    };
+    expect(
+      expandSchedule(
+        schedule({ kind: "archive", protectedObjectId: "site-1" }),
+        withSite,
+        newJobId,
+      ),
+    ).toEqual([]);
   });
 
   it("uses the same singleton keys as the worker contract", () => {
