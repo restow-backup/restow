@@ -122,6 +122,16 @@ right. On 0.3.5 itself, restart the api once instead
 (`docker compose restart api`): its migration step does the same at every
 start.
 
+Updating to 0.4.0 applies nine migrations (0035 to 0043) at the api's start;
+they change the schema and backfill only the notification recipients and
+webhooks, so they take seconds. File share backup and moving the database
+([docs/DATABASE.md](DATABASE.md)) need the `docker-compose.yml` of 0.4.0:
+after the update, run the 0.4.0 `install.sh` again in the installation
+directory, which replaces the compose file and keeps the previous one as
+`docker-compose.yml.bak-<timestamp>`. Everything else runs on the older
+file. Proxmox VE nodes show the progress of a running backup and ride out
+the update only with restow-pve 0.4.0, which installs itself on the nodes.
+
 If the updater ever wrote `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE` into `.env`,
 those two lines decide which images the services run. Change them, or remove
 them to go back to building from the source checkout. `RESTOW_UPDATER_IMAGE`

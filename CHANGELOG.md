@@ -8,6 +8,375 @@ this release describes but were never published and cannot be upgraded to this
 release (see Breaking Changes); their history stays in the maintainer's
 private repository.
 
+## [0.4.0] - 2026-10-15
+
+Beta release. Run it alongside your existing backups, not as your only one, until
+you have verified restores against your own data.
+
+### Summary
+
+Restow 0.4.0 backs up SMB and NFS file shares from the server, without an agent on the
+file server, and restores them with their permissions. It adds a notification matrix per
+channel and event, shows the progress of running Proxmox VE backups, lets an update wait
+for or cleanly stop the backups in progress, and moves the database to another disk from
+the web interface. Nine database migrations run at start; file share backup and the
+database move need the 0.4.0 `docker-compose.yml` (run the 0.4.0 installer again after
+the update, see Upgrade Notes).
+
+### Breaking Changes
+
+Nothing stops working on update: existing compose files, webhooks, notification
+recipients, API clients and agents keep working as before. What behaves differently:
+
+- **Notifications follow the matrix.** Every channel (the bell, each webhook, each
+  notification recipient) now keeps the events it gets, and an alert rule no longer sends
+  an event to a channel whose column has it off. Migration 0038 fills every column with
+  exactly what the channel received before, so nothing changes on update. Afterwards:
+  - The webhook dialog no longer has an event picker. Choose a webhook's events under
+    Integrations › Notifications.
+  - A webhook created after the update (in the interface, or through the API without
+    `events`) starts with the defaults of its format: a Discord, Slack or Teams webhook
+    gets errors and warnings, a signed JSON (`restow`) webhook everything. A rule that
+    sends other events to it delivers them only once they are switched on in the matrix.
+  - The webhook stream keeps its event names (`job.failed`, `job.completed`,
+    `verify.completed`) and payloads. `backup.succeeded` is the matrix's name for what the
+    stream calls `job.completed` (an alias, not a rename); a webhook subscribed to
+    `job.completed` keeps getting it. `events` on create and update still means the
+    subscribed stream events; the session API also returns the webhook's column as
+    `notifyEvents`.
+  - The four flags of a tenant's notification recipients (`notify_job_failures`,
+    `notify_weekly_report`, `notify_readiness_red`, `notify_license_updates`) are replaced
+    by an event list. The tenant API still accepts and returns `categories`; a recipient
+    now also carries `events`. "Licence and update notices" never sent anything and is no
+    longer returned. Only scripts that read these columns from the database directly need
+    a change.
+- **New installations start the mounter.** `install.sh` now starts the mounter (compose
+  profile `mounts`, it holds the Docker socket) by default, because file share backup runs
+  through it. Scripted installations that do not want it pass `--no-mounter` (or
+  `--without-mounter`). Running the installer again on an existing installation keeps that
+  installation's choice.
+- **Installer guard.** Once the database was moved to another disk, `install.sh` refuses
+  (exit code 8, nothing changed) to put in place or start a `docker-compose.yml` that does
+  not read `RESTOW_POSTGRES_DATA` from `.env`, so an older release file cannot start the
+  stack without its database.
+- **Building from source needs Node.js 22.12 or newer** (`engines` in `package.json`;
+  commander 15 requires it). The Docker images run on `node:22-slim` as before; nothing
+  changes for Docker installations.
+
+### Added
+
+Unless marked otherwise, everything below is part of every edition (the Community core).
+
+#### File shares (SMB and NFS)
+
+- **File share backup**, in the menu next to VMs & containers. Restow mounts an SMB share
+  (Windows Server, Samba, a NAS) or an NFS export read-only for the length of one run, in
+  a short-lived runner container started by the mounter, and backs it up with restic into
+  a repository of its own (`file-shares/<share id>/` on the tenant's primary repository).
+  No agent on the file server, and the api and the worker are never restarted. NTFS
+  permissions (and NFSv4 or POSIX ACLs, best effort) are kept in each restore point. Open,
+  unreadable and offline files are skipped and listed in the run, which then ends "with
+  warnings". SMB 2.1 to 3.1.1; SMB1 and NTLMv1 are refused. Requirements (the mounter, the
+  `cifs` module or the NFS client on the Docker host, the ports, the account) are in
+  docs/FILESHARES.md.
+- **Add file share** tests the connection and whether permissions are readable; the
+  password is sealed with the tenant key and never shown again. Backup jobs of the kind
+  **File shares**: schedule (at most hourly), folders, file types to skip, retention
+  (daily, weekly, monthly). Tenant admins manage their own shares; a share on a private or
+  loopback address needs a provider admin's approval or the installation switch **Tenants
+  may use private networks**.
+- **Restore** from a restore point (browse, search, versions): download as ZIP, restore to
+  a new folder, to the original location (overwrite, keep both, skip) or into another
+  share, with permissions where the target allows it. Restores into a share need **Allow
+  restore to this share** on it (off by default).
+- **Restore checks**: every new restore point is checked by reading up to 20 sampled
+  files back and comparing them, and the repository gets a weekly `restic check` of 5 % of
+  its data; Recovery readiness rates a share by its newest restore point. A restore check
+  of a restore point without samples (every file changed in the hour before the run) rates
+  yellow and says why.
+- **Copy jobs**: on a schedule, the newest restore point of share A that passed its restore
+  check is written into a folder of share B, in mode `overwrite` or `mirror` (mirror
+  deletes only inside that folder; refused into a share root or the source share, and
+  stopped when the restore point has fewer than half the files of the last copy). A copy
+  job keeps no versions and is labelled as not being a backup.
+- **Budgets** per share, per tenant and as a default (off by default; provider admins): a
+  warning at 80 %, no new backups at 100 %.
+- File shares count in the status tab, the start page, Recovery readiness, warnings,
+  History, the statistics and the provider view, with the alerts
+  `file_share_backup_failed` and `file_shares_without_job`.
+- **Enable network shares** (Installation › Default repository & network shares, and the
+  notice on the File shares pages) starts the mounter of an existing installation through
+  the opt-in updater, for the provider owner, with a recent sign-in and an audit entry.
+  File share runners, on the same page, sets how many runs go at a time and the memory per
+  run.
+
+#### Notifications
+
+- **Notification matrix** under Integrations › Notifications (#76): the events as rows,
+  grouped and marked by severity; the bell, every webhook and every notification recipient
+  as columns, each with the quick choices "Errors only", "Errors and warnings" and "All".
+  Saving is written to the audit log (`report.matrix_updated`). Installation events (an
+  update is available, low disk space) are rows for provider admins only.
+- New events `backup.succeeded` and `verify.completed` for mail and the bell (off in the
+  bell by default), and `installation.disk_low` (see Updates and the database).
+
+#### Proxmox VE
+
+- **Progress of a running backup** (#51): VMs & containers, the inventory and the guest's
+  page show a progress bar ("34% · 3.2 GB of 9.4 GB · 85 MB/s"). Needs restow-pve 0.4.0 on
+  the node; a backup of an older helper shows "No progress reported yet".
+- **The helper's own lines in the run's log** (#61): the run id, what restic added, what it
+  could not read and the commit of the restore point now reach the log Restow keeps for the
+  run. A backup that succeeded with gaps names the items restic could not read (the first
+  20).
+- **Proxmox VE jobs in Servers & clients › Jobs** (#53), next to the machine jobs with a
+  Type column: guests per job, schedule, last and next run, "2 of 5 guests done" while a
+  round runs, and a backup started by hand as a row "Manual backup · <guest>" until it
+  ends. **New job** is a menu with one entry per type; the Proxmox VE job form lists the
+  VMs and containers to put into the job.
+- **Create recommended job** (#52) next to every "no job" notice (jobs, inventory,
+  sources, directory, VMs & containers) and "Protect everything without a job" on the
+  dashboard's readiness card: a preview of what the click creates or adds to, then one
+  job per kind (mail every 8 hours; machines per system and profile; one Proxmox VE job,
+  daily at 22:00 in snapshot mode). A second click adds to the same job instead of making
+  another. Admins only; recorded in the audit log.
+- **Files of a container in Servers & clients › File restore** (#62): every container with
+  a restore point is listed in the group "Proxmox VE containers"; browse a restore point
+  and download files and folders as one ZIP, read by the server from the container's
+  repository. The guest page links each container restore point there (**Browse files**).
+  Reads and downloads are in the audit log.
+- A guest shows the average a follow-up backup adds (over the newest 10 restore points
+  after the first backup) (#58).
+
+#### Servers and clients
+
+- **Data folders a job misses** (#59): the endpoint agent 0.4.0 reports which of a fixed
+  list of Linux data folders (`/opt`, `/usr/local`, `/srv`, `/var/www`, Docker and Podman
+  volumes, the PostgreSQL, MySQL and MongoDB folders under `/var/lib`) exist and hold
+  files, names only. The job editor names the folders the job's machines really have and
+  leaves out, and a machine's page offers **Add this folder to the job**. With older agents
+  the notice of 0.3.5 stays.
+- A machine's page says what it runs as (container, virtual machine, physical, with or
+  without a desktop) (#59).
+- The file browser of a restore point says which folders it contains, with a link to the
+  job's folders (#59). A machine's restore points say what they contain and what they
+  added, like Proxmox VE guests (#58).
+
+#### Jobs, live view and dashboard
+
+- **Running backups in the sidebar** (#57): the Jobs entries and VMs & containers show a
+  spinner with the number of running backups and the waiting ones beside it; the tooltip
+  lists them, a click opens the run.
+- **Live run drawer** (#54): the charts move with time between measurements, the numbers
+  count up, the time left counts down, and a line says when the run last reported (or that
+  Microsoft Graph throttles it). The browser tab's title shows the percent while the drawer
+  is open.
+- **All tenants in Jobs** (#63, Service Provider): under "All tenants", Jobs of Mail & SaaS
+  and of Servers & clients list every tenant with its jobs per kind, what runs and waits,
+  how the newest backups ended and the next run, with filters and sorting; a row opens the
+  tenant's jobs read-only.
+- **Storage growth** on the dashboard (#64): 1 week, 1 month, 3 months or 1 year, from 3
+  months on with the estimate as a band between the slowest and fastest growth, and when
+  the repository runs full at this growth where its free space is known.
+
+#### Microsoft 365
+
+- The first backup of a large mailbox shows "First backup: X of Y items" over all
+  attempts, with an estimated time left (#47). A OneDrive shows "X items so far" until it
+  is fully listed.
+
+#### Updates and the database
+
+- **Runs in progress during an update** (#46): the install dialog counts what runs and
+  waits in every tenant and asks: **Stop them cleanly** (the default: Microsoft 365 and
+  mail runs save a checkpoint and stop, runs on agents and of file shares are waited for,
+  30 minutes at most), **Wait until they finish** (two hours at most) or **Do not wait**
+  (as before). From the confirmation until the update is over no new run starts;
+  schedules that fall due meanwhile run afterwards. Everyone signed in sees a banner; the
+  Updates tab shows what still runs, **Start now** and **Cancel**.
+- **Installation › Database** (#73): where the database keeps its data, its size, the
+  free space under it and under the local default repository, and what the next update
+  needs. With the opt-in updater, the provider owner moves the database to a directory on
+  another disk: checked first (another local file system, ext4, XFS, Btrfs or ZFS, room
+  for the data), then copied, compared file by file, test-started and switched, with
+  automatic rollback on any failure. The old copy is kept and blocked from starting until
+  it is removed. See docs/DATABASE.md.
+- **Low disk space warning** (#73): every 15 minutes the api checks the disk under the
+  database (through the updater) and under the local default repository; below a tenth
+  free, and always below 5 GiB, the provider admins get a notice in the bell, and rules
+  that list "Low disk space" send it, once per episode.
+- **Kept database dumps** (#73): the Updates tab lists the updater's pre-update dumps; the
+  provider owner can download one (one-time link, recent sign-in, audit log) or delete it.
+
+#### API
+
+- Integration API contract 1.4.0 (additive): `GET /api/v1/status` has `fileShares`
+  (counts of file shares) and the readiness summary `sharesWithoutJob`, and `events` is
+  optional when a webhook is created. Nothing was removed or renamed.
+
+### Changed
+
+- Updates: the updater's preflight now adds up what an update writes (the dump, the
+  images, room for the migrations, plus `RESTOW_UPDATER_MIN_FREE_MB` as a margin) and
+  refuses an update that does not fit (blocker `disk_space`, with the numbers), instead of
+  requiring a fixed 1 GB (#73).
+- A Linux machine enrolled with a client token whose agent (0.4.0) reports a container or
+  a virtual machine without a desktop gets the server profile, because it runs services;
+  the machine's page says why (#59). Existing machines keep their profile.
+- Adding a folder to a machine job narrows an exclusion of a parent folder: adding
+  Docker's volumes turns `/var/lib/docker` into `/var/lib/docker/*` and
+  `!/var/lib/docker/volumes` (#59).
+- Notification recipients: the categories in the tenant wizard and on the tenant page add
+  or remove their events and leave everything else chosen in the matrix alone.
+- The live channel stays open while the tab is in the background (closed after ten
+  minutes, or when the browser freezes the tab), so a page no longer reloads when you come
+  back (#54).
+- Mailboxes and OneDrives are named by their person (display name, else address), not by
+  their technical id, which moves to a tooltip (#55).
+- The sidebar's Installation section folds away to its header; the choice is remembered in
+  the browser (#56).
+- A machine's danger zone reads "Stop backing up this machine" and says that nothing is
+  deleted; revoked machines are hidden in the inventory until "Show revoked machines" and
+  have their own group in File restore (#65).
+- The machine job editor says that Proxmox VE VMs and containers are backed up by Proxmox
+  VE jobs, with links (#53).
+- Proxmox VE: sizes are named ("9 GB allocated"); "Waiting for the node" says since when,
+  and turns amber while the node is disconnected.
+- Container backups on Proxmox VE (restow-pve 0.4.0) let restic scan before it backs up
+  (no more `--no-scan`), so there is a total to show progress against.
+- docs/ARCHIVE.md explains what journaling captures and misses compared with the mailbox
+  backup, and when to use which (#48).
+- Dependencies: major updates of the build and test tooling and of two libraries: vite 8,
+  @vitejs/plugin-react 6, vitest 5, lucide-react 1.x, commander 15, archiver 8,
+  @biomejs/biome 2.5.
+
+### Fixed
+
+- A Proxmox VE backup running while Restow was updated failed: the node helper gave up
+  after about 30 seconds, while an update restarts the api and runs migrations. The node
+  (restow-pve 0.4.0) now keeps trying for five minutes (#46).
+- A Proxmox VE backup run whose end never reached the server stayed "running" for 48 hours.
+  It is now closed once the node (restow-pve 0.4.0) no longer lists it in its heartbeat
+  (#46).
+- restow-pve's own lines never reached the run's log in Restow: vzdump writes a backup
+  provider's lines to the PVE task log only, not to the guest's log file (#61).
+- Jobs of a worker that was killed (not stopped) stayed "running" until they expired, 23
+  hours for a backup, because nothing gave them back. The next worker now returns them to
+  the queue two minutes after its start (#46).
+- A job stopped by a restart or an update before its first checkpoint used up one of its
+  attempts, and on its last attempt the explanation said it would continue although its
+  checkpoint was discarded (#46).
+- An update could fill the disk with its database dump and stop PostgreSQL midway, because
+  the preflight only checked for 1 GB free (#73).
+- Adding `/var/lib` to a machine job, as the 0.3.5 notice offered, still left Docker's
+  named volumes out, because the default exclusion `/var/lib/docker` covers them (#59).
+- The live run drawer's charts shrank to the last 80 seconds and grew back every ten
+  seconds, because each live event replaced the run's measurements instead of adding to
+  them (#54).
+- Notification mail through the backup's app registration from a tenant that never
+  consented to it reported "app not found" and asked to check IDs that were right. It now
+  says that consent is missing in the sender's tenant and links the admin consent.
+
+### Security
+
+No vulnerability was fixed. Security-relevant changes:
+
+- Database dumps can be downloaded from the Updates tab. A dump holds the whole database,
+  the encrypted secrets included: provider owner only, with a recent sign-in, through a
+  one-time link, recorded in the audit log. Keep a downloaded dump as carefully as the
+  master key.
+- New installations start the mounter by default, which mounts the Docker socket (root on
+  the host); read docs/MOUNTS.md, or install with `--no-mounter`. File share runners have
+  no network but an internal one to the api, and write with a credential that is valid for
+  one run and append-only.
+- Tenant admins can add file shares themselves; shares on private or loopback addresses
+  need a provider admin's approval or the installation switch.
+- Browsing and downloading files of a Proxmox VE container are recorded in the audit log
+  (`pve.snapshot.browsed`, `pve.snapshot.downloaded`); a prepared download can be started
+  once, within ten minutes, by the admin who prepared it.
+
+### Upgrade Notes
+
+New image, nine database migrations, and a new `docker-compose.yml` for file shares and the
+database move.
+
+1. Update as usual (the opt-in updater, or `docker compose pull && docker compose up -d`).
+   The api applies the migrations as it starts. With the updater, the install dialog now
+   asks what to do with runs in progress; the default stops them cleanly.
+2. Run the 0.4.0 `install.sh` again in the installation directory (README.md). It replaces
+   `docker-compose.yml` with the 0.4.0 file (checked against the signed SHA256SUMS), keeps
+   the previous one as `docker-compose.yml.bak-<timestamp>` and leaves `.env` as it is.
+   Without it everything else works, but file share runs cannot start (the mounter reports
+   `runner_network_missing`) and Installation › Database cannot move the database. A
+   compose file kept by hand needs the changes of the release file: the database volume
+   read from `.env`, the internal `runners` network on the api, and `RESTOW_MOUNTER_URL`,
+   the runner limits and the `restow-mounter-shared` volume on the worker.
+3. For file shares, start the mounter if it is not running: **Enable network shares** in
+   the web interface (with the opt-in updater) or
+   `docker compose --profile mounts up -d mounter`. The Docker host needs the `cifs` module
+   for SMB and the NFS client for NFS.
+4. Proxmox VE nodes: restow-pve 0.4.0 updates itself (it checks every six hours and updates
+   while idle), or run `restow-pve update` on the node. Older helpers keep working without
+   progress, without the five-minute retry window and without the list of active runs.
+5. Servers and clients: the endpoint agent 0.4.0 updates itself unless the tenant paused
+   agent updates. Older agents keep working without data folders and machine facts.
+
+- Database migrations 0035 to 0043: tables for file shares (0035 to 0037), the
+  notification matrix (0038; it translates the recipient flags and webhook event lists of
+  every tenant and drops the four flag columns), Proxmox VE progress (0039), recommended
+  jobs (0040), container downloads (0041), the update pause (0042) and the disk warning
+  state (0043). They change the schema and backfill only the notification recipients and
+  webhooks, a few rows per tenant, so they should take seconds on any installation. They
+  ran on a 0.3.6 schema in the Postgres test suites; they were not timed on a
+  production-size database.
+- 0035 creates the `pg_trgm` extension for the file share search when the database role
+  may; an external PostgreSQL without it searches more slowly, with the same results.
+- New optional environment variables: `RESTOW_POSTGRES_DATA_TYPE` and
+  `RESTOW_POSTGRES_DATA` (where the database lives; empty means the volume `pgdata`; the
+  updater writes them when it moves the database), `RESTOW_MOUNTER_MAX_RUNNERS` (hard cap
+  of file share runners, default 8) and `RESTOW_MOUNTER_RUNNER_MAX_MEMORY_MIB` (default
+  16384). No new required variables.
+- Downtime: the containers restart and the migrations run, as for 0.3.6.
+- Rollback: the migrations are not reversible; go back to 0.3.6 only with the database dump
+  taken before the update. After a database move, keep a compose file that reads
+  `RESTOW_POSTGRES_DATA`: the 0.3.6 file does not, and PostgreSQL then refuses to start on
+  the old copy.
+
+### Known Issues
+
+- Not tested against real systems before the tag: a Proxmox VE node (progress, the
+  helper's log lines, the five-minute retry window and the closing of dropped runs were
+  tested against the simulated node of the test suites), the database move and the
+  **Enable network shares** button through a real updater and its Docker helper container,
+  and the new pages in a browser by hand (they are covered by component tests).
+- File shares were tested against Samba in the release smoke tooling, not against Windows
+  Server (NTFS permissions, Backup Operators, a file kept open in Excel), a Synology or
+  TrueNAS share, real NFS exports (NFS is not in the smoke check) or a host with SELinux
+  enforcing.
+- File shares have no VSS over SMB (files open with an exclusive lock are skipped), no
+  alternate data streams, DFS namespaces, Kerberos or SMB1; repositories live on the
+  primary repository only; tenant users have no self-service restore of shares; scheduled
+  reports have no file share block yet.
+- While an update waits or runs, the endpoint agents' own schedules are not paused: a
+  backup a machine starts by itself during that time runs, and may fail if the api
+  restarts under it.
+- Files of a Proxmox VE container are downloaded as a ZIP; restoring single files into the
+  running container is not built. VMs are not browsable file by file.
+- In "This restore point contains", Windows paths are listed but do not open.
+- Deleting a revoked machine together with its restore points is not possible yet.
+- The known issues of 0.3.6 still apply.
+
+### Verification
+
+Before the tag, on 2026-10-15, on the release branch (main plus the 0.4.0 branches):
+lint and typecheck of all workspaces, the build, every unit suite, the Postgres suites on
+Postgres 16 (129 test files, 1505 tests), the Go agent tests, the Perl plugin tests of the
+Proxmox VE integration, the server installer tests (679) and the CI and smoke tooling
+tests (241). Smoke check 12 (file shares: back up, browse, search, ZIP download, restore
+with permissions, copy job against Samba) passed in CI on the 040-fileshares branch (run
+38668096804). The release smoke runs in the release pipeline; no Microsoft 365 tenant was
+used before the tag.
+
 ## [0.3.6] - 2026-10-15
 
 Beta release. Run it alongside your existing backups, not as your only one, until
