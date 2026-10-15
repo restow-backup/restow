@@ -28,6 +28,7 @@ export const REPORT_EVENTS = [
   "file_share.storage_quota",
   "file_share.repository_locked",
   "update.available",
+  "installation.disk_low",
 ] as const;
 
 export type ReportEvent = (typeof REPORT_EVENTS)[number];
@@ -94,6 +95,9 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
   // Retention and checks of a file share's repository kept finding it locked.
   "file_share.repository_locked": { group: "jobs", level: "warning" },
   "update.available": { group: "system", level: "info" },
+  // The disk under the database or under the installation's local default repository runs low
+  // (apps/api features/updates/disk-watch.ts, docs/DATABASE.md "Disk space"): once per episode.
+  "installation.disk_low": { group: "system", level: "warning" },
 };
 
 /**
@@ -102,7 +106,10 @@ export const REPORT_EVENT_INFO: Readonly<Record<ReportEvent, ReportEventInfo>> =
  * lists them, but only provider administrators may put them into a rule (a
  * tenant's own administrators are not told about the operator's updates).
  */
-export const INSTALLATION_REPORT_EVENTS: readonly ReportEvent[] = ["update.available"];
+export const INSTALLATION_REPORT_EVENTS: readonly ReportEvent[] = [
+  "update.available",
+  "installation.disk_low",
+];
 
 export function isInstallationReportEvent(event: string): boolean {
   return (INSTALLATION_REPORT_EVENTS as readonly string[]).includes(event);

@@ -408,6 +408,9 @@
     },
     "update": {
       "available": "Update available"
+    },
+    "installation": {
+      "disk_low": "Low disk space"
     }
   },
   "eventHints": {
@@ -448,6 +451,9 @@
     },
     "update": {
       "available": "A newer version of the software is available. Raised once per version for the whole installation, so only provider administrators can choose it."
+    },
+    "installation": {
+      "disk_low": "The disk under the database or under the local default repository has less than a tenth of its size free (and less than 5 GiB). Raised once until the disk recovers, for the whole installation, so only provider administrators can choose it."
     }
   },
   "sections": {
@@ -494,7 +500,13 @@
     "running": "Running version",
     "releaseNotes": "Release notes",
     "cause": "Cause",
-    "todo": "What to do"
+    "todo": "What to do",
+    "disk": "Disk",
+    "diskDatabase": "Under the database",
+    "diskRepository": "Under the local default repository",
+    "location": "Location",
+    "free": "Free",
+    "total": "Size"
   },
   "summary": {
     "previous": "previous period",
@@ -566,6 +578,16 @@
       "available": "Update available: version {version}",
       "succeeded": "Updated to version {version}",
       "failed": "Update to version {version} did not complete"
+    },
+    "installation": {
+      "disk_low_database": "Low disk space under the database: {free} free",
+      "disk_low_repository": "Low disk space under the local repository: {free} free"
+    },
+    "database": {
+      "move": {
+        "succeeded": "Database moved to {object}",
+        "failed": "Database not moved to {object}"
+      }
     }
   },
   "toasts": {

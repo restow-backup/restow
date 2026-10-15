@@ -78,81 +78,107 @@ export async function raiseUpdateAvailable(
     const message = input.running
       ? `Version ${input.release.version} is available (running ${input.running}).`
       : `Version ${input.release.version} is available.`;
-    const notification: NewNotification = {
-      tenantId: null,
-      level: "info",
-      event: UPDATE_AVAILABLE_EVENT,
-      message,
-      details,
-      createdAt: now,
-    };
-    await tx.insert(notifications).values(notification);
-
-    const rules = await tx
-      .select({
-        id: reportRules.id,
-        tenantId: reportRules.tenantId,
-        name: reportRules.name,
-        enabled: reportRules.enabled,
-        trigger: reportRules.trigger,
-        events: reportRules.events,
-        throttleMinutes: reportRules.throttleMinutes,
-        emailRecipients: reportRules.emailRecipients,
-        inApp: reportRules.inApp,
-        webhookId: reportRules.webhookId,
-        language: reportRules.language,
-      })
-      .from(reportRules)
-      .innerJoin(tenants, eq(tenants.id, reportRules.tenantId))
-      .where(
-        and(
-          eq(reportRules.enabled, true),
-          eq(reportRules.trigger, "event"),
-          eq(tenants.status, "active"),
-          sql`${UPDATE_AVAILABLE_EVENT} = ANY(${reportRules.events})`,
-        ),
-      );
-
-    const subjectKey = subjectKeyOf(UPDATE_AVAILABLE_EVENT, details);
-    const payload = {
+    await raiseInstallationEvent(tx, {
       event: UPDATE_AVAILABLE_EVENT,
       level: "info",
       message,
       details,
-      occurredAt: now.toISOString(),
-    };
-    const rows: NewReportDelivery[] = [];
-    const columns = new Map<string, ChannelColumns>();
-    for (const rule of rules) {
-      let tenantColumns = columns.get(rule.tenantId);
-      if (!tenantColumns) {
-        tenantColumns = await channelColumnsOf(tx, rule.tenantId);
-        columns.set(rule.tenantId, tenantColumns);
-      }
-      // Only the channels whose column has the event on (the notification matrix).
-      const channels = { event: UPDATE_AVAILABLE_EVENT, columns: tenantColumns };
-      for (const planned of plannedDeliveries(rule, "event", channels)) {
-        rows.push({
-          tenantId: rule.tenantId,
-          ruleId: rule.id,
-          ruleName: rule.name,
-          kind: "event",
-          event: UPDATE_AVAILABLE_EVENT,
-          subjectKey,
-          payload,
-          channel: planned.channel,
-          recipient: planned.recipient,
-          language: rule.language,
-          status: "pending",
-          nextAttemptAt: now,
-          createdAt: now,
-          updatedAt: now,
-        });
-      }
-    }
-    if (rows.length > 0) {
-      await tx.insert(reportDeliveries).values(rows);
-    }
+      now,
+    });
     return "raised";
   });
+}
+
+/** The transaction of {@link raiseUpdateAvailable} (or any other installation-level writer). */
+type Tx = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
+export interface InstallationEventInput {
+  event: "update.available" | "installation.disk_low";
+  level: "info" | "warning" | "error";
+  /** English, for the log and the delivery log; the bell and the mails translate the event. */
+  message: string;
+  /** Read by the bell, the mails and the webhooks; `objectName` is the subject line's object. */
+  details: Record<string, unknown>;
+  now: Date;
+}
+
+/**
+ * An installation event (not about one tenant's data): one notification without a tenant,
+ * which provider administrators see in the bell, and the deliveries of every tenant's
+ * enabled event rule that lists the event, in the same outbox a failed backup's alert goes
+ * through, each only to the channels whose column in the notification matrix has it on.
+ * Runs inside the caller's transaction, so the caller's "once" claim and the alert commit
+ * together.
+ */
+export async function raiseInstallationEvent(tx: Tx, input: InstallationEventInput): Promise<void> {
+  const { event, level, message, details, now } = input;
+  const notification: NewNotification = {
+    tenantId: null,
+    level,
+    event,
+    message,
+    details,
+    createdAt: now,
+  };
+  await tx.insert(notifications).values(notification);
+
+  const rules = await tx
+    .select({
+      id: reportRules.id,
+      tenantId: reportRules.tenantId,
+      name: reportRules.name,
+      enabled: reportRules.enabled,
+      trigger: reportRules.trigger,
+      events: reportRules.events,
+      throttleMinutes: reportRules.throttleMinutes,
+      emailRecipients: reportRules.emailRecipients,
+      inApp: reportRules.inApp,
+      webhookId: reportRules.webhookId,
+      language: reportRules.language,
+    })
+    .from(reportRules)
+    .innerJoin(tenants, eq(tenants.id, reportRules.tenantId))
+    .where(
+      and(
+        eq(reportRules.enabled, true),
+        eq(reportRules.trigger, "event"),
+        eq(tenants.status, "active"),
+        sql`${event} = ANY(${reportRules.events})`,
+      ),
+    );
+
+  const subjectKey = subjectKeyOf(event, details);
+  const payload = { event, level, message, details, occurredAt: now.toISOString() };
+  const rows: NewReportDelivery[] = [];
+  const columns = new Map<string, ChannelColumns>();
+  for (const rule of rules) {
+    let tenantColumns = columns.get(rule.tenantId);
+    if (!tenantColumns) {
+      tenantColumns = await channelColumnsOf(tx, rule.tenantId);
+      columns.set(rule.tenantId, tenantColumns);
+    }
+    // Only the channels whose column has the event on (the notification matrix).
+    const channels = { event, columns: tenantColumns };
+    for (const planned of plannedDeliveries(rule, "event", channels)) {
+      rows.push({
+        tenantId: rule.tenantId,
+        ruleId: rule.id,
+        ruleName: rule.name,
+        kind: "event",
+        event,
+        subjectKey,
+        payload,
+        channel: planned.channel,
+        recipient: planned.recipient,
+        language: rule.language,
+        status: "pending",
+        nextAttemptAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
+    }
+  }
+  if (rows.length > 0) {
+    await tx.insert(reportDeliveries).values(rows);
+  }
 }

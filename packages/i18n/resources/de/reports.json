@@ -408,6 +408,9 @@
     },
     "update": {
       "available": "Update verfügbar"
+    },
+    "installation": {
+      "disk_low": "Wenig Speicherplatz"
     }
   },
   "eventHints": {
@@ -448,6 +451,9 @@
     },
     "update": {
       "available": "Eine neuere Version der Software ist verfügbar. Wird einmal je Version für die gesamte Installation ausgelöst und kann daher nur von Provider-Administratoren gewählt werden."
+    },
+    "installation": {
+      "disk_low": "Auf dem Datenträger unter der Datenbank oder unter dem lokalen Standard-Repository ist weniger als ein Zehntel frei (und weniger als 5 GiB). Wird für die gesamte Installation einmal ausgelöst, bis wieder genug Platz frei ist, und kann daher nur von Provider-Administratoren gewählt werden."
     }
   },
   "sections": {
@@ -494,7 +500,13 @@
     "running": "Laufende Version",
     "releaseNotes": "Release Notes",
     "cause": "Ursache",
-    "todo": "Was zu tun ist"
+    "todo": "Was zu tun ist",
+    "disk": "Datenträger",
+    "diskDatabase": "Unter der Datenbank",
+    "diskRepository": "Unter dem lokalen Standard-Repository",
+    "location": "Ort",
+    "free": "Frei",
+    "total": "Größe"
   },
   "summary": {
     "previous": "Vorzeitraum",
@@ -566,6 +578,16 @@
       "available": "Update verfügbar: Version {version}",
       "succeeded": "Auf Version {version} aktualisiert",
       "failed": "Update auf Version {version} nicht abgeschlossen"
+    },
+    "installation": {
+      "disk_low_database": "Wenig Speicherplatz unter der Datenbank: {free} frei",
+      "disk_low_repository": "Wenig Speicherplatz unter dem lokalen Repository: {free} frei"
+    },
+    "database": {
+      "move": {
+        "succeeded": "Datenbank nach {object} verschoben",
+        "failed": "Datenbank nicht nach {object} verschoben"
+      }
     }
   },
   "toasts": {

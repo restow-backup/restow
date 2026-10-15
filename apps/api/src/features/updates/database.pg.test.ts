@@ -1,8 +1,10 @@
 /**
- * Postgres-backed tests of Installation > Database (database.ts): what reaches the
- * installation audit chain (a requested move, a removal, every dump download before its
- * first byte, every deletion), what does not (a refused request), and the move's outcome
- * from the updater's journal in the audit log and the bell.
+ * Postgres-backed tests of Installation > Database (database.ts) and the low disk space
+ * warning (disk-watch.ts): what reaches the installation audit chain (a requested move,
+ * a removal, every dump download before its first byte, every deletion), what does not
+ * (a refused request), the move's outcome from the updater's journal in the audit log
+ * and the bell, and the disk warning raised once per episode in the bell and in every
+ * tenant's rule that lists it.
  *
  * Runs when RESTOW_TEST_DATABASE_URL points at a Postgres server as a superuser (the
  * database `restow_api_database_test` is recreated there and dropped after). Without it
@@ -43,6 +45,7 @@ const DUMP = "restow-20260930-100000-0.3.6-to-0.4.0.dump";
 const actor = { id: "owner-1", email: "owner@provider.test", ip: "192.0.2.10" };
 
 type DatabaseModule = typeof import("./database.js");
+type DiskWatchModule = typeof import("./disk-watch.js");
 type ServiceModule = typeof import("./service.js");
 type StateModule = typeof import("./state.js");
 
@@ -182,6 +185,7 @@ describe.skipIf(!testDatabaseAdminUrl)("Installation > Database against Postgres
   let providerDb: Database;
   let roles: TestDatabaseRoles | undefined;
   let databaseModule: DatabaseModule;
+  let diskWatchModule: DiskWatchModule;
   let serviceModule: ServiceModule;
   let stateModule: StateModule;
   let contoso: string;
@@ -221,6 +225,7 @@ describe.skipIf(!testDatabaseAdminUrl)("Installation > Database against Postgres
       .returning();
     contoso = tenant?.id ?? "";
     databaseModule = await import("./database.js");
+    diskWatchModule = await import("./disk-watch.js");
     serviceModule = await import("./service.js");
     stateModule = await import("./state.js");
   }, 60_000);
@@ -419,6 +424,75 @@ describe.skipIf(!testDatabaseAdminUrl)("Installation > Database against Postgres
         .where(eq(notifications.event, "database.move.succeeded"));
       expect(bell).toHaveLength(1);
       expect(bell[0]).toMatchObject({ tenantId: null, level: "info" });
+    });
+  });
+
+  describe("the low disk space warning", () => {
+    async function rule() {
+      await owner.insert(reportRules).values({
+        tenantId: contoso,
+        name: "Disks",
+        trigger: "event",
+        events: ["installation.disk_low"],
+        emailRecipients: ["ops@example.com"],
+      });
+    }
+
+    function watch(now = new Date("2026-10-01T10:00:00.000Z")) {
+      return new diskWatchModule.DiskWatch({ db: providerDb, service: build(), now: () => now });
+    }
+
+    const bell = () =>
+      owner.select().from(notifications).where(eq(notifications.event, "installation.disk_low"));
+
+    it("is raised once per episode, in the bell and in the rules that list it", async () => {
+      await rule();
+      // The database's disk is low (4 of 38 GiB); the repository is fine.
+      expect(await watch().checkOnce()).toEqual({ database: "raised", repository: "ok" });
+      expect(await bell()).toHaveLength(1);
+      expect((await bell())[0]).toMatchObject({ tenantId: null, level: "warning" });
+      const deliveries = await owner.select().from(reportDeliveries);
+      expect(deliveries).toHaveLength(1);
+      expect(deliveries[0]).toMatchObject({
+        event: "installation.disk_low",
+        subjectKey: "disk:database",
+        payload: { details: { disk: "database", freeBytes: 4 * GIB, totalBytes: 38 * GIB } },
+      });
+
+      // Still low: nothing new.
+      expect((await watch().checkOnce()).database).toBe("low");
+      expect(await bell()).toHaveLength(1);
+
+      // Just above the line is still the same episode.
+      updater.view = stateView({
+        database: databaseView({
+          usage: { ...USAGE, filesystemFreeBytes: 5.5 * GIB },
+        }),
+      });
+      expect((await watch().checkOnce()).database).toBe("low");
+
+      // Clearly recovered, then low again: a second warning.
+      updater.view = stateView({
+        database: databaseView({
+          usage: { ...USAGE, filesystemFreeBytes: 20 * GIB },
+        }),
+      });
+      expect((await watch().checkOnce()).database).toBe("recovered");
+      updater.view = stateView();
+      expect((await watch().checkOnce()).database).toBe("raised");
+      expect(await bell()).toHaveLength(2);
+      const [row] = await owner.select({ alerts: settings.diskAlerts }).from(settings);
+      expect(row?.alerts.database).toMatchObject({ low: true, freeBytes: 4 * GIB });
+    });
+
+    it("watches the repository's disk without an updater", async () => {
+      updater.view = null;
+      repository = { path: "/data/chunks", freeBytes: 2 * GIB, totalBytes: 100 * GIB };
+      expect(await watch().checkOnce()).toEqual({ database: "unknown", repository: "raised" });
+      expect((await bell())[0]?.details).toMatchObject({
+        disk: "repository",
+        objectName: "/data/chunks",
+      });
     });
   });
 });

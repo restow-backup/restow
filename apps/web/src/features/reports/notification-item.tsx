@@ -19,6 +19,12 @@ export function bellEventKey(item: Pick<BellNotification, "event" | "details">):
   if (item.event === "verify.red" && item.details?.redReason === "outdated") {
     return "bellEvents.verify.redOutdated";
   }
+  // The disk warning names which disk: the database's or the local repository's.
+  if (item.event === "installation.disk_low") {
+    return item.details?.disk === "repository"
+      ? "bellEvents.installation.disk_low_repository"
+      : "bellEvents.installation.disk_low_database";
+  }
   return `bellEvents.${item.event}`;
 }
 
@@ -38,6 +44,10 @@ export function useNotificationText() {
       rule: typeof item.details?.ruleName === "string" ? item.details.ruleName : "",
       version: typeof item.details?.version === "string" ? item.details.version : "",
       days: typeof item.details?.days === "number" ? item.details.days : "",
+      free:
+        typeof item.details?.freeBytes === "number"
+          ? `${(item.details.freeBytes / 1024 ** 3).toFixed(1)} GiB`
+          : "",
     });
 }
 

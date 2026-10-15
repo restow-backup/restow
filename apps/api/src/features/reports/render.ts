@@ -47,6 +47,15 @@ function formatWhen(iso: string | null, language: SupportedLanguage): string | n
   }).format(date);
 }
 
+/** Bytes as GiB with one decimal, in the reader's number format. */
+function formatGib(bytes: number, language: SupportedLanguage): string {
+  const value = new Intl.NumberFormat(language === "de" ? "de-DE" : "en-GB", {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  }).format(bytes / 1024 ** 3);
+  return `${value} GiB`;
+}
+
 /** A labelled line list as text and as an HTML table. */
 function layout(
   heading: string,
@@ -123,6 +132,22 @@ export function renderAlert(input: AlertInput): RenderedMessage {
     if (version) rows.push([t("reports:mail.version"), version]);
     if (running) rows.push([t("reports:mail.running"), running]);
     if (url) rows.push([t("reports:mail.releaseNotes"), url]);
+  }
+  if (event === "installation.disk_low") {
+    // An installation event: it names the disk and how much is left on it.
+    const disk = text(details.disk);
+    const location = text(details.location);
+    const free = typeof details.freeBytes === "number" ? details.freeBytes : null;
+    const total = typeof details.totalBytes === "number" ? details.totalBytes : null;
+    if (disk === "database" || disk === "repository") {
+      rows.push([
+        t("reports:mail.disk"),
+        t(disk === "database" ? "reports:mail.diskDatabase" : "reports:mail.diskRepository"),
+      ]);
+    }
+    if (location) rows.push([t("reports:mail.location"), location]);
+    if (free !== null) rows.push([t("reports:mail.free"), formatGib(free, input.language)]);
+    if (total !== null) rows.push([t("reports:mail.total"), formatGib(total, input.language)]);
   }
   // A failed job says why and what to do, in the recipient's language; the raw message follows.
   const failure = alertFailure(details.failure);
