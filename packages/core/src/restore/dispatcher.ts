@@ -17,6 +17,7 @@ import { ExchangeRestoreEngine } from "./exchange.js";
 import { ImapRestoreEngine, type ImapSessionFactory } from "./imap.js";
 import { OneDriveRestoreEngine } from "./onedrive.js";
 import type { RestoreReport } from "./results.js";
+import { SharePointRestoreEngine } from "./sharepoint.js";
 
 export interface RestoreEnginesOptions {
   readonly graph: RestoreGraphClientFactory;
@@ -42,13 +43,18 @@ export function createRestoreEngines(options: RestoreEnginesOptions): RestoreEng
     fragmentSize: options.driveFragmentSize,
   });
   const imap = new ImapRestoreEngine({ imap: options.imap });
+  const sharepoint = new SharePointRestoreEngine({
+    graph: options.graph,
+    fragmentSize: options.driveFragmentSize,
+  });
   const byKind = new Map<
     ProtectedObjectKind,
-    ExchangeRestoreEngine | OneDriveRestoreEngine | ImapRestoreEngine
+    ExchangeRestoreEngine | OneDriveRestoreEngine | ImapRestoreEngine | SharePointRestoreEngine
   >([
     ["mailbox", exchange],
     ["onedrive", onedrive],
     ["imap", imap],
+    ["site", sharepoint],
   ]);
   const download = new DownloadRestoreEngine(options.download);
   return {
