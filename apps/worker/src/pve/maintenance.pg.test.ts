@@ -48,7 +48,7 @@ import {
   secrets,
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   loadTenantKeyring,
@@ -59,6 +59,7 @@ import {
 import { dropTestDatabase } from "../testing/database.js";
 import {
   applyRetention,
+  closeRunsNodesDropped,
   closeStaleRuns,
   coveredBy,
   dropPveTokenSecrets,
@@ -394,6 +395,50 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
       .from(chunks)
       .where(eq(chunks.storedId, written.chunks[0] ?? ""));
     expect(chunk?.refcount).toBe(0);
+  });
+
+  it("closes a backup run its node no longer lists, after a grace, and only with a fresh list (#46)", async () => {
+    const [node] = await owner.select().from(pveNodes).where(eq(pveNodes.name, "pve1"));
+    const nodeId = node?.id ?? "";
+    const minutesAgo = (minutes: number) => new Date(clock.getTime() - minutes * 60_000);
+    const open = async (startedAt: Date) => {
+      const [run] = await owner
+        .insert(pveRuns)
+        .values({ tenantId, clusterId, guestId, nodeId, kind: "backup", startedAt })
+        .returning();
+      return run?.id ?? "";
+    };
+    const statusOf = async (id: string) =>
+      (await owner.select().from(pveRuns).where(eq(pveRuns.id, id)))[0];
+    const dropped = await open(minutesAgo(30));
+    const listed = await open(minutesAgo(30));
+    const justOpened = await open(minutesAgo(5));
+
+    // A helper before 0.4.0 sends no list: nothing is closed early.
+    await owner.update(pveNodes).set({ facts: { state: "idle" } }).where(eq(pveNodes.id, nodeId));
+    expect(await closeRunsNodesDropped(deps, clock)).toBe(0);
+
+    // A list from an hour ago says nothing about now.
+    await owner
+      .update(pveNodes)
+      .set({ facts: { activeRuns: [listed], activeRunsAt: minutesAgo(60).toISOString() } })
+      .where(eq(pveNodes.id, nodeId));
+    expect(await closeRunsNodesDropped(deps, clock)).toBe(0);
+
+    await owner
+      .update(pveNodes)
+      .set({ facts: { activeRuns: [listed], activeRunsAt: clock.toISOString() } })
+      .where(eq(pveNodes.id, nodeId));
+    expect(await closeRunsNodesDropped(deps, clock)).toBe(1);
+    expect(await statusOf(dropped)).toMatchObject({
+      status: "failed",
+      errorMessage: expect.stringContaining("no longer works on this run"),
+    });
+    expect((await statusOf(listed))?.status).toBe("running");
+    expect((await statusOf(justOpened))?.status).toBe("running");
+    // Closed once.
+    expect(await closeRunsNodesDropped(deps, clock)).toBe(0);
+    await owner.delete(pveRuns).where(inArray(pveRuns.id, [listed, justOpened, dropped]));
   });
 
   it("deletes an existing PVE API token once its enrollment token is used, revoked or expired", async () => {

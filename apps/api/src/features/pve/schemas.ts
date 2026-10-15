@@ -53,6 +53,8 @@ export const heartbeatSchema = z.object({
     .nullish()
     .transform((v) => v ?? []),
   restoresAllowed: z.boolean().default(true),
+  /** The backup runs the node works on (restow-pve 0.4.0 and later; older helpers omit it). */
+  activeRuns: z.array(z.string().uuid()).max(64).optional(),
 });
 
 export const inventorySchema = z.object({

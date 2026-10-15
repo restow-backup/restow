@@ -3,7 +3,8 @@ import { createHash } from "node:crypto";
  * Server-side work for Proxmox VE guests (docs/PVE.md, docs/PROXMOX.md 3):
  *
  *   plan       due PVE jobs become backup tasks for the node that hosts each guest
- *   stale      runs that never ended (48 hours) fail; their staged chunk references go
+ *   stale      runs that never ended (48 hours) fail; their staged chunk references go;
+ *              a backup run its node no longer lists in its heartbeat closes at once (#46)
  *   retention  restore points beyond the job's keep rules are pruned: their chunk
  *              references are released (garbage collection takes the chunks later),
  *              their manifest deleted, a container's restic snapshot forgotten
@@ -238,34 +239,106 @@ export async function closeStaleRuns(deps: PveDeps, now: Date): Promise<number> 
         lt(pveRuns.startedAt, new Date(now.getTime() - STALE_RUN_MS)),
       ),
     );
+  let closed = 0;
   for (const run of stale) {
-    const rows = await withTenantTx(deps.db, run.tenantId, (tx) =>
-      tx
-        .select({ chunks: pveRunBlocks.chunks })
-        .from(pveRunBlocks)
-        .where(eq(pveRunBlocks.runId, run.id)),
-    );
-    const ids = rows.flatMap((r) => r.chunks);
-    if (ids.length > 0) {
-      await new PgChunkIndex(tenantRunner(deps.db, run.tenantId), run.tenantId).releaseReferences(
-        ids,
-      );
+    if (
+      await closeRun(
+        deps,
+        run,
+        now,
+        "The run never reported its end (node restarted or unreachable).",
+      )
+    ) {
+      closed++;
     }
-    await withTenantTx(deps.db, run.tenantId, async (tx) => {
-      await tx.delete(pveRunBlocks).where(eq(pveRunBlocks.runId, run.id));
-      await tx
-        .update(pveRuns)
-        .set({
-          status: run.snapshotId ? "succeeded" : "failed",
-          finishedAt: now,
-          errorMessage: run.snapshotId
-            ? null
-            : "The run never reported its end (node restarted or unreachable).",
-        })
-        .where(eq(pveRuns.id, run.id));
-    });
   }
-  return stale.length;
+  return closed;
+}
+
+/** A node's list of its runs counts while it is this fresh (heartbeats come every minute). */
+const ACTIVE_RUNS_FRESH_MS = 15 * 60 * 1000;
+/** A run the node does not list yet is not closed before this: it may have just opened. */
+const ACTIVE_RUNS_GRACE_MS = 10 * 60 * 1000;
+
+/**
+ * Backup runs their node no longer works on (#46): restow-pve 0.4.0 and later lists the
+ * runs it works on in every heartbeat (`facts.activeRuns`). A running backup run of the
+ * node that a fresh heartbeat does not list, and that started well before it, has ended
+ * without its report reaching the server (the helper restarted, the report was lost
+ * while the server was being updated). It is closed now instead of after 48 hours, the
+ * same way: succeeded when its restore point was committed, else failed. Nodes with an
+ * older helper send no list and keep the 48 hours.
+ */
+export async function closeRunsNodesDropped(deps: PveDeps, now: Date): Promise<number> {
+  const fresh = new Date(now.getTime() - ACTIVE_RUNS_FRESH_MS).toISOString();
+  const dropped = await deps.providerDb
+    .select({ id: pveRuns.id, tenantId: pveRuns.tenantId, snapshotId: pveRuns.snapshotId })
+    .from(pveRuns)
+    .innerJoin(pveNodes, eq(pveNodes.id, pveRuns.nodeId))
+    .where(
+      and(
+        eq(pveRuns.status, "running"),
+        eq(pveRuns.kind, "backup"),
+        sql`jsonb_typeof(${pveNodes.facts}->'activeRuns') = 'array'`,
+        sql`(${pveNodes.facts}->>'activeRunsAt')::timestamptz > ${fresh}::timestamptz`,
+        sql`${pveRuns.startedAt} < (${pveNodes.facts}->>'activeRunsAt')::timestamptz - make_interval(secs => ${ACTIVE_RUNS_GRACE_MS / 1000})`,
+        sql`NOT ((${pveNodes.facts}->'activeRuns') ? (${pveRuns.id}::text))`,
+      ),
+    );
+  let closed = 0;
+  for (const run of dropped) {
+    if (
+      await closeRun(
+        deps,
+        run,
+        now,
+        "The node no longer works on this run, but its end never reached the server (the helper restarted or the server was unreachable).",
+      )
+    ) {
+      closed++;
+    }
+  }
+  return closed;
+}
+
+/**
+ * Close a run that is still `running`: succeeded when its restore point was committed,
+ * else failed with `message`; what it staged is released. False when it ended meanwhile.
+ */
+async function closeRun(
+  deps: PveDeps,
+  run: { id: string; tenantId: string; snapshotId: string | null },
+  now: Date,
+  message: string,
+): Promise<boolean> {
+  const staged = await withTenantTx(deps.db, run.tenantId, async (tx) => {
+    const [updated] = await tx
+      .update(pveRuns)
+      .set({
+        status: run.snapshotId ? "succeeded" : "failed",
+        finishedAt: now,
+        errorMessage: run.snapshotId ? null : message,
+      })
+      .where(and(eq(pveRuns.id, run.id), eq(pveRuns.status, "running")))
+      .returning({ id: pveRuns.id });
+    if (!updated) {
+      return null;
+    }
+    const rows = await tx
+      .delete(pveRunBlocks)
+      .where(eq(pveRunBlocks.runId, run.id))
+      .returning({ chunks: pveRunBlocks.chunks });
+    return rows.flatMap((r) => r.chunks);
+  });
+  if (staged === null) {
+    return false;
+  }
+  if (staged.length > 0) {
+    await new PgChunkIndex(tenantRunner(deps.db, run.tenantId), run.tenantId).releaseReferences(
+      staged,
+    );
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -684,7 +757,7 @@ export async function pvePass(deps: PveDeps): Promise<PvePassSummary> {
   const paused = deps.startsPaused?.() === true;
   return {
     tasks: paused ? 0 : await planJobs(deps, now),
-    staleRuns: await closeStaleRuns(deps, now),
+    staleRuns: (await closeStaleRuns(deps, now)) + (await closeRunsNodesDropped(deps, now)),
     pruned: paused ? 0 : await applyRetention(deps, now),
     verified: paused ? 0 : await verifyDue(deps, now),
     restoreTests: paused ? 0 : await planRestoreTests(deps, now),

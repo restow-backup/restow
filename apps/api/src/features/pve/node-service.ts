@@ -14,10 +14,11 @@ import {
   pveRuns,
   pveSnapshots,
   pveTasks,
+  readJobStartPause,
   secrets,
   tenants,
 } from "@restow/db";
-import { and, asc, desc, eq, gt, inArray, isNull, lt, notInArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, lt, ne, notInArray, or, sql } from "drizzle-orm";
 import { db, providerDb } from "../../db.js";
 import { readSecret } from "../../lib/secrets.js";
 import { withTenantTx } from "../../lib/tenant-context.js";
@@ -259,6 +260,16 @@ export interface HeartbeatInput {
   state: "idle" | "running";
   problems: string[];
   restoresAllowed: boolean;
+  activeRuns?: string[];
+}
+
+/** Whether an update pauses new job starts (#46); unreadable counts as not paused. */
+async function backupsPaused(): Promise<boolean> {
+  try {
+    return (await readJobStartPause(providerDb.$client)).paused;
+  } catch {
+    return false;
+  }
 }
 
 /** Tasks for the node, its usage figures and the update offer. */
@@ -267,6 +278,9 @@ export async function nodeHeartbeat(
   input: HeartbeatInput,
   now: Date = new Date(),
 ) {
+  // While an update pauses new job starts (#46) the node gets no backup task; it gets
+  // them on the first heartbeat after the pause.
+  const paused = await backupsPaused();
   const tasks = await withTenantTx(db, node.tenantId, async (tx) => {
     await tx
       .update(pveNodes)
@@ -279,6 +293,9 @@ export async function nodeHeartbeat(
           restoresAllowed: input.restoresAllowed,
           problems: input.problems.slice(0, 20),
           state: input.state,
+          ...(input.activeRuns
+            ? { activeRuns: input.activeRuns, activeRunsAt: now.toISOString() }
+            : {}),
         },
         lastSeenAt: now,
       })
@@ -312,6 +329,7 @@ export async function nodeHeartbeat(
       .where(
         and(
           eq(pveTasks.nodeId, node.nodeId),
+          paused ? ne(pveTasks.kind, "backup") : undefined,
           or(
             eq(pveTasks.status, "pending"),
             and(
