@@ -22,6 +22,11 @@ var ErrBusy = lock.ErrLocked
 // it has nothing to back up until an administrator adds it to a job.
 var ErrNoJob = errors.New("this machine is in no backup job; add it to a backup job in the Restow UI (Backup jobs) to back it up")
 
+// ErrStartsPaused is returned when the Restow instance pauses new runs while
+// it is updated: no run was started, nothing failed. The backup can start
+// once the pause is over.
+var ErrStartsPaused = errors.New("the Restow instance pauses new backups while it is updated")
+
 // snapshotTag marks snapshots created by the agent.
 const snapshotTag = "restow-agent"
 
@@ -57,13 +62,29 @@ type Outcome struct {
 func (a *Agent) runBackup(ctx context.Context, j job) (runOutcome, error) {
 	cfg := a.currentConfig()
 	if fresh, err := a.fetchConfig(ctx); err == nil {
+		a.setReachable(true)
 		a.applyConfig(fresh, "before backup")
 		cfg = fresh
-	} else if cfg == nil {
+	} else if cfg == nil || j.trigger == triggerSchedule {
+		// A scheduled start waits for the server (it is not counted as an
+		// attempt); the schedule starts it again once the server answers.
 		if ctx.Err() == nil {
 			a.noteServerError("fetching the configuration", err)
 		}
 		return runOutcome{}, err
+	}
+	if cfg.StartsPaused {
+		// The server pauses new runs for an update (docs/UPDATING.md). Nothing
+		// starts and nothing counts as failed: the schedule starts the backup
+		// when the pause is over, a task waits for it.
+		switch j.trigger {
+		case triggerTask:
+			a.log.Info("a backup request waits: the Restow instance pauses new backups while it is updated", "task", j.taskID().String())
+			time.AfterFunc(a.o.PauseRecheck, func() { a.enqueue(j); a.signalWake() })
+		case triggerSchedule:
+			a.log.Info("a scheduled backup waits: the Restow instance pauses new backups while it is updated")
+		}
+		return runOutcome{}, ErrStartsPaused
 	}
 	if cfg.Schedule.Kind == api.ScheduleNone {
 		// Nothing to back up: no run is started (a scheduled start never gets here,

@@ -201,8 +201,16 @@ func printStatus(w io.Writer, r statusReport) {
 			p("Backups", "waiting for a backup job")
 			p("", "Nothing is backed up until this machine is added to a backup job in the Restow UI.")
 		}
+		if rt.Policy != "" {
+			p("Policy", "%s", rt.Policy)
+		}
 		if !rt.NextRunAt.IsZero() {
 			p("Next backup", "%s", ago(rt.NextRunAt))
+		}
+		if rt.Waiting != "" {
+			p("Waiting", "%s", rt.Waiting)
+		} else if rt.StartsPaused {
+			p("Note", "the Restow instance is being updated; backups start again when it is done")
 		}
 		if b := rt.LastBackup; b != nil {
 			line := fmt.Sprintf("%s at %s", b.Status, ago(b.FinishedAt))

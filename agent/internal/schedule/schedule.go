@@ -42,6 +42,8 @@ type Config struct {
 	Location  *time.Location
 	// Jitter is added to the daily slot (deterministic per endpoint).
 	Jitter time.Duration
+	// Policy is the agent policy (backup window, catch-up, retries).
+	Policy Policy
 }
 
 // History is what the schedule needs to know about earlier runs.
@@ -57,6 +59,10 @@ type History struct {
 	Interrupted bool
 	// ConsecutiveFailures counts failed runs since the last success.
 	ConsecutiveFailures int
+	// AwakeSince is since when the agent runs without a break (started, or
+	// woke up from sleep). A regular run that became due well before is a
+	// missed backup (MissedGrace). Zero: unknown, nothing counts as missed.
+	AwakeSince time.Time
 }
 
 // Decision is the result of Evaluate.
@@ -73,7 +79,7 @@ type Decision struct {
 // warnings so it ends up in the log.
 func FromAPI(s api.Schedule, profile string, jitter time.Duration) (Config, []string) {
 	var warn []string
-	cfg := Config{Kind: s.Kind, Jitter: jitter}
+	cfg := Config{Kind: s.Kind, Jitter: jitter, Policy: DefaultPolicy()}
 	switch s.Kind {
 	case api.ScheduleInterval, api.ScheduleDaily, api.ScheduleOnConnect, api.ScheduleNone:
 	default:
@@ -166,43 +172,91 @@ func JitterFor(id string, max time.Duration) time.Duration {
 	return time.Duration(h.Sum64() % uint64(max))
 }
 
-// RetryDelay is the wait before the next automatic retry.
+// RetryDelay is the wait before the next automatic retry with the default
+// number of retries.
 func RetryDelay(h History) (time.Duration, bool) {
+	return RetryDelayFor(h, MaxRetries)
+}
+
+// RetryDelayFor is the wait before the next automatic retry when at most
+// maxRetries retries follow a failed run. Retries beyond the fixed delays
+// wait as long as the last one.
+func RetryDelayFor(h History, maxRetries int) (time.Duration, bool) {
 	if h.Interrupted {
 		return 0, true
 	}
 	if h.ConsecutiveFailures <= 0 {
 		return 0, false
 	}
-	if h.ConsecutiveFailures > MaxRetries {
+	if h.ConsecutiveFailures > maxRetries {
 		return 0, false
 	}
-	return retryDelays[h.ConsecutiveFailures-1], true
+	i := min(h.ConsecutiveFailures, len(retryDelays)) - 1
+	return retryDelays[i], true
 }
 
 // WaitingForJob is the reason of every decision under the none schedule.
 const WaitingForJob = "waiting for a backup job"
 
-// Evaluate decides whether a backup is due now.
+// Reasons of a decision that waits although a backup is due.
+const (
+	WaitingForServer = "due, waiting for the Restow instance to become reachable"
+	WaitingForPause  = "due, waiting: the Restow instance pauses new backups while it is updated"
+	WaitingForWindow = "due, waiting for the backup window"
+)
+
+// Conditions are what the agent knows about the server when it decides.
+type Conditions struct {
+	// Reachable: the Restow instance answered the last request.
+	Reachable bool
+	// Paused: the Restow instance pauses new runs for an update.
+	Paused bool
+}
+
+// Evaluate decides whether a backup is due now (no pause known).
 func Evaluate(cfg Config, h History, now time.Time, reachable bool) Decision {
+	return EvaluateIn(cfg, h, now, Conditions{Reachable: reachable})
+}
+
+// EvaluateIn decides whether a backup is due now under the given conditions.
+//
+// The regular run is due at its slot (daily), when the interval has passed
+// since the last attempt (interval, on_connect), or at once when there was
+// none. The backup window of the policy moves every start (regular, catch-up,
+// retry, resumption of an interrupted run) to a moment inside the window. A
+// regular run whose start passed while the agent was not running (see
+// MissedGrace) is a missed backup: it is caught up as the policy says, or
+// skipped until the next regular slot. A due run waits while the server is
+// unreachable or pauses new runs; that wait never makes it missed.
+func EvaluateIn(cfg Config, h History, now time.Time, c Conditions) Decision {
 	// A machine in no backup job starts nothing: no regular slot, no retry and
 	// no resumption of an interrupted run (it resumes once a job schedules it).
 	if cfg.Kind == api.ScheduleNone {
 		return Decision{Reason: WaitingForJob}
 	}
-	var candidates []time.Time
-	regularDue := false
-	reason := ""
+	p := cfg.Policy
 
+	// dueAt is when the regular run became due (zero: not due); nextRegular
+	// the regular slot after it.
+	var dueAt, nextRegular time.Time
+	reason := ""
 	switch cfg.Kind {
-	case api.ScheduleInterval:
+	case api.ScheduleInterval, api.ScheduleOnConnect:
 		if h.LastAttemptAt.IsZero() {
-			regularDue, reason = true, "no backup yet"
+			dueAt, reason = now, "no backup yet"
 		} else {
 			at := h.LastAttemptAt.Add(cfg.Interval)
-			candidates = append(candidates, at)
-			if !now.Before(at) {
-				regularDue, reason = true, "interval elapsed"
+			if now.Before(at) {
+				nextRegular = at
+			} else {
+				// The latest point of the interval's grid that has passed: a run
+				// skipped as missed is due again at the next point.
+				dueAt = at.Add(now.Sub(at) / cfg.Interval * cfg.Interval)
+				nextRegular = dueAt.Add(cfg.Interval)
+				reason = "interval elapsed"
+				if cfg.Kind == api.ScheduleOnConnect {
+					reason = "minimum gap since the last backup elapsed"
+				}
 			}
 		}
 	case api.ScheduleDaily:
@@ -212,26 +266,68 @@ func Evaluate(cfg Config, h History, now time.Time, reachable bool) Decision {
 			anchor = h.EnrolledAt
 		}
 		if anchor.Before(last) {
-			regularDue, reason = true, "daily slot reached"
+			dueAt, reason = last, "daily slot reached"
 		}
-		candidates = append(candidates, nextSlot(cfg, now))
-	case api.ScheduleOnConnect:
-		if h.LastAttemptAt.IsZero() {
-			regularDue, reason = true, "no backup yet"
-		} else {
-			at := h.LastAttemptAt.Add(cfg.Interval)
-			candidates = append(candidates, at)
-			if !now.Before(at) {
-				regularDue, reason = true, "minimum gap since the last backup elapsed"
+		nextRegular = nextSlot(cfg, now)
+	}
+
+	var candidates []time.Time
+	if !nextRegular.IsZero() {
+		candidates = append(candidates, p.earliestStart(nextRegular))
+	}
+	regularDue := false
+	waitReason := ""
+	if !dueAt.IsZero() {
+		start := p.earliestStart(dueAt)
+		missed := cfg.Kind != api.ScheduleOnConnect && !h.AwakeSince.IsZero() && !start.IsZero() &&
+			start.Add(MissedGrace).Before(h.AwakeSince)
+		switch {
+		case start.IsZero():
+			// A window that never opens: nothing starts.
+		case start.After(now):
+			candidates = append(candidates, start)
+			waitReason = WaitingForWindow
+		case missed && !p.CatchUp:
+			waitReason = "a missed backup is not caught up (policy); waiting for the next regular slot"
+		case missed && p.CatchUpMaxAge > 0 && now.Sub(start) > p.CatchUpMaxAge:
+			waitReason = fmt.Sprintf("a missed backup is older than %s and not caught up (policy); waiting for the next regular slot", p.CatchUpMaxAge)
+		case missed && p.CatchUpMode == api.CatchUpNextWindow && p.Window != nil:
+			// The next window that opens after the machine came back.
+			at := p.Window.NextOpen(h.AwakeSince)
+			switch {
+			case at.IsZero():
+			case at.After(now):
+				candidates = append(candidates, at)
+				waitReason = "a missed backup is caught up in the next backup window"
+			case p.allows(now):
+				regularDue, reason = true, "catching up a missed backup in the backup window"
+			default:
+				candidates = append(candidates, p.Window.NextOpen(now))
+				waitReason = WaitingForWindow
+			}
+		case !p.allows(now):
+			candidates = append(candidates, p.earliestStart(now))
+			waitReason = WaitingForWindow
+		default:
+			regularDue = true
+			if missed {
+				reason = "catching up a missed backup"
 			}
 		}
 	}
 
 	retryDue := false
-	if delay, ok := RetryDelay(h); ok && !h.LastAttemptAt.IsZero() {
+	if delay, ok := RetryDelayFor(h, p.MaxRetries); ok && !h.LastAttemptAt.IsZero() {
 		at := h.LastAttemptAt.Add(delay)
-		candidates = append(candidates, at)
-		if !now.Before(at) {
+		switch {
+		case now.Before(at):
+			candidates = append(candidates, p.earliestStart(at))
+		case !p.allows(now):
+			candidates = append(candidates, p.earliestStart(now))
+			if !regularDue {
+				waitReason = WaitingForWindow
+			}
+		default:
 			retryDue = true
 			if h.Interrupted {
 				reason = "resuming an interrupted backup"
@@ -242,15 +338,22 @@ func Evaluate(cfg Config, h History, now time.Time, reachable bool) Decision {
 	}
 
 	d := Decision{Next: earliestAfter(candidates, now)}
-	if cfg.Kind == api.ScheduleOnConnect && !reachable {
+	if cfg.Kind == api.ScheduleOnConnect && !c.Reachable {
 		d.Next = time.Time{}
 	}
 	if !regularDue && !retryDue {
 		d.Reason = "not due"
+		if waitReason != "" {
+			d.Reason = waitReason
+		}
 		return d
 	}
-	if !reachable {
-		d.Reason = "due, waiting for the Restow instance to become reachable"
+	if !c.Reachable {
+		d.Reason = WaitingForServer
+		return d
+	}
+	if c.Paused {
+		d.Reason = WaitingForPause
 		return d
 	}
 	d.Due, d.Reason = true, reason

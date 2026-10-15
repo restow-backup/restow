@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/restow-backup/restow/agent/internal/api"
 	"github.com/restow-backup/restow/agent/internal/core"
@@ -48,6 +49,21 @@ func cmdBackupNow(args []string, stdout, stderr io.Writer) int {
 	defer cancel()
 
 	out, err := a.BackupNow(ctx)
+	// While the Restow instance is updated it pauses new runs: wait for the
+	// end of the pause (Ctrl-C stops waiting) instead of failing.
+	for told := false; errors.Is(err, core.ErrStartsPaused); {
+		if !told {
+			fmt.Fprintln(stderr, "The Restow instance is being updated and pauses new backups. Waiting for the update to finish (press Ctrl-C to stop waiting)...")
+			told = true
+		}
+		select {
+		case <-ctx.Done():
+			fmt.Fprintln(stderr, "Stopped waiting; no backup was started.")
+			return exitError
+		case <-time.After(30 * time.Second):
+		}
+		out, err = a.BackupNow(ctx)
+	}
 	if err != nil {
 		switch {
 		case errors.Is(err, core.ErrNoJob):

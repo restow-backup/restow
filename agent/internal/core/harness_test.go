@@ -223,7 +223,7 @@ func (h *harness) build() {
 		Machine: h.machineFn(),
 	}, Options{
 		HeartbeatInterval: 40 * time.Millisecond, HeartbeatRetryBase: 30 * time.Millisecond, HeartbeatJitter: time.Nanosecond, Tick: 15 * time.Millisecond,
-		ConfigRefresh: time.Hour, ProgressInterval: 20 * time.Millisecond, SampleTimeout: 30 * time.Second,
+		ConfigRefresh: time.Hour, ProgressInterval: 20 * time.Millisecond, SampleTimeout: 30 * time.Second, PauseRecheck: 20 * time.Millisecond,
 		SelfUpdate: false,
 	})
 }

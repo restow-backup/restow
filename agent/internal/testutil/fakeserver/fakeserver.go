@@ -275,12 +275,13 @@ func (s *Server) handleHeartbeat(w http.ResponseWriter, r *http.Request) {
 	s.Heartbeats = append(s.Heartbeats, req)
 	tasks := s.pendingTasks
 	s.pendingTasks = nil
+	paused := s.Config.StartsPaused
 	s.mu.Unlock()
 	if tasks == nil {
 		tasks = []api.Task{}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(api.HeartbeatResponse{Tasks: tasks})
+	_ = json.NewEncoder(w).Encode(api.HeartbeatResponse{Tasks: tasks, StartsPaused: paused})
 }
 
 func (s *Server) handleRuns(w http.ResponseWriter, r *http.Request) {
