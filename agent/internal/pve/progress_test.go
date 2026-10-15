@@ -41,10 +41,29 @@ func TestProgressReporterSendsTheNewestOnlyAndStopsWhenRefused(t *testing.T) {
 	none.Set(Progress{BytesDone: 1}) // a nil reporter does nothing
 	none.Stop()
 
+	sentCount := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(sent)
+	}
+	// Waits on the reporter's goroutine instead of a fixed sleep, which a loaded machine may
+	// not give it in time.
+	waitSent := func(n int) {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for sentCount() < n {
+			if time.Now().After(deadline) {
+				t.Fatalf("timed out waiting for report %d: %+v", n, sent)
+			}
+			time.Sleep(time.Millisecond)
+		}
+	}
+
 	r := StartProgress(context.Background(), intervalSeconds(1), send)
 	r.Set(Progress{BytesDone: 1})
 	r.Set(Progress{BytesDone: 2})
-	time.Sleep(40 * time.Millisecond)
+	waitSent(1)
+	time.Sleep(4 * progressUnit) // a second report would come within these intervals
 	mu.Lock()
 	if len(sent) != 1 || sent[0].BytesDone != 2 {
 		t.Fatalf("only the newest figure, once: %+v", sent)
@@ -52,9 +71,9 @@ func TestProgressReporterSendsTheNewestOnlyAndStopsWhenRefused(t *testing.T) {
 	status = 404 // the server takes no reports for this run
 	mu.Unlock()
 	r.Set(Progress{BytesDone: 3})
-	time.Sleep(40 * time.Millisecond)
+	waitSent(2)
 	r.Set(Progress{BytesDone: 4})
-	time.Sleep(40 * time.Millisecond)
+	time.Sleep(8 * progressUnit)
 	r.Stop()
 	mu.Lock()
 	defer mu.Unlock()
