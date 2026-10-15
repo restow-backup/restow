@@ -152,6 +152,7 @@ export const PUBLIC_ROUTES: ReadonlySet<string> = new Set([
   "POST /agent/pve/v1/runs/:runId/finish",
   "POST /agent/pve/v1/runs/:runId/incremental",
   "POST /agent/pve/v1/runs/:runId/log",
+  "POST /agent/pve/v1/runs/:runId/progress",
   "POST /agent/pve/v1/runs/:runId/restic",
   "GET /agent/pve/v1/snapshots/:snapshotId/disks/:device/blocks",
   "GET /agent/pve/v1/snapshots/:snapshotId/disks/:device/hashes",
