@@ -337,6 +337,13 @@
       "when": 1792102441301,
       "tag": "0047_immutable_backups",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1792107056720,
+      "tag": "0048_perf_indexes",
+      "breakpoints": true
     }
   ]
 }

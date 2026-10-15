@@ -132,6 +132,19 @@ directory, which replaces the compose file and keeps the previous one as
 file. Proxmox VE nodes show the progress of a running backup and ride out
 the update only with restow-pve 0.4.0, which installs itself on the nodes.
 
+One of the 0.4.0 migrations (`perf_indexes`) adds six small partial indexes
+for large installations: on `jobs` (two), `endpoint_runs`, `file_share_runs`,
+`pve_runs` and `pve_tasks`. They hold only the rows a few background queries
+read (finished backups that have a restore point, the active jobs, the
+Proxmox VE backups waiting for their node), but each build reads its whole
+table once, and the migrator runs every migration in one transaction, where
+Postgres cannot build an index `CONCURRENTLY`: while an index is built, writes
+to its table wait. The api serves no request until the migrations are done,
+so nothing is lost; the start just takes longer. Expect about a minute per
+ten million rows of the table on SSD storage (count them with
+`SELECT count(*) FROM jobs;` and the like beforehand), seconds on most
+installations, and several minutes for the `jobs` table of a large one.
+
 If the updater ever wrote `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE` into `.env`,
 those two lines decide which images the services run. Change them, or remove
 them to go back to building from the source checkout. `RESTOW_UPDATER_IMAGE`

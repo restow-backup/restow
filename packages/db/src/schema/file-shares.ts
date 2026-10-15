@@ -252,6 +252,13 @@ export const fileShareRuns = pgTable(
     index("file_share_runs_share_created_idx").on(t.fileShareId, t.createdAt),
     index("file_share_runs_tenant_created_idx").on(t.tenantId, t.createdAt, t.id),
     index("file_share_runs_status_queued_idx").on(t.status, t.queuedAt),
+    // The ransomware judgement (apps/worker suspicion/scan.ts) reads new restore points by time;
+    // the predicate is the scan's, word for word.
+    index("file_share_runs_suspicion_idx")
+      .on(t.finishedAt, t.id)
+      .where(
+        sql`${t.kind} = 'backup' AND ${t.status} IN ('succeeded', 'warning') AND ${t.snapshotId} IS NOT NULL AND ${t.finishedAt} IS NOT NULL`,
+      ),
     // One run per share mount at a time (the dispatcher's singleton, 8.2).
     uniqueIndex("file_share_runs_lock_active_uq")
       .on(t.lockShareId)

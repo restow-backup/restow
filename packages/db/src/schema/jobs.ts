@@ -135,6 +135,16 @@ export const jobs = pgTable(
     index("jobs_tenant_created_idx").on(t.tenantId, t.createdAt, t.id),
     // The runs a backup job queued itself ("Run now", the scheduler): History filters by job.
     index("jobs_backup_job_idx").on(sql`(${t.payload}->>'backupJobId')`),
+    // The worker's reconciler (apps/worker reconcile.ts) reads the active rows and finds one by its
+    // pg-boss job: only the few running jobs are in it.
+    index("jobs_active_boss_idx").on(t.pgBossJobId).where(sql`${t.status} = 'active'`),
+    // The ransomware judgement (apps/worker suspicion/scan.ts) reads the newest restore points of
+    // mailboxes and accounts by time; the predicate is the scan's, word for word.
+    index("jobs_suspicion_idx")
+      .on(t.completedAt, t.id)
+      .where(
+        sql`${t.queue} = 'backup' AND ${t.status} = 'completed' AND ${t.protectedObjectId} IS NOT NULL AND ${t.completedAt} IS NOT NULL AND (${t.payload}->'result'->>'snapshotId') IS NOT NULL`,
+      ),
   ],
 );
 
