@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
  *              restore pool, check, delete (needs capacity, off by default)
  *   tokens     an existing PVE API token an admin gave for an enrollment is deleted
  *              once that enrollment token is used, revoked or expired
+ *   downloads  prepared ZIP downloads of container files go an hour after they expired
  *
  * One pass every five minutes, in one worker at a time (a session advisory lock).
  */
@@ -45,6 +46,7 @@ import {
   type PveGuest,
   type PveJob,
   type PveSnapshot,
+  pveDownloads,
   pveEnrollmentTokens,
   pveGuestRepositoryLockKey,
   pveGuests,
@@ -119,6 +121,7 @@ export interface PvePassSummary {
   verified: number;
   restoreTests: number;
   pveTokensDropped: number;
+  downloadsPurged: number;
 }
 
 async function chunkContext(deps: PveDeps, tenantId: string) {
@@ -653,6 +656,21 @@ export async function dropPveTokenSecrets(deps: PveDeps, now: Date): Promise<num
 }
 
 // ---------------------------------------------------------------------------
+// Prepared ZIP downloads of container files (#62)
+// ---------------------------------------------------------------------------
+
+/** Prepared downloads are valid for minutes; their rows are kept for an hour more, then go. */
+export const DOWNLOAD_KEEP_MS = 60 * 60 * 1000;
+
+export async function purgeDownloads(deps: PveDeps, now: Date): Promise<number> {
+  const purged = await deps.providerDb
+    .delete(pveDownloads)
+    .where(lt(pveDownloads.expiresAt, new Date(now.getTime() - DOWNLOAD_KEEP_MS)))
+    .returning({ id: pveDownloads.id });
+  return purged.length;
+}
+
+// ---------------------------------------------------------------------------
 // The pass
 // ---------------------------------------------------------------------------
 
@@ -665,6 +683,7 @@ export async function pvePass(deps: PveDeps): Promise<PvePassSummary> {
     verified: await verifyDue(deps, now),
     restoreTests: await planRestoreTests(deps, now),
     pveTokensDropped: await dropPveTokenSecrets(deps, now),
+    downloadsPurged: await purgeDownloads(deps, now),
   };
 }
 
