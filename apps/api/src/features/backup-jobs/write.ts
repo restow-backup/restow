@@ -1,10 +1,13 @@
 import { randomUUID } from "node:crypto";
 import {
+  agentPolicyIssues,
   type CopyShareFacts,
   checkCopyRules,
+  cleanAgentPolicySettings,
   cleanTargetFolder,
   endpointScheduleOf,
   nextRunAt as firstRunAt,
+  JOB_POLICY_KEYS,
   type JobKind,
   type JobMemberOverrides,
   type JobSchedule,
@@ -38,6 +41,7 @@ import {
   withTenantTx,
 } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
+import { assertNotLocked, readGlobalAgentPolicy } from "../endpoints/agent-policy.js";
 import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS } from "../endpoints/audit.js";
 import { type BandwidthWindowsProblem, checkedBandwidthWindows } from "../endpoints/bandwidth.js";
 import { hookFingerprint } from "../endpoints/dto.js";
@@ -284,6 +288,7 @@ const ENDPOINT_SETTING_KEYS = [
   "bandwidthKbps",
   "bandwidthWindows",
   "retention",
+  "policy",
 ];
 
 /** Settings checked for the job: a machine job needs folders, a mail job takes none. */
@@ -374,7 +379,41 @@ function checkedSettings(
   if (windows) {
     clean.bandwidthWindows = windows;
   }
+  if (settings.policy !== undefined) {
+    const issue = agentPolicyIssues(settings.policy, JOB_POLICY_KEYS)[0];
+    if (issue) {
+      throw jobProblem(["settings", "policy", issue.key], issue.code, "Check this setting.");
+    }
+    const policy = cleanAgentPolicySettings(settings.policy);
+    if (Object.keys(policy).length > 0) {
+      clean.policy = policy;
+    } else {
+      delete clean.policy;
+    }
+  }
   return clean;
+}
+
+/**
+ * A job may not set what the installation's agent policy locks (409 agent-policy-locked). A value
+ * the job already had before the lock may stay as it is (it is ignored); only a change is refused.
+ */
+async function assertJobPolicyAllowed(
+  next: BackupJobSettings,
+  before: BackupJobSettings | null,
+): Promise<void> {
+  if (!next.policy) {
+    return;
+  }
+  const changed: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(next.policy)) {
+    if (!sameJson(value, (before?.policy as Record<string, unknown> | undefined)?.[key])) {
+      changed[key] = value;
+    }
+  }
+  if (Object.keys(changed).length > 0) {
+    assertNotLocked(changed, await readGlobalAgentPolicy());
+  }
 }
 
 function checkedBase(
@@ -978,6 +1017,7 @@ export async function createBackupJob(
   const kind = input.kind;
   const { schedule, verifySchedule } = checkedBase(kind, input, now);
   let settings = checkedSettings(kind, input.settings, { requirePaths: true });
+  await assertJobPolicyAllowed(settings, null);
   if (kind !== "copy" && (input.sourceFileShareId || input.targetFileShareId)) {
     throw jobProblem(
       [input.sourceFileShareId ? "sourceFileShareId" : "targetFileShareId"],
@@ -1263,6 +1303,7 @@ export async function updateBackupJob(
       patch.settings !== undefined
         ? checkedSettings(kind, patch.settings, { requirePaths: true })
         : (before.settings ?? {});
+    await assertJobPolicyAllowed(settings, before.settings ?? null);
     let sourceFileShareId = before.sourceFileShareId;
     let targetFileShareId = before.targetFileShareId;
     if (kind !== "copy" && (patch.sourceFileShareId || patch.targetFileShareId)) {

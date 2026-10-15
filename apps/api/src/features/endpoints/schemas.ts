@@ -430,6 +430,54 @@ export const createTaskSchema = z.discriminatedUnion("kind", [
  * The tenant's setting for automatic agent updates. `resumeMachines` also lifts the pauses that
  * single machines carry from before the pause became a setting of the tenant.
  */
+/**
+ * One level of the agent policy (docs/AGENT.md, "Richtlinien"): a key that is present is set at
+ * this level, one left out inherits. The service checks the values once more
+ * (@restow/core agentPolicyIssues) and refuses what the installation locked.
+ */
+export const agentPolicyLevelSchema = z
+  .object({
+    backupWindow: z
+      .object({
+        days: z.array(z.number().int().min(1).max(7)).min(1).max(7),
+        from: timeOfDay,
+        to: timeOfDay,
+      })
+      .strict()
+      .nullable()
+      .optional(),
+    catchUp: z
+      .object({
+        enabled: z.boolean(),
+        mode: z.enum(["asap", "next_window"]),
+        maxAgeHours: z
+          .number()
+          .int()
+          .min(1)
+          .max(24 * 30)
+          .nullable(),
+      })
+      .strict()
+      .optional(),
+    bandwidthKbps: z.number().int().min(1).max(10_000_000).nullable().optional(),
+    onlyOnAcPower: z.boolean().optional(),
+    retries: z.number().int().min(0).max(10).optional(),
+  })
+  .strict();
+
+/** A job's level: its upload limit is the job's own field, not part of its policy. */
+export const jobAgentPolicySchema = agentPolicyLevelSchema.omit({ bandwidthKbps: true });
+
+/** The installation's policy: its settings and the ones it locks. */
+export const globalAgentPolicySchema = z
+  .object({
+    settings: agentPolicyLevelSchema,
+    locks: z
+      .array(z.enum(["backupWindow", "catchUp", "bandwidthKbps", "onlyOnAcPower", "retries"]))
+      .max(5),
+  })
+  .strict();
+
 export const agentUpdatesSchema = z.object({
   paused: z.boolean(),
   resumeMachines: z.boolean().optional(),

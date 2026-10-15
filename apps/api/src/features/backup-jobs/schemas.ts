@@ -5,6 +5,7 @@ import {
   bandwidthWindowsSchema,
   excludePattern,
   hookCommand,
+  jobAgentPolicySchema,
   retentionSchema,
 } from "../endpoints/schemas.js";
 
@@ -131,6 +132,7 @@ const copySettingsShape = {
 
 export const jobSettingsSchema = z.object({
   ...endpointSettingsShape,
+  policy: jobAgentPolicySchema.optional(),
   ...shareSettingsShape,
   ...copySettingsShape,
 });

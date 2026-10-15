@@ -6,6 +6,8 @@ import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
 import { refuseApiKeys, requireProviderAdmin, type SessionEnv } from "../../middleware/session.js";
 import { acceptDisclaimerSchema, parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { getGlobalAgentPolicy, updateGlobalAgentPolicy } from "../endpoints/agent-policy.js";
+import { globalAgentPolicySchema } from "../endpoints/schemas.js";
 import { ransomwareSettingsSchema } from "../suspicion/schemas.js";
 import { getRansomwareSettings, updateRansomwareSettings } from "../suspicion/service.js";
 import {
@@ -66,6 +68,9 @@ import {
  *                                  ranges, the version of the name signatures
  *   PUT    /ransomware            replace the stored thresholds (what is left out takes its
  *                                  default; `{}` is every default)
+ *   GET    /agent-policy          the installation's agent policy, its locks, the defaults
+ *   PUT    /agent-policy          replace it; every machine whose effective policy changes gets
+ *                                  a new configuration version (all tenants)
  *   GET    /default-storage       the installation's default storage (saved here, else from the
  *                                  environment), how many tenants keep their data on it, which
  *                                  tenants keep it from moving, the last test of it
@@ -181,6 +186,18 @@ settingsRoutes.get("/ransomware", async (c) => {
 settingsRoutes.put("/ransomware", async (c) => {
   const input = await parseJsonBody(c.req, ransomwareSettingsSchema);
   return c.json(await updateRansomwareSettings(providerDb, input, actorOf(c)));
+});
+
+// Agent policies (docs/AGENT.md, "Richtlinien"): every provider admin reads the installation's
+// policy, administrators with every tenant change it (lib/provider-access.ts); a change writes the
+// configuration of every machine whose effective policy changes, in every tenant.
+settingsRoutes.get("/agent-policy", async (c) => {
+  return c.json(await getGlobalAgentPolicy(providerDb));
+});
+
+settingsRoutes.put("/agent-policy", async (c) => {
+  const input = await parseJsonBody(c.req, globalAgentPolicySchema);
+  return c.json(await updateGlobalAgentPolicy(input, actorOf(c)));
 });
 
 settingsRoutes.get("/default-storage", async (c) => {

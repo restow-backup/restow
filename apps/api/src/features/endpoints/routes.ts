@@ -19,10 +19,12 @@ import {
 import { ProblemError } from "../../problem.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { resticRestorePointImmutability } from "../storage/immutability.js";
+import { getTenantAgentPolicy, updateTenantAgentPolicy } from "./agent-policy.js";
 import type { EndpointActor } from "./audit.js";
 import { instanceUrl } from "./instance-url.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
 import {
+  agentPolicyLevelSchema,
   agentUpdatesSchema,
   browseQuerySchema,
   createDownloadSchema,
@@ -74,6 +76,10 @@ import {
  *   GET    /agent-updates                       the tenant's pause of automatic agent updates, and the machines paused on their own
  *   PUT    /agent-updates                       pause or resume them for the tenant (also with no machine yet)
  *   DELETE /agent-updates/machines/:id          lift one machine's own pause
+ *   GET    /agent-policy                        the tenant's level of the agent policy, the
+ *                                               installation's it inherits (with its locks), the result
+ *   PUT    /agent-policy                        replace the tenant's level (not what is locked); writes
+ *                                               every machine's configuration that changes
  *   GET    /:id                                 detail: config, runs, waiting and recent tasks, reports
  *                                               (hook texts only for who may change the configuration)
  *   PATCH  /:id                                 name, paths, excludes, schedule, hooks, bandwidth, retention,
@@ -175,6 +181,15 @@ endpointsRoutes.put("/agent-updates", admin, async (c) => {
   return c.json(
     await setAgentUpdates(db, c.get("tenantId"), paused, actorOf(c), { resumeMachines }),
   );
+});
+
+endpointsRoutes.get("/agent-policy", admin, async (c) => {
+  return c.json(await getTenantAgentPolicy(db, c.get("tenantId")));
+});
+
+endpointsRoutes.put("/agent-policy", admin, async (c) => {
+  const input = await parseJsonBody(c.req, agentPolicyLevelSchema);
+  return c.json(await updateTenantAgentPolicy(db, c.get("tenantId"), input, actorOf(c)));
 });
 
 endpointsRoutes.delete("/agent-updates/machines/:id", admin, async (c) => {
