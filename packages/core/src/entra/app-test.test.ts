@@ -49,7 +49,7 @@ function entraError(code: number, description: string) {
 describe("testAppRegistration", () => {
   it("is green when every required application permission is in the token", async () => {
     const endpoint = tokenEndpoint(200, {
-      access_token: jwt({ roles: [...REQUIRED_PERMISSIONS, "Sites.Read.All"] }),
+      access_token: jwt({ roles: [...REQUIRED_PERMISSIONS, "Reports.Read.All"] }),
       expires_in: 3600,
     });
     const result = await testAppRegistration({
@@ -67,7 +67,7 @@ describe("testAppRegistration", () => {
       credentialKind: "secret",
     });
     expect(result.permissions?.missing).toEqual([]);
-    expect(result.permissions?.unexpected).toEqual(["Sites.Read.All"]);
+    expect(result.permissions?.unexpected).toEqual(["Reports.Read.All"]);
     expect(endpoint.calls[0]?.url).toBe(
       "https://login.microsoftonline.com/contoso.onmicrosoft.com/oauth2/v2.0/token",
     );

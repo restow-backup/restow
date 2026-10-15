@@ -27,10 +27,10 @@ describe("permission catalogue", () => {
       "Directory.Read.All",
       "Organization.Read.All",
     ]);
-    expect(OPTIONAL_PERMISSIONS).toEqual(["Mail.Send"]);
-    expect(GRAPH_APPLICATION_PERMISSIONS.map((entry) => entry.permission)).not.toContain(
-      "Sites.ReadWrite.All",
-    );
+    expect(OPTIONAL_PERMISSIONS).toEqual(["Mail.Send", "Sites.ReadWrite.All"]);
+    expect(
+      GRAPH_APPLICATION_PERMISSIONS.find((entry) => entry.permission === "Sites.ReadWrite.All"),
+    ).toMatchObject({ required: false, purpose: "sharepoint" });
   });
 });
 
@@ -58,7 +58,7 @@ describe("diffPermissions", () => {
   });
 
   it("reports missing permissions and unexpected extra roles", () => {
-    const diff = diffPermissions(["Mail.ReadWrite", "Sites.ReadWrite.All", "User.Read.All"]);
+    const diff = diffPermissions(["Mail.ReadWrite", "Reports.Read.All", "User.Read.All"]);
     expect(diff.complete).toBe(false);
     expect(diff.missing).toEqual([
       "MailboxSettings.Read",
@@ -70,7 +70,21 @@ describe("diffPermissions", () => {
       "Organization.Read.All",
     ]);
     expect(diff.granted).toEqual(["Mail.ReadWrite", "User.Read.All"]);
-    expect(diff.unexpected).toEqual(["Sites.ReadWrite.All"]);
+    expect(diff.unexpected).toEqual(["Reports.Read.All"]);
+  });
+
+  it("keeps a tenant without SharePoint consent complete and names Sites.Read.All as read-only", () => {
+    const without = diffPermissions(REQUIRED_PERMISSIONS);
+    expect(without.complete).toBe(true);
+    expect(without.checks.find((check) => check.permission === "Sites.ReadWrite.All")).toMatchObject(
+      { required: false, state: "missing" },
+    );
+    const readOnly = diffPermissions([...REQUIRED_PERMISSIONS, "Sites.Read.All"]);
+    expect(readOnly.complete).toBe(true);
+    expect(readOnly.readOnlyInstead).toEqual([
+      { expected: "Sites.ReadWrite.All", granted: "Sites.Read.All" },
+    ]);
+    expect(readOnly.unexpected).toEqual([]);
   });
 
   it("compares case-insensitively and ignores blanks", () => {
