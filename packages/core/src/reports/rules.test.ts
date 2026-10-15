@@ -88,6 +88,51 @@ describe("plannedDeliveries", () => {
       { channel: "in_app", recipient: null },
     ]);
   });
+
+  it("leaves out the channels whose column has the event off", () => {
+    const columns = {
+      webhooks: new Map([
+        ["discord", ["backup.failed", "job.failed"]],
+        ["json", ["backup.failed", "backup.succeeded", "job.failed", "job.completed"]],
+      ]),
+      recipients: new Map([["ops@x.de", ["backup.failed"]]]),
+    };
+    const failing = rule({ emailRecipients: ["Ops@x.de", "adhoc@x.de"], webhookId: "discord" });
+    expect(plannedDeliveries(failing, "event", { event: "backup.succeeded", columns })).toEqual([
+      { channel: "email", recipient: "adhoc@x.de" },
+    ]);
+    expect(plannedDeliveries(failing, "event", { event: "backup.failed", columns })).toEqual([
+      { channel: "email", recipient: "Ops@x.de" },
+      { channel: "email", recipient: "adhoc@x.de" },
+      { channel: "webhook", recipient: "discord" },
+    ]);
+    expect(
+      plannedDeliveries(rule({ emailRecipients: [], webhookId: "json" }), "event", {
+        event: "backup.succeeded",
+        columns,
+      }),
+    ).toEqual([{ channel: "webhook", recipient: "json" }]);
+    // A webhook without a column (deleted meanwhile) is left to the dispatcher.
+    expect(
+      plannedDeliveries(rule({ emailRecipients: [], webhookId: "gone" }), "event", {
+        event: "backup.failed",
+        columns,
+      }),
+    ).toEqual([{ channel: "webhook", recipient: "gone" }]);
+  });
+
+  it("never filters a summary report", () => {
+    const columns = { webhooks: new Map([["w1", []]]), recipients: new Map([["a@x.de", []]]) };
+    expect(
+      plannedDeliveries(rule({ emailRecipients: ["a@x.de"], webhookId: "w1" }), "summary", {
+        event: "backup.failed",
+        columns,
+      }),
+    ).toEqual([
+      { channel: "email", recipient: "a@x.de" },
+      { channel: "webhook", recipient: "w1" },
+    ]);
+  });
 });
 
 describe("subjectKeyOf", () => {

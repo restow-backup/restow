@@ -73,15 +73,36 @@ export function isAlertThrottled(
 }
 
 /**
+ * The columns of the tenant's channels in the notification matrix: the events each webhook and
+ * each notification recipient gets. A channel missing here has no column (an address typed into
+ * one rule only, a webhook deleted meanwhile) and is left to the rule.
+ */
+export interface ChannelColumns {
+  /** Webhook id → its stored event list (`webhooks.events`). */
+  readonly webhooks: ReadonlyMap<string, readonly string[]>;
+  /** Lowercased address of a notification recipient → its events. */
+  readonly recipients: ReadonlyMap<string, readonly string[]>;
+}
+
+export const NO_CHANNEL_COLUMNS: ChannelColumns = { webhooks: new Map(), recipients: new Map() };
+
+/**
  * The deliveries one firing of `rule` needs. Event alerts always reach the
  * bell through the in-app notification the worker writes anyway, so the
  * `inApp` flag adds a bell entry for summary reports only. Addresses are
  * deduplicated case-insensitively.
+ *
+ * With `channels`, an alert about `channels.event` leaves out every channel whose column has
+ * the event off: a rule can no longer send an event to a webhook or a recipient that does not
+ * want it. Summary reports are not events and are not filtered.
  */
 export function plannedDeliveries(
   rule: Pick<RuleForDelivery, "emailRecipients" | "inApp" | "webhookId">,
   kind: "event" | "summary",
+  channels?: { readonly event: string; readonly columns: ChannelColumns },
 ): PlannedDelivery[] {
+  const wants = (column: readonly string[] | undefined) =>
+    kind !== "event" || !channels || column === undefined || column.includes(channels.event);
   const seen = new Set<string>();
   const deliveries: PlannedDelivery[] = [];
   for (const address of rule.emailRecipients) {
@@ -91,12 +112,15 @@ export function plannedDeliveries(
       continue;
     }
     seen.add(key);
+    if (!wants(channels?.columns.recipients.get(key))) {
+      continue;
+    }
     deliveries.push({ channel: "email", recipient: trimmed });
   }
   if (kind === "summary" && rule.inApp) {
     deliveries.push({ channel: "in_app", recipient: null });
   }
-  if (rule.webhookId) {
+  if (rule.webhookId && wants(channels?.columns.webhooks.get(rule.webhookId))) {
     deliveries.push({ channel: "webhook", recipient: rule.webhookId });
   }
   return deliveries;
