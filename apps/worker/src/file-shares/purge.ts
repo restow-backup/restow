@@ -6,7 +6,7 @@
  * from or write to it). Audited. Removing a share from a job, or retiring it, never deletes
  * backups; a share with a run in progress is not purged (the job is retried).
  */
-import { type FileShareJobPayload, fileShareRepositoryPrefix } from "@restow/core";
+import { type FileShareJobPayload, fileShareRepositoryPrefix, lockedErrorOf } from "@restow/core";
 import { fileShareRuns, fileShares, secrets } from "@restow/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { appendAuditEntry } from "../audit.js";
@@ -51,9 +51,30 @@ export async function purgeShare(
   const targets = await deps.runtime.storage.get(tenantId);
   const prefix = fileShareRepositoryPrefix(fileShareId);
   let objects = 0;
+  let locked = 0;
+  let lockedUntil: Date | null = null;
   for (const key of await targets.primary.list(prefix)) {
-    await targets.primary.delete(key);
-    objects++;
+    try {
+      await targets.primary.delete(key);
+      objects++;
+    } catch (error) {
+      // Immutable backups (docs/STORAGE.md): what is still locked cannot be purged yet.
+      const refusal = lockedErrorOf(error);
+      if (!refusal) {
+        throw error;
+      }
+      locked++;
+      if (refusal.retainUntil && (!lockedUntil || refusal.retainUntil > lockedUntil)) {
+        lockedUntil = refusal.retainUntil;
+      }
+    }
+  }
+  if (locked > 0) {
+    throw new Error(
+      `${locked} objects of the file share's repository are still locked${
+        lockedUntil ? ` until ${lockedUntil.toISOString()}` : ""
+      } (immutable backups); purge it again after that`,
+    );
   }
   try {
     await deps.runner.removeCache(fileShareId);
