@@ -16,7 +16,8 @@
     "providerApi": "Provider API",
     "updates": "Updates",
     "edition": "Edition",
-    "about": "About"
+    "about": "About",
+    "database": "Database"
   },
   "descriptions": {
     "server": "How browsers reach this server and whether passkeys are offered. Applies to {scope, select, organisation {your organisation} other {all tenants}}.",
@@ -29,7 +30,8 @@
     "providerApi": "Keys for RMM and PSA tools that work across all tenants.",
     "updates": "Which version runs, which releases exist and how to update.",
     "edition": "Which build runs and the switch to the full build.",
-    "about": "Version, source code and licenses of this installation."
+    "about": "Version, source code and licenses of this installation.",
+    "database": "Where the database keeps its data, the free space of its disk and the repository's, and moving it to another disk."
   },
   "access": {
     "owner": "You can look at these settings. Changing them needs the Owner role in the provider team.",
@@ -404,5 +406,162 @@
   },
   "editionLink": "See editions",
   "editionBadge": "Community",
-  "editionBadgeTitle": "Edition: Community. Opens Installation › Edition."
+  "editionBadgeTitle": "Edition: Community. Opens Installation › Edition.",
+  "database": {
+    "loadError": "The database information could not be loaded.",
+    "intro": "Where the database keeps its data, how much room its disk and the disk of the local repository have, and moving the database to another disk.",
+    "location": {
+      "title": "Database location",
+      "description": "The database holds the catalogue of every backup. When its disk runs full, the database stops.",
+      "where": "Location",
+      "volume": "Docker volume {name} (on the system disk)",
+      "size": "Database size",
+      "filesystem": "File system",
+      "unknown": "unknown"
+    },
+    "disks": {
+      "database": "Disk under the database",
+      "repository": "Disk under the local default repository",
+      "free": "{free} of {total} free",
+      "low": "Low",
+      "lowTitle": "Little free space",
+      "lowBody": "Less than a tenth of the disk is free (and less than 5 GiB). A full disk stops the database or the backups. Free up space, enlarge the disk, or move the database to another disk below. Provider administrators are notified once in the bell and through alert rules with “Low disk space”."
+    },
+    "updateSpace": {
+      "title": "Space for the next update",
+      "enough": "The next update needs about {needed} (backup of the database {dump}, new images {images}, room for migrations {migrations}); {free} are free.",
+      "short": "The next update needs about {needed} (backup of the database {dump}, new images {images}, room for migrations {migrations}), but only {free} are free. The updater refuses the update until there is room."
+    },
+    "updater": {
+      "ready": "The location of the database could not be read. Is the database running?",
+      "unsupported": "The updater predates this function. It is replaced with the next update; until then the database can only be moved by hand (docs/DATABASE.md).",
+      "unavailable": "The optional updater does not answer. Without it the location cannot be read or changed here; the steps by hand are in docs/DATABASE.md.",
+      "demo": "The demonstration installation does not change its database."
+    },
+    "form": {
+      "title": "Move the database to another disk",
+      "description": "Enter a directory on the host, for example the mount point of an attached volume. Restow checks it first; nothing changes until you confirm the move.",
+      "directory": "Directory on the host",
+      "directoryHint": "An absolute path on another local disk (ext4, XFS, Btrfs or ZFS; no network drive). Restow creates a subdirectory restow-postgres-<time> in it.",
+      "check": "Check directory",
+      "move": "Move database…",
+      "manual": "To move the database by hand, follow docs/DATABASE.md, “Moving by hand”.",
+      "notMovable": "The docker-compose.yml of this installation does not read the database location from .env. Use the docker-compose.yml of this release (for example by running the installer again), then the database can be moved here.",
+      "updateActive": "An update is announced or running. Move the database after it."
+    },
+    "check": {
+      "ok": "The directory is suitable.",
+      "facts": "File system {filesystem}, {free} free, {needed} needed (the database and a margin).",
+      "failed": "The database cannot be moved to this directory:"
+    },
+    "problems": {
+      "path_invalid": "The path is not a valid directory for the database: an absolute path of letters, digits and . _ - + @, not a system directory.",
+      "path_missing": "The directory does not exist on the host, or it is not a directory. Create it (on the mounted disk) and check again.",
+      "not_writable": "The directory cannot be written to.",
+      "same_filesystem": "The directory is on the same disk as the database now. Choose a directory on another disk.",
+      "filesystem_unsuitable": "The file system is not suitable for the database. It needs a local file system (ext4, XFS, Btrfs or ZFS), not a network drive (NFS, SMB) or a memory file system.",
+      "insufficient_space": "There is not enough free space for the database and a margin.",
+      "tablespaces": "The database uses tablespaces outside its directory; it cannot be moved here.",
+      "compose_unsupported": "The docker-compose.yml does not read the database location from .env. Use the docker-compose.yml of this release.",
+      "location_unknown": "The current location or size of the database could not be read. Is the database running?",
+      "env_unwritable": "The updater cannot write the .env file.",
+      "busy": "An update, a restart or another move is running. Try again afterwards.",
+      "unknown": "The updater reported a problem this version does not know."
+    },
+    "errors": {
+      "busy": "An update, a restart or another move is running. Try again afterwards.",
+      "unsupported": "The updater predates this function. It is replaced with the next update."
+    },
+    "confirm": {
+      "title": "Move the database?",
+      "description": "The database ({size}) is copied to the new directory, checked and switched over. To confirm, type the directory below.",
+      "downtime": "Restow is unavailable during the move: the copy and its check read the data about three times. Plan for several minutes per 10 GB.",
+      "jobs": "Running backups are interrupted and continue after the move.",
+      "rollback": "If a step fails, Restow starts again from the current location, unchanged.",
+      "keep": "The current copy is kept until you remove it.",
+      "action": "Move database"
+    },
+    "move": {
+      "title": "Database move",
+      "requestedBy": "Started by {who}, {when}",
+      "fromTo": "{from} → {to}",
+      "progress": "Progress of the move",
+      "downtime": "Restow is stopped while the database moves. This page follows the move; it continues by itself when Restow is back.",
+      "away": "Restow is stopped for the move and does not answer right now. This page waits and shows the result when it is back.",
+      "succeeded": "The database now runs from {to}. The copy was checked file by file ({entries} entries) and in a test start before the switch.",
+      "rolledBack": "Restow went back to the old location; the database there is unchanged.",
+      "needsAttention": "The way back did not complete either. Restow may be stopped. Follow docs/DATABASE.md, “When a move needs attention”.",
+      "keptCopy": "The copy in {path} is kept because the database already ran from it. Remove it by hand once you no longer need it.",
+      "log": "Log of the move",
+      "status": {
+        "running": "Running",
+        "succeeded": "Moved",
+        "rolled_back": "Rolled back",
+        "needs_attention": "Needs attention"
+      }
+    },
+    "steps": {
+      "stop_application": "Stop api, worker and scheduler",
+      "stop_database": "Stop the database cleanly",
+      "copy": "Copy the data directory",
+      "verify": "Compare the copy with the original",
+      "trial": "Test start of the database on the copy",
+      "switch": "Switch to the new directory",
+      "start_database": "Start the database from the new directory",
+      "start_application": "Start api, worker and scheduler"
+    },
+    "stepStatus": {
+      "pending": "pending",
+      "running": "running",
+      "done": "done",
+      "failed": "failed",
+      "skipped": "skipped"
+    },
+    "failure": {
+      "stop_application": {
+        "failed": "The application could not be stopped."
+      },
+      "stop_database": {
+        "failed": "The database could not be stopped.",
+        "unclean": "The database did not shut down cleanly."
+      },
+      "copy": {
+        "failed": "Copying the data directory failed."
+      },
+      "verify": {
+        "mismatch": "The copy differs from the original.",
+        "failed": "The copy could not be compared with the original."
+      },
+      "trial": {
+        "failed": "The database did not start on the copy.",
+        "mismatch": "The copy does not hold the same database as the original."
+      },
+      "switch": {
+        "compose_unsupported": "The docker-compose.yml does not read the database location from .env.",
+        "failed": "Switching to the new directory failed."
+      },
+      "start_database": {
+        "failed": "The database did not start from the new directory.",
+        "wrong_location": "The database started, but not from the new directory."
+      },
+      "start_application": {
+        "failed": "The application did not start after the move."
+      },
+      "interrupted": "The updater stopped while the move was running.",
+      "unknown": "The move failed for a reason this version does not know."
+    },
+    "oldCopies": {
+      "title": "Old copy of the database",
+      "description": "The previous location is kept after a move and cannot be started by mistake. Remove it once the database runs well from the new disk; this frees its space.",
+      "movedAt": "Left by the move {when}",
+      "remove": "Remove old copy",
+      "confirmTitle": "Remove the old copy?",
+      "confirmDescription": "The content of {location} is deleted. Only a note file stays, so the directory cannot be mistaken for an empty database. This cannot be undone.",
+      "removal": {
+        "running": "{location} is being removed…",
+        "succeeded": "{location} was removed.",
+        "failed": "{location} could not be removed."
+      }
+    }
+  }
 }

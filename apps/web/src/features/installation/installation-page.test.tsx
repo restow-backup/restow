@@ -124,6 +124,7 @@ describe("who opens the installation page", () => {
       "Notification mail",
       "Microsoft multi-tenant app",
       "Default repository & network shares",
+      "Database",
       "Updates",
       "Edition",
       "About",

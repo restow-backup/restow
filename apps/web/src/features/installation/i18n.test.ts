@@ -212,6 +212,16 @@ describe("installation translations", () => {
       server: "nas.local",
       export: "/volume1/restow",
       command: "docker compose --profile mounts stop mounter",
+      free: "4 GB",
+      needed: "6 GB",
+      dump: "1 GB",
+      images: "1 GB",
+      migrations: "3 GB",
+      filesystem: "xfs",
+      from: "restow_pgdata",
+      to: "/mnt/volume-1/restow-db/restow-postgres-20261002-100000",
+      entries: 1840,
+      location: "restow_pgdata",
     };
     for (const language of ["en", "de"]) {
       await i18n.changeLanguage(language);

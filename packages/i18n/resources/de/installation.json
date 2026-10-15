@@ -16,7 +16,8 @@
     "providerApi": "Provider-API",
     "updates": "Updates",
     "edition": "Edition",
-    "about": "Über"
+    "about": "Über",
+    "database": "Datenbank"
   },
   "descriptions": {
     "server": "Wie Browser diesen Server erreichen und ob Passkeys angeboten werden. Gilt für {scope, select, organisation {Ihre Organisation} other {alle Mandanten}}.",
@@ -29,7 +30,8 @@
     "providerApi": "Schlüssel für RMM- und PSA-Werkzeuge, die über alle Mandanten hinweg arbeiten.",
     "updates": "Welche Version läuft, welche Releases es gibt und wie Sie aktualisieren.",
     "edition": "Welcher Build läuft und der Wechsel auf den vollen Build.",
-    "about": "Version, Quellcode und Lizenzen dieser Installation."
+    "about": "Version, Quellcode und Lizenzen dieser Installation.",
+    "database": "Wo die Datenbank ihre Daten ablegt, der freie Platz ihres Datenträgers und des Repositorys, und das Verschieben auf einen anderen Datenträger."
   },
   "access": {
     "owner": "Sie können diese Einstellungen ansehen. Zum Ändern brauchen Sie die Rolle Inhaber im Provider-Team.",
@@ -404,5 +406,162 @@
   },
   "editionLink": "Edition ansehen",
   "editionBadge": "Community",
-  "editionBadgeTitle": "Edition: Community. Öffnet Installation › Edition."
+  "editionBadgeTitle": "Edition: Community. Öffnet Installation › Edition.",
+  "database": {
+    "loadError": "Die Angaben zur Datenbank konnten nicht geladen werden.",
+    "intro": "Wo die Datenbank ihre Daten ablegt, wie viel Platz ihr Datenträger und der Datenträger des lokalen Repositorys haben, und das Verschieben der Datenbank auf einen anderen Datenträger.",
+    "location": {
+      "title": "Speicherort der Datenbank",
+      "description": "Die Datenbank enthält den Katalog aller Sicherungen. Läuft ihr Datenträger voll, hält die Datenbank an.",
+      "where": "Speicherort",
+      "volume": "Docker-Volume {name} (auf dem Systemdatenträger)",
+      "size": "Größe der Datenbank",
+      "filesystem": "Dateisystem",
+      "unknown": "unbekannt"
+    },
+    "disks": {
+      "database": "Datenträger unter der Datenbank",
+      "repository": "Datenträger unter dem lokalen Standard-Repository",
+      "free": "{free} von {total} frei",
+      "low": "Knapp",
+      "lowTitle": "Wenig freier Speicherplatz",
+      "lowBody": "Weniger als ein Zehntel des Datenträgers ist frei (und weniger als 5 GiB). Ein voller Datenträger hält die Datenbank oder die Sicherungen an. Geben Sie Platz frei, vergrößern Sie den Datenträger oder verschieben Sie die Datenbank unten auf einen anderen Datenträger. Provider-Administratoren werden einmal in der Glocke und über Benachrichtigungsregeln mit „Wenig Speicherplatz“ benachrichtigt."
+    },
+    "updateSpace": {
+      "title": "Platz für das nächste Update",
+      "enough": "Das nächste Update braucht etwa {needed} (Sicherung der Datenbank {dump}, neue Images {images}, Platz für Migrationen {migrations}); {free} sind frei.",
+      "short": "Das nächste Update braucht etwa {needed} (Sicherung der Datenbank {dump}, neue Images {images}, Platz für Migrationen {migrations}), es sind aber nur {free} frei. Der Updater lehnt das Update ab, bis genug Platz frei ist."
+    },
+    "updater": {
+      "ready": "Der Speicherort der Datenbank konnte nicht gelesen werden. Läuft die Datenbank?",
+      "unsupported": "Der Updater ist älter als diese Funktion. Er wird mit dem nächsten Update ersetzt; bis dahin lässt sich die Datenbank nur von Hand verschieben (docs/DATABASE.md).",
+      "unavailable": "Der optionale Updater antwortet nicht. Ohne ihn lässt sich der Speicherort hier weder lesen noch ändern; die Schritte von Hand stehen in docs/DATABASE.md.",
+      "demo": "Die Demo-Installation ändert ihre Datenbank nicht."
+    },
+    "form": {
+      "title": "Datenbank auf einen anderen Datenträger verschieben",
+      "description": "Geben Sie ein Verzeichnis auf dem Host an, zum Beispiel den Einhängepunkt eines zusätzlichen Volumes. Restow prüft es zuerst; nichts ändert sich, bevor Sie das Verschieben bestätigen.",
+      "directory": "Verzeichnis auf dem Host",
+      "directoryHint": "Ein absoluter Pfad auf einem anderen lokalen Datenträger (ext4, XFS, Btrfs oder ZFS; kein Netzlaufwerk). Restow legt darin ein Unterverzeichnis restow-postgres-<Zeit> an.",
+      "check": "Verzeichnis prüfen",
+      "move": "Datenbank verschieben…",
+      "manual": "Um die Datenbank von Hand zu verschieben, folgen Sie docs/DATABASE.md, „Von Hand verschieben“.",
+      "notMovable": "Die docker-compose.yml dieser Installation liest den Speicherort der Datenbank nicht aus der .env. Verwenden Sie die docker-compose.yml dieses Releases (zum Beispiel, indem Sie das Installationsskript erneut ausführen); danach lässt sich die Datenbank hier verschieben.",
+      "updateActive": "Ein Update ist angekündigt oder läuft. Verschieben Sie die Datenbank danach."
+    },
+    "check": {
+      "ok": "Das Verzeichnis ist geeignet.",
+      "facts": "Dateisystem {filesystem}, {free} frei, {needed} nötig (die Datenbank und eine Reserve).",
+      "failed": "Die Datenbank kann nicht in dieses Verzeichnis verschoben werden:"
+    },
+    "problems": {
+      "path_invalid": "Der Pfad ist kein gültiges Verzeichnis für die Datenbank: ein absoluter Pfad aus Buchstaben, Ziffern und . _ - + @, kein Systemverzeichnis.",
+      "path_missing": "Das Verzeichnis gibt es auf dem Host nicht, oder es ist kein Verzeichnis. Legen Sie es (auf dem eingehängten Datenträger) an und prüfen Sie erneut.",
+      "not_writable": "In das Verzeichnis kann nicht geschrieben werden.",
+      "same_filesystem": "Das Verzeichnis liegt auf demselben Datenträger wie die Datenbank jetzt. Wählen Sie ein Verzeichnis auf einem anderen Datenträger.",
+      "filesystem_unsuitable": "Das Dateisystem eignet sich nicht für die Datenbank. Nötig ist ein lokales Dateisystem (ext4, XFS, Btrfs oder ZFS), kein Netzlaufwerk (NFS, SMB) und kein Dateisystem im Arbeitsspeicher.",
+      "insufficient_space": "Es ist nicht genug Platz für die Datenbank und eine Reserve frei.",
+      "tablespaces": "Die Datenbank verwendet Tablespaces außerhalb ihres Verzeichnisses; sie kann hier nicht verschoben werden.",
+      "compose_unsupported": "Die docker-compose.yml liest den Speicherort der Datenbank nicht aus der .env. Verwenden Sie die docker-compose.yml dieses Releases.",
+      "location_unknown": "Der aktuelle Speicherort oder die Größe der Datenbank konnte nicht gelesen werden. Läuft die Datenbank?",
+      "env_unwritable": "Der Updater kann die .env-Datei nicht schreiben.",
+      "busy": "Ein Update, ein Neustart oder ein anderes Verschieben läuft. Versuchen Sie es danach erneut.",
+      "unknown": "Der Updater meldet ein Problem, das diese Version nicht kennt."
+    },
+    "errors": {
+      "busy": "Ein Update, ein Neustart oder ein anderes Verschieben läuft. Versuchen Sie es danach erneut.",
+      "unsupported": "Der Updater ist älter als diese Funktion. Er wird mit dem nächsten Update ersetzt."
+    },
+    "confirm": {
+      "title": "Datenbank verschieben?",
+      "description": "Die Datenbank ({size}) wird in das neue Verzeichnis kopiert, geprüft und umgestellt. Geben Sie zur Bestätigung unten das Verzeichnis ein.",
+      "downtime": "Restow ist während des Verschiebens nicht erreichbar: Kopie und Prüfung lesen die Daten etwa dreimal. Planen Sie mehrere Minuten je 10 GB ein.",
+      "jobs": "Laufende Sicherungen werden unterbrochen und nach dem Verschieben fortgesetzt.",
+      "rollback": "Schlägt ein Schritt fehl, startet Restow wieder am bisherigen Speicherort, unverändert.",
+      "keep": "Die bisherige Kopie bleibt erhalten, bis Sie sie entfernen.",
+      "action": "Datenbank verschieben"
+    },
+    "move": {
+      "title": "Verschieben der Datenbank",
+      "requestedBy": "Gestartet von {who}, {when}",
+      "fromTo": "{from} → {to}",
+      "progress": "Fortschritt des Verschiebens",
+      "downtime": "Restow ist angehalten, während die Datenbank verschoben wird. Diese Seite verfolgt den Vorgang und geht von selbst weiter, sobald Restow wieder da ist.",
+      "away": "Restow ist für das Verschieben angehalten und antwortet gerade nicht. Diese Seite wartet und zeigt das Ergebnis, sobald Restow wieder da ist.",
+      "succeeded": "Die Datenbank läuft jetzt aus {to}. Die Kopie wurde vor dem Umstellen Datei für Datei ({entries} Einträge) und mit einem Probestart geprüft.",
+      "rolledBack": "Restow ist zum bisherigen Speicherort zurückgekehrt; die Datenbank dort ist unverändert.",
+      "needsAttention": "Auch der Weg zurück wurde nicht abgeschlossen. Restow ist möglicherweise angehalten. Folgen Sie docs/DATABASE.md, „Wenn ein Verschieben Aufmerksamkeit braucht“.",
+      "keptCopy": "Die Kopie in {path} bleibt erhalten, weil die Datenbank bereits aus ihr lief. Entfernen Sie sie von Hand, sobald Sie sie nicht mehr brauchen.",
+      "log": "Protokoll des Verschiebens",
+      "status": {
+        "running": "Läuft",
+        "succeeded": "Verschoben",
+        "rolled_back": "Zurückgesetzt",
+        "needs_attention": "Braucht Aufmerksamkeit"
+      }
+    },
+    "steps": {
+      "stop_application": "API, Worker und Scheduler anhalten",
+      "stop_database": "Datenbank sauber anhalten",
+      "copy": "Datenverzeichnis kopieren",
+      "verify": "Kopie mit dem Original vergleichen",
+      "trial": "Probestart der Datenbank auf der Kopie",
+      "switch": "Auf das neue Verzeichnis umstellen",
+      "start_database": "Datenbank aus dem neuen Verzeichnis starten",
+      "start_application": "API, Worker und Scheduler starten"
+    },
+    "stepStatus": {
+      "pending": "ausstehend",
+      "running": "läuft",
+      "done": "erledigt",
+      "failed": "fehlgeschlagen",
+      "skipped": "übersprungen"
+    },
+    "failure": {
+      "stop_application": {
+        "failed": "Die Anwendung konnte nicht angehalten werden."
+      },
+      "stop_database": {
+        "failed": "Die Datenbank konnte nicht angehalten werden.",
+        "unclean": "Die Datenbank wurde nicht sauber beendet."
+      },
+      "copy": {
+        "failed": "Das Kopieren des Datenverzeichnisses ist fehlgeschlagen."
+      },
+      "verify": {
+        "mismatch": "Die Kopie weicht vom Original ab.",
+        "failed": "Die Kopie konnte nicht mit dem Original verglichen werden."
+      },
+      "trial": {
+        "failed": "Die Datenbank ist auf der Kopie nicht gestartet.",
+        "mismatch": "Die Kopie enthält nicht dieselbe Datenbank wie das Original."
+      },
+      "switch": {
+        "compose_unsupported": "Die docker-compose.yml liest den Speicherort der Datenbank nicht aus der .env.",
+        "failed": "Das Umstellen auf das neue Verzeichnis ist fehlgeschlagen."
+      },
+      "start_database": {
+        "failed": "Die Datenbank ist aus dem neuen Verzeichnis nicht gestartet.",
+        "wrong_location": "Die Datenbank ist gestartet, aber nicht aus dem neuen Verzeichnis."
+      },
+      "start_application": {
+        "failed": "Die Anwendung ist nach dem Verschieben nicht gestartet."
+      },
+      "interrupted": "Der Updater wurde angehalten, während das Verschieben lief.",
+      "unknown": "Das Verschieben ist aus einem Grund fehlgeschlagen, den diese Version nicht kennt."
+    },
+    "oldCopies": {
+      "title": "Alte Kopie der Datenbank",
+      "description": "Der bisherige Speicherort bleibt nach einem Verschieben erhalten und kann nicht versehentlich gestartet werden. Entfernen Sie ihn, sobald die Datenbank vom neuen Datenträger gut läuft; das gibt seinen Platz frei.",
+      "movedAt": "Hinterlassen vom Verschieben {when}",
+      "remove": "Alte Kopie entfernen",
+      "confirmTitle": "Alte Kopie entfernen?",
+      "confirmDescription": "Der Inhalt von {location} wird gelöscht. Nur eine Hinweisdatei bleibt, damit das Verzeichnis nicht für eine leere Datenbank gehalten wird. Das lässt sich nicht rückgängig machen.",
+      "removal": {
+        "running": "{location} wird entfernt …",
+        "succeeded": "{location} wurde entfernt.",
+        "failed": "{location} konnte nicht entfernt werden."
+      }
+    }
+  }
 }
