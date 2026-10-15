@@ -295,7 +295,6 @@ async function main(): Promise<void> {
     logger,
     redactor,
     healthTimeoutSeconds: config.healthTimeoutSeconds,
-    updateSpace: () => space.estimate(false),
     otherActivity: () => {
       const { phase } = engine.view();
       if (phase === "scheduled" || phase === "running") {

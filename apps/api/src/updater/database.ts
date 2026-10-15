@@ -17,7 +17,6 @@ import {
   type PublicMove,
   pendingMoveSteps,
   sameLocation,
-  type UpdateSpace,
   validateTargetDir,
 } from "./database-protocol.js";
 import { type CapturedEnv, DATABASE_LOCATION_KEYS, type EnvFile, envValueOf } from "./env-file.js";
@@ -144,8 +143,6 @@ export interface DatabaseMoverDeps {
   otherActivity: () => string | null;
   /** How long PostgreSQL and the api get to become ready (RESTOW_UPDATER_HEALTH_TIMEOUT_SECONDS). */
   healthTimeoutSeconds: number;
-  /** The update space estimate (preflight.ts) for the view; absent: not shown. */
-  updateSpace?: () => Promise<UpdateSpace | null>;
 }
 
 interface Cached<T> {
@@ -253,10 +250,6 @@ export class DatabaseMover {
     } else {
       location = state.move?.status === "running" ? state.move.from : null;
     }
-    let updateSpace: UpdateSpace | null = null;
-    if (this.deps.updateSpace && !this.active()) {
-      updateSpace = await this.deps.updateSpace().catch(() => null);
-    }
     return {
       location,
       usage,
@@ -264,7 +257,6 @@ export class DatabaseMover {
       move: state.move ? structuredClone(state.move) : null,
       oldCopies: structuredClone(state.oldCopies),
       removal: state.removal ? structuredClone(state.removal) : null,
-      updateSpace,
     };
   }
 

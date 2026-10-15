@@ -300,8 +300,6 @@ export const databaseViewSchema = z.object({
   move: moveRecordSchema.nullable(),
   oldCopies: z.array(oldCopySchema).max(20),
   removal: oldCopyRemovalSchema.nullable(),
-  /** What the next update needs; null when it could not be estimated. */
-  updateSpace: updateSpaceSchema.nullable().default(null),
 });
 export type DatabaseView = z.infer<typeof databaseViewSchema>;
 
