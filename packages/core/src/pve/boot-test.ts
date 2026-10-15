@@ -7,6 +7,8 @@
  * a restore point. Green only for proof: the guest agent (or a container's init) answered.
  */
 
+import { PVE_BLOCK_SIZE } from "./formats.js";
+
 /** The capability a node announces in its heartbeat when it can run boot tests. */
 export const PVE_BOOT_TEST_CAPABILITY = "boot_test";
 
@@ -165,4 +167,52 @@ export function pveRestorePointRating(
     return { readiness: read, checkedAt: verify.checkedAt, basis: "verify" };
   }
   return { readiness: null, checkedAt: null, basis: null };
+}
+
+/** The restore point fields a boot test task is built from (a subset of `pve_snapshots`). */
+export interface PveBootTestPoint {
+  readonly archiveName: string;
+  readonly kind: "vm" | "ct";
+  readonly byteSize: number;
+  readonly disks: readonly { readonly size: number; readonly dataBlocks?: number }[];
+}
+
+/** The parameters of a node's `boot_test` task (docs/PVE-PROTOCOL.md). */
+export interface PveBootTestTaskParams {
+  readonly volname: string;
+  readonly kind: "vm" | "ct";
+  readonly vmid: number;
+  readonly maxMemoryMiB: number;
+  readonly timeoutSeconds: number;
+  /** What the restore writes: a VM's stored (non-zero) blocks, a container's files. */
+  readonly dataBytes: number;
+  /** The size of all disks of a VM (a container: what it holds). */
+  readonly diskBytes: number;
+  readonly snapshotId: string;
+}
+
+export function pveBootTestTaskParams(
+  point: PveBootTestPoint & { readonly id: string },
+  vmid: number,
+  plan: PveBootTestPlan,
+): PveBootTestTaskParams {
+  const diskBytes =
+    point.kind === "vm" ? point.disks.reduce((sum, disk) => sum + disk.size, 0) : point.byteSize;
+  const dataBytes =
+    point.kind === "vm"
+      ? Math.min(
+          diskBytes,
+          point.disks.reduce((sum, disk) => sum + (disk.dataBlocks ?? 0) * PVE_BLOCK_SIZE, 0),
+        )
+      : point.byteSize;
+  return {
+    volname: point.archiveName,
+    kind: point.kind,
+    vmid,
+    maxMemoryMiB: plan.maxMemoryMiB,
+    timeoutSeconds: plan.timeoutSeconds,
+    dataBytes,
+    diskBytes,
+    snapshotId: point.id,
+  };
 }

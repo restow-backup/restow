@@ -8,6 +8,7 @@ import {
   pveBootTestDue,
   pveBootTestPlan,
   pveBootTestRating,
+  pveBootTestTaskParams,
   pveNodeDeclares,
   pveRestorePointRating,
 } from "./boot-test.js";
@@ -126,6 +127,37 @@ describe("the rating of a restore point from its read-back and its boot test", (
       readiness: "green",
       checkedAt: iso(0),
       basis: "boot_test",
+    });
+  });
+});
+
+describe("the task a node gets", () => {
+  it("names the restore point, the limits and what the restore writes", () => {
+    const plan = pveBootTestPlan({ schedule: "weekly", maxMemoryMiB: 4096 });
+    const vm = {
+      id: "s1",
+      archiveName: "vm/101/2030-01-01T00:00:00Z",
+      kind: "vm" as const,
+      byteSize: 0,
+      disks: [
+        { size: 32 * 2 ** 30, dataBlocks: 100 },
+        { size: 4 * 2 ** 20, dataBlocks: 1 },
+      ],
+    };
+    expect(pveBootTestTaskParams(vm, 101, plan)).toEqual({
+      volname: "vm/101/2030-01-01T00:00:00Z",
+      kind: "vm",
+      vmid: 101,
+      maxMemoryMiB: 4096,
+      timeoutSeconds: DEFAULT_BOOT_TEST_TIMEOUT_SECONDS,
+      dataBytes: 101 * 4 * 2 ** 20,
+      diskBytes: 32 * 2 ** 30 + 4 * 2 ** 20,
+      snapshotId: "s1",
+    });
+    const ct = { ...vm, kind: "ct" as const, byteSize: 5000, disks: [] };
+    expect(pveBootTestTaskParams(ct, 200, plan)).toMatchObject({
+      dataBytes: 5000,
+      diskBytes: 5000,
     });
   });
 });
