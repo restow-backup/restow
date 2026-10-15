@@ -1,3 +1,4 @@
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import type { Database } from "@restow/db";
@@ -33,12 +34,17 @@ import {
  *   POST   /api/v1/updates/database/check               check a directory (owner)
  *   POST   /api/v1/updates/database/move                move the database there (owner, recent sign-in)
  *   DELETE /api/v1/updates/database/old-copies/:id      remove an old copy (owner, recent sign-in)
- *   GET    /api/v1/updates/dumps/:file                  download a dump (owner, recent sign-in)
+ *   POST   /api/v1/updates/dumps/:file/download         a one-time download link (owner, recent sign-in)
+ *   GET    /api/v1/updates/dumps/:file?ticket=...       the download itself (owner, with the link's ticket)
  *   DELETE /api/v1/updates/dumps/:file                  delete a dump (owner, recent sign-in)
  *
  * A dump holds the whole database, the encrypted secrets included: it is treated like the
- * most sensitive export there is. Its download is audited before the first byte goes out
- * and streamed through without being buffered; nothing of it is logged.
+ * most sensitive export there is. A download takes two requests: the first, which needs a
+ * recent sign-in, issues a ticket for that one file and that one person, valid for a minute
+ * and good for one download; the browser then follows the link and saves the file as it
+ * streams in (a fetch could not hand gigabytes to the disk, and a plain link could not ask
+ * the person to confirm it is them). The download is audited before the first byte goes
+ * out and streamed through without being buffered; nothing of it is logged.
  */
 
 export const DATABASE_AUDIT_ACTIONS = {
@@ -67,7 +73,12 @@ export const DATABASE_PROBLEMS = {
   dumpNotFound: "urn:restow:problem:dump-not-found",
   dumpProtected: "urn:restow:problem:dump-protected",
   oldCopyNotFound: "urn:restow:problem:database-old-copy-not-found",
+  /** The download link was used already, expired, or is someone else's. */
+  dumpTicketInvalid: "urn:restow:problem:dump-ticket-invalid",
 } as const;
+
+/** How long a download link of a dump is good for. */
+export const DUMP_TICKET_TTL_MS = 60_000;
 
 const GIB = 1024 ** 3;
 /** A disk is low below a tenth of its size, and never with less than 5 GiB (a quarter on a small one). */
@@ -144,6 +155,7 @@ export interface DatabaseServiceDeps {
   updater: UpdaterClient;
   repositoryDisk: RepositoryDisk;
   demo?: boolean;
+  now?: () => number;
 }
 
 /** A volume's name or a directory: what the page and the audit log show. */
@@ -152,7 +164,17 @@ function describeLocation(location: DataLocation | null): string | null {
 }
 
 export class DatabaseService {
+  /** Download tickets of dumps, in memory: they live for a minute and the api runs once. */
+  private readonly tickets = new Map<
+    string,
+    { file: string; userId: string | null; expiresAt: number }
+  >();
+
   constructor(private readonly deps: DatabaseServiceDeps) {}
+
+  private now(): number {
+    return this.deps.now?.() ?? Date.now();
+  }
 
   private get demo(): boolean {
     return this.deps.demo === true;
@@ -289,9 +311,55 @@ export class DatabaseService {
    * A dump as a download: audited first, then the updater's stream is handed through. The
    * response carries only what a download needs (no updater headers).
    */
-  async downloadDump(file: string, actor: Actor): Promise<Response> {
+  /** A one-time link to download `file`, for `actor` only, valid for {@link DUMP_TICKET_TTL_MS}. */
+  async issueDumpTicket(file: string, actor: Actor): Promise<{ url: string; expiresAt: string }> {
     if (!isDumpFileName(file)) {
       throw dumpNotFound();
+    }
+    const state = await this.requireUpdater();
+    if (!state.capabilities.dumps.some((dump) => dump.file === file)) {
+      throw dumpNotFound();
+    }
+    const now = this.now();
+    for (const [key, ticket] of this.tickets) {
+      if (ticket.expiresAt <= now) {
+        this.tickets.delete(key);
+      }
+    }
+    const ticket = randomBytes(24).toString("base64url");
+    const expiresAt = now + DUMP_TICKET_TTL_MS;
+    this.tickets.set(ticket, { file, userId: actor.id, expiresAt });
+    return {
+      url: `/api/v1/updates/dumps/${encodeURIComponent(file)}?ticket=${ticket}`,
+      expiresAt: new Date(expiresAt).toISOString(),
+    };
+  }
+
+  /** Use up a ticket: true when it was issued for this file and this person and is still valid. */
+  private redeemTicket(file: string, presented: string | undefined, actor: Actor): boolean {
+    if (!presented) {
+      return false;
+    }
+    for (const [key, ticket] of this.tickets) {
+      const a = Buffer.from(key);
+      const b = Buffer.from(presented);
+      if (a.length === b.length && timingSafeEqual(a, b)) {
+        this.tickets.delete(key);
+        return ticket.file === file && ticket.userId === actor.id && ticket.expiresAt > this.now();
+      }
+    }
+    return false;
+  }
+
+  async downloadDump(file: string, ticket: string | undefined, actor: Actor): Promise<Response> {
+    if (!isDumpFileName(file)) {
+      throw dumpNotFound();
+    }
+    if (!this.redeemTicket(file, ticket, actor)) {
+      throw new ProblemError(403, "The download link is not valid", {
+        type: DATABASE_PROBLEMS.dumpTicketInvalid,
+        detail: "Start the download again from Installation > Updates.",
+      });
     }
     await this.requireUpdater();
     let upstream: Response | null;

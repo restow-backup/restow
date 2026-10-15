@@ -39,6 +39,7 @@ const database = {
   check: vi.fn(),
   move: vi.fn(),
   removeOldCopy: vi.fn(),
+  issueDumpTicket: vi.fn(),
   downloadDump: vi.fn(),
   deleteDump: vi.fn(),
 };
@@ -84,14 +85,15 @@ const ROUTES: [string, string, unknown?][] = [
   ["POST", "/api/v1/updates/database/check", { targetDir: "/mnt/volume-1/restow-db" }],
   ["POST", "/api/v1/updates/database/move", { targetDir: "/mnt/volume-1/restow-db" }],
   ["DELETE", "/api/v1/updates/database/old-copies/c-1"],
-  ["GET", `/api/v1/updates/dumps/${DUMP}`],
+  ["POST", `/api/v1/updates/dumps/${DUMP}/download`, {}],
+  ["GET", `/api/v1/updates/dumps/${DUMP}?ticket=abc`],
   ["DELETE", `/api/v1/updates/dumps/${DUMP}`],
 ];
 
 const STEP_UP = new Set([
   "POST /api/v1/updates/database/move",
   "DELETE /api/v1/updates/database/old-copies/c-1",
-  `GET /api/v1/updates/dumps/${DUMP}`,
+  `POST /api/v1/updates/dumps/${DUMP}/download`,
   `DELETE /api/v1/updates/dumps/${DUMP}`,
 ]);
 
@@ -198,11 +200,12 @@ describe("what the routes accept", () => {
   });
 
   it("streams the dump the service hands over", async () => {
-    const response = await call("GET", `/api/v1/updates/dumps/${DUMP}`);
+    const response = await call("GET", `/api/v1/updates/dumps/${DUMP}?ticket=abc`);
     expect(response.headers.get("content-disposition")).toBe(`attachment; filename="${DUMP}"`);
     expect(await response.text()).toBe("PGDMP");
     expect(database.downloadDump).toHaveBeenCalledWith(
       DUMP,
+      "abc",
       expect.objectContaining({ id: "admin-id" }),
     );
   });

@@ -39,7 +39,8 @@ import type { Actor, UpdateService } from "./service.js";
  *   POST   /database/check          check a directory for the database: { targetDir }
  *   POST   /database/move           move the database there: { targetDir } (recent sign-in)
  *   DELETE /database/old-copies/:id remove an old copy a move left (recent sign-in)
- *   GET    /dumps/:file             download a pre-update dump (recent sign-in)
+ *   POST   /dumps/:file/download    a one-time download link of a pre-update dump (recent sign-in)
+ *   GET    /dumps/:file?ticket=     the download itself, with that link's ticket
  *   DELETE /dumps/:file             delete a pre-update dump (recent sign-in)
  *
  * /api/v1/maintenance — every signed-in user:
@@ -138,10 +139,15 @@ export function buildUpdatesRoutes(
       return c.json(await database.removeOldCopy(c.req.param("id"), actorOf(c)));
     });
     // A dump holds the whole database: downloading it is the most sensitive export there is.
-    routes.get("/dumps/:file", async (c) => {
+    routes.post("/dumps/:file/download", async (c) => {
       assertRecentSignIn(c.get("auth").session);
-      return database.downloadDump(c.req.param("file"), actorOf(c));
+      return c.json(await database.issueDumpTicket(c.req.param("file"), actorOf(c)));
     });
+    // The browser follows the link the step above issued: the ticket stands for the recent
+    // sign-in (it is single use, a minute long and bound to the person and the file).
+    routes.get("/dumps/:file", async (c) =>
+      database.downloadDump(c.req.param("file"), c.req.query("ticket"), actorOf(c)),
+    );
     routes.delete("/dumps/:file", async (c) => {
       assertRecentSignIn(c.get("auth").session);
       await database.deleteDump(c.req.param("file"), actorOf(c));

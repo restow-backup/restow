@@ -255,6 +255,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/updates/database/check": own(),
   "POST /api/v1/updates/database/move": own(),
   "DELETE /api/v1/updates/database/old-copies/:id": own(),
+  "POST /api/v1/updates/dumps/:file/download": own(),
   "GET /api/v1/updates/dumps/:file": own(),
   "DELETE /api/v1/updates/dumps/:file": own(),
   // The maintenance state is for everyone who is signed in.

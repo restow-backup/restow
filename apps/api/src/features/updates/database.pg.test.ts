@@ -354,8 +354,27 @@ describe.skipIf(!testDatabaseAdminUrl)("Installation > Database against Postgres
   });
 
   describe("the dumps", () => {
+    function withDump() {
+      updater.view = stateView({
+        capabilities: {
+          ...stateView().capabilities,
+          dumps: [{ file: DUMP, bytes: 24, createdAt: "2026-09-30T10:00:00.000Z" }],
+        },
+      });
+    }
+
+    function ticketOf(url: string): string {
+      return new URL(url, "https://restow.example.com").searchParams.get("ticket") ?? "";
+    }
+
     it("audit a download before handing the stream through, with download headers only", async () => {
-      const response = await build().downloadDump(DUMP, actor);
+      withDump();
+      const service = build();
+      const link = await service.issueDumpTicket(DUMP, actor);
+      expect(link.url.startsWith(`/api/v1/updates/dumps/${DUMP}?ticket=`)).toBe(true);
+      // Issuing the link is not the download: nothing is audited yet.
+      expect(await auditRows("update.dump.downloaded")).toEqual([]);
+      const response = await service.downloadDump(DUMP, ticketOf(link.url), actor);
       const rows = await auditRows("update.dump.downloaded");
       expect(rows).toHaveLength(1);
       expect(rows[0]).toMatchObject({
@@ -369,14 +388,51 @@ describe.skipIf(!testDatabaseAdminUrl)("Installation > Database against Postgres
       expect(await response.text()).toBe("PGDMP-the-whole-database");
     });
 
+    it("take a ticket once, for its file and its person, within a minute", async () => {
+      withDump();
+      let now = Date.parse("2026-10-01T09:00:00.000Z");
+      const service = new databaseModule.DatabaseService({
+        db: providerDb,
+        updater,
+        repositoryDisk: async () => repository,
+        now: () => now,
+      });
+      const refused = async (ticket: string | undefined, who = actor) => {
+        const error = (await service
+          .downloadDump(DUMP, ticket, who)
+          .catch((caught: unknown) => caught)) as ProblemError;
+        expect(error.type).toBe("urn:restow:problem:dump-ticket-invalid");
+      };
+      await refused(undefined);
+      await refused("made-up");
+      const first = ticketOf((await service.issueDumpTicket(DUMP, actor)).url);
+      await refused(first, { ...actor, id: "someone-else" });
+      // Used up by the attempt above.
+      await refused(first);
+      const late = ticketOf((await service.issueDumpTicket(DUMP, actor)).url);
+      now += 61_000;
+      await refused(late);
+      const good = ticketOf((await service.issueDumpTicket(DUMP, actor)).url);
+      await (await service.downloadDump(DUMP, good, actor)).text();
+      await refused(good);
+      expect(await auditRows("update.dump.downloaded")).toHaveLength(1);
+    });
+
     it("answer 404 for a missing dump or a name that is not one, and audit nothing", async () => {
-      updater.dump = null;
       for (const name of [DUMP, "../status.json", "secret"]) {
         const error = (await build()
-          .downloadDump(name, actor)
+          .issueDumpTicket(name, actor)
           .catch((caught: unknown) => caught)) as ProblemError;
         expect(error.status).toBe(404);
       }
+      withDump();
+      updater.dump = null;
+      const service = build();
+      const link = await service.issueDumpTicket(DUMP, actor);
+      const error = (await service
+        .downloadDump(DUMP, ticketOf(link.url), actor)
+        .catch((caught: unknown) => caught)) as ProblemError;
+      expect(error.status).toBe(404);
       expect(await auditRows("update.dump.downloaded")).toEqual([]);
     });
 
