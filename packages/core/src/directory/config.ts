@@ -52,6 +52,11 @@ export interface DirectoryLastRun {
   readonly error: string | null;
   /** The classified cause behind `error` (why, what to do); absent in runs stored before it existed. */
   readonly failure?: FailureRecord | null;
+  /**
+   * SharePoint sites the run listed; null when they could not be listed (see the
+   * `sites_unavailable` warning), absent in runs stored before sites existed.
+   */
+  readonly sitesDiscovered?: number | null;
 }
 
 export interface DirectoryState {
@@ -208,6 +213,10 @@ function asLastRun(value: unknown): DirectoryLastRun | null {
     warningCount: typeof record.warningCount === "number" ? record.warningCount : warnings.length,
     error: asString(record.error),
     failure: parseFailureRecord(record.failure),
+    sitesDiscovered:
+      typeof record.sitesDiscovered === "number" || record.sitesDiscovered === null
+        ? record.sitesDiscovered
+        : undefined,
   };
 }
 

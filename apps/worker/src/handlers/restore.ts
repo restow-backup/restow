@@ -7,7 +7,7 @@
  * core `RestoreRequest` and hands it to the core engine set
  * (packages/core/src/restore, `createRestoreEngines`), which routes downloads
  * to the ZIP engine and everything else to the engine of the object's kind:
- * Exchange mailboxes, OneDrive, IMAP accounts.
+ * Exchange mailboxes, OneDrive, IMAP accounts, SharePoint sites.
  *
  * What the engines need from the outside world is supplied here, exactly the
  * way the backup handler supplies it (./backup.ts), so both directions resolve
