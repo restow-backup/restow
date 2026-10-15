@@ -23,9 +23,14 @@ import { sessionScope, useSession } from "@/lib/session";
 import { OverviewTabs } from "./components/overview-tabs.js";
 import { tenantDetailTo } from "./paths.js";
 import { widgetView } from "./presenters.js";
+import { useRememberedChoice } from "./ranges.js";
 import { useDashboard } from "./use-dashboard.js";
 import { DashboardWidgets } from "./widget-registry.js";
-import type { TrendWindow } from "./widgets/trend-widgets.js";
+import { TREND_WINDOWS, type TrendWindow } from "./widgets/trend-widgets.js";
+
+/** The backup runs windows as remembered choices. */
+const TREND_WINDOW_CHOICES = TREND_WINDOWS.map(String) as `${TrendWindow}`[];
+
 import "./i18n.js";
 
 /**
@@ -57,12 +62,23 @@ export function DashboardPage() {
 function StatusView({ allTenants }: { allTenants: boolean }) {
   const { t } = useTranslation("dashboard");
   const navigate = useNavigate();
-  const { tenants } = useSession();
+  const { tenants, user } = useSession();
   const switchTenant = useSwitchTenant();
   const dashboard = useDashboard(allTenants ? "all" : "tenant");
   const { query } = dashboard;
   const { refetch } = query;
-  const [trendDays, setTrendDays] = React.useState<TrendWindow>(14);
+  // The backup runs window, remembered for this person like the storage growth window.
+  const [trendWindow, setTrendWindow] = useRememberedChoice(
+    "backupTrendWindow",
+    user?.id ?? null,
+    TREND_WINDOW_CHOICES,
+    "14",
+  );
+  const trendDays = Number(trendWindow) as TrendWindow;
+  const setTrendDays = React.useCallback(
+    (days: TrendWindow) => setTrendWindow(String(days) as `${TrendWindow}`),
+    [setTrendWindow],
+  );
 
   const refresh = React.useCallback(() => void refetch(), [refetch]);
   const openTenant = React.useCallback(
@@ -135,6 +151,9 @@ function StatusView({ allTenants }: { allTenants: boolean }) {
         isProviderAdmin={dashboard.isProviderAdmin}
         trendDays={trendDays}
         onTrendDaysChange={setTrendDays}
+        storageRange={dashboard.storageRange}
+        onStorageRangeChange={dashboard.setStorageRange}
+        storageUpdating={query.isPlaceholderData}
       />
     );
   }

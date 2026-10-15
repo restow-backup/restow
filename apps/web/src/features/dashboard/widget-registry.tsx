@@ -9,6 +9,7 @@ import {
   type WidgetView,
   widgetView,
 } from "./presenters.js";
+import type { StorageRange } from "./ranges.js";
 import { EndpointsWidget } from "./widgets/endpoints-widget.js";
 import { LastBackupWidget } from "./widgets/last-backup-widget.js";
 import { ReadinessWidget } from "./widgets/readiness-widget.js";
@@ -44,6 +45,11 @@ export interface WidgetContext {
   isProviderAdmin: boolean;
   trendDays: TrendWindow;
   onTrendDaysChange: (days: TrendWindow) => void;
+  /** The storage growth window; without it the chart offers no choice. */
+  storageRange?: StorageRange;
+  onStorageRangeChange?: (range: StorageRange) => void;
+  /** Another storage window was chosen and its answer is on the way. */
+  storageUpdating?: boolean;
 }
 
 interface Entry {
@@ -199,7 +205,15 @@ export const SECTIONS: readonly Section[] = [
       {
         key: "storageGrowth",
         source: "storageGrowth",
-        render: (c) => <StorageGrowthWidget view={c.view("storageGrowth")} {...state(c)} />,
+        render: (c) => (
+          <StorageGrowthWidget
+            view={c.view("storageGrowth")}
+            {...state(c)}
+            range={c.storageRange}
+            onRangeChange={c.onStorageRangeChange}
+            updating={c.storageUpdating}
+          />
+        ),
       },
       {
         key: "retention",

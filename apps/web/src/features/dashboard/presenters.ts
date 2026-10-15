@@ -302,25 +302,55 @@ export interface StorageChartRow {
   date: string;
   /** Measured bytes; absent on forecast days. */
   stored?: number;
-  /** Projected bytes; present on the last measured day too, so the two lines join. */
+  /** Projected bytes (the line); present on the last measured day too, so the two join. */
   forecast?: number;
+  /** The estimate's range, slowest to fastest growth; from the last measured day on, when there is one. */
+  band?: [number, number];
 }
 
-/** Measured days followed by the forecast, as one row list for one chart. */
+/**
+ * Measured buckets followed by the estimate, as one row list for one chart.
+ * With a band the estimate is the band alone, never a line through it: a
+ * straight line over months reads more exact than it is.
+ */
 export function storageChartRows(widget: StorageGrowthWidget): StorageChartRow[] {
   const rows: StorageChartRow[] = widget.series.map((point) => ({
     date: point.date,
     stored: point.bytes,
   }));
   const last = rows.at(-1);
-  if (!widget.forecast || !last) {
+  if (!widget.forecast || !last || last.stored === undefined) {
     return rows;
+  }
+  const band = widget.forecast.band;
+  if (band) {
+    last.band = [last.stored, last.stored];
+    return [
+      ...rows,
+      ...band.points.map((point) => ({
+        date: point.date,
+        band: [point.low, point.high] as [number, number],
+      })),
+    ];
   }
   last.forecast = last.stored;
   return [
     ...rows,
     ...widget.forecast.points.map((point) => ({ date: point.date, forecast: point.bytes })),
   ];
+}
+
+/** The largest byte value a storage chart plots, for its axis. */
+export function storageChartMax(rows: readonly StorageChartRow[]): number {
+  return Math.max(
+    0,
+    ...rows.map((row) => Math.max(row.stored ?? 0, row.forecast ?? 0, row.band?.[1] ?? 0)),
+  );
+}
+
+/** How far ahead the estimate reaches, in days (an older server sends no horizon: its points are days). */
+export function storageHorizonDays(widget: StorageGrowthWidget): number {
+  return widget.forecast?.horizonDays ?? widget.forecast?.points.length ?? 0;
 }
 
 const BYTE_STEPS = [1, 2, 2.5, 5, 10] as const;
@@ -361,5 +391,18 @@ export function dayLabel(
     day: "numeric",
     month: style === "short" ? "short" : "long",
     ...(style === "long" ? { year: "numeric" } : {}),
+  }).format(parsed);
+}
+
+/** The month of a `YYYY-MM-DD` day with its year ("Sep 2026"), read as a UTC day: the axis of a year. */
+export function monthLabel(date: string, language: string): string {
+  const parsed = new Date(`${date}T00:00:00.000Z`);
+  if (Number.isNaN(parsed.getTime())) {
+    return date;
+  }
+  return new Intl.DateTimeFormat(language, {
+    timeZone: "UTC",
+    month: "short",
+    year: "numeric",
   }).format(parsed);
 }

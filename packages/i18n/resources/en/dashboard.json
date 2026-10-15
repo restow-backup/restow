@@ -274,14 +274,33 @@
   },
   "storageGrowth": {
     "title": "Storage growth",
-    "description": "Stored data over the last {days} days, by the day it was written.",
+    "description": "Stored data over the last {days} days, {granularity, select, week {per week} month {per month} other {per day}} by when it was written.",
+    "range": "Period",
+    "ranges": {
+      "7d": "1 week",
+      "30d": "1 month",
+      "90d": "3 months",
+      "365d": "1 year"
+    },
+    "clamped": "The history only goes back to {date}: the chart shows {days} days instead of {requested}.",
     "summary": "{stored} stored, {growth} written in the period.",
     "growth": "{growth} written in the last {days} days",
     "estimate": "Estimate: about {bytes} in {days} days if the trend continues (straight line through the last {basisDays} days).",
+    "estimateRange": "Estimate: between {low} and {high} in {days} days, from the slowest and the fastest {granularity, select, month {month} other {week}} of the last {basisDays} days.",
     "noEstimate": "No estimate: there is not enough history yet.",
+    "between": "{low} to {high}",
+    "capacity": {
+      "free": "{free} free on the repository's filesystem ({total} in total).",
+      "fullAround": "At this growth it is full around {date} (estimate).",
+      "fullBetween": "At this growth it is full between {earliest} and {latest} (estimate).",
+      "fullFrom": "At the fastest growth it is full on {date}, at the slowest not within ten years (estimate).",
+      "notFull": "At this growth it is not full within ten years.",
+      "otherData": "Machines, VMs and containers or file shares write there as well, so no day is estimated."
+    },
     "series": {
       "stored": "Stored",
-      "forecast": "Estimate"
+      "forecast": "Estimate",
+      "band": "Estimate (range)"
     },
     "empty": {
       "title": "Nothing stored yet",

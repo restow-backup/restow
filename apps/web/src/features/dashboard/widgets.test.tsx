@@ -6,7 +6,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { i18n } from "@/i18n";
 
-import type { TenantWidgets, WidgetData, WidgetResult } from "./api.js";
+import type { StorageCapacity, TenantWidgets, WidgetData, WidgetResult } from "./api.js";
 import { WidgetUnavailableError, type WidgetView } from "./presenters.js";
 import { DashboardWidgets, expectedWidgets, PAGE_WIDGETS } from "./widget-registry.js";
 import { EndpointsWidget } from "./widgets/endpoints-widget.js";
@@ -960,6 +960,142 @@ describe("charts", () => {
       />,
     );
     expect(empty).toContain("Nothing stored yet");
+  });
+
+  it("offers the storage window as a radio group of four ranges", () => {
+    const html = render(
+      <StorageGrowthWidget
+        view={ready(data.storageGrowth)}
+        {...state}
+        range="90d"
+        onRangeChange={() => {}}
+      />,
+    );
+    expectTranslated(html);
+    expect(html).toContain('role="radiogroup"');
+    expect(html).toContain('aria-label="Period"');
+    expect(html.match(/role="radio"/g)).toHaveLength(4);
+    for (const label of ["1 week", "1 month", "3 months", "1 year"]) {
+      expect(html).toContain(label);
+    }
+    expect(html).toMatch(/role="radio" aria-checked="true"[^>]*>3 months/);
+    // Without a window to choose (an older caller) the card offers none.
+    expect(
+      render(<StorageGrowthWidget view={ready(data.storageGrowth)} {...state} />),
+    ).not.toContain('role="radiogroup"');
+  });
+
+  it("shows three months or more as a range, never as one line, and never in green", () => {
+    const GB = 1e9;
+    const yearly = {
+      ...data.storageGrowth,
+      days: 365,
+      requestedDays: 365,
+      granularity: "month" as const,
+      forecast: {
+        method: "linear" as const,
+        basisDays: 365,
+        slopeBytesPerDay: 2 * GB,
+        horizonDays: 365,
+        points: [{ date: "2027-09-23", bytes: 800 * GB }],
+        band: {
+          slowestBytesPerDay: GB,
+          fastestBytesPerDay: 3 * GB,
+          points: [{ date: "2027-09-23", low: 500 * GB, high: 1200 * GB }],
+        },
+      },
+    };
+    const html = render(<StorageGrowthWidget view={ready(yearly)} {...state} range="365d" />);
+    expectTranslated(html);
+    expect(html).toContain("Estimate: between");
+    expect(html).toContain("from the slowest and the fastest month of the last 365 days");
+    expect(html).not.toContain("straight line through");
+    expect(html).toContain("per month by when it was written");
+    // The range is the chart's own series colour: an estimate is never green.
+    expect(html).toContain("--color-band: var(--chart-1)");
+    expect(html).not.toContain("chart-success");
+  });
+
+  it("says when the history is shorter than the window asked for", () => {
+    const clamped = {
+      ...data.storageGrowth,
+      days: 30,
+      requestedDays: 365,
+    };
+    const html = render(<StorageGrowthWidget view={ready(clamped)} {...state} range="365d" />);
+    // The series ends on 2026-08-30 (DAYS(30)): 30 days back is 1 August.
+    expect(html).toContain("The history only goes back to August 1, 2026");
+    expect(html).toContain("shows 30 days instead of 365");
+    expect(
+      render(<StorageGrowthWidget view={ready(data.storageGrowth)} {...state} />),
+    ).not.toContain("only goes back");
+  });
+
+  it("names the day the repository runs full only where its capacity is known", () => {
+    const capacity = (runsFull: StorageCapacity["runsFull"]) => ({
+      ...data.storageGrowth,
+      capacity: { source: "filesystem" as const, freeBytes: 1e12, totalBytes: 4e12, runsFull },
+    });
+    const around = render(
+      <StorageGrowthWidget
+        view={ready(capacity({ estimate: "2027-03-01", earliest: null, latest: null }))}
+        {...state}
+      />,
+    );
+    expect(around).toContain("free on the repository");
+    expect(around).toContain("At this growth it is full around March 1, 2027 (estimate).");
+    const never = render(
+      <StorageGrowthWidget
+        view={ready(capacity({ estimate: null, earliest: null, latest: null }))}
+        {...state}
+      />,
+    );
+    expect(never).toContain("not full within ten years");
+    const shared = render(<StorageGrowthWidget view={ready(capacity(null))} {...state} />);
+    expect(shared).toContain("so no day is estimated");
+    expect(shared).not.toContain("full around");
+    // S3, or a default the tenant shares: nothing about capacity at all.
+    const unknown = render(
+      <StorageGrowthWidget view={ready({ ...data.storageGrowth, capacity: null })} {...state} />,
+    );
+    expect(unknown).not.toContain("repository");
+  });
+
+  it("dates the band's earliest and latest day of running full", () => {
+    const banded = {
+      ...data.storageGrowth,
+      days: 90,
+      granularity: "week" as const,
+      forecast: {
+        ...(data.storageGrowth.forecast as NonNullable<typeof data.storageGrowth.forecast>),
+        band: {
+          slowestBytesPerDay: 1,
+          fastestBytesPerDay: 3,
+          points: [{ date: "2026-09-01", low: 3000, high: 5000 }],
+        },
+      },
+      capacity: {
+        source: "filesystem" as const,
+        freeBytes: 1e12,
+        totalBytes: 4e12,
+        runsFull: { estimate: "2027-01-01", earliest: "2026-12-01", latest: "2027-06-01" },
+      },
+    };
+    const html = render(<StorageGrowthWidget view={ready(banded)} {...state} />);
+    expect(html).toContain("full between December 1, 2026 and June 1, 2027");
+    const slowNever = render(
+      <StorageGrowthWidget
+        view={ready({
+          ...banded,
+          capacity: {
+            ...banded.capacity,
+            runsFull: { estimate: null, earliest: "2026-12-01", latest: null },
+          },
+        })}
+        {...state}
+      />,
+    );
+    expect(slowNever).toContain("At the fastest growth it is full on December 1, 2026");
   });
 
   it("draws the estimate's legend marker dashed and the measured one solid", () => {

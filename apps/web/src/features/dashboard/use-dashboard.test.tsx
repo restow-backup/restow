@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { SessionContextValue, SessionTenant } from "@/lib/session";
 
+import type { StorageRange } from "./ranges";
 import { useDashboard } from "./use-dashboard";
 
 /**
@@ -20,13 +21,20 @@ import { useDashboard } from "./use-dashboard";
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const session = vi.hoisted(() => ({ value: null as unknown }));
+const fetched = vi.hoisted(() => ({ calls: [] as unknown[][] }));
 vi.mock("@/lib/session", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/session")>();
   return { ...actual, useSession: () => session.value };
 });
 vi.mock("./api.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./api.js")>();
-  return { ...actual, fetchDashboard: () => new Promise(() => undefined) };
+  return {
+    ...actual,
+    fetchDashboard: (...args: unknown[]) => {
+      fetched.calls.push(args);
+      return new Promise(() => undefined);
+    },
+  };
 });
 
 function tenant(id: string, kind: "customer" | "internal"): SessionTenant {
@@ -158,5 +166,58 @@ describe("useDashboard, the own organisation", () => {
   it("asks nothing while the profile is still loading", async () => {
     const seen = await readHook(sessionOf({ status: "loading", tenants: [] }));
     expect(seen.ownOrganisation).toBeNull();
+  });
+});
+
+describe("useDashboard, the storage growth window", () => {
+  /** Renders the hook, optionally chooses a window, and returns what it shows and asked for. */
+  async function withRange(user: string, choose?: StorageRange) {
+    fetched.calls = [];
+    session.value = sessionOf({
+      user: { id: user, name: user, email: `${user}@example.test` },
+      tenants: [tenant("a", "customer")],
+    });
+    let current: ReturnType<typeof useDashboard> | null = null;
+    function Probe() {
+      current = useDashboard("tenant");
+      return null;
+    }
+    container = document.createElement("div");
+    root = createRoot(container);
+    await act(async () => {
+      root?.render(
+        <QueryClientProvider
+          client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}
+        >
+          <Probe />
+        </QueryClientProvider>,
+      );
+    });
+    if (choose) {
+      await act(async () => {
+        (current as ReturnType<typeof useDashboard> | null)?.setStorageRange(choose);
+      });
+    }
+    const range = (current as ReturnType<typeof useDashboard> | null)?.storageRange;
+    await act(async () => root?.unmount());
+    root = null;
+    return { range, calls: fetched.calls };
+  }
+
+  it("asks for the month by default, with no parameters", async () => {
+    localStorage.clear();
+    const { range, calls } = await withRange("anna");
+    expect(range).toBe("30d");
+    expect(calls).toEqual([["tenant", {}]]);
+  });
+
+  it("asks for the chosen window and remembers it for the same person only", async () => {
+    localStorage.clear();
+    const chosen = await withRange("anna", "365d");
+    expect(chosen.range).toBe("365d");
+    expect(chosen.calls.at(-1)).toEqual(["tenant", { storageDays: "365" }]);
+    // Next visit: Anna's choice is back at once; Ben has his own.
+    expect((await withRange("anna")).calls).toEqual([["tenant", { storageDays: "365" }]]);
+    expect((await withRange("ben")).range).toBe("30d");
   });
 });
