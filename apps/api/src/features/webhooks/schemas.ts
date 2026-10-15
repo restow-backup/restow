@@ -52,7 +52,9 @@ export const webhookEventSchema = z.enum(WEBHOOK_EVENTS);
 /** `restow` (signed JSON, the default) or a chat service's message shape. */
 export const webhookFormatSchema = z.enum(WEBHOOK_FORMATS);
 
-// Empty: a webhook only alert and report rules send to (a Teams channel for alerts, say).
+// The stream events the webhook subscribes to. Empty: a webhook only alert and report rules send
+// to (a Teams channel for alerts, say). Which catalog events it gets is its column in the
+// notification matrix (features/reports, /notification-matrix).
 const eventsSchema = z
   .array(webhookEventSchema)
   .max(WEBHOOK_EVENTS.length * 2)
@@ -69,7 +71,8 @@ const nameSchema = z
 export const createWebhookSchema = z.object({
   name: nameSchema.optional().transform((value) => value ?? null),
   url: webhookUrlSchema,
-  events: eventsSchema,
+  // Omitted: the format's defaults (a chat webhook errors and warnings, a signed one everything).
+  events: eventsSchema.optional(),
   active: z.boolean().default(true),
   format: webhookFormatSchema.default("restow"),
 });

@@ -217,7 +217,11 @@ describe("NotificationsStep", () => {
     const values = {
       ...emptyTenantWizardForm("en"),
       notificationRecipients: [
-        { ...emptyRecipient(), email: "ops@contoso.example", categories: ["jobFailures" as const] },
+        {
+          ...emptyRecipient(),
+          email: "ops@contoso.example",
+          events: ["backup.failed", "restore.failed", "archive.failed", "directory.failed"],
+        },
       ],
     };
     const html = renderStep((form) => <NotificationsStep form={form} />, values);
@@ -424,7 +428,11 @@ describe("ReviewStep", () => {
       timeZone: "Europe/Berlin",
       contacts: [{ ...emptyContact(true), name: "Alice Admin", email: "alice@contoso.example" }],
       notificationRecipients: [
-        { ...emptyRecipient(), email: "ops@contoso.example", categories: ["jobFailures"] },
+        {
+          ...emptyRecipient(),
+          email: "ops@contoso.example",
+          events: ["backup.failed", "restore.failed", "archive.failed", "directory.failed"],
+        },
       ],
       admins: [],
     };

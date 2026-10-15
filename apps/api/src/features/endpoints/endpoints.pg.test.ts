@@ -26,6 +26,7 @@ import {
   openEndpointPassword,
   secretMatchesHash,
   singleKeyring,
+  webhookSubscriptionUpdate,
 } from "@restow/core";
 import {
   auditLog,
@@ -976,7 +977,7 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
         tenantId: fixture.tenantId,
         name: "RMM",
         url: "https://rmm.example/hook",
-        events: ["job.failed"],
+        events: webhookSubscriptionUpdate([], ["job.failed"]),
       });
       const { runId, finish } = await finishedBackup(who, {
         status: "failed",
@@ -1091,7 +1092,7 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
         tenantId: fixture.tenantId,
         name: "RMM",
         url: "https://rmm.example/hook",
-        events: ["job.failed"],
+        events: webhookSubscriptionUpdate([], ["job.failed"]),
       });
       const { runId, finish } = await finishedBackup(who, {
         status: "failed",
@@ -1162,7 +1163,7 @@ describe.skipIf(!canRun)("endpoint backup against Postgres", () => {
         tenantId: fixture.tenantId,
         name: "RMM",
         url: "https://rmm.example/hook",
-        events: ["job.failed"],
+        events: webhookSubscriptionUpdate([], ["job.failed"]),
       });
       return hookId;
     }

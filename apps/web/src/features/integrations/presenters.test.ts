@@ -202,58 +202,47 @@ describe("webhooks", () => {
     const result = webhookFormSchema.safeParse({
       name: "",
       url: "ftp://x",
-      events: [],
       active: true,
       format: "restow",
     });
     const messages = result.success ? [] : result.error.issues.map((issue) => issue.message);
-    // No event is allowed: a webhook only rules send to.
     expect(messages).toEqual(["scheme"]);
     expect(
       webhookFormSchema.safeParse({
         name: "",
         url: "",
-        events: ["job.failed"],
         active: true,
         format: "restow",
       }).success,
     ).toBe(false);
   });
 
-  it("round-trip between form and API", () => {
+  it("round-trip between form and API, leaving the events to the notification matrix", () => {
     const hook = webhook({ name: null, events: ["job.completed", "job.failed"] });
     const values = webhookFormFrom(hook);
     expect(values).toEqual({
       name: "",
       url: hook.url,
-      events: ["job.completed", "job.failed"],
       active: true,
       format: "restow",
     });
+    // A new webhook names no events: the server starts it with its format's defaults.
     expect(toWebhookInput({ ...values, name: "  " })).toEqual({
       name: null,
       url: hook.url,
-      events: ["job.failed", "job.completed"],
       active: true,
       format: "restow",
     });
-    expect(webhookFormFrom()).toMatchObject({
-      events: ["job.failed"],
-      active: true,
-      format: "restow",
-    });
+    expect(webhookFormFrom()).toMatchObject({ active: true, format: "restow" });
     expect(webhookFormFrom(webhook({ format: "slack" })).format).toBe("slack");
   });
 
   it("patch only what changed", () => {
     const hook = webhook();
     expect(webhookPatch(webhookFormFrom(hook), hook)).toEqual({});
-    expect(
-      webhookPatch(
-        { ...webhookFormFrom(hook), events: ["job.completed", "job.failed"], active: false },
-        hook,
-      ),
-    ).toEqual({ events: ["job.failed", "job.completed"], active: false });
+    expect(webhookPatch({ ...webhookFormFrom(hook), active: false }, hook)).toEqual({
+      active: false,
+    });
     expect(webhookPatch({ ...webhookFormFrom(hook), name: "" }, hook)).toEqual({ name: null });
     expect(webhookPatch({ ...webhookFormFrom(hook), format: "teams" }, hook)).toEqual({
       format: "teams",
@@ -261,7 +250,7 @@ describe("webhooks", () => {
   });
 
   it("validate the format", () => {
-    const base = { name: "", url: "https://x.example", events: ["job.failed"], active: true };
+    const base = { name: "", url: "https://x.example", active: true };
     for (const format of WEBHOOK_FORMATS) {
       expect(webhookFormSchema.safeParse({ ...base, format }).success).toBe(true);
     }

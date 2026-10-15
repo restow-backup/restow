@@ -259,7 +259,8 @@
       "no_recipient": "No recipient.",
       "demo_mode": "Demo: nothing leaves this server.",
       "no_webhook": "No webhook chosen.",
-      "send_failed": "The mail server did not accept the message."
+      "send_failed": "The mail server did not accept the message.",
+      "channel_off": "The channel no longer gets this event (Integrations › Notifications)."
     },
     "descriptionAllTenants": "Everything every tenant's rules sent or tried to send, newest first.",
     "technicalDetail": "Technical detail",
@@ -372,7 +373,8 @@
   "events": {
     "backup": {
       "failed": "Backup failed",
-      "overdue": "Backup overdue"
+      "overdue": "Backup overdue",
+      "succeeded": "Backup succeeded"
     },
     "restore": {
       "failed": "Restore failed",
@@ -387,7 +389,8 @@
     "verify": {
       "red": "Restore check failed",
       "yellow": "Restore check needs attention",
-      "recovered": "Restorable again"
+      "recovered": "Restorable again",
+      "completed": "Restore check finished"
     },
     "scrub": {
       "corrupt": "Storage damage found",
@@ -410,7 +413,8 @@
   "eventHints": {
     "backup": {
       "failed": "A backup run of a mailbox, OneDrive, IMAP account, server or client did not finish.",
-      "overdue": "A mailbox, OneDrive, IMAP account, machine or guest (VM or container) had no successful backup for longer than its backup jobs plan (twice the longest gap of the schedules, two days without one), or for longer than the rule's own deadline. Once per object, until a backup succeeds again."
+      "overdue": "A mailbox, OneDrive, IMAP account, machine or guest (VM or container) had no successful backup for longer than its backup jobs plan (twice the longest gap of the schedules, two days without one), or for longer than the rule's own deadline. Once per object, until a backup succeeds again.",
+      "succeeded": "A backup run of a mailbox, OneDrive, IMAP account or file share finished. Every run, so best for a channel that wants to see each one."
     },
     "restore": {
       "failed": "A restore or a download, of a server or client too, could not be finished.",
@@ -425,7 +429,8 @@
     "verify": {
       "red": "A restore would not be complete: the newest backup of a mailbox, OneDrive, IMAP account, server or client failed its restore check.",
       "yellow": "The check passed with warnings.",
-      "recovered": "A mailbox, OneDrive, IMAP account, server or client that was red or yellow is green again."
+      "recovered": "A mailbox, OneDrive, IMAP account, server or client that was red or yellow is green again.",
+      "completed": "A restore check finished, whatever its rating. Every check, so best for a channel that wants to see each one."
     },
     "scrub": {
       "corrupt": "The storage check found damaged or missing pack files.",
@@ -520,7 +525,8 @@
   "bellEvents": {
     "backup": {
       "failed": "Backup failed: {object}",
-      "overdue": "No successful backup {days, plural, one {for over # day} other {for over # days}}: {object}"
+      "overdue": "No successful backup {days, plural, one {for over # day} other {for over # days}}: {object}",
+      "succeeded": "Backup succeeded: {object}"
     },
     "restore": {
       "failed": "Restore failed: {object}",
@@ -536,7 +542,8 @@
       "red": "Restore check failed: {object}",
       "redOutdated": "Backup too old: {object}",
       "yellow": "Restore check needs attention: {object}",
-      "recovered": "Restorable again: {object}"
+      "recovered": "Restorable again: {object}",
+      "completed": "Restore check finished: {object}"
     },
     "scrub": {
       "corrupt": "Storage damage found",
@@ -598,7 +605,10 @@
   "defaultRules": {
     "jobFailures": "Failed runs",
     "readinessRed": "Recoverability at risk",
-    "weeklyReport": "Weekly report"
+    "weeklyReport": "Weekly report",
+    "errors": "Other errors",
+    "warnings": "Warnings",
+    "notices": "Notices"
   },
   "history": {
     "title": "Notifications",

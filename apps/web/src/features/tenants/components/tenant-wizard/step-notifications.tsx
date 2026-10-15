@@ -27,7 +27,12 @@ import {
   mailTestFailureKey,
   notificationTestErrorKey,
 } from "../../presenters";
-import type { NotificationCategory } from "../../types";
+import {
+  categoryChosen,
+  eventsBeyondCategories,
+  type NotificationCategory,
+  withCategory,
+} from "../../types";
 
 interface StepProps {
   form: UseFormReturn<TenantWizardValues>;
@@ -49,10 +54,14 @@ export function NotificationsStep({ form, canOpenInstallation = true }: StepProp
   const recipients = form.watch("notificationRecipients");
   const listError = fieldMessageKey(errors.notificationRecipients as FieldError | undefined);
 
+  // A category is a shortcut: it adds its events to the recipient's column or takes them away.
   function toggleCategory(index: number, category: NotificationCategory, checked: boolean) {
-    const current = recipients[index]?.categories ?? [];
-    const next = checked ? [...current, category] : current.filter((c) => c !== category);
-    form.setValue(`notificationRecipients.${index}.categories`, next, { shouldDirty: true });
+    const current = recipients[index]?.events ?? [];
+    form.setValue(
+      `notificationRecipients.${index}.events`,
+      withCategory(current, category, checked),
+      { shouldDirty: true },
+    );
   }
 
   return (
@@ -78,7 +87,8 @@ export function NotificationsStep({ form, canOpenInstallation = true }: StepProp
           return key ? t(key, { max }) : undefined;
         };
         const email = recipients[index]?.email.trim();
-        const categories = recipients[index]?.categories ?? [];
+        const events = recipients[index]?.events ?? [];
+        const beyond = eventsBeyondCategories(events);
         return (
           <Card key={field.id} className="py-0">
             <CardContent className="space-y-3 p-4">
@@ -134,7 +144,7 @@ export function NotificationsStep({ form, canOpenInstallation = true }: StepProp
                     <div key={category} className="flex items-center gap-2">
                       <Checkbox
                         id={id}
-                        checked={categories.includes(category)}
+                        checked={categoryChosen(events, category)}
                         onCheckedChange={(checked) =>
                           toggleCategory(index, category, checked === true)
                         }
@@ -146,6 +156,11 @@ export function NotificationsStep({ form, canOpenInstallation = true }: StepProp
                   );
                 })}
               </div>
+              {beyond > 0 ? (
+                <p className="text-xs text-muted-foreground" data-slot="recipient-more-events">
+                  {t("wizard.notifications.moreEvents", { count: beyond })}
+                </p>
+              ) : null}
             </CardContent>
           </Card>
         );

@@ -288,6 +288,29 @@ export function verifyRecordNotification(
   });
 }
 
+/** `verify.completed`: the check finished, whatever its rating. */
+export function verifyCompletedNotification(
+  record: VerifyRecord,
+  reportId: string,
+): NewNotification {
+  const label = objectLabel(record.object);
+  return {
+    tenantId: record.tenantId,
+    level: "info",
+    event: "verify.completed",
+    message: `The restore check of ${label} finished: ${record.outcome.readiness}.`,
+    details: {
+      protectedObjectId: record.object.id,
+      objectName: label,
+      objectKind: record.object.kind,
+      reportId,
+      readiness: record.outcome.readiness,
+      previous: record.previous,
+      reasons: record.outcome.details.reasons.map((reason) => reason.code),
+    },
+  };
+}
+
 /**
  * Where the handler reads its inputs and records the outcome. The Postgres
  * store is the production one; tests pass an in-memory store so the whole
@@ -350,9 +373,12 @@ export function pgVerifyStore(db: Database, tenantId: string): VerifyStore {
           })
           .where(and(eq(jobs.tenantId, tenantId), eq(jobs.id, record.jobId)));
         const notification = verifyRecordNotification(record, report.id);
-        if (notification) {
-          await raiseEvents(tx, [notification]);
-        }
+        // Every recorded check is also `verify.completed`, a routine event for the channels
+        // that want it (the bell only when its column has it on).
+        await raiseEvents(tx, [
+          ...(notification ? [notification] : []),
+          verifyCompletedNotification(record, report.id),
+        ]);
         return stored;
       });
     },

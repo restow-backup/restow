@@ -12,6 +12,7 @@ import {
 } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { contentDisposition } from "../restore/headers.js";
+import { getNotificationMatrix, updateNotificationMatrix } from "./matrix.js";
 import {
   createReportRuleSchema,
   exportDeliveriesQuerySchema,
@@ -19,6 +20,7 @@ import {
   listNotificationsQuerySchema,
   markNotificationsReadSchema,
   reportRuleParamSchema,
+  updateNotificationMatrixSchema,
   updateReportRuleSchema,
 } from "./schemas.js";
 import {
@@ -52,6 +54,9 @@ import {
  *   POST   /rules/:id/test   queue a test on every channel of the rule
  *   GET    /deliveries       the delivery log, newest first (`ruleId`, `status`, `before`)
  *   GET    /deliveries/export the same as CSV
+ *   GET    /matrix           the notification matrix: the events, and every channel (the bell,
+ *                            each webhook, each notification recipient) with the events it gets
+ *   PUT    /matrix           save the columns of the channels named (`channels`)
  *
  * /api/v1/notifications — the bell.
  *
@@ -130,6 +135,21 @@ export function buildReportsRoutes(deps: ReportsRoutesDeps): Hono<TenantEnv> {
   routes.post("/rules/:id/test", deps.requireAdmin, async (c) => {
     const { id } = parseOrProblem(reportRuleParamSchema, c.req.param());
     return c.json(await testRule(deps.db, c.get("tenantId"), id, actorOf(c), now()), 202);
+  });
+
+  routes.get("/matrix", deps.requireAdmin, async (c) =>
+    c.json(
+      await getNotificationMatrix(deps.db, c.get("tenantId"), {
+        providerAdmin: c.get("isProviderAdmin"),
+      }),
+    ),
+  );
+
+  routes.put("/matrix", deps.requireAdmin, async (c) => {
+    const input = await parseJsonBody(c.req, updateNotificationMatrixSchema);
+    return c.json(
+      await updateNotificationMatrix(deps.db, c.get("tenantId"), input, actorOf(c), now()),
+    );
   });
 
   routes.get("/deliveries", deps.requireAdmin, async (c) => {

@@ -84,6 +84,7 @@ export const EVENT_GROUPS: Record<
   jobs: [
     "backup.failed",
     "backup.overdue",
+    "backup.succeeded",
     "restore.failed",
     "restore.completed",
     "archive.failed",
@@ -92,7 +93,7 @@ export const EVENT_GROUPS: Record<
     "endpoint.repository_locked",
     "file_share.repository_locked",
   ],
-  recoverability: ["verify.red", "verify.yellow", "verify.recovered"],
+  recoverability: ["verify.red", "verify.yellow", "verify.recovered", "verify.completed"],
   storage: [
     "scrub.corrupt",
     "scrub.repaired",

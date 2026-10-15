@@ -86,10 +86,58 @@ export const OFFERED_NOTIFICATION_CATEGORIES: readonly NotificationCategory[] = 
   "weeklyReport",
 ];
 
+/** A recipient's entry for the weekly report (the report is no event). */
+export const WEEKLY_REPORT_ENTRY = "report.weekly";
+
+/**
+ * The events a category stands for (mirrors CATEGORY_EVENTS in apps/api
+ * features/reports/defaults.ts). A category is a shortcut: ticking it adds its events to the
+ * recipient's column of the notification matrix, unticking takes them away.
+ */
+export const CATEGORY_EVENTS: Readonly<Record<NotificationCategory, readonly string[]>> = {
+  jobFailures: ["backup.failed", "restore.failed", "archive.failed", "directory.failed"],
+  readinessRed: ["verify.red", "scrub.corrupt"],
+  weeklyReport: [WEEKLY_REPORT_ENTRY],
+  licenseUpdates: [],
+};
+
+/** Whether the column holds every event of `category`. */
+export function categoryChosen(events: readonly string[], category: NotificationCategory): boolean {
+  const covered = CATEGORY_EVENTS[category];
+  return covered.length > 0 && covered.every((event) => events.includes(event));
+}
+
+/** The column with the events of `category` added or taken away; the rest stays. */
+export function withCategory(
+  events: readonly string[],
+  category: NotificationCategory,
+  on: boolean,
+): string[] {
+  const covered = CATEGORY_EVENTS[category];
+  const rest = events.filter((event) => !covered.includes(event));
+  return on ? [...rest, ...covered] : rest;
+}
+
+/** The events of the categories. */
+export function eventsOfCategories(categories: readonly NotificationCategory[]): string[] {
+  return [...new Set(categories.flatMap((category) => CATEGORY_EVENTS[category]))];
+}
+
+/** How many of the column's events no offered category covers (chosen in the matrix). */
+export function eventsBeyondCategories(events: readonly string[]): number {
+  const covered = new Set(
+    OFFERED_NOTIFICATION_CATEGORIES.flatMap((category) => CATEGORY_EVENTS[category]),
+  );
+  return events.filter((event) => !covered.has(event)).length;
+}
+
 export interface NotificationRecipient {
   id: string;
   email: string;
   name: string | null;
+  /** The recipient's column of the notification matrix: catalog events and `report.weekly`. */
+  events: string[];
+  /** The categories whose events `events` holds completely. */
   categories: NotificationCategory[];
 }
 
@@ -184,7 +232,8 @@ export interface TenantContactInput {
 export interface NotificationRecipientInput {
   email: string;
   name?: string;
-  categories: NotificationCategory[];
+  /** The recipient's column of the notification matrix (the categories are shortcuts for it). */
+  events: string[];
 }
 
 export interface CreateTenantInput {

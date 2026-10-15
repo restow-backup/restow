@@ -34,6 +34,7 @@ import {
   type StorageTargets,
   sealSecret,
   type TenantKeyring,
+  webhookSubscriptionUpdate,
   withRepository,
 } from "@restow/core";
 import {
@@ -1150,7 +1151,11 @@ describe.skipIf(!adminUrl || !resticAvailable())(
           const id = await bareEndpoint({ lastSnapshotId: SNAPSHOT });
           const [hook] = await owner
             .insert(webhooks)
-            .values({ tenantId: contoso, url: "https://rmm.example/hook", events: ["job.failed"] })
+            .values({
+              tenantId: contoso,
+              url: "https://rmm.example/hook",
+              events: webhookSubscriptionUpdate([], ["job.failed"]),
+            })
             .returning();
           try {
             const test = await silentTest(id);

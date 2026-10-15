@@ -10,13 +10,15 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { ApiKeysPanel } from "./api-keys/api-keys-panel";
 import { useIntegrationsScope } from "./hooks";
+import { NotificationMatrixPanel } from "./notifications/notification-matrix";
 import { integrationsTo } from "./paths";
 import { INTEGRATIONS_ROLES, type IntegrationsTab, parseIntegrationsSearch } from "./presenters";
 import { WebhooksPanel } from "./webhooks/webhooks-panel";
 
 /**
  * Integrations: API keys (tenant keys and, for provider admins, provider
- * keys) and webhooks with their delivery logs. The tab lives in the URL.
+ * keys), webhooks with their delivery logs, and the notification matrix
+ * (which channel gets which event). The tab lives in the URL.
  */
 export function IntegrationsPage() {
   return (
@@ -35,12 +37,13 @@ function IntegrationsContent() {
   const raw = useSearch({ strict: false }) as Record<string, unknown>;
   const search = React.useMemo(() => parseIntegrationsSearch(raw), [raw]);
   const navigate = useNavigate();
-  const tab: IntegrationsTab = search.tab === "webhooks" ? "webhooks" : "api-keys";
+  const tab: IntegrationsTab =
+    search.tab === "webhooks" || search.tab === "notifications" ? search.tab : "api-keys";
 
   const selectTab = (value: string) => {
     void navigate({
       to: integrationsTo(),
-      search: (value === "webhooks" ? { tab: "webhooks" } : {}) as never,
+      search: (value === "webhooks" || value === "notifications" ? { tab: value } : {}) as never,
       replace: true,
     });
   };
@@ -59,12 +62,16 @@ function IntegrationsContent() {
         <TabsList>
           <TabsTrigger value="api-keys">{t("tabs.apiKeys")}</TabsTrigger>
           <TabsTrigger value="webhooks">{t("tabs.webhooks")}</TabsTrigger>
+          <TabsTrigger value="notifications">{t("tabs.notifications")}</TabsTrigger>
         </TabsList>
         <TabsContent value="api-keys" className="mt-2">
           <ApiKeysPanel />
         </TabsContent>
         <TabsContent value="webhooks" className="mt-2">
           <WebhooksPanel />
+        </TabsContent>
+        <TabsContent value="notifications" className="mt-2">
+          <NotificationMatrixPanel />
         </TabsContent>
       </Tabs>
     </div>

@@ -568,6 +568,20 @@ export async function shareVerify(
         now,
       );
     }
+    // Every finished check, whatever its rating: a routine event for the channels that want it.
+    await raiseEvents(
+      tx,
+      [
+        {
+          tenantId: share.tenantId,
+          level: "info",
+          event: "verify.completed",
+          message: `The restore check of the file share ${share.name} finished: ${readiness}.`,
+          details: { ...details, readiness, files: result.files },
+        },
+      ],
+      now,
+    );
   });
   // `verify.completed` for the tenant's webhooks (section 14), with the share as the subject.
   await emitWebhookEvent(deps.db, {

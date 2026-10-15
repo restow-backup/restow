@@ -19,7 +19,13 @@ import {
   updateWebhookSchema,
   webhookUrlIssue,
 } from "./schemas.js";
-import { describeChanges, toDeliveryDto, toWebhookDto, urlOrigin } from "./service.js";
+import {
+  describeChanges,
+  newWebhookEvents,
+  toDeliveryDto,
+  toWebhookDto,
+  urlOrigin,
+} from "./service.js";
 
 const TENANT = "11111111-1111-4111-8111-111111111111";
 const HOOK = "22222222-2222-4222-8222-222222222222";
@@ -311,5 +317,38 @@ describe("describeChanges", () => {
       "https://hooks.example.com:8443",
     );
     expect(urlOrigin("nonsense")).toBe("invalid");
+  });
+});
+
+describe("newWebhookEvents", () => {
+  it("starts a chat webhook with errors and warnings and a signed one with everything", () => {
+    const discord = newWebhookEvents("discord");
+    expect(discord).toContain("backup.failed");
+    expect(discord).toContain("backup.overdue");
+    expect(discord).toContain("job.failed");
+    expect(discord).not.toContain("backup.succeeded");
+    expect(discord).not.toContain("job.completed");
+    const signed = newWebhookEvents("restow");
+    expect(signed).toContain("backup.succeeded");
+    expect(signed).toContain("job.completed");
+    expect(signed).toContain("update.available");
+  });
+
+  it("switches the stream's events on exactly for the stream events asked for", () => {
+    const events = newWebhookEvents("slack", ["job.completed"]);
+    expect(events).toContain("backup.succeeded");
+    expect(events).toContain("restore.completed");
+    expect(events).toContain("job.completed");
+    // Not subscribed to job.failed: its events are off, the alerts-only ones keep the defaults.
+    expect(events).not.toContain("backup.failed");
+    expect(events).not.toContain("job.failed");
+    expect(events).toContain("verify.red");
+    expect(events).not.toContain("verify.recovered");
+  });
+
+  it("shows the stream subscription as the webhook's events and the column apart", () => {
+    const dto = toWebhookDto(webhook({ events: ["backup.failed", "job.failed", "verify.red"] }));
+    expect(dto.events).toEqual(["job.failed"]);
+    expect(dto.notifyEvents).toEqual(["backup.failed", "verify.red"]);
   });
 });

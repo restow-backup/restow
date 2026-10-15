@@ -451,7 +451,8 @@
         "updated": "Berichtsregel geändert",
         "deleted": "Berichtsregel gelöscht"
       },
-      "test_sent": "Test einer Berichtsregel gesendet"
+      "test_sent": "Test einer Berichtsregel gesendet",
+      "matrix_updated": "Benachrichtigungsmatrix geändert"
     },
     "update": {
       "check": "Update-Prüfung",

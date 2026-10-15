@@ -738,8 +738,8 @@ describe.skipIf(!adminUrl)("Row Level Security on the application role", () => {
     );
     await inTransaction(app, contoso, (client) =>
       client.query(
-        `INSERT INTO tenant_notification_recipients (tenant_id, email, notify_job_failures)
-         VALUES ($1, $2, true)`,
+        `INSERT INTO tenant_notification_recipients (tenant_id, email, events)
+         VALUES ($1, $2, ARRAY['backup.failed'])`,
         [contoso, `alerts-${suffix}@contoso.test`],
       ),
     );

@@ -525,6 +525,7 @@ export const DELIVERY_REASONS = [
   "no_webhook",
   "demo_mode",
   "send_failed",
+  "channel_off",
 ] as const;
 
 function isKnownReason(value: string): boolean {

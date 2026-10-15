@@ -2,7 +2,9 @@
 // tenant's matching event rules get their deliveries queued in the same
 // transaction, throttled per rule and subject; other tenants' rules and
 // paused rules stay silent; a failed backup raises `backup.failed` with the
-// mailbox's name.
+// mailbox's name. A successful backup raises the routine `backup.succeeded`,
+// which the bell writes only when its column has it on; a rule never queues a
+// delivery to a webhook or recipient whose column has the event off.
 //
 // Runs when RESTOW_TEST_DATABASE_URL points at a Postgres server (a database
 // named `restow_worker_reporting_test` is recreated there); skipped otherwise.
@@ -146,7 +148,7 @@ describe.skipIf(!adminUrl)("raising events against Postgres", () => {
     expect(bell.rowCount).toBe(3);
   });
 
-  it("raises nothing for a completed backup, and the restore event for a completed restore", async () => {
+  it("writes no bell entry for a completed backup, and the restore event for a completed restore", async () => {
     await withTenantTx(db, contoso, (tx) =>
       raiseJobFinished(tx, contoso, {
         id: "00000000-0000-4000-8000-000000000002",
@@ -179,5 +181,87 @@ describe.skipIf(!adminUrl)("raising events against Postgres", () => {
     ]);
     // No rule listens for restore.completed: no new delivery.
     expect((await deliveries()).length).toBe(4);
+  });
+
+  it("leaves out every channel of a rule whose column has the event off", async () => {
+    const q = <T extends Record<string, unknown>>(text: string, values: unknown[] = []) =>
+      db.$client.query<T>(text, values).then((result) => result.rows);
+    const [discord] = await q<{ id: string }>(
+      `INSERT INTO webhooks (tenant_id, url, format, events)
+       VALUES ($1, 'https://discord.example/hook', 'discord', ARRAY['backup.failed', 'job.failed'])
+       RETURNING id`,
+      [fabrikam],
+    );
+    await q(
+      `INSERT INTO tenant_notification_recipients (tenant_id, email, events)
+       VALUES ($1, 'Lead@fabrikam.example', ARRAY['backup.failed'])`,
+      [fabrikam],
+    );
+    const [rule] = await q<{ id: string }>(
+      `INSERT INTO report_rules (tenant_id, name, trigger, events, throttle_minutes, email_recipients, webhook_id)
+       VALUES ($1, 'Everything', 'event', ARRAY['backup.failed', 'backup.succeeded'], 0,
+               ARRAY['lead@fabrikam.example', 'adhoc@fabrikam.example'], $2)
+       RETURNING id`,
+      [fabrikam, discord?.id],
+    );
+    const queued = async () =>
+      (
+        await db.$client.query<{ event: string; channel: string; recipient: string }>(
+          "SELECT event, channel, recipient FROM report_deliveries WHERE rule_id = $1 ORDER BY event, channel, recipient",
+          [rule?.id],
+        )
+      ).rows;
+    const finished = (status: "completed" | "failed", n: number) =>
+      withTenantTx(db, fabrikam, (tx) =>
+        raiseJobFinished(tx, fabrikam, {
+          id: `00000000-0000-4000-8000-00000000010${n}`,
+          queue: "backup",
+          status,
+          protectedObjectId: null,
+          completedAt: new Date(),
+          errorMessage: status === "failed" ? "boom" : null,
+        }),
+      );
+    await finished("completed", 1);
+    // Backup succeeded: the Discord webhook and the recipient have it off, the address typed
+    // into the rule alone has no column and gets it.
+    expect(await queued()).toEqual([
+      { event: "backup.succeeded", channel: "email", recipient: "adhoc@fabrikam.example" },
+    ]);
+    await finished("failed", 2);
+    expect(await queued()).toEqual([
+      { event: "backup.failed", channel: "email", recipient: "adhoc@fabrikam.example" },
+      { event: "backup.failed", channel: "email", recipient: "lead@fabrikam.example" },
+      { event: "backup.failed", channel: "webhook", recipient: discord?.id },
+      { event: "backup.succeeded", channel: "email", recipient: "adhoc@fabrikam.example" },
+    ]);
+    // The bell kept no entry for the success (its default leaves routine events out).
+    const bell = await q<{ event: string }>(
+      "SELECT event FROM notifications WHERE tenant_id = $1 ORDER BY created_at",
+      [fabrikam],
+    );
+    expect(bell.map((row) => row.event)).toEqual(["backup.failed"]);
+  });
+
+  it("writes a routine event to the bell once the tenant's bell has it on", async () => {
+    await db.$client.query(
+      "UPDATE tenants SET bell_events = ARRAY['backup.succeeded'] WHERE id = $1",
+      [fabrikam],
+    );
+    await withTenantTx(db, fabrikam, (tx) =>
+      raiseJobFinished(tx, fabrikam, {
+        id: "00000000-0000-4000-8000-000000000201",
+        queue: "backup",
+        status: "completed",
+        protectedObjectId: null,
+        completedAt: new Date(),
+        errorMessage: null,
+      }),
+    );
+    const bell = await db.$client.query<{ event: string; level: string }>(
+      "SELECT event, level FROM notifications WHERE tenant_id = $1 AND event = 'backup.succeeded'",
+      [fabrikam],
+    );
+    expect(bell.rows).toEqual([{ event: "backup.succeeded", level: "info" }]);
   });
 });

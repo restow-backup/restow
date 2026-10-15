@@ -1,4 +1,5 @@
 import {
+  isReportEvent,
   MAX_OVERDUE_DEADLINE_HOURS,
   MAX_REPORT_RECIPIENTS,
   MAX_REPORT_THROTTLE_MINUTES,
@@ -176,3 +177,24 @@ export const markNotificationsReadSchema = z
     message: "ids or all is required",
   });
 export type MarkNotificationsReadInput = z.infer<typeof markNotificationsReadSchema>;
+
+// --- The notification matrix ---------------------------------------------------------
+
+const matrixEventsSchema = z
+  .array(z.string().refine(isReportEvent, { message: "Unknown event." }))
+  .max(REPORT_EVENTS.length);
+
+/** The columns to save: the channels named here, each with every event it gets from now on. */
+export const updateNotificationMatrixSchema = z.object({
+  channels: z
+    .array(
+      z.discriminatedUnion("kind", [
+        z.object({ kind: z.literal("bell"), events: matrixEventsSchema }),
+        z.object({ kind: z.literal("webhook"), id: z.string().uuid(), events: matrixEventsSchema }),
+        z.object({ kind: z.literal("email"), id: z.string().uuid(), events: matrixEventsSchema }),
+      ]),
+    )
+    .min(1)
+    .max(200),
+});
+export type UpdateNotificationMatrixInput = z.infer<typeof updateNotificationMatrixSchema>;

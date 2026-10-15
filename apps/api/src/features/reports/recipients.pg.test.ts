@@ -107,9 +107,17 @@ describe.skipIf(!testDatabaseAdminUrl)(
       tenantId: string,
       recipients: {
         email: string;
-        categories: ("jobFailures" | "readinessRed" | "weeklyReport")[];
+        categories?: ("jobFailures" | "readinessRed" | "weeklyReport")[];
+        events?: string[];
       }[],
-    ) => tenantsService.replaceTenantNotificationRecipients(shared.db, tenantId, recipients, actor);
+      by: Actor = actor,
+    ) =>
+      tenantsService.replaceTenantNotificationRecipients(
+        shared.db,
+        tenantId,
+        recipients.map((recipient) => ({ ...recipient, categories: recipient.categories ?? [] })),
+        by,
+      );
 
     const rulesOf = (tenantId: string) =>
       owner.select().from(reportRules).where(eq(reportRules.tenantId, tenantId));
@@ -224,8 +232,8 @@ describe.skipIf(!testDatabaseAdminUrl)(
       const tenant = await freshTenant("Legacy");
       // What the wizard of an earlier release left behind: the recipients and a copy of them as a rule.
       await owner.insert(tenantNotificationRecipients).values([
-        { tenantId: tenant, email: "old@x.test", notifyJobFailures: true },
-        { tenantId: tenant, email: "older@x.test", notifyJobFailures: true },
+        { tenantId: tenant, email: "old@x.test", events: ["backup.failed", "restore.failed"] },
+        { tenantId: tenant, email: "older@x.test", events: ["backup.failed", "restore.failed"] },
       ]);
       await owner.insert(reportRules).values({
         tenantId: tenant,
@@ -317,6 +325,65 @@ describe.skipIf(!testDatabaseAdminUrl)(
       const left = await rulesOf(tenant);
       expect(left).toHaveLength(1);
       expect(left[0]).toMatchObject({ recipientCategory: "readinessRed", emailRecipients: [] });
+    }, 30_000);
+
+    it("stores each recipient's events and carries the ones beyond the categories in one rule per severity", async () => {
+      const tenant = await freshTenant("Matrix", "en");
+      const saved = await save(tenant, [
+        { email: "ops@x.test", events: ["backup.failed", "verify.yellow", "backup.succeeded"] },
+        { email: "boss@x.test", categories: ["readinessRed"] },
+        { email: "quiet@x.test", events: [] },
+      ]);
+      expect(
+        saved.map((recipient) => [recipient.email, recipient.events, recipient.categories]),
+      ).toEqual([
+        ["ops@x.test", ["backup.failed", "backup.succeeded", "verify.yellow"], []],
+        ["boss@x.test", ["verify.red", "scrub.corrupt"], ["readinessRed"]],
+        ["quiet@x.test", [], []],
+      ]);
+      const rules = await rulesOf(tenant);
+      const byCategory = new Map(rules.map((rule) => [rule.recipientCategory, rule]));
+      expect([...byCategory.keys()].sort()).toEqual([
+        "jobFailures",
+        "notices",
+        "readinessRed",
+        "warnings",
+      ]);
+      expect(byCategory.get("jobFailures")?.emailRecipients).toEqual(["ops@x.test"]);
+      expect(byCategory.get("warnings")).toMatchObject({
+        name: "Warnings",
+        events: ["verify.yellow"],
+        emailRecipients: ["ops@x.test"],
+      });
+      expect(byCategory.get("notices")).toMatchObject({
+        events: ["backup.succeeded"],
+        emailRecipients: ["ops@x.test"],
+        throttleMinutes: 0,
+      });
+
+      // The warning goes: its rule follows, and with the last event it is gone.
+      await save(tenant, [{ email: "ops@x.test", events: ["backup.failed"] }]);
+      expect((await rulesOf(tenant)).map((rule) => rule.recipientCategory)).toEqual([
+        "jobFailures",
+      ]);
+    }, 30_000);
+
+    it("keeps the installation events of a recipient a tenant administrator saves", async () => {
+      const tenant = await freshTenant("Installation events");
+      await save(tenant, [{ email: "op@x.test", events: ["update.available", "backup.failed"] }]);
+      const tenantAdmin: Actor = { ...actor, isProviderAdmin: false };
+      const saved = await save(
+        tenant,
+        [
+          { email: "op@x.test", events: ["verify.red"] },
+          { email: "new@x.test", events: ["update.available"] },
+        ],
+        tenantAdmin,
+      );
+      expect(saved.map((recipient) => recipient.events)).toEqual([
+        ["verify.red", "update.available"],
+        [],
+      ]);
     }, 30_000);
 
     it("audits the change with counts, never the addresses", async () => {

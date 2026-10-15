@@ -219,6 +219,11 @@ export async function processFinish(
       await raiseEvents(tx, events, now);
       runUpdate.alertedAt = now;
     }
+    const succeeded = succeededEventOf(run, share);
+    if (succeeded) {
+      // A routine event: no alert of the run, only for the channels that want it.
+      await raiseEvents(tx, [succeeded], now);
+    }
     await tx.update(fileShareRuns).set(runUpdate).where(eq(fileShareRuns.id, run.id));
     return { run: { ...run, ...runUpdate } as FileShareRun, share, notify: true };
   });
@@ -315,6 +320,26 @@ async function recordSnapshot(
     })
     .returning({ id: fileShareSnapshots.id });
   return row?.id as string;
+}
+
+/** `backup.succeeded` for a backup run that ended well (with or without warnings). */
+export function succeededEventOf(run: FileShareRun, share: FileShare): NewNotification | null {
+  if (run.kind !== "backup" || (run.status !== "succeeded" && run.status !== "warning")) {
+    return null;
+  }
+  return {
+    tenantId: run.tenantId,
+    level: "info",
+    event: "backup.succeeded",
+    message: `The backup of the file share ${share.name} finished.`,
+    details: {
+      fileShareId: share.id,
+      objectName: share.name,
+      runId: run.id,
+      completedAt: run.finishedAt?.toISOString() ?? null,
+      ...(run.backupJobId ? { backupJobId: run.backupJobId } : {}),
+    },
+  };
 }
 
 /** The notifications a finished run raises (section 14). */

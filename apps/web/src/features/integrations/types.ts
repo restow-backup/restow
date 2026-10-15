@@ -1,8 +1,11 @@
 /**
  * Wire types of `/api/v1/api-keys` and `/api/v1/webhooks` (apps/api
- * features/apikeys and features/webhooks). Scope and event lists mirror the
- * API so the forms can offer them without a round trip.
+ * features/apikeys and features/webhooks). The scope list mirrors the API so
+ * the forms can offer it without a round trip; the stream events derive from
+ * the event catalog.
  */
+
+import { REPORT_EVENT_STREAM, REPORT_EVENTS, type ReportEvent } from "@/features/reports/api";
 
 export const API_SCOPES = [
   "status:read",
@@ -53,10 +56,20 @@ export interface CreateApiKeyInput {
   expiresInDays: number | null;
 }
 
-/** The events the API raises; the picker offers nothing that is never delivered. */
-export const WEBHOOK_EVENTS = ["job.failed", "job.completed", "verify.completed"] as const;
+/**
+ * The webhook stream's events, derived from the event catalog (each catalog event names the
+ * stream event that carries it, features/reports/api.ts), in catalog order.
+ */
+export type WebhookEvent = NonNullable<(typeof REPORT_EVENT_STREAM)[ReportEvent]>;
 
-export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
+export const WEBHOOK_EVENTS: readonly WebhookEvent[] = [
+  ...new Set(
+    REPORT_EVENTS.flatMap((event) => {
+      const wire = REPORT_EVENT_STREAM[event];
+      return wire ? [wire] : [];
+    }),
+  ),
+];
 
 /**
  * What a webhook's requests look like: the signed JSON envelope, or a chat
@@ -90,7 +103,13 @@ export interface Webhook {
   id: string;
   name: string | null;
   url: string;
+  /** The stream events the webhook subscribed to. */
   events: WebhookEvent[];
+  /**
+   * Its column in the notification matrix: the catalog events it gets, from rules and the stream
+   * alike (absent from an older server).
+   */
+  notifyEvents?: ReportEvent[];
   active: boolean;
   format: WebhookFormat;
   /** A signing secret is stored; only the `restow` format signs with it. */
@@ -108,7 +127,11 @@ export interface WebhookWithSecret extends Webhook {
 export interface WebhookInput {
   name: string | null;
   url: string;
-  events: WebhookEvent[];
+  /**
+   * The stream events to subscribe to. Left out on creation: the server starts the webhook with
+   * its format's defaults; which events it gets is chosen in the notification matrix.
+   */
+  events?: WebhookEvent[];
   active: boolean;
   format: WebhookFormat;
 }

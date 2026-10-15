@@ -265,7 +265,9 @@ function WebhookRow({
         <span
           title={webhook.events.map((event) => t(`events.${eventKey(event)}.label`)).join(", ")}
         >
-          {t("webhooks.eventCount", { count: webhook.events.length })}
+          {t("webhooks.eventCount", {
+            count: webhook.notifyEvents?.length ?? webhook.events.length,
+          })}
         </span>
       </TableCell>
       <TableCell>

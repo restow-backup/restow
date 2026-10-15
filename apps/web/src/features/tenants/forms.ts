@@ -6,7 +6,6 @@ import { isTenantRole, type TenantRole } from "@/lib/api";
 import { SLUG_MAX_LENGTH, SLUG_MIN_LENGTH, slugProblem } from "./slug";
 import type {
   CreateTenantInput,
-  NotificationCategory,
   TenantCustomer,
   TenantDetail,
   UpdateTenantCustomerInput,
@@ -145,7 +144,8 @@ export interface TenantWizardContactValues {
 export interface TenantWizardRecipientValues {
   email: string;
   name: string;
-  categories: NotificationCategory[];
+  /** The recipient's column of the notification matrix; the category boxes are shortcuts. */
+  events: string[];
 }
 
 export interface TenantWizardAdminValues {
@@ -268,7 +268,7 @@ const wizardContactSchema = z.object({
 const wizardRecipientSchema = z.object({
   email: z.string().trim().min(1, "required").email("email"),
   name: optionalText(NAME_MAX_LENGTH),
-  categories: z.array(z.enum(["jobFailures", "weeklyReport", "readinessRed", "licenseUpdates"])),
+  events: z.array(z.string()),
 });
 
 const wizardAdminSchema = z.object({
@@ -318,7 +318,7 @@ export function emptyContact(isPrimary: boolean): TenantWizardContactValues {
 }
 
 export function emptyRecipient(): TenantWizardRecipientValues {
-  return { email: "", name: "", categories: [] };
+  return { email: "", name: "", events: [] };
 }
 
 /** A new row: no address and no role chosen yet (the role is never preset). */
@@ -387,7 +387,7 @@ export function toCreateTenantInput(values: TenantWizardValues): CreateTenantInp
     notificationRecipients: values.notificationRecipients.map((recipient) => ({
       email: recipient.email.trim(),
       name: undefinedIfBlank(recipient.name),
-      categories: recipient.categories,
+      events: recipient.events,
     })),
   };
 }
