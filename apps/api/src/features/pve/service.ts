@@ -25,7 +25,7 @@ import {
 } from "@restow/db";
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { storeSecret } from "../../lib/secrets.js";
-import { withTenantTx } from "../../lib/tenant-context.js";
+import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { isSafeOrigin } from "../endpoints/distribution.js";
 import { auditPve, PVE_AUDIT_ACTIONS, type PveActor } from "./audit.js";
@@ -89,6 +89,78 @@ export type GuestActivity = "queued" | "running" | null;
 export interface GuestActivityDetail {
   since: string | null;
   progress: PveRunProgress | null;
+  /**
+   * The job whose scheduled round the backup belongs to; null for a backup an administrator
+   * asked for ("Back up now") or one started in PVE: the jobs list shows those as a row of
+   * their own while they run (#53).
+   */
+  jobId?: string | null;
+  /** The running backup's run. */
+  runId?: string | null;
+}
+
+/**
+ * Where a job's scheduled round stands while it goes (#53): how many of the guests it handed
+ * to their nodes are done (succeeded or failed), how many run and how many wait.
+ */
+export interface JobRound {
+  since: string;
+  total: number;
+  done: number;
+  failed: number;
+  running: number;
+  queued: number;
+}
+
+/**
+ * The open rounds of the jobs from their tasks: the scheduler hands every guest of a due job
+ * to its node with the job's id at `last_run_at`. A round no longer shows once nothing of it
+ * waits or runs.
+ */
+export function jobRounds(
+  tasks: readonly {
+    job_id: string;
+    guest_id: string | null;
+    status: string;
+    created_at: Date | string;
+  }[],
+  activity: ReadonlyMap<string, GuestActivity>,
+): Map<string, JobRound> {
+  const rounds = new Map<string, JobRound>();
+  for (const task of tasks) {
+    const round = rounds.get(task.job_id) ?? {
+      since: new Date(task.created_at).toISOString(),
+      total: 0,
+      done: 0,
+      failed: 0,
+      running: 0,
+      queued: 0,
+    };
+    const at = new Date(task.created_at).toISOString();
+    if (at < round.since) {
+      round.since = at;
+    }
+    round.total += 1;
+    if (task.status === "pending" || task.status === "delivered") {
+      if (task.guest_id && activity.get(task.guest_id) === "running") {
+        round.running += 1;
+      } else {
+        round.queued += 1;
+      }
+    } else {
+      round.done += 1;
+      if (task.status === "failed") {
+        round.failed += 1;
+      }
+    }
+    rounds.set(task.job_id, round);
+  }
+  for (const [jobId, round] of rounds) {
+    if (round.running + round.queued === 0) {
+      rounds.delete(jobId);
+    }
+  }
+  return rounds;
 }
 
 /**
@@ -228,6 +300,8 @@ function guestDto(
     lastRunError: lastRun?.error ?? null,
     activity,
     activitySince: detail.since,
+    activityJobId: activity ? (detail.jobId ?? null) : null,
+    activityRunId: activity === "running" ? (detail.runId ?? null) : null,
     progress: activity === "running" ? detail.progress : null,
     bitmapState: bitmapState(g),
     backups: sizes,
@@ -235,7 +309,7 @@ function guestDto(
   };
 }
 
-function jobDto(j: PveJob) {
+export function jobDto(j: PveJob, facts: { guests?: number; round?: JobRound | null } = {}) {
   return {
     id: j.id,
     name: j.name,
@@ -243,8 +317,12 @@ function jobDto(j: PveJob) {
     schedule: j.schedule,
     settings: j.settings,
     enabled: j.enabled,
+    recommended: j.recommended,
     nextRunAt: j.nextRunAt?.toISOString() ?? null,
     lastRunAt: j.lastRunAt?.toISOString() ?? null,
+    /** The guests the job backs up (its own, and for a job over all guests those in no job). */
+    guestCount: facts.guests ?? 0,
+    round: facts.round ?? null,
   };
 }
 
@@ -270,15 +348,24 @@ export async function overview(database: Database, tenantId: string, now: Date =
     const runByGuest = new Map(
       lastRuns.rows.map((r) => [r.guest_id, { status: r.status, error: r.error_message }]),
     );
+    // A run Restow asked for names its task; a scheduled task names its job (#53).
     const running = await tx.execute<{
+      id: string;
       guest_id: string;
       started_at: Date | string;
       progress: PveRunProgress | null;
+      job_id: string | null;
     }>(sql`
-      SELECT DISTINCT ON (guest_id) guest_id, started_at, progress FROM pve_runs
-       WHERE kind = 'backup' AND status = 'running' ORDER BY guest_id, started_at DESC`);
-    const queued = await tx.execute<{ guest_id: string; since: Date | string }>(sql`
-      SELECT guest_id, min(created_at) AS since FROM pve_tasks
+      SELECT DISTINCT ON (r.guest_id) r.id, r.guest_id, r.started_at, r.progress,
+             t.params->>'jobId' AS job_id
+        FROM pve_runs r LEFT JOIN pve_tasks t ON t.id = r.task_id
+       WHERE r.kind = 'backup' AND r.status = 'running' ORDER BY r.guest_id, r.started_at DESC`);
+    const queued = await tx.execute<{
+      guest_id: string;
+      since: Date | string;
+      job_id: string | null;
+    }>(sql`
+      SELECT guest_id, min(created_at) AS since, max(params->>'jobId') AS job_id FROM pve_tasks
        WHERE kind = 'backup' AND status IN ('pending', 'delivered') AND guest_id IS NOT NULL
        GROUP BY guest_id`);
     const activity = new Map<string, GuestActivity>(
@@ -287,7 +374,7 @@ export async function overview(database: Database, tenantId: string, now: Date =
     const activityDetail = new Map<string, GuestActivityDetail>(
       queued.rows.map((r) => [
         r.guest_id,
-        { since: new Date(r.since).toISOString(), progress: null },
+        { since: new Date(r.since).toISOString(), progress: null, jobId: r.job_id ?? null },
       ]),
     );
     for (const r of running.rows) {
@@ -295,8 +382,24 @@ export async function overview(database: Database, tenantId: string, now: Date =
       activityDetail.set(r.guest_id, {
         since: new Date(r.started_at).toISOString(),
         progress: r.progress ?? null,
+        // A run started in PVE has no task; a delivered task of a round still names its job.
+        jobId: r.job_id ?? activityDetail.get(r.guest_id)?.jobId ?? null,
+        runId: r.id,
       });
     }
+    // The tasks of each job's newest scheduled round (the scheduler writes them right after it
+    // sets `last_run_at`; a minute of slack for the two clocks).
+    const roundTasks = await tx.execute<{
+      job_id: string;
+      guest_id: string | null;
+      status: string;
+      created_at: Date | string;
+    }>(sql`
+      SELECT j.id AS job_id, t.guest_id, t.status, t.created_at
+        FROM pve_tasks t JOIN pve_jobs j ON j.id::text = t.params->>'jobId'
+       WHERE t.kind = 'backup' AND j.last_run_at IS NOT NULL
+         AND t.created_at >= j.last_run_at - interval '1 minute'`);
+    const rounds = jobRounds(roundTasks.rows, activity);
     // The first backup ever (pruned ones included: it is the full one) and the newest
     // restore point, per guest.
     const firsts = await tx.execute<SnapshotSizeRow>(sql`
@@ -346,6 +449,15 @@ export async function overview(database: Database, tenantId: string, now: Date =
       }
     }
     const jobMap = new Map(jobs.map((j) => [j.id, j]));
+    const guestCounts = new Map<string, number>();
+    // Paused jobs count their guests too (the worker's `coveredBy`).
+    const allJob = jobs.find((j) => j.scopeAll);
+    for (const g of guests) {
+      const jobId = pveGuestBackable(g) ? (g.jobId ?? allJob?.id) : undefined;
+      if (jobId) {
+        guestCounts.set(jobId, (guestCounts.get(jobId) ?? 0) + 1);
+      }
+    }
     return {
       clusters: clusters.map((c) => ({
         id: c.id,
@@ -363,7 +475,9 @@ export async function overview(database: Database, tenantId: string, now: Date =
           activityDetail.get(g.id),
         ),
       ),
-      jobs: jobs.map(jobDto),
+      jobs: jobs.map((j) =>
+        jobDto(j, { guests: guestCounts.get(j.id) ?? 0, round: rounds.get(j.id) ?? null }),
+      ),
       restorePool: RESTORE_POOL,
     };
   });
@@ -828,12 +942,13 @@ function nextRunOf(
 }
 
 export async function saveJob(
-  database: Database,
+  database: DbExecutor,
   tenantId: string,
   id: string | null,
   input: JobInput,
   actor: PveActor,
   now: Date = new Date(),
+  options: { recommended?: boolean } = {},
 ) {
   return withTenantTx(database, tenantId, async (tx) => {
     let job: PveJob | undefined;
@@ -854,6 +969,7 @@ export async function saveJob(
           .values({
             tenantId,
             ...input,
+            recommended: options.recommended ?? false,
             nextRunAt: nextRunOf(input, now, null),
             createdBy: actor.userId,
           })
@@ -881,7 +997,15 @@ export async function saveJob(
       action: PVE_AUDIT_ACTIONS.jobChanged,
       target: job.id,
       targetType: "pve_job",
-      details: { name: job.name, enabled: job.enabled, scopeAll: job.scopeAll, created: !id },
+      details: {
+        name: job.name,
+        enabled: job.enabled,
+        scopeAll: job.scopeAll,
+        created: !id,
+        ...(job.recommended && !id
+          ? { recommended: true, schedule: job.schedule, settings: job.settings }
+          : {}),
+      },
     });
     return jobDto(job);
   });
@@ -905,7 +1029,7 @@ export async function deleteJob(database: Database, tenantId: string, id: string
 }
 
 export async function assignJob(
-  database: Database,
+  database: DbExecutor,
   tenantId: string,
   guestId: string,
   jobId: string | null,

@@ -30,6 +30,8 @@ import {
   chunks,
   pveEnrollmentTokens,
   pveGuests,
+  pveJobs,
+  pveNodes,
   pveRunBlocks,
   pveRuns,
   pveSnapshots,
@@ -677,6 +679,10 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       201,
     );
     expect(await activityOf()).toBe("running");
+    // "Back up now" belongs to no job's round: the jobs list shows it as a row of its own (#53).
+    expect(
+      (await service.overview(shared.db, fixture.tenantId)).guests.find((g) => g.vmid === 200),
+    ).toMatchObject({ activityJobId: null, activityRunId: run.runId });
     // The node reports the task done, but its run's own end got lost: no restore point, so failed.
     await json(
       await call(node, `/tasks/${queued.taskId}/result`, { json: { status: "done" } }),
@@ -871,5 +877,68 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       progress: null,
       attention: expect.arrayContaining(["last_backup_incomplete"]),
     });
+  });
+  it("counts a job's scheduled round: how many of its guests are done, run and wait (#53)", async () => {
+    const job = await service.saveJob(
+      shared.db,
+      fixture.tenantId,
+      null,
+      {
+        name: "Nightly",
+        scopeAll: false,
+        schedule: { kind: "daily", timeOfDay: "22:00", timeZone: "UTC" },
+        enabled: true,
+        settings: {},
+      },
+      actor(),
+    );
+    expect(job).toMatchObject({ recommended: false, guestCount: 0, round: null });
+    const started = new Date(Date.now() - 60_000);
+    await fixture.db.update(pveJobs).set({ lastRunAt: started }).where(eq(pveJobs.id, job.id));
+    const [vm] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 101));
+    const [ct] = await fixture.db.select().from(pveGuests).where(eq(pveGuests.vmid, 200));
+    const [node] = await fixture.db.select().from(pveNodes).limit(1);
+    for (const guest of [vm, ct]) {
+      await fixture.db
+        .update(pveGuests)
+        .set({ jobId: job.id })
+        .where(eq(pveGuests.id, guest?.id ?? ""));
+    }
+    // The scheduler handed both guests to the node; the VM is done, the container waits.
+    await fixture.db.insert(pveTasks).values([
+      {
+        tenantId: fixture.tenantId,
+        nodeId: node?.id ?? "",
+        guestId: vm?.id ?? "",
+        kind: "backup",
+        status: "done",
+        params: { vmid: 101, jobId: job.id },
+        createdAt: started,
+      },
+      {
+        tenantId: fixture.tenantId,
+        nodeId: node?.id ?? "",
+        guestId: ct?.id ?? "",
+        kind: "backup",
+        status: "pending",
+        params: { vmid: 200, jobId: job.id },
+        createdAt: started,
+      },
+    ]);
+    const overview = await service.overview(shared.db, fixture.tenantId);
+    expect(overview.jobs.find((j) => j.id === job.id)).toMatchObject({
+      guestCount: 2,
+      round: { total: 2, done: 1, failed: 0, running: 0, queued: 1 },
+    });
+    expect(overview.guests.find((g) => g.vmid === 200)).toMatchObject({
+      activity: "queued",
+      activityJobId: job.id,
+    });
+    await fixture.db
+      .update(pveTasks)
+      .set({ status: "done" })
+      .where(eq(pveTasks.guestId, ct?.id ?? ""));
+    const after = await service.overview(shared.db, fixture.tenantId);
+    expect(after.jobs.find((j) => j.id === job.id)?.round).toBeNull();
   });
 });
