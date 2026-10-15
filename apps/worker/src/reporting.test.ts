@@ -44,6 +44,31 @@ describe("jobFinishedNotification", () => {
     expect(JSON.stringify(notification?.details)).not.toContain("r-1");
   });
 
+  it("raises backup.failed for a SharePoint site that is gone, with the steps for it", () => {
+    const notification = jobFinishedNotification(
+      TENANT,
+      failedJob({
+        v: 1,
+        code: "graph.site_unavailable",
+        transient: false,
+        params: { resource: "sharepoint" },
+        technical: {},
+        occurredAt: "2026-09-29T10:00:00.000Z",
+        step: null,
+        retry: null,
+      }),
+      "Sales (SharePoint)",
+    );
+    expect(notification).toMatchObject({
+      event: "backup.failed",
+      level: "error",
+      details: {
+        objectName: "Sales (SharePoint)",
+        failure: { code: "graph.site_unavailable", steps: ["sync_directory", "exclude_object"] },
+      },
+    });
+  });
+
   it("says nothing new for a failed job without a cause, and never for a job that worked", () => {
     expect(jobFinishedNotification(TENANT, failedJob(null), "Alice")?.details).toMatchObject({
       failure: null,
