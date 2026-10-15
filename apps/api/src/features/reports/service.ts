@@ -1,5 +1,6 @@
 import {
   nextRunAt as cadenceNextRunAt,
+  DEFAULT_BELL_EVENTS,
   isInstallationReportEvent,
   plannedDeliveries,
   REPORT_EVENT_INFO,
@@ -897,6 +898,20 @@ export interface NotificationScope {
   installation?: Database;
 }
 
+/** A text[] literal of catalog names (constants, never input). */
+function namesLiteral(names: readonly string[]): SQL {
+  return sql.raw(
+    `ARRAY[${names.map((name) => `'${name.replace(/'/g, "''")}'`).join(", ")}]::text[]`,
+  );
+}
+
+/**
+ * Whether the bell shows a row: an installation-level row and an entry that is no catalog event
+ * (a report was sent) always, a catalog event when the tenant's bell column has it on
+ * (`tenants.bell_events`, null for the default). The rows of events switched off stay, hidden.
+ */
+const BELL_SHOWS: SQL = sql`(${notifications.tenantId} IS NULL OR NOT (${notifications.event} = ANY(${namesLiteral(REPORT_EVENTS)})) OR ${notifications.event} = ANY(COALESCE((SELECT bell.bell_events FROM tenants AS bell WHERE bell.id = ${notifications.tenantId}), ${namesLiteral(DEFAULT_BELL_EVENTS)})))`;
+
 function toNotificationDto(row: typeof notifications.$inferSelect): NotificationDto {
   return {
     id: row.id,
@@ -989,7 +1004,7 @@ export async function listNotificationHistory(
     const rows = await tx
       .select()
       .from(notifications)
-      .where(and(eq(notifications.tenantId, tenantId), ...notificationFilters(query)))
+      .where(and(eq(notifications.tenantId, tenantId), BELL_SHOWS, ...notificationFilters(query)))
       .orderBy(desc(notifications.createdAt), desc(notifications.id))
       .limit(query.limit + 1);
     return notificationPage(rows, query.limit);
@@ -1015,13 +1030,13 @@ export async function listProviderNotifications(
   const rows = await installation
     .select()
     .from(notifications)
-    .where(and(scope, ...notificationFilters(query)))
+    .where(and(scope, BELL_SHOWS, ...notificationFilters(query)))
     .orderBy(desc(notifications.createdAt), desc(notifications.id))
     .limit(query.limit + 1);
   const [count] = await installation
     .select(UNREAD_COUNTS)
     .from(notifications)
-    .where(and(scope, isNull(notifications.readAt)));
+    .where(and(scope, BELL_SHOWS, isNull(notifications.readAt)));
   const page = notificationPage(rows, query.limit);
   const items = await withTenantNames(
     installation,
@@ -1069,13 +1084,13 @@ export async function listNotifications(
     const rows = await tx
       .select()
       .from(notifications)
-      .where(eq(notifications.tenantId, tenantId))
+      .where(and(eq(notifications.tenantId, tenantId), BELL_SHOWS))
       .orderBy(desc(notifications.createdAt), desc(notifications.id))
       .limit(BELL_LIMIT);
     const [count] = await tx
       .select(UNREAD_COUNTS)
       .from(notifications)
-      .where(and(eq(notifications.tenantId, tenantId), isNull(notifications.readAt)));
+      .where(and(eq(notifications.tenantId, tenantId), BELL_SHOWS, isNull(notifications.readAt)));
     return {
       rows,
       unread: count?.unread ?? 0,

@@ -1,4 +1,4 @@
-import { plannedDeliveries, subjectKeyOf } from "@restow/core";
+import { type ChannelColumns, plannedDeliveries, subjectKeyOf } from "@restow/core";
 import {
   type Database,
   type NewNotification,
@@ -12,6 +12,7 @@ import {
 } from "@restow/db";
 import { and, eq, sql } from "drizzle-orm";
 import { compareVersions, parseVersion } from "../../routes/v1/version.js";
+import { channelColumnsOf } from "../reports/channels.js";
 
 /**
  * "An update is available" (docs/ARCHITECTURE.md, Updates and Reports): raised
@@ -121,8 +122,16 @@ export async function raiseUpdateAvailable(
       occurredAt: now.toISOString(),
     };
     const rows: NewReportDelivery[] = [];
+    const columns = new Map<string, ChannelColumns>();
     for (const rule of rules) {
-      for (const planned of plannedDeliveries(rule, "event")) {
+      let tenantColumns = columns.get(rule.tenantId);
+      if (!tenantColumns) {
+        tenantColumns = await channelColumnsOf(tx, rule.tenantId);
+        columns.set(rule.tenantId, tenantColumns);
+      }
+      // Only the channels whose column has the event on (the notification matrix).
+      const channels = { event: UPDATE_AVAILABLE_EVENT, columns: tenantColumns };
+      for (const planned of plannedDeliveries(rule, "event", channels)) {
         rows.push({
           tenantId: rule.tenantId,
           ruleId: rule.id,

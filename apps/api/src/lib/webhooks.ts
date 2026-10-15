@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { WEBHOOK_EVENTS, type WebhookEvent, webhookEventRow } from "@restow/core";
 import { webhookDeliveries, webhooks } from "@restow/db";
 import { and, eq, sql } from "drizzle-orm";
 import { type DbExecutor, type Transaction, withTenantTx } from "./tenant-context.js";
@@ -19,13 +20,14 @@ import { type DbExecutor, type Transaction, withTenantTx } from "./tenant-contex
  */
 
 /**
- * Events a webhook can subscribe to: exactly the events something raises.
- * An event joins this list together with its emitter, never before, so a
- * receiver never waits for a delivery that cannot come.
+ * Events a webhook can subscribe to: exactly the events something raises,
+ * derived from the event catalog (packages/core reports/catalog.ts, the
+ * `webhookEvent` of each event). An event joins together with its emitter,
+ * never before, so a receiver never waits for a delivery that cannot come.
+ * Their names are a public contract: `job.completed` stays `job.completed`,
+ * the catalog calls the backups among them `backup.succeeded`.
  */
-export const WEBHOOK_EVENTS = ["job.failed", "job.completed", "verify.completed"] as const;
-
-export type WebhookEvent = (typeof WEBHOOK_EVENTS)[number];
+export { WEBHOOK_EVENTS, type WebhookEvent };
 
 /**
  * What a webhook's requests look like (mirrors the `webhook_format` enum):
@@ -131,15 +133,18 @@ export interface EmittedWebhookEvent {
 }
 
 /**
- * Queue `event` for every active webhook of the tenant that subscribed to it.
- * Pass the open transaction of the change that caused the event, so both
- * commit together; with the pool a tenant-pinned transaction is opened.
+ * Queue `event` for every active webhook of the tenant that subscribed to it
+ * and whose column in the notification matrix has the catalog event the
+ * delivery is about on (webhookEventRow). Pass the open transaction of the
+ * change that caused the event, so both commit together; with the pool a
+ * tenant-pinned transaction is opened.
  */
 export async function emitWebhookEvent(
   db: DbExecutor,
   input: WebhookEventInput & { event: WebhookEvent },
 ): Promise<EmittedWebhookEvent> {
   const envelope = buildWebhookEnvelope(input);
+  const row = webhookEventRow(input.event, input.data);
   return withTenantTx(db, input.tenantId, async (tx) => {
     const subscribed = await tx
       .select({ id: webhooks.id })
@@ -149,6 +154,7 @@ export async function emitWebhookEvent(
           eq(webhooks.tenantId, input.tenantId),
           eq(webhooks.active, true),
           sql`${input.event} = ANY(${webhooks.events})`,
+          sql`${row} = ANY(${webhooks.events})`,
         ),
       );
     const now = new Date();

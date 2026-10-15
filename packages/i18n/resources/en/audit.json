@@ -451,7 +451,8 @@
         "updated": "Report rule changed",
         "deleted": "Report rule deleted"
       },
-      "test_sent": "Report rule test sent"
+      "test_sent": "Report rule test sent",
+      "matrix_updated": "Notification matrix changed"
     },
     "update": {
       "check": "Update check",

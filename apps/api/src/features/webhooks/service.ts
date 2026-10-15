@@ -1,3 +1,10 @@
+import {
+  catalogEventsOf,
+  defaultWebhookEvents,
+  REPORT_EVENT_INFO,
+  webhookEventsOf,
+  webhookSubscriptionUpdate,
+} from "@restow/core";
 import { type Database, type WebhookDeliveryStatus, webhookDeliveries, webhooks } from "@restow/db";
 import { and, count, desc, eq, type SQL, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
@@ -69,7 +76,13 @@ export interface WebhookDto {
   id: string;
   name: string | null;
   url: string;
+  /** The stream events the webhook subscribed to. */
   events: WebhookEvent[];
+  /**
+   * The webhook's column in the notification matrix: the catalog events it gets, from rules and
+   * from the stream alike (packages/core reports/catalog.ts).
+   */
+  notifyEvents: string[];
   active: boolean;
   /** `restow` (signed JSON) or the chat service the messages are shaped for. */
   format: WebhookFormat;
@@ -141,6 +154,7 @@ export function toWebhookDto(row: WebhookRow, stats: WebhookStatsDto = EMPTY_STA
     name: row.name,
     url: row.url,
     events: WEBHOOK_EVENTS.filter((event) => row.events.includes(event)),
+    notifyEvents: catalogEventsOf(row.events),
     active: row.active,
     format: row.format,
     secretConfigured: row.secretRef !== null,
@@ -184,9 +198,10 @@ export function describeChanges(
     changes.urlOrigin = urlOrigin(patch.url);
   }
   if (patch.events !== undefined) {
+    const subscribed = webhookEventsOf(before.events);
     const same =
-      patch.events.length === before.events.length &&
-      patch.events.every((event) => before.events.includes(event));
+      patch.events.length === subscribed.length &&
+      patch.events.every((event) => subscribed.includes(event));
     if (!same) {
       changes.events = patch.events;
     }
@@ -355,13 +370,14 @@ export async function createWebhook(
       kind: "webhook_signing_secret",
       plaintext: secret,
     });
+    const events = newWebhookEvents(input.format, input.events);
     const [row] = await tx
       .insert(webhooks)
       .values({
         tenantId,
         name: input.name,
         url: input.url,
-        events: input.events,
+        events,
         active: input.active,
         format: input.format,
         secretRef: ref.id,
@@ -375,13 +391,30 @@ export async function createWebhook(
       auditEvent(tenantId, actor, WEBHOOK_AUDIT_ACTIONS.created, row.id, {
         name: row.name,
         urlOrigin: urlOrigin(row.url),
-        events: input.events,
+        events: webhookEventsOf(events),
         active: row.active,
         format: row.format,
       }),
     );
     return { ...toWebhookDto(row), secret };
   });
+}
+
+/**
+ * The stored event list of a new webhook: the defaults of its format (a chat webhook errors and
+ * warnings, a signed JSON webhook everything), with the stream events the request names, or the
+ * format's when it names none; an event the stream carries is on exactly when its stream event
+ * is subscribed.
+ */
+export function newWebhookEvents(format: WebhookFormat, wires?: readonly WebhookEvent[]): string[] {
+  const defaults = defaultWebhookEvents(format);
+  if (wires === undefined) {
+    return defaults;
+  }
+  const alertsOnly = catalogEventsOf(defaults).filter(
+    (event) => REPORT_EVENT_INFO[event].webhookEvent === undefined,
+  );
+  return webhookSubscriptionUpdate(alertsOnly, wires);
 }
 
 export async function updateWebhook(
@@ -402,7 +435,9 @@ export async function updateWebhook(
       .set({
         ...(patch.name !== undefined ? { name: patch.name } : {}),
         ...(patch.url !== undefined ? { url: patch.url } : {}),
-        ...(patch.events !== undefined ? { events: patch.events } : {}),
+        ...(patch.events !== undefined
+          ? { events: webhookSubscriptionUpdate(before.events, patch.events) }
+          : {}),
         ...(patch.active !== undefined ? { active: patch.active } : {}),
         ...(patch.format !== undefined ? { format: patch.format } : {}),
       })

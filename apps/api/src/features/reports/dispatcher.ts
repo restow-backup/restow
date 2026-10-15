@@ -5,6 +5,7 @@ import {
   notifications,
   type ReportDelivery,
   reportDeliveries,
+  tenantNotificationRecipients,
   tenants,
   webhookDeliveries,
   webhooks,
@@ -192,9 +193,47 @@ async function render(
   return { message: rendered, headline: rendered.headline };
 }
 
+/**
+ * Whether the channel's column switched the alert's event off after it was queued (the worker
+ * leaves such channels out when it queues, plannedDeliveries): the delivery is skipped then. Tests
+ * and summary reports are never held back; a channel without a column is the rule's business.
+ */
+async function channelSwitchedOff(db: Database, delivery: ReportDelivery): Promise<boolean> {
+  if (delivery.kind !== "event" || !delivery.event || delivery.payload.test === true) {
+    return false;
+  }
+  const recipient = delivery.recipient?.trim().toLowerCase();
+  if (!recipient) {
+    return false;
+  }
+  if (delivery.channel === "webhook") {
+    const [hook] = await db
+      .select({ events: webhooks.events })
+      .from(webhooks)
+      .where(and(eq(webhooks.tenantId, delivery.tenantId), eq(webhooks.id, recipient)));
+    return hook !== undefined && !hook.events.includes(delivery.event);
+  }
+  if (delivery.channel === "email") {
+    const [column] = await db
+      .select({ events: tenantNotificationRecipients.events })
+      .from(tenantNotificationRecipients)
+      .where(
+        and(
+          eq(tenantNotificationRecipients.tenantId, delivery.tenantId),
+          sql`lower(btrim(${tenantNotificationRecipients.email})) = ${recipient}`,
+        ),
+      );
+    return column !== undefined && !column.events.includes(delivery.event);
+  }
+  return false;
+}
+
 /** Send one claimed row on its channel. */
 export async function deliver(deps: DispatcherDeps, delivery: ReportDelivery): Promise<Outcome> {
   const now = (deps.now ?? (() => new Date()))();
+  if (await channelSwitchedOff(deps.providerDb, delivery)) {
+    return { status: "skipped", reason: "channel_off" };
+  }
   const tenant = await tenantOf(deps.providerDb, delivery.tenantId);
   const built = await render(deps, delivery, tenant);
   if ("skip" in built) {

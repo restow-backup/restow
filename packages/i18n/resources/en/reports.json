@@ -259,7 +259,8 @@
       "no_recipient": "No recipient.",
       "demo_mode": "Demo: nothing leaves this server.",
       "no_webhook": "No webhook chosen.",
-      "send_failed": "The mail server did not accept the message."
+      "send_failed": "The mail server did not accept the message.",
+      "channel_off": "The channel no longer gets this event (Integrations › Notifications)."
     },
     "descriptionAllTenants": "Everything every tenant's rules sent or tried to send, newest first.",
     "technicalDetail": "Technical detail",

@@ -520,6 +520,8 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/reports/rules/:id/test": operate(),
   "GET /api/v1/reports/deliveries": view(),
   "GET /api/v1/reports/deliveries/export": view(),
+  "GET /api/v1/reports/matrix": view(),
+  "PUT /api/v1/reports/matrix": configure(),
   "GET /api/v1/notifications": view(),
   "POST /api/v1/notifications/read": view(),
   "GET /api/v1/notifications/history": view(),

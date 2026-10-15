@@ -259,7 +259,8 @@
       "no_recipient": "Kein Empfänger.",
       "demo_mode": "Demo: Nichts verlässt diesen Server.",
       "no_webhook": "Kein Webhook gewählt.",
-      "send_failed": "Der Mailserver hat die Nachricht nicht angenommen."
+      "send_failed": "Der Mailserver hat die Nachricht nicht angenommen.",
+      "channel_off": "Der Kanal erhält dieses Ereignis nicht mehr (Integrationen › Benachrichtigungen)."
     },
     "descriptionAllTenants": "Was die Regeln aller Mandanten gesendet haben oder senden wollten, das Neueste zuerst.",
     "technicalDetail": "Technisches Detail",
