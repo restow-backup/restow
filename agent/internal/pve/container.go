@@ -38,9 +38,13 @@ type ctResult struct {
 	UnreadablePaths []string `json:"unreadablePaths,omitempty"`
 	BytesAdded      uint64   `json:"bytesAdded"`
 	TotalBytes      uint64   `json:"totalBytes"`
-	Root            string   `json:"root"`
-	GuestConfig     string   `json:"guestConfig"`
-	Firewall        *string  `json:"firewallConfig,omitempty"`
+	// Restic's file counts, for the ransomware signals of the server.
+	FilesNew     uint64  `json:"filesNew,omitempty"`
+	FilesChanged uint64  `json:"filesChanged,omitempty"`
+	FilesTotal   uint64  `json:"filesTotal,omitempty"`
+	Root         string  `json:"root"`
+	GuestConfig  string  `json:"guestConfig"`
+	Firewall     *string `json:"firewallConfig,omitempty"`
 }
 
 func (p *Provider) ctPointer(storeid string, vmid int) string {
@@ -214,6 +218,9 @@ func readResticBackupOutput(r io.Reader, res *ctResult, reporter *ProgressReport
 			TotalBytes  uint64 `json:"total_bytes_processed"`
 			BytesDone   uint64 `json:"bytes_done"`
 			StatusTotal uint64 `json:"total_bytes"`
+			FilesNew    uint64 `json:"files_new"`
+			FilesChange uint64 `json:"files_changed"`
+			FilesTotal  uint64 `json:"total_files_processed"`
 		}
 		line := sc.Bytes()
 		if json.Unmarshal(line, &m) != nil {
@@ -231,6 +238,7 @@ func readResticBackupOutput(r io.Reader, res *ctResult, reporter *ProgressReport
 			reporter.Set(p)
 		case "summary":
 			res.SnapshotID, res.BytesAdded, res.TotalBytes = m.SnapshotID, m.DataAdded, m.TotalBytes
+			res.FilesNew, res.FilesChanged, res.FilesTotal = m.FilesNew, m.FilesChange, m.FilesTotal
 		default:
 			others.Write(line)
 			others.WriteByte('\n')
@@ -347,7 +355,8 @@ func (p *Provider) commitContainer(ctx context.Context, job *jobState) (uint64, 
 		FirewallConfig: res.Firewall, ResticSnapshotID: res.SnapshotID, ResticBytesAdded: res.BytesAdded,
 		ResticTotalBytes: res.TotalBytes, ResticRoot: res.Root,
 		ConsistencyRemark: res.Remark, ResticUnreadable: res.Unreadable,
-		ResticUnreadablePaths: res.UnreadablePaths})
+		ResticUnreadablePaths: res.UnreadablePaths, ResticFilesNew: res.FilesNew,
+		ResticFilesChanged: res.FilesChanged, ResticFilesTotal: res.FilesTotal})
 	if err != nil {
 		return 0, fmt.Errorf("commit the restore point: %w", err)
 	}

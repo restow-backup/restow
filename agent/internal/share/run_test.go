@@ -310,6 +310,15 @@ func TestEndToEndWithRestic(t *testing.T) {
 		t.Fatalf("permissions %+v", perm)
 	}
 	second := api.finish.SnapshotID
+	// Compared with its parent for the ransomware signals: nothing on the share changed, and the
+	// runner's own files (sidecar, manifest) do not count.
+	act, ok := api.finish.Stats["activity"].(map[string]any)
+	if !ok || act["v"].(float64) != 1 || act["added"].(float64) != 0 || act["modified"].(float64) != 0 || act["removed"].(float64) != 0 {
+		t.Fatalf("activity %+v", api.finish.Stats["activity"])
+	}
+	if _, ok := first.Stats["activity"]; ok {
+		t.Fatal("a backup without a parent compared with nothing")
+	}
 
 	// 3. Restore everything into a new folder, with permissions.
 	env.sys.mount(env.root, "cifs", false)
