@@ -138,6 +138,7 @@ export function ContainerRestorePoints({ guestId }: { guestId: string }) {
       </>
     ),
     timelineLabel: t("containerFiles.timelineLabel", { name }),
+    suspicion: { target: { kind: "pve_guest", objectId: guestId }, objectName: name },
     emptyTitle: t("containerFiles.emptyTitle"),
     emptyDescription: t("containerFiles.emptyDescription"),
     renderDetails: renderPoint,

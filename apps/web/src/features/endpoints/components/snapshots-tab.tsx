@@ -144,6 +144,10 @@ export function SnapshotsTab({
     canRestore: detail.status === "active",
     note: detail.status !== "active" ? t("browser.revokedNote") : undefined,
     timelineLabel: t("snapshots.timelineLabel", { name: endpointName(detail) }),
+    suspicion: {
+      target: { kind: "endpoint", objectId: detail.id },
+      objectName: endpointName(detail),
+    },
     emptyTitle: t("snapshots.empty.title"),
     emptyDescription: t("snapshots.empty.description"),
     renderDetails: renderSnapshot,

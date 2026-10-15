@@ -17,6 +17,7 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { ObjectSuspicionBadge } from "@/features/suspicion";
 import { ApiError } from "@/lib/api";
 
 import type { EndpointDetail } from "./api.js";
@@ -198,6 +199,7 @@ export function EndpointDetailPage({
         <ProfileBadge profile={detail.profile} />
         <ConnectionBadge endpoint={detail} />
         <ActivityBadge endpoint={detail} />
+        <ObjectSuspicionBadge target={{ kind: "endpoint", objectId: detail.id }} />
         {detail.status === "active" ? (
           <ReadinessBadge readiness={detail.readiness} withoutBackup={isWithoutBackup(detail)} />
         ) : null}

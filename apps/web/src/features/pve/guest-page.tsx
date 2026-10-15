@@ -28,6 +28,13 @@ import {
 } from "@/components/ui/table";
 import { useTenantScope } from "@/features/endpoints/hooks";
 import { fileRestoreContainerTo } from "@/features/endpoints/paths";
+import {
+  judgementsById,
+  LastCleanHint,
+  ObjectSuspicionBadge,
+  SuspicionBadge,
+  useObjectSuspicions,
+} from "@/features/suspicion";
 import { formatBytes, formatDateTime } from "@/lib/format";
 
 import {
@@ -285,6 +292,20 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
   });
   const data = detail.data;
   const title = data ? `${data.guest.name ?? data.guest.vmid} (${data.guest.vmid})` : "";
+  // Signs of ransomware in the guest's restore points (docs/RANSOMWARE.md).
+  const suspicionTarget = React.useMemo(
+    () => ({ kind: "pve_guest" as const, objectId: guestId }),
+    [guestId],
+  );
+  const suspicions = useObjectSuspicions(suspicionTarget);
+  const judgements = React.useMemo(
+    () => judgementsById(suspicions.data?.restorePoints),
+    [suspicions.data],
+  );
+  const timeline = React.useMemo(
+    () => (data?.snapshots ?? []).map((point) => ({ ...point, time: point.backupAt })),
+    [data],
+  );
   return (
     <div className="space-y-6">
       <Link
@@ -313,6 +334,12 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
       >
         <RefreshButton onRefresh={() => void detail.refetch()} fetching={detail.isFetching} />
       </PageHeader>
+      <ObjectSuspicionBadge target={suspicionTarget} />
+      <LastCleanHint
+        points={timeline}
+        judgements={judgements}
+        onPick={(point) => setRestoring(point)}
+      />
       {detail.isError ? (
         <p className="text-sm text-destructive-text">{t("page.loadError")}</p>
       ) : null}
@@ -340,7 +367,10 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
               {(data?.snapshots ?? []).map((p) => (
                 <TableRow key={p.id} data-slot="pve-restore-point">
                   <TableCell>
-                    <div>{formatDateTime(p.backupAt, language)}</div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {formatDateTime(p.backupAt, language)}
+                      <SuspicionBadge judgement={judgements.get(p.id)} objectName={title} />
+                    </div>
                     <div className="text-xs text-muted-foreground">
                       {t(`guest.origin.${p.origin}`)}
                     </div>

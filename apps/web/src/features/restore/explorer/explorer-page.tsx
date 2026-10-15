@@ -50,6 +50,7 @@ import { objectLabel } from "@/features/restore/explorer/entry-icon";
 import { FolderTree } from "@/features/restore/explorer/folder-tree";
 import { ItemList } from "@/features/restore/explorer/item-list";
 import { RestorePointBar } from "@/features/restore/explorer/restore-point-bar";
+import { restorePointTime } from "@/features/restore/explorer/restore-point-label";
 import { SearchField } from "@/features/restore/explorer/search-field";
 import { SelectionBar } from "@/features/restore/explorer/selection-bar";
 import {
@@ -86,6 +87,7 @@ import {
   useSnapshots,
   useTree,
 } from "@/features/restore/use-restore-data";
+import { RestorePointSuspicion, useOpenSuspicions } from "@/features/suspicion";
 import { formatInteger } from "@/lib/format";
 import { useSession } from "@/lib/session";
 
@@ -197,6 +199,22 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
   const restorePoint =
     restorePoints.data?.find((candidate) => candidate.id === search.snapshot) ?? null;
   const latest = restorePoints.data?.[0] ?? null;
+  // Accounts whose newest restore point shows signs of ransomware, for the account list.
+  const openSuspicions = useOpenSuspicions();
+  const suspicious = React.useMemo(
+    () =>
+      new Set(
+        (openSuspicions.data?.objects ?? [])
+          .filter((entry) => entry.objectKind === "m365")
+          .map((entry) => entry.objectId),
+      ),
+    [openSuspicions.data],
+  );
+  const suspicionPoints = React.useMemo(
+    () =>
+      (restorePoints.data ?? []).map((point) => ({ id: point.id, time: restorePointTime(point) })),
+    [restorePoints.data],
+  );
   React.useEffect(() => {
     if (objectId && !restorePoint && latest) {
       setSearch(withSnapshot(search, latest.id), { replace: true });
@@ -334,7 +352,12 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
     ) : null;
 
   const accountList = (
-    <AccountList objects={objects} value={objectId} onChange={(id) => setSearch(withObject(id))} />
+    <AccountList
+      objects={objects}
+      value={objectId}
+      onChange={(id) => setSearch(withObject(id))}
+      suspicious={suspicious}
+    />
   );
 
   // Below `lg` the account list is not a pane: this opens it as a sheet. It
@@ -548,6 +571,15 @@ function ExplorerShell({ objects }: { objects: SnapshotObject[] }) {
           onExport={object?.kind === "onedrive" ? undefined : () => exportScope(selection)}
         />
       ) : null}
+
+      {/* Signs of ransomware in this account's restore points (docs/RANSOMWARE.md). */}
+      <RestorePointSuspicion
+        target={objectId ? { kind: "m365", objectId } : null}
+        objectName={object?.displayName ?? object?.externalId ?? ""}
+        points={suspicionPoints}
+        selected={suspicionPoints.find((point) => point.id === restorePoint?.id) ?? null}
+        onPick={(point) => setSearch(withSnapshot(search, point.id))}
+      />
 
       <RestorePointBar
         restorePoints={restorePoints.data}
