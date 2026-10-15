@@ -27,6 +27,7 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { toast } from "@/components/ui/sonner";
 import { DisclaimerDialog } from "@/features/disclaimer/disclaimer-dialog";
 import { LiveChannelProvider } from "@/features/history/live/provider";
+import { jobsOverviewArea, TenantJobsOverview } from "@/features/tenant-jobs";
 import {
   MaintenanceBanner,
   MaintenanceProvider,
@@ -210,7 +211,15 @@ function ShellOutlet() {
 
   // Under "All tenants" a page that only exists per tenant asks for a tenant instead of failing.
   if (sessionScope(session) === "all" && isTenantOnlyPage(entry?.item.id ?? null, pathname)) {
-    return <ChooseTenantPage title={entry ? t(entry.item.labelKey) : t("chooseTenant.title")} />;
+    const title = entry ? t(entry.item.labelKey) : t("chooseTenant.title");
+    // The job lists show every tenant's jobs at a glance instead (features/tenant-jobs).
+    const jobsArea = session.isProviderAdmin
+      ? jobsOverviewArea(entry?.item.id ?? null, pathname)
+      : null;
+    if (jobsArea) {
+      return <TenantJobsOverview key={jobsArea} title={title} area={jobsArea} />;
+    }
+    return <ChooseTenantPage title={title} />;
   }
 
   return (

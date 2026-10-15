@@ -349,6 +349,10 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "DELETE /api/v1/backup-jobs/:id/members/:targetId": configure(),
   "POST /api/v1/backup-jobs/:id/run": operate(),
   "GET /api/v1/backup-jobs/:id/runs": view(),
+  // "All tenants" of Jobs (#63): every tenant's jobs counted, narrowed by the handler to the
+  // tenants the member's team role covers; one tenant's jobs read-only, by its id.
+  "GET /api/v1/tenant-jobs": view(LIST),
+  "GET /api/v1/tenant-jobs/:tenantId": view(byParam("tenantId")),
   // History: the runs of the tenant, mail and agent together, and the live channel that keeps
   // them current. Reading is for every provider admin, like the runs under /jobs.
   "GET /api/v1/history": view(),

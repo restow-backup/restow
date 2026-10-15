@@ -246,5 +246,9 @@
     "title": "Mandant wählen",
     "description": "Diese Seite gilt je Mandant. Wählen Sie einen Mandanten, dann geht es hier mit ihm weiter.",
     "list": "Mandanten"
+  },
+  "allTenantsList": {
+    "switch": "Zum Mandanten wechseln",
+    "switchTo": "Zu {name} wechseln und diese Seite dort öffnen"
   }
 }
