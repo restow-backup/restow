@@ -191,6 +191,9 @@ unique per installation).
   every guest's newest restore point back and compares them with the SHA-256 in
   the map (containers: `restic check` of 5 %). A job can also restore one guest
   a month into `restow-restore`, check it and delete it again.
+- **Boot test** (off by default): weekly, or after every backup, the guest's
+  node boots the newest restore point in isolation and destroys it again; see
+  "Boot test" below.
 
 ## In the overviews
 
@@ -201,9 +204,13 @@ Guests count everywhere the mailboxes and the machines do, by one rule
   enabled PVE job (its own, or the job for all guests while it has none). A
   guest in no enabled job is counted as "in no backup job"; one that left its
   job keeps the rating of its restore points, and keeps the tenant from green.
-- **Readiness** is the restore check of the newest restore point: green when
-  the sample read back matched, red when it did not, unverified until a check
-  ran, no backup without a restore point.
+- **Readiness** is the restore check and the boot test of the newest restore
+  point (`pveRestorePointRating`, packages/core/src/pve/boot-test.ts): red when
+  either failed; by a boot test green only when the restored guest's QEMU guest
+  agent answered (a container: its init runs), yellow when the VM only started;
+  without a boot test the read-back decides (green when the sample matched);
+  unverified until a check ran, no backup without a restore point. The readiness
+  row says which check decided.
 - **Failed**: the newest finished backup run of a protected guest failed.
 - **Overdue** (`backup.overdue`, the last-backup card, the provider view): no
   successful backup for longer than the enabled PVE jobs' schedules allow.
@@ -285,8 +292,60 @@ from every container restore point (*Browse files*).
   running container is not part of this release; restore the whole container
   as a new guest for that, or copy the files from the ZIP.
 
-VMs are not browsable file by file (their restore points are disk images); the
-file restore page says so and leads to VMs & containers.
+### Files of a VM
+
+The file restore page lists the VMs with a restore point in a group of their own,
+*Proxmox VE VMs*, and the guest's page links there (*Browse files*). The same timeline,
+folder list and ZIP download as for a container; the same routes, roles and audit actions
+(`pve.snapshot.browsed`, `pve.snapshot.downloaded`, with `kind: "vm"`).
+
+- **What the top shows.** One folder per readable file system of the VM's disks, named
+  after where it lies: `scsi0` (a disk without a partition table), `scsi0-p2` (partition 2
+  of scsi0, GPT or MBR with logical partitions), `vg0-root` (logical volume `root` of the
+  LVM volume group `vg0`, assembled from the VM's disks). The EFI variables and TPM state
+  disks are left out. What cannot be read is named with the reason (btrfs, swap, BitLocker,
+  a thin or RAID logical volume, no known file system).
+- **Readable:** ext2, ext3, ext4 (extents and block maps, hashed folders, small inline
+  files; the jbd2 journal is replayed in memory, so committed transactions of a running VM
+  are there), XFS (v4 and v5), NTFS (fragmented files, large folders, long names), FAT12/16/32
+  (the EFI partition). Not readable: btrfs, ZFS, ReFS, LVM thin, RAID, striped, cache and
+  snapshot volumes, BitLocker and LUKS, NTFS-compressed and EFS files, deduplicated files and
+  other reparse points (listed, never followed), symbolic links (listed, not followed). A file
+  that cannot be read does not break a download: it is named with the reason in
+  `_not-restored.txt` inside the ZIP.
+- **How it is read.** On the Restow server, never on the PVE node and never by mounting.
+  The API reads the restore point's disks from their block maps in the tenant's chunk store
+  (each 4 MiB block proven against its SHA-256, 16 blocks cached per request) and hands the
+  bytes to a reader in a throwaway child process (`packages/core/src/pve/guestfs`): user-space
+  parsers of the partition tables, LVM, ext, XFS, NTFS and FAT, written for this. One child per
+  folder page or download; it is killed afterwards.
+- **Consistency.** A restore point is crash-consistent unless PVE froze the guest's file
+  systems through the QEMU guest agent (then it is consistent). ext journals are replayed in
+  memory; the XFS log and NTFS's `$LogFile` are not, so a crash-consistent XFS or NTFS restore
+  point can lack the last seconds of writes, or show a damaged folder that a mount (with log
+  replay) would have repaired. Restore the whole VM for that.
+
+#### Threat model of the VM file restore
+
+A guest's file systems are attacker-controlled input: whoever controls a VM can write any
+byte to its disks, and the backup carries those bytes into Restow. File system drivers are a
+known attack surface (kernel CVEs from crafted ext4, XFS, NTFS and btrfs images are
+frequent), which is why this design never lets guest data reach a kernel driver:
+
+| Threat | Mitigation |
+| --- | --- |
+| A crafted file system exploits a kernel driver (privilege escalation on the Restow host or the PVE node) | Nothing is mounted anywhere, neither on the node (`qemu-nbd`/loop) nor in a container (a container shares the host kernel, so mounting there would not isolate a driver bug). All parsing is in user space, in JavaScript (memory-safe: no buffer overflow, every read bounds-checked). |
+| A crafted structure makes the reader loop, recurse or allocate without end (denial of service of the API) | The reader runs in its own process with a 256 MiB heap; each operation has a 60 s deadline; a folder page may read at most 2 GiB of the disks; folders, extents, runs, attribute lists, LVM text, path depth and ZIP entries have fixed limits; loops in cluster chains and partition chains are detected. A child that exceeds a limit is killed; the request answers with an error. |
+| A bug in V8 or Node lets crafted data run code in the reader | The child runs under Node's permission model: it may read only its own code (`--allow-fs-read` of its folder), may not start processes or workers, cannot build code from strings, and has an empty environment: no database address, no secret, no tenant key, no storage credential. It receives disk bytes only by asking its parent, which serves reads only within the restore point's disks. Network access is not blocked by Node 22's permission model; with no credential, the child could at most reach services that need none (see the residual risks). |
+| Path tricks in names (`..`, `\`, drive letters, control characters) escape the ZIP when extracted | Every ZIP entry name goes through `safeEntryName` (the same as for machines and containers); `..` is refused as a path component. |
+| A crafted restore point leaks another tenant's data | The disk reader is built from the restore point's own block maps with the tenant's keys, inside the tenant's transaction (Row Level Security); the child cannot name another disk. |
+| Damaged or tampered backup data shows as a wrong file | Every block is checked against the SHA-256 in its map before the reader sees it; a mismatch is a read error. |
+
+Residual risks, stated plainly: a V8/Node sandbox escape plus a network service reachable
+from the API container that needs no credential; denial of service within the limits (a
+browse can keep one CPU busy for up to 60 s per request; requests share the per-tenant gate of
+the restic reads). A micro-VM per request (what Proxmox's own file restore does) would remove
+the first; it needs KVM on the Restow server and is not part of this release.
 
 **Without Restow:** `restow-restore` (packages/cli) writes a VM restore point's
 disks as sparse raw images (`disks/<device>.raw`) from the storage target and
@@ -300,13 +359,71 @@ restow-pve diagnose          every check a backup needs, with the findings (--js
 restow-pve test              like diagnose, exit code 0 only when all is in order
 restow-pve config --allow-restores=false    refuse restores the server asks for (node's own decision)
 restow-pve config --pve-cert-sha256 <sha>   pin a custom pveproxy certificate
+restow-pve config --boot-tests=false        do not run boot tests (the node stops announcing them)
+restow-pve config --boot-test-storage <id>  storage for the temporary guests (default: the fleecing storage)
+restow-pve config --boot-test-bridge <br>   connect the NICs of boot tests to this isolated bridge
+                                            instead of link_down=1 ('-' clears it)
 restow-pve update            install a newer release the instance offers
 restow-pve uninstall --yes   remove helper, plugin and credentials (backups stay in Restow)
 ```
 
 Files: `/etc/restow-pve/state.json` (node secret and API token, root 0600, local
 disk), `/var/lib/restow-pve` (block hash caches, journal, the caches the plugin
-reads), `/run/restow-pve` (per-job state), `journalctl -u restow-pve`.
+reads; `boottest/current.json` names the temporary guest of a running boot test),
+`/run/restow-pve` (per-job state, `boottest.lock`), `journalctl -u restow-pve`.
+
+## Boot test
+
+The counterpart of a SureBackup: proof that a restore point boots, not only that its
+bytes are intact. Off by default; a backup job turns it on (*Boot test*: weekly on the
+newest restore point, or after every backup) with a memory limit (default 8 GiB) and the wait
+for the guest agent (default five minutes). *Boot test now* on a restore point asks for one by
+hand. Only nodes whose `restow-pve` announces the capability get one (PVE-PROTOCOL.md,
+"Capabilities"); the guest's page says when its node cannot.
+
+What the guest's node does:
+
+1. **One at a time, never beside a backup.** A lock file allows one boot test per node; the
+   server plans at most one per node, and holds it back while the node reports a running
+   backup. The node checks again: a Restow backup or restore in progress, or any running
+   `vzdump` task of PVE, skips the test ("A backup runs on this node").
+2. **Resources first.** The guest's memory (from the restore point's configuration) must not
+   exceed the job's limit, the node must have that much available plus 1 GiB (`MemAvailable`),
+   and the boot test storage must hold the restore point's data plus a tenth and 1 GiB. The
+   storage is the node's own choice (`--boot-test-storage`), by default its fleecing storage: a
+   thin, local storage every node with backups has. Otherwise the test is skipped with the
+   reason, which the guest's page shows.
+3. **Restore** through the normal restore path (the PVE API, a new VMID from the cluster, the
+   pool `restow-restore`, no start; the original guest is never touched). A failing restore is
+   red.
+4. **Isolate before the start.** The temporary guest gets the tag `restow-boottest` and the
+   name `restow-boottest-<vmid>`; every NIC `link_down=1` (or the isolated bridge the node
+   names with `--boot-test-bridge`; a container loses its interfaces); PCI and USB passthrough,
+   host serial and parallel ports, virtiofs, a container's device and bind mounts and the hook
+   script are removed; ISO drives are emptied; `onboot 0`, `protection 0`; the QEMU guest agent
+   device is switched on so an installed agent can answer. The configuration is read back; a
+   guest with a NIC still connected is never started.
+5. **Boot and wait.** `qm start`, then every five seconds `qm guest cmd <id> ping`: green as
+   soon as the agent answers (proof the operating system came up). A VM that stops on its own
+   is red; one that keeps running without an answer until the wait is over is yellow
+   ("started, no answer": install the QEMU guest agent for proof). A container is green once
+   `pct exec <id> -- cat /proc/1/comm` shows its init.
+6. **Destroy in every case** (`qm stop`, `qm destroy --purge --destroy-unreferenced-disks`).
+   A marker file under `/var/lib/restow-pve/boottest` records the temporary guest with the
+   UPID of its restore task before it exists; when the service starts, and before every boot
+   test, a leftover is destroyed: the marker's guest (only when the UPID proves this node
+   restored it), and every guest of this node in `restow-restore` that carries both the tag
+   and the name.
+
+The result (outcome, reason, boot time, duration, the node's log of the test) is kept with the
+run and, when it rates (green, yellow, red), with the restore point. A red boot test raises
+`boot_test.failed`, a yellow one `boot_test.unproven` (notification catalog, group
+recoverability). `qm` and `pct` run as root, as the service does; the node's API token needs
+no new privilege.
+
+Not part of the test: a check of ports or applications inside the isolated network, a
+screenshot or serial console heuristic, Windows without the guest agent (yellow at best), and
+guests that need passthrough hardware to boot (removed for the test, so they may fail it).
 
 ## Security
 
@@ -338,8 +455,12 @@ reads), `/run/restow-pve` (per-job state), `journalctl -u restow-pve`.
 
 Not possible: backing up VM templates (PVE disables fleecing for them), live
 restore (PVE refuses it for providers), restoring privileged containers (PVE
-refuses it; restore by hand as unprivileged), single-file restore from VM
-images, restoring single files back into a running container (they are
-browsed and downloaded as a ZIP, see "Files of a container"), S3 Object Lock
+refuses it; restore by hand as unprivileged), restoring single files back into
+a running guest (they are browsed and downloaded as a ZIP, see "Files of a
+container" and "Files of a VM"), files of VMs on btrfs, ZFS, ReFS, LVM thin or
+RAID volumes, BitLocker or LUKS, NTFS-compressed or EFS files (see "Files of a
+VM"), log replay of XFS and NTFS for crash-consistent VM restore points, boot
+tests on nodes before the release with boot tests and boot tests with
+application checks or port checks (see "Boot test"), S3 Object Lock
 for VM data, more than one tenant per cluster, PVE on arm64. Jobs for VMs and containers are kept apart from the mail and machine
 jobs (`pve_jobs`) in this release.

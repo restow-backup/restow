@@ -15,7 +15,7 @@ Changes are additive: new fields may appear, existing ones keep their meaning.
 | `restow-pve run` | The service: heartbeat every minute, tasks, inventory every five minutes, caches, self-update. |
 | `restow-pve status [--json]` | Local state and the last heartbeat. |
 | `restow-pve diagnose [--json]` / `test` | All checks (plugin files, restic, storage.cfg, enrollment, PVE API and version, token privileges, restore pool, fleecing storage, Restow server); `test` exits 1 on any failure. |
-| `restow-pve config` | `--allow-restores=true\|false`, `--fleecing-storage`, `--pve-cert-sha256`, `--restore-tmp`. |
+| `restow-pve config` | `--allow-restores=true\|false`, `--fleecing-storage`, `--pve-cert-sha256`, `--restore-tmp`, `--boot-tests=true\|false`, `--boot-test-storage`, `--boot-test-bridge` (`-` clears it). |
 | `restow-pve update` | Install a newer signed release the instance offers. |
 | `restow-pve uninstall --yes` | Remove unit, plugin, state, caches and binaries. |
 | `restow-pve serve-restore --volname V --device D --socket S` | The NBD restore server of one disk (started by the provider). |
@@ -107,7 +107,7 @@ except enrollment. Binary formats are defined in
 | --- | --- |
 | `POST /enroll/preflight` | `{token}` → `{expiresAt, pveTokenId, pveTokenSecret}`: the installer's check before it changes anything. 401 when the token is unknown, used, revoked or expired. `pveTokenId`/`pveTokenSecret` are the existing PVE API token an admin gave for this enrollment, else `null`. Does not use the token up. |
 | `POST /enroll` | `{token, clusterName, clusterFingerprint, nodeName, pveVersion, helperVersion, fleecingStorage}` → `{nodeId, nodeSecret, clusterId, storageId, createdCluster}` |
-| `POST /heartbeat` | node facts → `{tasks, storageId, usage, update}`; since 0.4.0 the facts carry `activeRuns`, the run ids of the backups open on the node (never null). While an update pauses new job starts the answer holds no backup task. |
+| `POST /heartbeat` | node facts → `{tasks, storageId, usage, update}`; since 0.4.0 the facts carry `activeRuns`, the run ids of the backups open on the node (never null). While an update pauses new job starts the answer holds no backup task. Nodes with boot tests also send `capabilities` (below). |
 | `POST /inventory` | `{guests: [...]}` of this node |
 | `POST /tasks/:id/result` | `{status: done\|failed, error, result}` |
 | `GET /listing` | restore points of the cluster for the plugin |
@@ -126,6 +126,63 @@ except enrollment. Binary formats are defined in
 
 `/agent/pve/restic/:guestId/*` is the restic REST v2 backend of a container's
 repository, Basic `runId:token`, append-only.
+
+### Capabilities and task kinds
+
+The original task kinds are `backup`, `restore` and `refresh_inventory`; every node runs them.
+A newer kind goes only to a node that announced it: the heartbeat carries
+`capabilities`, a list of kind names (never null; `[]` when the node offers none). The
+server keeps the list of the latest heartbeat in the node's facts and
+
+- hands a task of such a kind only to a node whose latest heartbeat listed it: a node
+  that does not send the field (any `restow-pve` before boot tests) never gets one;
+- fails a queued task of such a kind, instead of delivering it, when the node's heartbeat
+  no longer lists it (an older helper reinstalled, or the node switched it off), with
+  "The node does not run boot tests ...";
+- offers the feature in the web app only for guests whose node announced it.
+
+An older server ignores the field (the heartbeat schema drops unknown keys), so a newer
+node talks to it as before. Capabilities so far:
+
+| Capability | Task kind | Since |
+| --- | --- | --- |
+| `boot_test` | `boot_test` | the release after 0.4.0 |
+
+The VM file restore needs no capability: the server reads the disks from its own chunk
+store (PVE.md, "Files of a VM"); nothing of it runs on the node.
+
+### Task `boot_test`
+
+`params`: `{volname, kind: "vm"|"ct", vmid, maxMemoryMiB, timeoutSeconds, dataBytes,
+diskBytes, snapshotId, jobId?}`. `vmid` is the guest's own VMID (names and logs only; it is
+never touched), `dataBytes` what the restore writes (a VM's stored non-zero blocks), `diskBytes`
+the size of all disks.
+
+The node answers with the usual `POST /tasks/:id/result`. `status: "done"` for every test
+that came to an outcome, with `result`:
+
+```json
+{"outcome": "green", "reason": "agent_answered", "message": "...", "durationMs": 95000,
+ "bootSeconds": 41.5, "guestAgent": true, "tempVmid": 9001, "storage": "local-lvm",
+ "cleanedUp": true, "log": "12:00:01 restoring to the temporary vm 9001 on local-lvm\n..."}
+```
+
+| `outcome` | `reason` (examples) | Meaning |
+| --- | --- | --- |
+| `green` | `agent_answered`, `init_running` | the VM's QEMU guest agent answered `qm guest cmd <id> ping`; a container's `pct exec <id> -- cat /proc/1/comm` answered |
+| `yellow` | `no_guest_agent`, `init_unknown` | the guest started and kept running for `timeoutSeconds`, nothing inside answered |
+| `red` | `restore_failed`, `start_failed`, `guest_stopped` | the restore, the start or the boot failed |
+| `skipped` | `memory_limit`, `node_memory`, `storage_space`, `storage_content`, `no_storage`, `backup_running`, `boot_test_running`, `restores_off`, `boot_tests_off` | the node did not run it; `message` says why |
+
+`status: "failed"` means the node could not carry the test out at all (its PVE API failed,
+the temporary guest could not be isolated); the server records the outcome `error`. Green,
+yellow and red become the restore point's boot test (`pve_snapshots.boot_test`); skipped and
+error stay with the run.
+
+What the node does: see PVE.md, "Boot test". It uses the PVE API for the restore (the same
+call as a restore task, into the pool `restow-restore`, `start=0`) and `qm`/`pct` as root for
+everything else (`config`, `set`, `start`, `status`, `guest cmd ... ping`, `exec`, `stop`,
+`destroy`), so the node's API token needs no new privilege.
 
 ### A server restart during a backup
 

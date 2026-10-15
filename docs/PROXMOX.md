@@ -567,6 +567,12 @@ caveats, or creates it itself); in-place restore (by design).
 
 Recommended: (b) or a sandboxed (a) variant using a throwaway micro-VM, after phase 2.
 
+Implemented (after 0.4.0): a variant of (c). Restow reads the file systems itself, in user space
+(`packages/core/src/pve/guestfs`: GPT/MBR, LVM linear, ext2/3/4 with journal replay, XFS, NTFS,
+FAT), in a throwaway child process under Node's permission model, from the server's own chunk
+store; nothing is mounted and nothing runs on the node. Threat model and limits: PVE.md, "Files
+of a VM". The monthly restore check is joined by a boot test (PVE.md, "Boot test").
+
 **Standalone restore (contractual).** `packages/cli` (`restow-restore`) must learn `pve-vm` manifests:
 write each disk as a raw (sparse) file from the map, plus `qemu-server.conf`. CT repositories are plain
 restic repositories (password export as for endpoints).
