@@ -5,7 +5,8 @@
   "tenantScope": "API-Schlüssel und Webhooks von {tenant}. Integrationen sehen nur diesen Mandanten.",
   "tabs": {
     "apiKeys": "API-Schlüssel",
-    "webhooks": "Webhooks"
+    "webhooks": "Webhooks",
+    "notifications": "Benachrichtigungen"
   },
   "noTenant": {
     "title": "Kein Mandant ausgewählt",
@@ -246,7 +247,7 @@
     "chatUnsigned": "Chatdienste können keine Signatur prüfen. Diese Nachrichten werden daher ohne Signatur gesendet, und es wird kein Secret angezeigt. Behandeln Sie die URL wie ein Passwort: Wer sie kennt, kann in den Kanal schreiben.",
     "newSecret": "Nach dem Speichern erzeugt {appName} ein neues Signatur-Secret für diesen Webhook und zeigt es einmal an.",
     "events": "Ereignisse",
-    "eventsHint": "{appName} ruft die URL für die gewählten Ereignisse auf. Alarm- und Berichtsregeln, die diesen Webhook nennen, senden zusätzlich report.alert und report.summary. Ohne Ereignis erhält er nur diese.",
+    "eventsHint": "Welche Ereignisse dieser Webhook erhält, wählen Sie je Ereignis unter Benachrichtigungen. Ein neuer Chat-Webhook (Discord, Slack, Teams) beginnt mit Fehlern und Warnungen, ein signierter JSON-Webhook mit allen Ereignissen.",
     "active": "Aktiv",
     "activeHint": "Ein pausierter Webhook erhält nichts; wartende Wiederholungen enden.",
     "submitCreate": "Webhook hinzufügen",
@@ -402,5 +403,37 @@
     "webhookPaused": "Der Webhook ist pausiert. Aktivieren Sie ihn zuerst.",
     "deliveryPending": "Diese Zustellung wird noch versucht. Warten Sie, bis sie abgeschlossen ist.",
     "masterKeyMissing": "Secrets können nicht gespeichert werden: Auf dem Server ist kein RESTOW_MASTER_KEY konfiguriert."
+  },
+  "matrix": {
+    "title": "Wer welche Benachrichtigung erhält",
+    "description": "Jede Spalte ist ein Kanal dieses Mandanten: die Glocke, jeder Webhook und jeder Benachrichtigungsempfänger. Haken Sie die Ereignisse an, die er erhalten soll. Alarmregeln bestimmen weiter, wie oft sie alarmieren und wann Berichte gehen, senden aber nie ein Ereignis an einen Kanal, bei dem es abgewählt ist.",
+    "legend": "Schweregrade",
+    "levels": {
+      "error": "Fehler",
+      "warning": "Warnung",
+      "info": "Info"
+    },
+    "presets": {
+      "errors": "Nur Fehler",
+      "warnings": "Fehler und Warnungen",
+      "all": "Alle",
+      "custom": "Eigene Auswahl"
+    },
+    "presetsLabel": "Schnellauswahl für diesen Kanal",
+    "presetFor": "Schnellauswahl für {channel}",
+    "event": "Ereignis",
+    "caption": "Benachrichtigungsmatrix: Ereignisse in Zeilen, Kanäle in Spalten",
+    "cell": "{event} für {channel}",
+    "channel": "Kanal",
+    "bell": "Glocke",
+    "bellHint": "Alle in diesem Mandanten",
+    "recipient": "Benachrichtigungsempfänger",
+    "paused": "pausiert",
+    "onlyBell": "Dieser Mandant hat bisher nur die Glocke. Webhooks fügen Sie unter Webhooks hinzu, Benachrichtigungsempfänger auf der Mandantenseite unter Benachrichtigungen.",
+    "unsaved": "{count, plural, one {# Kanal geändert, noch nicht gespeichert.} other {# Kanäle geändert, noch nicht gespeichert.}}",
+    "discard": "Verwerfen",
+    "save": "Speichern",
+    "saved": "Benachrichtigungen gespeichert.",
+    "loadError": "Die Benachrichtigungsmatrix konnte nicht geladen werden."
   }
 }

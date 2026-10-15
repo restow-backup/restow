@@ -5,7 +5,8 @@
   "tenantScope": "API keys and webhooks of {tenant}. Integrations see this tenant only.",
   "tabs": {
     "apiKeys": "API keys",
-    "webhooks": "Webhooks"
+    "webhooks": "Webhooks",
+    "notifications": "Notifications"
   },
   "noTenant": {
     "title": "No tenant selected",
@@ -246,7 +247,7 @@
     "chatUnsigned": "Chat services cannot check a signature, so these messages are sent without one and no secret is shown. Treat the URL like a password: whoever knows it can post to the channel.",
     "newSecret": "After saving, {appName} creates a new signing secret for this webhook and shows it once.",
     "events": "Events",
-    "eventsHint": "{appName} calls the URL for the chosen events. Alert and report rules that name this webhook also send report.alert and report.summary. With no event, it receives only those.",
+    "eventsHint": "Which events this webhook gets is chosen per event under Notifications. A new chat webhook (Discord, Slack, Teams) starts with errors and warnings, a signed JSON webhook with every event.",
     "active": "Active",
     "activeHint": "A paused webhook receives nothing; queued retries end.",
     "submitCreate": "Add webhook",
@@ -402,5 +403,37 @@
     "webhookPaused": "The webhook is paused. Activate it first.",
     "deliveryPending": "This delivery is still being attempted. Wait until it has finished.",
     "masterKeyMissing": "Secrets cannot be stored: the server has no RESTOW_MASTER_KEY configured."
+  },
+  "matrix": {
+    "title": "Who gets which notification",
+    "description": "Each column is a channel of this tenant: the bell, every webhook and every notification recipient. Tick the events it should get. Alert rules still decide how often they alert and when reports go out, but never send an event to a channel that has it off.",
+    "legend": "Severities",
+    "levels": {
+      "error": "Error",
+      "warning": "Warning",
+      "info": "Info"
+    },
+    "presets": {
+      "errors": "Errors only",
+      "warnings": "Errors and warnings",
+      "all": "All",
+      "custom": "Own choice"
+    },
+    "presetsLabel": "Quick choice for this channel",
+    "presetFor": "Quick choice for {channel}",
+    "event": "Event",
+    "caption": "Notification matrix: events in rows, channels in columns",
+    "cell": "{event} for {channel}",
+    "channel": "Channel",
+    "bell": "Bell",
+    "bellHint": "Everyone in this tenant",
+    "recipient": "Notification recipient",
+    "paused": "paused",
+    "onlyBell": "This tenant has only the bell so far. Webhooks are added under Webhooks, notification recipients on the tenant page under Notifications.",
+    "unsaved": "{count, plural, one {# channel changed, not saved yet.} other {# channels changed, not saved yet.}}",
+    "discard": "Discard",
+    "save": "Save",
+    "saved": "Notifications saved.",
+    "loadError": "The notification matrix could not be loaded."
   }
 }

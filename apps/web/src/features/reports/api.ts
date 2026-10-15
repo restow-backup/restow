@@ -9,6 +9,7 @@ import { apiFetch } from "@/lib/api";
 export const REPORT_EVENTS = [
   "backup.failed",
   "backup.overdue",
+  "backup.succeeded",
   "restore.failed",
   "restore.completed",
   "archive.failed",
@@ -16,6 +17,7 @@ export const REPORT_EVENTS = [
   "verify.red",
   "verify.yellow",
   "verify.recovered",
+  "verify.completed",
   "scrub.corrupt",
   "scrub.repaired",
   "endpoint.stale",
@@ -27,6 +29,23 @@ export const REPORT_EVENTS = [
   "update.available",
 ] as const;
 export type ReportEvent = (typeof REPORT_EVENTS)[number];
+
+/**
+ * The webhook stream event that also carries a catalog event (mirrors `webhookEvent` in
+ * packages/core reports/catalog.ts): the stream's events derive from it
+ * (features/integrations/types.ts). `job.completed` is what the stream calls a successful backup.
+ */
+export const REPORT_EVENT_STREAM: Partial<
+  Record<ReportEvent, "job.failed" | "job.completed" | "verify.completed">
+> = {
+  "backup.failed": "job.failed",
+  "backup.succeeded": "job.completed",
+  "restore.failed": "job.failed",
+  "restore.completed": "job.completed",
+  "archive.failed": "job.failed",
+  "directory.failed": "job.failed",
+  "verify.completed": "verify.completed",
+};
 
 export const REPORT_SECTIONS = ["backups", "readiness", "failures", "storage", "restores"] as const;
 export type ReportSection = (typeof REPORT_SECTIONS)[number];
@@ -126,8 +145,11 @@ export interface DeliveryFilters {
   before?: string | null;
 }
 
+export type EventGroup = "jobs" | "recoverability" | "storage" | "system";
+export type EventLevel = "error" | "warning" | "info";
+
 export interface ReportCatalog {
-  events: { name: ReportEvent; group: "jobs" | "recoverability" | "storage"; level: string }[];
+  events: { name: ReportEvent; group: EventGroup; level: string }[];
   sections: ReportSection[];
   periods: number[];
   scheduledAvailable: boolean;
@@ -169,8 +191,44 @@ export interface NotificationFilters {
   unread?: boolean;
 }
 
+/** One channel of the notification matrix and the events it gets. */
+export type MatrixChannel =
+  | { kind: "bell"; id: "bell"; events: ReportEvent[]; custom: boolean }
+  | {
+      kind: "webhook";
+      id: string;
+      name: string | null;
+      host: string;
+      format: "restow" | "discord" | "slack" | "teams";
+      active: boolean;
+      events: ReportEvent[];
+    }
+  | {
+      kind: "email";
+      id: string;
+      email: string;
+      name: string | null;
+      events: ReportEvent[];
+      weeklyReport: boolean;
+    };
+
+/** GET /reports/matrix: the rows (events) and the columns (channels) of the matrix. */
+export interface NotificationMatrix {
+  events: { name: ReportEvent; group: EventGroup; level: EventLevel }[];
+  channels: MatrixChannel[];
+}
+
+/** PUT /reports/matrix: the columns of the channels that changed. */
+export interface MatrixUpdate {
+  channels: (
+    | { kind: "bell"; events: ReportEvent[] }
+    | { kind: "webhook" | "email"; id: string; events: ReportEvent[] }
+  )[];
+}
+
 export const reportKeys = {
   all: (tenantId: string | null) => ["tenant", tenantId, "reports"] as const,
+  matrix: (tenantId: string | null) => ["tenant", tenantId, "reports", "matrix"] as const,
   rules: (tenantId: string | null) => ["tenant", tenantId, "reports", "rules"] as const,
   catalog: (tenantId: string | null) => ["tenant", tenantId, "reports", "catalog"] as const,
   deliveries: (tenantId: string | null, filters: DeliveryFilters = {}) =>
@@ -205,6 +263,9 @@ export const reportKeys = {
 const base = "/reports";
 
 export const fetchCatalog = () => apiFetch<ReportCatalog>(`${base}/catalog`);
+export const fetchMatrix = () => apiFetch<NotificationMatrix>(`${base}/matrix`);
+export const saveMatrix = (update: MatrixUpdate) =>
+  apiFetch<NotificationMatrix>(`${base}/matrix`, { method: "PUT", body: update });
 export const fetchRules = () => apiFetch<ReportRule[]>(`${base}/rules`);
 export const createRule = (input: ReportRuleInput) =>
   apiFetch<ReportRule>(`${base}/rules`, { method: "POST", body: input });

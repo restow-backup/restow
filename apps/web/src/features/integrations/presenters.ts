@@ -14,7 +14,6 @@ import {
   WEBHOOK_FORMATS,
   WEBHOOK_TEST_EVENT,
   type Webhook,
-  type WebhookEvent,
   type WebhookFormat,
   type WebhookInput,
 } from "./types";
@@ -292,10 +291,10 @@ export function webhookUrlIssue(value: string): WebhookUrlIssue | null {
   return url.hostname ? null : "url";
 }
 
+/** Which events a webhook gets is its column in the notification matrix, not part of this form. */
 export interface WebhookFormValues {
   name: string;
   url: string;
-  events: WebhookEvent[];
   active: boolean;
   format: WebhookFormat;
 }
@@ -314,31 +313,28 @@ export const webhookFormSchema = z.object({
         ctx.addIssue({ code: z.ZodIssueCode.custom, message: issue });
       }
     }),
-  // Empty is allowed: then only the alert and report rules that name the webhook send to it.
-  events: z.array(z.enum(WEBHOOK_EVENTS)),
   active: z.boolean(),
   format: z.enum(WEBHOOK_FORMATS),
 });
 
 export function webhookFormFrom(webhook?: Webhook): WebhookFormValues {
   if (!webhook) {
-    return { name: "", url: "", events: ["job.failed"], active: true, format: "restow" };
+    return { name: "", url: "", active: true, format: "restow" };
   }
   return {
     name: webhook.name ?? "",
     url: webhook.url,
-    events: [...webhook.events],
     active: webhook.active,
     format: webhook.format,
   };
 }
 
+/** A new webhook names no events: the server starts it with its format's defaults. */
 export function toWebhookInput(values: WebhookFormValues): WebhookInput {
   const name = values.name.trim();
   return {
     name: name.length > 0 ? name : null,
     url: values.url.trim(),
-    events: WEBHOOK_EVENTS.filter((event) => values.events.includes(event)),
     active: values.active,
     format: values.format,
   };
@@ -370,12 +366,6 @@ export function webhookPatch(values: WebhookFormValues, webhook: Webhook): Parti
   }
   if (next.url !== webhook.url) {
     patch.url = next.url;
-  }
-  const sameEvents =
-    next.events.length === webhook.events.length &&
-    next.events.every((event) => webhook.events.includes(event));
-  if (!sameEvents) {
-    patch.events = next.events;
   }
   if (next.active !== webhook.active) {
     patch.active = next.active;
@@ -416,7 +406,7 @@ export function integrationErrorKey(error: unknown): string {
 // Search params
 // ---------------------------------------------------------------------------
 
-export type IntegrationsTab = "api-keys" | "webhooks";
+export type IntegrationsTab = "api-keys" | "webhooks" | "notifications";
 
 export interface IntegrationsSearch {
   /**
@@ -424,12 +414,12 @@ export interface IntegrationsSearch {
    * provider keys' old place answers to: the keys moved to Installation, Provider
    * API, and the route leads there (index.ts); the page itself never shows it.
    */
-  tab?: "webhooks" | "provider-keys";
+  tab?: "webhooks" | "notifications" | "provider-keys";
 }
 
 export function parseIntegrationsSearch(search: Record<string, unknown>): IntegrationsSearch {
-  if (search.tab === "webhooks") {
-    return { tab: "webhooks" };
+  if (search.tab === "webhooks" || search.tab === "notifications") {
+    return { tab: search.tab };
   }
   return search.tab === "provider-keys" ? { tab: "provider-keys" } : {};
 }

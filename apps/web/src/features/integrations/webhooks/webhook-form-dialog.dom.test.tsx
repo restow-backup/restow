@@ -121,8 +121,9 @@ describe("WebhookFormDialog", () => {
     expect(post?.body).toMatchObject({
       url: "https://discord.com/api/webhooks/1/token",
       format: "discord",
-      events: ["job.failed"],
     });
+    // The server starts a chat webhook with errors and warnings; the matrix changes that.
+    expect(post?.body).not.toHaveProperty("events");
     expect(document.body.textContent).not.toContain("Copy the signing secret now");
     expect([...document.querySelectorAll("input")].map((input) => input.value)).not.toContain(
       "whsec_fresh",

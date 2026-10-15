@@ -44,7 +44,6 @@ import {
   webhookPatch,
 } from "../presenters";
 import { WEBHOOK_FORMATS, type Webhook, type WebhookFormat } from "../types";
-import { EventPicker } from "./event-picker";
 import { useRuleCount } from "./rules-using-webhook";
 
 interface WebhookFormDialogProps {
@@ -305,18 +304,15 @@ function WebhookForm({
           />
         </Field>
 
-        <Controller
-          control={form.control}
-          name="events"
-          render={({ field }) => (
-            <EventPicker
-              value={field.value}
-              onChange={field.onChange}
-              error={reason(errors.events?.message)}
-              rules={ruleCount}
-            />
-          )}
-        />
+        <div className="space-y-1" data-slot="webhook-events-hint">
+          <p className="text-sm font-medium">{t("webhookForm.events")}</p>
+          <p className="text-xs text-muted-foreground">{t("webhookForm.eventsHint")}</p>
+          {ruleCount > 0 ? (
+            <p className="text-xs text-muted-foreground" data-slot="webhook-rule-count">
+              {t("webhookForm.eventsRules", { count: ruleCount })}
+            </p>
+          ) : null}
+        </div>
 
         <Controller
           control={form.control}

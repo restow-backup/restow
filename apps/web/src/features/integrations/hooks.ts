@@ -1,6 +1,13 @@
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as React from "react";
-import { reportKeys } from "@/features/reports/api";
+import {
+  fetchMatrix,
+  type MatrixUpdate,
+  type NotificationMatrix,
+  reportKeys,
+  saveMatrix,
+} from "@/features/reports/api";
+import { tenantKeys } from "@/features/tenants/api";
 
 import { useSession } from "@/lib/session";
 
@@ -248,5 +255,37 @@ export function useDelivery(id: string, deliveryId: string | null) {
     queryFn: () => fetchDelivery(id, deliveryId ?? ""),
     enabled: tenantEnabled && deliveryId !== null,
     refetchInterval: (query) => (query.state.data?.status === "pending" ? PENDING_POLL_MS : false),
+  });
+}
+
+/** The notification matrix of the active tenant (Integrations › Notifications). */
+export function useNotificationMatrix() {
+  const { tenantId, tenantEnabled } = useIntegrationsScope();
+  return useQuery({
+    queryKey: reportKeys.matrix(tenantId),
+    queryFn: fetchMatrix,
+    enabled: tenantEnabled,
+  });
+}
+
+/**
+ * Save the columns that changed. The answer is the matrix as stored; the webhooks (their event
+ * counts), the recipients' rules and the tenant's recipients follow the save.
+ */
+export function useSaveNotificationMatrix() {
+  const { tenantId } = useIntegrationsScope();
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (update: MatrixUpdate) => saveMatrix(update),
+    onSuccess: (matrix: NotificationMatrix) => {
+      queryClient.setQueryData(reportKeys.matrix(tenantId), matrix);
+      return Promise.all([
+        queryClient.invalidateQueries({ queryKey: integrationKeys.webhooks(tenantId) }),
+        queryClient.invalidateQueries({ queryKey: reportKeys.rules(tenantId) }),
+        ...(tenantId
+          ? [queryClient.invalidateQueries({ queryKey: tenantKeys.detail(tenantId) })]
+          : []),
+      ]);
+    },
   });
 }
