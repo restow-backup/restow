@@ -11,7 +11,7 @@
  * test still starts from a clean slate. Runs when RESTOW_TEST_DATABASE_URL
  * points at a Postgres server; without it the suite is skipped.
  */
-import { type Database, createDb, jobs, providers, tenants } from "@restow/db";
+import { createDb, type Database, jobs, providers, tenants } from "@restow/db";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {

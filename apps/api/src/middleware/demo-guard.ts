@@ -1,8 +1,8 @@
 import { productName } from "@restow/i18n";
 import type { MiddlewareHandler } from "hono";
 import { config } from "../config.js";
-import { demoRateLimitExceeded, rateLimitKeyOf } from "../lib/demo-rate-limit.js";
 import { demoRateLimitFor, demoRequestAllowed } from "../lib/demo.js";
+import { demoRateLimitExceeded, rateLimitKeyOf } from "../lib/demo-rate-limit.js";
 import { ProblemError } from "../problem.js";
 
 /**

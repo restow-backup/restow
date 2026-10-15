@@ -15,10 +15,10 @@
 import { loadManifest } from "../engine/snapshot.js";
 import {
   type JobContext,
+  matchesSelection,
   type RestoreRequest,
   type RestoreSelection,
   type SnapshotRecord,
-  matchesSelection,
 } from "../engine/types.js";
 import type { ManifestObject, SnapshotManifest } from "../manifest.js";
 import { SnapshotCatalog } from "./catalog.js";

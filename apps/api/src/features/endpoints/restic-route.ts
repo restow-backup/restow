@@ -1,13 +1,13 @@
 import {
-  type QuotaUsage,
-  type ResticLockRegistry,
-  type StorageBackend,
   endpointBudgetBytes,
   endpointPrefix,
   endpointQuotaLimits,
   handleResticRequest,
   measureRepositoryBytes,
+  type QuotaUsage,
+  type ResticLockRegistry,
   remainingQuotaBytes,
+  type StorageBackend,
 } from "@restow/core";
 import { endpointRepositoryLocks, endpoints } from "@restow/db";
 import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
@@ -22,7 +22,7 @@ import {
   resticApiLimiter,
   touchEndpoint,
 } from "./agent-auth.js";
-import { ENDPOINT_AUDIT_ACTIONS, agentActor, auditEndpoint } from "./audit.js";
+import { agentActor, auditEndpoint, ENDPOINT_AUDIT_ACTIONS } from "./audit.js";
 import { RESTIC_PATH } from "./meta.js";
 import { tenantStorage } from "./repository.js";
 

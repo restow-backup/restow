@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { ProblemError } from "../../../../apps/api/src/problem.js";
 import { decodeAuditCursor, encodeAuditCursor, pageOf } from "./cursor.js";
 import { overallStatus } from "./dto.js";
-import { INSTALLATION_CHAIN, chainQuerySchema, listAuditQuerySchema } from "./schemas.js";
+import { chainQuerySchema, INSTALLATION_CHAIN, listAuditQuerySchema } from "./schemas.js";
 import { escapeLike, listConditions, selectChains } from "./service.js";
 
 const TENANT = "0f1e2d3c-4b5a-4978-8899-aabbccddeeff";

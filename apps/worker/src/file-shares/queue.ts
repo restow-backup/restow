@@ -126,7 +126,7 @@ export async function queueShareCopy(
       .from(backupJobs)
       .where(and(eq(backupJobs.id, payload.backupJobId), eq(backupJobs.kind, "copy")))
       .for("update");
-    if (!job || !job.enabled || !job.sourceFileShareId || !job.targetFileShareId) {
+    if (!job?.enabled || !job.sourceFileShareId || !job.targetFileShareId) {
       return "not_due";
     }
     const shares = await tx

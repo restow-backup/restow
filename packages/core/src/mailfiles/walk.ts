@@ -30,10 +30,10 @@ import { flagsFromHeaders, readHeaderBlock, receivedOrSentDate } from "./headers
 import { splitMbox } from "./mbox.js";
 import { readMsg } from "./msg.js";
 import {
-  SNIFF_HEAD_BYTES,
   archiveKindLabel,
   detectMailFormat,
   detectOtherArchive,
+  SNIFF_HEAD_BYTES,
 } from "./sniff.js";
 import {
   DEFAULT_MAIL_FILE_LIMITS,

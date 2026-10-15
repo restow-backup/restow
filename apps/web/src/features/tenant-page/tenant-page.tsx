@@ -17,8 +17,8 @@ import { type SessionTenant, sessionScope, useSession } from "@/lib/session";
 import { tenantPagePath } from "@/lib/tenant-paths";
 import { cn } from "@/lib/utils";
 
-import { type TenantPageAccess, resolveTenantPageAccess, useTenantWriteBlock } from "./access";
-import { type SubPage, isSectionClosed, tenantSectionStates } from "./presenters";
+import { resolveTenantPageAccess, type TenantPageAccess, useTenantWriteBlock } from "./access";
+import { isSectionClosed, type SubPage, tenantSectionStates } from "./presenters";
 import { tenantSections } from "./sections";
 
 /**

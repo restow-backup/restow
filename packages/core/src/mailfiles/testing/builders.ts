@@ -14,11 +14,11 @@ import { deflateRawSync } from "node:zlib";
 import { Attachment, CFB, Email } from "@tutao/oxmsg";
 import { ZipArchive } from "archiver";
 import {
-  type HeaderField,
-  type MimePart,
   encodeHeaderText,
   filePart,
   formatMailbox,
+  type HeaderField,
+  type MimePart,
   mimeTypeForFile,
   multipart,
   serializeMessage,

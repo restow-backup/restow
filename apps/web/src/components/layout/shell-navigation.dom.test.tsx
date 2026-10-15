@@ -1,15 +1,15 @@
 // @vitest-environment happy-dom
 import {
-  RouterProvider,
   createMemoryHistory,
   createRootRoute,
   createRoute,
   createRouter,
+  RouterProvider,
 } from "@tanstack/react-router";
 import { BellRing, History, LayoutDashboard, ScrollText } from "lucide-react";
 import type * as React from "react";
 import { act } from "react";
-import { type Root, createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 

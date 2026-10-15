@@ -6,12 +6,12 @@
  * for Business does.
  */
 import {
+  createFakeGraph,
   type FakeGraph,
   type FixtureResponse,
   type FixtureRoute,
-  type RecordedCall,
-  createFakeGraph,
   graphError,
+  type RecordedCall,
 } from "../../graph/testing/fake-graph.js";
 import { quickXorHash } from "../quickxorhash.js";
 

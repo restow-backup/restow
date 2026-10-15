@@ -53,7 +53,6 @@ import { RestorePointBar } from "@/features/restore/explorer/restore-point-bar";
 import { SearchField } from "@/features/restore/explorer/search-field";
 import { SelectionBar } from "@/features/restore/explorer/selection-bar";
 import {
-  type ExplorerSearch,
   activeQuery,
   preferredObject,
   withFolder,
@@ -65,13 +64,13 @@ import {
 } from "@/features/restore/lib/explorer-search";
 import { normalizePath, parentPathOf } from "@/features/restore/lib/paths";
 import {
+  deselectAll,
   EMPTY_SELECTION,
   type Selection,
-  deselectAll,
   selectAll,
   selectionOf,
-  toSelectedEntry,
   toggle,
+  toSelectedEntry,
 } from "@/features/restore/lib/selection";
 import { useMediaQuery } from "@/features/restore/lib/use-media-query";
 import {
@@ -674,7 +673,11 @@ function SearchHeading({
   query,
   count,
   loading,
-}: { query: string; count: number; loading: boolean }) {
+}: {
+  query: string;
+  count: number;
+  loading: boolean;
+}) {
   const { t } = useTranslation("restore");
   return (
     <p className="min-w-0 flex-1 truncate text-sm" aria-live="polite" aria-busy={loading}>

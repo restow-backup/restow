@@ -25,10 +25,10 @@ import { ObjectLockLine } from "@/features/storage/components/object-lock-line";
 import { ProbeResult } from "@/features/storage/components/probe-result";
 import { ToneLine } from "@/features/storage/components/status";
 import {
-  type TargetFormValues,
   emptyTargetForm,
   formFieldOf,
   presetForEndpoint,
+  type TargetFormValues,
   targetFormSchema,
   toLocationInput,
 } from "@/features/storage/forms";
@@ -42,11 +42,11 @@ import { isRecentSignInRequired } from "@/lib/recent-sign-in";
 import { AccessNote, ReadOnlyGroup, useInstallationAccess } from "../access";
 import { useWordingScope } from "../scope";
 import {
+  blockersOf,
   DEFAULT_STORAGE_PROBLEMS,
   type DefaultStorageBlocker,
   type DefaultStorageLastTest,
   type DefaultStorageView,
-  blockersOf,
   refusedProbeOf,
   useDefaultStorage,
   useRemoveDefaultStorage,
@@ -104,7 +104,10 @@ export function DefaultStorageSection({ parts = "all" }: { parts?: DefaultStorag
 export function DefaultStorageContent({
   view,
   parts = "all",
-}: { view: DefaultStorageView; parts?: DefaultStorageParts }) {
+}: {
+  view: DefaultStorageView;
+  parts?: DefaultStorageParts;
+}) {
   const access = useInstallationAccess();
   const test =
     view.configured && parts !== "main" ? (

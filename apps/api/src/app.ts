@@ -21,9 +21,9 @@ import { agentRoutes } from "./features/endpoints/agent-routes.js";
 import { installRoutes } from "./features/endpoints/install-routes.js";
 import {
   AGENT_API_PATH,
+  mountPath as endpointsMountPath,
   INSTALL_PATH,
   RESTIC_PATH,
-  mountPath as endpointsMountPath,
 } from "./features/endpoints/meta.js";
 import { resticRoutes } from "./features/endpoints/restic-route.js";
 import { endpointsRoutes } from "./features/endpoints/routes.js";
@@ -57,8 +57,8 @@ import { pveResticRoutes } from "./features/pve/restic-route.js";
 import { pveInstallScript, pveRoutes } from "./features/pve/routes.js";
 import {
   NOTIFICATIONS_MOUNT_PATH,
-  REPORTS_MOUNT_PATH,
   notificationsRoutes,
+  REPORTS_MOUNT_PATH,
   reportsRoutes,
 } from "./features/reports/routes.js";
 import { mountPath as restoreMountPath } from "./features/restore/meta.js";

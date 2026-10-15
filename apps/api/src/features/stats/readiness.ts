@@ -1,8 +1,8 @@
 import {
-  type ObjectState,
-  type RatedObject,
   isOverdue,
+  type ObjectState,
   overallReadiness,
+  type RatedObject,
 } from "../verify/summary.js";
 import { isStorageFinding, objectVerificationOf } from "../verify/verification-state.js";
 import type {

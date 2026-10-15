@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   ENDPOINT_QUOTA_THRESHOLDS,
-  GIB,
   endpointBudgetBytes,
   endpointQuotaLimits,
+  GIB,
   quotaCleared,
   quotaLevelOf,
   quotaRatio,

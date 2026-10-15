@@ -15,13 +15,13 @@ import { i18n } from "@/i18n";
 
 import "../i18n.js";
 import {
-  SHARE_ID,
   failureFixture,
+  SHARE_ID,
   settingsFixture,
   shareFixture,
   testResultFixture,
 } from "../fixtures.js";
-import { type Rendered, action, render, slot, text } from "../testing.js";
+import { action, type Rendered, render, slot, text } from "../testing.js";
 import { AddShareDialog } from "./add-share-dialog.js";
 
 /**

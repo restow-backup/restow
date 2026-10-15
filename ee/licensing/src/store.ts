@@ -3,8 +3,8 @@ import { desc, eq } from "drizzle-orm";
 import { type Capability, hasCapability } from "./capabilities.js";
 import {
   type EffectiveLicense,
-  type LicenseEdition,
   environmentEdition,
+  type LicenseEdition,
   resolveEffectiveLicense,
 } from "./editions.js";
 

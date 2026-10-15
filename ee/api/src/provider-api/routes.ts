@@ -4,7 +4,7 @@ import { z } from "zod";
 import { hasScope } from "../../../../apps/api/src/features/apikeys/scopes.js";
 import { withTenantTx } from "../../../../apps/api/src/lib/tenant-context.js";
 import type { IntegrationApi, V1Deps } from "../../../../apps/api/src/routes/v1/api.js";
-import { V1_AUDIT_ACTIONS, readRecorder } from "../../../../apps/api/src/routes/v1/audit.js";
+import { readRecorder, V1_AUDIT_ACTIONS } from "../../../../apps/api/src/routes/v1/audit.js";
 import { component } from "../../../../apps/api/src/routes/v1/components.js";
 import {
   decodeCursor,

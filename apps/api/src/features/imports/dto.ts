@@ -286,7 +286,7 @@ function count(value: unknown): number | null {
  */
 export function reportOf(value: Record<string, unknown> | null): mailfiles.ImportReport | null {
   const report = record(value);
-  if (!report || report.version !== 1 || record(report.totals) === null) {
+  if (report?.version !== 1 || record(report.totals) === null) {
     return null;
   }
   return report as unknown as mailfiles.ImportReport;

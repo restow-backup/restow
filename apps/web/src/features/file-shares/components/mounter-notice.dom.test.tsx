@@ -6,7 +6,7 @@ import { i18n } from "@/i18n";
 
 import { settingsFixture } from "../fixtures.js";
 import "../i18n.js";
-import { type Rendered, action, providerOwner, render, slot, tenantAdmin } from "../testing.js";
+import { action, providerOwner, type Rendered, render, slot, tenantAdmin } from "../testing.js";
 import { MounterNotice } from "./mounter-notice.js";
 
 /**

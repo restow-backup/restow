@@ -20,7 +20,10 @@ interface AlertListProps {
 function AlertRow({
   alert,
   onOpenTenant,
-}: { alert: ProviderAlert; onOpenTenant: (id: string) => void }) {
+}: {
+  alert: ProviderAlert;
+  onOpenTenant: (id: string) => void;
+}) {
   const { t } = useTranslation("dashboard");
   return (
     <li

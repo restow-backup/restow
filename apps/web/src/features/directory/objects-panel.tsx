@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { type ColumnDef, flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 import type { TFunction } from "i18next";
 import {
@@ -10,7 +11,6 @@ import {
   CircleMinus,
   Cloud,
   FolderSearch,
-  History,
   Inbox,
   ListChecks,
   ListPlus,
@@ -23,7 +23,6 @@ import {
 } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-
 import { ErrorState } from "@/components/error-state";
 import { ConfirmDialog, type RowAction, RowActionsMenu, RowContextMenu } from "@/components/kit";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
@@ -54,16 +53,14 @@ import { jobDefinitionTo, linkProps, newJobTo } from "@/features/backup-jobs/pat
 import { AddToJobDialog } from "@/features/endpoints/components/add-to-job-dialog";
 import { explorerAt } from "@/features/restore/navigation";
 import { WarningSheet } from "@/features/warnings";
-import { errorMessageKey } from "@/lib/api";
 import { formatDateTime, formatInteger, formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { Link } from "@tanstack/react-router";
 
 import {
   type BulkSelectionState,
-  EMPTY_SELECTION,
   bulkTarget,
   clearSelection,
+  EMPTY_SELECTION,
   isPageFullySelected,
   isPagePartiallySelected,
   isSelected as objectIsSelected,
@@ -88,7 +85,7 @@ import {
   pageCount,
   readinessView,
 } from "./presenters";
-import { type DirectorySearch, PAGE_SIZES, hasObjectFilters, toObjectsQuery } from "./search";
+import { type DirectorySearch, hasObjectFilters, PAGE_SIZES, toObjectsQuery } from "./search";
 import type {
   BulkProtectionInput,
   DirectorySource,
@@ -254,6 +251,15 @@ export function ObjectsPanel({
                           key={header.id}
                           pin={columnPin(header.column.id)}
                           className={columnClass(header.column.id)}
+                          aria-sort={
+                            !SORTABLE.has(id)
+                              ? undefined
+                              : query.sort !== id
+                                ? "none"
+                                : query.order === "asc"
+                                  ? "ascending"
+                                  : "descending"
+                          }
                         >
                           {SORTABLE.has(id) ? (
                             <SortButton
@@ -983,7 +989,6 @@ function SortButton({
       type="button"
       className="-ml-1 inline-flex items-center gap-1 rounded px-1 py-0.5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       aria-label={t("objects.sortBy", { column: label })}
-      aria-sort={active ? (query.order === "asc" ? "ascending" : "descending") : undefined}
       onClick={() =>
         onSearchChange({
           sort: column,

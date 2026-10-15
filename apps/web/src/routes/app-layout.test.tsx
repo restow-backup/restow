@@ -1,9 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
-  RouterProvider,
   createMemoryHistory,
   createRoute,
   createRouter,
+  RouterProvider,
   useParams,
 } from "@tanstack/react-router";
 import {
@@ -24,11 +24,11 @@ import { PageHeader } from "@/components/page-header";
 import { ThemeProvider } from "@/components/theme-provider";
 import { dashboardKeys } from "@/features/dashboard/api";
 import { i18n } from "@/i18n";
-import { type Me, type SetupState, queryKeys } from "@/lib/api";
+import { type Me, queryKeys, type SetupState } from "@/lib/api";
 import { applyProductName } from "@/lib/branding";
 import { registerWebExtension, resetWebExtensionsForTesting } from "@/lib/extensions";
 import type { NavItem, NavLock } from "@/lib/navigation";
-import { type SessionContextValue, StaticSessionProvider, resolveTenantView } from "@/lib/session";
+import { resolveTenantView, type SessionContextValue, StaticSessionProvider } from "@/lib/session";
 import { NotFoundPage } from "@/routes/not-found";
 import { appLayoutRoute, rootRoute } from "@/routes/tree";
 

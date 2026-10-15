@@ -2,17 +2,17 @@ import { isIP } from "node:net";
 import { z } from "zod";
 import {
   NFS_VERSIONS,
+  normalizeExportPath,
+  normalizeNfsServer,
   RUNNER_BLOCKER_CODES,
   RUNNER_PROTOCOLS,
   type RunnerBlockerCode,
   type RunnerCapabilities,
-  normalizeExportPath,
-  normalizeNfsServer,
   runnerCapabilitiesSchema,
 } from "./protocol.js";
 
-export { RUNNER_BLOCKER_CODES, RUNNER_PROTOCOLS, runnerCapabilitiesSchema };
 export type { RunnerBlockerCode, RunnerCapabilities };
+export { RUNNER_BLOCKER_CODES, RUNNER_PROTOCOLS, runnerCapabilitiesSchema };
 
 /**
  * The runner operations of the mounter (docs/FILESHARES.md section 3): file share

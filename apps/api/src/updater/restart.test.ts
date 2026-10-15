@@ -3,7 +3,7 @@ import { OpsError } from "./ops.js";
 import { stateViewSchema, updaterErrorSchema } from "./protocol.js";
 import { ServiceRestarter } from "./restart.js";
 import { buildServer } from "./server.js";
-import { type Harness, createHarness, scheduleRequest } from "./testing.js";
+import { createHarness, type Harness, scheduleRequest } from "./testing.js";
 
 /**
  * `POST /v1/restart` (restart.ts): an administrator's click restarts exactly

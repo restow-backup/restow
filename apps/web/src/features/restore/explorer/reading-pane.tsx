@@ -5,12 +5,12 @@ import { ErrorState } from "@/components/kit";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { attachmentDownloadUrl } from "@/features/restore/api";
 import type {
   EntryPreview,
   PreviewAttachment,
   PreviewUnavailableReason,
 } from "@/features/restore/api";
+import { attachmentDownloadUrl } from "@/features/restore/api";
 import { Fact, Facts } from "@/features/restore/components/facts";
 import { buildPrintDocument, printMessage } from "@/features/restore/lib/print";
 import {
@@ -210,6 +210,7 @@ export function ReadingPaneView({
               className="h-[min(60vh,48rem)] min-h-64 w-full rounded-md border border-border bg-white"
             />
           ) : (
+            // biome-ignore lint/a11y/useAriaPropsSupportedByRole: names the plain-text body; a landmark role would only add noise
             <pre
               aria-label={t("details.reading.plainText")}
               className="max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-md border border-border bg-muted/30 p-3 text-sm"

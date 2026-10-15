@@ -30,19 +30,19 @@ import { zodResolver } from "@/lib/form";
 
 import {
   type CustomerDataFormValues,
-  type TenantWizardValues,
-  WIZARD_LENGTH_LIMITS,
   customerDataFormFrom,
   customerDataFormSchema,
   emptyContact,
   emptyTenantWizardForm,
   fieldMessageKey,
+  type TenantWizardValues,
   tenantWizardSchema,
   toUpdateTenantCustomerInput,
   undefinedIfBlank,
+  WIZARD_LENGTH_LIMITS,
 } from "../forms";
 import { useReplaceTenantContacts, useUpdateTenantCustomer } from "../hooks";
-import { type Message, genericError, isCustomerNumberConflict } from "../presenters";
+import { genericError, isCustomerNumberConflict, type Message } from "../presenters";
 import type { TenantDetail } from "../types";
 import { ContactsStep } from "./tenant-wizard/step-contacts";
 

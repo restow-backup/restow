@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { EndpointSummaryDto } from "../../features/endpoints/dto.js";
 import { listEndpoints } from "../../features/endpoints/service.js";
 import { type IntegrationApi, READ_ERRORS, type V1Deps } from "./api.js";
-import { V1_AUDIT_ACTIONS, readRecorder } from "./audit.js";
+import { readRecorder, V1_AUDIT_ACTIONS } from "./audit.js";
 import { component } from "./components.js";
 import { readinessStateSchema, timestampSchema, uuidSchema } from "./schemas.js";
 

@@ -1,9 +1,9 @@
-import { type LegalHoldScope, isHeld } from "./holds.js";
+import { isHeld, type LegalHoldScope } from "./holds.js";
 import {
-  type SnapshotCandidate,
-  type SnapshotRetentionPolicy,
   groupByObject,
   resolvePolicyFor,
+  type SnapshotCandidate,
+  type SnapshotRetentionPolicy,
   selectExpiredSnapshots,
 } from "./selection.js";
 

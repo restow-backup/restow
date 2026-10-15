@@ -35,15 +35,15 @@ import { type EndpointDetail, LIMITS, type Retention, type ScheduleKind } from "
 import { useEndpointFormat, useUpdateEndpoint } from "../hooks.js";
 import { endpointErrorKey, endpointName, isWithoutBackup } from "../presenters.js";
 import {
-  DEFAULTS,
-  type DraftField,
-  type DraftProblems,
-  type SettingsDraft,
   buildPatch,
   changedSections,
   checkDraft,
+  DEFAULTS,
+  type DraftField,
+  type DraftProblems,
   draftFromDetail,
   hasProblems,
+  type SettingsDraft,
   stricterRetention,
 } from "../settings-form.js";
 import { AssignmentField } from "./assign-dialog.js";

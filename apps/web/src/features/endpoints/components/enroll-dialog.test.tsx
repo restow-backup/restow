@@ -7,7 +7,7 @@ import { i18n } from "@/i18n";
 import type { CreatedToken, EnrollmentToken } from "../api.js";
 import { type Mounted, mount } from "../dom-harness.js";
 import "../i18n.js";
-import { EnrollDialog, defaultOs, enrollStatusOf, isSelectableOs } from "./enroll-dialog.js";
+import { defaultOs, EnrollDialog, enrollStatusOf, isSelectableOs } from "./enroll-dialog.js";
 
 const viewer = vi.hoisted(() => ({ role: null as string | null }));
 vi.mock("@/lib/session", () => ({
@@ -32,7 +32,11 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
       className,
       children,
       ...props
-    }: { to: string; className?: string; children: React.ReactNode }) => (
+    }: {
+      to: string;
+      className?: string;
+      children: React.ReactNode;
+    }) => (
       <a href={String(to)} className={className} {...props}>
         {children}
       </a>

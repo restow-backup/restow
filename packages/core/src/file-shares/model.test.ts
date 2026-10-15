@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_MOUNTER_RUNNER_CAPS,
   FILE_SHARE_SETTINGS_DEFAULTS,
-  SHARE_SYSTEM_FILE_PATTERNS,
   fileShareRepositoryKey,
   fileShareRepositoryPrefix,
   fileShareSettingsOf,
   goMemLimitMiB,
   mounterRunnerCapsFromEnv,
+  SHARE_SYSTEM_FILE_PATTERNS,
   shareExcludePatterns,
   shareIncludes,
   shareRelativePath,

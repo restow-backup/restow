@@ -1,7 +1,7 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import { db, providerDb } from "../../db.js";
 import { currentInstallationDefault } from "../../lib/installation-default.js";
-import { type TenantEnv, requireTenant } from "../../middleware/session.js";
+import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseOrProblem } from "../../schemas.js";
 import { dashboardQuerySchema } from "./schemas.js";
 import { type DashboardDeps, loadDashboard } from "./service.js";

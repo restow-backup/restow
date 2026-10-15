@@ -1,9 +1,8 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
 import { count, render } from "@/components/kit/test-utils";
-import { i18n } from "@/i18n";
-
 import type { Failure } from "@/features/failures";
+import { i18n } from "@/i18n";
 
 import type { RunDetail } from "../api.js";
 import "../i18n.js";

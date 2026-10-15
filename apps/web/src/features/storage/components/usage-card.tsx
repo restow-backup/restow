@@ -19,7 +19,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { dedupSavings, formatBytes, formatPercent } from "@/lib/format";
 import type { StorageUsage, UsagePoint } from "../types";
-import { USAGE_RANGES, type UsageRange, byteTicks, seriesForRange, usageDateLabel } from "../usage";
+import { byteTicks, seriesForRange, USAGE_RANGES, type UsageRange, usageDateLabel } from "../usage";
 import { useStorageUsage } from "../use-storage";
 
 /**

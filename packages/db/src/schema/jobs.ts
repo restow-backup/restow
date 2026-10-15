@@ -2,7 +2,6 @@ import { sql } from "drizzle-orm";
 import {
   bigint,
   boolean,
-  check,
   index,
   integer,
   jsonb,
@@ -16,6 +15,7 @@ import {
 import { type FailureRecordJson, timestamps } from "./_shared.js";
 
 export type { FailureRecordJson } from "./_shared.js";
+
 import { user } from "./auth.js";
 import { snapshots } from "./backup.js";
 import { protectedObjects } from "./sources.js";

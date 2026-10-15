@@ -18,12 +18,10 @@ import { createHash } from "node:crypto";
  * One pass every five minutes, in one worker at a time (a session advisory lock).
  */
 import {
+  applyRetentionPolicy,
   type BlockMap,
   ChunkReader,
   DEFAULT_SCHEDULE_TIMEZONE,
-  type StorageTargets,
-  type TenantKeyring,
-  applyRetentionPolicy,
   decodeBlockMap,
   deleteOnAllTargets,
   loadManifest,
@@ -36,7 +34,9 @@ import {
   resticCheck,
   resticForget,
   resticPrune,
+  type StorageTargets,
   sampleDataBlocks,
+  type TenantKeyring,
   withRepository,
 } from "@restow/core";
 import {
@@ -60,8 +60,8 @@ import { appendAuditEntry } from "../audit.js";
 import {
   PgChunkIndex,
   PgSecretReader,
-  type WorkerRuntime,
   tenantRunner,
+  type WorkerRuntime,
   withTenantTx,
 } from "../handlers/framework.js";
 
@@ -519,7 +519,7 @@ export async function planRestoreTests(deps: PveDeps, now: Date): Promise<number
             isNull(pveNodes.revokedAt),
           ),
         );
-      if (!snap || snap.status !== "active" || !node) {
+      if (snap?.status !== "active" || !node) {
         return 0;
       }
       const [task] = await tx

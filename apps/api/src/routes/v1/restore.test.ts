@@ -1,13 +1,12 @@
 import type { AuditLogEntry, Database } from "@restow/db";
 import { createDb, restoreJobs } from "@restow/db";
-import { eq } from "drizzle-orm";
 import { Hono, type MiddlewareHandler } from "hono";
 import PgBoss from "pg-boss";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  type ExplorerFixture,
   createExplorerFixture,
   dropDatabase,
+  type ExplorerFixture,
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "../../features/snapshots/testing/explorer-fixture.js";
@@ -17,7 +16,7 @@ import type {
   RequireApiKeyOptions,
   requireApiKey,
 } from "../../middleware/apiKey.js";
-import { ProblemError, errorHandler, notFoundHandler } from "../../problem.js";
+import { errorHandler, notFoundHandler, ProblemError } from "../../problem.js";
 import { buildV1 } from "../v1.js";
 import { featuresOff } from "./testing/features.js";
 

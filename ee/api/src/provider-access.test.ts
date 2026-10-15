@@ -4,10 +4,10 @@ import {
   resetExtensionsForTesting,
 } from "../../../apps/api/src/extensions.js";
 import {
-  PROVIDER_ROUTE_RULES,
-  PUBLIC_ROUTES,
-  type ProviderAccess,
   decideProviderRoute,
+  PROVIDER_ROUTE_RULES,
+  type ProviderAccess,
+  PUBLIC_ROUTES,
   providerRouteRule,
 } from "../../../apps/api/src/lib/provider-access.js";
 import { eeApiExtension } from "./index.js";

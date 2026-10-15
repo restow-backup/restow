@@ -1,14 +1,14 @@
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import {
-  LAST_USED_RESOLUTION_MS,
   keyUnusableReason,
+  LAST_USED_RESOLUTION_MS,
   rateLimitHeaders,
   requireApiKey,
   shouldTouchLastUsed,
   tenantForApiKey,
 } from "../../middleware/apiKey.js";
-import { ProblemError, errorHandler } from "../../problem.js";
+import { errorHandler, ProblemError } from "../../problem.js";
 
 /**
  * The API-key middleware paths that do not need a database: header parsing,

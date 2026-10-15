@@ -1,5 +1,5 @@
-import { ChevronDown, Database, ScanSearch, ShieldCheck } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { ChevronDown, Database, ScanSearch, ShieldCheck } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { RelativeTime, StatusBadge } from "@/components/kit";

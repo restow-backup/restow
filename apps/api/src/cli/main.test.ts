@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  USAGE,
-  UsageError,
   firstLine,
   formatAdmins,
   formatRecovery,
   parseCommand,
+  USAGE,
+  UsageError,
 } from "./main.js";
 
 describe("parseCommand", () => {

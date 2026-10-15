@@ -3,8 +3,8 @@
  * endpoint jobs), consumed here, and the dispatcher loop that starts runs through the mounter.
  */
 import {
-  FILE_SHARE_QUEUES,
   FILE_SHARE_QUEUE_SETTINGS,
+  FILE_SHARE_QUEUES,
   type FileShareBackupPayload,
   type FileShareCopyPayload,
   type FileShareFinishPayload,

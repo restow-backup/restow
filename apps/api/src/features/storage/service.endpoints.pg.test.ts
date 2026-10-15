@@ -12,10 +12,10 @@ import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { InstallationDefaultResolver, defaultEndpointConfig, endpointPrefix } from "@restow/core";
+import { defaultEndpointConfig, endpointPrefix, InstallationDefaultResolver } from "@restow/core";
 import {
-  type Database,
   createDb,
+  type Database,
   endpoints,
   jobs,
   packs,

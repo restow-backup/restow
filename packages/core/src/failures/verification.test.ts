@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { REQUIRED_PERMISSIONS, diffPermissions } from "../entra/permissions.js";
+import { diffPermissions, REQUIRED_PERMISSIONS } from "../entra/permissions.js";
 import type { ConnectionVerification } from "../entra/verify.js";
 import { causeOfVerification } from "./verification.js";
 

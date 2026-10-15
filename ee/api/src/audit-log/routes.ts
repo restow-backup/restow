@@ -7,10 +7,10 @@ import { contentDisposition } from "../../../../apps/api/src/features/restore/he
 import { audit } from "../../../../apps/api/src/lib/audit.js";
 import { clientIp } from "../../../../apps/api/src/lib/request.js";
 import {
-  type SessionEnv,
-  TENANT_HEADER,
   requireSession,
   resolveTenantAccess,
+  type SessionEnv,
+  TENANT_HEADER,
 } from "../../../../apps/api/src/middleware/session.js";
 import { parseOrProblem } from "../../../../apps/api/src/schemas.js";
 import { capabilityGuard } from "../license/gate.js";

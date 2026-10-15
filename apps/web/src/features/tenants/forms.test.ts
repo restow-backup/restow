@@ -2,7 +2,6 @@ import type { FieldError } from "react-hook-form";
 import { describe, expect, it } from "vitest";
 
 import {
-  WIZARD_LENGTH_LIMITS,
   customerDataFormFrom,
   editTenantFormFrom,
   editTenantSchema,
@@ -16,6 +15,7 @@ import {
   toCreateTenantInput,
   toUpdateTenantCustomerInput,
   toUpdateTenantInput,
+  WIZARD_LENGTH_LIMITS,
 } from "./forms";
 import { SLUG_MAX_LENGTH, SLUG_MIN_LENGTH } from "./slug";
 import type { TenantCustomer } from "./types";

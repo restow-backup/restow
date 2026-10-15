@@ -11,14 +11,14 @@
  * dropped after, the roles with it). Without it the suite is skipped.
  */
 import { randomBytes, randomUUID } from "node:crypto";
-import { type ChunkReader, RestoreIntegrityError, archive } from "@restow/core";
+import { archive, type ChunkReader, RestoreIntegrityError } from "@restow/core";
 import {
-  type Database,
   archiveAnchor,
   archiveItemMailboxes,
   archiveItems,
   auditLog,
   createDb,
+  type Database,
   protectedObjects,
   providers,
   retentionPolicies,
@@ -29,10 +29,10 @@ import { eq } from "drizzle-orm";
 import { Hono, type MiddlewareHandler } from "hono";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { SessionUser } from "../../auth.js";
-import { type Role, type TenantRole, roleSatisfies } from "../../middleware/rbac.js";
+import { type Role, roleSatisfies, type TenantRole } from "../../middleware/rbac.js";
 import type { TenantEnv } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,
@@ -56,8 +56,6 @@ function testTenantAccess(minimum: TenantRole, userId: string): MiddlewareHandle
     await next();
   };
 }
-
-const NOW = new Date("2026-06-01T12:00:00.000Z");
 
 describe.skipIf(!testDatabaseAdminUrl)("archive against Postgres", () => {
   let owner: Database;

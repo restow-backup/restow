@@ -1,15 +1,15 @@
-import { fileShareRepositoryPrefix, hashSecret, secretMatchesHash } from "@restow/core";
 import type { ResticLockRegistry, StorageBackend } from "@restow/core";
+import { fileShareRepositoryPrefix, hashSecret, secretMatchesHash } from "@restow/core";
 import { fileShareRuns, tenants } from "@restow/db";
 import { eq } from "drizzle-orm";
 import { db, providerDb } from "../../db.js";
 import { audit } from "../../lib/audit.js";
 import { DeniedThrottle } from "../../lib/denied-audit.js";
 import {
-  type RunResticAccess,
-  type RunResticResolution,
   buildRunResticRoute,
   processLocalLocks,
+  type RunResticAccess,
+  type RunResticResolution,
 } from "../../lib/restic-run-route.js";
 import { authFailures } from "../endpoints/agent-auth.js";
 import { tenantStorage } from "../endpoints/repository.js";
@@ -113,7 +113,7 @@ export class PgRunCredentials implements FileShareRunCredentials {
       .innerJoin(tenants, eq(tenants.id, fileShareRuns.tenantId))
       .where(eq(fileShareRuns.id, runId))
       .limit(1);
-    if (!row || !row.tokenHash || !row.expiresAt) {
+    if (!row?.tokenHash || !row.expiresAt) {
       return null;
     }
     return {

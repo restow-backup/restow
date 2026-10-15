@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  UPDATE_MESSAGE_CODES,
   fetchEdgeStatus,
   idleMaintenance,
   parseMaintenance,
   parsePublicStatus,
+  UPDATE_MESSAGE_CODES,
 } from "./api";
 
 const STATUS = {

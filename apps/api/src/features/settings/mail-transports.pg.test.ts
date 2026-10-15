@@ -11,10 +11,10 @@
  * and dropped after, the roles with it). Without it the suite is skipped.
  */
 import { generateKeyPairSync, randomBytes } from "node:crypto";
-import { type Database, auditLog, createDb, secrets, settings } from "@restow/db";
+import { auditLog, createDb, type Database, secrets, settings } from "@restow/db";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,
@@ -167,9 +167,7 @@ describe.skipIf(!testDatabaseAdminUrl)(
         .limit(1)
         .offset(2);
       expect(JSON.stringify(entry?.details)).not.toContain(CLIENT_SECRET);
-      expect((entry?.details as { changes: string[] }).changes).toContain(
-        "mail.graphAppCredential",
-      );
+      expect((entry.details as { changes: string[] }).changes).toContain("mail.graphAppCredential");
     });
 
     it("tests with the stored credential and explains Graph's refusal", async () => {

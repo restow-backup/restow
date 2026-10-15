@@ -14,7 +14,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Database, createDb, providers, storageTargets, tenants } from "@restow/db";
+import { createDb, type Database, providers, storageTargets, tenants } from "@restow/db";
 import { eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import {

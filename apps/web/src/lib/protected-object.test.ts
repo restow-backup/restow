@@ -1,9 +1,9 @@
+import { describe, expect, it } from "vitest";
 import {
   hasOnlyTechnicalId,
   protectedObjectAddress,
   protectedObjectName,
 } from "@/lib/protected-object";
-import { describe, expect, it } from "vitest";
 
 const DRIVE_ID = "b!f1lGwdLjf06QXdLirTM3UGc1qQJ";
 const ENTRA_ID = "6f1c2b9e-1d2a-4c3b-9e8f-0a1b2c3d4e5f";

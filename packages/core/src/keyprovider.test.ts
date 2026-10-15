@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { EnvKeyProvider, createKeyProvider, generateDek, kekFromBase64 } from "./keyprovider.js";
+import { createKeyProvider, EnvKeyProvider, generateDek, kekFromBase64 } from "./keyprovider.js";
 
 describe("EnvKeyProvider", () => {
   it("wraps and unwraps a DEK round-trip", async () => {

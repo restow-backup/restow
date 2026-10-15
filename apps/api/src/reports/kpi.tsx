@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from "@react-pdf/renderer";
 import { pdfText } from "./text.js";
-import { type Tone, colors, contentWidth, fontSize, fonts, space, toneColor } from "./theme.js";
+import { colors, contentWidth, fontSize, fonts, space, type Tone, toneColor } from "./theme.js";
 
 /**
  * A grid of key figures: label, value, and the change against the previous

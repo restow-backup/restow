@@ -3,10 +3,10 @@ import { routePath } from "hono/route";
 import { afterEach, describe, expect, it } from "vitest";
 import { registerApiExtension, resetExtensionsForTesting } from "../extensions.js";
 import {
+  decideProviderRoute,
   OWNER_ACCESS,
   PROVIDER_ROUTE_RULES,
   type ProviderAccess,
-  decideProviderRoute,
   providerMayEnterTenant,
   providerRoleSatisfies,
   providerRouteRule,

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { QuickXorHash, UploadDigest, quickXorHash } from "./quickxorhash.js";
+import { QuickXorHash, quickXorHash, UploadDigest } from "./quickxorhash.js";
 import { pseudoRandomBytes } from "./testing/fixtures.js";
 
 /**

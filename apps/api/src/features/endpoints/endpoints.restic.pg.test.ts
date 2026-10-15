@@ -23,15 +23,15 @@ import { spawn } from "node:child_process";
  * restic talks HTTP to it, exactly as an agent does.
  */
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { Readable } from "node:stream";
 import { serve } from "@hono/node-server";
 import {
-  ResticError,
   openEndpointPassword,
+  ResticError,
   resticBinary,
   resticCheck,
   resticForget,
@@ -55,8 +55,8 @@ import { Hono } from "hono";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { readZip } from "../../../../../packages/core/src/restore/testing/zip-reader.js";
 import {
-  type EndpointFixture,
   basic,
+  type EndpointFixture,
   resticAvailable,
   startFixture,
   testDatabaseAdminUrl,

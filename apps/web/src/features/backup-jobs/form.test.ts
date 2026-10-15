@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import { defaults, endpointJob, mailJob, member } from "./fixtures.js";
 import {
-  MASKED_HOOK,
   cadenceOfJobSchedule,
   checkEndpointSchedule,
   checkJobDraft,
@@ -14,6 +13,7 @@ import {
   jobHasProblems,
   jobScheduleOfCadence,
   jobScheduleOfEndpointDraft,
+  MASKED_HOOK,
   newJobDraft,
   overrideGroupsSet,
   overridesDraftOf,

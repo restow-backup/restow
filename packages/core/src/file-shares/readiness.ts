@@ -8,9 +8,9 @@
 import {
   ENDPOINT_VERIFY_OVERDUE_DAYS,
   type EndpointReadinessResult,
-  type ReadinessReportFact,
   endpointReadiness,
   endpointVerifyOverdue,
+  type ReadinessReportFact,
 } from "../endpoints/readiness.js";
 
 export type ShareReadinessResult = EndpointReadinessResult;

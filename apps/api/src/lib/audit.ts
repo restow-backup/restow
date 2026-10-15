@@ -8,7 +8,7 @@ import {
   computeChainHash,
   nextCreatedAt,
 } from "@restow/core";
-import { type AuditLogEntry, type NewAuditLogEntry, auditLog } from "@restow/db";
+import { type AuditLogEntry, auditLog, type NewAuditLogEntry } from "@restow/db";
 import { desc, eq, isNull, sql } from "drizzle-orm";
 import { type DbExecutor, isTransaction, withTenantTx } from "./tenant-context.js";
 

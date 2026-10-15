@@ -2,12 +2,12 @@ import { Hono, type MiddlewareHandler } from "hono";
 import type { FeatureGate } from "../../../../apps/api/src/extensions.js";
 import type { GatedFeature } from "../../../../apps/api/src/lib/features.js";
 import type { DbExecutor } from "../../../../apps/api/src/lib/tenant-context.js";
-import { ProblemError, notFoundHandler } from "../../../../apps/api/src/problem.js";
+import { notFoundHandler, ProblemError } from "../../../../apps/api/src/problem.js";
 import {
   type Capability,
-  type LicenseEdition,
   hasCapability as editionHasCapability,
   currentEdition as editionInEffect,
+  type LicenseEdition,
   minEditionFor,
 } from "../../../licensing/src/index.js";
 

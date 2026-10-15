@@ -14,7 +14,7 @@
 import { inflateSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
 import type { StatsDto } from "../features/stats/dto.js";
-import { type GoodDirection, deltaTone, renderStatsReport } from "./stats-report.js";
+import { deltaTone, type GoodDirection, renderStatsReport } from "./stats-report.js";
 import { sampleStats } from "./testing/sample-stats.js";
 import { colors, toneColor } from "./theme.js";
 

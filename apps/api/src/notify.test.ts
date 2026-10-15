@@ -2,13 +2,13 @@ import { configureProductName, supportedLanguages } from "@restow/i18n";
 import { describe, expect, it } from "vitest";
 import type { Config, SmtpConfig } from "./config.js";
 import {
+  createNotifier,
   GoogleNotifier,
   GraphNotifier,
   NoopNotifier,
+  notifierForTransport,
   SMTP_TIMEOUTS,
   SmtpNotifier,
-  createNotifier,
-  notifierForTransport,
   smtpFailureReason,
   smtpTransportOptions,
   testNotification,

@@ -1,5 +1,5 @@
 import { backupJobMembers, backupJobs, fileShares } from "@restow/db";
-import { type SQL, and, eq, sql } from "drizzle-orm";
+import { and, eq, type SQL, sql } from "drizzle-orm";
 import type { Transaction } from "../../lib/tenant-context.js";
 import type { ResolvedPeriod } from "./period.js";
 

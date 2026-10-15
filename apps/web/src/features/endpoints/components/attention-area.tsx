@@ -14,7 +14,10 @@ import { attentionMessage, attentionTone, isKnownAttention, sortAttention } from
 function ProblemEntry({
   problem,
   defaultOpen,
-}: { problem: EndpointProblem; defaultOpen: boolean }) {
+}: {
+  problem: EndpointProblem;
+  defaultOpen: boolean;
+}) {
   const { t } = useTranslation("endpoints");
   const causeTitle = useCauseTitle();
   const [open, setOpen] = React.useState(defaultOpen);

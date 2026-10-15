@@ -48,7 +48,7 @@
 import { createHash } from "node:crypto";
 import { type SQL, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
-import { type ManifestObjectKind, chunkIdArrayLiteral, chunkIdBytes } from "./schema/manifest.js";
+import { chunkIdArrayLiteral, chunkIdBytes, type ManifestObjectKind } from "./schema/manifest.js";
 
 /** Anything that runs a raw statement: a Drizzle database or transaction. */
 export type ManifestExecutor = Pick<NodePgDatabase<Record<string, unknown>>, "execute">;

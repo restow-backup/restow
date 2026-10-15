@@ -22,9 +22,9 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import {
+  createDb,
   type Database,
   type PveJobSchedule,
-  createDb,
   providers,
   pveClusters,
   pveGuests,
@@ -35,7 +35,7 @@ import {
 } from "@restow/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withTenantTx } from "../../lib/tenant-context.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,

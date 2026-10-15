@@ -20,10 +20,10 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import {
-  type Database,
   account,
   auditLog,
   createDb,
+  type Database,
   member,
   organization,
   passkey,
@@ -36,7 +36,7 @@ import { symmetricDecrypt } from "better-auth/crypto";
 import { and, asc, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ProblemError, errorHandler } from "../../problem.js";
+import { errorHandler, ProblemError } from "../../problem.js";
 import { provisionTestRoles } from "../../testing/database-roles.js";
 import { dropDatabase } from "../snapshots/testing/explorer-fixture.js";
 

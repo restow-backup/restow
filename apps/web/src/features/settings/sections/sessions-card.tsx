@@ -15,7 +15,7 @@ import { authClient } from "@/lib/auth-client";
 
 import { ConfirmDialog } from "../components/confirm-dialog";
 import { AuthRequestError, useRevokeOtherSessions, useRevokeSession, useSessions } from "../hooks";
-import { type SessionRow, authStatusKey } from "../presenters";
+import { authStatusKey, type SessionRow } from "../presenters";
 
 /** i18n key for a failed plain better-auth request (listing, sessions). */
 function requestErrorKey(error: unknown): string {
@@ -150,13 +150,7 @@ function sessionLabel(row: SessionRow, t: TFunction<"settings">): string {
   return row.browser ?? row.device ?? t("security.sessions.unknownDevice");
 }
 
-function SessionItem({
-  row,
-  onRevoke,
-}: {
-  row: SessionRow;
-  onRevoke: (row: SessionRow) => void;
-}) {
+function SessionItem({ row, onRevoke }: { row: SessionRow; onRevoke: (row: SessionRow) => void }) {
   const { t } = useTranslation("settings");
   const label = sessionLabel(row, t);
   return (

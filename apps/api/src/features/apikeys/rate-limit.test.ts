@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   API_KEY_RATE_LIMIT,
   API_KEY_RATE_WINDOW_MS,
-  SlidingWindowRateLimiter,
   advanceWindow,
   estimatedCount,
+  SlidingWindowRateLimiter,
 } from "./rate-limit.js";
 
 const W = API_KEY_RATE_WINDOW_MS;

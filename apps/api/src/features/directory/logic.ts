@@ -1,8 +1,8 @@
 import {
+  normalizeRules,
   type ProtectionMode,
   type ProtectionOverride,
   type ProtectionRules,
-  normalizeRules,
   statusForOverride,
 } from "@restow/core";
 import type { ProtectionOverrideInput, RulesInput } from "./schemas.js";

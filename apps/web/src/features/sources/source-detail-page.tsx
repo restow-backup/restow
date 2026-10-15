@@ -26,7 +26,6 @@ import { toast } from "@/components/ui/sonner";
 import { ImportSourcePanel } from "@/features/imports/components/import-source-panel";
 import { ApiError } from "@/lib/api";
 import { formatDateTime, formatRelative } from "@/lib/format";
-import { useSession } from "@/lib/session";
 import { NoTenantSelected, SourcesForbidden } from "./components/access-states";
 import { ConsentResultAlert } from "./components/consent-result-alert";
 import { DeleteSourceDialog } from "./components/delete-source-dialog";
@@ -40,11 +39,11 @@ import { SourceKindIcon, SourceStatusBadge } from "./components/status";
 import { sourceDetailTo, sourcesListSearch, sourcesListTo } from "./paths";
 import {
   type ConsentSearch,
-  VERIFICATION_GRACE_MS,
   describeConsentResult,
   isAwaitingVerification,
   parseConsentSearch,
   sourceErrorKey,
+  VERIFICATION_GRACE_MS,
 } from "./presenters";
 import type { SourceDto } from "./types";
 import {

@@ -23,13 +23,13 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { migrate } from "drizzle-orm/node-postgres/migrator";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type Database, createDb } from "./index.js";
+import { createDb, type Database } from "./index.js";
 import {
-  type ManifestMirrorEntry,
-  OPEN_SEQUENCE,
   convertLegacySnapshot,
+  type ManifestMirrorEntry,
   manifestEntries,
   mirrorMetadata,
+  OPEN_SEQUENCE,
   recordManifestVersions,
   releaseManifestSnapshot,
 } from "./manifest-versions.js";

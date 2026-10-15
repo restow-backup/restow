@@ -5,9 +5,9 @@ import { useTranslation } from "react-i18next";
 
 import { usePageTitle } from "@/components/kit/page-context";
 import {
+  buildBreadcrumbTrail,
   type Crumb,
   type ScopeKind,
-  buildBreadcrumbTrail,
   scopeKindOf,
   scopeOpensGroup,
 } from "@/components/layout/breadcrumb-trail";
@@ -29,7 +29,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { type PlacedNavItem, groupNavItems, navGroupLabelKey } from "@/lib/navigation";
+import { groupNavItems, navGroupLabelKey, type PlacedNavItem } from "@/lib/navigation";
 import { canAccess, hasFeature, sessionScope, useSession } from "@/lib/session";
 import { TENANT_SETTINGS_NAV_IDS } from "@/lib/tenant-nav";
 import { parseTenantPagePath, tenantRootPath } from "@/lib/tenant-paths";

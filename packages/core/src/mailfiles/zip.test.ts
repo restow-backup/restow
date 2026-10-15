@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildEml, buildRawZip, buildZip, inputFileFromBuffer } from "./testing/builders.js";
-import { type ZipEvent, iterateZip, sanitizeArchivePath } from "./zip.js";
+import { iterateZip, sanitizeArchivePath, type ZipEvent } from "./zip.js";
 
 interface Content {
   text: string | Error;

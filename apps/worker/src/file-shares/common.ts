@@ -4,29 +4,30 @@
  * secrets, reports, and the one lock that keeps the server's own work on a repository from
  * overlapping (the endpoints' advisory lock, keyed by the share).
  */
+
+import type { HostResolver } from "@restow/core";
 import {
+  ensureRepositoryPasswordFile,
   FILE_SHARE_PASSWORD_KIND,
   type FileShareSettings,
-  type MounterRunnerCaps,
-  type RepositoryAccess,
-  type RunnerClient,
-  SHARE_SNAPSHOT_ROOT,
-  ensureRepositoryPasswordFile,
   fileShareRepositoryKey,
   fileShareRepositoryPrefix,
   fileShareSettingsOf,
+  type MounterRunnerCaps,
   mounterRunnerCapsFromEnv,
+  type RepositoryAccess,
+  type RunnerClient,
   resticBinary,
   resticCacheBase,
+  SHARE_SNAPSHOT_ROOT,
 } from "@restow/core";
-import type { HostResolver } from "@restow/core";
 import {
   type Database,
   type FileShare,
-  type NewFileShareReport,
-  type RepositoryLockMode,
   fileShareReports,
   fileShares,
+  type NewFileShareReport,
+  type RepositoryLockMode,
   settings,
   withEndpointRepositoryLock,
 } from "@restow/db";
@@ -34,8 +35,8 @@ import { eq } from "drizzle-orm";
 import type PgBoss from "pg-boss";
 import {
   PgSecretReader,
-  type WorkerRuntime,
   tenantRunner,
+  type WorkerRuntime,
   withTenantTx,
 } from "../handlers/framework.js";
 

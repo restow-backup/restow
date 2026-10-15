@@ -18,8 +18,8 @@ import {
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatInteger } from "@/lib/format";
 import {
-  type ItemFilter,
   countByFilter,
+  type ItemFilter,
   initialFilter,
   isLive,
   itemCodeKey,
@@ -118,7 +118,10 @@ function ReportItems({
         </TableHeader>
         <TableBody>
           {visible.map((item, index) => (
-            <TableRow key={`${item.file}:${item.ref}:${index}`}>
+            <TableRow
+              // biome-ignore lint/suspicious/noArrayIndexKey: items can repeat file and reference; the list is read-only and keeps its order.
+              key={`${item.file}:${item.ref}:${index}`}
+            >
               <TableCell className="align-top sm:w-2/5">
                 <p className="font-mono text-xs font-medium break-words">{item.ref}</p>
                 <p className="text-xs break-words text-muted-foreground">{item.file}</p>

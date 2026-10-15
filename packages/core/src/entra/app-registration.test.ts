@@ -2,16 +2,16 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { deriveInstallationSecretsKey, sealSecret } from "../secret-seal.js";
 import {
+  appCredentialsFingerprint,
   type EntraAppDocument,
   EntraAppResolver,
   type EntraAppResolverOptions,
-  type StoredEntraAppRow,
-  appCredentialsFingerprint,
   entraAppCredentialsOf,
   entraAppEnvironmentFrom,
   environmentConfiguresEntraApp,
   environmentPartiallyConfigured,
   parseEntraAppDocument,
+  type StoredEntraAppRow,
   serializeEntraAppDocument,
 } from "./app-registration.js";
 import { createTestCertificate } from "./testing/certificate.js";

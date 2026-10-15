@@ -12,7 +12,7 @@
  * at a Postgres server; without it the suite is skipped.
  */
 import { randomBytes } from "node:crypto";
-import { type Database, createDb, settings } from "@restow/db";
+import { createDb, type Database, settings } from "@restow/db";
 import type { Hono } from "hono";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -20,7 +20,7 @@ import {
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "../features/snapshots/testing/explorer-fixture.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../testing/database-roles.js";
 
 const DATABASE = "restow_api_setup_mail_test";
 const PUBLIC_URL = "http://localhost:3000";

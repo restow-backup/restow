@@ -1,4 +1,4 @@
-import { type KeyObject, generateKeyPairSync, randomBytes, sign } from "node:crypto";
+import { generateKeyPairSync, type KeyObject, randomBytes, sign } from "node:crypto";
 
 /**
  * Self-signed X.509 certificates for tests, built in memory: node:crypto can

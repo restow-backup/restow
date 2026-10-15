@@ -5,12 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Dek } from "../../crypto.js";
 import { ChunkReader, JobAbortedError } from "../../engine/chunkstore.js";
 import { Keyring } from "../../engine/keyring.js";
-import { type LogRecord, createLogger } from "../../engine/logger.js";
+import { createLogger, type LogRecord } from "../../engine/logger.js";
 import {
+  createMemoryJobContext,
   MemoryChunkIndex,
   MemoryCursorStore,
   MemorySnapshotIndex,
-  createMemoryJobContext,
 } from "../../engine/memory.js";
 import { loadManifest } from "../../engine/snapshot.js";
 import type { JobContext, ProtectedObjectRef, RestoreRequest } from "../../engine/types.js";
@@ -18,7 +18,7 @@ import type { ManifestObject, SnapshotManifest } from "../../manifest.js";
 import { ImapRestoreEngine } from "../../restore/imap.js";
 import { LocalStorageBackend } from "../../storage/local.js";
 import { ImapBackupEngine, type ImapBackupEngineOptions } from "./engine.js";
-import { META, decodeFlags } from "./paths.js";
+import { decodeFlags, META } from "./paths.js";
 import { FakeImapServer } from "./testing/fake-imap.js";
 import { MemoryRestoreTarget } from "./testing/memory-restore-target.js";
 import {

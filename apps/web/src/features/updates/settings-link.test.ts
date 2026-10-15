@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { installationSections } from "@/features/installation/sections";
 
-import { UPDATES_SECTION, isUpdatesTab, updatesTabLink } from "./settings-link";
+import { isUpdatesTab, UPDATES_SECTION, updatesTabLink } from "./settings-link";
 
 describe("the link to Installation, Updates", () => {
   it("points at the updates section of the installation page", () => {

@@ -10,11 +10,11 @@ import { cn } from "@/lib/utils";
 import { UI_NAMESPACE } from "./i18n.js";
 import { useMinuteClock } from "./relative-time.js";
 import {
-  type TimelineDay,
   dayAtOrBefore,
   dayRelation,
   groupByLocalDay,
   localDayKey,
+  type TimelineDay,
 } from "./restore-timeline-model.js";
 
 export interface RestoreTimelineProps<T> {

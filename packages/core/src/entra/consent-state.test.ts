@@ -1,9 +1,9 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
+  consentStateKey,
   DEFAULT_CONSENT_STATE_TTL_MS,
   SIGN_IN_STATE_TTL_MS,
-  consentStateKey,
   signConsentState,
   verifyConsentState,
 } from "./consent-state.js";

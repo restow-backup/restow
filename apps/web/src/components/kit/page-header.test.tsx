@@ -4,7 +4,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { PageHeader } from "@/components/page-header";
 import { i18n } from "@/i18n";
 
-import { PageProvider, documentTitle, usePageFrame, usePageTitle } from "./page-context.js";
+import { documentTitle, PageProvider, usePageFrame, usePageTitle } from "./page-context.js";
 import { count, render } from "./test-utils.js";
 
 beforeAll(async () => {

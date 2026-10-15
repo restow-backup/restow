@@ -16,11 +16,11 @@ import {
 import { and, asc, count, desc, eq, inArray, isNotNull, ne } from "drizzle-orm";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import {
-  type ObjectState,
-  type RatedObject,
   isFirstBackupOverdue,
   isOverdue,
+  type ObjectState,
   objectStateOf,
+  type RatedObject,
 } from "../verify/summary.js";
 
 /**

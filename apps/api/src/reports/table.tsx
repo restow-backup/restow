@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from "@react-pdf/renderer";
 import { pdfText } from "./text.js";
-import { type Tone, colors, fontSize, fonts, space, toneColor } from "./theme.js";
+import { colors, fontSize, fonts, space, type Tone, toneColor } from "./theme.js";
 
 /**
  * A data table that may run over several pages: the header row repeats on

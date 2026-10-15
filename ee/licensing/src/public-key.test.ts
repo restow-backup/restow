@@ -3,10 +3,10 @@ import { describe, expect, it } from "vitest";
 import { createTestLicenseSigner } from "../testing/test-signer.mjs";
 import {
   EMBEDDED_LICENSE_PUBLIC_KEY,
+  exportRawPublicKey,
   LICENSE_PUBLIC_KEY_ENV,
   LICENSE_PUBLIC_KEY_PLACEHOLDER,
   LicensePublicKeyError,
-  exportRawPublicKey,
   parseLicensePublicKey,
   publicKeyFingerprint,
   resolveLicensePublicKey,

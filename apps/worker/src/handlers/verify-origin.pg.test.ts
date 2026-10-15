@@ -8,7 +8,7 @@
  * `restow_worker_verify_origin_test` is recreated there on every run). Without it the suite is
  * skipped.
  */
-import { Keyring, generateDek } from "@restow/core";
+import { generateDek, Keyring } from "@restow/core";
 import {
   backupJobMembers,
   backupJobs,

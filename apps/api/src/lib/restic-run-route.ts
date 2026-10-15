@@ -1,8 +1,8 @@
 import {
-  type ResticLockRegistry,
-  type StorageBackend,
   handleResticRequest,
   parseBasicAuthorization,
+  type ResticLockRegistry,
+  type StorageBackend,
 } from "@restow/core";
 import { type Context, Hono } from "hono";
 import { ProblemError } from "../problem.js";

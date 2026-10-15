@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_FAILURE_TEXT, redactSensitiveText, redactedPath } from "./redact.js";
+import { MAX_FAILURE_TEXT, redactedPath, redactSensitiveText } from "./redact.js";
 
 describe("redactSensitiveText", () => {
   it("removes bearer tokens and JWTs", () => {

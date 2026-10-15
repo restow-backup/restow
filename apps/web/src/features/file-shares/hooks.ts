@@ -6,17 +6,14 @@ import { formatBytes, formatDateTime, formatInteger } from "@/lib/format";
 import { useSession } from "@/lib/session";
 
 import {
+  backupNow,
   type ConnectionInput,
   type CreateShareInput,
-  type FileShareDetail,
-  type FileShareList,
-  type InstallationShareSettings,
-  type RestoreInput,
-  type UpdateShareInput,
-  backupNow,
   cancelRun,
   createShare,
   createShareDownload,
+  type FileShareDetail,
+  type FileShareList,
   fetchInstallationShareSettings,
   fetchRestoreTargets,
   fetchRun,
@@ -29,7 +26,9 @@ import {
   fetchShares,
   fetchVersions,
   fileShareKeys,
+  type InstallationShareSettings,
   purgeShare,
+  type RestoreInput,
   reactivateShare,
   requestRestore,
   requestVerify,
@@ -40,6 +39,7 @@ import {
   setQuota,
   testConnection,
   testStoredShare,
+  type UpdateShareInput,
   updateInstallationShareSettings,
   updateShare,
 } from "./api.js";

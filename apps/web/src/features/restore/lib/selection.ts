@@ -1,5 +1,5 @@
 import type { EntryKind, SelectionEntry, TreeEntry } from "@/features/restore/api";
-import { ROOT_PATH, isWithin } from "@/features/restore/lib/paths";
+import { isWithin, ROOT_PATH } from "@/features/restore/lib/paths";
 
 /**
  * The explorer's multi-selection: what the user ticked in one snapshot,

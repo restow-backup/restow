@@ -7,8 +7,8 @@ import { authFailures } from "../endpoints/agent-auth.js";
 import { instanceUrl } from "../endpoints/instance-url.js";
 import { type NodeEnv, requireNode } from "./node-auth.js";
 import {
-  enrollNode,
   enrollmentPreflight,
+  enrollNode,
   listing,
   nodeHeartbeat,
   pveEnrollFailures,
@@ -17,10 +17,10 @@ import {
   updateOffer,
 } from "./node-service.js";
 import {
-  MAX_FRAME_BYTES,
   commitRun,
   diskHashes,
   finishRun,
+  MAX_FRAME_BYTES,
   openRun,
   putBlocks,
   queryIncremental,

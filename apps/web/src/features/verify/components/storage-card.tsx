@@ -10,7 +10,7 @@ import type { Schedule, ScrubMode, StorageIntegrity } from "@/features/verify/ap
 import { PackList } from "@/features/verify/components/pack-list";
 import { StorageBadge } from "@/features/verify/components/status";
 import { gcMessage, startErrorMessage } from "@/features/verify/presenters";
-import { type VerifyFormat, useStartScrub } from "@/features/verify/use-verify";
+import { useStartScrub, type VerifyFormat } from "@/features/verify/use-verify";
 
 /** Pack integrity from the scrub: when it last ran, what it found, what it repaired. */
 export function StorageCard({

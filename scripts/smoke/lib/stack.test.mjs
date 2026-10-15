@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { X509Certificate, createPrivateKey } from "node:crypto";
+import { createPrivateKey, X509Certificate } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";

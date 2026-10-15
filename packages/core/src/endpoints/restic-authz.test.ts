@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
-  RESTIC_TYPES,
-  type ResticAction,
-  type ResticResource,
   actionOf,
   authorizeResticAction,
   needsExistenceCheck,
   needsLockOwnership,
   parseResticPath,
+  RESTIC_TYPES,
+  type ResticAction,
+  type ResticResource,
 } from "./restic-authz.js";
 
 const NAME = "a".repeat(64);

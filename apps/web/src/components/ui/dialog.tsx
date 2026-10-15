@@ -185,8 +185,6 @@ function DialogDescription({
 export {
   DIALOG_BOX,
   DIALOG_LAYER,
-  STICKY_FOOTER,
-  STICKY_HEADER,
   Dialog,
   DialogClose,
   DialogContent,
@@ -197,4 +195,6 @@ export {
   DialogPortal,
   DialogTitle,
   DialogTrigger,
+  STICKY_FOOTER,
+  STICKY_HEADER,
 };

@@ -3,12 +3,12 @@ import { providerDb } from "../../../../apps/api/src/db.js";
 import type { SessionRouteContribution } from "../../../../apps/api/src/extensions.js";
 import { clientIp } from "../../../../apps/api/src/lib/request.js";
 import {
-  type SessionEnv,
   requireProviderAdmin,
+  type SessionEnv,
 } from "../../../../apps/api/src/middleware/session.js";
 import { parseJsonBody } from "../../../../apps/api/src/schemas.js";
 import { installLicenseSchema } from "./schemas.js";
-import { type LicenseActor, getLicenseState, installLicense, removeLicense } from "./service.js";
+import { getLicenseState, installLicense, type LicenseActor, removeLicense } from "./service.js";
 
 /**
  * /api/v1/license — the installation's edition and its license key.

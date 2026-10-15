@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { type Mounted, enableActEnvironment, mount, sessionAs } from "@/features/updates/testing";
+import { enableActEnvironment, type Mounted, mount, sessionAs } from "@/features/updates/testing";
 import { i18n } from "@/i18n";
 
 import { SetInInstallation } from "./set-in-installation";

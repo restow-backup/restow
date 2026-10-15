@@ -6,16 +6,16 @@ import type { SessionRouteContribution } from "../../../../apps/api/src/extensio
 import type { ArchiveActor } from "../../../../apps/api/src/features/archive/service.js";
 import { clientIp } from "../../../../apps/api/src/lib/request.js";
 import {
-  type SessionEnv,
-  type TenantEnv,
   requireProviderAdmin,
   requireTenant,
+  type SessionEnv,
+  type TenantEnv,
 } from "../../../../apps/api/src/middleware/session.js";
 import { capabilityGuard } from "../license/gate.js";
 import {
-  type JournalSetupEnvironment,
   getJournalReceiver,
   getJournalSetup,
+  type JournalSetupEnvironment,
   rotateJournalAddress,
 } from "./setup.js";
 

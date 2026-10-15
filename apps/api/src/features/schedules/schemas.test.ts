@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import { ProblemError } from "../../problem.js";
 import { parseOrProblem } from "../../schemas.js";
 import {
-  INVALID_SCHEDULE_PROBLEM,
   applyRecommendedSchema,
   assertCadenceOrProblem,
   createScheduleSchema,
+  INVALID_SCHEDULE_PROBLEM,
   previewScheduleSchema,
   scheduleProblem,
   updateScheduleSchema,

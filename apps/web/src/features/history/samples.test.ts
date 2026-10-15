@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { SamplePoint } from "./api";
 import {
+  boxFor,
   CHART_BOX,
   CHART_WINDOW_MS,
-  SMOOTHED_SERIES,
-  TRANSFER_AVERAGE_MS,
-  boxFor,
   chartSeries,
   formatClock,
   indexAtFraction,
@@ -14,10 +12,12 @@ import {
   niceMax,
   pathOf,
   rateSteps,
+  SMOOTHED_SERIES,
   scaleOf,
   smoothedRateSteps,
   sparkline,
   summaryOf,
+  TRANSFER_AVERAGE_MS,
   tickCount,
   timeAtX,
   unitFor,

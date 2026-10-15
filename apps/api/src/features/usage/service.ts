@@ -1,9 +1,9 @@
 import { countProtectedMailboxes } from "@restow/core";
 import {
   type Database,
+  protectedObjects,
   type TenantKind,
   type TenantStatus,
-  protectedObjects,
   tenants,
 } from "@restow/db";
 import { and, asc, eq, ne } from "drizzle-orm";

@@ -22,7 +22,11 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
       to,
       className,
       children,
-    }: { to: string; className?: string; children: React.ReactNode }) => (
+    }: {
+      to: string;
+      className?: string;
+      children: React.ReactNode;
+    }) => (
       <a href={to} className={className}>
         {children}
       </a>
@@ -95,7 +99,9 @@ function job(overrides: Partial<JobDetail> = {}): JobDetail {
 
 function Formatted({
   children,
-}: { children: (format: ReturnType<typeof useJobFormat>) => React.ReactNode }) {
+}: {
+  children: (format: ReturnType<typeof useJobFormat>) => React.ReactNode;
+}) {
   return <>{children(useJobFormat())}</>;
 }
 

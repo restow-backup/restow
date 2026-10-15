@@ -8,7 +8,7 @@ import { extractText, getDocumentProxy } from "unpdf";
 import { describe, expect, it } from "vitest";
 import { buildStats } from "../features/stats/build.js";
 import { resolvePeriod } from "../features/stats/period.js";
-import { type StatsReportProps, renderStatsReport } from "./stats-report.js";
+import { renderStatsReport, type StatsReportProps } from "./stats-report.js";
 import { sampleStats } from "./testing/sample-stats.js";
 
 async function read(props: StatsReportProps) {

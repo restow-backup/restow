@@ -4,7 +4,7 @@ import { db, providerDb } from "../../../../apps/api/src/db.js";
 import type { SessionRouteContribution } from "../../../../apps/api/src/extensions.js";
 import type { ArchiveActor } from "../../../../apps/api/src/features/archive/service.js";
 import { clientIp } from "../../../../apps/api/src/lib/request.js";
-import { type TenantEnv, requireTenant } from "../../../../apps/api/src/middleware/session.js";
+import { requireTenant, type TenantEnv } from "../../../../apps/api/src/middleware/session.js";
 import { parseJsonBody, parseOrProblem, readJsonBody } from "../../../../apps/api/src/schemas.js";
 import { capabilityGuard } from "../license/gate.js";
 import { createLegalHoldSchema, legalHoldParamSchema, releaseLegalHoldSchema } from "./schemas.js";

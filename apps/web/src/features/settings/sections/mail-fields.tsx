@@ -29,14 +29,14 @@ import { Textarea } from "@/components/ui/textarea";
 import type { MailTransport, SmtpSecurity } from "@/lib/api";
 import type { CredentialKind, GraphMailApp, InstallationSettings } from "../api";
 import {
-  type MailFormValues,
-  SMTP_SECURITY,
   fieldMessageKey,
+  type MailFormValues,
   mailFormContext,
   mayKeepGraphCredential,
   mayKeepStoredPassword,
   portForSecurity,
   previewServiceAccountKey,
+  SMTP_SECURITY,
 } from "../forms";
 import { GoogleMailGuide, GraphMailGuide } from "./mail-guides";
 

@@ -10,7 +10,7 @@
  * (apps/api/src/features/audit/audit.pg.test.ts).
  */
 import { createHash, randomUUID } from "node:crypto";
-import { type Database, auditAnchor, auditLog, createDb, providers, tenants } from "@restow/db";
+import { auditAnchor, auditLog, createDb, type Database, providers, tenants } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
 import { asc, sql } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";

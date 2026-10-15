@@ -17,14 +17,14 @@ import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { toast } from "@/components/ui/sonner";
 import {
-  JobsAccessNote,
   closedProps,
+  JobsAccessNote,
   useJobsAccess,
 } from "@/features/backup-jobs/components/access-note";
 import { useAddJobMembers, useBackupJobs } from "@/features/backup-jobs/hooks";
 import { linkProps, newJobTo } from "@/features/backup-jobs/paths";
 import { describeJobSchedule } from "@/features/backup-jobs/presenters";
-import { type MemberConflict, conflictsOf, jobErrorKey } from "@/features/backup-jobs/problems";
+import { conflictsOf, jobErrorKey, type MemberConflict } from "@/features/backup-jobs/problems";
 import { cn } from "@/lib/utils";
 
 /** A machine the dialog adds: its id and the name the lists show. */

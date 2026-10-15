@@ -24,13 +24,13 @@
 import type { DeltaMode } from "../graph/delta.js";
 import type { UserDeltaEntry } from "../graph/resources/users.js";
 import {
+  evaluateProtection,
+  isSharedOrBlocked,
   type ProtectionDecision,
   type ProtectionOverrides,
   type ProtectionReason,
   type ProtectionRules,
   type ProtectionSubject,
-  evaluateProtection,
-  isSharedOrBlocked,
 } from "./rules.js";
 
 export type DirectoryObjectKind = "mailbox" | "onedrive";

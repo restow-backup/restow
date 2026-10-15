@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import { ApiError } from "@/lib/api";
 import type { AppPermission, MicrosoftAppView } from "./api";
 import {
-  EXPIRY_WARNING_DAYS,
   certificateSubjectName,
+  EXPIRY_WARNING_DAYS,
   expiryState,
   fieldReasonKey,
   microsoftAppErrorKey,

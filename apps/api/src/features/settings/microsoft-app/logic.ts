@@ -2,13 +2,13 @@ import {
   APP_REGISTRATION_PERMISSIONS,
   type AppRegistrationPermission,
   type AppTestResult,
+  adminConsentRedirectUri,
   type CertificateInfo,
   type CertificateProblem,
   type EntraAppDocument,
   type EntraAppResolution,
   type EntraAppUnusableReason,
   type EntraCredentialKind,
-  adminConsentRedirectUri,
   inspectCertificatePem,
 } from "@restow/core";
 import { type ValidationIssue, validationProblem } from "../logic.js";

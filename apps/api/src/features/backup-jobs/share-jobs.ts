@@ -9,7 +9,7 @@ import {
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { Transaction } from "../../lib/tenant-context.js";
 import { locationOf } from "../file-shares/dto.js";
-import { type ShareFact, loadShareFacts } from "../file-shares/protection.js";
+import { loadShareFacts, type ShareFact } from "../file-shares/protection.js";
 import type {
   BackupJobDto,
   BackupJobMemberDto,

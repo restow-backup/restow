@@ -2,11 +2,11 @@ import { afterEach, describe, expect, it } from "vitest";
 import { registerApiExtension, resetExtensionsForTesting } from "../extensions.js";
 import { ProblemError } from "../problem.js";
 import {
+  enabledFeatures,
   FEATURE_UNAVAILABLE_PROBLEM,
+  featureEnabled,
   GATED_FEATURES,
   type GatedFeature,
-  enabledFeatures,
-  featureEnabled,
   requireFeature,
 } from "./features.js";
 

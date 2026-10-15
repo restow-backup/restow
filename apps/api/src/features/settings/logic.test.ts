@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { ProblemError } from "../../problem.js";
 import {
   type CurrentSettings,
-  type MailEnvironment,
   decideSmtpPassword,
   environmentView,
+  type MailEnvironment,
   mayReuseStoredPassword,
   planSettingsUpdate,
   readStoredMailConfig,

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { OTHER_ID, SHARE_ID, listFixture, shareFixture } from "@/features/file-shares/fixtures";
+import { listFixture, OTHER_ID, SHARE_ID, shareFixture } from "@/features/file-shares/fixtures";
 import {
   buttonByText,
   click,

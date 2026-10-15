@@ -13,75 +13,57 @@
  * figures. Each area keeps its public surface in its own index.ts.
  */
 
-// Storage format
-export * from "./crypto.js";
-export * from "./keyprovider.js";
-export * from "./chunker.js";
-export * from "./chunkId.js";
-export * from "./pack.js";
-export * from "./manifest.js";
-
-// Sealing of the encrypted secret store (installation key, row binding)
-export * from "./secret-seal.js";
-
-// Audit log hash chain (the math; each app owns its own storage)
-export * from "./audit-chain.js";
-
-// Storage targets
-export * from "./storage/backend.js";
-export * from "./storage/local.js";
-export * from "./storage/s3.js";
-export * from "./storage/factory.js";
-export * from "./storage/installation-default.js";
-export * from "./storage/copy.js";
-
-// Engine framework
-export * from "./engine/index.js";
-
-// Outbound connections to tenant-configured hosts
-export * from "./net/index.js";
-
-// Microsoft Graph, Entra and the directory
-export * from "./graph/index.js";
-export * from "./entra/index.js";
-export * from "./directory/index.js";
-
-// Backup engines
-export * from "./backup/exchange/index.js";
-export * from "./backup/onedrive/index.js";
-export * from "./backup/imap/index.js";
-
-// Restore engines
-export * from "./restore/index.js";
-
-// Recovery readiness
-export * from "./verify/index.js";
-
-// Endpoint backup: the agent contract, the restic REST endpoint, restic on the server
-export * from "./endpoints/index.js";
-
-// Proxmox VE guests: block maps of VM disks, restore point manifests (docs/PROXMOX.md)
-export * from "./pve/index.js";
-export * from "./file-shares/index.js";
-
-// Failure explanations: classified causes, redaction, what to do
-export * from "./failures/index.js";
-
-// Schedules
-export * from "./schedule/index.js";
-export * from "./reports/index.js";
-
-// Backup snapshot retention (tiered keep rule, presets, run planning)
-export * from "./retention/index.js";
-
-// Backup jobs: schedules, the configuration written to machines, the migration, job retention
-export * from "./backup-jobs/index.js";
-
 // Archive: journal parsing, write-once item store, hash chain, retention math
 export * as archive from "./archive/index.js";
-
+// Audit log hash chain (the math; each app owns its own storage)
+export * from "./audit-chain.js";
+// Backup engines
+export * from "./backup/exchange/index.js";
+export * from "./backup/imap/index.js";
+export * from "./backup/onedrive/index.js";
+// Backup jobs: schedules, the configuration written to machines, the migration, job retention
+export * from "./backup-jobs/index.js";
+export * from "./chunker.js";
+export * from "./chunkId.js";
+// Storage format
+export * from "./crypto.js";
+export * from "./directory/index.js";
+// Endpoint backup: the agent contract, the restic REST endpoint, restic on the server
+export * from "./endpoints/index.js";
+// Engine framework
+export * from "./engine/index.js";
+export * from "./entra/index.js";
+// Failure explanations: classified causes, redaction, what to do
+export * from "./failures/index.js";
+export * from "./file-shares/index.js";
+// Microsoft Graph, Entra and the directory
+export * from "./graph/index.js";
+export * from "./keyprovider.js";
 // Mail file import and export: readers, staging store, import engine, export writers
 export * as mailfiles from "./mailfiles/index.js";
-
+export * from "./manifest.js";
+// Outbound connections to tenant-configured hosts
+export * from "./net/index.js";
+export * from "./pack.js";
+// Proxmox VE guests: block maps of VM disks, restore point manifests (docs/PROXMOX.md)
+export * from "./pve/index.js";
+export * from "./reports/index.js";
+// Restore engines
+export * from "./restore/index.js";
+// Backup snapshot retention (tiered keep rule, presets, run planning)
+export * from "./retention/index.js";
+// Schedules
+export * from "./schedule/index.js";
+// Sealing of the encrypted secret store (installation key, row binding)
+export * from "./secret-seal.js";
+// Storage targets
+export * from "./storage/backend.js";
+export * from "./storage/copy.js";
+export * from "./storage/factory.js";
+export * from "./storage/installation-default.js";
+export * from "./storage/local.js";
+export * from "./storage/s3.js";
 // Usage figures: the rule for counting protected mailboxes
 export * from "./usage/mailboxes.js";
+// Recovery readiness
+export * from "./verify/index.js";

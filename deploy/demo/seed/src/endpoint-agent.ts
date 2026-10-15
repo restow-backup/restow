@@ -5,8 +5,8 @@ import type { AgentApi, AgentConfig, AgentTask, SampleFile } from "./agent-api.j
 import type { DemoMachine } from "./endpoint-files.js";
 import type { Rng } from "./prng.js";
 import { randomInt } from "./prng.js";
-import { rewriteRepositoryUrl } from "./restic-proxy.js";
 import { type BackupSummary, Restic, type ResticNode } from "./restic.js";
+import { rewriteRepositoryUrl } from "./restic-proxy.js";
 
 /**
  * A simulated Restow agent (agent/internal/core): what the demo seed plays for
@@ -208,7 +208,6 @@ export class SimAgent {
   private restic: Restic | null = null;
   private config: AgentConfig | null = null;
   private resticVersion = "";
-  private clock: () => Date = () => new Date();
   private lastSnapshotId: string | null = null;
 
   constructor(private readonly options: SimAgentOptions) {}

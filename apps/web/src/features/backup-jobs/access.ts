@@ -1,4 +1,4 @@
-import { type WriteBlock, useTenantWriteBlock } from "@/features/tenant-page/access";
+import { useTenantWriteBlock, type WriteBlock } from "@/features/tenant-page/access";
 
 /**
  * Who may create, change, run and delete jobs. Reading the jobs is for the

@@ -1,11 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { InMemoryDeltaTokenStore, collectDelta, isRemoved } from "../delta.js";
+import { collectDelta, InMemoryDeltaTokenStore, isRemoved } from "../delta.js";
 import { createFakeGraph, must } from "../testing/fake-graph.js";
 import fixture from "../testing/fixtures/users-delta.json" with { type: "json" };
 import { collect } from "./common.js";
 import {
-  USER_SELECT,
-  type UserDeltaEntry,
   getOrganization,
   hasExchangePlan,
   initialDomainOf,
@@ -13,6 +11,8 @@ import {
   listGroupMemberIds,
   listUsers,
   looksLikeSharedMailbox,
+  USER_SELECT,
+  type UserDeltaEntry,
   usersDelta,
   usersDeltaUrl,
 } from "./users.js";

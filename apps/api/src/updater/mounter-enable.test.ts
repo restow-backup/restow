@@ -8,7 +8,7 @@ import {
 } from "./mounter-enable.js";
 import { type SelfUpdateRecord, stateViewSchema } from "./protocol.js";
 import { buildServer } from "./server.js";
-import { DEFAULT_ENV, FakeLauncher, type Harness, createHarness } from "./testing.js";
+import { createHarness, DEFAULT_ENV, FakeLauncher, type Harness } from "./testing.js";
 
 /** "Enable network shares" (docs/FILESHARES.md 3.9): POST /v1/mounter/enable. */
 

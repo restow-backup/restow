@@ -16,7 +16,6 @@ import type {
   RestoreRequest,
   RestoreResult,
 } from "../engine/types.js";
-import { classifyFailure } from "../failures/classify.js";
 import type { FailureCause } from "../failures/types.js";
 import type { ManifestObject } from "../manifest.js";
 

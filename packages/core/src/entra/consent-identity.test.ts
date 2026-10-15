@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { AppCredentials } from "../graph/auth/token.js";
-import { type FixtureResponse, createFakeGraph } from "../graph/testing/fake-graph.js";
+import { createFakeGraph, type FixtureResponse } from "../graph/testing/fake-graph.js";
 import {
+  buildConsentSignInUrl,
   CONSENT_SIGN_IN_SCOPE,
   GLOBAL_ADMINISTRATOR_ROLE_TEMPLATE_ID,
-  PRIVILEGED_ROLE_ADMINISTRATOR_ROLE_TEMPLATE_ID,
-  buildConsentSignInUrl,
   holdsConsentAuthority,
   lookupDirectoryRoleTemplateIds,
+  PRIVILEGED_ROLE_ADMINISTRATOR_ROLE_TEMPLATE_ID,
   parseConsentSignInCallback,
   proveConsentingAdmin,
   redeemConsentSignInCode,

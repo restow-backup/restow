@@ -9,7 +9,7 @@
  * certificate worth serving. Nothing here ever hands smtp-server a certificate
  * it did not get from the operator's files.
  */
-import { X509Certificate, createPrivateKey } from "node:crypto";
+import { createPrivateKey, X509Certificate } from "node:crypto";
 import { readFileSync } from "node:fs";
 
 /** Why a configured certificate cannot be served. */

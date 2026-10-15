@@ -1,4 +1,4 @@
-import { type SupportedLanguage, createI18n, defaultLanguage } from "@restow/i18n";
+import { createI18n, defaultLanguage, type SupportedLanguage } from "@restow/i18n";
 
 /**
  * The name of the default mail job the scheduler makes for a tenant, in the tenant's language

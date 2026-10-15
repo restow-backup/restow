@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
-  type DatedSnapshot,
   applyRetentionPolicy,
   auditSnapshots,
+  type DatedSnapshot,
   isoWeek,
   localDate,
 } from "./retention-policy.js";

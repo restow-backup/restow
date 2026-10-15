@@ -7,11 +7,11 @@ import { EndpointDetailPage } from "./endpoint-detail-page.js";
 import { EndpointsPage } from "./endpoints-page.js";
 import { FileRestorePage } from "./file-restore-page.js";
 import {
+  areaOfKind,
   type EndpointProfile,
   type EndpointTab,
-  INVENTORY_PATH,
-  areaOfKind,
   endpointDetailTo,
+  INVENTORY_PATH,
   parseFileRestoreSearch,
   parseInventorySearch,
   parseTab,

@@ -10,8 +10,8 @@
  */
 import { randomUUID } from "node:crypto";
 import {
-  type Database,
   createDb,
+  type Database,
   protectedObjects,
   providers,
   snapshots,
@@ -22,7 +22,7 @@ import {
 } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
 import type { Viewer } from "../access.js";
-import { type ManifestFixtureRow, insertManifestRows } from "./manifest-rows.js";
+import { insertManifestRows, type ManifestFixtureRow } from "./manifest-rows.js";
 
 export const testDatabaseAdminUrl = process.env.RESTOW_TEST_DATABASE_URL;
 

@@ -1,11 +1,11 @@
 import type { SnapshotRetentionPolicy } from "./selection.js";
 import {
   type BuiltinRetentionPreset,
+  isRetentionPreset,
   KEEP_ALL_TIERS,
+  presetTiers,
   type RetentionPreset,
   type RetentionTier,
-  isRetentionPreset,
-  presetTiers,
 } from "./tiers.js";
 
 /**

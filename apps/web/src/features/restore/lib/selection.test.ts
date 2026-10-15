@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { TreeEntry } from "@/features/restore/api";
 import {
-  EMPTY_SELECTION,
   countSelection,
   coveringFolder,
   deselectAll,
+  EMPTY_SELECTION,
   everythingSelection,
   isCovered,
   isSelected,
@@ -14,8 +14,8 @@ import {
   selectAll,
   selectionOf,
   toApiSelection,
-  toSelectedEntry,
   toggle,
+  toSelectedEntry,
 } from "./selection";
 
 function entry(partial: Partial<TreeEntry> & Pick<TreeEntry, "path" | "kind">): TreeEntry {

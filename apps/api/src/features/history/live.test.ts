@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 import type { JobDto } from "../jobs/dto.js";
-import { POLL_INTERVAL_MS, type SseMessage, runStreamLoop } from "../jobs/events.js";
+import { POLL_INTERVAL_MS, runStreamLoop, type SseMessage } from "../jobs/events.js";
 import type { RunDto } from "./dto.js";
 import {
   type BackupJobLiveDto,
+  createLiveStep,
   DEFINITIONS_EVERY,
   KeyedTracker,
   type LiveSources,
+  liveWindowStart,
   MACHINES_EVERY,
   type MachineLiveDto,
-  createLiveStep,
-  liveWindowStart,
 } from "./live.js";
 
 function run(overrides: Partial<RunDto> = {}): RunDto {

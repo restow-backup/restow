@@ -34,7 +34,7 @@
  * verify or backup path — opts in explicitly with `allowUnsealed`.
  */
 import { type Dek, encryptChunk } from "../crypto.js";
-import { type SnapshotManifest, deserializeManifest, serializeManifest } from "../manifest.js";
+import { deserializeManifest, type SnapshotManifest, serializeManifest } from "../manifest.js";
 import { sealedAad } from "./keyring.js";
 import { parseManifestKey } from "./layout.js";
 

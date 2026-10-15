@@ -1,4 +1,4 @@
-import { X509Certificate, createHash, createPrivateKey } from "node:crypto";
+import { createHash, createPrivateKey, X509Certificate } from "node:crypto";
 import { derFromPem } from "../graph/auth/token.js";
 
 /**

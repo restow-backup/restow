@@ -1,10 +1,10 @@
 import type { AuditEvent } from "@restow/core";
 import {
   MOUNT_ROOT,
-  type MountSpec,
   type MounterState,
-  type TestResult,
+  type MountSpec,
   mountPathOf,
+  type TestResult,
 } from "../../mounter/protocol.js";
 import { ProblemError } from "../../problem.js";
 import type { MounterEnableRecord, StateView } from "../../updater/protocol.js";

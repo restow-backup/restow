@@ -2,9 +2,9 @@ import * as fs from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { LATE_START_LIMIT_MS } from "./engine.js";
 import {
-  type Harness,
   apiAt,
   createHarness,
+  type Harness,
   scheduleRequest,
   settle,
   waitForCall,

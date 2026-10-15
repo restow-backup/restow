@@ -9,10 +9,10 @@
  * with it). Without it the suite is skipped.
  */
 import { randomBytes } from "node:crypto";
-import { type Database, createDb, jobs, providers, storageTargets, tenants } from "@restow/db";
+import { createDb, type Database, jobs, providers, storageTargets, tenants } from "@restow/db";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,

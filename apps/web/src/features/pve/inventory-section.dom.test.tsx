@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
-import { type Root, createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -9,7 +9,7 @@ import { i18n } from "@/i18n";
 
 import "./i18n";
 import type { PveGuest, PveJob, PveNode, PveOverview } from "./api";
-import { PveInventorySection, groupByNode, guestProtection } from "./inventory-section";
+import { groupByNode, guestProtection, PveInventorySection } from "./inventory-section";
 
 /**
  * Proxmox VE in the inventory: one collapsible row per node, closed at first,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ONLINE_WINDOW_MS, connectionOf, endpointStaleness } from "./staleness.js";
+import { connectionOf, endpointStaleness, ONLINE_WINDOW_MS } from "./staleness.js";
 
 const now = new Date("2026-09-30T12:00:00Z");
 const ago = (ms: number) => new Date(now.getTime() - ms);

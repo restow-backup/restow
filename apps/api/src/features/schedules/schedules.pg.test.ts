@@ -18,10 +18,10 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import {
-  type Database,
   auditLog,
   backupJobs,
   createDb,
+  type Database,
   jobs,
   protectedObjects,
   providers,
@@ -33,10 +33,10 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 import { Hono, type MiddlewareHandler } from "hono";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { SessionUser } from "../../auth.js";
-import { type Role, type TenantRole, roleSatisfies } from "../../middleware/rbac.js";
+import { type Role, roleSatisfies, type TenantRole } from "../../middleware/rbac.js";
 import type { TenantEnv } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,
@@ -79,7 +79,6 @@ describe.skipIf(!testDatabaseAdminUrl)("schedules against Postgres", () => {
   let contoso: string;
   let fabrikam: string;
   let mailboxId: string;
-  let foreignMailboxId: string;
   let m365SourceId: string;
   const adminId = randomUUID();
   let clock = new Date("2026-03-04T10:00:00.000Z");
@@ -127,16 +126,12 @@ describe.skipIf(!testDatabaseAdminUrl)("schedules against Postgres", () => {
       })
       .returning();
     mailboxId = mailbox?.id ?? "";
-    const [foreign] = await owner
-      .insert(protectedObjects)
-      .values({
-        tenantId: fabrikam,
-        sourceId: imap?.id ?? "",
-        kind: "imap",
-        externalId: "ben@fabrikam.example",
-      })
-      .returning();
-    foreignMailboxId = foreign?.id ?? "";
+    await owner.insert(protectedObjects).values({
+      tenantId: fabrikam,
+      sourceId: imap?.id ?? "",
+      kind: "imap",
+      externalId: "ben@fabrikam.example",
+    });
 
     app = new Hono();
     app.onError(errorHandler);

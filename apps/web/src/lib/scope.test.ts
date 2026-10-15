@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { navItems as dashboardNavItems } from "@/features/dashboard";
 import { featureNavItems } from "@/features/registry";
 import { navGroupOf } from "@/lib/navigation";
-import { TENANT_ONLY_NAV_IDS, isTenantOnlyNavItem, isTenantOnlyPage } from "@/lib/scope";
+import { isTenantOnlyNavItem, isTenantOnlyPage, TENANT_ONLY_NAV_IDS } from "@/lib/scope";
 
 const items = [...dashboardNavItems, ...featureNavItems];
 const ids = items.map((item) => item.id);

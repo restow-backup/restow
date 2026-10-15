@@ -47,21 +47,21 @@ import { ProgressBar } from "@/features/updates/progress-bar";
 import { formatRelative } from "@/lib/format";
 import { isRecentSignInRequired } from "@/lib/recent-sign-in";
 
-import { AccessNote, ReadOnlyGroup, useInstallationAccess } from "../access";
-import { EnableMounterButton, canEnableThroughUpdater } from "./enable-mounter";
+import { AccessNote, useInstallationAccess } from "../access";
+import { canEnableThroughUpdater, EnableMounterButton } from "./enable-mounter";
 import {
   type MOUNT_STEPS,
   type MountOperation,
   type MountSpec,
+  type MountsView,
   type MountTestResult,
   type MountView,
-  type MountsView,
+  mountsErrorDetail,
+  mountsErrorKey,
+  mountUsersOf,
   NFS_VERSIONS,
   type NfsVersion,
   type PendingMount,
-  mountUsersOf,
-  mountsErrorDetail,
-  mountsErrorKey,
   useAddMount,
   useCancelPendingMount,
   useMounts,

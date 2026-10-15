@@ -1,15 +1,14 @@
+import en from "@restow/i18n/resources/en/dashboard.json" with { type: "json" };
 import type * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { I18nextProvider } from "react-i18next";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import en from "@restow/i18n/resources/en/dashboard.json" with { type: "json" };
-
 import { i18n } from "@/i18n";
 
 import type { TenantWidgets, WidgetData, WidgetResult } from "./api.js";
 import { WidgetUnavailableError, type WidgetView } from "./presenters.js";
-import { DashboardWidgets, PAGE_WIDGETS, expectedWidgets } from "./widget-registry.js";
+import { DashboardWidgets, expectedWidgets, PAGE_WIDGETS } from "./widget-registry.js";
 import { EndpointsWidget } from "./widgets/endpoints-widget.js";
 import { LastBackupWidget } from "./widgets/last-backup-widget.js";
 import { ReadinessWidget } from "./widgets/readiness-widget.js";

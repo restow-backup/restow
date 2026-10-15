@@ -1,8 +1,8 @@
 import {
+  deriveInstallationSecretsKey,
   ENTRA_APP_SECRET_KIND,
   type EntraAppResolution,
   EntraAppResolver,
-  deriveInstallationSecretsKey,
   entraAppEnvironmentFrom,
   kekFromBase64,
 } from "@restow/core";

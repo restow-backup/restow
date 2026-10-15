@@ -1,7 +1,7 @@
 import { type Context, Hono } from "hono";
 import { db } from "../../db.js";
 import { clientIp } from "../../lib/request.js";
-import { type TenantEnv, requireTenant } from "../../middleware/session.js";
+import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import {
   createImportSchema,
@@ -13,7 +13,6 @@ import {
   uploadIdParamSchema,
 } from "./schemas.js";
 import {
-  type ImportActor,
   cancelImport,
   cancelUpload,
   completeUpload,
@@ -22,6 +21,7 @@ import {
   getImport,
   getImportConfig,
   getUpload,
+  type ImportActor,
   listFolder,
   listImports,
   listUploads,

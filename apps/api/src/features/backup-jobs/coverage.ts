@@ -3,7 +3,7 @@ import { type BackupJob, type BackupJobMember, backupJobs } from "@restow/db";
 import { and, eq } from "drizzle-orm";
 
 import type { Transaction } from "../../lib/tenant-context.js";
-import { type ObjectInfo, loadAllMembers, loadObjectInfos } from "./loaders.js";
+import { loadAllMembers, loadObjectInfos, type ObjectInfo } from "./loaders.js";
 
 /**
  * Which backup job backs up which mail object, and whether on a schedule. An object that may be

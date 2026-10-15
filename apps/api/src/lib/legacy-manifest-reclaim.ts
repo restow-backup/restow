@@ -1,8 +1,8 @@
 import { createDb } from "@restow/db";
 import {
   LEGACY_RECLAIM_MIN_BYTES,
-  MIGRATION_URL_VARIABLE,
   legacyManifestBytes,
+  MIGRATION_URL_VARIABLE,
   reclaimLegacyManifestSpace,
 } from "@restow/db/migrate";
 

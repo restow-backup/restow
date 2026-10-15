@@ -1,17 +1,16 @@
 // @vitest-environment happy-dom
-import { Info } from "lucide-react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
-  type Mounted,
   click,
   enableActEnvironment,
   flush,
+  type Mounted,
   sessionAs,
 } from "@/features/updates/testing";
 import { i18n } from "@/i18n";
-import { resetWebExtensionsForTesting } from "@/lib/extensions";
 import type { TenantSectionSpec } from "@/lib/extensions";
+import { resetWebExtensionsForTesting } from "@/lib/extensions";
 
 import { openTenantPage, tenantOf } from "./testing";
 

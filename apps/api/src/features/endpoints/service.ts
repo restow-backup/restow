@@ -3,11 +3,6 @@ import {
   type DirectoryPosition,
   ENDPOINT_QUEUES,
   type EndpointJobPayload,
-  type OpenRepository,
-  type ResticError,
-  ResticError as ResticErrorClass,
-  SelectionError,
-  type SnapshotFlagReason,
   endpointQuotaLimits,
   endpointSingletonKey,
   enrollmentTokenExpiry,
@@ -15,12 +10,16 @@ import {
   generateEnrollmentToken,
   isSupportedEndpointOs,
   isUnscheduled,
-  noSchedule,
   normalizeBandwidthWindows,
+  noSchedule,
+  type OpenRepository,
   openRepository,
+  type ResticError,
   resolveSelection,
   resticListDirectory,
   resticSnapshots,
+  SelectionError,
+  type SnapshotFlagReason,
   streamSnapshotZip,
 } from "@restow/core";
 import {
@@ -35,8 +34,8 @@ import {
   endpointReports,
   endpointRuns,
   endpointSnapshotFlags,
-  endpointTasks,
   endpoints,
+  endpointTasks,
   tenants,
   users,
 } from "@restow/db";
@@ -47,10 +46,10 @@ import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { decodeCursor, encodeCursor } from "../../routes/v1/cursor.js";
 import { sameJson } from "../backup-jobs/json.js";
-import { jobRetentionOf, jobWithOverridesOf, jobsOfEndpoints } from "../backup-jobs/membership.js";
+import { jobRetentionOf, jobsOfEndpoints, jobWithOverridesOf } from "../backup-jobs/membership.js";
 import { pgBossExecutor } from "../jobs/pg-boss-tx.js";
 import { isMissingQueueSchema, jobQueue } from "../jobs/queue.js";
-import { ENDPOINT_AUDIT_ACTIONS, type EndpointActor, auditEndpoint } from "./audit.js";
+import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS, type EndpointActor } from "./audit.js";
 import { bandwidthWindowsProblem } from "./bandwidth.js";
 import { installCommands } from "./commands.js";
 import { isSafeOrigin } from "./distribution.js";
@@ -61,19 +60,19 @@ import {
   type EndpointDetailDto,
   type EndpointSummaryDto,
   type EnrollmentTokenDto,
+  effectiveSettings,
+  hookFingerprint,
+  hooksOf,
   NO_RATED_TESTS,
   type PreparedDownloadDto,
+  problemsOf,
   type RatedTests,
   type ReportDto,
   type RunDetailDto,
   type RunSummaryDto,
   type SnapshotDto,
-  type TaskDto,
-  effectiveSettings,
-  hookFingerprint,
-  hooksOf,
-  problemsOf,
   storageOf,
+  type TaskDto,
   toReport,
   toRunDetail,
   toRunSummary,
@@ -1658,8 +1657,7 @@ export async function pendingTaskCount(
   });
 }
 
-export type { ReportDto };
-export type { ResticError };
+export type { ReportDto, ResticError };
 
 // ---------------------------------------------------------------------------
 // Automatic agent updates (one setting per tenant)

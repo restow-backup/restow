@@ -1,5 +1,5 @@
 import type { BadgeProps } from "@/components/ui/badge";
-import { ApiError, type TenantRole, errorMessageKey, isFeatureUnavailable } from "@/lib/api";
+import { ApiError, errorMessageKey, isFeatureUnavailable, type TenantRole } from "@/lib/api";
 
 import type { MailTestFailureReason } from "./api";
 import type { Readiness, TenantHealth, TenantItem, TenantStatus, UsageOverview } from "./types";

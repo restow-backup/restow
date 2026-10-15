@@ -1,7 +1,7 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import {
-  type Database,
   account,
+  type Database,
   member,
   passkey,
   providerMembers,
@@ -10,7 +10,7 @@ import {
   user,
   verification,
 } from "@restow/db";
-import { type SupportedLanguage, createI18n } from "@restow/i18n";
+import { createI18n, type SupportedLanguage } from "@restow/i18n";
 import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 import { auth } from "../../auth.js";
 import { config } from "../../config.js";
@@ -19,9 +19,9 @@ import { audit } from "../../lib/audit.js";
 import { authCall } from "../../lib/auth-errors.js";
 import { type DbExecutor, isTransaction, withTenantTx } from "../../lib/tenant-context.js";
 import {
-  type TenantRole,
   isProviderAdminRole,
   membershipRoleFromTenantRole,
+  type TenantRole,
   tenantRoleFromMembership,
 } from "../../middleware/rbac.js";
 import type { TenantContext } from "../../middleware/session.js";

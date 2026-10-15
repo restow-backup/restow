@@ -2,13 +2,13 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
-  type RecordedRequest,
   buttonByText,
   click,
   enableActEnvironment,
   flush,
   installMemoryStorage,
   json,
+  type RecordedRequest,
   type,
 } from "@/features/updates/testing";
 import { i18n } from "@/i18n";
@@ -16,17 +16,17 @@ import type { SessionContextValue } from "@/lib/session";
 
 import type { FileShareDetail } from "./api.js";
 import {
-  SHARE_ID,
   failureFixture,
   iso,
   runDetailFixture,
   runFixture,
+  SHARE_ID,
   shareFixture,
 } from "./fixtures.js";
 import "./i18n.js";
 import type { ShareTab } from "./paths.js";
 import { ShareDetailPage } from "./share-detail-page.js";
-import { type Rendered, action, providerOwner, render, slot, text } from "./testing.js";
+import { action, providerOwner, type Rendered, render, slot, text } from "./testing.js";
 
 /**
  * One file share as a person meets it (docs/FILESHARES.md 12.3): the overview with the run in

@@ -1,11 +1,11 @@
 import { afterAll, describe, expect, it } from "vitest";
 import { configureIsolation, shutdownIsolation } from "../mailfiles/isolate.js";
+import { parseJournalReport } from "./journal.js";
 import {
   JournalParserBusyError,
   parseJournalReportIsolated,
   unparsedJournalReport,
 } from "./journal-isolated.js";
-import { parseJournalReport } from "./journal.js";
 
 /**
  * The journal report parser in its isolated child process

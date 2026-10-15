@@ -1,15 +1,13 @@
-import { FailureExplanation } from "@/features/failures";
 import { Link } from "@tanstack/react-router";
 import { AlertTriangle, ArrowLeft, Ban, Hourglass } from "lucide-react";
-import * as React from "react";
 import { useTranslation } from "react-i18next";
-
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import { FailureExplanation } from "@/features/failures";
 import { useJobFormat } from "@/features/jobs/use-format";
 import { Fact, Facts } from "@/features/restore/components/facts";
 import { ProgressBar } from "@/features/restore/components/progress-bar";

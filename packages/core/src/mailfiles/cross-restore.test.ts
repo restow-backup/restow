@@ -7,10 +7,10 @@ import { describe, expect, it } from "vitest";
 import type { Dek } from "../crypto.js";
 import { Keyring } from "../engine/keyring.js";
 import {
+  createMemoryJobContext,
   MemoryChunkIndex,
   MemoryCursorStore,
   MemorySnapshotIndex,
-  createMemoryJobContext,
 } from "../engine/memory.js";
 import type { ProtectedObjectRef, RestoreRequest } from "../engine/types.js";
 import { ExchangeRestoreEngine } from "../restore/exchange.js";

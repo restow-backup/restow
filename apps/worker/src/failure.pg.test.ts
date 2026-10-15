@@ -13,21 +13,21 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  buildCause,
   GraphError,
+  generateDek,
   ImapAuthError,
   JobAbortedError,
   Keyring,
   LocalStorageBackend,
+  noopLogger,
   type StorageTargets,
   TokenAcquisitionError,
-  buildCause,
-  generateDek,
-  noopLogger,
   wrapDek,
 } from "@restow/core";
 import {
-  type Database,
   createDb,
+  type Database,
   itemFailures,
   jobs,
   protectedObjects,
@@ -43,11 +43,11 @@ import { runDirectoryJob } from "./handlers/directory.js";
 import {
   type AnyJobHandler,
   InvalidPayloadError,
+  runJob,
   TenantCache,
   TenantConcurrencyLimiter,
-  type WorkerRuntime,
-  runJob,
   tenantRunner,
+  type WorkerRuntime,
 } from "./handlers/framework.js";
 import { MAX_ITEM_FAILURE_ROWS, PgProgressSink } from "./progress.js";
 
@@ -536,7 +536,7 @@ describe.skipIf(!adminUrl)("failure records against Postgres", () => {
         params: { queue: "directory" },
       });
       const lastRun = (
-        row?.config as { directory?: { lastRun?: { ok: boolean; failure?: { code: string } } } }
+        row.config as { directory?: { lastRun?: { ok: boolean; failure?: { code: string } } } }
       ).directory?.lastRun;
       expect(lastRun).toMatchObject({ ok: false, failure: { code: "graph.permission_missing" } });
       expect((await jobRow(jobId)).failure).toMatchObject({ code: "graph.permission_missing" });

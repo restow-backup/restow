@@ -2,7 +2,7 @@ import type { Database } from "@restow/db";
 import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { db } from "../../db.js";
 import { clientIp } from "../../lib/request.js";
-import { type TenantEnv, requireTenant } from "../../middleware/session.js";
+import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import {
   createStorageTargetSchema,

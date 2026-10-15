@@ -1,4 +1,4 @@
-import { type Job, type VerifyReport, jobs, snapshots } from "@restow/db";
+import { type Job, jobs, snapshots, type VerifyReport } from "@restow/db";
 import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 import { isOverdue, objectStateOf } from "../../features/verify/summary.js";

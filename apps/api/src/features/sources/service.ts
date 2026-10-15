@@ -1,46 +1,46 @@
 import {
   type AppCredentials,
-  ClientCredentialsTokenProvider,
-  type ConnectionVerification,
-  type ConsentIdentityFailure,
-  type ConsentIdentityProof,
-  type ConsentStatePayload,
-  type ConsentingAdmin,
-  FetchGraphClient,
-  type PermissionDiff,
-  SOURCE_APP_SECRET_KIND,
-  type SourceAppFormInput,
   adminConsentRedirectUri,
   buildAdminConsentUrl,
   buildConsentSignInUrl,
   buildSourceApp,
+  ClientCredentialsTokenProvider,
+  type ConnectionVerification,
+  type ConsentIdentityFailure,
+  type ConsentIdentityProof,
+  type ConsentingAdmin,
+  type ConsentStatePayload,
   causeOfVerification,
+  FetchGraphClient,
+  type PermissionDiff,
   parseAdminConsentCallback,
   parseConsentSignInCallback,
   proveConsentingAdmin,
   readDirectoryState,
+  SOURCE_APP_SECRET_KIND,
+  type SourceAppFormInput,
   serializeSourceAppDocument,
   signConsentState,
   verifyConsentState,
   verifyTenantConnection,
 } from "@restow/core";
 import {
+  archiveItemMailboxes,
+  archiveItems,
   type Database,
   ENTRA_TENANT_UNIQUE_INDEX,
   type ImapSecurity,
+  legalHolds,
   type PermissionsVerified,
+  protectedObjects,
   type Source,
   type SourceConfig,
   type SourceStatus,
-  archiveItemMailboxes,
-  archiveItems,
-  legalHolds,
-  protectedObjects,
   settings,
   snapshots,
   sources,
 } from "@restow/db";
-import { type SQL, and, asc, count, eq, inArray, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, inArray, ne, or, type SQL, sql } from "drizzle-orm";
 import { config as processConfig } from "../../config.js";
 import { audit } from "../../lib/audit.js";
 import { deleteSecret, readSecret, replaceSecret, storeSecret } from "../../lib/secrets.js";
@@ -48,7 +48,7 @@ import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { enqueueDirectorySync } from "../directory/enqueue.js";
 import { DIRECTORY_AUDIT_ACTIONS } from "../directory/service.js";
-import { type FailureDto, causeToRecord, failureDto } from "../failures/dto.js";
+import { causeToRecord, type FailureDto, failureDto } from "../failures/dto.js";
 import { causeOfImapProbe } from "../failures/probe.js";
 import {
   type EntraAppStatus,
@@ -64,13 +64,13 @@ import {
   tokenProviderFor,
   tokenProviderForSource,
 } from "./entra.js";
+import { type ImapProbeInput, type ImapProbeResult, probeImapConnection } from "./imap.js";
 import {
-  type ImapHostContext,
   approveImapHost,
+  type ImapHostContext,
   probeMayReachPrivateNetworks,
   storedHostMayBePrivate,
 } from "./imap-host.js";
-import { type ImapProbeInput, type ImapProbeResult, probeImapConnection } from "./imap.js";
 import type {
   CreateSourceInput,
   ImapAuthMode,
@@ -1508,7 +1508,7 @@ async function acceptAdminConsent(
 
   return withTenantTx(db, tenantId, async (tx): Promise<ConsentCallbackOutcome> => {
     const source = await findSource(tx, tenantId, sourceId);
-    if (!source || source.kind !== "m365") {
+    if (source?.kind !== "m365") {
       return { kind: "unknown_source" };
     }
     const at = new Date().toISOString();
@@ -1649,7 +1649,7 @@ async function completeConsentSignIn(
 
   const outcome = await withTenantTx(db, tenantId, async (tx): Promise<ConsentResult> => {
     const source = await findSource(tx, tenantId, sourceId);
-    if (!source || source.kind !== "m365") {
+    if (source?.kind !== "m365") {
       return { kind: "unknown_source" };
     }
     const at = new Date();

@@ -22,11 +22,11 @@ import { ModeOption } from "../components/mode-option";
 import { PasskeyLossDialog } from "../components/passkey-loss-dialog";
 import { ReadinessCard, ReadinessSummary } from "../components/readiness";
 import {
-  type GeneralFormValues,
-  type PasskeyLoss,
   fieldMessageKey,
+  type GeneralFormValues,
   generalFormFromSettings,
   generalFormSchema,
+  type PasskeyLoss,
   passkeyLoss,
   problemFieldIssues,
   publicUrlOrigin,

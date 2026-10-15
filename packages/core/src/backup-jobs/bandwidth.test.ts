@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  type BandwidthWindow,
-  MAX_BANDWIDTH_KBPS,
-  MAX_BANDWIDTH_WINDOWS,
   activeBandwidthWindow,
+  type BandwidthWindow,
   bandwidthTimeZone,
   bandwidthWindowEndsNextDay,
   bandwidthWindowIssues,
@@ -11,6 +9,8 @@ import {
   bandwidthWindowsOverlap,
   effectiveBandwidthKbps,
   firstBandwidthWindowIssue,
+  MAX_BANDWIDTH_KBPS,
+  MAX_BANDWIDTH_WINDOWS,
   minutesOfDay,
   normalizeBandwidthWindows,
 } from "./bandwidth.js";

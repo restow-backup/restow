@@ -19,10 +19,10 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import {
-  type Database,
   account,
   auditLog,
   createDb,
+  type Database,
   passkey,
   providerMembers,
   session,
@@ -37,7 +37,7 @@ import {
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "../features/snapshots/testing/explorer-fixture.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../testing/database-roles.js";
 
 const DATABASE = "restow_api_admin_recovery_test";
 const PUBLIC_URL = "http://localhost:3000";

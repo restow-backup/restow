@@ -28,14 +28,14 @@ import type {
   ProtectedObjectRef,
 } from "../../engine/types.js";
 import type { GraphClient } from "../../graph/client.js";
-import { type InstanceWindow, defaultInstanceWindow } from "../../graph/resources/calendar.js";
+import { defaultInstanceWindow, type InstanceWindow } from "../../graph/resources/calendar.js";
 import type { WellKnownFolderName } from "../../graph/resources/mail.js";
 import { backupCalendar } from "./calendar.js";
 import { backupContacts } from "./contacts.js";
 import { folderObjectAt } from "./folders.js";
-import { DEFAULT_SKIPPED_FOLDERS, type MailPhaseOptions, backupMail } from "./mail.js";
+import { backupMail, DEFAULT_SKIPPED_FOLDERS, type MailPhaseOptions } from "./mail.js";
 import { CALENDAR_ROOT, CONTACTS_ROOT, MAIL_ROOT } from "./paths.js";
-import { BackupRun, EXCHANGE_PHASES, META, type RunCounters, isMailboxAccessError } from "./run.js";
+import { BackupRun, EXCHANGE_PHASES, isMailboxAccessError, META, type RunCounters } from "./run.js";
 import {
   type ExchangeState,
   MAIL_SELECT_VERSION,

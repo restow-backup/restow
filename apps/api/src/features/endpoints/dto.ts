@@ -1,19 +1,19 @@
 import { createHash } from "node:crypto";
 import {
+  backupOverdueCause,
   type Connection,
+  connectionOf,
   DEFAULT_CLIENT_STALE_DAYS,
   DEFAULT_ENDPOINT_RETENTION,
   DEFAULT_SERVER_STALE_HOURS,
   type EndpointQuotaLimits,
-  type QuotaLevel,
-  type SnapshotFlagReason,
-  backupOverdueCause,
-  connectionOf,
   endpointBudgetBytes,
   endpointStaleness,
   isInterruptedOnly,
+  type QuotaLevel,
   quotaLevelOf,
   repositoryDamagedCause,
+  type SnapshotFlagReason,
   silentCause,
 } from "@restow/core";
 import type {
@@ -26,7 +26,7 @@ import type {
   EndpointSettings,
   EndpointTask,
 } from "@restow/db";
-import { type FailureDto, causeToFailureDto, failureDto } from "../failures/dto.js";
+import { causeToFailureDto, type FailureDto, failureDto } from "../failures/dto.js";
 import type { EndpointReadinessDto } from "./readiness.js";
 
 /**

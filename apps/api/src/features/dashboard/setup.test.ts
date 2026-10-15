@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { SETUP_ITEM_IDS } from "./dto.js";
-import { type SetupFacts, buildSetupChecklist, canActOn } from "./setup.js";
+import { buildSetupChecklist, canActOn, type SetupFacts } from "./setup.js";
 
 const NO_MACHINES: SetupFacts["machines"] = {
   active: 0,

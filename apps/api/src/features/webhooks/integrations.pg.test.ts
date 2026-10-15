@@ -18,10 +18,10 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import {
-  type Database,
   apiKeys,
   auditLog,
   createDb,
+  type Database,
   providers,
   secrets,
   tenants,
@@ -33,7 +33,7 @@ import { and, eq } from "drizzle-orm";
 import { Hono } from "hono";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { registerApiExtension, resetExtensionsForTesting } from "../../extensions.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,

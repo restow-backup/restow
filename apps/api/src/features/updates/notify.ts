@@ -3,10 +3,10 @@ import {
   type Database,
   type NewNotification,
   type NewReportDelivery,
-  type StoredUpdateRelease,
   notifications,
   reportDeliveries,
   reportRules,
+  type StoredUpdateRelease,
   settings,
   tenants,
 } from "@restow/db";

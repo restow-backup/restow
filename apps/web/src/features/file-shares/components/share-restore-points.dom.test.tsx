@@ -14,11 +14,11 @@ import { i18n } from "@/i18n";
 
 import type { FileShareDetail, RestoreTarget } from "../api.js";
 import {
+  iso,
   OTHER_ID,
+  runFixture,
   SHARE_ID,
   SNAPSHOT_ID,
-  iso,
-  runFixture,
   shareFixture,
   snapshotFixture,
 } from "../fixtures.js";

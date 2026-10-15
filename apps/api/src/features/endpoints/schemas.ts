@@ -3,10 +3,10 @@ import {
   ENDPOINT_OS,
   ENDPOINT_PROFILES,
   type EndpointOsName,
+  isValidTimeZone,
   MAX_BANDWIDTH_KBPS,
   MAX_BANDWIDTH_WINDOWS,
   MAX_ENDPOINT_QUOTA_GIB,
-  isValidTimeZone,
 } from "@restow/core";
 import { z } from "zod";
 

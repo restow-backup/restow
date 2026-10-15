@@ -1,8 +1,8 @@
 import type { MiddlewareHandler } from "hono";
 import {
   type ApiScope,
-  type TenantAccessEnv,
   requireTenantOrApiKey,
+  type TenantAccessEnv,
 } from "../../middleware/apiKey.js";
 
 /**

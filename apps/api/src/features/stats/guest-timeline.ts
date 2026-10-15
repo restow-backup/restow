@@ -1,7 +1,7 @@
 import type { ObjectState, RatedObject } from "../verify/summary.js";
 import { isOverdue } from "../verify/summary.js";
 import type { GuestRestorePoint, GuestRow } from "./guest-facts.js";
-import { type RatedSet, emptyReadinessCounts, pushTo } from "./readiness.js";
+import { emptyReadinessCounts, pushTo, type RatedSet } from "./readiness.js";
 
 /**
  * Recovery readiness of the VMs and containers of Proxmox VE at any moment of the period (pure,

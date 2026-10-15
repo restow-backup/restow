@@ -12,8 +12,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   type Dek,
-  LocalStorageBackend,
   endpointPasswordKey,
+  LocalStorageBackend,
   resticBinary,
   sealEndpointPassword,
   wrapDek,

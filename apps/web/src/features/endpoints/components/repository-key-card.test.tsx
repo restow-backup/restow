@@ -7,7 +7,7 @@ import { ApiError } from "@/lib/api";
 
 import { type Mounted, mount } from "../dom-harness.js";
 import "../i18n.js";
-import { RepositoryKeyCard, exampleRestoreCommand } from "./repository-key-card.js";
+import { exampleRestoreCommand, RepositoryKeyCard } from "./repository-key-card.js";
 
 vi.mock("radix-ui", async (importOriginal) => {
   const actual = await importOriginal<typeof import("radix-ui")>();

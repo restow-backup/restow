@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { ProblemError } from "../../problem.js";
 import {
-  UPDATE_PROBLEMS,
   mapUpdaterError,
   nextCheckAt,
   privateNetworksAllowedFor,
+  UPDATE_PROBLEMS,
 } from "./service.js";
 import { UpdaterRejectedError, UpdaterUnavailableError } from "./updater-client.js";
 

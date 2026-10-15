@@ -1,8 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, ArrowRight, History, Play } from "lucide-react";
+import { ArrowLeft, ArrowRight, CircleX, History, Play } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
-
 import { ErrorState } from "@/components/error-state";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -11,7 +10,6 @@ import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useArchiveRetention } from "@/features/archive/hooks";
 import { sourcesListTo } from "@/features/sources/paths";
-import { CircleX } from "lucide-react";
 import { ImportsForbidden, NoTenantSelected } from "../components/access-states";
 import { IMPORTS_TAB_SEARCH, importDetailTo, importsListTo } from "../paths";
 import { importErrorKey } from "../presenters";
@@ -30,13 +28,13 @@ import { Stepper } from "./stepper";
 import { ReviewStep, SourceStep, TargetStep } from "./steps";
 import { UploadPanel } from "./upload-panel";
 import {
-  type WizardContext,
-  type WizardState,
   buildCreateInput,
   canOpen,
   initialWizardState,
   stepBlocker,
   stepIndex,
+  type WizardContext,
+  type WizardState,
   wizardReducer,
 } from "./wizard-state";
 

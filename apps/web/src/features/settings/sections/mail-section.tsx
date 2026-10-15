@@ -16,10 +16,10 @@ import type { InstallationSettings, MailSettings, MailTestResult } from "../api"
 import { ConfirmDialog } from "../components/confirm-dialog";
 import { FormFooter } from "../components/form-footer";
 import {
+  fieldMessageKey,
   type MailFormContext,
   type MailFormValues,
   type MailTestFormValues,
-  fieldMessageKey,
   mailFormContext,
   mailFormFromSettings,
   mailFormSchema,

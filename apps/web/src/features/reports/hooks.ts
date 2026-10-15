@@ -4,13 +4,9 @@ import * as React from "react";
 import { sessionScope, useSession } from "@/lib/session";
 
 import {
+  createRule,
   DELIVERY_PAGE,
   type DeliveryFilters,
-  type NotificationFilters,
-  type ReportDelivery,
-  type ReportRuleInput,
-  type ReportRulePatch,
-  createRule,
   deleteRule,
   fetchBell,
   fetchCatalog,
@@ -23,6 +19,10 @@ import {
   markBellRead,
   markInstallationBellRead,
   markProviderBellRead,
+  type NotificationFilters,
+  type ReportDelivery,
+  type ReportRuleInput,
+  type ReportRulePatch,
   reportKeys,
   testRule,
   updateRule,

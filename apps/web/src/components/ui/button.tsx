@@ -1,4 +1,4 @@
-import { type VariantProps, cva } from "class-variance-authority";
+import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "cn";
 import { Loader2Icon } from "lucide-react";
 import { Slot } from "radix-ui";
@@ -118,4 +118,4 @@ function Button({
   );
 }
 
-export { Button, buttonVariants, type ButtonProps };
+export { Button, type ButtonProps, buttonVariants };

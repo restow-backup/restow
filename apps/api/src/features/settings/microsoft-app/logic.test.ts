@@ -2,7 +2,7 @@ import type { EntraAppDocument, EntraAppResolution } from "@restow/core";
 import { describe, expect, it, vi } from "vitest";
 import { ProblemError } from "../../../problem.js";
 import { mayKeepStoredCredential, planMicrosoftAppSave, toMicrosoftAppView } from "./logic.js";
-import { type SaveMicrosoftAppInput, expiryDate, saveMicrosoftAppSchema } from "./schemas.js";
+import { expiryDate, type SaveMicrosoftAppInput, saveMicrosoftAppSchema } from "./schemas.js";
 
 /** Self-signed certificates built in memory (@restow/core test helper, not part of its API). */
 interface TestCertificate {

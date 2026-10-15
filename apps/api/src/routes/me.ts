@@ -1,24 +1,24 @@
 import { type TenantKind, type TenantStatus, tenants } from "@restow/db";
 import { inArray } from "drizzle-orm";
 import { Hono } from "hono";
-import { db, providerDb } from "../db.js";
+import { providerDb } from "../db.js";
 import { sessionFieldContributions } from "../extensions.js";
 import { internalFirstByName } from "../features/tenants/order.js";
-import { type GatedFeature, enabledFeatures } from "../lib/features.js";
+import { enabledFeatures, type GatedFeature } from "../lib/features.js";
 import {
   type ProviderAccess,
   type ProviderRole,
   providerMayEnterTenant,
 } from "../lib/provider-access.js";
 import {
+  globalRole,
   type Role,
   type TenantRole,
-  globalRole,
   tenantRoleFromMembership,
 } from "../middleware/rbac.js";
-import { type Membership, type SessionEnv, requireSession } from "../middleware/session.js";
-import { versionSource } from "./v1.js";
+import { type Membership, requireSession, type SessionEnv } from "../middleware/session.js";
 import type { VersionInfo } from "./v1/version.js";
+import { versionSource } from "./v1.js";
 
 /**
  * GET /api/v1/me — who am I, which tenants can I see, with which role.

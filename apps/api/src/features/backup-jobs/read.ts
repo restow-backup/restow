@@ -2,18 +2,18 @@ import {
   DEFAULT_ENDPOINT_RETENTION,
   DEFAULT_SCHEDULE_TIMEZONE,
   DEFAULT_SHARE_RETENTION,
-  RECOMMENDED_SCHEDULE_DEFAULTS,
   defaultEndpointConfig,
   defaultSchedule,
   effectiveSchedule,
   effectiveSettings,
   mailJobObjectIds,
+  RECOMMENDED_SCHEDULE_DEFAULTS,
 } from "@restow/core";
+import type { Database } from "@restow/db";
 import {
   type BackupJob,
   type BackupJobMember,
   type BackupJobSettings,
-  backupJobMembers,
   backupJobs,
   endpointRuns,
   endpoints,
@@ -21,8 +21,7 @@ import {
   jobs,
   tenants,
 } from "@restow/db";
-import type { Database } from "@restow/db";
-import { type SQL, and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, ilike, inArray, or, type SQL, sql } from "drizzle-orm";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { coverageOf, mailCoverageOf, runsOnSchedule } from "./coverage.js";
@@ -41,12 +40,9 @@ import type {
   JobScopeDto,
 } from "./dto.js";
 import { earliestOf, isOverdue, iso, jobStateOf, latestOf, nextCheckInOf } from "./dto.js";
-import { type SupportedJob, assertSupportedJob, supportedJobs } from "./kinds.js";
+import { assertSupportedJob, type SupportedJob, supportedJobs } from "./kinds.js";
 import {
   type EndpointFact,
-  type MailFact,
-  type ObjectInfo,
-  type SnapshotPolicyInfo,
   endpointName,
   loadAllMembers,
   loadEndpointFacts,
@@ -55,14 +51,17 @@ import {
   loadPrimaryTarget,
   loadRepositoryOf,
   loadSnapshotPolicies,
+  type MailFact,
+  type ObjectInfo,
   objectName,
   repositoryDto,
   restoreCheckOf,
+  type SnapshotPolicyInfo,
 } from "./loaders.js";
 import {
-  type ShareJobFacts,
   copyJobDto,
   loadShareJobFacts,
+  type ShareJobFacts,
   shareCandidates,
   shareJobDto,
   shareJobRuns,
@@ -700,7 +699,6 @@ export async function listJobRuns(
       throw NOT_FOUND();
     }
     assertSupportedJob(job);
-    const all = supportedJobs(rows);
     const members = await loadAllMembers(tx, tenantId);
     const items: JobRunDto[] = [];
     if (job.kind === "share" || job.kind === "copy") {

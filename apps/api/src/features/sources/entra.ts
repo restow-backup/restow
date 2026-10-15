@@ -1,5 +1,7 @@
 import {
   type AppCredentials,
+  adminConsentRedirectUri,
+  appCredentialsFingerprint,
   ClientCredentialsTokenProvider,
   ENTRA_APP_SECRET_KIND,
   type EntraAppEnvironment,
@@ -7,12 +9,10 @@ import {
   EntraAppResolver,
   FetchGraphClient,
   type GraphClient,
+  parseSourceAppSecret,
   type RefreshableTokenProvider,
   type ResolvedEntraApp,
   TenantTokenProviders,
-  adminConsentRedirectUri,
-  appCredentialsFingerprint,
-  parseSourceAppSecret,
 } from "@restow/core";
 import { type Database, findInstallationSecret } from "@restow/db";
 import { type Config, config as processConfig } from "../../config.js";

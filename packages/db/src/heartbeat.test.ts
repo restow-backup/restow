@@ -4,8 +4,8 @@ import {
   HEARTBEAT_INTERVAL_MS,
   type HeartbeatRow,
   type HeartbeatStore,
-  ServiceHeartbeatReporter,
   heartbeatHostname,
+  ServiceHeartbeatReporter,
   serviceVersion,
 } from "./heartbeat.js";
 

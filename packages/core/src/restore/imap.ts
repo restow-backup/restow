@@ -39,16 +39,16 @@ import type {
 import type { ManifestObject } from "../manifest.js";
 import { type FolderStep, type SnapshotCatalog, splitAtAnchor } from "./catalog.js";
 import {
-  LEGACY_REPLACE_MODE_NOTE,
   chunkReaderFor,
+  LEGACY_REPLACE_MODE_NOTE,
   mailboxRestoreMode,
   restoreFolderNameFor,
   throwIfAborted,
 } from "./common.js";
 import { imapFlagsOf, imapInternalDateOf } from "./conventions.js";
 import { type DuplicateSlot, MessageIdDuplicates } from "./duplicates.js";
-import { RestoreLedger, type RestoreReport, failureCodeOf, isAbortError } from "./results.js";
-import { type RestorePlan, planRestore, resolveRestoreSource } from "./selection.js";
+import { failureCodeOf, isAbortError, RestoreLedger, type RestoreReport } from "./results.js";
+import { planRestore, type RestorePlan, resolveRestoreSource } from "./selection.js";
 
 /**
  * What the restore needs from one authenticated IMAP connection. Deliberately

@@ -5,7 +5,6 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
-  SHORT_TEXT_LIMIT,
   authorName,
   buildModel,
   collectPackageDirs,
@@ -22,6 +21,7 @@ import {
   readResticModules,
   renderAgentNotices,
   renderDocument,
+  SHORT_TEXT_LIMIT,
   splitLicenseText,
 } from "../third-party-notices.mjs";
 

@@ -12,8 +12,8 @@ import type {
   Attachment,
   FollowupFlag,
   Importance,
-  MailFolder,
   MailboxSettings,
+  MailFolder,
   Message,
 } from "@microsoft/microsoft-graph-types";
 import type { BatchRequest, GraphClient, GraphRequest } from "../client.js";

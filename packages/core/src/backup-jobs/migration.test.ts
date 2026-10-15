@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type AgentConfig as EndpointConfig, defaultEndpointConfig } from "../endpoints/config.js";
+import { defaultEndpointConfig, type AgentConfig as EndpointConfig } from "../endpoints/config.js";
 import {
   buildEndpointConfig,
   effectiveSchedule,

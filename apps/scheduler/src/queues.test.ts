@@ -3,8 +3,8 @@ import {
   JOB_PRIORITY,
   JOB_QUEUES,
   MAX_EXPIRE_HOURS,
-  QUEUE_DEFINITIONS,
   pgBossQueueOptions,
+  QUEUE_DEFINITIONS,
   sendOptionsFor,
   singletonKeyFor,
 } from "./queues.js";

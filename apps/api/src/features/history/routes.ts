@@ -1,7 +1,7 @@
 import type { Database } from "@restow/db";
 import { Hono, type MiddlewareHandler } from "hono";
 import { db } from "../../db.js";
-import { type TenantEnv, requireTenant } from "../../middleware/session.js";
+import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseOrProblem } from "../../schemas.js";
 import { windowStart } from "../jobs/events.js";
 import { streamEvents } from "../jobs/sse-transport.js";

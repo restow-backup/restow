@@ -6,8 +6,8 @@ import type {
   RestoreTargetType,
 } from "@/features/restore/api";
 import {
-  type Selection,
   everythingSelection,
+  type Selection,
   toApiSelection,
 } from "@/features/restore/lib/selection";
 import { ApiError, errorMessageKey } from "@/lib/api";

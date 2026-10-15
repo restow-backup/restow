@@ -3,12 +3,12 @@ import type { AddressInfo } from "node:net";
 import type { StoredUpdateRelease } from "@restow/db";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  MAX_NOTES_LENGTH,
-  MAX_RELEASES,
   classifyStatus,
   digestsOf,
   fetchReleases,
   guardedFetch,
+  MAX_NOTES_LENGTH,
+  MAX_RELEASES,
   parseReleases,
   releasesForChannel,
   retryAtOf,

@@ -2,7 +2,7 @@ import { Building2, HardDrive } from "lucide-react";
 import { describe, expect, it } from "vitest";
 
 import { i18n } from "@/i18n";
-import { type NavItem, type NavLockContext, groupNavItems } from "@/lib/navigation";
+import { groupNavItems, type NavItem, type NavLockContext } from "@/lib/navigation";
 import { canAccess } from "@/lib/session";
 
 import { eeWebExtension } from "../index";

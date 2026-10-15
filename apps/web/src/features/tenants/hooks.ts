@@ -11,7 +11,6 @@ import { queryKeys } from "@/lib/api";
 import { useSession } from "@/lib/session";
 
 import {
-  type MailTestResult,
   addMember,
   cancelInvitation,
   createOwnOrganisation,
@@ -22,6 +21,7 @@ import {
   fetchTenantHealth,
   fetchTenantList,
   fetchUsageOverview,
+  type MailTestResult,
   markOwnOrganisation,
   removeMember,
   replaceTenantContacts,

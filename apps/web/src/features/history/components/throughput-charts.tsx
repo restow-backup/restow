@@ -6,23 +6,23 @@ import { cn } from "@/lib/utils";
 
 import type { SamplePoint } from "../api";
 import {
+  boxFor,
   CHART_BOX,
   CHART_WINDOW_MS,
   type ChartBox,
   type ChartScale,
   type CrosshairMove,
-  type RateStep,
-  SMOOTHED_SERIES,
-  type SeriesKey,
-  TRANSFER_AVERAGE_MS,
-  boxFor,
   chartSeries,
   formatClock,
   moveCrosshair,
   nearestStep,
   pathOf,
+  type RateStep,
+  type SeriesKey,
+  SMOOTHED_SERIES,
   scaleOf,
   summaryOf,
+  TRANSFER_AVERAGE_MS,
   tickCount,
   timeAtX,
   unitFor,
@@ -193,11 +193,11 @@ export function ThroughputCharts({
   const crosshairPercent = step ? ((charts[0]?.scale.x(step.at) ?? 0) / box.width) * 100 : 0;
 
   return (
+    // biome-ignore lint/a11y/useSemanticElements: a fieldset is for form controls, this is a chart
     <div
       ref={group}
       // Focusable on purpose: the arrow keys move the crosshair through the measurements.
       // biome-ignore lint/a11y/noNoninteractiveTabindex: a group that takes arrow keys
-      // biome-ignore lint/a11y/useSemanticElements: a fieldset is for form controls, this is a chart
       tabIndex={0}
       role="group"
       aria-label={summary}

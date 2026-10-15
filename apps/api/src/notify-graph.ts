@@ -1,18 +1,18 @@
 import {
   type AppCredentials,
+  appCredentialsFingerprint,
   ClientCredentialsTokenProvider,
   FetchGraphClient,
   TokenAcquisitionError,
-  appCredentialsFingerprint,
 } from "@restow/core";
 import type { SupportedLanguage } from "@restow/i18n";
 import {
+  errorMessage,
+  failed,
   type MailFailureReason,
   type NotificationMessage,
   type Notifier,
   type NotifyResult,
-  errorMessage,
-  failed,
   testNotification,
 } from "./notify-core.js";
 

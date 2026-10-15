@@ -9,17 +9,17 @@ import {
 } from "@restow/core";
 import {
   type BackupJob,
+  backupJobMembers,
   type Endpoint,
   type EndpointConfig,
-  backupJobMembers,
   endpointRuns,
-  endpointTasks,
   endpoints,
+  endpointTasks,
 } from "@restow/db";
 import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import type { Transaction } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
-import { ENDPOINT_AUDIT_ACTIONS, auditEndpoint } from "../endpoints/audit.js";
+import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS } from "../endpoints/audit.js";
 import { hookFingerprint } from "../endpoints/dto.js";
 import { assertHooksAllowed, hookChangeNeedsRecentSignIn } from "../endpoints/service.js";
 import { sameJson } from "./json.js";
@@ -152,7 +152,7 @@ export async function syncEndpointConfigs(
   let hookSet = false;
   for (const member of members) {
     const endpoint = member.endpointId ? byId.get(member.endpointId) : undefined;
-    if (!endpoint || endpoint.status !== "active") {
+    if (endpoint?.status !== "active") {
       skipped++;
       continue;
     }

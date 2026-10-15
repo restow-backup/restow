@@ -8,14 +8,14 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/sonner";
 import "@/features/endpoints/i18n";
 import {
-  type Selection,
   effectiveFileCount,
+  type Selection,
   selectionLimits,
   toggleAll,
   toggleItem,
 } from "@/features/endpoints/presenters";
 
-import { type FileSourceAdapter, type RestorePointView, newestFirst } from "./adapter.js";
+import { type FileSourceAdapter, newestFirst, type RestorePointView } from "./adapter.js";
 import { BrowserBody, type FolderPages, PathBar, SelectionBar } from "./file-browser.js";
 
 const NO_SELECTION: Selection = new Map();

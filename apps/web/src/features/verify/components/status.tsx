@@ -13,7 +13,7 @@ import { useTranslation } from "react-i18next";
 
 import { StatusBadge } from "@/components/kit";
 import type { ObjectKind, ObjectState, Reason, StorageState } from "@/features/verify/api";
-import { STORAGE_BADGE, reasonMessage, stateBadgeView } from "@/features/verify/presenters";
+import { reasonMessage, STORAGE_BADGE, stateBadgeView } from "@/features/verify/presenters";
 import { cn } from "@/lib/utils";
 
 const STATE_ICON = {
@@ -79,7 +79,10 @@ export function ObjectKindIcon({ kind, className }: { kind: ObjectKind; classNam
 export function ReasonList({
   reasons,
   className,
-}: { reasons: readonly Reason[]; className?: string }) {
+}: {
+  reasons: readonly Reason[];
+  className?: string;
+}) {
   const { t } = useTranslation("verify");
   return (
     <ul className={cn("space-y-2", className)}>

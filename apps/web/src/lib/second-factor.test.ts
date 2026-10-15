@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import { ApiError } from "./api";
 import {
-  TOTP_ENROLLMENT_REQUIRED_PROBLEM,
   isDemoAccountSession,
   isEnrollmentRequiredError,
   requiresAuthenticatorEnrollment,
   sessionAuthMethod,
   signInMethodsOf,
+  TOTP_ENROLLMENT_REQUIRED_PROBLEM,
 } from "./second-factor";
 
 function session(

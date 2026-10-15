@@ -23,8 +23,8 @@
  */
 import {
   type AppCredentials,
-  DEFAULT_AUTHORITY_HOST,
   buildClientAssertion,
+  DEFAULT_AUTHORITY_HOST,
   tokenEndpointFor,
 } from "../graph/auth/token.js";
 import type { GraphClient } from "../graph/client.js";

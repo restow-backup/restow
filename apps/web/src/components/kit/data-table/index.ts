@@ -1,19 +1,25 @@
 export {
+  columnVisibilityKey,
+  readColumnVisibility,
+  writeColumnVisibility,
+} from "./column-visibility.js";
+export { columnLabel, matchesAnyOf } from "./columns.js";
+export {
   DataTable,
   type DataTablePaginationMode,
   type DataTableProps,
   type DataTableSorting,
 } from "./data-table.js";
-export { columnLabel, matchesAnyOf } from "./columns.js";
+export { DataTableLoadMore, DataTablePagination, DEFAULT_PAGE_SIZES } from "./pagination.js";
 export {
+  isContextMenuKey,
   type RowAction,
-  RowActionsMenu,
-  type RowActionsMenuProps,
   type RowActionsColumnOptions,
   type RowActionsDefinition,
+  RowActionsMenu,
+  type RowActionsMenuProps,
   RowContextMenu,
   type RowContextMenuProps,
-  isContextMenuKey,
   rowActionsColumn,
   rowActionsOf,
   wantsNativeMenu,
@@ -26,9 +32,3 @@ export {
   DataTableViewOptions,
   type FacetOption,
 } from "./toolbar.js";
-export { DEFAULT_PAGE_SIZES, DataTableLoadMore, DataTablePagination } from "./pagination.js";
-export {
-  columnVisibilityKey,
-  readColumnVisibility,
-  writeColumnVisibility,
-} from "./column-visibility.js";

@@ -26,9 +26,9 @@ import { BrandName, RestowMark } from "@/components/wordmark";
 import { CommunityEditionBadge } from "@/features/installation/edition-link";
 import { StartEntry } from "@/features/start";
 import { ExtensionSlot } from "@/lib/extensions";
-import { type NavBadge, groupNavItems, navGroupLabelKey } from "@/lib/navigation";
+import { groupNavItems, type NavBadge, navGroupLabelKey } from "@/lib/navigation";
 import { isTenantOnlyNavItem } from "@/lib/scope";
-import { type RunningVersion, canAccess, sessionScope, useSession } from "@/lib/session";
+import { canAccess, type RunningVersion, sessionScope, useSession } from "@/lib/session";
 import { useNavItems } from "@/lib/use-nav-items";
 
 const EXACT_MATCH = { exact: true, includeSearch: true } as const;

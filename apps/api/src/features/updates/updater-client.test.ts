@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { StateView } from "../../updater/protocol.js";
 import {
-  UpdaterRejectedError,
-  UpdaterUnavailableError,
   bearerOf,
   createUpdaterClient,
   secretMatches,
+  UpdaterRejectedError,
+  UpdaterUnavailableError,
   updaterClientFromEnv,
 } from "./updater-client.js";
 

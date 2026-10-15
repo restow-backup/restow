@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  type RatedObject,
   isFirstBackupOverdue,
   isOverdue,
   objectStateOf,
   overallReadiness,
+  type RatedObject,
   summarize,
   verifyBlockedReason,
 } from "./summary.js";

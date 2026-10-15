@@ -18,9 +18,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { LocalStorageBackend } from "@restow/core";
 import {
-  type Database,
   auditLog,
   createDb,
+  type Database,
   providers,
   secrets,
   settings,
@@ -29,7 +29,7 @@ import {
 } from "@restow/db";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,

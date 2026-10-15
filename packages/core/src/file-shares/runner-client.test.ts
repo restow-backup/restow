@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { RunnerRefusedError, RunnerUnavailableError, createRunnerClient } from "./runner-client.js";
-import { runnerExitCause, shareCauseOf } from "./runner.js";
 import type { RunnerRunRequest, ShareSpec } from "./runner.js";
+import { runnerExitCause, shareCauseOf } from "./runner.js";
+import { createRunnerClient, RunnerRefusedError, RunnerUnavailableError } from "./runner-client.js";
 
 const RUN_ID = "0f1e2d3c-4b5a-4968-8776-655443322110";
 const SHARE_ID = "5b0c6f0e-9f5c-4c8a-9d55-1a2b3c4d5e6f";

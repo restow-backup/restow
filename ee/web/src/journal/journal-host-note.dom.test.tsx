@@ -1,26 +1,23 @@
 // @vitest-environment happy-dom
 import {
-  RouterProvider,
   createMemoryHistory,
   createRootRoute,
   createRouter,
+  RouterProvider,
 } from "@tanstack/react-router";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-
-import { ArchiveSections, ArchiveSettingsSections } from "../archive-sections";
-import { JournalHostNote } from "./journal-host-note";
-
 import {
-  type Mounted,
   enableActEnvironment,
   flush,
+  type Mounted,
   mount,
   newQueryClient,
   sessionAs,
 } from "@/features/updates/testing";
 import { i18n } from "@/i18n";
-
+import { ArchiveSections, ArchiveSettingsSections } from "../archive-sections";
 import { type JournalSetup, journalKeys } from "./api";
+import { JournalHostNote } from "./journal-host-note";
 
 /**
  * The journal host on the tenant page (Archive settings): read-only, with where

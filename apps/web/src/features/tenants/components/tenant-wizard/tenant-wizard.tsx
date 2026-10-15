@@ -4,9 +4,6 @@ import { Check, Info, TriangleAlert, X } from "lucide-react";
 import * as React from "react";
 import { useForm } from "react-hook-form";
 import { useTranslation } from "react-i18next";
-
-import { sourcesListTo } from "@/features/sources/paths";
-
 import { ConfirmDialog } from "@/components/kit";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -20,6 +17,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { toast } from "@/components/ui/sonner";
+import { sourcesListTo } from "@/features/sources/paths";
 import type { TenantRole } from "@/lib/api";
 import { zodResolver } from "@/lib/form";
 import { formatDateTime } from "@/lib/format";
@@ -29,21 +27,21 @@ import { setupStateQueryOptions } from "@/routes/tree";
 
 import { addMember, tenantKeys } from "../../api";
 import {
-  type TenantWizardValues,
-  WIZARD_STEPS,
-  WIZARD_STEP_FIELDS,
-  type WizardStep,
   emptyTenantWizardForm,
+  type TenantWizardValues,
   tenantWizardSchema,
   toCreateTenantInput,
+  WIZARD_STEP_FIELDS,
+  WIZARD_STEPS,
+  type WizardStep,
 } from "../../forms";
 import { useCreateTenant } from "../../hooks";
 import { tenantDetailTo } from "../../paths";
 import {
-  type Message,
   createTenantError,
   isCustomerNumberConflict,
   isSlugConflict,
+  type Message,
 } from "../../presenters";
 import type { AddMemberResult, TenantItem } from "../../types";
 import { CopyInvitationLinkButton } from "../copy-link";

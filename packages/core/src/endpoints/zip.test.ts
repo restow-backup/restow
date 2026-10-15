@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { UniqueNames, parentPrefix, safeEntryName } from "./zip.js";
+import { parentPrefix, safeEntryName, UniqueNames } from "./zip.js";
 
 describe("ZIP entry names", () => {
   it("cannot climb out of the archive", () => {

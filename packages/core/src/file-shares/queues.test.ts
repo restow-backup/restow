@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FILE_SHARE_QUEUES, FILE_SHARE_QUEUE_SETTINGS, fileShareSingletonKey } from "./queues.js";
+import { FILE_SHARE_QUEUE_SETTINGS, FILE_SHARE_QUEUES, fileShareSingletonKey } from "./queues.js";
 
 describe("file share queues", () => {
   it("has settings for every queue, named like the doc", () => {

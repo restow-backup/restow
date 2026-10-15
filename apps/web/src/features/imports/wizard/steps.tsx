@@ -23,12 +23,11 @@ import type { ImportedMailbox } from "../presenters";
 import type { ImportConfig } from "../types";
 import type { UploadItem } from "../upload/types";
 import {
-  type FolderSelection,
   type ImportOrigin,
   NAME_MAX_LENGTH,
   type TargetMode,
-  type WizardState,
   validateName,
+  type WizardState,
 } from "./wizard-state";
 
 // --- Step 1: where the files come from --------------------------------------------------------

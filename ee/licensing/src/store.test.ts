@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { currentEdition, effectiveLicenseOf, installationHasCapability } from "./store.js";
 import type { LicenseReader } from "./store.js";
+import { currentEdition, effectiveLicenseOf, installationHasCapability } from "./store.js";
 
 /** A reader whose `select()...limit()` chain resolves to `rows`. */
 function fakeDb(rows: Array<{ edition: string }>): LicenseReader {

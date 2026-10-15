@@ -16,7 +16,7 @@ import { PackReader } from "../pack.js";
 import type { StorageBackend } from "../storage/backend.js";
 import type { CatalogPack } from "./catalog.js";
 import { describeError } from "./errors.js";
-import { type RandomSource, pickRandom } from "./random.js";
+import { pickRandom, type RandomSource } from "./random.js";
 
 export type PackTargetStatus =
   | "ok"

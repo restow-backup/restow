@@ -36,14 +36,14 @@ import {
 } from "../hooks.js";
 import { jobErrorKey } from "../problems.js";
 import {
-  SHARE_SYSTEM_FILE_PATTERNS,
-  type ShareJobDraft,
-  type ShareMemberDraft,
   checkShareJobDraft,
   cleanExtension,
   draftOfShareJob,
   memberDraftOfCandidate,
   newShareJobDraft,
+  SHARE_SYSTEM_FILE_PATTERNS,
+  type ShareJobDraft,
+  type ShareMemberDraft,
   shareCreateInputOf,
   shareMemberInputs,
   shareMembersChanged,

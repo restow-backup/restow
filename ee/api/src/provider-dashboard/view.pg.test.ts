@@ -13,8 +13,8 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import {
-  type Database,
   createDb,
+  type Database,
   jobProgress,
   jobs,
   license,
@@ -50,8 +50,8 @@ import {
 import type { Role } from "../../../../apps/api/src/middleware/rbac.js";
 import type { TenantEnv } from "../../../../apps/api/src/middleware/session.js";
 import {
-  type TestDatabaseRoles,
   provisionTestRoles,
+  type TestDatabaseRoles,
 } from "../../../../apps/api/src/testing/database-roles.js";
 import { licenseFeatureGate } from "../license/gate.js";
 import { providerDashboardLoader } from "./view.js";
@@ -328,7 +328,7 @@ describe.skipIf(!testDatabaseAdminUrl)("dashboard against Postgres", () => {
   }
 
   function ok<T>(result: { state: "ok"; data: T } | { state: "error" } | undefined): T {
-    if (!result || result.state !== "ok") {
+    if (result?.state !== "ok") {
       throw new Error(`widget not ok: ${JSON.stringify(result)}`);
     }
     return result.data;

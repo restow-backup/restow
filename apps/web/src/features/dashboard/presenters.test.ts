@@ -8,7 +8,6 @@ import type {
   StorageGrowthWidget,
 } from "./api.js";
 import {
-  WidgetUnavailableError,
   byteTicks,
   dayLabel,
   dedupSaving,
@@ -26,6 +25,7 @@ import {
   successRate,
   successRateDelta,
   tileColumns,
+  WidgetUnavailableError,
   widgetView,
 } from "./presenters.js";
 

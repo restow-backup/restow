@@ -26,16 +26,16 @@ import type { Logger, ProgressReporter } from "../engine/types.js";
 import {
   type BatchRequest,
   type BatchResponse,
-  type GraphClient,
   chunkIntoBatches,
+  type GraphClient,
 } from "../graph/client.js";
 import { type DeltaMode, InMemoryDeltaTokenStore } from "../graph/delta.js";
 import { GraphError, isGraphError, isMailboxUnavailable } from "../graph/errors.js";
 import { query, userPath } from "../graph/resources/common.js";
 import {
+  listGroupMemberIds,
   USER_SELECT,
   type UserDeltaEntry,
-  listGroupMemberIds,
   usersDelta,
 } from "../graph/resources/users.js";
 import type { ProtectionConfig } from "./config.js";
@@ -43,13 +43,13 @@ import {
   type DirectoryObjectKind,
   type DirectoryPlan,
   type DirectoryUserRecord,
-  type KnownObject,
-  type UserProbe,
   isPartialEntry,
   isRemovedEntry,
+  type KnownObject,
   planDirectory,
   probeTargets,
   toDirectoryUser,
+  type UserProbe,
 } from "./plan.js";
 
 /** Delta stream key of a source's user directory. */

@@ -12,9 +12,9 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import {
-  type Database,
   auditLog,
   createDb,
+  type Database,
   protectedObjects,
   providers,
   sources,
@@ -29,7 +29,7 @@ import {
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "../features/snapshots/testing/explorer-fixture.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../testing/database-roles.js";
 
 const DATABASE = "restow_api_key_read_audit_test";
 

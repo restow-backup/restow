@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ManifestObject } from "../manifest.js";
-import { SnapshotCatalog, folderKindOf, isDefaultContactFolder, splitAtAnchor } from "./catalog.js";
+import { folderKindOf, isDefaultContactFolder, SnapshotCatalog, splitAtAnchor } from "./catalog.js";
 import {
   attachmentFactsOf,
   calendarFactsOf,

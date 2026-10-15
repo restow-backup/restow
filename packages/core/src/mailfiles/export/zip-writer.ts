@@ -14,10 +14,10 @@ import { Readable } from "node:stream";
 import { type Archiver, ZipArchive } from "archiver";
 import { describeExportError, isFatalExportError, statusOfError } from "./errors.js";
 import {
+  checksumChunks,
   EXPORT_MANIFEST_NAME,
   EXPORT_SUMS_NAME,
   type ManifestMessage,
-  checksumChunks,
   manifestChunks,
   manifestRow,
 } from "./manifest.js";

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { AUTH_RATE_LIMIT } from "./auth-surface.js";
 import {
-  RESET_MAIL_INTERVAL_MS,
-  ResetMailThrottle,
   changedPasswordUser,
   mayResetByMail,
   passwordResetAvailable,
   passwordResetUrl,
+  RESET_MAIL_INTERVAL_MS,
+  ResetMailThrottle,
 } from "./password-reset.js";
 
 describe("the reset by mail", () => {

@@ -1,4 +1,4 @@
-import { type MailConfig, type NewSettings, type Settings, providers, settings } from "@restow/db";
+import { type MailConfig, type NewSettings, providers, type Settings, settings } from "@restow/db";
 import { eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { auth } from "../auth.js";
@@ -12,9 +12,9 @@ import { ensureOwnOrganisation } from "../features/tenants/internal.js";
 import { AUDIT_ACTIONS, audit } from "../lib/audit.js";
 import { demoSeedTokenMatches, isConfiguredDemoCredentials } from "../lib/demo.js";
 import {
+  acceptDisclaimer,
   DISCLAIMER_VERSION,
   type DisclaimerState,
-  acceptDisclaimer,
   disclaimerRequired,
   disclaimerState,
   versionMismatch,
@@ -25,10 +25,10 @@ import { effectivePublicUrl, passwordResetAvailable } from "../lib/password-rese
 import { clientIp, observedOrigin } from "../lib/request.js";
 import { upsertProviderSecret } from "../lib/secrets.js";
 import {
-  SETUP_TOKEN_HEADER,
-  type SetupTokenSource,
   currentSetupToken,
   retireSetupToken,
+  SETUP_TOKEN_HEADER,
+  type SetupTokenSource,
   setupTokenAnnouncement,
   setupTokenMatches,
   setupTokenProblem,
@@ -37,14 +37,14 @@ import type { DbExecutor } from "../lib/tenant-context.js";
 import { DEMO_READ_ONLY_PROBLEM } from "../middleware/demo-guard.js";
 import { requireSameOrigin } from "../middleware/session.js";
 import type { MailFailureReason } from "../notify-core.js";
-import { type PasskeyReadyResult, computePasskeyReady } from "../passkeyReady.js";
+import { computePasskeyReady, type PasskeyReadyResult } from "../passkeyReady.js";
 import { ProblemError } from "../problem.js";
 import {
-  type MailSetup,
-  type SetupRequest,
   acceptDisclaimerSchema,
+  type MailSetup,
   parseOrProblem,
   readJsonBody,
+  type SetupRequest,
   setupRequestSchema,
   toStoredSmtpSecurity,
 } from "../schemas.js";

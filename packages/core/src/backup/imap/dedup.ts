@@ -18,7 +18,7 @@
  */
 import { createHash } from "node:crypto";
 import type { ManifestObject } from "../../manifest.js";
-import { META, isMessageObject } from "./paths.js";
+import { isMessageObject, META } from "./paths.js";
 
 /** What identifies stored message bytes: enough to rebuild a manifest object. */
 export interface StoredContent {

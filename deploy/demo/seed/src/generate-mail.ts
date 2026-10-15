@@ -1,13 +1,13 @@
 import { join } from "node:path";
-import { DEMO_DOMAIN, type DemoMailbox, allMailboxes } from "./company.js";
+import { allMailboxes, DEMO_DOMAIN, type DemoMailbox } from "./company.js";
 import {
   type Correspondent,
-  type GeneratedMessage,
-  type Language,
-  type MailKind,
   correspondentOf,
+  type GeneratedMessage,
   generalMessage,
   invoiceMessage,
+  type Language,
+  type MailKind,
   meetingMessage,
   newsletterMessage,
   orderMessage,
@@ -16,7 +16,7 @@ import { buildIcs } from "./ics.js";
 import { writeMaildirMessage } from "./maildir.js";
 import { type Attachment, buildEmlMessage } from "./mime.js";
 import { buildPdf } from "./pdf.js";
-import { type Rng, chance, mulberry32, randomInt, seedFrom } from "./prng.js";
+import { chance, mulberry32, type Rng, randomInt, seedFrom } from "./prng.js";
 
 /**
  * The synthetic mail generator (deploy/demo/README.md): a deterministic

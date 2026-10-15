@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 
-import { type TenantWizardValues, emptyAdmin, fieldMessageKey } from "../../forms";
+import { emptyAdmin, fieldMessageKey, type TenantWizardValues } from "../../forms";
 import { RoleSelect } from "../role-select";
 
 interface StepProps {

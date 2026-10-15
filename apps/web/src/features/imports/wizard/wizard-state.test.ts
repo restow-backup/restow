@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  type FolderSelection,
-  type WizardContext,
-  type WizardState,
   buildCreateInput,
   canOpen,
   coveringDirectory,
+  type FolderSelection,
   initialWizardState,
   stepBlocker,
   toggleFolderEntry,
   validateName,
+  type WizardContext,
+  type WizardState,
   wizardReducer,
 } from "./wizard-state";
 

@@ -29,7 +29,7 @@ import { cn } from "@/lib/utils";
 import { FormatBadge, FormatIcon } from "../components/format-badge";
 import type { FolderEntry } from "../types";
 import { useFolderListing } from "../use-imports";
-import { type FolderSelection, coveringDirectory } from "./wizard-state";
+import { coveringDirectory, type FolderSelection } from "./wizard-state";
 
 /** The API lists at most this many entries of one folder. */
 export const FOLDER_ENTRY_LIMIT = 2000;

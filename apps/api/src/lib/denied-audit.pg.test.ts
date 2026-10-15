@@ -4,7 +4,7 @@
  * Runs when RESTOW_TEST_DATABASE_URL points at a Postgres server.
  */
 import { randomUUID } from "node:crypto";
-import { type Database, auditLog, createDb, providers, tenants } from "@restow/db";
+import { auditLog, createDb, type Database, providers, tenants } from "@restow/db";
 import { eq, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 

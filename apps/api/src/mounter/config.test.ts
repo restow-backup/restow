@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MounterConfigError, loadMounterConfig } from "./config.js";
+import { loadMounterConfig, MounterConfigError } from "./config.js";
 
 describe("loadMounterConfig", () => {
   it("has defaults that match the compose files", () => {

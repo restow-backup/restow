@@ -19,17 +19,17 @@
  */
 import { randomUUID } from "node:crypto";
 import {
-  type Database,
   auditLog,
   createDb,
+  type Database,
   itemFailures,
   jobs,
   member,
   organization,
   packs,
   protectedObjects,
-  providerMemberTenants,
   providerMembers,
+  providerMemberTenants,
   providers,
   restoreJobs,
   snapshots,
@@ -43,7 +43,7 @@ import { Hono } from "hono";
 import { extractText, getDocumentProxy } from "unpdf";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { registerApiExtension, resetExtensionsForTesting } from "../../extensions.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,

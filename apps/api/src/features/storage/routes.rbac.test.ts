@@ -1,4 +1,3 @@
-import type { Database } from "@restow/db";
 import { Hono } from "hono";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { errorHandler } from "../../problem.js";

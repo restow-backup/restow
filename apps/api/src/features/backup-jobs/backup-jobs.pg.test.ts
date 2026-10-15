@@ -17,13 +17,13 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { defaultEndpointConfig, enrolledEndpointConfig } from "@restow/core";
 import {
-  type Database,
   auditLog,
   backupJobMembers,
   backupJobs,
   createDb,
-  endpointTasks,
+  type Database,
   endpoints,
+  endpointTasks,
   jobs,
   protectedObjects,
   providers,
@@ -36,10 +36,10 @@ import { Hono, type MiddlewareHandler } from "hono";
 import PgBoss from "pg-boss";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { SessionUser } from "../../auth.js";
-import { type Role, type TenantRole, roleSatisfies } from "../../middleware/rbac.js";
+import { type Role, roleSatisfies, type TenantRole } from "../../middleware/rbac.js";
 import type { TenantEnv } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,
@@ -497,7 +497,7 @@ describe.skipIf(!testDatabaseAdminUrl)("backup jobs against Postgres", () => {
     // The audit entry names the rename and nothing else: the schedules did not change.
     const entries = await audits("backup_job.updated", job.id);
     expect(entries).toHaveLength(1);
-    expect(Object.keys((entries[0]?.details as { changes: object }).changes)).toEqual(["name"]);
+    expect(Object.keys((entries[0].details as { changes: object }).changes)).toEqual(["name"]);
 
     // A schedule that does change still starts its timer afresh.
     await json<BackupJobDto>(

@@ -6,7 +6,13 @@
   "description": "Restow HTTP API: Hono, better-auth, REST /api/v1, setup wizard, notifications.",
   "license": "Apache-2.0",
   "main": "./dist/apps/api/src/server.js",
-  "files": ["dist", "!**/*.test.*", "!**/testing", "!**/testdata", "!**/fixtures"],
+  "files": [
+    "dist",
+    "!**/*.test.*",
+    "!**/testing",
+    "!**/testdata",
+    "!**/fixtures"
+  ],
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "node dist/apps/api/src/server.js",

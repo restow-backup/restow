@@ -102,7 +102,7 @@ export async function loadLatestManifest(
   protectedObjectId: string,
 ): Promise<{ record: SnapshotRecord; manifest: SnapshotManifest } | null> {
   const record = await ctx.snapshots.latestCompleted(protectedObjectId);
-  if (!record || !record.manifestPath) {
+  if (!record?.manifestPath) {
     return null;
   }
   return { record, manifest: await loadManifest(ctx.storage, record.manifestPath, ctx.keys) };

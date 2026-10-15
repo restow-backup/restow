@@ -1,25 +1,22 @@
 // @vitest-environment happy-dom
 import { Info } from "lucide-react";
-import { createElement } from "react";
 import type * as React from "react";
+import { createElement } from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
-
-import { PROVIDER_API_SECTION_ID, providerKeysDestination } from "./paths";
-import { parseIntegrationsSearch } from "./presenters";
-
 import {
-  type Mounted,
   enableActEnvironment,
   flush,
   json,
+  type Mounted,
   mount,
   routedFetch,
   sessionAs,
 } from "@/features/updates/testing";
 import { i18n } from "@/i18n";
 import { registerWebExtension, resetWebExtensionsForTesting } from "@/lib/extensions";
-
 import { ApiKeysPanel } from "./api-keys/api-keys-panel";
+import { PROVIDER_API_SECTION_ID, providerKeysDestination } from "./paths";
+import { parseIntegrationsSearch } from "./presenters";
 
 /**
  * The provider keys moved from the Integrations page to Installation, Provider

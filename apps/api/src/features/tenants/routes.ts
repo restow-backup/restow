@@ -5,10 +5,10 @@ import { providerMayEnterTenant } from "../../lib/provider-access.js";
 import { clientIp } from "../../lib/request.js";
 import { decideTenantAccess } from "../../middleware/rbac.js";
 import {
-  type SessionEnv,
   assertTenantAdmits,
   requireProviderAdmin,
   requireSession,
+  type SessionEnv,
 } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
 import { parseJsonBody, parseOrProblem, readJsonBody } from "../../schemas.js";

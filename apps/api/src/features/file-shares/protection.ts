@@ -12,11 +12,11 @@ import {
   shareWarningCauses,
 } from "@restow/core";
 import {
+  backupJobMembers,
+  backupJobs,
   type Database,
   type FileShare,
   type FileShareRun,
-  backupJobMembers,
-  backupJobs,
   fileShareReports,
   fileShareRuns,
   fileShareSnapshots,
@@ -25,7 +25,7 @@ import {
 } from "@restow/db";
 import { and, count, desc, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
-import { type ObjectState, type RatedObject, isFirstBackupOverdue } from "../verify/summary.js";
+import { isFirstBackupOverdue, type ObjectState, type RatedObject } from "../verify/summary.js";
 
 /**
  * File shares in the overviews (docs/FILESHARES.md section 13): the SQL side of the one rule of

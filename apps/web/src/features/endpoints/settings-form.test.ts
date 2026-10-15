@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import type { EndpointDetail } from "./api.js";
 import {
-  DEFAULTS,
   buildPatch,
   changedSections,
   checkDraft,
+  DEFAULTS,
   draftFromDetail,
   hasProblems,
   linesOf,

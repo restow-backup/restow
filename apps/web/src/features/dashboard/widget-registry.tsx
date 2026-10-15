@@ -5,9 +5,9 @@ import { cn } from "@/lib/utils";
 import type { TenantWidgets, WidgetData, WidgetId } from "./api.js";
 import {
   ADMIN_WIDGETS,
-  type WidgetView,
   showEndpoints,
   tileColumns,
+  type WidgetView,
   widgetView,
 } from "./presenters.js";
 import { EndpointsWidget } from "./widgets/endpoints-widget.js";

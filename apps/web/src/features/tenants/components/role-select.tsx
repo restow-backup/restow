@@ -7,7 +7,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { TENANT_ROLES, type TenantRole, isTenantRole } from "@/lib/api";
+import { isTenantRole, TENANT_ROLES, type TenantRole } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 export { TENANT_ROLES };

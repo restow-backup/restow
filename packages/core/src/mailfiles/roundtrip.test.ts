@@ -13,17 +13,17 @@ import type { Dek } from "../crypto.js";
 import { ChunkReader } from "../engine/chunkstore.js";
 import { Keyring } from "../engine/keyring.js";
 import {
+  createMemoryJobContext,
   MemoryChunkIndex,
   MemoryCursorStore,
   MemorySnapshotIndex,
-  createMemoryJobContext,
 } from "../engine/memory.js";
 import type { JobContext, ProtectedObjectRef } from "../engine/types.js";
 import { MemoryStorage } from "../verify/testing.js";
-import { openSnapshotExport } from "./export-sources.js";
 import { createEmlZip } from "./export/eml-zip.js";
 import { createMbox, createMboxZip } from "./export/mbox.js";
 import type { ExportMessage } from "./export/types.js";
+import { openSnapshotExport } from "./export-sources.js";
 import { MailImportEngine } from "./import-engine.js";
 import { buildEml, buildMbox, buildZip, inputFileFromBuffer } from "./testing/builders.js";
 import type { MailInputFile, MailWalkEvent } from "./types.js";

@@ -10,8 +10,6 @@ import type {
   RunVerifyResult,
 } from "@/features/verify/api";
 import {
-  SNAPSHOT_VERIFICATION_TONE,
-  STATE_BADGE,
   findingBlocks,
   gcMessage,
   isWaitingForFirstBackup,
@@ -24,6 +22,8 @@ import {
   rowName,
   rowRating,
   runResultMessage,
+  SNAPSHOT_VERIFICATION_TONE,
+  STATE_BADGE,
   snapshotVerificationView,
   sortByUrgency,
   sortRowsByUrgency,

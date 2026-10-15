@@ -113,6 +113,7 @@ function Table({ className, containerClassName, scrollLabel, ...props }: TablePr
   const { ref, scrolled, more, scrollable, inset } = useScrollEdges<HTMLDivElement>();
   const name = scrollLabel?.trim();
   return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: the label is set only together with role="region" (both follow scrollable)
     <div
       ref={ref}
       data-slot="table-container"
@@ -242,4 +243,4 @@ function TableCaption({ className, ...props }: React.ComponentProps<"caption">) 
   );
 }
 
-export { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell, TableCaption };
+export { Table, TableBody, TableCaption, TableCell, TableFooter, TableHead, TableHeader, TableRow };

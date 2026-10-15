@@ -6,11 +6,11 @@ import type { NavBadge } from "@/lib/navigation";
 import { useSession } from "@/lib/session";
 
 import {
-  type WarningRef,
   acknowledgeWarnings,
   fetchWarning,
   fetchWarnings,
   revokeAcknowledgement,
+  type WarningRef,
   warningKeys,
 } from "./api";
 import { mayAcknowledge } from "./presenters";

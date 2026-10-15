@@ -8,7 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ExchangeBackupEngine } from "../backup/exchange/engine.js";
 import { FakeMailbox as SourceMailbox } from "../backup/exchange/testing/fake-mailbox.js";
 import { OneDriveBackupEngine } from "../backup/onedrive/engine.js";
-import { DRIVE, contentRoutes, deltaUrl } from "../backup/onedrive/testing.js";
+import { contentRoutes, DRIVE, deltaUrl } from "../backup/onedrive/testing.js";
 import { createFakeGraph, must } from "../graph/testing/fake-graph.js";
 import { ExchangeRestoreEngine } from "./exchange.js";
 import { OneDriveRestoreEngine } from "./onedrive.js";
@@ -16,8 +16,8 @@ import { quickXorHash } from "./quickxorhash.js";
 import { FakeDrive } from "./testing/fake-drive.js";
 import { FakeMailbox as TargetMailbox } from "./testing/fake-mailbox.js";
 import {
-  type JobContextFixture,
   createJobContextFixture,
+  type JobContextFixture,
   pseudoRandomBytes,
   restoreRequestFor,
 } from "./testing/fixtures.js";

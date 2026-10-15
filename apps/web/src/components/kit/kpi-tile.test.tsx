@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 import { i18n } from "@/i18n";
 
-import { KpiTile, describeDelta } from "./kpi-tile.js";
+import { describeDelta, KpiTile } from "./kpi-tile.js";
 import { count, render } from "./test-utils.js";
 
 beforeAll(async () => {

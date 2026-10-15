@@ -25,7 +25,7 @@ import {
   restoreTestSamples,
   withRepository,
 } from "@restow/core";
-import { endpointSamples, endpointTasks, endpoints } from "@restow/db";
+import { endpointSamples, endpoints, endpointTasks } from "@restow/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { withTenantTx } from "../handlers/framework.js";
 import {

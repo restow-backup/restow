@@ -2,8 +2,8 @@ import type { AppCredentials } from "@restow/core";
 import type { SupportedLanguage } from "@restow/i18n";
 import { describe, expect, it } from "vitest";
 import { type Config, loadConfig } from "../../config.js";
-import type { GoogleServiceAccountKey } from "../../notify-google.js";
 import type { Notifier, NotifyResult, TransportSpec } from "../../notify.js";
+import type { GoogleServiceAccountKey } from "../../notify-google.js";
 import { type ResolvedMailTransport, runMailTest, sanitizeDetail, transportSpec } from "./mail.js";
 
 const base: Config = loadConfig({ GRAPH_MAIL_TENANT_ID: "env-tenant.onmicrosoft.com" });

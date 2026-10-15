@@ -4,7 +4,7 @@ import { config } from "../../config.js";
 import { providerDb } from "../../db.js";
 import { updateState } from "./state-instance.js";
 import { tokenFor } from "./token.js";
-import { DEFAULT_SECRET_FILE, SecretReader, bearerOf, secretMatches } from "./updater-client.js";
+import { bearerOf, DEFAULT_SECRET_FILE, SecretReader, secretMatches } from "./updater-client.js";
 
 /**
  * The api's side of the updater's shared secret (docs/ARCHITECTURE.md, Updates):

@@ -2,10 +2,10 @@
 // of the preset mapping must read and write cadences exactly like the API.
 import { describe, expect, it } from "vitest";
 import {
-  type SchedulePreset,
   cadenceFromPreset,
   formatWeekdays,
   presetFromCadence,
+  type SchedulePreset,
 } from "./presets.js";
 
 const cron = (expression: string) => ({ intervalMinutes: null, cron: expression });

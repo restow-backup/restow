@@ -11,8 +11,8 @@ import {
   type UpdateBackupJobInput,
 } from "./api.js";
 import {
-  type WindowDraft,
   checkWindowDrafts,
+  type WindowDraft,
   windowDraftsOf,
   windowsKey,
   windowsOfDrafts,

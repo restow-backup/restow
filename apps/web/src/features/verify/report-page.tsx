@@ -34,10 +34,10 @@ import { ObjectKindIcon, StateBadge } from "@/features/verify/components/status"
 import { VERIFY_ICON, verifyOverviewTo, verifyReportTo } from "@/features/verify/paths";
 import { objectAddress, objectLabel, objectName } from "@/features/verify/presenters";
 import {
-  type VerifyFormat,
   useReport,
   useReportHistory,
   useVerifyFormat,
+  type VerifyFormat,
 } from "@/features/verify/use-verify";
 import { ApiError } from "@/lib/api";
 

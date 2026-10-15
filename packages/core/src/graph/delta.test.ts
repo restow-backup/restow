@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  InMemoryDeltaTokenStore,
-  RecordDeltaTokenStore,
   collectDelta,
+  InMemoryDeltaTokenStore,
   isRemoved,
+  RecordDeltaTokenStore,
   syncDelta,
 } from "./delta.js";
 import { GraphError } from "./errors.js";

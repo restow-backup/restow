@@ -1,7 +1,7 @@
 import { safeErrorMessage } from "@restow/db";
 import type { Context, Env } from "hono";
 import { type SSEStreamingApi, streamSSE } from "hono/streaming";
-import { type StreamIo, type StreamStep, runStreamLoop } from "./events.js";
+import { runStreamLoop, type StreamIo, type StreamStep } from "./events.js";
 
 /**
  * The server-sent-events transport of the job streams (the tenant-wide `jobs/events`, the single

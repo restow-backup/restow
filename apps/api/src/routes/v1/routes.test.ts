@@ -8,7 +8,7 @@ import { errorHandler, notFoundHandler } from "../../problem.js";
 import { buildV1 } from "../v1.js";
 import { createdCursorSchema, decodeCursor } from "./cursor.js";
 import { featuresOn } from "./testing/features.js";
-import { TENANT_ID, bearer, fakeRequireKey } from "./testing/keys.js";
+import { bearer, fakeRequireKey, TENANT_ID } from "./testing/keys.js";
 import { scriptedDb } from "./testing/scripted-db.js";
 
 /**

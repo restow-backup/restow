@@ -40,16 +40,16 @@ import { useSession } from "@/lib/session";
 import { setupStateQueryOptions } from "@/routes/tree";
 import {
   AuthenticatorSetup,
+  authenticatorErrorKey,
   BackupCodesPanel,
   PasswordConfirmForm,
-  authenticatorErrorKey,
 } from "../components/authenticator-setup";
 import { ConfirmDialog } from "../components/confirm-dialog";
 import { ReadinessSummary } from "../components/readiness";
 import {
+  fieldMessageKey,
   PASSKEY_NAME_MAX_LENGTH,
   type PasskeyNameValues,
-  fieldMessageKey,
   passkeyNameSchema,
 } from "../forms";
 import {
@@ -61,10 +61,10 @@ import {
   useSignInMethods,
 } from "../hooks";
 import {
-  type PasskeyRemoval,
-  type PasskeyRow,
   authStatusKey,
   detectDevice,
+  type PasskeyRemoval,
+  type PasskeyRow,
   passkeyErrorKey,
   passkeyRemoval,
 } from "../presenters";

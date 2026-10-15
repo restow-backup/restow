@@ -8,8 +8,8 @@ import { WidgetUnavailableError } from "@/features/dashboard/presenters";
 import { i18n } from "@/i18n";
 
 import {
-  ReadinessByTenant,
   countInState,
+  ReadinessByTenant,
   ratedObjects,
   tenantsInState,
 } from "./readiness-by-tenant.js";

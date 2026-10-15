@@ -1,12 +1,12 @@
 // @vitest-environment happy-dom
-import { setActiveTenantId } from "@/lib/tenant";
+
 import type { ReactNode } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-
 import { DeleteSourceDialog } from "@/features/sources/components/delete-source-dialog";
 import { SourceCard } from "@/features/sources/components/source-card";
 import type { SourceDto } from "@/features/sources/types";
 import { i18n } from "@/i18n";
+import { setActiveTenantId } from "@/lib/tenant";
 
 import { mount, text } from "../testing/dom";
 import { ImportSourcePanel } from "./import-source-panel";
@@ -20,7 +20,11 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
       children,
       className,
       to,
-    }: { children: ReactNode; className?: string; to: string }) => (
+    }: {
+      children: ReactNode;
+      className?: string;
+      to: string;
+    }) => (
       <a className={className} href={String(to)}>
         {children}
       </a>

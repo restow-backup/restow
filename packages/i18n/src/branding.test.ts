@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  DEFAULT_PRODUCT_NAME,
-  MAX_PRODUCT_NAME_LENGTH,
   applyProductNameToInstance,
   configureProductName,
   createI18n,
+  DEFAULT_PRODUCT_NAME,
+  MAX_PRODUCT_NAME_LENGTH,
   normalizeProductName,
   productName,
 } from "./index.js";

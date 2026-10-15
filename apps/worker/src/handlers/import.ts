@@ -34,9 +34,9 @@ import { join } from "node:path";
 import { type Logger, loadManifest, mailfiles } from "@restow/core";
 import {
   type ImportUpload,
+  importUploads,
   type MailImport,
   type MailImportRequestFile,
-  importUploads,
   mailImports,
   safeErrorMessage,
   snapshots,
@@ -44,14 +44,14 @@ import {
 } from "@restow/db";
 import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import type { TenantTxRunner } from "../progress.js";
-import { PhaseRecorder, RESULT_KEY, mergeJobPayload } from "./backup.js";
+import { mergeJobPayload, PhaseRecorder, RESULT_KEY } from "./backup.js";
 import {
   InvalidPayloadError,
+  isUuid,
   type JobHandler,
   type JobOutcome,
-  type WorkerJobContext,
-  isUuid,
   tenantRunner,
+  type WorkerJobContext,
 } from "./framework.js";
 import { archiveImportedMessages } from "./import-archive.js";
 
@@ -235,7 +235,7 @@ export async function buildImportInput(
   for (const [index, requested] of options.files.entries()) {
     if (requested.origin === "upload") {
       const upload = requested.uploadId ? options.uploads.get(requested.uploadId) : undefined;
-      if (!upload || upload.status !== "consumed") {
+      if (upload?.status !== "consumed") {
         throw new InvalidPayloadError(
           `the uploaded file "${requested.path}" is no longer available; upload it again`,
         );

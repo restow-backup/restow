@@ -1,6 +1,5 @@
 import { FileSearch } from "lucide-react";
 import * as React from "react";
-import { useTranslation } from "react-i18next";
 
 import { ErrorState, RelativeTime } from "@/components/kit";
 import { Button } from "@/components/ui/button";

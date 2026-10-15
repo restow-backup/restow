@@ -3,17 +3,17 @@
  * reconstruct and verify it through the standalone code paths only. This is the
  * "restore is the product" guarantee for packages/cli (docs/TESTING.md).
  */
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   type Dek,
+  encryptChunk,
   LocalStorageBackend,
   MANIFEST_VERSION,
   type ManifestObject,
   PackWriter,
   type SnapshotManifest,
-  encryptChunk,
   serializeManifest,
   storedId,
   wrapDek,

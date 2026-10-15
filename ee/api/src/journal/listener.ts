@@ -1,12 +1,12 @@
 import type { Config } from "../../../../apps/api/src/config.js";
 import type { JournalReceiverState } from "./receiver-state.js";
-import { type JournalServerOptions, createJournalServer } from "./server.js";
+import { createJournalServer, type JournalServerOptions } from "./server.js";
 import {
   type JournalCertificateWatcher,
   type JournalLogger,
   type JournalTlsPlan,
-  type ReadFile,
   planJournalTls,
+  type ReadFile,
   watchJournalCertificate,
 } from "./tls.js";
 

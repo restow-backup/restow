@@ -2,10 +2,10 @@ import { Hono } from "hono";
 import { db } from "../db.js";
 import { loadShareCounts } from "../features/file-shares/protection.js";
 import { loadGuestCounts } from "../features/pve/protection.js";
-import { type TenantEnv, requireTenant } from "../middleware/session.js";
-import { versionSource } from "./v1.js";
+import { requireTenant, type TenantEnv } from "../middleware/session.js";
 import { loadEndpointCounts } from "./v1/endpoints.js";
-import { type StatusDto, loadTenantSummary } from "./v1/status.js";
+import { loadTenantSummary, type StatusDto } from "./v1/status.js";
+import { versionSource } from "./v1.js";
 
 /**
  * GET /api/v1/status for the web UI: the dashboard summary of the active

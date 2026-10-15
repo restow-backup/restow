@@ -10,12 +10,12 @@
  * and dropped after, the roles with it). Without it the suite is skipped.
  */
 import { randomBytes, randomUUID } from "node:crypto";
-import { type Database, archiveItems, createDb, providers, tenants } from "@restow/db";
+import { archiveItems, createDb, type Database, providers, tenants } from "@restow/db";
 import { Hono, type MiddlewareHandler } from "hono";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { SessionUser } from "../../auth.js";
 import type { TenantEnv } from "../../middleware/session.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,

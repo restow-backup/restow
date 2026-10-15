@@ -30,11 +30,11 @@ import { useTenantScope } from "@/features/endpoints/hooks";
 import { formatBytes, formatDateTime } from "@/lib/format";
 
 import {
+  fetchGuest,
+  guestRefreshMs,
   type PveFollowUpAverage,
   type PveGuestDetail,
   type PveRestorePoint,
-  fetchGuest,
-  guestRefreshMs,
   pveKeys,
   restoreSnapshot,
   verifySnapshot,
@@ -132,11 +132,10 @@ function RestoreDialog({
  * Green only for proof: a restore or a restore check that completed. A
  * backup that completed is neutral, running work is informational.
  */
-function runTone(run: { kind: string; status: string }):
-  | "success"
-  | "outline"
-  | "destructive"
-  | "info" {
+function runTone(run: {
+  kind: string;
+  status: string;
+}): "success" | "outline" | "destructive" | "info" {
   if (run.status === "failed") {
     return "destructive";
   }

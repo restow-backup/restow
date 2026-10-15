@@ -4,8 +4,8 @@ import { admin, organization, twoFactor } from "better-auth/plugins";
 import { describe, expect, it } from "vitest";
 import {
   AUTH_RATE_LIMIT,
-  INVITATION_AUDIT_ACTIONS,
   guardAuthSurface,
+  INVITATION_AUDIT_ACTIONS,
   invitationAnswer,
   isExposedAuthEndpoint,
 } from "./auth-surface.js";

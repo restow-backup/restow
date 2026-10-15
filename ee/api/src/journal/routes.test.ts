@@ -7,15 +7,15 @@ import {
 } from "../../../../apps/api/src/extensions.js";
 import { OWNER_ACCESS, type ProviderAccess } from "../../../../apps/api/src/lib/provider-access.js";
 import {
+  assertProviderRoute,
   PROVIDER_ROLE_PROBLEM,
   type SessionEnv,
   type SessionVariables,
   type TenantEnv,
-  assertProviderRoute,
 } from "../../../../apps/api/src/middleware/session.js";
 import { errorHandler } from "../../../../apps/api/src/problem.js";
 import { eeProviderRouteRules } from "../provider-rules.js";
-import { JOURNAL_PATH, buildJournalRoutes } from "./routes.js";
+import { buildJournalRoutes, JOURNAL_PATH } from "./routes.js";
 
 vi.mock("./setup.js", () => ({
   getJournalReceiver: vi.fn(async () => ({ state: "listening" })),

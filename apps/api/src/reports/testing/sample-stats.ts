@@ -9,7 +9,7 @@ import { buildStats } from "../../features/stats/build.js";
 import type { CauseCount } from "../../features/stats/causes.js";
 import type { LargestObjectDto, StatsDto, TenantRefDto } from "../../features/stats/dto.js";
 import { resolvePeriod } from "../../features/stats/period.js";
-import { type ReadinessCounts, countedTotal } from "../../features/stats/readiness.js";
+import { countedTotal, type ReadinessCounts } from "../../features/stats/readiness.js";
 
 /**
  * Statistics for the report tests, built the way the API builds them: fixed

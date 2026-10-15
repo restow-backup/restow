@@ -5,7 +5,7 @@
  * only, and unpdf reads the pages and the text back, which is how the report
  * tests check what a rendered report says.
  */
-import { Document, Page, StyleSheet, Text, View, renderToBuffer } from "@react-pdf/renderer";
+import { Document, Page, renderToBuffer, StyleSheet, Text, View } from "@react-pdf/renderer";
 import { extractText, getDocumentProxy } from "unpdf";
 import { describe, expect, it } from "vitest";
 

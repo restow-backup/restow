@@ -1,30 +1,30 @@
 import {
-  type Tenant,
   member,
-  providerMemberTenants,
   providerMembers,
+  providerMemberTenants,
   settings,
+  type Tenant,
   tenants,
 } from "@restow/db";
 import { eq } from "drizzle-orm";
 import type { Context, MiddlewareHandler } from "hono";
 import { routePath } from "hono/route";
-import { type AuthSession, type SessionUser, auth } from "../auth.js";
+import { type AuthSession, auth, type SessionUser } from "../auth.js";
 import { config } from "../config.js";
 import { authDb, providerDb } from "../db.js";
 import { isApiKeyAuthorization } from "../features/apikeys/tokens.js";
 import { isDemoAccountEmail } from "../lib/demo.js";
 import {
+  decideProviderRoute,
   OWNER_ACCESS,
   type ProviderAccess,
-  decideProviderRoute,
   providerMayEnterTenant,
 } from "../lib/provider-access.js";
 import { sessionAssurance } from "../lib/session-assurance.js";
 import { isUuid } from "../lib/tenant-context.js";
 import { ProblemError } from "../problem.js";
-import { type BodyPolicy, assertSameOriginRequest, originOf } from "./browser-request.js";
-import { type Role, type TenantRole, decideTenantAccess, isProviderAdminRole } from "./rbac.js";
+import { assertSameOriginRequest, type BodyPolicy, originOf } from "./browser-request.js";
+import { decideTenantAccess, isProviderAdminRole, type Role, type TenantRole } from "./rbac.js";
 
 /**
  * Session and tenant-context middlewares (the spine API contract).

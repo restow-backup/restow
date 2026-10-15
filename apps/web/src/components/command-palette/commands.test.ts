@@ -3,16 +3,16 @@ import { Building2, LayoutDashboard, ListChecks, Settings } from "lucide-react";
 import { describe, expect, it } from "vitest";
 
 import type { NavItem, NavLock } from "@/lib/navigation";
-import { canAccess } from "@/lib/session";
 import type { SessionTenant } from "@/lib/session";
+import { canAccess } from "@/lib/session";
 
 import {
-  type PaletteCommand,
-  type PaletteGroup,
-  type PaletteInput,
   buildPaletteGroups,
   commandValue,
   objectGroup,
+  type PaletteCommand,
+  type PaletteGroup,
+  type PaletteInput,
 } from "./commands.js";
 import { ariaShortcut, isApplePlatform, isModifierShortcut, shortcutKeys } from "./shortcut.js";
 

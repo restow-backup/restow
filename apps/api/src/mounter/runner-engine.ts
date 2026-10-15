@@ -17,16 +17,17 @@ import type { Redactor } from "../updater/redact.js";
 import { writeAtomic } from "../updater/store.js";
 import { PROBE_LABEL } from "./protocol.js";
 import {
-  RunnerRedactor,
   cacheVolumeLabels,
   classifyMountError,
   execContainerSpec,
+  RunnerRedactor,
   runContainerSpec,
   runNames,
   runVolumeLabels,
   shareVolumeOptions,
 } from "./runner-ops.js";
 import {
+  isUuid,
   RUNNER_DEADLINE_LABEL,
   RUNNER_KIND_LABEL,
   RUNNER_LABEL,
@@ -43,7 +44,6 @@ import {
   type RunnerRunRequest,
   type RunnerRunView,
   type RunnerStarted,
-  isUuid,
 } from "./runner-protocol.js";
 
 /**

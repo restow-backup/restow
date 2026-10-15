@@ -2,7 +2,7 @@ import { Search } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { useCommandPalette } from "@/components/command-palette/command-palette";
-import { ShortcutHint, ariaShortcut } from "@/components/command-palette/shortcut";
+import { ariaShortcut, ShortcutHint } from "@/components/command-palette/shortcut";
 import { NotificationBell } from "@/components/layout/notification-bell";
 import { ShellBreadcrumbs } from "@/components/layout/shell-breadcrumbs";
 import { UserMenu } from "@/components/layout/user-menu";

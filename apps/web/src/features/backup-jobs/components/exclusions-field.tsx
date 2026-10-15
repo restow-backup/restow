@@ -12,8 +12,8 @@ import { Toggle } from "@/components/ui/toggle";
 
 import { LIMITS } from "../api.js";
 import {
-  EXCLUSION_PRESETS,
   addOwnPattern,
+  EXCLUSION_PRESETS,
   ownPatterns,
   patternProblem,
   patternsOfText,

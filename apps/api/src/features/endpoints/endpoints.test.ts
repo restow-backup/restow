@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ResticError, defaultEndpointConfig, enrolledEndpointConfig } from "@restow/core";
+import { defaultEndpointConfig, enrolledEndpointConfig, ResticError } from "@restow/core";
 import type { Endpoint, EndpointRun, EndpointTask } from "@restow/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FailureTracker } from "./agent-auth.js";
@@ -10,10 +10,11 @@ import { installCommands } from "./commands.js";
 
 /** Stands in for a maintainer's SSHSIG signature (the server never checks it, the agent does). */
 const SIGNATURE = "-----BEGIN SSH SIGNATURE-----\nU1NIU0lH\n-----END SSH SIGNATURE-----\n";
+
 import {
-  DISTRIBUTION_TARGETS,
   announcedAgentVersion,
   compareAgentVersions,
+  DISTRIBUTION_TARGETS,
   distributionFile,
   isReleaseFile,
   isReleaseKey,
@@ -27,13 +28,13 @@ import {
   renderInstallScript,
 } from "./distribution.js";
 import {
-  NO_RATED_TESTS,
-  type RatedTests,
   attentionOf,
   effectiveSettings,
   hookFingerprint,
   hooksOf,
+  NO_RATED_TESTS,
   problemsOf,
+  type RatedTests,
   storageOf,
   toRunDetail,
   toRunSummary,
@@ -44,7 +45,6 @@ import { isInsecureTransport } from "./instance-url.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
 import { ResticGate } from "./restic-gate.js";
 import {
-  MAX_DOWNLOAD_PATHS,
   browseQuerySchema,
   createDownloadSchema,
   createTaskSchema,
@@ -54,6 +54,7 @@ import {
   finishRunSchema,
   heartbeatSchema,
   listTokensQuerySchema,
+  MAX_DOWNLOAD_PATHS,
   updateEndpointSchema,
 } from "./schemas.js";
 import {

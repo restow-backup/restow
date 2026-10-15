@@ -12,9 +12,9 @@ import type {
   VerifySummary,
 } from "@/features/jobs/api";
 import {
+  jobStatusDisplay,
   READINESS_VARIANT,
   SNAPSHOT_STATE_VARIANT,
-  jobStatusDisplay,
 } from "@/features/jobs/presenters";
 import { useJobFormat } from "@/features/jobs/use-format";
 import { cn } from "@/lib/utils";

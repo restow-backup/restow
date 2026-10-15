@@ -6,8 +6,9 @@
  * apps/api/src/features/retention (which manages policies and previews it),
  * so both always agree on what a policy does.
  */
-export * from "./tiers.js";
+
 export * from "./holds.js";
-export * from "./selection.js";
 export * from "./policy.js";
 export * from "./run.js";
+export * from "./selection.js";
+export * from "./tiers.js";

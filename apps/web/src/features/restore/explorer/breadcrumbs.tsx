@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 
 import type { ObjectKind } from "@/features/restore/api";
 import { useEntryLabel } from "@/features/restore/explorer/use-entry-label";
-import { ROOT_PATH, breadcrumbOf } from "@/features/restore/lib/paths";
+import { breadcrumbOf, ROOT_PATH } from "@/features/restore/lib/paths";
 
 const crumbClass =
   "max-w-[14rem] truncate rounded px-1 py-0.5 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";

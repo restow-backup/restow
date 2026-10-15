@@ -1,9 +1,8 @@
+import en from "@restow/i18n/resources/en/dashboard.json" with { type: "json" };
 import type * as React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { I18nextProvider } from "react-i18next";
 import { beforeAll, describe, expect, it } from "vitest";
-
-import en from "@restow/i18n/resources/en/dashboard.json" with { type: "json" };
 
 import { i18n } from "@/i18n";
 

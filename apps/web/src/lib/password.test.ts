@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { PASSWORD_MIN_LENGTH, assessPassword } from "./password";
+import { assessPassword, PASSWORD_MIN_LENGTH } from "./password";
 
 describe("assessPassword", () => {
   it("flags anything under the minimum length", () => {

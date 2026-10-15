@@ -1,6 +1,6 @@
 import {
-  type WindowDraft,
   checkWindowDrafts,
+  type WindowDraft,
   windowDraftsOf,
   windowsKey,
   windowsOfDrafts,

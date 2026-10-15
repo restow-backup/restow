@@ -5,13 +5,13 @@
  * touches the network.
  */
 import {
+  batchEnvelope,
+  createFakeGraph,
   type FakeGraph,
   type FixtureResponse,
   type FixtureRoute,
-  type RecordedCall,
-  batchEnvelope,
-  createFakeGraph,
   graphError,
+  type RecordedCall,
 } from "../../graph/testing/fake-graph.js";
 
 export interface FakeMailFolder {

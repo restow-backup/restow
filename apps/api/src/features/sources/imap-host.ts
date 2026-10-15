@@ -1,4 +1,4 @@
-import { type HostAssessment, type HostResolver, assessHost, systemResolver } from "@restow/core";
+import { assessHost, type HostAssessment, type HostResolver, systemResolver } from "@restow/core";
 import type { SourceConfig } from "@restow/db";
 import { productName } from "@restow/i18n";
 import { ProblemError } from "../../problem.js";

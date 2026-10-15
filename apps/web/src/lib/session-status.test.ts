@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { ApiError, type Me, errorMessageKey } from "@/lib/api";
+import { ApiError, errorMessageKey, type Me } from "@/lib/api";
 
 import { deriveStatus } from "./session";
 

@@ -37,17 +37,17 @@
  */
 import { createHash } from "node:crypto";
 import { Readable, Transform, type TransformCallback } from "node:stream";
-import { type StorageBackend, listWithSizes, readRange } from "../storage/backend.js";
+import { listWithSizes, readRange, type StorageBackend } from "../storage/backend.js";
 import {
-  type ResticAction,
-  type ResticPrincipal,
-  type ResticResource,
-  type ResticType,
   actionOf,
   authorizeResticAction,
   needsExistenceCheck,
   needsLockOwnership,
   parseResticPath,
+  type ResticAction,
+  type ResticPrincipal,
+  type ResticResource,
+  type ResticType,
 } from "./restic-authz.js";
 
 export const MAX_RESTIC_BODY_BYTES = 128 * 1024 * 1024;

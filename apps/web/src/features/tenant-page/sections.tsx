@@ -1,4 +1,4 @@
-import { type TenantSectionSpec, extensionTenantSections } from "@/lib/extensions";
+import { extensionTenantSections, type TenantSectionSpec } from "@/lib/extensions";
 
 import { TENANT_SECTION_META } from "./meta";
 import { AgentsSection } from "./sections/agents-section";

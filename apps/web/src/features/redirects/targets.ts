@@ -25,7 +25,7 @@
  */
 
 import { providerKeysDestination } from "@/features/integrations/paths";
-import { ALL_TENANTS_STATS_PATH, STATS_VIEW, legacyProviderScope } from "@/features/stats/period";
+import { ALL_TENANTS_STATS_PATH, legacyProviderScope, STATS_VIEW } from "@/features/stats/period";
 import { tenantPagePath } from "@/lib/tenant-paths";
 
 export type SearchParams = Readonly<Record<string, unknown>>;

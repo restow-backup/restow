@@ -2,9 +2,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { forgetActiveTenant, setActiveTenantId } from "./tenant";
 import {
-  TENANT_SECTION_IDS,
   activeTenantPagePath,
   parseTenantPagePath,
+  TENANT_SECTION_IDS,
   tenantPageAfterSwitch,
   tenantPagePath,
   tenantRootPath,

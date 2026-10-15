@@ -1,14 +1,14 @@
 // @vitest-environment happy-dom
 import type * as React from "react";
 import { act } from "react";
-import { type Root, createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
   CollapsibleNavSection,
-  type SectionStorage,
   navSectionKey,
   readSectionOpen,
+  type SectionStorage,
   writeSectionOpen,
 } from "@/components/layout/collapsible-nav-section";
 

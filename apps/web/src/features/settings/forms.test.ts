@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import type { InstallationSettings } from "./api";
 import {
-  type MailFormContext,
-  type MailFormValues,
   changePasswordSchema,
   fieldMessageKey,
   generalFormSchema,
   leavesPublicMode,
+  type MailFormContext,
+  type MailFormValues,
   mailFormContext,
   mailFormFromSettings,
   mailFormSchema,

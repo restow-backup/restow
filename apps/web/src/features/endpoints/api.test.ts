@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { LIMITS, endpointDownloadUrl, endpointKeys } from "./api.js";
+import { endpointDownloadUrl, endpointKeys, LIMITS } from "./api.js";
 
 describe("endpointDownloadUrl", () => {
   it("names the prepared download and carries the tenant, because a navigation has no header", () => {

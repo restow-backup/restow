@@ -1,17 +1,17 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { type ReactNode, act } from "react";
-import { type Root, createRoot } from "react-dom/client";
+import { act, type ReactNode } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 
 import { i18n } from "@/i18n";
 import { type SessionContextValue, StaticSessionProvider } from "@/lib/session";
 
 import {
+  idleMaintenance,
   type MaintenanceView,
   type ReleaseView,
   type RunView,
   type UpdatesView,
-  idleMaintenance,
 } from "./api";
 import "./i18n";
 

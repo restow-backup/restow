@@ -7,7 +7,7 @@ import {
 } from "@/features/restore/files/restore-point-browser";
 import { SnapshotVerificationBadge } from "@/features/verify/components/snapshot-verification-badge";
 
-import { type EndpointDetail, type EndpointSnapshot, LIMITS, endpointDownloadUrl } from "../api.js";
+import { type EndpointDetail, type EndpointSnapshot, endpointDownloadUrl, LIMITS } from "../api.js";
 import { startBrowserDownload } from "../browser-download.js";
 import {
   useBrowse,
@@ -58,6 +58,7 @@ export function SnapshotDetails({ snapshot }: { snapshot: EndpointSnapshot }) {
           {snapshot.paths.join(", ")}
         </span>
       ) : null}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: only keeps the badge's events from reaching the row's own handlers */}
       <span
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
@@ -101,9 +102,16 @@ export function SnapshotsTab({
   const { t } = useEndpointFormat();
   const { tenantId } = useTenantScope();
   const adapter: FileSourceAdapter<EndpointSnapshot> = {
-    useRestorePoints: () => useSnapshots(detail.id, true),
-    useFolder: (snapshotId, path) => useBrowse(detail.id, snapshotId, path),
-    useCreateDownload: () => useCreateDownload(detail.id),
+    // Method syntax: the adapter's use* members are hooks, called at the browser's top level.
+    useRestorePoints() {
+      return useSnapshots(detail.id, true);
+    },
+    useFolder(snapshotId, path) {
+      return useBrowse(detail.id, snapshotId, path);
+    },
+    useCreateDownload() {
+      return useCreateDownload(detail.id);
+    },
     downloadUrl: (downloadId) => endpointDownloadUrl(detail.id, downloadId, tenantId),
     startDownload: startBrowserDownload,
     limits: { downloadPaths: LIMITS.downloadPaths, restorePaths: LIMITS.restorePaths },

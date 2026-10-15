@@ -2,19 +2,19 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  type Mounted,
   buttonByText,
   click,
   enableActEnvironment,
   flush,
   json,
+  type Mounted,
   routedFetch,
   type,
 } from "@/features/updates/testing";
 import { i18n } from "@/i18n";
 import { resetWebExtensionsForTesting } from "@/lib/extensions";
 
-import { DEFAULT_STORAGE, SETTINGS, openInstallation, providerSession } from "./testing";
+import { DEFAULT_STORAGE, openInstallation, providerSession, SETTINGS } from "./testing";
 
 /**
  * The NFS shortcut of the storage form (docs/MOUNTS.md, "From the storage form"), in a

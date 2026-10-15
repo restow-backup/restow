@@ -13,11 +13,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  applyOps,
+  assertEmptyRoots,
   DEMO_MACHINES,
   type FileContent,
   type FileOp,
-  applyOps,
-  assertEmptyRoots,
   hostPath,
   planEndpointHistory,
   screenshotName,

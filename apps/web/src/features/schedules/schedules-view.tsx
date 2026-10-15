@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import type { ScheduleItem, ScheduleList } from "./api.js";
 import { CoverageNotices } from "./components/coverage-notices.js";
 import { SchedulesTable } from "./components/schedules-table.js";
-import { JOB_REPLACED_KINDS, isShownSchedule } from "./presenters.js";
+import { isShownSchedule, JOB_REPLACED_KINDS } from "./presenters.js";
 
 export interface SchedulesViewProps {
   /** False when no tenant is selected (a provider admin between tenants). */

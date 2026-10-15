@@ -16,16 +16,16 @@
 // decides the same. pg-boss' singleton keys keep a job from being queued twice, and
 // `singletonSeconds` spaces the retries of a share whose maintenance keeps failing.
 
+import type { JobSchedule } from "@restow/core";
 import {
-  FILE_SHARE_QUEUES,
   FILE_SHARE_QUEUE_SETTINGS,
+  FILE_SHARE_QUEUES,
   type FileShareBackupPayload,
   type FileShareCopyPayload,
   type FileShareQueue,
   fileShareSingletonKey,
   mailCadenceOf,
 } from "@restow/core";
-import type { JobSchedule } from "@restow/core";
 import type { Pool } from "pg";
 import type PgBoss from "pg-boss";
 import { errorMessage, logger } from "./logger.js";

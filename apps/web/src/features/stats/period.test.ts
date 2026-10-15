@@ -2,17 +2,17 @@ import { describe, expect, it } from "vitest";
 
 import { statsKeys, statsParams } from "./api.js";
 import {
-  MAX_PERIOD_DAYS,
-  PERIOD_PRESETS,
-  type StatsSearch,
   dayStart,
   daysBetween,
   granularityForDays,
   legacyProviderScope,
+  MAX_PERIOD_DAYS,
   nextStatsSearch,
+  PERIOD_PRESETS,
   parseStatsSearch,
   previousPeriodDays,
   resolvePeriod,
+  type StatsSearch,
   withCustomRange,
   withPreset,
 } from "./period.js";

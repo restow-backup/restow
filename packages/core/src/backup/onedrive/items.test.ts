@@ -3,7 +3,6 @@ import type { DriveDeltaItem } from "../../graph/resources/drive.js";
 import type { ManifestObject } from "../../manifest.js";
 import fixture from "./fixtures/drive-backup.json" with { type: "json" };
 import {
-  ONEDRIVE_OBJECT_TYPES,
   canReuseContent,
   classifyItem,
   fileObject,
@@ -12,6 +11,7 @@ import {
   historicalVersions,
   isVersionPath,
   itemMtime,
+  ONEDRIVE_OBJECT_TYPES,
   reusedFileObject,
   shortcutObject,
   staleFileObject,

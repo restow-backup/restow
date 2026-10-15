@@ -49,7 +49,11 @@ export function OsLabel({
   os,
   arch,
   className,
-}: { os: EndpointOs; arch?: string; className?: string }) {
+}: {
+  os: EndpointOs;
+  arch?: string;
+  className?: string;
+}) {
   const { t } = useTranslation("endpoints");
   const Icon = OS_ICON[os] ?? Cpu;
   return (
@@ -66,7 +70,10 @@ export function OsLabel({
 export function ProfileIcon({
   profile,
   className,
-}: { profile: EndpointProfile; className?: string }) {
+}: {
+  profile: EndpointProfile;
+  className?: string;
+}) {
   const { t } = useTranslation("endpoints");
   const Icon = profile === "server" ? Server : Laptop;
   return (
@@ -252,7 +259,11 @@ export function AttentionBadges({
   attention,
   max = 3,
   className,
-}: { attention: readonly Attention[]; max?: number; className?: string }) {
+}: {
+  attention: readonly Attention[];
+  max?: number;
+  className?: string;
+}) {
   const { t } = useTranslation("endpoints");
   const known = sortAttention(attention.filter(isKnownAttention));
   if (known.length === 0) {

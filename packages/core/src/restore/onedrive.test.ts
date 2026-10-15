@@ -4,8 +4,8 @@ import { sealManifest } from "../engine/sealed-manifest.js";
 import { loadManifest } from "../engine/snapshot.js";
 import { must } from "../graph/testing/fake-graph.js";
 import {
-  OneDriveRestoreEngine,
   driveTargetOf,
+  OneDriveRestoreEngine,
   parseDriveTargetRef,
   renamedCopyName,
   verifyUpload,
@@ -13,11 +13,11 @@ import {
 import { quickXorHash } from "./quickxorhash.js";
 import { FakeDrive } from "./testing/fake-drive.js";
 import {
-  type FixtureObject,
-  type SnapshotFixture,
   createSnapshotFixture,
+  type FixtureObject,
   pseudoRandomBytes,
   restoreRequestFor,
+  type SnapshotFixture,
 } from "./testing/fixtures.js";
 
 const DRIVE = "b!anna-drive";

@@ -10,13 +10,13 @@ import {
 import type { Clock } from "./ops.js";
 import type { Preflight } from "./preflight.js";
 import {
-  type SelfUpdateView,
-  type StateView,
-  type UpdaterError,
-  type UpdaterErrorCode,
   publicStatusOf,
   restartRequestSchema,
+  type SelfUpdateView,
+  type StateView,
   scheduleRequestSchema,
+  type UpdaterError,
+  type UpdaterErrorCode,
 } from "./protocol.js";
 import type { Redactor } from "./redact.js";
 import { RestartRefusedError, type ServiceRestarter } from "./restart.js";

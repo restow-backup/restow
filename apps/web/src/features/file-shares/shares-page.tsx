@@ -180,7 +180,10 @@ function Counts({
 function SharesTable({
   shares,
   format,
-}: { shares: readonly FileShareSummary[]; format: ShareFormat }) {
+}: {
+  shares: readonly FileShareSummary[];
+  format: ShareFormat;
+}) {
   const { t } = format;
   return (
     <Table scrollLabel={t("list.title")}>

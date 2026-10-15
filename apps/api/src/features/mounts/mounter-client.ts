@@ -1,11 +1,11 @@
 import { readFile } from "node:fs/promises";
 import {
   type AddMountRequest,
-  type MountSpec,
   type MounterState,
+  type MountSpec,
+  mounterStateSchema,
   type RemoveMountRequest,
   type TestResult,
-  mounterStateSchema,
   testResultSchema,
 } from "../../mounter/protocol.js";
 import { UPDATER_AUTH_SCHEME } from "../../updater/protocol.js";

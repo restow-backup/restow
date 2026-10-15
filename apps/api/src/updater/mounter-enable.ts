@@ -1,4 +1,4 @@
-import { type EnvFile, MOUNTER_IMAGE_KEY, UPDATER_IMAGE_KEY, envValueOf } from "./env-file.js";
+import { type EnvFile, envValueOf, MOUNTER_IMAGE_KEY, UPDATER_IMAGE_KEY } from "./env-file.js";
 import type { Logger } from "./logger.js";
 import type { Clock, DockerOps } from "./ops.js";
 import type {
@@ -98,7 +98,7 @@ export class MounterEnabler {
   /** At start: a start the previous process left running is recorded as interrupted. */
   async reconcile(): Promise<void> {
     const last = this.deps.store.state.mounterEnable;
-    if (!last || last.status !== "running") {
+    if (last?.status !== "running") {
       return;
     }
     last.status = "failed";

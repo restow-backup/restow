@@ -103,9 +103,7 @@ export const tenants = pgTable(
     uniqueIndex("tenants_slug_uq").on(t.slug),
     uniqueIndex("tenants_organization_uq").on(t.organizationId),
     // At most one own organisation per provider.
-    uniqueIndex("tenants_internal_uq")
-      .on(t.providerId)
-      .where(sql`${t.kind} = 'internal'`),
+    uniqueIndex("tenants_internal_uq").on(t.providerId).where(sql`${t.kind} = 'internal'`),
     uniqueIndex("tenants_customer_number_uq")
       .on(sql`lower(${t.customerNumber})`)
       .where(sql`${t.customerNumber} IS NOT NULL`),

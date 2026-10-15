@@ -13,12 +13,12 @@ import {
 } from "@/features/updates/testing";
 import { i18n } from "@/i18n";
 
-import { type HistoryPage as Page, type Run, historyKeys } from "../api";
-import { RUN_IDS, agentRun, check, finished, iso, run } from "../fixtures";
+import { historyKeys, type HistoryPage as Page, type Run } from "../api";
+import { agentRun, check, finished, iso, RUN_IDS, run } from "../fixtures";
 import "../i18n";
 import { list, mailJob } from "@/features/backup-jobs/fixtures";
 import { applyEvent, newKnown } from "../live/apply";
-import { type Opened, TENANT, openHistory } from "../testing";
+import { type Opened, openHistory, TENANT } from "../testing";
 
 /**
  * History as a person meets it: the tabs, the runs of both sources in one table with the live ones

@@ -25,14 +25,14 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import {
-  type Database,
-  type ProviderRole,
   account,
   auditLog,
   createDb,
+  type Database,
   member,
-  providerMemberTenants,
+  type ProviderRole,
   providerMembers,
+  providerMemberTenants,
   reportRules,
   tenants,
   twoFactor,
@@ -43,7 +43,7 @@ import { asc, eq, isNull } from "drizzle-orm";
 import type { Hono } from "hono";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { registerApiExtension, resetExtensionsForTesting } from "../../extensions.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,

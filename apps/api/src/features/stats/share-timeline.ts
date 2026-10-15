@@ -1,6 +1,6 @@
 import type { ObjectState, RatedObject } from "../verify/summary.js";
 import { isOverdue } from "../verify/summary.js";
-import { type RatedSet, emptyReadinessCounts, pushTo } from "./readiness.js";
+import { emptyReadinessCounts, pushTo, type RatedSet } from "./readiness.js";
 import type { ShareCheck, ShareRestorePoint, ShareRow } from "./share-facts.js";
 
 /**

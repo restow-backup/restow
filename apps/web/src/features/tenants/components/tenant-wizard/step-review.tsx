@@ -141,7 +141,11 @@ function ReviewRow({
   label,
   value,
   mono = false,
-}: { label: string; value: string; mono?: boolean }) {
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
   return (
     <div className="space-y-0.5">
       <dt className="text-xs text-muted-foreground">{label}</dt>

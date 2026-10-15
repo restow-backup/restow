@@ -27,13 +27,7 @@ import {
  * ran last and what is next, and how its restore checks stand. The actions (run
  * now, edit, pause) sit in the page header; the tabs hold the rest.
  */
-export function OverviewTab({
-  job,
-  onShowScope,
-}: {
-  job: BackupJob;
-  onShowScope: () => void;
-}) {
+export function OverviewTab({ job, onShowScope }: { job: BackupJob; onShowScope: () => void }) {
   const { t, i18n } = useTranslation("backupjobs");
   const { t: tSchedules } = useTranslation("schedules");
   const language = i18n.resolvedLanguage ?? i18n.language;

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
-  MAX_RUN_SAMPLES,
-  MIN_SAMPLE_GAP_MS,
-  type RunSamplePoint,
   appendSample,
   compactSamples,
   currentThroughput,
   latestSamples,
+  MAX_RUN_SAMPLES,
+  MIN_SAMPLE_GAP_MS,
+  type RunSamplePoint,
   samplePoint,
   sampleRates,
 } from "./run-samples.js";

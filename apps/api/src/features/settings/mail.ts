@@ -1,9 +1,9 @@
 import type { AppCredentials } from "@restow/core";
 import type { SupportedLanguage } from "@restow/i18n";
 import type { Config } from "../../config.js";
+import { type Notifier, notifierForTransport, type TransportSpec } from "../../notify.js";
 import type { MailFailureReason } from "../../notify-core.js";
 import type { GoogleServiceAccountKey } from "../../notify-google.js";
-import { type Notifier, type TransportSpec, notifierForTransport } from "../../notify.js";
 import type { StoredSmtpConfig } from "./logic.js";
 import type { GraphMailAppOption } from "./schemas.js";
 

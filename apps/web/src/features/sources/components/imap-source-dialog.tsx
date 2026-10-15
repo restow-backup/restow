@@ -29,18 +29,18 @@ import { toast } from "@/components/ui/sonner";
 import { directoryTo } from "@/features/directory/search";
 import { zodResolver } from "@/lib/form";
 import {
+  emptyImapForm,
+  fieldMessageKey,
   IMAP_AUTH_MODES,
   IMAP_SECURITY,
   type ImapFormValues,
-  MASTER_USER_STYLES,
-  type StoredImapConnection,
-  emptyImapForm,
-  fieldMessageKey,
   imapFormFromStored,
   imapFormSchema,
   isMicrosoftImapHost,
+  MASTER_USER_STYLES,
   needsPasswordAgain,
   portForSecurity,
+  type StoredImapConnection,
   toCreateImapInput,
   toImapTestInput,
   toUpdateImapInput,

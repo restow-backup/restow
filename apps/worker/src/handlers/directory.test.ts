@@ -1,7 +1,7 @@
 import type { FirstBackupCandidate, NewlyActiveObject } from "@restow/core";
 import { noopLogger } from "@restow/core";
 import { describe, expect, it } from "vitest";
-import { type FirstBackupStore, enqueueFirstBackupsAfterSync } from "./directory.js";
+import { enqueueFirstBackupsAfterSync, type FirstBackupStore } from "./directory.js";
 
 const TENANT = "0f6e4b4e-2f2a-4d9a-9c2b-1a2b3c4d5e6f";
 

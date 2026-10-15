@@ -17,9 +17,9 @@
 import { randomUUID } from "node:crypto";
 import { type ManifestObject, noopLogger } from "@restow/core";
 import {
-  type Database,
   chunkIdsFromDriver,
   createDb,
+  type Database,
   manifestEntries,
   objectsReferencingChunks,
   protectedObjects,

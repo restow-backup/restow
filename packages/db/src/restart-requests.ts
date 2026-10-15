@@ -1,7 +1,7 @@
 import { asc, eq, sql } from "drizzle-orm";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import type * as schema from "./schema/index.js";
-import { type ServiceRole, restartRequests } from "./schema/system.js";
+import { restartRequests, type ServiceRole } from "./schema/system.js";
 
 /**
  * Services that need a manual restart (`restart_requests`, docs/UPDATING.md

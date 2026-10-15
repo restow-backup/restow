@@ -4,17 +4,17 @@ import { useTranslation } from "react-i18next";
 
 import { toast } from "@/components/ui/sonner";
 
-import { type UpdaterPhase, fetchEdgeStatus, fetchMaintenance } from "../api";
+import { fetchEdgeStatus, fetchMaintenance, type UpdaterPhase } from "../api";
 import "../i18n";
 import { updatesKeys } from "../hooks";
 import { isMaintenanceActive, remainingSeconds, spanLabel, switchKey } from "../presenters";
 import {
-  type MaintenanceSnapshot,
-  type PollDeps,
   decideReload,
   effectivePhase,
   isAnnouncement,
+  type MaintenanceSnapshot,
   nextReloadRecord,
+  type PollDeps,
   pollIntervalMs,
   pollMaintenance,
   readDismissedRun,

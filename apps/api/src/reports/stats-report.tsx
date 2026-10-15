@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import {
   type Dataset,
   type FailureCauseDto,
+  isUnavailable,
   type JobDurationDto,
   KPI_NAMES,
   type KpiDto,
@@ -11,7 +12,6 @@ import {
   type StatsDto,
   type TenantRowDto,
   type UnavailableReason,
-  isUnavailable,
 } from "../features/stats/dto.js";
 import type { Granularity } from "../features/stats/period.js";
 import type { ObjectState } from "../features/verify/summary.js";
@@ -19,7 +19,6 @@ import { Legend, Notes, Notice, Section } from "./blocks.js";
 import { BarChart, type ChartSeries, LineChart } from "./charts.js";
 import { ReportDocument, ReportHeader, ReportPage } from "./document.js";
 import {
-  type ReportLanguage,
   formatBytes,
   formatDateTime,
   formatDay,
@@ -29,13 +28,14 @@ import {
   formatMonth,
   formatPercent,
   formatShortDay,
+  type ReportLanguage,
   signed,
 } from "./format.js";
-import { type Translate, reportTranslator } from "./i18n.js";
+import { reportTranslator, type Translate } from "./i18n.js";
 import { KpiGrid, type KpiTile } from "./kpi.js";
 import { renderPdf } from "./render.js";
 import { ReportTable, type TableCell, type TableColumn } from "./table.js";
-import { type Tone, colors } from "./theme.js";
+import { colors, type Tone } from "./theme.js";
 
 /**
  * The statistics report (`GET /api/v1/stats/report.pdf`): the same figures

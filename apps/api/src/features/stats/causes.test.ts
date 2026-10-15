@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_CAUSE_LENGTH, UNKNOWN_CAUSE, failureCause, groupByCause } from "./causes.js";
+import { failureCause, groupByCause, MAX_CAUSE_LENGTH, UNKNOWN_CAUSE } from "./causes.js";
 
 describe("failureCause", () => {
   it("reduces a Graph error to its status and code", () => {

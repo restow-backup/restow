@@ -1,15 +1,16 @@
 // @vitest-environment happy-dom
-import { act } from "react";
+
 import type * as React from "react";
+import { act } from "react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { adminSession } from "@/features/backup-jobs/testing";
 import {
-  type Mounted,
   enableActEnvironment,
   flush,
   installMemoryStorage,
   json,
+  type Mounted,
   mount,
   newQueryClient,
   routedFetch,
@@ -31,7 +32,11 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
       search,
       children,
       ...props
-    }: { to: string; search?: Record<string, unknown>; children: React.ReactNode }) => {
+    }: {
+      to: string;
+      search?: Record<string, unknown>;
+      children: React.ReactNode;
+    }) => {
       const query = search ? new URLSearchParams(search as Record<string, string>).toString() : "";
       return (
         <a href={query ? `${to}?${query}` : String(to)} {...props}>

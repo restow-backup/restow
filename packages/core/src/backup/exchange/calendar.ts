@@ -24,14 +24,14 @@ import {
   removeUnseenItems,
   storeJsonItem,
 } from "./folders.js";
-import { CALENDAR_ROOT, assignFolderPaths, displayFolderPath, eventObjectPath } from "./paths.js";
+import { assignFolderPaths, CALENDAR_ROOT, displayFolderPath, eventObjectPath } from "./paths.js";
 import {
   type BackupRun,
-  META,
-  OBJECT_TYPES,
   calendarGroup,
   isItemLevelError,
   isVanished,
+  META,
+  OBJECT_TYPES,
   toMailboxAccessError,
 } from "./run.js";
 import { toMillis } from "./time.js";

@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 import tenantpageDe from "@restow/i18n/resources/de/tenantpage.json" with { type: "json" };
 import tenantpageEn from "@restow/i18n/resources/en/tenantpage.json" with { type: "json" };

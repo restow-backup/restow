@@ -17,14 +17,14 @@ import {
   removeUnseenItems,
   storeJsonItem,
 } from "./folders.js";
-import { CONTACTS_ROOT, assignFolderPaths, contactObjectPath, displayFolderPath } from "./paths.js";
+import { assignFolderPaths, CONTACTS_ROOT, contactObjectPath, displayFolderPath } from "./paths.js";
 import {
   type BackupRun,
-  META,
-  OBJECT_TYPES,
   contactsGroup,
   isItemLevelError,
   isVanished,
+  META,
+  OBJECT_TYPES,
   toMailboxAccessError,
 } from "./run.js";
 import { toMillis } from "./time.js";

@@ -562,7 +562,7 @@ export class ScheduleStore {
       const same =
         row !== undefined &&
         (row.next_run_at?.getTime() ?? null) === (loadedNextRunAt?.getTime() ?? null);
-      if (!row || !row.enabled || !same) {
+      if (!row?.enabled || !same) {
         await client.query("ROLLBACK");
         return { enqueued: 0, skipped: 0 };
       }

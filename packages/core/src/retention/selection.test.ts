@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
-  type SnapshotCandidate,
-  type SnapshotRetentionPolicy,
   groupByObject,
   resolvePolicyFor,
+  type SnapshotCandidate,
+  type SnapshotRetentionPolicy,
   selectExpiredSnapshots,
 } from "./selection.js";
 import { DEFAULT_TIERS } from "./tiers.js";

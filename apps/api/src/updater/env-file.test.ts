@@ -3,12 +3,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  EnvFile,
-  EnvFileError,
   assertSafeEnvValue,
   assignedKey,
   assignedValue,
   captureKeys,
+  EnvFile,
+  EnvFileError,
   envValueOf,
   parseEnvLines,
   postgresSettings,
@@ -190,6 +190,7 @@ describe("postgresSettings", () => {
       "POSTGRES_DB=--file=/x\n",
       "POSTGRES_USER=a b\n",
       "POSTGRES_DB=a;b\n",
+      // biome-ignore lint/suspicious/noTemplateCurlyInString: a literal ${X}, the variable syntax the parser must refuse
       "POSTGRES_USER=${X}\n",
     ]) {
       expect(() => postgresSettings(text)).toThrow(EnvFileError);

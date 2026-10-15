@@ -1,19 +1,19 @@
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
-import { type Root, createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { i18n } from "@/i18n";
 
 import "./i18n";
-import type { ExportFormatInfo } from "./api";
-import { ExportDialog, type ExportDialogRequest } from "./export-dialog";
 
 import type { Snapshot, SnapshotObject } from "@/features/restore/api";
 import { selectionOf } from "@/features/restore/lib/selection";
 import { ApiError } from "@/lib/api";
+import type { ExportFormatInfo } from "./api";
+import { ExportDialog, type ExportDialogRequest } from "./export-dialog";
 
 /**
  * A real DOM mount of the export dialog (react-dom/client + act, no React

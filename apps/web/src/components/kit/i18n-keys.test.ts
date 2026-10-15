@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 import { resources } from "@restow/i18n";
 import uiDe from "@restow/i18n/resources/de/ui.json" with { type: "json" };

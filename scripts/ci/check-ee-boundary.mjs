@@ -15,7 +15,7 @@
  * (`node scripts/ci/check-ee-boundary.mjs`) or via `pnpm lint`.
  */
 
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 

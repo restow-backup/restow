@@ -4,10 +4,10 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import { DashboardPage } from "@/features/dashboard/dashboard-page";
 import {
-  type Mounted,
   enableActEnvironment,
   flush,
   json,
+  type Mounted,
   mount,
   sessionAs,
 } from "@/features/updates/testing";

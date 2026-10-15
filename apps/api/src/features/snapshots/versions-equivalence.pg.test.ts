@@ -14,9 +14,9 @@
  */
 import { randomUUID } from "node:crypto";
 import {
+  createDb,
   type Database,
   type ManifestMirrorEntry,
-  createDb,
   protectedObjects,
   recordManifestVersions,
   releaseManifestSnapshot,
@@ -27,11 +27,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { implicitFolders, selectedEntries } from "../restore/service.js";
 import type { Viewer } from "./access.js";
 import { searchQuerySchema, treeQuerySchema, versionsQuerySchema } from "./schemas.js";
-import { type SnapshotReader, listTree, listVersions, search } from "./service.js";
+import { listTree, listVersions, type SnapshotReader, search } from "./service.js";
 import {
-  type ExplorerFixture,
   createExplorerFixture,
   dropDatabase,
+  type ExplorerFixture,
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "./testing/explorer-fixture.js";

@@ -18,12 +18,12 @@ import { problemFieldIssues } from "../forms";
 import type { CredentialKind, MicrosoftAppView } from "./api";
 import { type SetupVariant, StepFrame } from "./components";
 import {
+  formFromView,
   MICROSOFT_APP_FIELDS,
   type MicrosoftAppFormValues,
-  type StoredFormSource,
-  formFromView,
   mayKeepCredential,
   microsoftAppFormSchema,
+  type StoredFormSource,
   storedCredential,
   toSaveInput,
 } from "./forms";
@@ -140,13 +140,13 @@ export function MicrosoftAppForm({ view, variant, onDirtyChange }: EnterStepProp
   });
 
   const secretHint =
-    !stored || stored.kind !== "secret"
+    stored?.kind !== "secret"
       ? t("microsoftApp.form.secretHint")
       : keep
         ? t("microsoftApp.form.secretKeep")
         : t("microsoftApp.form.secretAgain");
   const certificateHint =
-    !stored || stored.kind !== "certificate"
+    stored?.kind !== "certificate"
       ? t("microsoftApp.form.certificateHint")
       : keep
         ? t("microsoftApp.form.certificateKeep", { thumbprint: stored.thumbprint ?? "" })

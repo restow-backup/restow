@@ -4,12 +4,12 @@ import { EndpointTimeline } from "./endpoint-timeline.js";
 import type { Levels, ReadinessRating, StoredLevels, TenantFacts } from "./facts.js";
 import { NO_GUEST_FACTS } from "./guest-facts.js";
 import { GuestTimeline } from "./guest-timeline.js";
-import { type ResolvedPeriod, bucketIndexByDay } from "./period.js";
+import { bucketIndexByDay, type ResolvedPeriod } from "./period.js";
 import {
-  type ReadinessCounts,
-  ReadinessTimeline,
   emptyReadinessCounts,
   mergeReadiness,
+  type ReadinessCounts,
+  ReadinessTimeline,
 } from "./readiness.js";
 import { NO_SHARE_FACTS } from "./share-facts.js";
 import { ShareTimeline } from "./share-timeline.js";
@@ -327,7 +327,9 @@ function sumAligned<T extends object>(lists: readonly (readonly T[])[], make: ()
   const length = lists[0]?.length ?? 0;
   const result = filled(length, make);
   for (const list of lists) {
-    list.forEach((entry, index) => addInto(result[index] as T, entry));
+    list.forEach((entry, index) => {
+      addInto(result[index] as T, entry);
+    });
   }
   return result;
 }

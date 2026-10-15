@@ -91,7 +91,7 @@ export function parseCommand(args: readonly string[]): Command {
       throw new UsageError(`Unknown option for admin recover: ${argument}`);
     }
   }
-  if (!email || !email.includes("@")) {
+  if (!email?.includes("@")) {
     throw new UsageError("admin recover needs --email <address> of the owner.");
   }
   return { kind: "recover", email: email.trim(), passwordStdin, yes };

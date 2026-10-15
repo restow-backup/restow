@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   KPI_NAMES,
   MISSING_REASON,
-  type StatsParams,
   normalizeStats,
+  type StatsParams,
   statsCsvPath,
   statsPath,
   statsPdfPath,

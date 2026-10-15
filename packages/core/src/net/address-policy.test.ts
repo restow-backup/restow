@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  assessHost,
   BLOCKED_ADDRESS_CODE,
   BlockedAddressError,
-  assessHost,
   classifyAddress,
   guardedLookup,
   isAddressAllowed,

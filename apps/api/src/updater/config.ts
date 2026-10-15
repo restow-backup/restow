@@ -1,17 +1,17 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import {
+  defaultImageRepositories,
   IMAGE_VARIANT_VARIABLE,
   type ImageVariant,
-  defaultImageRepositories,
   parseImageVariant,
 } from "./image-variant.js";
 import { UPDATER_DEFAULT_PORT } from "./protocol.js";
 import { DEFAULT_CLI_IMAGE, DEFAULT_COSIGN_IMAGE, DIGEST_PINNED_IMAGE } from "./signature.js";
 import {
+  parseSourceAllowlist,
   SOURCE_ALLOWLIST_VARIABLE,
   type SourceAllowEntry,
-  parseSourceAllowlist,
 } from "./source-policy.js";
 
 /**

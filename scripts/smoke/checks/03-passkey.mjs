@@ -24,9 +24,9 @@ import { run } from "../lib/exec.mjs";
 import { installLicenseKey } from "../lib/license.mjs";
 import {
   ADMIN,
-  OWN_ORGANISATION,
   installationTenant,
   listTenants,
+  OWN_ORGANISATION,
   ownOrganisationOf,
   setUpInstallation,
 } from "../lib/restow.mjs";

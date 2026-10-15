@@ -17,8 +17,8 @@ import { basename } from "node:path/posix";
 import type { Readable } from "node:stream";
 import { type Archiver, ZipArchive } from "archiver";
 import {
-  type ResticSession,
   normaliseSnapshotPath,
+  type ResticSession,
   resticDump,
   resticStatMany,
 } from "./restic-cli.js";

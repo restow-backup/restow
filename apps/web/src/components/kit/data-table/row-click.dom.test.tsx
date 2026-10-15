@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import type { ColumnDef } from "@tanstack/react-table";
 import { act } from "react";
-import { type Root, createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -85,7 +85,7 @@ describe("onRowClick", () => {
     await mount((tenant) => opened(tenant.id));
     expect(rows()[0]?.className).toContain("cursor-pointer");
     await act(async () => {
-      (rows()[1]?.querySelectorAll("td")[1] as HTMLElement).click();
+      (rows()[1].querySelectorAll("td")[1] as HTMLElement).click();
     });
     expect(opened).toHaveBeenCalledWith("b");
     expect(opened).toHaveBeenCalledTimes(1);
@@ -94,7 +94,7 @@ describe("onRowClick", () => {
   it("leaves a control inside the row its own click", async () => {
     await mount((tenant) => opened(tenant.id));
     await act(async () => {
-      (rows()[0]?.querySelector('[data-testid="name"]') as HTMLElement).click();
+      (rows()[0].querySelector('[data-testid="name"]') as HTMLElement).click();
     });
     expect(named).toHaveBeenCalledWith("a");
     expect(opened).not.toHaveBeenCalled();
@@ -104,7 +104,7 @@ describe("onRowClick", () => {
     await mount();
     expect(rows()[0]?.className ?? "").not.toContain("cursor-pointer");
     await act(async () => {
-      (rows()[0]?.querySelectorAll("td")[1] as HTMLElement).click();
+      (rows()[0].querySelectorAll("td")[1] as HTMLElement).click();
     });
     expect(opened).not.toHaveBeenCalled();
   });

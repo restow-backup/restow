@@ -6,8 +6,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { i18n } from "@/i18n";
 
 import { button, click, jsonResponse, mount, text, typeInto, until } from "../testing/dom";
-import { type FakeImportApi, createFakeImportApi, textFile } from "../testing/fake-import-api";
-import { IMPORT_ID, OBJECT_ID, config } from "../testing/fixtures";
+import { createFakeImportApi, type FakeImportApi, textFile } from "../testing/fake-import-api";
+import { config, IMPORT_ID, OBJECT_ID } from "../testing/fixtures";
 import type { CreateImportInput, FolderListing, ImportConfig } from "../types";
 import { ImportWizardPage } from "./import-wizard-page";
 
@@ -24,7 +24,11 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
       children,
       className,
       to,
-    }: { children: ReactNode; className?: string; to: string }) => (
+    }: {
+      children: ReactNode;
+      className?: string;
+      to: string;
+    }) => (
       <a className={className} href={String(to)}>
         {children}
       </a>

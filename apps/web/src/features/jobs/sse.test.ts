@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   EventStreamParser,
-  type ServerEvent,
-  type StreamStatus,
   openEventStream,
   reconnectDelay,
+  type ServerEvent,
+  type StreamStatus,
 } from "@/features/jobs/sse";
 
 describe("EventStreamParser", () => {

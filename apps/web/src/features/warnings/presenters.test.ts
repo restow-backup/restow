@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import type { WarningSummary } from "./api";
 import { parseWarningsSearch } from "./paths";
 import {
-  acknowledgeBlock,
   acknowledgeableRefs,
+  acknowledgeBlock,
   acknowledgementApplies,
   itemFolder,
   itemTitle,

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  MboxEscaper,
   asctime,
+  MboxEscaper,
   mboxEscape,
   mboxSender,
   mboxSeparator,

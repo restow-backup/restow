@@ -2,14 +2,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   JOBS_PATH,
-  MAX_SELECTED_IDS,
   jobDefinitionPath,
   jobDefinitionTo,
   jobsListTo,
+  MAX_SELECTED_IDS,
   newJobTo,
   parseJobDetailSearch,
-  parseJobTab,
   parseJobsSearch,
+  parseJobTab,
   parseSelectedIds,
 } from "./paths.js";
 

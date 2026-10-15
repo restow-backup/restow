@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { COUNTDOWN_WITHIN_MS, JUST_NOW_MS, ageStep, countdownText } from "./age";
+import { ageStep, COUNTDOWN_WITHIN_MS, countdownText, JUST_NOW_MS } from "./age";
 
 describe("ageStep", () => {
   it("stays at just now for as long as a keep-alive may be late", () => {

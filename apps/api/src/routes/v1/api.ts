@@ -3,9 +3,9 @@ import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { matchedRoutes } from "hono/route";
 import type { z } from "zod";
 import {
+  assertProviderKeys,
   type KeyTenant,
   type KeyTenantDeps,
-  assertProviderKeys,
   resolveKeyTenant,
 } from "../../features/apikeys/key-tenant.js";
 import { isApiKeyAuthorization } from "../../features/apikeys/tokens.js";

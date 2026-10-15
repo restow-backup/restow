@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { type Database, account, passkey, providerMembers, settings, user } from "@restow/db";
+import { account, type Database, passkey, providerMembers, settings, user } from "@restow/db";
 import { and, asc, count, eq, like } from "drizzle-orm";
 import { auth } from "../auth.js";
 import { audit } from "../lib/audit.js";
 import { MAX_PASSWORD_LENGTH, MIN_PASSWORD_LENGTH } from "../lib/password-policy.js";
 import { resetSignInMethods } from "../lib/sign-in-reset.js";
 import type { DbExecutor } from "../lib/tenant-context.js";
-import { PROVIDER_ADMIN_USER_ROLE, isProviderAdminRole } from "../middleware/rbac.js";
+import { isProviderAdminRole, PROVIDER_ADMIN_USER_ROLE } from "../middleware/rbac.js";
 
 /**
  * Administrator access recovery on the server's command line (`restow admin

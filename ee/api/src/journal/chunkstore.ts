@@ -16,7 +16,7 @@
  */
 import type { ChunkIndex, ChunkLocation, ChunkRecord, KeyProvider, PackRecord } from "@restow/core";
 import { Keyring } from "@restow/core";
-import { type Database, chunks, packs, tenantKeys } from "@restow/db";
+import { chunks, type Database, packs, tenantKeys } from "@restow/db";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { type DbExecutor, withTenantTx } from "../../../../apps/api/src/lib/tenant-context.js";
 

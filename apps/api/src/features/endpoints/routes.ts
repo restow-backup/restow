@@ -5,12 +5,12 @@ import { providerRoleSatisfies } from "../../lib/provider-access.js";
 import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
 import {
-  TENANT_HEADER,
-  type TenantEnv,
   assertProviderRoute,
   authenticate,
   requireTenant,
   resolveTenantAccess,
+  TENANT_HEADER,
+  type TenantEnv,
 } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
@@ -18,7 +18,6 @@ import type { EndpointActor } from "./audit.js";
 import { instanceUrl } from "./instance-url.js";
 import { ENDPOINT_PROBLEMS } from "./problems.js";
 import {
-  MAX_DOWNLOAD_BODY_BYTES,
   agentUpdatesSchema,
   browseQuerySchema,
   createDownloadSchema,
@@ -29,6 +28,7 @@ import {
   listEndpointsQuerySchema,
   listRunsQuerySchema,
   listTokensQuerySchema,
+  MAX_DOWNLOAD_BODY_BYTES,
   runParamSchema,
   tokenIdParamSchema,
   updateEndpointSchema,

@@ -14,13 +14,13 @@ import pg from "pg";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   HEARTBEAT_FRESH_MS,
-  ServiceHeartbeatReporter,
   heartbeatStore,
   readServiceStatuses,
+  ServiceHeartbeatReporter,
 } from "./heartbeat.js";
 import { createDb } from "./index.js";
 import { runMigrations } from "./migrate.js";
-import { type RoleLogin, deriveAuthLogin } from "./roles.js";
+import { deriveAuthLogin, type RoleLogin } from "./roles.js";
 import { dropTestDatabase } from "./testing/database.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;

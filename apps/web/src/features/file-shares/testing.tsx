@@ -1,19 +1,19 @@
 import {
-  RouterProvider,
   createMemoryHistory,
   createRootRoute,
   createRoute,
   createRouter,
+  RouterProvider,
 } from "@tanstack/react-router";
 import type { ReactNode } from "react";
 import { vi } from "vitest";
 
 import {
-  type Mounted,
-  type RecordedRequest,
   flush,
+  type Mounted,
   mount,
   newQueryClient,
+  type RecordedRequest,
   routedFetch,
   sessionAs,
 } from "@/features/updates/testing";

@@ -1,4 +1,4 @@
-import { type SupportedLanguage, fallbackLanguage, supportedLanguages } from "@restow/i18n";
+import { fallbackLanguage, type SupportedLanguage, supportedLanguages } from "@restow/i18n";
 import type { Context } from "hono";
 
 /**

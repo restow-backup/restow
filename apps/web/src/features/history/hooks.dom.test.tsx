@@ -5,13 +5,13 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { EventStreamOptions, StreamStatus } from "@/features/jobs/sse";
 import {
-  type Mounted,
-  type RecordedRequest,
   enableActEnvironment,
   installMemoryStorage,
   json,
+  type Mounted,
   mount,
   newQueryClient,
+  type RecordedRequest,
   routedFetch,
 } from "@/features/updates/testing";
 import { i18n } from "@/i18n";
@@ -19,11 +19,11 @@ import { i18n } from "@/i18n";
 import { type HistoryPage, historyKeys } from "./api";
 import { agentRun, finished, run } from "./fixtures";
 import {
+  anyLive,
   DETAIL_REFRESH_LIVE_MS,
   IDLE_REFRESH_MS,
-  RUNNING_REFRESH_MS,
-  anyLive,
   mergeRun,
+  RUNNING_REFRESH_MS,
   useHistory,
   useRunDetail,
 } from "./hooks";

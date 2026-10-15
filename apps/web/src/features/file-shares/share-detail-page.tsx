@@ -13,7 +13,7 @@ import { RunsTab } from "./components/runs-tab.js";
 import { SettingsTab } from "./components/settings-tab.js";
 import { ShareRestorePoints } from "./components/share-restore-points.js";
 import { useBackupNow, useShare, useShareFormat, useTestStoredShare } from "./hooks.js";
-import { SHARE_TABS, type ShareTab, fileSharesTo, linkTo } from "./paths.js";
+import { fileSharesTo, linkTo, SHARE_TABS, type ShareTab } from "./paths.js";
 import { readinessView, shareErrorKey, standingView } from "./presenters.js";
 
 export interface ShareDetailPageProps {

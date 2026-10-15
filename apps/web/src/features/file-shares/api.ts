@@ -1,7 +1,6 @@
-import { apiFetch } from "@/lib/api";
-
 import type { BrowseEntry } from "@/features/endpoints/api";
 import type { Failure } from "@/features/failures/api";
+import { apiFetch } from "@/lib/api";
 
 /**
  * Typed client of /api/v1/file-shares (apps/api/src/features/file-shares: dto.ts for the

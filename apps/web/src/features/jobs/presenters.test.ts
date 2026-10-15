@@ -2,14 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import type { BackupTarget, Job, JobPage } from "@/features/jobs/api";
 import {
-  SNAPSHOT_STATE_VARIANT,
-  STATUS_VARIANT,
   durationParts,
   isWaitingForThrottle,
   jobDurationSeconds,
   jobStatusDisplay,
-  jobTriggerKey,
   jobsOfEvent,
+  jobTriggerKey,
   matchesFilters,
   matchesTargetSearch,
   objectLabel,
@@ -18,6 +16,8 @@ import {
   progressCountKey,
   progressRatio,
   replaceJobInPages,
+  SNAPSHOT_STATE_VARIANT,
+  STATUS_VARIANT,
   throttleRemainingMs,
   withLatestJob,
 } from "@/features/jobs/presenters";

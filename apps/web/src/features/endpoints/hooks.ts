@@ -10,12 +10,10 @@ import { useSession } from "@/lib/session";
 import {
   type CreateTaskInput,
   type CreateTokenInput,
-  type EndpointProfile,
-  type TokenListState,
-  type UpdateEndpointInput,
   createDownload,
   createTask,
   createToken,
+  type EndpointProfile,
   endpointKeys,
   fetchAgentUpdates,
   fetchBrowse,
@@ -31,15 +29,17 @@ import {
   revokeEndpoint,
   revokeToken,
   setAgentUpdates,
+  type TokenListState,
+  type UpdateEndpointInput,
   uninstallEndpoint,
   updateEndpoint,
 } from "./api.js";
 import {
-  IDLE_REFRESH_MS,
-  RUN_REFRESH_MS,
   detailRefetchInterval,
   endpointErrorKey,
+  IDLE_REFRESH_MS,
   listRefetchInterval,
+  RUN_REFRESH_MS,
   waitingTasks,
 } from "./presenters.js";
 

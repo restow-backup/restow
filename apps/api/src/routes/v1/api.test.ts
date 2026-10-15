@@ -1,10 +1,10 @@
 import { Hono } from "hono";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
-import { ProblemError, errorHandler, notFoundHandler } from "../../problem.js";
-import { IntegrationApi, assertTenantUsable, hasLaterHandler } from "./api.js";
+import { errorHandler, notFoundHandler, ProblemError } from "../../problem.js";
+import { assertTenantUsable, hasLaterHandler, IntegrationApi } from "./api.js";
 import { featuresOff, featuresOn } from "./testing/features.js";
-import { OTHER_TENANT_ID, TENANT_ID, bearer, fakeRequireKey } from "./testing/keys.js";
+import { bearer, fakeRequireKey, OTHER_TENANT_ID, TENANT_ID } from "./testing/keys.js";
 import { type ScriptedDb, scriptedDb } from "./testing/scripted-db.js";
 
 const tenantRow = (status: "active" | "suspended" | "deleting" = "active") => ({

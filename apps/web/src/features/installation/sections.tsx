@@ -2,7 +2,7 @@ import { AppWindow, Download, HardDrive, Info, Layers, Mail, Server } from "luci
 
 import { AboutSection } from "@/features/settings/sections/about-section";
 import { UpdatesSection } from "@/features/updates/updates-section";
-import { type InstallationSectionSpec, extensionInstallationSections } from "@/lib/extensions";
+import { extensionInstallationSections, type InstallationSectionSpec } from "@/lib/extensions";
 
 import { EditionSection } from "./sections/edition-section";
 import { MicrosoftAppSection } from "./sections/microsoft-app-section";

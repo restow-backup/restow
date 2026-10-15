@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 import type { EndpointSummary } from "./api.js";
 import { SnapshotsTab } from "./components/snapshots-tab.js";
 import { type EndpointFormat, useEndpoint, useEndpointFormat, useEndpoints } from "./hooks.js";
-import { type FileRestoreTarget, endpointDetailTo, fileRestoreTo, inventoryTo } from "./paths.js";
+import { endpointDetailTo, type FileRestoreTarget, fileRestoreTo, inventoryTo } from "./paths.js";
 import { endpointHostLine, endpointName, splitRevoked } from "./presenters.js";
 
 /** The machine list (a quarter, at least 13rem) beside the restore points and files. */

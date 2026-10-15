@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { FAILURE_CATALOG, catalogCovers, catalogEntry } from "./catalog.js";
+import { catalogCovers, catalogEntry, FAILURE_CATALOG } from "./catalog.js";
 import { classifyFailure } from "./classify.js";
 import { causeOfReadinessReason } from "./readiness.js";
 import {

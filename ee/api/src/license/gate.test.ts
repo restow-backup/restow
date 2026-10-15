@@ -3,10 +3,10 @@ import { Hono } from "hono";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ProblemError } from "../../../../apps/api/src/problem.js";
 import {
-  FEATURE_CAPABILITIES,
   capabilityGuard,
   currentEdition,
   editionRequired,
+  FEATURE_CAPABILITIES,
   hasCapability,
   licenseFeatureGate,
   requireCapability,

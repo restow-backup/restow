@@ -1,8 +1,8 @@
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act } from "react";
 import type * as React from "react";
-import { type Root, createRoot } from "react-dom/client";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -36,7 +36,11 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
       search,
       children,
       ...props
-    }: { to: string; search?: Record<string, unknown>; children: React.ReactNode }) => {
+    }: {
+      to: string;
+      search?: Record<string, unknown>;
+      children: React.ReactNode;
+    }) => {
       const query = search ? new URLSearchParams(search as Record<string, string>).toString() : "";
       return (
         <a href={query ? `${to}?${query}` : String(to)} {...props}>

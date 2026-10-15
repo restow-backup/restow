@@ -35,18 +35,18 @@ import {
   useUpdateRetentionPolicy,
 } from "../hooks.js";
 import {
-  type DraftField,
-  PRESET_ORDER,
-  type RetentionDraft,
-  type ScopeMode,
   checkDraft,
+  type DraftField,
   draftFromPolicy,
   fieldProblem,
   inputFromDraft,
   isStricterChange,
   newDraft,
+  PRESET_ORDER,
   patchFromDraft,
   previewInputFromDraft,
+  type RetentionDraft,
+  type ScopeMode,
 } from "../presenters.js";
 import { ObjectPicker } from "./object-picker.js";
 import { TierEditor } from "./tier-editor.js";

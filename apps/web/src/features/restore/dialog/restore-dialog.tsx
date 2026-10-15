@@ -39,17 +39,17 @@ import { useSnapshotLabel } from "@/features/restore/explorer/restore-point-labe
 import { useEntryLabel } from "@/features/restore/explorer/use-entry-label";
 import { accountOptionLabel } from "@/features/restore/lib/accounts";
 import {
+  buildRestoreRequest,
+  hasErrors,
+  initialFormState,
+  modeApplies,
+  originalTargetDescriptionKey,
   type RestoreErrorDisplay,
   type RestoreFormContext,
   type RestoreFormErrors,
   type RestoreFormField,
   type RestoreFormState,
   type RestoreScope,
-  buildRestoreRequest,
-  hasErrors,
-  initialFormState,
-  modeApplies,
-  originalTargetDescriptionKey,
   restoreErrorOf,
   restoreModesFor,
   restoreStamp,

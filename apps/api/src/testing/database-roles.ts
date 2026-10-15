@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { type RoleLogin, createDb, deriveAuthLogin, grantQueueAccess } from "@restow/db";
+import { createDb, deriveAuthLogin, grantQueueAccess, type RoleLogin } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
 
 /**

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { MemoryStorage } from "../verify/testing.js";
 import {
-  STALE_LOCK_MS,
   listLockFiles,
   listRepositoryObjects,
   locksToRemove,
   measureRepositoryBytes,
   removeLockFiles,
+  STALE_LOCK_MS,
 } from "./repository-storage.js";
 
 const PREFIX = "endpoints/22222222-2222-4222-8222-222222222222/";

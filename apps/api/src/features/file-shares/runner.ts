@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
 import {
+  createRunnerClient,
   type HostResolver,
   type RunnerClient,
-  createRunnerClient,
   systemResolver,
 } from "@restow/core";
 import { config } from "../../config.js";

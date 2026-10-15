@@ -7,8 +7,8 @@ import { Keyring } from "../engine/keyring.js";
 import { createMemoryJobContext } from "../engine/memory.js";
 import type { JobContext } from "../engine/types.js";
 import { LocalStorageBackend } from "../storage/local.js";
-import { ImapFlowRestoreSession, createImapFlowSessionFactory } from "./imap-flow.js";
 import { ImapRestoreError } from "./imap.js";
+import { createImapFlowSessionFactory, ImapFlowRestoreSession } from "./imap-flow.js";
 
 interface Box {
   path: string;

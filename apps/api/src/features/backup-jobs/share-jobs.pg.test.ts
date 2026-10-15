@@ -11,11 +11,11 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import type { RunnerClient, RunnerExecRequest, RunnerExecResult } from "@restow/core";
 import {
-  type Database,
   auditLog,
   backupJobMembers,
   backupJobs,
   createDb,
+  type Database,
   fileShareRuns,
   fileShares,
   providers,
@@ -29,7 +29,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { SessionUser } from "../../auth.js";
 import type { TenantEnv } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,

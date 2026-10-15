@@ -1,6 +1,3 @@
-export { CauseLine, ItemCauseLines, useCauseTitle } from "./cause-line";
-export { FailureExplanation } from "./failure-explanation";
-export type { FailureExplanationProps, FailureSubject } from "./failure-explanation";
 export type {
   Failure,
   FailureGroup,
@@ -10,5 +7,8 @@ export type {
   FailureTarget,
   ItemCauseCount,
 } from "./api";
+export { CauseLine, ItemCauseLines, useCauseTitle } from "./cause-line";
+export type { FailureExplanationProps, FailureSubject } from "./failure-explanation";
+export { FailureExplanation } from "./failure-explanation";
 export { stepLink } from "./paths";
 export { failureTone, supportText, technicalRows, textVariables } from "./presenters";

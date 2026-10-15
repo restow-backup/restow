@@ -10,14 +10,14 @@ import {
 } from "@/components/ui/chart";
 
 import type { StoragePoint, VolumePoint } from "../api.js";
-import { type DedupFigures, byteTicks, isEmptySeries, maxOf } from "../presenters.js";
+import { byteTicks, type DedupFigures, isEmptySeries, maxOf } from "../presenters.js";
 import { useStatsFormat } from "../use-stats-format.js";
 import {
   AXIS_PROPS,
   DatasetMenu,
-  STATIC_SERIES,
-  type SeriesChartProps,
   datasetState,
+  type SeriesChartProps,
+  STATIC_SERIES,
   seriesOrder,
   tooltipRow,
   valueAxis,

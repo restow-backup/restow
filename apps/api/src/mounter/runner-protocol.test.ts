@@ -10,20 +10,20 @@ import type {
 } from "@restow/core";
 import { describe, expect, expectTypeOf, it } from "vitest";
 import {
-  type RunnerCapabilities,
-  type RunnerExecRequest,
-  type RunnerExecResult,
-  type RunnerRunDetail,
-  type RunnerRunRequest,
-  type ShareSpec,
   isIpLiteral,
   isValidDomain,
   isValidShareName,
   isValidSharePassword,
   isValidSubfolder,
   isValidUsername,
+  type RunnerCapabilities,
+  type RunnerExecRequest,
+  type RunnerExecResult,
+  type RunnerRunDetail,
+  type RunnerRunRequest,
   runnerExecRequestSchema,
   runnerRunRequestSchema,
+  type ShareSpec,
   shareSpecSchema,
 } from "./runner-protocol.js";
 

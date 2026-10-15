@@ -2,12 +2,12 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   ApiError,
-  NetworkError,
-  TENANT_HEADER,
   apiFetch,
   errorMessageKey,
   isFeatureUnavailable,
+  NetworkError,
   normalizeStatus,
+  TENANT_HEADER,
   unwrapList,
 } from "./api";
 import { setActiveTenantId } from "./tenant";

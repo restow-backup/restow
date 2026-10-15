@@ -2,11 +2,11 @@ import * as fs from "node:fs/promises";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { OpsError } from "./ops.js";
 import {
-  DEFAULT_ENV,
-  type Harness,
   apiAt,
   createHarness,
+  DEFAULT_ENV,
   digestOf,
+  type Harness,
   scheduleRequest,
   settle,
 } from "./testing.js";

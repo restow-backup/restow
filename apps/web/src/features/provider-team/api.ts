@@ -1,4 +1,4 @@
-import { type ProviderRole, apiFetch } from "@/lib/api";
+import { apiFetch, type ProviderRole } from "@/lib/api";
 
 /**
  * Typed client for /api/v1/provider-team (apps/api features/provider-team),

@@ -35,15 +35,15 @@
 import { createHash } from "node:crypto";
 import { MessageDedupIndex } from "../backup/imap/dedup.js";
 import {
-  FOLDER_OBJECT_TYPE,
-  MESSAGE_OBJECT_TYPE,
-  META,
   encodeEnvelope,
   encodeFlags,
+  FOLDER_OBJECT_TYPE,
   folderObjectId,
   folderObjectPath,
   isFolderObject,
   isMessageObject,
+  MESSAGE_OBJECT_TYPE,
+  META,
   messageObjectId,
   messageObjectPath,
   objectMailbox,
@@ -282,8 +282,7 @@ function fingerprintOf(units: readonly ImportUnit[]): string {
 function readImportCursor(cursor: Cursor | null, fingerprint: string): ImportCursorState | null {
   const raw = cursor?.import as Partial<ImportCursorState> | undefined;
   if (
-    !raw ||
-    raw.version !== 1 ||
+    raw?.version !== 1 ||
     raw.fingerprint !== fingerprint ||
     typeof raw.unitsDone !== "number" ||
     typeof raw.itemsDone !== "number" ||
@@ -505,8 +504,6 @@ class ImportRun {
   private readonly folders = new Map<string, FolderBook>();
   private readonly dedup = new MessageDedupIndex();
   private acc: Accumulator;
-  private previousMessages = 0;
-  private previousFolders = 0;
   private unitsDone: number;
   private itemsDone: number;
   private unitBytes: number;
@@ -589,7 +586,6 @@ class ImportRun {
     for (const object of objects) {
       if (isFolderObject(object)) {
         this.bookOf(object.metadata?.[META.mailbox] as string);
-        this.previousFolders++;
       }
     }
     for (const object of objects) {
@@ -603,7 +599,6 @@ class ImportRun {
         book.nextUid = uid + 1;
       }
       book.messages++;
-      this.previousMessages++;
       book.seen.add(dedupKey(object.metadata?.[META.messageId] ?? null, object.sha256 ?? ""));
       if (object.sha256 !== undefined) {
         this.dedup.remember(object.metadata?.[META.messageId] ?? null, {

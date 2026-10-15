@@ -15,14 +15,14 @@ import { useCancelMaintenance } from "../hooks";
 import { smoothOffset } from "../maintenance/maintenance-state";
 import { useCountdown } from "../maintenance/use-countdown";
 import {
-  ENABLE_UPDATER_COMMAND,
-  RECREATE_UPDATER_COMMAND,
   blockerKey,
   clockOffset,
+  ENABLE_UPDATER_COMMAND,
   formatClock,
   isSourceInstallRefused,
   manualUpdateCommands,
   mounterUpdateNote,
+  RECREATE_UPDATER_COMMAND,
   selfUpdateNote,
   sourceAllowlistLine,
   switchKey,
@@ -392,7 +392,11 @@ function Busy({
   view,
   canChange,
   receivedAt,
-}: { view: UpdatesView; canChange: boolean; receivedAt: number }) {
+}: {
+  view: UpdatesView;
+  canChange: boolean;
+  receivedAt: number;
+}) {
   const { t } = useTranslation("updates");
   const cancel = useCancelMaintenance();
   const [confirming, setConfirming] = React.useState(false);

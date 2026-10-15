@@ -181,7 +181,11 @@ function Stat({
   label,
   value,
   tone,
-}: { label: string; value: string; tone?: "destructive" | "warning" }) {
+}: {
+  label: string;
+  value: string;
+  tone?: "destructive" | "warning";
+}) {
   return (
     <div className="rounded-md border border-border p-3">
       <p className="text-xs text-muted-foreground">{label}</p>

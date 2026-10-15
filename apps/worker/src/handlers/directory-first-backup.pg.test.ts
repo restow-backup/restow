@@ -13,9 +13,9 @@
 import { randomUUID } from "node:crypto";
 import { noopLogger } from "@restow/core";
 import {
-  type Database,
   auditLog,
   createDb,
+  type Database,
   jobs,
   protectedObjects,
   providers,

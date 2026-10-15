@@ -12,12 +12,12 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { buildCause, defaultEndpointConfig, toFailureRecord } from "@restow/core";
 import {
-  type Database,
-  type FailureRecordJson,
   auditLog,
   createDb,
+  type Database,
   endpointRuns,
   endpoints,
+  type FailureRecordJson,
   itemFailures,
   jobProgress,
   jobs,
@@ -36,7 +36,7 @@ import { type Role, roleSatisfies } from "../../middleware/rbac.js";
 import type { TenantEnv } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
 import { loadTenantSummary } from "../../routes/v1/status.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import { listObjects } from "../directory/service.js";
 import {
   dropDatabase,

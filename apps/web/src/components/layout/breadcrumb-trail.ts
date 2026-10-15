@@ -65,10 +65,6 @@ export interface TrailInput {
   scope?: { kind: ScopeKind; label: string; opensGroup?: boolean } | null;
 }
 
-function normalize(path: string): string {
-  return path.replace(/\/+$/, "") || "/";
-}
-
 export interface ScopeContext {
   /** Group of the page's menu entry; null for pages outside the menu (account security). */
   groupId: string | null;

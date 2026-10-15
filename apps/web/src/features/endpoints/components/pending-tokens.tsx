@@ -1,14 +1,12 @@
 import { KeyRound, Trash2 } from "lucide-react";
+import * as React from "react";
 import { useTranslation } from "react-i18next";
-
 import { ConfirmDialog, RelativeTime, StatusBadge } from "@/components/kit";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/components/ui/sonner";
-
-import * as React from "react";
 import type { EnrollmentToken } from "../api.js";
 import { useEnrollmentTokens, useRevokeToken } from "../hooks.js";
 import type { EndpointProfile } from "../paths.js";

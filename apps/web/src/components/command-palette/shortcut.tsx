@@ -55,7 +55,10 @@ export function isModifierShortcut(
 export function ShortcutHint({
   shortcutKey,
   className,
-}: { shortcutKey: string; className?: string }) {
+}: {
+  shortcutKey: string;
+  className?: string;
+}) {
   const { t } = useTranslation();
   const keys = shortcutKeys(shortcutKey, isApplePlatform(), t("keys.ctrl"));
   return (

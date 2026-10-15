@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import { DEMO_READ_ONLY_PROBLEM } from "../middleware/demo-guard.js";
 import type { TenantEnv } from "../middleware/session.js";
-import { ProblemError, errorHandler } from "../problem.js";
+import { errorHandler, ProblemError } from "../problem.js";
 import { type DeniedEvent, DeniedThrottle, deniedAudit } from "./denied-audit.js";
 
 const USER = { id: "user-1", email: "tech@provider.example" };

@@ -18,13 +18,12 @@
  * superuser (the database `restow_api_retention_test` is recreated there and
  * dropped after, the roles with it). Without it the suite is skipped.
  */
-import { randomUUID } from "node:crypto";
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { type LegalHoldScope, planRetentionRun, presetTiers, totalBytes } from "@restow/core";
 import {
-  type Database,
   auditLog,
   createDb,
+  type Database,
   legalHolds,
   protectedObjects,
   providers,
@@ -38,10 +37,10 @@ import { and, eq, inArray, isNotNull } from "drizzle-orm";
 import { Hono, type MiddlewareHandler } from "hono";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { SessionUser } from "../../auth.js";
-import { type Role, type TenantRole, roleSatisfies } from "../../middleware/rbac.js";
+import { type Role, roleSatisfies, type TenantRole } from "../../middleware/rbac.js";
 import type { TenantEnv } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,

@@ -33,11 +33,11 @@ import {
   subjectKeyOf,
 } from "@restow/core";
 import {
-  type NewNotification,
   backupJobMembers,
   backupJobs,
   endpoints,
   fileShares,
+  type NewNotification,
   notifications,
   protectedObjects,
   pveGuests,

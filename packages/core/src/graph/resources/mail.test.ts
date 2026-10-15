@@ -7,8 +7,6 @@ import foldersFixture from "../testing/fixtures/mail-folders.json" with { type: 
 import contentFixture from "../testing/fixtures/message-content.json" with { type: "json" };
 import deltaFixture from "../testing/fixtures/messages-delta.json" with { type: "json" };
 import {
-  MESSAGE_DELTA_SELECT,
-  type MessageDeltaEntry,
   addFileAttachment,
   attachmentIdFromLocation,
   createMessageFromMime,
@@ -17,6 +15,8 @@ import {
   findMessagesByInternetMessageId,
   getMessageMime,
   listMailFolderTree,
+  MESSAGE_DELTA_SELECT,
+  type MessageDeltaEntry,
   messagesDelta,
   patchMessage,
   resolveWellKnownFolders,

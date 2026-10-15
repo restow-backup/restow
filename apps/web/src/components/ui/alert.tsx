@@ -1,4 +1,4 @@
-import { type VariantProps, cva } from "class-variance-authority";
+import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "cn";
 import type * as React from "react";
 
@@ -78,4 +78,4 @@ function AlertDescription({ className, ...props }: React.ComponentProps<"div">) 
   );
 }
 
-export { Alert, AlertTitle, AlertDescription, alertVariants };
+export { Alert, AlertDescription, AlertTitle, alertVariants };

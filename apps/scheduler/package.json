@@ -5,7 +5,13 @@
   "type": "module",
   "description": "Restow scheduler: a single leader-elected process that enqueues due backup, verify, retention and scrub jobs onto pg-boss.",
   "license": "Apache-2.0",
-  "files": ["dist", "!**/*.test.*", "!**/testing", "!**/testdata", "!**/fixtures"],
+  "files": [
+    "dist",
+    "!**/*.test.*",
+    "!**/testing",
+    "!**/testdata",
+    "!**/fixtures"
+  ],
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",

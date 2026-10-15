@@ -2,8 +2,8 @@ import type { StatusTone } from "@/components/kit/status-badge";
 import { ApiError, errorMessageKey } from "@/lib/api";
 import {
   BLOCKER_CODES,
-  BUILD_SWITCH_REFUSED_PROBLEM,
   type BlockerCode,
+  BUILD_SWITCH_REFUSED_PROBLEM,
   type BuildSwitchTarget,
   CHECK_ERROR_CODES,
   type CheckErrorCode,
@@ -24,18 +24,18 @@ import {
   type RunView,
   type SelfUpdateReason,
   type StepStatus,
-  UPDATER_BLOCKED_PROBLEM,
-  UPDATER_UNAVAILABLE_PROBLEM,
   UPDATE_BUSY_PROBLEM,
   UPDATE_NOT_VERIFIABLE_PROBLEM,
   UPDATE_RUNNING_UNKNOWN_PROBLEM,
   UPDATE_SOURCE_NOT_ALLOWED_PROBLEM,
   UPDATE_VERSION_UNKNOWN_PROBLEM,
+  UPDATER_BLOCKED_PROBLEM,
+  UPDATER_UNAVAILABLE_PROBLEM,
   type UpdateChannel,
   type UpdateMode,
+  type UpdaterPhase,
   type UpdateSettingsInput,
   type UpdateStepId,
-  type UpdaterPhase,
   type UpdatesView,
 } from "./api";
 

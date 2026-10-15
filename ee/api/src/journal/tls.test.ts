@@ -1,12 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  type CertificateDir,
-  HOUR_MS,
-  type SelfSignedCertificate,
-  certificate,
-  certificateDir,
-} from "./tls-test-support.js";
-import {
   type JournalTlsMaterial,
   type JournalTlsPlanInput,
   type JournalTlsStatus,
@@ -14,6 +7,13 @@ import {
   planJournalTls,
   watchJournalCertificate,
 } from "./tls.js";
+import {
+  type CertificateDir,
+  certificate,
+  certificateDir,
+  HOUR_MS,
+  type SelfSignedCertificate,
+} from "./tls-test-support.js";
 
 /**
  * The receiver's TLS decisions (docs/ARCHIVE.md, journal setup section): the

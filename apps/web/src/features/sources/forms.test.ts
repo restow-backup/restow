@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  type ImapFormValues,
-  type StoredImapConnection,
   emptyImapForm,
   fieldMessageKey,
+  type ImapFormValues,
   imapFormFromStored,
   imapFormSchema,
   isMicrosoftImapHost,
@@ -14,6 +13,7 @@ import {
   m365FormSchema,
   needsPasswordAgain,
   portForSecurity,
+  type StoredImapConnection,
   toCreateImapInput,
   toCreateM365Input,
   toImapTestInput,

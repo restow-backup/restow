@@ -1,5 +1,4 @@
 import { Info, RotateCcw, TriangleAlert } from "lucide-react";
-import * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { ErrorState, RelativeTime } from "@/components/kit";
@@ -19,10 +18,10 @@ import { cn } from "@/lib/utils";
 import type { RunDetail, RunProgress } from "../api.js";
 import { type EndpointFormat, useEndpointFormat, useRun } from "../hooks.js";
 import {
-  RUN_ERRORS_SHOWN,
   formatDuration,
   onlyInterrupted,
   progressRatio,
+  RUN_ERRORS_SHOWN,
   runDurationMs,
   runErrorView,
   runKindKey,
@@ -35,7 +34,11 @@ export function RunProgressView({
   progress,
   format,
   compact = false,
-}: { progress: RunProgress | null; format: EndpointFormat; compact?: boolean }) {
+}: {
+  progress: RunProgress | null;
+  format: EndpointFormat;
+  compact?: boolean;
+}) {
   const { t } = format;
   const ratio = progressRatio(progress);
   const percent = ratio === null ? null : Math.round(ratio * 100);
@@ -108,7 +111,11 @@ export function RunDetailView({
   run,
   subjectName,
   willRetry = true,
-}: { run: RunDetail; subjectName?: string; willRetry?: boolean }) {
+}: {
+  run: RunDetail;
+  subjectName?: string;
+  willRetry?: boolean;
+}) {
   const format = useEndpointFormat();
   const { t, language } = format;
   const duration = runDurationMs(run);
@@ -245,6 +252,7 @@ export function RunDetailView({
                 const view = runErrorView(error);
                 return (
                   <li
+                    // biome-ignore lint/suspicious/noArrayIndexKey: a run's errors can repeat path and message; the list is read-only and keeps its order.
                     key={`${index}-${error.path ?? ""}-${error.message}`}
                     className="space-y-1 p-2.5"
                     data-run-error={error.code ?? undefined}
@@ -297,6 +305,7 @@ export function RunDetailView({
         <h3 className="text-sm font-medium">{t("runs.log.heading")}</h3>
         {run.logTail ? (
           <>
+            {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: the focusable log is named after its heading; a landmark role would only add noise */}
             <pre
               className="max-h-80 overflow-auto rounded-md border bg-muted/50 p-3 font-mono text-xs leading-relaxed whitespace-pre"
               // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable log must be reachable by keyboard

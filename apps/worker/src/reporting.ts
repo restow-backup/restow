@@ -15,12 +15,12 @@
  */
 import {
   FAILED_JOB_EVENTS,
-  type ReportEvent,
   guidanceFor,
   isAlertThrottled,
   isReportEvent,
   overdueDeadlineOf,
   plannedDeliveries,
+  type ReportEvent,
   rulesForEvent,
   subjectKeyOf,
 } from "@restow/core";
@@ -28,9 +28,9 @@ import {
   type Job,
   type NewNotification,
   type NewReportDelivery,
-  type ReportRule,
   notifications,
   protectedObjects,
+  type ReportRule,
   reportDeliveries,
   reportRules,
 } from "@restow/db";

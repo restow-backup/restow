@@ -232,7 +232,9 @@ export function encodeBlockMap(map: BlockMap): Buffer {
   });
   const refTable = Buffer.alloc(4 + refs.length * 4);
   refTable.writeUInt32BE(refs.length, 0);
-  refs.forEach((r, i) => refTable.writeUInt32BE(r, 4 + i * 4));
+  refs.forEach((r, i) => {
+    refTable.writeUInt32BE(r, 4 + i * 4);
+  });
   return Buffer.concat([head, table, records, refTable]);
 }
 

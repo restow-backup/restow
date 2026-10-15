@@ -3,14 +3,14 @@ import {
   type ArchiveJobPayload,
   type BackupJobPayload,
   type DirectoryJobPayload,
+  isJobQueue,
   JOB_PRIORITY,
   JOB_QUEUES,
   type RetentionJobPayload,
   type ScrubJobPayload,
   type StorageMigrationJobPayload,
-  type VerifyJobPayload,
-  isJobQueue,
   singletonKeyFor,
+  type VerifyJobPayload,
 } from "./jobs.js";
 
 describe("JOB_QUEUES", () => {

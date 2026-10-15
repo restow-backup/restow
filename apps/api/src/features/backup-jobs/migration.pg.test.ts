@@ -26,11 +26,11 @@ import {
   sameEndpointConfig,
 } from "@restow/core";
 import {
-  type Database,
   auditLog,
   backupJobMembers,
   backupJobs,
   createDb,
+  type Database,
   endpoints,
   protectedObjects,
   providers,
@@ -40,7 +40,7 @@ import {
 } from "@restow/db";
 import { and, asc, eq, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,
@@ -677,7 +677,7 @@ describe.skipIf(!testDatabaseAdminUrl)("migration to backup jobs against Postgre
       .select()
       .from(auditLog)
       .where(and(eq(auditLog.action, "backup_job.migrated"), eq(auditLog.tenantId, handmade)));
-    expect((entry?.details as { mail: { left: unknown[] } }).mail.left).toHaveLength(2);
+    expect((entry.details as { mail: { left: unknown[] } }).mail.left).toHaveLength(2);
   });
 
   it("makes one set of jobs when two api replicas start together", async () => {

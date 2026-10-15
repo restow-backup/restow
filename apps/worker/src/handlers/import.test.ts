@@ -3,20 +3,20 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Readable } from "node:stream";
 import {
-  Keyring,
-  type ProtectedObjectRef,
   createMemoryJobContext,
   generateDek,
+  Keyring,
   mailfiles,
+  type ProtectedObjectRef,
 } from "@restow/core";
 import type { Database, ImportUpload, MailImport, MailImportRequestFile } from "@restow/db";
 import { describe, expect, it, vi } from "vitest";
 import { InvalidPayloadError, type WorkerJobContext } from "./framework.js";
 import {
-  type ImportStore,
   baseNameOf,
   buildImportInput,
   createImportHandler,
+  type ImportStore,
   openTenantImportFolder,
   tenantRelativePath,
 } from "./import.js";

@@ -1,15 +1,15 @@
 import type { StoredUpdateCheck, StoredUpdateRelease } from "@restow/db";
 import {
-  type VersionInfo,
-  type VersionSource,
   compareVersions,
   isUpdateAvailable,
   parseVersion,
   runningCommitFrom,
   runningVersionFrom,
+  type VersionInfo,
+  type VersionSource,
 } from "../../routes/v1/version.js";
 import type { UpdateChannel } from "./schemas.js";
-import { type ParsedSource, defaultSource, parseEnvironmentSource } from "./source.js";
+import { defaultSource, type ParsedSource, parseEnvironmentSource } from "./source.js";
 
 /**
  * The update state the rest of the api reads without waiting for anything

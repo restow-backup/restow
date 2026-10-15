@@ -7,11 +7,11 @@ import { appLayoutRoute } from "@/routes/tree";
 
 import "./i18n.js";
 import {
-  FILE_SHARES_PATH,
   FILE_SHARE_PATTERN,
   FILE_SHARE_ROLES,
-  type ShareTab,
+  FILE_SHARES_PATH,
   parseShareTab,
+  type ShareTab,
 } from "./paths.js";
 import { ShareDetailPage } from "./share-detail-page.js";
 import { SharesPage } from "./shares-page.js";

@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  type MailSummary,
-  type TreeEntryDto,
-  type VersionRow,
   baseNameOf,
   breadcrumbOf,
   collapseVersions,
@@ -12,14 +9,17 @@ import {
   implicitFolderId,
   isNativeVersionPath,
   joinPath,
+  type MailSummary,
   mailSummaryOf,
   nativeVersionsParent,
   normalizePath,
   parentPathOf,
   sortEntries,
   splitAddressList,
+  type TreeEntryDto,
   toStoredVersion,
   toTreeEntry,
+  type VersionRow,
 } from "./tree.js";
 
 describe("paths", () => {

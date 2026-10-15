@@ -14,12 +14,12 @@ import {
 import { DEFAULT_PROJECT_DIR, restartCommand, restartGroups } from "./presenters";
 import { RestartBanner } from "./restart-banner";
 import {
-  type Mounted,
   buttonByText,
   click,
   enableActEnvironment,
   flush,
   json,
+  type Mounted,
   mount,
   problem,
   routedFetch,

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { parseSmokeReport, summarizeSmokeReport } from "../../ci/release-lib.mjs";
-import { CheckRun, RESULT, Report, formatDuration } from "./report.mjs";
+import { CheckRun, formatDuration, RESULT, Report } from "./report.mjs";
 
 const META = {
   version: "0.1.0",

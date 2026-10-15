@@ -6,9 +6,9 @@ import { featureNavItems } from "@/features/registry";
 import { navItems as tenantNavItems } from "@/features/tenants";
 import { i18n } from "@/i18n";
 import {
+  groupNavItems,
   NAV_GROUPS,
   type NavLockContext,
-  groupNavItems,
   navGroupLabelKey,
   navGroupOf,
 } from "@/lib/navigation";

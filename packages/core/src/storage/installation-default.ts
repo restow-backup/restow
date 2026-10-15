@@ -26,12 +26,12 @@ import type { Dek } from "../crypto.js";
 import type { S3CredentialsSecret } from "../engine/types.js";
 import { openSecret } from "../secret-seal.js";
 import {
+  environmentDefaultCopy,
   type InstallationDefaultStorage,
+  installationDefaultStorage,
   type StorageKind,
   type StorageLocation,
   StorageTargetError,
-  environmentDefaultCopy,
-  installationDefaultStorage,
   storageLocationConfig,
   validateStorageLocation,
 } from "./factory.js";

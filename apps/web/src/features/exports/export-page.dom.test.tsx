@@ -2,17 +2,17 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type * as React from "react";
 import { act } from "react";
-import { type Root, createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { i18n } from "@/i18n";
 
 import "./i18n";
-import type { MailExportDetail } from "./api";
-import { ExportPage } from "./export-page";
 
 import { ApiError } from "@/lib/api";
+import type { MailExportDetail } from "./api";
+import { ExportPage } from "./export-page";
 
 /**
  * The export page in a real DOM: a running export with its phase and

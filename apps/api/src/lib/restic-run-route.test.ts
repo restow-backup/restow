@@ -7,10 +7,10 @@ import { Hono } from "hono";
 import { beforeEach, describe, expect, it } from "vitest";
 import { errorHandler } from "../problem.js";
 import {
-  type CredentialFailures,
-  type RunResticResolution,
   buildRunResticRoute,
+  type CredentialFailures,
   processLocalLocks,
+  type RunResticResolution,
 } from "./restic-run-route.js";
 
 const RUN = "0f1e2d3c-4b5a-4968-8776-655443322110";

@@ -7,7 +7,7 @@
 
 import { randomBytes, randomUUID } from "node:crypto";
 import { FILE_SHARE_QUEUES } from "@restow/core";
-import { type RoleLogin, createDb } from "@restow/db";
+import { createDb, type RoleLogin } from "@restow/db";
 import { runMigrations } from "@restow/db/migrate";
 import type PgBoss from "pg-boss";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";

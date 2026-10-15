@@ -15,16 +15,16 @@
  * database `restow_api_restore_test` is recreated there and dropped after).
  * Without it the suite is skipped; docs/TESTING.md lists it under integration.
  */
-import { type Database, auditLog, createDb, jobs, protectedObjects, restoreJobs } from "@restow/db";
+import { auditLog, createDb, type Database, jobs, protectedObjects, restoreJobs } from "@restow/db";
 import { and, eq, sql } from "drizzle-orm";
 import { Hono } from "hono";
 import PgBoss from "pg-boss";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { errorHandler, notFoundHandler } from "../../problem.js";
 import {
-  type ExplorerFixture,
   createExplorerFixture,
   dropDatabase,
+  type ExplorerFixture,
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "../snapshots/testing/explorer-fixture.js";

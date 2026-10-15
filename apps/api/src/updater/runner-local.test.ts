@@ -3,7 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Redactor } from "./redact.js";
-import { LocalRunner, findExecutable } from "./runner-local.js";
+import { findExecutable, LocalRunner } from "./runner-local.js";
 
 /**
  * A stand-in `docker` executable (a shell script in a temporary directory) that

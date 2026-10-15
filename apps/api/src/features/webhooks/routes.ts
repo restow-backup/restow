@@ -1,6 +1,6 @@
 import { type Context, Hono } from "hono";
 import { db } from "../../db.js";
-import { type TenantAccessEnv, requireTenantOrApiKey } from "../../middleware/apiKey.js";
+import { requireTenantOrApiKey, type TenantAccessEnv } from "../../middleware/apiKey.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { contentDisposition } from "../restore/headers.js";
 import {

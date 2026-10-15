@@ -1,13 +1,13 @@
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { type ReactNode, act } from "react";
-import { type Root, createRoot } from "react-dom/client";
+import { act, type ReactNode } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { i18n } from "@/i18n";
-import { type SetupState, queryKeys, setupStateQueryOptions } from "@/lib/api";
+import { queryKeys, type SetupState, setupStateQueryOptions } from "@/lib/api";
 
 import type { Invitation, TeamMember } from "./api";
 import { IssuedLinkResult, MemberDialog } from "./member-dialog";

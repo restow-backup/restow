@@ -11,21 +11,19 @@
  */
 import { spawnSync } from "node:child_process";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  EnvKeyProvider,
-  GIB,
-  Keyring,
-  LocalStorageBackend,
-  type StorageTargets,
-  type TenantKeyring,
   defaultEndpointConfig,
+  EnvKeyProvider,
   endpointPasswordKey,
   endpointPrefix,
+  GIB,
   generateDek,
   hashSecret,
+  Keyring,
+  LocalStorageBackend,
   noopLogger,
   openEndpointPassword,
   openRepository,
@@ -33,25 +31,27 @@ import {
   resticInit,
   resticSnapshots,
   runRestic,
+  type StorageTargets,
   sealSecret,
+  type TenantKeyring,
   withRepository,
 } from "@restow/core";
 import {
-  type Database,
-  EndpointRepositoryBusyError,
-  type RoleLogin,
   acquireEndpointRepositoryLock,
   createDb,
+  type Database,
   deriveAuthLogin,
+  EndpointRepositoryBusyError,
   endpointDownloads,
   endpointReports,
   endpointRepositoryLocks,
   endpointRuns,
   endpointSamples,
   endpointSnapshotFlags,
-  endpointTasks,
   endpoints,
+  endpointTasks,
   notifications,
+  type RoleLogin,
   reportDeliveries,
   webhookDeliveries,
   webhooks,
@@ -59,14 +59,14 @@ import {
 import { runMigrations } from "@restow/db/migrate";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { TenantCache, loadTenantKeyring, withTenantTx } from "../handlers/framework.js";
+import { loadTenantKeyring, TenantCache, withTenantTx } from "../handlers/framework.js";
 import { dropTestDatabase } from "../testing/database.js";
 import { endpointCheck } from "./check.js";
 import type { EndpointJobDeps } from "./common.js";
-import { LOCKED_ALERT_ATTEMPTS, clearLocksBeforeMaintenance } from "./maintenance.js";
-import { RUN_SILENCE_LIMIT_MS, endpointMonitor } from "./monitor.js";
+import { clearLocksBeforeMaintenance, LOCKED_ALERT_ATTEMPTS } from "./maintenance.js";
+import { endpointMonitor, RUN_SILENCE_LIMIT_MS } from "./monitor.js";
 import { endpointRetention } from "./retention.js";
-import { RestoreTestIncompleteError, endpointVerify } from "./verify.js";
+import { endpointVerify, RestoreTestIncompleteError } from "./verify.js";
 
 const adminUrl = process.env.RESTOW_TEST_DATABASE_URL;
 const TEST_DB = "restow_worker_endpoints_test";
@@ -730,8 +730,8 @@ describe.skipIf(!adminUrl || !resticAvailable())(
           .where(eq(endpointTasks.endpointId, made.id));
         expect(tasks).toHaveLength(1);
         expect(tasks[0]).toMatchObject({ kind: "verify_sample", status: "pending" });
-        expect((tasks[0]?.params as { snapshotId: string }).snapshotId).toBe(snapshot);
-        expect((tasks[0]?.params as { files: unknown[] }).files).toHaveLength(3);
+        expect((tasks[0].params as { snapshotId: string }).snapshotId).toBe(snapshot);
+        expect((tasks[0].params as { files: unknown[] }).files).toHaveLength(3);
         expect(tasks[0]?.expiresAt).toBeInstanceOf(Date);
 
         // Again: a new report, but the endpoint is not asked twice for the same snapshot.

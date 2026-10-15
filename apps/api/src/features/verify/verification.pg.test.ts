@@ -14,10 +14,10 @@
  */
 import { randomUUID } from "node:crypto";
 import {
-  type Database,
-  type NewVerifyReport,
   createDb,
+  type Database,
   jobs,
+  type NewVerifyReport,
   protectedObjects,
   providers,
   snapshots,
@@ -39,11 +39,11 @@ import {
   testDatabaseAdminUrl,
 } from "../snapshots/testing/explorer-fixture.js";
 import {
-  type VerifyActor,
   getReport,
   listReports,
   readinessOverview,
   runVerify,
+  type VerifyActor,
 } from "./service.js";
 
 // The API never runs jobs; enqueueing is pg-boss' business and not under test here.

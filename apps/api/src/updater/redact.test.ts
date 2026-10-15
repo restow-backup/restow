@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { REDACTED, Redactor, clip, sensitiveEnvValues } from "./redact.js";
+import { clip, REDACTED, Redactor, sensitiveEnvValues } from "./redact.js";
 
 describe("Redactor", () => {
   const redactor = new Redactor();

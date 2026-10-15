@@ -3,12 +3,6 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  CliDockerOps,
-  MIGRATION_COUNT_SQL,
-  isManifestNotFound,
-  parseComposePs,
-} from "./ops-cli.js";
-import {
   type BuildSpec,
   type CommandResult,
   type CommandRunner,
@@ -17,6 +11,12 @@ import {
   PullError,
   SignatureError,
 } from "./ops.js";
+import {
+  CliDockerOps,
+  isManifestNotFound,
+  MIGRATION_COUNT_SQL,
+  parseComposePs,
+} from "./ops-cli.js";
 import { Redactor } from "./redact.js";
 
 class ScriptedRunner implements CommandRunner {

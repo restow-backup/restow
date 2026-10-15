@@ -1,32 +1,32 @@
 import {
+  chunkIdsFromDriver,
   type Database,
   type ManifestObjectKind,
-  type ProtectedObject,
-  type Source,
-  chunkIdsFromDriver,
   manifestEntries,
+  type ProtectedObject,
   protectedObjects,
+  type Source,
   snapshots,
   sources,
   users,
 } from "@restow/db";
-import { type SQL, and, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNotNull, type SQL, sql } from "drizzle-orm";
 import { type AuditEvent, audit } from "../../lib/audit.js";
 import { type DbExecutor, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import type { ObjectState } from "../verify/summary.js";
 import {
-  type SnapshotVerificationDto,
   loadObjectVerifications,
   loadSnapshotVerifications,
+  type SnapshotVerificationDto,
   unverifiedSnapshot,
 } from "../verify/verification-state.js";
 import {
-  type OwnedObject,
-  type Viewer,
   canAccessObject,
   isOwnObject,
+  type OwnedObject,
   onBehalfOfOwner,
+  type Viewer,
   visibleObjectsCondition,
 } from "./access.js";
 import {
@@ -35,18 +35,18 @@ import {
   readManifestObjectBytes,
 } from "./content.js";
 import {
-  PreviewBusyError,
-  PreviewUnreadableError,
-  findAttachmentInWorker,
-  previewInWorker,
-} from "./preview-isolated.js";
-import {
+  downloadContentType,
   type FoundAttachment,
   type MailPreviewDto,
   PREVIEW_SIZE_CAP_BYTES,
-  downloadContentType,
   unavailablePreview,
 } from "./preview.js";
+import {
+  findAttachmentInWorker,
+  PreviewBusyError,
+  PreviewUnreadableError,
+  previewInWorker,
+} from "./preview-isolated.js";
 import type {
   ListObjectsQuery,
   ListSnapshotsQuery,
@@ -57,22 +57,22 @@ import type {
 import {
   ATTACHMENT_PARENT_KEY,
   type BreadcrumbSegment,
-  type EntryRow,
-  NATIVE_VERSION_MARKER,
-  type StoredVersionDto,
-  type TreeEntryDto,
-  type VersionDto,
-  type VersionRow,
   baseNameOf,
   breadcrumbOf,
   collapseVersions,
   compareEntries,
+  type EntryRow,
   escapeLike,
   fingerprintOf,
   mailSummaryOf,
+  NATIVE_VERSION_MARKER,
   nativeVersionsParent,
+  type StoredVersionDto,
+  type TreeEntryDto,
   toStoredVersion,
   toTreeEntry,
+  type VersionDto,
+  type VersionRow,
 } from "./tree.js";
 
 /**
@@ -993,7 +993,7 @@ async function loadMailEntry(
   `);
   const raw = result.rows[0];
   const row = raw ? { ...fromRawEntry(raw), chunkRefs: chunkRefsOf(raw) } : undefined;
-  if (!row || row.kind !== "mail") {
+  if (row?.kind !== "mail") {
     throw new ProblemError(404, "Mail entry not found");
   }
   return row;

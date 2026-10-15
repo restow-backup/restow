@@ -36,7 +36,7 @@ import { formatDateTime, formatRelative } from "@/lib/format";
 
 import { AccountsDialog } from "./accounts-dialog";
 import { useRequestSync } from "./hooks";
-import { HEALTH_VARIANT, describeSourceProblem, sourceHealth, syncResultKey } from "./presenters";
+import { describeSourceProblem, HEALTH_VARIANT, sourceHealth, syncResultKey } from "./presenters";
 import { RulesSheet } from "./rules-sheet";
 import type { DirectoryLastRun, DirectorySource, SyncWarning } from "./types";
 

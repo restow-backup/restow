@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { REACHABILITY_PATH, classifyFetchError, probePublicUrl } from "./reachability.js";
+import { classifyFetchError, probePublicUrl, REACHABILITY_PATH } from "./reachability.js";
 
 const fixedNow = () => new Date("2026-09-23T09:00:00.000Z");
 

@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { ApiError, NetworkError } from "@/lib/api";
 import {
-  CORE_LICENSE_URL,
   aboutLinks,
   authStatusKey,
   backupCodesDocument,
+  CORE_LICENSE_URL,
   changePasswordErrorKey,
   detectBrowser,
   detectDevice,

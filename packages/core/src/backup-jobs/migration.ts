@@ -40,11 +40,11 @@ import { type Cadence, validateCadence } from "../schedule/index.js";
 import { normalizeBandwidthWindows } from "./bandwidth.js";
 import { OVERRIDABLE_SETTING_KEYS, retentionKey } from "./endpoint-config.js";
 import {
-  type ScheduleGaps,
   endpointScheduleOf,
   jobScheduleFromCadence,
   jobScheduleFromEndpoint,
   runsAtLeastAsOften,
+  type ScheduleGaps,
   scheduleGaps,
   scheduleKey,
 } from "./schedule.js";

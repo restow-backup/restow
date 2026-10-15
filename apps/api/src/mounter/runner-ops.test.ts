@@ -4,15 +4,15 @@ import { describe, expect, it } from "vitest";
 import { Redactor } from "../updater/redact.js";
 import { PROBE_LABEL } from "./protocol.js";
 import {
-  RunnerRedactor,
-  SELINUX_CONTEXT,
   capabilitiesFor,
   classifyMountError,
   escapeOptionValue,
   execContainerSpec,
   isExpiredKey,
+  RunnerRedactor,
   runContainerSpec,
   runNames,
+  SELINUX_CONTEXT,
   shareVolumeOptions,
 } from "./runner-ops.js";
 import { RUNNER_LABEL, type ShareSpec, shareSpecSchema } from "./runner-protocol.js";

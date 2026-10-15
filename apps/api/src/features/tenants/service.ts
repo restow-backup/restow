@@ -1,16 +1,16 @@
 import { randomUUID } from "node:crypto";
 import {
   type Database,
+  invitation,
+  member,
+  organization,
+  providers,
   type Tenant,
   type TenantContact,
   type TenantKind,
   type TenantLanguage,
   type TenantNotificationRecipient,
   type TenantStatus,
-  invitation,
-  member,
-  organization,
-  providers,
   tenantContacts,
   tenantKeys,
   tenantNotificationRecipients,
@@ -26,8 +26,8 @@ import { featureEnabled, requireFeature } from "../../lib/features.js";
 import { createTenantKey } from "../../lib/secrets.js";
 import { withTenantTx } from "../../lib/tenant-context.js";
 import {
-  type TenantRole,
   membershipRoleFromTenantRole,
+  type TenantRole,
   tenantRoleFromMembership,
 } from "../../middleware/rbac.js";
 import { ProblemError } from "../../problem.js";

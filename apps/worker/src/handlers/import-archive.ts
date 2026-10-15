@@ -18,19 +18,19 @@
  */
 import { randomUUID } from "node:crypto";
 import {
+  archive,
   ChunkReader,
   JobAbortedError,
   type Logger,
-  type ManifestObject,
-  type ProtectedObjectRef,
-  archive,
   loadManifest,
+  type ManifestObject,
   mailfiles,
+  type ProtectedObjectRef,
 } from "@restow/core";
 import { type ArchiveEnvelope, archiveItems, retentionPolicies } from "@restow/db";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { withTenantTx } from "./framework.js";
 import type { WorkerJobContext } from "./framework.js";
+import { withTenantTx } from "./framework.js";
 
 /** The archive policy applied until a tenant sets its own (mirrors apps/api features/archive). */
 export const DEFAULT_ARCHIVE_RETENTION: archive.RetentionPolicy = {

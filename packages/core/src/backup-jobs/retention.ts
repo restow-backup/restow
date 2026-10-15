@@ -4,7 +4,7 @@
 // shared by the worker's retention run and the retention preview of the API, so both decide alike.
 
 import type { SnapshotRetentionPolicy } from "../retention/index.js";
-import { type ScopeMember, mailJobObjectIds } from "./scope.js";
+import { mailJobObjectIds, type ScopeMember } from "./scope.js";
 
 /** The objects of one job and the policy the job names. */
 export interface JobRetentionAssignment {

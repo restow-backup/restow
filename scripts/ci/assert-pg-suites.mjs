@@ -22,7 +22,7 @@
  *
  * Usage: node scripts/ci/assert-pg-suites.mjs [--root <repository root>]
  */
-import { existsSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 

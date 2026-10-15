@@ -53,9 +53,9 @@ export async function importExport(ctx, check) {
     // Each tenant reads its own subfolder of the import folder, named by its slug.
     const directory = join(stack.dir, "import", created.slug ?? SLUG);
     mkdirSync(join(directory, "mails"), { recursive: true });
-    folderMessages.forEach((bytes, at) =>
-      writeFileSync(join(directory, "mails", `m${at + 1}.eml`), bytes),
-    );
+    folderMessages.forEach((bytes, at) => {
+      writeFileSync(join(directory, "mails", `m${at + 1}.eml`), bytes);
+    });
     writeFileSync(join(directory, "box.mbox"), mboxOf(folderMbox));
     const folder = await api.get("/api/v1/imports/folder?path=", { tenantId: created.id });
     if (!folder.enabled || !folder.exists || folder.entries.length !== 2) {

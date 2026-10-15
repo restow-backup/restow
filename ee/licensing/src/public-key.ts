@@ -1,4 +1,4 @@
-import { type KeyObject, createHash, createPublicKey } from "node:crypto";
+import { createHash, createPublicKey, type KeyObject } from "node:crypto";
 
 /**
  * The Ed25519 public key license keys are verified against, offline.

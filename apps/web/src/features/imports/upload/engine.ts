@@ -1,5 +1,5 @@
 import type { ImportUploadDto } from "../types";
-import { UploadAborted, UploadFailure, classifyFailure } from "./errors";
+import { classifyFailure, UploadAborted, UploadFailure } from "./errors";
 import { Semaphore } from "./semaphore";
 import { hashBlob } from "./sha256";
 import type { UploadErrorCode, UploadEvent, UploadSource, UploadTransport } from "./types";

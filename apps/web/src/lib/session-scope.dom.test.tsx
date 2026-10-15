@@ -1,16 +1,16 @@
 // @vitest-environment happy-dom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
-import { type Root, createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { json, routedFetch } from "@/features/updates/testing";
 
 import type { Me } from "./api";
 import {
+  canViewAllTenants,
   type SessionContextValue,
   SessionProvider,
-  canViewAllTenants,
   sessionScope,
   useSession,
 } from "./session";

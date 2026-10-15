@@ -94,7 +94,10 @@ export function InvitationLinkField({
 export function CopyInvitationLinkButton({
   invitationId,
   email,
-}: { invitationId: string; email: string }) {
+}: {
+  invitationId: string;
+  email: string;
+}) {
   const { t } = useTranslation("tenants");
   const link = useInvitationLink(invitationId);
   const { copied, copy } = useCopy(link);

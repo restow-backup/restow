@@ -15,8 +15,8 @@
  *     `file-share-restore` or `file-share-copy` and `data.fileShare`.
  */
 import {
-  FILE_SHARE_QUEUES,
   type FailureCause,
+  FILE_SHARE_QUEUES,
   type FileShareJobPayload,
   fileShareSingletonKey,
   shareCause,
@@ -26,10 +26,10 @@ import {
 import {
   type FileShare,
   type FileShareRun,
-  type NewNotification,
   fileShareRuns,
   fileShareSnapshots,
   fileShares,
+  type NewNotification,
 } from "@restow/db";
 import { and, desc, eq, inArray, max } from "drizzle-orm";
 import { withTenantTx } from "../handlers/framework.js";

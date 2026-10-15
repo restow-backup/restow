@@ -36,10 +36,10 @@ import {
   versionFactsOf,
 } from "./conventions.js";
 import {
-  RestoreLedger,
-  type RestoreReport,
   describeRestoreError,
   isAbortError,
+  RestoreLedger,
+  type RestoreReport,
 } from "./results.js";
 import { planRestore, resolveRestoreSource } from "./selection.js";
 

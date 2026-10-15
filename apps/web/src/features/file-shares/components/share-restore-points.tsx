@@ -48,6 +48,7 @@ function PointDetails({ point, format }: { point: ShareSnapshot; format: ShareFo
           {point.includes.join(", ")}
         </span>
       ) : null}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: only keeps the badge's events from reaching the row's own handlers */}
       <span
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => event.stopPropagation()}
@@ -96,7 +97,10 @@ export function ShareRestorePoints({ share, onShowRuns }: ShareRestorePointsProp
 
   const adapter: FileSourceAdapter<ShareSnapshot> = {
     useRestorePoints: () => points,
-    useFolder: (pointId, path) => useShareBrowse(share.id, pointId, path),
+    // Method syntax: the adapter's use* members are hooks, called at the browser's top level.
+    useFolder(pointId, path) {
+      return useShareBrowse(share.id, pointId, path);
+    },
     useCreateDownload: () => createDownload,
     downloadUrl: (downloadId) => shareDownloadUrl(share.id, downloadId, tenantId),
     startDownload: startBrowserDownload,

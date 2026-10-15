@@ -1,4 +1,4 @@
-import { type IncomingMessage, type Server, type ServerResponse, createServer } from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { Readable } from "node:stream";
 import { S3Client } from "@aws-sdk/client-s3";
@@ -6,9 +6,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   MAX_MULTIPART_PARTS,
   MIN_MULTIPART_PART_SIZE,
-  S3StorageBackend,
   multipartCapacity,
   multipartPartSize,
+  S3StorageBackend,
   streamParts,
 } from "./s3.js";
 

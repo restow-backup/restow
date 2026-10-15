@@ -1,13 +1,13 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
+  assertMovable,
   ENDPOINT_PLAN,
   ENDPOINT_RUN_TABLES,
   FIRST_RUN_TABLES,
   MAIL_PLAN,
   RUN_TABLES,
   type RunWindow,
-  assertMovable,
   simulatedTargets,
 } from "./backdate.js";
 

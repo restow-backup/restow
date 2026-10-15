@@ -3,7 +3,7 @@ import { createServer } from "node:net";
 import { DrizzleQueryError, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { reportableError, safeErrorMessage, withoutQueryText } from "./errors.js";
-import { type Database, createDb } from "./index.js";
+import { createDb, type Database } from "./index.js";
 import { session } from "./schema/index.js";
 
 /** A loopback port nothing listens on: bound once by the OS, then released. */

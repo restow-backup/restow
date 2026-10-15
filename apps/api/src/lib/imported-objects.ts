@@ -1,5 +1,5 @@
 import { protectedObjects, snapshots, sources } from "@restow/db";
-import { type AnyColumn, type SQL, and, eq, sql } from "drizzle-orm";
+import { type AnyColumn, and, eq, type SQL, sql } from "drizzle-orm";
 import type { DbExecutor } from "./tenant-context.js";
 
 /**

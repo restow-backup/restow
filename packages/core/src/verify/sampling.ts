@@ -12,7 +12,7 @@
  */
 import type { ManifestObject } from "../manifest.js";
 import { objectTypeOf } from "../restore/conventions.js";
-import { type RandomSource, pickRandom } from "./random.js";
+import { pickRandom, type RandomSource } from "./random.js";
 
 export const SAMPLE_CATEGORIES = ["mail", "file", "event", "contact"] as const;
 

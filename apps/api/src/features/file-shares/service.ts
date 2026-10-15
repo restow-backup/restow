@@ -1,21 +1,21 @@
 import { isIP } from "node:net";
 import {
-  FILE_SHARE_QUEUES,
+  approvalRange,
+  classifyAddress,
   type FailureCause,
+  FILE_SHARE_QUEUES,
   type FileShareJobPayload,
   type FileShareSettings,
+  fileShareRepositoryPrefix,
+  fileShareSettingsOf,
+  fileShareSingletonKey,
   type HostResolver,
+  judgeShareAddresses,
   type RunnerClient,
   type RunnerListOutput,
   RunnerRefusedError,
   RunnerUnavailableError,
   type ShareSpec,
-  approvalRange,
-  classifyAddress,
-  fileShareRepositoryPrefix,
-  fileShareSettingsOf,
-  fileShareSingletonKey,
-  judgeShareAddresses,
   shareBudgetBytes,
   shareCauseOfCode,
   shareQuotaLevel,
@@ -24,41 +24,40 @@ import {
   tenantShareBudgetBytes,
 } from "@restow/core";
 import {
+  backupJobs,
   type Database,
   type FileShare,
   type FileShareRun,
   type FileShareRunParams,
-  backupJobs,
   fileShareRunItems,
   fileShareRuns,
   fileShareSnapshots,
   fileShares,
   runSamples,
-  secrets,
   settings,
 } from "@restow/db";
-import { and, count, desc, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, isNull, or, sql } from "drizzle-orm";
 import { providerDb } from "../../db.js";
 import { type ProviderRole, providerRoleSatisfies } from "../../lib/provider-access.js";
 import { readSecret, replaceSecret, storeSecret } from "../../lib/secrets.js";
 import { type DbExecutor, type Transaction, withTenantTx } from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
-import { type FailureDto, causeToFailureDto } from "../failures/dto.js";
+import { causeToFailureDto, type FailureDto } from "../failures/dto.js";
 import { pgBossExecutor } from "../jobs/pg-boss-tx.js";
 import { isMissingQueueSchema, jobQueue } from "../jobs/queue.js";
 import { ENABLE_MOUNTER_COMMAND, enableMounterCommand } from "../mounts/service.js";
-import { FILE_SHARE_TENANT_AUDIT_ACTIONS as A, type FileShareActor, auditShare } from "./audit.js";
+import { FILE_SHARE_TENANT_AUDIT_ACTIONS as A, auditShare, type FileShareActor } from "./audit.js";
 import { FILE_SHARE_PROBLEMS } from "./constants.js";
 import {
   type FileShareSummaryDto,
+  locationOf,
   type ShareQuotaDto,
   type ShareRunDetailDto,
   type ShareRunDto,
-  locationOf,
   shareRunDto,
   shareSummaryDto,
 } from "./dto.js";
-import { type ShareCounts, loadShareFacts, shareCountsOf } from "./protection.js";
+import { loadShareFacts, type ShareCounts, shareCountsOf } from "./protection.js";
 import { fileShareResolver, fileShareRunner } from "./runner.js";
 import type {
   CreateShareInput,

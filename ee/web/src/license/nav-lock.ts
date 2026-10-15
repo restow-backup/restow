@@ -1,7 +1,7 @@
 import { installationSectionPath } from "@/features/installation/paths";
 import type { NavLock } from "@/lib/navigation";
 
-import { type LicensedEdition, editionAllows, readEdition } from "./edition";
+import { editionAllows, type LicensedEdition, readEdition } from "./edition";
 
 /** Id of the license section of the installation page (`/installation/license`). */
 export const LICENSE_SECTION_ID = "license";

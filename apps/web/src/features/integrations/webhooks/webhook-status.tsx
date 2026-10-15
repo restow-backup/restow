@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
-import { DELIVERY_STATUS_VARIANT, HEALTH_VARIANT, eventKey, webhookHealth } from "../presenters";
+import { DELIVERY_STATUS_VARIANT, eventKey, HEALTH_VARIANT, webhookHealth } from "../presenters";
 import type { DeliveryStatus, Webhook } from "../types";
 
 /** How the webhook is doing, judged by its last delivery. */

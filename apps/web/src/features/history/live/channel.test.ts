@@ -3,14 +3,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { EventStreamOptions, ServerEvent, StreamStatus } from "@/features/jobs/sse";
 
 import {
+  acquireChannel,
   type ChannelDeps,
   LiveChannel,
+  resetChannelsForTesting,
   STALE_AFTER_MS,
   STALL_MS,
   type VisibilitySource,
   WATCHDOG_MS,
-  acquireChannel,
-  resetChannelsForTesting,
 } from "./channel";
 
 /** A stream opener that records every stream and lets the test drive it. */

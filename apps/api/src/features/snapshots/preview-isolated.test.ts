@@ -1,10 +1,10 @@
 import { mailfiles } from "@restow/core";
 import { afterAll, describe, expect, it } from "vitest";
 import {
+  findAttachmentInWorker,
   PREVIEW_MAX_QUEUED,
   PreviewBusyError,
   PreviewUnreadableError,
-  findAttachmentInWorker,
   previewInWorker,
 } from "./preview-isolated.js";
 

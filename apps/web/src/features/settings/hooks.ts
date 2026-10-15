@@ -4,14 +4,14 @@ import { queryKeys } from "@/lib/api";
 import { authClient } from "@/lib/auth-client";
 import { signInMethodsQueryOptions } from "@/lib/second-factor";
 import {
-  type InstallationSettings,
-  type MailTestRequest,
-  type SettingsPatch,
   deleteMailConfiguration,
   fetchPasskeyImpact,
   fetchPasskeyReadiness,
   fetchSettings,
+  type InstallationSettings,
+  type MailTestRequest,
   patchSettings,
+  type SettingsPatch,
   sendTestMail,
 } from "./api";
 import {

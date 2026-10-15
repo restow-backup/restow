@@ -30,7 +30,7 @@ import { ObjectIcon } from "@/features/restore/explorer/entry-icon";
 import { CancelRestoreButton, DownloadArchiveLink } from "@/features/restore/jobs/job-actions";
 import { useJobText } from "@/features/restore/jobs/use-job-text";
 import { isLive, progressRatio } from "@/features/restore/lib/jobs";
-import { RESTORE_PATHS, jobHref, restoreTo, useOpenJob } from "@/features/restore/navigation";
+import { jobHref, RESTORE_PATHS, restoreTo, useOpenJob } from "@/features/restore/navigation";
 import { RestoreTabs } from "@/features/restore/restore-tabs";
 import { useRestoreJobs } from "@/features/restore/use-restore-data";
 import { formatDateTime, formatInteger, formatRelative } from "@/lib/format";

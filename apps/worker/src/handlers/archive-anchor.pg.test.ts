@@ -9,10 +9,10 @@
  */
 import { archive } from "@restow/core";
 import {
-  type Database,
   archiveAnchor,
   archiveItems,
   createDb,
+  type Database,
   providers,
   tenants,
 } from "@restow/db";

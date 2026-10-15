@@ -1,8 +1,8 @@
 import {
   type ColumnDef,
+  functionalUpdate,
   type Updater,
   type VisibilityState,
-  functionalUpdate,
 } from "@tanstack/react-table";
 import * as React from "react";
 

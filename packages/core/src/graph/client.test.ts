@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { JobAbortedError } from "../engine/chunkstore.js";
 import {
+  chunkIntoBatches,
+  computeBackoffMs,
   FetchGraphClient,
   GraphResponseTimeoutError,
   MAX_BATCH_SIZE,
-  chunkIntoBatches,
-  computeBackoffMs,
   parseRetryAfter,
 } from "./client.js";
 import { GraphError } from "./errors.js";

@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { gzipSync } from "node:zlib";
 import { describe, expect, it } from "vitest";
-import { type SidecarEntry, readSidecar, readSidecarLines } from "./sidecar.js";
+import { readSidecar, readSidecarLines, type SidecarEntry } from "./sidecar.js";
 
 /** The golden file restow-share's writer produces (agent/internal/share/sidecar_test.go). */
 const golden = readFileSync(

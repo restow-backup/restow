@@ -8,18 +8,18 @@
  * without a file for that object on disk.
  */
 import { createHash } from "node:crypto";
-import { copyFile, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   type Dek,
+  deriveChunkIdKey,
+  encryptChunk,
   LocalStorageBackend,
   MANIFEST_VERSION,
   type ManifestObject,
   PackWriter,
   type SnapshotManifest,
-  deriveChunkIdKey,
-  encryptChunk,
   sealManifest,
   storedId,
   wrapDek,

@@ -1,7 +1,7 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { CircleCheck, File, Folder, Info, ShieldAlert, TriangleAlert } from "lucide-react";
 import * as React from "react";
-
 import { Field, messageId } from "@/components/forms/field";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -22,15 +22,14 @@ import { addJobMembers, backupJobKeys } from "@/features/backup-jobs/api";
 import { useBackupJobs } from "@/features/backup-jobs/hooks";
 import { FailureExplanation } from "@/features/failures";
 import { useSession } from "@/lib/session";
-import { useQueryClient } from "@tanstack/react-query";
 
 import {
   type FileShareDetail,
+  fileShareKeys,
   NFS_VERSIONS,
-  SMB_VERSIONS,
   type ShareProtocol,
   type ShareTestResult,
-  fileShareKeys,
+  SMB_VERSIONS,
 } from "../api.js";
 import {
   useCreateShare,

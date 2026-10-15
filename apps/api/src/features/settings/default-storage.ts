@@ -1,21 +1,21 @@
 import {
   DEFAULT_STORAGE_SECRET_KIND,
+  describeStorageLocation,
   type InstallationDefaultDocument,
   type InstallationDefaultResolution,
   InstallationDefaultResolver,
   type InstallationDefaultStorage,
+  installationDefaultDocument,
+  installationDefaultStorage,
+  installationProbePrefix,
   type ObjectLockCapability,
   type OpenedStorageTarget,
+  openInstallationDefault,
+  openStorageLocation,
   type S3CredentialsSecret,
   type StorageLocation,
   type StorageProbeResult,
   StorageTargetError,
-  describeStorageLocation,
-  installationDefaultDocument,
-  installationDefaultStorage,
-  installationProbePrefix,
-  openInstallationDefault,
-  openStorageLocation,
   serializeInstallationDefaultDocument,
   storageLocationMoves,
   validateStorageLocation,
@@ -48,9 +48,9 @@ import { ProblemError } from "../../problem.js";
 import { accessKeyIdHint } from "../storage/dto.js";
 import { credentialsBoundElsewhere } from "../storage/rules.js";
 import {
+  invalidLocationProblem,
   STORAGE_WRITING_QUEUES,
   UNFINISHED_MIGRATION_STATUSES,
-  invalidLocationProblem,
 } from "../storage/service.js";
 import type { SaveDefaultStorageInput } from "./schemas.js";
 import type { Actor } from "./service.js";

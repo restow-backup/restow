@@ -17,18 +17,18 @@
  * six attempts over twelve hours, announced once (`file_share.repository_locked`).
  */
 import {
+  applyRetentionPolicy,
+  auditSnapshots,
   DEFAULT_SCHEDULE_TIMEZONE,
   DEFAULT_SHARE_CHECK_SUBSET_PERCENT,
   DEFAULT_SHARE_RETENTION,
   type FileShareJobPayload,
-  type RepositoryAccess,
-  ResticError,
-  type ResticSnapshot,
-  applyRetentionPolicy,
-  auditSnapshots,
   isValidTimeZone,
   listRepositoryObjects,
   measureRepositoryBytes,
+  type RepositoryAccess,
+  ResticError,
+  type ResticSnapshot,
   resticCheck,
   resticForget,
   resticPrune,
@@ -40,9 +40,9 @@ import {
 import {
   type BackupJob,
   type BackupJobMember,
-  type FileShare,
   backupJobMembers,
   backupJobs,
+  type FileShare,
   fileShareReports,
   fileShareRepositoryLocks,
   fileShareRuns,
@@ -54,9 +54,9 @@ import {
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { checkSubset } from "../endpoints/check.js";
 import {
+  clearClientLocks,
   LOCKED_ALERT_ATTEMPTS,
   LOCKED_ALERT_MIN_MS,
-  clearClientLocks,
 } from "../endpoints/maintenance.js";
 import { ratingOf } from "../endpoints/verify.js";
 import { withTenantTx } from "../handlers/framework.js";
@@ -457,7 +457,7 @@ export async function shareVerify(
       .limit(1);
     return row ?? null;
   });
-  if (!snapshot || snapshot.status !== "active") {
+  if (snapshot?.status !== "active") {
     return;
   }
   const resticId = snapshot.resticSnapshotId;

@@ -3,15 +3,15 @@ import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
-  MANIFEST,
-  VENDOR_DIR,
   classifyLicense,
   compareWithBinaries,
   legalFiles,
+  MANIFEST,
   moduleFolder,
   moduleLicense,
   pinnedResticVersion,
   readBuildInfo,
+  VENDOR_DIR,
 } from "../restic-licenses.mjs";
 
 const START = Buffer.from("3077af0c9274080241e1c107e6d618e6", "hex");

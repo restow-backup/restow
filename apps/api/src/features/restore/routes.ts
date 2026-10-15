@@ -3,11 +3,11 @@ import { type Context, Hono, type MiddlewareHandler } from "hono";
 import { db } from "../../db.js";
 import { clientIp } from "../../lib/request.js";
 import {
-  TENANT_HEADER,
-  type TenantEnv,
   authenticate,
   requireTenant,
   resolveTenantAccess,
+  TENANT_HEADER,
+  type TenantEnv,
 } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { contentDisposition } from "./headers.js";
@@ -18,13 +18,13 @@ import {
   restoreTargetsQuerySchema,
 } from "./schemas.js";
 import {
-  type RestoreActor,
   cancelRestore,
   createRestore,
   getRestore,
   listRestores,
   listTargets,
   openDownload,
+  type RestoreActor,
 } from "./service.js";
 
 /**

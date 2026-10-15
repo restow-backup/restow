@@ -47,17 +47,17 @@ import {
 } from "../api.js";
 import { addFolder } from "../folders.js";
 import {
-  type JobDraft,
-  type JobProblems,
-  type SelectedMember,
-  type SettingsDraft,
   checkJobDraft,
   createInputOf,
   draftOfJob,
+  type JobDraft,
+  type JobProblems,
   jobHasProblems,
   memberInputsOf,
   newJobDraft,
   retentionReduction,
+  type SelectedMember,
+  type SettingsDraft,
   scopeChanged,
   updateInputOf,
 } from "../form.js";
@@ -72,12 +72,12 @@ import {
 } from "../hooks.js";
 import { repositoryLabel } from "../presenters.js";
 import {
-  type MemberConflict,
-  type ProblemTarget,
   cadenceProblemOf,
   conflictsOf,
   jobErrorKey,
   jobProblemOf,
+  type MemberConflict,
+  type ProblemTarget,
   problemTarget,
 } from "../problems.js";
 import { type JobsAccess, JobsAccessNote } from "./access-note.js";

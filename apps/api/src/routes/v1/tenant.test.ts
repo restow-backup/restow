@@ -6,7 +6,7 @@ import { buildV1 } from "../v1.js";
 import { toJsonSchema } from "./openapi.js";
 import { mailboxesOf, tenantSchema } from "./tenant.js";
 import { featuresOn } from "./testing/features.js";
-import { OTHER_TENANT_ID, TENANT_ID, bearer, fakeRequireKey } from "./testing/keys.js";
+import { bearer, fakeRequireKey, OTHER_TENANT_ID, TENANT_ID } from "./testing/keys.js";
 import { scriptedDb } from "./testing/scripted-db.js";
 import { protectionStatusOf } from "./users.js";
 

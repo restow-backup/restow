@@ -12,16 +12,16 @@ import {
 } from "../../../../apps/api/src/lib/pending-license-key.js";
 import { ProblemError } from "../../../../apps/api/src/problem.js";
 import {
-  type LicenseVerificationKey,
   environmentEdition,
+  type LicenseVerificationKey,
   licenseKeyId,
   resolveLicensePublicKey,
   verifyLicenseToken,
 } from "../../../licensing/src/index.js";
-import { type LicenseStateDto, buildLicenseState } from "./dto.js";
+import { buildLicenseState, type LicenseStateDto } from "./dto.js";
 import {
-  LICENSE_PROBLEM_TYPES,
   installationNotConfigured,
+  LICENSE_PROBLEM_TYPES,
   licenseNotInstalled,
   licenseRejected,
   verificationUnavailable,

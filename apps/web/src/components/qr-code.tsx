@@ -1,6 +1,6 @@
 import * as React from "react";
 
-import { QUIET_ZONE, encodeQr, qrSvgPath } from "@/lib/qr";
+import { encodeQr, QUIET_ZONE, qrSvgPath } from "@/lib/qr";
 import { cn } from "@/lib/utils";
 
 interface QrCodeProps {

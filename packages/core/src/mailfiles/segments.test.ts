@@ -5,12 +5,12 @@ import type { Dek } from "../crypto.js";
 import { Keyring } from "../engine/keyring.js";
 import { MemoryStorage } from "../verify/testing.js";
 import {
+  clampSegmentSize,
   DEFAULT_SEGMENT_SIZE,
   MIN_SEGMENT_SIZE,
   SegmentLimitError,
   type SegmentScope,
   SegmentStore,
-  clampSegmentSize,
   segmentKey,
   segmentPrefix,
   segmentRoot,

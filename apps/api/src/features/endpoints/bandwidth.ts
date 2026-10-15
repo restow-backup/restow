@@ -1,9 +1,9 @@
 import {
   type BandwidthWindow,
   type BandwidthWindowIssue,
+  bandwidthWindowIssues,
   MAX_BANDWIDTH_KBPS,
   MAX_BANDWIDTH_WINDOWS,
-  bandwidthWindowIssues,
   normalizeBandwidthWindows,
 } from "@restow/core";
 

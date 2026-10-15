@@ -1,17 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  OUTCOMES,
-  PHASES,
-  type PageStatus,
-  RELOAD_BACKOFF_MS,
-  STEP_IDS,
   currentStep,
   failureAttribute,
   failureView,
   fill,
   modeOf,
+  OUTCOMES,
+  type PageStatus,
+  PHASES,
   parseStatus,
+  RELOAD_BACKOFF_MS,
+  STEP_IDS,
   shouldReload,
   stepStatuses,
 } from "./client";

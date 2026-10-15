@@ -19,9 +19,9 @@
  */
 import { randomBytes } from "node:crypto";
 import {
-  type Database,
   auditLog,
   createDb,
+  type Database,
   reportRules,
   secrets,
   settings,
@@ -37,7 +37,7 @@ import {
   recreateDatabase,
   testDatabaseAdminUrl,
 } from "../features/snapshots/testing/explorer-fixture.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../testing/database-roles.js";
 
 const DATABASE = "restow_api_setup_language_test";
 const PUBLIC_URL = "http://localhost:3000";

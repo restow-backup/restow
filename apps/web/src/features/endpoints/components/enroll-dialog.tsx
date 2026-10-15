@@ -1,4 +1,5 @@
 import { Link, type LinkProps } from "@tanstack/react-router";
+import type { LucideIcon } from "lucide-react";
 import {
   Apple,
   ChevronDown,
@@ -10,7 +11,6 @@ import {
   Terminal,
   TriangleAlert,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -115,7 +115,11 @@ function OsChoice({
   os,
   icon: Icon,
   selected,
-}: { os: EndpointOs; icon: LucideIcon; selected: boolean }) {
+}: {
+  os: EndpointOs;
+  icon: LucideIcon;
+  selected: boolean;
+}) {
   const { t } = useTranslation("endpoints");
   const planned = !isSelectableOs(os);
   const id = `enroll-os-${os}`;
@@ -261,14 +265,20 @@ function CommandBox({
   command,
   label,
   className,
-}: { command: string; label: string; className?: string }) {
+}: {
+  command: string;
+  label: string;
+  className?: string;
+}) {
   return (
     <div
       data-slot="command-box"
       className={cn("flex items-start gap-2 rounded-md border bg-muted/50 p-3", className)}
     >
+      {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: a named command box; a landmark role for it would only add noise */}
       <code
         className="min-w-0 flex-1 font-mono text-xs leading-relaxed whitespace-pre-wrap [overflow-wrap:anywhere] select-all"
+        // biome-ignore lint/a11y/noNoninteractiveTabindex: the box is focusable so its text can be reached and selected by keyboard
         tabIndex={0}
         aria-label={label}
       >

@@ -17,11 +17,11 @@ import {
   ApiError,
   DISCLAIMER_REQUIRED_PROBLEM,
   DISCLAIMER_VERSION_PROBLEM,
+  queryKeys,
   SETUP_TOKEN_PROBLEM,
   type SetupResult,
   type SetupState,
   type SetupSubmission,
-  queryKeys,
   setupStateQueryOptions,
   submitSetup,
   verifySetupToken,
@@ -32,14 +32,14 @@ import { zodResolver } from "@/lib/form";
 import { holdPasswordForEnrolment } from "@/lib/password-handoff";
 import { PasskeyReadiness } from "@/routes/setup/passkey-readiness";
 import {
-  SETUP_LANGUAGES,
-  STEP_FIELDS,
-  STEP_KEYS,
-  type SetupFormValues,
-  type SetupLanguage,
-  type StepKey,
   buildSubmission,
   defaultSetupValues,
+  SETUP_LANGUAGES,
+  type SetupFormValues,
+  type SetupLanguage,
+  STEP_FIELDS,
+  STEP_KEYS,
+  type StepKey,
   setupFormSchema,
 } from "@/routes/setup/schema";
 import { Stepper, shownSteps } from "@/routes/setup/stepper";

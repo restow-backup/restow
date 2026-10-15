@@ -2,10 +2,10 @@ import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tansta
 
 import {
   type AppTestResult,
-  type MicrosoftAppView,
-  type SaveMicrosoftAppInput,
   fetchMicrosoftApp,
+  type MicrosoftAppView,
   removeMicrosoftApp,
+  type SaveMicrosoftAppInput,
   saveMicrosoftApp,
   testMicrosoftApp,
 } from "./api";

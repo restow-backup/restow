@@ -6,10 +6,10 @@ import {
   planMailMigration,
 } from "@restow/core";
 import {
-  type Database,
-  type Endpoint,
   backupJobMembers,
   backupJobs,
+  type Database,
+  type Endpoint,
   endpoints,
   schedules,
   tenants,

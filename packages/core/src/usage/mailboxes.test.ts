@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type MailboxCountable, countProtectedMailboxes } from "./mailboxes.js";
+import { countProtectedMailboxes, type MailboxCountable } from "./mailboxes.js";
 
 function object(
   kind: MailboxCountable["kind"],

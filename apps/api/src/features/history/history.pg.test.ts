@@ -14,14 +14,14 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { defaultEndpointConfig } from "@restow/core";
 import {
-  type Database,
   backupJobMembers,
   backupJobs,
   createDb,
+  type Database,
   endpointReports,
   endpointRuns,
-  endpointTasks,
   endpoints,
+  endpointTasks,
   jobProgress,
   jobs,
   protectedObjects,
@@ -39,7 +39,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type Role, roleSatisfies } from "../../middleware/rbac.js";
 import type { TenantEnv } from "../../middleware/session.js";
 import { ProblemError } from "../../problem.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,

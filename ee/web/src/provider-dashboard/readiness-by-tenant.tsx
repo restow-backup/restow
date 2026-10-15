@@ -8,12 +8,11 @@ import { Card } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { LoadedTenantRow, ProviderTenantRow } from "@/features/dashboard/api";
 import { WidgetUnavailableError } from "@/features/dashboard/presenters";
-import { StateChips, countsOfSummary } from "@/features/verify/components/state-chips";
+import { countsOfSummary, StateChips } from "@/features/verify/components/state-chips";
 import { READINESS_STATES, type ReadinessState } from "@/features/verify/search";
+import type { SlotProps } from "@/lib/extensions";
 import { formatInteger } from "@/lib/format";
 import { cn } from "@/lib/utils";
-
-import type { SlotProps } from "@/lib/extensions";
 import "@/features/dashboard/i18n";
 import "@/features/verify/i18n";
 

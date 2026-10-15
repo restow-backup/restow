@@ -18,7 +18,7 @@
  * Nothing here talks to the network or the database.
  */
 import { guidanceFor } from "@restow/core";
-import { type SupportedLanguage, createI18n, failureVariables } from "@restow/i18n";
+import { createI18n, failureVariables, type SupportedLanguage } from "@restow/i18n";
 
 /** Mirrors the `webhook_format` enum and the API's list. */
 export const WEBHOOK_FORMATS = ["restow", "discord", "slack", "teams"] as const;

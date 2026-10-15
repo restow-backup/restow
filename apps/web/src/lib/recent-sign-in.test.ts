@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import { ApiError } from "@/lib/api";
 
 import {
-  RECENT_SIGN_IN_PROBLEM,
   isRecentSignInRequired,
   offersPasskeyConfirmation,
+  RECENT_SIGN_IN_PROBLEM,
 } from "./recent-sign-in";
 
 describe("isRecentSignInRequired", () => {

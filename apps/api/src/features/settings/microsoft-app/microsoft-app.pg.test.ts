@@ -15,24 +15,24 @@
  */
 import { randomBytes } from "node:crypto";
 import {
+  deriveInstallationSecretsKey,
   ENTRA_APP_SECRET_KIND,
   ENTRA_APP_TEST_SECRET_KIND,
   EntraAppResolver,
-  REQUIRED_PERMISSIONS,
-  deriveInstallationSecretsKey,
   kekFromBase64,
+  REQUIRED_PERMISSIONS,
 } from "@restow/core";
 import {
-  type Database,
   auditLog,
   createDb,
+  type Database,
   findInstallationSecret,
   secrets,
   settings,
 } from "@restow/db";
 import { and, eq, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,

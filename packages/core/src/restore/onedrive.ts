@@ -48,7 +48,7 @@ import {
   uploadFile,
 } from "../graph/resources/drive.js";
 import type { ManifestObject } from "../manifest.js";
-import { type RestoreGraphClientFactory, chunkReaderFor, throwIfAborted } from "./common.js";
+import { chunkReaderFor, type RestoreGraphClientFactory, throwIfAborted } from "./common.js";
 import {
   baseName,
   fileTimestampsOf,
@@ -58,8 +58,8 @@ import {
   versionFactsOf,
 } from "./conventions.js";
 import { UploadDigest } from "./quickxorhash.js";
-import { RestoreLedger, type RestoreReport, isAbortError } from "./results.js";
-import { type RestorePlan, planRestore, resolveRestoreSource } from "./selection.js";
+import { isAbortError, RestoreLedger, type RestoreReport } from "./results.js";
+import { planRestore, type RestorePlan, resolveRestoreSource } from "./selection.js";
 
 export interface OneDriveRestoreEngineOptions {
   readonly graph: RestoreGraphClientFactory;

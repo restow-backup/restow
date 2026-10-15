@@ -14,8 +14,8 @@ import type { Readable } from "node:stream";
 import {
   AbortMultipartUploadCommand,
   type ChecksumAlgorithm,
-  CompleteMultipartUploadCommand,
   type CompletedPart,
+  CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
   DeleteObjectCommand,
   GetObjectCommand,

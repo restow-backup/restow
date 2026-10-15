@@ -1,8 +1,8 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
-  INSTALLATION_SECRETS_KEY_VERSION,
   deriveInstallationSecretsKey,
+  INSTALLATION_SECRETS_KEY_VERSION,
   openSecret,
   sealSecret,
   secretAad,

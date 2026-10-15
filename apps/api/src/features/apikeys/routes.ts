@@ -1,13 +1,13 @@
 import { type Context, Hono } from "hono";
 import { db, providerDb } from "../../db.js";
 import { clientIp } from "../../lib/request.js";
-import { type TenantEnv, requireProviderAdmin, requireTenant } from "../../middleware/session.js";
+import { requireProviderAdmin, requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { apiKeyParamSchema, createApiKeySchema } from "./schemas.js";
 import {
+  createKey,
   type KeyActor,
   type KeyScope,
-  createKey,
   listKeys,
   listProviderKeys,
   revokeKey,

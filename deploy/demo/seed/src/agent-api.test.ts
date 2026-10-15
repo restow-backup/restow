@@ -157,6 +157,6 @@ describe("AgentApi", () => {
     );
     await expect(api.config()).rejects.toMatchObject({ status: 503 });
     expect(calls).toHaveLength(1);
-    expect((calls[0]?.init as { signal?: AbortSignal }).signal).toBeInstanceOf(AbortSignal);
+    expect((calls[0].init as { signal?: AbortSignal }).signal).toBeInstanceOf(AbortSignal);
   });
 });

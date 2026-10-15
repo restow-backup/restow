@@ -23,9 +23,9 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import {
-  type Database,
   auditLog,
   createDb,
+  type Database,
   organization,
   providers,
   reportRules,
@@ -38,7 +38,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { registerApiExtension, resetExtensionsForTesting } from "../../extensions.js";
 import { verifyAuditChain } from "../../lib/audit.js";
 import { withTenantTx } from "../../lib/tenant-context.js";
-import { type TestDatabaseRoles, provisionTestRoles } from "../../testing/database-roles.js";
+import { provisionTestRoles, type TestDatabaseRoles } from "../../testing/database-roles.js";
 import {
   dropDatabase,
   recreateDatabase,

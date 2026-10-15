@@ -10,7 +10,7 @@
  * and dropped after, the roles with it). Without it the suite is skipped.
  */
 import { randomBytes, randomUUID } from "node:crypto";
-import { type Database, auditLog, createDb, license, providers, tenants, user } from "@restow/db";
+import { auditLog, createDb, type Database, license, providers, tenants, user } from "@restow/db";
 import { eq } from "drizzle-orm";
 import { Hono, type MiddlewareHandler } from "hono";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -22,8 +22,8 @@ import {
 } from "../../../../apps/api/src/features/snapshots/testing/explorer-fixture.js";
 import type { TenantEnv } from "../../../../apps/api/src/middleware/session.js";
 import {
-  type TestDatabaseRoles,
   provisionTestRoles,
+  type TestDatabaseRoles,
 } from "../../../../apps/api/src/testing/database-roles.js";
 
 const DATABASE = "restow_ee_legal_holds_test";

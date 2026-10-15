@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import { type RunnerClient, createRunnerClient } from "@restow/core";
+import { createRunnerClient, type RunnerClient } from "@restow/core";
 
 /**
  * The worker's side of the mounter (docs/FILESHARES.md 8.2): the dispatcher starts

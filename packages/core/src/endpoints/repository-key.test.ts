@@ -4,10 +4,10 @@ import { Keyring } from "../engine/keyring.js";
 import { MemoryStorage } from "../verify/testing.js";
 import {
   ENDPOINT_PASSWORD_FORMAT,
-  FILE_SHARE_PASSWORD_KIND,
   endpointPasswordKey,
   ensureEndpointPasswordFile,
   ensureRepositoryPasswordFile,
+  FILE_SHARE_PASSWORD_KIND,
   openEndpointPassword,
   openRepositoryPassword,
   readEndpointPasswordDocument,

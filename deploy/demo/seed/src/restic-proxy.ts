@@ -1,11 +1,11 @@
 import {
+  Agent,
+  createServer,
   type IncomingHttpHeaders,
   type IncomingMessage,
-  type ServerResponse,
-  createServer,
   request,
+  type ServerResponse,
 } from "node:http";
-import { Agent } from "node:http";
 import type { AddressInfo } from "node:net";
 
 /**

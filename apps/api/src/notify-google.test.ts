@@ -1,13 +1,13 @@
 import { createVerify, generateKeyPairSync } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
+  buildMimeMessage,
+  buildServiceAccountAssertion,
   GMAIL_SEND_SCOPE,
   GMAIL_SEND_URL,
   GOOGLE_TOKEN_ENDPOINT,
   GoogleNotifier,
   type GoogleServiceAccountKey,
-  buildMimeMessage,
-  buildServiceAccountAssertion,
   gmailSendFailureReason,
   googleTokenFailureReason,
   parseServiceAccountKey,
@@ -48,10 +48,10 @@ interface Call {
 }
 
 /** A fetch fake answering the token endpoint and the Gmail API from a script. */
-function fakeFetch(answers: {
-  token?: () => Response;
-  send?: () => Response;
-}): { fetchImpl: typeof fetch; calls: Call[] } {
+function fakeFetch(answers: { token?: () => Response; send?: () => Response }): {
+  fetchImpl: typeof fetch;
+  calls: Call[];
+} {
   const calls: Call[] = [];
   const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
@@ -247,9 +247,7 @@ describe("GoogleNotifier", () => {
     expect(calls[0]?.init.redirect).toBe("error");
 
     const send = calls[1];
-    expect((send?.init.headers as Record<string, string>).Authorization).toBe(
-      "Bearer ya29.fixture",
-    );
+    expect((send.init.headers as Record<string, string>).Authorization).toBe("Bearer ya29.fixture");
     const raw = JSON.parse(String(send?.init.body)).raw as string;
     expect(raw).not.toMatch(/[+/=]/);
     const message = Buffer.from(raw, "base64url").toString("utf8");

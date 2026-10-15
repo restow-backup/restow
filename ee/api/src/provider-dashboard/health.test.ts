@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { LoadedTenantRowDto } from "../../../../apps/api/src/features/dashboard/dto.js";
 import type { TenantSummaryDto } from "../../../../apps/api/src/routes/v1/status.js";
 import {
-  STALE_BACKUP_HOURS,
   alertsFor,
   providerAlerts,
   providerKpis,
+  STALE_BACKUP_HOURS,
   tenantRow,
 } from "./health.js";
 

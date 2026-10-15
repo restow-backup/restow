@@ -1,7 +1,5 @@
 import { useTranslation } from "react-i18next";
-
-import { StatusBadge, type StatusTone } from "@/components/kit";
-import { ActivityOrb } from "@/components/kit";
+import { ActivityOrb, StatusBadge, type StatusTone } from "@/components/kit";
 import { statusKey, statusTone } from "../presenters";
 import type { ImportSummary } from "../types";
 

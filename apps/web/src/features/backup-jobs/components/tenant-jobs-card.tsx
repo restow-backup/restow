@@ -27,7 +27,7 @@ import { JOB_KINDS, type JobKind } from "../api.js";
 import { useBackupJobs } from "../hooks.js";
 import { jobDefinitionTo, jobsListTo, linkProps, newJobTo } from "../paths.js";
 import { describeJobSchedule, describeScope } from "../presenters.js";
-import { JobsAccessNote, closedProps, useJobsAccess } from "./access-note.js";
+import { closedProps, JobsAccessNote, useJobsAccess } from "./access-note.js";
 import { JobStateBadge } from "./job-cells.js";
 
 /**

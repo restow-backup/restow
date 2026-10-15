@@ -3,8 +3,8 @@ import { shutdownIsolation } from "./isolate.js";
 import {
   EMPTY_MESSAGE_META,
   HTML_TEXT_DEFAULT_LIMIT,
-  MAX_BODY_TEXT_CHARS,
   htmlToPlainText,
+  MAX_BODY_TEXT_CHARS,
   parseMessageMeta,
 } from "./meta.js";
 import { buildEml } from "./testing/builders.js";

@@ -11,7 +11,7 @@
  */
 import { type ChildProcess, spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -40,11 +40,11 @@ import { processFinish } from "./finish.js";
 import { shareRetention, shareVerify } from "./maintenance.js";
 import { queueShareBackup } from "./queue.js";
 import {
-  type ShareFixture,
   addShare,
   addShareJob,
   adminUrl,
   roleUrl,
+  type ShareFixture,
   startShareFixture,
 } from "./testing/fixture.js";
 
@@ -239,7 +239,6 @@ describe.skipIf(!canRun)("file share backup end to end with restow-share and res
   });
 
   let firstRun = "";
-  let secondRun = "";
 
   it("backs up a share: the runner reports through the api, the worker records the restore point", async () => {
     firstRun = await backup();
@@ -308,7 +307,7 @@ describe.skipIf(!canRun)("file share backup end to end with restow-share and res
     await writeFile(join(shareDir, "Finance", "budget.txt"), "budget v2, changed\n");
     await rm(join(shareDir, "readme.txt"));
     await writeFile(join(shareDir, "HR", "new-hire.txt"), "welcome\n");
-    secondRun = await backup();
+    await backup();
     const snapshots = await fixture.owner
       .select()
       .from(fileShareSnapshots)

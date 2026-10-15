@@ -2,14 +2,14 @@ import { execFile } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 import {
+  configureIsolation,
   type IsolatedTask,
   IsolatedTaskError,
-  RECYCLE_AFTER_TASKS,
-  SHARED_INPUT_BYTES,
-  configureIsolation,
   isolatedHeapLimitMb,
   isolatedTimeoutMs,
+  RECYCLE_AFTER_TASKS,
   runIsolated,
+  SHARED_INPUT_BYTES,
   shutdownIsolation,
 } from "./isolate.js";
 

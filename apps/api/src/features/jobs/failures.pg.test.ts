@@ -9,9 +9,9 @@
  */
 import { randomUUID } from "node:crypto";
 import {
+  createDb,
   type Database,
   type FailureRecordJson,
-  createDb,
   itemFailures,
   jobProgress,
   jobs,

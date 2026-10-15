@@ -11,7 +11,9 @@
 import { randomUUID } from "node:crypto";
 import { Readable } from "node:stream";
 import {
+  createMemoryJobContext,
   DEFAULT_SAMPLE_SIZE,
+  generateDek,
   type HeadResult,
   Keyring,
   MemoryChunkIndex,
@@ -23,15 +25,13 @@ import {
   type StorageBackend,
   VerifyIncompleteError,
   type VerifyOutcome,
-  createMemoryJobContext,
-  generateDek,
 } from "@restow/core";
 import {
+  createDb,
   type Database,
+  jobs,
   type NewNotification,
   type NewVerifyReport,
-  createDb,
-  jobs,
   notifications,
   protectedObjects,
   providers,
@@ -47,18 +47,18 @@ import { QUEUE_DEFINITIONS } from "../queues.js";
 import { dropTestDatabase } from "../testing/database.js";
 import { InvalidPayloadError, type WorkerJobContext } from "./framework.js";
 import {
-  MAX_SAMPLE_SIZE,
-  type StoredIncompleteVerify,
-  VERIFY_EVENTS,
-  type VerifyCompletedEvent,
-  type VerifyRecord,
-  type VerifyStore,
   createVerifyHandler,
+  MAX_SAMPLE_SIZE,
   normalizeSampleSize,
   pgVerifyStore,
   readinessNotification,
   redReasonOf,
+  type StoredIncompleteVerify,
   toStoredVerifyResult,
+  VERIFY_EVENTS,
+  type VerifyCompletedEvent,
+  type VerifyRecord,
+  type VerifyStore,
   verifyKindOf,
   verifyRecordNotification,
   verifyReportRow,

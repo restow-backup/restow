@@ -7,7 +7,7 @@ import { renderSummaryFrame } from "../../../../apps/api/src/features/reports/re
 import { aggregateTenant } from "../../../../apps/api/src/features/stats/aggregate.js";
 import { buildStats } from "../../../../apps/api/src/features/stats/build.js";
 import { collectTenantFacts } from "../../../../apps/api/src/features/stats/collect.js";
-import { type KpiDto, isUnavailable } from "../../../../apps/api/src/features/stats/dto.js";
+import { isUnavailable, type KpiDto } from "../../../../apps/api/src/features/stats/dto.js";
 import { resolvePeriod, utcDay } from "../../../../apps/api/src/features/stats/period.js";
 import type { Transaction } from "../../../../apps/api/src/lib/tenant-context.js";
 

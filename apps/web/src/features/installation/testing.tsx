@@ -1,16 +1,16 @@
 import type { QueryClient } from "@tanstack/react-query";
 import {
   type AnyRoute,
-  RouterProvider,
   createMemoryHistory,
   createRootRoute,
   createRoute,
   createRouter,
+  RouterProvider,
 } from "@tanstack/react-router";
 import { Info } from "lucide-react";
 
 import type { InstallationSettings } from "@/features/settings/api";
-import { type Mounted, SESSION, mount, newQueryClient } from "@/features/updates/testing";
+import { type Mounted, mount, newQueryClient, SESSION } from "@/features/updates/testing";
 import { queryKeys } from "@/lib/api";
 import type { InstallationSectionSpec } from "@/lib/extensions";
 import type { SessionContextValue } from "@/lib/session";

@@ -15,10 +15,10 @@
  *     master key and the storage are enough to restore without the database.
  */
 import {
-  type RepositoryAccess,
   ensureEndpointPasswordFile,
   listLockFiles,
   locksToRemove,
+  type RepositoryAccess,
   removeLockFiles,
 } from "@restow/core";
 import { endpointRepositoryLocks, endpointRuns, endpoints } from "@restow/db";

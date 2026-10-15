@@ -19,9 +19,9 @@
  * address that was checked is the address that is connected to: a name that
  * resolves to something else a second later (DNS rebinding) gains nothing.
  */
-import { type LookupAddress, lookup as dnsLookup } from "node:dns";
+import { lookup as dnsLookup, type LookupAddress } from "node:dns";
 import { lookup as dnsLookupAsync } from "node:dns/promises";
-import { type LookupFunction, isIP } from "node:net";
+import { isIP, type LookupFunction } from "node:net";
 
 export type AddressClass =
   | "public"

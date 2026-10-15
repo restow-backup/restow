@@ -12,11 +12,11 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   CONTACT_EMAIL_MAX,
   CONTACT_ROLE_MAX,
+  emptyContact,
+  fieldMessageKey,
   NAME_MAX_LENGTH,
   PHONE_MAX,
   type TenantWizardValues,
-  emptyContact,
-  fieldMessageKey,
 } from "../../forms";
 
 /** Per-field character limits, for the "at most N characters" message. */

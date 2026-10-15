@@ -5,7 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatDateTime, formatRelative } from "@/lib/format";
 
 import type { HealthState } from "../hooks";
-import { type MailboxUsage, healthDetail, readinessBadge, statusBadge } from "../presenters";
+import { healthDetail, type MailboxUsage, readinessBadge, statusBadge } from "../presenters";
 import type { Readiness, TenantStatus } from "../types";
 
 /**

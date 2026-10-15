@@ -2,12 +2,12 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  type Mounted,
   buttonByText,
   click,
   enableActEnvironment,
   flush,
   json,
+  type Mounted,
   problem,
   routedFetch,
   sessionAs,
@@ -19,11 +19,11 @@ import type { NavLock } from "@/lib/navigation";
 
 import {
   DEFAULT_STORAGE,
-  SETTINGS,
-  TENANT_FEATURES,
   extensionSection,
   openInstallation,
   providerSession,
+  SETTINGS,
+  TENANT_FEATURES,
 } from "./testing";
 
 /**

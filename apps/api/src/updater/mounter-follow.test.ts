@@ -4,13 +4,13 @@ import { HttpMounterStatus } from "./mounter-status.js";
 import { stateViewSchema } from "./protocol.js";
 import { mounterUpdateDecision } from "./self-update.js";
 import {
+  apiAt,
+  createHarness,
   DEFAULT_ENV,
   FakeLauncher,
   FakeMounterStatus,
   type Harness,
   type HarnessOptions,
-  apiAt,
-  createHarness,
   releaseDigests,
   scheduleRequest,
   settle,

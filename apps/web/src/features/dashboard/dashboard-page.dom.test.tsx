@@ -3,16 +3,16 @@ import { act } from "react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  type Mounted,
   enableActEnvironment,
   flush,
   json,
+  type Mounted,
   mount,
   sessionAs,
 } from "@/features/updates/testing";
 import { i18n } from "@/i18n";
-import { registerWebExtension, resetWebExtensionsForTesting } from "@/lib/extensions";
 import type { SlotProps } from "@/lib/extensions";
+import { registerWebExtension, resetWebExtensionsForTesting } from "@/lib/extensions";
 import type { SessionTenant } from "@/lib/session";
 
 import type { Dashboard } from "./api";
@@ -40,7 +40,11 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
       search,
       children,
       ...props
-    }: { to: string; search?: Record<string, string>; children: React.ReactNode }) => {
+    }: {
+      to: string;
+      search?: Record<string, string>;
+      children: React.ReactNode;
+    }) => {
       const query = new URLSearchParams(search ?? {}).toString();
       return (
         <a href={query ? `${to}?${query}` : to} {...props}>
