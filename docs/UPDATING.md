@@ -132,6 +132,15 @@ directory, which replaces the compose file and keeps the previous one as
 file. Proxmox VE nodes show the progress of a running backup and ride out
 the update only with restow-pve 0.4.0, which installs itself on the nodes.
 
+From 0.4.0 on, S3 endpoints must use `https://` (or `http://` only on `localhost`,
+`127.0.0.1`, `[::1]`). A repository or default repository that already uses `http://`
+to another host keeps working after the update, so no backup stops; its card (or
+Installation → Default repository, also for `S3_ENDPOINT` in `.env`) asks you in red to
+switch it to HTTPS, and changing its location requires `https://`. Test and
+development setups with an object store on the compose network set
+`S3_ALLOW_INSECURE=true` in `.env`. Details: [docs/STORAGE.md](STORAGE.md), "Encrypted
+transport (HTTPS)".
+
 If the updater ever wrote `RESTOW_IMAGE` and `RESTOW_WEB_IMAGE` into `.env`,
 those two lines decide which images the services run. Change them, or remove
 them to go back to building from the source checkout. `RESTOW_UPDATER_IMAGE`

@@ -89,6 +89,8 @@ export interface S3TargetDto {
   forcePathStyle: boolean;
   hasCredentials: boolean;
   accessKeyIdHint: string | null;
+  /** Plain HTTP over a network, saved before 0.4.0: still used, should move to HTTPS. */
+  insecureEndpoint?: boolean;
 }
 
 export interface StorageTargetDto {

@@ -138,6 +138,9 @@ export class Stack {
       // The test IMAP server has no TLS and sits on a private network.
       IMAP_ALLOW_INSECURE: "true",
       IMAP_ALLOW_PRIVATE_NETWORKS: "true",
+      // The test S3 service (Garage) speaks plain HTTP on the compose network
+      // (check 8: http://garage:3900), which needs the explicit opt-in.
+      S3_ALLOW_INSECURE: "true",
       SMOKE_NFS_DIR: this.nfsDir,
       SMOKE_REPO_ROOT: this.repoRoot,
       SMOKE_IMAP_MAILBOXES: MAILBOXES.join(","),

@@ -111,6 +111,9 @@ export function TargetCard({
           {t(`kindLong.${target.kind}`)} · {t(`role.${target.role}Hint`)}
         </p>
         <MigrationLine target={target} />
+        {target.s3?.insecureEndpoint ? (
+          <ToneLine tone="destructive">{t("targets.insecureEndpoint")}</ToneLine>
+        ) : null}
         {target.kind !== "installation_default" ? (
           target.lastProbe && target.status !== "unverified" && target.configValid ? (
             <ProbeResult probe={target.lastProbe} />

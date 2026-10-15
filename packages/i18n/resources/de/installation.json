@@ -94,6 +94,11 @@
       "savedTitle": "Das gespeicherte Standard-Repository ist nicht nutzbar",
       "savedDescription": "Das auf dieser Seite gespeicherte Standard-Repository lässt sich nicht öffnen, zum Beispiel weil sich der Hauptschlüssel geändert hat. Speichern Sie es unten erneut."
     },
+    "insecure": {
+      "title": "Das Standard-Repository nutzt unverschlüsseltes HTTP",
+      "savedDescription": "Zugangsschlüssel und Backups werden unverschlüsselt zum Speicherdienst übertragen. {appName} nutzt es weiter, zum erneuten Speichern ist aber ein https://-Endpunkt nötig. Stellen Sie den Speicherdienst auf HTTPS um und speichern Sie unten den neuen Endpunkt.",
+      "environmentDescription": "S3_ENDPOINT in der .env-Datei des Servers beginnt mit http://, daher werden Zugangsschlüssel und Backups unverschlüsselt übertragen. {appName} nutzt es weiter. Stellen Sie den Speicherdienst auf HTTPS um, ändern Sie S3_ENDPOINT auf https:// und starten Sie {appName} neu."
+    },
     "test": {
       "title": "Test",
       "description": "Schreibt, liest, listet und löscht ein kleines Objekt im Standard und prüft, ob er Objekte sperren kann. Der Test wird protokolliert.",

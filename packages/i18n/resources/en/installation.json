@@ -94,6 +94,11 @@
       "savedTitle": "The saved default repository cannot be used",
       "savedDescription": "The default repository saved on this page cannot be opened, for example because the master key changed. Save it again below."
     },
+    "insecure": {
+      "title": "The default repository uses plain HTTP",
+      "savedDescription": "Access keys and backups travel unencrypted to the storage service. {appName} keeps using it, but saving it again requires an https:// endpoint. Switch the storage service to HTTPS and save the new endpoint below.",
+      "environmentDescription": "S3_ENDPOINT in the .env file of the server starts with http://, so access keys and backups travel unencrypted. {appName} keeps using it. Switch the storage service to HTTPS, change S3_ENDPOINT to https:// and restart {appName}."
+    },
     "test": {
       "title": "Test",
       "description": "Writes, reads, lists and deletes a small object on the default and checks whether it can lock objects. The test is logged.",

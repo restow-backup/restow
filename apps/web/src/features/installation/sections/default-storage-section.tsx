@@ -201,6 +201,19 @@ function DefaultCard({ view }: { view: DefaultStorageView }) {
             </span>
           </Fact>
         </dl>
+        {view.insecureEndpoint ? (
+          <Alert variant="destructive" data-slot="default-storage-insecure">
+            <TriangleAlert />
+            <AlertTitle>{t("defaultStorage.insecure.title")}</AlertTitle>
+            <AlertDescription>
+              {t(
+                view.source === "database"
+                  ? "defaultStorage.insecure.savedDescription"
+                  : "defaultStorage.insecure.environmentDescription",
+              )}
+            </AlertDescription>
+          </Alert>
+        ) : null}
         {view.saved && view.environment.configured && view.environment.location ? (
           <Alert variant="info" data-slot="default-storage-override">
             <Info />

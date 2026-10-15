@@ -141,7 +141,10 @@ export function installationDefaultFromDocument(
   document: InstallationDefaultDocument,
   env: Env = process.env,
 ): InstallationDefaultStorage {
-  const validation = validateStorageLocation(document.kind, document.config);
+  // Saved addressing: plain HTTP stays usable (endpointNeedsHttps reports it).
+  const validation = validateStorageLocation(document.kind, document.config, {
+    allowInsecureEndpoint: true,
+  });
   if (!validation.ok) {
     const fields = validation.issues.map((issue) => `${issue.field}: ${issue.reason}`).join(", ");
     throw new StorageTargetError(

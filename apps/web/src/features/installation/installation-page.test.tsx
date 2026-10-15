@@ -428,6 +428,33 @@ describe("Default repository", () => {
     expect(slot("last-test")?.textContent).toContain("Write");
   });
 
+  it("asks to move a default over plain HTTP to HTTPS, for the environment and a saved one", async () => {
+    const environment = {
+      ...DEFAULT_STORAGE,
+      kind: "s3",
+      location: "s3://restow (garage:3900)",
+      insecureEndpoint: true,
+    };
+    vi.stubGlobal(
+      "fetch",
+      routes({ "GET /settings/default-storage": () => json(environment) }).mock,
+    );
+    await open("/installation/default-storage");
+    expect(text(slot("default-storage-insecure"))).toContain(
+      "The default repository uses plain HTTP",
+    );
+    expect(text(slot("default-storage-insecure"))).toContain("change S3_ENDPOINT to https://");
+    await mounted?.unmount();
+    mounted = null;
+
+    vi.stubGlobal(
+      "fetch",
+      routes({ "GET /settings/default-storage": () => json(DEFAULT_STORAGE) }).mock,
+    );
+    await open("/installation/default-storage");
+    expect(slot("default-storage-insecure")).toBeNull();
+  });
+
   const SAVED_LOCAL = {
     ...DEFAULT_STORAGE,
     source: "database",

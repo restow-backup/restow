@@ -57,6 +57,41 @@ enforces Object Lock (WORM), which matters for the GoBD archive layer
 repository ("Immutable backups" below); local and NFS targets are shown as having no
 hardware WORM, and offer only a deletion delay enforced by Restow itself.
 
+## Encrypted transport (HTTPS)
+
+An S3 target sends its access keys (as signatures) and every pack to the storage
+service, so its endpoint must be `https://`. Since 0.4.0 a new or changed endpoint
+over plain `http://` is refused with the reason `endpoint_insecure` ("only HTTPS"):
+creating a target, changing a target's location, testing settings from the form, and
+saving the installation default in the web UI. One exception needs no setting:
+`http://` to the machine itself (`localhost`, `127.0.0.1`, `[::1]`), where nothing
+crosses a network.
+
+**Existing endpoints keep working.** Before 0.4.0, provider admins could save `http://`
+to any host, and `S3_ENDPOINT` accepted it too. Refusing those on an upgrade would stop
+every backup to them, so addressing that was already saved is read as before: backups,
+restores, tests, copies and migrations away from it keep working. Instead:
+
+- the repository's card on the tenant's storage page shows, in red, that it uses
+  plain HTTP and should move to HTTPS (`insecureEndpoint` in the API's `s3` block);
+- Installation → Default repository shows the same for a saved default and for
+  `S3_ENDPOINT` from the environment (`insecureEndpoint` of the view);
+- every test of it carries the warning `insecure_endpoint`;
+- a name-only edit still works, but a location change must use `https://`. Switch the
+  storage service to HTTPS (Garage, for example, behind a reverse proxy with a
+  certificate) and change the endpoint; if the service and bucket stay the same, this
+  is an ordinary edit, not a migration.
+
+`S3_ENDPOINT` in the environment is the operator's existing configuration and stays
+accepted with `http://`; the page asks to change it and restart.
+
+**Test and development setups** whose object store sits on a compose network
+(`http://garage:3900`) set `S3_ALLOW_INSECURE=true` in `.env` (api and worker). It
+accepts `http://` to any host and removes the "should move to HTTPS" notices; tests
+still carry the `insecure_endpoint` warning. The release smoke sets it
+(`scripts/smoke/lib/stack.mjs`). Never set it in production. Tenant admins are still
+limited to public HTTPS endpoints regardless (`apps/api/src/features/storage/endpoint-policy.ts`).
+
 ## Installation default
 
 The installation default is the storage every tenant without a primary target of its
