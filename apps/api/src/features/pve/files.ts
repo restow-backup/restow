@@ -34,7 +34,7 @@ import { browseCursorFor, decodeBrowseCursor } from "../endpoints/service.js";
 import { auditPve, PVE_AUDIT_ACTIONS, type PveActor } from "./audit.js";
 import { guestRepositoryPrefix } from "./runs.js";
 import type { CreateFilesDownloadInput, FilesQuery } from "./schemas.js";
-import { browseVmFiles, openVmDownload, prepareVmDownload } from "./vm-files.js";
+import { browsableDisks, browseVmFiles, openVmDownload, prepareVmDownload } from "./vm-files.js";
 
 /**
  * File restore of Proxmox VE containers (#62, docs/PVE.md "File restore"):
@@ -265,6 +265,12 @@ async function vmPointOf(database: Database, tenantId: string, id: string) {
       )
       .limit(1),
   );
+  if (row && browsableDisks(row.snapshot).length === 0) {
+    throw new ProblemError(409, "Not browsable", {
+      type: PVE_FILE_PROBLEMS.notAContainer,
+      detail: "This restore point cannot be browsed file by file.",
+    });
+  }
   return row ?? null;
 }
 
