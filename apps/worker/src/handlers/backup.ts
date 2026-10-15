@@ -38,6 +38,7 @@
  */
 import { randomUUID } from "node:crypto";
 import {
+  type ActivityReport,
   type AppCredentials,
   appCredentialsFingerprint,
   type BackupEngine,
@@ -348,6 +349,8 @@ export interface StoredBackupResult {
   readonly throttleWaits: number;
   readonly throttleWaitMs: number;
   readonly completedAt: string;
+  /** What the run changed, for the ransomware judgement (apps/worker suspicion); OneDrive only. */
+  readonly activity?: ActivityReport;
 }
 
 export function toStoredBackupResult(input: {
@@ -370,6 +373,7 @@ export function toStoredBackupResult(input: {
     throttleWaits: input.throttle.waits,
     throttleWaitMs: input.throttle.totalWaitMs,
     completedAt: input.completedAt.toISOString(),
+    ...(result.activity ? { activity: result.activity } : {}),
   };
 }
 
@@ -1128,7 +1132,9 @@ export function createBackupHandler(options: BackupHandlerOptions): JobHandler<"
         completedAt: ctx.now(),
       });
       await store.persistResult(ctx.jobId, stored);
-      logger.info("backup finished", { ...stored });
+      // File names of the activity report stay out of the log.
+      const { activity: _activity, ...logged } = stored;
+      logger.info("backup finished", { ...logged });
       return { summary: { ...stored } };
     },
   };

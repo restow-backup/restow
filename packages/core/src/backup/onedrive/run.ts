@@ -29,6 +29,12 @@ import {
   openVersionDownload,
 } from "../../graph/resources/drive.js";
 import type { ManifestObject, SnapshotManifest } from "../../manifest.js";
+import {
+  ActivityCollector,
+  type ActivityReport,
+  EntropyWindows,
+} from "../../ransomware/activity.js";
+import { entropyExpectation, entropySampleOf } from "../../ransomware/entropy.js";
 import { type DriveWalkOutcome, walkDriveDelta } from "./delta.js";
 import {
   canReuseContent,
@@ -103,6 +109,17 @@ export function describeFailure(error: unknown): string {
     return `${error.name}: ${error.message}`.slice(0, 500);
   }
   return String(error).slice(0, 500);
+}
+
+/** The chunks of a download, passed on unchanged; `windows` keeps the entropy windows of them. */
+async function* measured(
+  chunks: AsyncIterable<Buffer>,
+  windows: EntropyWindows | undefined,
+): AsyncGenerator<Buffer> {
+  for await (const chunk of chunks) {
+    windows?.push(chunk);
+    yield chunk;
+  }
 }
 
 /** Graph's answer for an item that no longer exists (deleted between delta and download). */
@@ -218,6 +235,39 @@ export function compareWithPrevious(
   return { changed, removed };
 }
 
+/**
+ * What the run changed in the drive's files, for the ransomware signals (docs/RANSOMWARE.md):
+ * files new, changed (a changed `path` with it is a rename), renamed without a change of
+ * content, and gone, against the previous snapshot. Folders, shortcuts and versions do not count.
+ * The entropy samples the run measured while it downloaded join the report.
+ */
+export function driveActivity(
+  previous: ReadonlyMap<string, ManifestObject>,
+  objects: readonly ManifestObject[],
+  collector: ActivityCollector = new ActivityCollector(),
+): ActivityReport {
+  const isFile = (object: ManifestObject) => object.type === ONEDRIVE_OBJECT_TYPES.file;
+  const present = new Set<string>();
+  for (const object of objects) {
+    if (!isFile(object) || object.id === undefined) continue;
+    present.add(object.id);
+    const before = previous.get(object.id);
+    if (!before || !isFile(before)) {
+      collector.fileAdded(object.path);
+    } else if (before.sha256 !== object.sha256) {
+      collector.fileModified(object.path, before.path !== object.path ? before.path : undefined);
+    } else if (before.path !== object.path) {
+      collector.fileRenamed(before.path, object.path);
+    }
+  }
+  let removed = 0;
+  for (const [id, before] of previous) {
+    if (isFile(before) && !present.has(id)) removed++;
+  }
+  collector.filesRemoved(removed);
+  return collector.report();
+}
+
 /** Make the writer hold exactly `objects` (by path). */
 function replaceObjects(writer: SnapshotWriter, objects: readonly ManifestObject[]): void {
   const paths = new Set(objects.map((object) => object.path));
@@ -272,6 +322,7 @@ export class DriveBackupRun {
   private readonly tree: DriveTree;
   private readonly previousById = new Map<string, ManifestObject>();
   private readonly pool = new ContentPool();
+  private readonly activity = new ActivityCollector();
 
   private pageUrl: string;
   private lastItemId: string | undefined;
@@ -468,6 +519,11 @@ export class DriveBackupRun {
     this.reportCollisions(tree.collisions);
     replaceObjects(this.writer, tree.objects);
     const changes = compareWithPrevious(this.previousById, tree.objects);
+    // A first backup has nothing to compare with: every file would be "new".
+    const activity =
+      this.previousById.size > 0
+        ? driveActivity(this.previousById, tree.objects, this.activity)
+        : undefined;
 
     const state: OneDriveManifestState = {
       engine: ENGINE_NAME,
@@ -508,6 +564,7 @@ export class DriveBackupRun {
       objectsTotal: committed.itemCount,
       bytes,
       failures: this.failures,
+      ...(activity ? { activity } : {}),
     };
   }
 
@@ -625,8 +682,15 @@ export class DriveBackupRun {
       return;
     }
 
-    const fetched = await this.fetchContent(() =>
-      openItemDownload(this.client, this.driveId, item),
+    // A few downloaded files are measured on the way through (their first and last 64 KiB),
+    // the entropy signal of the ransomware detection; compressed formats are not worth it.
+    const windows =
+      this.activity.wantsEntropy() && entropyExpectation(path) !== "compressed"
+        ? new EntropyWindows()
+        : undefined;
+    const fetched = await this.fetchContent(
+      () => openItemDownload(this.client, this.driveId, item),
+      windows,
     );
     if (!fetched.ok) {
       if (isItemGone(fetched.error)) {
@@ -642,6 +706,10 @@ export class DriveBackupRun {
     }
 
     const { content, contentType } = fetched;
+    if (windows && windows.size === content.size && content.size > 0) {
+      const { head, tail } = windows.windows();
+      this.activity.addEntropy(entropySampleOf(path, content.size, head, tail));
+    }
     this.tree.put(fileObject(item, path, content, { now, contentType }), placement);
     this.downloaded++;
     this.bytesSinceCheckpoint += content.size;
@@ -656,7 +724,10 @@ export class DriveBackupRun {
    * back as a value for the caller to report; storage failures and
    * cancellation propagate and end the job.
    */
-  private async fetchContent(open: () => Promise<ItemDownload>): Promise<FetchOutcome> {
+  private async fetchContent(
+    open: () => Promise<ItemDownload>,
+    windows?: EntropyWindows,
+  ): Promise<FetchOutcome> {
     let download: ItemDownload;
     try {
       download = await open();
@@ -665,7 +736,7 @@ export class DriveBackupRun {
     }
     let content: WrittenObject;
     try {
-      content = await this.writer.chunks.write(sourceBytes(download.stream));
+      content = await this.writer.chunks.write(measured(sourceBytes(download.stream), windows));
     } catch (error) {
       if (error instanceof DownloadInterruptedError) {
         return { ok: false, error };

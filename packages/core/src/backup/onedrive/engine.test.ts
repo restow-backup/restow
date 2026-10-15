@@ -107,6 +107,8 @@ describe("OneDriveBackupEngine", () => {
       failures: [],
     });
     expect(result.bytes).toBe(CONTENT.q3.length + CONTENT.notes.length);
+    // A first backup has nothing to compare with: no activity report for the ransomware signals.
+    expect(result.activity).toBeUndefined();
 
     const manifest = await harness.manifest(result);
     expect(paths(manifest)).toEqual([
@@ -181,6 +183,18 @@ describe("OneDriveBackupEngine", () => {
     expect(second).toMatchObject({ snapshotId: "snap-2", sequence: 2, objectsTotal: 6 });
     // The renamed folder, the moved file and the new file changed; nothing else.
     expect(second.objectsWritten).toBe(3);
+    // For the ransomware signals: one file new, one gone, a move is no extension rename, and
+    // the new .docx (a compressed format) was not measured.
+    expect(second.activity).toMatchObject({
+      v: 1,
+      added: 1,
+      modified: 0,
+      removed: 1,
+      renamed: 0,
+      extensions: [{ value: "docx", count: 1 }],
+      names: [],
+      entropy: [],
+    });
     expect(second.bytes).toBe(CONTENT.plan.length);
 
     const manifest = await harness.manifest(second);

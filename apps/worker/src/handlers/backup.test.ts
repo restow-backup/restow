@@ -509,6 +509,36 @@ describe("toStoredBackupResult", () => {
       completedAt: "2026-01-01T00:00:00.000Z",
     });
   });
+
+  it("keeps the activity report of an engine that sends one, for the ransomware judgement", () => {
+    const activity = {
+      v: 1,
+      added: 3,
+      modified: 1,
+      removed: 0,
+      renamed: 0,
+      extensions: [],
+      names: [],
+      entropy: [],
+      truncated: false,
+    };
+    const stored = toStoredBackupResult({
+      result: {
+        snapshotId: "snap-2",
+        sequence: 5,
+        objectsWritten: 4,
+        objectsTotal: 900,
+        bytes: 10,
+        failures: [],
+        activity,
+      },
+      repairedCopies: 0,
+      verifyJobId: null,
+      throttle: { waits: 0, totalWaitMs: 0 },
+      completedAt: new Date(Date.UTC(2026, 0, 2)),
+    });
+    expect(stored.activity).toEqual(activity);
+  });
 });
 
 describe("ensureManifestOnCopies", () => {

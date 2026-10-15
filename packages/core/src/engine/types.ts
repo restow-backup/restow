@@ -10,9 +10,11 @@
  * ./memory.ts. This keeps the engines pure enough to test with fixtures only
  * (docs/TESTING.md) and keeps the storage format independent of the database.
  */
+
 import type { Dek } from "../crypto.js";
 import type { FailureCause } from "../failures/types.js";
 import type { ManifestObject } from "../manifest.js";
+import type { ActivityReport } from "../ransomware/activity.js";
 import type { StorageBackend } from "../storage/backend.js";
 
 // ---------------------------------------------------------------------------
@@ -422,6 +424,11 @@ export interface BackupResult {
   /** New plaintext bytes stored in this run (after dedup). */
   readonly bytes: number;
   readonly failures: readonly ItemFailureRecord[];
+  /**
+   * What the run changed, for the ransomware signals (docs/RANSOMWARE.md): engines that can tell
+   * (OneDrive) report it; absent for a first backup and for engines that cannot.
+   */
+  readonly activity?: ActivityReport;
 }
 
 export interface BackupEngine<Db = unknown> {
