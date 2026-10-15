@@ -592,7 +592,11 @@ class SiteBackupRun {
       }
       const kept = [...previousItems.values()].map((object) => ({
         ...object,
-        path: listItemPath(folder, object.metadata?.listItemId ?? object.id ?? "item"),
+        path: listItemPath(
+          folder,
+          object.metadata?.listItemId ?? object.id ?? "item",
+          object.metadata?.title,
+        ),
         metadata: { ...object.metadata, stale: "true" },
       }));
       this.replaceBelow(prefix, objectsBelow([...(schema ? objects : []), ...kept], prefix));
@@ -665,7 +669,7 @@ class SiteBackupRun {
       webUrl: item.webUrl ?? undefined,
     });
     const base = {
-      path: listItemPath(folder, item.id),
+      path: listItemPath(folder, item.id, title),
       id: listItemObjectId(list.id, item.id),
       type: SITE_OBJECT_TYPES.listItem,
       mtime: timeOf(item.lastModifiedDateTime, this.now()),

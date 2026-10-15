@@ -76,9 +76,9 @@ describe("diffPermissions", () => {
   it("keeps a tenant without SharePoint consent complete and names Sites.Read.All as read-only", () => {
     const without = diffPermissions(REQUIRED_PERMISSIONS);
     expect(without.complete).toBe(true);
-    expect(without.checks.find((check) => check.permission === "Sites.ReadWrite.All")).toMatchObject(
-      { required: false, state: "missing" },
-    );
+    expect(
+      without.checks.find((check) => check.permission === "Sites.ReadWrite.All"),
+    ).toMatchObject({ required: false, state: "missing" });
     const readOnly = diffPermissions([...REQUIRED_PERMISSIONS, "Sites.Read.All"]);
     expect(readOnly.complete).toBe(true);
     expect(readOnly.readOnlyInstead).toEqual([

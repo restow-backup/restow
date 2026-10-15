@@ -85,9 +85,9 @@ describe("SharePointBackupEngine", () => {
       "Libraries/Site Pages",
       "Libraries/Site Pages/Home.aspx",
       "Lists/Team Tasks",
-      "Lists/Team Tasks/1.json",
-      "Lists/Team Tasks/2.json",
-      "Lists/Team Tasks/3.json",
+      "Lists/Team Tasks/Book trip (3).json",
+      "Lists/Team Tasks/Call customer (1).json",
+      "Lists/Team Tasks/Send offer (2).json",
       "Lists/Team Tasks/_list.json",
       "site.json",
     ]);
@@ -101,7 +101,7 @@ describe("SharePointBackupEngine", () => {
     expect(q3.type).toBe("file");
     expect((await harness.readObject(q3)).toString()).toBe("q3 numbers");
 
-    const item = at(manifest, "Lists/Team Tasks/2.json");
+    const item = at(manifest, "Lists/Team Tasks/Send offer (2).json");
     expect(item.type).toBe(SITE_OBJECT_TYPES.listItem);
     expect(item.metadata).toMatchObject({
       siteRole: "listItem",
@@ -168,11 +168,13 @@ describe("SharePointBackupEngine", () => {
       at(before, "Libraries/Site Pages/Home.aspx").chunks,
     );
     // Item 2 is unchanged and keeps its bytes; item 1 changed.
-    expect(at(manifest, "Lists/Team Tasks/2.json").chunks).toEqual(
-      at(before, "Lists/Team Tasks/2.json").chunks,
+    expect(at(manifest, "Lists/Team Tasks/Send offer (2).json").chunks).toEqual(
+      at(before, "Lists/Team Tasks/Send offer (2).json").chunks,
     );
     const changed = JSON.parse(
-      (await harness.readObject(at(manifest, "Lists/Team Tasks/1.json"))).toString(),
+      (
+        await harness.readObject(at(manifest, "Lists/Team Tasks/Call customer (1).json"))
+      ).toString(),
     );
     expect(changed.fields.Status).toBe("Done");
   });
@@ -201,7 +203,7 @@ describe("SharePointBackupEngine", () => {
     const second = await engine(sp, ids).run(harness.context({ jobId: "job-2" }), siteObject, {});
     expect(second.failures.map((failure) => failure.itemRef)).toEqual(["Lists/Team Tasks"]);
     const manifest = await harness.manifest(second);
-    expect(at(manifest, "Lists/Team Tasks/1.json").metadata?.stale).toBe("true");
+    expect(at(manifest, "Lists/Team Tasks/Call customer (1).json").metadata?.stale).toBe("true");
     expect(manifest.objects.map((object) => object.path)).toContain("Lists/Team Tasks/_list.json");
   });
 
@@ -233,6 +235,8 @@ describe("SharePointBackupEngine", () => {
     expect(manifest.objects.map((object) => object.path)).toContain(
       "Libraries/Documents/Reports/Q3.xlsx",
     );
-    expect(manifest.objects.map((object) => object.path)).toContain("Lists/Team Tasks/3.json");
+    expect(manifest.objects.map((object) => object.path)).toContain(
+      "Lists/Team Tasks/Book trip (3).json",
+    );
   });
 });

@@ -12,7 +12,7 @@
  *   Lists/<list>                       type `folder`, `metadata.siteRole` = list,
  *                                      `metadata.listId` names the list
  *   Lists/<list>/_list.json            type `list-schema`: the list and its columns
- *   Lists/<list>/<item id>.json        type `list-item`: one item with all field
+ *   Lists/<list>/<title> (<id>).json   type `list-item`: one item with all field
  *                                      values as JSON (`expand=fields`)
  *
  * Folder names are the library's and list's display names made safe for a
@@ -85,8 +85,16 @@ export function listSchemaPath(folder: string): string {
   return `${listPath(folder)}/${LIST_SCHEMA_NAME}`;
 }
 
-export function listItemPath(folder: string, itemId: string): string {
-  return `${listPath(folder)}/${itemId}.json`;
+/** Longest title kept in an item's file name. */
+const MAX_TITLE_IN_NAME = 80;
+
+/**
+ * `Lists/<list>/<title> (<id>).json`: readable in the explorer and a ZIP, unique
+ * through the id. The title is only a label; restore goes by `metadata.listItemId`.
+ */
+export function listItemPath(folder: string, itemId: string, title?: string | null): string {
+  const label = safeSegment(title?.slice(0, MAX_TITLE_IN_NAME), "Item");
+  return `${listPath(folder)}/${label} (${itemId}).json`;
 }
 
 /** Manifest id of a list item (drive item ids and list item ids never collide this way). */

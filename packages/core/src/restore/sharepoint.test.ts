@@ -171,7 +171,9 @@ describe("SharePointRestoreEngine", () => {
     ]);
     const posted = world.sp.graph.callsTo("POST", "/items").map((call) => call.json);
     expect(posted[0]).toEqual({ fields: { Title: "Call customer", Status: "Open" } });
-    expect(report.items.find((item) => item.path === "Lists/Team Tasks/1.json")).toMatchObject({
+    expect(
+      report.items.find((item) => item.path === "Lists/Team Tasks/Call customer (1).json"),
+    ).toMatchObject({
       status: "restored",
       targetRef: "3",
     });
@@ -204,7 +206,10 @@ describe("SharePointRestoreEngine", () => {
     const world = await backedUp(harness);
     const report = await restoreEngine(world).run(
       harness.context({ jobId: "restore" }),
-      request(world, { mode: "skip", selection: { paths: ["Lists/Team Tasks/1.json"] } }),
+      request(world, {
+        mode: "skip",
+        selection: { paths: ["Lists/Team Tasks/Call customer (1).json"] },
+      }),
     );
     expect(report.skipped).toBe(1);
     expect(world.tasks.items).toHaveLength(2);
@@ -223,11 +228,11 @@ describe("SharePointRestoreEngine", () => {
       expect.arrayContaining([
         "Libraries/Documents/Reports/Q3.xlsx",
         "Libraries/Site Pages/Home.aspx",
-        "Lists/Team Tasks/1.json",
+        "Lists/Team Tasks/Call customer (1).json",
         "site.json",
       ]),
     );
-    const item = entries.find((entry) => entry.name === "Lists/Team Tasks/2.json");
+    const item = entries.find((entry) => entry.name === "Lists/Team Tasks/Send offer (2).json");
     expect(JSON.parse(item?.data.toString("utf8") ?? "{}").fields.Title).toBe("Send offer");
   });
 
