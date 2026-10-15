@@ -47,6 +47,8 @@ export * from "./net/index.js";
 export * from "./pack.js";
 // Proxmox VE guests: block maps of VM disks, restore point manifests (docs/PROXMOX.md)
 export * from "./pve/index.js";
+// Ransomware detection on backups: signals, signatures, baselines (docs/RANSOMWARE.md)
+export * from "./ransomware/index.js";
 export * from "./reports/index.js";
 // Restore engines
 export * from "./restore/index.js";
