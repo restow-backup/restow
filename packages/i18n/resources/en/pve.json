@@ -46,7 +46,12 @@
     "revoke": "Revoke",
     "revokeTitle": "Revoke node {name}?",
     "revokeDescription": "The node can no longer back up or restore. Existing restore points are kept.",
-    "never": "Never"
+    "never": "Never",
+    "hostFiles": {
+      "title": "The Proxmox host itself is not backed up here",
+      "body": "restow-pve backs up the VMs and containers of a node, not the node. For the host's own files, such as /etc/pve and the network and storage configuration, install the {appName} agent on the host and put it into a server job.",
+      "install": "Add the host as a server"
+    }
   },
   "problems": {
     "pve.plugin_not_loaded": "Storage plugin not installed",
@@ -134,7 +139,11 @@
     "scopeAll": "All guests",
     "scopeSelected": "Selected guests",
     "saved": "Backup job saved.",
-    "edit": "Edit"
+    "edit": "Edit",
+    "guests": "VMs and containers in this job",
+    "noGuests": "No VM or container reported yet.",
+    "guestInJob": "In {job}",
+    "guestMoves": "Moves from {job}"
   },
   "guest": {
     "back": "Back to VMs & containers",

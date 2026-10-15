@@ -40,7 +40,8 @@
     "pause": "Pause",
     "resume": "Resume",
     "delete": "Delete",
-    "refresh": "Refresh jobs"
+    "refresh": "Refresh jobs",
+    "openGuest": "Open VM or container"
   },
   "list": {
     "title": "Jobs",
@@ -66,7 +67,8 @@
       "repository": "Repository",
       "lastRun": "Last run",
       "nextRun": "Next run",
-      "restoreCheck": "Restore check"
+      "restoreCheck": "Restore check",
+      "type": "Type"
     },
     "uncovered": {
       "mail": "{count, plural, one {# protected object is in no job and is not backed up on a schedule.} other {# protected objects are in no job and are not backed up on a schedule.}}",
@@ -95,6 +97,28 @@
       "endpoint": "{count, plural, one {# machine is in a job without a schedule and is not backed up automatically.} other {# machines are in jobs without a schedule and are not backed up automatically.}}",
       "share": "{count, plural, one {# file share is in a job without a schedule and is not backed up automatically.} other {# file shares are in jobs without a schedule and are not backed up automatically.}}",
       "copy": "{count, plural, one {# copy job has no schedule and runs only when someone starts it.} other {# copy jobs have no schedule and run only when someone starts them.}}"
+    },
+    "type": {
+      "endpoint": "Machines",
+      "pve": "Proxmox VE"
+    },
+    "newType": {
+      "endpoint": "Servers and clients ({appName} agent)",
+      "pve": "Proxmox VE (VMs & containers)"
+    },
+    "pve": {
+      "recommended": "Recommended",
+      "guests": "{count, plural, one {# VM or container} other {# VMs and containers}}",
+      "scopeAll": "and every guest in no other job",
+      "manualSchedule": "Started by hand",
+      "noSchedule": "No schedule",
+      "waiting": "Waiting for the node",
+      "round": "{done} of {total} guests done",
+      "repository": "Repository of the cluster",
+      "restoreCheck": "Weekly, per guest",
+      "manual": "Manual backup · {guest}",
+      "deleteTitle": "Delete Proxmox VE job {name}?",
+      "deleteDescription": "The VMs and containers of this job are no longer backed up. Existing restore points are kept."
     }
   },
   "state": {
@@ -541,7 +565,8 @@
     "moveConfirm": "Move here",
     "selectedCount": "{count} selected",
     "partial": "Showing {shown} of {total}. Search to narrow the list.",
-    "loadError": "The list could not be loaded"
+    "loadError": "The list could not be loaded",
+    "proxmox": "Proxmox VE VMs and containers are not listed here: Proxmox VE jobs back them up."
   },
   "editor": {
     "createTitle": {

@@ -6,6 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
 import { inventoryTo } from "@/features/endpoints/paths";
 import { PVE_ROLES, pveTo } from "@/features/pve/paths";
+import { pveConnected, usePveOverview } from "@/features/pve/use-overview";
 import { canAccess, useSession } from "@/lib/session";
 
 /**
@@ -38,5 +39,25 @@ export function ProxmoxGuestsHint() {
         </div>
       </AlertDescription>
     </Alert>
+  );
+}
+
+/**
+ * One line under the machine picker's empty or searched list (#53), when Proxmox VE is
+ * connected: a VM or container someone looks for here is backed up by a Proxmox VE job.
+ */
+export function ProxmoxPickerHint() {
+  const { t } = useTranslation("backupjobs");
+  const { allowed, query } = usePveOverview();
+  if (!allowed || !pveConnected(query.data)) {
+    return null;
+  }
+  return (
+    <p className="mt-1 text-xs text-muted-foreground" data-slot="proxmox-picker-hint">
+      {t("picker.proxmox")}{" "}
+      <Link {...pveTo()} className="text-primary underline-offset-4 hover:underline">
+        {t("editor.scope.proxmox.openGuests")}
+      </Link>
+    </p>
   );
 }

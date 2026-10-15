@@ -40,7 +40,8 @@
     "pause": "Pausieren",
     "resume": "Fortsetzen",
     "delete": "Löschen",
-    "refresh": "Jobs aktualisieren"
+    "refresh": "Jobs aktualisieren",
+    "openGuest": "VM oder Container öffnen"
   },
   "list": {
     "title": "Jobs",
@@ -66,7 +67,8 @@
       "repository": "Repository",
       "lastRun": "Letzter Lauf",
       "nextRun": "Nächster Lauf",
-      "restoreCheck": "Restore-Prüfung"
+      "restoreCheck": "Restore-Prüfung",
+      "type": "Typ"
     },
     "uncovered": {
       "mail": "{count, plural, one {# geschütztes Objekt ist in keinem Job und wird nicht nach Zeitplan gesichert.} other {# geschützte Objekte sind in keinem Job und werden nicht nach Zeitplan gesichert.}}",
@@ -95,6 +97,28 @@
       "endpoint": "{count, plural, one {# Rechner ist in einem Job ohne Zeitplan und wird nicht automatisch gesichert.} other {# Rechner sind in Jobs ohne Zeitplan und werden nicht automatisch gesichert.}}",
       "share": "{count, plural, one {# Freigabe ist in einem Job ohne Zeitplan und wird nicht automatisch gesichert.} other {# Freigaben sind in Jobs ohne Zeitplan und werden nicht automatisch gesichert.}}",
       "copy": "{count, plural, one {# Kopierjob hat keinen Zeitplan und läuft nur, wenn ihn jemand startet.} other {# Kopierjobs haben keinen Zeitplan und laufen nur, wenn sie jemand startet.}}"
+    },
+    "type": {
+      "endpoint": "Rechner",
+      "pve": "Proxmox VE"
+    },
+    "newType": {
+      "endpoint": "Server und Clients ({appName}-Agent)",
+      "pve": "Proxmox VE (VMs & Container)"
+    },
+    "pve": {
+      "recommended": "Empfohlen",
+      "guests": "{count, plural, one {# VM oder Container} other {# VMs und Container}}",
+      "scopeAll": "und jeder Gast ohne anderen Job",
+      "manualSchedule": "Von Hand gestartet",
+      "noSchedule": "Kein Zeitplan",
+      "waiting": "Wartet auf den Knoten",
+      "round": "{done} von {total} Gästen fertig",
+      "repository": "Repository des Clusters",
+      "restoreCheck": "Wöchentlich, je Gast",
+      "manual": "Manuelle Sicherung · {guest}",
+      "deleteTitle": "Proxmox-VE-Job {name} löschen?",
+      "deleteDescription": "Die VMs und Container dieses Jobs werden danach nicht mehr gesichert. Vorhandene Sicherungsstände bleiben erhalten."
     }
   },
   "state": {
@@ -541,7 +565,8 @@
     "moveConfirm": "Hierher verschieben",
     "selectedCount": "{count} ausgewählt",
     "partial": "{shown} von {total} angezeigt. Mit der Suche lässt sich die Liste eingrenzen.",
-    "loadError": "Die Liste konnte nicht geladen werden"
+    "loadError": "Die Liste konnte nicht geladen werden",
+    "proxmox": "Proxmox-VE-VMs und -Container stehen nicht in dieser Liste: Sie werden von Proxmox-VE-Jobs gesichert."
   },
   "editor": {
     "createTitle": {

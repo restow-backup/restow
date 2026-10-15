@@ -388,6 +388,120 @@ describe("the list of machine jobs", () => {
   });
 });
 
+describe("Proxmox VE in the list of machine jobs (#53)", () => {
+  const guest = (over: Record<string, unknown>) => ({
+    id: "g-1",
+    clusterId: "c-1",
+    vmid: 101,
+    kind: "vm",
+    name: "web01",
+    node: "pve1",
+    status: "running",
+    template: false,
+    privileged: false,
+    present: true,
+    diskBytes: 0,
+    jobId: null,
+    jobName: null,
+    lastBackupAt: null,
+    lastSuccessAt: null,
+    lastRunStatus: null,
+    lastRunError: null,
+    activity: null,
+    activityJobId: null,
+    activityRunId: null,
+    bitmapState: null,
+    attention: [],
+    ...over,
+  });
+  const overview = {
+    clusters: [
+      { id: "c-1", name: "lab", storageId: "restow", nodes: [{ id: "n-1", name: "pve1" }] },
+    ],
+    guests: [
+      guest({
+        id: "g-1",
+        vmid: 101,
+        name: "web01",
+        jobId: "pj-1",
+        activity: "running",
+        activityJobId: "pj-1",
+      }),
+      guest({
+        id: "g-2",
+        vmid: 102,
+        name: "mail01",
+        activity: "running",
+        activityJobId: null,
+        activityRunId: "run-2",
+        progress: {
+          bytesDone: 50,
+          bytesTotal: 100,
+          bytesUploaded: 10,
+          bytesPerSecond: null,
+          at: iso(0),
+        },
+      }),
+    ],
+    jobs: [
+      {
+        id: "pj-1",
+        name: "Nightly VMs",
+        scopeAll: false,
+        schedule: { kind: "daily", timeOfDay: "22:00", timeZone: "Europe/Berlin" },
+        settings: {},
+        enabled: true,
+        recommended: true,
+        nextRunAt: iso(600),
+        lastRunAt: iso(-10),
+        guestCount: 5,
+        round: { since: iso(-10), total: 5, done: 2, failed: 0, running: 1, queued: 2 },
+      },
+    ],
+    restorePool: "restow-restore",
+  };
+
+  it("shows Proxmox VE jobs with their round and a manual backup as rows, with the type", async () => {
+    opened = await openJobs("/jobs?type=endpoint", {
+      routes: {
+        "GET /backup-jobs": () => json(list([endpointJob()])),
+        "GET /pve": () => json(overview),
+      },
+    });
+    await flush(6);
+    expect(text()).toContain("Type");
+    expect(text()).toContain("Nightly VMs");
+    expect(text()).toContain("Proxmox VE");
+    expect(text()).toContain("2 of 5 guests done");
+    expect(text()).toContain("5 VMs and containers");
+    expect(text()).toContain("Recommended");
+    // A backup asked for by hand is a row of its own until it ends; web01's belongs to the round.
+    expect(text()).toContain("Manual backup · mail01");
+    expect(text()).not.toContain("Manual backup · web01");
+    const items = await openMenu(byLabel("Actions for Manual backup · mail01"));
+    expect(items.map((item) => item.textContent)).toEqual(["Open VM or container"]);
+  });
+
+  it("offers one New job entry per type", async () => {
+    opened = await openJobs("/jobs?type=endpoint", {
+      routes: {
+        "GET /backup-jobs": () => json(list([endpointJob()])),
+        "GET /pve": () => json(overview),
+      },
+    });
+    await flush(6);
+    const items = await openMenu(slot("new-job-menu"));
+    expect(items.map((item) => item.textContent)).toEqual([
+      "Servers and clients (Restow agent)",
+      "Proxmox VE (VMs & containers)",
+    ]);
+    await click(items[1]);
+    await flush(3);
+    // The Proxmox VE job form lists the guests to put into the new job.
+    expect(slot("pve-job-guests")?.textContent).toContain("mail01 · VM 102 · pve1");
+  });
+});
+
 describe("the editor opened from the address", () => {
   it("opens on a new job with the machines of `select` preselected, named once the list is in", async () => {
     opened = await openJobs("/jobs?type=endpoint&new=1&select=m1,m2", {
