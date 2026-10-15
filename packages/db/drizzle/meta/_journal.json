@@ -295,6 +295,13 @@
       "when": 1792069671494,
       "tag": "0041_pve_downloads",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1792077315118,
+      "tag": "0042_disk_alerts",
+      "breakpoints": true
     }
   ]
 }
