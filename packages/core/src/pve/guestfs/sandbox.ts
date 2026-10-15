@@ -208,6 +208,11 @@ export class GuestFsSandbox {
     );
   }
 
+  /** Whether the reader ended (it crashed, hit a limit or was closed): nothing more comes. */
+  get failed(): boolean {
+    return this.failure !== null;
+  }
+
   /** How many disk bytes the child asked for. */
   get diskBytesRead(): number {
     return this.bytesRead;
