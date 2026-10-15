@@ -33,10 +33,16 @@ export const sourceStatusEnum = pgEnum("source_status", ["pending", "active", "e
 /** IMAP transport security: implicit TLS (993), STARTTLS (143) or none (dev only). */
 export const imapSecurityEnum = pgEnum("imap_security", ["tls", "starttls", "none"]);
 
+/**
+ * `site` = a SharePoint Online site (release 0.4.x): its document libraries,
+ * lists and site metadata, discovered tenant-wide through Graph (not through a
+ * directory user) and backed up with the OneDrive drive engine per library.
+ */
 export const protectedObjectKindEnum = pgEnum("protected_object_kind", [
   "mailbox",
   "onedrive",
   "imap",
+  "site",
 ]);
 
 /** Where a protected object came from: automatic directory sync or a manual entry. */

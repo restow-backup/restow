@@ -309,6 +309,13 @@
       "when": 1792081765035,
       "tag": "0043_disk_alerts",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1792093295464,
+      "tag": "0047_sharepoint_sites",
+      "breakpoints": true
     }
   ]
 }
