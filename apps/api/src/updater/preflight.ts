@@ -54,6 +54,8 @@ export interface PreflightOptions {
   sourceAllowlist?: readonly string[];
   /** The updater verifies release signatures (default); false when the operator switched that off. */
   verifySignatures?: boolean;
+  /** Another operation that rules an update out while it runs (a database move): why, or null. */
+  otherActivity?: () => string | null;
 }
 
 export interface CheckOptions {
@@ -138,6 +140,11 @@ export class Preflight {
       }
     } catch (error) {
       add("disk_space", `Free space could not be determined: ${messageOf(error)}`);
+    }
+
+    const activity = this.options.otherActivity?.() ?? null;
+    if (activity) {
+      add("database_move", activity);
     }
 
     let runnerReady = false;

@@ -125,6 +125,7 @@ function idleState(over: Partial<StateView> = {}): StateView {
     restartableServices: [],
     restart: null,
     projectDir: null,
+    database: null,
     serverTime: "2026-10-01T09:00:00.000Z",
     ...over,
   };

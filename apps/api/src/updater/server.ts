@@ -1,5 +1,8 @@
 import { type Context, Hono } from "hono";
+import { z } from "zod";
 import { isAuthorized } from "./auth.js";
+import { type DatabaseMover, MoveRefusedError } from "./database.js";
+import { moveRequestSchema } from "./database-protocol.js";
 import { EngineError, type UpdateEngine } from "./engine.js";
 import type { Logger } from "./logger.js";
 import {
@@ -33,6 +36,9 @@ import { RestartRefusedError, type ServiceRestarter } from "./restart.js";
  *   POST /v1/mounter/enable  start the mounter (mounter-enable.ts); answers when the helper
  *                            finished (200) or after a minute with the start still running (202)
  *   POST /v1/restart         restart one application service: { service: "api" | "worker" | "scheduler" }
+ *   POST /v1/database/check  check a directory for the database (database.ts): { targetDir, requestedBy }
+ *   POST /v1/database/move   move the database there (202; the move runs in the background)
+ *   POST /v1/database/old-copies/:id/remove   remove an old copy a move left: { requestedBy }
  *
  * Everything under /v1 needs `Authorization: Bearer <shared secret>`. Errors are
  * `{ "code": "...", "message": "..." }`; nothing in a response carries the secret.
@@ -58,7 +64,19 @@ export interface ServerDeps {
   restarter?: ServiceRestarter;
   /** The project directory on the host, for the commands the Updates tab shows. */
   projectDir?: string | null;
+  /** The database location (database.ts); without it the routes are not found. */
+  database?: DatabaseMover;
 }
+
+const actorBodySchema = z
+  .object({
+    requestedBy: z.object({
+      userId: z.string().nullable(),
+      label: z.string(),
+      ip: z.string().nullable(),
+    }),
+  })
+  .strict();
 
 const STATUS_OF: Record<UpdaterErrorCode, 401 | 404 | 409 | 422 | 500> = {
   unauthorized: 401,
@@ -109,6 +127,7 @@ export function buildServer(deps: ServerDeps): Hono {
       restartableServices: [...(deps.restarter?.services ?? [])],
       restart: deps.restarter?.view() ?? null,
       projectDir: deps.projectDir ?? null,
+      database: deps.database ? await deps.database.view(refresh) : null,
       serverTime: deps.clock.now().toISOString(),
     };
   };
@@ -117,7 +136,9 @@ export function buildServer(deps: ServerDeps): Hono {
 
   app.get("/public/status", (c) => {
     const view = deps.engine.view();
-    return c.json(publicStatusOf(view.run, view.phase, deps.clock.now()));
+    return c.json(
+      publicStatusOf(view.run, view.phase, deps.clock.now(), deps.database?.publicMove() ?? null),
+    );
   });
 
   app.use("/v1/*", async (c, next) => {
@@ -259,6 +280,75 @@ export function buildServer(deps: ServerDeps): Hono {
     ]);
     clearTimeout(timer);
     return c.json(await stateView(false), finished ? 200 : 202);
+  });
+
+  // -- The database location (database.ts, docs/DATABASE.md) -------------------
+
+  const moveRefused = (error: MoveRefusedError) =>
+    fail(error.code, error.message, error.problems.length > 0 ? { problems: error.problems } : {});
+
+  app.post("/v1/database/check", async (c) => {
+    const mover = deps.database;
+    if (!mover) {
+      return fail("not_found", "This updater cannot move the database.");
+    }
+    const body = await readJson(c);
+    if (body instanceof Response) {
+      return body;
+    }
+    const parsed = moveRequestSchema.safeParse(body.json);
+    if (!parsed.success) {
+      return invalid(parsed.error.issues);
+    }
+    return c.json(await mover.check(parsed.data.targetDir));
+  });
+
+  app.post("/v1/database/move", async (c) => {
+    const mover = deps.database;
+    if (!mover) {
+      return fail("not_found", "This updater cannot move the database.");
+    }
+    const body = await readJson(c);
+    if (body instanceof Response) {
+      return body;
+    }
+    const parsed = moveRequestSchema.safeParse(body.json);
+    if (!parsed.success) {
+      return invalid(parsed.error.issues);
+    }
+    try {
+      await mover.start(parsed.data);
+    } catch (error) {
+      if (error instanceof MoveRefusedError) {
+        return moveRefused(error);
+      }
+      throw error;
+    }
+    return c.json(await stateView(false), 202);
+  });
+
+  app.post("/v1/database/old-copies/:id/remove", async (c) => {
+    const mover = deps.database;
+    if (!mover) {
+      return fail("not_found", "This updater cannot move the database.");
+    }
+    const body = await readJson(c);
+    if (body instanceof Response) {
+      return body;
+    }
+    const parsed = actorBodySchema.safeParse(body.json);
+    if (!parsed.success) {
+      return invalid(parsed.error.issues);
+    }
+    try {
+      await mover.removeOldCopy(c.req.param("id"), parsed.data.requestedBy);
+    } catch (error) {
+      if (error instanceof MoveRefusedError) {
+        return moveRefused(error);
+      }
+      throw error;
+    }
+    return c.json(await stateView(false), 202);
   });
 
   app.notFound(() => fail("not_found", "There is nothing at this path."));

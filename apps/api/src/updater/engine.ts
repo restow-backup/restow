@@ -164,6 +164,7 @@ const BLOCKER_TO_FAILURE: Record<BlockerCode, FailureCode> = {
   project_dir_mismatch: "prepare.project_dir_mismatch",
   env_unwritable: "prepare.env_unwritable",
   disk_space: "prepare.disk_space",
+  database_move: "prepare.database_move",
 };
 
 /** The failure code for an unexpected error, per step. */

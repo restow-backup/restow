@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  databaseViewSchema,
+  moveProblemSchema,
+  type PublicMove,
+  publicMoveSchema,
+} from "./database-protocol.js";
 
 /**
  * The contract between the updater process (ROLE=updater, this directory), the
@@ -89,6 +95,8 @@ export const FAILURE_CODES = [
   "prepare.switch_refused",
   "prepare.compose_unsupported",
   "prepare.updater_image_unpinned",
+  /** The database was being moved (database.ts) when the update was to start. */
+  "prepare.database_move",
   "fetch.pull_failed",
   "fetch.digest_missing",
   "fetch.signature_invalid",
@@ -117,6 +125,8 @@ export const BLOCKER_CODES = [
   "docker_cli_missing",
   /** The `updater` service takes its image from RESTOW_IMAGE / RESTOW_WEB_IMAGE instead of RESTOW_UPDATER_IMAGE. */
   "updater_image_unpinned",
+  /** The database is being moved to another directory, or an old copy is being removed. */
+  "database_move",
 ] as const;
 export type BlockerCode = (typeof BLOCKER_CODES)[number];
 
@@ -268,7 +278,17 @@ export const runSummarySchema = runSchema.omit({ log: true });
 export type RunSummary = z.infer<typeof runSummarySchema>;
 
 /** Actions that reach the audit log. Scheduling and cancelling are audited by the api itself. */
-export const JOURNAL_ACTIONS = ["update.started", "update.succeeded", "update.failed"] as const;
+export const JOURNAL_ACTIONS = [
+  "update.started",
+  "update.succeeded",
+  "update.failed",
+  /** The database location (database.ts): `runId` is the move, `target` the new directory. */
+  "database.move.started",
+  "database.move.succeeded",
+  "database.move.failed",
+  /** An old copy of the database was removed; `target` names where it was. */
+  "database.old_copy.removed",
+] as const;
 
 /**
  * An event the updater cannot audit itself (it has no database access). The
@@ -540,6 +560,11 @@ export const stateViewSchema = z.object({
    * Updates tab shows; null when unknown or for an updater that predates it.
    */
   projectDir: z.string().max(500).nullable().default(null),
+  /**
+   * The database location and its move (database-protocol.ts, docs/DATABASE.md); null from
+   * an updater that predates it (0.4.0).
+   */
+  database: databaseViewSchema.nullable().default(null),
   serverTime: iso,
 });
 export type StateView = z.infer<typeof stateViewSchema>;
@@ -564,6 +589,12 @@ export const publicStatusSchema = z.object({
   progress: z.number().min(0).max(100),
   message: messageSchema.nullable(),
   failureCode: z.enum(FAILURE_CODES).nullable(),
+  /**
+   * The current or last move of the database (database.ts): while it runs the application is
+   * down, and the maintenance page says why. No paths. null when there was none (and from an
+   * updater that predates it).
+   */
+  databaseMove: publicMoveSchema.nullable().default(null),
   serverTime: iso,
 });
 export type PublicStatus = z.infer<typeof publicStatusSchema>;
@@ -606,14 +637,20 @@ export function idlePublicStatus(now: Date): PublicStatus {
     progress: 0,
     message: null,
     failureCode: null,
+    databaseMove: null,
     serverTime: now.toISOString(),
   };
 }
 
 /** The public view of a run. */
-export function publicStatusOf(run: Run | null, phase: UpdaterPhase, now: Date): PublicStatus {
+export function publicStatusOf(
+  run: Run | null,
+  phase: UpdaterPhase,
+  now: Date,
+  databaseMove: PublicMove | null = null,
+): PublicStatus {
   if (!run) {
-    return { ...idlePublicStatus(now), phase };
+    return { ...idlePublicStatus(now), phase, databaseMove };
   }
   return {
     phase,
@@ -627,6 +664,7 @@ export function publicStatusOf(run: Run | null, phase: UpdaterPhase, now: Date):
     progress: run.progress,
     message: publicMessage(run.message),
     failureCode: run.failure?.code ?? null,
+    databaseMove,
     serverTime: now.toISOString(),
   };
 }
@@ -807,6 +845,8 @@ export const updaterErrorSchema = z.object({
   message: z.string(),
   /** Present with `blocked`. */
   blockers: z.array(blockerSchema).optional(),
+  /** Present when a database move is refused (`blocked`): what the checks found. */
+  problems: z.array(moveProblemSchema).optional(),
 });
 export type UpdaterError = z.infer<typeof updaterErrorSchema>;
 

@@ -3,10 +3,12 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  assertDatabaseLocationValue,
   assertSafeEnvValue,
   assignedKey,
   assignedValue,
   captureKeys,
+  DATABASE_LOCATION_KEYS,
   EnvFile,
   EnvFileError,
   envValueOf,
@@ -365,5 +367,67 @@ describe("EnvFile", () => {
   it("passes for a normal file", async () => {
     await fs.writeFile(target, "A=1\n");
     await expect(file.assertWritable()).resolves.toBeUndefined();
+  });
+});
+
+describe("the database location lines", () => {
+  let dir: string;
+  let target: string;
+  let file: EnvFile;
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), "restow-env-db-"));
+    target = path.join(dir, ".env");
+    file = new EnvFile(target);
+  });
+
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it("are set and put back byte for byte", async () => {
+    const original =
+      "POSTGRES_PASSWORD=pw\n# comment\nRESTOW_POSTGRES_DATA_TYPE=\nRESTOW_POSTGRES_DATA=\n";
+    await fs.writeFile(target, original, { mode: 0o600 });
+    const captured = await file.capture(DATABASE_LOCATION_KEYS);
+    await file.applyDatabaseLocation("/mnt/volume-1/restow-db/restow-postgres-20261015-101500");
+    expect(await fs.readFile(target, "utf8")).toBe(
+      "POSTGRES_PASSWORD=pw\n# comment\nRESTOW_POSTGRES_DATA_TYPE=bind\nRESTOW_POSTGRES_DATA=/mnt/volume-1/restow-db/restow-postgres-20261015-101500\n",
+    );
+    await file.restoreDatabaseLocation(captured);
+    expect(await fs.readFile(target, "utf8")).toBe(original);
+    expect((await fs.stat(target)).mode & 0o777).toBe(0o600);
+  });
+
+  it("are appended when missing and removed again", async () => {
+    await fs.writeFile(target, "A=1\n");
+    const captured = await file.capture(DATABASE_LOCATION_KEYS);
+    await file.applyDatabaseLocation("/srv/db/restow-postgres-20261015-101500");
+    expect(envValueOf(await file.read(), "RESTOW_POSTGRES_DATA_TYPE")).toBe("bind");
+    await file.restoreDatabaseLocation(captured);
+    expect(await fs.readFile(target, "utf8")).toBe("A=1\n");
+  });
+
+  it.each([
+    ["relative/x"],
+    ["/mnt/$HOME"],
+    ["/mnt/a b"],
+    ["/mnt/a:b"],
+    ["/mnt/../etc"],
+    ["/mnt/a\nX=1"],
+  ])("refuse the value %j", async (value) => {
+    await fs.writeFile(target, "A=1\n");
+    await expect(file.applyDatabaseLocation(value)).rejects.toMatchObject({
+      reason: "invalid_value",
+    });
+    expect(await fs.readFile(target, "utf8")).toBe("A=1\n");
+  });
+
+  it("never restores other lines through this door", async () => {
+    await fs.writeFile(target, "RESTOW_IMAGE=a\n");
+    await expect(
+      file.restoreDatabaseLocation({ RESTOW_IMAGE: { present: false, line: null, value: null } }),
+    ).rejects.toBeInstanceOf(EnvFileError);
+    expect(() => assertDatabaseLocationValue("RESTOW_IMAGE", "/x")).toThrow(EnvFileError);
   });
 });
