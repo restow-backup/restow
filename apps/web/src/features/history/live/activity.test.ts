@@ -9,7 +9,7 @@ import {
   isBusy,
   runLink,
 } from "./activity";
-import { pveRefreshMs } from "./activity-badges";
+import { activityFromPve, pveRefreshMs } from "./activity-badges";
 
 /**
  * What the sidebar counts on "Jobs" and on "VMs & containers": the backups that run, those that
@@ -142,19 +142,35 @@ describe("activityFromGuests", () => {
 });
 
 describe("pveRefreshMs", () => {
-  const overview = (activity: "running" | null, clusters = 1) =>
-    ({
-      clusters: Array.from({ length: clusters }, () => ({})),
-      guests: [{ activity }],
-      jobs: [],
-      restorePool: "",
-    }) as never;
+  const guest = { id: "g1", vmid: 101, name: "dc01", jobName: null };
+  const summary = (running: number, queued = 0, connected = true) => ({
+    connected,
+    running: Array.from({ length: running }, () => guest),
+    queued,
+  });
 
-  it("asks quickly while a guest backs up, now and then otherwise, and never without Proxmox VE", () => {
-    expect(pveRefreshMs("success", overview("running"))).toBe(5_000);
-    expect(pveRefreshMs("success", overview(null))).toBe(60_000);
-    expect(pveRefreshMs("success", overview(null, 0))).toBe(false);
+  it("asks quickly while a guest backs up or waits, now and then otherwise, and never without Proxmox VE", () => {
+    expect(pveRefreshMs("success", summary(1))).toBe(5_000);
+    expect(pveRefreshMs("success", summary(0, 2))).toBe(5_000);
+    expect(pveRefreshMs("success", summary(0))).toBe(60_000);
+    expect(pveRefreshMs("success", summary(0, 0, false))).toBe(false);
     expect(pveRefreshMs("error", undefined)).toBe(false);
     expect(pveRefreshMs("pending", undefined)).toBe(60_000);
+  });
+});
+
+describe("activityFromPve", () => {
+  it("lists the running guests by name and counts those that wait", () => {
+    const activity = activityFromPve({
+      connected: true,
+      running: [{ id: "g1", vmid: 101, name: "dc01", jobName: "Nightly" }],
+      queued: 3,
+    });
+    expect(activity).toEqual({
+      running: 1,
+      queued: 3,
+      items: [{ id: "g1", label: "Nightly · dc01", percent: null, to: "/virtualization/g1" }],
+    });
+    expect(activityFromPve(undefined)).toEqual({ running: 0, queued: 0, items: [] });
   });
 });

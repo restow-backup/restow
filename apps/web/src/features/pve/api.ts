@@ -289,6 +289,7 @@ export interface JobInput {
 export const pveKeys = {
   all: (tenantId: string | null) => ["pve", tenantId] as const,
   overview: (tenantId: string | null) => ["pve", tenantId, "overview"] as const,
+  activity: (tenantId: string | null) => ["pve", tenantId, "activity"] as const,
   guest: (tenantId: string | null, id: string) => ["pve", tenantId, "guest", id] as const,
   files: (tenantId: string | null, snapshotId: string, path: string) =>
     ["pve", tenantId, "files", snapshotId, path] as const,
@@ -308,6 +309,15 @@ export function guestRefreshMs(data: PveGuestDetail | undefined): number {
 }
 
 export const fetchOverview = () => apiFetch<PveOverview>("/pve");
+
+/** The guests that back up now and how many wait: what the sidebar shows (apps/api pve/activity.ts). */
+export interface PveActivity {
+  /** Whether the tenant has a Proxmox VE cluster at all. */
+  connected: boolean;
+  running: { id: string; vmid: number; name: string | null; jobName: string | null }[];
+  queued: number;
+}
+export const fetchActivity = () => apiFetch<PveActivity>("/pve/activity");
 export const fetchGuest = (id: string) =>
   apiFetch<PveGuestDetail>(`/pve/guests/${encodeURIComponent(id)}`);
 export const createToken = (pveToken?: ExistingPveToken) =>

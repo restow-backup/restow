@@ -8,7 +8,7 @@ import {
   type JobKind,
 } from "@/features/backup-jobs/api";
 import { refreshIntervalOf } from "@/features/backup-jobs/hooks";
-import { ACTIVE_REFRESH_MS, fetchOverview, type PveOverview, pveKeys } from "@/features/pve/api";
+import { ACTIVE_REFRESH_MS, fetchActivity, type PveActivity, pveKeys } from "@/features/pve/api";
 import { guestTo } from "@/features/pve/paths";
 import type { NavActivity, NavBadge } from "@/lib/navigation";
 import { useSession } from "@/lib/session";
@@ -19,6 +19,7 @@ import {
   activityFromGuests,
   activityFromJobs,
   activityFromLive,
+  type GuestActivity,
   isBusy,
 } from "./activity";
 import type { LiveDefinitions } from "./apply";
@@ -29,9 +30,9 @@ import { useLiveRuns, useLiveState } from "./provider";
  * with a spinner, and those that wait. They come from the live channel, which the shell holds open
  * anyway, so the menu costs no request of its own; while the channel is not connected (it retries,
  * the server refused it, or it was closed for the background) the entries read the list of backup
- * jobs instead, at that list's own pace. Proxmox VE is not on the channel: its entry reads the
- * overview of the VMs and containers page (the same cached query), which polls quickly only while
- * a guest backs up.
+ * jobs instead, at that list's own pace. Proxmox VE is not on the channel: its entry asks for the
+ * guests that back up or wait (a slim request, not the overview of the VMs and containers page),
+ * quickly only while one does.
  */
 
 const NO_DEFINITIONS: LiveDefinitions = {};
@@ -122,24 +123,35 @@ export const PVE_IDLE_REFRESH_MS = 60_000;
  */
 export function pveRefreshMs(
   status: "pending" | "error" | "success",
-  data: PveOverview | undefined,
+  data: PveActivity | undefined,
 ): number | false {
-  if (status === "error" || (data && data.clusters.length === 0)) {
+  if (status === "error" || (data && !data.connected)) {
     return false;
   }
-  return data?.guests.some((guest) => guest.activity) ? ACTIVE_REFRESH_MS : PVE_IDLE_REFRESH_MS;
+  return data && (data.running.length > 0 || data.queued > 0)
+    ? ACTIVE_REFRESH_MS
+    : PVE_IDLE_REFRESH_MS;
+}
+
+/** The running guests by name, and the number that wait. */
+export function activityFromPve(data: PveActivity | undefined): NavActivity {
+  const running: GuestActivity[] = (data?.running ?? []).map((guest) => ({
+    ...guest,
+    activity: "running",
+  }));
+  return { ...activityFromGuests(running, guestPath), queued: data?.queued ?? 0 };
 }
 
 /** "VMs & containers": the guests that back up now or wait for their node. */
 export function usePveActivity(): NavBadge | null {
   const { tenantId, enabled } = useScope();
   const label = useActivityLabel();
-  const overview = useQuery<PveOverview>({
-    queryKey: pveKeys.overview(tenantId),
-    queryFn: fetchOverview,
+  const summary = useQuery<PveActivity>({
+    queryKey: pveKeys.activity(tenantId),
+    queryFn: fetchActivity,
     enabled,
     refetchInterval: (query) => pveRefreshMs(query.state.status, query.state.data),
   });
-  const activity = activityFromGuests(overview.data?.guests ?? [], guestPath);
+  const activity = activityFromPve(summary.data);
   return isBusy(activity) ? badgeOf(activity, label(activity)) : null;
 }

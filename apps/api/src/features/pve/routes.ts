@@ -21,6 +21,7 @@ import {
 import { instanceUrl } from "../endpoints/instance-url.js";
 import { ENDPOINT_PROBLEMS } from "../endpoints/problems.js";
 import { MAX_DOWNLOAD_BODY_BYTES } from "../endpoints/schemas.js";
+import { pveActivity } from "./activity.js";
 import type { PveActor } from "./audit.js";
 import { requestBootTest } from "./boot-tests.js";
 import { browseContainerFiles, openContainerDownload, prepareContainerDownload } from "./files.js";
@@ -54,6 +55,7 @@ import {
  * container's backed-up files (file restore, #62; features/pve/files.ts).
  *
  *   GET    /                                 clusters with nodes, guests, jobs
+ *   GET    /activity                         the guests that back up now and how many wait
  *   POST   /tokens                           a one-time enrollment token with the node command
  *                                             (optionally bound to an existing PVE API token)
  *   POST   /nodes/:id/revoke                 refuse a node from now on
@@ -101,6 +103,7 @@ function actorOf(c: Context<TenantEnv>): PveActor {
 }
 
 pveRoutes.get("/", admin, async (c) => c.json(await overview(db, c.get("tenantId"))));
+pveRoutes.get("/activity", admin, async (c) => c.json(await pveActivity(db, c.get("tenantId"))));
 
 pveRoutes.post("/tokens", admin, async (c) => {
   const input = await parseJsonBody(c.req, createTokenSchema);
