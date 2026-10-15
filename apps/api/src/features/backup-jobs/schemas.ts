@@ -253,6 +253,49 @@ export const defaultsQuerySchema = z.object({
     )
     .pipe(z.array(uuid).max(500)),
 });
+const idListQuery = z
+  .string()
+  .optional()
+  .transform((value) =>
+    value
+      ? value
+          .split(",")
+          .map((part) => part.trim())
+          .filter(Boolean)
+      : [],
+  )
+  .pipe(z.array(uuid).max(5000));
+const flagQuery = z
+  .enum(["1", "0", "true", "false"])
+  .optional()
+  .transform((value) => value === "1" || value === "true");
+
+/** What "Create recommended job" covers (#52): the mail job, machines, guests, or everything. */
+export const recommendedScopeSchema = z
+  .object({
+    mail: z.boolean().default(false),
+    endpointIds: z.array(uuid).max(5000).default([]),
+    guestIds: z.array(uuid).max(5000).default([]),
+    everything: z.boolean().default(false),
+  })
+  .refine(
+    (scope) =>
+      scope.mail || scope.everything || scope.endpointIds.length > 0 || scope.guestIds.length > 0,
+    {
+      message: "Name what to protect: mail, machines, guests or everything.",
+      path: ["everything"],
+    },
+  );
+/** The same as a query (`?mail=1&endpointIds=a,b&guestIds=c&everything=1`), for the preview. */
+export const recommendedQuerySchema = z
+  .object({
+    mail: flagQuery,
+    endpointIds: idListQuery,
+    guestIds: idListQuery,
+    everything: flagQuery,
+  })
+  .pipe(recommendedScopeSchema);
+
 export const candidatesQuerySchema = z.object({
   kind: jobKindSchema,
   q: z.string().trim().max(200).optional(),

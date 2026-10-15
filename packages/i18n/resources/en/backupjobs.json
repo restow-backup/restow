@@ -17,6 +17,7 @@
         "client": "Windows clients"
       }
     },
+    "pveGroup": "VMs & containers",
     "schedule": {
       "daily": "daily {time}",
       "intervalHours": "every {hours} h",

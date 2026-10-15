@@ -337,6 +337,8 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/backup-jobs": view(),
   "GET /api/v1/backup-jobs/defaults": view(),
   "GET /api/v1/backup-jobs/candidates": view(),
+  "GET /api/v1/backup-jobs/recommended": view(),
+  "POST /api/v1/backup-jobs/recommended": configure(),
   "POST /api/v1/backup-jobs": configure(),
   "GET /api/v1/backup-jobs/:id": view(),
   "PATCH /api/v1/backup-jobs/:id": configure(),

@@ -6,6 +6,7 @@ import { clientIp } from "../../lib/request.js";
 import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { mayConfigure } from "../endpoints/routes.js";
+import { applyRecommendedJobs, previewRecommendedJobs } from "./recommended.js";
 import {
   addMembersSchema,
   candidatesQuerySchema,
@@ -14,6 +15,8 @@ import {
   jobParamSchema,
   listBackupJobsQuerySchema,
   memberParamSchema,
+  recommendedQuerySchema,
+  recommendedScopeSchema,
   replaceMembersSchema,
   runBackupJobSchema,
   runsQuerySchema,
@@ -46,6 +49,9 @@ import type { JobActor, JobContext } from "./service-types.js";
  *   GET    /                         the tenant's jobs with scope, schedule, last and next run, restore checks
  *   GET    /defaults?kind=           the recommended schedule, repository and choices of a new job
  *   GET    /candidates?kind=&q=      objects or machines a job can take, with the job each is in
+ *   GET    /recommended?mail=&endpointIds=&guestIds=&everything=
+ *                                     what "Create recommended job" would make or add to (#52)
+ *   POST   /recommended              make the recommended jobs or add to them (idempotent)
  *   POST   /                         create (scope, schedule, settings, members with overrides)
  *   GET    /:id                      one job
  *   PATCH  /:id                      name, schedule, restore check, retention, settings, on/off
@@ -114,6 +120,18 @@ export function buildBackupJobsRoutes(deps: BackupJobsRoutesDeps): Hono<TenantEn
   routes.get("/defaults", admin, async (c) => {
     const { kind, endpointIds } = parseOrProblem(defaultsQuerySchema, c.req.query());
     return c.json(await getDefaults(deps.db, c.get("tenantId"), kind, { endpointIds }));
+  });
+
+  routes.get("/recommended", admin, async (c) => {
+    const scope = parseOrProblem(recommendedQuerySchema, c.req.query());
+    return c.json(await previewRecommendedJobs(deps.db, c.get("tenantId"), scope));
+  });
+
+  routes.post("/recommended", admin, async (c) => {
+    const scope = await parseJsonBody(c.req, recommendedScopeSchema);
+    return c.json(
+      await applyRecommendedJobs(deps.db, c.get("tenantId"), scope, actorOf(c), contextOf(c)),
+    );
   });
 
   routes.get("/candidates", admin, async (c) => {
