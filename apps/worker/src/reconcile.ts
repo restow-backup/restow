@@ -23,7 +23,9 @@
  * is a job of a worker that died while another one that started before it still runs
  * (nothing tells which of the two had it).
  * Runs on the installation pool, which owns pg-boss' schema and bypasses Row Level
- * Security for the rows of every tenant.
+ * Security for the rows of every tenant. One worker at a time runs the pass (a session advisory
+ * lock); the others skip it. Both lookups of `jobs` read the partial index of the active rows
+ * (`jobs_active_boss_idx`), not the table.
  */
 import type { Logger } from "@restow/core";
 import { type Database, type FailureRecordJson, safeErrorMessage } from "@restow/db";
@@ -37,6 +39,7 @@ export const LIVE_WORKER_MS = 2 * 60 * 1000;
 export const SETTLE_AFTER_MS = 2 * 60 * 1000;
 /** How often the pass runs. */
 export const RECONCILE_INTERVAL_MS = 5 * 60 * 1000;
+const LOCK_KEY = 0x72636e31; // "rcn1"
 
 export interface ReconcileSummary {
   requeued: number;
@@ -210,6 +213,30 @@ export async function reconcileJobs(
   return { requeued, settled };
 }
 
+/** One pass, unless another worker runs it right now (then null). */
+export async function reconcileJobsOnce(
+  providerDb: Database,
+  options: { now: Date; selfStartedAt: Date; logger: Logger },
+): Promise<ReconcileSummary | null> {
+  const client = await providerDb.$client.connect();
+  try {
+    const { rows } = await client.query<{ locked: boolean }>(
+      "SELECT pg_try_advisory_lock($1) AS locked",
+      [LOCK_KEY],
+    );
+    if (!rows[0]?.locked) {
+      return null;
+    }
+    try {
+      return await reconcileJobs(providerDb, options);
+    } finally {
+      await client.query("SELECT pg_advisory_unlock($1)", [LOCK_KEY]);
+    }
+  } finally {
+    client.release();
+  }
+}
+
 /** Run the pass now and every few minutes; returns a stop function. */
 export function startJobReconciler(
   providerDb: Database,
@@ -219,7 +246,7 @@ export function startJobReconciler(
   let stopped = false;
   const tick = async () => {
     try {
-      await reconcileJobs(providerDb, { ...options, now: new Date() });
+      await reconcileJobsOnce(providerDb, { ...options, now: new Date() });
     } catch (error) {
       options.logger.warn("reconciling left-behind jobs failed", {
         errorMessage: safeErrorMessage(error),
