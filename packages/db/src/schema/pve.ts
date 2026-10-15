@@ -30,7 +30,8 @@ import { tenants } from "./tenants.js";
 
 export type PveGuestKind = "vm" | "ct";
 export type PveTaskStatus = "pending" | "delivered" | "done" | "failed";
-export type PveRunKind = "backup" | "restore" | "restore_test" | "verify";
+export type PveRunKind = "backup" | "restore" | "restore_test" | "verify" | "boot_test";
+export type PveTaskKind = "backup" | "restore" | "refresh_inventory" | "boot_test";
 export type PveRunStatus = "running" | "succeeded" | "failed";
 export type PveBackupMode = "snapshot" | "suspend" | "stop";
 
@@ -101,6 +102,11 @@ export type PveNodeFacts = {
    */
   activeRuns?: string[];
   activeRunsAt?: string;
+  /**
+   * The task kinds beyond the original set the node can run (restow-pve from 0.4.0 announces
+   * `boot_test`). The server hands a node only what it declared; an older node never gets one.
+   */
+  capabilities?: string[];
 };
 
 /** A node with restow-pve. */
@@ -146,6 +152,48 @@ export type PveJobSettings = {
   restoreTest?: { enabled: boolean; targetStorage?: string };
   /** Upload limit in kbit/s; null = unlimited. */
   bandwidthKbps?: number | null;
+  /** Boot tests of the job's guests (docs/PVE.md, "Boot test"); off by default. */
+  bootTest?: PveBootTestSettings;
+};
+
+/** When a job proves that its guests' restore points boot. */
+export type PveBootTestSchedule = "off" | "weekly" | "after_backup";
+
+export type PveBootTestSettings = {
+  schedule: PveBootTestSchedule;
+  /** A guest that needs more memory (MiB) than this is not booted; default 8192. */
+  maxMemoryMiB?: number;
+  /** How long the node waits for the QEMU guest agent (or a container's init), in seconds. */
+  timeoutSeconds?: number;
+};
+
+/**
+ * How a boot test ended (docs/PVE.md, "Boot test"):
+ *   green    the restored VM's QEMU guest agent answered (a container: its init runs)
+ *   yellow   the guest started and kept running, but nothing inside it answered
+ *   red      the restore, the start or the boot failed (the guest stopped)
+ *   skipped  the node did not run it (memory, storage, a backup running); `reason` says why
+ *   error    the node could not carry it out (its PVE API failed); says nothing about the backup
+ */
+export type PveBootTestOutcome = "green" | "yellow" | "red" | "skipped" | "error";
+
+/** The result of a boot test, kept with its run and with the restore point it tested. */
+export type PveBootTestResult = {
+  outcome: PveBootTestOutcome;
+  /** A short code: agent_answered, init_running, no_guest_agent, restore_failed, ... */
+  reason: string;
+  message: string;
+  checkedAt: string;
+  durationMs: number;
+  /** Seconds from the start of the guest until the agent (or init) answered. */
+  bootSeconds: number | null;
+  guestAgent: boolean;
+  /** The temporary VMID on the node (destroyed again). */
+  tempVmid: number | null;
+  storage: string | null;
+  /** Whether the temporary guest was destroyed. */
+  cleanedUp: boolean;
+  runId: string;
 };
 
 /** When a PVE job runs: a daily time in a zone, or every N minutes. */
@@ -234,6 +282,8 @@ export const pveGuests = pgTable(
     lastSnapshotId: uuid("last_snapshot_id"),
     lastVerifyAt: timestamp("last_verify_at", { withTimezone: true }),
     lastRestoreTestAt: timestamp("last_restore_test_at", { withTimezone: true }),
+    // When the last boot test of the guest was planned or asked for (docs/PVE.md, "Boot test").
+    lastBootTestAt: timestamp("last_boot_test_at", { withTimezone: true }),
     reportedAt: timestamp("reported_at", { withTimezone: true }),
     ...timestamps(),
   },
@@ -256,7 +306,7 @@ export const pveTasks = pgTable(
       .notNull()
       .references(() => pveNodes.id, { onDelete: "cascade" }),
     guestId: uuid("guest_id").references(() => pveGuests.id, { onDelete: "cascade" }),
-    kind: text("kind").$type<"backup" | "restore" | "refresh_inventory">().notNull(),
+    kind: text("kind").$type<PveTaskKind>().notNull(),
     params: jsonb("params").$type<Record<string, unknown>>().notNull().default({}),
     status: text("status").$type<PveTaskStatus>().notNull().default("pending"),
     result: jsonb("result").$type<Record<string, unknown>>(),
@@ -435,6 +485,8 @@ export const pveSnapshots = pgTable(
     baseSnapshotId: uuid("base_snapshot_id"),
     backupAt: timestamp("backup_at", { withTimezone: true }).notNull(),
     verify: jsonb("verify").$type<PveVerifyResult>(),
+    // The newest boot test of this restore point (null: none ran).
+    bootTest: jsonb("boot_test").$type<PveBootTestResult>(),
     prunedAt: timestamp("pruned_at", { withTimezone: true }),
     ...timestamps(),
   },
