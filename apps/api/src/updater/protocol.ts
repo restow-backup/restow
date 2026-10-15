@@ -680,9 +680,10 @@ export function maintenanceStatusOf(
   run: Run | null,
   phase: UpdaterPhase,
   now: Date,
+  databaseMove: PublicMove | null = null,
 ): MaintenanceStatus {
   return {
-    ...publicStatusOf(run, phase, now),
+    ...publicStatusOf(run, phase, now, databaseMove),
     message: run?.message ?? null,
     targetVersion: run?.targetVersion ?? null,
     fromVersion: run?.fromVersion ?? null,

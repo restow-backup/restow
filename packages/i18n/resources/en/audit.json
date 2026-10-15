@@ -160,7 +160,8 @@
     "mounter": "Mounter",
     "pve": "Proxmox VE",
     "file_share": "File shares",
-    "warning": "Warnings"
+    "warning": "Warnings",
+    "database": "Database"
   },
   "events": {
     "account": {
@@ -470,6 +471,10 @@
       },
       "restart": {
         "requested": "Service restart requested"
+      },
+      "dump": {
+        "downloaded": "Database backup downloaded",
+        "deleted": "Database backup deleted"
       }
     },
     "endpoint": {
@@ -594,6 +599,18 @@
     },
     "audit": {
       "exported": "Audit log exported"
+    },
+    "database": {
+      "move": {
+        "requested": "Database move requested",
+        "started": "Database move started",
+        "succeeded": "Database moved",
+        "failed": "Database move did not complete"
+      },
+      "old_copy": {
+        "removal_requested": "Removal of the old database copy requested",
+        "removed": "Old database copy removed"
+      }
     }
   },
   "targetTypes": {
@@ -641,7 +658,9 @@
     "pve_snapshot": "Restore point (VM or container)",
     "pve_job": "Backup job (VMs and containers)",
     "pve_enrollment_token": "Enrollment token (Proxmox VE)",
-    "service": "Service"
+    "service": "Service",
+    "database": "Database",
+    "dump": "Database backup"
   },
   "sectionDescription": "The log of this {scope, select, organisation {organisation} other {tenant}}: who did what, when, with the hash chain that proves it was not changed.",
   "export": {

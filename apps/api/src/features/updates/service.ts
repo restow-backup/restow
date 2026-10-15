@@ -1046,6 +1046,7 @@ export class UpdateService {
   }
 
   private async ingest(settingsId: string, event: JournalEvent): Promise<void> {
+    const databaseEvent = event.action.startsWith("database.");
     await this.deps.db.transaction(async (tx) => {
       await audit(tx, {
         tenantId: null,
@@ -1053,11 +1054,26 @@ export class UpdateService {
         actorUserId: event.actor.userId,
         action: event.action,
         target: event.target,
-        targetType: "update",
+        targetType: databaseEvent ? "database" : "update",
         ip: event.actor.ip,
         details: { ...event.details, runId: event.runId, occurredAt: event.at, via: "updater" },
       });
-      if (event.action !== UPDATE_AUDIT_ACTIONS.started) {
+      if (databaseEvent) {
+        // The outcome of a move of the database (Installation > Database) reaches the bell too.
+        const status = typeof event.details.status === "string" ? event.details.status : null;
+        if (event.action === "database.move.succeeded" || event.action === "database.move.failed") {
+          const succeeded = event.action === "database.move.succeeded";
+          await tx.insert(notifications).values({
+            tenantId: null,
+            level: succeeded ? "info" : status === "rolled_back" ? "warning" : "error",
+            event: event.action,
+            message: succeeded
+              ? `The database was moved to ${event.target}.`
+              : `The database was not moved to ${event.target}${status ? ` (${status})` : ""}.`,
+            details: { moveId: event.runId, status, objectName: event.target },
+          });
+        }
+      } else if (event.action !== UPDATE_AUDIT_ACTIONS.started) {
         const succeeded = event.action === UPDATE_AUDIT_ACTIONS.succeeded;
         const outcome = typeof event.details.outcome === "string" ? event.details.outcome : null;
         await tx.insert(notifications).values({

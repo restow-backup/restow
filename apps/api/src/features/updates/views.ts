@@ -26,7 +26,18 @@ export function maintenanceViewOf(
   runningVersion: string | null,
   now: Date,
 ): MaintenanceView {
-  const status = maintenanceStatusOf(state?.run ?? null, state?.phase ?? "idle", now);
+  const move = state?.database?.move ?? null;
+  // A move of the database (Installation > Database) stops the application as well.
+  const databaseMove = move
+    ? {
+        id: move.id,
+        status: move.status,
+        step: move.step,
+        progress: move.progress,
+        finishedAt: move.finishedAt,
+      }
+    : null;
+  const status = maintenanceStatusOf(state?.run ?? null, state?.phase ?? "idle", now, databaseMove);
   return { ...status, runningVersion };
 }
 

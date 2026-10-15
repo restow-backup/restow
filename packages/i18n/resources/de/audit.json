@@ -160,7 +160,8 @@
     "mounter": "Mounter",
     "pve": "Proxmox VE",
     "file_share": "Freigaben",
-    "warning": "Warnungen"
+    "warning": "Warnungen",
+    "database": "Datenbank"
   },
   "events": {
     "account": {
@@ -470,6 +471,10 @@
       },
       "restart": {
         "requested": "Neustart eines Dienstes angefordert"
+      },
+      "dump": {
+        "downloaded": "Datenbanksicherung heruntergeladen",
+        "deleted": "Datenbanksicherung gelöscht"
       }
     },
     "endpoint": {
@@ -594,6 +599,18 @@
     },
     "audit": {
       "exported": "Audit-Log exportiert"
+    },
+    "database": {
+      "move": {
+        "requested": "Verschieben der Datenbank angefordert",
+        "started": "Verschieben der Datenbank gestartet",
+        "succeeded": "Datenbank verschoben",
+        "failed": "Verschieben der Datenbank nicht abgeschlossen"
+      },
+      "old_copy": {
+        "removal_requested": "Entfernen der alten Datenbankkopie angefordert",
+        "removed": "Alte Datenbankkopie entfernt"
+      }
     }
   },
   "targetTypes": {
@@ -641,7 +658,9 @@
     "pve_snapshot": "Sicherungsstand (VM oder Container)",
     "pve_job": "Backup-Job (VMs und Container)",
     "pve_enrollment_token": "Enrollment-Token (Proxmox VE)",
-    "service": "Dienst"
+    "service": "Dienst",
+    "database": "Datenbank",
+    "dump": "Datenbanksicherung"
   },
   "sectionDescription": "{scope, select, organisation {Das Protokoll dieser Organisation} other {Das Protokoll dieses Mandanten}}: wer wann was getan hat, mit der Hash-Kette, die beweist, dass nichts verändert wurde.",
   "export": {

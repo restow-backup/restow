@@ -8,9 +8,11 @@ import {
   type SessionEnv,
 } from "../../middleware/session.js";
 import { parseJsonBody } from "../../schemas.js";
-import { restartService, updateService } from "./instance.js";
+import type { DatabaseService } from "./database.js";
+import { databaseService, restartService, updateService } from "./instance.js";
 import type { RestartService } from "./restarts.js";
 import {
+  databaseDirectoryInputSchema,
   pendingLicenseKeyInputSchema,
   scheduleUpdateInputSchema,
   switchBuildInputSchema,
@@ -33,6 +35,12 @@ import type { Actor, UpdateService } from "./service.js";
  *   DELETE /edition/license-key     ... and remove it again
  *   GET    /restarts                services that need a restart, and how (restarts.ts)
  *   POST   /restarts/:service       "Restart now": the updater restarts that one service
+ *   GET    /database                the database location, its disk and the repository's (database.ts)
+ *   POST   /database/check          check a directory for the database: { targetDir }
+ *   POST   /database/move           move the database there: { targetDir } (recent sign-in)
+ *   DELETE /database/old-copies/:id remove an old copy a move left (recent sign-in)
+ *   GET    /dumps/:file             download a pre-update dump (recent sign-in)
+ *   DELETE /dumps/:file             delete a pre-update dump (recent sign-in)
  *
  * /api/v1/maintenance — every signed-in user:
  *
@@ -56,6 +64,7 @@ function actorOf(c: Context<SessionEnv>): Actor {
 export function buildUpdatesRoutes(
   service: UpdateService,
   restarts?: RestartService,
+  database?: DatabaseService,
 ): Hono<SessionEnv> {
   const routes = new Hono<SessionEnv>();
   routes.use("*", refuseApiKeys, requireProviderAdmin);
@@ -107,6 +116,39 @@ export function buildUpdatesRoutes(
     );
   }
 
+  if (database) {
+    routes.get("/database", async (c) =>
+      c.json(await database.view({ fresh: c.req.query("refresh") === "1" })),
+    );
+    // Checking writes and removes one test file in the directory, nothing else: the owner's,
+    // without a recent sign-in.
+    routes.post("/database/check", async (c) => {
+      const input = await parseJsonBody(c.req, databaseDirectoryInputSchema);
+      return c.json(await database.check(input.targetDir, actorOf(c)));
+    });
+    // Moving stops the whole application and rewrites .env; removing deletes data: a recent
+    // sign-in on top of the owner role, like an update.
+    routes.post("/database/move", async (c) => {
+      const input = await parseJsonBody(c.req, databaseDirectoryInputSchema);
+      assertRecentSignIn(c.get("auth").session);
+      return c.json(await database.move(input.targetDir, actorOf(c)));
+    });
+    routes.delete("/database/old-copies/:id", async (c) => {
+      assertRecentSignIn(c.get("auth").session);
+      return c.json(await database.removeOldCopy(c.req.param("id"), actorOf(c)));
+    });
+    // A dump holds the whole database: downloading it is the most sensitive export there is.
+    routes.get("/dumps/:file", async (c) => {
+      assertRecentSignIn(c.get("auth").session);
+      return database.downloadDump(c.req.param("file"), actorOf(c));
+    });
+    routes.delete("/dumps/:file", async (c) => {
+      assertRecentSignIn(c.get("auth").session);
+      await database.deleteDump(c.req.param("file"), actorOf(c));
+      return c.json(await service.view());
+    });
+  }
+
   return routes;
 }
 
@@ -117,5 +159,5 @@ export function buildMaintenanceRoutes(service: UpdateService): Hono<SessionEnv>
   return routes;
 }
 
-export const updatesRoutes = buildUpdatesRoutes(updateService, restartService);
+export const updatesRoutes = buildUpdatesRoutes(updateService, restartService, databaseService);
 export const maintenanceRoutes = buildMaintenanceRoutes(updateService);

@@ -1,6 +1,11 @@
 import { timingSafeEqual } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import {
+  type MoveCheck,
+  type MoveRequest,
+  moveCheckSchema,
+} from "../../updater/database-protocol.js";
+import {
   type RestartableService,
   type ScheduleRequest,
   type StateView,
@@ -71,7 +76,26 @@ export interface UpdaterClient {
   enableMounter(): Promise<StateView>;
   /** Ask the updater to restart one application service; it answers before the restart ends. */
   restart(service: RestartableService): Promise<StateView>;
+  /** Check a directory for the database (docs/DATABASE.md); nothing changes. */
+  checkDatabaseLocation(request: MoveRequest): Promise<MoveCheck>;
+  /** Start moving the database there; the updater answers when the move has started. */
+  moveDatabase(request: MoveRequest): Promise<StateView>;
+  /** Empty an old copy of the database a move left behind. */
+  removeOldDatabaseCopy(id: string, requestedBy: MoveRequest["requestedBy"]): Promise<StateView>;
+  /**
+   * A pre-update dump as the updater streams it: the response is handed on as it is, never
+   * buffered (a dump is as large as the database). null when there is no such dump.
+   */
+  downloadDump(file: string): Promise<Response | null>;
+  /** Delete a pre-update dump. */
+  deleteDump(file: string): Promise<StateView>;
 }
+
+/**
+ * How long the api waits for the database checks: the updater measures the data directory
+ * (`du`) and starts a helper container for the target before it answers.
+ */
+export const DATABASE_CHECK_TIMEOUT_MS = 180_000;
 
 /** How long the api waits for `POST /v1/mounter/enable` (the updater waits up to a minute). */
 export const ENABLE_MOUNTER_TIMEOUT_MS = 90_000;
@@ -260,6 +284,86 @@ export function createUpdaterClient(options: UpdaterClientOptions): UpdaterClien
     async restart(service) {
       return remember(toState(await request("POST", "/v1/restart", { service })));
     },
+    async checkDatabaseLocation(moveRequest) {
+      const parsed = moveCheckSchema.safeParse(
+        await request("POST", "/v1/database/check", moveRequest, DATABASE_CHECK_TIMEOUT_MS),
+      );
+      if (!parsed.success) {
+        throw new UpdaterUnavailableError("incompatible");
+      }
+      return parsed.data;
+    },
+    async moveDatabase(moveRequest) {
+      return remember(
+        toState(await request("POST", "/v1/database/move", moveRequest, DATABASE_CHECK_TIMEOUT_MS)),
+      );
+    },
+    async removeOldDatabaseCopy(id, requestedBy) {
+      return remember(
+        toState(
+          await request(
+            "POST",
+            `/v1/database/old-copies/${encodeURIComponent(id)}/remove`,
+            { requestedBy },
+            DATABASE_CHECK_TIMEOUT_MS,
+          ),
+        ),
+      );
+    },
+    async downloadDump(file) {
+      if (!base) {
+        throw new UpdaterUnavailableError("disabled");
+      }
+      const secret = await secrets.get();
+      if (!secret) {
+        throw new UpdaterUnavailableError("no_secret");
+      }
+      // Only the answer's start is timed: the body of a large dump takes as long as it takes.
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      let response: Response;
+      try {
+        response = await fetcher(`${base}/v1/dumps/${encodeURIComponent(file)}`, {
+          method: "GET",
+          headers: { authorization: `${UPDATER_AUTH_SCHEME} ${secret}` },
+          signal: controller.signal,
+          redirect: "error",
+        });
+      } catch (error) {
+        const timedOut = error instanceof Error && error.name === "AbortError";
+        throw new UpdaterUnavailableError(timedOut ? "timeout" : "unreachable");
+      } finally {
+        clearTimeout(timer);
+      }
+      if (response.status === 404) {
+        await response.body?.cancel();
+        return null;
+      }
+      if (response.status === 401) {
+        await response.body?.cancel();
+        secrets.forget();
+        throw new UpdaterUnavailableError("no_secret");
+      }
+      if (!response.ok) {
+        const text = await response.text();
+        let parsed: unknown = null;
+        try {
+          parsed = JSON.parse(text);
+        } catch {
+          parsed = null;
+        }
+        const code = (parsed as { code?: unknown } | null)?.code;
+        throw new UpdaterRejectedError(
+          response.status,
+          typeof code === "string" ? code : null,
+          parsed,
+        );
+      }
+      return response;
+    },
+    async deleteDump(file) {
+      return remember(toState(await request("DELETE", `/v1/dumps/${encodeURIComponent(file)}`)));
+    },
   };
 }
 
@@ -284,6 +388,21 @@ export const disabledUpdaterClient: UpdaterClient = {
     throw new UpdaterUnavailableError("disabled");
   },
   restart: async () => {
+    throw new UpdaterUnavailableError("disabled");
+  },
+  checkDatabaseLocation: async () => {
+    throw new UpdaterUnavailableError("disabled");
+  },
+  moveDatabase: async () => {
+    throw new UpdaterUnavailableError("disabled");
+  },
+  removeOldDatabaseCopy: async () => {
+    throw new UpdaterUnavailableError("disabled");
+  },
+  downloadDump: async () => {
+    throw new UpdaterUnavailableError("disabled");
+  },
+  deleteDump: async () => {
     throw new UpdaterUnavailableError("disabled");
   },
 };

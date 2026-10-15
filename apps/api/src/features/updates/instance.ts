@@ -1,5 +1,7 @@
 import { config } from "../../config.js";
 import { providerDb } from "../../db.js";
+import { currentInstallationDefault } from "../../lib/installation-default.js";
+import { DatabaseService, filesystemOf } from "./database.js";
 import { RestartService } from "./restarts.js";
 import { UpdateService } from "./service.js";
 import { updateState } from "./state-instance.js";
@@ -25,4 +27,16 @@ export const restartService = new RestartService({
   db: providerDb,
   updater: updaterClient,
   demo: config.demo.enabled,
+});
+
+/** Installation > Database (database.ts), sharing the updater client and its cache. */
+export const databaseService = new DatabaseService({
+  db: providerDb,
+  updater: updaterClient,
+  demo: config.demo.enabled,
+  // The disk under the installation's local default repository; an S3 default has none.
+  repositoryDisk: async () => {
+    const storage = await currentInstallationDefault();
+    return storage?.primary.kind === "local" ? await filesystemOf(storage.primary.basePath) : null;
+  },
 });
