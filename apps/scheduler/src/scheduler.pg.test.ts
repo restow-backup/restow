@@ -251,6 +251,43 @@ describe.skipIf(!adminUrl)("scheduler against Postgres", () => {
     expect(retention.rows[0].payload).toMatchObject({ tenantId, scheduleId: rows[0].id });
   });
 
+  it("plans nothing while an update pauses job starts, and catches up afterwards (#46)", async () => {
+    const { rows } = await db.$client.query<{ id: string }>(
+      "INSERT INTO schedules (tenant_id, kind, interval_minutes) VALUES ($1, 'backup', 60) RETURNING id",
+      [tenantId],
+    );
+    await db.$client.query("UPDATE schedules SET next_run_at = $2 WHERE id = $1", [
+      rows[0].id,
+      new Date(clock.getTime() - 1000),
+    ]);
+    let paused = true;
+    const pausable = new SchedulerLoop({
+      store,
+      boss,
+      tickIntervalMs: 60_000,
+      batchSize: 50,
+      deferMs: 3_600_000,
+      isLeader: () => true,
+      now: () => clock,
+      startsPaused: async () => paused,
+    });
+    const nextRunAt = async () =>
+      (
+        await db.$client.query<{ next_run_at: Date }>(
+          "SELECT next_run_at FROM schedules WHERE id = $1",
+          [rows[0].id],
+        )
+      ).rows[0].next_run_at.getTime();
+    const before = await db.$client.query("SELECT id FROM jobs");
+    expect(await pausable.tick()).toMatchObject({ schedules: 0, enqueued: 0 });
+    expect((await db.$client.query("SELECT id FROM jobs")).rows).toHaveLength(before.rows.length);
+    expect(await nextRunAt()).toBeLessThan(clock.getTime());
+    paused = false;
+    expect((await pausable.tick())?.schedules).toBeGreaterThan(0);
+    expect(await nextRunAt()).toBeGreaterThan(clock.getTime());
+    await db.$client.query("DELETE FROM schedules WHERE id = $1", [rows[0].id]);
+  });
+
   it("does not tick when not the leader", async () => {
     const follower = new SchedulerLoop({
       store,
