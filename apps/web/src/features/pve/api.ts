@@ -51,6 +51,13 @@ export interface PveGuest {
   activitySince?: string | null;
   /** How far the running backup is; null before the node's first report and for nodes before 0.4.0. */
   progress?: PveRunProgress | null;
+  /**
+   * The job whose scheduled round the backup belongs to; null for one asked for by hand ("Back up
+   * now") or started in PVE. Missing on servers before 0.4.0.
+   */
+  activityJobId?: string | null;
+  /** The running backup's run. */
+  activityRunId?: string | null;
   bitmapState: "incremental" | "full_read" | null;
   /** The first backup ever and the newest restore point; missing on servers before 0.3.5. */
   backups?: PveGuestBackupSizes;
@@ -102,6 +109,16 @@ export interface PveJobSchedule {
   timeZone: string;
 }
 
+/** Where a job's scheduled round stands while guests of it still wait or run. */
+export interface PveJobRound {
+  since: string;
+  total: number;
+  done: number;
+  failed: number;
+  running: number;
+  queued: number;
+}
+
 export interface PveJob {
   id: string;
   name: string;
@@ -115,6 +132,12 @@ export interface PveJob {
   enabled: boolean;
   nextRunAt: string | null;
   lastRunAt: string | null;
+  /** Made by "Create recommended job" (0.4.0 on). */
+  recommended?: boolean;
+  /** The guests the job backs up (0.4.0 on). */
+  guestCount?: number;
+  /** The scheduled round while it goes; null otherwise (0.4.0 on). */
+  round?: PveJobRound | null;
 }
 
 export interface PveOverview {

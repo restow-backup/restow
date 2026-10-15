@@ -88,3 +88,12 @@ export function uniqueName(
     }
   }
 }
+
+/** The name of the recommended Proxmox VE job: "VMs & containers · daily 22:00". */
+export function pveJobName(language: SupportedLanguage, timeOfDay: string): string {
+  const t = translator(language);
+  return t("backupjobs:auto.format", {
+    group: t("backupjobs:auto.pveGroup"),
+    schedule: t("backupjobs:auto.schedule.daily", { time: timeOfDay }),
+  });
+}

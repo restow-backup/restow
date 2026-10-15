@@ -21,6 +21,7 @@ import type { JobCandidate, JobKind } from "../api.js";
 import { type SelectedMember, selectedOfCandidate } from "../form.js";
 import { useJobCandidates } from "../hooks.js";
 import { MEMBER_KIND_ICON } from "../presenters.js";
+import { ProxmoxPickerHint } from "./proxmox-hint.js";
 
 export interface PickerValue {
   selected: SelectedMember[];
@@ -228,6 +229,7 @@ export function MemberPicker({
                 <TableRow>
                   <TableCell colSpan={4} className="py-6 text-center text-muted-foreground">
                     {onlySelected ? t("picker.noneSelected") : t(`picker.empty.${kind}`)}
+                    {kind === "endpoint" && !onlySelected ? <ProxmoxPickerHint /> : null}
                   </TableCell>
                 </TableRow>
               ) : (
@@ -329,6 +331,10 @@ export function MemberPicker({
             ? t("picker.partial", { shown: items.length, total })
             : t("picker.selectedCount", { count: value.selected.length })}
       </p>
+      {/* Searching for a VM or container that has rows of other names: say where they are. */}
+      {kind === "endpoint" && !onlySelected && rows.length > 0 && search.trim() !== "" ? (
+        <ProxmoxPickerHint />
+      ) : null}
 
       <ConfirmDialog
         open={moving !== null}

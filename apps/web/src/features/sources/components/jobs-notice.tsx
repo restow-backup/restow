@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { buttonVariants } from "@/components/ui/button";
+import { RecommendedJobButton } from "@/features/backup-jobs/components/recommended-job";
 import { useBackupJobs } from "@/features/backup-jobs/hooks";
 import { jobsListTo, linkProps } from "@/features/backup-jobs/paths";
 import { directoryTo } from "@/features/directory/search";
@@ -26,7 +27,8 @@ export function SourcesJobsNotice() {
       <ShieldOff aria-hidden="true" />
       <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <span>{t("jobsNotice.text", { count: none + unscheduled })}</span>
-        <span className="flex shrink-0 gap-2">
+        <span className="flex shrink-0 flex-wrap gap-2">
+          {none > 0 ? <RecommendedJobButton scope={{ mail: true }} /> : null}
           <Link
             to={directoryTo()}
             search={{ job: none > 0 ? "none" : "unscheduled" } as never}

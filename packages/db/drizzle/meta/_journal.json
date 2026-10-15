@@ -281,6 +281,13 @@
       "when": 1792062094887,
       "tag": "0039_pve_run_progress",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1792064917857,
+      "tag": "0040_recommended_jobs",
+      "breakpoints": true
     }
   ]
 }

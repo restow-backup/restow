@@ -1,23 +1,43 @@
-import { Link } from "@tanstack/react-router";
-import { ListChecks, ListPlus, ShieldOff } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { ChevronDown, Container, ListChecks, ListPlus, Server, ShieldOff } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
-import { DisabledReason, EmptyState, PageHeader, RefreshButton } from "@/components/kit";
+import {
+  ConfirmDialog,
+  DisabledReason,
+  EmptyState,
+  PageHeader,
+  RefreshButton,
+} from "@/components/kit";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "@/components/ui/sonner";
 import { directoryTo } from "@/features/directory/search";
+import { useTenantScope } from "@/features/endpoints/hooks";
 import { inventoryTo } from "@/features/endpoints/paths";
 import { fileSharesTo } from "@/features/file-shares/paths";
 import { RunDrawerHost } from "@/features/history/components/run-drawer";
 import { useRunDrawer } from "@/features/history/hooks";
+import { deleteJob as deletePveJob, type PveJob, pveKeys } from "@/features/pve/api";
+import { guestTo, pveTo } from "@/features/pve/paths";
+import { JobDialog as PveJobDialog } from "@/features/pve/pve-page";
+import { pveConnected, usePveOverview } from "@/features/pve/use-overview";
 
 import type { BackupJob, JobKind } from "../api.js";
 import { closedProps, JobsAccessNote, useJobsAccess } from "../components/access-note.js";
 import { useJobActions } from "../components/job-actions.js";
 import { JobsTable } from "../components/jobs-table.js";
 import { KindEditor } from "../components/kind-editor.js";
+import { type PveListRow, pveListRows } from "../components/pve-rows.js";
+import { RecommendedJobButton } from "../components/recommended-job.js";
 import { useBackupJobs } from "../hooks.js";
 
 /**
@@ -73,7 +93,28 @@ export function JobsPage({
   const uncovered = query.data?.uncovered[kind] ?? 0;
   const unscheduled = query.data?.unscheduled?.[kind] ?? 0;
   const loading = query.isPending && query.fetchStatus !== "idle";
-  const empty = query.data !== undefined && query.data.items.length === 0;
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const { tenantId } = useTenantScope();
+  // Servers & clients list the Proxmox VE jobs too, once Proxmox VE is connected (#53).
+  const pveView = usePveOverview();
+  const pveData = pveView.query.data;
+  const withPve =
+    kind === "endpoint" &&
+    pveView.allowed &&
+    (pveConnected(pveData) || (pveData?.jobs.length ?? 0) > 0);
+  const pveRows = React.useMemo(
+    () => (withPve ? pveListRows(pveData, (guest) => t("list.pve.manual", { guest })) : []),
+    [withPve, pveData, t],
+  );
+  // VMs and containers in no job (the overview's "no_job": templates and gone guests are not news).
+  const pveWithoutJob = (pveData?.guests ?? []).filter((guest) =>
+    guest.attention.includes("no_job"),
+  ).length;
+  const [pveEditing, setPveEditing] = React.useState<PveJob | "new" | null>(null);
+  const [pveDeleting, setPveDeleting] = React.useState<PveJob | null>(null);
+  const refreshPve = () => void queryClient.invalidateQueries({ queryKey: pveKeys.all(tenantId) });
+  const empty = query.data !== undefined && query.data.items.length === 0 && pveRows.length === 0;
 
   const onSaved = (change: "created" | "updated", job: BackupJob) =>
     toast.success(t(`toasts.${change}`, { name: job.name }));
@@ -91,10 +132,19 @@ export function JobsPage({
               fetching={query.isFetching}
               onRefresh={() => void query.refetch()}
             />
-            <Button disabled={access.closed} onClick={onCreate} {...closedProps(access)}>
-              <ListPlus aria-hidden="true" />
-              {t("actions.new")}
-            </Button>
+            {withPve ? (
+              <NewJobMenu
+                closed={access.closed}
+                closedProps={closedProps(access)}
+                onMachines={onCreate}
+                onPve={() => setPveEditing("new")}
+              />
+            ) : (
+              <Button disabled={access.closed} onClick={onCreate} {...closedProps(access)}>
+                <ListPlus aria-hidden="true" />
+                {t("actions.new")}
+              </Button>
+            )}
           </>
         }
       />
@@ -106,7 +156,14 @@ export function JobsPage({
           <ShieldOff aria-hidden="true" />
           <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <span>{t(`list.uncovered.${kind}`, { count: uncovered })}</span>
-            <span className="flex shrink-0 gap-2">
+            <span className="flex shrink-0 flex-wrap gap-2">
+              {kind === "mail" || kind === "endpoint" ? (
+                <RecommendedJobButton
+                  scope={
+                    kind === "mail" ? { mail: true } : { everything: true, kinds: ["endpoint"] }
+                  }
+                />
+              ) : null}
               <Button variant="outline" size="sm" asChild data-action="show-uncovered">
                 <Link {...uncoveredLink(kind, "none")}>{t("list.uncovered.show")}</Link>
               </Button>
@@ -121,6 +178,22 @@ export function JobsPage({
                   {t("list.uncovered.action")}
                 </Button>
               </DisabledReason>
+            </span>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+      {withPve && pveWithoutJob > 0 ? (
+        <Alert variant="warning" data-slot="pve-uncovered-notice">
+          <ShieldOff aria-hidden="true" />
+          <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span>{t("list.uncovered.pve", { count: pveWithoutJob })}</span>
+            <span className="flex shrink-0 flex-wrap gap-2">
+              <RecommendedJobButton scope={{ everything: true, kinds: ["pve"] }} />
+              <Button variant="outline" size="sm" asChild>
+                <Link to={inventoryTo()} hash="pve-inventory-title">
+                  {t("list.uncovered.show")}
+                </Link>
+              </Button>
             </span>
           </AlertDescription>
         </Alert>
@@ -154,15 +227,25 @@ export function JobsPage({
               description={t(`list.empty.description.${kind}`)}
               variant="plain"
               actions={
-                <Button
-                  variant="outline"
-                  disabled={access.closed}
-                  onClick={onCreate}
-                  {...closedProps(access)}
-                >
-                  <ListPlus aria-hidden="true" />
-                  {t("actions.new")}
-                </Button>
+                withPve ? (
+                  <NewJobMenu
+                    variant="outline"
+                    closed={access.closed}
+                    closedProps={closedProps(access)}
+                    onMachines={onCreate}
+                    onPve={() => setPveEditing("new")}
+                  />
+                ) : (
+                  <Button
+                    variant="outline"
+                    disabled={access.closed}
+                    onClick={onCreate}
+                    {...closedProps(access)}
+                  >
+                    <ListPlus aria-hidden="true" />
+                    {t("actions.new")}
+                  </Button>
+                )
               }
             />
           ) : null
@@ -176,6 +259,25 @@ export function JobsPage({
         onPause={actions.askPause}
         onResume={actions.resume}
         onDelete={actions.askDelete}
+        pve={
+          withPve
+            ? {
+                rows: pveRows,
+                onOpen: (row: PveListRow) => {
+                  if (row.rowType === "manual") {
+                    // The run of a guest is on its page.
+                    void navigate(guestTo(row.guest.id));
+                  } else if (access.closed) {
+                    void navigate(pveTo());
+                  } else {
+                    setPveEditing(row.job);
+                  }
+                },
+                onEdit: (row) => setPveEditing(row.job),
+                onDelete: (row) => setPveDeleting(row.job),
+              }
+            : undefined
+        }
       />
 
       <KindEditor
@@ -195,8 +297,71 @@ export function JobsPage({
         access={access}
         onSaved={onSaved}
       />
+      {pveEditing ? (
+        <PveJobDialog
+          job={pveEditing === "new" ? null : pveEditing}
+          guests={pveData?.guests ?? []}
+          onClose={() => setPveEditing(null)}
+        />
+      ) : null}
+      <ConfirmDialog
+        open={pveDeleting !== null}
+        onOpenChange={(open) => (open ? undefined : setPveDeleting(null))}
+        title={t("list.pve.deleteTitle", { name: pveDeleting?.name ?? "" })}
+        description={t("list.pve.deleteDescription")}
+        confirmLabel={t("actions.delete")}
+        destructive
+        onConfirm={async () => {
+          if (pveDeleting) {
+            await deletePveJob(pveDeleting.id);
+            refreshPve();
+            setPveDeleting(null);
+          }
+        }}
+      />
       {actions.dialogs}
       <RunDrawerHost />
     </div>
+  );
+}
+
+/**
+ * "New job" on Servers & clients once Proxmox VE is connected: one entry per type (#53), a
+ * machine job in the job editor, a Proxmox VE job in its own form with the guests to put in.
+ */
+function NewJobMenu({
+  variant = "default",
+  closed,
+  closedProps: extra,
+  onMachines,
+  onPve,
+}: {
+  variant?: "default" | "outline";
+  closed: boolean;
+  closedProps: ReturnType<typeof closedProps>;
+  onMachines: () => void;
+  onPve: () => void;
+}) {
+  const { t } = useTranslation("backupjobs");
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant={variant} disabled={closed} data-slot="new-job-menu" {...extra}>
+          <ListPlus aria-hidden="true" />
+          {t("actions.new")}
+          <ChevronDown aria-hidden="true" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuItem onSelect={onMachines} data-type="endpoint">
+          <Server aria-hidden="true" />
+          {t("list.newType.endpoint")}
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={onPve} data-type="pve">
+          <Container aria-hidden="true" />
+          {t("list.newType.pve")}
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

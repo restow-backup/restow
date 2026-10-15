@@ -1,7 +1,6 @@
 import type * as React from "react";
-
+import { RecommendedJobButton } from "@/features/backup-jobs/components/recommended-job";
 import { cn } from "@/lib/utils";
-
 import type { TenantWidgets, WidgetData, WidgetId } from "./api.js";
 import {
   ADMIN_WIDGETS,
@@ -89,6 +88,9 @@ export const SECTIONS: readonly Section[] = [
             view={c.view("readiness")}
             {...state(c)}
             canAdminister={c.canAdminister}
+            protectAction={
+              c.canAdminister ? <RecommendedJobButton scope={{ everything: true }} /> : undefined
+            }
           />
         ),
       },

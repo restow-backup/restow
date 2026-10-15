@@ -8,6 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { JOB_ROLES } from "@/features/backup-jobs/access";
 import { closedProps, useJobsAccess } from "@/features/backup-jobs/components/access-note";
+import { RecommendedJobButton } from "@/features/backup-jobs/components/recommended-job";
 import { jobDefinitionTo, linkProps, newJobTo } from "@/features/backup-jobs/paths";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
@@ -67,7 +68,9 @@ export function JobCell({ endpoint }: { endpoint: Pick<EndpointSummary, "status"
 }
 
 /**
- * "Create job" (the job editor with the machines chosen) and "Add to job" (the dialog). Closed
+ * "Create recommended job" (one click, with a preview: the recommended job of the machines'
+ * system and profile, #52), "Create job" (the job editor with the machines chosen) and "Add to
+ * job" (the dialog). Closed
  * the same way as the job pages' controls (public demo, a role that may only look), with the
  * reason as a tooltip.
  */
@@ -86,6 +89,7 @@ export function NoJobActions({
   const ids = endpoints.map((endpoint) => endpoint.id);
   return (
     <div className={cn("flex flex-wrap gap-2", className)} data-slot="no-job-actions">
+      <RecommendedJobButton scope={{ endpointIds: ids }} size={size} />
       {access.closed ? (
         <Button size={size} disabled {...closedProps(access)}>
           <ListPlus aria-hidden="true" />

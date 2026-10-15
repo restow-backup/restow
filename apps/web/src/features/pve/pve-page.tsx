@@ -11,8 +11,9 @@ import {
   RefreshButton,
   RelativeTime,
 } from "@/components/kit";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -31,7 +32,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { RecommendedJobButton } from "@/features/backup-jobs/components/recommended-job";
 import { useTenantScope } from "@/features/endpoints/hooks";
+import { inventoryTo } from "@/features/endpoints/paths";
 import { formatBytes, formatDateTime } from "@/lib/format";
 
 import {
@@ -73,15 +76,31 @@ function problemLabel(
   return label === key ? t("problems.unknown", { code }) : label;
 }
 
-/** Create or change a backup job for VMs and containers; `onSaved` gets the job as saved. */
+/** A guest as the job form lists it: "web01 · VM 101 · pve1". */
+function guestLabel(guest: PveGuest): string {
+  const kind = guest.kind === "vm" ? "VM" : "CT";
+  const name = guest.name ? `${guest.name} · ${kind} ${guest.vmid}` : `${kind} ${guest.vmid}`;
+  return guest.node ? `${name} · ${guest.node}` : name;
+}
+
+/**
+ * Create or change a backup job for VMs and containers; `onSaved` gets the job as saved. With
+ * `guests` the form lists them to put into the job (#53): the job's own are ticked, `preselect`
+ * ticks more; on save each guest whose box changed is put into the job or taken out of it. A
+ * guest of another job moves (a guest is in one job at a time).
+ */
 export function JobDialog({
   job,
   onClose,
   onSaved,
+  guests,
+  preselect = [],
 }: {
   job: PveJob | null;
   onClose: () => void;
   onSaved?: (job: PveJob) => void;
+  guests?: readonly PveGuest[];
+  preselect?: readonly string[];
 }) {
   const { t } = useTranslation(PVE_NAMESPACE);
   const queryClient = useQueryClient();
@@ -97,8 +116,29 @@ export function JobDialog({
     job?.settings.restoreTest?.targetStorage ?? "",
   );
   const [testEnabled, setTestEnabled] = React.useState(job?.settings.restoreTest?.enabled ?? false);
+  // Templates and guests that are gone cannot be backed up; they are not offered.
+  const offered = (guests ?? []).filter(
+    (guest) => guest.present && !(guest.kind === "vm" && guest.template),
+  );
+  const own = new Set(job ? offered.filter((g) => g.jobId === job.id).map((g) => g.id) : []);
+  const [chosen, setChosen] = React.useState<ReadonlySet<string>>(
+    () => new Set([...own, ...preselect]),
+  );
   const mutation = useMutation({
-    mutationFn: (input: JobInput) => saveJob(job?.id ?? null, input),
+    mutationFn: async (input: JobInput) => {
+      const saved = await saveJob(job?.id ?? null, input);
+      if (guests) {
+        for (const guest of offered) {
+          const wanted = chosen.has(guest.id);
+          if (wanted && guest.jobId !== saved.id) {
+            await assignJob(guest.id, saved.id);
+          } else if (!wanted && guest.jobId === saved.id) {
+            await assignJob(guest.id, null);
+          }
+        }
+      }
+      return saved;
+    },
     onSuccess: (saved) => {
       toast.success(t("jobs.saved"));
       void queryClient.invalidateQueries({ queryKey: pveKeys.all(tenantId) });
@@ -137,7 +177,7 @@ export function JobDialog({
   );
   return (
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
-      <DialogContent>
+      <DialogContent className="max-h-[90vh] overflow-y-auto">
         <form onSubmit={submit} className="space-y-4">
           <DialogHeader>
             <DialogTitle>{job ? job.name : t("jobs.create")}</DialogTitle>
@@ -192,6 +232,49 @@ export function JobDialog({
               />
             </div>
           ) : null}
+          {guests ? (
+            <fieldset className="space-y-2" data-slot="pve-job-guests">
+              <legend className="text-sm font-medium">{t("jobs.guests")}</legend>
+              {offered.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t("jobs.noGuests")}</p>
+              ) : (
+                <ul className="max-h-56 space-y-1 overflow-y-auto rounded-md border p-2">
+                  {offered.map((guest) => {
+                    const elsewhere = guest.jobId && guest.jobId !== job?.id ? guest.jobName : null;
+                    return (
+                      <li key={guest.id}>
+                        <label className="flex items-start gap-2 text-sm">
+                          <input
+                            type="checkbox"
+                            className="mt-0.5"
+                            checked={chosen.has(guest.id)}
+                            onChange={(e) =>
+                              setChosen((current) => {
+                                const next = new Set(current);
+                                if (e.target.checked) next.add(guest.id);
+                                else next.delete(guest.id);
+                                return next;
+                              })
+                            }
+                          />
+                          <span className="min-w-0">
+                            <span className="block truncate">{guestLabel(guest)}</span>
+                            {elsewhere ? (
+                              <span className="block text-xs text-muted-foreground">
+                                {chosen.has(guest.id)
+                                  ? t("jobs.guestMoves", { job: elsewhere })
+                                  : t("jobs.guestInJob", { job: elsewhere })}
+                              </span>
+                            ) : null}
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </fieldset>
+          ) : null}
           <DialogFooter>
             <Button type="submit" disabled={mutation.isPending || name.trim() === ""}>
               {t("jobs.save")}
@@ -200,6 +283,31 @@ export function JobDialog({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * The node itself is not backed up (#53): restow-pve backs up the guests through PVE's backup
+ * interface. The host's own files (/etc/pve, network and storage configuration) need the
+ * Restow agent on the host, as a server of the inventory.
+ */
+export function HostFilesNote() {
+  const { t } = useTranslation(PVE_NAMESPACE);
+  return (
+    <Alert variant="info" data-slot="pve-host-files">
+      <Server aria-hidden="true" />
+      <AlertTitle>{t("nodes.hostFiles.title")}</AlertTitle>
+      <AlertDescription>
+        <p>{t("nodes.hostFiles.body")}</p>
+        <Link
+          to={inventoryTo()}
+          search={{ kind: "server" } as never}
+          className={buttonVariants({ variant: "outline", size: "sm", className: "mt-2" })}
+        >
+          {t("nodes.hostFiles.install")}
+        </Link>
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -333,6 +441,9 @@ export function PvePage() {
   const nodes = (data?.clusters ?? []).flatMap((c) =>
     c.nodes.map((n) => ({ ...n, cluster: c.name })),
   );
+  const withoutJob = (data?.guests ?? [])
+    .filter((guest) => guest.attention.includes("no_job"))
+    .map((guest) => guest.id);
   const nodeOf = (g: PveGuest): PveNode | null =>
     data?.clusters.find((c) => c.id === g.clusterId)?.nodes.find((n) => n.name === g.node) ?? null;
 
@@ -410,6 +521,7 @@ export function PvePage() {
             </TableBody>
           </Table>
         )}
+        {nodes.length > 0 ? <HostFilesNote /> : null}
       </section>
 
       <section className="space-y-2" aria-labelledby="pve-jobs">
@@ -465,9 +577,18 @@ export function PvePage() {
       </section>
 
       <section className="space-y-2" aria-labelledby="pve-guests">
-        <h2 id="pve-guests" className="text-lg font-semibold">
-          {t("guests.title")}
-        </h2>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 id="pve-guests" className="text-lg font-semibold">
+            {t("guests.title")}
+          </h2>
+          {/* Guests in no job: the recommended Proxmox VE job protects them with one click (#52). */}
+          {withoutJob.length > 0 ? (
+            <span className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+              {t("inventory.actions.withoutJob", { count: withoutJob.length })}
+              <RecommendedJobButton scope={{ guestIds: withoutJob }} />
+            </span>
+          ) : null}
+        </div>
         {(data?.guests ?? []).length === 0 ? (
           <EmptyState icon={Container} title={t("guests.empty")} />
         ) : (
@@ -554,7 +675,11 @@ export function PvePage() {
       </section>
 
       {editing ? (
-        <JobDialog job={editing === "new" ? null : editing} onClose={() => setEditing(null)} />
+        <JobDialog
+          job={editing === "new" ? null : editing}
+          guests={data?.guests ?? []}
+          onClose={() => setEditing(null)}
+        />
       ) : null}
       <ConfirmDialog
         open={revoking !== null}

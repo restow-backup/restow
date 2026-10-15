@@ -6,6 +6,8 @@ import { useTranslation } from "react-i18next";
 
 import { DataTable, DataTableSearch, type RowAction, rowActionsColumn } from "@/components/kit";
 
+import { guestTo, pveTo } from "@/features/pve/paths";
+
 import type { BackupJob, JobKind } from "../api.js";
 import { jobDefinitionTo } from "../paths.js";
 import { repositoryLabel, restoreCheckView, switchAction } from "../presenters.js";
@@ -20,6 +22,17 @@ import {
   ScheduleCell,
   ScopeCell,
 } from "./job-cells.js";
+import {
+  isPveRow,
+  type JobsListRow,
+  PveLastRunCell,
+  type PveListRow,
+  PveNameCell,
+  PveNextRunCell,
+  PveScheduleCell,
+  PveScopeCell,
+  PveTypeCell,
+} from "./pve-rows.js";
 
 export interface JobsTableProps {
   kind: JobKind;
@@ -45,6 +58,16 @@ export interface JobsTableProps {
   onPause: (job: BackupJob) => void;
   onResume: (job: BackupJob) => void;
   onDelete: (job: BackupJob) => void;
+  /**
+   * Proxmox VE in the same list (Servers & clients, #53): its jobs and its manual backups as rows,
+   * with the type as a column. Absent, the table shows the machine jobs alone and no type.
+   */
+  pve?: {
+    rows: readonly PveListRow[];
+    onOpen: (row: PveListRow) => void;
+    onEdit: (row: PveListRow & { rowType: "pve" }) => void;
+    onDelete: (row: PveListRow & { rowType: "pve" }) => void;
+  };
 }
 
 /** The job stays in view while the other columns scroll. */
@@ -82,11 +105,16 @@ export function JobsTable({
   onPause,
   onResume,
   onDelete,
+  pve,
 }: JobsTableProps) {
   const { t } = useTranslation("backupjobs");
+  const withPve = pve !== undefined;
+  const pveOpen = pve?.onOpen;
+  const pveEdit = pve?.onEdit;
+  const pveDelete = pve?.onDelete;
 
-  const columns = React.useMemo<ColumnDef<BackupJob>[]>(() => {
-    const list: ColumnDef<BackupJob>[] = [
+  const columns = React.useMemo<ColumnDef<JobsListRow>[]>(() => {
+    const list: ColumnDef<JobsListRow>[] = [
       {
         id: "name",
         size: 240,
@@ -101,6 +129,9 @@ export function JobsTable({
           }),
         cell: ({ row }) => {
           const job = row.original;
+          if (isPveRow(job)) {
+            return <PveNameCell row={job} />;
+          }
           const target = jobDefinitionTo(job.id, job.kind);
           return (
             <div className="min-w-0 space-y-1">
@@ -120,59 +151,101 @@ export function JobsTable({
           );
         },
       },
+      ...(withPve
+        ? [
+            {
+              id: "type",
+              size: 120,
+              accessorFn: (job: JobsListRow) => (isPveRow(job) ? 1 : 0),
+              enableGlobalFilter: false,
+              header: t("list.columns.type"),
+              meta: { label: t("list.columns.type") },
+              cell: ({ row }: { row: { original: JobsListRow } }) => (
+                <PveTypeCell row={row.original} />
+              ),
+            } satisfies ColumnDef<JobsListRow>,
+          ]
+        : []),
       {
         id: "scope",
         size: 190,
-        accessorFn: (job) => job.scope.count,
+        accessorFn: (job) =>
+          isPveRow(job) ? (job.rowType === "pve" ? (job.job.guestCount ?? 0) : 1) : job.scope.count,
         enableGlobalFilter: false,
         header: t("list.columns.scope"),
         meta: { label: t("list.columns.scope") },
-        cell: ({ row }) => <ScopeCell job={row.original} />,
+        cell: ({ row }) =>
+          isPveRow(row.original) ? (
+            <PveScopeCell row={row.original} />
+          ) : (
+            <ScopeCell job={row.original} />
+          ),
       },
       {
         id: "schedule",
         size: 190,
         enableSorting: false,
         enableGlobalFilter: false,
-        accessorFn: (job) => job.schedule?.kind ?? "",
+        accessorFn: (job) => (isPveRow(job) ? "" : (job.schedule?.kind ?? "")),
         header: t("list.columns.schedule"),
         meta: { label: t("list.columns.schedule") },
-        cell: ({ row }) => <ScheduleCell job={row.original} />,
+        cell: ({ row }) =>
+          isPveRow(row.original) ? (
+            <PveScheduleCell row={row.original} />
+          ) : (
+            <ScheduleCell job={row.original} />
+          ),
       },
       {
         id: "repository",
         size: 140,
-        accessorFn: (job) => repositoryLabel(job.repository, t),
+        accessorFn: (job) => (isPveRow(job) ? "" : repositoryLabel(job.repository, t)),
         enableGlobalFilter: false,
         header: t("list.columns.repository"),
         meta: { label: t("list.columns.repository"), className: "hidden 2xl:table-cell" },
-        cell: ({ row }) => (
-          <span className="text-muted-foreground">
-            <RepositoryCell job={row.original} />
-          </span>
-        ),
+        cell: ({ row }) => {
+          const job = row.original;
+          return (
+            <span className="text-muted-foreground">
+              {/* A guest writes to its cluster's repository (the PVE storage). */}
+              {isPveRow(job) ? t("list.pve.repository") : <RepositoryCell job={job} />}
+            </span>
+          );
+        },
       },
       {
         id: "lastRun",
         size: 150,
-        accessorFn: (job) => timeValue(job.lastRun.at),
+        accessorFn: (job) =>
+          isPveRow(job)
+            ? timeValue(
+                job.rowType === "pve" ? job.job.lastRunAt : (job.guest.activitySince ?? null),
+              )
+            : timeValue(job.lastRun.at),
         enableGlobalFilter: false,
         header: t("list.columns.lastRun"),
         meta: { label: t("list.columns.lastRun"), headerClassName: "whitespace-nowrap" },
-        cell: ({ row }) => (
-          <div className="space-y-1">
-            <LastRunCell job={row.original} />
-            {/* Where the next run has no column of its own, it stands under the last one. */}
-            <div className="text-xs text-muted-foreground 2xl:hidden">
-              {t("list.nextInline")} <NextRunCell job={row.original} />
+        cell: ({ row }) => {
+          const job = row.original;
+          return (
+            <div className="space-y-1">
+              {isPveRow(job) ? <PveLastRunCell row={job} /> : <LastRunCell job={job} />}
+              {/* Where the next run has no column of its own, it stands under the last one. */}
+              <div className="text-xs text-muted-foreground 2xl:hidden">
+                {t("list.nextInline")}{" "}
+                {isPveRow(job) ? <PveNextRunCell row={job} /> : <NextRunCell job={job} />}
+              </div>
             </div>
-          </div>
-        ),
+          );
+        },
       },
       {
         id: "nextRun",
         size: 120,
-        accessorFn: (job) => timeValue(job.nextRunAt),
+        accessorFn: (job) =>
+          isPveRow(job)
+            ? timeValue(job.rowType === "pve" ? job.job.nextRunAt : null)
+            : timeValue(job.nextRunAt),
         enableGlobalFilter: false,
         header: t("list.columns.nextRun"),
         meta: {
@@ -180,23 +253,67 @@ export function JobsTable({
           className: "hidden 2xl:table-cell",
           headerClassName: "whitespace-nowrap",
         },
-        cell: ({ row }) => <NextRunCell job={row.original} />,
+        cell: ({ row }) =>
+          isPveRow(row.original) ? (
+            <PveNextRunCell row={row.original} />
+          ) : (
+            <NextRunCell job={row.original} />
+          ),
       },
       {
         id: "restoreCheck",
         size: 150,
-        accessorFn: (job) => CHECK_RANK[restoreCheckView(job.restoreCheck).state],
+        accessorFn: (job) =>
+          isPveRow(job) ? CHECK_RANK.none : CHECK_RANK[restoreCheckView(job.restoreCheck).state],
         enableGlobalFilter: false,
         header: t("list.columns.restoreCheck"),
         meta: { label: t("list.columns.restoreCheck"), headerClassName: "whitespace-nowrap" },
-        cell: ({ row }) => <RestoreCheckBadge check={row.original.restoreCheck} />,
+        cell: ({ row }) =>
+          isPveRow(row.original) ? (
+            // Every guest's newest restore point is read back weekly; its result is on the guest.
+            <span className="text-muted-foreground">{t("list.pve.restoreCheck")}</span>
+          ) : (
+            <RestoreCheckBadge check={row.original.restoreCheck} />
+          ),
       },
-      rowActionsColumn<BackupJob>({
+      rowActionsColumn<JobsListRow>({
         name: (job) => job.name,
         describedBy: access.closed ? access.noteId : undefined,
         actions: (job): RowAction[] => {
           const closed = access.closed;
           const describedBy = closed ? access.noteId : undefined;
+          if (isPveRow(job)) {
+            if (job.rowType === "manual") {
+              return [
+                {
+                  id: "open",
+                  label: t("actions.openGuest"),
+                  icon: FolderOpen,
+                  link: guestTo(job.guest.id),
+                },
+              ];
+            }
+            return [
+              { id: "open", label: t("actions.open"), icon: FolderOpen, link: pveTo() },
+              {
+                id: "edit",
+                label: t("actions.edit"),
+                icon: Pencil,
+                disabled: closed || !pveEdit,
+                describedBy,
+                onSelect: () => pveEdit?.(job),
+              },
+              {
+                id: "delete",
+                label: t("actions.delete"),
+                icon: Trash2,
+                destructive: true,
+                disabled: closed || !pveDelete,
+                describedBy,
+                onSelect: () => pveDelete?.(job),
+              },
+            ];
+          }
           const actions: RowAction[] = [
             {
               id: "open",
@@ -258,17 +375,35 @@ export function JobsTable({
           });
           return actions;
         },
-      }) as ColumnDef<BackupJob>,
+      }) as ColumnDef<JobsListRow>,
     ];
     return list;
-  }, [t, access.closed, access.noteId, onEdit, onRun, running, onPause, onResume, onDelete]);
+  }, [
+    t,
+    access.closed,
+    access.noteId,
+    onEdit,
+    onRun,
+    running,
+    onPause,
+    onResume,
+    onDelete,
+    withPve,
+    pveEdit,
+    pveDelete,
+  ]);
+
+  const data = React.useMemo<readonly JobsListRow[] | undefined>(
+    () => (items && pve ? [...items, ...pve.rows] : items),
+    [items, pve],
+  );
 
   return (
     <DataTable
       id={`backup-jobs-${kind}`}
       label={t(`list.table.${kind}`)}
       columns={columns}
-      data={items}
+      data={data}
       getRowId={(job) => job.id}
       loading={loading}
       fetching={fetching}
@@ -278,6 +413,10 @@ export function JobsTable({
       empty={empty}
       pinnedColumns={PINNED}
       onRowClick={(job) => {
+        if (isPveRow(job)) {
+          pveOpen?.(job);
+          return;
+        }
         const runId = job.lastRun.runId;
         if (runId && onOpenRun) {
           onOpenRun(runId);
@@ -288,7 +427,7 @@ export function JobsTable({
       sorting={{ mode: "client", initial: [{ id: "name", desc: false }] }}
       pagination={{ mode: "client", pageSize: 25 }}
       toolbar={(table) =>
-        (items?.length ?? 0) > 5 ? (
+        (data?.length ?? 0) > 5 ? (
           <DataTableSearch
             value={String(table.getState().globalFilter ?? "")}
             onChange={(value) => table.setGlobalFilter(value)}

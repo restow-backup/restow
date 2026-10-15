@@ -31,7 +31,12 @@ import {
 } from "@restow/db";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
-import { type Transaction, withTenantTx } from "../../lib/tenant-context.js";
+import {
+  type DbExecutor,
+  isTransaction,
+  type Transaction,
+  withTenantTx,
+} from "../../lib/tenant-context.js";
 import { ProblemError } from "../../problem.js";
 import { auditEndpoint, ENDPOINT_AUDIT_ACTIONS } from "../endpoints/audit.js";
 import { type BandwidthWindowsProblem, checkedBandwidthWindows } from "../endpoints/bandwidth.js";
@@ -949,6 +954,7 @@ function definitionOf(job: BackupJob): Record<string, unknown> {
     retentionPolicyId: job.retentionPolicyId,
     settings,
     hooks: hookDetails(job.settings ?? {}),
+    ...(job.recommended ? { recommended: job.recommended } : {}),
     ...(job.kind === "copy"
       ? {
           sourceFileShareId: job.sourceFileShareId,
@@ -961,7 +967,7 @@ function definitionOf(job: BackupJob): Record<string, unknown> {
 }
 
 export async function createBackupJob(
-  db: Database,
+  db: DbExecutor,
   tenantId: string,
   input: CreateBackupJobInput,
   actor: JobActor,
@@ -980,6 +986,10 @@ export async function createBackupJob(
     );
   }
   if (kind === "copy") {
+    if (isTransaction(db)) {
+      // The mirror check mounts the target share; it runs on the pool, never in a caller's transaction.
+      throw new Error("a copy job is created on the pool, not inside a transaction");
+    }
     if (input.scope.mode === "all" || input.scope.members.length > 0) {
       throw jobProblem(["scope"], "members_not_supported", "A copy job has no members.");
     }
@@ -1061,6 +1071,7 @@ export async function createBackupJob(
           enabled: input.enabled,
           archive: input.archive,
           origin: "user",
+          recommended: context.recommended ?? null,
           nextRunAt: kind === "endpoint" ? null : nextOf(schedule, now, null),
           verifyNextRunAt: kind === "mail" ? nextOf(verifySchedule, now, null) : null,
           sourceFileShareId: kind === "copy" ? (input.sourceFileShareId ?? null) : null,
@@ -1500,7 +1511,7 @@ export async function replaceMembers(
 }
 
 export async function addMembers(
-  db: Database,
+  db: DbExecutor,
   tenantId: string,
   id: string,
   input: AddMembersInput,

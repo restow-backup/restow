@@ -20,6 +20,8 @@ export interface JobContext {
   confirmHookChange?: () => void;
   /** File share copy jobs: the mounter and the name resolution (tests replace them). */
   fileShares?: { runner?: RunnerClient; resolve?: HostResolver };
+  /** A job made by "Create recommended job" (#52): its key (`backup_jobs.recommended`). */
+  recommended?: string;
 }
 
 export const BACKUP_JOB_AUDIT_ACTIONS = {
@@ -29,4 +31,5 @@ export const BACKUP_JOB_AUDIT_ACTIONS = {
   scopeChanged: "backup_job.scope.changed",
   runRequested: "backup_job.run_requested",
   migrated: "backup_job.migrated",
+  recommendedApplied: "backup_job.recommended_applied",
 } as const;

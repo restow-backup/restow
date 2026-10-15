@@ -1,4 +1,5 @@
 import { BadgeCheck, CircleAlert, ShieldQuestion, TriangleAlert } from "lucide-react";
+import type * as React from "react";
 import { useTranslation } from "react-i18next";
 
 import { RelativeTime, StatusBadge } from "@/components/kit";
@@ -33,7 +34,15 @@ function ReadinessSkeleton() {
   );
 }
 
-function ReadinessBody({ data, canAdminister }: { data: ReadinessData; canAdminister: boolean }) {
+function ReadinessBody({
+  data,
+  canAdminister,
+  protectAction,
+}: {
+  data: ReadinessData;
+  canAdminister: boolean;
+  protectAction?: React.ReactNode;
+}) {
   const { t } = useTranslation("dashboard");
 
   return (
@@ -118,6 +127,12 @@ function ReadinessBody({ data, canAdminister }: { data: ReadinessData; canAdmini
           </AlertDescription>
         </Alert>
       ) : null}
+      {/* One click for everything without a job (#52); the dialog sums up the jobs it makes. */}
+      {protectAction &&
+      canAdminister &&
+      (data.withoutJob > 0 || (data.guestsWithoutJob ?? 0) > 0) ? (
+        <div data-flag="protect-everything">{protectAction}</div>
+      ) : null}
       {(data.sharesWithoutJob ?? 0) > 0 ? (
         <Alert variant="warning" data-flag="shares-without-job">
           <TriangleAlert />
@@ -160,8 +175,16 @@ function ReadinessBody({ data, canAdminister }: { data: ReadinessData; canAdmini
  */
 export function ReadinessWidget({
   canAdminister,
+  protectAction,
   ...props
-}: WidgetStateProps<ReadinessData> & { canAdminister: boolean }) {
+}: WidgetStateProps<ReadinessData> & {
+  canAdminister: boolean;
+  /**
+   * "Protect everything without a job" (#52), shown while machines or guests are in no job. The
+   * page hands it in (it needs the session); the card stays a view of its data.
+   */
+  protectAction?: React.ReactNode;
+}) {
   const { t } = useTranslation("dashboard");
   return (
     <WidgetCard
@@ -193,7 +216,9 @@ export function ReadinessWidget({
           : null
       }
     >
-      {(data) => <ReadinessBody data={data} canAdminister={canAdminister} />}
+      {(data) => (
+        <ReadinessBody data={data} canAdminister={canAdminister} protectAction={protectAction} />
+      )}
     </WidgetCard>
   );
 }

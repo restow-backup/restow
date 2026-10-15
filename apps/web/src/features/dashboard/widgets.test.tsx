@@ -544,6 +544,30 @@ describe("machines on the status tab", () => {
   });
 });
 
+describe("protect everything without a job (#52)", () => {
+  it("offers the page's action while machines or guests are in no job, and not otherwise", () => {
+    const action = <button type="button">Protect everything without a job</button>;
+    const flagged = render(
+      <ReadinessWidget
+        view={ready({ ...data.readiness, withoutJob: 2, overall: "yellow" as const })}
+        {...state}
+        canAdminister
+        protectAction={action}
+      />,
+    );
+    expect(flagged).toContain('data-flag="protect-everything"');
+    const clean = render(
+      <ReadinessWidget
+        view={ready({ ...data.readiness, withoutJob: 0, guestsWithoutJob: 0 })}
+        {...state}
+        canAdminister
+        protectAction={action}
+      />,
+    );
+    expect(clean).not.toContain('data-flag="protect-everything"');
+  });
+});
+
 describe("VMs and containers on the status tab", () => {
   it("lists them as a type of their own, judged by the PVE jobs' schedules", () => {
     const html = render(

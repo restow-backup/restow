@@ -46,7 +46,12 @@
     "revoke": "Widerrufen",
     "revokeTitle": "Knoten {name} widerrufen?",
     "revokeDescription": "Der Knoten kann danach nichts mehr sichern oder wiederherstellen. Vorhandene Sicherungsstände bleiben erhalten.",
-    "never": "Nie"
+    "never": "Nie",
+    "hostFiles": {
+      "title": "Der Proxmox-Host selbst wird hier nicht gesichert",
+      "body": "restow-pve sichert die VMs und Container eines Knotens, nicht den Knoten selbst. Für die Dateien des Hosts, etwa /etc/pve und die Netzwerk- und Speicherkonfiguration, installieren Sie den {appName}-Agent auf dem Host und nehmen ihn in einen Job für Server auf.",
+      "install": "Host als Server hinzufügen"
+    }
   },
   "problems": {
     "pve.plugin_not_loaded": "Speicher-Plugin nicht installiert",
@@ -134,7 +139,11 @@
     "scopeAll": "Alle Gäste",
     "scopeSelected": "Ausgewählte Gäste",
     "saved": "Backup-Job gespeichert.",
-    "edit": "Bearbeiten"
+    "edit": "Bearbeiten",
+    "guests": "VMs und Container in diesem Job",
+    "noGuests": "Noch keine VM und kein Container gemeldet.",
+    "guestInJob": "In {job}",
+    "guestMoves": "Wechselt aus {job}"
   },
   "guest": {
     "back": "Zurück zu VMs & Container",

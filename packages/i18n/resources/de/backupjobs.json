@@ -24,7 +24,8 @@
       "onConnect": "bei Verbindung",
       "onConnectHours": "bei Verbindung, höchstens alle {hours} Std",
       "onConnectMinutes": "bei Verbindung, höchstens alle {minutes} Min"
-    }
+    },
+    "pveGroup": "VMs & Container"
   },
   "access": {
     "demo": "Das ist die öffentliche Demo: Jobs lassen sich ansehen, aber nicht anlegen, ändern, ausführen oder löschen.",
@@ -39,7 +40,8 @@
     "pause": "Pausieren",
     "resume": "Fortsetzen",
     "delete": "Löschen",
-    "refresh": "Jobs aktualisieren"
+    "refresh": "Jobs aktualisieren",
+    "openGuest": "VM oder Container öffnen"
   },
   "list": {
     "title": "Jobs",
@@ -65,7 +67,8 @@
       "repository": "Repository",
       "lastRun": "Letzter Lauf",
       "nextRun": "Nächster Lauf",
-      "restoreCheck": "Restore-Prüfung"
+      "restoreCheck": "Restore-Prüfung",
+      "type": "Typ"
     },
     "uncovered": {
       "mail": "{count, plural, one {# geschütztes Objekt ist in keinem Job und wird nicht nach Zeitplan gesichert.} other {# geschützte Objekte sind in keinem Job und werden nicht nach Zeitplan gesichert.}}",
@@ -73,7 +76,8 @@
       "action": "Job anlegen",
       "show": "Anzeigen",
       "share": "{count, plural, one {# Freigabe ist in keinem Job und wird nicht gesichert.} other {# Freigaben sind in keinem Job und werden nicht gesichert.}}",
-      "copy": "{count, plural, one {# Kopie ist nicht eingerichtet.} other {# Kopien sind nicht eingerichtet.}}"
+      "copy": "{count, plural, one {# Kopie ist nicht eingerichtet.} other {# Kopien sind nicht eingerichtet.}}",
+      "pve": "{count, plural, one {# VM oder Container ist in keinem Job und wird nicht gesichert.} other {# VMs und Container sind in keinem Job und werden nicht gesichert.}}"
     },
     "empty": {
       "title": {
@@ -94,6 +98,28 @@
       "endpoint": "{count, plural, one {# Rechner ist in einem Job ohne Zeitplan und wird nicht automatisch gesichert.} other {# Rechner sind in Jobs ohne Zeitplan und werden nicht automatisch gesichert.}}",
       "share": "{count, plural, one {# Freigabe ist in einem Job ohne Zeitplan und wird nicht automatisch gesichert.} other {# Freigaben sind in Jobs ohne Zeitplan und werden nicht automatisch gesichert.}}",
       "copy": "{count, plural, one {# Kopierjob hat keinen Zeitplan und läuft nur, wenn ihn jemand startet.} other {# Kopierjobs haben keinen Zeitplan und laufen nur, wenn sie jemand startet.}}"
+    },
+    "type": {
+      "endpoint": "Rechner",
+      "pve": "Proxmox VE"
+    },
+    "newType": {
+      "endpoint": "Server und Clients ({appName}-Agent)",
+      "pve": "Proxmox VE (VMs & Container)"
+    },
+    "pve": {
+      "recommended": "Empfohlen",
+      "guests": "{count, plural, one {# VM oder Container} other {# VMs und Container}}",
+      "scopeAll": "und jeder Gast ohne anderen Job",
+      "manualSchedule": "Von Hand gestartet",
+      "noSchedule": "Kein Zeitplan",
+      "waiting": "Wartet auf den Knoten",
+      "round": "{done} von {total} Gästen fertig",
+      "repository": "Repository des Clusters",
+      "restoreCheck": "Wöchentlich, je Gast",
+      "manual": "Manuelle Sicherung · {guest}",
+      "deleteTitle": "Proxmox-VE-Job {name} löschen?",
+      "deleteDescription": "Die VMs und Container dieses Jobs werden danach nicht mehr gesichert. Vorhandene Sicherungsstände bleiben erhalten."
     }
   },
   "state": {
@@ -540,7 +566,8 @@
     "moveConfirm": "Hierher verschieben",
     "selectedCount": "{count} ausgewählt",
     "partial": "{shown} von {total} angezeigt. Mit der Suche lässt sich die Liste eingrenzen.",
-    "loadError": "Die Liste konnte nicht geladen werden"
+    "loadError": "Die Liste konnte nicht geladen werden",
+    "proxmox": "Proxmox-VE-VMs und -Container stehen nicht in dieser Liste: Sie werden von Proxmox-VE-Jobs gesichert."
   },
   "editor": {
     "createTitle": {
@@ -1087,5 +1114,40 @@
       "scopeSelected": "{count} ausgewählt",
       "never": "Nie"
     }
+  },
+  "recommended": {
+    "button": "Empfohlenen Job anlegen",
+    "everything": "Alles ohne Job schützen",
+    "description": "Das passiert mit diesem Klick. Danach können Sie die Jobs wie jeden anderen ändern.",
+    "loading": "Die empfohlenen Jobs werden ermittelt …",
+    "loadError": "Die Empfehlung konnte nicht geladen werden.",
+    "applyError": "Die empfohlenen Jobs konnten nicht eingerichtet werden. Es wurde nichts geändert.",
+    "nothing": "Nichts zu tun: Alles hier hat bereits einen Backup-Job.",
+    "create": "Neuer Job: {name}",
+    "add": "Zu {name} hinzufügen",
+    "kind": {
+      "mail": "Mail & SaaS",
+      "endpoint": "Server & Clients",
+      "pve": "Proxmox VE"
+    },
+    "scope": {
+      "mail": "Alle geschützten Objekte, auch neue ({count} davon jetzt ohne Job)",
+      "endpoint": "{count, plural, one {# Rechner} other {# Rechner}}: {names}",
+      "pve": "{count, plural, one {# VM oder Container} other {# VMs und Container}}: {names}"
+    },
+    "more": "und {count} weitere",
+    "schedule": "Sicherung: {schedule}",
+    "verify": "Restore-Prüfung: {schedule}",
+    "verifyPve": "Restore-Prüfung: wöchentlich wird eine Stichprobe des neuesten Sicherungsstands zurückgelesen",
+    "mode": "Snapshot-Modus, inkrementell: Nach der ersten Sicherung werden nur geänderte Blöcke gelesen",
+    "retention": "Behält {daily} tägliche, {weekly} wöchentliche und {monthly} monatliche Sicherungsstände",
+    "retentionPolicy": "Aufbewahrung: {policy}",
+    "retentionDefault": "Aufbewahrung: die Standard-Aufbewahrung des Mandanten",
+    "paths": "Ordner: {paths}",
+    "repository": "Repository: {repository}",
+    "skipped": "Ausgelassen: {count, plural, one {# Objekt ist bereits in einem Job oder lässt sich nicht sichern.} other {# Objekte sind bereits in einem Job oder lassen sich nicht sichern.}}",
+    "cancel": "Abbrechen",
+    "done": "{count, plural, one {Empfohlener Job eingerichtet: {names}} other {Empfohlene Jobs eingerichtet: {names}}}",
+    "doneNothing": "Nichts geändert: Alles hat bereits einen Job."
   }
 }

@@ -519,7 +519,8 @@
         "changed": "Umfang eines Backup-Jobs geändert"
       },
       "run_requested": "Lauf eines Backup-Jobs angefordert",
-      "migrated": "Zeitpläne und Rechner-Konfigurationen in Backup-Jobs überführt"
+      "migrated": "Zeitpläne und Rechner-Konfigurationen in Backup-Jobs überführt",
+      "recommended_applied": "Empfohlene Backup-Jobs eingerichtet"
     },
     "mount": {
       "add_requested": "Netzlaufwerk hinzugefügt",

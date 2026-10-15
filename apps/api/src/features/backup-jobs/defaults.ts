@@ -60,6 +60,7 @@ export async function ensureDefaultMailJob(
   tenantId: string,
   recommended: readonly RecommendedSchedule[],
   now: Date,
+  options: { recommended?: string } = {},
 ): Promise<{ id: string; name: string } | null> {
   const backup = scheduleOf(recommended.find((entry) => entry.kind === "backup"));
   const verify = scheduleOf(recommended.find((entry) => entry.kind === "verify"));
@@ -104,6 +105,7 @@ export async function ensureDefaultMailJob(
       verifySchedule: verify,
       enabled: true,
       origin: "user",
+      recommended: options.recommended ?? null,
       nextRunAt: first(backup),
       verifyNextRunAt: first(verify),
     })
