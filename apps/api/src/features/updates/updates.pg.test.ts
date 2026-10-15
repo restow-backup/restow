@@ -107,6 +107,7 @@ function capabilities(over: Partial<StateView["capabilities"]> = {}): StateView[
     signatureChecks: true,
     projectDir: "/srv/restow",
     mounterService: true,
+    updateSpace: null,
     checkedAt: "2026-10-01T09:00:00.000Z",
     ...over,
   };

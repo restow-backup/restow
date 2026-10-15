@@ -25,6 +25,7 @@ import { type OwnImage, pinOwnImage, SelfUpdater } from "./self-update.js";
 import { buildServer } from "./server.js";
 import { ArchiveSourceProvider } from "./source.js";
 import { formatAllowEntry } from "./source-policy.js";
+import { UpdateSpaceProbe } from "./space.js";
 import { StatusStore } from "./store.js";
 
 /**
@@ -153,6 +154,16 @@ async function main(): Promise<void> {
     composeFile: config.composeFile,
     postgres: async () => postgresSettings(await envFile.read()),
   });
+  // What the next update needs on disk (space.ts): the preflight refuses one that does not fit.
+  const space = new UpdateSpaceProbe({
+    ops,
+    database: databaseOps,
+    dumps,
+    envFile,
+    clock: systemClock,
+    stateDir: config.stateDir,
+    minFreeMb: config.minFreeMb,
+  });
   // The database location (database.ts): created below, after the engine it must not overlap.
   let mover: DatabaseMover | null = null;
   const api = new HttpApiClient({ apiUrl: config.apiUrl, secret, redactor });
@@ -174,6 +185,7 @@ async function main(): Promise<void> {
     webImageRepository: config.webImageRepository,
     sourceAllowlist: config.sourceAllowlist.map(formatAllowEntry),
     verifySignatures: config.verifySignatures,
+    space,
     otherActivity: () =>
       mover?.active()
         ? "The database is being moved, or an old copy of it is being removed."
@@ -283,6 +295,7 @@ async function main(): Promise<void> {
     logger,
     redactor,
     healthTimeoutSeconds: config.healthTimeoutSeconds,
+    updateSpace: () => space.estimate(false),
     otherActivity: () => {
       const { phase } = engine.view();
       if (phase === "scheduled" || phase === "running") {

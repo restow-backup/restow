@@ -4,6 +4,7 @@ import {
   moveProblemSchema,
   type PublicMove,
   publicMoveSchema,
+  updateSpaceSchema,
 } from "./database-protocol.js";
 
 /**
@@ -353,6 +354,11 @@ export const capabilitiesSchema = z.object({
    * predates the mounter (0.3.0) and has to be replaced by the release's file. null: unknown.
    */
   mounterService: z.boolean().nullable().default(null),
+  /**
+   * What the next update needs on disk and what is free (space.ts); null when it could not
+   * be estimated, or from an updater that predates the estimate.
+   */
+  updateSpace: updateSpaceSchema.nullable().default(null),
   /** When the preflight ran. */
   checkedAt: iso,
 });
