@@ -26,6 +26,7 @@ import {
   type RunDetail,
   type RunState,
 } from "../api";
+import { mergeSamples } from "../samples";
 
 /**
  * What an event of the live channel does to the data the pages already hold. Every page keeps
@@ -312,6 +313,14 @@ function applyEnd(context: LiveContext, run: Run): void {
   }
 }
 
+/**
+ * A run's detail with what the channel says about it now. The channel carries the newest forty
+ * measurements only; they are added to the detail's history instead of replacing it.
+ */
+export function withLiveRun(detail: RunDetail, run: Run): RunDetail {
+  return { ...detail, ...run, samples: mergeSamples(detail.samples, run.samples) };
+}
+
 export function applyRun(context: LiveContext, run: Run): void {
   const { client, tenantId, refetch } = context;
   const now = context.now?.() ?? Date.now();
@@ -339,7 +348,7 @@ export function applyRun(context: LiveContext, run: Run): void {
 
   // The detail, if it is loaded: the live fields move, the rest follows when the run ends.
   client.setQueryData<RunDetail>(historyKeys.detail(tenantId, run.id), (detail) =>
-    detail ? { ...detail, ...run } : detail,
+    detail ? withLiveRun(detail, run) : detail,
   );
 
   applyEndpointRun(context, run);
@@ -508,7 +517,7 @@ function applyRunToViews(context: LiveContext, run: Run): void {
     }
   }
   client.setQueryData<RunDetail>(historyKeys.detail(tenantId, run.id), (detail) =>
-    detail ? { ...detail, ...run } : detail,
+    detail ? withLiveRun(detail, run) : detail,
   );
 }
 

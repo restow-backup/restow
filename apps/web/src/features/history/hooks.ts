@@ -23,6 +23,7 @@ import {
 } from "./api";
 import { useLiveOpen, useLivePolling } from "./live/provider";
 import { parseHistorySearch, withRun } from "./presenters";
+import { mergeSamples } from "./samples";
 
 /**
  * Data hooks of History and the run drawer. Every key carries the active tenant, nothing runs
@@ -153,5 +154,7 @@ export function mergeRun(detail: RunDetail | undefined, live: Run | undefined): 
   if (!live) {
     return detail;
   }
-  return live.updatedAt >= detail.updatedAt ? { ...detail, ...live } : detail;
+  return live.updatedAt >= detail.updatedAt
+    ? { ...detail, ...live, samples: mergeSamples(detail.samples, live.samples) }
+    : detail;
 }

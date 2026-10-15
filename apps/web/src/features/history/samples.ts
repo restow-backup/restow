@@ -10,6 +10,30 @@ import type { SamplePoint } from "./api";
 /** How much of a running run the drawer's charts show. */
 export const CHART_WINDOW_MS = 5 * 60_000;
 
+/** The most measurements the browser keeps of one run (the server keeps 300, older ones thinned). */
+export const MAX_KEPT_SAMPLES = 600;
+
+/**
+ * The history of a run after newer measurements arrived. The live channel carries only the newest
+ * forty of a run, the run's detail all of them: the newer ones replace what they cover, everything
+ * older stays, so the drawer's charts keep their five minutes between two reads of the detail
+ * instead of shrinking to what one event carries. The newest {@link MAX_KEPT_SAMPLES} are kept.
+ */
+export function mergeSamples(
+  older: readonly SamplePoint[] | null | undefined,
+  newer: readonly SamplePoint[] | null | undefined,
+): SamplePoint[] | null {
+  if (!newer || newer.length === 0) {
+    return older ? [...older] : newer ? [] : null;
+  }
+  if (!older || older.length === 0) {
+    return [...newer];
+  }
+  const from = (newer[0] as SamplePoint)[0];
+  const merged = [...older.filter((point) => point[0] < from), ...newer];
+  return merged.length > MAX_KEPT_SAMPLES ? merged.slice(-MAX_KEPT_SAMPLES) : merged;
+}
+
 export type SeriesKey = "processed" | "transferred";
 
 /** The rate over one step between two neighbouring measurements. */

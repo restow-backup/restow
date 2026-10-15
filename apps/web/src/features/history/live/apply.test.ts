@@ -347,6 +347,26 @@ describe("the detail of a run", () => {
     expect(refetchedKey(historyKeys.detail(TENANT, "a"))).toBe(false);
   });
 
+  it("adds the newest measurements of an event to the detail's history instead of replacing it", () => {
+    // Five minutes of measurements two seconds apart, as the detail has them.
+    const history = Array.from(
+      { length: 150 },
+      (_, index) => [index * 2000, index * 10, index] as const,
+    );
+    const detail = {
+      ...run({ id: "a", samples: [...history] }),
+      objects: [],
+    } as unknown as RunDetail;
+    client.setQueryData(historyKeys.detail(TENANT, "a"), detail);
+    // The channel carries the newest forty, one of them new.
+    const newest = [...history.slice(-39), [150 * 2000, 1500, 150] as const];
+    applyRun(context, run({ id: "a", samples: newest, updatedAt: "2026-10-02T10:00:09.000Z" }));
+    const after = client.getQueryData<RunDetail>(historyKeys.detail(TENANT, "a"));
+    expect(after?.samples).toHaveLength(151);
+    expect(after?.samples?.[0]).toEqual([0, 0, 0]);
+    expect(after?.samples?.at(-1)).toEqual([300_000, 1500, 150]);
+  });
+
   it("is read again when the run ends, with the overview and the readiness", () => {
     applyRun(context, run({ id: "a", state: "running" }));
     expect(refetched).toEqual([]);
