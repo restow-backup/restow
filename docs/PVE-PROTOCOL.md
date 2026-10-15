@@ -37,6 +37,21 @@ and exits 0 or 1. Every line on stderr is a log line for the PVE task log,
 prefixed `info: `, `warn: ` or `err: `. Every request carries `storeid` (the PVE
 storage id). PVE's hash keys are translated to camelCase; sizes are bytes.
 
+The log function vzdump hands to a backup provider prints to the worker's
+stderr only (`PVE::VZDump`: `sub { debugmsg($_[0], $_[1]); }`, without the
+guest's log file handle). Those lines show in the PVE task log but never in the
+guest's log file, which is what `backup_handle_log_file` passes on and what
+Restow keeps as the run's log. Since 0.4.0 `restow-pve` therefore keeps its
+lines of a backup itself, in vzdump's format (`YYYY-MM-DD HH:MM:SS INFO: ...`,
+local time): the root verbs in `/run/restow-pve/jobs/<storeid>-<vmid>.log`,
+`backup-container` (forked, unprivileged) in its run folder, which
+`backup-cleanup` folds into the job's log. `backup-handle-log-file` merges
+them into the guest's log by time before the upload and removes them. A
+warning `backup_container` logs is counted by the forked child only
+(`PVE::LXC::Namespaces::run_in_userns` runs it through `PVE::Tools::run_fork`),
+so the PVE task does not end "with warnings" for it; the run in Restow says
+what is missing instead.
+
 | Verb (PVE method) | Request fields | Result |
 | --- | --- | --- |
 | `job-init` (`job_init`) | `startTime` | `{}` |

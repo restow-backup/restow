@@ -115,6 +115,8 @@ func (p *Provider) backupContainer(ctx context.Context, req ProviderRequest) (an
 	if err := readJSON(p.ctPointer(req.StoreID, req.VMID), &pointer); err != nil {
 		return nil, fmt.Errorf("the container backup was not prepared: %w", err)
 	}
+	// This call's lines go to the run folder; backup_cleanup folds them into the job's log.
+	p.taskLog = ctTaskLog(pointer.RunDir)
 	var creds ctCredentials
 	if err := readJSON(filepath.Join(pointer.RunDir, "credentials.json"), &creds); err != nil {
 		return nil, err

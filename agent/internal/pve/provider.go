@@ -86,13 +86,22 @@ type Provider struct {
 	state  *State
 	server *Server
 	now    func() time.Time
+	// taskLog keeps the log lines of the current backup for the run's log
+	// (tasklog.go); empty outside a backup.
+	taskLog string
 }
 
 func (p *Provider) logf(level, format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
 	if p.Log != nil {
-		fmt.Fprintf(p.Log, "%s: %s\n", level, fmt.Sprintf(format, args...))
+		fmt.Fprintf(p.Log, "%s: %s\n", level, msg)
 	}
+	p.keepTaskLog(level, msg)
 }
+
+// backupVerbs run as root for one guest's backup; their lines go to the job's log.
+var backupVerbs = map[string]bool{"backup-init": true, "backup-vm-query-incremental": true,
+	"backup-vm": true, "backup-container-prepare": true, "backup-cleanup": true}
 
 func (p *Provider) load() error {
 	if p.server != nil {
@@ -125,6 +134,14 @@ func (p *Provider) Handle(ctx context.Context, verb string, req ProviderRequest)
 	if verb != "backup-container" && verb != "storage-status" && verb != "list-volumes" {
 		if err := p.load(); err != nil {
 			return nil, err
+		}
+	}
+	if backupVerbs[verb] && req.VMID > 0 {
+		p.taskLog = p.Layout.jobLogFile(req.StoreID, req.VMID)
+		if verb == "backup-init" {
+			// A new backup of the guest starts its log afresh.
+			_ = os.MkdirAll(filepath.Dir(p.taskLog), 0o700)
+			_ = os.Remove(p.taskLog)
 		}
 	}
 	switch verb {
@@ -541,6 +558,7 @@ func (p *Provider) backupCleanup(ctx context.Context, req ProviderRequest) (any,
 		p.logf("warn", "could not report the end of the run: %v", err)
 	}
 	if job.RunDir != "" {
+		p.foldTaskLog(job)
 		_ = os.RemoveAll(job.RunDir)
 		_ = os.Remove(p.ctPointer(job.StoreID, job.VMID))
 	}
@@ -552,14 +570,20 @@ func (p *Provider) backupCleanup(ctx context.Context, req ProviderRequest) (any,
 
 func (p *Provider) handleLogFile(ctx context.Context, req ProviderRequest) (any, error) {
 	job, err := p.loadJob(req.StoreID, req.VMID)
+	logFile := p.Layout.jobLogFile(req.StoreID, req.VMID)
 	if err == nil {
 		if data, err := readTail(req.LogFile, 64<<10); err == nil {
+			// restow-pve's own lines of this backup, which vzdump never writes
+			// into the guest's log file (tasklog.go).
+			ours, _ := readTail(logFile, 64<<10)
+			data = tailBytes(MergeTaskLog(data, ours), 64<<10)
 			if err := p.server.RunLog(ctx, job.RunID, string(data)); err != nil {
 				p.logf("warn", "could not upload the task log: %v", err)
 			}
 		}
 		_ = os.Remove(p.Layout.jobFile(req.StoreID, req.VMID))
 	}
+	_ = os.Remove(logFile)
 	return map[string]any{}, nil
 }
 
