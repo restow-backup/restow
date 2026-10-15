@@ -5,8 +5,8 @@
  * first, the mounter unreachable, its refusals, the address rule, the budget, the copy rules and
  * the restore point a copy takes), the monitor (every stale state, cancellations, unprocessed
  * finishes, the budget alerts), finish processing and its alerts and webhooks, and the overdue
- * alert. Retention against a real repository (never the newest restore point with files) runs
- * when restic is available.
+ * alert. Retention against a real repository (never the newest restore point with files) and the
+ * catalog of a restore point with more files than one insert batch run when restic is available.
  *
  * Needs RESTOW_TEST_DATABASE_URL (a superuser); skipped otherwise.
  */
@@ -28,6 +28,7 @@ import {
   backupJobs,
   type FileShare,
   type FileShareRun,
+  fileShareCatalog,
   fileShareReports,
   fileShareRuns,
   fileShareSnapshots,
@@ -41,6 +42,7 @@ import {
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { alertOverdueBackups } from "../overdue.js";
+import { shareCatalog } from "./catalog.js";
 import { shareRepositoryAccess } from "./common.js";
 import { dispatchPass, ensureShareRepository } from "./dispatch.js";
 import { endRun, processFinish } from "./finish.js";
@@ -792,5 +794,91 @@ describe.skipIf(!adminUrl)("file share jobs of the worker against Postgres", () 
       expect(await withRepository(access, (session) => resticSnapshots(session))).toHaveLength(2);
       expect((await share(s.id)).lastRetentionAt).not.toBeNull();
     }, 120_000);
+  });
+
+  describe.skipIf(!resticAvailable)("the catalog against a real repository", () => {
+    it("streams a large restore point in batches, completes an interrupted pass and drops what an abandoned one left", async () => {
+      const s = await addShare(fixture, tenant);
+      const ready = await ensureShareRepository(fixture.deps, s);
+      const access = await shareRepositoryAccess(fixture.deps, ready);
+      const root = join(fixture.work, "catalog-share");
+      // More files than one insert batch (5000) of a full pass.
+      const total = 12_000;
+      for (let dir = 0; dir < 12; dir++) {
+        await mkdir(join(root, `d${dir}`), { recursive: true });
+        await Promise.all(
+          Array.from({ length: total / 12 }, (_, i) =>
+            writeFile(join(root, `d${dir}`, `f${i}.txt`), `${dir}/${i}`),
+          ),
+        );
+      }
+      const backup = () =>
+        withRepository(access, async (session) => {
+          await runRestic(session, ["backup", "--host", "restow-share", root]);
+          return (await resticSnapshots(session)).map((snap) => snap.id);
+        });
+      const [first] = await backup();
+      const point = async (sequence: number, id: string, status: "active" | "pruned") =>
+        fixture.owner.insert(fileShareSnapshots).values({
+          tenantId: tenant,
+          fileShareId: s.id,
+          sequence,
+          resticSnapshotId: id,
+          snapshotTime: new Date(),
+          files: total,
+          status,
+        });
+      await point(2, first as string, "active");
+      const version = (path: string, firstSeq: number) =>
+        fixture.owner.insert(fileShareCatalog).values({
+          tenantId: tenant,
+          fileShareId: s.id,
+          path,
+          name: path.split("/").pop() as string,
+          size: 1,
+          firstSeq,
+        });
+      // A version of an earlier catalog (no longer trusted: last_catalog_at is null) and one an
+      // interrupted pass of this restore point already wrote.
+      await version("gone.txt", 1);
+      await version("d0/f0.txt", 2);
+      const deps = { ...fixture.deps, snapshotRoot: root };
+      const summary = await shareCatalog(deps, { tenantId: tenant, fileShareId: s.id });
+      expect(summary).toMatchObject({ snapshots: 1, opened: total - 1, closed: 1 });
+      const rows = () =>
+        fixture.owner
+          .select({
+            path: fileShareCatalog.path,
+            firstSeq: fileShareCatalog.firstSeq,
+            endSeq: fileShareCatalog.endSeq,
+          })
+          .from(fileShareCatalog)
+          .where(eq(fileShareCatalog.fileShareId, s.id));
+      let versions = await rows();
+      expect(versions.filter((v) => v.firstSeq === 2 && v.endSeq === null)).toHaveLength(total);
+      expect(versions.find((v) => v.path === "gone.txt")).toMatchObject({ endSeq: 2 });
+      expect((await share(s.id)).lastCatalogAt).not.toBeNull();
+
+      // A restore point that was abandoned mid-pass and is gone now, then an incremental one.
+      await writeFile(join(root, "d1", "f1.txt"), "changed");
+      const [second] = await backup();
+      await point(3, "3".padStart(64, "a"), "pruned");
+      await version("d2/f2.txt", 3);
+      await point(4, second as string, "active");
+      const next = await shareCatalog(deps, { tenantId: tenant, fileShareId: s.id });
+      expect(next).toMatchObject({ snapshots: 1, opened: 1, closed: 1 });
+      versions = await rows();
+      expect(versions.filter((v) => v.firstSeq === 3)).toEqual([]);
+      expect(
+        versions
+          .filter((v) => v.path === "d1/f1.txt")
+          .map((v) => [v.firstSeq, v.endSeq])
+          .sort(),
+      ).toEqual([
+        [2, 4],
+        [4, null],
+      ]);
+      expect(versions.filter((v) => v.endSeq === null)).toHaveLength(total);
+    }, 180_000);
   });
 });
