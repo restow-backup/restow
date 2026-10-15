@@ -145,7 +145,7 @@ describe("the count on Jobs", () => {
       const stream = await show();
       await stream.status("open");
       await stream.snapshot([run(), run({ id: "b" }), run({ id: "q", state: "queued" })]);
-      expect(probe()?.textContent).toBe("2 Backups laufen, 1 wartet");
+      expect(probe()?.textContent).toBe("2 Sicherungen laufen, 1 wartet");
     } finally {
       await i18n.changeLanguage("en");
     }

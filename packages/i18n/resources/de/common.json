@@ -71,10 +71,10 @@
       "resources": "Kapazitätsplanung"
     },
     "activity": {
-      "running": "{count, plural, one {# Backup läuft} other {# Backups laufen}}",
+      "running": "{count, plural, one {# Sicherung läuft} other {# Sicherungen laufen}}",
       "queued": "{count} wartet",
-      "open": "Laufendes Backup öffnen: {name}",
-      "show": "{summary}. Laufende Backups anzeigen",
+      "open": "Laufende Sicherung öffnen: {name}",
+      "show": "{summary}. Laufende Sicherungen anzeigen",
       "title": "Läuft gerade",
       "percent": "{percent} %"
     },
