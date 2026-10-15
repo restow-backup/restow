@@ -137,3 +137,160 @@ export const LINUX_DATA_FOLDERS = [
 export function uncoveredDataFolders(paths: readonly string[]): string[] {
   return LINUX_DATA_FOLDERS.filter((folder) => !isCovered(paths, folder));
 }
+
+// --- Data folders an agent found (#59) --------------------------------------------------------
+// The same rules as @restow/core `endpoints/data-folders.ts` (the server checks with those): a
+// folder of the job covers what is below it, a restic exclusion takes out what it matches and
+// everything below, the last matching pattern decides and `!` takes a path back in.
+
+function partsOf(path: string): string[] {
+  return path.split("/").filter((part) => part.length > 0);
+}
+
+const GLOB_CHARS = /[*?[\\]/;
+
+function componentRegex(component: string): RegExp {
+  let source = "";
+  for (let index = 0; index < component.length; index++) {
+    const char = component[index] as string;
+    if (char === "*") source += "[^/]*";
+    else if (char === "?") source += "[^/]";
+    else if (char === "\\" && index + 1 < component.length) {
+      index++;
+      source += (component[index] as string).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    } else if (char === "[") {
+      const end = component.indexOf("]", index + 1);
+      if (end > index + 1) {
+        const body = component
+          .slice(index + 1, end)
+          .replace(/^!/, "^")
+          .replace(/\\/g, "\\\\");
+        source += `[${body}]`;
+        index = end;
+      } else {
+        source += "\\[";
+      }
+    } else source += char.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+  return new RegExp(`^${source}$`);
+}
+
+/** Whether a restic exclude pattern (without its `!`) matches `path` or one of its parents. */
+export function excludePatternMatches(pattern: string, path: string): boolean {
+  const clean = pattern.trim();
+  const parts = partsOf(clean);
+  const pat = clean.startsWith("/") ? parts : ["**", ...parts];
+  const target = partsOf(path);
+  const memo = new Map<string, boolean>();
+  const match = (pi: number, si: number): boolean => {
+    const key = `${pi}:${si}`;
+    const known = memo.get(key);
+    if (known !== undefined) return known;
+    let result: boolean;
+    if (pi === pat.length) {
+      result = si > 0;
+    } else if (pat[pi] === "**") {
+      result = false;
+      for (let next = si; next <= target.length && !result; next++) {
+        result = match(pi + 1, next);
+      }
+    } else if (si === target.length) {
+      result = false;
+    } else {
+      result =
+        componentRegex(pat[pi] as string).test(target[si] as string) && match(pi + 1, si + 1);
+    }
+    memo.set(key, result);
+    return result;
+  };
+  return parts.length > 0 && match(0, 0);
+}
+
+/** Whether restic leaves out `path` itself: the last matching pattern decides. */
+export function isExcludedPath(excludes: readonly string[], path: string): boolean {
+  let excluded = false;
+  for (const raw of excludes) {
+    const pattern = raw.trim();
+    if (pattern === "" || pattern.startsWith("#")) continue;
+    const negated = pattern.startsWith("!");
+    if (excludePatternMatches(negated ? pattern.slice(1) : pattern, path)) {
+      excluded = !negated;
+    }
+  }
+  return excluded;
+}
+
+/** Whether these folders and exclusions back up `folder` (and every folder on the way to it). */
+export function isFolderBackedUp(
+  paths: readonly string[],
+  excludes: readonly string[],
+  folder: string,
+): boolean {
+  const target = partsOf(folder);
+  return paths.some((path) => {
+    if (!path.startsWith("/") || !isInside(path, folder)) return false;
+    for (let depth = partsOf(path).length; depth <= target.length; depth++) {
+      if (isExcludedPath(excludes, `/${target.slice(0, depth).join("/")}`)) return false;
+    }
+    return true;
+  });
+}
+
+/**
+ * The folders and exclusions with a data folder added: it joins the paths unless one covers it,
+ * an exclusion that names it goes, and one that names a parent of it is narrowed to everything in
+ * that parent but the way to it (`/var/lib/docker/*`, `!/var/lib/docker/volumes`).
+ */
+export function withDataFolder(
+  selection: { paths: readonly string[]; excludes: readonly string[] },
+  folder: string,
+): { paths: string[]; excludes: string[] } {
+  const target = normalizePath(folder);
+  const paths = addFolder(selection.paths, target);
+  const targetParts = partsOf(target);
+  const excludes: string[] = [];
+  for (const raw of selection.excludes) {
+    const pattern = normalizePath(raw);
+    const literal = pattern.startsWith("/") && !GLOB_CHARS.test(pattern);
+    if (!literal || !isInside(pattern, target)) {
+      excludes.push(raw);
+      continue;
+    }
+    for (let depth = partsOf(pattern).length; depth < targetParts.length; depth++) {
+      const level = `/${targetParts.slice(0, depth).join("/")}`;
+      const next = `/${targetParts.slice(0, depth + 1).join("/")}`;
+      for (const line of [`${level}/*`, `!${next}`]) {
+        if (!excludes.includes(line)) excludes.push(line);
+      }
+    }
+  }
+  return { paths, excludes };
+}
+
+/** A data folder a job leaves out, with the machines that have it. */
+export interface MissingDataFolder {
+  folder: string;
+  machines: string[];
+}
+
+/**
+ * The data folders the machines' agents found that these folders and exclusions do not back up,
+ * each with the names of the machines that have it, in the order of first appearance. Machines
+ * with folders or exclusions of their own in the job are left to their own settings.
+ */
+export function missingReportedFolders(
+  machines: readonly { name: string; folders: readonly string[] | null }[],
+  paths: readonly string[],
+  excludes: readonly string[],
+): MissingDataFolder[] {
+  const found = new Map<string, string[]>();
+  for (const machine of machines) {
+    for (const folder of machine.folders ?? []) {
+      if (isFolderBackedUp(paths, excludes, folder)) continue;
+      const names = found.get(folder) ?? [];
+      if (!names.includes(machine.name)) names.push(machine.name);
+      found.set(folder, names);
+    }
+  }
+  return [...found].map(([folder, names]) => ({ folder, machines: names }));
+}

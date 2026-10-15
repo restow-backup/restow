@@ -521,6 +521,71 @@ describe("a machine job", () => {
   });
 });
 
+describe("data folders the agents found (#59)", () => {
+  const routes = {
+    ...ENDPOINT_ROUTES,
+    "GET /backup-jobs/defaults": () =>
+      json(
+        defaults("endpoint", {
+          settings: {
+            paths: ["/etc", "/home", "/root", "/srv", "/var/www"],
+            excludes: ["**/.cache", "/var/lib/docker"],
+            bandwidthKbps: null,
+          },
+        }),
+      ),
+    "GET /backup-jobs/machine-folders": () =>
+      json({
+        items: [
+          {
+            endpointId: "m1",
+            name: "FS-BERGISCH",
+            os: "linux",
+            profile: "client",
+            folders: ["/opt", "/srv", "/var/lib/docker/volumes"],
+            reportedAt: "2026-10-01T10:00:00.000Z",
+            machine: { virtualization: "container", technology: "lxc", desktop: false },
+            profileDetection: null,
+          },
+        ],
+      }),
+  };
+
+  it("says the profile, names the folders a machine has outside the job and adds them", async () => {
+    let body: { settings?: { paths?: string[]; excludes?: string[] } } | null = null;
+    await open("/jobs?type=endpoint&new=1&select=m1", {
+      ...routes,
+      "POST /backup-jobs": (request) => {
+        body = request.body as typeof body;
+        return json(endpointJob({ id: "new", name: "Paperless" }), 201);
+      },
+    });
+    expect(
+      opened?.requests.some((request) => request.path === "/backup-jobs/machine-folders"),
+    ).toBe(true);
+    expect(textOf(slot("profile-note"))).toContain(
+      "Client: the default folders are only the user folders and the configuration",
+    );
+    const notice = slot("missing-data-folders");
+    expect(notice?.getAttribute("data-source")).toBe("agents");
+    expect(textOf(notice)).toContain("/opt");
+    expect(textOf(notice)).toContain("on FS-BERGISCH");
+    expect(textOf(notice)).not.toContain("/usr/local");
+    await click(buttonByText(notice as HTMLElement, "Add these 2 folders"));
+    await flush(2);
+    expect(slot("missing-data-folders")).toBeNull();
+    await typeInto(field("Name"), "Paperless");
+    await click(buttonByText(editor(), "Create job"));
+    await flush(5);
+    expect(body).toMatchObject({
+      settings: {
+        paths: ["/etc", "/home", "/root", "/srv", "/var/www", "/opt", "/var/lib/docker/volumes"],
+        excludes: ["**/.cache", "/var/lib/docker/*", "!/var/lib/docker/volumes"],
+      },
+    });
+  });
+});
+
 describe("leaving the editor", () => {
   it("closes at once with Escape when nothing was entered", async () => {
     await open("/jobs?type=mail&new=1", MAIL_ROUTES);

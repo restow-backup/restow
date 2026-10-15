@@ -666,7 +666,20 @@
       "title": "Folders",
       "description": "The folders every machine of this job backs up.",
       "basis": "The folders are the defaults for {systems}.",
-      "basisMixed": "The choice mixes systems ({systems}): the folders combine the defaults of all of them. Check that each folder suits the machines."
+      "basisMixed": "The choice mixes systems ({systems}): the folders combine the defaults of all of them. Check that each folder suits the machines.",
+      "profile": {
+        "label": {
+          "client": "Client:",
+          "server": "Server:"
+        },
+        "labelMachines": {
+          "client": "Client ({machines}):",
+          "server": "Server ({machines}):"
+        },
+        "client": "the default folders are only the user folders and the configuration (/etc, /home, /root, /srv, /var/www).",
+        "server": "the default folders also include where applications keep their data (/opt, /usr/local, /var/lib, /var/backups).",
+        "detected": "{count, plural, one {{machines} was added as a client and runs in a container or a virtual machine without a desktop: it has the server profile.} other {{machines} were added as clients and run in a container or a virtual machine without a desktop: they have the server profile.}}"
+      }
     },
     "exclusions": {
       "title": "Exclusions",
@@ -1050,7 +1063,26 @@
       "title": "This restore point does not contain every data folder",
       "description": "Only the folders of the machine's backup job are backed up, and these were not among them: {folders}. Add them to the job to back them up from the next run on."
     },
-    "add": "{count, plural, one {Add this folder} other {Add these # folders}}"
+    "add": "{count, plural, one {Add this folder} other {Add these # folders}}",
+    "reported": {
+      "title": "Folders with data on the machines are not backed up",
+      "description": "The agents found these folders with data on the job's machines, and the job does not back them up. Add them to back them up from the next run on.",
+      "on": "on {machines}",
+      "addOne": "Add",
+      "addOneLabel": "Add {folder} to the job",
+      "skip": "A machine that does not have one of these folders skips it, without an error."
+    },
+    "docker": "For the Docker volumes the exclusion of /var/lib/docker is narrowed: images and containers stay out, the volumes are backed up.",
+    "machine": {
+      "title": "Folders with data on this machine are not backed up",
+      "description": "The agent found folders with data that the job {job} does not back up: {folders}.",
+      "add": "{count, plural, one {Add this folder to the job} other {Add these # folders to the job}}",
+      "others": "The other machines of the job get the folders as well; a machine that does not have them skips them, without an error.",
+      "ownFolders": "This machine has folders of its own in the job. Change them in the job, in the machine's settings.",
+      "openJob": "Open job",
+      "added": "{count, plural, one {The folder was added to the job {job}.} other {The folders were added to the job {job}.}}",
+      "failed": "The folders could not be added to the job."
+    }
   },
   "allTenants": {
     "description": "Every tenant's jobs at a glance: which exist, what runs now, how the newest backups ended and when the next run is planned. Open a tenant to see its jobs here; switch to it to change them.",

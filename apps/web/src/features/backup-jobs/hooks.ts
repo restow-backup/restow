@@ -8,6 +8,7 @@ import { useSession } from "@/lib/session";
 
 import {
   type AddMembersInput,
+  addDataFolders,
   addJobMembers,
   type BackupJob,
   type BackupJobList,
@@ -21,8 +22,10 @@ import {
   fetchJobDefaults,
   fetchJobMembers,
   fetchJobRuns,
+  fetchMachineFolders,
   type JobKind,
   type JobMemberOverrides,
+  LIMITS,
   type ReplaceMembersInput,
   type RunBackupJobInput,
   removeJobMember,
@@ -160,6 +163,19 @@ export function useJobCandidates(kind: JobKind, search: string, enabled = true, 
   });
 }
 
+/** The data folders the agents of these machines found, and their profiles (#59). */
+export function useMachineFolders(endpointIds: readonly string[], enabled = true) {
+  const scope = useJobsScope();
+  const ids = [...new Set(endpointIds)].sort().slice(0, LIMITS.candidates);
+  return useQuery({
+    queryKey: backupJobKeys.machineFolders(scope.tenantId, ids),
+    queryFn: () => fetchMachineFolders(ids),
+    enabled: scope.enabled && enabled && ids.length > 0,
+    retry: false,
+    staleTime: 60_000,
+  });
+}
+
 /** Refresh the jobs and the machines (a machine's job changes with a job's scope). */
 function useRefreshJobs() {
   const { tenantId } = useJobsScope();
@@ -178,6 +194,16 @@ export function useCreateBackupJob() {
   const refresh = useRefreshJobs();
   return useMutation({
     mutationFn: (input: CreateBackupJobInput) => createBackupJob(input),
+    onSettled: refresh,
+  });
+}
+
+/** "Add to job" on a machine's page: the data folders its agent found join the job (#59). */
+export function useAddDataFolders() {
+  const refresh = useRefreshJobs();
+  return useMutation({
+    mutationFn: (input: { jobId: string; folders: readonly string[] }) =>
+      addDataFolders(input.jobId, input.folders),
     onSettled: refresh,
   });
 }
