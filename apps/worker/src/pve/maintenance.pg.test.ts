@@ -65,6 +65,7 @@ import {
   type PveDeps,
   planJobs,
   purgeDownloads,
+  pvePass,
   verifyDue,
 } from "./maintenance.js";
 
@@ -301,6 +302,16 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     ]);
     const [after] = await owner.select().from(pveJobs);
     expect(after?.nextRunAt?.getTime()).toBeGreaterThan(clock.getTime());
+  });
+
+  it("plans no backup task while new starts are paused for an update (#46)", async () => {
+    await owner.delete(pveTasks);
+    await owner.update(pveJobs).set({ nextRunAt: new Date(clock.getTime() - 1000) });
+    const summary = await pvePass({ ...deps, startsPaused: () => true });
+    expect(summary).toMatchObject({ tasks: 0, pruned: 0, verified: 0, restoreTests: 0 });
+    expect(await owner.select().from(pveTasks)).toEqual([]);
+    // Once the pause lifts the job is still due and its task comes.
+    expect(await planJobs(deps, clock)).toBe(1);
   });
 
   it("retention prunes old restore points and releases exactly their references", async () => {

@@ -79,6 +79,11 @@ export interface PveDeps {
   >;
   /** How long retention and the check wait for the API's reads of a container repository. */
   readonly repositoryLockWaitMs?: number;
+  /**
+   * New starts are paused for an update (#46): no backup tasks are planned, and retention,
+   * verify and restore checks wait; runs that never ended are still closed.
+   */
+  readonly startsPaused?: () => boolean;
 }
 
 /** How long the work on a container repository waits for the file restore's reads (#62). */
@@ -676,12 +681,13 @@ export async function purgeDownloads(deps: PveDeps, now: Date): Promise<number> 
 
 export async function pvePass(deps: PveDeps): Promise<PvePassSummary> {
   const now = deps.runtime.now();
+  const paused = deps.startsPaused?.() === true;
   return {
-    tasks: await planJobs(deps, now),
+    tasks: paused ? 0 : await planJobs(deps, now),
     staleRuns: await closeStaleRuns(deps, now),
-    pruned: await applyRetention(deps, now),
-    verified: await verifyDue(deps, now),
-    restoreTests: await planRestoreTests(deps, now),
+    pruned: paused ? 0 : await applyRetention(deps, now),
+    verified: paused ? 0 : await verifyDue(deps, now),
+    restoreTests: paused ? 0 : await planRestoreTests(deps, now),
     pveTokensDropped: await dropPveTokenSecrets(deps, now),
     downloadsPurged: await purgeDownloads(deps, now),
   };

@@ -663,6 +663,13 @@ export function startFileShareDispatcher(
   let timer: NodeJS.Timeout | null = null;
   let stopped = false;
   const tick = async () => {
+    if (deps.startsPaused?.()) {
+      // An update waits for running jobs or is about to start (#46): queued runs wait for it.
+      if (!stopped) {
+        timer = setTimeout(() => void tick(), intervalMs);
+      }
+      return;
+    }
     const client = await deps.providerDb.$client.connect().catch(() => null);
     if (!client) {
       if (!stopped) {

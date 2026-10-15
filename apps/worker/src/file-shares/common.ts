@@ -61,6 +61,8 @@ export interface FileShareDeps {
   readonly snapshotRoot?: string;
   /** How long a job waits for other work on the same repository. */
   readonly maintenanceLockWaitMs?: number;
+  /** New starts are paused for an update (#46): the dispatcher starts no run meanwhile. */
+  readonly startsPaused?: () => boolean;
 }
 
 export const MAINTENANCE_LOCK_WAIT_MS = 60_000;
