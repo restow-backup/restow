@@ -170,6 +170,26 @@ describe("the run drawer opened by an address", () => {
     expect(section("stats")?.textContent).toContain("Restore check–");
   });
 
+  it("names the running run's progress in the browser tab, and gives the tab its title back on close", async () => {
+    document.title = "History · Contoso · Restow";
+    await open(RUN_IDS.mailRunning);
+    expect(document.title).toBe("40 % · Backup · anna@contoso.example · Restow");
+    await act(async () => {
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+      );
+      await Promise.resolve();
+    });
+    await flush(4);
+    expect(document.title).not.toContain("40 %");
+  });
+
+  it("leaves the tab's title alone for a run that is over", async () => {
+    document.title = "History · Contoso · Restow";
+    await open(RUN_IDS.mailDone);
+    expect(document.title).not.toContain("%");
+  });
+
   it("opens with the focus inside, and closes on Escape, taking only the run out of the address", async () => {
     const page = await open(RUN_IDS.mailRunning);
     expect(dialog()?.contains(document.activeElement)).toBe(true);
