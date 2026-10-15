@@ -95,9 +95,11 @@ docker compose up -d
 ```
 
 Running jobs get 60 seconds to save a checkpoint when the worker stops
-(`stop_grace_period: 60s` on the `worker` service). A Compose file from
-before 0.3.5 does not have that line, so Docker stops the worker after 10
-seconds; copy it from the current `docker-compose.yml`.
+(`stop_grace_period: 60s` on the `worker` service; the worker itself waits
+50 seconds for them). A Compose file from before 0.3.5 does not have that
+line, so Docker stops the worker after 10 seconds; copy it from the current
+`docker-compose.yml`. What happens to the runs in progress is described in
+[Runs in progress during an update](#runs-in-progress-during-an-update).
 
 Updating to 0.3.5 converts the backup index of Microsoft 365 backups
 (`manifest_objects`) into item versions. The worker does it in the
@@ -577,11 +579,10 @@ everyone sees a full-screen notice with the steps and the progress.
    volume, checked for readability; the last three are kept (plus the one a
    run that needs attention depends on, so never fewer than you need).
 4. **Stop worker and scheduler.** Running jobs get up to 60 seconds to save a
-   checkpoint and stop. Queued jobs, and interrupted ones that saved a
-   checkpoint, continue after the restart from where they stopped; such an
-   interruption does not use up one of the job's retries. Machine and Proxmox
-   VE backups that run on the agents are not stopped, but may fail if the
-   server is unreachable for longer than the agent retries.
+   checkpoint and stop. They continue after the restart from their last
+   checkpoint, and the stop does not use up one of their attempts. Machine and
+   Proxmox VE backups that run on the agents are not stopped (see
+   [Runs in progress during an update](#runs-in-progress-during-an-update)).
 5. **Start the new version.** The api is recreated with the new image and
    applies its database migrations as it starts.
 6. **Health check.** Waits until the api reports ready and the new version
@@ -599,6 +600,73 @@ restarting. The audit log records checks, scheduling, cancellation, start,
 success and failure of an update (`update.check`, `update.scheduled`,
 `update.cancelled`, `update.started`, `update.succeeded`, `update.failed`); the
 individual steps are in the updater's status and log, not in the audit log.
+
+### Runs in progress during an update
+
+Before you confirm, the dialog counts what runs and waits right now, in every
+tenant: runs of Microsoft 365 and mail (backups, restores, imports, exports,
+restore checks), of servers and clients, of Proxmox VE and of file shares.
+With runs in progress it asks what happens to them:
+
+- **Wait until they finish.** The update is announced (its countdown starts)
+  once nothing runs any more, after two hours at the latest.
+- **Stop them cleanly** (the default). Runs of Microsoft 365 and mail save a
+  checkpoint and stop within a minute; they go back to the queue and continue
+  after the update. Runs on the agents (servers, clients, Proxmox VE) and of file
+  shares cannot be stopped from the server, so the update waits for them, 30
+  minutes at the latest.
+- **Do not wait.** The update is announced right away, as before 0.4.0.
+
+In every case **no new run starts** from the confirmation until the update is
+over: the scheduler plans nothing (schedules that fall due meanwhile run on its
+first pass afterwards, nothing is skipped), the worker takes no new job from its
+queues, file share runs and Proxmox VE backup tasks wait. This state is kept in
+the database (`job_start_pause`), so it holds while the services restart.
+Everyone who is signed in sees a banner while the update waits; once it is
+announced, the countdown banner takes over. The pause lifts by itself when the
+update has finished or was cancelled, and in any case a few hours later (the
+longest wait, the lead time and two hours for the update), so an installation
+is never left paused. The audit log records `update.jobs_paused` and
+`update.jobs_resumed`.
+
+While the update waits, the Updates tab shows what still runs and until when it
+waits at the latest. **Start now** announces it at once (what still runs when it
+starts is stopped), **Cancel** drops it and new runs start again. Should the
+updater refuse the update when the wait is over (it became unavailable or
+blocked meanwhile), new runs start again and the administrators get a notice in
+the bell.
+
+What happens to a run that the update stops:
+
+- **Microsoft 365, IMAP and mail.** It saves a checkpoint, goes back to the
+  queue and continues from there after the update. A stop by an update or a
+  restart never uses up one of its attempts (also without a checkpoint), for up
+  to 21 days after the run first started. Only when a run has no attempt left
+  does it end as failed; its explanation then says that its checkpoint was
+  discarded and the next run starts over. Restore points of earlier runs are not
+  affected.
+- **A worker that was killed** instead of stopped (the stop timeout ran out, the
+  host went down) cannot hand its jobs back. The next worker finds them two
+  minutes after its start: a job that is still marked as running but started
+  before every live worker goes back to the queue with its attempt, and its run
+  shows as interrupted. Without this, the job waited for its expiration (23
+  hours for a backup).
+- **Proxmox VE.** The node helper keeps sending the blocks, the commit and the
+  end of a running backup for five minutes while the server is unreachable
+  (restow-pve 0.4.0; older helpers about 30 seconds), which covers an update with
+  its database migrations. A backup run whose end never reached the server is
+  closed as soon as the node's heartbeat no longer lists it (restow-pve 0.4.0),
+  otherwise after 48 hours.
+- **Servers and clients.** A request of the agent that is in flight while the api
+  restarts fails. The run counts as interrupted (not as a failed backup) only
+  when the server is still unreachable at its end; otherwise it ends as failed
+  and the next scheduled run backs up again. Wait or stop cleanly to avoid this.
+  The agents' own schedules are not paused: a backup that a machine starts on
+  its own during the pause runs.
+
+An update by hand (`docker compose pull && docker compose up -d`) does none of
+the waiting: the worker gets its 60 seconds, and everything above about stopped
+runs applies.
 
 ### When something goes wrong
 
@@ -743,8 +811,8 @@ With the updater running, the owner of the provider team also gets a
 `api`, `worker` or `scheduler`: never the database, the edge, the updater or
 the mounter, and not while an update is announced or running. The audit log
 records who asked. A restart briefly interrupts the service; the worker's
-running jobs save a checkpoint and continue afterwards (its 60 s stop grace
-period applies). An updater from before 0.3.6 cannot restart services: the
+running jobs save a checkpoint and continue afterwards without using up an
+attempt (its 60 s stop grace period applies). An updater from before 0.3.6 cannot restart services: the
 page says so and shows the command, or recreate the updater
 (`docker compose --profile updater up -d updater`).
 

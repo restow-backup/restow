@@ -28,6 +28,8 @@ import type { Actor, UpdateService } from "./service.js";
  *   POST   /maintenance             announce an update: { version, leadSeconds }
  *   DELETE /maintenance             cancel an announced update (until it starts)
  *   POST   /maintenance/dismiss     clear a finished run from the tab
+ *   POST   /maintenance/start-now   an update that waits for running jobs: announce it now
+ *   GET    /jobs                    what runs and waits right now (the install dialog, #46)
  *   POST   /edition/switch          Community only: switch to the full build of this version
  *   PUT    /edition/license-key     Community only: keep a license key for the full build
  *   DELETE /edition/license-key     ... and remove it again
@@ -81,6 +83,11 @@ export function buildUpdatesRoutes(
   routes.delete("/maintenance", async (c) => c.json(await service.cancel(actorOf(c))));
 
   routes.post("/maintenance/dismiss", async (c) => c.json(await service.dismiss(actorOf(c))));
+
+  // The update was confirmed with a recent sign-in already; not waiting any longer needs none.
+  routes.post("/maintenance/start-now", async (c) => c.json(await service.startNow(actorOf(c))));
+
+  routes.get("/jobs", async (c) => c.json(await service.activity()));
 
   // The build switch decides what code runs, like an update: a recent sign-in as well.
   routes.post("/edition/switch", async (c) => {

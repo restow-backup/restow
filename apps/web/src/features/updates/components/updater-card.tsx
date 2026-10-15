@@ -33,6 +33,7 @@ import { ProgressBar } from "../progress-bar";
 import { CommandBlock, CommandList } from "./command-block";
 import { DumpsList } from "./dumps-list";
 import { InstallDialog } from "./install-dialog";
+import { WaitingForRuns } from "./waiting-for-runs";
 
 /**
  * Installing an update from here, by what the updater can do: nothing (it is
@@ -91,7 +92,11 @@ export function UpdaterCard({
         {state === "blocked" ? <Blocked view={view} /> : null}
         {state === "ready" ? <Ready view={view} canChange={canChange} /> : null}
         {state === "busy" ? (
-          <Busy view={view} canChange={canChange} receivedAt={receivedAt} />
+          view.jobPause?.phase === "draining" ? (
+            <WaitingForRuns pause={view.jobPause} canChange={canChange} />
+          ) : (
+            <Busy view={view} canChange={canChange} receivedAt={receivedAt} />
+          )
         ) : null}
         {state === "demo" ? (
           <Alert variant="info" data-slot="demo-note">

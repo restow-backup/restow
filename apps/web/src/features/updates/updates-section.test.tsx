@@ -14,6 +14,7 @@ import {
 } from "./api";
 import { updatesRefetchInterval } from "./hooks";
 import {
+  activityFixture,
   blur,
   buttonByText,
   click,
@@ -1006,6 +1007,7 @@ describe("installing an update", () => {
     });
     const { mock, requests } = routedFetch({
       "GET /updates": () => json(view),
+      "GET /updates/jobs": () => json(activityFixture()),
       "POST /updates/maintenance": () => json(busy),
       "GET /maintenance": () => json(maintenanceFixture()),
     });
@@ -1025,6 +1027,11 @@ describe("installing an update", () => {
     expect(content).toContain("previous version is restored automatically");
     expect(content).toContain("Everyone who is signed in sees a countdown");
     expect(content).toContain("The release image is downloaded from the registry");
+    // Nothing runs: no choice, but new runs pause until the update is over (#46).
+    await flush(3);
+    expect(text(confirm)).toContain("No run is in progress or waiting right now.");
+    expect(text(confirm)).toContain("no new run starts");
+    expect(confirm.querySelector('input[name="update-runs"]')).toBeNull();
     // The newest version and five minutes are chosen by default.
     expect(
       (confirm.querySelector('input[name="update-version"]:checked') as HTMLInputElement).value,
@@ -1052,7 +1059,7 @@ describe("installing an update", () => {
     const post = requests.find(
       (request) => request.method === "POST" && request.path === "/updates/maintenance",
     );
-    expect(post?.body).toEqual({ version: "0.1.1", leadSeconds: 3600 });
+    expect(post?.body).toEqual({ version: "0.1.1", leadSeconds: 3600, jobs: "wait" });
     expect(dialog()).toBeNull();
     // The busy state shows at once, and the shell is told to re-read.
     expect(slot("updater-busy")?.dataset.phase).toBe("scheduled");
@@ -1063,6 +1070,7 @@ describe("installing an update", () => {
     const view = twoReleases();
     const { mock, requests } = routedFetch({
       "GET /updates": () => json(view),
+      "GET /updates/jobs": () => json(activityFixture()),
       "POST /updates/maintenance": () => json(view),
       "GET /maintenance": () => json(maintenanceFixture()),
     });
@@ -1072,6 +1080,7 @@ describe("installing an update", () => {
 
     await click(buttonByText(document.body, "Install update"));
     const confirm = dialog() as HTMLElement;
+    await flush(3);
     await click(confirm.querySelector('input[name="update-lead"][value="0"]'));
     expect(buttonByText(confirm, "Start update now")).not.toBeNull();
     await click(buttonByText(confirm, "Start update now"));
@@ -1083,7 +1092,126 @@ describe("installing an update", () => {
     ).toEqual({
       version: "0.2.0",
       leadSeconds: 0,
+      jobs: "wait",
     });
+  });
+
+  it("shows the runs in progress and asks what happens to them (#46)", async () => {
+    const view = twoReleases();
+    const { mock, requests } = routedFetch({
+      "GET /updates": () => json(view),
+      "GET /updates/jobs": () =>
+        json(
+          activityFixture({
+            mail: { running: 2, queued: 3 },
+            pve: { running: 1, queued: 0 },
+          }),
+        ),
+      "POST /updates/maintenance": () => json(view),
+      "GET /maintenance": () => json(maintenanceFixture()),
+    });
+    vi.stubGlobal("fetch", mock);
+    mounted = mount(<UpdatesSection />);
+    await flush(5);
+
+    await click(buttonByText(document.body, "Install update"));
+    const confirm = dialog() as HTMLElement;
+    await flush(3);
+    const list = confirm.querySelector('[data-slot="install-runs-list"]') as HTMLElement;
+    expect([...list.querySelectorAll("li")].map((item) => item.dataset.group)).toEqual([
+      "mail",
+      "pve",
+    ]);
+    expect(text(list)).toContain("Microsoft 365 and mail");
+    expect(text(list)).toContain("2 running, 3 waiting");
+    expect(text(list)).toContain("Proxmox VE");
+    // Stopping them cleanly is the default; all three ways are offered.
+    expect(
+      [...confirm.querySelectorAll<HTMLInputElement>('input[name="update-runs"]')].map(
+        (input) => input.value,
+      ),
+    ).toEqual(["wait", "drain", "interrupt"]);
+    expect(
+      (confirm.querySelector('input[name="update-runs"]:checked') as HTMLInputElement).value,
+    ).toBe("drain");
+    expect(text(confirm)).toContain("The countdown starts once what is running has finished");
+
+    await click(confirm.querySelector('input[name="update-runs"][value="wait"]'));
+    expect(text(confirm)).toContain("after two hours at the latest");
+    await click(buttonByText(confirm, "Announce after the runs"));
+    await flush(5);
+    expect(
+      requests.find(
+        (request) => request.method === "POST" && request.path === "/updates/maintenance",
+      )?.body,
+    ).toEqual({ version: "0.2.0", leadSeconds: 300, jobs: "wait" });
+  });
+
+  it("does not wait when asked not to, and offers the choice when nothing could be counted", async () => {
+    const view = twoReleases();
+    const { mock, requests } = routedFetch({
+      "GET /updates": () => json(view),
+      "GET /updates/jobs": () => problem("urn:restow:problem:internal", 500),
+      "POST /updates/maintenance": () => json(view),
+      "GET /maintenance": () => json(maintenanceFixture()),
+    });
+    vi.stubGlobal("fetch", mock);
+    mounted = mount(<UpdatesSection />);
+    await flush(5);
+
+    await click(buttonByText(document.body, "Install update"));
+    const confirm = dialog() as HTMLElement;
+    await flush(5);
+    expect(text(confirm)).toContain("What is running could not be counted");
+    await click(confirm.querySelector('input[name="update-runs"][value="interrupt"]'));
+    expect(text(confirm)).toContain("Everyone who is signed in sees a countdown");
+    await click(buttonByText(confirm, "Announce update"));
+    await flush(5);
+    expect(
+      requests.find(
+        (request) => request.method === "POST" && request.path === "/updates/maintenance",
+      )?.body,
+    ).toEqual({ version: "0.2.0", leadSeconds: 300, jobs: "interrupt" });
+  });
+
+  it("shows an update that waits for runs, and starts it on request (#46)", async () => {
+    const view = updatesFixture({
+      updater: { ...updatesFixture().updater, state: "busy" },
+      jobPause: {
+        mode: "drain",
+        phase: "draining",
+        version: "0.2.0",
+        leadSeconds: 300,
+        since: iso(-60),
+        deadlineAt: iso(1740),
+        announcedAt: null,
+        expiresAt: iso(7200),
+        requestedBy: "owner@provider.test",
+        activity: activityFixture({ machines: { running: 1, queued: 0 } }),
+      },
+    });
+    const { mock, requests } = routedFetch({
+      "POST /updates/maintenance/start-now": () => json(updatesFixture()),
+      "GET /maintenance": () => json(maintenanceFixture()),
+    });
+    vi.stubGlobal("fetch", mock);
+    mounted = mount(<UpdatesContent view={view} receivedAt={NOW} canManage />);
+    await flush();
+    const waiting = slot("updater-waiting") as HTMLElement;
+    expect(waiting.dataset.mode).toBe("drain");
+    expect(slot("updater-busy")).toBeNull();
+    expect(text(waiting)).toContain("The update to version 0.2.0 waits for the runs in progress");
+    expect(text(waiting)).toContain("being stopped cleanly");
+    expect(text(waiting)).toContain("Servers and clients: 1 running");
+
+    await click(buttonByText(waiting, "Start now"));
+    await click(buttonByText(dialog() as HTMLElement, "Announce now"));
+    await flush(5);
+    expect(
+      requests.some(
+        (request) => request.method === "POST" && request.path === "/updates/maintenance/start-now",
+      ),
+    ).toBe(true);
   });
 
   it("explains a build from source, and warns about a pre-release", async () => {

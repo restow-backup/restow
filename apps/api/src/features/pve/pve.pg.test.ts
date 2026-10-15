@@ -331,8 +331,8 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
       actor(),
     );
     expect(queued.alreadyQueued).toBe(false);
-    const hb = await json<{ tasks: { id: string; kind: string; params: { vmid: number } }[] }>(
-      await call(node, "/heartbeat", {
+    const beat = (extra: Record<string, unknown> = {}) =>
+      call(node, "/heartbeat", {
         json: {
           helperVersion: "0.3.0",
           pveVersion: "9.2.1",
@@ -341,8 +341,26 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
           state: "idle",
           problems: [],
           restoresAllowed: true,
+          ...extra,
         },
-      }),
+      });
+    // While an update pauses new job starts the node gets no backup task (#46).
+    await fixture.db.execute(sql`
+      INSERT INTO job_start_pause (mode, phase, version, lead_seconds, request, requested_by,
+        deadline_at, expires_at)
+      VALUES ('wait', 'draining', '0.4.0', 0, '{}', '{"userId":null,"label":"x","ip":null}',
+        now() + interval '1 hour', now() + interval '3 hours')`);
+    const held = await json<{ tasks: unknown[] }>(await beat({ activeRuns: [] }));
+    expect(held.tasks).toEqual([]);
+    const [seen] = await fixture.db
+      .select({ facts: pveNodes.facts })
+      .from(pveNodes)
+      .where(eq(pveNodes.id, node.nodeId));
+    expect(seen?.facts).toMatchObject({ activeRuns: [], state: "idle" });
+    expect(seen?.facts.activeRunsAt).toEqual(expect.any(String));
+    await fixture.db.execute(sql`DELETE FROM job_start_pause`);
+    const hb = await json<{ tasks: { id: string; kind: string; params: { vmid: number } }[] }>(
+      await beat(),
     );
     expect(hb.tasks).toEqual([
       expect.objectContaining({ kind: "backup", params: expect.objectContaining({ vmid: 101 }) }),

@@ -224,7 +224,58 @@ export interface PublicStatus {
 /** `GET /api/v1/maintenance`: the public status plus the version the api answering runs. */
 export type MaintenanceView = PublicStatus & {
   runningVersion: string | null;
+  /** New job starts are paused for an update (#46); absent from servers before 0.4.0. */
+  jobPause?: MaintenanceJobPause | null;
 };
+
+// --- Jobs at an update (#46) ------------------------------------------------------------------
+
+/** What happens to running jobs when the update is confirmed. */
+export const JOB_PAUSE_MODES = ["wait", "drain", "interrupt"] as const;
+export type JobPauseMode = (typeof JOB_PAUSE_MODES)[number];
+
+export const JOB_PAUSE_PHASES = ["draining", "announced"] as const;
+export type JobPausePhase = (typeof JOB_PAUSE_PHASES)[number];
+
+/** The pause of new job starts as every signed-in user sees it. */
+export interface MaintenanceJobPause {
+  /** `draining`: the update waits for running jobs; `announced`: it is announced or runs. */
+  phase: JobPausePhase;
+  version: string;
+  /** The wait ends here at the latest. */
+  deadlineAt: string;
+}
+
+export interface ActivityCount {
+  running: number;
+  queued: number;
+}
+
+/** The groups of jobs the install dialog counts, in the order it lists them. */
+export const ACTIVITY_GROUPS = ["mail", "machines", "pve", "fileShares"] as const;
+export type ActivityGroup = (typeof ACTIVITY_GROUPS)[number];
+
+/** What runs and waits right now, in every tenant (GET /updates/jobs). */
+export type JobActivityView = Record<ActivityGroup, ActivityCount> & {
+  running: number;
+  queued: number;
+  checkedAt: string;
+};
+
+/** The pause of new job starts for an update, for administrators. */
+export interface JobPauseView {
+  mode: JobPauseMode;
+  phase: JobPausePhase;
+  version: string;
+  leadSeconds: number;
+  since: string;
+  deadlineAt: string;
+  announcedAt: string | null;
+  expiresAt: string;
+  requestedBy: string;
+  /** While the update waits: what still runs and waits. */
+  activity: JobActivityView | null;
+}
 
 // --- Updates view (apps/api/src/features/updates/schemas.ts) -----------------------------
 
@@ -408,6 +459,8 @@ export interface UpdatesView {
   run: RunView | null;
   /** The build and what a switch to the full build needs (older servers: absent). */
   edition?: EditionView;
+  /** New job starts paused for an update (#46); absent from servers before 0.4.0. */
+  jobPause?: JobPauseView | null;
 }
 
 export interface UpdateSettingsInput {
@@ -422,12 +475,15 @@ export interface UpdateSettingsInput {
 export interface ScheduleUpdateInput {
   version: string;
   leadSeconds: number;
+  /** What happens to running jobs; omitted, the update does not wait. */
+  jobs?: JobPauseMode;
 }
 
 /** Problem types of the updates endpoints (RFC 7807 `type`). */
 export const UPDATER_UNAVAILABLE_PROBLEM = "urn:restow:problem:updater-unavailable";
 export const UPDATER_BLOCKED_PROBLEM = "urn:restow:problem:updater-blocked";
 export const UPDATE_BUSY_PROBLEM = "urn:restow:problem:update-busy";
+export const UPDATE_NOT_WAITING_PROBLEM = "urn:restow:problem:update-not-waiting";
 export const UPDATE_VERSION_UNKNOWN_PROBLEM = "urn:restow:problem:update-version-unknown";
 export const UPDATE_RUNNING_UNKNOWN_PROBLEM = "urn:restow:problem:update-running-unknown";
 export const UPDATE_SOURCE_NOT_ALLOWED_PROBLEM = "urn:restow:problem:update-source-not-allowed";
@@ -520,6 +576,19 @@ export function storePendingLicenseKey(key: string): Promise<UpdatesView> {
 export function removePendingLicenseKey(): Promise<UpdatesView> {
   return apiFetch<UpdatesView>("/updates/edition/license-key", {
     method: "DELETE",
+    tenantId: null,
+  });
+}
+
+/** What runs and waits right now (the install dialog). */
+export function fetchJobActivity(): Promise<JobActivityView> {
+  return apiFetch<JobActivityView>("/updates/jobs", { tenantId: null });
+}
+
+/** An update that waits for running jobs: announce it now. */
+export function startUpdateNow(): Promise<UpdatesView> {
+  return apiFetch<UpdatesView>("/updates/maintenance/start-now", {
+    method: "POST",
     tenantId: null,
   });
 }
@@ -656,7 +725,21 @@ export function parseMaintenance(payload: unknown): MaintenanceView | null {
   if (!status || !isRecord(payload)) {
     return null;
   }
-  return { ...status, runningVersion: stringOrNull(payload.runningVersion) };
+  return {
+    ...status,
+    runningVersion: stringOrNull(payload.runningVersion),
+    jobPause: parseJobPause(payload.jobPause),
+  };
+}
+
+function parseJobPause(value: unknown): MaintenanceJobPause | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const phase = oneOf(JOB_PAUSE_PHASES, value.phase);
+  const version = stringOrNull(value.version);
+  const deadlineAt = stringOrNull(value.deadlineAt);
+  return phase && version && deadlineAt ? { phase, version, deadlineAt } : null;
 }
 
 /** The view every viewer sees while nothing is announced. */
@@ -678,6 +761,7 @@ export function idleMaintenance(now: Date = new Date()): MaintenanceView {
     failureCode: null,
     serverTime: now.toISOString(),
     runningVersion: null,
+    jobPause: null,
   };
 }
 

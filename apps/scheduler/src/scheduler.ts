@@ -9,6 +9,10 @@
 // objects and sources, and enqueue those jobs together with the schedule
 // update in one transaction. A schedule that cannot be planned (bad cron,
 // unknown zone) is deferred instead of retried every tick.
+//
+// While an update pauses new job starts (#46, @restow/db job_start_pause) the
+// tick plans nothing: due schedules stay due and run once the pause lifts.
+// Report deliveries still go out.
 
 import { randomUUID } from "node:crypto";
 import type PgBoss from "pg-boss";
@@ -37,6 +41,11 @@ export interface SchedulerLoopDeps {
   readonly deferMs: number;
   /** Reports current leadership; the loop enqueues nothing while false. */
   readonly isLeader: () => boolean;
+  /**
+   * Whether an update pauses new job starts (#46); the loop then plans nothing and the due
+   * schedules wait. Omitted, never paused. A failed read counts as not paused.
+   */
+  readonly startsPaused?: () => Promise<boolean>;
   /**
    * Apply the recommended schedules to tenants that have an active source and
    * none applied yet, in this zone. Omitted, the loop only runs existing
@@ -70,6 +79,7 @@ export class SchedulerLoop {
   private timer: ReturnType<typeof setInterval> | null = null;
   private ticking = false;
   private stopped = false;
+  private paused = false;
   private readonly now: () => Date;
   private readonly newJobId: () => string;
 
@@ -106,6 +116,10 @@ export class SchedulerLoop {
       reportDeliveries: 0,
     };
     try {
+      if (await this.startsPaused()) {
+        await this.runReports(now, summary);
+        return summary;
+      }
       summary.tenantsInitialised = await this.applyRecommendedDefaults(now);
       const due = await this.deps.store.loadDue(now, this.deps.batchSize);
       summary.schedules = due.length;
@@ -126,20 +140,7 @@ export class SchedulerLoop {
         summary.skipped += outcome.skipped;
         summary.deferred += outcome.deferred;
       }
-      if (this.deps.reports && !this.stopped && this.deps.isLeader()) {
-        const reports = await runDueReports(
-          this.deps.reports,
-          now,
-          this.deps.batchSize,
-          (rule, err) =>
-            logger.error("report rule could not be run", {
-              ruleId: rule.id,
-              err: errorMessage(err),
-            }),
-        );
-        summary.reportsFired = reports.fired;
-        summary.reportDeliveries = reports.deliveries;
-      }
+      await this.runReports(now, summary);
       if (this.deps.endpoints && !this.stopped && this.deps.isLeader()) {
         const planned = await this.deps.endpoints.plan(now);
         if (planned && (planned.retention || planned.check || planned.verify)) {
@@ -177,6 +178,40 @@ export class SchedulerLoop {
     } finally {
       this.ticking = false;
     }
+  }
+
+  private async runReports(
+    now: Date,
+    summary: { reportsFired: number; reportDeliveries: number },
+  ): Promise<void> {
+    if (!this.deps.reports || this.stopped || !this.deps.isLeader()) return;
+    const reports = await runDueReports(this.deps.reports, now, this.deps.batchSize, (rule, err) =>
+      logger.error("report rule could not be run", {
+        ruleId: rule.id,
+        err: errorMessage(err),
+      }),
+    );
+    summary.reportsFired = reports.fired;
+    summary.reportDeliveries = reports.deliveries;
+  }
+
+  /** Whether an update pauses new job starts; logged when that changes. */
+  private async startsPaused(): Promise<boolean> {
+    let paused = false;
+    try {
+      paused = (await this.deps.startsPaused?.()) === true;
+    } catch (err) {
+      logger.warn("could not read whether job starts are paused", { err: errorMessage(err) });
+    }
+    if (paused !== this.paused) {
+      this.paused = paused;
+      logger.info(
+        paused
+          ? "planning paused: an update pauses new job starts"
+          : "planning resumed after the update pause",
+      );
+    }
+    return paused;
   }
 
   /**

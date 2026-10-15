@@ -13,6 +13,7 @@ import {
   createDb,
   grantQueueAccess,
   heartbeatStore,
+  readJobStartPause,
   retryConcurrentSetup,
   ServiceHeartbeatReporter,
   safeErrorMessage,
@@ -105,6 +106,8 @@ async function main(): Promise<void> {
     // Read leadership lazily; `election` is initialised just below and the tick
     // that calls this only runs after startup completes.
     isLeader: () => election.isLeader(),
+    // An update pauses new job starts while it waits for running jobs (#46).
+    startsPaused: async () => (await readJobStartPause(providerDb.$client)).paused,
   });
 
   const election = new LeaderElection({

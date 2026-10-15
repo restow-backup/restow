@@ -243,6 +243,10 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/updates/maintenance": own(),
   "DELETE /api/v1/updates/maintenance": own(),
   "POST /api/v1/updates/maintenance/dismiss": own(),
+  // An update that waits for running jobs (#46): announce it without waiting any longer.
+  "POST /api/v1/updates/maintenance/start-now": own(),
+  // What runs and waits right now, for the install dialog (#46).
+  "GET /api/v1/updates/jobs": view(PROVIDER),
   "POST /api/v1/updates/edition/switch": own(),
   "PUT /api/v1/updates/edition/license-key": own(),
   "DELETE /api/v1/updates/edition/license-key": own(),

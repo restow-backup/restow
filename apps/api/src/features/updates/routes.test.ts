@@ -46,6 +46,8 @@ const service = {
   switchToFullBuild: vi.fn(),
   storeLicenseKey: vi.fn(),
   removeLicenseKey: vi.fn(),
+  startNow: vi.fn(),
+  activity: vi.fn(),
 };
 
 function app() {
@@ -99,6 +101,8 @@ const TAB: [string, string, unknown?][] = [
   ["POST", "/api/v1/updates/maintenance", { version: "0.2.0", leadSeconds: 300 }],
   ["DELETE", "/api/v1/updates/maintenance"],
   ["POST", "/api/v1/updates/maintenance/dismiss", {}],
+  ["POST", "/api/v1/updates/maintenance/start-now", {}],
+  ["GET", "/api/v1/updates/jobs"],
   ["POST", "/api/v1/updates/edition/switch", { leadSeconds: 300 }],
   ["PUT", "/api/v1/updates/edition/license-key", { key: "restow-license-v1.a.b" }],
   ["DELETE", "/api/v1/updates/edition/license-key"],
@@ -111,6 +115,7 @@ const OWNER_ONLY = new Set([
   "POST /api/v1/updates/maintenance",
   "DELETE /api/v1/updates/maintenance",
   "POST /api/v1/updates/maintenance/dismiss",
+  "POST /api/v1/updates/maintenance/start-now",
   "POST /api/v1/updates/edition/switch",
   "PUT /api/v1/updates/edition/license-key",
   "DELETE /api/v1/updates/edition/license-key",
@@ -159,9 +164,9 @@ describe("who may use the Updates tab", () => {
       signedIn("admin");
       const key = `${method} ${path}`;
       const allowed: Record<string, string[]> = {
-        read_only: ["GET /api/v1/updates"],
-        technician: ["GET /api/v1/updates"],
-        administrator: ["GET /api/v1/updates"],
+        read_only: ["GET /api/v1/updates", "GET /api/v1/updates/jobs"],
+        technician: ["GET /api/v1/updates", "GET /api/v1/updates/jobs"],
+        administrator: ["GET /api/v1/updates", "GET /api/v1/updates/jobs"],
       };
       for (const [role, keys] of Object.entries(allowed)) {
         mocks.providerRows = [{ role, allTenants: true }];
@@ -235,6 +240,7 @@ describe("what needs a recent sign-in", () => {
       ["POST", "/api/v1/updates/check", {}],
       ["DELETE", "/api/v1/updates/maintenance", undefined],
       ["POST", "/api/v1/updates/maintenance/dismiss", {}],
+      ["POST", "/api/v1/updates/maintenance/start-now", {}],
       ["GET", "/api/v1/updates", undefined],
     ] as const) {
       expect((await call(method, path, { body })).status, `${method} ${path}`).toBe(200);
@@ -299,6 +305,25 @@ describe("what the tab accepts", () => {
       expect(response.status, String(leadSeconds)).toBe(422);
     }
     expect(service.schedule).toHaveBeenCalledTimes(6);
+  });
+
+  it("accepts what happens to running jobs, and nothing else (#46)", async () => {
+    for (const jobs of ["wait", "drain", "interrupt"]) {
+      const response = await call("POST", "/api/v1/updates/maintenance", {
+        body: { version: "0.2.0", leadSeconds: 0, jobs },
+      });
+      expect(response.status, jobs).toBe(200);
+    }
+    expect(service.schedule).toHaveBeenLastCalledWith(
+      { version: "0.2.0", leadSeconds: 0, jobs: "interrupt" },
+      expect.objectContaining({ email: "admin@provider.test" }),
+    );
+    for (const jobs of ["later", "", 1]) {
+      const response = await call("POST", "/api/v1/updates/maintenance", {
+        body: { version: "0.2.0", leadSeconds: 0, jobs },
+      });
+      expect(response.status, String(jobs)).toBe(422);
+    }
   });
 
   it("requires a version", async () => {

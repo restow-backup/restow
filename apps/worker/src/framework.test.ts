@@ -425,6 +425,9 @@ describe("lifecycle decisions", () => {
     const expired = new AbortController();
     expired.abort("expired");
     expect(abortReasonOf(expired.signal)).toBe("expired");
+    const update = new AbortController();
+    update.abort("update");
+    expect(abortReasonOf(update.signal)).toBe("update");
   });
 
   it("aborts a job shortly before its pg-boss expiration", () => {

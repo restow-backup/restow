@@ -187,6 +187,7 @@ describe("TABLE_ACCESS", () => {
       "providers",
       "service_heartbeats",
       "restart_requests",
+      "job_start_pause",
     ]) {
       expect(TABLE_ACCESS[table], table).toBe("installation");
     }

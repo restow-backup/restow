@@ -58,7 +58,9 @@ import { pathToFileURL } from "node:url";
  */
 import {
   createLogger,
+  ENDPOINT_QUEUES,
   EnvKeyProvider,
+  FILE_SHARE_QUEUES,
   type KeyProvider,
   kekFromBase64,
   LocalStorageBackend,
@@ -74,6 +76,7 @@ import {
   createDb,
   grantQueueAccess,
   heartbeatStore,
+  readJobStartPause,
   retryConcurrentSetup,
   ServiceHeartbeatReporter,
   safeErrorMessage,
@@ -105,9 +108,11 @@ import { handlers } from "./handlers/index.js";
 import { mailFilesCleanupTask } from "./handlers/mail-files-cleanup.js";
 import { retentionTasks } from "./handlers/retention.js";
 import { emitJobWebhook, webhooksHandler } from "./handlers/webhooks.js";
+import { JobPauseGate } from "./job-pause.js";
 import { startManifestConversion } from "./manifest-conversion.js";
 import { startPveMaintenance } from "./pve/maintenance.js";
 import { pgBossQueueOptions, QUEUE_NAMES, queuePriority } from "./queues.js";
+import { startJobReconciler } from "./reconcile.js";
 import { raiseJobFinished } from "./reporting.js";
 
 type Env = Record<string, string | undefined>;
@@ -237,6 +242,7 @@ function createKeyProvider(config: WorkerConfig): KeyProvider {
 }
 
 async function main(): Promise<void> {
+  const startedAt = new Date();
   const config = loadConfig();
   // Branding: `{appName}` in the chat messages of webhooks names the product like the api does.
   configureProductName(process.env[PRODUCT_NAME_ENV]);
@@ -277,6 +283,18 @@ async function main(): Promise<void> {
   });
   const keyProvider = createKeyProvider(config);
   const shutdown = new AbortController();
+  // New job starts paused for an update (#46, job-pause.ts): queues are taken off, and in
+  // drain mode running jobs checkpoint and stop. Finishing and watching what runs stays on.
+  const jobPause = new JobPauseGate({
+    read: () => readJobStartPause(providerDb.$client),
+    logger: logger.child({ component: "job-pause" }),
+    ungated: new Set([
+      FILE_SHARE_QUEUES.finish,
+      FILE_SHARE_QUEUES.monitor,
+      FILE_SHARE_QUEUES.purge,
+      ENDPOINT_QUEUES.monitor,
+    ]),
+  });
 
   const keyrings = new TenantCache<TenantKeyring>((tenantId) =>
     loadTenantKeyring({ db, tenantId, keyProvider }),
@@ -308,6 +326,7 @@ async function main(): Promise<void> {
     logger,
     tenantLimiter: new TenantConcurrencyLimiter(config.tenantConcurrency),
     shutdownSignal: shutdown.signal,
+    updateDrain: jobPause,
     now: () => new Date(),
     cancelPollMs: config.cancelPollMs,
     progress: {
@@ -338,6 +357,9 @@ async function main(): Promise<void> {
   const onSetupRetry = (info: { attempt: number; code: string | null; delayMs: number }) =>
     logger.info("job queue setup raced with another process, retrying", info);
   await retryConcurrentSetup(() => boss.start(), { onRetry: onSetupRetry });
+  // Every queue below is consumed through the gate; it knows the pause before the first one.
+  const gatedBoss = jobPause.wrap(boss);
+  await jobPause.refresh();
   // pg-boss has just created or upgraded its schema: the application role gets
   // its enqueue-only access to it (again).
   await grantQueueAccess(providerDb.$client, roles.tenant.name);
@@ -366,7 +388,7 @@ async function main(): Promise<void> {
   for (const handler of registry.list()) {
     const slots = handler.concurrency ?? config.concurrency;
     for (let slot = 0; slot < slots; slot++) {
-      await boss.work(
+      await gatedBoss.work(
         handler.queue,
         { batchSize: 1, includeMetadata: true, pollingIntervalSeconds: config.pollSeconds },
         createWorkHandler(runtime, handler),
@@ -386,7 +408,7 @@ async function main(): Promise<void> {
   // Endpoint backup (docs/AGENT.md): retention, repository checks, restore tests and the
   // alerts of servers and clients, in their own queues next to the tenant queues.
   await registerEndpointJobs(
-    boss,
+    gatedBoss,
     { db, providerDb, runtime },
     { pollingIntervalSeconds: config.pollSeconds },
   );
@@ -394,11 +416,12 @@ async function main(): Promise<void> {
   // File shares (docs/FILESHARES.md 8): queued runs, the dispatcher that starts runners through
   // the mounter, the monitor, retention, checks, restore checks, the catalog and the purge.
   await registerFileShareJobs(
-    boss,
+    gatedBoss,
     {
       db,
       providerDb,
       runtime,
+      startsPaused: () => jobPause.paused(),
       runner: runnerClientFromEnv(process.env, { demo: process.env.RESTOW_DEMO === "true" }),
     },
     { pollingIntervalSeconds: config.pollSeconds },
@@ -406,7 +429,7 @@ async function main(): Promise<void> {
 
   // Proxmox VE guests (docs/PVE.md): job planning, retention, verify and restore checks,
   // one pass every five minutes in one worker at a time.
-  startPveMaintenance({ db, providerDb, runtime });
+  startPveMaintenance({ db, providerDb, runtime, startsPaused: () => jobPause.paused() });
 
   // 0.3.5: fold the per-snapshot manifest mirror of 0.3.4 into versions, in the background
   // (manifest-conversion.ts); ends by itself once nothing is left.
@@ -432,6 +455,12 @@ async function main(): Promise<void> {
     },
   });
   await heartbeat.start();
+  jobPause.start();
+  // Jobs a killed worker left active go back to their queue (reconcile.ts, #46).
+  const stopReconciler = startJobReconciler(providerDb, {
+    selfStartedAt: startedAt,
+    logger: logger.child({ component: "reconcile" }),
+  });
 
   const stop = async (signal: NodeJS.Signals): Promise<void> => {
     if (stopping) {
@@ -442,6 +471,8 @@ async function main(): Promise<void> {
     // Tell running jobs to checkpoint and return; pg-boss then waits for them
     // (up to the timeout) before failing whatever is still active for retry.
     shutdown.abort("shutdown");
+    jobPause.stop();
+    stopReconciler();
     try {
       await heartbeat.beat();
       await boss.stop({ graceful: true, wait: true, timeout: config.shutdownTimeoutMs });

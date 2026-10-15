@@ -96,6 +96,23 @@ func SelfUpdate(ctx context.Context, l Layout, srv *Server, current, next string
 	return os.Rename(tmp, filepath.Join(l.BinDir, "restow-pve"))
 }
 
+// activeRuns lists the run ids of the backups open on this node (their job files). A
+// job file that cannot be read is left out; the list is never nil.
+func activeRuns(l Layout) []string {
+	runs := []string{}
+	entries, _ := os.ReadDir(filepath.Join(l.RunDir, "jobs"))
+	for _, e := range entries {
+		if e.IsDir() || strings.HasPrefix(e.Name(), ".") || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		var j jobState
+		if readJSON(filepath.Join(l.RunDir, "jobs", e.Name()), &j) == nil && j.RunID != "" {
+			runs = append(runs, j.RunID)
+		}
+	}
+	return runs
+}
+
 func busy(l Layout) bool {
 	for _, dir := range []string{filepath.Join(l.RunDir, "jobs"), filepath.Join(l.RunDir, "restore")} {
 		entries, _ := os.ReadDir(dir)

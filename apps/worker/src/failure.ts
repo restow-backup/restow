@@ -71,7 +71,7 @@ export interface JobFailureInput {
   readonly now: Date;
   /** The engine phase the run was in. */
   readonly step: string | null;
-  /** Why the abort signal fired, when it did ("shutdown", "expired"). */
+  /** Why the abort signal fired, when it did ("shutdown", "update", "expired"). */
   readonly abortReason: string | null;
   /** Set when pg-boss will run the job again. */
   readonly retry: FailureRecord["retry"];
@@ -81,15 +81,19 @@ export interface JobFailureInput {
 /** The failure record of a failed run. */
 export function jobFailureRecord(input: JobFailureInput): FailureRecordJson {
   const reportable = reportableError(input.error);
-  const interrupted = input.abortReason === "shutdown" || input.abortReason === "expired";
+  const interrupted =
+    input.abortReason === "shutdown" ||
+    input.abortReason === "update" ||
+    input.abortReason === "expired";
   let cause = classifyFailure(reportable, { ...input.context, abortReason: input.abortReason });
   if (interrupted) {
     // The worker stopping or the run hitting its limit is why it ended, whatever error that raised.
+    // Without a retry it was the last attempt: the text must not promise that it continues (#46).
     cause = {
       ...cause,
       code: "job.interrupted",
       transient: true,
-      params: { reason: input.abortReason },
+      params: { reason: input.abortReason, final: input.retry ? "no" : "yes" },
     };
   } else if (cause.code === "unknown" && isInvalidPayload(reportable)) {
     // The job was rejected before it started; the message names the setting.

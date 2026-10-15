@@ -166,7 +166,7 @@ func (s *Service) Tick(ctx context.Context) error {
 	hb, err := s.Server.Heartbeat(ctx, HeartbeatRequest{
 		HelperVersion: buildinfo.Version, PVEVersion: s.pveVersion, FleecingStorage: s.State.FleecingStorage,
 		PluginLoaded: !contains(problems, "pve.plugin_not_loaded"), State: state, Problems: problems,
-		RestoresAllowed: s.State.RestoresAllowed(),
+		RestoresAllowed: s.State.RestoresAllowed(), ActiveRuns: activeRuns(s.Layout),
 	})
 	status := ServiceStatus{LastHeartbeat: time.Now().UTC().Format(time.RFC3339), PVEVersion: s.pveVersion, Problems: problems}
 	if err != nil {

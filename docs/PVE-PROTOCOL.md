@@ -107,7 +107,7 @@ except enrollment. Binary formats are defined in
 | --- | --- |
 | `POST /enroll/preflight` | `{token}` → `{expiresAt, pveTokenId, pveTokenSecret}`: the installer's check before it changes anything. 401 when the token is unknown, used, revoked or expired. `pveTokenId`/`pveTokenSecret` are the existing PVE API token an admin gave for this enrollment, else `null`. Does not use the token up. |
 | `POST /enroll` | `{token, clusterName, clusterFingerprint, nodeName, pveVersion, helperVersion, fleecingStorage}` → `{nodeId, nodeSecret, clusterId, storageId, createdCluster}` |
-| `POST /heartbeat` | node facts → `{tasks, storageId, usage, update}` |
+| `POST /heartbeat` | node facts → `{tasks, storageId, usage, update}`; since 0.4.0 the facts carry `activeRuns`, the run ids of the backups open on the node (never null). While an update pauses new job starts the answer holds no backup task. |
 | `POST /inventory` | `{guests: [...]}` of this node |
 | `POST /tasks/:id/result` | `{status: done\|failed, error, result}` |
 | `GET /listing` | restore points of the cluster for the plugin |
@@ -126,6 +126,21 @@ except enrollment. Binary formats are defined in
 
 `/agent/pve/restic/:guestId/*` is the restic REST v2 backend of a container's
 repository, Basic `runId:token`, append-only.
+
+### A server restart during a backup
+
+The calls of a running backup (`incremental`, the base `hashes`, `blocks`, `commit`,
+`finish`) keep trying for five minutes while the server is unreachable (a network
+failure, or 502, 503 or 504 from the proxy in front of it), 15 to 30 seconds apart,
+after their usual five attempts: an update of Restow restarts the api and applies its
+migrations meanwhile (since 0.4.0; before, about 30 seconds in all). An answer of the
+server itself ends them as before.
+
+A backup run whose `finish` never arrived is closed by the server once a heartbeat of
+its node (from the last 15 minutes) no longer lists it in `activeRuns` and the run is
+older than that heartbeat by ten minutes: succeeded when its restore point was
+committed, else failed. A node before 0.4.0 sends no list; its runs close after 48
+hours as before.
 
 ### Progress and compatibility
 

@@ -13,7 +13,8 @@
     "saved": "Update settings saved.",
     "cancelled": "The announced update was cancelled.",
     "dismissed": "The update run was cleared from this page.",
-    "restartRequested": "The updater is restarting the {service}."
+    "restartRequested": "The updater is restarting the {service}.",
+    "announced": "The update is announced."
   },
   "errors": {
     "updaterUnavailable": "The updater is not running. Start it, or update by hand.",
@@ -27,7 +28,8 @@
     "invalidSource": "This address cannot be used as the update source. Enter the https address of a GitHub, Forgejo or Gitea repository on the public internet. A server on your own network works only when the operator names its host in the .env file on the server.",
     "switchRefused": "This installation cannot switch builds here. Switch by hand with the two lines for the .env file.",
     "restartNotRequested": "This service no longer needs a restart. The page shows the current state.",
-    "restartUnsupported": "The running updater cannot restart services yet. Recreate it, or run the command on the server."
+    "restartUnsupported": "The running updater cannot restart services yet. Recreate it, or run the command on the server.",
+    "notWaiting": "No update is waiting any more. The page shows the current state."
   },
   "form": {
     "unsaved": "You have unsaved changes.",
@@ -369,6 +371,18 @@
     "signaturesOff": {
       "title": "The updater does not verify signatures",
       "body": "Signature verification is switched off (RESTOW_UPDATER_VERIFY_SIGNATURES=false). What is installed is whatever lies under the published digest in the configured repository. For test installations only: switch it back on for production."
+    },
+    "waiting": {
+      "title": "The update to version {version} waits for the runs in progress",
+      "body": "No new run starts. The update is announced with its countdown once nothing runs any more, at the latest on {time}.",
+      "draining": "Runs of Microsoft 365 and mail are being stopped cleanly; they continue after the update.",
+      "running": "{group}: {count} running",
+      "startNow": "Start now",
+      "startNowTitle": "Announce the update now?",
+      "startNowBody": "The update is announced with its countdown right away. What is still running when it starts is stopped and continues afterwards; a backup on a server, client or Proxmox VE node can fail.",
+      "startNowConfirm": "Announce now",
+      "keepWaiting": "Keep waiting",
+      "cancelBody": "The update is not announced, and new runs start again. You can install it later."
     }
   },
   "manual": {
@@ -400,7 +414,37 @@
       "rollback": "If the new version does not start, the previous version is restored automatically.",
       "countdown": "Everyone who is signed in sees a countdown, and a notice while the update runs.",
       "modeImage": "The release image is downloaded from the registry.",
-      "modeSource": "The release is built on this server from the repository at tag {tag}. This takes longer than a download."
+      "modeSource": "The release is built on this server from the repository at tag {tag}. This takes longer than a download.",
+      "countdownAfterRuns": "The countdown starts once what is running has finished. Until then you can cancel the update or start it at once on this page."
+    },
+    "confirmAfterRuns": "Announce after the runs",
+    "runs": {
+      "title": "What is running",
+      "checking": "Counting the runs in progress and waiting.",
+      "failed": "What is running could not be counted. Choose what should happen to runs in progress all the same.",
+      "none": "No run is in progress or waiting right now.",
+      "count": "{running} running, {queued} waiting",
+      "groups": {
+        "mail": "Microsoft 365 and mail",
+        "machines": "Servers and clients",
+        "pve": "Proxmox VE",
+        "fileShares": "File shares"
+      },
+      "modes": {
+        "wait": {
+          "title": "Wait until they finish",
+          "description": "The update is announced once what is running has finished, after two hours at the latest."
+        },
+        "drain": {
+          "title": "Stop them cleanly",
+          "description": "Runs of Microsoft 365 and mail save a checkpoint, stop now and continue after the update without using up an attempt. Runs on servers, clients, Proxmox VE nodes and file shares are waited for, 30 minutes at the latest."
+        },
+        "interrupt": {
+          "title": "Do not wait",
+          "description": "The update starts as planned. What is still running then is stopped, saves a checkpoint where it can and continues afterwards. A backup on a server, client or Proxmox VE node can fail if the update takes longer than the agent waits for the server."
+        }
+      },
+      "pause": "From now until the update is over, no new run starts. Schedules that fall due meanwhile run afterwards."
     }
   },
   "dumps": {
@@ -488,7 +532,8 @@
       "attention": "The last update needs attention. An administrator has to restore the installation.",
       "scheduledSwitch": "Maintenance in {time}: {product} will switch to the full build ({version}). Save your work.",
       "startingSwitch": "Maintenance is starting: {product} is switching to the full build ({version}).",
-      "runningSwitch": "Maintenance in progress: {product} is switching to the full build ({version})."
+      "runningSwitch": "Maintenance in progress: {product} is switching to the full build ({version}).",
+      "waiting": "An update to version {version} is being prepared. Until it is over, no new run starts; what is running finishes first, at the latest on {time}."
     },
     "announce": {
       "start": "Maintenance announced: {product} will be updated to version {version} in {time}.",

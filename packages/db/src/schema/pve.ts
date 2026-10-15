@@ -94,6 +94,13 @@ export type PveNodeFacts = {
   restoresAllowed?: boolean;
   problems?: string[];
   state?: "idle" | "running";
+  /**
+   * The backup runs the node works on, as of `activeRunsAt` (restow-pve from 0.4.0; absent
+   * from older helpers). A running backup run of this node it no longer lists is over: the
+   * worker closes it instead of waiting 48 hours (#46).
+   */
+  activeRuns?: string[];
+  activeRunsAt?: string;
 };
 
 /** A node with restow-pve. */

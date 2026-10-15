@@ -373,7 +373,64 @@ describe.skipIf(!adminUrl)("failure records against Postgres", () => {
     expect(row.failure).toMatchObject({
       code: "job.interrupted",
       transient: true,
-      params: { reason: "shutdown" },
+      params: { reason: "shutdown", final: "no" },
+    });
+  });
+
+  it("says a shutdown on the last attempt ended the run (#46)", async () => {
+    const shutdown = new AbortController();
+    const jobId = randomUUID();
+    const handler: AnyJobHandler = {
+      queue: "backup",
+      run: async () => {
+        shutdown.abort();
+        throw new JobAbortedError();
+      },
+    };
+    await expect(
+      runJob(
+        runtime({ shutdownSignal: shutdown.signal }),
+        handler,
+        pgBossJob(payloadFor(jobId), 5, 5),
+      ),
+    ).rejects.toThrow();
+    const row = await jobRow(jobId);
+    expect(row.status).toBe("failed");
+    expect(row.failure).toMatchObject({
+      code: "job.interrupted",
+      retry: null,
+      params: { reason: "shutdown", final: "yes" },
+    });
+  });
+
+  it("stops a running job cleanly when an update drains the worker (#46)", async () => {
+    const listeners = new Set<() => void>();
+    const drain = {
+      subscribe(listener: () => void) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+    };
+    const jobId = randomUUID();
+    const handler: AnyJobHandler = {
+      queue: "backup",
+      run: async (ctx) => {
+        for (const listener of listeners) {
+          listener();
+        }
+        expect(ctx.signal.aborted).toBe(true);
+        throw new JobAbortedError();
+      },
+    };
+    await expect(
+      runJob(runtime({ updateDrain: drain }), handler, pgBossJob(payloadFor(jobId), 0, 5)),
+    ).rejects.toThrow();
+    expect(listeners.size).toBe(0);
+    const row = await jobRow(jobId);
+    expect(row.status).toBe("queued");
+    expect(row.failure).toMatchObject({
+      code: "job.interrupted",
+      params: { reason: "update", final: "no" },
     });
   });
 

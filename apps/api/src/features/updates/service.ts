@@ -1,5 +1,5 @@
 import { refuseHostBeforeConnect } from "@restow/core";
-import type { Database, StoredUpdateCheck } from "@restow/db";
+import type { Database, JobStartPause, StoredUpdateCheck } from "@restow/db";
 import { notifications, settings } from "@restow/db";
 import { eq, sql } from "drizzle-orm";
 import { audit } from "../../lib/audit.js";
@@ -30,15 +30,25 @@ import {
   sourceTargetOf,
 } from "../../updater/source-policy.js";
 import { type FetchLike, fetchReleases, releasesForChannel } from "./feed.js";
+import {
+  claimDrainedUpdate,
+  insertJobPause,
+  jobActivity,
+  loadJobPause,
+  removeJobPause,
+  storedRequestOf,
+} from "./job-pause.js";
 import { raiseUpdateAvailable } from "./notify.js";
 import type {
   CheckError,
   EditionView,
+  JobActivityView,
   MaintenanceView,
   PendingLicenseKeyInput,
   ScheduleUpdateInput,
   SourceView,
   SwitchBuildInput,
+  UpdaterView,
   UpdateSettingsInput,
   UpdatesView,
 } from "./schemas.js";
@@ -52,6 +62,8 @@ import {
   UpdaterUnavailableError,
 } from "./updater-client.js";
 import {
+  activePause,
+  jobPauseViewOf,
   maintenanceSummaryOf,
   maintenanceViewOf,
   runToShow,
@@ -78,6 +90,10 @@ export const UPDATE_AUDIT_ACTIONS = {
   acknowledged: "update.acknowledged",
   /** A Community installation announced its switch to the full build. */
   switchScheduled: "update.build_switch.scheduled",
+  /** New job starts paused for an update that waits for running jobs (#46). */
+  jobsPaused: "update.jobs_paused",
+  /** The pause of new job starts lifted (the update finished, was cancelled, failed or expired). */
+  jobsResumed: "update.jobs_resumed",
   /** A license key was stored for the full build, or removed again (never its text). */
   pendingLicenseKeyStored: "license.pending_key.stored",
   pendingLicenseKeyRemoved: "license.pending_key.removed",
@@ -101,6 +117,8 @@ export const UPDATE_PROBLEMS = {
   setupIncomplete: "urn:restow:problem:setup-incomplete",
   /** The build switch is refused: not a Community installation, or not the published images. */
   switchRefused: "urn:restow:problem:build-switch-refused",
+  /** "Start now" while no update waits for running jobs. */
+  notWaiting: "urn:restow:problem:update-not-waiting",
   /** The license key belongs on the license page of the full build. */
   licenseKeyNotPending: "urn:restow:problem:license-key-not-pending",
 } as const;
@@ -108,6 +126,10 @@ export const UPDATE_PROBLEMS = {
 /** The check runs once a day; after a failure it tries again after an hour at the earliest. */
 export const CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 export const CHECK_RETRY_MS = 60 * 60 * 1000;
+/** How often the pause of new job starts is advanced (#46). */
+export const PAUSE_STEP_MS = 10_000;
+/** A pause whose update was just handed over is not lifted on an idle updater before this. */
+export const ANNOUNCE_GRACE_MS = 30_000;
 
 export interface Actor {
   id: string | null;
@@ -407,7 +429,33 @@ export class UpdateService {
   async maintenance(): Promise<MaintenanceView> {
     const state = await this.updaterState();
     this.deps.state.setMaintenance(maintenanceSummaryOf(state));
-    return maintenanceViewOf(state, this.deps.state.runningVersion(), this.now());
+    return maintenanceViewOf(
+      state,
+      this.deps.state.runningVersion(),
+      this.now(),
+      await this.jobPause(),
+    );
+  }
+
+  /** The pause of new job starts, or null (also when it cannot be read). */
+  private async jobPause(): Promise<JobStartPause | null> {
+    if (this.demo) {
+      return null;
+    }
+    try {
+      return await loadJobPause(this.deps.db);
+    } catch (error) {
+      this.deps.log?.("warn", "reading the job pause failed", {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
+  }
+
+  /** What runs and waits right now, in every tenant (the install dialog, #46). */
+  async activity(): Promise<JobActivityView> {
+    const counts = await jobActivity(this.deps.db);
+    return { ...counts, checkedAt: this.now().toISOString() };
   }
 
   /** The Updates tab. */
@@ -419,6 +467,8 @@ export class UpdateService {
     const snapshot = cache.get();
     const running = cache.runningVersion();
     const info = cache.current();
+    const pause = activePause(await this.jobPause(), this.now());
+    const draining = pause?.phase === "draining";
     const releases = snapshot.enabled
       ? releasesOf(snapshot.check, snapshot.source, snapshot.channel)
       : [];
@@ -464,18 +514,22 @@ export class UpdateService {
       latest: releases[0] ? toReleaseView(releases[0]) : null,
       updateAvailable: info.updateAvailable,
       releases: newerThan(releases, running).map(toReleaseView),
-      updater: updaterViewOf({
-        state: updaterState,
-        demo: this.demo,
-        incompatible: this.incompatible,
-        applicationImage: running
-          ? `${defaultImageRepositories(imageVariantOf(this.env)).app}:${running}`
-          : null,
-      }),
+      updater: withDrain(
+        updaterViewOf({
+          state: updaterState,
+          demo: this.demo,
+          incompatible: this.incompatible,
+          applicationImage: running
+            ? `${defaultImageRepositories(imageVariantOf(this.env)).app}:${running}`
+            : null,
+        }),
+        draining,
+      ),
       leadTimes: LEAD_TIME_PRESETS,
-      maintenance: maintenanceViewOf(updaterState, running, now),
+      maintenance: maintenanceViewOf(updaterState, running, now, pause),
       run: runToShow(updaterState),
       edition: await this.editionView(running),
+      jobPause: jobPauseViewOf(pause, now, draining ? await this.activity() : null),
     };
   }
 
@@ -874,6 +928,12 @@ export class UpdateService {
     if (!state.capabilities.ready) {
       throw blocked(state.capabilities.blockers);
     }
+    if (activePause(await loadJobPause(db), this.now())?.phase === "draining") {
+      throw new ProblemError(409, "An update is already announced", {
+        type: UPDATE_PROBLEMS.busy,
+        detail: "An update waits for running jobs. Cancel it or start it now.",
+      });
+    }
 
     const mode = snapshot.source.isDefault || snapshot.source.isAlpha ? "image" : "source";
     if (mode === "image" && !release.digests.app) {
@@ -919,10 +979,63 @@ export class UpdateService {
       leadSeconds: input.leadSeconds,
       requestedBy: { userId: actor.id, label: actor.email, ip: actor.ip },
     };
+    // New starts pause from now until the update is over (#46). With `wait` or `drain` and
+    // jobs running, the update is announced only once they finished (advancePause).
+    const jobs = input.jobs ?? "interrupt";
+    const details = {
+      version: release.version,
+      tag: release.tag,
+      from: running,
+      mode,
+      leadSeconds: input.leadSeconds,
+      jobs,
+      repository: snapshot.source.repository,
+      digestPublished: Boolean(release.digests.app),
+    };
+    if (jobs !== "interrupt") {
+      const activity = await jobActivity(db);
+      if (activity.running > 0) {
+        const pause = await insertJobPause(db, {
+          mode: jobs,
+          phase: "draining",
+          request,
+          requestedBy: request.requestedBy,
+          now: this.now(),
+        });
+        await audit(db, {
+          tenantId: null,
+          actor: actor.email,
+          actorUserId: actor.id,
+          action: UPDATE_AUDIT_ACTIONS.jobsPaused,
+          target: release.version,
+          targetType: "update",
+          ip: actor.ip,
+          details: {
+            ...details,
+            running: {
+              mail: activity.mail.running,
+              machines: activity.machines.running,
+              pve: activity.pve.running,
+              fileShares: activity.fileShares.running,
+            },
+            deadlineAt: pause.deadlineAt.toISOString(),
+          },
+        });
+        return this.view();
+      }
+    }
+    const pause = await insertJobPause(db, {
+      mode: jobs,
+      phase: "announced",
+      request,
+      requestedBy: request.requestedBy,
+      now: this.now(),
+    });
     let after: StateView;
     try {
       after = await this.deps.updater.schedule(request);
     } catch (error) {
+      await removeJobPause(db, pause.id);
       throw mapUpdaterError(error);
     }
     cache.setMaintenance(maintenanceSummaryOf(after));
@@ -935,21 +1048,195 @@ export class UpdateService {
       targetType: "update",
       ip: actor.ip,
       details: {
-        version: release.version,
-        tag: release.tag,
-        from: running,
-        mode,
-        leadSeconds: input.leadSeconds,
+        ...details,
         startsAt: after.run?.startsAt ?? null,
         runId: after.run?.id ?? null,
-        repository: snapshot.source.repository,
-        digestPublished: Boolean(release.digests.app),
       },
     });
     return this.view();
   }
 
+  /**
+   * "Start now" while the update waits for running jobs (#46): announce it at once with its
+   * lead time; what still runs is stopped by the update (and continues after it).
+   */
+  async startNow(actor: Actor): Promise<UpdatesView> {
+    const pause = activePause(await loadJobPause(this.deps.db), this.now());
+    if (pause?.phase !== "draining") {
+      throw new ProblemError(409, "No update waits for running jobs", {
+        type: UPDATE_PROBLEMS.notWaiting,
+        detail: "No update waits for running jobs.",
+      });
+    }
+    const outcome = await this.announceDrained(pause, "admin", actor);
+    if (outcome instanceof ProblemError) {
+      throw outcome;
+    }
+    return this.view();
+  }
+
+  /**
+   * Hand the update that waited for running jobs to the updater, once: `drained` when
+   * nothing runs any more, `deadline` at the end of the longest wait, `admin` for "Start
+   * now". A refusal lifts the pause, tells the administrators (bell) and returns the
+   * problem; whoever called decides whether to throw it.
+   */
+  private async announceDrained(
+    pause: JobStartPause,
+    reason: "drained" | "deadline" | "admin",
+    actor: Actor | null,
+  ): Promise<ProblemError | null> {
+    const { db, state: cache } = this.deps;
+    const now = this.now();
+    const claimed = await claimDrainedUpdate(db, pause, now);
+    if (!claimed) {
+      return null;
+    }
+    const requester = claimed.requestedBy;
+    const waitedSeconds = Math.max(
+      0,
+      Math.round((now.getTime() - claimed.createdAt.getTime()) / 1000),
+    );
+    let after: StateView;
+    try {
+      const request = storedRequestOf(claimed);
+      const state = await this.requireUpdater();
+      if (state.phase === "scheduled" || state.phase === "running") {
+        throw new ProblemError(409, "An update is already announced", {
+          type: UPDATE_PROBLEMS.busy,
+          detail: "An update is already announced or running.",
+        });
+      }
+      if (!state.capabilities.ready) {
+        throw blocked(state.capabilities.blockers);
+      }
+      after = await this.deps.updater.schedule(request);
+    } catch (error) {
+      const problem = mapUpdaterError(error);
+      await removeJobPause(db, claimed.id);
+      await db.insert(notifications).values({
+        tenantId: null,
+        level: "error",
+        event: UPDATE_AUDIT_ACTIONS.failed,
+        message: `The update to version ${claimed.version} could not be announced after waiting for running jobs: ${problem.detail ?? problem.message}. New job starts resumed.`,
+        details: { version: claimed.version, outcome: "not_announced" },
+      });
+      await audit(db, {
+        tenantId: null,
+        actor: actor?.email ?? requester.label,
+        actorUserId: actor?.id ?? requester.userId,
+        action: UPDATE_AUDIT_ACTIONS.jobsResumed,
+        target: claimed.version,
+        targetType: "update",
+        ip: actor?.ip ?? null,
+        details: { reason: "not_announced", problem: problem.type ?? null, waitedSeconds },
+      });
+      this.deps.log?.("warn", "the update that waited for running jobs was not announced", {
+        version: claimed.version,
+        problem: problem.type ?? null,
+      });
+      return problem;
+    }
+    cache.setMaintenance(maintenanceSummaryOf(after));
+    await audit(db, {
+      tenantId: null,
+      actor: actor?.email ?? requester.label,
+      actorUserId: actor?.id ?? requester.userId,
+      action: UPDATE_AUDIT_ACTIONS.scheduled,
+      target: claimed.version,
+      targetType: "update",
+      ip: actor?.ip ?? null,
+      details: {
+        version: claimed.version,
+        leadSeconds: claimed.leadSeconds,
+        jobs: claimed.mode,
+        waitedSeconds,
+        after: reason,
+        requestedBy: requester.label,
+        startsAt: after.run?.startsAt ?? null,
+        runId: after.run?.id ?? null,
+      },
+    });
+    return null;
+  }
+
+  /**
+   * One step of the pause (#46), every few seconds: an update that waits announces itself
+   * once nothing runs or its longest wait is over; a pause lifts once the updater has
+   * finished (or the update was cancelled there), and in any case when it expires.
+   */
+  async advancePause(): Promise<void> {
+    if (this.demo) {
+      return;
+    }
+    const { db } = this.deps;
+    const pause = await loadJobPause(db);
+    if (!pause) {
+      return;
+    }
+    const now = this.now();
+    if (!activePause(pause, now)) {
+      await this.liftPause(pause, "expired");
+      return;
+    }
+    if (pause.phase === "draining") {
+      const activity = await jobActivity(db);
+      if (activity.running === 0) {
+        await this.announceDrained(pause, "drained", null);
+      } else if (now.getTime() >= pause.deadlineAt.getTime()) {
+        await this.announceDrained(pause, "deadline", null);
+      }
+      return;
+    }
+    // The updater gets the request right after the row says `announced`: give it that moment.
+    const announcedAt = (pause.announcedAt ?? pause.createdAt).getTime();
+    if (now.getTime() - announcedAt < ANNOUNCE_GRACE_MS) {
+      return;
+    }
+    const state = await this.updaterState(true);
+    if (state && state.phase !== "scheduled" && state.phase !== "running") {
+      await this.liftPause(pause, "update_over");
+    }
+  }
+
+  private async liftPause(
+    pause: JobStartPause,
+    reason: "expired" | "update_over" | "cancelled",
+    actor: Actor | null = null,
+  ): Promise<void> {
+    if (!(await removeJobPause(this.deps.db, pause.id))) {
+      return;
+    }
+    await audit(this.deps.db, {
+      tenantId: null,
+      actor: actor?.email ?? "system",
+      actorUserId: actor?.id ?? null,
+      action: UPDATE_AUDIT_ACTIONS.jobsResumed,
+      target: pause.version,
+      targetType: "update",
+      ip: actor?.ip ?? null,
+      details: { reason, phase: pause.phase, mode: pause.mode },
+    });
+  }
+
   async cancel(actor: Actor): Promise<UpdatesView> {
+    const pause = activePause(await this.jobPause(), this.now());
+    if (pause?.phase === "draining") {
+      // Not handed to the updater yet: cancelling lifts the pause, nothing else.
+      if (await removeJobPause(this.deps.db, pause.id)) {
+        await audit(this.deps.db, {
+          tenantId: null,
+          actor: actor.email,
+          actorUserId: actor.id,
+          action: UPDATE_AUDIT_ACTIONS.cancelled,
+          target: pause.version,
+          targetType: "update",
+          ip: actor.ip,
+          details: { runId: null, version: pause.version, whileWaitingForJobs: true },
+        });
+      }
+      return this.view();
+    }
     await this.requireUpdater();
     const before = await this.updaterState(true);
     let after: StateView;
@@ -959,6 +1246,9 @@ export class UpdateService {
       throw mapUpdaterError(error);
     }
     this.deps.state.setMaintenance(maintenanceSummaryOf(after));
+    if (pause) {
+      await this.liftPause(pause, "cancelled", actor);
+    }
     const cancelled = before?.run ?? null;
     await audit(this.deps.db, {
       tenantId: null,
@@ -1123,6 +1413,18 @@ export class UpdateService {
     };
     later(syncLoop, 5_000);
 
+    // The pause of new job starts (#46): announce a waiting update, lift a finished pause.
+    const pauseLoop = () => {
+      void this.advancePause()
+        .catch((error) => {
+          this.deps.log?.("warn", "advancing the job pause failed", {
+            error: error instanceof Error ? error.message : String(error),
+          });
+        })
+        .finally(() => later(pauseLoop, PAUSE_STEP_MS));
+    };
+    later(pauseLoop, 3_000);
+
     return {
       close() {
         closed = true;
@@ -1133,6 +1435,13 @@ export class UpdateService {
       },
     };
   }
+}
+
+/** While an update waits for running jobs the updater counts as busy: nothing else is announced. */
+function withDrain(view: UpdaterView, draining: boolean): UpdaterView {
+  return draining && (view.state === "ready" || view.state === "blocked")
+    ? { ...view, state: "busy" }
+    : view;
 }
 
 // ---------------------------------------------------------------------------

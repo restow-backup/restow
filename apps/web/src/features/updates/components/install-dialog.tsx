@@ -1,4 +1,4 @@
-import { TriangleAlert } from "lucide-react";
+import { Info, TriangleAlert } from "lucide-react";
 import * as React from "react";
 import { useTranslation } from "react-i18next";
 
@@ -17,8 +17,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { isRecentSignInRequired } from "@/lib/recent-sign-in";
 
-import type { UpdatesView } from "../api";
-import { useScheduleUpdate } from "../hooks";
+import {
+  ACTIVITY_GROUPS,
+  JOB_PAUSE_MODES,
+  type JobActivityView,
+  type JobPauseMode,
+  type UpdatesView,
+} from "../api";
+import { useJobActivity, useScheduleUpdate } from "../hooks";
 import {
   formatReleaseDate,
   isUnverifiableRelease,
@@ -32,9 +38,18 @@ import { ChoiceOption } from "./choice-option";
 export const DEFAULT_LEAD_SECONDS = 300;
 
 /**
- * The question before an update: which version, when, and what will happen.
- * Confirming announces the maintenance (or starts at once with a lead time of
- * zero); the shell then shows the countdown to everyone signed in.
+ * Runs in progress are stopped cleanly by default (#46): quick, and nothing is lost; runs on
+ * agents are waited for.
+ */
+export const DEFAULT_JOB_MODE: JobPauseMode = "drain";
+
+/**
+ * The question before an update: which version, when, what happens to the runs
+ * in progress (#46), and what will happen. Confirming announces the
+ * maintenance (or starts at once with a lead time of zero); the shell then
+ * shows the countdown to everyone signed in. With runs in progress the update
+ * can wait for them first, or have them stop cleanly; either way no new run
+ * starts from the confirmation until the update is over.
  */
 export function InstallDialog({
   view,
@@ -58,6 +73,11 @@ export function InstallDialog({
 
   const [version, setVersion] = React.useState(newest);
   const [lead, setLead] = React.useState(defaultLead);
+  const [jobMode, setJobMode] = React.useState<JobPauseMode>(DEFAULT_JOB_MODE);
+  const activity = useJobActivity(open);
+  // Without counts (they could not be read) the choice is offered all the same.
+  const runsInProgress = activity.data ? activity.data.running > 0 : activity.isError;
+  const waits = runsInProgress && jobMode !== "interrupt";
 
   // Every opening starts from the newest version and the default lead time.
   const [wasOpen, setWasOpen] = React.useState(open);
@@ -66,6 +86,7 @@ export function InstallDialog({
     if (open) {
       setVersion(newest);
       setLead(defaultLead);
+      setJobMode(DEFAULT_JOB_MODE);
     }
   }
   const { reset } = schedule;
@@ -79,7 +100,7 @@ export function InstallDialog({
   const selectedVersion = selected?.version ?? "";
   const unverifiable = isUnverifiableRelease(view, selected);
 
-  const announce = (input: { version: string; leadSeconds: number }) => {
+  const announce = (input: { version: string; leadSeconds: number; jobs: JobPauseMode }) => {
     schedule.mutate(input, {
       onSuccess: () => onOpenChange(false),
       onError: (error) => {
@@ -96,7 +117,12 @@ export function InstallDialog({
     if (schedule.isPending || selectedVersion === "" || unverifiable) {
       return;
     }
-    announce({ version: selectedVersion, leadSeconds: lead });
+    // With nothing in progress the update need not wait; new runs still pause until it is over.
+    announce({
+      version: selectedVersion,
+      leadSeconds: lead,
+      jobs: runsInProgress ? jobMode : "wait",
+    });
   };
 
   return (
@@ -178,6 +204,15 @@ export function InstallDialog({
             </div>
           </fieldset>
 
+          <RunsInProgress
+            activity={activity.data}
+            loading={activity.isPending}
+            failed={activity.isError && !activity.data}
+            choose={runsInProgress}
+            mode={jobMode}
+            onModeChange={setJobMode}
+          />
+
           {unverifiable ? (
             <Alert variant="warning" data-slot="release-unverifiable">
               <TriangleAlert />
@@ -198,7 +233,9 @@ export function InstallDialog({
               <li>{t("install.effects.downtime")}</li>
               <li>{t("install.effects.backup")}</li>
               <li>{t("install.effects.rollback")}</li>
-              <li>{t("install.effects.countdown")}</li>
+              <li>
+                {waits ? t("install.effects.countdownAfterRuns") : t("install.effects.countdown")}
+              </li>
               <li>
                 {view.mode === "image"
                   ? t("install.effects.modeImage")
@@ -224,11 +261,92 @@ export function InstallDialog({
             loading={schedule.isPending}
             disabled={unverifiable}
           >
-            {lead === 0 ? t("install.confirmNow") : t("install.confirm")}
+            {waits
+              ? t("install.confirmAfterRuns")
+              : lead === 0
+                ? t("install.confirmNow")
+                : t("install.confirm")}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>
       {identity.dialog}
     </AlertDialog>
+  );
+}
+
+/**
+ * What runs and waits right now, in every tenant, and what happens to it (#46): wait until
+ * it is done, stop it cleanly, or do not wait. New runs pause in every case.
+ */
+function RunsInProgress({
+  activity,
+  loading,
+  failed,
+  choose,
+  mode,
+  onModeChange,
+}: {
+  activity: JobActivityView | undefined;
+  loading: boolean;
+  failed: boolean;
+  choose: boolean;
+  mode: JobPauseMode;
+  onModeChange: (mode: JobPauseMode) => void;
+}) {
+  const { t } = useTranslation("updates");
+  const groups = activity
+    ? ACTIVITY_GROUPS.filter((group) => activity[group].running + activity[group].queued > 0)
+    : [];
+  return (
+    <fieldset className="space-y-2" data-slot="install-runs" aria-busy={loading}>
+      <legend className="mb-2 text-sm leading-none font-medium">{t("install.runs.title")}</legend>
+      {loading ? (
+        <p className="text-sm text-muted-foreground">{t("install.runs.checking")}</p>
+      ) : failed ? (
+        <p className="text-sm text-muted-foreground" data-slot="install-runs-failed">
+          {t("install.runs.failed")}
+        </p>
+      ) : groups.length === 0 ? (
+        <p className="text-sm text-muted-foreground" data-slot="install-runs-none">
+          {t("install.runs.none")}
+        </p>
+      ) : (
+        <ul className="space-y-1 text-sm" data-slot="install-runs-list">
+          {groups.map((group) => (
+            <li key={group} className="flex flex-wrap justify-between gap-x-3" data-group={group}>
+              <span>{t(`install.runs.groups.${group}`)}</span>
+              <span className="text-muted-foreground tabular-nums">
+                {t("install.runs.count", {
+                  running: activity?.[group].running ?? 0,
+                  queued: activity?.[group].queued ?? 0,
+                })}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {choose ? (
+        <div className="grid gap-2 pt-1" data-slot="install-run-modes">
+          {JOB_PAUSE_MODES.map((value) => (
+            <ChoiceOption
+              key={value}
+              name="update-runs"
+              value={value}
+              checked={mode === value}
+              onSelect={(next) => onModeChange(next as JobPauseMode)}
+            >
+              <span className="block font-medium">{t(`install.runs.modes.${value}.title`)}</span>
+              <span className="block text-xs text-muted-foreground">
+                {t(`install.runs.modes.${value}.description`)}
+              </span>
+            </ChoiceOption>
+          ))}
+        </div>
+      ) : null}
+      <Alert variant="info" data-slot="install-runs-pause">
+        <Info />
+        <AlertDescription>{t("install.runs.pause")}</AlertDescription>
+      </Alert>
+    </fieldset>
   );
 }

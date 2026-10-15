@@ -1,4 +1,4 @@
-import type { StoredUpdateRelease } from "@restow/db";
+import type { JobStartPause, StoredUpdateRelease } from "@restow/db";
 import {
   maintenanceStatusOf,
   type Run,
@@ -6,6 +6,9 @@ import {
   type StateView,
 } from "../../updater/protocol.js";
 import type {
+  JobActivityView,
+  JobPauseView,
+  MaintenanceJobPause,
   MaintenanceView,
   ReleaseView,
   RunView,
@@ -25,9 +28,50 @@ export function maintenanceViewOf(
   state: StateView | null,
   runningVersion: string | null,
   now: Date,
+  pause: JobStartPause | null = null,
 ): MaintenanceView {
   const status = maintenanceStatusOf(state?.run ?? null, state?.phase ?? "idle", now);
-  return { ...status, runningVersion };
+  return { ...status, runningVersion, jobPause: maintenancePauseOf(pause, now) };
+}
+
+/** A pause that holds at `now`, or null. */
+export function activePause(pause: JobStartPause | null, now: Date): JobStartPause | null {
+  return pause && pause.expiresAt.getTime() > now.getTime() ? pause : null;
+}
+
+/** The pause of new job starts as every signed-in user sees it. */
+export function maintenancePauseOf(
+  pause: JobStartPause | null,
+  now: Date,
+): MaintenanceJobPause | null {
+  const active = activePause(pause, now);
+  return active
+    ? { phase: active.phase, version: active.version, deadlineAt: active.deadlineAt.toISOString() }
+    : null;
+}
+
+/** The pause of new job starts for administrators; `activity` while the update waits. */
+export function jobPauseViewOf(
+  pause: JobStartPause | null,
+  now: Date,
+  activity: JobActivityView | null,
+): JobPauseView | null {
+  const active = activePause(pause, now);
+  if (!active) {
+    return null;
+  }
+  return {
+    mode: active.mode,
+    phase: active.phase,
+    version: active.version,
+    leadSeconds: active.leadSeconds,
+    since: active.createdAt.toISOString(),
+    deadlineAt: active.deadlineAt.toISOString(),
+    announcedAt: active.announcedAt?.toISOString() ?? null,
+    expiresAt: active.expiresAt.toISOString(),
+    requestedBy: active.requestedBy.label,
+    activity: active.phase === "draining" ? activity : null,
+  };
 }
 
 /** The summary the version document carries while a maintenance is announced or running. */

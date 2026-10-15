@@ -7,7 +7,10 @@ import { i18n } from "@/i18n";
 import { type SessionContextValue, StaticSessionProvider } from "@/lib/session";
 
 import {
+  type ActivityCount,
+  type ActivityGroup,
   idleMaintenance,
+  type JobActivityView,
   type MaintenanceView,
   type ReleaseView,
   type RunView,
@@ -131,6 +134,26 @@ export function updatesFixture(overrides: Partial<UpdatesView> = {}): UpdatesVie
     maintenance: idleMaintenance(new Date(NOW)),
     run: null,
     ...overrides,
+  };
+}
+
+/** What runs and waits right now (GET /updates/jobs); nothing by default. */
+export function activityFixture(
+  overrides: Partial<Record<ActivityGroup, ActivityCount>> = {},
+): JobActivityView {
+  const groups = {
+    mail: { running: 0, queued: 0 },
+    machines: { running: 0, queued: 0 },
+    pve: { running: 0, queued: 0 },
+    fileShares: { running: 0, queued: 0 },
+    ...overrides,
+  };
+  const all = Object.values(groups);
+  return {
+    ...groups,
+    running: all.reduce((sum, group) => sum + group.running, 0),
+    queued: all.reduce((sum, group) => sum + group.queued, 0),
+    checkedAt: iso(0),
   };
 }
 
