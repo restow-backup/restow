@@ -10,6 +10,7 @@
  * part by part into a bounded buffer and uploaded as a multipart upload; a
  * stream that ends within its first part still becomes a single PutObject.
  */
+import { createHash } from "node:crypto";
 import type { Readable } from "node:stream";
 import {
   AbortMultipartUploadCommand,
@@ -21,12 +22,21 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   ListObjectsV2Command,
+  ListObjectVersionsCommand,
   PutObjectCommand,
+  PutObjectRetentionCommand,
   S3Client,
   type S3ClientConfig,
   UploadPartCommand,
 } from "@aws-sdk/client-s3";
-import type { HeadResult, PutOptions, StorageBackend } from "./backend.js";
+import {
+  type HeadResult,
+  ObjectLockedError,
+  type ObjectLockMode,
+  type ObjectRetention,
+  type PutOptions,
+  type StorageBackend,
+} from "./backend.js";
 
 const MIB = 1024 * 1024;
 
@@ -161,7 +171,7 @@ export class S3StorageBackend implements StorageBackend {
   private objectLock(options: PutOptions | undefined) {
     return {
       ObjectLockRetainUntilDate: options?.retainUntil,
-      ObjectLockMode: options?.retainUntil ? this.objectLockMode : undefined,
+      ObjectLockMode: options?.retainUntil ? (options.lockMode ?? this.objectLockMode) : undefined,
     };
   }
 
@@ -173,6 +183,10 @@ export class S3StorageBackend implements StorageBackend {
         Body: data,
         ContentLength: data.length,
         ContentType: options?.contentType,
+        // A write with Object Lock parameters must carry an integrity header. The SDK adds a
+        // CRC32 by default; a client set to send checksums only when required sends none, so
+        // the MD5 is always given (S3 accepts either).
+        ...(options?.retainUntil ? { ContentMD5: md5Base64(data) } : {}),
         ...this.objectLock(options),
       }),
     );
@@ -195,6 +209,7 @@ export class S3StorageBackend implements StorageBackend {
     }
 
     const checksumAlgorithm = await this.partChecksumAlgorithm();
+    const locked = options?.retainUntil !== undefined;
     let uploadId: string | undefined;
     try {
       const created = await this.client.send(
@@ -210,14 +225,16 @@ export class S3StorageBackend implements StorageBackend {
       if (!uploadId) {
         throw new Error(`the storage returned no upload id for ${key}`);
       }
-      const completed = [await this.uploadPart(key, uploadId, firstPart, checksumAlgorithm)];
+      const completed = [
+        await this.uploadPart(key, uploadId, firstPart, checksumAlgorithm, locked),
+      ];
       for await (const part of parts) {
         if (part.partNumber > MAX_MULTIPART_PARTS) {
           throw new Error(
             `${key} exceeds the largest multipart upload (${multipartCapacity()} bytes)`,
           );
         }
-        completed.push(await this.uploadPart(key, uploadId, part, checksumAlgorithm));
+        completed.push(await this.uploadPart(key, uploadId, part, checksumAlgorithm, locked));
       }
       await this.client.send(
         new CompleteMultipartUploadCommand({
@@ -227,6 +244,12 @@ export class S3StorageBackend implements StorageBackend {
           MultipartUpload: { Parts: completed },
         }),
       );
+      if (options?.retainUntil) {
+        // Not every S3-compatible service applies the Object Lock parameters of
+        // CreateMultipartUpload to the finished object; setting the retention
+        // again is a no-op where it did and closes the gap where it did not.
+        await this.setRetention(key, options.retainUntil, options.lockMode ?? this.objectLockMode);
+      }
     } catch (error) {
       stream.destroy();
       if (uploadId) {
@@ -258,6 +281,7 @@ export class S3StorageBackend implements StorageBackend {
     uploadId: string,
     part: UploadPart,
     checksumAlgorithm: ChecksumAlgorithm | undefined,
+    locked = false,
   ): Promise<CompletedPart> {
     const result = await this.client.send(
       new UploadPartCommand({
@@ -268,6 +292,8 @@ export class S3StorageBackend implements StorageBackend {
         Body: part.data,
         ContentLength: part.data.length,
         ChecksumAlgorithm: checksumAlgorithm,
+        // Parts of an upload under Object Lock need an integrity header as well.
+        ...(locked && !checksumAlgorithm ? { ContentMD5: md5Base64(part.data) } : {}),
       }),
     );
     return {
@@ -389,4 +415,109 @@ export class S3StorageBackend implements StorageBackend {
   async delete(key: string): Promise<void> {
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: this.keyFor(key) }));
   }
+
+  async retention(key: string): Promise<ObjectRetention | null> {
+    return this.retentionOf(key);
+  }
+
+  private async retentionOf(key: string, versionId?: string): Promise<ObjectRetention | null> {
+    try {
+      const result = await this.client.send(
+        new HeadObjectCommand({ Bucket: this.bucket, Key: this.keyFor(key), VersionId: versionId }),
+      );
+      const mode = result.ObjectLockMode;
+      const until = result.ObjectLockRetainUntilDate;
+      return {
+        mode: mode === "GOVERNANCE" || mode === "COMPLIANCE" ? mode : null,
+        retainUntil: until instanceof Date ? until : until ? new Date(until) : null,
+        lastModified: result.LastModified ?? null,
+        size: result.ContentLength ?? 0,
+      };
+    } catch (error) {
+      if (isNotFound(error)) {
+        return null;
+      }
+      throw error;
+    }
+  }
+
+  async setRetention(key: string, until: Date, mode: ObjectLockMode): Promise<void> {
+    await this.client.send(
+      new PutObjectRetentionCommand({
+        Bucket: this.bucket,
+        Key: this.keyFor(key),
+        Retention: { Mode: mode, RetainUntilDate: until },
+      }),
+    );
+  }
+
+  /** Every version and delete marker stored under exactly `key`. */
+  private async versionsOf(key: string): Promise<{ versionId: string; marker: boolean }[]> {
+    const full = this.keyFor(key);
+    const versions: { versionId: string; marker: boolean }[] = [];
+    let keyMarker: string | undefined;
+    let versionIdMarker: string | undefined;
+    do {
+      const result = await this.client.send(
+        new ListObjectVersionsCommand({
+          Bucket: this.bucket,
+          Prefix: full,
+          KeyMarker: keyMarker,
+          VersionIdMarker: versionIdMarker,
+        }),
+      );
+      for (const version of result.Versions ?? []) {
+        if (version.Key === full && version.VersionId) {
+          versions.push({ versionId: version.VersionId, marker: false });
+        }
+      }
+      for (const marker of result.DeleteMarkers ?? []) {
+        if (marker.Key === full && marker.VersionId) {
+          versions.push({ versionId: marker.VersionId, marker: true });
+        }
+      }
+      const more = result.IsTruncated === true;
+      keyMarker = more ? result.NextKeyMarker : undefined;
+      versionIdMarker = more ? result.NextVersionIdMarker : undefined;
+    } while (keyMarker);
+    return versions;
+  }
+
+  /**
+   * Remove `key` for good on a bucket with versioning (every Object Lock
+   * bucket has it): a plain DeleteObject only stacks a delete marker on top
+   * and keeps every version, so space is never freed and the object only
+   * looks gone. Each version's retention is checked first; while one is
+   * locked nothing is deleted and {@link ObjectLockedError} says until when.
+   */
+  async deleteAllVersions(key: string, now: Date): Promise<void> {
+    const versions = await this.versionsOf(key);
+    let lockedUntil = 0;
+    for (const version of versions) {
+      if (version.marker) {
+        continue;
+      }
+      const retention = await this.retentionOf(key, version.versionId);
+      const until = retention?.retainUntil?.getTime() ?? 0;
+      if (until > now.getTime()) {
+        lockedUntil = Math.max(lockedUntil, until);
+      }
+    }
+    if (lockedUntil > 0) {
+      throw new ObjectLockedError(key, new Date(lockedUntil));
+    }
+    for (const version of versions) {
+      await this.client.send(
+        new DeleteObjectCommand({
+          Bucket: this.bucket,
+          Key: this.keyFor(key),
+          VersionId: version.versionId,
+        }),
+      );
+    }
+  }
+}
+
+function md5Base64(data: Buffer): string {
+  return createHash("md5").update(data).digest("base64");
 }

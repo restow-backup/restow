@@ -31,6 +31,7 @@ import {
 import { tenantPrefix } from "../engine/layout.js";
 import type { S3CredentialsSecret, SecretReader, StorageTargets } from "../engine/types.js";
 import type { StorageBackend } from "./backend.js";
+import { parseImmutabilitySettings, withImmutability } from "./immutability.js";
 import { LocalStorageBackend } from "./local.js";
 import { S3StorageBackend } from "./s3.js";
 
@@ -591,6 +592,11 @@ export interface StorageTargetRecord {
   readonly kind: string;
   readonly config: unknown;
   readonly secretRef: string | null;
+  /**
+   * `storage_targets.immutability` (storage/immutability.ts): when set, the
+   * opened backend locks backup objects and refuses to delete locked ones.
+   */
+  readonly immutability?: unknown;
 }
 
 /**
@@ -622,7 +628,9 @@ export async function openStorageTarget(
     }
     credentials = parseS3CredentialsSecret(raw);
   }
-  return openStorageLocation(validation.location, { ...options, credentials });
+  const opened = openStorageLocation(validation.location, { ...options, credentials });
+  const settings = parseImmutabilitySettings(record.immutability);
+  return settings ? { ...opened, backend: withImmutability(opened.backend, settings) } : opened;
 }
 
 // ---------------------------------------------------------------------------
