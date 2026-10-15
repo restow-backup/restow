@@ -10,6 +10,7 @@ import {
 } from "../../middleware/session.js";
 import { parseOrProblem } from "../../schemas.js";
 import { contentDisposition } from "../restore/headers.js";
+import { restorePointImmutability } from "../storage/immutability.js";
 import type { Viewer } from "./access.js";
 import {
   attachmentParamSchema,
@@ -102,6 +103,12 @@ snapshotsRoutes.get("/search", tenantUser, async (c) => {
 snapshotsRoutes.get("/", tenantUser, async (c) => {
   const query = parseOrProblem(listSnapshotsQuerySchema, c.req.query());
   return c.json({ items: await listSnapshots(db, c.get("tenantId"), viewerOf(c), query) });
+});
+
+/** Whether the restore point is immutable, as its storage reports it (docs/STORAGE.md). */
+snapshotsRoutes.get("/:id/immutability", tenantUser, async (c) => {
+  const { id } = parseOrProblem(uuidParamSchema, c.req.param());
+  return c.json(await restorePointImmutability(db, c.get("tenantId"), viewerOf(c), id));
 });
 
 snapshotsRoutes.get("/:id/tree", tenantUser, async (c) => {

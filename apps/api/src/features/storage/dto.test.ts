@@ -30,6 +30,8 @@ function row(overrides: Partial<StorageTarget>): StorageTarget {
     errorMessage: null,
     checkedAt: null,
     bytesUsed: 0,
+    immutability: null,
+    immutabilityState: null,
     createdAt: CREATED,
     updatedAt: CREATED,
     ...overrides,

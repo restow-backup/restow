@@ -394,6 +394,8 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/snapshots/objects/:id/versions": view(),
   "GET /api/v1/snapshots/search": operate(),
   "GET /api/v1/snapshots/:id/tree": operate(),
+  // Whether a restore point is immutable: the storage's own answer, nothing of the content.
+  "GET /api/v1/snapshots/:id/immutability": view(),
   "GET /api/v1/snapshots/:snapshotId/entries/:entryId/preview": operate(),
   "GET /api/v1/snapshots/:snapshotId/entries/:entryId/attachments/:attachmentId": operate(),
   "GET /api/v1/restore": view(),
@@ -456,6 +458,10 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "POST /api/v1/storage/targets/:id/promote": configure(),
   "POST /api/v1/storage/targets/:id/migration/cancel": configure(),
   "POST /api/v1/storage/targets/:id/migration/retry": configure(),
+  // Immutable backups: raising is configure(); lowering is checked in the handler (provider
+  // owner with a recent sign-in, docs/STORAGE.md), so the rule admits administrators.
+  "PUT /api/v1/storage/targets/:id/immutability": configure(),
+  "POST /api/v1/storage/targets/:id/immutability/verify": operate(),
   "POST /api/v1/storage/installation-default/test": configure(PROVIDER),
 
   // --- Endpoint backup (servers and clients, docs/AGENT.md) ------------------------
@@ -534,6 +540,7 @@ export const PROVIDER_ROUTE_RULES: Readonly<Record<string, ProviderRouteRule>> =
   "GET /api/v1/endpoints/:id/runs": view(),
   "GET /api/v1/endpoints/:id/runs/:runId": view(),
   "GET /api/v1/endpoints/:id/snapshots": view(),
+  "GET /api/v1/endpoints/:id/snapshots/:snapshotId/immutability": view(),
   "GET /api/v1/endpoints/:id/browse": operate(),
   "POST /api/v1/endpoints/:id/downloads": operate(),
   "GET /api/v1/endpoints/:id/downloads/:downloadId": operate(),

@@ -349,6 +349,11 @@ export const listTokensQuerySchema = z.object({
 export const endpointIdParamSchema = z.object({ id: uuid });
 export const tokenIdParamSchema = z.object({ tokenId: uuid });
 export const runParamSchema = z.object({ id: uuid, runId: uuid });
+/** A restic snapshot id is the hex SHA-256 of the snapshot file. */
+export const snapshotImmutabilityParamSchema = z.object({
+  id: uuid,
+  snapshotId: z.string().regex(/^[0-9a-f]{64}$/),
+});
 
 export const listRunsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(30),

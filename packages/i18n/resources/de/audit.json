@@ -380,6 +380,8 @@
         "cancelled": "Speichermigration abgebrochen"
       },
       "target": {
+        "immutability_changed": "Unveränderbarkeit des Repositorys geändert",
+        "immutability_verified": "Unveränderbarkeit des Repositorys beim Speicher geprüft",
         "created": "Repository hinzugefügt",
         "deleted": "Repository entfernt",
         "probed": "Repository abgefragt",

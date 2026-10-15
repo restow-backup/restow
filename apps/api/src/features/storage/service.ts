@@ -75,6 +75,7 @@ import {
   type EndpointPolicyViolation,
   type HostResolver,
 } from "./endpoint-policy.js";
+import { deferredDeletionCounts } from "./immutability.js";
 import {
   canManageKind,
   credentialsBoundElsewhere,
@@ -168,6 +169,8 @@ export interface Actor {
   email: string;
   ip: string | null;
   isProviderAdmin: boolean;
+  /** A provider admin with the owner role (immutability may be lowered only by one). */
+  isProviderOwner?: boolean;
 }
 
 /** Collaborators that tests and other deployments may replace. */
@@ -804,25 +807,32 @@ function mergeRecords(records: TargetConfigRecords): SQL {
 export async function listTargets(
   db: Database,
   tenantId: string,
-  actor: Pick<Actor, "isProviderAdmin">,
+  actor: Pick<Actor, "isProviderAdmin" | "isProviderOwner">,
   deps: StorageDeps = {},
 ): Promise<StorageTargetListDto> {
-  const { rows, hasData, migrationsByTarget } = await withTenantTx(db, tenantId, async (tx) => {
-    const migrations = await loadMigrations(tx, tenantId);
-    const [eta, jobStatuses] = await Promise.all([
-      migrationEtaSeconds(tx, tenantId, migrations),
-      migrationJobStatuses(tx, tenantId, migrations),
-    ]);
-    return {
-      rows: await loadTargets(tx, tenantId),
-      hasData: await tenantHasData(tx, tenantId),
-      migrationsByTarget: migrationsByTargetId(migrations, eta, jobStatuses),
-    };
-  });
+  const { rows, hasData, migrationsByTarget, deferred } = await withTenantTx(
+    db,
+    tenantId,
+    async (tx) => {
+      const migrations = await loadMigrations(tx, tenantId);
+      const [eta, jobStatuses] = await Promise.all([
+        migrationEtaSeconds(tx, tenantId, migrations),
+        migrationJobStatuses(tx, tenantId, migrations),
+      ]);
+      return {
+        rows: await loadTargets(tx, tenantId),
+        hasData: await tenantHasData(tx, tenantId),
+        migrationsByTarget: migrationsByTargetId(migrations, eta, jobStatuses),
+        deferred: await deferredDeletionCounts(tx, tenantId),
+      };
+    },
+  );
   const defaults = await readInstallationDefault(deps);
   const inUse = !rows.some((row) => row.role === "primary");
   return {
-    items: rows.map((row) => toTargetDto(row, actor, migrationsByTarget.get(row.id) ?? null)),
+    items: rows.map((row) =>
+      toTargetDto(row, actor, migrationsByTarget.get(row.id) ?? null, deferred.get(row.id) ?? 0),
+    ),
     installationDefault: toInstallationDefaultDto(defaults, inUse, actor),
     tenantHasData: hasData,
     canManageLocal: actor.isProviderAdmin,
@@ -833,18 +843,22 @@ export async function getTarget(
   db: Database,
   tenantId: string,
   id: string,
-  actor: Pick<Actor, "isProviderAdmin">,
+  actor: Pick<Actor, "isProviderAdmin" | "isProviderOwner">,
 ): Promise<StorageTargetDto> {
-  const { row, migration } = await withTenantTx(db, tenantId, async (tx) => {
+  const { row, migration, deferred } = await withTenantTx(db, tenantId, async (tx) => {
     const row = await loadTarget(tx, tenantId, id);
     const migrations = await loadMigrations(tx, tenantId);
     const [eta, jobStatuses] = await Promise.all([
       migrationEtaSeconds(tx, tenantId, migrations),
       migrationJobStatuses(tx, tenantId, migrations),
     ]);
-    return { row, migration: migrationsByTargetId(migrations, eta, jobStatuses).get(id) ?? null };
+    return {
+      row,
+      migration: migrationsByTargetId(migrations, eta, jobStatuses).get(id) ?? null,
+      deferred: (await deferredDeletionCounts(tx, tenantId)).get(id) ?? 0,
+    };
   });
-  return toTargetDto(row, actor, migration);
+  return toTargetDto(row, actor, migration, deferred);
 }
 
 // --- Changes --------------------------------------------------------------------

@@ -4,10 +4,12 @@ import { db } from "../../db.js";
 import { clientIp } from "../../lib/request.js";
 import { requireTenant, type TenantEnv } from "../../middleware/session.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
+import { setImmutability, verifyImmutabilityNow } from "./immutability.js";
 import {
   createStorageTargetSchema,
   migrationIdParamSchema,
   probeStorageSchema,
+  setImmutabilitySchema,
   targetIdParamSchema,
   updateStorageTargetSchema,
 } from "./schemas.js";
@@ -48,6 +50,10 @@ import {
  *   POST   /targets/:id/promote              make this copy the primary
  *   POST   /targets/:id/migration/cancel     cancel the storage migration replacing the primary with :id
  *   POST   /targets/:id/migration/retry      re-queue a failed "move" replacing the primary with :id
+ *   PUT    /targets/:id/immutability         immutable backups: Object Lock (S3) or the deletion
+ *                                            delay (directory); lowering it is for the provider
+ *                                            owner with a recent sign-in (docs/STORAGE.md)
+ *   POST   /targets/:id/immutability/verify  ask the storage for the retention of a sample
  *
  * Creating a target with role "primary" and a `migrationMode` while the
  * tenant already has one starts a storage migration instead of an instant
@@ -63,11 +69,13 @@ export interface StorageRoutesDeps {
 
 function actorOf(c: Context<TenantEnv>): Actor {
   const user = c.get("user");
+  const isProviderAdmin = c.get("role") === "provider_admin";
   return {
     id: user.id,
     email: user.email,
     ip: clientIp(c),
-    isProviderAdmin: c.get("role") === "provider_admin",
+    isProviderAdmin,
+    isProviderOwner: isProviderAdmin && c.get("providerAccess")?.role === "owner",
   };
 }
 
@@ -141,6 +149,34 @@ export function buildStorageRoutes(deps: StorageRoutesDeps): Hono<TenantEnv> {
   routes.post("/targets/:id/migration/retry", deps.requireAdmin, async (c) => {
     const id = parseOrProblem(migrationIdParamSchema, c.req.param()).id;
     return c.json(await retryMigration(deps.db, c.get("tenantId"), id, actorOf(c)));
+  });
+
+  routes.put("/targets/:id/immutability", deps.requireAdmin, async (c) => {
+    const input = await parseJsonBody(c.req, setImmutabilitySchema);
+    const actor = actorOf(c);
+    return c.json(
+      await setImmutability(
+        deps.db,
+        c.get("tenantId"),
+        targetId(c),
+        { mode: input.mode, days: input.days ?? 0 },
+        {
+          ...actor,
+          isProviderOwner: actor.isProviderOwner === true,
+          session: c.get("auth").session,
+        },
+      ),
+    );
+  });
+
+  routes.post("/targets/:id/immutability/verify", deps.requireAdmin, async (c) => {
+    const actor = actorOf(c);
+    return c.json(
+      await verifyImmutabilityNow(deps.db, c.get("tenantId"), targetId(c), {
+        ...actor,
+        isProviderOwner: actor.isProviderOwner === true,
+      }),
+    );
   });
 
   return routes;
