@@ -713,7 +713,8 @@
     "showOverview": "Show overview",
     "requested": {
       "title": "Restore requested",
-      "description": "The request is waiting for the machine. When the agent picks it up, the run appears under Runs on the overview, with the folder it restored into."
+      "description": "The request is waiting for the machine. When the agent picks it up, the run appears under Runs on the overview, with the folder it restored into.",
+      "descriptionRestorer": "The request is waiting for the machine. When the agent picks it up, it restores the files into a new folder on the machine; nothing there is overwritten."
     },
     "toast": {
       "requested": "Restore requested"
@@ -1065,6 +1066,7 @@
     "empty": {
       "title": "Nothing backed up yet",
       "description": "Add a server or client in the inventory. Once it is backed up, restore its files here.",
+      "descriptionRestorer": "Once a server, client or Proxmox VE guest of this tenant is backed up, you can restore its files here.",
       "action": "Open inventory"
     },
     "sources": "Machines",
@@ -1095,6 +1097,7 @@
     "emptyTitle": "No restore point yet",
     "emptyDescription": "Once the container is backed up, its files can be browsed and downloaded here.",
     "downloadOnly": "Files of a container are downloaded as a ZIP. To put the whole container back, restore it under VMs & containers.",
+    "downloadOnlyRestorer": "Files of a container are downloaded as a ZIP. Putting the whole container back is up to an administrator.",
     "openGuest": "Open the container"
   },
   "vmFiles": {
@@ -1103,6 +1106,7 @@
     "notFoundDescription": "The VM does not exist (any more) in this tenant.",
     "emptyDescription": "Once the VM is backed up, the files on its disks can be browsed and downloaded here.",
     "downloadOnly": "The files of a VM are read from the disks of the restore point on the server, in an isolated reader: nothing is mounted, the VM and its node are not touched. Readable: ext2/3/4, XFS, NTFS and FAT, also on LVM. Files are downloaded as a ZIP; to put the whole VM back, restore it under VMs & containers.",
+    "downloadOnlyRestorer": "The files of a VM are read from the disks of the restore point on the server, in an isolated reader: nothing is mounted, the VM and its node are not touched. Readable: ext2/3/4, XFS, NTFS and FAT, also on LVM. Files are downloaded as a ZIP; putting the whole VM back is up to an administrator.",
     "openGuest": "Open the VM",
     "unreadable": "Not readable on this restore point:",
     "unreadableItem": "{name}: {reason}",

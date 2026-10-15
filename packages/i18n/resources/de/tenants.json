@@ -182,7 +182,7 @@
     "roleHints": {
       "none": "Wählen Sie, was die Person in diesem Mandanten sehen und tun darf.",
       "tenant_admin": "Verwaltet Quellen, Schutz, Mitglieder und Wiederherstellungen für alle im Mandanten.",
-      "tenant_restore": "Durchsucht, stellt wieder her und exportiert alle Konten des Mandanten, ändert aber keine Quellen, Jobs oder Mitglieder.",
+      "tenant_restore": "Durchsucht, stellt wieder her und exportiert alle Konten des Mandanten und die Dateien seiner Server, Clients und Proxmox-VE-Gäste, ändert aber keine Quellen, Jobs, Einstellungen oder Mitglieder und löscht nichts.",
       "tenant_user": "Stellt nur das eigene Postfach und OneDrive wieder her."
     },
     "invitations": {

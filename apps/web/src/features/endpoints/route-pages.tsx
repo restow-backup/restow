@@ -8,17 +8,18 @@ import { EndpointsPage } from "./endpoints-page.js";
 import { FileRestorePage } from "./file-restore-page.js";
 import {
   areaOfKind,
+  ENDPOINT_ROLES,
   type EndpointProfile,
   type EndpointTab,
   endpointDetailTo,
+  FILE_RESTORE_ROLES,
   INVENTORY_PATH,
   parseFileRestoreSearch,
   parseInventorySearch,
   parseTab,
 } from "./paths.js";
 
-/** Servers and clients are administered by tenant admins and provider admins. */
-export const ENDPOINT_ROLES = ["provider_admin", "tenant_admin"] as const;
+export { ENDPOINT_ROLES };
 
 /** The inventory behind the role gate; the filter chip comes from `?kind=`. */
 export function InventoryRoute() {
@@ -80,7 +81,7 @@ export function FileRestoreRoute() {
     return <Navigate to={explorer.to} search={explorer.search as never} replace />;
   }
   return (
-    <RequireRole roles={ENDPOINT_ROLES}>
+    <RequireRole roles={FILE_RESTORE_ROLES}>
       <FileRestorePage machineId={machine ?? null} containerId={container ?? null} />
     </RequireRole>
   );

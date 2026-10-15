@@ -11,6 +11,7 @@ import {
 import { RestorePointContents } from "@/features/restore/files/restore-point-contents";
 import { RestorePointImmutabilityBadge } from "@/features/storage/components/restore-point-immutability";
 import { SnapshotVerificationBadge } from "@/features/verify/components/snapshot-verification-badge";
+import { useHasRole } from "@/lib/session";
 
 import { type EndpointDetail, type EndpointSnapshot, endpointDownloadUrl, LIMITS } from "../api.js";
 import { startBrowserDownload } from "../browser-download.js";
@@ -21,6 +22,7 @@ import {
   useSnapshots,
   useTenantScope,
 } from "../hooks.js";
+import { ENDPOINT_ROLES } from "../paths.js";
 import { endpointErrorKey, endpointName, isRetryableProblem } from "../presenters.js";
 import { RestoreDialog } from "./restore-dialog.js";
 
@@ -99,12 +101,17 @@ export function SnapshotDetails({
 
 /**
  * Why a folder may be missing from a machine's restore point (#59): only the folders of its
- * backup job are backed up. With a job, the way to its folders; without one, that it is in none.
+ * backup job are backed up. With a job, the way to its folders (for who may change it); without
+ * one, that it is in none.
  */
 export function JobFoldersHint({ job }: { job: EndpointDetail["job"] }) {
   const { t } = useEndpointFormat();
+  const mayEditJob = useHasRole(ENDPOINT_ROLES);
   if (!job) {
     return <>{t("browser.contents.noJobHint")}</>;
+  }
+  if (!mayEditJob) {
+    return <>{t("browser.contents.jobHint")}</>;
   }
   return (
     <>
@@ -132,7 +139,8 @@ export function SnapshotsTab({
   onShowOverview,
 }: {
   detail: EndpointDetail;
-  onShowOverview: () => void;
+  /** Absent for a restore operator, who may not open the machine's page. */
+  onShowOverview?: () => void;
 }) {
   const { t } = useEndpointFormat();
   const { tenantId } = useTenantScope();

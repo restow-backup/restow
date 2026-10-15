@@ -772,8 +772,8 @@ hat, sendet kein `job.failed`.
   200 Pfade; ein unbekannter Pfad ist ein 404 `endpoint-path-not-found`, bevor irgendetwas
   vorbereitet wird) und legt die geprüfte Auswahl als Download ab (`endpoint_downloads`). Die Antwort
   (201) ist `{ id, expiresAt, items }`. `GET /api/v1/endpoints/:id/downloads/:downloadId` startet ihn: Der
-  Download gilt zehn Minuten, genau **einmal** und nur für den Admin, der ihn vorbereitet hat (ein
-  zweiter Abruf, ein anderer Admin, ein anderer Mandant oder Ablauf ergeben 404
+  Download gilt zehn Minuten, genau **einmal** und nur für die Person, die ihn vorbereitet hat (ein
+  zweiter Abruf, eine andere Person, ein anderer Mandant oder Ablauf ergeben 404
   `endpoint-download-gone`); ein HEAD-Aufruf verbraucht ihn nicht (405). Erst dann ruft der Server
   `restic dump` auf und packt gestreamt zu einem ZIP; der Audit-Eintrag steht **vor dem ersten Byte**.
   Ordner werden als tar gelesen und Eintrag für Eintrag umgepackt, sodass das ZIP den gewählten
@@ -1087,7 +1087,13 @@ Mandantentabellen (`packages/db/sql/rls.sql`).
   Pfade, Restore überallhin), `ProtectKernelModules` (versteckt `/usr/lib/modules`),
   `PrivateDevices`, `ProtectClock` (Gerätezugriff für Hooks und Restore von Gerätedateien).
   `agent/scripts/test-systemd.sh` beweist Backup und Restore unter genau diesen Einstellungen.
-- **Wer darf was.** Alle Endpunkt-Routen verlangen `tenant_admin` (oder Provider). Provider-Rollen:
+- **Wer darf was.** Die Endpunkt-Routen verlangen `tenant_admin` (oder Provider). Die
+  Dateiwiederherstellung steht auch Restore-Operatoren (`tenant_restore`) offen: Liste der Rechner,
+  ein Rechner (ohne Hook-Texte), seine Snapshots und deren Unveränderlichkeit, Browsen, ZIP-Download
+  (vorbereiten und starten) und Restore auf den Endpunkt (`POST /:id/tasks` nur mit
+  `kind: restore`; "Jetzt sichern" ergibt 403). Alles andere (Konfiguration, Token, Widerruf,
+  Deinstallation, Restore-Test, Läufe, Agent-Updates, Repository-Passwort) bleibt bei
+  `tenant_admin`. Browsen, Download und Restore werden wie bei Admins auditiert. Provider-Rollen:
   Lesen der Liste und der Läufe ab "Nur lesen", Restore/Browsen/Download ab "Techniker",
   Token, Konfiguration, Widerruf, Passwort ab "Administrator".
 - **Secrets.** Agent-Secret und Token nur als SHA-256, Repository-Passwort mit dem

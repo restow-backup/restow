@@ -71,8 +71,11 @@ export interface RestoreDialogProps {
   snapshot: EndpointSnapshot;
   /** The paths to restore, with folders already including what is inside them. */
   paths: readonly string[];
-  /** Show the overview, where the pending request and the run appear. */
-  onShowOverview: () => void;
+  /**
+   * Show the overview, where the pending request and the run appear. Absent for a restore
+   * operator, who may not open the machine's page.
+   */
+  onShowOverview?: (() => void) | undefined;
   /** The request was made; the selection can be cleared. */
   onRequested: () => void;
 }
@@ -150,22 +153,30 @@ export function RestoreDialog({
               <CircleCheck />
               <AlertTitle>{t("restore.requested.title")}</AlertTitle>
               <AlertDescription>
-                <p>{t("restore.requested.description")}</p>
+                <p>
+                  {t(
+                    onShowOverview
+                      ? "restore.requested.description"
+                      : "restore.requested.descriptionRestorer",
+                  )}
+                </p>
               </AlertDescription>
             </Alert>
             <DialogFooter>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
                 {t("restore.close")}
               </Button>
-              <Button
-                type="button"
-                onClick={() => {
-                  onOpenChange(false);
-                  onShowOverview();
-                }}
-              >
-                {t("restore.showOverview")}
-              </Button>
+              {onShowOverview ? (
+                <Button
+                  type="button"
+                  onClick={() => {
+                    onOpenChange(false);
+                    onShowOverview();
+                  }}
+                >
+                  {t("restore.showOverview")}
+                </Button>
+              ) : null}
             </DialogFooter>
           </div>
         ) : (

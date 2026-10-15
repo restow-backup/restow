@@ -21,14 +21,16 @@ import type { PveGuest, PveOverview } from "@/features/pve/api";
 import { ContainerRestorePoints, containerName } from "@/features/pve/container-files";
 import { usePveOverview } from "@/features/pve/use-overview";
 import { ApiError } from "@/lib/api";
-import { useSession } from "@/lib/session";
+import { useHasRole, useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
 import type { EndpointSummary } from "./api.js";
 import { SnapshotsTab } from "./components/snapshots-tab.js";
 import { type EndpointFormat, useEndpoint, useEndpointFormat, useEndpoints } from "./hooks.js";
 import {
+  ENDPOINT_ROLES,
   endpointDetailTo,
+  FILE_RESTORE_ROLES,
   type FileRestoreTarget,
   fileRestoreContainerTo,
   fileRestoreTo,
@@ -65,7 +67,9 @@ export function FileRestorePage({
   const { activeTenant } = useSession();
   const navigate = useNavigate();
   const machines = useEndpoints(undefined);
-  const pve = usePveOverview();
+  const pve = usePveOverview(FILE_RESTORE_ROLES);
+  // A restore operator restores; the inventory and a machine's page are the administrators'.
+  const administers = useHasRole(ENDPOINT_ROLES);
   const guests = restorableGuests(pve.query.data);
   const hasContainers = guests.containers.length > 0 || guests.vms.length > 0;
   const chosenGuest = [...guests.containers, ...guests.vms].find((g) => g.id === containerId);
@@ -120,11 +124,18 @@ export function FileRestorePage({
         <EmptyState
           icon={Boxes}
           title={t("fileRestore.empty.title")}
-          description={t("fileRestore.empty.description")}
+          description={t(
+            administers ? "fileRestore.empty.description" : "fileRestore.empty.descriptionRestorer",
+          )}
           actions={
-            <Link to={inventoryTo()} className={buttonVariants({ variant: "outline", size: "sm" })}>
-              {t("fileRestore.empty.action")}
-            </Link>
+            administers ? (
+              <Link
+                to={inventoryTo()}
+                className={buttonVariants({ variant: "outline", size: "sm" })}
+              >
+                {t("fileRestore.empty.action")}
+              </Link>
+            ) : undefined
           }
         />
       </div>
@@ -151,7 +162,11 @@ export function FileRestorePage({
             kind={chosenGuest?.kind ?? "ct"}
           />
         ) : selectedMachine ? (
-          <MachineRestorePoints key={selectedMachine} machineId={selectedMachine} />
+          <MachineRestorePoints
+            key={selectedMachine}
+            machineId={selectedMachine}
+            administers={administers}
+          />
         ) : (
           <EmptyState
             variant="plain"
@@ -503,8 +518,17 @@ function MachineRow({
   );
 }
 
-/** The restore points, file browser and restore of one machine. */
-function MachineRestorePoints({ machineId }: { machineId: string }) {
+/**
+ * The restore points, file browser and restore of one machine. Only an administrator is sent on
+ * to the machine's page after a restore request.
+ */
+function MachineRestorePoints({
+  machineId,
+  administers,
+}: {
+  machineId: string;
+  administers: boolean;
+}) {
   const { t } = useTranslation("endpoints");
   const navigate = useNavigate();
   const query = useEndpoint(machineId);
@@ -527,7 +551,9 @@ function MachineRestorePoints({ machineId }: { machineId: string }) {
   return (
     <SnapshotsTab
       detail={query.data}
-      onShowOverview={() => void navigate({ to: endpointDetailTo(machineId) })}
+      onShowOverview={
+        administers ? () => void navigate({ to: endpointDetailTo(machineId) }) : undefined
+      }
     />
   );
 }

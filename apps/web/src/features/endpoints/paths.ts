@@ -18,6 +18,15 @@ import type { LinkProps } from "@tanstack/react-router";
 export const INVENTORY_PATH = "/inventory";
 export const FILE_RESTORE_PATH = "/file-restore";
 
+/** Servers and clients are administered by tenant admins and provider admins. */
+export const ENDPOINT_ROLES = ["provider_admin", "tenant_admin"] as const;
+
+/**
+ * File restore is also for restore operators: they browse, download and restore the files of
+ * machines and Proxmox VE guests, and change nothing else (apps/api middleware/rbac.ts).
+ */
+export const FILE_RESTORE_ROLES = ["provider_admin", "tenant_admin", "tenant_restore"] as const;
+
 export const ENDPOINT_AREAS = ["agents", "servers", "clients"] as const;
 export type EndpointArea = (typeof ENDPOINT_AREAS)[number];
 

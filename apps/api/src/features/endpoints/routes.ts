@@ -8,6 +8,7 @@ import { providerRoleSatisfies } from "../../lib/provider-access.js";
 import { assertRecentSignIn } from "../../lib/recent-sign-in.js";
 import { clientIp } from "../../lib/request.js";
 import { withTenantTx } from "../../lib/tenant-context.js";
+import { isTenantAdmin } from "../../middleware/rbac.js";
 import {
   assertProviderRoute,
   authenticate,
@@ -67,6 +68,12 @@ import {
  * tenant admins (docs/AGENT.md). Everything an admin changes and every read
  * of backed-up files is audited.
  *
+ * Restore operators (`tenant_restore`, middleware/rbac.ts) use the file
+ * restore: they list the machines, open one (without its hook texts), its
+ * restore points, browse them, download files and restore files onto the
+ * machine (POST /:id/tasks with `kind: "restore"`). Everything else, backing
+ * up now included, stays with the admins.
+ *
  *   GET    /?profile=                           servers and clients with status and readiness
  *   GET    /tokens?state=valid|all              enrollment tokens: the valid ones (default), or every state
  *   POST   /tokens                              create a one-time token; shown once, with the commands
@@ -100,19 +107,21 @@ import {
 export const endpointsRoutes = new Hono<TenantEnv>();
 
 const admin = requireTenant("tenant_admin");
+/** The file restore: restore operators and the administrators above them. */
+const restorer = requireTenant("tenant_restore");
 
 /**
  * Starting a prepared download is a plain browser navigation, which cannot
  * carry the `X-Restow-Tenant` header; the tenant id may therefore also arrive
  * as the `tenant` query parameter (like the restore download). Otherwise
- * identical to requireTenant("tenant_admin"). The prepared download itself is
- * bound to the admin who created it, so the address alone opens nothing.
+ * identical to requireTenant("tenant_restore"). The prepared download itself is
+ * bound to the person who created it, so the address alone opens nothing.
  */
-const adminForDownload: MiddlewareHandler<TenantEnv> = async (c, next) => {
+const restorerForDownload: MiddlewareHandler<TenantEnv> = async (c, next) => {
   const state = await authenticate(c.req.raw.headers);
   assertProviderRoute(c, state);
   const selector = c.req.header(TENANT_HEADER) ?? c.req.query("tenant");
-  const { tenant, role } = await resolveTenantAccess(state, selector, "tenant_admin");
+  const { tenant, role } = await resolveTenantAccess(state, selector, "tenant_restore");
   c.set("auth", state.auth);
   c.set("user", state.user);
   c.set("isProviderAdmin", state.isProviderAdmin);
@@ -127,13 +136,15 @@ const adminForDownload: MiddlewareHandler<TenantEnv> = async (c, next) => {
 /**
  * Whether the viewer may change an endpoint's configuration, and so read its
  * hook texts: a tenant admin, or a provider member from "Administrator" on.
+ * A restore operator may not.
  */
 export function mayConfigure(c: Context<TenantEnv>): boolean {
   const access = c.get("providerAccess");
   if (c.get("isProviderAdmin") && access) {
     return providerRoleSatisfies(access.role, "administrator");
   }
-  return true;
+  const role = c.get("role");
+  return role !== undefined && isTenantAdmin(role);
 }
 
 function actorOf(c: Context<TenantEnv>): EndpointActor {
@@ -141,7 +152,7 @@ function actorOf(c: Context<TenantEnv>): EndpointActor {
   return { label: user.email, userId: user.id, ip: clientIp(c) };
 }
 
-endpointsRoutes.get("/", admin, async (c) => {
+endpointsRoutes.get("/", restorer, async (c) => {
   const query = parseOrProblem(listEndpointsQuerySchema, c.req.query());
   return c.json(await listEndpoints(db, c.get("tenantId"), query));
 });
@@ -188,7 +199,7 @@ endpointsRoutes.delete("/tokens/:tokenId", admin, async (c) => {
   return c.body(null, 204);
 });
 
-endpointsRoutes.get("/:id", admin, async (c) => {
+endpointsRoutes.get("/:id", restorer, async (c) => {
   const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
   const instance = await instanceUrl(c);
   return c.json(
@@ -217,9 +228,16 @@ endpointsRoutes.post("/:id/uninstall", admin, async (c) => {
   return c.json(await requestUninstall(db, c.get("tenantId"), id, actorOf(c)), 202);
 });
 
-endpointsRoutes.post("/:id/tasks", admin, async (c) => {
+endpointsRoutes.post("/:id/tasks", restorer, async (c) => {
   const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
   const input = await parseJsonBody(c.req, createTaskSchema);
+  // A restore operator restores files; backing up now is the admins'.
+  if (input.kind !== "restore" && !isTenantAdmin(c.get("role"))) {
+    throw new ProblemError(403, "Insufficient role", {
+      detail: "Backing up now requires the tenant_admin role.",
+      extensions: { requiredRole: "tenant_admin", role: c.get("role") },
+    });
+  }
   const result = await createTask(db, c.get("tenantId"), id, input, actorOf(c));
   return c.json(result, result.alreadyQueued ? 200 : 202);
 });
@@ -249,13 +267,13 @@ endpointsRoutes.get("/:id/runs/:runId", admin, async (c) => {
   return c.json(await getRun(db, c.get("tenantId"), id, runId));
 });
 
-endpointsRoutes.get("/:id/snapshots", admin, async (c) => {
+endpointsRoutes.get("/:id/snapshots", restorer, async (c) => {
   const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
   return c.json(await listSnapshots(db, c.get("tenantId"), id));
 });
 
 /** Whether a restore point is immutable, as the storage reports it for its snapshot file. */
-endpointsRoutes.get("/:id/snapshots/:snapshotId/immutability", admin, async (c) => {
+endpointsRoutes.get("/:id/snapshots/:snapshotId/immutability", restorer, async (c) => {
   const { id, snapshotId } = parseOrProblem(snapshotImmutabilityParamSchema, c.req.param());
   const tenantId = c.get("tenantId");
   const [row] = await withTenantTx(db, tenantId, (tx) =>
@@ -271,7 +289,7 @@ endpointsRoutes.get("/:id/snapshots/:snapshotId/immutability", admin, async (c) 
   return c.json(await resticRestorePointImmutability(db, tenantId, endpointPrefix(id), snapshotId));
 });
 
-endpointsRoutes.get("/:id/browse", admin, async (c) => {
+endpointsRoutes.get("/:id/browse", restorer, async (c) => {
   const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
   const query = parseOrProblem(browseQuerySchema, c.req.query());
   return c.json(
@@ -305,7 +323,7 @@ async function readDownloadBody(c: Context<TenantEnv>): Promise<unknown> {
   }
 }
 
-endpointsRoutes.post("/:id/downloads", admin, async (c) => {
+endpointsRoutes.post("/:id/downloads", restorer, async (c) => {
   const { id } = parseOrProblem(endpointIdParamSchema, c.req.param());
   const input = parseOrProblem(createDownloadSchema, await readDownloadBody(c));
   const prepared = await prepareDownload(
@@ -320,7 +338,7 @@ endpointsRoutes.post("/:id/downloads", admin, async (c) => {
   return c.json(prepared, 201);
 });
 
-endpointsRoutes.get("/:id/downloads/:downloadId", adminForDownload, async (c) => {
+endpointsRoutes.get("/:id/downloads/:downloadId", restorerForDownload, async (c) => {
   // Hono answers a HEAD request with the GET handler; a probe must not use up the download.
   if (c.req.method === "HEAD") {
     return c.body(null, 405, { allow: "GET" });

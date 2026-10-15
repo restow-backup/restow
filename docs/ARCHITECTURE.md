@@ -72,7 +72,9 @@ Worker skalierbar. Postgres 16 ist die einzige Zustandsquelle außer dem Chunk-S
   `manual`; Schutzstatus (aktiv, ausgeschlossen, verwaist)
 - Rollen: `provider_admin`, `tenant_admin` (inkl. entra_global_admin via SSO),
   `tenant_restore` (Restore-Operator: durchsucht, stellt wieder her und exportiert alle
-  Konten des Mandanten, ändert aber keine Quellen, Jobs oder Mitglieder; better-auth-Rolle
+  Konten des Mandanten und die Dateien der Sicherungsstände von Servern, Clients und
+  Proxmox-VE-Gästen (Dateiwiederherstellung), ändert aber keine Quellen, Jobs, Einstellungen
+  oder Mitglieder, löscht nichts und sieht kein Repository-Passwort; better-auth-Rolle
   `restore`), `tenant_user` (nur das eigene Postfach/OneDrive). Beim Anlegen oder Einladen
   einer Person ist die Rolle immer eine bewusste Wahl, nie vorbelegt.
 - Row Level Security: jede Tabelle mit `tenant_id` hat eine Policy; API setzt
