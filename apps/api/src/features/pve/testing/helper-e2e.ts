@@ -24,6 +24,7 @@ import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { serve } from "@hono/node-server";
+import { sql } from "drizzle-orm";
 import { Hono } from "hono";
 import { startFixture } from "../../endpoints/testing/fixture.js";
 
@@ -263,10 +264,10 @@ async function main(): Promise<void> {
     const ref2 = await reference("ref2.raw");
     const second = await backup(1_790_086_400, "reuse");
     check(second.bitmapMode === "reuse", "second backup is incremental (bitmap reuse)");
-    const runs = await fixture.db.execute<{ stats: Record<string, number> }>(
-      // biome-ignore lint/suspicious/noExplicitAny: test script
-      (await import("drizzle-orm")).sql`SELECT stats FROM pve_runs ORDER BY started_at` as any,
-    );
+    const runs = await fixture.db.execute<{
+      stats: Record<string, number>;
+      progress: { bytesDone: number; bytesTotal: number | null } | null;
+    }>(sql`SELECT stats, progress FROM pve_runs ORDER BY started_at`);
     const stats2 = runs.rows[1]?.stats ?? {};
     check(
       stats2.readBytes === 8 * 1024 * 1024,
@@ -275,6 +276,11 @@ async function main(): Promise<void> {
     check(
       stats2.uploadedBytes === 4 * 1024 * 1024,
       "second backup uploaded one changed block, the zeroed one as a marker",
+    );
+    const progress2 = runs.rows[1]?.progress;
+    check(
+      progress2?.bytesDone === 8 * 1024 * 1024 && progress2.bytesTotal === 8 * 1024 * 1024,
+      `second backup reported its progress: the dirty blocks of the dirty blocks (${JSON.stringify(progress2)})`,
     );
 
     // ---- restore both through the NBD restore server and qemu-img convert ----
@@ -339,6 +345,20 @@ async function main(): Promise<void> {
       info: { directory: ctDir, sources: ["."], backupUserId: process.getuid?.() ?? 0 },
     });
     await provider(root, "backup-cleanup", { vmid: 200, vmtype: "lxc", success: true, info: {} });
+    // vzdump's log of the guest never holds the provider's lines; restow-pve merges its own in.
+    const vzlog = join(work, "lxc-200.log");
+    await writeFile(vzlog, "2026-09-23 00:00:00 INFO: Starting Backup of VM 200 (lxc)\n");
+    await provider(root, "backup-handle-log-file", { vmid: 200, logFile: vzlog });
+    const ctRuns = await fixture.db.execute<{ log_tail: string | null }>(
+      sql`SELECT log_tail FROM pve_runs WHERE archive_name = ${ctInit.archiveName}`,
+    );
+    const ctLog = ctRuns.rows[0]?.log_tail ?? "";
+    check(
+      ctLog.includes("Starting Backup of VM 200") &&
+        ctLog.includes("INFO: restic snapshot") &&
+        ctLog.includes("committed"),
+      "the container run's log holds restow-pve's lines, also those of backup_container",
+    );
     const ctVol = `backup/${ctInit.archiveName}`;
     const ctMech = await provider(root, "restore-get-mechanism", { volname: ctVol });
     check(
