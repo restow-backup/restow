@@ -288,6 +288,13 @@
       "when": 1792064917857,
       "tag": "0040_recommended_jobs",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1792069671494,
+      "tag": "0041_pve_downloads",
+      "breakpoints": true
     }
   ]
 }

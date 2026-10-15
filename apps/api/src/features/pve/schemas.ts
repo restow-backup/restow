@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_BROWSE_LIMIT, MAX_DOWNLOAD_PATHS, snapshotPath } from "../endpoints/schemas.js";
 
 const uuid = z.string().uuid();
 const name = z.string().trim().min(1).max(200);
@@ -257,3 +258,25 @@ export const restoreSchema = z.object({
   targetVmid: vmid.optional(),
   start: z.boolean().default(false),
 });
+
+// ---------------------------------------------------------------------------
+// File restore of containers (#62)
+// ---------------------------------------------------------------------------
+
+/** One page of a folder of a container restore point (`GET /snapshots/:id/files`). */
+export const filesQuerySchema = z.object({
+  path: snapshotPath.default("/"),
+  limit: z.coerce.number().int().min(1).max(MAX_BROWSE_LIMIT).default(1000),
+  /** The `nextCursor` of the previous page; absent for the first page. */
+  cursor: z.string().min(1).max(2048).optional(),
+});
+
+/** The files and folders of a ZIP download; the restore point is in the path. */
+export const createFilesDownloadSchema = z.object({
+  paths: z.array(snapshotPath).min(1).max(MAX_DOWNLOAD_PATHS),
+});
+
+export const filesDownloadParamSchema = z.object({ id: uuid, downloadId: uuid });
+
+export type FilesQuery = z.infer<typeof filesQuerySchema>;
+export type CreateFilesDownloadInput = z.infer<typeof createFilesDownloadSchema>;

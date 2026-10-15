@@ -80,7 +80,7 @@ export function forgetTenantStorage(tenantId?: string): void {
  * primary; after a storage migration keeps the old target attached read-only,
  * a repository that was not moved is still read from there.
  */
-async function backendHolding(
+export async function backendHolding(
   targets: { storage: StorageBackend; copies: readonly StorageBackend[] },
   prefix: string,
 ): Promise<StorageBackend> {

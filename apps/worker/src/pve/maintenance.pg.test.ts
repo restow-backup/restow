@@ -6,7 +6,7 @@
  * and notices a block that does not match its map, stale runs fail and give
  * their staged references back.
  */
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -23,16 +23,20 @@ import {
   PVE_BLOCK_SIZE,
   type StorageTargets,
   sealManifest,
+  sealSecret,
   type TenantKeyring,
   writeToAllTargets,
 } from "@restow/core";
 import {
+  acquireEndpointRepositoryLock,
   chunks,
   createDb,
   type Database,
   deriveAuthLogin,
   pveClusters,
+  pveDownloads,
   pveEnrollmentTokens,
+  pveGuestRepositoryLockKey,
   pveGuests,
   pveJobs,
   pveNodes,
@@ -60,6 +64,7 @@ import {
   dropPveTokenSecrets,
   type PveDeps,
   planJobs,
+  purgeDownloads,
   verifyDue,
 } from "./maintenance.js";
 
@@ -419,4 +424,92 @@ describe.skipIf(!adminUrl)("Proxmox VE maintenance against Postgres", () => {
     expect(refs.filter((r) => r.ref !== null).map((r) => r.ref)).toEqual([valid]);
     expect(await dropPveTokenSecrets(deps, clock)).toBe(0);
   });
+
+  it("checks a container repository only while the file restore does not read it (#62)", async () => {
+    const keys = await deps.runtime.keyrings.get(tenantId);
+    const secretId = randomUUID();
+    await owner.insert(secrets).values({
+      id: secretId,
+      tenantId,
+      kind: "pve_ct_repository",
+      ciphertext: sealSecret(keys.current, secretId, "repository-password"),
+    });
+    const [ct] = await owner
+      .insert(pveGuests)
+      .values({
+        tenantId,
+        clusterId,
+        vmid: 300,
+        kind: "ct",
+        node: "pve1",
+        repositorySecretId: secretId,
+      })
+      .returning();
+    const [point] = await owner
+      .insert(pveSnapshots)
+      .values({
+        tenantId,
+        clusterId,
+        guestId: ct?.id ?? "",
+        sequence: 1,
+        kind: "ct",
+        archiveName: "ct/300/2026-10-10T10:00:00Z",
+        storageId: "restow",
+        manifestPath: "unused",
+        resticSnapshotId: "d".repeat(64),
+        backupAt: clock,
+      })
+      .returning();
+    await owner
+      .update(pveGuests)
+      .set({ lastSnapshotId: point?.id ?? null })
+      .where(eq(pveGuests.id, ct?.id ?? ""));
+    const guestRow = async () =>
+      (
+        await owner
+          .select()
+          .from(pveGuests)
+          .where(eq(pveGuests.id, ct?.id ?? ""))
+      )[0];
+
+    // A download of its files holds the repository: the check waits, then leaves it for later.
+    const reading = await acquireEndpointRepositoryLock(
+      owner.$client,
+      pveGuestRepositoryLockKey(ct?.id ?? ""),
+      { mode: "shared" },
+    );
+    const waiting = { ...deps, repositoryLockWaitMs: 300 };
+    try {
+      await verifyDue(waiting, clock);
+      expect((await guestRow())?.lastVerifyAt).toBeNull();
+    } finally {
+      await reading();
+    }
+    // Free again: the check runs (and reports that the scratch repository does not exist).
+    await verifyDue(waiting, clock);
+    expect((await guestRow())?.lastVerifyAt).toEqual(clock);
+    const [checked] = await owner
+      .select()
+      .from(pveSnapshots)
+      .where(eq(pveSnapshots.id, point?.id ?? ""));
+    expect(checked?.verify?.errors.length).toBeGreaterThan(0);
+
+    // Prepared ZIP downloads go an hour after they expired.
+    await owner.insert(pveDownloads).values([
+      {
+        tenantId,
+        snapshotId: point?.id ?? "",
+        selection: [{ path: "/etc", type: "dir" }],
+        expiresAt: new Date(clock.getTime() - 2 * 60 * 60 * 1000),
+      },
+      {
+        tenantId,
+        snapshotId: point?.id ?? "",
+        selection: [{ path: "/etc", type: "dir" }],
+        expiresAt: new Date(clock.getTime() - 60 * 1000),
+      },
+    ]);
+    expect(await purgeDownloads(deps, clock)).toBe(1);
+    expect(await owner.select().from(pveDownloads)).toHaveLength(1);
+  }, 60_000);
 });

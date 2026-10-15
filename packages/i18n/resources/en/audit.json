@@ -557,7 +557,9 @@
       },
       "snapshot": {
         "committed": "Restore point of the guest stored",
-        "pruned": "Restore point of the guest removed (retention)"
+        "pruned": "Restore point of the guest removed (retention)",
+        "browsed": "Files of a container restore point browsed",
+        "downloaded": "Files of a container restore point downloaded"
       }
     },
     "file_share": {

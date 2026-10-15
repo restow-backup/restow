@@ -252,6 +252,42 @@ guest out of the pool once you accept it. Restores started from the PVE UI
 (storage `restow` > Backups > Restore) work through the same plugin, with the
 admin's own PVE permissions.
 
+### Files of a container
+
+**Servers & clients › File restore** lists every container with a restore
+point in its own group, *Proxmox VE containers*, next to the machines: whether
+a job backed it up or someone did by hand, from Restow or from PVE. Choose a
+container, then a restore point on the timeline, and browse its folders; tick
+files and folders and download them as one ZIP. The guest's page links there
+from every container restore point (*Browse files*).
+
+- **Paths are the container's own.** The node backs a container up with
+  sources relative to the folder vzdump mounts it in, so `/opt/paperless/...`
+  in the browser is `/opt/paperless/...` in the container, never the
+  temporary folder of the backup. The top of the browser says what the
+  restore point contains: the whole container (`/`) and every volume mount
+  point vzdump includes (`backup=1`; bind and device mounts are not in a
+  vzdump backup).
+- **On the server.** The API reads the container's restic repository
+  (`pve-guests/<guest id>/`) itself, with the guest's repository password from
+  the secret store; the password never reaches the browser. The ZIP is
+  streamed from `restic dump` without being held in memory or on disk.
+- **Who and what is recorded.** Tenant admins, and provider members from
+  technician on, as for a machine's files. Every folder page read and every
+  download started is in the audit log (`pve.snapshot.browsed`,
+  `pve.snapshot.downloaded`). A prepared download can be started once, within
+  ten minutes, by the admin who prepared it.
+- **Beside the server's own work.** A read never runs beside retention (restic
+  forget and prune) or the weekly check of the same repository; it waits two
+  seconds and then answers "busy, try again". A running backup does not block
+  it.
+- **Files are downloaded, not put back.** Restoring single files into the
+  running container is not part of this release; restore the whole container
+  as a new guest for that, or copy the files from the ZIP.
+
+VMs are not browsable file by file (their restore points are disk images); the
+file restore page says so and leads to VMs & containers.
+
 **Without Restow:** `restow-restore` (packages/cli) writes a VM restore point's
 disks as sparse raw images (`disks/<device>.raw`) from the storage target and
 the master key alone. Container restore points are plain restic repositories.
@@ -303,6 +339,7 @@ reads), `/run/restow-pve` (per-job state), `journalctl -u restow-pve`.
 Not possible: backing up VM templates (PVE disables fleecing for them), live
 restore (PVE refuses it for providers), restoring privileged containers (PVE
 refuses it; restore by hand as unprivileged), single-file restore from VM
-images, S3 Object Lock for VM data, more than one tenant per cluster, PVE on
-arm64. Jobs for VMs and containers are kept apart from the mail and machine
+images, restoring single files back into a running container (they are
+browsed and downloaded as a ZIP, see "Files of a container"), S3 Object Lock
+for VM data, more than one tenant per cluster, PVE on arm64. Jobs for VMs and containers are kept apart from the mail and machine
 jobs (`pve_jobs`) in this release.

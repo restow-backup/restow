@@ -13,7 +13,8 @@ import type { BrowseEntry } from "@/features/endpoints/api";
  * one folder of one, the ZIP download, the restore dialog, and the texts that name the kind of
  * source. Machines (features/endpoints) and file shares (features/file-shares) each build one;
  * `RestorePointBrowser` is the same for both. The `use*` members are hooks: an adapter is built
- * once per component and its hooks are called on every render, in the same order.
+ * once per component and its hooks are called on every render, in the same order. Proxmox VE
+ * containers (features/pve/container-files.tsx) build one too, without a restore.
  */
 
 /** A restore point as the timeline and the browser need it. */
@@ -52,8 +53,8 @@ export interface FileSourceAdapter<P extends RestorePointView> {
     unknown,
     { snapshotId: string; paths: readonly string[] }
   >;
-  /** The address of a prepared download, which the browser is sent to. */
-  downloadUrl: (downloadId: string) => string;
+  /** The address of a prepared download of `point`, which the browser is sent to. */
+  downloadUrl: (downloadId: string, point: P) => string;
   startDownload: (url: string) => void;
   limits: { downloadPaths: number; restorePaths: number };
   /** Whether the selection can be restored (a revoked machine cannot take a restore). */
@@ -70,7 +71,11 @@ export interface FileSourceAdapter<P extends RestorePointView> {
   renderDetails: (point: P) => React.ReactNode;
   /** Shown in the browser's header of the chosen restore point (a permissions note, search). */
   renderBrowserExtra?: (point: P, openPath: (path: string) => void) => React.ReactNode;
-  renderRestoreDialog: (props: RestoreDialogSlotProps<P>) => React.ReactNode;
+  /**
+   * The restore dialog of the selection; absent for a source whose files are only downloaded (a
+   * Proxmox VE container, #62): the browser then offers the ZIP alone.
+   */
+  renderRestoreDialog?: (props: RestoreDialogSlotProps<P>) => React.ReactNode;
   /** The translation key of an error (`endpoints:` keys by default). */
   errorKey: (error: unknown) => string;
   isRetryable: (error: unknown) => boolean;

@@ -664,7 +664,15 @@
     "loadMore": "Load more",
     "loadingMore": "Loading more entries",
     "loadMoreError": "More entries could not be loaded.",
-    "loadMoreRetry": "Try again"
+    "loadMoreRetry": "Try again",
+    "contents": {
+      "label": "This restore point contains:",
+      "open": "Open {path}",
+      "jobHint": "Missing a folder? Only the folders of the machine's backup job are backed up.",
+      "editJob": "Edit the job",
+      "noJobHint": "Missing a folder? Only the folders of a backup job are backed up, and this machine is in none at the moment.",
+      "wholeContainer": "/ (the whole container)"
+    }
   },
   "restore": {
     "title": "Restore to the machine",
@@ -961,7 +969,9 @@
     "noJob": "This machine is in no backup job, so it is not backed up. Add it to a job first.",
     "recentSignIn": "Confirm it is you first: setting or changing a hook and showing the repository password need a sign-in from the last 10 minutes.",
     "invalidBandwidthWindows": "The time windows cannot be saved like this. Check the days, the times and that no two windows overlap.",
-    "assigneeUnknown": "The person is not in the directory of this tenant (any more). Choose a person from the list."
+    "assigneeUnknown": "The person is not in the directory of this tenant (any more). Choose a person from the list.",
+    "containerNotBrowsable": "Only container restore points can be browsed file by file. A VM is restored as a whole under VMs & containers.",
+    "containerNoRepository": "The backups of this container are not available on the server."
   },
   "readinessSection": {
     "overdue": "Overdue",
@@ -1030,7 +1040,7 @@
   },
   "fileRestore": {
     "title": "File restore",
-    "subtitle": "Restore or download files from a restore point of a server or client. Mailboxes, OneDrives and IMAP accounts are restored in the restore explorer.",
+    "subtitle": "Restore or download files from a restore point of a server, client or Proxmox VE container. Mailboxes, OneDrives and IMAP accounts are restored in the restore explorer.",
     "machines": "Machines",
     "search": "Search machines",
     "noMatch": "No machine matches the search.",
@@ -1048,9 +1058,31 @@
     },
     "sources": "Machines",
     "noMachines": "No machine yet.",
-    "revokedMachines": "Revoked machines"
+    "revokedMachines": "Revoked machines",
+    "sourcesWithContainers": "Machines and containers",
+    "searchWithContainers": "Search machines and containers",
+    "noMatchWithContainers": "No machine or container matches the search.",
+    "containers": "Proxmox VE containers",
+    "containerLine": "CT {vmid} on {node}",
+    "containerLineNoNode": "CT {vmid}",
+    "vmNote": "{count, plural, one {# VM is restored as a whole, not file by file.} other {# VMs are restored as a whole, not file by file.}}",
+    "vmNoteAction": "Open VMs & containers",
+    "pickWithContainers": {
+      "title": "Choose a machine or container",
+      "description": "Choose a machine or container on the left. Then choose a restore point on the timeline and restore or download files."
+    }
   },
   "proxmox": {
     "label": "Proxmox VE"
+  },
+  "containerFiles": {
+    "loadError": "The container could not be loaded",
+    "notFound": "Container not found",
+    "notFoundDescription": "The container does not exist (any more) in this tenant.",
+    "timelineLabel": "Restore points of {name}",
+    "emptyTitle": "No restore point yet",
+    "emptyDescription": "Once the container is backed up, its files can be browsed and downloaded here.",
+    "downloadOnly": "Files of a container are downloaded as a ZIP. To put the whole container back, restore it under VMs & containers.",
+    "openGuest": "Open the container"
   }
 }

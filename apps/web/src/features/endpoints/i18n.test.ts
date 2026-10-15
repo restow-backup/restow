@@ -52,6 +52,8 @@ const VALUES = {
   person: "Alice Example",
   url: "https://restow.example",
   time: "30 Sep 2026",
+  vmid: 300,
+  node: "pve1",
   hostname: "web-01",
   id: "abcd1234",
   path: "/etc",

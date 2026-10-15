@@ -1,10 +1,14 @@
+import { Link } from "@tanstack/react-router";
+
 import { StatusBadge } from "@/components/kit";
 import { MissingDataFoldersNotice } from "@/features/backup-jobs/components/missing-data-folders";
+import { jobDefinitionTo, linkProps } from "@/features/backup-jobs/paths";
 import type { FileSourceAdapter } from "@/features/restore/files/adapter";
 import {
   RestorePointBrowser,
   SNAPSHOTS_GRID,
 } from "@/features/restore/files/restore-point-browser";
+import { RestorePointContents } from "@/features/restore/files/restore-point-contents";
 import { SnapshotVerificationBadge } from "@/features/verify/components/snapshot-verification-badge";
 
 import { type EndpointDetail, type EndpointSnapshot, endpointDownloadUrl, LIMITS } from "../api.js";
@@ -84,6 +88,28 @@ export function SnapshotDetails({ snapshot }: { snapshot: EndpointSnapshot }) {
 
 const renderSnapshot = (snapshot: EndpointSnapshot) => <SnapshotDetails snapshot={snapshot} />;
 
+/**
+ * Why a folder may be missing from a machine's restore point (#59): only the folders of its
+ * backup job are backed up. With a job, the way to its folders; without one, that it is in none.
+ */
+export function JobFoldersHint({ job }: { job: EndpointDetail["job"] }) {
+  const { t } = useEndpointFormat();
+  if (!job) {
+    return <>{t("browser.contents.noJobHint")}</>;
+  }
+  return (
+    <>
+      {t("browser.contents.jobHint")}{" "}
+      <Link
+        {...linkProps(jobDefinitionTo(job.id, "endpoint", "scope"))}
+        className="font-medium text-foreground underline underline-offset-2"
+      >
+        {t("browser.contents.editJob")}
+      </Link>
+    </>
+  );
+}
+
 export { SNAPSHOTS_GRID };
 
 /**
@@ -121,10 +147,20 @@ export function SnapshotsTab({
     emptyTitle: t("snapshots.empty.title"),
     emptyDescription: t("snapshots.empty.description"),
     renderDetails: renderSnapshot,
-    renderBrowserExtra: (snapshot) =>
-      detail.os === "linux" ? (
-        <MissingDataFoldersNotice paths={snapshot.paths} context="restorePoint" />
-      ) : null,
+    // What the restore point holds, and why a folder may be missing (#59). A Windows path
+    // (C:\Users) is not a folder of restic's tree, so only Linux and macOS paths open.
+    renderBrowserExtra: (snapshot, openPath) => (
+      <>
+        <RestorePointContents
+          paths={snapshot.paths}
+          onOpen={detail.os === "windows" ? undefined : openPath}
+          hint={<JobFoldersHint job={detail.job ?? null} />}
+        />
+        {detail.os === "linux" ? (
+          <MissingDataFoldersNotice paths={snapshot.paths} context="restorePoint" />
+        ) : null}
+      </>
+    ),
     renderRestoreDialog: (props) => (
       <RestoreDialog
         open={props.open}

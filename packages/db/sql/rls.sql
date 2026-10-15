@@ -130,6 +130,7 @@ DECLARE
     'pve_runs',
     'pve_run_blocks',
     'pve_snapshots',
+    'pve_downloads',
     'warning_acknowledgements',
     'file_shares',
     'file_share_runs',

@@ -98,6 +98,15 @@ export async function acquireEndpointRepositoryLock(
   };
 }
 
+/**
+ * The lock key of a Proxmox VE container's repository (`pve-guests/<guest id>/`)
+ * in the same lock space: the worker's retention and check take it exclusively,
+ * the API's file restore reads (browse, download) share it.
+ */
+export function pveGuestRepositoryLockKey(guestId: string): string {
+  return `pve-guest:${guestId}`;
+}
+
 /** Run `work` while holding the lock of an endpoint's repository. */
 export async function withEndpointRepositoryLock<T>(
   pool: Pool,

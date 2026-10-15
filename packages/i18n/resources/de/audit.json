@@ -557,7 +557,9 @@
       },
       "snapshot": {
         "committed": "Sicherungsstand des Gasts gespeichert",
-        "pruned": "Sicherungsstand des Gasts entfernt (Aufbewahrung)"
+        "pruned": "Sicherungsstand des Gasts entfernt (Aufbewahrung)",
+        "browsed": "Dateien eines Sicherungsstands des Containers durchsucht",
+        "downloaded": "Dateien eines Sicherungsstands des Containers heruntergeladen"
       }
     },
     "file_share": {
