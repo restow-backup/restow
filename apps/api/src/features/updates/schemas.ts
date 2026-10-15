@@ -1,3 +1,4 @@
+import { JOB_PAUSE_MODES, type JobPauseMode, type JobPausePhase } from "@restow/db";
 import { z } from "zod";
 import { MAX_PENDING_LICENSE_KEY_LENGTH } from "../../lib/pending-license-key.js";
 import {
@@ -19,6 +20,8 @@ import {
  *   POST   /api/v1/updates/maintenance           announce an update (version + lead time)
  *   DELETE /api/v1/updates/maintenance           cancel it (until it starts)
  *   POST   /api/v1/updates/maintenance/dismiss   clear a finished run from the tab
+ *   POST   /api/v1/updates/maintenance/start-now  stop waiting for running jobs, announce now
+ *   GET    /api/v1/updates/jobs                  what runs and waits right now (the install dialog)
  *   GET    /api/v1/maintenance                   the maintenance state, for every signed-in user
  *
  * The access token is write-only: it is accepted by the PATCH and never appears in
@@ -59,6 +62,13 @@ export const scheduleUpdateInputSchema = z
       .refine((value) => (LEAD_TIME_PRESETS as readonly number[]).includes(value), {
         message: "Choose one of the offered lead times.",
       }),
+    /**
+     * What happens to running jobs (#46): `wait` until they finish, `drain` (worker jobs
+     * checkpoint and stop at once, runs on agents are waited for), or `interrupt` (no
+     * wait). New starts are paused in every case from now until the update is over.
+     * Omitted: `interrupt`, as before.
+     */
+    jobs: z.enum(JOB_PAUSE_MODES).optional(),
   })
   .strict();
 export type ScheduleUpdateInput = z.infer<typeof scheduleUpdateInputSchema>;
@@ -205,7 +215,55 @@ export interface UpdaterView {
 export type MaintenanceView = MaintenanceStatus & {
   /** The version the api answering this request runs; a change means the update took effect. */
   runningVersion: string | null;
+  /** New job starts are paused for an update (#46); null when they are not. */
+  jobPause: MaintenanceJobPause | null;
 };
+
+/** The pause of new job starts as every signed-in user sees it. */
+export interface MaintenanceJobPause {
+  /** `draining`: the update waits for running jobs; `announced`: it is announced or runs. */
+  phase: JobPausePhase;
+  version: string;
+  /** The wait ends here at the latest (the update is then announced anyway). */
+  deadlineAt: string;
+}
+
+export interface ActivityCountView {
+  running: number;
+  queued: number;
+}
+
+/** What runs and waits right now, in every tenant (GET /updates/jobs). */
+export interface JobActivityView {
+  /** Jobs of Microsoft 365, IMAP, the mail archive, imports, exports and restores. */
+  mail: ActivityCountView;
+  /** Runs of the agents on servers and clients. */
+  machines: ActivityCountView;
+  /** Backups of Proxmox VE guests. */
+  pve: ActivityCountView;
+  fileShares: ActivityCountView;
+  running: number;
+  queued: number;
+  checkedAt: string;
+}
+
+/** The pause of new job starts for an update, for administrators (#46). */
+export interface JobPauseView {
+  mode: JobPauseMode;
+  phase: JobPausePhase;
+  version: string;
+  leadSeconds: number;
+  since: string;
+  /** `draining` ends here at the latest: the update is then announced anyway. */
+  deadlineAt: string;
+  announcedAt: string | null;
+  /** The pause lifts itself here in any case. */
+  expiresAt: string;
+  /** Who confirmed the update. */
+  requestedBy: string;
+  /** While the update waits: what still runs and waits. */
+  activity: JobActivityView | null;
+}
 
 /** The current or last run as an administrator sees it (`requestedBy.ip` removed). */
 export type RunView = Omit<Run, "requestedBy"> & {
@@ -256,4 +314,6 @@ export interface UpdatesView {
   run: RunView | null;
   /** The build and what a switch to the full build needs. */
   edition: EditionView;
+  /** New job starts paused for an update (#46): waiting for running jobs, or announced. */
+  jobPause: JobPauseView | null;
 }

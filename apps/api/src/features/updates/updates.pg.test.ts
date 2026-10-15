@@ -20,8 +20,11 @@ import {
   auditLog,
   createDb,
   type Database,
+  jobStartPause,
+  jobs,
   notifications,
   providers,
+  readJobStartPause,
   reportDeliveries,
   reportRules,
   requestServiceRestart,
@@ -306,6 +309,8 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
     await owner.delete(reportDeliveries);
     await owner.delete(reportRules);
     await owner.delete(notifications);
+    await owner.delete(jobStartPause);
+    await owner.delete(jobs);
     await owner.delete(secrets);
     await owner.delete(settings);
     await owner.insert(settings).values({
@@ -1169,6 +1174,7 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
         fromVersion: null,
         runningVersion: "0.1.0",
         switchTo: null,
+        jobPause: null,
       });
       await service.schedule({ version: "0.2.0", leadSeconds: 300 }, actor);
       const view = await service.maintenance();
@@ -1185,6 +1191,7 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
           "failureCode",
           "finishedAt",
           "fromVersion",
+          "jobPause",
           "message",
           "outcome",
           "phase",
@@ -1210,6 +1217,199 @@ describe.skipIf(!testDatabaseAdminUrl)("updates against Postgres", () => {
         targetVersion: "0.2.0",
         startsAt: "2026-10-01T09:01:00.000Z",
       });
+    });
+  });
+
+  describe("jobs that run when an update is confirmed (#46)", () => {
+    async function withCheck() {
+      const built = build();
+      await built.service.saveSettings({ enabled: true }, actor);
+      return built;
+    }
+
+    /** A mail job of Contoso in the given state. */
+    async function mailJob(status: "active" | "queued" | "completed") {
+      const [job] = await owner
+        .insert(jobs)
+        .values({ tenantId: contoso, queue: "backup", status })
+        .returning();
+      return job?.id ?? "";
+    }
+
+    const pauseRow = async () => (await owner.select().from(jobStartPause))[0] ?? null;
+
+    beforeEach(() => {
+      // The pause is read by the other processes against the database clock.
+      now = new Date();
+    });
+
+    it("counts what runs and waits, in every tenant", async () => {
+      const { service } = await withCheck();
+      await mailJob("active");
+      await mailJob("queued");
+      await mailJob("queued");
+      await mailJob("completed");
+      const activity = await service.activity();
+      expect(activity).toMatchObject({
+        mail: { running: 1, queued: 2 },
+        machines: { running: 0, queued: 0 },
+        pve: { running: 0, queued: 0 },
+        fileShares: { running: 0, queued: 0 },
+        running: 1,
+        queued: 2,
+      });
+    });
+
+    it("pauses new starts during the lead time even when it does not wait", async () => {
+      const { service } = await withCheck();
+      await mailJob("active");
+      const view = await service.schedule({ version: "0.2.0", leadSeconds: 300 }, actor);
+      expect(updater.scheduled).toHaveLength(1);
+      expect(view.jobPause).toMatchObject({ mode: "interrupt", phase: "announced" });
+      expect(await readJobStartPause(providerDb.$client)).toMatchObject({
+        paused: true,
+        drain: false,
+        version: "0.2.0",
+      });
+      const [entry] = await auditRows("update.scheduled");
+      expect(entry?.details).toMatchObject({ jobs: "interrupt" });
+    });
+
+    it("waits for running jobs before it hands the update over, then announces it", async () => {
+      const { service } = await withCheck();
+      const running = await mailJob("active");
+      const view = await service.schedule(
+        { version: "0.2.0", leadSeconds: 300, jobs: "wait" },
+        actor,
+      );
+      expect(updater.scheduled).toHaveLength(0);
+      expect(view.updater.state).toBe("busy");
+      expect(view.jobPause).toMatchObject({
+        mode: "wait",
+        phase: "draining",
+        version: "0.2.0",
+        requestedBy: actor.email,
+        activity: { running: 1, mail: { running: 1 } },
+      });
+      expect(view.maintenance.jobPause).toMatchObject({ phase: "draining", version: "0.2.0" });
+      expect(await readJobStartPause(providerDb.$client)).toMatchObject({
+        paused: true,
+        drain: false,
+        phase: "draining",
+      });
+      expect(await auditRows("update.jobs_paused")).toHaveLength(1);
+      // Nothing else is announced meanwhile.
+      await expect(
+        service.schedule({ version: "0.2.0", leadSeconds: 0 }, actor),
+      ).rejects.toMatchObject({ status: 409 });
+
+      await service.advancePause();
+      expect(updater.scheduled).toHaveLength(0);
+
+      await owner.update(jobs).set({ status: "completed" }).where(eq(jobs.id, running));
+      await service.advancePause();
+      expect(updater.scheduled).toHaveLength(1);
+      expect(updater.scheduled[0]).toMatchObject({
+        leadSeconds: 300,
+        release: { version: "0.2.0" },
+        requestedBy: { label: actor.email },
+      });
+      expect(await pauseRow()).toMatchObject({ phase: "announced" });
+      const [entry] = await auditRows("update.scheduled");
+      expect(entry).toMatchObject({ actor: actor.email });
+      expect(entry?.details).toMatchObject({ jobs: "wait", after: "drained" });
+      // Announced once only.
+      await service.advancePause();
+      expect(updater.scheduled).toHaveLength(1);
+    });
+
+    it("stops waiting at the longest wait, and on the administrator's word", async () => {
+      const { service } = await withCheck();
+      await mailJob("active");
+      await service.schedule({ version: "0.2.0", leadSeconds: 60, jobs: "drain" }, actor);
+      expect(await readJobStartPause(providerDb.$client)).toMatchObject({ drain: true });
+      const pause = await pauseRow();
+      expect(pause?.deadlineAt.getTime()).toBe(now.getTime() + 30 * 60 * 1000);
+      now = new Date(now.getTime() + 30 * 60 * 1000);
+      await service.advancePause();
+      expect(updater.scheduled).toHaveLength(1);
+      const [entry] = await auditRows("update.scheduled");
+      expect(entry?.details).toMatchObject({ jobs: "drain", after: "deadline" });
+
+      // A fresh wait, ended by "Start now".
+      await owner.delete(jobStartPause);
+      updater.view = idleState();
+      await service.schedule({ version: "0.2.0", leadSeconds: 0, jobs: "wait" }, actor);
+      const view = await service.startNow(actor);
+      expect(updater.scheduled).toHaveLength(2);
+      expect(view.jobPause).toMatchObject({ phase: "announced" });
+      await expect(service.startNow(actor)).rejects.toMatchObject({
+        status: 409,
+        type: "urn:restow:problem:update-not-waiting",
+      });
+    });
+
+    it("cancels a waiting update without the updater, and lifts the pause", async () => {
+      const { service } = await withCheck();
+      await mailJob("active");
+      await service.schedule({ version: "0.2.0", leadSeconds: 300, jobs: "wait" }, actor);
+      const view = await service.cancel(actor);
+      expect(updater.cancelled).toBe(0);
+      expect(view.jobPause).toBeNull();
+      expect(view.updater.state).toBe("ready");
+      expect(await pauseRow()).toBeNull();
+      const [entry] = await auditRows("update.cancelled");
+      expect(entry?.details).toMatchObject({ version: "0.2.0", whileWaitingForJobs: true });
+    });
+
+    it("lifts the pause once the updater is done, or when it expires", async () => {
+      const { service } = await withCheck();
+      await service.schedule({ version: "0.2.0", leadSeconds: 0, jobs: "wait" }, actor);
+      expect(await pauseRow()).toMatchObject({ phase: "announced" });
+      // Right after the hand-over an idle updater does not count yet.
+      updater.view = idleState();
+      await service.advancePause();
+      expect(await pauseRow()).not.toBeNull();
+      now = new Date(now.getTime() + 60_000);
+      await service.advancePause();
+      expect(await pauseRow()).toBeNull();
+      const [lifted] = await auditRows("update.jobs_resumed");
+      expect(lifted?.details).toMatchObject({ reason: "update_over" });
+
+      updater.view = idleState();
+      await service.schedule({ version: "0.2.0", leadSeconds: 0, jobs: "wait" }, actor);
+      // An updater that never answers again: the pause still ends.
+      updater.view = null;
+      now = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+      await service.advancePause();
+      expect(await pauseRow()).toBeNull();
+      const resumed = await auditRows("update.jobs_resumed");
+      expect(resumed.at(-1)?.details).toMatchObject({ reason: "expired" });
+    });
+
+    it("resumes job starts and tells the administrators when the updater refuses at the end", async () => {
+      const { service } = await withCheck();
+      const running = await mailJob("active");
+      await service.schedule({ version: "0.2.0", leadSeconds: 0, jobs: "wait" }, actor);
+      updater.view = idleState({ capabilities: capabilities({ ready: false }) });
+      await owner.update(jobs).set({ status: "completed" }).where(eq(jobs.id, running));
+      await service.advancePause();
+      expect(updater.scheduled).toHaveLength(0);
+      expect(await pauseRow()).toBeNull();
+      const bell = await owner
+        .select()
+        .from(notifications)
+        .where(eq(notifications.event, "update.failed"));
+      expect(bell).toEqual([
+        expect.objectContaining({
+          tenantId: null,
+          level: "error",
+          event: "update.failed",
+          details: expect.objectContaining({ version: "0.2.0", outcome: "not_announced" }),
+        }),
+      ]);
+      const [entry] = await auditRows("update.jobs_resumed");
+      expect(entry?.details).toMatchObject({ reason: "not_announced" });
     });
   });
 

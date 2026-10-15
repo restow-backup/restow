@@ -470,7 +470,9 @@
       },
       "restart": {
         "requested": "Neustart eines Dienstes angefordert"
-      }
+      },
+      "jobs_paused": "Neue Läufe für ein Update angehalten",
+      "jobs_resumed": "Neue Läufe nach einem Update fortgesetzt"
     },
     "endpoint": {
       "token": {

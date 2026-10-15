@@ -470,7 +470,9 @@
       },
       "restart": {
         "requested": "Service restart requested"
-      }
+      },
+      "jobs_paused": "New runs paused for an update",
+      "jobs_resumed": "New runs resumed after an update"
     },
     "endpoint": {
       "token": {
