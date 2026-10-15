@@ -78,6 +78,25 @@ export const ransomwareSettingsSchema = z
       })
       .strict()
       .optional(),
+    compressibility: z
+      .object({
+        enabled: z.boolean().optional(),
+        minBytes: inRange("compressibility.minBytes", true),
+        madFactor: inRange("compressibility.madFactor"),
+        compressionMinRatio: inRange("compressibility.compressionMinRatio"),
+        compressionMinRise: inRange("compressibility.compressionMinRise"),
+        dedupMinRatio: inRange("compressibility.dedupMinRatio"),
+        dedupMinRise: inRange("compressibility.dedupMinRise"),
+      })
+      .strict()
+      .optional(),
+    retentionHold: z
+      .object({
+        enabled: z.boolean().optional(),
+        reminderDays: inRange("retentionHold.reminderDays", true),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type RansomwareSettingsInput = z.infer<typeof ransomwareSettingsSchema>;

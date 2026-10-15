@@ -55,7 +55,15 @@ describe("the installation's thresholds", () => {
       baselineRuns: DEFAULT_RANSOMWARE_SETTINGS.baselineRuns,
       minBaselineRuns: DEFAULT_RANSOMWARE_SETTINGS.minBaselineRuns,
     };
-    for (const group of ["changeRate", "deletions", "renames", "names", "entropy"] as const) {
+    for (const group of [
+      "changeRate",
+      "deletions",
+      "renames",
+      "names",
+      "entropy",
+      "compressibility",
+      "retentionHold",
+    ] as const) {
       for (const [key, value] of Object.entries(DEFAULT_RANSOMWARE_SETTINGS[group])) {
         if (typeof value === "number") flat[`${group}.${key}`] = value;
       }

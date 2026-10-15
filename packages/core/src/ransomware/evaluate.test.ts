@@ -7,6 +7,7 @@ import {
   evaluateSuspicion,
   opensSuspicionEpisode,
   type RunMetrics,
+  ratioThreshold,
 } from "./evaluate.js";
 import { DEFAULT_RANSOMWARE_SETTINGS, resolveRansomwareSettings } from "./settings.js";
 import { RANSOMWARE_SIGNATURES_VERSION } from "./signatures.js";
@@ -74,6 +75,7 @@ describe("judging a restore point", () => {
         renames: "unavailable",
         names: "unavailable",
         entropy: "unavailable",
+        compressibility: "unavailable",
       },
       signaturesVersion: RANSOMWARE_SIGNATURES_VERSION,
     });
@@ -257,5 +259,106 @@ describe("episodes", () => {
       true,
     );
     expect(opensSuspicionEpisode("none", null)).toBe(false);
+  });
+
+  it("end with the release of the retention hold", () => {
+    expect(
+      opensSuspicionEpisode("suspicious", {
+        verdict: "suspicious",
+        falseAlarm: false,
+        released: true,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("compression and deduplication", () => {
+  const GiB = 1024 ** 3;
+  /** A VM whose changed blocks compress to about 45 % and deduplicate to about 40 % new. */
+  const vm: RunMetrics[] = Array.from({ length: 14 }, (_, i) => ({
+    itemsChanged: null,
+    itemsTotal: null,
+    bytesAdded: (3 + (i % 3)) * GiB,
+    activity: null,
+    newBytes: (1 + (i % 2)) * GiB,
+    compressionRatio: 0.42 + (i % 4) * 0.02,
+    dedupRatio: 0.35 + (i % 3) * 0.05,
+  }));
+  /** A VM with an encrypted disk (BitLocker): its new data never compresses or deduplicates. */
+  const encryptedDisk: RunMetrics[] = vm.map((m, i) => ({
+    ...m,
+    compressionRatio: 0.995 + (i % 2) * 0.004,
+    dedupRatio: 0.97 + (i % 3) * 0.01,
+  }));
+  /** A day whose change in bytes stays ordinary, but whose new data looks random. */
+  const encryptedDay: RunMetrics = {
+    itemsChanged: null,
+    itemsTotal: null,
+    bytesAdded: 5 * GiB,
+    activity: null,
+    newBytes: 4 * GiB,
+    compressionRatio: 0.998,
+    dedupRatio: 0.99,
+  };
+
+  it("needs a ratio above the bound, the rise and the median's spread", () => {
+    expect(
+      ratioThreshold({ median: 0.45, mad: 0.02, runs: 14 }, { madFactor: 6 }, 0.95, 0.15),
+    ).toBe(0.95);
+    // Always incompressible: the bound lies above what any ratio can reach.
+    expect(
+      ratioThreshold({ median: 0.996, mad: 0.003, runs: 14 }, { madFactor: 6 }, 0.95, 0.15),
+    ).toBeGreaterThan(1.1);
+  });
+
+  it("flags new data that suddenly stops compressing and deduplicating", () => {
+    const result = evaluateSuspicion({ current: encryptedDay, history: vm, settings });
+    expect(result.verdict).toBe("suspicious");
+    expect(result.signals.compressibility).toBe("fired");
+    expect(result.signals.changeRate).toBe("clear");
+    expect(result.findings.map((f) => f.code)).toEqual(["incompressible_data", "dedup_collapse"]);
+    expect(result.findings[0]).toMatchObject({
+      value: 0.998,
+      threshold: 0.95,
+      bytes: 4 * GiB,
+    });
+    expect(result.findings[0]?.baseline).toBeCloseTo(0.45, 1);
+  });
+
+  it("never alerts an object whose new data is always incompressible", () => {
+    const result = evaluateSuspicion({ current: encryptedDay, history: encryptedDisk, settings });
+    expect(result.verdict).toBe("none");
+    expect(result.signals.compressibility).toBe("clear");
+  });
+
+  it("ignores small runs, says learning and unavailable, and can be switched off", () => {
+    const small = { ...encryptedDay, newBytes: 10 * 1024 ** 2, bytesAdded: 10 * 1024 ** 2 };
+    const quiet = evaluateSuspicion({ current: small, history: vm, settings });
+    expect(quiet.signals.compressibility).toBe("clear");
+    expect(
+      evaluateSuspicion({ current: encryptedDay, history: vm.slice(0, 3), settings }).signals
+        .compressibility,
+    ).toBe("learning");
+    expect(
+      evaluateSuspicion({
+        current: { ...encryptedDay, compressionRatio: null, dedupRatio: undefined },
+        history: vm,
+        settings,
+      }).signals.compressibility,
+    ).toBe("unavailable");
+    const off = resolveRansomwareSettings({ compressibility: { enabled: false } });
+    expect(
+      evaluateSuspicion({ current: encryptedDay, history: vm, settings: off }).signals
+        .compressibility,
+    ).toBe("off");
+  });
+
+  it("judges a single ratio when the source reports only one", () => {
+    const result = evaluateSuspicion({
+      current: { ...encryptedDay, dedupRatio: null },
+      history: vm,
+      settings,
+    });
+    expect(result.findings.map((f) => f.code)).toEqual(["incompressible_data"]);
   });
 });

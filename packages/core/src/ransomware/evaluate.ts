@@ -9,6 +9,8 @@
  *   renames     files whose extension changed or got one appended
  *   names       files with a known ransomware extension; ransom note names
  *   entropy     sampled new or changed files that look encrypted for their type
+ *   compressibility  the new data stopped compressing (stored / raw near 1.0) or stopped
+ *               deduplicating (new / processed near 1.0), against the object's own median
  *
  * A restore point is suspicious when one signal fires. Each signal says whether it could be
  * judged at all: "learning" while the baseline is too short, "unavailable" when the runner sent
@@ -42,6 +44,23 @@ export interface RunMetrics {
   /** Bytes the run added to the repository. */
   bytesAdded: number | null;
   activity: ActivityReport | null;
+  /**
+   * The raw size of the new data the ratios below were measured on (bytes); falls back to
+   * `bytesAdded`. Absent or null: unknown.
+   */
+  newBytes?: number | null;
+  /**
+   * Stored / raw of the new data (restic: `data_added_packed / data_added`; Restow's own chunk
+   * store, which does not compress: a deflate estimate over a sample of every new chunk). Near
+   * 1.0: the new data does not compress. Absent or null: the source did not report it.
+   */
+  compressionRatio?: number | null;
+  /**
+   * New / processed: the share of what the run read that was not in the repository yet
+   * (restic: `data_added / total_bytes_processed`; the chunk store: new chunk bytes / bytes
+   * chunked). Near 1.0: nothing deduplicated.
+   */
+  dedupRatio?: number | null;
 }
 
 export const SUSPICION_SIGNALS = [
@@ -50,6 +69,7 @@ export const SUSPICION_SIGNALS = [
   "renames",
   "names",
   "entropy",
+  "compressibility",
 ] as const;
 export type SuspicionSignal = (typeof SUSPICION_SIGNALS)[number];
 export type SignalState = "clear" | "fired" | "learning" | "unavailable" | "off";
@@ -62,18 +82,22 @@ export const SUSPICION_FINDING_CODES = [
   "known_extensions",
   "ransom_notes",
   "high_entropy",
+  "incompressible_data",
+  "dedup_collapse",
 ] as const;
 export type SuspicionFindingCode = (typeof SUSPICION_FINDING_CODES)[number];
 
 /** One reason, with the numbers that made it. */
 export interface SuspicionFinding {
   code: SuspicionFindingCode;
-  /** What was measured: files, bytes or samples. */
+  /** What was measured: files, bytes, samples or a ratio (compressibility, 0 to about 1). */
   value: number;
   /** The bound it crossed. */
   threshold: number;
-  /** The baseline's median (change rate only). */
+  /** The baseline's median (change rate and compressibility). */
   baseline?: number;
+  /** The amount of new data the ratio was measured on (compressibility only). */
+  bytes?: number;
   /** The measured share (deletions, renames, entropy), 0 to 1. */
   share?: number;
   /** A few names (extensions, note names, sampled files) for the admin. */
@@ -304,6 +328,98 @@ function entropy(current: RunMetrics, settings: RansomwareSettings): Judged {
   return { state: "clear", findings: [] };
 }
 
+/** A ratio that is a finite number, else null. */
+function ratio(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
+}
+
+function newBytesOf(m: RunMetrics): number | null {
+  return ratio(m.newBytes) ?? m.bytesAdded;
+}
+
+/**
+ * The bound a compression or deduplication ratio must reach: at least `minRatio`, at least
+ * `minRise` above the object's median, and `madFactor` deviations above it (the deviation at
+ * least 0.01, so a perfectly steady object does not alert on noise). An object whose new data is
+ * always incompressible has a median near 1.0 and a bound above anything it can reach.
+ */
+export function ratioThreshold(
+  baseline: Baseline,
+  settings: { madFactor: number },
+  minRatio: number,
+  minRise: number,
+): number {
+  const spread = Math.max(baseline.mad, 0.01);
+  return round(
+    Math.max(minRatio, baseline.median + minRise, baseline.median + settings.madFactor * spread),
+  );
+}
+
+function compressibility(
+  current: RunMetrics,
+  history: readonly RunMetrics[],
+  settings: RansomwareSettings,
+): Judged {
+  const cfg = settings.compressibility;
+  if (!cfg.enabled) return { state: "off", findings: [] };
+  const findings: SuspicionFinding[] = [];
+  let judged = false;
+  let learning = false;
+  const bytes = newBytesOf(current);
+  const measures: [
+    SuspicionFindingCode,
+    number | null,
+    (m: RunMetrics) => number | null,
+    number,
+    number,
+  ][] = [
+    [
+      "incompressible_data",
+      ratio(current.compressionRatio),
+      (m) => ratio(m.compressionRatio),
+      cfg.compressionMinRatio,
+      cfg.compressionMinRise,
+    ],
+    [
+      "dedup_collapse",
+      ratio(current.dedupRatio),
+      (m) => ratio(m.dedupRatio),
+      cfg.dedupMinRatio,
+      cfg.dedupMinRise,
+    ],
+  ];
+  for (const [code, value, pick, minRatio, minRise] of measures) {
+    if (value === null) continue;
+    // Runs that added nothing have no ratio worth the name; they stay out of the baseline.
+    const past = history
+      .slice(0, settings.baselineRuns)
+      .filter((m) => (newBytesOf(m) ?? 0) > 0)
+      .map(pick)
+      .filter((v): v is number => v !== null);
+    if (past.length < settings.minBaselineRuns) {
+      learning = true;
+      continue;
+    }
+    const baseline = baselineOf(past);
+    if (!baseline) continue;
+    judged = true;
+    if (bytes === null || bytes < cfg.minBytes) continue;
+    const threshold = ratioThreshold(baseline, cfg, minRatio, minRise);
+    if (value >= threshold) {
+      findings.push({
+        code,
+        value: round(value),
+        threshold,
+        baseline: round(baseline.median),
+        bytes,
+      });
+    }
+  }
+  if (findings.length > 0) return { state: "fired", findings };
+  if (judged) return { state: "clear", findings };
+  return { state: learning ? "learning" : "unavailable", findings };
+}
+
 /**
  * Judge one restore point. `history` holds the metrics of the object's earlier restore points
  * that count for the baseline (clean ones and false alarms), newest first.
@@ -320,6 +436,7 @@ export function evaluateSuspicion(input: {
     renames: renames(current, settings),
     names: names(current, settings),
     entropy: entropy(current, settings),
+    compressibility: compressibility(current, history, settings),
   };
   const findings = SUSPICION_SIGNALS.flatMap((signal) => judged[signal].findings);
   return {
@@ -336,13 +453,16 @@ export function evaluateSuspicion(input: {
 export interface PreviousJudgement {
   verdict: SuspicionVerdict;
   falseAlarm: boolean;
+  /** An administrator released the retention hold of its episode (that ends the episode). */
+  released?: boolean;
 }
 
 /**
  * Whether a suspicious restore point opens a new episode and is alerted (docs/RANSOMWARE.md,
  * "Alerts"): yes, unless the object's previous judged restore point was suspicious as well and
- * nobody called that one a false alarm. An episode ends with a clean restore point or a false
- * alarm, so one attack that spans several backups raises one alert, not one per backup.
+ * nobody called that one a false alarm. An episode ends with a clean restore point, a false
+ * alarm or the release of its retention hold, so one attack that spans several backups raises one
+ * alert, not one per backup, and a finding after a release is announced again.
  */
 export function opensSuspicionEpisode(
   verdict: SuspicionVerdict,
@@ -351,5 +471,10 @@ export function opensSuspicionEpisode(
   if (verdict !== "suspicious") {
     return false;
   }
-  return !(previous && previous.verdict === "suspicious" && !previous.falseAlarm);
+  return !(
+    previous &&
+    previous.verdict === "suspicious" &&
+    !previous.falseAlarm &&
+    previous.released !== true
+  );
 }
