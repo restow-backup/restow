@@ -118,11 +118,12 @@ test("Samba's tools are read: the user SID and the ACL entries", () => {
     "REVISION:1",
     "CONTROL:SR|DP",
     "OWNER:S-1-5-21-1-2-3-1000",
-    "ACL:S-1-5-21-1-2-3-1000:ALLOWED/0x0/0x001f01ff",
-    `ACL:${ACL_SID}:ALLOWED/0x0/0x001200a9`,
-    "ACL:S-1-5-21-1-2-3-1000:DENIED/0x0/0x00120089",
+    "ACL:S-1-5-21-1-2-3-1000:0/0x0/0x001f01ff",
+    `ACL:${ACL_SID}:0/0x0/0x001200a9`,
+    "ACL:S-1-5-21-1-2-3-1000:1/0x0/0x00120089",
   ].join("\n");
   assert.equal(aclEntries(acl).length, 3);
+  assert.ok(hasAclEntry(`ACL:${ACL_SID}:ALLOWED/0x0/READ`, ACL_SID));
   assert.ok(hasAclEntry(acl, ACL_SID));
   assert.ok(hasAclEntry(acl, "S-1-5-21-1-2-3-1000", "DENIED"));
   assert.ok(!hasAclEntry(acl, "S-1-5-32-544"));

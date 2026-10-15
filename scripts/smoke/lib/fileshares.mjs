@@ -163,14 +163,17 @@ export function userSidOf(pdbeditOutput) {
 
 /**
  * The entries of what `smbcacls --numeric` prints for a file: `{ sid, type, flags, mask }` per
- * `ACL:` line.
+ * `ACL:` line. `--numeric` prints the type as a number (0 allowed, 1 denied); the names are
+ * read too.
  */
+const ACE_TYPES = { 0: "ALLOWED", 1: "DENIED", ALLOWED: "ALLOWED", DENIED: "DENIED" };
+
 export function aclEntries(smbcaclsOutput) {
   const entries = [];
   for (const line of smbcaclsOutput.split(/\r?\n/u)) {
-    const match = /^ACL:([^:]+):(ALLOWED|DENIED)\/([^/]+)\/(.+)$/u.exec(line.trim());
+    const match = /^ACL:([^:]+):(ALLOWED|DENIED|0|1)\/([^/]+)\/(.+)$/u.exec(line.trim());
     if (match) {
-      entries.push({ sid: match[1], type: match[2], flags: match[3], mask: match[4] });
+      entries.push({ sid: match[1], type: ACE_TYPES[match[2]], flags: match[3], mask: match[4] });
     }
   }
   return entries;
