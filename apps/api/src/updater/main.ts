@@ -328,6 +328,7 @@ async function main(): Promise<void> {
     projectDir: hostDir,
     mounterEnable: mounterEnabler,
     database: mover,
+    dumps,
   });
   const server = serve({ fetch: app.fetch, port: config.port, hostname: "0.0.0.0" }, (info) => {
     logger.info(
