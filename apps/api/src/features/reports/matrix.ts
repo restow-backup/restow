@@ -99,7 +99,11 @@ export async function getNotificationMatrix(
       .select()
       .from(tenantNotificationRecipients)
       .where(eq(tenantNotificationRecipients.tenantId, tenantId))
-      .orderBy(asc(tenantNotificationRecipients.createdAt), asc(tenantNotificationRecipients.id));
+      // Saved as one list, so they share a timestamp: the address decides then.
+      .orderBy(
+        asc(tenantNotificationRecipients.createdAt),
+        asc(tenantNotificationRecipients.email),
+      );
     return {
       events: visible.map((name) => ({
         name,

@@ -97,6 +97,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the notification matrix against Postgres
           format: "discord",
           // An existing chat webhook that subscribed to everything before the matrix.
           events: newWebhookEvents("restow", ["job.failed", "job.completed"]),
+          createdAt: new Date("2026-10-01T08:00:00.000Z"),
         },
         {
           tenantId,
@@ -104,6 +105,7 @@ describe.skipIf(!testDatabaseAdminUrl)("the notification matrix against Postgres
           url: "https://psa.example/hooks/restow",
           format: "restow",
           events: newWebhookEvents("restow"),
+          createdAt: new Date("2026-10-02T08:00:00.000Z"),
         },
       ])
       .returning();
