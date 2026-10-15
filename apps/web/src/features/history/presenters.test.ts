@@ -9,7 +9,10 @@ import {
   historySearchOf,
   isMailSubject,
   isRunCategory,
+  livenessOf,
   parseHistorySearch,
+  QUIET_AFTER_MS,
+  remainingSeconds,
   runDurationSeconds,
   savingsPercent,
   stateView,
@@ -216,5 +219,71 @@ describe("estimateParts", () => {
     expect(said(13.4 * 3600)).toEqual(["hours", { days: 0, hours: 13, minutes: 0 }]);
     expect(said(53 * 3600)).toEqual(["days", { days: 2, hours: 5, minutes: 0 }]);
     expect(said(Number.NaN)).toEqual(["underMinute", { days: 0, hours: 0, minutes: 0 }]);
+  });
+});
+
+describe("livenessOf", () => {
+  const at = Date.parse("2026-10-02T10:00:00.000Z");
+  const base = {
+    state: "running" as const,
+    updatedAt: "2026-10-02T09:59:00.000Z",
+    progress: { updatedAt: "2026-10-02T10:00:00.000Z" } as Run["progress"],
+    throttle: null,
+  };
+
+  it("counts the seconds since the run's progress last reported", () => {
+    expect(livenessOf(base, at + 3_400)).toEqual({ kind: "reporting", silentSeconds: 3 });
+    // A browser clock a little behind the server's never reads as a report from the future.
+    expect(livenessOf(base, at - 2_000)).toEqual({ kind: "reporting", silentSeconds: 0 });
+  });
+
+  it("says how long a run has been quiet once it is quiet for long", () => {
+    expect(livenessOf(base, at + QUIET_AFTER_MS)?.kind).toBe("reporting");
+    expect(livenessOf(base, at + 80_000)).toEqual({ kind: "quiet", silentSeconds: 80 });
+  });
+
+  it("says that Microsoft Graph makes the run wait, and for how much longer", () => {
+    const throttle = {
+      status: 429,
+      waitMs: 60_000,
+      retryAfterMs: 60_000,
+      until: "2026-10-02T10:01:00.000Z",
+      waits: 1,
+      totalWaitMs: 60_000,
+    };
+    expect(livenessOf({ ...base, throttle }, at + 40_000)).toEqual({
+      kind: "throttled",
+      silentSeconds: 40,
+      waitSeconds: 20,
+    });
+    // A wait that is over says nothing more about why the run is quiet.
+    expect(livenessOf({ ...base, throttle }, at + 61_000)?.kind).toBe("quiet");
+  });
+
+  it("is nothing for a run that is not running", () => {
+    expect(livenessOf({ ...base, state: "succeeded" }, at)).toBeNull();
+  });
+
+  it("falls back to the run's own time without progress", () => {
+    expect(livenessOf({ ...base, progress: null }, at)).toEqual({
+      kind: "quiet",
+      silentSeconds: 60,
+    });
+  });
+});
+
+describe("remainingSeconds", () => {
+  const run = { updatedAt: "2026-10-02T10:00:00.000Z", progress: null };
+  const at = Date.parse(run.updatedAt);
+
+  it("goes down by the time since the last report, never below zero", () => {
+    expect(remainingSeconds(120, run, at)).toBe(120);
+    expect(remainingSeconds(120, run, at + 30_000)).toBe(90);
+    expect(remainingSeconds(120, run, at + 300_000)).toBe(0);
+  });
+
+  it("is nothing without an estimate", () => {
+    expect(remainingSeconds(null, run, at)).toBeNull();
+    expect(remainingSeconds(undefined, run, at)).toBeNull();
   });
 });

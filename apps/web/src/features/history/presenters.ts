@@ -1,4 +1,5 @@
 import type { StatusTone } from "@/components/kit/status-badge";
+import { throttleRemainingMs } from "@/features/jobs/presenters";
 
 import type {
   HistoryFilters,
@@ -120,6 +121,68 @@ export function runDurationSeconds(
   }
   const ended = timeOf(run.finishedAt) ?? now;
   return Math.max(0, (ended - started) / 1000);
+}
+
+// --- Liveness ----------------------------------------------------------------------------------
+
+/**
+ * A running run that reported nothing for this long says so. The worker reports every 50 items
+ * or two seconds while items complete; a large item or a pause Microsoft asked for keeps it quiet.
+ */
+export const QUIET_AFTER_MS = 30_000;
+
+/** When the run last reported: its progress, else the run itself. */
+export function lastReportAt(run: Pick<Run, "progress" | "updatedAt">): number | null {
+  return timeOf(run.progress?.updatedAt ?? null) ?? timeOf(run.updatedAt);
+}
+
+export type Liveness =
+  | { kind: "reporting"; silentSeconds: number }
+  | { kind: "throttled"; silentSeconds: number; waitSeconds: number }
+  | { kind: "quiet"; silentSeconds: number };
+
+/**
+ * Whether a running run is still reporting, and if not, what is known about why: Microsoft Graph
+ * asked it to wait (until the moment it reported), or nothing, only how long it has been quiet.
+ * Null for a run that is not running or has no time to go by.
+ */
+export function livenessOf(
+  run: Pick<Run, "state" | "progress" | "updatedAt" | "throttle">,
+  now: number,
+): Liveness | null {
+  if (run.state !== "running") {
+    return null;
+  }
+  const at = lastReportAt(run);
+  if (at === null) {
+    return null;
+  }
+  const silentMs = Math.max(0, now - at);
+  const silentSeconds = Math.floor(silentMs / 1000);
+  const waitMs = throttleRemainingMs(run.throttle, now);
+  if (waitMs > 0) {
+    return { kind: "throttled", silentSeconds, waitSeconds: Math.ceil(waitMs / 1000) };
+  }
+  return silentMs > QUIET_AFTER_MS
+    ? { kind: "quiet", silentSeconds }
+    : { kind: "reporting", silentSeconds };
+}
+
+/**
+ * The time left, going down every second between two reports: the estimate of the last report
+ * less the time since. Never below zero; null without an estimate.
+ */
+export function remainingSeconds(
+  etaSeconds: number | null | undefined,
+  run: Pick<Run, "progress" | "updatedAt">,
+  now: number,
+): number | null {
+  if (etaSeconds === null || etaSeconds === undefined || !Number.isFinite(etaSeconds)) {
+    return null;
+  }
+  const at = lastReportAt(run);
+  const elapsed = at === null ? 0 : Math.max(0, (now - at) / 1000);
+  return Math.max(0, etaSeconds - elapsed);
 }
 
 /** The width of a progress bar: the run's percent, 100 once it completed, 0 for what has not begun. */

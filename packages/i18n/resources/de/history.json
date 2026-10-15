@@ -153,6 +153,12 @@
       "reading": "Liest {path}",
       "phase": "Schritt: {phase}"
     },
+    "liveness": {
+      "justNow": "Gerade aktualisiert",
+      "updated": "Letzte Aktualisierung vor {seconds} Sek.",
+      "quiet": "Seit {time} keine Aktualisierung",
+      "throttled": "Wartet auf Microsoft Graph, weiter in {time}"
+    },
     "wave": {
       "mailbox": "{done} von {total} Postfächern gesichert",
       "onedrive": "{done} von {total} OneDrives gesichert",
