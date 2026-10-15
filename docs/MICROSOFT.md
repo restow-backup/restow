@@ -24,7 +24,8 @@ je Kunden-Tenant. Application Permissions (keine delegierten) für Backup:
 - Calendars.ReadWrite
 - Contacts.ReadWrite
 - Files.ReadWrite.All (OneDrive; Restore)
-- Sites.ReadWrite.All (erst mit SharePoint)
+- Sites.ReadWrite.All (SharePoint Online, optional; Sites.Read.All genügt für die Sicherung,
+  die Wiederherstellung in eine Website braucht ReadWrite; siehe „SharePoint Online" unten)
 - User.Read.All, Group.Read.All, Directory.Read.All (Verzeichnis-Sync, Schutzregeln)
 - Organization.Read.All (Tenant-Name, Lizenzen)
 - Mail.Send (optional, nur wenn Benachrichtigungen über diese App statt über eine eigene
@@ -119,6 +120,109 @@ Schutzumfang" anzeigen, nicht als Fehler).
 - Papierkorb: Elemente im OneDrive-Papierkorb sind über delta nicht erreichbar; ist ok,
   Restow hat sie im letzten Snapshot.
 
+## SharePoint Online: Sichern und Wiederherstellen
+
+Eine SharePoint-Website ist ein eigenes geschütztes Objekt (`protected_objects.kind = 'site'`,
+Migration `0047_sharepoint_sites`), keinem Nutzer zugeordnet. Code: Graph-Ressourcen in
+`packages/core/src/graph/resources/sites.ts`, Erkennung in `packages/core/src/directory/sites.ts`,
+Sicherung in `packages/core/src/backup/sharepoint`, Wiederherstellung in
+`packages/core/src/restore/sharepoint.ts`.
+
+**Berechtigungen.** Erkennen und Sichern brauchen `Sites.Read.All`, die Wiederherstellung in eine
+Website `Sites.ReadWrite.All` (Anwendungsberechtigungen). Der Katalog
+(`packages/core/src/entra/permissions.ts`) führt `Sites.ReadWrite.All` als **optional**: Ein
+Tenant, der vor SharePoint zugestimmt hat, bleibt „vollständig", Mail und OneDrive laufen weiter.
+Fehlt die Berechtigung, antwortet Graph beim Auflisten mit 403; die Verzeichnissynchronisierung
+meldet dann die Warnung `sites_unavailable` (in der Oberfläche: „SharePoint-Websites werden weder
+gefunden noch gesichert …") und lässt bekannte Websites unverändert. Die Berechtigungsprüfung der
+Quelle zeigt den Fall eigens an, ebenso nur `Sites.Read.All` („gesichert, aber nicht
+wiederhergestellt"). **Bestehende Tenants müssen neu zustimmen**: Betreiber trägt
+`Sites.ReadWrite.All` in der App-Registrierung ein, Kunden-Admin öffnet den Consent-Link der Quelle
+erneut (docs/ENTRA-SETUP.md, Teil 2 und 4). Danach findet die nächste Synchronisierung die
+Websites.
+
+**Erkennung.** Jede Verzeichnissynchronisierung listet `/sites/getAllSites` (`$select`, 500 je
+Seite). Gruppenverbundene Websites von Microsoft-365-Gruppen und Teams sind darin normale Websites.
+Persönliche Websites (OneDrives, `isPersonalSite` bzw. `-my.sharepoint.com/personal/`) werden
+übergangen, sie sind über ihren Besitzer als OneDrive geschützt. Die Regeln kennen einen eigenen
+Modus für Websites (`config.protection.sites`): `all` (Vorgabe, alle Websites) oder `selected`
+(nur eingeschlossene). Gruppe, Ausschlussliste und Schalter für geteilte Postfächer gelten nicht
+für Websites, Einzelentscheidungen (einschließen/ausschließen) schon. Eine Website, die nicht mehr
+aufgelistet wird, wird verwaist; ihre Sicherungsstände bleiben. Neu geschützte Websites bekommen
+sofort ihre erste Sicherung. Websites stecken in Mail-Jobs wie Postfächer und OneDrives; ein Job
+mit Umfang „alle" umfasst damit auch alle Websites (über den Website-Modus „ausgewählte" lässt sich
+das vorab begrenzen).
+
+**Sicherung, ein Sicherungsstand je Website:**
+
+| Pfad im Sicherungsstand | Inhalt |
+| --- | --- |
+| `site.json` | Titel, URL, Beschreibung, Websitesammlung, `sharepointIds`; je Bibliothek Name, Drive-ID und die Freigaben ihres Stammordners (`/drives/{id}/root/permissions`); je Liste Name, Vorlage, Elementzahl |
+| `Libraries/<Bibliothek>/…` | jede Dokumentbibliothek (`/sites/{id}/drives`, auch „Websiteseiten" mit den Seiten und „Websiteobjekte") über den Drive-Lauf der OneDrive-Engine: Delta mit Token je Bibliothek, Elemente nach ID, gestreamte Downloads, optionale Versionen (`<Datei>:versions/<id>`), Wiederholung, 410-Neuaufzählung, Prüfpunkte, Freigabe-Facette je Element als Information |
+| `Lists/<Liste>/_list.json` | Liste und Spalten (`/lists/{id}/columns`) |
+| `Lists/<Liste>/<Titel> (<id>).json` | je Listenelement alle Feldwerte (`/lists/{id}/items?expand=fields`), dazu Inhaltstyp, Autor, Daten |
+
+Bibliotheken setzen bei der nächsten Sicherung an ihrem Delta-Link fort (`state.libraries[]`);
+eine Wiederholung nach Abbruch läuft Bibliotheken, die schon fertig waren, nicht erneut ab. Listen
+haben kein Delta: Sie werden je Lauf vollständig gelesen (die Feldwerte kommen mit der Auflistung,
+200 je Seite), ein unverändertes Element (gleiches eTag) übernimmt seine gespeicherten Bytes, den
+Rest dedupliziert der Pack-Speicher. Versteckte Listen (Systemlisten) und Bibliotheken als Listen
+werden übergangen. Eine Bibliothek oder Liste, die Graph verweigert (403/404/423), wird als
+fehlgeschlagenes Element gemeldet und behält ihre letzte Kopie (Liste: als `stale` markiert); der
+Rest der Website wird gesichert. Eine gelöschte Website schlägt mit `graph.site_unavailable` fehl.
+Throttling wie bei OneDrive: derselbe Graph-Client (Retry-After plus Jitter, 429/503/504 mit
+Backoff), dieselbe Backup-Queue und damit dieselbe Parallelität je Tenant.
+
+**Wiederherstellung.** Im Explorer: Website wählen, „Bibliotheken" → Ordner → Dateien, „Listen" →
+Elemente.
+
+- Download als ZIP: jede Auswahl, auch Listenelemente als JSON und `site.json`.
+- Dateien und Ordner in die ursprüngliche Bibliothek (Drive-ID aus dem Sicherungsstand, Pfad wie
+  gesichert) oder in eine andere Bibliothek einer gesicherten Website derselben Quelle (Ziel
+  `<Drive-ID>` oder `<Drive-ID>:/<Ordner>`; die Oberfläche bietet die Bibliotheken der neuesten
+  Sicherungsstände an, die API lehnt andere ab). Werden mehrere Bibliotheken zusammen in eine andere
+  wiederhergestellt, bekommt jede einen Ordner mit ihrem Namen. Modi: „Beide behalten"
+  (umbenennen), „Überschreiben" (SharePoint behält die alte Datei als Version), „Vorhandene
+  überspringen". Upload und Prüfung wie bei OneDrive (Upload-Session, Größe, SHA-256,
+  QuickXorHash).
+- Listenelemente nur in ihre ursprüngliche Liste, als **neue** Elemente (neue IDs; Erstellt/Geändert
+  und Autoren setzt SharePoint). Geschrieben werden nur beschreibbare Felder: System-, schreibgeschützte,
+  versteckte und berechnete Spalten bleiben weg (nach `_list.json`). „Überschreiben" setzt bei einem
+  noch vorhandenen Element die gesicherten Werte, „Überspringen" lässt es stehen.
+- „Überschreiben" ist nur für Websites erlaubt; Postfächer und OneDrives ersetzen weiterhin nie.
+  Eine Website gehört keiner Person: Ihre Wiederherstellung gilt nicht als Wiederherstellung im
+  Auftrag (kein Grund nötig), Websites sehen nur Wiederherstellungsoperatoren und Administratoren.
+
+**Restore-Prüfung.** Die Stichprobe liest Dateien der Bibliotheken eines Sicherungsstands zurück
+wie bei OneDrive (bis zu 20, Hash gegen Manifest); Listenelemente sind nicht Teil der Stichprobe.
+
+**Benachrichtigungen.** Keine neuen Ereignisse: `backup.failed`, `backup.succeeded` und
+`backup.overdue` gelten für Websites wie für Postfächer, mit der Website als Objekt.
+
+**Lizenzzählung.** Websites zählen nicht als geschützte Postfächer (`countProtectedMailboxes`):
+Wie das OneDrive ist eine Website über die Personen abgedeckt, die in ihr arbeiten (Modell je
+Nutzer, wie bei anderen Microsoft-365-Sicherungsprodukten).
+
+**Grenzen (bewusst nicht gesichert oder nicht wiederhergestellt):**
+
+- Teams-Chats und Kanalnachrichten (siehe „Teams"; die Dateien eines Kanals liegen in der
+  Bibliothek der Teams-Website und werden gesichert).
+- Anhänge von Listenelementen: Graph v1.0 bietet dafür keine Schnittstelle; die SharePoint-REST-API
+  bräuchte eine zweite Token-Zielgruppe und app-only ein Zertifikat. Nicht gesichert.
+- Websitedesign, Designs/Themes, Navigation, Webparts außerhalb der Seitenbibliothek,
+  Websitevorlage (Graph v1.0 nennt sie nicht), Inhaltstypen-Hub: nicht gesichert bzw. nur als
+  Information.
+- Berechtigungen (Freigaben, Stammordner-Freigaben der Bibliotheken) werden als Information
+  gesichert, nie wiederhergestellt; Websitegruppen und Mitgliedschaften nicht.
+- Workflows (SharePoint 2010/2013), Power Automate, Power Apps: nicht gesichert.
+- SharePoint Server (on-premises): nicht unterstützt, nur SharePoint Online über Graph.
+- Eine gelöschte Website oder Bibliothek wird nicht neu angelegt; wiederhergestellt wird in eine
+  bestehende Bibliothek.
+- Listenelemente werden nur in ihre ursprüngliche Liste wiederhergestellt; ein wiederholter
+  Auftrag im Modus „Beide behalten" legt Elemente erneut an.
+- Nicht gegen einen echten Tenant geprüft: Die Formen folgen der Graph-v1.0-Referenz, die Tests
+  laufen gegen eine simulierte Graph-API (`packages/core/src/backup/sharepoint/testing.ts`).
+
 ## Teams (nicht v1)
 
 - Nachrichten-Export nur über Protected APIs (`/teams/{id}/channels/{cid}/messages`
@@ -161,7 +265,7 @@ Schutzumfang" anzeigen, nicht als Fehler).
 
 ## Kosten für Betreiber
 
-- Graph-Aufrufe für Mail/OneDrive sind kostenlos. Teams-Export ist metered.
+- Graph-Aufrufe für Mail/OneDrive/SharePoint sind kostenlos. Teams-Export ist metered.
 - Azure-App-Registrierung ist kostenlos; für Metered APIs braucht die App ein Azure-Abo.
 
 ## Warnungen: Läufe mit nicht gesicherten Elementen

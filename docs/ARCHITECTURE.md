@@ -67,7 +67,8 @@ Worker skalierbar. Postgres 16 ist die einzige Zustandsquelle außer dem Chunk-S
 - `source` je Mandant: `m365` (App-Consent, Tenant-ID), `imap` (Host, Auth) oder `import`
   (Mail-Dateien, kein Server; ihre importierten Postfächer sind `protected_objects` der Art
   `imap` im Speicherformat des IMAP-Backups, siehe docs/IMPORT.md)
-- `protected_object`: Postfach, OneDrive, IMAP-Konto; Herkunft `directory_sync` oder
+- `protected_object`: Postfach, OneDrive, IMAP-Konto, SharePoint-Website (`site`, ohne
+  Nutzer; docs/MICROSOFT.md „SharePoint Online"); Herkunft `directory_sync` oder
   `manual`; Schutzstatus (aktiv, ausgeschlossen, verwaist)
 - Rollen: `provider_admin`, `tenant_admin` (inkl. entra_global_admin via SSO),
   `tenant_restore` (Restore-Operator: durchsucht, stellt wieder her und exportiert alle
@@ -362,7 +363,9 @@ wohin und wie lange, für viele Objekte oder Rechner zugleich. Ein **Lauf** ist,
   Modus (rename/skip), Ausführender (User oder Admin mit Grund). Ein Restore ersetzt nie
   ein vorhandenes Element: "replace" wird für jedes Konto-Ziel von der API abgelehnt (422
   `urn:restow:problem:restore-replace-not-allowed`), nur beim Download ist der Modus
-  wirkungslos und wird als "rename" gespeichert. Der `restore_mode`-Enum behält den Wert
+  wirkungslos und wird als "rename" gespeichert. Ausnahme: SharePoint-Websites, bei denen
+  "Überschreiben" eine ausdrückliche Wahl ist (Datei wird in SharePoint zur Vorversion,
+  Listenelement erhält die gesicherten Werte). Der `restore_mode`-Enum behält den Wert
   für die Historie. Geplant für später: "replace" für OneDrive-Dateien, bei dem die
   aktuelle Datei zur Vorversion wird statt gelöscht zu werden (Engine-Code dafür liegt
   in packages/core/src/restore/onedrive.ts, ist aber nicht erreichbar).
