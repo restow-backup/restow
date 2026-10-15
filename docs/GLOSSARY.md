@@ -36,6 +36,8 @@ literally (use `{appName}`).
 | A job that writes the newest verified restore point of one file share into a folder of another | copy job | Kopierjob | Sicherungsjob, Spiegel (for the job) |
 | Restoring into the share the data came from | original location | ursprünglicher Ort | Quelle |
 | A VM or container of Proxmox VE | guest (VM, container) | Gast (VM, Container) | Instanz, Maschine, CT |
+| Backups the storage itself refuses to delete or change before a date (S3 Object Lock, docs/STORAGE.md) | immutable backups (immutability) | unveränderbare Backups (Unveränderbarkeit) | WORM-Backups, Immutable, unlöschbar |
+| Restow itself not deleting backup files of a directory before a period has passed; no immutability | deletion delay | Löschverzögerung | Sperre, Unveränderbarkeit (for a directory) |
 | A Proxmox VE server with the node helper | node | Knoten | Host, Hypervisor (for a node) |
 
 Repository: maintainer decision 2026-10-10, replacing "storage location" /

@@ -297,8 +297,11 @@ after checking each version's retention; while one is locked it deletes nothing 
 - restic prune gets 403 for a locked pack, reports it as a warning and carries on; the
   pack is unreferenced from then on and the next prune after the lock ends removes it.
 
-Every refused deletion is recorded per repository (`immutability_deferred_deletions`) and
-counted on the repository page ("deletions deferred by lock").
+A deletion of a restic object or of a manifest the storage refused is recorded per
+repository (`immutability_deferred_deletions`, migration 0044), shown on the repository page
+("deletions wait for their lock to run out") and left out of the renewal; the row goes once
+the object is gone. Retention and the scrub count their own deferrals in their job reports
+(`deferredByLock`).
 
 **Verification.** The daily retention job (and "Verify now" on the repository page) asks
 the storage for the retention of a sample of recently written objects that are still in use
@@ -339,6 +342,33 @@ audit log (`storage.target.immutability_changed`, old and new setting, whether i
 the protection), as is every verification. The setting takes effect in the api at once and
 in a worker within its storage cache time (a few minutes); objects written in between are
 what the verification finds.
+
+**In the web interface.** The card of each repository (Repositories) has an
+"Immutable backups" part: the setting in words, for a directory with the plain note that it
+is no immutability; the last renewal and verification; warnings first (objects found
+without lock, a weaker mode than set, a renewal overdue or failed); deletions waiting for
+their lock; "Change immutability" (a dialog that says what the setting protects against and
+what not, and that a lowering applies only to new data and is for the provider owner) and
+"Verify now". The restore point bar of the restore explorer and the restore points of a
+machine show the badge described under "Restore points". The dashboard's storage tile counts
+the tenant's repositories with Object Lock or a deletion delay and warns when one of them
+needs attention; the provider view counts the customers with immutable backups and raises an
+`immutability_warning`.
+
+**API.** `PUT /api/v1/storage/targets/:id/immutability` (`{"mode": "compliance" |
+"governance" | "delayed_deletion" | null, "days": 1..3650}`; problems
+`urn:restow:problem:storage-immutability-object-lock-unavailable`, `-lowering-forbidden`,
+`-mode-not-available`, and `recent-sign-in-required`), `POST
+/api/v1/storage/targets/:id/immutability/verify`, `GET /api/v1/snapshots/:id/immutability`,
+`GET /api/v1/endpoints/:id/snapshots/:snapshotId/immutability`. Every target in
+`GET /api/v1/storage/targets` carries `immutability`.
+
+**Permissions of the access key.** Besides reading and writing objects, an immutable S3
+repository needs `s3:GetBucketObjectLockConfiguration` (detection),
+`s3:PutObjectRetention` and `s3:GetObjectRetention` (renewal, verification, the badge), and
+`s3:ListBucketVersions` and `s3:DeleteObjectVersion` (deleting an object for good after its
+lock). It must not have `s3:BypassGovernanceRetention`, `s3:PutBucketObjectLockConfiguration`
+or `s3:PutBucketVersioning`.
 
 **What it does not protect against.** Someone who controls Restow can stop writing new
 locks and stop the renewal: what was locked stays locked until its date (at least N days
@@ -628,3 +658,14 @@ not papered over:
   the old target, which becomes `previous` (or a copy) and remains a read-only fallback,
   so their backups can still be browsed and downloaded; that target cannot be removed
   while it alone holds such a repository (`storage-previous-holds-endpoint-repositories`).
+- **Immutable backups have limits of their own** (see "Immutable backups" for the whole
+  picture). The installation default cannot be made immutable; give the tenant a repository
+  of its own or an immutable copy. A directory gets only a deletion delay that Restow keeps,
+  never immutability. A worker picks a changed setting up within its storage cache time (a
+  few minutes; the api at once), and objects written in between carry the old setting; the
+  verification shows them. The renewal runs inside the tenant's retention job: a tenant
+  whose retention schedule was deleted is not renewed, and its repository page says the
+  renewal is overdue. restic index files are not locked (`restic repair index` rebuilds
+  them). Space of deleted data comes back only once its lock has run out, up to the period
+  plus seven days later. A file share whose repository is still locked cannot be purged
+  before the lock ends.
