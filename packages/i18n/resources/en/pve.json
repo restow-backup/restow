@@ -94,7 +94,19 @@
     "backupFollowUp": "Average per follow-up backup: +{size} (last {count, plural, one {# backup} other {# backups}})",
     "backupNone": "No backup yet",
     "incomplete": "Last backup incomplete",
-    "incompleteHint": "{count, plural, one {# item} other {# items}} could not be read; the restore point misses them."
+    "incompleteHint": "{count, plural, one {# item} other {# items}} could not be read; the restore point misses them.",
+    "diskAllocated": "{size} allocated",
+    "progressLabel": "Backup progress of {name}",
+    "progressPercent": "{percent}%",
+    "progressOf": "{done} of {total}",
+    "progressRead": "{done} read",
+    "progressRate": "{rate}/s",
+    "progressUploaded": "Uploaded so far: {size}",
+    "progressNone": "No progress reported yet",
+    "queuedSince": "Requested on {time}.",
+    "runningSince": "Started on {time}.",
+    "nodeLastReport": "The node last reported on {time}.",
+    "nodeOffline": "Node {node} is disconnected (last report: {time}). It starts the backup only once it reports again."
   },
   "jobs": {
     "title": "Backup jobs",
@@ -174,7 +186,10 @@
       "full_read": "Full read"
     },
     "unreadable": "{count, plural, one {# item} other {# items}} not readable",
-    "succeededWithGaps": "Succeeded with gaps"
+    "succeededWithGaps": "Succeeded with gaps ({count, plural, one {# item} other {# items}} could not be read)",
+    "diskAllocated": "Disk: {size} allocated",
+    "unreadablePaths": "Not read: {paths}",
+    "unreadableMore": "and {count} more"
   },
   "restore": {
     "title": "Restore as a new guest",

@@ -37,6 +37,21 @@ and exits 0 or 1. Every line on stderr is a log line for the PVE task log,
 prefixed `info: `, `warn: ` or `err: `. Every request carries `storeid` (the PVE
 storage id). PVE's hash keys are translated to camelCase; sizes are bytes.
 
+The log function vzdump hands to a backup provider prints to the worker's
+stderr only (`PVE::VZDump`: `sub { debugmsg($_[0], $_[1]); }`, without the
+guest's log file handle). Those lines show in the PVE task log but never in the
+guest's log file, which is what `backup_handle_log_file` passes on and what
+Restow keeps as the run's log. Since 0.4.0 `restow-pve` therefore keeps its
+lines of a backup itself, in vzdump's format (`YYYY-MM-DD HH:MM:SS INFO: ...`,
+local time): the root verbs in `/run/restow-pve/jobs/<storeid>-<vmid>.log`,
+`backup-container` (forked, unprivileged) in its run folder, which
+`backup-cleanup` folds into the job's log. `backup-handle-log-file` merges
+them into the guest's log by time before the upload and removes them. A
+warning `backup_container` logs is counted by the forked child only
+(`PVE::LXC::Namespaces::run_in_userns` runs it through `PVE::Tools::run_fork`),
+so the PVE task does not end "with warnings" for it; the run in Restow says
+what is missing instead.
+
 | Verb (PVE method) | Request fields | Result |
 | --- | --- | --- |
 | `job-init` (`job_init`) | `startTime` | `{}` |
@@ -97,12 +112,13 @@ except enrollment. Binary formats are defined in
 | `POST /tasks/:id/result` | `{status: done\|failed, error, result}` |
 | `GET /listing` | restore points of the cluster for the plugin |
 | `GET /update` | `{version}` of a newer signed release or `""` |
-| `POST /runs` | open a backup run → `{runId, guestId, origin}` |
+| `POST /runs` | open a backup run → `{runId, guestId, origin, progressIntervalSeconds}` (the last since 0.4.0) |
 | `POST /runs/:id/incremental` | `{devices: [{device, size}]}` → per disk `mode`, `baseSnapshotId`, `hashesDigest` |
 | `PUT /runs/:id/blocks` | one frame of up to 16 blocks (`RSBF`, octet-stream) |
-| `POST /runs/:id/commit` | `{commitId, devices?, guestConfig, firewallConfig, resticSnapshotId?, ...}` → `{snapshotId, alreadyCommitted, hashesDigests}` |
+| `POST /runs/:id/commit` | `{commitId, devices?, guestConfig, firewallConfig, resticSnapshotId?, resticUnreadable?, resticUnreadablePaths?, consistency?, ...}` → `{snapshotId, alreadyCommitted, hashesDigests}` |
 | `POST /runs/:id/finish`, `POST /runs/:id/log` | end of the run, PVE task log |
-| `POST /runs/:id/restic` | per-run restic credential of a container backup |
+| `POST /runs/:id/progress` | `{bytesDone, bytesTotal?, bytesUploaded?}` → 204: how far a running backup is (since 0.4.0). Basic `nodeId:nodeSecret`, or the run's restic credential `runId:token` (the unprivileged container backup has no node secret). Reports closer than 2 s are dropped; 409 once the run ended. |
+| `POST /runs/:id/restic` | per-run restic credential of a container backup; since 0.4.0 also `{progressUrl, progressIntervalSeconds}` |
 | `GET /restore-points?volname=` | a restore point by its PVE volume name |
 | `GET /snapshots/:id/disks/:device/hashes` | block hash list (`RSBH`) |
 | `GET /snapshots/:id/disks/:device/blocks?from=&count=` | up to 16 blocks of the synthetic full |
@@ -110,3 +126,15 @@ except enrollment. Binary formats are defined in
 
 `/agent/pve/restic/:guestId/*` is the restic REST v2 backend of a container's
 repository, Basic `runId:token`, append-only.
+
+### Progress and compatibility
+
+A node reports progress only when the server asked for it: `progressIntervalSeconds`
+in the answer of `POST /runs` (VMs) and `progressUrl` in the run's restic
+credential (containers). A server before 0.4.0 sends neither, so a newer node
+never calls a route the server does not know; a node before 0.4.0 does not
+report, and its runs show no progress. Reports are best effort: one attempt
+with a short timeout, failures are ignored, and the first 404 or 409 stops
+them for the run. A VM reports the bytes read of its disks (the changed
+blocks only when the bitmap is reused) and the bytes uploaded; a container
+forwards restic's `status` lines (`bytes_done`, `total_bytes`).

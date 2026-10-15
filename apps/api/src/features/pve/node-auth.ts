@@ -1,5 +1,5 @@
 import { parseBasicAuthorization, secretMatchesHash } from "@restow/core";
-import { pveClusters, pveNodes, tenants } from "@restow/db";
+import { pveClusters, pveNodes, pveRuns, tenants } from "@restow/db";
 import { eq } from "drizzle-orm";
 import type { Context, MiddlewareHandler } from "hono";
 import { db, providerDb } from "../../db.js";
@@ -105,6 +105,58 @@ export async function authenticateNode(c: Context): Promise<NodeContext> {
     storageId: row.storageId,
     ip,
   };
+}
+
+/**
+ * The run credential of a container backup (`runId:token`, the restic
+ * credential of the run): the unprivileged backup holds no node secret, so it
+ * reports its progress with it. It names exactly one running backup run and
+ * expires with it; failures count against the same throttle as a node's.
+ */
+export async function authenticateRunCredential(
+  c: Context,
+  runId: string,
+  token: string,
+): Promise<{ tenantId: string; runId: string }> {
+  const now = Date.now();
+  const key = clientIp(c) ?? "unknown";
+  if (authFailures.isBlocked(key, now)) {
+    throw new ProblemError(429, "Too many requests", {
+      type: "urn:restow:problem:rate-limited",
+      detail: "Slow down and retry later.",
+    });
+  }
+  const [row] = isUuid(runId)
+    ? await providerDb
+        .select({
+          id: pveRuns.id,
+          tenantId: pveRuns.tenantId,
+          tokenHash: pveRuns.resticTokenHash,
+          expiresAt: pveRuns.resticExpiresAt,
+          tenantStatus: tenants.status,
+        })
+        .from(pveRuns)
+        .innerJoin(tenants, eq(tenants.id, pveRuns.tenantId))
+        .where(eq(pveRuns.id, runId))
+        .limit(1)
+    : [];
+  const matches = secretMatchesHash(token, row?.tokenHash ?? DUMMY_HASH);
+  if (!row?.tokenHash || !matches) {
+    authFailures.record(key, now);
+    throw unauthorized(c);
+  }
+  if (!row.expiresAt || row.expiresAt.getTime() < now || row.tenantStatus !== "active") {
+    throw new ProblemError(401, "Credential expired", {
+      type: NODE_UNAUTHORIZED_PROBLEM,
+      detail: "The credential of this run has expired.",
+    });
+  }
+  const decision = nodeApiLimiter.consume(`run:${row.id}`, now);
+  if (!decision.allowed) {
+    c.header("retry-after", String(Math.ceil(decision.retryAfterMs / 1000)));
+    throw new ProblemError(429, "Too many requests", { type: "urn:restow:problem:rate-limited" });
+  }
+  return { tenantId: row.tenantId, runId: row.id };
 }
 
 const TOUCH_MS = 60_000;

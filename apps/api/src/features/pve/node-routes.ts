@@ -1,3 +1,4 @@
+import { parseBasicAuthorization } from "@restow/core";
 import { Hono } from "hono";
 import { clientIp } from "../../lib/request.js";
 import { guardBrowserRequest } from "../../middleware/session.js";
@@ -5,7 +6,12 @@ import { ProblemError } from "../../problem.js";
 import { parseJsonBody, parseOrProblem } from "../../schemas.js";
 import { authFailures } from "../endpoints/agent-auth.js";
 import { instanceUrl } from "../endpoints/instance-url.js";
-import { type NodeEnv, requireNode } from "./node-auth.js";
+import {
+  authenticateNode,
+  authenticateRunCredential,
+  type NodeEnv,
+  requireNode,
+} from "./node-auth.js";
 import {
   enrollmentPreflight,
   enrollNode,
@@ -24,6 +30,7 @@ import {
   openRun,
   putBlocks,
   queryIncremental,
+  reportProgress,
   resolveVolname,
   restoreBlocks,
   restoreRestic,
@@ -41,6 +48,7 @@ import {
   inventorySchema,
   logSchema,
   openRunSchema,
+  progressSchema,
   runParamSchema,
   snapshotDiskParamSchema,
   snapshotParamSchema,
@@ -69,6 +77,7 @@ import {
  *   POST /runs/:runId/commit                          seal the restore point (idempotent by commit id)
  *   POST /runs/:runId/finish                          end of the run
  *   POST /runs/:runId/log                             the PVE task log
+ *   POST /runs/:runId/progress                        how far a backup is (node or run credential)
  *   POST /runs/:runId/restic                          per-run restic credential (containers)
  *   GET  /restore-points?volname=                     a restore point by its PVE volume name
  *   GET  /snapshots/:snapshotId/disks/:device/hashes  the block hash list (binary)
@@ -137,6 +146,23 @@ pveNodeRoutes.post("/enroll/preflight", async (c) => {
     }
     throw error;
   }
+});
+
+// Before the node middleware: a container backup reports with its run credential.
+pveNodeRoutes.post("/runs/:runId/progress", async (c) => {
+  const { runId } = parseOrProblem(runParamSchema, c.req.param());
+  const credentials = parseBasicAuthorization(c.req.header("authorization"));
+  let scope: { tenantId: string; clusterId: string | null };
+  if (credentials && credentials.username === runId) {
+    const run = await authenticateRunCredential(c, runId, credentials.password);
+    scope = { tenantId: run.tenantId, clusterId: null };
+  } else {
+    const node = await authenticateNode(c);
+    scope = { tenantId: node.tenantId, clusterId: node.clusterId };
+  }
+  const input = await parseJsonBody(c.req, progressSchema);
+  await reportProgress(scope.tenantId, scope.clusterId, runId, input);
+  return c.body(null, 204);
 });
 
 pveNodeRoutes.use("*", requireNode);

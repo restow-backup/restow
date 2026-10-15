@@ -276,8 +276,25 @@ export type PveRunStats = {
   resticBytesAdded?: number;
   /** Container backups: items restic could not read; the restore point misses them. */
   resticUnreadable?: number;
+  /** The first of those items (nodes from 0.4 on). */
+  unreadablePaths?: string[];
   consistency?: string | null;
   [key: string]: unknown;
+};
+
+/**
+ * How far a running backup is (#51): what the node reported last. A VM reads
+ * its disks (changed blocks only when the bitmap is reused) and uploads what
+ * changed; a container's restic reads the files and adds what is new.
+ * `bytesTotal` is null while the total is not known yet.
+ */
+export type PveRunProgress = {
+  bytesDone: number;
+  bytesTotal: number | null;
+  bytesUploaded: number | null;
+  /** Read throughput between the last two reports. */
+  bytesPerSecond: number | null;
+  at: string;
 };
 
 /** A backup, restore, restore test or verify of a guest. */
@@ -309,6 +326,8 @@ export const pveRuns = pgTable(
     errorMessage: text("error_message"),
     failure: jsonb("failure").$type<FailureRecordJson>(),
     logTail: text("log_tail"),
+    // The node's last progress report while the run is going (null: none yet, or an older node).
+    progress: jsonb("progress").$type<PveRunProgress>(),
     // A short-lived restic credential of a container run (SHA-256 only).
     resticTokenHash: text("restic_token_hash"),
     resticExpiresAt: timestamp("restic_expires_at", { withTimezone: true }),

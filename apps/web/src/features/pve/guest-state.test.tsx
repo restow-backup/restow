@@ -5,7 +5,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { i18n } from "@/i18n";
 
 import "./i18n";
-import type { PveGuest } from "./api";
+import type { PveGuest, PveNode } from "./api";
 import { GuestState } from "./pve-page";
 
 /** The state cell of VMs & containers: what runs now and how the last backup ended. */
@@ -39,10 +39,10 @@ function guest(over: Partial<PveGuest> = {}): PveGuest {
   } as PveGuest;
 }
 
-const render = (g: PveGuest) =>
+const render = (g: PveGuest, node?: PveNode | null) =>
   renderToStaticMarkup(
     <I18nextProvider i18n={i18n}>
-      <GuestState guest={g} />
+      <GuestState guest={g} node={node} />
     </I18nextProvider>,
   );
 
@@ -66,5 +66,20 @@ describe("GuestState", () => {
     );
     expect(html).not.toContain("Last backup succeeded");
     expect(html).toContain("Incremental");
+  });
+
+  it("turns the waiting badge amber while the guest's node is disconnected", () => {
+    const node = {
+      id: "n-1",
+      name: "pmx02",
+      online: false,
+      lastSeenAt: "2026-10-15T09:00:00Z",
+    } as PveNode;
+    const html = render(guest({ activity: "queued", activitySince: "2026-10-15T10:00:00Z" }), node);
+    expect(html).toContain("Node pmx02 is disconnected");
+    expect(html).toContain('data-variant="warning"');
+    expect(render(guest({ activity: "queued" }), { ...node, online: true })).not.toContain(
+      "disconnected",
+    );
   });
 });

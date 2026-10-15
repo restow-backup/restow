@@ -11,12 +11,15 @@
  *   - the restore stream gives back the synthetic full byte for byte,
  *   - the authz matrix: another cluster's node, another tenant, a committed
  *     run, a hash mismatch, a block outside the disk, an incomplete disk,
- *   - the listing for the storage plugin and the sealed manifest in storage.
+ *   - the listing for the storage plugin and the sealed manifest in storage,
+ *   - the progress of a running backup, from the node and from a container's
+ *     run credential, and what a container restore point could not read.
  */
 import { createHash, randomUUID } from "node:crypto";
 import {
   decodeBlockMap,
   encodeFrame,
+  generateAgentSecret,
   loadManifest,
   manifestKey,
   PVE_BLOCK_SIZE,
@@ -726,5 +729,147 @@ describe.skipIf(!canRun)("Proxmox VE backups against Postgres", () => {
         })
       ).status,
     ).toBe(404);
+  });
+
+  it("keeps the progress of a running backup, from the node or a container's run credential", async () => {
+    const runs = await import("./runs.js");
+    const opened = await json<{ runId: string; progressIntervalSeconds: number }>(
+      await call(node, "/runs", {
+        json: {
+          vmid: 101,
+          kind: "vm",
+          archiveName: "vm/101/2026-10-12T22:00:00Z",
+          storageId: "restow",
+          startedAt: "2026-10-12T22:00:00Z",
+        },
+      }),
+      201,
+    );
+    // The open run tells the node to report; an older server says nothing and gets nothing.
+    expect(opened.progressIntervalSeconds).toBeGreaterThan(0);
+    const progress = (runId: string, body: unknown, auth = basic(node.nodeId, node.nodeSecret)) =>
+      app.request(`/agent/pve/v1/runs/${runId}/progress`, {
+        method: "POST",
+        headers: { ...auth, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    await json(
+      await progress(opened.runId, { bytesDone: 100, bytesTotal: 1000, bytesUploaded: 40 }),
+      204,
+    );
+    const guestOf = async (vmid: number) =>
+      (await service.overview(shared.db, fixture.tenantId)).guests.find((g) => g.vmid === vmid);
+    expect(await guestOf(101)).toMatchObject({
+      activity: "running",
+      activitySince: "2026-10-12T22:00:00.000Z",
+      progress: { bytesDone: 100, bytesTotal: 1000, bytesUploaded: 40, bytesPerSecond: null },
+    });
+    // A report right after the last one is taken, not written.
+    await json(await progress(opened.runId, { bytesDone: 200, bytesTotal: 1000 }), 204);
+    expect((await guestOf(101))?.progress?.bytesDone).toBe(100);
+    // Five seconds later: 500 bytes more, 100 bytes per second.
+    const [row] = await fixture.db.select().from(pveRuns).where(eq(pveRuns.id, opened.runId));
+    const later = new Date(Date.parse(row?.progress?.at ?? "") + 5_000);
+    expect(
+      await runs.reportProgress(
+        fixture.tenantId,
+        node.clusterId,
+        opened.runId,
+        { bytesDone: 600 },
+        later,
+      ),
+    ).toEqual({ stored: true });
+    expect((await guestOf(101))?.progress).toMatchObject({
+      bytesDone: 600,
+      bytesTotal: null,
+      bytesPerSecond: 100,
+    });
+    // The guest page shows it on the running run.
+    const detail = await service.guestDetail(shared.db, fixture.tenantId, row?.guestId ?? "");
+    expect(detail.runs.find((r) => r.id === opened.runId)?.progress?.bytesDone).toBe(600);
+
+    // A container backup reports with its run credential, for its own run only.
+    const ct = await json<{ runId: string }>(
+      await call(node, "/runs", {
+        json: {
+          vmid: 200,
+          kind: "ct",
+          archiveName: "ct/200/2026-10-12T22:00:00Z",
+          storageId: "restow",
+          startedAt: "2026-10-12T22:00:00Z",
+        },
+      }),
+      201,
+    );
+    const token = generateAgentSecret();
+    await fixture.db
+      .update(pveRuns)
+      .set({ resticTokenHash: token.hash, resticExpiresAt: new Date(Date.now() + 60_000) })
+      .where(eq(pveRuns.id, ct.runId));
+    await json(
+      await progress(ct.runId, { bytesDone: 7, bytesTotal: 9 }, basic(ct.runId, token.value)),
+      204,
+    );
+    expect((await guestOf(200))?.progress).toMatchObject({ bytesDone: 7, bytesTotal: 9 });
+    expect((await progress(ct.runId, { bytesDone: 8 }, basic(ct.runId, "rsea_wrong"))).status).toBe(
+      401,
+    );
+    // Another run's credential is no node credential either.
+    expect(
+      (await progress(opened.runId, { bytesDone: 8 }, basic(ct.runId, token.value))).status,
+    ).toBe(401);
+
+    // A closed run takes no progress.
+    await json(
+      await call(node, `/runs/${opened.runId}/finish`, {
+        json: { status: "failed", error: "test" },
+      }),
+      204,
+    );
+    await expect(
+      runs.reportProgress(
+        fixture.tenantId,
+        node.clusterId,
+        opened.runId,
+        { bytesDone: 1 },
+        new Date(later.getTime() + 10_000),
+      ),
+    ).rejects.toMatchObject({ status: 409 });
+
+    // The container commits with items restic could not read: the run and the point name them.
+    const committed = await json<{ snapshotId: string }>(
+      await call(node, `/runs/${ct.runId}/commit`, {
+        json: {
+          commitId: randomUUID(),
+          guestConfig: "arch: amd64\n",
+          firewallConfig: null,
+          resticSnapshotId: "c".repeat(64),
+          resticBytesAdded: 2_500_000,
+          resticTotalBytes: 10_000_000,
+          resticRoot: "/mnt/vzsnap0",
+          resticUnreadable: 2,
+          resticUnreadablePaths: ["/var/lib/a", "/var/lib/b"],
+          consistency: "restic could not read 2 items (first: /var/lib/a)",
+        },
+      }),
+    );
+    const [point] = await fixture.db
+      .select()
+      .from(pveSnapshots)
+      .where(eq(pveSnapshots.id, committed.snapshotId));
+    expect(point?.stats).toMatchObject({
+      resticUnreadable: 2,
+      unreadablePaths: ["/var/lib/a", "/var/lib/b"],
+    });
+    expect(point?.byteSize).toBe(10_000_000);
+    await json(
+      await call(node, `/runs/${ct.runId}/finish`, { json: { status: "succeeded" } }),
+      204,
+    );
+    expect(await guestOf(200)).toMatchObject({
+      activity: null,
+      progress: null,
+      attention: expect.arrayContaining(["last_backup_incomplete"]),
+    });
   });
 });

@@ -35,10 +35,12 @@ import {
   type PveFollowUpAverage,
   type PveGuestDetail,
   type PveRestorePoint,
+  type PveRun,
   pveKeys,
   restoreSnapshot,
   verifySnapshot,
 } from "./api.js";
+import { BackupProgress } from "./backup-progress.js";
 import { PVE_NAMESPACE } from "./i18n.js";
 import { pveTo } from "./paths.js";
 
@@ -182,12 +184,66 @@ function PointType({ point }: { point: PveRestorePoint }) {
         {t(`guest.backupType.${type}`)}
       </Badge>
       {unreadable > 0 ? (
-        <Badge variant="warning" title={point.consistency ?? undefined}>
+        <Badge
+          variant="warning"
+          title={point.stats?.unreadablePaths?.join("\n") || point.consistency || undefined}
+        >
           {t("guest.unreadable", { count: unreadable })}
         </Badge>
       ) : null}
     </div>
   );
+}
+
+/** How many unreadable items a run names in its row before "and N more". */
+const SHOWN_UNREADABLE = 3;
+
+/**
+ * The status of a run. A backup that succeeded although restic could not read
+ * some items is amber with how many; a running backup shows its progress.
+ */
+function RunStatus({ run, name }: { run: PveRun; name: string }) {
+  const { t } = useTranslation(PVE_NAMESPACE);
+  const unreadable = run.stats?.resticUnreadable ?? 0;
+  if (run.status === "succeeded" && unreadable > 0) {
+    return (
+      <Badge variant="warning" data-slot="pve-run-gaps">
+        {t("guest.succeededWithGaps", { count: unreadable })}
+      </Badge>
+    );
+  }
+  return (
+    <div className="space-y-1.5">
+      <Badge variant={runTone(run)}>{t(`guest.${run.status}`)}</Badge>
+      {run.status === "running" && run.kind === "backup" ? (
+        <BackupProgress progress={run.progress} name={name} />
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * What went wrong, or what a backup with gaps misses: its first unreadable
+ * items when the node named them, else restic's one-line remark.
+ */
+function RunNote({ run }: { run: PveRun }) {
+  const { t } = useTranslation(PVE_NAMESPACE);
+  if (run.error) {
+    return <span title={run.error}>{run.error}</span>;
+  }
+  const paths = run.stats?.unreadablePaths ?? [];
+  if (paths.length > 0) {
+    const more =
+      (run.stats?.resticUnreadable ?? paths.length) - Math.min(paths.length, SHOWN_UNREADABLE);
+    return (
+      <span title={paths.join("\n")} data-slot="pve-run-unreadable">
+        {t("guest.unreadablePaths", { paths: paths.slice(0, SHOWN_UNREADABLE).join(", ") })}
+        {more > 0 ? ` ${t("guest.unreadableMore", { count: more })}` : null}
+      </span>
+    );
+  }
+  const remark = run.stats?.consistency ?? "";
+  return remark ? <span title={remark}>{remark}</span> : null;
 }
 
 /** What a follow-up backup of this guest adds on average, over its newest restore points (#58). */
@@ -235,7 +291,16 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
         title={title}
         description={
           data
-            ? `${t(`guests.${data.guest.kind}`)} · ${data.cluster?.name ?? ""} · ${data.guest.node ?? ""}`
+            ? [
+                t(`guests.${data.guest.kind}`),
+                data.cluster?.name ?? "",
+                data.guest.node ?? "",
+                data.guest.diskBytes > 0
+                  ? t("guest.diskAllocated", { size: formatBytes(data.guest.diskBytes, language) })
+                  : "",
+              ]
+                .filter(Boolean)
+                .join(" · ")
             : undefined
         }
       >
@@ -336,17 +401,10 @@ export function PveGuestPage({ guestId }: { guestId: string }) {
                   </TableCell>
                   <TableCell>{t(`guest.kind.${r.kind}`)}</TableCell>
                   <TableCell>
-                    {r.status === "succeeded" && (r.stats?.resticUnreadable ?? 0) > 0 ? (
-                      <Badge variant="warning">{t("guest.succeededWithGaps")}</Badge>
-                    ) : (
-                      <Badge variant={runTone(r)}>{t(`guest.${r.status}`)}</Badge>
-                    )}
+                    <RunStatus run={r} name={title} />
                   </TableCell>
-                  <TableCell
-                    className="max-w-md truncate text-xs"
-                    title={r.error ?? r.stats?.consistency ?? undefined}
-                  >
-                    {r.error ?? r.stats?.consistency ?? ""}
+                  <TableCell className="max-w-md truncate text-xs">
+                    <RunNote run={r} />
                   </TableCell>
                 </TableRow>
               ))}

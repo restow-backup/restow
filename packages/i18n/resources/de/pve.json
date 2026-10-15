@@ -94,7 +94,19 @@
     "backupFollowUp": "Durchschnitt je Folgesicherung: +{size} (letzte {count, plural, one {# Sicherung} other {# Sicherungen}})",
     "backupNone": "Noch keine Sicherung",
     "incomplete": "Letzte Sicherung unvollständig",
-    "incompleteHint": "{count, plural, one {# Element konnte} other {# Elemente konnten}} nicht gelesen werden; dem Sicherungsstand fehlen sie."
+    "incompleteHint": "{count, plural, one {# Element konnte} other {# Elemente konnten}} nicht gelesen werden; dem Sicherungsstand fehlen sie.",
+    "diskAllocated": "{size} zugewiesen",
+    "progressLabel": "Sicherungsfortschritt von {name}",
+    "progressPercent": "{percent} %",
+    "progressOf": "{done} von {total}",
+    "progressRead": "{done} gelesen",
+    "progressRate": "{rate}/s",
+    "progressUploaded": "Bisher hochgeladen: {size}",
+    "progressNone": "Noch kein Fortschritt gemeldet",
+    "queuedSince": "Angefordert am {time}.",
+    "runningSince": "Gestartet am {time}.",
+    "nodeLastReport": "Der Knoten hat sich zuletzt am {time} gemeldet.",
+    "nodeOffline": "Knoten {node} ist getrennt (letzte Meldung: {time}). Er startet die Sicherung erst, wenn er sich wieder meldet."
   },
   "jobs": {
     "title": "Backup-Jobs",
@@ -174,7 +186,10 @@
       "full_read": "Vollständig gelesen"
     },
     "unreadable": "{count, plural, one {# Element} other {# Elemente}} nicht lesbar",
-    "succeededWithGaps": "Mit Lücken erfolgreich"
+    "succeededWithGaps": "Mit Lücken erfolgreich ({count, plural, one {# Element konnte} other {# Elemente konnten}} nicht gelesen werden)",
+    "diskAllocated": "Disk: {size} zugewiesen",
+    "unreadablePaths": "Nicht gelesen: {paths}",
+    "unreadableMore": "und {count} weitere"
   },
   "restore": {
     "title": "Als neuen Gast wiederherstellen",
