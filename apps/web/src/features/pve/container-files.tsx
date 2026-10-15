@@ -80,6 +80,7 @@ function VmVolumes({ pointId }: { pointId: string }) {
   const unreadable = root.data?.pages[0]?.unreadable ?? [];
   return (
     <div className="space-y-1 text-xs text-muted-foreground" data-slot="vm-volumes">
+      <p data-slot="vm-preview-note">{t("vmFiles.preview")}</p>
       <p>{t("vmFiles.volumes")}</p>
       {unreadable.length > 0 ? (
         <p data-slot="vm-unreadable">
